@@ -32,42 +32,28 @@ pnpm dev
 
 Action هي عملية typed operation مشتركة بين agent و UI. في هذا المسار أنشئ `actions/analyze-responses.ts`: تحلل ردود النماذج وتعيد شكلاً موثقًا لرسم مخصص داخل الدردشة.
 
+{/* prettier-ignore */}
 ```ts
 // actions/analyze-responses.ts
 import { defineAction } from "@agent-native/core/action";
 import { z } from "zod";
 
-const responseChartRenderer = "responses.response-chart";
-
 const responseChartResultSchema = z.object({
   title: z.string(),
-  points: z.array(
-    z.object({
-      day: z.string(),
-      responses: z.number(),
-    }),
-  ),
+  points: z.array(z.object({ day: z.string(), responses: z.number() })),
 });
 
 export default defineAction({
   description: "Analyze recent form responses and render a custom chart.",
-  schema: z.object({
-    formId: z.string().default("demo"),
+  schema: z.object({ 
+    formId: z.string().default("demo") 
   }),
   outputSchema: responseChartResultSchema,
-  chatUI: {
-    renderer: responseChartRenderer,
-    title: "مخطط الردود",
-  },
+  chatUI: { renderer: "responses.response-chart", title: "مخطط الردود" },
   readOnly: true,
   run: async ({ formId }) => ({
     title: `Responses for ${formId}`,
-    points: [
-      { day: "Mon", responses: 12 },
-      { day: "Tue", responses: 18 },
-      { day: "Wed", responses: 24 },
-      { day: "Thu", responses: 21 },
-    ],
+    points: [{ day: "Mon", responses: 12 }, { day: "Tue", responses: 18 }, { day: "Wed", responses: 24 }, { day: "Thu", responses: 21 }],
   }),
 });
 ```
@@ -86,35 +72,24 @@ pnpm action analyze-responses --formId demo
 
 لأن action تعلن `outputSchema` و `chatUI.renderer` خاصًا بالمنتج، لا يحول transcript البيانات المنظمة إلى نص عادي. سجّل مكون React لذلك المعرّف نفسه عند بدء التطبيق، مثل استيراد `app/chat-renderers.tsx` مرة واحدة من `app/root.tsx`:
 
+{/* prettier-ignore */}
 ```tsx
-// app/chat-renderers.tsx
-import {
-  registerActionChatRenderer,
-  type ToolRendererProps,
-} from "@agent-native/core/client/chat";
+import { registerActionChatRenderer, type ToolRendererProps,} from "@agent-native/core/client/chat";
 
 type ResponseChartResult = {
   title: string;
   points: Array<{ day: string; responses: number }>;
 };
-
 function ResponseChart({ context }: ToolRendererProps) {
   const result = context.resultJson as ResponseChartResult;
   const max = Math.max(...result.points.map((point) => point.responses), 1);
-
   return (
     <section className="rounded-lg border bg-card p-4">
       <h3 className="text-sm font-medium">{result.title}</h3>
       <div className="mt-4 flex h-32 items-end gap-2">
         {result.points.map((point) => (
-          <div
-            key={point.day}
-            className="flex flex-1 flex-col items-center gap-2"
-          >
-            <div
-              className="w-full rounded-t bg-primary"
-              style={{ height: `${(point.responses / max) * 100}%` }}
-            />
+          <div key={point.day} className="flex flex-1 flex-col items-center gap-2">
+            <div className="w-full rounded-t bg-primary" style={{ height: `${(point.responses / max) * 100}%` }} />
             <span className="text-xs text-muted-foreground">{point.day}</span>
           </div>
         ))}
@@ -122,7 +97,6 @@ function ResponseChart({ context }: ToolRendererProps) {
     </section>
   );
 }
-
 registerActionChatRenderer({
   id: "responses.response-chart",
   renderer: "responses.response-chart",
@@ -144,6 +118,25 @@ registerActionChatRenderer({
 ## 4. احفظ البيانات في SQL {#persist-data}
 
 عندما تحتاج النتيجة إلى المراجعة أو المقارنة أو التحديث، احفظها في SQL واجعل القراءة والكتابة خلف actions:
+
+عرّف الجدول باستخدام helpers المحمولة من framework، وليس عبر imports من `drizzle-orm/sqlite-core` أو `drizzle-orm/pg-core`:
+
+```ts
+// server/db/schema.ts
+import { integer, now, table, text } from "@agent-native/core/db/schema";
+
+export const responseInsights = table("response_insights", {
+  id: text("id").primaryKey(),
+  formId: text("form_id").notNull(),
+  title: text("title").notNull(),
+  summary: text("summary").notNull(),
+  responseCount: integer("response_count").notNull(),
+  createdAt: text("created_at").notNull().default(now()),
+  updatedAt: text("updated_at").notNull().default(now()),
+});
+```
+
+تختار هذه helpers backend SQL المضبوط، لذلك يعمل schema نفسه على SQLite محليًا وفي الإنتاج على Postgres أو Turso/libSQL أو D1 أو أي provider SQL مدعوم.
 
 - `create-response-insight` يكتب insight جديدًا.
 - `list-response-insights` يقرأ بيانات الصفحة.

@@ -32,42 +32,28 @@ pnpm dev
 
 action은 agent와 UI가 함께 호출하는 typed operation입니다. 이 흐름에서는 `actions/analyze-responses.ts`를 만들고, 폼 응답을 분석해 custom chat chart를 위한 검증된 형태를 반환합니다.
 
+{/* prettier-ignore */}
 ```ts
 // actions/analyze-responses.ts
 import { defineAction } from "@agent-native/core/action";
 import { z } from "zod";
 
-const responseChartRenderer = "responses.response-chart";
-
 const responseChartResultSchema = z.object({
   title: z.string(),
-  points: z.array(
-    z.object({
-      day: z.string(),
-      responses: z.number(),
-    }),
-  ),
+  points: z.array(z.object({ day: z.string(), responses: z.number() })),
 });
 
 export default defineAction({
   description: "Analyze recent form responses and render a custom chart.",
-  schema: z.object({
-    formId: z.string().default("demo"),
+  schema: z.object({ 
+    formId: z.string().default("demo") 
   }),
   outputSchema: responseChartResultSchema,
-  chatUI: {
-    renderer: responseChartRenderer,
-    title: "응답 차트",
-  },
+  chatUI: { renderer: "responses.response-chart", title: "응답 차트" },
   readOnly: true,
   run: async ({ formId }) => ({
     title: `Responses for ${formId}`,
-    points: [
-      { day: "Mon", responses: 12 },
-      { day: "Tue", responses: 18 },
-      { day: "Wed", responses: 24 },
-      { day: "Thu", responses: 21 },
-    ],
+    points: [{ day: "Mon", responses: 12 }, { day: "Tue", responses: 18 }, { day: "Wed", responses: 24 }, { day: "Thu", responses: 21 }],
   }),
 });
 ```
@@ -86,35 +72,24 @@ pnpm action analyze-responses --formId demo
 
 action이 `outputSchema`와 제품별 `chatUI.renderer`를 선언하므로 transcript가 구조화된 데이터를 긴 텍스트로 바꾸지 않습니다. 그런 다음 app startup에서 정확히 같은 renderer id에 대한 React component를 등록합니다. 예를 들어 `app/root.tsx`에서 `app/chat-renderers.tsx`를 한 번 import합니다.
 
+{/* prettier-ignore */}
 ```tsx
-// app/chat-renderers.tsx
-import {
-  registerActionChatRenderer,
-  type ToolRendererProps,
-} from "@agent-native/core/client/chat";
+import { registerActionChatRenderer, type ToolRendererProps,} from "@agent-native/core/client/chat";
 
 type ResponseChartResult = {
   title: string;
   points: Array<{ day: string; responses: number }>;
 };
-
 function ResponseChart({ context }: ToolRendererProps) {
   const result = context.resultJson as ResponseChartResult;
   const max = Math.max(...result.points.map((point) => point.responses), 1);
-
   return (
     <section className="rounded-lg border bg-card p-4">
       <h3 className="text-sm font-medium">{result.title}</h3>
       <div className="mt-4 flex h-32 items-end gap-2">
         {result.points.map((point) => (
-          <div
-            key={point.day}
-            className="flex flex-1 flex-col items-center gap-2"
-          >
-            <div
-              className="w-full rounded-t bg-primary"
-              style={{ height: `${(point.responses / max) * 100}%` }}
-            />
+          <div key={point.day} className="flex flex-1 flex-col items-center gap-2">
+            <div className="w-full rounded-t bg-primary" style={{ height: `${(point.responses / max) * 100}%` }} />
             <span className="text-xs text-muted-foreground">{point.day}</span>
           </div>
         ))}
@@ -122,7 +97,6 @@ function ResponseChart({ context }: ToolRendererProps) {
     </section>
   );
 }
-
 registerActionChatRenderer({
   id: "responses.response-chart",
   renderer: "responses.response-chart",
@@ -144,6 +118,25 @@ registerActionChatRenderer({
 ## 4. SQL에 데이터 저장하기 {#persist-data}
 
 결과를 다시 보거나 비교하거나 업데이트해야 한다면 SQL에 저장하고 읽기/쓰기를 actions 뒤에 둡니다.
+
+테이블은 `drizzle-orm/sqlite-core` 또는 `drizzle-orm/pg-core`에서 가져오지 말고 framework의 portable helper로 정의합니다.
+
+```ts
+// server/db/schema.ts
+import { integer, now, table, text } from "@agent-native/core/db/schema";
+
+export const responseInsights = table("response_insights", {
+  id: text("id").primaryKey(),
+  formId: text("form_id").notNull(),
+  title: text("title").notNull(),
+  summary: text("summary").notNull(),
+  responseCount: integer("response_count").notNull(),
+  createdAt: text("created_at").notNull().default(now()),
+  updatedAt: text("updated_at").notNull().default(now()),
+});
+```
+
+이 helper들은 설정된 SQL backend를 선택하므로 같은 schema가 로컬 SQLite와 프로덕션의 Postgres, Turso/libSQL, D1 또는 다른 지원 SQL provider에서 실행될 수 있습니다.
 
 - `create-response-insight`는 새 insight를 씁니다.
 - `list-response-insights`는 페이지 데이터를 읽습니다.

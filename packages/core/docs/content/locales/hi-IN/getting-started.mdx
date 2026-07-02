@@ -32,42 +32,28 @@ pnpm dev
 
 Action वह typed operation है जिसे agent और UI दोनों call करते हैं. इस flow के लिए `actions/analyze-responses.ts` बनाएं: यह form responses analyze करता है और custom chat chart के लिए validated shape लौटाता है.
 
+{/* prettier-ignore */}
 ```ts
 // actions/analyze-responses.ts
 import { defineAction } from "@agent-native/core/action";
 import { z } from "zod";
 
-const responseChartRenderer = "responses.response-chart";
-
 const responseChartResultSchema = z.object({
   title: z.string(),
-  points: z.array(
-    z.object({
-      day: z.string(),
-      responses: z.number(),
-    }),
-  ),
+  points: z.array(z.object({ day: z.string(), responses: z.number() })),
 });
 
 export default defineAction({
   description: "Analyze recent form responses and render a custom chart.",
-  schema: z.object({
-    formId: z.string().default("demo"),
+  schema: z.object({ 
+    formId: z.string().default("demo") 
   }),
   outputSchema: responseChartResultSchema,
-  chatUI: {
-    renderer: responseChartRenderer,
-    title: "प्रतिक्रिया चार्ट",
-  },
+  chatUI: { renderer: "responses.response-chart", title: "प्रतिक्रिया चार्ट" },
   readOnly: true,
   run: async ({ formId }) => ({
     title: `Responses for ${formId}`,
-    points: [
-      { day: "Mon", responses: 12 },
-      { day: "Tue", responses: 18 },
-      { day: "Wed", responses: 24 },
-      { day: "Thu", responses: 21 },
-    ],
+    points: [{ day: "Mon", responses: 12 }, { day: "Tue", responses: 18 }, { day: "Wed", responses: 24 }, { day: "Thu", responses: 21 }],
   }),
 });
 ```
@@ -86,35 +72,24 @@ pnpm action analyze-responses --formId demo
 
 क्योंकि action `outputSchema` और product-specific `chatUI.renderer` declare करता है, transcript structured data को plain text में नहीं बदलता. फिर app startup से उसी exact renderer id के लिए React component register करें, जैसे `app/root.tsx` से `app/chat-renderers.tsx` को एक बार import करके:
 
+{/* prettier-ignore */}
 ```tsx
-// app/chat-renderers.tsx
-import {
-  registerActionChatRenderer,
-  type ToolRendererProps,
-} from "@agent-native/core/client/chat";
+import { registerActionChatRenderer, type ToolRendererProps,} from "@agent-native/core/client/chat";
 
 type ResponseChartResult = {
   title: string;
   points: Array<{ day: string; responses: number }>;
 };
-
 function ResponseChart({ context }: ToolRendererProps) {
   const result = context.resultJson as ResponseChartResult;
   const max = Math.max(...result.points.map((point) => point.responses), 1);
-
   return (
     <section className="rounded-lg border bg-card p-4">
       <h3 className="text-sm font-medium">{result.title}</h3>
       <div className="mt-4 flex h-32 items-end gap-2">
         {result.points.map((point) => (
-          <div
-            key={point.day}
-            className="flex flex-1 flex-col items-center gap-2"
-          >
-            <div
-              className="w-full rounded-t bg-primary"
-              style={{ height: `${(point.responses / max) * 100}%` }}
-            />
+          <div key={point.day} className="flex flex-1 flex-col items-center gap-2">
+            <div className="w-full rounded-t bg-primary" style={{ height: `${(point.responses / max) * 100}%` }} />
             <span className="text-xs text-muted-foreground">{point.day}</span>
           </div>
         ))}
@@ -122,7 +97,6 @@ function ResponseChart({ context }: ToolRendererProps) {
     </section>
   );
 }
-
 registerActionChatRenderer({
   id: "responses.response-chart",
   renderer: "responses.response-chart",
@@ -144,6 +118,25 @@ Reusable generic outputs के लिए framework built-in `data-chart` और
 ## 4. SQL में data persist करें {#persist-data}
 
 जब result को दोबारा देखना, compare करना या update करना हो, उसे SQL में रखें और reads/writes को actions के पीछे रखें:
+
+Table को framework के portable helpers से define करें, `drizzle-orm/sqlite-core` या `drizzle-orm/pg-core` imports से नहीं:
+
+```ts
+// server/db/schema.ts
+import { integer, now, table, text } from "@agent-native/core/db/schema";
+
+export const responseInsights = table("response_insights", {
+  id: text("id").primaryKey(),
+  formId: text("form_id").notNull(),
+  title: text("title").notNull(),
+  summary: text("summary").notNull(),
+  responseCount: integer("response_count").notNull(),
+  createdAt: text("created_at").notNull().default(now()),
+  updatedAt: text("updated_at").notNull().default(now()),
+});
+```
+
+ये helpers configured SQL backend चुनते हैं, इसलिए वही schema local SQLite और production में Postgres, Turso/libSQL, D1 या किसी supported SQL provider पर चल सकता है.
 
 - `create-response-insight` नया insight लिखता है.
 - `list-response-insights` page के लिए data पढ़ता है.

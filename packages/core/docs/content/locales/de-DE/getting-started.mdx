@@ -32,42 +32,28 @@ Das Template enthält durable chat threads, auth, live sync, ein `actions/`-Verz
 
 Eine action ist eine typisierte Operation, die Agent und UI gemeinsam aufrufen. Für diesen Ablauf erstellen Sie `actions/analyze-responses.ts`: Sie analysiert Formularantworten und gibt eine validierte Form für ein eigenes Chat-Diagramm zurück.
 
+{/* prettier-ignore */}
 ```ts
 // actions/analyze-responses.ts
 import { defineAction } from "@agent-native/core/action";
 import { z } from "zod";
 
-const responseChartRenderer = "responses.response-chart";
-
 const responseChartResultSchema = z.object({
   title: z.string(),
-  points: z.array(
-    z.object({
-      day: z.string(),
-      responses: z.number(),
-    }),
-  ),
+  points: z.array(z.object({ day: z.string(), responses: z.number() })),
 });
 
 export default defineAction({
   description: "Analyze recent form responses and render a custom chart.",
-  schema: z.object({
-    formId: z.string().default("demo"),
+  schema: z.object({ 
+    formId: z.string().default("demo") 
   }),
   outputSchema: responseChartResultSchema,
-  chatUI: {
-    renderer: responseChartRenderer,
-    title: "Antwortdiagramm",
-  },
+  chatUI: { renderer: "responses.response-chart", title: "Antwortdiagramm" },
   readOnly: true,
   run: async ({ formId }) => ({
     title: `Responses for ${formId}`,
-    points: [
-      { day: "Mon", responses: 12 },
-      { day: "Tue", responses: 18 },
-      { day: "Wed", responses: 24 },
-      { day: "Thu", responses: 21 },
-    ],
+    points: [{ day: "Mon", responses: 12 }, { day: "Tue", responses: 18 }, { day: "Wed", responses: 24 }, { day: "Thu", responses: 21 }],
   }),
 });
 ```
@@ -86,35 +72,24 @@ Oder im Browser den Agent fragen:
 
 Weil die action `outputSchema` und eine produktspezifische `chatUI.renderer` deklariert, muss der Transcript strukturierte Daten nicht in Fließtext verwandeln. Registrieren Sie beim App-Start eine React-Komponente für genau diese Renderer-ID, zum Beispiel indem `app/chat-renderers.tsx` einmal aus `app/root.tsx` importiert wird:
 
+{/* prettier-ignore */}
 ```tsx
-// app/chat-renderers.tsx
-import {
-  registerActionChatRenderer,
-  type ToolRendererProps,
-} from "@agent-native/core/client/chat";
+import { registerActionChatRenderer, type ToolRendererProps,} from "@agent-native/core/client/chat";
 
 type ResponseChartResult = {
   title: string;
   points: Array<{ day: string; responses: number }>;
 };
-
 function ResponseChart({ context }: ToolRendererProps) {
   const result = context.resultJson as ResponseChartResult;
   const max = Math.max(...result.points.map((point) => point.responses), 1);
-
   return (
     <section className="rounded-lg border bg-card p-4">
       <h3 className="text-sm font-medium">{result.title}</h3>
       <div className="mt-4 flex h-32 items-end gap-2">
         {result.points.map((point) => (
-          <div
-            key={point.day}
-            className="flex flex-1 flex-col items-center gap-2"
-          >
-            <div
-              className="w-full rounded-t bg-primary"
-              style={{ height: `${(point.responses / max) * 100}%` }}
-            />
+          <div key={point.day} className="flex flex-1 flex-col items-center gap-2">
+            <div className="w-full rounded-t bg-primary" style={{ height: `${(point.responses / max) * 100}%` }} />
             <span className="text-xs text-muted-foreground">{point.day}</span>
           </div>
         ))}
@@ -122,7 +97,6 @@ function ResponseChart({ context }: ToolRendererProps) {
     </section>
   );
 }
-
 registerActionChatRenderer({
   id: "responses.response-chart",
   renderer: "responses.response-chart",
@@ -144,6 +118,25 @@ Für wiederverwendbare generische Ausgaben liefert das Framework außerdem einge
 ## 4. Daten in SQL persistieren {#persist-data}
 
 Wenn Ergebnisse erneut geprüft, verglichen oder aktualisiert werden müssen, speichern Sie sie in SQL und halten Lese-/Schreibzugriffe hinter actions:
+
+Definieren Sie die Tabelle mit den portablen Framework-Helpern, nicht mit Imports aus `drizzle-orm/sqlite-core` oder `drizzle-orm/pg-core`:
+
+```ts
+// server/db/schema.ts
+import { integer, now, table, text } from "@agent-native/core/db/schema";
+
+export const responseInsights = table("response_insights", {
+  id: text("id").primaryKey(),
+  formId: text("form_id").notNull(),
+  title: text("title").notNull(),
+  summary: text("summary").notNull(),
+  responseCount: integer("response_count").notNull(),
+  createdAt: text("created_at").notNull().default(now()),
+  updatedAt: text("updated_at").notNull().default(now()),
+});
+```
+
+Diese Helper wählen das konfigurierte SQL-Backend, sodass dasselbe Schema lokal mit SQLite und in Produktion mit Postgres, Turso/libSQL, D1 oder einem anderen unterstützten SQL-Provider laufen kann.
 
 - `create-response-insight` schreibt einen neuen insight.
 - `list-response-insights` liest Daten für die Seite.
