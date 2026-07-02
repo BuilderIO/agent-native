@@ -8,6 +8,7 @@ type ReplayEvent = Record<string, unknown>;
 type QueuedReplayEvent = {
   json: string;
   timestampMs: number;
+  type: number | null;
 };
 type ReplayStopFn = () => void;
 export type SessionReplayUrlMatcher =
@@ -48,6 +49,7 @@ interface SessionReplayState {
   /** Pre-serialized + scrubbed event JSON strings, ready to splice at flush. */
   queue: QueuedReplayEvent[];
   queuedBytes: number;
+  retryBatches: QueuedReplayEvent[][];
   flushTimer: number | null;
   maxDurationTimer: number | null;
   flushing: boolean;
@@ -195,6 +197,7 @@ const DEFAULT_MAX_DURATION_MS = 30 * 60 * 1000;
 const DEFAULT_MAX_EVENTS_PER_BATCH = 50;
 const DEFAULT_MAX_BATCH_BYTES = 256 * 1024;
 const MAX_KEEPALIVE_REPLAY_UPLOAD_BYTES = 60 * 1024;
+const RRWEB_FULL_SNAPSHOT_EVENT_TYPE = 2;
 const URL_LIKE_KEYS = new Set([
   "url",
   "uri",
@@ -219,6 +222,7 @@ function getState(): SessionReplayState {
       sequence: 0,
       queue: [],
       queuedBytes: 0,
+      retryBatches: [],
       flushTimer: null,
       maxDurationTimer: null,
       flushing: false,
@@ -613,6 +617,7 @@ function enqueueReplayEvent(
   state.queue.push({
     json: serialized,
     timestampMs: replayEventTimestampMs(event),
+    type: typeof event.type === "number" ? event.type : null,
   });
   state.queuedBytes += estimatedBytes;
   flushQueuedReplayIfNeeded(state);
@@ -814,9 +819,11 @@ function canUseReplayKeepalive(body: BodyInit): boolean {
 async function sendReplayUpload(
   options: NormalizedSessionReplayOptions,
   body: string,
+  callbacks: { beforeKeepaliveUpload?: () => void } = {},
 ): Promise<void> {
   if (isCrossOriginReplayEndpoint(options.endpoint)) {
     const canUseKeepalive = canUseReplayKeepalive(body);
+    if (canUseKeepalive) callbacks.beforeKeepaliveUpload?.();
     const response = await fetch(options.endpoint, {
       method: "POST",
       body,
@@ -833,6 +840,7 @@ async function sendReplayUpload(
 
   const upload = await buildReplayUploadBody(body);
   const canUseKeepalive = canUseReplayKeepalive(upload.body);
+  if (canUseKeepalive) callbacks.beforeKeepaliveUpload?.();
   const response = await fetch(options.endpoint, {
     method: "POST",
     body: upload.body,
@@ -860,9 +868,22 @@ function isFinalFlushReason(reason: string): boolean {
   ].includes(reason);
 }
 
+function isPageUnloadFlushReason(reason: string): boolean {
+  return reason === "pagehide" || reason === "beforeunload";
+}
+
+function hasFullSnapshot(events: QueuedReplayEvent[]): boolean {
+  return events.some((event) => event.type === RRWEB_FULL_SNAPSHOT_EVENT_TYPE);
+}
+
+function hasPendingReplayBatch(state: SessionReplayState): boolean {
+  return state.retryBatches.length > 0 || state.queue.length > 0;
+}
+
 function shouldFlushQueuedReplay(state: SessionReplayState): boolean {
   if (!state.options || state.queue.length === 0) return false;
   return (
+    hasFullSnapshot(state.queue) ||
     state.queue.length >= state.options.maxEventsPerBatch ||
     state.queuedBytes >= state.options.maxBatchBytes
   );
@@ -870,12 +891,18 @@ function shouldFlushQueuedReplay(state: SessionReplayState): boolean {
 
 function flushQueuedReplayIfNeeded(state: SessionReplayState): void {
   const options = state.options;
-  if (!options || !shouldFlushQueuedReplay(state)) return;
-  void flushSessionReplay(
-    state.queue.length >= options.maxEventsPerBatch
+  if (!options) return;
+  if (state.retryBatches.length > 0) {
+    void flushSessionReplay("retry");
+    return;
+  }
+  if (!shouldFlushQueuedReplay(state)) return;
+  const reason = hasFullSnapshot(state.queue)
+    ? "full-snapshot"
+    : state.queue.length >= options.maxEventsPerBatch
       ? "max-events"
-      : "max-bytes",
-  );
+      : "max-bytes";
+  void flushSessionReplay(reason);
 }
 
 function queuedReplayBytes(events: QueuedReplayEvent[]): number {
@@ -886,8 +913,7 @@ function restoreReplayEvents(
   state: SessionReplayState,
   events: QueuedReplayEvent[],
 ): void {
-  state.queue = events.concat(state.queue);
-  state.queuedBytes = queuedReplayBytes(state.queue);
+  state.retryBatches.unshift(events);
 }
 
 function advanceReplaySequence(
@@ -906,9 +932,9 @@ function advanceReplaySequence(
 
 export async function flushSessionReplay(reason = "manual"): Promise<void> {
   const state = getState();
-  if (!state.options || state.queue.length === 0 || state.flushing) return;
-  const events = state.queue.splice(0, state.queue.length);
-  state.queuedBytes = 0;
+  if (!state.options || !hasPendingReplayBatch(state) || state.flushing) return;
+  const events = state.retryBatches.shift() ?? state.queue.splice(0);
+  state.queuedBytes = queuedReplayBytes(state.queue);
   const payload = buildReplayBody(state, reason, events);
   if (!payload || !state.options) {
     restoreReplayEvents(state, events);
@@ -916,17 +942,27 @@ export async function flushSessionReplay(reason = "manual"): Promise<void> {
   }
   state.flushing = true;
   let uploaded = false;
+  let reservedSequence = false;
   try {
-    await sendReplayUpload(state.options, payload.body);
-    advanceReplaySequence(state, payload);
+    await sendReplayUpload(state.options, payload.body, {
+      beforeKeepaliveUpload: isPageUnloadFlushReason(reason)
+        ? () => {
+            advanceReplaySequence(state, payload);
+            reservedSequence = true;
+          }
+        : undefined,
+    });
+    if (!reservedSequence) advanceReplaySequence(state, payload);
     uploaded = true;
   } catch (error) {
-    restoreReplayEvents(state, events);
+    if (!reservedSequence) {
+      restoreReplayEvents(state, events);
+    }
     console.warn("[session-replay] upload failed", error);
   } finally {
     state.flushing = false;
   }
-  if (uploaded) {
+  if (uploaded && hasPendingReplayBatch(state)) {
     flushQueuedReplayIfNeeded(state);
   }
 }
@@ -1073,6 +1109,7 @@ async function startSessionReplayRecorder(
   state.sequence = replaySession.sequence;
   state.queue = [];
   state.queuedBytes = 0;
+  state.retryBatches = [];
   state.stopRecorder = null;
   state.lastAuthenticatedProperties = replayUserEmail(initialProperties)
     ? { ...initialProperties }
