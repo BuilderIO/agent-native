@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.84.31
+
+### Patch Changes
+
+- 3190dea: Inline rrweb stylesheet snapshots by default so Analytics session replay captures can play back styled pages without live CSS fetches.
+
 ## 0.84.30
 
 ### Patch Changes
