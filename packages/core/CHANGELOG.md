@@ -1,5 +1,12 @@
 # @agent-native/core
 
+## 0.84.54
+
+### Patch Changes
+
+- a259f96: Keep centered chat composers stable when the Connect AI setup card appears.
+- df3fcfd: Allow wireframe and diagram blocks to opt in or out of their outer visual frame.
+
 ## 0.84.53
 
 ### Patch Changes
