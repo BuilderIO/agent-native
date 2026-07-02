@@ -1,5 +1,8 @@
 // @vitest-environment happy-dom
 
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -96,6 +99,32 @@ describe("resolveAssistantChatSubmitIntent", () => {
         requestedIntent: undefined,
       }),
     ).toBe("immediate");
+  });
+});
+
+describe("centered empty chat setup layout", () => {
+  it("floats the setup card outside the centered composer stack", () => {
+    const css = readFileSync(
+      join(process.cwd(), "src/styles/agent-native.css"),
+      "utf8",
+    );
+    const source = readFileSync(
+      join(process.cwd(), "src/client/AssistantChat.tsx"),
+      "utf8",
+    );
+
+    expect(source).toContain('className="agent-composer-stack"');
+    expect(source).toContain('data-agent-composer-setup-position="above"');
+    expect(source).toContain('data-agent-composer-setup-position="below"');
+    expect(css).toMatch(
+      /\[data-agent-empty-state="centered"\]\s*>\s*\.agent-composer-stack\s*>\s*\.agent-composer-setup-card\s*\{[^}]*position:\s*absolute;/s,
+    );
+    expect(css).toMatch(
+      /data-agent-composer-setup-position="above"\]\s*\{[^}]*bottom:\s*calc\(100% \+ 0\.5rem\);/s,
+    );
+    expect(css).toMatch(
+      /data-agent-composer-setup-position="below"\]\s*\{[^}]*top:\s*calc\(100% \+ 0\.5rem\);/s,
+    );
   });
 });
 

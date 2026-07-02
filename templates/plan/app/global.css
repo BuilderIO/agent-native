@@ -469,8 +469,7 @@
 }
 
 .plan-document-toc__link.is-active {
-  color: hsl(var(--ring));
-  font-weight: 550;
+  color: var(--plan-text);
 }
 
 .plan-document-toc__link.is-nested {
