@@ -1197,9 +1197,9 @@
   background: var(--wf-accent-soft);
 }
 
-/* Once rough has drawn, hide crisp borders only on elements rough.js actually
-   redraws. Broad helper containers keep theme-safe filled backgrounds and soft
-   borders so nested cards do not become a pile of overlapping sketch strokes. */
+/* Once rough has drawn, hide crisp borders on the standard wireframe primitives
+   that rough.js redraws. Fills and text stay in CSS; only outlines switch to
+   the hand-drawn overlay. */
 .plan-html-frame[data-rough-ready]
   :is(
     button,
@@ -1207,6 +1207,12 @@
     textarea,
     select,
     hr,
+    .wf-btn,
+    .wf-card,
+    .wf-box,
+    .wf-pill,
+    .wf-chip,
+    .wf-icon-fallback,
     [data-rough]:not([data-rough="none"])
   ) {
   border-color: transparent !important;

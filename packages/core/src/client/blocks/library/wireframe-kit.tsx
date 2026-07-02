@@ -1425,9 +1425,9 @@ const gen = rough.generator();
 
 type RoughPath = { d: string; stroke: string; strokeWidth: number };
 
-/** The default selector used for HTML mockups: controls plus explicit opt-ins. */
+/** The default selector used for HTML mockups: standard wireframe primitives plus explicit opt-ins. */
 export const HTML_ROUGH_SELECTOR =
-  "[data-rough],button,input,textarea,select,hr";
+  "[data-rough],button,input,textarea,select,hr,.wf-btn,.wf-card,.wf-box,.wf-pill,.wf-chip,.wf-icon-fallback";
 
 /** Stable per-element seed so a frame doesn't re-wobble on every measure. */
 function seedFrom(...parts: Array<string | number>): number {

@@ -82,16 +82,19 @@ function roughScopeInnerHtml(html: string): string {
 }
 
 describe("wireframe auto-height frame", () => {
-  it("keeps broad helper containers out of the default rough.js target set", () => {
+  it("roughens standard wireframe primitives by default", () => {
     expect(HTML_ROUGH_SELECTOR).toContain("[data-rough]");
     expect(HTML_ROUGH_SELECTOR).toContain("button");
     expect(HTML_ROUGH_SELECTOR).toContain("input");
-    expect(HTML_ROUGH_SELECTOR).not.toContain(".wf-card");
-    expect(HTML_ROUGH_SELECTOR).not.toContain(".wf-box");
-    expect(HTML_ROUGH_SELECTOR).not.toContain(".wf-frame-target");
+    expect(HTML_ROUGH_SELECTOR).toContain(".wf-btn");
+    expect(HTML_ROUGH_SELECTOR).toContain(".wf-card");
+    expect(HTML_ROUGH_SELECTOR).toContain(".wf-box");
+    expect(HTML_ROUGH_SELECTOR).toContain(".wf-pill");
+    expect(HTML_ROUGH_SELECTOR).toContain(".wf-chip");
+    expect(HTML_ROUGH_SELECTOR).toContain(".wf-icon-fallback");
   });
 
-  it("keeps helper container borders visible after rough.js is ready", () => {
+  it("hides standard primitive borders after rough.js redraws them", () => {
     const css = readFileSync("src/styles/blocks.css", "utf8");
     const hideRule =
       css.match(
@@ -100,8 +103,12 @@ describe("wireframe auto-height frame", () => {
 
     expect(hideRule).toContain("button");
     expect(hideRule).toContain('[data-rough]:not([data-rough="none"])');
-    expect(hideRule).not.toContain(".wf-card");
-    expect(hideRule).not.toContain(".wf-box");
+    expect(hideRule).toContain(".wf-btn");
+    expect(hideRule).toContain(".wf-card");
+    expect(hideRule).toContain(".wf-box");
+    expect(hideRule).toContain(".wf-pill");
+    expect(hideRule).toContain(".wf-chip");
+    expect(hideRule).toContain(".wf-icon-fallback");
   });
 
   it("strips theme-breaking Tailwind color and shadow classes from wireframes", () => {
