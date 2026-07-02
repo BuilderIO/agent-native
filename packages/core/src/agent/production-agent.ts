@@ -2854,22 +2854,6 @@ export async function runAgentLoop(opts: {
             ...(typeof progressBytes === "number" ? { progressBytes } : {}),
           });
         };
-        const resetActiveToolInput = (
-          toolName: string | undefined,
-          toolInputId?: string,
-        ) => {
-          if (toolInputId) {
-            activeToolInputs.delete(toolInputId);
-            return;
-          }
-          if (toolName) {
-            for (const [id, active] of activeToolInputs) {
-              if (active.toolName === toolName) {
-                activeToolInputs.delete(id);
-              }
-            }
-          }
-        };
         const hasActionPreparationStalled = () => {
           if (activeToolInputs.size === 0) return false;
           const now = Date.now();
@@ -2930,10 +2914,6 @@ export async function runAgentLoop(opts: {
               ACTION_PREPARATION_NO_PROGRESS_TIMEOUT_MS
           );
         };
-        const clearActiveToolInputs = () => {
-          activeToolInputs.clear();
-        };
-
         for await (const event of eventStream) {
           if (hasActionPreparationStalled()) {
             send({
@@ -3006,24 +2986,13 @@ export async function runAgentLoop(opts: {
             send({ type: "stream_keepalive" });
           } else if (event.type === "tool-call") {
             // The authoritative tool-call blocks arrive in assistant-content.
-            resetActiveToolInput(event.name, event.id);
-            resetZeroByteToolInputRestart(event.name);
           } else if (event.type === "tool-call-error") {
-            resetActiveToolInput(event.name, event.id);
-            resetZeroByteToolInputRestart(event.name);
             toolCallErrors.set(event.id, {
               name: event.name,
               input: event.input,
               error: event.error,
             });
           } else if (event.type === "assistant-content") {
-            const contentHasPreparedToolCall = event.parts.some(
-              (part) => part.type === "tool-call",
-            );
-            if (contentHasPreparedToolCall) {
-              clearActiveToolInputs();
-              resetZeroByteToolInputRestart();
-            }
             assistantContent = event.parts;
           } else if (event.type === "usage") {
             usage.inputTokens += event.inputTokens;
