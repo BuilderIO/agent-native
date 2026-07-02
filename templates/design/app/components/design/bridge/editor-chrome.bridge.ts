@@ -4965,6 +4965,30 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
     true,
   );
 
+  var pendingPlainPasteHotkeyTimer: number | null = null;
+
+  function clearPendingPlainPasteHotkey() {
+    if (pendingPlainPasteHotkeyTimer === null) return;
+    window.clearTimeout(pendingPlainPasteHotkeyTimer);
+    pendingPlainPasteHotkeyTimer = null;
+  }
+
+  function postDesignHotkey(payload) {
+    (window.parent as Window).postMessage(
+      {
+        type: "design-hotkey",
+        key: payload.key,
+        code: payload.code,
+        metaKey: !!payload.metaKey,
+        ctrlKey: !!payload.ctrlKey,
+        shiftKey: !!payload.shiftKey,
+        altKey: !!payload.altKey,
+        repeat: !!payload.repeat,
+      },
+      "*",
+    );
+  }
+
   document.addEventListener(
     "keydown",
     function (e) {
@@ -4978,21 +5002,26 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
         stopNativeInteraction(e);
         return;
       }
-      if (!plainPasteHotkey) stopNativeInteraction(e);
+      var payload = {
+        key: e.key,
+        code: e.code,
+        metaKey: !!e.metaKey,
+        ctrlKey: !!e.ctrlKey,
+        shiftKey: !!e.shiftKey,
+        altKey: !!e.altKey,
+        repeat: !!e.repeat,
+      };
+      if (plainPasteHotkey) {
+        clearPendingPlainPasteHotkey();
+        pendingPlainPasteHotkeyTimer = window.setTimeout(function () {
+          pendingPlainPasteHotkeyTimer = null;
+          postDesignHotkey(payload);
+        }, 0);
+        return;
+      }
+      stopNativeInteraction(e);
       if (e.key === "Escape") clearRuntimeSelection();
-      (window.parent as Window).postMessage(
-        {
-          type: "design-hotkey",
-          key: e.key,
-          code: e.code,
-          metaKey: !!e.metaKey,
-          ctrlKey: !!e.ctrlKey,
-          shiftKey: !!e.shiftKey,
-          altKey: !!e.altKey,
-          repeat: !!e.repeat,
-        },
-        "*",
-      );
+      postDesignHotkey(payload);
     },
     true,
   );
@@ -5022,6 +5051,7 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
       }
       var content = getFigmaClipboardContent(e.clipboardData);
       if (!content) return;
+      clearPendingPlainPasteHotkey();
       stopNativeInteraction(e);
       (window.parent as Window).postMessage(
         {

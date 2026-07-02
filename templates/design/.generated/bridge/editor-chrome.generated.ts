@@ -3832,6 +3832,27 @@ export const editorChromeBridgeScript: string = `"use strict";
       },
       true
     );
+    var pendingPlainPasteHotkeyTimer = null;
+    function clearPendingPlainPasteHotkey() {
+      if (pendingPlainPasteHotkeyTimer === null) return;
+      window.clearTimeout(pendingPlainPasteHotkeyTimer);
+      pendingPlainPasteHotkeyTimer = null;
+    }
+    function postDesignHotkey(payload) {
+      window.parent.postMessage(
+        {
+          type: "design-hotkey",
+          key: payload.key,
+          code: payload.code,
+          metaKey: !!payload.metaKey,
+          ctrlKey: !!payload.ctrlKey,
+          shiftKey: !!payload.shiftKey,
+          altKey: !!payload.altKey,
+          repeat: !!payload.repeat
+        },
+        "*"
+      );
+    }
     document.addEventListener(
       "keydown",
       function(e) {
@@ -3844,21 +3865,26 @@ export const editorChromeBridgeScript: string = `"use strict";
           stopNativeInteraction(e);
           return;
         }
-        if (!plainPasteHotkey) stopNativeInteraction(e);
+        var payload = {
+          key: e.key,
+          code: e.code,
+          metaKey: !!e.metaKey,
+          ctrlKey: !!e.ctrlKey,
+          shiftKey: !!e.shiftKey,
+          altKey: !!e.altKey,
+          repeat: !!e.repeat
+        };
+        if (plainPasteHotkey) {
+          clearPendingPlainPasteHotkey();
+          pendingPlainPasteHotkeyTimer = window.setTimeout(function() {
+            pendingPlainPasteHotkeyTimer = null;
+            postDesignHotkey(payload);
+          }, 0);
+          return;
+        }
+        stopNativeInteraction(e);
         if (e.key === "Escape") clearRuntimeSelection();
-        window.parent.postMessage(
-          {
-            type: "design-hotkey",
-            key: e.key,
-            code: e.code,
-            metaKey: !!e.metaKey,
-            ctrlKey: !!e.ctrlKey,
-            shiftKey: !!e.shiftKey,
-            altKey: !!e.altKey,
-            repeat: !!e.repeat
-          },
-          "*"
-        );
+        postDesignHotkey(payload);
       },
       true
     );
@@ -3882,6 +3908,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         }
         var content = getFigmaClipboardContent(e.clipboardData);
         if (!content) return;
+        clearPendingPlainPasteHotkey();
         stopNativeInteraction(e);
         window.parent.postMessage(
           {
