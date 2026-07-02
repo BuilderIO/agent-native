@@ -622,6 +622,12 @@ const messages = {
     builderReviewShowMore: "顯示更多",
     builderReviewRemainingBatches:
       "此批次完成後請再次審查，以準備其餘 Builder 變更。",
+    builderBodiesSyncingProgress:
+      "正在同步 {{total}} 個正文中的 {{hydrated}} 個。",
+    builderRowsFetchedBodiesSyncing:
+      "已擷取 {{rows}} 列。正在同步 {{total}} 個正文中的 {{hydrated}} 個。",
+    builderRowsFetchedSyncingBodies:
+      "Builder 列已全部擷取。文章正文仍在同步中。",
     builderRowsFetched: "已擷取 {{count}} 個 Builder 列",
     builderRowsFetchingMore: "正在擷取更多列",
     builderRowsFetchFailed: "列擷取需要處理",

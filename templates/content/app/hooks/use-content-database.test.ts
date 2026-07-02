@@ -6,6 +6,7 @@ import { QueryClient } from "@tanstack/react-query";
 import { describe, expect, it } from "vitest";
 
 import {
+  applyOptimisticSourceFieldPropertyToDatabaseResponse,
   applySourceFieldPropertyToDatabaseResponse,
   clearDeletedContentDatabaseFromCache,
   contentDatabaseQueryKey,
@@ -209,6 +210,58 @@ describe("applySourceFieldPropertyToDatabaseResponse", () => {
       id: "field-handle",
       propertyId: "property-handle",
       localFieldKey: "property-handle",
+    });
+  });
+
+  it("mirrors source field patches into the multi-source cache", () => {
+    const current = databaseResponse();
+    current.sources = [current.source!];
+
+    const updated = applySourceFieldPropertyToDatabaseResponse(
+      current,
+      sourceFieldPatch(),
+    );
+
+    expect(updated?.sources?.[0]?.fields[0]).toMatchObject({
+      id: "field-handle",
+      propertyId: "property-handle",
+      localFieldKey: "property-handle",
+    });
+  });
+
+  it("optimistically inserts a pending source-field column with placeholder values", () => {
+    const current = databaseResponse();
+
+    const updated = applyOptimisticSourceFieldPropertyToDatabaseResponse(
+      current,
+      {
+        documentId: "database-page",
+        sourceFieldId: "field-handle",
+      },
+    );
+
+    expect(
+      updated?.properties.map((property) => property.definition.name),
+    ).toEqual(["Status", "Handle"]);
+    expect(updated?.properties[1]).toMatchObject({
+      definition: {
+        id: "optimistic-source-field-property:field-handle",
+        name: "Handle",
+        type: "text",
+      },
+      value: null,
+      editable: false,
+    });
+    expect(updated?.items[0]?.properties[0]).toMatchObject({
+      definition: { id: "optimistic-source-field-property:field-handle" },
+      value: null,
+      editable: false,
+    });
+    expect(updated?.source?.fields[0]).toMatchObject({
+      id: "field-handle",
+      propertyId: "optimistic-source-field-property:field-handle",
+      propertyName: "Handle",
+      freshness: "unknown",
     });
   });
 
