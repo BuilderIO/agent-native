@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 import { prop, attributeValue } from "../mdx.js";
-import type { BlockMdxConfig } from "../types.js";
+import type { BlockMdxConfig, BlockVisualFrame } from "../types.js";
 
 /**
  * Pure (React-free) part of the shared `wireframe` block: its data shape, zod
@@ -138,6 +138,8 @@ export interface WireframeData {
   /** `design` renders full-fidelity branded HTML/CSS instead of a sketch. */
   renderMode?: WireframeRenderMode;
   caption?: string;
+  /** Outer surface frame. `auto` lets the host choose the right default. */
+  frame?: BlockVisualFrame;
   /**
    * Neutral, textless loading register. The renderer drops borders, the sketch
    * outline, and color, rendering soft placeholder geometry only.
@@ -205,6 +207,7 @@ const elNameSchema = z.enum(
   WIREFRAME_EL_NAMES as [WireframeElName, ...WireframeElName[]],
 );
 const idSchema = z.string().trim().min(1).max(120);
+const visualFrameSchema = z.enum(["auto", "show", "hide"]);
 
 /**
  * Reject full-document HTML (html/head/body/script/style tags) in the `html` /
@@ -281,6 +284,7 @@ export const wireframeSchema = z
     surface: z.enum(["desktop", "mobile", "popover", "panel", "browser"]),
     renderMode: z.enum(["wireframe", "design"]).optional(),
     caption: z.string().trim().max(400).optional(),
+    frame: visualFrameSchema.optional(),
     skeleton: z.boolean().optional(),
     html: z
       .string()
@@ -387,6 +391,7 @@ function serializeScreen(data: WireframeData): string {
     prop("surface", data.surface),
     prop("renderMode", data.renderMode),
     prop("caption", data.caption),
+    prop("frame", data.frame),
     prop("html", data.html),
     prop("css", data.css),
     prop("skeleton", data.skeleton),
@@ -494,6 +499,7 @@ function parseScreen(node: WireframeMdxNode, idContext: string): WireframeData {
       (stringAttr(node, "surface") as WireframeData["surface"]) ?? "desktop",
     renderMode: stringAttr(node, "renderMode") as WireframeData["renderMode"],
     caption: stringAttr(node, "caption"),
+    frame: stringAttr(node, "frame") as WireframeData["frame"],
     html: requiredStringAttr(node, "html"),
     css: requiredStringAttr(node, "css"),
     skeleton: boolAttr(node, "skeleton"),
