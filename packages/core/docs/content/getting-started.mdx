@@ -92,8 +92,18 @@ export default defineAction({
         },
       },
       // Keep docs compact; add real rows/series in your app.
-      chartSeries: { type: "bar", xKey: "day", series: [{ key: "responses", label: "Responses" }], data: [{ day: "Mon", responses: 8 }] },
-      table: { title: "Top answers", columns: [{ key: "answer", label: "Answer" }], rows: [{ answer: "Yes" }], totalRows: 1 },
+      chartSeries: {
+        type: "bar",
+        xKey: "day",
+        series: [{ key: "responses", label: "Responses" }],
+        data: [{ day: "Mon", responses: 8 }],
+      },
+      table: {
+        title: "Top answers",
+        columns: [{ key: "answer", label: "Answer" }],
+        rows: [{ answer: "Yes" }],
+        totalRows: 1,
+      },
     }),
 });
 ```
