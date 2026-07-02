@@ -1263,14 +1263,15 @@ export async function listRunsForThread(
       status?: string;
       error_code?: string | null;
     };
+    const runId = row.id;
+    if (!runId) continue;
     const canReconcileFromEvents =
-      row.id &&
-      (row.status === "running" ||
-        (row.status === "errored" &&
-          row.error_code === STALE_RUN_ERROR_EVENT.errorCode));
+      row.status === "running" ||
+      (row.status === "errored" &&
+        row.error_code === STALE_RUN_ERROR_EVENT.errorCode);
     if (!canReconcileFromEvents) continue;
     repairedTerminalRow =
-      (await reconcileTerminalRunFromEvents(row.id).catch(() => false)) ||
+      (await reconcileTerminalRunFromEvents(runId).catch(() => false)) ||
       repairedTerminalRow;
   }
   if (repairedTerminalRow) {
