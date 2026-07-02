@@ -262,6 +262,7 @@ export function DesignImportPanel({ context }: DesignImportPanelProps) {
               <div
                 role="textbox"
                 tabIndex={0}
+                data-hotkeys-scope="text"
                 aria-label={t("designEditor.import.figmaPasteTarget")}
                 onPaste={handlePaste}
                 className={cn(

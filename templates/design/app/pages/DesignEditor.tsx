@@ -13200,7 +13200,10 @@ export default function DesignEditor() {
     onCommentTool: canEditDesign ? handlePinToolToggle : undefined,
     onScaleTool: canEditDesign ? handleScaleTool : undefined,
     onCopy: handleCopySelection,
-    onPaste: undefined,
+    onPaste:
+      canEditDesign && hasCanvasClipboard
+        ? () => handlePasteSelection()
+        : undefined,
     onCut: canEditDesign ? handleCutSelection : undefined,
     onPasteOver: canEditDesign ? handlePasteOverSelection : undefined,
     onCopyProps: canEditDesign ? handleCopyProps : undefined,

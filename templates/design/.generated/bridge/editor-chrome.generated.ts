@@ -3836,11 +3836,15 @@ export const editorChromeBridgeScript: string = `"use strict";
       "keydown",
       function(e) {
         if (!shouldForwardDesignHotkey(e)) return;
+        var key = e.key;
+        var normalized = key && key.length === 1 ? key.toLowerCase() : key;
+        var primary = e.metaKey || e.ctrlKey;
+        var plainPasteHotkey = primary && normalized === "v" && !e.altKey && !e.shiftKey;
         if (e.key === "Escape" && cancelActiveBridgeDrag()) {
           stopNativeInteraction(e);
           return;
         }
-        stopNativeInteraction(e);
+        if (!plainPasteHotkey) stopNativeInteraction(e);
         if (e.key === "Escape") clearRuntimeSelection();
         window.parent.postMessage(
           {
@@ -3873,7 +3877,7 @@ export const editorChromeBridgeScript: string = `"use strict";
     document.addEventListener(
       "paste",
       function(e) {
-        if (activeTextEditEl && e.target && activeTextEditEl.contains(e.target)) {
+        if (activeTextEditEl && e.target && activeTextEditEl.contains(e.target) || isEditorTypingTarget(e.target)) {
           return;
         }
         var content = getFigmaClipboardContent(e.clipboardData);
