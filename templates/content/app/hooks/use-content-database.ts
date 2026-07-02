@@ -79,6 +79,20 @@ export function writeContentDatabaseResponseToCache(
   );
 }
 
+// `get-content-database` returns a union at runtime: the full response, or an
+// unavailable payload (`{ available: false, reason: "deleted" | "not_found" }`)
+// with no `database` field. Consumers typed against ContentDatabaseResponse
+// must narrow with this guard before touching `data.database`.
+export function isContentDatabaseUnavailable(
+  data: unknown,
+): data is { available: false; reason: string } {
+  return (
+    !!data &&
+    typeof data === "object" &&
+    (data as { available?: unknown }).available === false
+  );
+}
+
 export function readCachedContentDatabaseResponse(
   queryClient: Pick<QueryClient, "getQueryData" | "getQueriesData">,
   documentId: string,
@@ -86,13 +100,13 @@ export function readCachedContentDatabaseResponse(
   const exact = queryClient.getQueryData<ContentDatabaseResponse>(
     contentDatabaseQueryKey(documentId),
   );
-  if (exact) return exact;
+  if (exact && !isContentDatabaseUnavailable(exact)) return exact;
 
   const cached = queryClient
     .getQueriesData<ContentDatabaseResponse>(
       contentDatabaseQueryFilter(documentId),
     )
-    .find(([, data]) => data);
+    .find(([, data]) => data && !isContentDatabaseUnavailable(data));
   return cached?.[1];
 }
 
