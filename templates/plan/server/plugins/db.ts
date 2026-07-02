@@ -314,6 +314,31 @@ CREATE INDEX IF NOT EXISTS plans_recap_pr_merged_idx ON plans(kind, source_type,
 CREATE INDEX IF NOT EXISTS plans_source_pr_idx ON plans(source_repo, source_pr_number)`,
       },
     },
+    {
+      // Repair migration for hosted databases that recorded an earlier migration
+      // while still missing additive columns now present in schema.ts. Missing
+      // optional plan columns make Drizzle's full-row access lookup throw before
+      // plan pages can render or show a clean access error.
+      version: 36,
+      sql: {
+        postgres: `ALTER TABLE plans ADD COLUMN IF NOT EXISTS deleted_at TEXT;
+ALTER TABLE plans ADD COLUMN IF NOT EXISTS deleted_by TEXT;
+ALTER TABLE plans ADD COLUMN IF NOT EXISTS source_type TEXT;
+ALTER TABLE plans ADD COLUMN IF NOT EXISTS source_repo TEXT;
+ALTER TABLE plans ADD COLUMN IF NOT EXISTS source_pr_number INTEGER;
+ALTER TABLE plans ADD COLUMN IF NOT EXISTS source_pr_state TEXT;
+ALTER TABLE plans ADD COLUMN IF NOT EXISTS source_pr_merged_at TEXT;
+ALTER TABLE plans ADD COLUMN IF NOT EXISTS source_author_email TEXT;
+ALTER TABLE plans ADD COLUMN IF NOT EXISTS source_author_name TEXT;
+ALTER TABLE plans ADD COLUMN IF NOT EXISTS source_author_login TEXT;
+ALTER TABLE plan_comments ADD COLUMN IF NOT EXISTS deleted_at TEXT;
+ALTER TABLE plan_comments ADD COLUMN IF NOT EXISTS deleted_by TEXT;
+CREATE INDEX IF NOT EXISTS plans_owner_deleted_updated_idx ON plans(owner_email, deleted_at, updated_at);
+CREATE INDEX IF NOT EXISTS plans_recap_pr_merged_idx ON plans(kind, source_type, source_pr_merged_at, updated_at);
+CREATE INDEX IF NOT EXISTS plans_source_pr_idx ON plans(source_repo, source_pr_number);
+CREATE INDEX IF NOT EXISTS plan_comments_plan_deleted_created_idx ON plan_comments(plan_id, deleted_at, created_at)`,
+      },
+    },
   ],
   { table: "plans_migrations" },
 );

@@ -256,8 +256,20 @@ type ActiveRunLookup = {
   status?: string;
   heartbeatAt?: number | null;
   lastProgressAt?: number | null;
+  dispatchMode?: string | null;
+  terminalReason?: string | null;
   serverNow?: number;
 };
+
+function isReplayableTerminalRun(runInfo: ActiveRunLookup): boolean {
+  const dispatchMode =
+    typeof runInfo.dispatchMode === "string" ? runInfo.dispatchMode : "";
+  return (
+    runInfo.status !== "running" &&
+    dispatchMode.startsWith("background") &&
+    runInfo.terminalReason === "run_timeout"
+  );
+}
 
 function activeRunLooksStale(runInfo: ActiveRunLookup): boolean {
   const lastProgressAt =
@@ -1796,7 +1808,11 @@ const AssistantChatInner = forwardRef<
 
   const startReconnectToRun = useCallback(
     (runInfo: ActiveRunLookup): boolean => {
-      if (!threadId || !runInfo.runId || runInfo.status !== "running") {
+      if (
+        !threadId ||
+        !runInfo.runId ||
+        (runInfo.status !== "running" && !isReplayableTerminalRun(runInfo))
+      ) {
         return false;
       }
       const runId = String(runInfo.runId);
@@ -1826,6 +1842,8 @@ const AssistantChatInner = forwardRef<
 
       const abortCtrl = new AbortController();
       reconnectAbortRef.current = abortCtrl;
+      let reconnectTerminalReason: AgentAutoContinueSignal["reason"] | null =
+        null;
 
       const watchdog = setInterval(async () => {
         try {
@@ -1838,6 +1856,9 @@ const AssistantChatInner = forwardRef<
             return;
           }
           const info = (await res.json()) as ActiveRunLookup;
+          if (isReplayableTerminalRun(info)) {
+            return;
+          }
           if (info.status !== "running" || activeRunLooksStale(info)) {
             abortCtrl.abort();
             clearInterval(watchdog);
@@ -1861,6 +1882,7 @@ const AssistantChatInner = forwardRef<
         lastReconnectProgressAt = Date.now();
       };
       const idleCheck = setInterval(() => {
+        if (reconnectTerminalReason !== null) return;
         if (
           !reconnectProgressTimedOut({
             lastProgressAt: lastReconnectProgressAt,
@@ -1988,6 +2010,10 @@ const AssistantChatInner = forwardRef<
             err.reason === "no_progress"
           ) {
             noProgressDuringReconnect = true;
+            reconnectTerminalReason = err.reason;
+          } else if (err instanceof AgentAutoContinueSignal) {
+            noProgressDuringReconnect = true;
+            reconnectTerminalReason = err.reason;
           } else if (
             reconnectTimedOut &&
             err instanceof Error &&
@@ -2004,11 +2030,16 @@ const AssistantChatInner = forwardRef<
         }
 
         if (noProgressDuringReconnect && reconnectRunIdRef.current === runId) {
-          captureError(new Error("agent-chat:reconnect_no_progress"), {
+          const reconnectErrorCode =
+            reconnectTerminalReason === "run_timeout"
+              ? "run_timeout"
+              : "reconnect_no_progress";
+          captureError(new Error(`agent-chat:${reconnectErrorCode}`), {
             tags: {
               context: "agent-native-chat",
-              errorCode: "reconnect_no_progress",
+              errorCode: reconnectErrorCode,
               reconnectTimedOut: String(reconnectTimedOut),
+              reconnectTerminalReason: reconnectTerminalReason ?? undefined,
             },
             extra: {
               runId,
@@ -2017,14 +2048,16 @@ const AssistantChatInner = forwardRef<
               contentLength: latestContent.length,
             },
           });
-          try {
-            await fetch(`${apiUrl}/runs/${encodeURIComponent(runId)}/abort`, {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ reason: "no_progress" }),
-            });
-          } catch {
-            // Best effort — the important part is unwinding the UI.
+          if (reconnectTerminalReason !== "run_timeout") {
+            try {
+              await fetch(`${apiUrl}/runs/${encodeURIComponent(runId)}/abort`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ reason: "no_progress" }),
+              });
+            } catch {
+              // Best effort — the important part is unwinding the UI.
+            }
           }
           if (afterSeq > 0) {
             // Tail-resume only replays new events; never freeze that slice as a
@@ -2041,8 +2074,10 @@ const AssistantChatInner = forwardRef<
           }
           setRunErrorInfo({
             message:
-              "The previous agent run stopped producing visible progress during recovery, so it was stopped before it could keep looping.",
-            errorCode: "reconnect_no_progress",
+              reconnectTerminalReason === "run_timeout"
+                ? "The previous background agent run reached its time limit before finishing. The partial work was preserved; continue or retry to pick up from here."
+                : "The previous agent run stopped producing visible progress during recovery, so it was stopped before it could keep looping.",
+            errorCode: reconnectErrorCode,
             recoverable: true,
             runId,
           });
@@ -2125,7 +2160,7 @@ const AssistantChatInner = forwardRef<
         const runInfo = (await runRes.json()) as ActiveRunLookup;
         if (
           !runInfo.active ||
-          runInfo.status !== "running" ||
+          (runInfo.status !== "running" && !isReplayableTerminalRun(runInfo)) ||
           activeRunLooksStale(runInfo)
         ) {
           if (storedActiveRun?.threadId === threadId) {

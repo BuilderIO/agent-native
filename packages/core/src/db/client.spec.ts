@@ -203,6 +203,37 @@ describe("getMigrationDatabaseUrl", () => {
     const { getMigrationDatabaseUrl } = await import("./client.js");
     expect(getMigrationDatabaseUrl()).toBe("file:./data/app.db");
   });
+
+  it("prefers Netlify's explicit unpooled migration URL over a stale generic unpooled URL", async () => {
+    vi.stubEnv(
+      "DATABASE_URL_UNPOOLED",
+      "postgresql://old:pw@old.example.com/db",
+    );
+    vi.stubEnv(
+      "NETLIFY_DATABASE_URL_UNPOOLED",
+      "postgresql://fresh:pw@fresh.example.com/db",
+    );
+    const { getMigrationDatabaseUrl } = await import("./client.js");
+    expect(getMigrationDatabaseUrl()).toBe(
+      "postgresql://fresh:pw@fresh.example.com/db",
+    );
+  });
+
+  it("keeps app-specific unpooled migration URLs ahead of Netlify's shared unpooled env", async () => {
+    vi.stubEnv("APP_NAME", "plan");
+    vi.stubEnv(
+      "PLAN_DATABASE_URL_UNPOOLED",
+      "postgresql://plan:pw@plan.example.com/db",
+    );
+    vi.stubEnv(
+      "NETLIFY_DATABASE_URL_UNPOOLED",
+      "postgresql://netlify:pw@netlify.example.com/db",
+    );
+    const { getMigrationDatabaseUrl } = await import("./client.js");
+    expect(getMigrationDatabaseUrl()).toBe(
+      "postgresql://plan:pw@plan.example.com/db",
+    );
+  });
 });
 
 describe("getDbExec", () => {
