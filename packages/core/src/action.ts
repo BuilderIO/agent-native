@@ -821,26 +821,75 @@ function wrapRunWithAudit(
 // Schema → JSON Schema conversion
 // ---------------------------------------------------------------------------
 
+// Keywords whose value is a single subschema.
+const SUBSCHEMA_VALUE_KEYS = [
+  "items",
+  "additionalItems",
+  "contains",
+  "additionalProperties",
+  "not",
+  "if",
+  "then",
+  "else",
+] as const;
+// Keywords whose value is an array of subschemas.
+const SUBSCHEMA_ARRAY_KEYS = [
+  "allOf",
+  "anyOf",
+  "oneOf",
+  "prefixItems",
+] as const;
+// Keywords whose value is a map of name → subschema.
+const SUBSCHEMA_MAP_KEYS = [
+  "properties",
+  "patternProperties",
+  "$defs",
+  "definitions",
+  "dependentSchemas",
+] as const;
+
 /**
- * Recursively remove JSON Schema keywords that some providers' function-calling
- * schema validators reject. OpenAI (and Gemini via the Builder gateway) reject
+ * Remove JSON Schema keywords that some providers' function-calling schema
+ * validators reject. OpenAI (and Gemini via the Builder gateway) reject
  * `propertyNames` — which Zod v4 emits for `z.record(z.string(), …)` — with a
  * `400 invalid_function_parameters` error, causing the model turn to produce no
  * content (surfacing as an empty assistant response). Anthropic ignores the
  * keyword, so stripping it is safe across providers and keeps action schemas
  * portable. `propertyNames` only constrained object *keys*; the value/shape of
  * the object is unaffected by its removal.
+ *
+ * Only descends through actual subschema positions (properties, items, union
+ * branches, definitions, etc.) — never through value-bearing keywords like
+ * `default`, `const`, `enum`, or `examples`, whose objects may legitimately
+ * contain a `propertyNames` data key that must be preserved.
  */
 function stripUnsupportedSchemaKeywords<T>(node: T): T {
-  if (Array.isArray(node)) {
-    for (const item of node) stripUnsupportedSchemaKeywords(item);
-    return node;
-  }
-  if (node && typeof node === "object") {
-    const obj = node as Record<string, unknown>;
-    delete obj.propertyNames;
-    for (const value of Object.values(obj)) {
+  if (!node || typeof node !== "object" || Array.isArray(node)) return node;
+  const obj = node as Record<string, unknown>;
+
+  delete obj.propertyNames;
+
+  for (const key of SUBSCHEMA_VALUE_KEYS) {
+    // `items`/`additionalItems` may also be an array of subschemas.
+    const value = obj[key];
+    if (Array.isArray(value)) {
+      for (const sub of value) stripUnsupportedSchemaKeywords(sub);
+    } else {
       stripUnsupportedSchemaKeywords(value);
+    }
+  }
+  for (const key of SUBSCHEMA_ARRAY_KEYS) {
+    const value = obj[key];
+    if (Array.isArray(value)) {
+      for (const sub of value) stripUnsupportedSchemaKeywords(sub);
+    }
+  }
+  for (const key of SUBSCHEMA_MAP_KEYS) {
+    const value = obj[key];
+    if (value && typeof value === "object" && !Array.isArray(value)) {
+      for (const sub of Object.values(value)) {
+        stripUnsupportedSchemaKeywords(sub);
+      }
     }
   }
   return node;
