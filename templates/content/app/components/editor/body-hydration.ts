@@ -7,7 +7,16 @@ import type {
 export function builderBodyHydrationIsPending(
   hydration: ContentDatabaseBodyHydration | null | undefined,
 ) {
-  return !!hydration && hydration.status !== "hydrated";
+  return (
+    !!hydration &&
+    (hydration.status === "pending" || hydration.status === "hydrating")
+  );
+}
+
+export function builderBodyHydrationIsTerminalError(
+  hydration: ContentDatabaseBodyHydration | null | undefined,
+) {
+  return hydration?.status === "error";
 }
 
 export function databaseItemBodyHydrationIsPending(
@@ -33,6 +42,21 @@ export function previewBodyHydrationIsPending(args: {
   return (
     databaseItemBodyHydrationIsPending(args.item) ||
     (args.document ? documentBodyHydrationIsPending(args.document) : false)
+  );
+}
+
+export function previewBodyHydrationIsTerminalError(args: {
+  item: Pick<ContentDatabaseItem, "bodyHydration" | "document">;
+  document: Pick<Document, "databaseMembership"> | null | undefined;
+}) {
+  return (
+    builderBodyHydrationIsTerminalError(
+      args.document?.databaseMembership?.bodyHydration,
+    ) ||
+    builderBodyHydrationIsTerminalError(
+      args.item.bodyHydration ??
+        args.item.document.databaseMembership?.bodyHydration,
+    )
   );
 }
 

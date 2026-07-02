@@ -32,6 +32,10 @@ const databaseMessages = {
   builderBodiesQueued: "{{count}} queued",
   builderBodySync: "Body sync",
   builderBodySyncFailed: "{{count}} failed",
+  builderBodySyncFailedNotice:
+    "This article's body could not be synced from Builder",
+  builderBodySyncFailedDescription:
+    "The row stays editable, but the Builder body did not finish syncing. Review the article content before publishing or pushing changes.",
   builderBodySyncing: "Content is still syncing from Builder",
   builderBodySyncingDescription:
     "Editing is paused until the Builder body finishes syncing, so the existing article content is not overwritten.",
@@ -42,9 +46,13 @@ const databaseMessages = {
   builderReviewRemainingBatches:
     "Review again after this batch to prepare the remaining Builder changes.",
   builderBodiesSyncingProgress: "Syncing {{hydrated}} of {{total}} bodies.",
+  builderBodiesSyncFinishedWithFailures:
+    "{{hydrated}} of {{total}} bodies synced. {{failed}} failed.",
   builderRowsFetched: "{{count}} Builder rows fetched",
   builderRowsFetchedBodiesSyncing:
     "{{rows}} rows fetched. Syncing {{hydrated}} of {{total}} bodies.",
+  builderRowsFetchedBodiesSyncFinishedWithFailures:
+    "{{rows}} rows fetched. {{hydrated}} of {{total}} bodies synced. {{failed}} failed.",
   builderRowsFetchedSyncingBodies:
     "Builder rows are fetched. Article bodies are still syncing.",
   builderRowsFetchingMore: "fetching more rows",
@@ -7735,6 +7743,9 @@ export const messagesByLocale = {
       ...databaseExactEnglishMessagesByLocale["zh-CN"],
       builderBodiesReadyLocally: "Builder 文章正文已在本地准备就绪。",
       builderBodySync: "正文同步",
+      builderBodySyncFailedNotice: "此文章正文无法从 Builder 同步",
+      builderBodySyncFailedDescription:
+        "该行仍可编辑，但 Builder 正文未完成同步。发布或推送更改前请检查文章内容。",
       builderBodySyncing: "内容仍在从 Builder 同步",
       builderBodySyncingDescription:
         "同步 Builder 正文完成前会暂停编辑，避免覆盖现有文章内容。",
@@ -7745,8 +7756,12 @@ export const messagesByLocale = {
         "此批次完成后请再次审查，以准备其余 Builder 更改。",
       builderBodiesSyncingProgress:
         "正在同步 {{total}} 个正文中的 {{hydrated}} 个。",
+      builderBodiesSyncFinishedWithFailures:
+        "已同步 {{total}} 个正文中的 {{hydrated}} 个。{{failed}} 个失败。",
       builderRowsFetchedBodiesSyncing:
         "已获取 {{rows}} 行。正在同步 {{total}} 个正文中的 {{hydrated}} 个。",
+      builderRowsFetchedBodiesSyncFinishedWithFailures:
+        "已获取 {{rows}} 行。已同步 {{total}} 个正文中的 {{hydrated}} 个。{{failed}} 个失败。",
       builderRowsFetchedSyncingBodies:
         "Builder 行已全部获取。文章正文仍在同步中。",
       builderRowsFetchedSoFar: "目前已获取 {{count}} 行。",
@@ -7889,6 +7904,10 @@ export const messagesByLocale = {
       builderBodiesReadyLocally:
         "Los cuerpos de los artículos de Builder están listos localmente.",
       builderBodySync: "Sincronización del cuerpo",
+      builderBodySyncFailedNotice:
+        "El cuerpo de este artículo no se pudo sincronizar desde Builder",
+      builderBodySyncFailedDescription:
+        "La fila sigue siendo editable, pero el cuerpo de Builder no terminó de sincronizarse. Revisa el contenido del artículo antes de publicar o enviar cambios.",
       builderBodySyncing:
         "El contenido aún se está sincronizando desde Builder",
       builderBodySyncingDescription:
@@ -7900,8 +7919,12 @@ export const messagesByLocale = {
         "Revisa de nuevo después de este lote para preparar los cambios restantes de Builder.",
       builderBodiesSyncingProgress:
         "Sincronizando {{hydrated}} de {{total}} cuerpos.",
+      builderBodiesSyncFinishedWithFailures:
+        "{{hydrated}} de {{total}} cuerpos sincronizados. {{failed}} fallaron.",
       builderRowsFetchedBodiesSyncing:
         "{{rows}} filas obtenidas. Sincronizando {{hydrated}} de {{total}} cuerpos.",
+      builderRowsFetchedBodiesSyncFinishedWithFailures:
+        "{{rows}} filas obtenidas. {{hydrated}} de {{total}} cuerpos sincronizados. {{failed}} fallaron.",
       builderRowsFetchedSyncingBodies:
         "Las filas de Builder están obtenidas. Los cuerpos de los artículos aún se están sincronizando.",
       builderRowsFetchedSoFar: "{{count}} filas obtenidas hasta ahora.",
@@ -8057,6 +8080,10 @@ export const messagesByLocale = {
       builderBodiesReadyLocally:
         "Les corps d’articles Builder sont prêts localement.",
       builderBodySync: "Synchronisation du corps",
+      builderBodySyncFailedNotice:
+        "Le corps de cet article n'a pas pu être synchronisé depuis Builder",
+      builderBodySyncFailedDescription:
+        "La ligne reste modifiable, mais le corps Builder n'a pas terminé sa synchronisation. Vérifiez le contenu de l'article avant de publier ou de pousser des modifications.",
       builderBodySyncing:
         "Le contenu est encore en cours de synchronisation depuis Builder",
       builderBodySyncingDescription:
@@ -8068,8 +8095,12 @@ export const messagesByLocale = {
         "Relancez la revue après ce lot pour préparer les modifications Builder restantes.",
       builderBodiesSyncingProgress:
         "Synchronisation de {{hydrated}} corps sur {{total}}.",
+      builderBodiesSyncFinishedWithFailures:
+        "{{hydrated}} corps synchronisés sur {{total}}. {{failed}} échecs.",
       builderRowsFetchedBodiesSyncing:
         "{{rows}} lignes récupérées. Synchronisation de {{hydrated}} corps sur {{total}}.",
+      builderRowsFetchedBodiesSyncFinishedWithFailures:
+        "{{rows}} lignes récupérées. {{hydrated}} corps synchronisés sur {{total}}. {{failed}} échecs.",
       builderRowsFetchedSyncingBodies:
         "Les lignes Builder sont récupérées. Les corps d'articles se synchronisent encore.",
       builderRowsFetchedSoFar: "{{count}} lignes récupérées jusqu’à présent.",
@@ -8227,6 +8258,10 @@ export const messagesByLocale = {
       ...databaseExactEnglishMessagesByLocale["de-DE"],
       builderBodiesReadyLocally: "Builder-Artikelinhalte sind lokal bereit.",
       builderBodySync: "Inhaltssynchronisierung",
+      builderBodySyncFailedNotice:
+        "Der Inhalt dieses Artikels konnte nicht aus Builder synchronisiert werden",
+      builderBodySyncFailedDescription:
+        "Die Zeile bleibt bearbeitbar, aber der Builder-Inhalt wurde nicht vollständig synchronisiert. Prüfen Sie den Artikelinhalt vor dem Veröffentlichen oder Pushen.",
       builderBodySyncing: "Inhalte werden noch von Builder synchronisiert",
       builderBodySyncingDescription:
         "Die Bearbeitung ist pausiert, bis der Builder-Textkörper fertig synchronisiert ist, damit der bestehende Artikelinhalt nicht überschrieben wird.",
@@ -8237,8 +8272,12 @@ export const messagesByLocale = {
         "Nach diesem Stapel erneut überprüfen, um die restlichen Builder-Änderungen vorzubereiten.",
       builderBodiesSyncingProgress:
         "{{hydrated}} von {{total}} Texten werden synchronisiert.",
+      builderBodiesSyncFinishedWithFailures:
+        "{{hydrated}} von {{total}} Texten synchronisiert. {{failed}} fehlgeschlagen.",
       builderRowsFetchedBodiesSyncing:
         "{{rows}} Zeilen geladen. {{hydrated}} von {{total}} Texten werden synchronisiert.",
+      builderRowsFetchedBodiesSyncFinishedWithFailures:
+        "{{rows}} Zeilen geladen. {{hydrated}} von {{total}} Texten synchronisiert. {{failed}} fehlgeschlagen.",
       builderRowsFetchedSyncingBodies:
         "Builder-Zeilen sind geladen. Artikeltexte werden noch synchronisiert.",
       builderRowsFetchedSoFar: "{{count}} Zeilen bisher abgerufen.",
@@ -8397,6 +8436,10 @@ export const messagesByLocale = {
       builderBodiesReadyLocally:
         "Builder の記事本文はローカルで準備できています。",
       builderBodySync: "本文同期",
+      builderBodySyncFailedNotice:
+        "この記事の本文を Builder から同期できませんでした",
+      builderBodySyncFailedDescription:
+        "この行は引き続き編集できますが、Builder 本文の同期は完了していません。公開または変更のプッシュ前に記事内容を確認してください。",
       builderBodySyncing: "コンテンツはまだ Builder から同期中です",
       builderBodySyncingDescription:
         "既存の記事内容を上書きしないよう、Builder 本文の同期が完了するまで編集は一時停止されます。",
@@ -8407,8 +8450,12 @@ export const messagesByLocale = {
         "残りの Builder 変更を準備するには、このバッチの後で再度レビューしてください。",
       builderBodiesSyncingProgress:
         "{{total}} 件中 {{hydrated}} 件の本文を同期しています。",
+      builderBodiesSyncFinishedWithFailures:
+        "{{total}} 件中 {{hydrated}} 件の本文を同期しました。{{failed}} 件が失敗しました。",
       builderRowsFetchedBodiesSyncing:
         "{{rows}} 行を取得しました。{{total}} 件中 {{hydrated}} 件の本文を同期しています。",
+      builderRowsFetchedBodiesSyncFinishedWithFailures:
+        "{{rows}} 行を取得しました。{{total}} 件中 {{hydrated}} 件の本文を同期しました。{{failed}} 件が失敗しました。",
       builderRowsFetchedSyncingBodies:
         "Builder の行は取得済みです。記事本文はまだ同期中です。",
       builderRowsFetchedSoFar: "現在 {{count}} 行を取得済みです。",
@@ -8561,6 +8608,10 @@ export const messagesByLocale = {
       ...databaseExactEnglishMessagesByLocale["ko-KR"],
       builderBodiesReadyLocally: "Builder 문서 본문이 로컬에서 준비되었습니다.",
       builderBodySync: "본문 동기화",
+      builderBodySyncFailedNotice:
+        "이 문서 본문을 Builder에서 동기화하지 못했습니다",
+      builderBodySyncFailedDescription:
+        "이 행은 계속 편집할 수 있지만 Builder 본문 동기화가 완료되지 않았습니다. 게시하거나 변경 사항을 푸시하기 전에 문서 내용을 검토하세요.",
       builderBodySyncing: "콘텐츠가 아직 Builder에서 동기화되는 중입니다",
       builderBodySyncingDescription:
         "기존 문서 내용을 덮어쓰지 않도록 Builder 본문 동기화가 완료될 때까지 편집이 일시 중지됩니다.",
@@ -8571,8 +8622,12 @@ export const messagesByLocale = {
         "남은 Builder 변경 사항을 준비하려면 이 배치 후 다시 검토하세요.",
       builderBodiesSyncingProgress:
         "본문 {{total}}개 중 {{hydrated}}개를 동기화하는 중입니다.",
+      builderBodiesSyncFinishedWithFailures:
+        "본문 {{total}}개 중 {{hydrated}}개를 동기화했습니다. {{failed}}개 실패했습니다.",
       builderRowsFetchedBodiesSyncing:
         "행 {{rows}}개를 가져왔습니다. 본문 {{total}}개 중 {{hydrated}}개를 동기화하는 중입니다.",
+      builderRowsFetchedBodiesSyncFinishedWithFailures:
+        "행 {{rows}}개를 가져왔습니다. 본문 {{total}}개 중 {{hydrated}}개를 동기화했습니다. {{failed}}개 실패했습니다.",
       builderRowsFetchedSyncingBodies:
         "Builder 행을 모두 가져왔습니다. 문서 본문은 아직 동기화 중입니다.",
       builderRowsFetchedSoFar: "지금까지 {{count}}개 행을 가져왔습니다.",
@@ -8718,6 +8773,10 @@ export const messagesByLocale = {
       builderBodiesReadyLocally:
         "Os corpos dos artigos do Builder estão prontos localmente.",
       builderBodySync: "Sincronização do corpo",
+      builderBodySyncFailedNotice:
+        "O corpo deste artigo não pôde ser sincronizado do Builder",
+      builderBodySyncFailedDescription:
+        "A linha continua editável, mas o corpo do Builder não terminou de sincronizar. Revise o conteúdo do artigo antes de publicar ou enviar alterações.",
       builderBodySyncing: "O conteúdo ainda está sincronizando do Builder",
       builderBodySyncingDescription:
         "A edição fica pausada até o corpo do Builder terminar de sincronizar, para não sobrescrever o conteúdo existente do artigo.",
@@ -8728,8 +8787,12 @@ export const messagesByLocale = {
         "Revise novamente após este lote para preparar as alterações restantes do Builder.",
       builderBodiesSyncingProgress:
         "Sincronizando {{hydrated}} de {{total}} corpos.",
+      builderBodiesSyncFinishedWithFailures:
+        "{{hydrated}} de {{total}} corpos sincronizados. {{failed}} falharam.",
       builderRowsFetchedBodiesSyncing:
         "{{rows}} linhas obtidas. Sincronizando {{hydrated}} de {{total}} corpos.",
+      builderRowsFetchedBodiesSyncFinishedWithFailures:
+        "{{rows}} linhas obtidas. {{hydrated}} de {{total}} corpos sincronizados. {{failed}} falharam.",
       builderRowsFetchedSyncingBodies:
         "As linhas do Builder foram obtidas. Os corpos dos artigos ainda estão sincronizando.",
       builderRowsFetchedSoFar: "{{count}} linhas buscadas até agora.",
@@ -8887,6 +8950,9 @@ export const messagesByLocale = {
       ...databaseExactEnglishMessagesByLocale["hi-IN"],
       builderBodiesReadyLocally: "Builder लेखों की बॉडी स्थानीय रूप से तैयार है।",
       builderBodySync: "बॉडी सिंक",
+      builderBodySyncFailedNotice: "इस लेख की बॉडी Builder से सिंक नहीं हो सकी",
+      builderBodySyncFailedDescription:
+        "पंक्ति संपादन योग्य रहती है, लेकिन Builder बॉडी ने सिंक पूरा नहीं किया। प्रकाशित करने या परिवर्तन पुश करने से पहले लेख सामग्री की समीक्षा करें।",
       builderBodySyncing: "सामग्री अभी भी Builder से सिंक हो रही है",
       builderBodySyncingDescription:
         "Builder का मुख्य भाग सिंक पूरा होने तक संपादन रोका गया है, ताकि मौजूदा लेख सामग्री अधिलेखित न हो।",
@@ -8897,8 +8963,12 @@ export const messagesByLocale = {
         "शेष Builder परिवर्तन तैयार करने के लिए इस बैच के बाद फिर से समीक्षा करें।",
       builderBodiesSyncingProgress:
         "{{total}} में से {{hydrated}} मुख्य भाग सिंक हो रहे हैं।",
+      builderBodiesSyncFinishedWithFailures:
+        "{{total}} में से {{hydrated}} मुख्य भाग सिंक हुए। {{failed}} विफल हुए।",
       builderRowsFetchedBodiesSyncing:
         "{{rows}} पंक्तियाँ प्राप्त हुईं। {{total}} में से {{hydrated}} मुख्य भाग सिंक हो रहे हैं।",
+      builderRowsFetchedBodiesSyncFinishedWithFailures:
+        "{{rows}} पंक्तियाँ प्राप्त हुईं। {{total}} में से {{hydrated}} मुख्य भाग सिंक हुए। {{failed}} विफल हुए।",
       builderRowsFetchedSyncingBodies:
         "Builder पंक्तियाँ प्राप्त हो गई हैं। लेखों के मुख्य भाग अभी भी सिंक हो रहे हैं।",
       builderRowsFetchedSoFar: "अब तक {{count}} पंक्तियां लाई गईं।",
@@ -9042,6 +9112,9 @@ export const messagesByLocale = {
       ...databaseExactEnglishMessagesByLocale["ar-SA"],
       builderBodiesReadyLocally: "أصبحت نصوص مقالات Builder جاهزة محليًا.",
       builderBodySync: "مزامنة النص",
+      builderBodySyncFailedNotice: "تعذرت مزامنة نص هذه المقالة من Builder",
+      builderBodySyncFailedDescription:
+        "يبقى الصف قابلاً للتحرير، لكن نص Builder لم يكمل المزامنة. راجع محتوى المقالة قبل النشر أو دفع التغييرات.",
       builderBodySyncing: "لا يزال المحتوى قيد المزامنة من Builder",
       builderBodySyncingDescription:
         "يتم إيقاف التحرير مؤقتًا حتى تكتمل مزامنة نص Builder، حتى لا يتم استبدال محتوى المقالة الحالي.",
@@ -9052,8 +9125,12 @@ export const messagesByLocale = {
         "راجع مرة أخرى بعد هذه الدفعة لتحضير تغييرات Builder المتبقية.",
       builderBodiesSyncingProgress:
         "تتم مزامنة {{hydrated}} من {{total}} من النصوص.",
+      builderBodiesSyncFinishedWithFailures:
+        "تمت مزامنة {{hydrated}} من {{total}} من النصوص. فشل {{failed}}.",
       builderRowsFetchedBodiesSyncing:
         "تم جلب {{rows}} صفًا. تتم مزامنة {{hydrated}} من {{total}} من النصوص.",
+      builderRowsFetchedBodiesSyncFinishedWithFailures:
+        "تم جلب {{rows}} صفًا. تمت مزامنة {{hydrated}} من {{total}} من النصوص. فشل {{failed}}.",
       builderRowsFetchedSyncingBodies:
         "تم جلب صفوف Builder. لا تزال نصوص المقالات قيد المزامنة.",
       builderRowsFetchedSoFar: "تم جلب {{count}} صفًا حتى الآن.",

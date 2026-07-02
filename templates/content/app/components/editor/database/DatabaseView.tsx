@@ -177,9 +177,11 @@ import { resolveBuilderCmsWriteEffect } from "../../../../actions/_builder-cms-w
 import {
   databaseItemBodyHydrationIsPending,
   previewBodyHydrationIsPending,
+  previewBodyHydrationIsTerminalError,
   shouldIgnorePreviewEmptyNormalization,
 } from "../body-hydration";
 import {
+  builderBodyHydrationMutationMadeProgress,
   builderBodyHydrationPumpKey,
   shouldPumpBuilderBodyHydration,
 } from "../builder-body-hydration-pump";
@@ -817,7 +819,14 @@ function DatabaseTable({
     autoPumpBuilderBodiesRef.current = hydrationKey;
     processBuilderBodies.mutate(
       { sourceId: source.id },
-      { onError: () => setBuilderHydrationClientErrorKey(hydrationKey) },
+      {
+        onSuccess: (result) => {
+          if (!builderBodyHydrationMutationMadeProgress(result)) {
+            setBuilderHydrationClientErrorKey(hydrationKey);
+          }
+        },
+        onError: () => setBuilderHydrationClientErrorKey(hydrationKey),
+      },
     );
   }, [
     builderHydrationClientErrorKey,
@@ -2480,6 +2489,10 @@ function DatabaseItemPreview({
     item,
     document,
   });
+  const bodyHydrationError = previewBodyHydrationIsTerminalError({
+    item,
+    document,
+  });
   const previewCanEdit = canEdit && !bodyHydrationPending;
   const location = useLocation();
   // Seed the displayed title/content from a RETAINED dirty controller's pending
@@ -2988,17 +3001,27 @@ function DatabaseItemPreview({
                 // identical loading/empty/solo/multi behavior — including the
                 // empty state (no editable body when there are zero Blocks
                 // fields). Only database rows have Blocks fields.
-                if (previewDocument.databaseMembership) {
-                  return (
-                    <DocumentBlockFields
-                      documentId={previewDocument.id}
-                      canEdit={previewCanEdit}
-                      primaryEditor={primaryEditor}
-                    />
-                  );
-                }
+                const editor = previewDocument.databaseMembership ? (
+                  <DocumentBlockFields
+                    documentId={previewDocument.id}
+                    canEdit={previewCanEdit}
+                    primaryEditor={primaryEditor}
+                  />
+                ) : (
+                  primaryEditor
+                );
 
-                return primaryEditor;
+                return (
+                  <div className="grid gap-4">
+                    {bodyHydrationError ? (
+                      <BuilderBodySyncingNotice
+                        title={dbText("builderBodySyncFailedNotice")}
+                        description={dbText("builderBodySyncFailedDescription")}
+                      />
+                    ) : null}
+                    {editor}
+                  </div>
+                );
               })()}
             </div>
           </div>
@@ -5626,32 +5649,53 @@ function BuilderSourceContinuationBar({
     !!bodyHydration &&
     bodyHydration.total > 0 &&
     bodyHydration.pending + bodyHydration.hydrating > 0;
-  if (!status && !bodyHydrationActive) return null;
+  const bodyHydrationFailed =
+    !hasMore &&
+    !!bodyHydration &&
+    bodyHydration.total > 0 &&
+    bodyHydration.error > 0 &&
+    bodyHydration.pending + bodyHydration.hydrating === 0;
+  const bodyHydrationVisible = bodyHydrationActive || bodyHydrationFailed;
+  if (!status && !bodyHydrationVisible) return null;
   const progressPercent = bodyHydrationActive
     ? Math.round((hydratedCount / bodyHydration!.total) * 100)
     : builderSourceContinuationProgressPercent(source);
   const label =
     status === "error"
       ? dbText("builderRowsLoadingHitSnag")
-      : bodyHydrationActive
-        ? dbText("builderRowsFetchedSyncingBodies")
-        : hasMore
-          ? dbText("builderRowsLoadingBackground")
-          : dbText("builderRowsFinishingUp");
+      : bodyHydrationFailed
+        ? dbText("builderRowsLoadingHitSnag")
+        : bodyHydrationActive
+          ? dbText("builderRowsFetchedSyncingBodies")
+          : hasMore
+            ? dbText("builderRowsLoadingBackground")
+            : dbText("builderRowsFinishingUp");
   const detail =
     fetchedCount === null
-      ? bodyHydrationActive && bodyHydration
-        ? dbText("builderBodiesSyncingProgress", {
-            hydrated: hydratedCount,
-            total: bodyHydration.total,
-          })
+      ? bodyHydrationVisible && bodyHydration
+        ? dbText(
+            bodyHydrationFailed
+              ? "builderBodiesSyncFinishedWithFailures"
+              : "builderBodiesSyncingProgress",
+            {
+              hydrated: hydratedCount,
+              total: bodyHydration.total,
+              failed: bodyHydration.error,
+            },
+          )
         : null
-      : bodyHydrationActive && bodyHydration
-        ? dbText("builderRowsFetchedBodiesSyncing", {
-            rows: fetchedCount,
-            hydrated: hydratedCount,
-            total: bodyHydration.total,
-          })
+      : bodyHydrationVisible && bodyHydration
+        ? dbText(
+            bodyHydrationFailed
+              ? "builderRowsFetchedBodiesSyncFinishedWithFailures"
+              : "builderRowsFetchedBodiesSyncing",
+            {
+              rows: fetchedCount,
+              hydrated: hydratedCount,
+              total: bodyHydration.total,
+              failed: bodyHydration.error,
+            },
+          )
         : dbText("builderRowsFetchedSoFar", { count: fetchedCount });
 
   return (

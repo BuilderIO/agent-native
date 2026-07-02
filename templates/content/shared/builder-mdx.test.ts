@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   builderBlocksHash,
+  builderBlocksToReadableMarkdown,
   builderEntryToMdxBundle,
   builderEntryToReadableMdxBundle,
   builderReadableBodyToBuilderBlocks,
@@ -153,7 +154,74 @@ function testBlocks(entry: BuilderContentEntry): unknown[] {
   return Array.isArray(entry.data?.blocks) ? entry.data.blocks : [];
 }
 
+function textEntry(id: string, text: string): BuilderContentEntry {
+  return {
+    id,
+    model: "blog-article",
+    name: id,
+    lastUpdated: "1700000000100",
+    data: {
+      title: id,
+      blocks: [
+        {
+          "@type": "@builder.io/sdk:Element",
+          "@version": 2,
+          id: `${id}-text`,
+          component: {
+            name: "Text",
+            options: { text: `<p>${text}</p>` },
+          },
+        },
+      ],
+    },
+  };
+}
+
 describe("Builder MDX conversion", () => {
+  it.each([
+    [
+      "100-percent-free-angle",
+      "How Does Trae, the 100% Free AI IDE, Compare to Cursor? Values like &lt;5 should stay prose.",
+      "Values like <5 should stay prose.",
+    ],
+    [
+      "qwik-visible-task",
+      "Boost site perf with {useVisibleTask$()} without turning prose into an MDX expression.",
+      "Boost site perf with {useVisibleTask$()}",
+    ],
+    [
+      "a2a-braces",
+      'A2A protocol snippets can mention {"jsonrpc":"2.0"} in prose.',
+      '{"jsonrpc":"2.0"}',
+    ],
+  ])(
+    "round-trips MDX-unsafe Builder text prose: %s",
+    async (id, htmlText, expectedReadableText) => {
+      const bundle = await builderEntryToMdxBundle(textEntry(id, htmlText));
+
+      const result = await builderMdxToBuilderBlocks({
+        path: bundle.mdx.path,
+        source: bundle.mdx.source,
+        sidecars: bundle.files,
+      });
+      const readable = await builderBlocksToReadableMarkdown(result.blocks);
+
+      expect(readable).toContain(expectedReadableText);
+    },
+  );
+
+  it("escapes MDX-only syntax in generated lossless BuilderText wrappers", async () => {
+    const bundle = await builderEntryToMdxBundle(
+      textEntry(
+        "lossless-escape",
+        "Use {useVisibleTask$()} when a value is &lt;5.",
+      ),
+    );
+
+    expect(bundle.mdx.body).toContain("\\{useVisibleTask$()\\}");
+    expect(bundle.mdx.body).toContain("\\<5");
+  });
+
   it("pulls Builder blocks into .builder.mdx with raw sidecars", async () => {
     const bundle = await builderEntryToMdxBundle(entry);
 

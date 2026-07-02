@@ -493,7 +493,8 @@ function normalizeBuilderBodyBaselineContent(value: string | null | undefined) {
 const BUILDER_BODY_HYDRATION_BACKGROUND_PRIORITY = 10;
 const BUILDER_BODY_HYDRATION_OPEN_PRIORITY = 0;
 const BUILDER_BODY_HYDRATION_BATCH_LIMIT = 8;
-const BUILDER_BODY_HYDRATION_CODEC_VERSION = "readable-native-images-v4";
+const BUILDER_BODY_HYDRATION_MAX_ATTEMPTS = 5;
+const BUILDER_BODY_HYDRATION_CODEC_VERSION = "readable-native-images-v5";
 const BUILDER_CMS_REFRESH_INITIAL_PAGES = 1;
 
 export function builderBodyHydrationPriorityForRequest(args: {
@@ -510,6 +511,10 @@ export function sortBuilderBodyHydrationQueueForProcessing<
   return [...rows].sort(
     (a, b) => a.priority - b.priority || a.createdAt.localeCompare(b.createdAt),
   );
+}
+
+export function builderBodyHydrationAttemptIsTerminal(attempts: number) {
+  return attempts >= BUILDER_BODY_HYDRATION_MAX_ATTEMPTS;
 }
 
 async function builderBodySnapshotForEntry(entry: BuilderCmsSourceEntry) {
@@ -1169,6 +1174,7 @@ export async function processBuilderBodyHydrationQueue(args: {
     } catch (error) {
       failed += 1;
       const message = error instanceof Error ? error.message : String(error);
+      const attempts = job.attempts + 1;
       await db
         .update(schema.contentDatabaseItems)
         .set({
@@ -1178,10 +1184,16 @@ export async function processBuilderBodyHydrationQueue(args: {
           updatedAt: attemptNow,
         })
         .where(eq(schema.contentDatabaseItems.id, job.databaseItemId));
+      if (builderBodyHydrationAttemptIsTerminal(attempts)) {
+        await db
+          .delete(schema.contentDatabaseBodyHydrationQueue)
+          .where(eq(schema.contentDatabaseBodyHydrationQueue.id, job.id));
+        continue;
+      }
       await db
         .update(schema.contentDatabaseBodyHydrationQueue)
         .set({
-          attempts: job.attempts + 1,
+          attempts,
           lastAttemptedAt: attemptNow,
           lastError: message,
           priority: job.priority + 10,

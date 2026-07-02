@@ -1,4 +1,7 @@
-import type { ContentDatabaseSource } from "@shared/api";
+import type {
+  ContentDatabaseSource,
+  ProcessBuilderBodyHydrationResponse,
+} from "@shared/api";
 
 export function builderBodyHydrationPumpKey(
   source: ContentDatabaseSource | null | undefined,
@@ -13,6 +16,22 @@ export function builderBodyHydrationPumpKey(
     summary.error,
     summary.total,
   ].join(":");
+}
+
+export function builderBodyHydrationProgressKey(
+  source: ContentDatabaseSource | null | undefined,
+) {
+  const summary = source?.bodyHydration;
+  if (!source || !summary) return null;
+  return [source.id, summary.pending, summary.hydrated, summary.total].join(
+    ":",
+  );
+}
+
+export function builderBodyHydrationMutationMadeProgress(
+  result: ProcessBuilderBodyHydrationResponse,
+) {
+  return result.succeeded > 0 || result.remaining === 0;
 }
 
 export function shouldPumpBuilderBodyHydration(
