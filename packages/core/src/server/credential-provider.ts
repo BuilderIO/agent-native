@@ -78,6 +78,10 @@ export function readDeployCredentialEnv(key: string): string | undefined {
  * single-tenant contexts. In hosted production with a shared database, every
  * signed-in user needs their own user/org/workspace credential so one deploy
  * key does not silently power another tenant's chat.
+ *
+ * @deprecated Use `canUseDeployCredentialFallbackForRequest()` for generic
+ * provider secrets. This stricter helper remains for legacy call sites with
+ * identity-bearing deploy credentials.
  */
 export function isDeployCredentialFallbackAllowed(): boolean {
   if (!isProductionLikeRuntime()) return true;
@@ -86,9 +90,10 @@ export function isDeployCredentialFallbackAllowed(): boolean {
 
 export function canUseDeployCredentialFallbackForRequest(): boolean {
   const email = getRequestUserEmail();
-  if (email && isHostedWorkspaceRuntime()) return false;
   if (!email) return true;
-  return isDeployCredentialFallbackAllowed();
+  if (isHostedWorkspaceRuntime()) return false;
+  if (!isProductionLikeRuntime()) return true;
+  return isLocalDatabase();
 }
 
 const BUILDER_CREDENTIAL_KEYS = [
@@ -962,10 +967,10 @@ export async function resolveSecret(key: string): Promise<string | null> {
       }
       // Secrets table not ready — treat as missing.
     }
-    // Authenticated multi-tenant context: never fall back to process.env.
-    // The deploy-level value would silently impersonate the actual key
-    // owner across every tenant. Local/single-tenant deployments keep the
-    // original env fallback for BYO-server workflows.
+    // Read deployment-provided env values as fallbacks; framework code must not
+    // write to `process.env`, but keys supplied by the host remain valid config.
+    // Builder credentials keep a narrower path below because those keys carry a
+    // Builder identity rather than just enabling a provider call.
     const envFallback = (
       isBuilderCredentialKey(key)
         ? canUseBuilderDeployCredentialFallbackForRequest()

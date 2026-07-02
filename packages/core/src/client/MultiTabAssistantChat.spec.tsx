@@ -566,8 +566,10 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
     const composerChildren = Array.from(
       container.querySelector("[data-testid='assistant-chat']")?.children ?? [],
     );
+    const badgeButton = badges[0]?.querySelector("button");
     expect(badges).toHaveLength(1);
     expect(badges[0]?.textContent).toContain("Using this form");
+    expect(badgeButton?.className).not.toContain("shadow");
     expect(composerChildren).toEqual([hostSlot, badges[0]]);
   });
 

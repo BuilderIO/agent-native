@@ -285,8 +285,8 @@ const enUS = {
         "Bring in Figma selections, .fig exports, or standalone HTML as Design screens.",
       figmaPasteTitle: "Paste from Figma",
       figmaPasteDescription:
-        "Copy a frame or layer in Figma, then focus this target and paste. Figma metadata imports directly when available.",
-      figmaPasteTarget: "Paste Figma content here",
+        "Copy a frame or layer in Figma, then paste into the Design canvas. Figma metadata imports directly when available.",
+      figmaPasteTarget: "Paste into the canvas",
       figUploadTitle: "Upload .fig",
       figUploadDescription:
         "Export only the frames you need. Large files with many embedded images may exceed the import limit.",
@@ -300,17 +300,15 @@ const enUS = {
       githubTitle: "GitHub",
       githubDescription:
         "Coming soon: import screens and components directly from a repository.",
-      localTitle: "Local app / VS Code",
-      localDescription: "Connect a running local app with visual-edit.",
+      localTitle: "Local app",
+      localDescription: "Connect any running local app with /visual-edit.",
       visualEditGuidance:
-        "Start your app, run the command below from the app repo, then ask the agent to use the visual-edit skill to add URL-backed screens.",
-      useVisualEditNow: "Use visual-edit now",
+        "Install the /visual-edit skill, start any local app, then run the bridge command from that app repo so your agent can add URL-backed screens.",
       comingSoon: "Coming soon",
       warningsToast: "Import completed with warnings",
       figmaSuccess: "Figma paste imported",
       htmlSuccess: "HTML imported",
       uploadSuccess: "File imported",
-      visualEditSent: "Sent visual-edit request to the agent",
       lastImport: "Last import",
       errors: {
         notHtml: "Paste or choose valid HTML to import.",
@@ -10100,8 +10098,8 @@ const designImportOverrides = {
           "將 Figma 選取內容、.fig 匯出檔或獨立 HTML 帶入為 Design 螢幕。",
         figmaPasteTitle: "從 Figma 貼上",
         figmaPasteDescription:
-          "在 Figma 複製畫框或圖層，然後聚焦此目標並貼上。可用時會直接匯入 Figma 中繼資料。",
-        figmaPasteTarget: "在此貼上 Figma 內容",
+          "在 Figma 複製畫框或圖層，然後貼到 Design 畫布。可用時會直接匯入 Figma 中繼資料。",
+        figmaPasteTarget: "貼到畫布",
         figUploadTitle: "上傳 .fig",
         figUploadDescription:
           "只匯出需要的畫框。含有許多嵌入圖片的大型檔案可能超過匯入限制。",
@@ -10114,17 +10112,15 @@ const designImportOverrides = {
         chooseHtmlFile: "選擇 HTML 檔案",
         githubTitle: "GitHub",
         githubDescription: "即將推出：直接從儲存庫匯入螢幕和元件。",
-        localTitle: "本機 app / VS Code",
-        localDescription: "使用 visual-edit 連接執行中的本機 app。",
+        localTitle: "本機 app",
+        localDescription: "使用 /visual-edit 連接任何執行中的本機 app。",
         visualEditGuidance:
-          "啟動 app，在 app repo 中執行下方命令，然後請代理使用 visual-edit skill 新增 URL 螢幕。",
-        useVisualEditNow: "立即使用 visual-edit",
+          "安裝 /visual-edit skill，啟動任意本機 app，然後在該 app repo 中執行橋接命令，讓代理新增 URL 螢幕。",
         comingSoon: "即將推出",
         warningsToast: "匯入完成但有警告",
         figmaSuccess: "已匯入 Figma 貼上內容",
         htmlSuccess: "已匯入 HTML",
         uploadSuccess: "已匯入檔案",
-        visualEditSent: "已將 visual-edit 請求傳送給代理",
         lastImport: "上次匯入",
         errors: {
           notHtml: "請貼上或選擇有效的 HTML 以匯入。",
@@ -10142,8 +10138,8 @@ const designImportOverrides = {
         description: "将 Figma 选区、.fig 导出或独立 HTML 导入为 Design 屏幕。",
         figmaPasteTitle: "从 Figma 粘贴",
         figmaPasteDescription:
-          "在 Figma 中复制画框或图层，然后聚焦此区域并粘贴。有可用元数据时会直接导入。",
-        figmaPasteTarget: "在此粘贴 Figma 内容",
+          "在 Figma 中复制画框或图层，然后粘贴到 Design 画布。有可用元数据时会直接导入。",
+        figmaPasteTarget: "粘贴到画布",
         figUploadTitle: "上传 .fig",
         figUploadDescription:
           "只导出需要的画框。包含大量嵌入图片的大文件可能超过导入限制。",
@@ -10156,17 +10152,15 @@ const designImportOverrides = {
         chooseHtmlFile: "选择 HTML 文件",
         githubTitle: "GitHub",
         githubDescription: "即将推出：直接从仓库导入屏幕和组件。",
-        localTitle: "本地 app / VS Code",
-        localDescription: "使用 visual-edit 连接正在运行的本地 app。",
+        localTitle: "本地 app",
+        localDescription: "使用 /visual-edit 连接任何正在运行的本地 app。",
         visualEditGuidance:
-          "启动 app，在 app repo 中运行下方命令，然后让代理使用 visual-edit skill 添加 URL 屏幕。",
-        useVisualEditNow: "立即使用 visual-edit",
+          "安装 /visual-edit skill，启动任意本地 app，然后在该 app repo 中运行桥接命令，让代理添加 URL 屏幕。",
         comingSoon: "即将推出",
         warningsToast: "导入完成但有警告",
         figmaSuccess: "已导入 Figma 粘贴内容",
         htmlSuccess: "已导入 HTML",
         uploadSuccess: "已导入文件",
-        visualEditSent: "已将 visual-edit 请求发送给代理",
         lastImport: "上次导入",
         errors: {
           notHtml: "请粘贴或选择有效的 HTML 进行导入。",
@@ -10185,8 +10179,8 @@ const designImportOverrides = {
           "Trae selecciones de Figma, exportaciones .fig o HTML independiente como pantallas de Design.",
         figmaPasteTitle: "Pegar desde Figma",
         figmaPasteDescription:
-          "Copia un marco o capa en Figma, enfoca este destino y pega. Los metadatos de Figma se importan directamente cuando están disponibles.",
-        figmaPasteTarget: "Pega contenido de Figma aquí",
+          "Copia un marco o capa en Figma y pégalo en el lienzo de Design. Los metadatos de Figma se importan directamente cuando están disponibles.",
+        figmaPasteTarget: "Pega en el lienzo",
         figUploadTitle: "Subir .fig",
         figUploadDescription:
           "Exporta solo los marcos necesarios. Los archivos grandes con muchas imágenes incrustadas pueden superar el límite.",
@@ -10200,17 +10194,16 @@ const designImportOverrides = {
         githubTitle: "GitHub",
         githubDescription:
           "Próximamente: importar pantallas y componentes directamente desde un repositorio.",
-        localTitle: "App local / VS Code",
-        localDescription: "Conecta una app local en ejecución con visual-edit.",
+        localTitle: "App local",
+        localDescription:
+          "Conecta cualquier app local en ejecución con /visual-edit.",
         visualEditGuidance:
-          "Inicia tu app, ejecuta el comando siguiente desde el repo de la app y luego pide al agente que use la skill visual-edit para añadir pantallas con URL.",
-        useVisualEditNow: "Usar visual-edit ahora",
+          "Instala la skill /visual-edit, inicia cualquier app local y ejecuta el comando de puente desde ese repo para que tu agente añada pantallas con URL.",
         comingSoon: "Próximamente",
         warningsToast: "La importación terminó con advertencias",
         figmaSuccess: "Pegado de Figma importado",
         htmlSuccess: "HTML importado",
         uploadSuccess: "Archivo importado",
-        visualEditSent: "Solicitud de visual-edit enviada al agente",
         lastImport: "Última importación",
         errors: {
           notHtml: "Pega o elige HTML válido para importar.",
@@ -10229,8 +10222,8 @@ const designImportOverrides = {
           "Importez des sélections Figma, des exports .fig ou du HTML autonome comme écrans Design.",
         figmaPasteTitle: "Coller depuis Figma",
         figmaPasteDescription:
-          "Copiez un frame ou un calque dans Figma, ciblez cette zone puis collez. Les métadonnées Figma sont importées directement si disponibles.",
-        figmaPasteTarget: "Collez le contenu Figma ici",
+          "Copiez un frame ou un calque dans Figma, puis collez-le dans le canevas Design. Les métadonnées Figma sont importées directement si disponibles.",
+        figmaPasteTarget: "Collez dans le canevas",
         figUploadTitle: "Téléverser .fig",
         figUploadDescription:
           "Exportez seulement les frames nécessaires. Les gros fichiers avec beaucoup d’images intégrées peuvent dépasser la limite.",
@@ -10244,18 +10237,16 @@ const designImportOverrides = {
         githubTitle: "GitHub",
         githubDescription:
           "Bientôt : importer des écrans et composants directement depuis un dépôt.",
-        localTitle: "App locale / VS Code",
+        localTitle: "App locale",
         localDescription:
-          "Connectez une app locale en cours d’exécution avec visual-edit.",
+          "Connectez n’importe quelle app locale en cours d’exécution avec /visual-edit.",
         visualEditGuidance:
-          "Lancez votre app, exécutez la commande ci-dessous depuis le dépôt de l’app, puis demandez à l’agent d’utiliser la skill visual-edit pour ajouter des écrans par URL.",
-        useVisualEditNow: "Utiliser visual-edit maintenant",
+          "Installez la skill /visual-edit, lancez n’importe quelle app locale, puis exécutez la commande de pont depuis ce dépôt pour que votre agent ajoute des écrans par URL.",
         comingSoon: "Bientôt",
         warningsToast: "Import terminé avec avertissements",
         figmaSuccess: "Collage Figma importé",
         htmlSuccess: "HTML importé",
         uploadSuccess: "Fichier importé",
-        visualEditSent: "Demande visual-edit envoyée à l’agent",
         lastImport: "Dernier import",
         errors: {
           notHtml: "Collez ou choisissez du HTML valide à importer.",
@@ -10274,8 +10265,8 @@ const designImportOverrides = {
           "Bringe Figma-Auswahlen, .fig-Exporte oder eigenständiges HTML als Design-Bildschirme hinein.",
         figmaPasteTitle: "Aus Figma einfügen",
         figmaPasteDescription:
-          "Kopiere einen Frame oder Layer in Figma, fokussiere dieses Ziel und füge ein. Figma-Metadaten werden direkt importiert, wenn sie verfügbar sind.",
-        figmaPasteTarget: "Figma-Inhalt hier einfügen",
+          "Kopiere einen Frame oder Layer in Figma und füge ihn in die Design-Leinwand ein. Figma-Metadaten werden direkt importiert, wenn sie verfügbar sind.",
+        figmaPasteTarget: "In die Leinwand einfügen",
         figUploadTitle: ".fig hochladen",
         figUploadDescription:
           "Exportiere nur die benötigten Frames. Große Dateien mit vielen eingebetteten Bildern können das Importlimit überschreiten.",
@@ -10289,17 +10280,15 @@ const designImportOverrides = {
         githubTitle: "GitHub",
         githubDescription:
           "Demnächst: Bildschirme und Komponenten direkt aus einem Repository importieren.",
-        localTitle: "Lokale App / VS Code",
-        localDescription: "Verbinde eine laufende lokale App mit visual-edit.",
+        localTitle: "Lokale App",
+        localDescription: "Verbinde jede laufende lokale App mit /visual-edit.",
         visualEditGuidance:
-          "Starte deine App, führe den folgenden Befehl im App-Repo aus und bitte den Agenten dann, die visual-edit-Skill zu verwenden, um URL-basierte Bildschirme hinzuzufügen.",
-        useVisualEditNow: "visual-edit jetzt verwenden",
+          "Installiere die /visual-edit-Skill, starte eine lokale App und führe dann den Bridge-Befehl aus diesem App-Repo aus, damit dein Agent URL-basierte Bildschirme hinzufügen kann.",
         comingSoon: "Demnächst",
         warningsToast: "Import mit Warnungen abgeschlossen",
         figmaSuccess: "Figma-Einfügung importiert",
         htmlSuccess: "HTML importiert",
         uploadSuccess: "Datei importiert",
-        visualEditSent: "visual-edit-Anfrage an den Agenten gesendet",
         lastImport: "Letzter Import",
         errors: {
           notHtml: "Füge gültiges HTML ein oder wähle es zum Importieren aus.",
@@ -10318,8 +10307,8 @@ const designImportOverrides = {
           "Figma の選択範囲、.fig エクスポート、または単体 HTML を Design の画面として取り込みます。",
         figmaPasteTitle: "Figma から貼り付け",
         figmaPasteDescription:
-          "Figma でフレームまたはレイヤーをコピーし、この領域にフォーカスして貼り付けます。利用可能な場合は Figma メタデータを直接インポートします。",
-        figmaPasteTarget: "ここに Figma コンテンツを貼り付け",
+          "Figma でフレームまたはレイヤーをコピーし、Design キャンバスに貼り付けます。利用可能な場合は Figma メタデータを直接インポートします。",
+        figmaPasteTarget: "キャンバスに貼り付け",
         figUploadTitle: ".fig をアップロード",
         figUploadDescription:
           "必要なフレームだけを書き出してください。埋め込み画像が多い大きなファイルは制限を超える場合があります。",
@@ -10333,17 +10322,16 @@ const designImportOverrides = {
         githubTitle: "GitHub",
         githubDescription:
           "近日対応: リポジトリから画面とコンポーネントを直接インポートします。",
-        localTitle: "ローカル app / VS Code",
-        localDescription: "visual-edit で実行中のローカル app に接続します。",
+        localTitle: "ローカル app",
+        localDescription:
+          "/visual-edit で任意の実行中ローカル app に接続します。",
         visualEditGuidance:
-          "app を起動し、app repo で下のコマンドを実行してから、エージェントに visual-edit skill で URL ベースの画面を追加するよう依頼してください。",
-        useVisualEditNow: "visual-edit を今すぐ使う",
+          "/visual-edit skill をインストールし、任意のローカル app を起動してから、その app repo でブリッジコマンドを実行し、エージェントが URL ベースの画面を追加できるようにします。",
         comingSoon: "近日対応",
         warningsToast: "警告付きでインポートが完了しました",
         figmaSuccess: "Figma 貼り付けをインポートしました",
         htmlSuccess: "HTML をインポートしました",
         uploadSuccess: "ファイルをインポートしました",
-        visualEditSent: "visual-edit リクエストをエージェントに送信しました",
         lastImport: "前回のインポート",
         errors: {
           notHtml: "インポートする有効な HTML を貼り付けるか選択してください。",
@@ -10362,8 +10350,8 @@ const designImportOverrides = {
           "Figma 선택 영역, .fig 내보내기 또는 독립 HTML을 Design 화면으로 가져옵니다.",
         figmaPasteTitle: "Figma에서 붙여넣기",
         figmaPasteDescription:
-          "Figma에서 프레임이나 레이어를 복사한 뒤 이 영역에 포커스하고 붙여넣으세요. 가능한 경우 Figma 메타데이터를 바로 가져옵니다.",
-        figmaPasteTarget: "여기에 Figma 콘텐츠 붙여넣기",
+          "Figma에서 프레임이나 레이어를 복사한 뒤 Design 캔버스에 붙여넣으세요. 가능한 경우 Figma 메타데이터를 바로 가져옵니다.",
+        figmaPasteTarget: "캔버스에 붙여넣기",
         figUploadTitle: ".fig 업로드",
         figUploadDescription:
           "필요한 프레임만 내보내세요. 포함된 이미지가 많은 큰 파일은 가져오기 제한을 초과할 수 있습니다.",
@@ -10377,17 +10365,16 @@ const designImportOverrides = {
         githubTitle: "GitHub",
         githubDescription:
           "곧 제공: 저장소에서 화면과 컴포넌트를 직접 가져옵니다.",
-        localTitle: "로컬 app / VS Code",
-        localDescription: "visual-edit로 실행 중인 로컬 app을 연결합니다.",
+        localTitle: "로컬 app",
+        localDescription:
+          "/visual-edit로 실행 중인 모든 로컬 app을 연결합니다.",
         visualEditGuidance:
-          "app을 시작하고 app repo에서 아래 명령을 실행한 다음, 에이전트에게 visual-edit skill로 URL 기반 화면을 추가해 달라고 요청하세요.",
-        useVisualEditNow: "지금 visual-edit 사용",
+          "/visual-edit skill을 설치하고 로컬 app을 시작한 뒤, 해당 app repo에서 브리지 명령을 실행해 에이전트가 URL 기반 화면을 추가할 수 있게 하세요.",
         comingSoon: "곧 제공",
         warningsToast: "경고와 함께 가져오기가 완료되었습니다",
         figmaSuccess: "Figma 붙여넣기를 가져왔습니다",
         htmlSuccess: "HTML을 가져왔습니다",
         uploadSuccess: "파일을 가져왔습니다",
-        visualEditSent: "visual-edit 요청을 에이전트에 보냈습니다",
         lastImport: "최근 가져오기",
         errors: {
           notHtml: "가져올 유효한 HTML을 붙여넣거나 선택하세요.",
@@ -10406,8 +10393,8 @@ const designImportOverrides = {
           "Traga seleções do Figma, exportações .fig ou HTML independente como telas do Design.",
         figmaPasteTitle: "Colar do Figma",
         figmaPasteDescription:
-          "Copie um frame ou camada no Figma, foque este destino e cole. Os metadados do Figma são importados diretamente quando disponíveis.",
-        figmaPasteTarget: "Cole conteúdo do Figma aqui",
+          "Copie um frame ou camada no Figma e cole na tela do Design. Os metadados do Figma são importados diretamente quando disponíveis.",
+        figmaPasteTarget: "Cole na tela",
         figUploadTitle: "Enviar .fig",
         figUploadDescription:
           "Exporte apenas os frames necessários. Arquivos grandes com muitas imagens incorporadas podem exceder o limite.",
@@ -10421,17 +10408,16 @@ const designImportOverrides = {
         githubTitle: "GitHub",
         githubDescription:
           "Em breve: importe telas e componentes diretamente de um repositório.",
-        localTitle: "App local / VS Code",
-        localDescription: "Conecte um app local em execução com visual-edit.",
+        localTitle: "App local",
+        localDescription:
+          "Conecte qualquer app local em execução com /visual-edit.",
         visualEditGuidance:
-          "Inicie seu app, execute o comando abaixo no repo do app e depois peça ao agente para usar a skill visual-edit para adicionar telas por URL.",
-        useVisualEditNow: "Usar visual-edit agora",
+          "Instale a skill /visual-edit, inicie qualquer app local e execute o comando de ponte nesse repo para que seu agente adicione telas por URL.",
         comingSoon: "Em breve",
         warningsToast: "Importação concluída com avisos",
         figmaSuccess: "Colagem do Figma importada",
         htmlSuccess: "HTML importado",
         uploadSuccess: "Arquivo importado",
-        visualEditSent: "Solicitação de visual-edit enviada ao agente",
         lastImport: "Última importação",
         errors: {
           notHtml: "Cole ou escolha HTML válido para importar.",
@@ -10450,8 +10436,8 @@ const designImportOverrides = {
           "Figma selections, .fig exports या standalone HTML को Design screens के रूप में लाएँ।",
         figmaPasteTitle: "Figma से पेस्ट करें",
         figmaPasteDescription:
-          "Figma में frame या layer कॉपी करें, फिर इस target को focus करके paste करें। उपलब्ध होने पर Figma metadata सीधे import होता है।",
-        figmaPasteTarget: "Figma content यहाँ paste करें",
+          "Figma में frame या layer कॉपी करें, फिर Design canvas में paste करें। उपलब्ध होने पर Figma metadata सीधे import होता है।",
+        figmaPasteTarget: "canvas में paste करें",
         figUploadTitle: ".fig अपलोड करें",
         figUploadDescription:
           "सिर्फ ज़रूरी frames export करें। कई embedded images वाली बड़ी files import limit से ऊपर जा सकती हैं।",
@@ -10465,17 +10451,16 @@ const designImportOverrides = {
         githubTitle: "GitHub",
         githubDescription:
           "जल्द आ रहा है: repository से screens और components सीधे import करें।",
-        localTitle: "स्थानीय app / VS Code",
-        localDescription: "चल रहे local app को visual-edit से connect करें।",
+        localTitle: "स्थानीय app",
+        localDescription:
+          "/visual-edit से किसी भी चल रहे local app को connect करें।",
         visualEditGuidance:
-          "अपना app शुरू करें, app repo से नीचे वाला command चलाएँ, फिर agent से visual-edit skill इस्तेमाल करके URL-backed screens जोड़ने को कहें।",
-        useVisualEditNow: "अभी visual-edit इस्तेमाल करें",
+          "/visual-edit skill install करें, कोई भी local app शुरू करें, फिर उस app repo से bridge command चलाएँ ताकि आपका agent URL-backed screens जोड़ सके।",
         comingSoon: "जल्द आ रहा है",
         warningsToast: "Import warnings के साथ पूरा हुआ",
         figmaSuccess: "Figma paste import हो गया",
         htmlSuccess: "HTML import हो गया",
         uploadSuccess: "File import हो गई",
-        visualEditSent: "visual-edit request agent को भेजी गई",
         lastImport: "पिछला import",
         errors: {
           notHtml: "Import करने के लिए valid HTML paste करें या चुनें।",
@@ -10494,8 +10479,8 @@ const designImportOverrides = {
           "استورد تحديدات Figma أو ملفات .fig أو HTML مستقل كشاشات Design.",
         figmaPasteTitle: "لصق من Figma",
         figmaPasteDescription:
-          "انسخ إطارا أو طبقة في Figma، ثم ركز هذه المنطقة والصق. يتم استيراد بيانات Figma الوصفية مباشرة عند توفرها.",
-        figmaPasteTarget: "الصق محتوى Figma هنا",
+          "انسخ إطارا أو طبقة في Figma، ثم الصقها في لوحة Design. يتم استيراد بيانات Figma الوصفية مباشرة عند توفرها.",
+        figmaPasteTarget: "الصق في اللوحة",
         figUploadTitle: "رفع .fig",
         figUploadDescription:
           "صدّر الإطارات التي تحتاجها فقط. قد تتجاوز الملفات الكبيرة ذات الصور المضمنة الكثيرة حد الاستيراد.",
@@ -10508,17 +10493,16 @@ const designImportOverrides = {
         chooseHtmlFile: "اختر ملف HTML",
         githubTitle: "GitHub",
         githubDescription: "قريبا: استيراد الشاشات والمكونات مباشرة من مستودع.",
-        localTitle: "تطبيق محلي / VS Code",
-        localDescription: "وصّل تطبيقا محليا قيد التشغيل باستخدام visual-edit.",
+        localTitle: "تطبيق محلي",
+        localDescription:
+          "وصّل أي تطبيق محلي قيد التشغيل باستخدام /visual-edit.",
         visualEditGuidance:
-          "شغّل التطبيق، ثم نفّذ الأمر أدناه من مستودع التطبيق، وبعدها اطلب من الوكيل استخدام مهارة visual-edit لإضافة شاشات مدعومة بروابط URL.",
-        useVisualEditNow: "استخدم visual-edit الآن",
+          "ثبّت مهارة /visual-edit، وشغّل أي تطبيق محلي، ثم نفّذ أمر الجسر من مستودع ذلك التطبيق ليتمكن الوكيل من إضافة شاشات مدعومة بروابط URL.",
         comingSoon: "قريبا",
         warningsToast: "اكتمل الاستيراد مع تحذيرات",
         figmaSuccess: "تم استيراد لصق Figma",
         htmlSuccess: "تم استيراد HTML",
         uploadSuccess: "تم استيراد الملف",
-        visualEditSent: "تم إرسال طلب visual-edit إلى الوكيل",
         lastImport: "آخر استيراد",
         errors: {
           notHtml: "الصق أو اختر HTML صالحا للاستيراد.",

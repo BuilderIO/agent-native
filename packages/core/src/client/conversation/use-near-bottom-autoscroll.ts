@@ -7,6 +7,41 @@ export interface UseNearBottomAutoscrollOptions {
   enabled?: boolean;
 }
 
+function eventElementTarget(event: Event): HTMLElement | null {
+  const target = event.target;
+  if (!(target instanceof Node)) return null;
+  if (target instanceof HTMLElement) return target;
+  return target.parentElement;
+}
+
+function canScrollElementVertically(
+  element: HTMLElement,
+  deltaY: number,
+): boolean {
+  if (element.scrollHeight <= element.clientHeight) return false;
+  const style = window.getComputedStyle(element);
+  const overflowY = style.overflowY || style.overflow;
+  if (!/(auto|scroll|overlay)/.test(overflowY)) return false;
+  if (deltaY < 0) return element.scrollTop > 0;
+  if (deltaY > 0) {
+    return element.scrollTop + element.clientHeight < element.scrollHeight - 1;
+  }
+  return false;
+}
+
+function nestedScrollableConsumesVerticalIntent(
+  event: Event,
+  root: HTMLElement,
+  deltaY: number,
+): boolean {
+  let element = eventElementTarget(event);
+  while (element && element !== root) {
+    if (canScrollElementVertically(element, deltaY)) return true;
+    element = element.parentElement;
+  }
+  return false;
+}
+
 export function useNearBottomAutoscroll<TElement extends HTMLElement>({
   followKey,
   streaming = false,
@@ -83,6 +118,9 @@ export function useNearBottomAutoscroll<TElement extends HTMLElement>({
     let lastScrollHeight = el.scrollHeight;
 
     const onWheel = (event: WheelEvent) => {
+      if (nestedScrollableConsumesVerticalIntent(event, el, event.deltaY)) {
+        return;
+      }
       if (event.deltaY < 0) detachFromBottom();
     };
 
@@ -95,7 +133,10 @@ export function useNearBottomAutoscroll<TElement extends HTMLElement>({
       if (nextTouchY == null) return;
       const lastTouchY = lastTouchYRef.current;
       if (lastTouchY != null && nextTouchY > lastTouchY) {
-        detachFromBottom();
+        const deltaY = lastTouchY - nextTouchY;
+        if (!nestedScrollableConsumesVerticalIntent(event, el, deltaY)) {
+          detachFromBottom();
+        }
       }
       lastTouchYRef.current = nextTouchY;
     };
@@ -104,7 +145,8 @@ export function useNearBottomAutoscroll<TElement extends HTMLElement>({
       lastTouchYRef.current = null;
     };
 
-    const onScroll = () => {
+    const onScroll = (event: Event) => {
+      if (event.target !== el) return;
       const previousScrollTop = lastScrollTopRef.current;
       const nextScrollTop = el.scrollTop;
       const nextScrollHeight = el.scrollHeight;
@@ -133,6 +175,7 @@ export function useNearBottomAutoscroll<TElement extends HTMLElement>({
         event.key === "Home" ||
         (event.key === " " && event.shiftKey)
       ) {
+        if (nestedScrollableConsumesVerticalIntent(event, el, -1)) return;
         detachFromBottom();
       }
     };

@@ -279,8 +279,8 @@ const messages = {
         "將 Figma 選取內容、.fig 匯出檔或獨立 HTML 帶入為 Design 螢幕。",
       figmaPasteTitle: "從 Figma 貼上",
       figmaPasteDescription:
-        "在 Figma 複製畫框或圖層，然後聚焦此目標並貼上。可用時會直接匯入 Figma 中繼資料。",
-      figmaPasteTarget: "在此貼上 Figma 內容",
+        "在 Figma 複製畫框或圖層，然後貼到 Design 畫布。可用時會直接匯入 Figma 中繼資料。",
+      figmaPasteTarget: "貼到畫布",
       figUploadTitle: "上傳 .fig",
       figUploadDescription:
         "只匯出需要的畫框。含有許多嵌入圖片的大型檔案可能超過匯入限制。",
@@ -293,17 +293,15 @@ const messages = {
       chooseHtmlFile: "選擇 HTML 檔案",
       githubTitle: "GitHub",
       githubDescription: "即將推出：直接從儲存庫匯入螢幕和元件。",
-      localTitle: "本機 app / VS Code",
-      localDescription: "使用 visual-edit 連接執行中的本機 app。",
+      localTitle: "本機 app",
+      localDescription: "使用 /visual-edit 連接任何執行中的本機 app。",
       visualEditGuidance:
-        "啟動 app，在 app repo 中執行下方命令，然後請代理使用 visual-edit skill 新增 URL 螢幕。",
-      useVisualEditNow: "立即使用 visual-edit",
+        "安裝 /visual-edit skill，啟動任意本機 app，然後在該 app repo 中執行橋接命令，讓代理新增 URL 螢幕。",
       comingSoon: "即將推出",
       warningsToast: "匯入完成但有警告",
       figmaSuccess: "已匯入 Figma 貼上內容",
       htmlSuccess: "已匯入 HTML",
       uploadSuccess: "已匯入檔案",
-      visualEditSent: "已將 visual-edit 請求傳送給代理",
       lastImport: "上次匯入",
       errors: {
         notHtml: "請貼上或選擇有效的 HTML 以匯入。",

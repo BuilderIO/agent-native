@@ -138,7 +138,7 @@ import type { StatesPanelProps } from "./StatesPanel";
 import { TweaksPanelContent } from "./TweaksPanel";
 import type { ElementInfo } from "./types";
 
-export type InspectorTab = "design" | "tweaks" | "extensions";
+export type InspectorTab = "design" | "tweaks";
 
 const MIXED_VALUE = "Mixed";
 
@@ -206,6 +206,7 @@ function mixedElementFromSelection(
 interface EditPanelProps {
   selectedElement: ElementInfo | null;
   selectedElements?: ElementInfo[];
+  selectedScreenGeometry?: ScreenGeometrySelection | null;
   pageStyles?: Record<string, string>;
   zoom?: number;
   headerTrailing?: ReactNode;
@@ -216,7 +217,6 @@ interface EditPanelProps {
   tweakValues?: Record<string, string | number | boolean>;
   onTweakChange?: (id: string, value: string | number | boolean) => void;
   onRequestTweaks?: (anchor: HTMLElement) => void;
-  extensionsPanel?: ReactNode;
   onStyleChange: (property: string, value: string) => void;
   onStylesChange?: (styles: Record<string, string>) => void;
   onExport?: (settings: ExportSettingsValue[]) => void;
@@ -286,6 +286,15 @@ interface EditPanelProps {
   inspectCode?: InspectCodeData;
   /** Optional compact AI edit controls for selected/local source elements. */
   aiActions?: ReactNode;
+}
+
+export interface ScreenGeometrySelection {
+  id: string;
+  title: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
 }
 
 /**
@@ -2959,16 +2968,87 @@ function SelectionHeader({
   );
 }
 
+function ScreenSelectionHeader({
+  screen,
+}: {
+  screen: ScreenGeometrySelection;
+}) {
+  return (
+    <div className="flex min-h-8 shrink-0 items-center justify-between gap-2 border-b border-border/90 px-3">
+      <div className="flex min-w-0 items-center gap-1.5 text-left text-[13px] font-semibold text-foreground">
+        <IconFrame className="size-3.5 shrink-0 text-muted-foreground" />
+        <span className="truncate">{screen.title}</span>
+      </div>
+    </div>
+  );
+}
+
+function ScreenGeometryProperties({
+  screen,
+}: {
+  screen: ScreenGeometrySelection;
+}) {
+  const t = useT();
+  const noop = useCallback(() => {}, []);
+
+  return (
+    <PanelSection title={t("editPanel.sections.positionLayout")}>
+      <div className="space-y-1.5">
+        <SubsectionLabel>{t("editPanel.labels.position")}</SubsectionLabel>
+        <div className="grid grid-cols-2 gap-2">
+          <ScrubInput
+            label="X"
+            value={Math.round(screen.x)}
+            onChange={noop}
+            unit="px"
+            disabled
+            inputClassName="h-6"
+          />
+          <ScrubInput
+            label="Y"
+            value={Math.round(screen.y)}
+            onChange={noop}
+            unit="px"
+            disabled
+            inputClassName="h-6"
+          />
+        </div>
+      </div>
+      <div className="space-y-1.5">
+        <SubsectionLabel>
+          {"Size" /* i18n-ignore design inspector label */}
+        </SubsectionLabel>
+        <div className="grid grid-cols-2 gap-2">
+          <ScrubInput
+            label="W"
+            value={Math.round(screen.width)}
+            onChange={noop}
+            unit="px"
+            disabled
+            inputClassName="h-6"
+          />
+          <ScrubInput
+            label="H"
+            value={Math.round(screen.height)}
+            onChange={noop}
+            unit="px"
+            disabled
+            inputClassName="h-6"
+          />
+        </div>
+      </div>
+    </PanelSection>
+  );
+}
+
 function InspectorTabsHeader({
   activeTab,
   onActiveTabChange,
   trailing,
-  showExtensions,
 }: {
   activeTab: InspectorTab;
   onActiveTabChange: (tab: InspectorTab) => void;
   trailing?: ReactNode;
-  showExtensions?: boolean;
 }) {
   const t = useT();
 
@@ -2991,14 +3071,6 @@ function InspectorTabsHeader({
           >
             {t("designEditor.tweaks")}
           </TabsTrigger>
-          {showExtensions ? (
-            <TabsTrigger
-              value="extensions"
-              className="h-6 rounded-md px-1.5 !text-[11px] font-semibold text-muted-foreground shadow-none transition-colors hover:text-foreground data-[state=active]:bg-[var(--design-editor-panel-raised-bg)] data-[state=active]:text-foreground data-[state=active]:shadow-none"
-            >
-              {"Extensions" /* i18n-ignore design inspector tab */}
-            </TabsTrigger>
-          ) : null}
         </TabsList>
       </Tabs>
       {trailing ? <div className="shrink-0">{trailing}</div> : null}
@@ -6859,6 +6931,7 @@ export function ComponentSection({
 export function EditPanel({
   selectedElement,
   selectedElements,
+  selectedScreenGeometry,
   pageStyles = {},
   headerTrailing,
   width = 256,
@@ -6868,7 +6941,6 @@ export function EditPanel({
   tweakValues = {},
   onTweakChange,
   onRequestTweaks,
-  extensionsPanel,
   onStyleChange,
   onStylesChange,
   onExport,
@@ -6978,7 +7050,6 @@ export function EditPanel({
         activeTab={activeTab}
         onActiveTabChange={handleActiveTabChange}
         trailing={headerTrailing}
-        showExtensions={!!extensionsPanel}
       />
 
       {activeTab === "design" ? (
@@ -6999,6 +7070,9 @@ export function EditPanel({
                 : undefined
             }
           />
+          {!inspectorElement && selectedScreenGeometry ? (
+            <ScreenSelectionHeader screen={selectedScreenGeometry} />
+          ) : null}
 
           <div
             className="design-inspector-scroll min-h-0 flex-1 overflow-y-auto overscroll-contain"
@@ -7093,7 +7167,11 @@ export function EditPanel({
               </div>
             ) : null}
 
-            {!inspectorElement && (
+            {!inspectorElement && selectedScreenGeometry ? (
+              <ScreenGeometryProperties screen={selectedScreenGeometry} />
+            ) : null}
+
+            {!inspectorElement && !selectedScreenGeometry && (
               <PageProperties
                 styles={pageStyles}
                 onStyleChange={onStyleChange}
@@ -7262,10 +7340,6 @@ export function EditPanel({
               className="px-3 py-3"
             />
           </div>
-        </div>
-      ) : activeTab === "extensions" && extensionsPanel ? (
-        <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-          {extensionsPanel}
         </div>
       ) : null}
     </div>

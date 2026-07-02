@@ -28,10 +28,11 @@ import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
 import { cn } from "@/lib/utils";
 
-interface CodeWorkbenchTheme {
-  colorScheme: "light" | "dark";
-  values: Record<string, string>;
-}
+import {
+  normalizeMonacoThemeColor,
+  readCodeWorkbenchTheme,
+  type CodeWorkbenchTheme,
+} from "./code-workbench-theme";
 
 interface CodeWorkbenchDraft {
   content: string;
@@ -54,87 +55,6 @@ interface CodeWorkbenchHostProps {
   selectedSelector?: string | null;
   canEdit: boolean;
   onActiveFileChange?: (file: CodeWorkbenchActiveFile | null) => void;
-}
-
-const WORKBENCH_THEME_VARS: Record<string, string[]> = {
-  "--workbench-bg": ["--design-editor-panel-bg", "--background"],
-  "--workbench-sidebar-bg": ["--design-editor-panel-bg", "--card"],
-  "--workbench-editor-bg": ["--design-editor-panel-bg", "--background"],
-  "--workbench-surface-bg": ["--design-editor-control-bg", "--muted"],
-  "--workbench-border": ["--design-editor-control-border", "--border"],
-  "--workbench-fg": ["--foreground"],
-  "--workbench-muted-fg": ["--muted-foreground"],
-  "--workbench-hover-bg": ["--design-editor-layer-hover-color", "--accent"],
-  "--workbench-active-bg": ["--design-editor-selection-color", "--accent"],
-  "--workbench-active-fg": [
-    "--design-editor-accent-color",
-    "--accent-foreground",
-  ],
-  "--workbench-accent": ["--design-editor-accent-color", "--primary"],
-  "--workbench-button-bg": ["--design-editor-control-bg", "--background"],
-  "--workbench-button-fg": ["--foreground"],
-  "--workbench-selection-bg": ["--design-editor-selection-color", "--accent"],
-  "--workbench-dirty": ["--warning", "--destructive"],
-};
-
-function normalizeThemeColorValue(value: string): string {
-  const trimmed = value.trim();
-  if (!trimmed) return "";
-  if (/^-?\d+(\.\d+)?\s+-?\d+(\.\d+)?%/.test(trimmed)) {
-    return `hsl(${trimmed})`;
-  }
-  return trimmed;
-}
-
-function resolveCssColorValue(value: string): string {
-  if (typeof window === "undefined" || typeof document === "undefined") {
-    return value;
-  }
-  const probe = document.createElement("span");
-  probe.style.color = value;
-  probe.style.position = "fixed";
-  probe.style.pointerEvents = "none";
-  probe.style.visibility = "hidden";
-  document.body.appendChild(probe);
-  const resolved = window.getComputedStyle(probe).color;
-  probe.remove();
-  return resolved || value;
-}
-
-function readThemeVar(
-  elementStyles: CSSStyleDeclaration,
-  rootStyles: CSSStyleDeclaration,
-  names: string[],
-): string | undefined {
-  for (const name of names) {
-    const value =
-      elementStyles.getPropertyValue(name) || rootStyles.getPropertyValue(name);
-    const normalized = normalizeThemeColorValue(value);
-    if (normalized) return resolveCssColorValue(normalized);
-  }
-  return undefined;
-}
-
-function readCodeWorkbenchTheme(
-  element: HTMLElement | null,
-): CodeWorkbenchTheme {
-  if (typeof window === "undefined" || !element) {
-    return { colorScheme: "light", values: {} };
-  }
-  const elementStyles = window.getComputedStyle(element);
-  const rootStyles = window.getComputedStyle(document.documentElement);
-  const values: Record<string, string> = {};
-  for (const [targetVar, sourceVars] of Object.entries(WORKBENCH_THEME_VARS)) {
-    const value = readThemeVar(elementStyles, rootStyles, sourceVars);
-    if (value) values[targetVar] = value;
-  }
-  const colorScheme =
-    document.documentElement.classList.contains("dark") ||
-    elementStyles.colorScheme.includes("dark") ||
-    rootStyles.colorScheme.includes("dark")
-      ? "dark"
-      : "light";
-  return { colorScheme, values };
 }
 
 let monacoEnvironmentInstalled = false;
@@ -210,10 +130,12 @@ function defineMonacoTheme(theme: CodeWorkbenchTheme): string {
       "editorWidget.background": values["--workbench-surface-bg"],
       "editorWidget.border": values["--workbench-border"],
       focusBorder: values["--workbench-accent"],
-    }).filter(
-      (entry): entry is [string, string] =>
-        typeof entry[1] === "string" && entry[1].length > 0,
-    ),
+    })
+      .map(([key, value]) => [key, normalizeMonacoThemeColor(value)] as const)
+      .filter(
+        (entry): entry is [string, string] =>
+          typeof entry[1] === "string" && entry[1].length > 0,
+      ),
   );
   monaco.editor.defineTheme(name, {
     base: dark ? "vs-dark" : "vs",

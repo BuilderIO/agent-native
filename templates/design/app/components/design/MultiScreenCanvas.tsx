@@ -409,10 +409,6 @@ const DRAG_THRESHOLD = 3;
 const FRAME_LABEL_HEIGHT = 28;
 const FRAME_HEADER_BUTTON_OUTSIDE_WIDTH = 260;
 const FRAME_HEADER_BUTTON_RESERVE = 116;
-const FRAME_HEADER_DIMENSIONS_WIDTH = 72;
-const FRAME_HEADER_TITLE_CHAR_WIDTH = 6.5;
-const FRAME_HEADER_MIN_TITLE_WIDTH = 28;
-const FRAME_HEADER_MAX_TITLE_WIDTH = 180;
 const TRANSFORM_BADGE_OFFSET = 12;
 const TRANSFORM_BADGE_EDGE_PADDING = 8;
 const TRANSFORM_BADGE_HEIGHT = 28;
@@ -433,7 +429,7 @@ const CHROME_OPACITY_TRANSITION = "opacity 150ms ease-out";
 const CHROME_BORDER_SETTLE_TRANSITION = `inset ${CHROME_SETTLE_MS}ms ease-out, border-width ${CHROME_SETTLE_MS}ms ease-out, border-radius ${CHROME_SETTLE_MS}ms ease-out, ${CHROME_OPACITY_TRANSITION}`;
 const SELECTION_BOX_SETTLE_TRANSITION = `border-width ${CHROME_SETTLE_MS}ms ease-out, border-radius ${CHROME_SETTLE_MS}ms ease-out, ${CHROME_OPACITY_TRANSITION}`;
 const CHROME_HANDLE_SETTLE_TRANSITION = `width ${CHROME_SETTLE_MS}ms ease-out, height ${CHROME_SETTLE_MS}ms ease-out, border-width ${CHROME_SETTLE_MS}ms ease-out, top ${CHROME_SETTLE_MS}ms ease-out, bottom ${CHROME_SETTLE_MS}ms ease-out, left ${CHROME_SETTLE_MS}ms ease-out, right ${CHROME_SETTLE_MS}ms ease-out, ${CHROME_OPACITY_TRANSITION}`;
-// Frame header (name + dimensions + "Full view" button) is counter-scaled via
+// Frame header (name + "Full view" button) is counter-scaled via
 // transform to stay a fixed screen size; ease that scale on zoom-settle. opacity
 // is included so the button's hover-fade (transition-opacity) keeps working.
 const CHROME_LABEL_SETTLE_TRANSITION = `transform ${CHROME_SETTLE_MS}ms ease-out, ${CHROME_OPACITY_TRANSITION}`;
@@ -472,6 +468,14 @@ export function shouldBoardSurfaceCapturePointerEvents(args: {
     tool !== "comment" &&
     tool !== "draw"
   );
+}
+
+export function shouldShowFrameFullViewButton(args: {
+  emphasized: boolean;
+  showFullView?: boolean;
+  childHoverActive?: boolean;
+}) {
+  return args.emphasized || !!args.showFullView || !!args.childHoverActive;
 }
 
 export function getBoardSurfaceLayerStyle(args: {
@@ -5676,10 +5680,16 @@ const Screen = memo(function Screen({
     (directlyHovered || isDirectlyHovered) &&
     !creationToolActive &&
     !canvasGestureActive;
+  const childHoverActive =
+    hasHoveredChild && !creationToolActive && !canvasGestureActive;
   const suppressFrameChromeForChild =
     hasHoveredChild && !directlyHovered && !isDirectlyHovered;
   const emphasized = isSelected || frameDirectlyHovered;
-  const fullViewVisible = emphasized || showFullView;
+  const fullViewVisible = shouldShowFrameFullViewButton({
+    emphasized,
+    showFullView,
+    childHoverActive,
+  });
   const activeOrEmphasized = isActive || emphasized;
   const selectionOutlined = isSelected && !groupSelected;
   const showHoverChrome =
@@ -5712,16 +5722,6 @@ const Screen = memo(function Screen({
     64,
     frameScreenWidth - (fullViewOutsideFrame ? 8 : FRAME_HEADER_BUTTON_RESERVE),
   );
-  const estimatedTitleWidth = clamp(
-    display.length * FRAME_HEADER_TITLE_CHAR_WIDTH,
-    FRAME_HEADER_MIN_TITLE_WIDTH,
-    FRAME_HEADER_MAX_TITLE_WIDTH,
-  );
-  const showDimensions =
-    frameScreenWidth >=
-    estimatedTitleWidth +
-      FRAME_HEADER_DIMENSIONS_WIDTH +
-      (fullViewOutsideFrame ? 16 : FRAME_HEADER_BUTTON_RESERVE);
   const fullViewMaxWidth = fullViewOutsideFrame
     ? 120
     : Math.max(84, Math.min(180, frameScreenWidth * 0.46));
@@ -5806,14 +5806,6 @@ const Screen = memo(function Screen({
           >
             {display}
           </span>
-          {showDimensions ? (
-            <span
-              data-frame-dimensions
-              className="hidden shrink-0 text-[10px] tabular-nums text-muted-foreground/70 sm:inline"
-            >
-              {previewViewport.displayWidth} x {previewViewport.displayHeight}
-            </span>
-          ) : null}
         </div>
         <button
           type="button"
@@ -6551,12 +6543,12 @@ interface BoundsRect {
   bottom: number;
 }
 
-interface ScreenViewportSize {
+export interface ScreenViewportSize {
   width: number;
   height: number;
 }
 
-function getInitialFrameGeometry(
+export function getInitialFrameGeometry(
   index: number,
   metadata?: ScreenViewportSize,
 ): FrameGeometry {
