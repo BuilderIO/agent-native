@@ -7,7 +7,7 @@ import type {
 export function builderBodyHydrationIsPending(
   hydration: ContentDatabaseBodyHydration | null | undefined,
 ) {
-  return hydration?.status === "pending" || hydration?.status === "hydrating";
+  return !!hydration && hydration.status !== "hydrated";
 }
 
 export function databaseItemBodyHydrationIsPending(

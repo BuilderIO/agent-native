@@ -30,10 +30,12 @@ type DatabaseMembershipRow = {
   item: typeof schema.contentDatabaseItems.$inferSelect;
   database: typeof schema.contentDatabases.$inferSelect;
   sourceId?: string | null;
+  bodyHydrationQueueId?: string | null;
 };
 
 export function serializeBodyHydration(
   item: typeof schema.contentDatabaseItems.$inferSelect,
+  options: { queued?: boolean } = {},
 ): ContentDatabaseBodyHydration {
   const status = item.bodyHydrationStatus;
   return {
@@ -43,7 +45,9 @@ export function serializeBodyHydration(
       status === "hydrated" ||
       status === "error"
         ? status
-        : "hydrated",
+        : options.queued
+          ? "pending"
+          : "hydrated",
     attemptedAt: item.bodyHydrationAttemptedAt,
     error: item.bodyHydrationError,
     version: item.bodyHydrationVersion,
@@ -59,7 +63,9 @@ export function serializeDatabaseMembership(
     databaseTitle: row.database.title || "Untitled database",
     position: row.item.position,
     sourceId: row.sourceId ?? null,
-    bodyHydration: serializeBodyHydration(row.item),
+    bodyHydration: serializeBodyHydration(row.item, {
+      queued: !!row.bodyHydrationQueueId,
+    }),
   };
 }
 
@@ -190,17 +196,43 @@ export async function getContentDatabaseResponse(
           )
       : [];
   const documentById = new Map(documents.map((doc) => [doc.id, doc]));
+  const queuedBodyHydrationItemIds =
+    items.length > 0
+      ? new Set(
+          (
+            await db
+              .select({
+                databaseItemId:
+                  schema.contentDatabaseBodyHydrationQueue.databaseItemId,
+              })
+              .from(schema.contentDatabaseBodyHydrationQueue)
+              .where(
+                inArray(
+                  schema.contentDatabaseBodyHydrationQueue.databaseItemId,
+                  items.map((item) => item.id),
+                ),
+              )
+          ).map((row) => row.databaseItemId),
+        )
+      : new Set<string>();
 
   const serializedItems = [];
   for (const item of items) {
     const document = documentById.get(item.documentId);
     if (!document) continue;
+    const bodyHydrationQueued = queuedBodyHydrationItemIds.has(item.id);
     serializedItems.push({
       id: item.id,
       databaseId: item.databaseId,
-      document: serializeDocument(document, { item, database }),
+      document: serializeDocument(document, {
+        item,
+        database,
+        bodyHydrationQueueId: bodyHydrationQueued ? item.id : null,
+      }),
       position: item.position,
-      bodyHydration: serializeBodyHydration(item),
+      bodyHydration: serializeBodyHydration(item, {
+        queued: bodyHydrationQueued,
+      }),
       properties: await listPropertiesForDatabase(databaseId, document),
     });
   }
@@ -312,6 +344,7 @@ export async function getDatabaseItemByDocumentId(
       item: schema.contentDatabaseItems,
       database: schema.contentDatabases,
       sourceId: schema.contentDatabaseSourceRows.sourceId,
+      bodyHydrationQueueId: schema.contentDatabaseBodyHydrationQueue.id,
     })
     .from(schema.contentDatabaseItems)
     .innerJoin(
@@ -322,6 +355,13 @@ export async function getDatabaseItemByDocumentId(
       schema.contentDatabaseSourceRows,
       eq(
         schema.contentDatabaseSourceRows.databaseItemId,
+        schema.contentDatabaseItems.id,
+      ),
+    )
+    .leftJoin(
+      schema.contentDatabaseBodyHydrationQueue,
+      eq(
+        schema.contentDatabaseBodyHydrationQueue.databaseItemId,
         schema.contentDatabaseItems.id,
       ),
     )

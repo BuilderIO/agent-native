@@ -814,7 +814,9 @@ export async function enqueueBuilderBodyHydrationForItems(args: {
   void processBuilderBodyHydrationQueue({
     sourceId: args.sourceId,
     limit: BUILDER_BODY_HYDRATION_BATCH_LIMIT,
-  }).catch(() => undefined);
+  }).catch((error) => {
+    console.error("Builder body hydration background kick failed", error);
+  });
 }
 
 function parseHydrationEntry(
@@ -2091,13 +2093,26 @@ async function sourceBodyHydrationSummary(args: {
   databaseId: string;
 }): Promise<ContentDatabaseBodyHydrationSummary> {
   const rows = await getDb()
-    .select({ status: schema.contentDatabaseItems.bodyHydrationStatus })
+    .select({
+      status: schema.contentDatabaseItems.bodyHydrationStatus,
+      queueId: schema.contentDatabaseBodyHydrationQueue.id,
+    })
     .from(schema.contentDatabaseItems)
     .innerJoin(
       schema.contentDatabaseSourceRows,
       eq(
         schema.contentDatabaseSourceRows.databaseItemId,
         schema.contentDatabaseItems.id,
+      ),
+    )
+    .leftJoin(
+      schema.contentDatabaseBodyHydrationQueue,
+      and(
+        eq(
+          schema.contentDatabaseBodyHydrationQueue.databaseItemId,
+          schema.contentDatabaseItems.id,
+        ),
+        eq(schema.contentDatabaseBodyHydrationQueue.sourceId, args.sourceId),
       ),
     )
     .where(
@@ -2114,8 +2129,9 @@ async function sourceBodyHydrationSummary(args: {
     total: rows.length,
   };
   for (const row of rows) {
-    if (row.status === "pending") summary.pending += 1;
-    else if (row.status === "hydrating") summary.hydrating += 1;
+    if (row.status === "pending" || (!row.status && row.queueId)) {
+      summary.pending += 1;
+    } else if (row.status === "hydrating") summary.hydrating += 1;
     else if (row.status === "error") summary.error += 1;
     else summary.hydrated += 1;
   }

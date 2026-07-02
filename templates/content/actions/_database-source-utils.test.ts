@@ -24,6 +24,7 @@ import {
   sourceChangeSetSummary,
   sortBuilderBodyHydrationQueueForProcessing,
 } from "./_database-source-utils";
+import { serializeBodyHydration } from "./_database-utils";
 
 function property(
   type: DocumentProperty["definition"]["type"],
@@ -69,6 +70,20 @@ function item(id: string, title: string): ContentDatabaseItem {
 }
 
 describe("database source helpers", () => {
+  it("serializes queued Builder body hydration with an unset item status as pending", () => {
+    expect(
+      serializeBodyHydration(
+        {
+          bodyHydrationStatus: null,
+          bodyHydrationAttemptedAt: null,
+          bodyHydrationError: null,
+          bodyHydrationVersion: null,
+        } as any,
+        { queued: true },
+      ).status,
+    ).toBe("pending");
+  });
+
   it("normalizes freshness safely", () => {
     expect(normalizeSourceFreshness("fresh")).toBe("fresh");
     expect(normalizeSourceFreshness("stale")).toBe("stale");

@@ -2067,7 +2067,7 @@ export function VisualEditor({
       ) as HTMLElement | null;
       if (!el) return;
       const id = el.getAttribute("data-comment-thread");
-      if (id) onActivateThread(id);
+      if (id) queueMicrotask(() => onActivateThread(id));
     };
     dom.addEventListener("click", handleClick);
     return () => dom.removeEventListener("click", handleClick);
