@@ -2616,10 +2616,16 @@ export function createAgentChatAdapter(
             if (activeReconnected) return;
 
             if (err instanceof AgentStartupTimeoutError) {
+              if (startupRecoveryAttempts < MAX_STARTUP_RECOVERY_ATTEMPTS) {
+                await retryDelay(startupRecoveryAttempts++, abortSignal);
+                if (abortSignal.aborted) return;
+                continue;
+              }
               const message =
-                "The agent chat endpoint accepted the request but did not start streaming in time. This usually means prompt setup, the LLM gateway, or the provider is stalled.";
+                "The agent chat endpoint did not start streaming in time after several recovery attempts. This usually means prompt setup, the LLM gateway, or the provider is stalled.";
               captureChatClientError(err, "startup-timeout", {
                 timeoutMs: err.timeoutMs,
+                startupRecoveryAttempts,
               });
               const runError = {
                 message,
