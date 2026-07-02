@@ -858,15 +858,26 @@ occurrence. The result is re-sanitized. In local-files privacy mode, do not call
 hosted Plan tools; edit the local MDX source directly and rerun the local
 check/serve or verify command for \`<plan-dir>\`.
 
-**Treat the wireframe border as part of the visible design.** Always wrap HTML
-wireframe content in a root container with real inner padding before drawing
-cards, fields, pills, labels, or controls. Use at least 14-16px of padding,
-\`box-sizing: border-box\`, \`height: 100%\`, and \`gap\` between child rows on the
-root node itself so the first row never sits flush against the screen border. Do
-not rely on padding on a nested page section as the first visible inset; the
-outermost element must create the breathing room. Keep text away from borders:
-every container, field, button, menu item, and annotation needs enough padding
-and line-height to read cleanly in the rendered Plan view.
+**Choose the outer frame deliberately.** Wireframe and diagram data accept
+\`frame: "auto" | "show" | "hide"\` in block data (\`<Screen frame="hide">\` in
+MDX wireframes, \`<Diagram frame="hide">\` for MDX diagrams). Leave it unset or
+\`auto\` when the host context should decide: Plan and recap surfaces default to a
+drawn outer frame; docs surfaces default to no outer frame. Use \`show\` for
+standalone product screens, before/after recap comparisons, screenshot-like
+artifacts, and visuals that need containment from surrounding prose. Use \`hide\`
+when a docs page, tab, column, card, canvas artboard, or the visual's own
+internal chrome already supplies the boundary. Do not use \`hide\` to compensate
+for cramped content; fix the layout instead.
+
+**Inner padding and borders still matter.** Always wrap HTML wireframe content
+in a root container with real inner padding before drawing cards, fields, pills,
+labels, or controls. Use at least 14-16px of padding, \`box-sizing: border-box\`,
+\`height: 100%\`, and \`gap\` between child rows on the root node itself so the
+first row never sits flush against the screen edge. Do not rely on padding on a
+nested page section as the first visible inset; the outermost element must
+create the breathing room. Keep text away from borders: every container, field,
+button, menu item, and annotation needs enough padding and line-height to read
+cleanly in the rendered Plan view.
 
 **For feature-cloud or abundance visuals, optimize the composition over line-by-line
 reading.** Some marketing/product sections need to feel like a large surface area
@@ -1244,12 +1255,16 @@ so you never emit a block the editor cannot render or round-trip:
   \`--wf-paper\`, \`--wf-card\`, \`--wf-accent\`, \`--wf-accent-soft\`, \`--wf-warn\`, and
   \`--wf-ok\`, and switch to Excalifont plus rough.js outlines in sketchy mode. Do not
   set \`font-family\` and do not hard-code hex, rgb, or hsl colors in diagram HTML
-  or CSS. Leave room for the sketch font: keep labels short, give nodes generous
-  width, and place boundary/annotation labels in unused space instead of over
-  nodes; labels must not overlap nodes, connectors, or each other. For small
-  text/SVG changes to an existing HTML diagram, use \`patch-diagram-html\` with a
-  unique \`find\`/\`replace\` snippet instead of resending the whole \`data.html\`
-  string. Use legacy \`nodes\` / \`edges\` only for small previews or truly
+  or CSS. Choose the outer \`frame\` intentionally: use \`show\` when the diagram
+  stands alone in a recap, comparison, or prose section; use \`hide\` when the
+  diagram sits inside docs chrome, columns, tabs, cards, a canvas surface, or
+  already has visible \`.diagram-panel\` / \`.diagram-box\` structure. Leave room
+  for the sketch font: keep labels short, give nodes generous width, and place
+  boundary/annotation labels in unused space instead of over nodes; labels must
+  not overlap nodes, connectors, or each other. For small text/SVG changes to an
+  existing HTML diagram, use \`patch-diagram-html\` with a unique
+  \`find\`/\`replace\` snippet instead of resending the whole \`data.html\` string.
+  Use legacy \`nodes\` / \`edges\` only for small previews or truly
   sequential flows. In architecture/code plans, prefer a repeated section rhythm:
   recommendation title, confidence and category badges, code-path evidence, a
   local before/after or current/target spatial diagram, then concise
@@ -2426,7 +2441,10 @@ tags — resolve every conceptual name to its exact tag + prop schema with the
   Author diagram HTML/CSS with the renderer-owned \`.diagram-*\` primitives
   (\`.diagram-panel\`, \`.diagram-node\`, \`.diagram-pill\`, \`[data-rough]\`, …) and
   the same \`--wf-*\` theme tokens \`references/wireframe.md\` defines — never
-  \`font-family\`, hex, rgb/hsl literals, or one-off dark/light palettes.
+  \`font-family\`, hex, rgb/hsl literals, or one-off dark/light palettes. Choose
+  the outer \`frame\` intentionally: recap diagrams usually benefit from
+  \`frame: "show"\` when they stand alone, but use \`frame: "hide"\` when columns,
+  tabs, a card, or the diagram's own panels already provide the boundary.
 - **Outcome-first narrative** → \`rich-text\` for the "what changed and why" prose:
   the objective the diff served, the key decisions visible in it, and the risks a
   reviewer should weigh. This is the only place the model writes freely.

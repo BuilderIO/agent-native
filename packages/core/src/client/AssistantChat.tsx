@@ -3512,6 +3512,15 @@ const AssistantChatInner = forwardRef<
     queryKey: ["guided-questions"],
     ...(browserTabId ? { browserTabId } : {}),
   });
+  const hasComposerAccessoryAboveStack = Boolean(
+    composerError ||
+    showComposerSlot ||
+    showCenteredEmptyThreadFooterSlot ||
+    (guidedQuestions && guidedQuestions.length > 0) ||
+    showScrollToBottom ||
+    composerContextItems.length > 0 ||
+    showPlanModeCallout,
+  );
 
   // Human-in-the-loop approvals: when the user approves a paused `needsApproval`
   // tool call, re-issue the turn carrying the call's approval key so the server
@@ -3939,7 +3948,6 @@ const AssistantChatInner = forwardRef<
                     onSwitchToAct={handleSwitchToAct}
                   />
                 )}
-                <SelectionAttachedPill />
                 {/* Inline attachment / body-size error */}
                 {composerError && (
                   <div
@@ -3958,124 +3966,142 @@ const AssistantChatInner = forwardRef<
                     </button>
                   </div>
                 )}
-                {missingApiKey &&
-                !authError &&
-                missingApiKeySetupAboveComposer ? (
-                  <BuilderSetupCard
-                    onConnected={handleBuilderConnected}
-                    bouncePulse={missingKeyBouncePulse}
-                    layout={missingApiKeySetupLayout}
-                  />
-                ) : null}
-                {/* Input area */}
-                <AgentComposerFrame
-                  layoutVariant={composerLayoutVariant}
-                  className={cn(
-                    composerAreaClassName,
-                    missingApiKey && "cursor-pointer",
-                    isComposerDisabled && "opacity-70",
-                  )}
-                  onClick={
-                    missingApiKey
-                      ? () => setMissingKeyBouncePulse((p) => p + 1)
-                      : undefined
+                <div
+                  className="agent-composer-stack"
+                  data-agent-composer-adjacent-ui={
+                    hasComposerAccessoryAboveStack ? "true" : undefined
                   }
                 >
-                  <ComposerAttachmentPreviewStrip />
-                  <TiptapComposer
-                    focusRef={tiptapRef}
-                    disabled={isComposerDisabled}
-                    placeholder={
+                  <SelectionAttachedPill />
+                  {missingApiKey &&
+                  !authError &&
+                  missingApiKeySetupAboveComposer ? (
+                    <div
+                      className="agent-composer-setup-card"
+                      data-agent-composer-setup-position="above"
+                    >
+                      <BuilderSetupCard
+                        onConnected={handleBuilderConnected}
+                        bouncePulse={missingKeyBouncePulse}
+                        layout={missingApiKeySetupLayout}
+                      />
+                    </div>
+                  ) : null}
+                  {/* Input area */}
+                  <AgentComposerFrame
+                    layoutVariant={composerLayoutVariant}
+                    className={cn(
+                      composerAreaClassName,
+                      missingApiKey && "cursor-pointer",
+                      isComposerDisabled && "opacity-70",
+                    )}
+                    onClick={
                       missingApiKey
-                        ? missingApiKeySetupAboveComposer
-                          ? "Connect AI above to start chatting..."
-                          : "Connect AI below to start chatting..."
-                        : composerDisabled
-                          ? (composerDisabledPlaceholder ??
-                            "Open Desktop to use this chat.")
-                          : isRunning
-                            ? queuedMessages.length > 0
-                              ? `${queuedMessages.length} queued — send a follow-up...`
-                              : "Send a follow-up..."
-                            : composerPlaceholder
-                    }
-                    onSubmit={
-                      isRunning || composerContextItems.length > 0
-                        ? (text, references, attachments, options) =>
-                            void addToQueue(
-                              text,
-                              undefined,
-                              references.length > 0 ? references : undefined,
-                              attachments,
-                              undefined,
-                              resolveAssistantChatSubmitIntent({
-                                isRunning,
-                                requestedIntent: options?.intent,
-                              }),
-                              undefined,
-                              true,
-                            )
+                        ? () => setMissingKeyBouncePulse((p) => p + 1)
                         : undefined
                     }
-                    onSlashCommand={onSlashCommand}
-                    onBeforeSubmit={ensureAgentEngineReadyForSubmit}
-                    execMode={execMode}
-                    onExecModeChange={onExecModeChange}
-                    planModeDisabled={planModeDisabled}
-                    planModeDisabledReason={planModeDisabledReason}
-                    selectedModel={selectedModel ?? defaultModel}
-                    selectedEffort={selectedEffort}
-                    availableModels={availableModels}
-                    onModelChange={onModelChange}
-                    onEffortChange={onEffortChange}
-                    imageModelMenu={imageModelMenu}
-                    onConnectProvider={onConnectProvider}
-                    toolbarSlot={composerToolbarSlot}
-                    contextItems={composerContextItems}
-                    onRemoveContextItem={removeComposerContextItem}
-                    plusMenuMode={plusMenuMode}
-                    layoutVariant={composerLayoutVariant}
-                    providerConnectStatusEnabled={providerStatusChecksEnabled}
-                    draftScope={threadId || tabId}
-                    interceptBuildRequestsForBuilder
-                    onAttachmentError={setComposerError}
-                    extraActionButton={
-                      contextXRayEnabled ||
-                      composerExtraActionButton ||
-                      showRunningInUI ? (
-                        <>
-                          {contextXRayEnabled && (
-                            <ContextMeter threadId={threadId} />
-                          )}
-                          {composerExtraActionButton}
-                          {showRunningInUI && (
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <button
-                                  type="button"
-                                  onClick={stopActiveRun}
-                                  className="shrink-0 flex h-7 w-7 items-center justify-center rounded-md bg-muted text-foreground hover:bg-muted/80"
-                                >
-                                  <IconPlayerStop className="h-3.5 w-3.5" />
-                                </button>
-                              </TooltipTrigger>
-                              <TooltipContent>Stop generating</TooltipContent>
-                            </Tooltip>
-                          )}
-                        </>
-                      ) : undefined
-                    }
-                  />
-                </AgentComposerFrame>
-                {missingApiKey &&
-                !authError &&
-                !missingApiKeySetupAboveComposer ? (
-                  <BuilderSetupCard
-                    onConnected={handleBuilderConnected}
-                    bouncePulse={missingKeyBouncePulse}
-                    layout={missingApiKeySetupLayout}
-                  />
-                ) : null}
+                  >
+                    <ComposerAttachmentPreviewStrip />
+                    <TiptapComposer
+                      focusRef={tiptapRef}
+                      disabled={isComposerDisabled}
+                      placeholder={
+                        missingApiKey
+                          ? missingApiKeySetupAboveComposer
+                            ? "Connect AI above to start chatting..."
+                            : "Connect AI below to start chatting..."
+                          : composerDisabled
+                            ? (composerDisabledPlaceholder ??
+                              "Open Desktop to use this chat.")
+                            : isRunning
+                              ? queuedMessages.length > 0
+                                ? `${queuedMessages.length} queued — send a follow-up...`
+                                : "Send a follow-up..."
+                              : composerPlaceholder
+                      }
+                      onSubmit={
+                        isRunning || composerContextItems.length > 0
+                          ? (text, references, attachments, options) =>
+                              void addToQueue(
+                                text,
+                                undefined,
+                                references.length > 0 ? references : undefined,
+                                attachments,
+                                undefined,
+                                resolveAssistantChatSubmitIntent({
+                                  isRunning,
+                                  requestedIntent: options?.intent,
+                                }),
+                                undefined,
+                                true,
+                              )
+                          : undefined
+                      }
+                      onSlashCommand={onSlashCommand}
+                      onBeforeSubmit={ensureAgentEngineReadyForSubmit}
+                      execMode={execMode}
+                      onExecModeChange={onExecModeChange}
+                      planModeDisabled={planModeDisabled}
+                      planModeDisabledReason={planModeDisabledReason}
+                      selectedModel={selectedModel ?? defaultModel}
+                      selectedEffort={selectedEffort}
+                      availableModels={availableModels}
+                      onModelChange={onModelChange}
+                      onEffortChange={onEffortChange}
+                      imageModelMenu={imageModelMenu}
+                      onConnectProvider={onConnectProvider}
+                      toolbarSlot={composerToolbarSlot}
+                      contextItems={composerContextItems}
+                      onRemoveContextItem={removeComposerContextItem}
+                      plusMenuMode={plusMenuMode}
+                      layoutVariant={composerLayoutVariant}
+                      providerConnectStatusEnabled={providerStatusChecksEnabled}
+                      draftScope={threadId || tabId}
+                      interceptBuildRequestsForBuilder
+                      onAttachmentError={setComposerError}
+                      extraActionButton={
+                        contextXRayEnabled ||
+                        composerExtraActionButton ||
+                        showRunningInUI ? (
+                          <>
+                            {contextXRayEnabled && (
+                              <ContextMeter threadId={threadId} />
+                            )}
+                            {composerExtraActionButton}
+                            {showRunningInUI && (
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <button
+                                    type="button"
+                                    onClick={stopActiveRun}
+                                    className="shrink-0 flex h-7 w-7 items-center justify-center rounded-md bg-muted text-foreground hover:bg-muted/80"
+                                  >
+                                    <IconPlayerStop className="h-3.5 w-3.5" />
+                                  </button>
+                                </TooltipTrigger>
+                                <TooltipContent>Stop generating</TooltipContent>
+                              </Tooltip>
+                            )}
+                          </>
+                        ) : undefined
+                      }
+                    />
+                  </AgentComposerFrame>
+                  {missingApiKey &&
+                  !authError &&
+                  !missingApiKeySetupAboveComposer ? (
+                    <div
+                      className="agent-composer-setup-card"
+                      data-agent-composer-setup-position="below"
+                    >
+                      <BuilderSetupCard
+                        onConnected={handleBuilderConnected}
+                        bouncePulse={missingKeyBouncePulse}
+                        layout={missingApiKeySetupLayout}
+                      />
+                    </div>
+                  ) : null}
+                </div>
               </div>
             </TextStreamingContext.Provider>
           </ChatRunningContext.Provider>

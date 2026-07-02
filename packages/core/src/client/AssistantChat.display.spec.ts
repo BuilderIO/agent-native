@@ -202,6 +202,42 @@ describe("dedupeReconnectContentAgainstMessages", () => {
   });
 });
 
+describe("centered empty chat setup layout", () => {
+  it("floats the setup card outside the centered composer stack unless adjacent UI needs space", () => {
+    const css = readFileSync("src/styles/agent-native.css", {
+      encoding: "utf8",
+    });
+    const source = readFileSync("src/client/AssistantChat.tsx", {
+      encoding: "utf8",
+    });
+    const messageComponents = readFileSync(
+      "src/client/chat/message-components.tsx",
+      { encoding: "utf8" },
+    );
+
+    expect(source).toContain("hasComposerAccessoryAboveStack");
+    expect(source).toContain("data-agent-composer-adjacent-ui");
+    expect(source).toContain("showScrollToBottom");
+    expect(source).toContain("composerContextItems.length > 0");
+    expect(source).toContain('className="agent-composer-stack"');
+    expect(messageComponents).toContain("agent-selection-attached-pill");
+    expect(source).toContain('data-agent-composer-setup-position="above"');
+    expect(source).toContain('data-agent-composer-setup-position="below"');
+    expect(css).toMatch(
+      /\[data-agent-empty-state="centered"\]\s*>\s*\.agent-composer-stack:not\(\s*\[data-agent-composer-adjacent-ui="true"\]\s*\):not\(\s*:has\(\.agent-selection-attached-pill\)\s*\)\s*>\s*\.agent-composer-setup-card\s*\{[^}]*position:\s*absolute;/s,
+    );
+    expect(css).toMatch(
+      /\.agent-composer-stack\[data-agent-composer-adjacent-ui="true"\]\s*,\s*\.agent-composer-stack:has\(\.agent-selection-attached-pill\)\s*\{[^}]*display:\s*flex;[^}]*flex-direction:\s*column;[^}]*gap:\s*0\.5rem;/s,
+    );
+    expect(css).toMatch(
+      /data-agent-composer-setup-position="above"\]\s*\{[^}]*bottom:\s*calc\(100% \+ 0\.5rem\);/s,
+    );
+    expect(css).toMatch(
+      /data-agent-composer-setup-position="below"\]\s*\{[^}]*top:\s*calc\(100% \+ 0\.5rem\);/s,
+    );
+  });
+});
+
 describe("resolveAssistantChatRunningState", () => {
   it("keeps UI running during auto-continuation gaps without changing queue gating", () => {
     expect(

@@ -109,12 +109,16 @@ so you never emit a block the editor cannot render or round-trip:
   `--wf-paper`, `--wf-card`, `--wf-accent`, `--wf-accent-soft`, `--wf-warn`, and
   `--wf-ok`, and switch to Excalifont plus rough.js outlines in sketchy mode. Do not
   set `font-family` and do not hard-code hex, rgb, or hsl colors in diagram HTML
-  or CSS. Leave room for the sketch font: keep labels short, give nodes generous
-  width, and place boundary/annotation labels in unused space instead of over
-  nodes; labels must not overlap nodes, connectors, or each other. For small
-  text/SVG changes to an existing HTML diagram, use `patch-diagram-html` with a
-  unique `find`/`replace` snippet instead of resending the whole `data.html`
-  string. Use legacy `nodes` / `edges` only for small previews or truly
+  or CSS. Choose the outer `frame` intentionally: use `show` when the diagram
+  stands alone in a recap, comparison, or prose section; use `hide` when the
+  diagram sits inside docs chrome, columns, tabs, cards, a canvas surface, or
+  already has visible `.diagram-panel` / `.diagram-box` structure. Leave room
+  for the sketch font: keep labels short, give nodes generous width, and place
+  boundary/annotation labels in unused space instead of over nodes; labels must
+  not overlap nodes, connectors, or each other. For small text/SVG changes to an
+  existing HTML diagram, use `patch-diagram-html` with a unique
+  `find`/`replace` snippet instead of resending the whole `data.html` string.
+  Use legacy `nodes` / `edges` only for small previews or truly
   sequential flows. In architecture/code plans, prefer a repeated section rhythm:
   recommendation title, confidence and category badges, code-path evidence, a
   local before/after or current/target spatial diagram, then concise
