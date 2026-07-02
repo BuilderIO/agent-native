@@ -985,7 +985,7 @@ describe("runAgentLoop", () => {
     );
   });
 
-  it("keeps tracking a stalled action input across empty assistant snapshots", async () => {
+  it("keeps tracking a stalled action input across assistant snapshots", async () => {
     let now = 1_000_000;
     const dateNow = vi.spyOn(Date, "now").mockImplementation(() => now);
     const engine: AgentEngine = {
@@ -1008,7 +1008,7 @@ describe("runAgentLoop", () => {
         };
         yield {
           type: "assistant-content",
-          parts: [],
+          parts: [{ type: "text", text: "previous assistant text snapshot" }],
         };
         now += 91_000;
         yield { type: "gateway-heartbeat" };
