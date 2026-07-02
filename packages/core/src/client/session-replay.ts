@@ -191,6 +191,7 @@ const DEFAULT_FLUSH_INTERVAL_MS = 5000;
 const DEFAULT_MAX_DURATION_MS = 30 * 60 * 1000;
 const DEFAULT_MAX_EVENTS_PER_BATCH = 50;
 const DEFAULT_MAX_BATCH_BYTES = 256 * 1024;
+const MAX_KEEPALIVE_REPLAY_BODY_BYTES = 60 * 1024;
 const URL_LIKE_KEYS = new Set([
   "url",
   "uri",
@@ -774,19 +775,40 @@ async function buildReplayUploadBody(body: string): Promise<ReplayUploadBody> {
   };
 }
 
+function replayUploadBodyBytes(body: BodyInit): number {
+  if (typeof body === "string") {
+    if (typeof TextEncoder !== "undefined") {
+      return new TextEncoder().encode(body).byteLength;
+    }
+    return body.length;
+  }
+  if (typeof Blob !== "undefined" && body instanceof Blob) {
+    return body.size;
+  }
+  if (body instanceof ArrayBuffer) {
+    return body.byteLength;
+  }
+  if (ArrayBuffer.isView(body)) {
+    return body.byteLength;
+  }
+  return MAX_KEEPALIVE_REPLAY_BODY_BYTES + 1;
+}
+
 async function sendReplayUpload(
   options: NormalizedSessionReplayOptions,
   body: string,
 ): Promise<void> {
   const upload = await buildReplayUploadBody(body);
-  if (!upload.compressed && navigator.sendBeacon) {
+  const canUseKeepalive =
+    replayUploadBodyBytes(upload.body) <= MAX_KEEPALIVE_REPLAY_BODY_BYTES;
+  if (!upload.compressed && canUseKeepalive && navigator.sendBeacon) {
     const sent = navigator.sendBeacon(options.endpoint, body);
     if (sent) return;
   }
   const response = await fetch(options.endpoint, {
     method: "POST",
     body: upload.body,
-    keepalive: true,
+    keepalive: canUseKeepalive,
     headers: {
       ...upload.headers,
       "X-Agent-Native-Analytics-Key": options.publicKey,

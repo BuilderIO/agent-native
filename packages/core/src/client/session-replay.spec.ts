@@ -474,6 +474,43 @@ describe("session replay", () => {
     expect(body.events[0].data.href).toBe("/inbox");
   });
 
+  it("does not use keepalive for large replay uploads", async () => {
+    const { fetchMock } = installBrowser("https://app.agent-native.com/inbox");
+    const sendBeacon = vi.fn(() => false);
+    vi.stubGlobal("navigator", { sendBeacon });
+    vi.stubGlobal("CompressionStream", undefined);
+    let recordOptions: any;
+    recordMock.mockImplementation((options) => {
+      recordOptions = options;
+      return vi.fn();
+    });
+    const { startSessionReplay } = await freshSessionReplay();
+
+    await startSessionReplay({
+      publicKey: "anpk_test",
+      endpoint: "https://analytics.example.test/session-replay",
+      maxEventsPerBatch: 1,
+      flushIntervalMs: 100_000,
+    });
+    recordOptions.emit({
+      type: 2,
+      data: {
+        node: {
+          type: 2,
+          tagName: "html",
+          childNodes: [{ type: 3, textContent: "x".repeat(70 * 1024) }],
+        },
+      },
+    });
+    await waitForAssertion(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(sendBeacon).not.toHaveBeenCalled();
+    expect(init.keepalive).toBe(false);
+    const body = await parseReplayUpload(init);
+    expect(body.events[0].type).toBe(2);
+  });
+
   it("passes custom rrweb event sampling through to the recorder", async () => {
     installBrowser("https://app.agent-native.com/inbox");
     let recordOptions: any;
