@@ -402,6 +402,15 @@ function appendToExistingCspDirective(
   existing.tokens = appendCspTokens(existing.tokens, additions);
 }
 
+function ensureCspDirective(
+  directives: CspDirective[],
+  name: string,
+  tokens: readonly string[],
+): void {
+  if (findCspDirective(directives, name)) return;
+  directives.push({ name, tokens: [...tokens] });
+}
+
 function hasStrictNonceScriptPolicy(tokens: readonly string[]): boolean {
   return tokens.some(
     (token) => token === "'strict-dynamic'" || token.startsWith("'nonce-"),
@@ -479,6 +488,9 @@ function augmentExistingEnforcedCspForFrameworkScripts(
       );
     }
   }
+
+  ensureCspDirective(directives, "object-src", ["'none'"]);
+  ensureCspDirective(directives, "base-uri", ["'self'"]);
 
   return serializeCsp(directives);
 }

@@ -715,6 +715,35 @@ describe("createH3SSRHandler", () => {
       }
     });
 
+    it("adds object-src/base-uri to route-provided enforcement CSP", async () => {
+      const previousNodeEnv = process.env.NODE_ENV;
+      process.env.NODE_ENV = "production";
+      try {
+        mocks.requestHandler.mockResolvedValueOnce(
+          new Response("<html><head></head><body>ok</body></html>", {
+            headers: {
+              "content-type": "text/html; charset=utf-8",
+              "content-security-policy": "frame-ancestors 'self'",
+            },
+          }),
+        );
+        const handler = createH3SSRHandler(() => ({})) as any;
+
+        const response = await handler(createEvent("/"));
+
+        const csp = response.headers.get("content-security-policy") ?? "";
+        expect(csp).toContain("frame-ancestors 'self'");
+        expect(csp).toContain("object-src 'none'");
+        expect(csp).toContain("base-uri 'self'");
+      } finally {
+        if (previousNodeEnv === undefined) {
+          delete process.env.NODE_ENV;
+        } else {
+          process.env.NODE_ENV = previousNodeEnv;
+        }
+      }
+    });
+
     it("emits a script-src Report-Only CSP on HTML responses in production", async () => {
       const previousNodeEnv = process.env.NODE_ENV;
       process.env.NODE_ENV = "production";
@@ -900,7 +929,11 @@ describe("createH3SSRHandler", () => {
         expect(csp).toContain("script-src https://cdn.example.com");
         expect(csp).toContain("https://www.googletagmanager.com");
         expect(csp).toContain("https://www.google-analytics.com");
-        expect(csp).not.toContain("'self'");
+        const scriptSrc = csp
+          .split(";")
+          .map((part) => part.trim())
+          .find((part) => part.startsWith("script-src"));
+        expect(scriptSrc).not.toContain("'self'");
         expect(csp.match(/'sha256-[A-Za-z0-9+/]+=*'/g)).toHaveLength(1);
       } finally {
         if (previousNodeEnv === undefined) {
@@ -1368,10 +1401,11 @@ describe("createH3SSRHandler", () => {
 
         const response = await handler(createEvent("/embed/public"));
 
-        // The route's explicit CSP must be preserved.
-        expect(response.headers.get("content-security-policy")).toBe(
-          "frame-ancestors *",
-        );
+        // The route's explicit CSP is preserved and required hardening is added.
+        const csp = response.headers.get("content-security-policy") ?? "";
+        expect(csp).toContain("frame-ancestors *");
+        expect(csp).toContain("object-src 'none'");
+        expect(csp).toContain("base-uri 'self'");
       } finally {
         if (previousNodeEnv === undefined) {
           delete process.env.NODE_ENV;

@@ -18,7 +18,7 @@
  *   --designId   Design ID (for editor/present views)
  *   --editorView Editor mode for designs: single or overview
  *   --inspectorTab Inspector tab for designs: design or tweaks (extensions opens Tools for compatibility)
- *   --leftPanel  Left editor panel: file, agent, assets, tools, tokens, or code
+ *   --leftPanel  Left editor panel: file, agent, assets, import, tools, tokens, or code
  *   --fileId     Screen/file id to focus in the design editor
  *   --filename   Screen filename to focus in the design editor
  *   --tool       Design editor tool to activate
@@ -51,6 +51,7 @@ const designLeftPanelSchema = z.enum([
   "file",
   "agent",
   "assets",
+  "import",
   "tools",
   "tokens",
   "code",
@@ -58,7 +59,7 @@ const designLeftPanelSchema = z.enum([
 
 export default defineAction({
   description:
-    "Navigate the UI to a specific view or path. Views: list, editor, design-systems, present, settings. Use --designId with editor/present views and --designSystemId with design-systems. For designs, use editorView=overview to show the infinite screens canvas, or editorView=single with fileId/filename/screen to focus a screen. Use leftPanel=file|agent|assets|tools|tokens|code to focus the left rail, including the wide Code workspace. Legacy inspectorTab=extensions opens Tools. Use tool to activate a design editor tool.",
+    "Navigate the UI to a specific view or path. Views: list, editor, design-systems, present, settings. Use --designId with editor/present views and --designSystemId with design-systems. For designs, use editorView=overview to show the infinite screens canvas, or editorView=single with fileId/filename/screen to focus a screen. Use leftPanel=file|agent|assets|import|tools|tokens|code to focus the left rail, including Import and the wide Code workspace. Legacy inspectorTab=extensions opens Tools. Use tool to activate a design editor tool.",
   schema: z
     .object({
       view: z
