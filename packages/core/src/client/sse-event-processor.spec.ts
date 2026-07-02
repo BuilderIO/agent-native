@@ -1847,6 +1847,43 @@ describe("SSE event processor error classification", () => {
     );
   });
 
+  it("keeps completed tool calls when clearing rejected draft text", async () => {
+    const results = await drain(
+      readSSEStream(
+        eventStream([
+          { type: "tool_start", tool: "query", input: { sql: "select 1" } },
+          { type: "tool_done", tool: "query", result: "1" },
+          { type: "text", text: "Rejected draft" },
+          { type: "clear" },
+          { type: "text", text: "Corrected answer" },
+          { type: "done" },
+        ]),
+        [],
+        { value: 0 },
+      ),
+    );
+
+    expect(results).toContainEqual({
+      content: [
+        expect.objectContaining({
+          type: "tool-call",
+          toolName: "query",
+          result: "1",
+        }),
+      ],
+    });
+    expect(results.at(-1)).toEqual({
+      content: [
+        expect.objectContaining({
+          type: "tool-call",
+          toolName: "query",
+          result: "1",
+        }),
+        { type: "text", text: "Corrected answer" },
+      ],
+    });
+  });
+
   it("dispatches visible activity for tool starts", async () => {
     const dispatchEvent = vi.fn();
     vi.stubGlobal("window", { dispatchEvent });

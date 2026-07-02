@@ -64,6 +64,35 @@ describe("codeAgentTranscriptEventsToContent", () => {
 
     expect(content).toEqual([{ type: "text", text: "Corrected answer" }]);
   });
+
+  it("preserves completed hosted tool output across a clear marker", () => {
+    const content = codeAgentTranscriptEventsToContent([
+      event("tool-start", "status", "Running query.", {
+        type: "tool_start",
+        tool: "query",
+        input: { sql: "select 1" },
+      }),
+      event("tool-done", "status", "Finished query.", {
+        type: "tool_done",
+        tool: "query",
+        result: "1",
+      }),
+      event("draft", "system", "Rejected draft", { role: "assistant" }),
+      event("z-clear", "status", "", { agentChatEventType: "clear" }),
+      event("final-answer", "system", "Corrected answer", {
+        role: "assistant",
+      }),
+    ]);
+
+    expect(content).toEqual([
+      expect.objectContaining({
+        type: "tool-call",
+        toolName: "query",
+        result: "1",
+      }),
+      { type: "text", text: "Corrected answer" },
+    ]);
+  });
 });
 
 describe("createCodeAgentChatAdapter", () => {
