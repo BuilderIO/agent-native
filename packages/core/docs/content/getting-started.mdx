@@ -76,7 +76,10 @@ export default defineAction({
     formId: z.string().default("demo") 
   }),
   outputSchema: responseChartResultSchema,
-  chatUI: { renderer: "responses.response-chart", title: "Response chart" },
+  chatUI: { 
+    renderer: "responses.response-chart", 
+    title: "Response chart" 
+  },
   readOnly: true,
   run: async ({ formId }) => ({
     title: `Responses for ${formId}`,
@@ -113,6 +116,7 @@ type ResponseChartResult = {
   title: string;
   points: Array<{ day: string; responses: number }>;
 };
+
 function ResponseChart({ context }: ToolRendererProps) {
   const result = context.resultJson as ResponseChartResult;
   const max = Math.max(...result.points.map((point) => point.responses), 1);
@@ -130,6 +134,7 @@ function ResponseChart({ context }: ToolRendererProps) {
     </section>
   );
 }
+
 registerActionChatRenderer({
   id: "responses.response-chart",
   renderer: "responses.response-chart",
