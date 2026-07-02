@@ -940,17 +940,11 @@ async function processBuilderBodyHydrationJob(
       wroteBody = Boolean(updatedDocument);
     }
     if (shouldWriteBody && !wroteBody) {
-      await tx
-        .update(schema.contentDatabaseItems)
-        .set({
-          bodyHydrationStatus: "pending",
-          bodyHydrationAttemptedAt: now,
-          bodyHydrationError:
-            "Skipped Builder body hydration because the document changed during sync.",
-          updatedAt: now,
-        })
-        .where(eq(schema.contentDatabaseItems.id, row.databaseItemId));
-      await tx
+      // Only mark the item pending if our queue row still exists. If a
+      // concurrent processor already completed (and deleted) this job, it
+      // owns the final `hydrated` status — resetting to pending here would
+      // strand the item as a zombie (pending with no queue row).
+      const [stillQueued] = await tx
         .update(schema.contentDatabaseBodyHydrationQueue)
         .set({
           lastError:
@@ -965,7 +959,20 @@ async function processBuilderBodyHydrationJob(
               row.sourceEntryJson,
             ),
           ),
-        );
+        )
+        .returning({ id: schema.contentDatabaseBodyHydrationQueue.id });
+      if (stillQueued) {
+        await tx
+          .update(schema.contentDatabaseItems)
+          .set({
+            bodyHydrationStatus: "pending",
+            bodyHydrationAttemptedAt: now,
+            bodyHydrationError:
+              "Skipped Builder body hydration because the document changed during sync.",
+            updatedAt: now,
+          })
+          .where(eq(schema.contentDatabaseItems.id, row.databaseItemId));
+      }
       return;
     }
     const [deleted] = await tx
@@ -1000,15 +1007,26 @@ async function processBuilderBodyHydrationJob(
             ),
           );
       }
-      await tx
-        .update(schema.contentDatabaseItems)
-        .set({
-          bodyHydrationStatus: "pending",
-          bodyHydrationAttemptedAt: now,
-          bodyHydrationError: null,
-          updatedAt: now,
-        })
-        .where(eq(schema.contentDatabaseItems.id, row.databaseItemId));
+      // Our delete matched nothing: either a NEWER job version replaced this
+      // row (same id, different sourceEntryJson — mark pending so the newer
+      // job's processor owns it), or a concurrent processor completed and
+      // deleted the job — in which case it already set `hydrated`, and
+      // resetting to pending would strand the item with no queue row.
+      const [replacedByNewerJob] = await tx
+        .select({ id: schema.contentDatabaseBodyHydrationQueue.id })
+        .from(schema.contentDatabaseBodyHydrationQueue)
+        .where(eq(schema.contentDatabaseBodyHydrationQueue.id, row.id));
+      if (replacedByNewerJob) {
+        await tx
+          .update(schema.contentDatabaseItems)
+          .set({
+            bodyHydrationStatus: "pending",
+            bodyHydrationAttemptedAt: now,
+            bodyHydrationError: null,
+            updatedAt: now,
+          })
+          .where(eq(schema.contentDatabaseItems.id, row.databaseItemId));
+      }
       return;
     }
     await tx
@@ -1733,48 +1751,39 @@ async function loadSourceSnapshot(
   database: ContentDatabaseRow | ContentDatabase,
 ): Promise<ContentDatabaseSource> {
   const db = getDb();
-  const [
-    fieldRows,
-    rowRows,
-    changeRows,
-    reviewRows,
-    executionRows,
-    propertyDefs,
-  ] = await Promise.all([
-    db
-      .select()
-      .from(schema.contentDatabaseSourceFields)
-      .where(eq(schema.contentDatabaseSourceFields.sourceId, source.id))
-      .orderBy(asc(schema.contentDatabaseSourceFields.createdAt)),
-    db
-      .select()
-      .from(schema.contentDatabaseSourceRows)
-      .where(eq(schema.contentDatabaseSourceRows.sourceId, source.id))
-      .orderBy(asc(schema.contentDatabaseSourceRows.createdAt)),
-    db
-      .select()
-      .from(schema.contentDatabaseSourceChangeSets)
-      .where(eq(schema.contentDatabaseSourceChangeSets.sourceId, source.id))
-      .orderBy(asc(schema.contentDatabaseSourceChangeSets.createdAt)),
-    db
-      .select()
-      .from(schema.contentDatabaseSourceChangeReviews)
-      .where(eq(schema.contentDatabaseSourceChangeReviews.sourceId, source.id))
-      .orderBy(asc(schema.contentDatabaseSourceChangeReviews.createdAt)),
-    db
-      .select()
-      .from(schema.contentDatabaseSourceExecutions)
-      .where(eq(schema.contentDatabaseSourceExecutions.sourceId, source.id))
-      .orderBy(asc(schema.contentDatabaseSourceExecutions.createdAt)),
-    db
-      .select({
-        id: schema.documentPropertyDefinitions.id,
-        name: schema.documentPropertyDefinitions.name,
-        type: schema.documentPropertyDefinitions.type,
-      })
-      .from(schema.documentPropertyDefinitions)
-      .where(eq(schema.documentPropertyDefinitions.databaseId, database.id)),
-  ]);
+  const [fieldRows, changeRows, reviewRows, executionRows, propertyDefs] =
+    await Promise.all([
+      db
+        .select()
+        .from(schema.contentDatabaseSourceFields)
+        .where(eq(schema.contentDatabaseSourceFields.sourceId, source.id))
+        .orderBy(asc(schema.contentDatabaseSourceFields.createdAt)),
+      db
+        .select()
+        .from(schema.contentDatabaseSourceChangeSets)
+        .where(eq(schema.contentDatabaseSourceChangeSets.sourceId, source.id))
+        .orderBy(asc(schema.contentDatabaseSourceChangeSets.createdAt)),
+      db
+        .select()
+        .from(schema.contentDatabaseSourceChangeReviews)
+        .where(
+          eq(schema.contentDatabaseSourceChangeReviews.sourceId, source.id),
+        )
+        .orderBy(asc(schema.contentDatabaseSourceChangeReviews.createdAt)),
+      db
+        .select()
+        .from(schema.contentDatabaseSourceExecutions)
+        .where(eq(schema.contentDatabaseSourceExecutions.sourceId, source.id))
+        .orderBy(asc(schema.contentDatabaseSourceExecutions.createdAt)),
+      db
+        .select({
+          id: schema.documentPropertyDefinitions.id,
+          name: schema.documentPropertyDefinitions.name,
+          type: schema.documentPropertyDefinitions.type,
+        })
+        .from(schema.documentPropertyDefinitions)
+        .where(eq(schema.documentPropertyDefinitions.databaseId, database.id)),
+    ]);
 
   const propertyNameById = new Map(
     propertyDefs.map((row) => [row.id, row.name]),
@@ -1791,7 +1800,6 @@ async function loadSourceSnapshot(
       row.propertyId ? (propertyNameById.get(row.propertyId) ?? null) : null,
     ),
   );
-  const rows = rowRows.map(serializeSourceRowRecord);
   const storedChangeSets = changeRows.map(serializeSourceChangeSet);
   const reviewEventsByChangeSetId = new Map<
     string,
@@ -1813,67 +1821,92 @@ async function loadSourceSnapshot(
   }
   const isBuilderSource =
     normalizeSourceType(source.sourceType) === "builder-cms";
-  // For Builder sources, load ALL database items (not just synced source rows)
-  // so brand-new local rows (no source link) can become create_draft change-sets.
-  const databaseItemRows = isBuilderSource
-    ? await db
-        .select({
-          id: schema.contentDatabaseItems.id,
-          documentId: schema.contentDatabaseItems.documentId,
-          bodyHydrationStatus: schema.contentDatabaseItems.bodyHydrationStatus,
-        })
-        .from(schema.contentDatabaseItems)
-        .where(
-          and(
-            eq(schema.contentDatabaseItems.databaseId, database.id),
-            eq(schema.contentDatabaseItems.ownerEmail, source.ownerEmail),
-          ),
-        )
-    : [];
-  const allDocumentIds = Array.from(
-    new Set([
-      ...rowRows.map((row) => row.documentId),
-      ...databaseItemRows.map((item) => item.documentId),
-    ]),
-  );
-  const rowDocuments =
-    allDocumentIds.length > 0
-      ? await db
+  const {
+    rowRows,
+    databaseItemRows,
+    allDocumentIds,
+    rowDocuments,
+    propertyValueRows,
+  } = await db.transaction(async (tx) => {
+    const rowRows = await tx
+      .select()
+      .from(schema.contentDatabaseSourceRows)
+      .where(eq(schema.contentDatabaseSourceRows.sourceId, source.id))
+      .orderBy(asc(schema.contentDatabaseSourceRows.createdAt));
+    // For Builder sources, load ALL database items (not just synced source rows)
+    // so brand-new local rows (no source link) can become create_draft change-sets.
+    const databaseItemRows = isBuilderSource
+      ? await tx
           .select({
-            id: schema.documents.id,
-            title: schema.documents.title,
-            content: schema.documents.content,
+            id: schema.contentDatabaseItems.id,
+            documentId: schema.contentDatabaseItems.documentId,
+            bodyHydrationStatus:
+              schema.contentDatabaseItems.bodyHydrationStatus,
           })
-          .from(schema.documents)
+          .from(schema.contentDatabaseItems)
           .where(
             and(
-              inArray(schema.documents.id, allDocumentIds),
-              eq(schema.documents.ownerEmail, source.ownerEmail),
+              eq(schema.contentDatabaseItems.databaseId, database.id),
+              eq(schema.contentDatabaseItems.ownerEmail, source.ownerEmail),
             ),
           )
       : [];
+    const allDocumentIds = Array.from(
+      new Set([
+        ...rowRows.map((row) => row.documentId),
+        ...databaseItemRows.map((item) => item.documentId),
+      ]),
+    );
+    const rowDocuments =
+      allDocumentIds.length > 0
+        ? await tx
+            .select({
+              id: schema.documents.id,
+              title: schema.documents.title,
+              content: schema.documents.content,
+            })
+            .from(schema.documents)
+            .where(
+              and(
+                inArray(schema.documents.id, allDocumentIds),
+                eq(schema.documents.ownerEmail, source.ownerEmail),
+              ),
+            )
+        : [];
+    const propertyValueRows =
+      isBuilderSource && allDocumentIds.length > 0
+        ? await tx
+            .select({
+              documentId: schema.documentPropertyValues.documentId,
+              propertyId: schema.documentPropertyValues.propertyId,
+              valueJson: schema.documentPropertyValues.valueJson,
+            })
+            .from(schema.documentPropertyValues)
+            .where(
+              and(
+                inArray(
+                  schema.documentPropertyValues.documentId,
+                  allDocumentIds,
+                ),
+                eq(schema.documentPropertyValues.ownerEmail, source.ownerEmail),
+              ),
+            )
+        : [];
+    return {
+      rowRows,
+      databaseItemRows,
+      allDocumentIds,
+      rowDocuments,
+      propertyValueRows,
+    };
+  });
+  const rows = rowRows.map(serializeSourceRowRecord);
   const documentTitleById = new Map(
     rowDocuments.map((document) => [document.id, document.title]),
   );
   const documentContentById = new Map(
     rowDocuments.map((document) => [document.id, document.content]),
   );
-  const propertyValueRows =
-    isBuilderSource && allDocumentIds.length > 0
-      ? await db
-          .select({
-            documentId: schema.documentPropertyValues.documentId,
-            propertyId: schema.documentPropertyValues.propertyId,
-            valueJson: schema.documentPropertyValues.valueJson,
-          })
-          .from(schema.documentPropertyValues)
-          .where(
-            and(
-              inArray(schema.documentPropertyValues.documentId, allDocumentIds),
-              eq(schema.documentPropertyValues.ownerEmail, source.ownerEmail),
-            ),
-          )
-      : [];
   const localValuesByDocument = new Map<string, Map<string, unknown>>();
   for (const valueRow of propertyValueRows) {
     let byField = localValuesByDocument.get(valueRow.documentId);

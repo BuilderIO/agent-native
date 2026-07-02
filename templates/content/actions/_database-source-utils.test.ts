@@ -4,6 +4,8 @@ import type { ContentDatabaseItem, DocumentProperty } from "../shared/api";
 import {
   BUILDER_CMS_BODY_BLOCKS_HASH_KEY,
   BUILDER_CMS_BODY_CONTENT_KEY,
+  BUILDER_CMS_BODY_LOSSLESS_CONTENT_KEY,
+  BUILDER_CMS_BODY_SIDECARS_KEY,
 } from "./_builder-cms-source-adapter";
 import {
   buildBuilderLocalOutboundChangeSets,
@@ -15,6 +17,7 @@ import {
   builderCmsEntryAlreadyRepresented,
   buildMockBodyChange,
   buildMockFieldChange,
+  withBuilderBodySourceValues,
   mapBuilderCmsEntriesToLocalItems,
   mockProposedValue,
   normalizeSourceFederation,
@@ -393,6 +396,60 @@ describe("database source helpers", () => {
         }),
       },
       localContent: "Readable Builder body",
+    });
+
+    expect(change).toBeNull();
+  });
+
+  it("uses the same MDX escape normalization for hydrated Builder body baselines and diffs", async () => {
+    const entry = await withBuilderBodySourceValues({
+      id: "entry-mdx-escape",
+      model: "blog-article",
+      title: "MDX escape",
+      urlPath: "/blog/mdx-escape",
+      updatedAt: "2026-07-02T00:00:00.000Z",
+      sourceValues: {
+        "data.title": "MDX escape",
+        "data.url": "/blog/mdx-escape",
+      },
+      rawEntry: {
+        id: "entry-mdx-escape",
+        model: "blog-article",
+        name: "MDX escape",
+        lastUpdated: "2026-07-02T00:00:00.000Z",
+        data: {
+          title: "MDX escape",
+          url: "/blog/mdx-escape",
+          blocks: [
+            {
+              "@type": "@builder.io/sdk:Element",
+              "@version": 2,
+              id: "text-1",
+              component: {
+                name: "Text",
+                options: {
+                  text: "<p>Use values &lt;5 with {curly} braces.</p>",
+                },
+              },
+            },
+          ],
+        },
+      },
+    });
+    const content = String(entry.sourceValues[BUILDER_CMS_BODY_CONTENT_KEY]);
+    const losslessContent = String(
+      entry.sourceValues[BUILDER_CMS_BODY_LOSSLESS_CONTENT_KEY],
+    );
+
+    expect(content).toContain("<5");
+    expect(content).toContain("{curly}");
+    expect(losslessContent).toContain("\\<5");
+    expect(losslessContent).toContain("\\{curly\\}");
+    expect(entry.sourceValues[BUILDER_CMS_BODY_SIDECARS_KEY]).toBeTruthy();
+
+    const change = await builderBodyChangeForLocalContent({
+      row: { sourceValuesJson: JSON.stringify(entry.sourceValues) },
+      localContent: content,
     });
 
     expect(change).toBeNull();

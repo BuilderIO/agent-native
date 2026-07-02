@@ -8,7 +8,7 @@ import { rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { eq } from "drizzle-orm";
+import { and, eq, ne } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 const builderReadMock = vi.hoisted(() => ({
@@ -69,6 +69,59 @@ vi.mock("./_builder-cms-read-client.js", async () => {
               startOffset: 0,
               nextOffset: 2,
               fetchedEntryCount: 2,
+              hasMore: false,
+              partial: false,
+              readMode: "builder-api",
+            },
+          };
+        }
+        if (model === "collection-hydration") {
+          const entries = ["One", "Two"].map((title, index) => ({
+            id: `entry-hydration-${index + 1}`,
+            model: "collection-hydration",
+            title: `Hydration ${title}`,
+            urlPath: `/blog/hydration-${title.toLowerCase()}`,
+            updatedAt: `2026-01-01T00:0${index}:00.000Z`,
+            sourceValues: {
+              "data.title": `Hydration ${title}`,
+              "data.url": `/blog/hydration-${title.toLowerCase()}`,
+              lastUpdated: `2026-01-01T00:0${index}:00.000Z`,
+            },
+            rawEntry: {
+              id: `entry-hydration-${index + 1}`,
+              model: "collection-hydration",
+              name: `Hydration ${title}`,
+              lastUpdated: `2026-01-01T00:0${index}:00.000Z`,
+              data: {
+                title: `Hydration ${title}`,
+                url: `/blog/hydration-${title.toLowerCase()}`,
+                blocks: [
+                  {
+                    "@type": "@builder.io/sdk:Element",
+                    "@version": 2,
+                    id: `text-${index + 1}`,
+                    component: {
+                      name: "Text",
+                      options: {
+                        text: `<p>Hydrated body ${title} with &lt;5 and {braces}.</p>`,
+                      },
+                    },
+                  },
+                ],
+              },
+            },
+          }));
+          return {
+            state: "live",
+            entries,
+            fetchedAt: "2026-01-01T00:00:00.000Z",
+            message: null,
+            progress: {
+              requestedLimit: 500,
+              pageSize: 100,
+              startOffset: 0,
+              nextOffset: entries.length,
+              fetchedEntryCount: entries.length,
               hasMore: false,
               partial: false,
               readMode: "builder-api",
@@ -156,6 +209,8 @@ let getDb: () => any;
 let schema: typeof import("../server/db/schema.js");
 let resync: typeof import("./_database-source-utils.js").resyncBuilderCmsSourceSnapshot;
 let importBuilderEntries: typeof import("./_database-source-utils.js").importBuilderCmsEntriesAsDatabaseItems;
+let getSnapshot: typeof import("./_database-source-utils.js").getContentDatabaseSourceSnapshotById;
+let hydrateQueuedBodies: typeof import("./_database-source-utils.js").processBuilderBodyHydrationQueue;
 
 const OWNER = "owner@example.com";
 
@@ -170,6 +225,10 @@ beforeAll(async () => {
     .resyncBuilderCmsSourceSnapshot;
   importBuilderEntries = (await import("./_database-source-utils.js"))
     .importBuilderCmsEntriesAsDatabaseItems;
+  getSnapshot = (await import("./_database-source-utils.js"))
+    .getContentDatabaseSourceSnapshotById;
+  hydrateQueuedBodies = (await import("./_database-source-utils.js"))
+    .processBuilderBodyHydrationQueue;
 }, 60000);
 
 afterAll(() => {
@@ -705,4 +764,125 @@ it("full Builder refresh reads every page in one resync call", async () => {
   expect(builderReadMock.calls).toEqual([
     { model: "collection-a", maxPages: undefined, offset: 0 },
   ]);
+});
+
+it("keeps Builder outbound change sets empty while body hydration streams", async () => {
+  builderReadMock.mode = "full";
+  builderReadMock.calls = [];
+  const db = getDb();
+  const now = new Date().toISOString();
+  const databaseId = "db_hydration_zero_changes";
+  const databaseDocId = "doc_db_hydration_zero_changes";
+  const sourceId = "src-hydration-zero-changes";
+  await db.insert(schema.documents).values({
+    id: databaseDocId,
+    ownerEmail: OWNER,
+    title: "DB hydration zero changes",
+    createdAt: now,
+    updatedAt: now,
+  });
+  await db.insert(schema.contentDatabases).values({
+    id: databaseId,
+    ownerEmail: OWNER,
+    documentId: databaseDocId,
+    title: "DB hydration zero changes",
+    createdAt: now,
+    updatedAt: now,
+  });
+  await db.insert(schema.contentDatabaseSources).values({
+    id: sourceId,
+    ownerEmail: OWNER,
+    databaseId,
+    sourceType: "builder-cms",
+    sourceName: "collection-hydration",
+    sourceTable: "collection-hydration",
+    createdAt: now,
+    updatedAt: now,
+  });
+
+  const [database] = await db
+    .select()
+    .from(schema.contentDatabases)
+    .where(eq(schema.contentDatabases.id, databaseId));
+  const [source] = await db
+    .select()
+    .from(schema.contentDatabaseSources)
+    .where(eq(schema.contentDatabaseSources.id, sourceId));
+
+  await resync({
+    database,
+    source,
+    now: "2026-01-01T00:10:00.000Z",
+    runFullRefresh: true,
+  });
+
+  async function expectZeroOutboundChangeSets(label: string) {
+    const snapshot = await getSnapshot(database, sourceId);
+    expect(
+      snapshot?.changeSets.filter((changeSet: { direction: string }) => {
+        return changeSet.direction === "outbound";
+      }),
+      label,
+    ).toEqual([]);
+  }
+
+  await expectZeroOutboundChangeSets("after enqueue, before hydration");
+
+  await hydrateQueuedBodies({
+    sourceId,
+    limit: 1,
+  });
+  await expectZeroOutboundChangeSets("immediately after first hydrated body");
+
+  await hydrateQueuedBodies({
+    sourceId,
+    limit: 10,
+  });
+  // The resync fires an unawaited background hydration kick; drain until the
+  // queue and item statuses settle so the completion assertions are
+  // deterministic. Change sets must stay empty at every drain step.
+  for (let attempt = 0; attempt < 20; attempt++) {
+    await expectZeroOutboundChangeSets(`during drain step ${attempt}`);
+    const pendingItems = await db
+      .select({ id: schema.contentDatabaseItems.id })
+      .from(schema.contentDatabaseItems)
+      .where(
+        and(
+          eq(schema.contentDatabaseItems.databaseId, databaseId),
+          ne(schema.contentDatabaseItems.bodyHydrationStatus, "hydrated"),
+        ),
+      );
+    if (pendingItems.length === 0) break;
+    await hydrateQueuedBodies({ sourceId, limit: 10 });
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  await expectZeroOutboundChangeSets("after hydration completes");
+
+  const items = await db
+    .select({
+      status: schema.contentDatabaseItems.bodyHydrationStatus,
+      content: schema.documents.content,
+      sourceValuesJson: schema.contentDatabaseSourceRows.sourceValuesJson,
+    })
+    .from(schema.contentDatabaseItems)
+    .innerJoin(
+      schema.documents,
+      eq(schema.documents.id, schema.contentDatabaseItems.documentId),
+    )
+    .innerJoin(
+      schema.contentDatabaseSourceRows,
+      eq(
+        schema.contentDatabaseSourceRows.databaseItemId,
+        schema.contentDatabaseItems.id,
+      ),
+    )
+    .where(eq(schema.contentDatabaseItems.databaseId, databaseId));
+
+  expect(items).toHaveLength(2);
+  // Hydrated content is the CONVERTED readable body, not the raw source
+  // value — assert completion and non-empty bodies, not raw equality.
+  for (const item of items) {
+    expect(item.status).toBe("hydrated");
+    expect((item.content ?? "").trim().length).toBeGreaterThan(0);
+  }
 });
