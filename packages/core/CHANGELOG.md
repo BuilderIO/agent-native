@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.84.55
+
+### Patch Changes
+
+- ea97dc1: Make agent chat setup, auth, and title state resilient to transient status checks and hidden context payloads.
+
 ## 0.84.54
 
 ### Patch Changes
