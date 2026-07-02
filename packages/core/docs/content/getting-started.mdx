@@ -91,18 +91,14 @@ export default defineAction({
           href: "/response-insights",
         },
       },
-      // Keep docs compact; add real rows/series in your app.
       chartSeries: {
         type: "bar",
         xKey: "day",
         series: [{ key: "responses", label: "Responses" }],
-        data: [{ day: "Mon", responses: 8 }],
-      },
-      table: {
-        title: "Top answers",
-        columns: [{ key: "answer", label: "Answer" }],
-        rows: [{ answer: "Yes" }],
-        totalRows: 1,
+        data: Array.from({ length: 10 }, (_, day) => ({
+          day: day + 1,
+          responses: Math.round(Math.random() * 10) + 10,
+        })),
       },
     }),
 });

@@ -64,10 +64,12 @@ export default defineAction({
       },
       chartSeries: {
         type: "bar",
-        title: "Responses by day",
         xKey: "day",
         series: [{ key: "responses", label: "Responses" }],
-        data: [{ day: "Mon", responses: 8 }],
+        data: Array.from({ length: 10 }, (_, day) => ({
+          day: day + 1,
+          responses: Math.round(Math.random() * 10) + 10,
+        })),
       },
     }),
 });
