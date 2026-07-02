@@ -2874,11 +2874,21 @@ export async function runAgentLoop(opts: {
         ) => {
           const now = Date.now();
           const previous = activeToolInputs.get(key);
+          const resolvedToolName = toolName ?? previous?.toolName;
+          if (bytes > 0 && resolvedToolName) {
+            for (const [activeKey, active] of activeToolInputs) {
+              if (
+                activeKey !== key &&
+                active.toolName === resolvedToolName &&
+                active.bytes === 0
+              ) {
+                activeToolInputs.delete(activeKey);
+              }
+            }
+          }
           activeToolInputs.set(key, {
             id: key,
-            ...((toolName ?? previous?.toolName)
-              ? { toolName: toolName ?? previous?.toolName }
-              : {}),
+            ...(resolvedToolName ? { toolName: resolvedToolName } : {}),
             startedAt: previous?.startedAt ?? now,
             lastProgressAt: now,
             bytes,
