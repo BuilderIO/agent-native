@@ -238,11 +238,17 @@ describe("waitForThreadRunToClear", () => {
 
     expect(start).toBeGreaterThan(-1);
     expect(end).toBeGreaterThan(start);
+    expect(helperSource).toContain(
+      "const preparingActionState: PreparingActionState = {}",
+    );
     expect(helperSource).toContain("sameRunStillActive");
+    expect(helperSource).toContain('return "unknown"');
     expect(helperSource).toContain('err.reason === "stream_ended"');
     expect(helperSource).toContain(
       "const reconnectAfterSeq = resolveReconnectAfterSeq(threadId, runId)",
     );
+    expect(helperSource).toContain("{ preparingActionState }");
+    expect(helperSource).toContain('activeState !== "inactive"');
     expect(helperSource).toContain("continue;");
   });
 

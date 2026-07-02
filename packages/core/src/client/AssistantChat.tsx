@@ -153,6 +153,7 @@ import {
 import {
   AgentAutoContinueSignal,
   type ContentPart,
+  type PreparingActionState,
   readSSEStreamRaw,
   settleInterruptedToolCalls,
 } from "./sse-event-processor.js";
@@ -1863,21 +1864,24 @@ const AssistantChatInner = forwardRef<
       const streamReconnect = async () => {
         let noProgressDuringReconnect = false;
         let latestContent: ContentPart[] = [];
-        const sameRunStillActive = async (): Promise<boolean> => {
+        const preparingActionState: PreparingActionState = {};
+        const sameRunStillActive = async (): Promise<
+          "active" | "inactive" | "unknown"
+        > => {
           try {
             const res = await fetch(
               `${apiUrl}/runs/active?threadId=${encodeURIComponent(threadId)}`,
             );
-            if (!res.ok) return false;
+            if (!res.ok) return "unknown";
             const info = (await res.json()) as ActiveRunLookup;
-            return (
-              info.active === true &&
+            return info.active === true &&
               String(info.runId ?? "") === runId &&
               info.status === "running" &&
               !activeRunLooksStale(info)
-            );
+              ? "active"
+              : "inactive";
           } catch {
-            return false;
+            return "unknown";
           }
         };
         const threadPollInterval =
@@ -1926,6 +1930,7 @@ const AssistantChatInner = forwardRef<
                   markReconnectProgress();
                   updateActiveRunSeq(seq);
                 },
+                { preparingActionState },
               );
               if (reconnectAfterSeq === 0) {
                 setReconnectContent([...content]);
@@ -1939,7 +1944,8 @@ const AssistantChatInner = forwardRef<
                 if (reconnectAfterSeq === 0) {
                   setReconnectContent([...content]);
                 }
-                if (await sameRunStillActive()) {
+                const activeState = await sameRunStillActive();
+                if (activeState !== "inactive") {
                   await new Promise((resolve) =>
                     window.setTimeout(resolve, 250),
                   );
