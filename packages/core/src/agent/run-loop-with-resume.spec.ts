@@ -292,6 +292,7 @@ describe("runAgentLoopDirectWithSoftTimeout", () => {
 
   it("continues internally when runAgentLoop checkpoints for no-progress action preparation", async () => {
     let attempts = 0;
+    const sentEvents: AgentChatEvent[] = [];
     const messages: EngineMessage[] = [
       { role: "user", content: [{ type: "text", text: "go" }] },
     ];
@@ -300,6 +301,10 @@ describe("runAgentLoopDirectWithSoftTimeout", () => {
     mockRunAgentLoop.mockImplementation(async (opts) => {
       attempts++;
       if (attempts === 1) {
+        opts.send({
+          type: "text",
+          text: "partial lead-in",
+        });
         opts.send({
           type: "activity",
           label: "Preparing edit-design action",
@@ -329,12 +334,23 @@ describe("runAgentLoopDirectWithSoftTimeout", () => {
     });
 
     const usage = await runAgentLoopDirectWithSoftTimeout(
-      makeOpts(messages, new AbortController().signal, undefined, "thread-1"),
+      makeOpts(
+        messages,
+        new AbortController().signal,
+        (event) => sentEvents.push(event),
+        "thread-1",
+      ),
       60_000,
     );
 
     expect(attempts).toBe(2);
     expect(usage.inputTokens).toBe(107);
+    const autoContinueIndex = sentEvents.findIndex(
+      (event) => event.type === "auto_continue",
+    );
+    const clearIndex = sentEvents.findIndex((event) => event.type === "clear");
+    expect(autoContinueIndex).toBeGreaterThanOrEqual(0);
+    expect(clearIndex).toBeGreaterThan(autoContinueIndex);
     const continuationText = messages
       .map((m) => (m.content[0]?.type === "text" ? m.content[0].text : ""))
       .find((t) => t.startsWith(AGENT_INTERNAL_CONTINUE_PROMPT));

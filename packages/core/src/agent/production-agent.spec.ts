@@ -1065,6 +1065,92 @@ describe("runAgentLoop", () => {
     );
   });
 
+  it("tracks action-preparation stalls for multiple in-flight tool inputs", async () => {
+    let now = 1_000_000;
+    const dateNow = vi.spyOn(Date, "now").mockImplementation(() => now);
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: true,
+      },
+      async *stream(): AsyncIterable<EngineEvent> {
+        yield {
+          type: "tool-input-start",
+          id: "tool-a",
+          name: "edit-design",
+        };
+        now += 30_000;
+        yield {
+          type: "tool-input-start",
+          id: "tool-b",
+          name: "generate-design",
+        };
+        now += 30_000;
+        yield {
+          type: "tool-input-delta",
+          id: "tool-b",
+          text: "healthy",
+        };
+        now += 31_000;
+        yield {
+          type: "tool-input-delta",
+          id: "tool-b",
+          text: "still healthy",
+        };
+        yield {
+          type: "assistant-content",
+          parts: [{ type: "text" as const, text: "should not finish" }],
+        };
+      },
+    };
+    const events: AgentChatEvent[] = [];
+
+    try {
+      await runAgentLoop({
+        engine,
+        model: "test-model",
+        systemPrompt: "system",
+        tools: [],
+        messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+        actions: {
+          "edit-design": actionEntry({ readOnly: false }),
+          "generate-design": actionEntry({ readOnly: false }),
+        },
+        send: (event) => events.push(event),
+        signal: new AbortController().signal,
+      });
+    } finally {
+      dateNow.mockRestore();
+    }
+
+    expect(events).toContainEqual({
+      type: "activity",
+      label: "Preparing edit-design action",
+      tool: "edit-design",
+      id: "tool-a",
+    });
+    expect(events).toContainEqual({
+      type: "activity",
+      label: "Preparing generate-design action",
+      tool: "generate-design",
+      id: "tool-b",
+    });
+    expect(events.at(-1)).toEqual({
+      type: "auto_continue",
+      reason: "no_progress",
+    });
+    expect(events).not.toContainEqual(
+      expect.objectContaining({ type: "text", text: "should not finish" }),
+    );
+  });
+
   it("keeps assembling a large action input while bytes keep streaming", async () => {
     let now = 1_000_000;
     const dateNow = vi.spyOn(Date, "now").mockImplementation(() => now);

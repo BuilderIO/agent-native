@@ -2822,7 +2822,7 @@ export async function runAgentLoop(opts: {
           lastProgressAt: number;
           bytes: number;
         };
-        let activeToolInput: ActiveToolInputPreparation | null = null;
+        const activeToolInputs = new Map<string, ActiveToolInputPreparation>();
         let endedForActionPreparationNoProgress = false;
         const sendToolInputActivity = (
           toolName: string | undefined,
@@ -2850,20 +2850,50 @@ export async function runAgentLoop(opts: {
           toolName: string | undefined,
           toolInputId?: string,
         ) => {
-          if (!activeToolInput) return;
-          if (
-            (toolInputId && activeToolInput.id === toolInputId) ||
-            (!toolInputId && toolName && activeToolInput.toolName === toolName)
-          ) {
-            activeToolInput = null;
+          if (toolInputId) {
+            activeToolInputs.delete(toolInputId);
+            return;
+          }
+          if (toolName) {
+            for (const [id, active] of activeToolInputs) {
+              if (active.toolName === toolName) {
+                activeToolInputs.delete(id);
+              }
+            }
           }
         };
         const hasActionPreparationStalled = () => {
-          if (!activeToolInput) return false;
-          return (
-            Date.now() - activeToolInput.lastProgressAt >=
-            ACTION_PREPARATION_NO_PROGRESS_TIMEOUT_MS
-          );
+          if (activeToolInputs.size === 0) return false;
+          const now = Date.now();
+          for (const active of activeToolInputs.values()) {
+            if (
+              now - active.lastProgressAt >=
+              ACTION_PREPARATION_NO_PROGRESS_TIMEOUT_MS
+            ) {
+              return true;
+            }
+          }
+          return false;
+        };
+        const trackActiveToolInput = (
+          key: string,
+          toolName: string | undefined,
+          bytes: number,
+        ) => {
+          const now = Date.now();
+          const previous = activeToolInputs.get(key);
+          activeToolInputs.set(key, {
+            id: key,
+            ...((toolName ?? previous?.toolName)
+              ? { toolName: toolName ?? previous?.toolName }
+              : {}),
+            startedAt: previous?.startedAt ?? now,
+            lastProgressAt: now,
+            bytes,
+          });
+        };
+        const clearActiveToolInputs = () => {
+          activeToolInputs.clear();
         };
 
         for await (const event of eventStream) {
@@ -2904,14 +2934,7 @@ export async function runAgentLoop(opts: {
             if (key && event.name) {
               toolInputNames.set(key, event.name);
               toolInputBytes.set(key, 0);
-              const now = Date.now();
-              activeToolInput = {
-                id: key,
-                toolName: event.name,
-                startedAt: now,
-                lastProgressAt: now,
-                bytes: 0,
-              };
+              trackActiveToolInput(key, event.name, 0);
             }
             sendToolInputActivity(event.name, key, undefined, true);
           } else if (event.type === "tool-input-delta") {
@@ -2927,14 +2950,7 @@ export async function runAgentLoop(opts: {
                 new TextEncoder().encode(event.text ?? "").byteLength;
               toolInputBytes.set(key, progressBytes);
               if (progressBytes > previous) {
-                const now = Date.now();
-                activeToolInput = {
-                  id: key,
-                  ...(toolName ? { toolName } : {}),
-                  startedAt: now,
-                  lastProgressAt: now,
-                  bytes: progressBytes,
-                };
+                trackActiveToolInput(key, toolName, progressBytes);
               }
             }
             sendToolInputActivity(toolName, key, progressBytes);
@@ -2951,7 +2967,7 @@ export async function runAgentLoop(opts: {
               error: event.error,
             });
           } else if (event.type === "assistant-content") {
-            activeToolInput = null;
+            clearActiveToolInputs();
             assistantContent = event.parts;
           } else if (event.type === "usage") {
             usage.inputTokens += event.inputTokens;

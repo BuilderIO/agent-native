@@ -270,11 +270,20 @@ export async function runAgentLoopDirectWithSoftTimeout(
         internalContinuationReasonForAttempt(attemptEvents);
       if (internalContinuationReason && !upstreamSignal.aborted) {
         lastAttemptWasUnfinishedContinuation = true;
+        const continuationEvents = [...localTurnEvents];
+        if (
+          !(await hasCompletedSideEffectToolCallInCurrentTurn(
+            opts.threadId,
+            continuationEvents,
+          ))
+        ) {
+          opts.send({ type: "clear" });
+        }
         await appendContinuationAndJournal(
           opts.messages,
           internalContinuationReason,
           opts.threadId,
-          localTurnEvents,
+          continuationEvents,
         );
         continue;
       }
