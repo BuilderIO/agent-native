@@ -822,6 +822,31 @@ function wrapRunWithAudit(
 // ---------------------------------------------------------------------------
 
 /**
+ * Recursively remove JSON Schema keywords that some providers' function-calling
+ * schema validators reject. OpenAI (and Gemini via the Builder gateway) reject
+ * `propertyNames` — which Zod v4 emits for `z.record(z.string(), …)` — with a
+ * `400 invalid_function_parameters` error, causing the model turn to produce no
+ * content (surfacing as an empty assistant response). Anthropic ignores the
+ * keyword, so stripping it is safe across providers and keeps action schemas
+ * portable. `propertyNames` only constrained object *keys*; the value/shape of
+ * the object is unaffected by its removal.
+ */
+function stripUnsupportedSchemaKeywords<T>(node: T): T {
+  if (Array.isArray(node)) {
+    for (const item of node) stripUnsupportedSchemaKeywords(item);
+    return node;
+  }
+  if (node && typeof node === "object") {
+    const obj = node as Record<string, unknown>;
+    delete obj.propertyNames;
+    for (const value of Object.values(obj)) {
+      stripUnsupportedSchemaKeywords(value);
+    }
+  }
+  return node;
+}
+
+/**
  * Convert a Standard Schema to JSON Schema for the Claude API.
  * Tries vendor-specific toJSONSchema first (Zod v4), then falls back
  * to a basic introspection of the schema shape.
@@ -844,7 +869,7 @@ function schemaToJsonSchema(
       if (result && typeof result === "object") {
         delete result.$schema;
       }
-      return result as ActionTool["parameters"];
+      return stripUnsupportedSchemaKeywords(result) as ActionTool["parameters"];
     } catch {
       // Fall through to manual converter
     }
@@ -852,7 +877,7 @@ function schemaToJsonSchema(
 
   // Fallback: manual conversion from Zod v4 internal defs
   if (s._zod?.def) {
-    return zodDefToJsonSchema(s._zod.def);
+    return stripUnsupportedSchemaKeywords(zodDefToJsonSchema(s._zod.def));
   }
 
   // Last resort: empty object schema

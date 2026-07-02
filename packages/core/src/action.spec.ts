@@ -280,6 +280,18 @@ describe("defineAction schema mode — tool parameter JSON Schema", () => {
     expect("$schema" in (action.tool.parameters as any)).toBe(false);
   });
 
+  it("strips propertyNames (from z.record) so OpenAI/Gemini function schemas are not rejected", () => {
+    const action = defineAction({
+      description: "with a record field",
+      schema: z.object({
+        styleBrief: z.record(z.string(), z.unknown()).optional(),
+      }),
+      run: async () => "ok",
+    });
+    const json = JSON.stringify(action.tool.parameters);
+    expect(json).not.toContain("propertyNames");
+  });
+
   it("stores the original schema on the entry for downstream re-validation", () => {
     const schema = z.object({ x: z.string() });
     const action = defineAction({
