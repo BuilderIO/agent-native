@@ -7278,8 +7278,11 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             let reason = "user";
             try {
               const body = await readBody(event);
-              if (body?.reason === "no_progress") {
-                reason = "no_progress";
+              if (
+                typeof body?.reason === "string" &&
+                /^[a-z0-9_-]{1,64}$/i.test(body.reason)
+              ) {
+                reason = body.reason;
               }
             } catch {
               // Empty/invalid body — keep the default user abort reason.
