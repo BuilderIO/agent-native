@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.84.43
+
+### Patch Changes
+
+- 7fe87d0: Keep tracking action-input preparation stalls across empty assistant snapshots so hosted runs recover from silent zero-byte tool prep.
+
 ## 0.84.42
 
 ### Patch Changes
