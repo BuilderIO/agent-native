@@ -1,5 +1,12 @@
 # @agent-native/core
 
+## 0.84.30
+
+### Patch Changes
+
+- 80e618a: Fix hosted Google Analytics / Tag Manager injection by baking the measurement id into Nitro server bundles and merging the required GA/GTM script, connect, and image hosts into existing stricter document CSPs.
+- 80e618a: Improve chat tool-preparation UX by hiding zero-byte progress, using clearer preparation/writing copy, and showing a delayed long-running update hint.
+
 ## 0.84.29
 
 ### Patch Changes
