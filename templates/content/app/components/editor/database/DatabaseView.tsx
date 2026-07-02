@@ -31,6 +31,7 @@ import {
   type DocumentPropertyOption,
   type DocumentPropertyType,
   type DocumentPropertyValue,
+  type StageBuilderSourceBulkUpdateResponse,
 } from "@shared/api";
 import {
   type DocumentPropertyOptionColor,
@@ -59,6 +60,7 @@ import {
   IconCopy,
   IconChevronDown,
   IconCheck,
+  IconCloudUpload,
   IconDots,
   IconExternalLink,
   IconEye,
@@ -156,6 +158,7 @@ import {
   useProcessBuilderBodyHydration,
   useRefreshContentDatabaseSource,
   useSetContentDatabaseSourceWriteMode,
+  useStageBuilderSourceBulkUpdate,
   useSuggestSourceJoinKey,
   useUpdateContentDatabaseView,
 } from "@/hooks/use-content-database";
@@ -485,6 +488,7 @@ function DatabaseTable({
   const processBuilderBodies = useProcessBuilderBodyHydration(document.id);
   const prepareBuilderReview = usePrepareBuilderSourceReview(document.id);
   const executeBuilderExecution = useExecuteBuilderSourceExecution(document.id);
+  const stageBuilderBulkUpdate = useStageBuilderSourceBulkUpdate(document.id);
   const setSourceWriteMode = useSetContentDatabaseSourceWriteMode(document.id);
   const setProperty = useSetDocumentProperty(document.id, document.id);
   const updateView = useUpdateContentDatabaseView(document.id);
@@ -647,6 +651,51 @@ function DatabaseTable({
     [builderReviewChangeSets, source],
   );
   const activeBuilderReview = builderReviewResult ?? builderReviewPreview;
+
+  async function handleStageBuilderBulkUpdate({
+    sourceId,
+    property,
+    value,
+    itemIds,
+  }: {
+    sourceId: string;
+    property: DocumentProperty;
+    value: DocumentPropertyValue;
+    itemIds: string[];
+  }) {
+    const response = await stageBuilderBulkUpdate.mutateAsync({
+      documentId: document.id,
+      sourceId,
+      itemIds,
+      field: {
+        propertyId: property.definition.id,
+        value,
+      },
+      dryRun: false,
+    });
+    setBuilderReviewResult(response.review);
+    setBuilderReviewCheckedAt(null);
+
+    if (!response.review || response.summary.staged === 0) {
+      const blocker = response.rows.find((row) => row.status === "blocked");
+      toast.error(dbText("builderBulkUpdateNotStaged"), {
+        description:
+          blocker?.message ??
+          (response.summary.unchanged > 0
+            ? "Selected rows already have this value."
+            : "No reviewable Builder changes were produced."),
+      });
+      return response;
+    }
+
+    setBuilderReviewOpen(true);
+    toast.success(dbText("builderBulkUpdateStaged"), {
+      description: `${response.summary.staged} row${
+        response.summary.staged === 1 ? "" : "s"
+      } ready to review.`,
+    });
+    return response;
+  }
 
   useEffect(() => {
     previewStateRef.current = {
@@ -967,6 +1016,9 @@ function DatabaseTable({
     try {
       const prepared = await prepareBuilderReview.mutateAsync({
         documentId: document.id,
+        sourceId: source?.id,
+        changeSetIds:
+          activeBuilderReview?.rows.map((row) => row.changeSetId) ?? undefined,
         pushModeConfirmation: "autosave",
       });
       let nextReview = prepared.review;
@@ -1460,6 +1512,8 @@ function DatabaseTable({
             )
           }
           onClearSelection={() => setSelectedItemIds([])}
+          builderBulkUpdatePending={stageBuilderBulkUpdate.isPending}
+          onStageBuilderSourceBulkUpdate={handleStageBuilderBulkUpdate}
           onCreateRow={createInlineRow}
           onCreateGroupedRow={createInlineGroupedRow}
           onTitleFocusHandled={() => setInlineTitleFocusDocumentId(null)}
@@ -1944,6 +1998,56 @@ export function databaseBulkEditableProperties(properties: DocumentProperty[]) {
   return properties.filter(
     (property) =>
       property.editable && !isComputedPropertyType(property.definition.type),
+  );
+}
+
+const BUILDER_BULK_EDITABLE_PROPERTY_TYPES = new Set<DocumentPropertyType>([
+  "text",
+  "number",
+  "checkbox",
+  "url",
+  "email",
+  "phone",
+]);
+
+export function databaseBuilderBulkUpdateSource(
+  sources: ContentDatabaseSource[],
+  primarySource: ContentDatabaseSource | null,
+  selectedItems: ContentDatabaseItem[],
+) {
+  if (selectedItems.length === 0) return null;
+  const candidates =
+    sources.length > 0 ? sources : primarySource ? [primarySource] : [];
+  return (
+    candidates.find(
+      (candidate) =>
+        candidate.sourceType === "builder-cms" &&
+        selectedItems.every((item) =>
+          candidate.rows.some((row) => row.documentId === item.document.id),
+        ),
+    ) ?? null
+  );
+}
+
+export function databaseBuilderBulkEditableProperties(
+  source: ContentDatabaseSource,
+  properties: DocumentProperty[],
+) {
+  const writablePropertyIds = new Set(
+    source.fields
+      .filter(
+        (field) =>
+          field.mappingType === "property" &&
+          field.propertyId &&
+          field.writeOwner === "source" &&
+          !field.readOnly,
+      )
+      .map((field) => field.propertyId),
+  );
+  return properties.filter(
+    (property) =>
+      BUILDER_BULK_EDITABLE_PROPERTY_TYPES.has(property.definition.type) &&
+      writablePropertyIds.has(property.definition.id),
   );
 }
 
@@ -2707,6 +2811,8 @@ function DatabaseTableView({
   onDeletedPreviewItem,
   onDeletedPreviewItems,
   onOpenPage,
+  builderBulkUpdatePending,
+  onStageBuilderSourceBulkUpdate,
 }: {
   properties: DocumentProperty[];
   groupableProperties: DocumentProperty[];
@@ -2765,6 +2871,13 @@ function DatabaseTableView({
   onDeletedPreviewItem: (item: ContentDatabaseItem) => boolean;
   onDeletedPreviewItems: (items: ContentDatabaseItem[]) => boolean;
   onOpenPage: (item: ContentDatabaseItem) => void;
+  builderBulkUpdatePending?: boolean;
+  onStageBuilderSourceBulkUpdate?: (args: {
+    sourceId: string;
+    property: DocumentProperty;
+    value: DocumentPropertyValue;
+    itemIds: string[];
+  }) => Promise<StageBuilderSourceBulkUpdateResponse>;
 }) {
   const queryClient = useQueryClient();
   const moveItem = useMoveDatabaseItem(databaseDocumentId);
@@ -2788,6 +2901,17 @@ function DatabaseTableView({
   const selectedIdSet = new Set(selectedItemIds);
   const selectedItems = databaseSelectedItems(items, selectedItemIds);
   const bulkEditableProperties = databaseBulkEditableProperties(properties);
+  const builderBulkUpdateSource = databaseBuilderBulkUpdateSource(
+    source ? [source] : [],
+    source,
+    selectedItems,
+  );
+  const builderBulkEditableProperties = builderBulkUpdateSource
+    ? databaseBuilderBulkEditableProperties(
+        builderBulkUpdateSource,
+        bulkEditableProperties,
+      )
+    : [];
   const groups = databaseVisibleGroups(
     databaseViewItemGroups(items, groupableProperties, groupByPropertyId),
     hideEmptyGroups,
@@ -3117,6 +3241,25 @@ function DatabaseTableView({
     }
   }
 
+  async function stageSelectedBuilderValue(
+    property: DocumentProperty,
+    value: DocumentPropertyValue,
+  ) {
+    if (
+      !builderBulkUpdateSource ||
+      !onStageBuilderSourceBulkUpdate ||
+      selectedItems.length === 0
+    ) {
+      return;
+    }
+    await onStageBuilderSourceBulkUpdate({
+      sourceId: builderBulkUpdateSource.id,
+      property,
+      value,
+      itemIds: selectedItems.map((item) => item.id),
+    });
+  }
+
   return (
     <div
       data-database-scroll-surface="table"
@@ -3129,6 +3272,8 @@ function DatabaseTableView({
             selectedCount={selectedCount}
             canEdit={canEdit}
             properties={bulkEditableProperties}
+            builderProperties={builderBulkEditableProperties}
+            builderSourceName={builderBulkUpdateSource?.sourceName ?? null}
             duplicateDisabled={
               isDuplicatingSelected ||
               duplicateItems.isPending ||
@@ -3136,8 +3281,13 @@ function DatabaseTableView({
             }
             deleteDisabled={deleteItems.isPending}
             updateDisabled={setProperty.isPending}
+            builderUpdateDisabled={
+              builderBulkUpdatePending === true ||
+              !onStageBuilderSourceBulkUpdate
+            }
             onClearSelection={onClearSelection}
             onSetPropertyValue={setSelectedPropertyValue}
+            onStageBuilderSourceBulkUpdate={stageSelectedBuilderValue}
             onDuplicateSelected={() => void duplicateSelectedRows()}
             onDeleteSelected={() => setConfirmDeleteSelectedOpen(true)}
           />
@@ -11306,22 +11456,33 @@ function DatabaseSelectionBar({
   selectedCount,
   canEdit,
   properties,
+  builderProperties,
+  builderSourceName,
   duplicateDisabled,
   deleteDisabled,
   updateDisabled,
+  builderUpdateDisabled,
   onClearSelection,
   onSetPropertyValue,
+  onStageBuilderSourceBulkUpdate,
   onDuplicateSelected,
   onDeleteSelected,
 }: {
   selectedCount: number;
   canEdit: boolean;
   properties: DocumentProperty[];
+  builderProperties: DocumentProperty[];
+  builderSourceName: string | null;
   duplicateDisabled: boolean;
   deleteDisabled: boolean;
   updateDisabled: boolean;
+  builderUpdateDisabled: boolean;
   onClearSelection: () => void;
   onSetPropertyValue: (
+    property: DocumentProperty,
+    value: DocumentPropertyValue,
+  ) => Promise<void>;
+  onStageBuilderSourceBulkUpdate: (
     property: DocumentProperty,
     value: DocumentPropertyValue,
   ) => Promise<void>;
@@ -11342,6 +11503,15 @@ function DatabaseSelectionBar({
               disabled={updateDisabled || properties.length === 0}
               onSetPropertyValue={onSetPropertyValue}
             />
+            {builderProperties.length > 0 ? (
+              <DatabaseBuilderBulkUpdatePopover
+                properties={builderProperties}
+                selectedCount={selectedCount}
+                sourceName={builderSourceName}
+                disabled={builderUpdateDisabled}
+                onStageBuilderSourceBulkUpdate={onStageBuilderSourceBulkUpdate}
+              />
+            ) : null}
             <Button
               type="button"
               variant="ghost"
@@ -11436,6 +11606,111 @@ function DatabaseBulkEditPopover({
         <div className="grid gap-2">
           <div className="px-1 text-xs font-medium text-muted-foreground">
             Edit {selectedCount} selected row{selectedCount === 1 ? "" : "s"}
+          </div>
+          <div className="grid grid-cols-[minmax(0,11rem)_minmax(0,1fr)] gap-2">
+            <div className="max-h-64 overflow-auto border-r border-border pr-1">
+              {properties.map((property) => {
+                const Icon = TYPE_ICONS[property.definition.type];
+                const selected =
+                  property.definition.id === selectedProperty?.definition.id;
+                return (
+                  <button
+                    key={property.definition.id}
+                    type="button"
+                    className={cn(
+                      "flex h-8 w-full min-w-0 items-center gap-2 rounded px-2 text-left text-xs hover:bg-accent",
+                      selected && "bg-accent text-accent-foreground",
+                    )}
+                    onClick={() =>
+                      setSelectedPropertyId(property.definition.id)
+                    }
+                  >
+                    <Icon className="size-3.5 shrink-0 text-muted-foreground" />
+                    <span className="truncate">{property.definition.name}</span>
+                  </button>
+                );
+              })}
+            </div>
+            <div className="min-w-0">
+              {selectedProperty ? (
+                <DatabaseBulkPropertyValueEditor
+                  property={selectedProperty}
+                  disabled={disabled}
+                  onApply={(value) => applyValue(selectedProperty, value)}
+                  onCancel={() => setOpen(false)}
+                />
+              ) : (
+                <div className="px-2 py-6 text-sm text-muted-foreground">
+                  {dbText("noEditableProperties")}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+function DatabaseBuilderBulkUpdatePopover({
+  properties,
+  selectedCount,
+  sourceName,
+  disabled,
+  onStageBuilderSourceBulkUpdate,
+}: {
+  properties: DocumentProperty[];
+  selectedCount: number;
+  sourceName: string | null;
+  disabled: boolean;
+  onStageBuilderSourceBulkUpdate: (
+    property: DocumentProperty,
+    value: DocumentPropertyValue,
+  ) => Promise<void>;
+}) {
+  const [open, setOpen] = useState(false);
+  const [selectedPropertyId, setSelectedPropertyId] = useState<string | null>(
+    properties[0]?.definition.id ?? null,
+  );
+  const selectedProperty =
+    properties.find(
+      (property) => property.definition.id === selectedPropertyId,
+    ) ??
+    properties[0] ??
+    null;
+
+  useEffect(() => {
+    if (!open || selectedProperty || properties.length === 0) return;
+    setSelectedPropertyId(properties[0].definition.id);
+  }, [open, properties, selectedProperty]);
+
+  async function applyValue(
+    property: DocumentProperty,
+    value: DocumentPropertyValue,
+  ) {
+    await onStageBuilderSourceBulkUpdate(property, value);
+    setOpen(false);
+  }
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="h-7 gap-1.5 px-2 text-xs"
+          disabled={disabled || properties.length === 0}
+        >
+          <IconCloudUpload className="size-3.5" />
+          Stage
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent align="start" className="w-[28rem] p-2">
+        <div className="grid gap-2">
+          <div className="px-1 text-xs font-medium text-muted-foreground">
+            Stage {selectedCount} row{selectedCount === 1 ? "" : "s"} for{" "}
+            {sourceName ?? "Builder"}
           </div>
           <div className="grid grid-cols-[minmax(0,11rem)_minmax(0,1fr)] gap-2">
             <div className="max-h-64 overflow-auto border-r border-border pr-1">
