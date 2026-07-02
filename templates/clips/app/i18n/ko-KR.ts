@@ -641,9 +641,11 @@ Clips의 모든 사용자 대상 변경 사항은 여기에 기록됩니다. 명
     s3SecretAccessKeyLabel: "비밀 액세스 키",
     s3RegionLabel: "리전",
     s3PublicBaseUrlLabel: "공개 기본 URL",
-    s3UrlInvalid: "유효한 URL이어야 합니다 (예: https://s3.us-east-1.amazonaws.com)",
-    s3BucketInvalid: "버킷 이름은 3–63자의 소문자, 숫자 또는 하이픈이어야 합니다",
-    s3RegionInvalid: "유효한 리전(예: us-east-1) 또는 \"auto\"이어야 합니다",
+    s3UrlInvalid:
+      "유효한 URL이어야 합니다 (예: https://s3.us-east-1.amazonaws.com)",
+    s3BucketInvalid:
+      "버킷 이름은 3–63자의 소문자, 숫자 또는 하이픈이어야 합니다",
+    s3RegionInvalid: '유효한 리전(예: us-east-1) 또는 "auto"이어야 합니다',
     apiSetup: "AI 설정",
     apiSetupDescription:
       "Builder.io 무료 크레딧 또는 직접 보유한 LLM 키로 AI를 연결하세요.",
@@ -658,6 +660,8 @@ Clips의 모든 사용자 대상 변경 사항은 여기에 기록됩니다. 명
     providerKeysSet: "{{count}}개 설정됨",
     checkingProviderKeys: "제공자 키 확인 중…",
     keySet: "설정됨",
+    keyCleared: "스토리지 자격 증명이 삭제되었습니다",
+    clearAllS3: "자격 증명 삭제",
     replaceKey: "키 바꾸기…",
     pasteProviderKey: "먼저 제공자 키를 붙여넣으세요.",
     apiKeySaved: "API 키가 저장됨",

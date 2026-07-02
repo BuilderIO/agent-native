@@ -400,6 +400,7 @@ export default function SettingsIndexRoute() {
     useState(true);
   const [s3Values, setS3Values] = useState<Record<string, string>>({});
   const [s3Errors, setS3Errors] = useState<Record<string, string>>({});
+  const [clearingS3, setClearingS3] = useState(false);
   const [s3Expanded, setS3Expanded] = useState(false);
   const [apiKeysExpanded, setApiKeysExpanded] = useState(false);
   const [apiKeyValues, setApiKeyValues] = useState<Record<string, string>>({});
@@ -547,7 +548,7 @@ export default function SettingsIndexRoute() {
         ...current,
         S3_SECRET_ACCESS_KEY: "",
       }));
-      await storageStatus.refetch();
+      await Promise.all([storageStatus.refetch(), refreshApiKeyStatus()]);
       toast.success(t("settings.storageSaved"));
     } catch (err) {
       toast.error(
@@ -555,6 +556,32 @@ export default function SettingsIndexRoute() {
       );
     } finally {
       setSavingStorage(false);
+    }
+  }
+
+  async function handleClearAllS3() {
+    setClearingS3(true);
+    try {
+      await Promise.all(
+        S3_STORAGE_FIELDS.filter((field) => apiKeyStatus[field.key]).map(
+          (field) =>
+            fetch(
+              agentNativePath(
+                `/_agent-native/secrets/adhoc/${encodeURIComponent(field.key)}`,
+              ),
+              { method: "DELETE" },
+            ),
+        ),
+      );
+      setS3Values({});
+      await refreshApiKeyStatus();
+      toast.success(t("settings.keyCleared"));
+    } catch (err) {
+      toast.error(
+        err instanceof Error ? err.message : t("settings.saveFailed"),
+      );
+    } finally {
+      setClearingS3(false);
     }
   }
 
@@ -897,7 +924,26 @@ export default function SettingsIndexRoute() {
                             })}
                           </div>
 
-                          <div className="flex justify-end">
+                          <div className="flex items-center justify-end gap-2">
+                            {S3_STORAGE_FIELDS.some(
+                              (field) => apiKeyStatus[field.key],
+                            ) ? (
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="sm"
+                                onClick={handleClearAllS3}
+                                disabled={clearingS3 || savingStorage}
+                                className="text-muted-foreground hover:text-destructive"
+                              >
+                                {clearingS3 ? (
+                                  <IconLoader2 className="h-4 w-4 animate-spin" />
+                                ) : (
+                                  <IconTrash className="h-4 w-4" />
+                                )}
+                                {t("settings.clearAllS3")}
+                              </Button>
+                            ) : null}
                             <Button
                               onClick={handleSaveS3Storage}
                               disabled={

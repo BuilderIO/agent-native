@@ -637,9 +637,11 @@ All notable user-facing changes to Clips are documented here. Open it any time f
     s3SecretAccessKeyLabel: "Secret access key",
     s3RegionLabel: "Region",
     s3PublicBaseUrlLabel: "Public base URL",
-    s3UrlInvalid: "Must be a valid URL (e.g. https://s3.us-east-1.amazonaws.com)",
-    s3BucketInvalid: "Bucket name must be 3–63 lowercase letters, numbers, or hyphens",
-    s3RegionInvalid: "Must be a valid region (e.g. us-east-1) or \"auto\"",
+    s3UrlInvalid:
+      "Must be a valid URL (e.g. https://s3.us-east-1.amazonaws.com)",
+    s3BucketInvalid:
+      "Bucket name must be 3–63 lowercase letters, numbers, or hyphens",
+    s3RegionInvalid: 'Must be a valid region (e.g. us-east-1) or "auto"',
     apiSetup: "AI setup",
     apiSetupDescription:
       "Connect AI with Builder.io free credits or your own LLM keys.",
@@ -654,6 +656,8 @@ All notable user-facing changes to Clips are documented here. Open it any time f
     providerKeysSet: "{{count}} set",
     checkingProviderKeys: "Checking provider keys…",
     keySet: "Set",
+    keyCleared: "Storage credentials cleared",
+    clearAllS3: "Clear credentials",
     replaceKey: "Replace key…",
     pasteProviderKey: "Paste a provider key first.",
     apiKeySaved: "API key saved",
