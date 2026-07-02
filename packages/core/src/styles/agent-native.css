@@ -688,7 +688,8 @@
   width: 100%;
 }
 
-.agent-composer-stack[data-agent-composer-adjacent-ui="true"] {
+.agent-composer-stack[data-agent-composer-adjacent-ui="true"],
+.agent-composer-stack:has(.agent-selection-attached-pill) {
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
@@ -708,7 +709,9 @@
 }
 
 [data-agent-empty-state="centered"]
-  > .agent-composer-stack:not([data-agent-composer-adjacent-ui="true"])
+  > .agent-composer-stack:not([data-agent-composer-adjacent-ui="true"]):not(
+    :has(.agent-selection-attached-pill)
+  )
   > .agent-composer-setup-card {
   position: absolute;
   left: 0;
@@ -717,13 +720,17 @@
 }
 
 [data-agent-empty-state="centered"]
-  > .agent-composer-stack:not([data-agent-composer-adjacent-ui="true"])
+  > .agent-composer-stack:not([data-agent-composer-adjacent-ui="true"]):not(
+    :has(.agent-selection-attached-pill)
+  )
   > .agent-composer-setup-card[data-agent-composer-setup-position="above"] {
   bottom: calc(100% + 0.5rem);
 }
 
 [data-agent-empty-state="centered"]
-  > .agent-composer-stack:not([data-agent-composer-adjacent-ui="true"])
+  > .agent-composer-stack:not([data-agent-composer-adjacent-ui="true"]):not(
+    :has(.agent-selection-attached-pill)
+  )
   > .agent-composer-setup-card[data-agent-composer-setup-position="below"] {
   top: calc(100% + 0.5rem);
 }

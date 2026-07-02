@@ -3396,6 +3396,8 @@ const AssistantChatInner = forwardRef<
     showComposerSlot ||
     showCenteredEmptyThreadFooterSlot ||
     (guidedQuestions && guidedQuestions.length > 0) ||
+    showScrollToBottom ||
+    composerContextItems.length > 0 ||
     showPlanModeCallout,
   );
 
@@ -3823,7 +3825,6 @@ const AssistantChatInner = forwardRef<
                     onSwitchToAct={handleSwitchToAct}
                   />
                 )}
-                <SelectionAttachedPill />
                 {/* Inline attachment / body-size error */}
                 {composerError && (
                   <div
@@ -3848,6 +3849,7 @@ const AssistantChatInner = forwardRef<
                     hasComposerAccessoryAboveStack ? "true" : undefined
                   }
                 >
+                  <SelectionAttachedPill />
                   {missingApiKey &&
                   !authError &&
                   missingApiKeySetupAboveComposer ? (
