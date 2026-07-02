@@ -125,6 +125,23 @@ describe("wireframe auto-height frame", () => {
     expect(hideRule).toContain(':not([data-rough="none"])');
   });
 
+  it("styles wf-row as a label/value row primitive", () => {
+    const css = readFileSync("src/styles/blocks.css", "utf8");
+    const rowRule =
+      css.match(
+        /\.plan-html-frame:not\(\[data-render-mode="design"\]\) \.wf-row\s*\{[^}]*\}/s,
+      )?.[0] ?? "";
+    const valueRule =
+      css.match(
+        /\.plan-html-frame:not\(\[data-render-mode="design"\]\) \.wf-row > :last-child\s*\{[^}]*\}/s,
+      )?.[0] ?? "";
+
+    expect(rowRule).toContain("display: flex");
+    expect(rowRule).toContain("justify-content: space-between");
+    expect(valueRule).toContain("margin-inline-start: auto");
+    expect(valueRule).toContain("text-align: end");
+  });
+
   it("strips theme-breaking Tailwind color and shadow classes from wireframes", () => {
     const html = render({
       surface: "browser",

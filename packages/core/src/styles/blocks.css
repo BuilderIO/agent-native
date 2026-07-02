@@ -1177,6 +1177,16 @@
   border-radius: var(--wf-radius);
   padding: 12px;
 }
+.plan-html-frame:not([data-render-mode="design"]) .wf-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.plan-html-frame:not([data-render-mode="design"]) .wf-row > :last-child {
+  margin-inline-start: auto;
+  text-align: end;
+}
 .plan-html-frame[data-style="sketchy"]:not([data-render-mode="design"])
   :is(.wf-card, .wf-box) {
   border-color: color-mix(in srgb, var(--wf-line) 72%, transparent);
