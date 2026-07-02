@@ -129,6 +129,8 @@ import {
   useCallback,
   useRef,
   useMemo,
+  lazy,
+  Suspense,
   type ReactNode,
   type PointerEvent as ReactPointerEvent,
   type SetStateAction,
@@ -150,10 +152,7 @@ import {
   CanvasContextMenu,
   type CanvasContextMenuHandle,
 } from "@/components/design/CanvasContextMenu";
-import {
-  CodeWorkbenchHost,
-  type CodeWorkbenchActiveFile,
-} from "@/components/design/CodeWorkbenchHost";
+import { type CodeWorkbenchActiveFile } from "@/components/design/CodeWorkbenchHost";
 import {
   DesignCanvas,
   type IframeContextMenuPayload,
@@ -3526,6 +3525,12 @@ type DesignLeftPanel =
   | "import"
   | "code";
 
+const CodeWorkbenchHost = lazy(() =>
+  import("@/components/design/CodeWorkbenchHost").then((module) => ({
+    default: module.CodeWorkbenchHost,
+  })),
+);
+
 const INITIAL_GENERATION_DISABLED_LEFT_PANELS = new Set<DesignLeftPanel>([
   "file",
   "assets",
@@ -3570,6 +3575,7 @@ function DesignWorkspaceRail({
     panel: DesignLeftPanel;
     label: string;
     icon: ReactNode;
+    separatorBefore?: boolean;
   }> = [
     {
       panel: "file",
@@ -3601,12 +3607,13 @@ function DesignWorkspaceRail({
       label: t("designEditor.leftRail.tokens"),
       icon: <IconAssembly className="size-[15px]" />,
     },
+    {
+      panel: "code",
+      label: "Code" /* i18n-ignore */,
+      icon: <IconCode className="size-[15px]" />,
+      separatorBefore: true,
+    },
   ];
-  const codeItem = {
-    panel: "code" as const,
-    label: "Code" /* i18n-ignore */,
-    icon: <IconCode className="size-[15px]" />,
-  };
 
   return (
     <nav
@@ -3622,94 +3629,54 @@ function DesignWorkspaceRail({
           const active = item.panel === activePanel;
           const disabled = disabledPanels?.has(item.panel) ?? false;
           return (
-            <Tooltip key={item.panel}>
-              <TooltipTrigger asChild>
-                <button
-                  type="button"
-                  aria-label={item.label}
-                  aria-disabled={disabled || undefined}
-                  aria-current={active ? "page" : undefined}
-                  tabIndex={disabled ? -1 : undefined}
-                  onClick={(event) => {
-                    if (disabled) {
-                      event.preventDefault();
-                      return;
-                    }
-                    onPanelChange(item.panel);
-                  }}
-                  className={cn(
-                    "group flex w-12 cursor-pointer flex-col items-center justify-start gap-1 rounded-none text-[10px] font-[450] leading-none text-muted-foreground outline-none transition-colors hover:text-foreground focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]",
-                    disabled &&
-                      "cursor-default opacity-35 hover:text-muted-foreground",
-                    active && "text-foreground",
-                  )}
-                >
-                  <span
+            <div key={item.panel} className="flex w-full flex-col items-center">
+              {item.separatorBefore ? (
+                <div className="-mt-1 mb-3 h-px w-8 bg-border/70" />
+              ) : null}
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    aria-label={item.label}
+                    aria-disabled={disabled || undefined}
+                    aria-current={active ? "page" : undefined}
+                    tabIndex={disabled ? -1 : undefined}
+                    onClick={(event) => {
+                      if (disabled) {
+                        event.preventDefault();
+                        return;
+                      }
+                      onPanelChange(item.panel);
+                    }}
                     className={cn(
-                      "flex size-8 items-center justify-center rounded-lg transition-colors",
-                      active
-                        ? "bg-[var(--design-editor-selection-color)] text-[var(--design-editor-accent-color)]"
-                        : "text-muted-foreground group-hover:bg-[var(--design-editor-layer-hover-color)] group-hover:text-foreground",
+                      "group flex w-12 cursor-pointer flex-col items-center justify-start gap-1 rounded-none text-[10px] font-[450] leading-none text-muted-foreground outline-none transition-colors hover:text-foreground focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]",
                       disabled &&
-                        "group-hover:bg-transparent group-hover:text-muted-foreground",
+                        "cursor-default opacity-35 hover:text-muted-foreground",
+                      active && "text-foreground",
                     )}
                   >
-                    {item.icon}
-                  </span>
-                  <span className="max-w-full truncate leading-none">
-                    {item.label}
-                  </span>
-                </button>
-              </TooltipTrigger>
-              <TooltipContent side="right">{item.label}</TooltipContent>
-            </Tooltip>
+                    <span
+                      className={cn(
+                        "flex size-8 items-center justify-center rounded-lg transition-colors",
+                        active
+                          ? "bg-[var(--design-editor-selection-color)] text-[var(--design-editor-accent-color)]"
+                          : "text-muted-foreground group-hover:bg-[var(--design-editor-layer-hover-color)] group-hover:text-foreground",
+                        disabled &&
+                          "group-hover:bg-transparent group-hover:text-muted-foreground",
+                      )}
+                    >
+                      {item.icon}
+                    </span>
+                    <span className="max-w-full truncate leading-none">
+                      {item.label}
+                    </span>
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="right">{item.label}</TooltipContent>
+              </Tooltip>
+            </div>
           );
         })}
-        <div className="mt-auto flex w-full flex-col items-center border-t border-border/70 pt-3">
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <button
-                type="button"
-                aria-label={codeItem.label}
-                aria-disabled={disabledPanels?.has(codeItem.panel) || undefined}
-                aria-current={
-                  activePanel === codeItem.panel ? "page" : undefined
-                }
-                tabIndex={disabledPanels?.has(codeItem.panel) ? -1 : undefined}
-                onClick={(event) => {
-                  if (disabledPanels?.has(codeItem.panel)) {
-                    event.preventDefault();
-                    return;
-                  }
-                  onPanelChange(codeItem.panel);
-                }}
-                className={cn(
-                  "group flex w-12 cursor-pointer flex-col items-center justify-start gap-1 rounded-none text-[10px] font-[450] leading-none text-muted-foreground outline-none transition-colors hover:text-foreground focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]",
-                  disabledPanels?.has(codeItem.panel) &&
-                    "cursor-default opacity-35 hover:text-muted-foreground",
-                  activePanel === codeItem.panel && "text-foreground",
-                )}
-              >
-                <span
-                  className={cn(
-                    "flex size-8 items-center justify-center rounded-lg transition-colors",
-                    activePanel === codeItem.panel
-                      ? "bg-[var(--design-editor-selection-color)] text-[var(--design-editor-accent-color)]"
-                      : "text-muted-foreground group-hover:bg-[var(--design-editor-layer-hover-color)] group-hover:text-foreground",
-                    disabledPanels?.has(codeItem.panel) &&
-                      "group-hover:bg-transparent group-hover:text-muted-foreground",
-                  )}
-                >
-                  {codeItem.icon}
-                </span>
-                <span className="max-w-full truncate leading-none">
-                  {codeItem.label}
-                </span>
-              </button>
-            </TooltipTrigger>
-            <TooltipContent side="right">{codeItem.label}</TooltipContent>
-          </Tooltip>
-        </div>
       </div>
       {onMotionToggle ? (
         <div className="mt-4 flex w-full flex-col items-center border-t border-border/70 pt-3">
@@ -16957,24 +16924,24 @@ ${serializedHtml}
                   activeLeftPanel === "code" ? "flex" : "hidden",
                 )}
               >
-                {id ? (
-                  <CodeWorkbenchHost
-                    designId={id}
-                    activeFileId={
-                      activeLeftPanel === "code"
-                        ? routeCodeFileId
-                        : (activeFile?.id ?? activeFileId)
+                {id && activeLeftPanel === "code" ? (
+                  <Suspense
+                    fallback={
+                      <div className="flex min-h-0 flex-1 items-center justify-center bg-[var(--design-editor-panel-bg)] text-muted-foreground">
+                        <Spinner className="size-4" />
+                      </div>
                     }
-                    activeFilename={
-                      activeLeftPanel === "code"
-                        ? routeCodeFilename
-                        : activeFile?.filename
-                    }
-                    selectedNodeId={selectedElementLayerId}
-                    selectedSelector={selectedCanvasSelector}
-                    canEdit={canEditDesign}
-                    onActiveFileChange={setActiveCodeFile}
-                  />
+                  >
+                    <CodeWorkbenchHost
+                      designId={id}
+                      activeFileId={routeCodeFileId}
+                      activeFilename={routeCodeFilename}
+                      selectedNodeId={selectedElementLayerId}
+                      selectedSelector={selectedCanvasSelector}
+                      canEdit={canEditDesign}
+                      onActiveFileChange={setActiveCodeFile}
+                    />
+                  </Suspense>
                 ) : null}
               </div>
             </div>
