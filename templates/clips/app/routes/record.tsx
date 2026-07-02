@@ -1608,7 +1608,8 @@ export default function RecordRoute() {
             } catch (err) {
               if (chunkAbort.signal.aborted) return;
               if (!uploadError) {
-                uploadError = err instanceof Error ? err : new Error(String(err));
+                uploadError =
+                  err instanceof Error ? err : new Error(String(err));
                 chunkAbort.abort(uploadError);
               }
               return;
