@@ -138,8 +138,20 @@ function shouldVerifyServedMediaUrl(value: string): boolean {
 async function responseHasReadableMediaBytes(
   response: Response,
 ): Promise<boolean> {
-  const body = await response.arrayBuffer().catch(() => new ArrayBuffer(0));
-  return body.byteLength > 0;
+  const reader = response.body?.getReader();
+  if (!reader) {
+    const body = await response.arrayBuffer().catch(() => new ArrayBuffer(0));
+    return body.byteLength > 0;
+  }
+
+  try {
+    const { value } = await reader.read();
+    return (value?.byteLength ?? 0) > 0;
+  } catch {
+    return false;
+  } finally {
+    await reader.cancel().catch(() => undefined);
+  }
 }
 
 async function verifyServedMediaUrl(videoUrl: string): Promise<void> {

@@ -7,7 +7,10 @@ import {
 } from "@agent-native/core/client";
 import { useLiveTranscription } from "@agent-native/core/client/transcription/use-live-transcription";
 import type { BrowserDiagnosticsData } from "@shared/browser-diagnostics";
-import { waitForReadyRecordingAfterFinalizeError } from "@shared/finalize-recovery";
+import {
+  isStoredButUnservableFinalizeError,
+  waitForReadyRecordingAfterFinalizeError,
+} from "@shared/finalize-recovery";
 import {
   chunkUploadUrl,
   pickMimeType,
@@ -1671,7 +1674,9 @@ export default function RecordRoute() {
             : undefined;
         const serverRejectedTooLarge =
           status === 413 || isUploadSizeError(message);
-        if (createdId && !serverRejectedTooLarge) {
+        const preserveBufferedChunks =
+          isStoredButUnservableFinalizeError(message);
+        if (createdId && !serverRejectedTooLarge && !preserveBufferedChunks) {
           fetch(`${appBasePath()}/api/uploads/${createdId}/abort`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -1982,11 +1987,13 @@ export default function RecordRoute() {
         return;
       }
       await saveBrowserDiagnostics(pending.id);
-      fetch(pending.abortUrl, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ reason: message }),
-      }).catch(() => {});
+      if (!isStoredButUnservableFinalizeError(message)) {
+        fetch(pending.abortUrl, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ reason: message }),
+        }).catch(() => {});
+      }
       setError(message);
       setUiState("error");
       toast.error(t("recordRoute.uploadFailed"), {
@@ -2016,11 +2023,13 @@ export default function RecordRoute() {
       }
       const message =
         err instanceof Error ? err.message : t("recordRoute.uploadFailed");
-      fetch(pending.abortUrl, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ reason: message }),
-      }).catch(() => {});
+      if (!isStoredButUnservableFinalizeError(message)) {
+        fetch(pending.abortUrl, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ reason: message }),
+        }).catch(() => {});
+      }
       setCompressionProgress(null);
       setError(message);
       setUiState("error");

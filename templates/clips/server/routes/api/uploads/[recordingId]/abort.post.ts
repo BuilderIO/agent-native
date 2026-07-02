@@ -10,6 +10,7 @@ import {
   deleteAppStateByPrefix,
 } from "@agent-native/core/application-state";
 import { runWithRequestContext } from "@agent-native/core/server";
+import { isStoredButUnservableFinalizeError } from "@shared/finalize-recovery.js";
 import { and, eq } from "drizzle-orm";
 import {
   defineEventHandler,
@@ -50,6 +51,7 @@ export default defineEventHandler(async (event: H3Event) => {
         id: schema.recordings.id,
         status: schema.recordings.status,
         videoUrl: schema.recordings.videoUrl,
+        failureReason: schema.recordings.failureReason,
       })
       .from(schema.recordings)
       .where(
@@ -68,9 +70,13 @@ export default defineEventHandler(async (event: H3Event) => {
       return { ok: true, recordingId, alreadyReady: true, chunksCleared: 0 };
     }
 
-    const cleared = await deleteAppStateByPrefix(
-      `recording-chunks-${recordingId}-`,
-    );
+    const preserveBufferedChunks =
+      existing.status === "failed" &&
+      (isStoredButUnservableFinalizeError(failureReason) ||
+        isStoredButUnservableFinalizeError(existing.failureReason));
+    const cleared = preserveBufferedChunks
+      ? 0
+      : await deleteAppStateByPrefix(`recording-chunks-${recordingId}-`);
     await deleteResumableSession(recordingId).catch(() => {});
 
     const now = new Date().toISOString();

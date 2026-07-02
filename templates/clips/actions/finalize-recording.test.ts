@@ -248,6 +248,36 @@ describe("finalize-recording media serve verification", () => {
     }
   });
 
+  it("only reads one probe chunk when a server ignores the range request", async () => {
+    const chunkKeys = seedBufferedRecording();
+    let reads = 0;
+    let cancelled = false;
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        reads += 1;
+        controller.enqueue(new TextEncoder().encode("ok"));
+      },
+      cancel() {
+        cancelled = true;
+      },
+    });
+    vi.mocked(fetch).mockResolvedValue(new Response(stream, { status: 200 }));
+
+    const result = await finalizeRecording.run({
+      id: "rec-1",
+      mimeType: "video/mp4",
+    });
+
+    expect(result).toEqual(
+      expect.objectContaining({ id: "rec-1", status: "ready" }),
+    );
+    expect(reads).toBe(1);
+    expect(cancelled).toBe(true);
+    for (const key of chunkKeys) {
+      expect(mockDeleteAppState).toHaveBeenCalledWith(key);
+    }
+  });
+
   it("marks ready when media verification gets one 500 and then succeeds", async () => {
     const chunkKeys = seedBufferedRecording();
     vi.mocked(fetch)
