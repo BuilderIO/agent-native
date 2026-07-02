@@ -43,6 +43,18 @@ describe("design import clipboard helpers", () => {
     ).toBeNull();
   });
 
+  it("does not treat generic data-buffer attributes as Figma payloads", () => {
+    expect(
+      getFigmaClipboardContent(
+        clipboardData({
+          "text/html":
+            '<div data-buffer="cached-html" data-metadata="app-data">Layer</div>',
+          "text/plain": "Layer",
+        }),
+      ),
+    ).toBeNull();
+  });
+
   it("recognizes standalone HTML separately from Figma payloads", () => {
     expect(looksLikeStandaloneHtml("<section>Hero</section>")).toBe(true);
     expect(looksLikeStandaloneHtml("plain text")).toBe(false);

@@ -3889,9 +3889,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       true
     );
     function hasFigmaClipboardPayload(value) {
-      return /\\(figmeta\\)|\\(figma\\)|data-metadata=|data-buffer=/i.test(
-        String(value || "")
-      );
+      return /\\((figmeta|figma)\\)/i.test(String(value || ""));
     }
     function getFigmaClipboardContent(data) {
       if (!data || !data.getData) return "";
