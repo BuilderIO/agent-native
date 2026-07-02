@@ -111,6 +111,27 @@ pnpm install
 pnpm dev
 ```
 
+### Quick Start validation and common failures
+
+After `pnpm dev` starts, use this checklist to confirm the generated app is wired correctly before adding custom code:
+
+1. Open the local URL printed by the dev server and verify the app shell loads without a blank page.
+2. Start a new chat and send a short prompt such as `List the available actions`; the agent should respond instead of timing out.
+3. Trigger one UI action from the app and confirm the same operation is visible to the agent through the shared action surface.
+4. Restart `pnpm dev` once after the first successful boot; this catches missing generated files or environment assumptions early.
+
+If the first run fails, these checks usually identify the problem quickly:
+
+- **Node version mismatch**: Agent-Native expects the Node version declared in `package.json`. Run `node --version` and upgrade before reinstalling dependencies.
+- **Wrong package manager**: Use `pnpm install`, not `npm install` or `yarn install`, so the workspace links and lockfile match the generated project.
+- **Stale dependencies**: Delete `node_modules` and rerun `pnpm install` if a template was generated with an interrupted install.
+- **Port already in use**: Stop the other process or rerun the dev command with the alternate port suggested by the dev server.
+- **Missing model credentials**: If the UI loads but chat requests fail, check the generated `.env` file and add the provider keys required by the selected template.
+- **Database startup errors**: Re-run the template's documented setup command before editing migrations; avoid changing schema files until the untouched template boots once.
+- **Browser-only failures**: Open the browser devtools console and terminal output side by side; most startup issues include the route, action, or missing environment variable name in one of those logs.
+
+For a clean retry, remove the generated directory and run `create` again with the same template flags. This is faster and safer than debugging a partially generated app.
+
 `create` first asks how you want to start:
 
 - **Full app(s)**: clone one or more complete apps into a workspace. Pick Mail + Calendar + Forms and you get all three wired up and sharing auth.
