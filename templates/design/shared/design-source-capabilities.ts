@@ -147,15 +147,15 @@ export function unavailable(reason?: string): DesignSourceCapabilityEntry {
  *
  * - CSS-var token edits and motion are available through the Tweaks loop and
  *   the managed `<style data-agent-native-motion>` block respectively.
- * - File-level write ops (`readFile`, `writeFile`, `applyEdit`) are `planned`
- *   pending bridge write hardening.
+ * - File-level ops (`readFile`, `writeFile`, `applyEdit`) are available for
+ *   inline SQL-backed design_files through the Design source action surface.
  * - Real-app-only capabilities (`indexComponents`, `writeTokens`, `branch`,
  *   `deploy*`) are `unavailable` and trigger the "Make it real" CTA.
  */
 export const INLINE_DEFAULT_CAPABILITIES: DesignSourceCapabilities = {
-  readFile: planned("Local file reads require bridge hardening"),
-  writeFile: planned("Local file writes require bridge hardening"),
-  applyEdit: planned("Source edits require bridge hardening"),
+  readFile: available("Inline design files can be read from Design"),
+  writeFile: available("Inline design files can be saved through Design"),
+  applyEdit: available("Inline design files can be edited through Design"),
   resolveNodeToFile: available(),
   previewPatch: available(),
   diffPatch: available(),

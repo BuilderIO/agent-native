@@ -191,6 +191,24 @@ patterns live in `.agents/skills/`.
   mode can list and resolve local routes now, but file reads/writes remain a
   bridge contract until explicit permission controls are hardened.
 
+## Code Workspace
+
+- The editor left rail has a wide `code` workspace panel. Open it with
+  `navigate --view editor --designId <id> --leftPanel code` and optionally pass
+  `fileId`, `filename`, or `screen` to focus a file.
+- Use `list-source-files` to inspect the source workspace. For the MVP the
+  backend is `virtual-inline` over SQL-backed `design_files`, exposed as
+  `designfs://<designId>/`.
+- Use `read-source-file` for file contents and preserve its `versionHash` before
+  writing. Do not return full file content from `view-screen`; it reports only
+  active code file metadata and dirty state.
+- Use `preview-source-edit` to show a diff without saving, then
+  `apply-source-edit` with the prior `versionHash` to save either a full replace
+  or exact replace. These actions update the same inline file state as the UI.
+- Use `resolve-selection-source` when the user has a canvas element selected and
+  you need the best matching inline file location/snippet. Localhost/container
+  source reads and writes remain future backend work.
+
 ## Localhost Source Actions
 
 - `connect-localhost`: registers or refreshes a localhost source connection

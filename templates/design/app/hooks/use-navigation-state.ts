@@ -12,8 +12,8 @@ export interface NavigationState {
   editorView?: "single" | "overview";
   inspectorTab?: "design" | "tweaks" | "extensions";
   inspector?: "design" | "tweaks" | "extensions";
-  leftPanel?: "file" | "agent" | "assets" | "tools" | "tokens";
-  panel?: "file" | "agent" | "assets" | "tools" | "tokens";
+  leftPanel?: "file" | "agent" | "assets" | "tools" | "tokens" | "code";
+  panel?: "file" | "agent" | "assets" | "tools" | "tokens" | "code";
   fileId?: string;
   screenId?: string;
   filename?: string;
@@ -47,8 +47,8 @@ export interface DesignEditorCommand {
   viewMode?: "single" | "overview";
   inspectorTab?: "design" | "tweaks" | "extensions";
   inspector?: "design" | "tweaks" | "extensions";
-  leftPanel?: "file" | "agent" | "assets" | "tools" | "tokens";
-  panel?: "file" | "agent" | "assets" | "tools" | "tokens";
+  leftPanel?: "file" | "agent" | "assets" | "tools" | "tokens" | "code";
+  panel?: "file" | "agent" | "assets" | "tools" | "tokens" | "code";
   fileId?: string;
   screenId?: string;
   filename?: string;
@@ -88,13 +88,14 @@ function normalizeInspectorTab(
 
 function normalizeLeftPanel(
   value: unknown,
-): "file" | "agent" | "assets" | "tools" | "tokens" | undefined {
+): "file" | "agent" | "assets" | "tools" | "tokens" | "code" | undefined {
   if (value === "extensions") return "tools";
   return value === "file" ||
     value === "agent" ||
     value === "assets" ||
     value === "tools" ||
-    value === "tokens"
+    value === "tokens" ||
+    value === "code"
     ? value
     : undefined;
 }
@@ -184,6 +185,8 @@ export function useNavigationState(enabled = true) {
           searchParams.get("inspector"),
         );
         if (inspectorTab) state.inspectorTab = inspectorTab;
+        const leftPanel = normalizeLeftPanel(searchParams.get("panel"));
+        if (leftPanel) state.leftPanel = leftPanel;
         const screen = searchParams.get("screen");
         if (screen) state.screen = screen;
         const fileId = searchParams.get("fileId");
