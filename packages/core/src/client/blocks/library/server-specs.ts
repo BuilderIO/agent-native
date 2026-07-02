@@ -211,7 +211,7 @@ export const libraryBlockConfigs: BlockSpec<any>[] = [
     placement: ["block"],
     label: "Diagram",
     description:
-      "A flexible inline architecture/code diagram. Prefer html/css with SVG or semantic HTML for polished two-dimensional layouts; use .diagram-* primitives and --wf-* tokens for theme/sketch compatibility. Legacy nodes/edges are only for simple previews.",
+      "A flexible inline architecture/code diagram. Prefer html/css with SVG or semantic HTML for polished two-dimensional layouts; use .diagram-* primitives and --wf-* tokens for theme/sketch compatibility. Set frame to show for standalone artifacts that need containment, hide when surrounding docs/canvas chrome already supplies the boundary. Legacy nodes/edges are only for simple previews.",
   }),
   defineBlock<WireframeData>({
     type: "wireframe",
@@ -221,7 +221,7 @@ export const libraryBlockConfigs: BlockSpec<any>[] = [
     placement: ["block"],
     label: "Wireframe",
     description:
-      "A sketch wireframe of one screen built from kit primitives (or an HTML mockup), rendered in a chosen surface frame (desktop/mobile/popover/panel/browser).",
+      "A sketch wireframe of one screen built from kit primitives (or an HTML mockup), rendered in a chosen surface (desktop/mobile/popover/panel/browser). Set frame to show for standalone screens and recap comparisons, hide only when surrounding chrome already supplies the boundary.",
   }),
   defineBlock<MermaidData>({
     type: "mermaid",

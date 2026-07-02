@@ -131,6 +131,8 @@ agente.
 | `/api/agent-transcript.json?id=<recordingId>`     | Segmentos de transcripción con marca de tiempo con `startMs`, `endMs`, marcas de tiempo legibles, texto y etiquetas de origen opcionales |
 | `/api/agent-frame.jpg?id=<recordingId>&atMs=<ms>` | Un fotograma JPEG extraído del vídeo en una marca de tiempo del vídeo original                                                           |
 
+Temporary private agent links are also supported: the Share dialog can mint a two-hour `agent_access` URL for any recording the viewer can access. Agents use that token with the share page and JSON APIs, and the clip does not become public.
+
 Los puntos finales siguen las mismas reglas de público/contraseña/caducidad que la página para compartir.
 Los clips protegidos con contraseña requieren la contraseña una vez; regresan respuestas exitosas
 Enlaces tokenizados de corta duración para que los agentes posteriores no necesiten el texto sin formato

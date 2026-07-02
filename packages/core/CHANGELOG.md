@@ -1,5 +1,71 @@
 # @agent-native/core
 
+## 0.84.58
+
+### Patch Changes
+
+- cdc9033: Recover durable background chat runs when action input preparation stops making byte progress, and avoid duplicate tool cards when reconnects replay completed tool events.
+- cdc9033: Remove the shadow from agent chat context scope pills.
+- cdc9033: Prevent agent chat sidebars from jittering around nested scroll areas and suppress replayed reconnect tool cards that are already rendered in the saved thread.
+
+## 0.84.57
+
+### Patch Changes
+
+- 5250e7f: Document temporary agent links for session replays and private clips.
+
+## 0.84.56
+
+### Patch Changes
+
+- a0615f8: Make PR visual recap screenshots link directly to the interactive recap and publish source-author metadata for recap comments.
+
+## 0.84.55
+
+### Patch Changes
+
+- ea97dc1: Make agent chat setup, auth, and title state resilient to transient status checks and hidden context payloads.
+
+## 0.84.54
+
+### Patch Changes
+
+- a259f96: Keep centered chat composers stable when the Connect AI setup card appears.
+- df3fcfd: Allow wireframe and diagram blocks to opt in or out of their outer visual frame.
+
+## 0.84.53
+
+### Patch Changes
+
+- 899ebf1: Hide the diff "Show all lines" footer when annotation anchoring already renders every line.
+- c1e18fb: Make session replay uploads retry failed batches without advancing sequence ids.
+
+## 0.84.52
+
+### Patch Changes
+
+- ca38cc7: Carry action-preparation stall detection across reconnect reads for the same run so zero-byte tool input retries cannot keep background chats alive indefinitely.
+- 899ebf1: Hide the diff "Show all lines" footer when annotation anchoring already renders every line.
+- c1e18fb: Make session replay uploads retry failed batches without advancing sequence ids.
+
+## 0.84.51
+
+### Patch Changes
+
+- 55e4678: Recover durable background chat runs when action input preparation stops making byte progress, and avoid duplicate tool cards when reconnects replay completed tool events.
+
+## 0.84.50
+
+### Patch Changes
+
+- 24a6bd2: Retry agent chat startup timeouts before showing an error when no run stream starts.
+
+## 0.84.49
+
+### Patch Changes
+
+- 5b96985: Recover agent runs that keep restarting empty tool input preparation without streaming action arguments.
+
 ## 0.84.48
 
 ### Patch Changes

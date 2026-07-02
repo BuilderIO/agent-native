@@ -490,11 +490,11 @@ function AppsSection({
         </p>
       </div>
 
-      <div className="templates-side-scroll -mx-6 flex snap-x gap-5 overflow-x-auto overflow-y-hidden px-8 pb-3 pl-10 [scroll-padding-left:2.5rem]">
+      <div className="templates-side-scroll -mx-6 flex gap-5 overflow-x-auto overflow-y-hidden px-8 pb-3 pl-10">
         {homepageTemplates.map((template) => (
           <div
             key={template.name}
-            className="template-rail-card w-[320px] shrink-0 snap-start scroll-ml-10 sm:w-[360px]"
+            className="template-rail-card w-[320px] shrink-0 sm:w-[360px]"
           >
             <TemplateCard template={template} />
           </div>

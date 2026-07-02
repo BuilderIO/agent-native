@@ -419,7 +419,7 @@ const messages = {
     agentPrompt:
       "اجلب عنوان URL لسياق وكيل Clips هذا: {{agentContextUrl}}. استخدم transcript.segments للسياق المنطوق، واجلب recommendedFrames أو عناوين URL الخاصة بواجهة API للإطارات لرؤية الشاشة، وتحقق من browserDiagnostics إن وجدت لسجلات وحدة التحكم المنقحة وبيانات طلبات fetch/XHR الوصفية.",
     agentTokenDescription:
-      "يستخدم هذا الوكيل URL رمزًا مميزًا قصير العمر، بحيث يمكن للعملاء قراءة المقطع دون الكشف عن كلمة المرور.",
+      "يسمح URL المؤقت هذا للوكلاء بقراءة المقطع دون جعله عاما. تنتهي صلاحيته بعد ساعتين.",
     gifPreview: "معاينة GIF",
     openPlayer: "مشغل مفتوح",
     downloadMp4: "تحميل MP4",
