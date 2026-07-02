@@ -2844,8 +2844,9 @@ describe("createAgentChatAdapter", () => {
     );
   });
 
-  it("surfaces a startup timeout when the POST never becomes an SSE stream", async () => {
+  it("retries a startup timeout before surfacing an error", async () => {
     vi.useFakeTimers();
+    vi.spyOn(Math, "random").mockReturnValue(0.5);
     const dispatchEvent = vi.fn();
     vi.stubGlobal("window", { dispatchEvent });
     vi.stubGlobal(
@@ -2860,11 +2861,21 @@ describe("createAgentChatAdapter", () => {
       },
     );
 
+    let postCount = 0;
     const fetchSpy = vi.fn((url: string, init?: RequestInit) => {
       if (url.includes("/runs/active")) {
         return Promise.resolve(jsonResponse({ active: false, status: "idle" }));
       }
       if (url === "/_agent-native/agent-chat" && init?.method === "POST") {
+        postCount += 1;
+        if (postCount > 1) {
+          return Promise.resolve(
+            sseResponse([
+              { type: "text", text: "started after retry" },
+              { type: "done" },
+            ]),
+          );
+        }
         return new Promise<Response>((_resolve, reject) => {
           init.signal?.addEventListener("abort", () => {
             reject(new Error("aborted"));
@@ -2893,9 +2904,76 @@ describe("createAgentChatAdapter", () => {
     );
 
     await vi.advanceTimersByTimeAsync(45_001);
+    await vi.advanceTimersByTimeAsync(500);
     const results = await promise;
 
-    expect(fetchSpy).toHaveBeenCalledTimes(2);
+    expect(postCount).toBe(2);
+    expect(dispatchEvent).not.toHaveBeenCalledWith(
+      expect.objectContaining({ type: "agent-chat:run-error" }),
+    );
+    const last = results.at(-1) as any;
+    expect(last.status).toBeUndefined();
+    expect(last.content.at(-1).text).toBe("started after retry");
+  });
+
+  it("surfaces a startup timeout after exhausting startup retries", async () => {
+    vi.useFakeTimers();
+    vi.spyOn(Math, "random").mockReturnValue(0.5);
+    const dispatchEvent = vi.fn();
+    vi.stubGlobal("window", { dispatchEvent });
+    vi.stubGlobal(
+      "CustomEvent",
+      class CustomEvent {
+        type: string;
+        detail: unknown;
+        constructor(type: string, init?: { detail?: unknown }) {
+          this.type = type;
+          this.detail = init?.detail;
+        }
+      },
+    );
+
+    let postCount = 0;
+    const fetchSpy = vi.fn((url: string, init?: RequestInit) => {
+      if (url.includes("/runs/active")) {
+        return Promise.resolve(jsonResponse({ active: false, status: "idle" }));
+      }
+      if (url === "/_agent-native/agent-chat" && init?.method === "POST") {
+        postCount += 1;
+        return new Promise<Response>((_resolve, reject) => {
+          init.signal?.addEventListener("abort", () => {
+            reject(new Error("aborted"));
+          });
+        });
+      }
+      return Promise.resolve(jsonResponse({ error: "unexpected" }, 500));
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const adapter = createAgentChatAdapter({
+      apiUrl: "/_agent-native/agent-chat",
+      tabId: "chat-startup-timeout-exhausted",
+      threadId: "thread-startup-timeout-exhausted",
+    });
+    const promise = drain(
+      adapter.run({
+        messages: [
+          {
+            role: "user",
+            content: [{ type: "text", text: "please respond" }],
+          },
+        ],
+        abortSignal: new AbortController().signal,
+      } as any),
+    );
+
+    for (let i = 0; i < 9; i += 1) {
+      await vi.advanceTimersByTimeAsync(45_001);
+      await vi.advanceTimersByTimeAsync(8_000);
+    }
+    const results = await promise;
+
+    expect(postCount).toBe(9);
     expect(dispatchEvent).toHaveBeenCalledWith(
       expect.objectContaining({
         type: "agent-chat:run-error",
