@@ -107,8 +107,8 @@ const koKR = {
           body: "Auth, 공유, 거버넌스, 감사 로그가 작업과 함께 적용됩니다.",
         },
         headedOrHeadless: {
-          title: "UI 포함 또는 headless",
-          body: "앱, agent workflow, queue, 예약 작업으로 실행할 수 있습니다.",
+          title: "Apps, automations, agents",
+          body: "같은 operation을 chat, UI, scheduled jobs, queues, external agents, scripts에서 실행할 수 있습니다.",
         },
         contextRichInput: {
           title: "컨텍스트가 풍부한 입력",
@@ -179,7 +179,7 @@ const koKR = {
         },
         workspaces: {
           title: "워크스페이스",
-          body: "UI가 있거나 headless인 앱들이 서로를 발견하고 A2A로 조정합니다.",
+          body: "Composable agentic apps가 서로를 발견하고 A2A로 조정합니다.",
         },
         sourceOwnership: {
           title: "소스 소유권",
@@ -194,7 +194,7 @@ const koKR = {
     framework: {
       title: "agent-native apps 를 위한 framework",
       body1:
-        "Agent-Native 는 agents 를 실제 소프트웨어로 만들기 위한 오픈소스 framework 입니다. Chat 또는 headless agents 에서 시작하고, 같은 actions 를 중심으로 UI, jobs, 협업을 추가하세요.",
+        "Agent-Native 는 agentic applications를 만들기 위한 오픈소스 framework 입니다. Chat에서 시작하고, shared actions를 정의한 뒤, 같은 state를 중심으로 UI, jobs, 협업을 추가하세요.",
       body2:
         "자체 데이터베이스, 호스팅 제공자, 모델 스택, app 코드를 가져오세요.",
       cta: "framework 가이드 읽기",
@@ -296,7 +296,7 @@ const koKR = {
     },
     quickStart: {
       title: "명령으로 시작",
-      body: "명령 하나가 actions, durable threads, SQLite 로 뒷받침되는 로컬 app 을 만듭니다. 아직 브라우저 UI 가 필요 없다면 `--headless` 를 사용하세요.",
+      body: "명령 하나가 actions, durable threads, SQLite로 뒷받침되는 chat-first 로컬 app을 만듭니다. 아직 브라우저 UI가 필요 없는 automation-first workflow에만 `--headless`를 사용하세요.",
     },
     finalCta: {
       title: "agentic era 를 위해 구축된 소프트웨어",

@@ -106,8 +106,8 @@ const ptBR = {
           body: "Auth, compartilhamento, governança e audit logs acompanham o trabalho.",
         },
         headedOrHeadless: {
-          title: "Com UI ou headless",
-          body: "Rode como app, workflow de agent, fila ou tarefa agendada.",
+          title: "Apps, automações e agents",
+          body: "Rode a mesma operação a partir de chat, UI, jobs agendados, filas, agents externos ou scripts.",
         },
         contextRichInput: {
           title: "Entrada rica em contexto",
@@ -178,7 +178,7 @@ const ptBR = {
         },
         workspaces: {
           title: "Workspaces",
-          body: "Apps com UI ou headless que se descobrem e coordenam por A2A.",
+          body: "Apps agentic componíveis que se descobrem e coordenam por A2A.",
         },
         sourceOwnership: {
           title: "Posse do código-fonte",
@@ -193,7 +193,7 @@ const ptBR = {
     framework: {
       title: "O framework para apps agent-native",
       body1:
-        "Agent-Native é um framework open source para construir agents como software real: comece com Chat ou agents headless, depois adicione UI, jobs e colaboração ao redor das mesmas actions.",
+        "Agent-Native é um framework open source para construir agentic applications: comece com Chat, defina actions compartilhadas e depois adicione UI, jobs e colaboração ao redor do mesmo estado.",
       body2:
         "Traga seu próprio banco de dados, provedor de hospedagem, stack de modelos e código da app.",
       cta: "Ler o guia do framework",
@@ -295,7 +295,7 @@ const ptBR = {
     },
     quickStart: {
       title: "Comece com um comando",
-      body: "Um comando cria uma app local com suporte em actions, durable threads e SQLite. Use `--headless` quando ainda não quiser UI no navegador.",
+      body: "Um comando cria uma app local chat-first com suporte em actions, durable threads e SQLite. Use `--headless` apenas para workflows automation-first sem UI no navegador ainda.",
     },
     finalCta: {
       title: "Software feito para a era agentic",

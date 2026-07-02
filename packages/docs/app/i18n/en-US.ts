@@ -88,7 +88,7 @@ const enUS = {
       badge: "Open source framework",
       titleLine1: "The framework for",
       titleAccent: "agentic apps",
-      body: "Agent-Native is an open-source framework for apps where agents and UI share the same actions, state, and context. Start headless, add a UI when you need one, or fork a working app and make it yours.",
+      body: "Agent-Native is an open-source framework for apps where agents and UI share the same actions, state, and context. Start with chat, add actions, then grow into the app screens your workflow deserves.",
       primaryCta: "Start building",
       secondaryCta: "Browse apps",
     },
@@ -116,8 +116,8 @@ const enUS = {
           body: "Auth, sharing, governance, and audit logs travel with the work.",
         },
         headedOrHeadless: {
-          title: "Headed or headless",
-          body: "Run as an app, an agent workflow, a queue, or a scheduled task.",
+          title: "Apps, automations, and agents",
+          body: "Run the same operation from chat, UI, scheduled jobs, queues, external agents, or scripts.",
         },
         contextRichInput: {
           title: "Context-rich input",
@@ -188,7 +188,7 @@ const enUS = {
         },
         workspaces: {
           title: "Workspaces",
-          body: "Composable headed or headless apps that discover each other and coordinate over A2A.",
+          body: "Composable agentic apps that discover each other and coordinate over A2A.",
         },
         sourceOwnership: {
           title: "Source ownership",
@@ -203,7 +203,7 @@ const enUS = {
     framework: {
       title: "The framework for agent-native apps",
       body1:
-        "Agent-Native is an open-source framework for building agents as real software: start with chat or headless agents, then add UI, jobs, and collaboration around the same actions.",
+        "Agent-Native is an open-source framework for building agentic applications: start with chat, define shared actions, then add UI, jobs, and collaboration around the same state.",
       body2:
         "Bring your own database, hosting provider, model stack, and app code.",
       cta: "Read the framework guide",
@@ -305,7 +305,7 @@ const enUS = {
     },
     quickStart: {
       title: "Start with a Command",
-      body: "One command creates a local app backed by actions, durable threads, and SQLite. Use `--headless` instead when you want no browser UI yet.",
+      body: "One command creates a chat-first local app backed by actions, durable threads, and SQLite. Use `--headless` only for automation-first workflows with no browser UI yet.",
     },
     finalCta: {
       title: "Software built for the agentic era",

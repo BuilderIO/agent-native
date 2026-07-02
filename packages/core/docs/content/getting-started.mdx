@@ -1,260 +1,318 @@
 ---
 title: "Getting Started"
-description: "Create an agent app, understand instructions, skills, and actions, then watch the agent call its first action."
+description: "Create a chat-first agentic app, add an action, render structured results inline, then grow into a persistent page the agent can open."
 ---
 
 # Getting Started
 
-Agent-Native apps give an AI agent and your UI the same
-[actions](/docs/actions), data, and state. A basic agent is made from
-instructions that guide it, skills that teach repeatable behavior, and actions
-that let it do real work.
+Agent-Native is for agentic applications: apps where the AI agent and the UI
+share the same [actions](/docs/actions), SQL data, and application state. Start
+with chat so users can talk to the agent immediately, then add the app surfaces
+your workflow earns.
 
-**Want a complete app to start from?** Clone one of our rich templates —
-[Chat](/docs/template-chat), [Mail](/docs/template-mail),
-[Calendar](/docs/template-calendar), [Content](/docs/template-content),
-[Analytics](/docs/template-analytics), and [many more](/docs/cloneable-saas) —
-each a full-featured app you customize.
+The first useful path is:
 
-Building from scratch? The only choice up front is whether you want a UI —
-everything after (writing instructions, adding skills, defining actions, running
-the agent) is the same either way.
+1. Create a chat app.
+2. Add one action.
+3. Render the action result inline in chat.
+4. Persist data in SQL.
+5. Add a page the agent can open when visual inspection is better than another
+   paragraph in the transcript.
 
 <FileTree
-  id="doc-block-1up18cp"
-  title="A basic Agent-Native agent"
+  id="doc-block-chat-first-map"
+  title="The chat-first app shape"
   entries={[
     {
-      path: "AGENTS.md",
-      note: "always-on instructions: purpose, rules, tone, and the map of what the agent can do",
+      path: "app/routes/_index.tsx",
+      note: "the full-page chat surface users start from",
     },
     {
-      path: ".agents/skills/customer-research/SKILL.md",
-      note: "a reusable playbook the agent loads when the task matches",
+      path: "actions/analyze-responses.ts",
+      note: "a typed operation the agent, UI, CLI, HTTP, MCP, and A2A can call",
     },
     {
-      path: "actions/summarize-week.ts",
-      note: "typed code the agent, UI, CLI, HTTP, MCP, A2A, jobs, and webhooks can run",
+      path: "server/db/schema.ts",
+      note: "persistent response-insight data the agent can add or update",
+    },
+    {
+      path: "app/routes/response-insights.tsx",
+      note: "a durable app page for browsing the data behind the chat result",
+    },
+    {
+      path: "actions/view-screen.ts + actions/navigate.ts",
+      note: "context and navigation actions so the agent can open the right screen",
     },
   ]}
 />
 
-This is true whether you start with a chat UI, a headless agent, or a full app.
-The UI changes the surface; instructions, skills, and actions give the agent its
-guidance and behavior.
+Want a complete domain app instead? Clone a rich template such as
+[Mail](/docs/template-mail), [Calendar](/docs/template-calendar),
+[Forms](/docs/template-forms), [Analytics](/docs/template-analytics), or
+[Plan](/docs/template-plan). Want no browser UI yet? See
+[Automation-First Apps](/docs/pure-agent-apps) after this tutorial.
 
-## 1. Create your app
+## 1. Create a chat app {#create-your-app}
 
 You'll need [Node.js 22+](https://nodejs.org) and [pnpm](https://pnpm.io).
 
-Run `create` with no flags and it asks how you want to start (a full template,
-Chat, or Headless) before anything else:
+Create the minimal chat-first app:
+
+```bash
+npx @agent-native/core@latest create my-app --template chat
+cd my-app
+pnpm install
+pnpm dev
+```
+
+This gives you durable chat threads, auth, live sync, an `actions/` directory,
+standard `view-screen` and `navigate` actions, and a small React app you can
+extend.
+
+Run `create` with no flags if you want the CLI picker for domain templates and
+advanced app shapes:
 
 ```bash
 npx @agent-native/core@latest create my-app
 ```
 
-Or pass a flag to skip the prompt:
+The rest of this guide assumes the Chat template because it is the shortest path
+to an agentic application: the agent can act on day one, and you have a real app
+surface to grow from.
 
-**Want a UI?** Start from the Chat template. You get a working agent plus a
-customizable chat UI, and every action you add shows up in it automatically:
+## 2. Add an action {#add-an-action}
 
-```bash
-npx @agent-native/core@latest create my-app --template chat
+An action is one typed operation your agent and UI can both call. Replace the
+starter `hello` action with the first real operation in your domain. This example
+analyzes form responses and returns a native response-insights widget:
+
+```ts
+// actions/analyze-responses.ts
+import { defineAction } from "@agent-native/core/action";
+import { ACTION_CHAT_UI_DATA_INSIGHTS_RENDERER } from "@agent-native/core/action-ui";
+import {
+  createDataInsightsWidgetResult,
+  dataInsightsWidgetResultSchema,
+} from "@agent-native/core/data-widgets";
+import { z } from "zod";
+
+export default defineAction({
+  description: "Analyze recent form responses and summarize the trend.",
+  schema: z.object({
+    formId: z.string().default("demo"),
+  }),
+  outputSchema: dataInsightsWidgetResultSchema,
+  chatUI: {
+    renderer: ACTION_CHAT_UI_DATA_INSIGHTS_RENDERER,
+    title: "Response insights",
+  },
+  readOnly: true,
+  run: async ({ formId }) =>
+    createDataInsightsWidgetResult({
+      title: "Response insights",
+      display: {
+        title: "42 responses",
+        description: `Completion rose for form ${formId}.`,
+        primaryAction: {
+          label: "Open response insights",
+          href: "/response-insights",
+        },
+      },
+      chartSeries: {
+        type: "bar",
+        title: "Responses by day",
+        xKey: "day",
+        series: [{ key: "responses", label: "Responses" }],
+        data: [
+          { day: "Mon", responses: 8 },
+          { day: "Tue", responses: 13 },
+          { day: "Wed", responses: 21 },
+        ],
+      },
+      table: {
+        title: "Top answers",
+        columns: [
+          { key: "answer", label: "Answer" },
+          { key: "count", label: "Count", align: "right" },
+        ],
+        rows: [
+          { answer: "Yes", count: 31 },
+          { answer: "No", count: 11 },
+        ],
+        totalRows: 2,
+      },
+    }),
+});
 ```
 
-**Just the headless primitive?** Start headless — the same actions and agent
-loop, no UI shell:
+Try it directly:
+
+```bash
+pnpm action analyze-responses --formId demo
+```
+
+Then ask the agent in the browser:
+
+> Analyze the recent responses for the demo form.
+
+One action is now reachable from chat, React hooks, CLI, HTTP, MCP, A2A,
+scheduled jobs, and webhooks. Define once, call from anywhere.
+
+## 3. Render the result inline {#render-inline}
+
+The action above declares `outputSchema` and `chatUI.renderer`, so the transcript
+does not have to flatten structured data into prose. Chat renders a native React
+component: chart, table, summary, and a link to the deeper page.
+
+Use this step when the result belongs where the agent is speaking:
+
+- setup summaries
+- short reports
+- approvals
+- tables or charts small enough to inspect inline
+- links into durable app views
+
+For more renderer options, see [Native Chat UI](/docs/native-chat-ui). For
+temporary controls the agent creates at runtime, see
+[Generative UI](/docs/generative-ui).
+
+## 4. Persist data in SQL {#persist-data}
+
+Inline chat is great for the first result. A real app needs durable data the
+agent can add, update, and revisit. Add a response-insights table in your schema
+and keep reads/writes behind actions:
+
+```ts
+// server/db/schema.ts
+import { integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
+
+export const responseInsights = sqliteTable("response_insights", {
+  id: text("id").primaryKey(),
+  formId: text("form_id").notNull(),
+  title: text("title").notNull(),
+  summary: text("summary").notNull(),
+  responseCount: integer("response_count").notNull(),
+  createdAt: integer("created_at").notNull(),
+  updatedAt: integer("updated_at").notNull(),
+});
+```
+
+Then split the work into focused actions:
+
+- `create-response-insight` writes a new insight row.
+- `list-response-insights` reads the rows for the page.
+- `update-response-insight` edits an existing row after the agent learns more.
+- `analyze-responses` can call the same internal helper and return the native
+  chat widget for the latest insight.
+
+The important rule is that the agent and UI share these actions. Do not add a
+separate REST route just for the browser if an action is the operation.
+
+## 5. Add a page the agent can open {#add-a-page}
+
+Now add a durable page for the data behind the chat result:
+
+```tsx
+// app/routes/response-insights.tsx
+import { useActionMutation, useActionQuery } from "@agent-native/core/client";
+
+export default function ResponseInsightsRoute() {
+  const insights = useActionQuery("list-response-insights", {});
+  const createInsight = useActionMutation("create-response-insight");
+
+  return (
+    <main className="mx-auto flex max-w-5xl flex-col gap-6 p-6">
+      <header>
+        <h1>Response insights</h1>
+        <p>Insights the agent created from form responses.</p>
+      </header>
+
+      <button onClick={() => createInsight.mutate({ formId: "demo" })}>
+        Analyze demo form
+      </button>
+
+      <section>
+        {insights.data?.map((insight) => (
+          <article key={insight.id}>
+            <h2>{insight.title}</h2>
+            <p>{insight.summary}</p>
+          </article>
+        ))}
+      </section>
+    </main>
+  );
+}
+```
+
+The page is not a second implementation. It is a projection of SQL state written
+through the same actions the agent uses.
+
+## 6. Let the agent navigate {#agent-navigation}
+
+The Chat template includes `view-screen` and `navigate` actions. Extend them as
+your app grows:
+
+- `view-screen` should read application state and return the current route,
+  selected insight, active filters, and any compact page context the agent needs.
+- `navigate` should write a same-origin path such as `/response-insights` when
+  the agent decides the user should inspect the result visually.
+- Action results can include links such as `href: "/response-insights"` so chat
+  can offer an explicit "Open response insights" button.
+
+When the app has both a full-page chat route and an app page, use the shared chat
+handoff helpers described in [Agent Surfaces](/docs/agent-surfaces#rich-chat):
+`AgentChatSurface`, `AgentSidebar`, `useAgentChatHomeHandoff`,
+`useAgentChatHomeHandoffLinks`, and `chatViewTransition`. That lets the full
+chat slide into the side panel as the page opens, keeping the same thread while
+the user inspects durable data.
+
+## Project structure {#project-structure}
+
+```text
+my-app/
+  actions/         # Agent-callable and UI-callable operations
+  app/             # React routes, pages, and chat surfaces
+  server/          # Nitro server and SQL schema
+  AGENTS.md        # Always-on instructions for the app agent
+  .agents/         # Skills the agent loads when relevant
+  data/app.db      # Local SQLite state when DATABASE_URL is unset
+```
+
+## Want a full analytics starting point? {#analytics-starting-point}
+
+The response-insights example above is intentionally small so you can see the
+framework pieces. If you are building a real analytics product, start from
+[Analytics](/docs/template-analytics) instead. It is the robust starting point:
+connect your providers, use the existing dashboards and agent actions, then
+customize the app from there.
+
+## Advanced: no browser UI yet {#no-browser-ui}
+
+Some workflows really do not need a browser surface at first: scheduled reports,
+queues, integration workers, CLI loops, or another app calling this app over
+A2A/MCP. For those cases, use the no-browser scaffold:
 
 ```bash
 npx @agent-native/core@latest create my-agent --headless
 ```
 
-Then install from the folder you created:
+That is still an Agent-Native app with actions, sessions, run history, settings,
+credentials, and SQL state. It is not the main getting-started path because most
+agentic products benefit from chat, inline results, and eventually durable
+screens. See [Automation-First Apps](/docs/pure-agent-apps) for the no-browser
+pattern.
 
-```bash
-cd my-agent # or my-app if you chose the Chat template
-pnpm install
-```
+## Where to go next {#next}
 
-From here on, the two are identical.
-
-## 2. Add an action
-
-An action is one operation your agent — and your UI — can call. Both scaffolds
-ship with this example:
-
-<AnnotatedCode
-  id="doc-block-1aert37"
-  title="Your first action"
-  filename="actions/hello.ts"
-  language="ts"
-  code={
-    'import { defineAction } from "@agent-native/core/action";\nimport { z } from "zod";\n\nexport default defineAction({\n  description: "Say hello from the local agent.",\n  schema: z.object({\n    name: z.string().default("world"),\n  }),\n  http: { method: "GET" },\n  readOnly: true,\n  run: async ({ name }) => {\n    return { message: `Hello, ${name}!` };\n  },\n});'
-  }
-  annotations={[
-    {
-      lines: "5",
-      label: "Tool description",
-      note: "The agent reads `description` to decide when to call this as a tool.",
-    },
-    {
-      lines: "6-8",
-      label: "Typed contract",
-      note: "One zod `schema` validates input from every surface — agent, UI, HTTP, MCP, and A2A.",
-    },
-    {
-      lines: "9",
-      label: "HTTP verb",
-      note: "Opt this action into an auto-mounted HTTP endpoint.",
-    },
-    {
-      lines: "10",
-      label: "Read-only",
-      note: "`readOnly` marks the action as safe to call without approval and cacheable for queries.",
-    },
-    {
-      lines: "11-13",
-      label: "One implementation",
-      note: "The `run` body is the single source of truth that every surface executes.",
-    },
-  ]}
-/>
-
-Replace `hello` with the first real operation in your domain. You define it once;
-every surface picks it up.
-
-Use `AGENTS.md` for guidance that should apply every turn. Use a skill when the
-agent needs a reusable workflow or domain procedure. Use an action when the
-agent needs a typed, testable way to read data, write data, call an API, or
-perform an approval.
-
-## 3. Run it
-
-Call the action directly:
-
-```bash
-pnpm action hello --name Steve
-```
-
-Or ask the agent to call it for you:
-
-```bash
-pnpm agent "Call the hello action for Steve and explain what happened."
-```
-
-If you started from the Chat template, run the app and use the same agent in the
-browser — it can already call every action you define:
-
-```bash
-pnpm dev
-```
-
-That one action is now reachable from the chat UI, the CLI, HTTP, MCP, A2A,
-scheduled jobs, and webhooks. Define once, call from anywhere.
-
-<Diagram id="doc-block-1myddxf" title="One action, every surface" summary="A single defineAction file fans out to every consumer with no extra wiring.">
-
-```html
-<div class="diagram-fan">
-  <div class="diagram-box" data-rough>defineAction</div>
-  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
-  <div class="diagram-surfaces">
-    <span class="diagram-pill">Chat UI</span
-    ><span class="diagram-pill">CLI</span><span class="diagram-pill">HTTP</span
-    ><span class="diagram-pill">MCP</span><span class="diagram-pill">A2A</span
-    ><span class="diagram-pill">Scheduled jobs</span
-    ><span class="diagram-pill">Webhooks</span>
-  </div>
-</div>
-```
-
-```css
-.diagram-fan {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  flex-wrap: wrap;
-}
-.diagram-fan .diagram-surfaces {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  max-width: 420px;
-}
-.diagram-fan .diagram-arrow {
-  font-size: 22px;
-  line-height: 1;
-}
-```
-
-</Diagram>
-
-## State is built in
-
-Headless doesn't mean stateless. Actions, sessions, application state, threads,
-run history, and credentials all live in SQL. Locally that's SQLite at
-`data/app.db`; in production you set `DATABASE_URL`. See
-[Deployment](/docs/deployment).
-
-<Callout id="doc-block-vrpvt9" tone="info">
-
-**Headless is still a real app.** The app-agent loop persists sessions, threads, runs, settings, and credentials in SQL — it is not a stateless prompt. You can add a UI later without touching your actions or state.
-
-</Callout>
-
-## Customize the UI
-
-If you started from the Chat template, the UI is yours to edit. The chat itself
-is one small route built on the `<AgentChatSurface>` component:
-
-```tsx
-// app/routes/_index.tsx
-import { AgentChatSurface } from "@agent-native/core/client";
-
-export default function ChatRoute() {
-  return <AgentChatSurface mode="page" className="h-full" />;
-}
-```
-
-- **`app/routes/_index.tsx`** — the chat page. Change the suggestions, empty
-  state, and layout.
-- **`app/root.tsx`** — the app shell. Add your own routes and screens around the
-  agent.
-- Drop the agent into any screen with `<AgentSidebar>`, hand work to it from a
-  button with `sendToAgentChat()`, or run an action directly with
-  `useActionMutation()`.
-
-See [Drop-in Agent](/docs/drop-in-agent) for the full component set, and
-[Native Chat UI](/docs/native-chat-ui) to render action results as tables,
-charts, and typed cards instead of plain text.
-
-**Started headless and want a UI later?** The Chat template _is_ the UI on-ramp —
-its `app/` layer (React Router + Vite) is exactly what the headless scaffold
-leaves out. The cleanest move is to start (or re-scaffold) from the Chat
-template; your `actions/`, agent, and SQL state carry over unchanged. See
-[Agent Surfaces](/docs/agent-surfaces) for every surface in between.
-
-## Project structure
-
-```text
-my-app/
-  actions/         # Agent-callable actions
-  app/             # React frontend (UI templates only; omitted when headless)
-  server/          # Nitro API server (routes, plugins)
-  AGENTS.md        # Always-on agent instructions
-  .agents/         # Skills the agent can pull in when relevant
-  data/app.db      # Local SQLite state when DATABASE_URL is unset
-```
-
-## Where to go next
-
-- **[Key Concepts](/docs/key-concepts)** — the core architecture: SQL, actions,
-  sync, and context awareness.
-- **[Actions](/docs/actions)** — the full action API: schemas, HTTP, auth, and
-  approval.
-- **[Agent Surfaces](/docs/agent-surfaces)** — headless, chat, embedded sidecar,
-  and full app.
-- **[Drop-in Agent](/docs/drop-in-agent)** — add the agent chat to any React app.
+- **[Chat Template](/docs/template-chat)** — the minimal chat-first app you just
+  created.
+- **[Actions](/docs/actions)** — schemas, auth, approvals, hooks, and transport.
+- **[Native Chat UI](/docs/native-chat-ui)** — render action results as tables,
+  charts, and typed cards.
+- **[Analytics Template](/docs/template-analytics)** — a robust analytics app
+  starting point; connect providers and customize from there.
+- **[Context Awareness](/docs/context-awareness)** — `view-screen`, `navigate`,
+  route state, and selected objects.
+- **[Agent Surfaces](/docs/agent-surfaces)** — chat, inline UI, app pages,
+  embedded sidecars, automation, and external agents.
 - **[Deployment](/docs/deployment)** — put your app on your own domain.
-- **[FAQ](/docs/faq)** — setup and product questions.

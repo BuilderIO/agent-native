@@ -11,15 +11,15 @@ Perguntas comuns sobre agente nativo, organizadas de "Estou apenas olhando" até
 
 ### O que é agente nativo? {#what-is-agent-native}
 
-Agent-native é uma estrutura para criar aplicativos onde o agente de IA e a superfície do produto ao seu redor são parceiros iguais. Essa superfície pode começar como um agente headless com uma ação personalizada, evoluir para um bate-papo avançado ou se tornar um UI completo. A invariante é que agentes e humanos compartilham o mesmo actions, banco de dados e estado. Consulte [What Is Agent-Native?](/docs/what-is-agent-native) para obter a explicação completa.
+Agent-native é uma estrutura para criar aplicativos onde o agente de IA e a superfície do produto ao seu redor são parceiros iguais. O caminho comum começa com chat, adiciona actions tipadas, renderiza resultados estruturados inline e cresce para páginas duráveis sobre o mesmo estado SQL. A invariante é que agentes e humanos compartilham o mesmo actions, banco de dados e estado. Consulte [What Is Agent-Native?](/docs/what-is-agent-native) para obter a explicação completa.
 
 ### Para quem é isso? {#who-is-this-for}
 
 Agente nativo é para pessoas que desejam que um aplicativo real e um agente de IA trabalhem a partir dos mesmos dados e actions. Os caminhos comuns são:
 
 - **Use um aplicativo hospedado** se quiser Mail, Calendário, Formulários, Plano ou outro modelo finalizado sem configuração. Comece no [template gallery](/templates).
-- **Comece com bate-papo** se quiser um aplicativo básico com o qual os usuários possam conversar imediatamente e, em seguida, estenda com actions e telas — comece com [Getting Started](/docs/getting-started) ou [Chat](/docs/template-chat).
-- **Inicie o primitivo primeiro** se quiser uma ação e um loop de agente de aplicativo sem comando antes de confirmar com UI — comece com [Getting Started](/docs/getting-started).
+- **Comece com bate-papo** se quiser o caminho padrão do zero: usuários falam com o agent imediatamente, e você estende com actions, resultados nativos e telas — comece com [Getting Started](/docs/getting-started) ou [Chat](/docs/template-chat).
+- **Comece automation-first** se estiver criando tarefas agendadas, filas, scripts, integration workers ou fluxos de agents externos sem UI de navegador ainda — comece com [Automation-First Apps](/docs/pure-agent-apps).
 - **Bifurque e personalize um modelo** se desejar seu próprio produto SaaS com autenticação, banco de dados, UI e agente actions já conectados — consulte [Templates](/docs/cloneable-saas).
 - **Compile do zero** se quiser as primitivas da estrutura para um novo produto orientado por agente — comece com [Getting Started](/docs/getting-started).
 - **Conecte outro agente ou ferramenta de código** se desejar que Claude, ChatGPT, Codex, Cursor ou GitHub Copilot / VS Code usem um aplicativo nativo do agente — consulte [External Agents](/docs/external-agents) e [Skills Guide](/docs/skills-guide).
@@ -130,7 +130,7 @@ Esse é o ponto principal. Bifurque um modelo e personalize-o perguntando ao age
 
 ### Posso criar algo que os modelos não cobrem? {#build-from-scratch}
 
-Sim. Se você deseja um aplicativo de bate-papo básico, execute `npx @agent-native/core@latest create my-chat-app --template chat`; você obtém threads de bate-papo duráveis, actions, autenticação, estado de tempo de execução apoiado por SQL e espaço para adicionar suas próprias telas. Se você deseja o menor aplicativo de ação sem UI, execute `npx @agent-native/core@latest create my-agent --headless`. Consulte [Getting Started](/docs/getting-started), [Pure-Agent Apps](/docs/pure-agent-apps) e [Chat](/docs/template-chat).
+Sim. Se você deseja uma app agentic básica, execute `npx @agent-native/core@latest create my-chat-app --template chat`; você obtém threads de bate-papo duráveis, actions, autenticação, estado de tempo de execução apoiado por SQL, renderização nativa inline e espaço para adicionar suas próprias telas. Se estiver criando uma automation sem navegador, execute `npx @agent-native/core@latest create my-agent --headless`. Consulte [Getting Started](/docs/getting-started), [Automation-First Apps](/docs/pure-agent-apps) e [Chat](/docs/template-chat).
 
 ### Posso experimentar sem bifurcar um modelo? {#try-with-a-skill}
 

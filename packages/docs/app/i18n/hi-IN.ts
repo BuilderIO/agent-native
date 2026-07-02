@@ -107,8 +107,8 @@ const hiIN = {
           body: "Auth, sharing, governance और audit logs काम के साथ चलते हैं।",
         },
         headedOrHeadless: {
-          title: "UI वाली या headless",
-          body: "इसे app, agent workflow, queue या scheduled task की तरह चलाएँ।",
+          title: "Apps, automations और agents",
+          body: "उसी operation को chat, UI, scheduled jobs, queues, external agents या scripts से चलाएँ।",
         },
         contextRichInput: {
           title: "संदर्भ-समृद्ध input",
@@ -179,7 +179,7 @@ const hiIN = {
         },
         workspaces: {
           title: "Workspaces layer",
-          body: "UI वाली या headless apps जो एक-दूसरे को discover करती हैं और A2A से coordinate करती हैं।",
+          body: "Composable agentic apps जो एक-दूसरे को discover करती हैं और A2A से coordinate करती हैं।",
         },
         sourceOwnership: {
           title: "Source ownership layer",
@@ -194,7 +194,7 @@ const hiIN = {
     framework: {
       title: "agent-native apps के लिए framework",
       body1:
-        "Agent-Native एक ओपन सोर्स framework है जो agents को वास्तविक software की तरह बनाने के लिए है: Chat या headless agents से शुरू करें, फिर उन्हीं actions के आसपास UI, jobs और सहयोग जोड़ें।",
+        "Agent-Native agentic applications बनाने के लिए open-source framework है: Chat से शुरू करें, shared actions define करें, फिर उसी state के आसपास UI, jobs और collaboration जोड़ें।",
       body2:
         "अपना database, hosting provider, model stack और app code साथ लाएं।",
       cta: "framework guide पढ़ें",
@@ -296,7 +296,7 @@ const hiIN = {
     },
     quickStart: {
       title: "एक command से शुरू करें",
-      body: "एक command actions, durable threads और SQLite पर backed स्थानीय app बनाता है। जब अभी browser UI नहीं चाहिए, तो इसके बजाय `--headless` इस्तेमाल करें।",
+      body: "एक command actions, durable threads और SQLite पर backed chat-first स्थानीय app बनाता है। `--headless` केवल तब इस्तेमाल करें जब automation-first workflow को अभी browser UI नहीं चाहिए।",
     },
     finalCta: {
       title: "agentic era के लिए बना software",

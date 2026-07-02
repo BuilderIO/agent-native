@@ -2685,6 +2685,7 @@ export function MultiTabAssistantChat({
                 <RunStuckBanner
                   threadId={tabId}
                   apiUrl={apiUrl}
+                  autoRetry
                   onRetry={() => {
                     const handle = chatRefs.current.get(tabId);
                     handle?.sendRecoveryMessage(

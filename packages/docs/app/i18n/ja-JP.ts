@@ -107,8 +107,8 @@ const jaJP = {
           body: "Auth、共有、ガバナンス、監査ログが作業と一緒に適用されます。",
         },
         headedOrHeadless: {
-          title: "UI ありでも headless でも",
-          body: "アプリ、agent ワークフロー、キュー、スケジュールタスクとして実行できます。",
+          title: "Apps、automations、agents",
+          body: "同じ operation を chat、UI、scheduled jobs、queues、external agents、scripts から実行できます。",
         },
         contextRichInput: {
           title: "文脈豊かな入力",
@@ -179,7 +179,7 @@ const jaJP = {
         },
         workspaces: {
           title: "ワークスペース",
-          body: "UI ありまたは headless のアプリが互いを発見し、A2A で連携します。",
+          body: "Composable agentic apps が互いを発見し、A2A で連携します。",
         },
         sourceOwnership: {
           title: "ソース所有権",
@@ -194,7 +194,7 @@ const jaJP = {
     framework: {
       title: "agent-native apps のための framework",
       body1:
-        "Agent-Native は、agents を実際のソフトウェアとして構築するためのオープンソース framework です。Chat または headless agents から始め、同じ actions を中心に UI、jobs、コラボレーションを追加できます。",
+        "Agent-Native は agentic applications を構築するためのオープンソース framework です。Chat から始め、共有 actions を定義し、同じ state を中心に UI、jobs、コラボレーションを追加できます。",
       body2:
         "自分のデータベース、ホスティングプロバイダー、モデルスタック、app コードを持ち込めます。",
       cta: "framework ガイドを読む",
@@ -296,7 +296,7 @@ const jaJP = {
     },
     quickStart: {
       title: "コマンドから始める",
-      body: "1 つのコマンドで、actions、durable threads、SQLite を備えたローカル app を作成します。まだブラウザー UI が不要な場合は `--headless` を使ってください。",
+      body: "1 つのコマンドで、actions、durable threads、SQLite を備えた chat-first ローカル app を作成します。ブラウザー UI がまだ不要な automation-first workflow の場合だけ `--headless` を使ってください。",
     },
     finalCta: {
       title: "agentic era のために作られたソフトウェア",

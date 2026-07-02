@@ -107,8 +107,8 @@ const esES = {
           body: "Auth, sharing, governance y audit logs acompañan al trabajo.",
         },
         headedOrHeadless: {
-          title: "Con UI o headless",
-          body: "Ejecútala como app, workflow de agent, cola o tarea programada.",
+          title: "Apps, automatizaciones y agents",
+          body: "Ejecuta la misma operación desde chat, UI, tareas programadas, colas, agents externos o scripts.",
         },
         contextRichInput: {
           title: "Entrada rica en contexto",
@@ -179,7 +179,7 @@ const esES = {
         },
         workspaces: {
           title: "Workspaces",
-          body: "Apps con UI o headless que se descubren entre sí y coordinan por A2A.",
+          body: "Apps agentic componibles que se descubren entre sí y coordinan por A2A.",
         },
         sourceOwnership: {
           title: "Propiedad del código fuente",
@@ -194,7 +194,7 @@ const esES = {
     framework: {
       title: "El framework para apps agent-native",
       body1:
-        "Agent-Native es un framework open source para construir agents como software real: empieza con Chat o agents headless, y luego añade UI, jobs y colaboración alrededor de las mismas actions.",
+        "Agent-Native es un framework open source para crear agentic applications: empieza con Chat, define actions compartidas y luego añade UI, jobs y colaboración alrededor del mismo estado.",
       body2:
         "Trae tu propia base de datos, proveedor de hosting, stack de modelos y código de app.",
       cta: "Leer la guía del framework",
@@ -296,7 +296,7 @@ const esES = {
     },
     quickStart: {
       title: "Empieza con un comando",
-      body: "Un comando crea una app local respaldada por actions, durable threads y SQLite. Usa `--headless` cuando aún no quieras UI de navegador.",
+      body: "Un comando crea una app local chat-first respaldada por actions, durable threads y SQLite. Usa `--headless` solo para workflows automation-first sin UI de navegador todavía.",
     },
     finalCta: {
       title: "Software construido para la era agentic",

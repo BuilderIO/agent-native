@@ -1,16 +1,11 @@
 ---
-title: "纯代理应用"
-description: "代理是整个产品的应用程序：应用程序代理循环是前门，仅在人们需要时才添加 UI。"
+title: "Automation-First Apps"
+description: "用于 scheduled jobs、queues、scripts、integration workers 和外部 agents 的无浏览器 Agent-Native apps。"
 ---
 
-# 纯代理应用
+# Automation-First Apps
 
-纯代理应用程序是代理本机的最小端：应用程序代理循环是
-产品，而不是仪表板。您从终端、Slack、电子邮件、
-预定的工作、另一个代理或聊天 - “总结我未读的电子邮件”、“发布
-每日指标为 Slack” - 代理会在任何地方执行操作并返回结果
-属于。它仍然是一个真实的应用程序：actions、会话、应用程序状态、历史记录，
-设置、凭据和共享记录均位于 SQL 中。
+Automation-first app 是无浏览器的 Agent-Native app，用于 scheduled jobs、queues、scripts、integration workers 和外部 agents。它不是默认入门路径，但在工作流暂时不需要页面时很有用。它仍然是一个真实的应用程序：actions、sessions、application state、run history、settings、credentials 和共享记录均位于 SQL 中。
 
 <Diagram id="doc-block-3r5jvj" title={"应用程序代理循环是前门"} summary={"许多入口点通过 SQL-backed 操作和状态到达一个代理循环；结果返回到请求来自的地方。仅当需要人类监督时才添加 UI。"}>
 

@@ -103,8 +103,8 @@ const messages = {
           body: "Auth、分享、治理與稽核日誌會隨著工作一起生效。",
         },
         headedOrHeadless: {
-          title: "可有介面，也可 headless",
-          body: "能作為 app、agent workflow、佇列或排程工作執行。",
+          title: "Apps、automations 與 agents",
+          body: "同一個 operation 可從 chat、UI、排程工作、佇列、外部 agents 或 scripts 執行。",
         },
         contextRichInput: {
           title: "富含脈絡的輸入",
@@ -175,7 +175,7 @@ const messages = {
         },
         workspaces: {
           title: "工作區",
-          body: "有介面或 headless 的應用能互相探索，並透過 A2A 協調。",
+          body: "可組合的 agentic apps 能互相探索，並透過 A2A 協調。",
         },
         sourceOwnership: {
           title: "原始碼所有權",
@@ -190,7 +190,7 @@ const messages = {
     framework: {
       title: "面向 agent-native apps 的框架",
       body1:
-        "Agent-Native 是一個開放原始碼框架，用來把 agents 建置成真正的軟體：從 Chat 或 headless agents 開始，再圍繞同一組 actions 新增 UI、jobs 和協作。",
+        "Agent-Native 是一個開放原始碼框架，用來建置 agentic applications：從 Chat 開始，定義共享 actions，再圍繞同一份 state 新增 UI、jobs 和協作。",
       body2: "使用你自己的資料庫、託管服務、模型堆疊和 app 程式碼。",
       cta: "閱讀框架指南",
       primitives: {
@@ -289,7 +289,7 @@ const messages = {
     },
     quickStart: {
       title: "從一條指令開始",
-      body: "一條指令會建立一個本機 app，背後有 actions、durable threads 和 SQLite 支撐。還沒有瀏覽器 UI 需求時，可以改用 `--headless`。",
+      body: "一條指令會建立一個聊天優先的本機 app，背後有 actions、durable threads 和 SQLite 支撐。只有 automation-first workflow 暫時不需要瀏覽器 UI 時才使用 `--headless`。",
     },
     finalCta: {
       title: "為 agentic 時代而建的軟體",

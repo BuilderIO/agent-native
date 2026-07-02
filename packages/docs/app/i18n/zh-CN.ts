@@ -105,8 +105,8 @@ const zhCN = {
           body: "Auth、共享、治理和审计日志会随工作一起生效。",
         },
         headedOrHeadless: {
-          title: "可带界面，也可 headless",
-          body: "可以作为 app、agent workflow、队列或定时任务运行。",
+          title: "Apps、automations 和 agents",
+          body: "同一个 operation 可从 chat、UI、定时任务、队列、外部 agents 或 scripts 运行。",
         },
         contextRichInput: {
           title: "富上下文输入",
@@ -177,7 +177,7 @@ const zhCN = {
         },
         workspaces: {
           title: "工作区",
-          body: "带界面或 headless 的应用可互相发现，并通过 A2A 协调。",
+          body: "可组合的 agentic apps 可互相发现，并通过 A2A 协调。",
         },
         sourceOwnership: {
           title: "源码所有权",
@@ -192,7 +192,7 @@ const zhCN = {
     framework: {
       title: "面向 agent-native apps 的框架",
       body1:
-        "Agent-Native 是一个开源框架，用来把 agents 构建成真正的软件：从 Chat 或 headless agents 开始，再围绕同一组 actions 添加 UI、jobs 和协作。",
+        "Agent-Native 是一个开源框架，用来构建 agentic applications：从 Chat 开始，定义共享 actions，再围绕同一份 state 添加 UI、jobs 和协作。",
       body2: "使用你自己的数据库、托管服务、模型栈和 app 代码。",
       cta: "阅读框架指南",
       primitives: {
@@ -291,7 +291,7 @@ const zhCN = {
     },
     quickStart: {
       title: "从一条命令开始",
-      body: "一条命令会创建一个本地 app，背后有 actions、durable threads 和 SQLite 支撑。还没有浏览器 UI 需求时，可以改用 `--headless`。",
+      body: "一条命令会创建一个聊天优先的本地 app，背后有 actions、durable threads 和 SQLite 支撑。只有 automation-first workflow 暂时不需要浏览器 UI 时才使用 `--headless`。",
     },
     finalCta: {
       title: "为 agentic 时代而建的软件",

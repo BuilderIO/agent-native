@@ -181,7 +181,7 @@ const moduleCards: ModuleCard[] = [
   {
     name: "Workspaces",
     description:
-      "Composable headed or headless apps that discover each other and coordinate without becoming one giant app.",
+      "Composable agentic apps that discover each other and coordinate without becoming one giant app.",
     icon: IconBlocks,
     tags: ["mini-apps", "A2A", "context"],
   },
@@ -196,9 +196,9 @@ const moduleCards: ModuleCard[] = [
 
 const appShapes = [
   {
-    title: "Headless agents",
+    title: "Automation-first apps",
     description:
-      "Start with actions, schedules, queues, and provider integrations. Add UI only when the workflow deserves one.",
+      "Use no-browser apps for schedules, queues, scripts, and provider integrations when the workflow does not need a UI yet.",
     icon: IconTerminal2,
   },
   {
@@ -231,7 +231,8 @@ const sourceFlow = [
   {
     title: "Your app",
     body: "Keep the verified pieces and focus your agent on product logic, workflows, and the thing only you can build.",
-    detail: "Headless first, headed later, or full application from day one.",
+    detail:
+      "Start with chat, fork a working app, or run automation-first when no browser UI is needed yet.",
   },
 ];
 
@@ -251,7 +252,7 @@ export const meta = () =>
       {
         property: "og:description",
         content:
-          "Build headless agents, robust agent UIs, and applications with a deeply agentic core from replaceable modules.",
+          "Build chat-first agentic apps, robust agent UIs, and automation-first workflows from replaceable modules.",
       },
       { name: "robots", content: "noindex,nofollow" },
     ],
@@ -451,8 +452,8 @@ export default function HomepageNew() {
             Agentic applications
           </h1>
           <p className="mx-auto mt-6 max-w-2xl text-lg leading-relaxed text-[var(--fg-secondary)] md:text-xl">
-            Build headless agents, agents with robust UIs, and applications with
-            a deeply agentic core. Agent-Native gives you replaceable,
+            Build chat-first agentic apps, agents with robust UIs, and
+            automation-first workflows. Agent-Native gives you replaceable,
             battle-tested modules so your agent can focus on what makes your
             product different.
           </p>
@@ -619,8 +620,8 @@ export default function HomepageNew() {
                 },
                 {
                   icon: IconServer,
-                  title: "Headed or headless",
-                  body: "Run as an app, an agent workflow, a queue, or a scheduled task.",
+                  title: "Apps, automations, and agents",
+                  body: "Run the same operation from chat, UI, scheduled jobs, queues, external agents, or scripts.",
                 },
                 {
                   icon: IconMicrophone,

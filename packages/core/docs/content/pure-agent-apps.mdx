@@ -1,27 +1,29 @@
 ---
-title: "Pure-Agent Apps"
-description: "Apps where the agent is the whole product: the app-agent loop is the front door, and UI is added only when humans need it."
+title: "Automation-First Apps"
+description: "No-browser Agent-Native apps for scheduled jobs, queues, scripts, integration workers, and external agents."
 ---
 
-# Pure-Agent Apps
+# Automation-First Apps
 
-A pure-agent app is the minimal end of agent-native: the app-agent loop is the
-product, not a dashboard. You send a request from the terminal, Slack, email, a
-scheduled job, another agent, or Chat — "summarize my unread emails," "post the
-daily metrics to Slack" — and the agent acts and returns the result wherever it
-belongs. It is still a real app: actions, sessions, app state, history,
-settings, credentials, and share records all live in SQL.
+Most Agent-Native products should start with chat and grow into inline results
+and durable app pages. Use this pattern when the primary surface is not a
+browser UI yet: scheduled reports, queues, integration workers, CLI loops, or
+another app or agent calling this app over MCP/A2A.
 
-<Diagram id="doc-block-1rfgtal" title="The app-agent loop is the front door" summary={"Many entry points reach one agent loop over SQL-backed actions and state; results return to wherever the request came from. UI is added only when humans need to supervise."}>
+Automation-first does **not** mean stateless. The app-agent loop still uses the
+same Agent-Native contract: actions, sessions, app state, history, settings,
+credentials, and share records live in SQL.
+
+<Diagram id="doc-block-automation-first" title="Automation-first still uses the app contract" summary={"Jobs, scripts, channels, and external agents reach one Agent-Native loop over SQL-backed actions and state."}>
 
 ```html
 <div class="diagram-pure">
   <div class="diagram-col">
-    <div class="diagram-pill">Terminal</div>
-    <div class="diagram-pill">Slack · email</div>
     <div class="diagram-pill">Scheduled job</div>
+    <div class="diagram-pill">Queue worker</div>
+    <div class="diagram-pill">CLI script</div>
+    <div class="diagram-pill">Slack · email</div>
     <div class="diagram-pill">Another agent (A2A)</div>
-    <div class="diagram-pill">Chat</div>
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
   <div class="diagram-panel center" data-rough>
@@ -30,7 +32,9 @@ settings, credentials, and share records all live in SQL.
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
   <div class="diagram-box" data-rough>
-    Result returns<br /><small class="diagram-muted">to where it belongs</small>
+    Result returns<br /><small class="diagram-muted"
+      >to the channel that asked</small
+    >
   </div>
 </div>
 ```
@@ -62,20 +66,36 @@ settings, credentials, and share records all live in SQL.
 </Diagram>
 
 Reach for this shape when the work runs in the background, the output leaves the
-app, the domain is one-shot, or you're prototyping. The agent still needs a UI —
-not a dashboard, but a place for humans to supervise, configure, and steer it —
-which is why even pure-agent apps usually mount the built-in Chat shell.
+app, the domain is one-shot, or you are building a callable workflow for another
+system. If users need to inspect, compare, correct, or share persistent objects,
+start with [Chat](/docs/template-chat) or add a small app page around the same
+actions.
 
-This is the **headless** product shape. The full decision guide, what ships in
-the box, the scaffold, repo access, and run sharing now live in one place:
+## Scaffold {#scaffold}
 
-→ [**Agent Surfaces — Headless agent**](/docs/agent-surfaces#headless)
+Use the no-browser scaffold when you know you do not want a browser UI yet:
 
-## What's next
+```bash
+npx @agent-native/core@latest create my-agent --headless
+cd my-agent
+pnpm install
+```
 
-- [**Agent Surfaces — Headless**](/docs/agent-surfaces#headless) — the full headless decision guide and APIs
-- [**Getting Started**](/docs/getting-started) — create a chat app or headless agent first
-- [**Dispatch**](/docs/template-dispatch) — the workspace template that's a great pure-agent starting point
-- [**Messaging the agent**](/docs/messaging) — how users talk to the agent across web, Slack, Telegram, email
+Then add actions and instructions exactly as you would in a chat app:
+
+```bash
+pnpm agent "Run the daily response-insights report and post the summary."
+```
+
+The `--headless` flag only chooses the initial scaffold. It does not choose a
+different architecture. You can later move the same `actions/`, instructions,
+skills, and SQL state into a chat app or full application surface.
+
+## What to add next {#whats-next}
+
+- [**Getting Started**](/docs/getting-started) — the chat-first tutorial from action to inline result to durable page
+- [**Agent Surfaces — Automation-first app**](/docs/agent-surfaces#headless) — the full decision guide and APIs
+- [**Actions**](/docs/actions) — the operations your automation calls
+- [**Messaging the agent**](/docs/messaging) — how users talk to the agent across web, Slack, Telegram, and email
 - [**Recurring Jobs**](/docs/recurring-jobs) — scheduled prompts the agent runs on its own
-- [**Actions**](/docs/actions) — the tools your pure-agent will call
+- [**Dispatch**](/docs/template-dispatch) — the workspace control plane for shared secrets, scheduled jobs, and delegated work

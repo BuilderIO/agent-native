@@ -38,6 +38,12 @@ export interface RunStuckBannerProps {
    * observability events (Sentry, PostHog) at the call site.
    */
   onStuckStateChange?: (state: RunStuckState) => void;
+  /**
+   * Automatically abort and retry once when the server reports a run is
+   * alive but has stopped making real progress. Manual controls remain visible
+   * as the fallback if the automatic recovery cannot clear the run.
+   */
+  autoRetry?: boolean;
   /** Extra class on the outer container. */
   className?: string;
 }
@@ -48,11 +54,13 @@ export function RunStuckBanner({
   stuckThresholdMs,
   onRetry,
   onStuckStateChange,
+  autoRetry = false,
   className,
 }: RunStuckBannerProps) {
   const state = useRunStuckDetection({ threadId, stuckThresholdMs, apiUrl });
   const abortRun = useAbortRun(apiUrl);
   const [busy, setBusy] = useState<"none" | "cancel" | "retry">("none");
+  const autoRetriedRunIdsRef = useRef<Set<string>>(new Set());
 
   const lastReportedRef = useRef<{
     isStuck: boolean;
@@ -84,6 +92,43 @@ export function RunStuckBanner({
       setBusy("none");
     }
   }, [state.status]);
+
+  useEffect(() => {
+    if (
+      !autoRetry ||
+      !state.isStuck ||
+      !state.runId ||
+      busy !== "none" ||
+      autoRetriedRunIdsRef.current.has(state.runId)
+    ) {
+      return;
+    }
+
+    const runId = state.runId;
+    autoRetriedRunIdsRef.current.add(runId);
+    setBusy("retry");
+    trackEvent("agent_chat_stuck_auto_retry", {
+      runId,
+      threadId: threadId ?? null,
+      stuckSinceMs: state.stuckSinceMs ?? null,
+    });
+    void abortRun(runId, "auto_stuck_retry").then((aborted) => {
+      if (aborted) {
+        onRetry?.(aborted);
+        return;
+      }
+      setBusy("none");
+    });
+  }, [
+    abortRun,
+    autoRetry,
+    busy,
+    onRetry,
+    state.isStuck,
+    state.runId,
+    state.stuckSinceMs,
+    threadId,
+  ]);
 
   if (!state.isStuck || !state.runId) return null;
 
@@ -134,6 +179,9 @@ export function RunStuckBanner({
             No progress
             {stuckSeconds != null ? ` for ${stuckSeconds}s` : ""}. The agent may
             have hit a server timeout or lost its connection.
+            {autoRetry && busy === "retry"
+              ? " Retrying automatically now."
+              : ""}
           </span>
         </div>
         <div className="flex flex-wrap items-center gap-2">

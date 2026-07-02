@@ -107,8 +107,8 @@ const deDE = {
           body: "Auth, Sharing, Governance und Audit-Logs begleiten die Arbeit.",
         },
         headedOrHeadless: {
-          title: "Mit UI oder headless",
-          body: "Läuft als App, Agent-Workflow, Queue oder geplanter Task.",
+          title: "Apps, Automationen und Agents",
+          body: "Führe dieselbe Operation aus Chat, UI, geplanten Jobs, Queues, externen Agents oder Skripten aus.",
         },
         contextRichInput: {
           title: "Kontextreiche Eingabe",
@@ -179,7 +179,7 @@ const deDE = {
         },
         workspaces: {
           title: "Arbeitsbereiche",
-          body: "Apps mit UI oder headless, die einander entdecken und über A2A koordinieren.",
+          body: "Komponierbare agentic apps, die einander entdecken und über A2A koordinieren.",
         },
         sourceOwnership: {
           title: "Eigentum am Source",
@@ -194,7 +194,7 @@ const deDE = {
     framework: {
       title: "Das Framework für agent-native apps",
       body1:
-        "Agent-Native ist ein Open-Source-Framework, um agents als echte Software zu bauen: Starte mit Chat oder headless agents und ergänze dann UI, jobs und Zusammenarbeit rund um dieselben actions.",
+        "Agent-Native ist ein Open-Source-Framework zum Bau von agentic applications: Starte mit Chat, definiere gemeinsame actions und ergänze dann UI, jobs und Zusammenarbeit rund um denselben state.",
       body2:
         "Bring deine eigene Datenbank, deinen Hosting-Anbieter, deinen Model-Stack und deinen app-Code mit.",
       cta: "Framework-Guide lesen",
@@ -296,7 +296,7 @@ const deDE = {
     },
     quickStart: {
       title: "Mit einem Befehl starten",
-      body: "Ein Befehl erstellt eine lokale App mit actions, durable threads und SQLite. Nutze stattdessen `--headless`, wenn du noch keine Browser-UI willst.",
+      body: "Ein Befehl erstellt eine chat-first lokale App mit actions, durable threads und SQLite. Nutze `--headless` nur für automation-first Workflows ohne Browser-UI.",
     },
     finalCta: {
       title: "Software, gebaut für die agentic era",

@@ -16,8 +16,9 @@ Actions are the single source of truth for anything your app does. Define an act
 - **A CLI command** — `pnpm action <name>` for scripting and dev loops.
 
 One definition, seven consumers. This is rung 3 of the [ladder](/docs/what-is-agent-native#the-ladder).
-If you are deciding whether to expose an operation headlessly, in chat, in an
-embedded sidecar, or as a full app screen, see [Agent Surfaces](/docs/agent-surfaces).
+In the default getting-started flow, the action first appears as an agent tool in
+chat, then as a native inline result, then as the operation behind a durable app
+page. For the full surface map, see [Agent Surfaces](/docs/agent-surfaces).
 
 <Diagram id="doc-block-xcp5x6" title="One definition, seven consumers" summary={"A single defineAction() fans out to every surface — agent, UI, HTTP, MCP, A2A, and CLI — with one validated schema and one run() body."}>
 
@@ -93,9 +94,8 @@ For App Operations](/docs/server#actions-first).
 
 ## Start with one action {#hello-action}
 
-The primitive-first on-ramp is one action, not a template. In a headless
-scaffold such as `agent-native create my-agent --headless`, this can be the
-whole first app:
+The first operation in a chat-first app can be tiny. In the Chat template,
+replace `actions/hello.ts` or add a new file beside it:
 
 ```ts
 // actions/hello.ts
@@ -519,7 +519,7 @@ The built-in discriminants are `"data-table"`, `"data-chart"`, and
 `@agent-native/core/data-widgets`. See [Native Chat UI](/docs/native-chat-ui)
 for the full result contract and BYO runtime guidance, or
 [Agent Surfaces](/docs/agent-surfaces) for how the same action can stay
-headless, render in chat, or grow into a full screen.
+automation-friendly, render in chat, or grow into a full screen.
 
 ## Calling it from the CLI {#cli}
 

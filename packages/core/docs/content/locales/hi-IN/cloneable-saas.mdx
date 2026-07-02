@@ -30,7 +30,7 @@ description: "एक कार्यशील SaaS उत्पाद को फ
 | [**Plan**](/docs/template-plan)           | चित्र, वायरफ्रेम और एनोटेशन के साथ विज़ुअल योजनाएं और पीआर पुनर्कथन।                                                 |
 | [**Dispatch**](/docs/template-dispatch)   | कार्यस्थान नियंत्रण विमान: साझा रहस्य, पुन: प्रयोज्य एकीकरण, Slack/टेलीग्राम, निर्धारित कार्य।                       |
 
-डोमेन ऐप नहीं चाहिए? जब आप एक बुनियादी ऐप चाहते हैं जिससे उपयोगकर्ता तुरंत बात कर सकें तो [Chat](/docs/template-chat) का उपयोग करें, या [Pure-Agent Apps](/docs/pure-agent-apps) में एक action से शुरू करें।
+डोमेन ऐप नहीं चाहिए? जब आप ऐसा बुनियादी ऐप चाहते हैं जिससे उपयोगकर्ता तुरंत बात कर सकें और जिसे actions, native results और screens के साथ बढ़ाया जा सके, तो [Chat](/docs/template-chat) का उपयोग करें. [Automation-First Apps](/docs/pure-agent-apps) केवल तब उपयोग करें जब workflow को अभी browser UI की ज़रूरत न हो.
 
 [Apps](/apps) के अंतर्गत पूरा कैटलॉग देखें, या सीधे एक पर जाएं - उदाहरण के लिए, यदि आप वर्कस्पेस-शैली ऐप चाहते हैं तो [Dispatch](/docs/template-dispatch) शुरू करने के लिए एक शानदार जगह है।
 
@@ -168,7 +168,7 @@ description: "एक कार्यशील SaaS उत्पाद को फ
 
 ## इस पर निर्माण
 
-- [**Getting Started**](/docs/getting-started) - एक न्यूनतम चैट ऐप या हेडलेस एजेंट बनाएं
+- [**Getting Started**](/docs/getting-started) - chat-first app बनाएं, action जोड़ें, structured result render करें और page तक बढ़ाएं
 - [**Messaging the agent**](/docs/messaging) - उपयोगकर्ता (और आप) प्रत्येक टेम्पलेट के साथ शिप करने वाले एजेंट से कैसे बात करते हैं
 - [**Multi-App Workspace**](/docs/multi-app-workspace) - कई टेम्पलेट्स को एक कार्यक्षेत्र में बंडल करें जो ऑथ, ब्रांड और एजेंट को साझा करता है
 - [**Dispatch**](/docs/template-dispatch) - कार्यक्षेत्र नियंत्रण विमान टेम्पलेट
@@ -182,7 +182,7 @@ description: "एक कार्यशील SaaS उत्पाद को फ
 npx @agent-native/core@latest create my-platform
 ```
 
-आपको एक बहु-चयन पिकर मिलेगा। एक ऐप (स्टैंडअलोन) या कई (वर्कस्पेस - ऐप्स शेयर ऑथ, ब्रांड, एजेंट कॉन्फ़िगरेशन और डेटाबेस) चुनें। प्रत्येक चयनित टेम्प्लेट को आपकी आवश्यक प्रत्येक फ़ाइल के साथ `apps/<name>/` में रखा गया है। टेम्पलेट UI के बजाय केवल एक्शन ऐप के लिए, `npx @agent-native/core@latest create my-agent --headless` का उपयोग करें।
+आपको एक बहु-चयन पिकर मिलेगा। एक ऐप (स्टैंडअलोन) या कई (वर्कस्पेस - ऐप्स शेयर ऑथ, ब्रांड, एजेंट कॉन्फ़िगरेशन और डेटाबेस) चुनें। प्रत्येक चयनित टेम्प्लेट को आपकी आवश्यक प्रत्येक फ़ाइल के साथ `apps/<name>/` में रखा गया है। टेम्पलेट UI के बजाय बिना browser UI वाली automation के लिए, `npx @agent-native/core@latest create my-agent --headless` का उपयोग करें।
 
 `.env` (ज्यादातर `ANTHROPIC_API_KEY` और `DATABASE_URL`), `pnpm install`, `pnpm dev` भरें और यह काम करता है। नहीं "TODO: लॉगिन लागू करें," कोई प्लेसहोल्डर रूट नहीं।
 

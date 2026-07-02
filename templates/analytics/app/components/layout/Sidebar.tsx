@@ -1348,9 +1348,6 @@ function AnalyticsChatsSection() {
 
   return (
     <div className="ms-4 min-w-0 space-y-0.5">
-      <p className="min-w-0 truncate px-3 pb-0.5 pt-1 text-[11px] font-medium text-muted-foreground/70">
-        {t("chat.recentChats")}
-      </p>
       {visibleThreads.map((thread) => {
         const title = threadTitle(thread, t("chat.untitledChat"));
         const isActive =
@@ -1395,7 +1392,7 @@ function AnalyticsChatsSection() {
                     <button
                       type="button"
                       onClick={() => openThread(thread.id)}
-                      className="min-w-0 flex-1 px-2 py-1.5 pe-12 text-start text-xs outline-none transition-[padding] focus-visible:ring-2 focus-visible:ring-ring md:pe-2 md:group-hover/item:pe-12 md:group-focus-within/item:pe-12"
+                      className="min-w-0 flex-1 px-2 py-1.5 pe-12 text-start text-xs outline-none focus-visible:ring-2 focus-visible:ring-ring"
                     >
                       <span className="block truncate">{title}</span>
                     </button>

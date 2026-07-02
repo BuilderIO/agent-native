@@ -107,8 +107,8 @@ const frFR = {
           body: "Auth, partage, gouvernance et journaux d’audit accompagnent le travail.",
         },
         headedOrHeadless: {
-          title: "Avec interface ou headless",
-          body: "Exécutez-la comme app, workflow agent, file d’attente ou tâche planifiée.",
+          title: "Apps, automatisations et agents",
+          body: "Exécutez la même opération depuis chat, UI, tâches planifiées, files, agents externes ou scripts.",
         },
         contextRichInput: {
           title: "Entrée riche en contexte",
@@ -179,7 +179,7 @@ const frFR = {
         },
         workspaces: {
           title: "Espaces de travail",
-          body: "Apps avec interface ou headless qui se découvrent entre elles et se coordonnent via A2A.",
+          body: "Apps agentic composables qui se découvrent entre elles et se coordonnent via A2A.",
         },
         sourceOwnership: {
           title: "Propriété de la source",
@@ -194,7 +194,7 @@ const frFR = {
     framework: {
       title: "Le framework pour apps agent-native",
       body1:
-        "Agent-Native est un framework open source pour construire des agents comme de vrais logiciels : commencez avec Chat ou des agents headless, puis ajoutez UI, jobs et collaboration autour des mêmes actions.",
+        "Agent-Native est un framework open source pour construire des agentic applications : commencez avec Chat, définissez des actions partagées, puis ajoutez UI, jobs et collaboration autour du même état.",
       body2:
         "Apportez votre propre base de données, fournisseur d'hébergement, stack de modèles et code d'app.",
       cta: "Lire le guide du framework",
@@ -296,7 +296,7 @@ const frFR = {
     },
     quickStart: {
       title: "Commencez avec une commande",
-      body: "Une commande crée une app locale adossée à actions, durable threads et SQLite. Utilisez plutôt `--headless` quand vous ne voulez pas encore d'UI navigateur.",
+      body: "Une commande crée une app locale chat-first adossée à actions, durable threads et SQLite. Utilisez `--headless` seulement pour les workflows automation-first sans UI navigateur pour le moment.",
     },
     finalCta: {
       title: "Un logiciel conçu pour l'ère agentic",

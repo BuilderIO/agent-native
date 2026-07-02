@@ -1,259 +1,171 @@
 ---
-title: "開始使用"
-description: "建立代理應用，了解說明、skills 和 actions，然後觀看代理呼叫其第一個操作。"
+title: "入門"
+description: "建立聊天優先的 agentic app，新增 action，內嵌渲染結構化結果，然後擴展成 agent 可以開啟的持久頁面。"
 ---
 
-# 開始使用
+# 入門
 
-Agent-Native 應用程式為 AI 代理和您的 UI 提供相同的 actions、資料和
-狀態。基本代理是由指導它的指令（skills 進行教學）組成的
-可重複的行為，以及讓它做實際工作的 actions。
+Agent-Native 用來建置 agentic applications：AI agent 和 UI 共享同一組
+[actions](/docs/actions)、SQL 資料與 application state。預設路徑不是先做
+headless agent，而是先有一個使用者能立即對話的 Chat app，然後逐步增加應用介面。
 
-**想要一個完整的應用程式開始嗎？**克隆我們豐富的範本之一 -
-[Chat](/docs/template-chat), [Mail](/docs/template-mail),
-[Calendar](/docs/template-calendar), [Content](/docs/template-content),
-[Analytics](/docs/template-analytics) 和 [many more](/docs/cloneable-saas) —
-每個都是您自訂的全功能應用程式。
+建議流程：
 
-從頭開始建置？唯一的選取是您是否想要 UI —
-之後的一切（編寫指令、新增 skills、定義 actions、執行
-代理）無論哪種方式都是相同的。
+1. 建立 Chat app。
+2. 新增一個 action。
+3. 在聊天中用原生 inline UI 渲染 action 結果。
+4. 將資料持久化到 SQL。
+5. 新增一個頁面，讓 agent 在需要視覺化檢查時開啟。
 
 <FileTree
-  id="doc-block-15hdkha"
-  title={"一個基礎 Agent-Native 代理"}
+  id="doc-block-chat-first-map"
+  title="聊天優先 app 形態"
   entries={[
     {
-      path: "AGENTS.md",
-      note: "始終生效的指令：目的、規則、語氣以及代理能力地圖",
+      path: "app/routes/_index.tsx",
+      note: "使用者首先進入的完整聊天頁面",
     },
     {
-      path: ".agents/skills/customer-research/SKILL.md",
-      note: "工作匹配時代理會載入的可複用 playbook",
+      path: "actions/analyze-responses.ts",
+      note: "agent、UI、CLI、HTTP、MCP 與 A2A 都能呼叫的 typed operation",
     },
     {
-      path: "actions/summarize-week.ts",
-      note: "代理、UI、CLI、HTTP、MCP、A2A、jobs 和 webhooks 都能執行的型別化程式碼",
+      path: "server/db/schema.ts",
+      note: "agent 可以新增或更新的持久 Response insight 資料",
+    },
+    {
+      path: "app/routes/response-insights.tsx",
+      note: "用於瀏覽聊天結果背後資料的持久 app 頁面",
+    },
+    {
+      path: "actions/view-screen.ts + actions/navigate.ts",
+      note: "讓 agent 可以開啟正確畫面的 context 和 navigation actions",
     },
   ]}
 />
 
-無論您是從聊天 UI、無頭代理還是完整應用程式開始，都是如此。
-UI 改變表面；指令、skills 和 actions 為代理提供
-指導和行為。
+## 1. 建立 Chat app {#create-your-app}
 
-## 1。建立您的應用
+需要 [Node.js 22+](https://nodejs.org) 和 [pnpm](https://pnpm.io)。
 
-您需要 [Node.js 22+](https://nodejs.org) 和 [pnpm](https://pnpm.io)。
+```bash
+npx @agent-native/core@latest create my-app --template chat
+cd my-app
+pnpm install
+pnpm dev
+```
 
-在沒有標誌的情況下執行 `create`，它會詢問您要如何開始（完整的範本，
-聊天，或無頭）先於其他：
+這個模板已包含 durable chat threads、auth、live sync、`actions/` 目錄、標準的 `view-screen` 與 `navigate` actions，以及可繼續擴充的 React app。
+
+若想使用完整模板選擇器，也可以執行：
 
 ```bash
 npx @agent-native/core@latest create my-app
 ```
 
-或者傳遞一個標誌來跳過提示：
+## 2. 新增 action {#add-an-action}
 
-**想要 UI？** 從聊天範本開始。您將獲得一名工作代理以及
-可自訂的聊天 UI，您新增的每個操作都會自動顯示在其中：
+Action 是 agent 與 UI 共同呼叫的一個 typed operation。可將入門範例換成 `actions/analyze-responses.ts`：它分析表單回覆並返回 Response insights。
 
-```bash
-npx @agent-native/core@latest create my-app --template chat
+```ts
+export default defineAction({
+  description: "Analyze recent form responses and summarize the trend.",
+  outputSchema: dataInsightsWidgetResultSchema,
+  chatUI: {
+    renderer: ACTION_CHAT_UI_DATA_INSIGHTS_RENDERER,
+    title: "Response insights",
+  },
+  readOnly: true,
+  run: async () =>
+    createDataInsightsWidgetResult({
+      title: "Response insights",
+      display: {
+        title: "42 responses",
+        description: "Completion rose this week.",
+        primaryAction: {
+          label: "Open response insights",
+          href: "/response-insights",
+        },
+      },
+      chartSeries: {
+        type: "bar",
+        title: "Responses by day",
+        xKey: "day",
+        series: [{ key: "responses", label: "Responses" }],
+        data: [{ day: "Mon", responses: 8 }],
+      },
+    }),
+});
 ```
 
-**只是無頭原語？**開始無頭 - 相同的 actions 和代理
-迴圈，無 UI shell：
+直接執行：
+
+```bash
+pnpm action analyze-responses --formId demo
+```
+
+或在瀏覽器中詢問 agent：
+
+> Analyze the recent responses for the demo form.
+
+## 3. 內嵌渲染結果 {#render-inline}
+
+因為 action 宣告了 `outputSchema` 與 `chatUI.renderer`，聊天紀錄不必把結構化資料壓成文字。它會渲染原生 React 元件：摘要、圖表、表格，以及開啟深入頁面的連結。更多模式請見 [Native Chat UI](/docs/native-chat-ui)。
+
+## 4. 持久化資料 {#persist-data}
+
+當結果需要回看、比較或更新時，將資料寫入 SQL。為 Response insights 新增 schema，並把讀寫都放在 actions 後面：
+
+- `create-response-insight` 寫入新的 insight。
+- `list-response-insights` 為頁面讀取資料。
+- `update-response-insight` 在 agent 學到更多後更新記錄。
+- `analyze-responses` 繼續返回聊天中的原生 widget。
+
+不要為瀏覽器另外寫一條重複的 REST route；UI 和 agent 應共享 actions。
+
+## 5. 新增 agent 可以開啟的頁面 {#add-a-page}
+
+新增 `/response-insights` route，用 `useActionQuery("list-response-insights")` 讀取資料，用 `useActionMutation("create-response-insight")` 觸發分析。這個頁面只是 SQL state 的投影；資料仍由同一組 actions 寫入。
+
+擴充 `view-screen` 和 `navigate`：
+
+- `view-screen` 返回目前 route、選中的 insight 和頁面上下文。
+- `navigate` 寫入 `/response-insights` 這類同源 path。
+- action 結果可以包含 `href: "/response-insights"`，讓聊天顯示「Open response insights」按鈕。
+
+當完整聊天頁開啟 app 頁面時，使用 [Agent Surfaces](/docs/agent-surfaces#rich-chat) 中的 `AgentChatSurface`、`AgentSidebar`、`useAgentChatHomeHandoff`、`useAgentChatHomeHandoffLinks` 和 `chatViewTransition`，讓聊天滑到側邊欄並保留同一個 thread。
+
+## 專案結構 {#project-structure}
+
+```text
+my-app/
+  actions/         # Agent 和介面都可呼叫的操作
+  app/             # React 路由、頁面與聊天介面
+  server/          # Nitro 伺服器與 SQL 架構
+  AGENTS.md        # 應用 Agent 的常駐指令
+  .agents/         # Agent 在相關情境載入的技能
+  data/app.db      # 未設定 DATABASE_URL 時的本機 SQLite 狀態
+```
+
+## 想要完整的 Analytics 起點？ {#analytics-starting-point}
+
+上面的 Response insights 範例刻意保持很小，方便你看清框架部件。如果你要建置真正的 analytics 產品，請從 [Analytics](/docs/template-analytics) 開始。它是更強健的起點：連接 providers，使用現有 dashboards 與 agent actions，然後繼續自訂。
+
+## 進階：暫時不需要瀏覽器 UI {#no-browser-ui}
+
+排程報告、佇列、CLI loop、integration worker 或外部 agent 呼叫這類工作，可以使用 no-browser scaffold：
 
 ```bash
 npx @agent-native/core@latest create my-agent --headless
 ```
 
-然後從您建立的資料夾安裝：
+這仍然是 Agent-Native app：actions、sessions、run history、settings、credentials 與 SQL state 都存在。它只是 automation-first 形態，不是預設入門路徑。見 [Automation-First Apps](/docs/pure-agent-apps)。
 
-```bash
-cd my-agent # 或 my-app（如果您選取聊天範本）
-pnpm install
-```
+## 下一步 {#next}
 
-從現在開始，兩者是相同的。
-
-## 2。新增操作
-
-操作是您的代理（以及您的 UI）可以呼叫的一項操作。兩個腳手架
-附帶此範例：
-
-<AnnotatedCode
-  id="doc-block-qfy4rq"
-  title={"你的第一個 action"}
-  filename="actions/hello.ts"
-  language="ts"
-  code={
-    'import { defineAction } from "@agent-native/core/action";\nimport { z } from "zod";\n\nexport default defineAction({\n  description: "從本機代理問好。",\n  schema: z.object({\n    name: z.string().default("world"),\n  }),\n  http: { method: "GET" },\n  readOnly: true,\n  run: async ({ name }) => {\n    return { message: `Hello, ${name}!` };\n  },\n});'
-  }
-  annotations={[
-    {
-      lines: "5",
-      label: "工具描述",
-      note: "代理會讀取 `description`，判斷何時把它作為工具呼叫。",
-    },
-    {
-      lines: "6-8",
-      label: "型別化契約",
-      note: "一個 zod `schema` 會校驗來自每個入口的輸入：代理、UI、HTTP、MCP 和 A2A。",
-    },
-    {
-      lines: "9",
-      label: "HTTP 動詞",
-      note: "將此操作接入自動掛載的 HTTP 端點。",
-    },
-    {
-      lines: "10",
-      label: "唯讀",
-      note: "`readOnly` 表示該操作無需核准即可安全呼叫，並且可作為查詢快取。",
-    },
-    {
-      lines: "11-13",
-      label: "單一實現",
-      note: "`run` 主體是所有介面都會執行的唯一真實來源。",
-    },
-  ]}
-/>
-
-將 `hello` 替換為您域中的第一個實際操作。您定義一次；
-每個表面都會吸收它。
-
-使用 `AGENTS.md` 作為每回合都適用的指導。使用技能時
-代理需要可重用的工作流程或域過程。在以下情況下使用操作
-代理需要一種型別化、可測試的方式來讀取資料、寫入資料、呼叫 API 或
-執行核准。
-
-## 3。執行它
-
-直接呼叫操作：
-
-```bash
-pnpm action hello --name Steve
-```
-
-或請代理為您致電：
-
-```bash
-pnpm agent "Call the hello action for Steve and explain what happened."
-```
-
-如果您從聊天範本開始，請執行該應用並在
-瀏覽器 - 它已經可以呼叫您定義的每個操作：
-
-```bash
-pnpm dev
-```
-
-現在可以透過聊天 UI、CLI、HTTP、MCP、A2A 存取該操作
-計畫作業和 webhooks。定義一次，從任何地方呼叫。
-
-<Diagram id="doc-block-15mxp3c" title={"一個動作，每個表面"} summary={"單一 defineAction 檔案扇出到每個消費者，無需額外接線。"}>
-
-```html
-<div class="diagram-fan">
-  <div class="diagram-box" data-rough>defineAction</div>
-  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
-  <div class="diagram-surfaces">
-    <span class="diagram-pill">聊天介面</span
-    ><span class="diagram-pill">CLI</span><span class="diagram-pill">HTTP</span
-    ><span class="diagram-pill">MCP</span><span class="diagram-pill">A2A</span
-    ><span class="diagram-pill">計畫工作</span
-    ><span class="diagram-pill">Webhooks</span>
-  </div>
-</div>
-```
-
-```css
-.diagram-fan {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  flex-wrap: wrap;
-}
-.diagram-fan .diagram-surfaces {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  max-width: 420px;
-}
-.diagram-fan .diagram-arrow {
-  font-size: 22px;
-  line-height: 1;
-}
-```
-
-</Diagram>
-
-## 狀態是內建的
-
-無頭並不意味著無狀態。 Actions，工作階段，應用程式狀態，對話串，
-執行歷史紀錄和憑證均位於 SQL 中。本機地址為 SQLite
-`data/app.db`；在正式環境中您設定 `DATABASE_URL`。請參閱
-[Deployment](/docs/deployment).
-
-<Callout id="doc-block-18zpg29" tone="info">
-
-**Headless 仍然是一個真正的應用程式。**應用程式代理迴圈在 SQL 中保留工作階段、對話串、執行、設定和憑證 - 它不是無狀態提示。您可以稍後新增 UI，而無需更改操作或狀態。
-
-</Callout>
-
-## 自訂 UI
-
-如果您從聊天範本開始，則可以編輯 UI。聊天本身
-是基於 `<AgentChatSurface>` 元件建置的一條小路由：
-
-```tsx
-// app/routes/_index.tsx
-import { AgentChatSurface } from "@agent-native/core/client";
-
-export default function ChatRoute() {
-  return <AgentChatSurface mode="page" className="h-full" />;
-}
-```
-
-- **`app/routes/_index.tsx`** — 聊天頁面。更改建議，空
-  狀態和布局。
-- **`app/root.tsx`** — 應用程式外殼。在週圍新增您自己的路由和螢幕
-  代理。
-- 使用 `<AgentSidebar>` 將代理放入任何螢幕，從 a 手動操作它
-  使用 `sendToAgentChat()` 按鈕，或直接使用
-  `useActionMutation()`.
-
-請參閱 [Drop-in Agent](/docs/drop-in-agent) 了解完整的元件集，並且
-[Native 聊天介面](/docs/native-chat-ui) 將操作結果呈現為表格，
-圖表和打字卡片而不是純文字。
-
-**開始無頭，稍後想要 UI？** 聊天範本*是* UI 入口 -
-它的`app/`層（React Router + Vite）正是無頭腳手架
-省略。最幹淨的舉動是從聊天開始（或重新搭建支架）
-範本；您的 `actions/`、代理和 SQL 狀態保持不變。請參閱
-[Agent Surfaces](/docs/agent-surfaces) 代表其間的每個表面。
-
-## 專案結構
-
-```text
-my-app/
-  actions/         # 代理可呼叫的操作
-  app/             # React 前端（僅 UI 範本；無頭模式會省略）
-  server/          # Nitro API 伺服器（路由、外掛）
-  AGENTS.md        # 始終生效的代理指令
-  .agents/         # 代理可按需引入的技能
-  data/app.db      # 未設定 DATABASE_URL 時的本機 SQLite 狀態
-```
-
-## 下一步去哪裡
-
-- **[Key Concepts](/docs/key-concepts)** — 核心架構：SQL、actions，
-  同步和脈絡感知。
-- **[Actions](/docs/actions)** — 完整操作 API：架構、HTTP、驗證和
-  核准。
-- **[Agent Surfaces](/docs/agent-surfaces)** — 無頭、聊天、嵌入式 sidecar，
-  和完整的應用程式。
-- **[Drop-in Agent](/docs/drop-in-agent)** — 將代理聊天新增到任何 React 應用程式。
-- **[Deployment](/docs/deployment)** — 將您的應用放在您自己的域中。
-- **[FAQ](/docs/faq)** — 設定和產品問題。
+- **[Chat Template](/docs/template-chat)** — 最小聊天優先 app。
+- **[Actions](/docs/actions)** — schemas、auth、approvals、hooks 與 transport。
+- **[Native Chat UI](/docs/native-chat-ui)** — 將 action 結果渲染成表格、圖表與 typed cards。
+- **[Analytics Template](/docs/template-analytics)** — 強健的 analytics app 起點；連接 providers 後繼續自訂。
+- **[Context Awareness](/docs/context-awareness)** — `view-screen`、`navigate`、route state 與選中物件。
+- **[Agent Surfaces](/docs/agent-surfaces)** — chat、inline UI、app pages、embedded sidecars、automation 與外部 agent。

@@ -1,259 +1,152 @@
 ---
 title: "Erste Schritte"
-description: "Erstellen Sie eine Agenten-App, verstehen Sie die Anweisungen skills und actions und beobachten Sie dann, wie der Agent seine erste Aktion aufruft."
+description: "Erstellen Sie eine chat-first agentic app, fügen Sie eine action hinzu, rendern Sie strukturierte Ergebnisse inline und wachsen Sie zu einer persistenten Seite, die der Agent öffnen kann."
 ---
 
 # Erste Schritte
 
-Agent-Native-Apps geben einem KI-Agenten und Ihrem UI die gleichen actions, Daten und
-Zustand. Ein Basisagent besteht aus Anweisungen, die ihn leiten, skills, die ihn lehren
-wiederholbares Verhalten und actions, mit dem es echte Arbeit leisten kann.
+Agent-Native ist für agentic applications gedacht: AI agent und UI teilen dieselben [actions](/docs/actions), SQL-Daten und application state. Der Standardpfad beginnt mit Chat, damit Benutzer sofort mit dem Agent sprechen können, und wächst dann zu den Produktoberflächen, die der Workflow braucht.
 
-**Möchten Sie eine vollständige App als Ausgangspunkt?** Klonen Sie eine unserer umfangreichen Vorlagen –
-[Chat](/docs/template-chat), [Mail](/docs/template-mail),
-[Calendar](/docs/template-calendar), [Content](/docs/template-content),
-[Analytics](/docs/template-analytics) und [many more](/docs/cloneable-saas) –
-Jede davon ist eine App mit vollem Funktionsumfang, die Sie anpassen können.
+Der nützliche Einstieg:
 
-Von Grund auf neu bauen? Die einzige Wahl im Voraus ist, ob Sie einen UI möchten –
-alles danach (Anweisungen schreiben, skills hinzufügen, actions definieren, ausführen
-der Agent) ist in beiden Fällen gleich.
+1. Eine Chat app erstellen.
+2. Eine action hinzufügen.
+3. Das action-Ergebnis inline im Chat rendern.
+4. Daten in SQL persistieren.
+5. Eine Seite hinzufügen, die der Agent öffnen kann, wenn visuelle Prüfung besser ist.
 
 <FileTree
-  id="doc-block-1m1bjf2"
-  title="Ein einfacher Agent-Native-Agent"
+  id="doc-block-chat-first-map"
+  title="Die chat-first App-Form"
   entries={[
     {
-      path: "AGENTS.md",
-      note: "Immer aktive Anweisungen: Zweck, Regeln, Ton und Karte dessen, was der Agent tun kann",
+      path: "app/routes/_index.tsx",
+      note: "die vollständige Chat-Fläche, mit der Benutzer beginnen",
     },
     {
-      path: ".agents/skills/customer-research/SKILL.md",
-      note: "Ein wiederverwendbares Playbook, das der Agent lädt, wenn die Aufgabe passt",
+      path: "actions/analyze-responses.ts",
+      note: "eine typisierte Operation, die Agent, UI, CLI, HTTP, MCP und A2A aufrufen können",
     },
     {
-      path: "actions/summarize-week.ts",
-      note: "Typisierter Code, den Agent, UI, CLI, HTTP, MCP, A2A, Jobs und Webhooks ausführen können",
+      path: "server/db/schema.ts",
+      note: "persistente Response-insights-Daten, die der Agent hinzufügen oder aktualisieren kann",
+    },
+    {
+      path: "app/routes/response-insights.tsx",
+      note: "eine dauerhafte App-Seite für die Daten hinter dem Chat-Ergebnis",
+    },
+    {
+      path: "actions/view-screen.ts + actions/navigate.ts",
+      note: "Kontext- und Navigations-actions, damit der Agent den richtigen Screen öffnet",
     },
   ]}
 />
 
-Dies gilt unabhängig davon, ob Sie mit einem Chat-Oberfläche, einem Headless-Agenten oder einer vollständigen App beginnen.
-Der UI verändert die Oberfläche; Anweisungen, skills und actions geben dem Agenten seine
-Anleitung und Verhalten.
+## 1. Chat app erstellen {#create-your-app}
 
-## 1. Erstellen Sie Ihre App
-
-Sie benötigen [Node.js 22+](https://nodejs.org) und [pnpm](https://pnpm.io).
-
-Führen Sie `create` ohne Flags aus und Sie werden gefragt, wie Sie beginnen möchten (eine vollständige Vorlage).
-Chat oder Headless) vor allem anderen:
-
-```bash
-npx @agent-native/core@latest create my-app
-```
-
-Oder übergeben Sie ein Flag, um die Eingabeaufforderung zu überspringen:
-
-**Möchten Sie ein UI?** Beginnen Sie mit der Chat-Vorlage. Sie erhalten einen Arbeitsagenten plus ein
-Anpassbarer Chat-Oberfläche, und jede von Ihnen hinzugefügte Aktion wird automatisch darin angezeigt:
+Sie brauchen [Node.js 22+](https://nodejs.org) und [pnpm](https://pnpm.io).
 
 ```bash
 npx @agent-native/core@latest create my-app --template chat
+cd my-app
+pnpm install
+pnpm dev
 ```
 
-**Nur das Headless-Grundelement?** Headless starten – derselbe actions und Agent
-Schleife, keine UI-Shell:
+Das Template enthält durable chat threads, auth, live sync, ein `actions/`-Verzeichnis, die Standard-actions `view-screen` und `navigate` sowie eine React app, die Sie erweitern können.
+
+## 2. Action hinzufügen {#add-an-action}
+
+Eine action ist eine typisierte Operation, die Agent und UI gemeinsam aufrufen. Für diesen Ablauf erstellen Sie `actions/analyze-responses.ts`: Sie analysiert Formularantworten und gibt Response insights zurück.
+
+```ts
+export default defineAction({
+  description: "Analyze recent form responses and summarize the trend.",
+  outputSchema: dataInsightsWidgetResultSchema,
+  chatUI: {
+    renderer: ACTION_CHAT_UI_DATA_INSIGHTS_RENDERER,
+    title: "Response insights",
+  },
+  readOnly: true,
+  run: async () =>
+    createDataInsightsWidgetResult({
+      title: "Response insights",
+      display: {
+        title: "42 responses",
+        description: "Completion rose this week.",
+        primaryAction: {
+          label: "Open response insights",
+          href: "/response-insights",
+        },
+      },
+    }),
+});
+```
+
+Direkt ausführen:
+
+```bash
+pnpm action analyze-responses --formId demo
+```
+
+Oder im Browser den Agent fragen:
+
+> Analyze the recent responses for the demo form.
+
+## 3. Ergebnis im Chat rendern {#render-inline}
+
+Weil die action `outputSchema` und `chatUI.renderer` deklariert, muss der Transcript strukturierte Daten nicht in Fließtext verwandeln. Er rendert eine native React-Komponente: Zusammenfassung, Diagramm, Tabelle und Link zur Detailseite. Siehe [Native Chat UI](/docs/native-chat-ui).
+
+## 4. Daten in SQL persistieren {#persist-data}
+
+Wenn Ergebnisse erneut geprüft, verglichen oder aktualisiert werden müssen, speichern Sie sie in SQL und halten Lese-/Schreibzugriffe hinter actions:
+
+- `create-response-insight` schreibt einen neuen insight.
+- `list-response-insights` liest Daten für die Seite.
+- `update-response-insight` aktualisiert einen Datensatz.
+- `analyze-responses` gibt weiterhin das native Chat-widget zurück.
+
+Erstellen Sie keine doppelte REST route nur für den Browser; UI und Agent sollten actions teilen.
+
+## 5. Seite hinzufügen, die der Agent öffnen kann {#add-a-page}
+
+Fügen Sie eine Route `/response-insights` mit `useActionQuery("list-response-insights")` und `useActionMutation("create-response-insight")` hinzu. Die Seite ist eine Projektion des SQL state; geschrieben wird weiter über dieselben actions.
+
+Erweitern Sie `view-screen` und `navigate`, damit der Agent die aktuelle Route kennt und `/response-insights` öffnen kann. Ergebnisse können außerdem `href: "/response-insights"` enthalten, um im Chat einen Button "Open response insights" zu zeigen.
+
+Wenn der Vollseiten-Chat eine App-Seite öffnet, verwenden Sie `AgentChatSurface`, `AgentSidebar`, `useAgentChatHomeHandoff`, `useAgentChatHomeHandoffLinks` und `chatViewTransition` aus [Agent Surfaces](/docs/agent-surfaces#rich-chat), damit der Chat in die Seitenleiste gleitet und derselbe Thread erhalten bleibt.
+
+## Projektstruktur {#project-structure}
+
+```text
+my-app/
+  actions/         # Operationen, die Agent und UI aufrufen können
+  app/             # React-Routen, Seiten und Chat-Oberflächen
+  server/          # Nitro-Server und SQL-Schema
+  AGENTS.md        # Immer aktive Anweisungen für den App-Agenten
+  .agents/         # Skills, die der Agent bei Bedarf lädt
+  data/app.db      # Lokaler SQLite-Status, wenn DATABASE_URL nicht gesetzt ist
+```
+
+## Sie möchten einen vollständigen Analytics-Startpunkt? {#analytics-starting-point}
+
+Das Response-insights-Beispiel oben ist absichtlich klein, damit die Framework-Bausteine sichtbar bleiben. Wenn Sie ein echtes Analytics-Produkt bauen, starten Sie stattdessen mit [Analytics](/docs/template-analytics). Das ist der robuste Startpunkt: Provider verbinden, vorhandene Dashboards und agent actions nutzen und von dort aus anpassen.
+
+## Fortgeschritten: noch keine Browser-UI {#no-browser-ui}
+
+Geplante Reports, Queues, CLI loops, integration workers oder Aufrufe von anderen Agents können das Scaffold ohne Browser nutzen:
 
 ```bash
 npx @agent-native/core@latest create my-agent --headless
 ```
 
-Installieren Sie dann aus dem von Ihnen erstellten Ordner:
+Das bleibt eine Agent-Native app mit actions, sessions, run history, settings, credentials und SQL state. Es ist eine automation-first Form, nicht der Hauptpfad für den Einstieg. Siehe [Automation-First Apps](/docs/pure-agent-apps).
 
-```bash
-cd my-agent # oder my-app, wenn Sie die Chat-Vorlage gewählt haben
-pnpm install
-```
+## Nächste Schritte {#next}
 
-Von hier an sind die beiden identisch.
-
-## 2. Fügen Sie eine Aktion hinzu
-
-Eine Aktion ist ein Vorgang, den Ihr Agent – und Ihr UI – aufrufen kann. Beide Gerüste
-Versenden Sie mit diesem Beispiel:
-
-<AnnotatedCode
-  id="doc-block-lcwfj3"
-  title="Deine erste Action"
-  filename="actions/hello.ts"
-  language="ts"
-  code={
-    'import { defineAction } from "@agent-native/core/action";\nimport { z } from "zod";\n\nexport default defineAction({\n  description: "Sage Hallo vom lokalen Agenten.",\n  schema: z.object({\n    name: z.string().default("world"),\n  }),\n  http: { method: "GET" },\n  readOnly: true,\n  run: async ({ name }) => {\n    return { message: `Hello, ${name}!` };\n  },\n});'
-  }
-  annotations={[
-    {
-      lines: "5",
-      label: "Tool-Beschreibung",
-      note: "Der Agent liest `description`, um zu entscheiden, wann er dies als Tool aufruft.",
-    },
-    {
-      lines: "6-8",
-      label: "Typisierter Vertrag",
-      note: "Ein zod-`schema` validiert Eingaben von jeder Oberfläche: Agent, UI, HTTP, MCP und A2A.",
-    },
-    {
-      lines: "9",
-      label: "HTTP-Verb",
-      note: "Schalte diese Action für einen automatisch eingebundenen HTTP-Endpunkt frei.",
-    },
-    {
-      lines: "10",
-      label: "Schreibgeschützt",
-      note: "`readOnly` markiert die Action als ohne Genehmigung sicher aufrufbar und für Abfragen cachebar.",
-    },
-    {
-      lines: "11-13",
-      label: "Eine Implementierung",
-      note: "Der `run`-Block ist die einzige Wahrheit, die jede Oberfläche ausführt.",
-    },
-  ]}
-/>
-
-Ersetzen Sie `hello` durch den ersten echten Vorgang in Ihrer Domäne. Sie definieren es einmal;
-Jede Oberfläche nimmt es auf.
-
-Verwenden Sie `AGENTS.md` als Anleitung, die in jeder Runde gelten sollte. Verwenden Sie eine Fertigkeit, wenn
-Agent benötigt einen wiederverwendbaren Workflow oder eine wiederverwendbare Domänenprozedur. Verwenden Sie eine Aktion, wenn
-Der Agent benötigt eine typisierte, testbare Möglichkeit, Daten zu lesen, Daten zu schreiben, einen API aufzurufen oder
-Führen Sie eine Genehmigung durch.
-
-## 3. Führen Sie es aus
-
-Aktion direkt aufrufen:
-
-```bash
-pnpm action hello --name Steve
-```
-
-Oder bitten Sie den Agenten, für Sie anzurufen:
-
-```bash
-pnpm agent "Call the hello action for Steve and explain what happened."
-```
-
-Wenn Sie mit der Chat-Vorlage begonnen haben, führen Sie die App aus und verwenden Sie denselben Agenten in
-Browser – er kann bereits jede von Ihnen definierte Aktion aufrufen:
-
-```bash
-pnpm dev
-```
-
-Diese eine Aktion ist jetzt über den Chat-Oberfläche, CLI, HTTP, MCP, A2A, erreichbar.
-geplante Jobs und webhooks. Einmal festlegen, von überall aus anrufen.
-
-<Diagram id="doc-block-lkqelv" title={"Eine Aktion, jede Oberfläche"} summary={"Eine einzelne defineAction-Datei wird ohne zusätzliche Verkabelung an jeden Verbraucher verteilt."}>
-
-```html
-<div class="diagram-fan">
-  <div class="diagram-box" data-rough>defineAction</div>
-  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
-  <div class="diagram-surfaces">
-    <span class="diagram-pill">Chat-Oberfläche</span
-    ><span class="diagram-pill">CLI</span><span class="diagram-pill">HTTP</span
-    ><span class="diagram-pill">MCP</span><span class="diagram-pill">A2A</span
-    ><span class="diagram-pill">Geplante Jobs</span
-    ><span class="diagram-pill">Webhooks</span>
-  </div>
-</div>
-```
-
-```css
-.diagram-fan {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  flex-wrap: wrap;
-}
-.diagram-fan .diagram-surfaces {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  max-width: 420px;
-}
-.diagram-fan .diagram-arrow {
-  font-size: 22px;
-  line-height: 1;
-}
-```
-
-</Diagram>
-
-## Status ist integriert
-
-Kopflos bedeutet nicht staatenlos. Actions, Sitzungen, Anwendungsstatus, Threads,
-Ausführungsverlauf und Anmeldeinformationen sind alle in SQL gespeichert. Lokal ist das SQLite bei
-`data/app.db`; In der Produktion legen Sie `DATABASE_URL` fest. Siehe
-[Deployment](/docs/deployment).
-
-<Callout id="doc-block-8hc1bg" tone="info">
-
-**Headless ist immer noch eine echte App.** Die App-Agent-Schleife speichert Sitzungen, Threads, Ausführungen, Einstellungen und Anmeldeinformationen in SQL – es handelt sich nicht um eine zustandslose Eingabeaufforderung. Sie können später eine Benutzeroberfläche hinzufügen, ohne Ihre Aktionen oder Ihren Status zu ändern.
-
-</Callout>
-
-## UI anpassen
-
-Wenn Sie mit der Chat-Vorlage begonnen haben, können Sie UI bearbeiten. Der Chat selbst
-ist eine kleine Route, die auf der `<AgentChatSurface>`-Komponente basiert:
-
-```tsx
-// app/routes/_index.tsx
-import { AgentChatSurface } from "@agent-native/core/client";
-
-export default function ChatRoute() {
-  return <AgentChatSurface mode="page" className="h-full" />;
-}
-```
-
-- **`app/routes/_index.tsx`** – die Chat-Seite. Ändern Sie die Vorschläge, leer
-  Zustand und Layout.
-- **`app/root.tsx`** – die App-Shell. Fügen Sie Ihre eigenen Routen und Bildschirme rund um das
-  Agent.
-- Legen Sie den Agenten mit `<AgentSidebar>` in einen beliebigen Bildschirm und bearbeiten Sie ihn von einem aus
-  mit `sendToAgentChat()` oder führen Sie eine Aktion direkt mit
-  `useActionMutation()`.
-
-Siehe [Drop-in Agent](/docs/drop-in-agent) für den vollständigen Komponentensatz und
-[Native Chat-Oberfläche](/docs/native-chat-ui) zum Rendern von Aktionsergebnissen als Tabellen
-Diagramme und getippte Karten anstelle von reinem Text.
-
-**Kopflos gestartet und später ein UI wollen?** Die Chat-Vorlage _ist_ die UI-Auffahrt –
-seine `app/`-Schicht (React Router + Vite) ist genau das, was das Headless-Gerüst ist
-lässt weg. Der sauberste Schritt besteht darin, vom Chat aus zu starten (oder ein neues Gerüst zu erstellen)
-Vorlage; Ihr `actions/`-, Agent- und SQL-Status wird unverändert übernommen. Siehe
-[Agent Surfaces](/docs/agent-surfaces) für jede Fläche dazwischen.
-
-## Projektstruktur
-
-```text
-my-app/
-  actions/         # Vom Agenten aufrufbare Actions
-  app/             # React-Frontend (nur UI-Templates; entfällt bei headless)
-  server/          # Nitro-API-Server (Routen, Plugins)
-  AGENTS.md        # Ständig geltende Agentenanweisungen
-  .agents/         # Skills, die der Agent bei Bedarf laden kann
-  data/app.db      # Lokaler SQLite-Status, wenn DATABASE_URL nicht gesetzt ist
-```
-
-## Wohin gehen Sie als nächstes?
-
-- **[Key Concepts](/docs/key-concepts)** – die Kernarchitektur: SQL, actions,
-  Synchronisierung und Kontextbewusstsein.
-- **[Actions](/docs/actions)** – die vollständige Aktion API: Schemata, HTTP, Authentifizierung und
-  Genehmigung.
-- **[Agent Surfaces](/docs/agent-surfaces)** – Headless, Chat, eingebetteter Sidecar,
-  und vollständige App.
-- **[Drop-in Agent](/docs/drop-in-agent)** – Fügen Sie den Agenten-Chat zu jeder React-App hinzu.
-- **[Deployment](/docs/deployment)** – platzieren Sie Ihre App auf Ihrer eigenen Domain.
-- **[FAQ](/docs/faq)** – Fragen zur Einrichtung und zum Produkt.
+- **[Chat Template](/docs/template-chat)** — die minimale chat-first app.
+- **[Actions](/docs/actions)** — schemas, auth, approvals, hooks und transport.
+- **[Native Chat UI](/docs/native-chat-ui)** — Tabellen, Diagramme und typed cards für action-Ergebnisse.
+- **[Analytics Template](/docs/template-analytics)** — ein robuster Analytics-Startpunkt; Provider verbinden und dann anpassen.
+- **[Context Awareness](/docs/context-awareness)** — `view-screen`, `navigate`, route state und ausgewählte Objekte.
+- **[Agent Surfaces](/docs/agent-surfaces)** — chat, inline UI, app pages, embedded sidecars, automation und externe Agents.

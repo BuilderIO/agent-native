@@ -1,16 +1,11 @@
 ---
-title: "순수 에이전트 앱"
-description: "에이전트가 전체 제품인 앱: 앱-에이전트 루프가 현관이고 UI는 사람이 필요할 때만 추가됩니다."
+title: "Automation-First Apps"
+description: "scheduled jobs, queues, scripts, integration workers, external agents를 위한 브라우저 없는 Agent-Native apps."
 ---
 
-# 순수 에이전트 앱
+# Automation-First Apps
 
-순수 에이전트 앱은 에이전트 네이티브의 최소한의 끝입니다. 앱-에이전트 루프는
-대시보드가 아닌 제품입니다. 터미널, Slack, 이메일, a
-예정된 작업, 다른 상담원 또는 채팅 — "읽지 않은 이메일 요약", "게시
-Slack"에 대한 일일 측정항목 - 에이전트는 어디에서나 작동하고 결과를 반환합니다.
-속합니다. actions, 세션, 앱 상태, 기록 등은 여전히 실제 앱입니다.
-설정, 자격 증명 및 공유 기록은 모두 SQL에 있습니다.
+Automation-first app은 scheduled jobs, queues, scripts, integration workers, external agents를 위한 브라우저 없는 Agent-Native app입니다. Getting Started의 기본 경로는 아니지만 workflow가 아직 page를 필요로 하지 않을 때 유용합니다. 이것은 여전히 실제 app입니다: actions, sessions, application state, run history, settings, credentials, 공유 기록은 모두 SQL에 있습니다.
 
 <Diagram id="doc-block-l28sgj" title={"앱 에이전트 루프는 정문입니다"} summary={"많은 진입점이 SQL-backed 작업 및 상태에 대해 하나의 에이전트 루프에 도달합니다. 결과는 요청이 발생한 곳으로 반환됩니다. UI는 사람이 감독해야 하는 경우에만 추가됩니다."}>
 
@@ -64,7 +59,7 @@ Slack"에 대한 일일 측정항목 - 에이전트는 어디에서나 작동하
 작업이 백그라운드에서 실행될 때 이 모양에 도달하면 출력이
 앱, 도메인은 일회성이거나 프로토타입을 만드는 중입니다. 상담원은 여전히 UI가 필요합니다 —
 대시보드가 아니라 사람이 감독하고 구성하고 조종하는 장소 —
-이것이 순수 에이전트 앱조차도 일반적으로 내장된 Chat 셸을 마운트하는 이유입니다.
+이것이 automation-first apps도 일반적으로 내장된 Chat 셸을 마운트하는 이유입니다.
 
 **헤드리스** 제품 형태입니다. 전체 결정 가이드, 제공되는 내용
 상자, 비계, 저장소 액세스 및 실행 공유가 이제 한 곳에서 제공됩니다.
@@ -74,8 +69,8 @@ Slack"에 대한 일일 측정항목 - 에이전트는 어디에서나 작동하
 ## 다음 단계
 
 - [**Agent Surfaces — Headless**](/docs/agent-surfaces#headless) — 전체 헤드리스 의사 결정 가이드 및 API
-- [**Getting Started**](/docs/getting-started) — 채팅 앱이나 헤드리스 에이전트를 먼저 생성
-- [**Dispatch**](/docs/template-dispatch) — 훌륭한 순수 에이전트 시작점이 되는 작업 공간 템플릿
+- [**Getting Started**](/docs/getting-started) — 먼저 chat-first app을 만들고 actions, inline results, pages로 확장
+- [**Dispatch**](/docs/template-dispatch) — automation-first workflows에 적합한 workspace template
 - [**Messaging the agent**](/docs/messaging) — 사용자가 웹, Slack, 텔레그램, 이메일을 통해 에이전트와 대화하는 방법
 - [**Recurring Jobs**](/docs/recurring-jobs) — 에이전트가 자체적으로 실행되는 예약된 프롬프트
-- [**Actions**](/docs/actions) — 순수 에이전트가 호출할 도구
+- [**Actions**](/docs/actions) — automation-first app이 호출할 도구

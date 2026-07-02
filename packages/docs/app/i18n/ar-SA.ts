@@ -106,8 +106,8 @@ const arSA = {
           body: "Auth والمشاركة والحوكمة وسجلات التدقيق ترافق العمل.",
         },
         headedOrHeadless: {
-          title: "بواجهة أو بلا واجهة",
-          body: "شغّله كتطبيق، أو سير عمل agent، أو queue، أو مهمة مجدولة.",
+          title: "Apps وautomations وagents",
+          body: "شغّل نفس operation من chat أو UI أو jobs مجدولة أو queues أو agents خارجية أو scripts.",
         },
         contextRichInput: {
           title: "إدخال غني بالسياق",
@@ -178,7 +178,7 @@ const arSA = {
         },
         workspaces: {
           title: "مساحات العمل",
-          body: "تطبيقات بواجهة أو headless تكتشف بعضها وتنسق عبر A2A.",
+          body: "Agentic apps قابلة للتركيب تكتشف بعضها وتنسق عبر A2A.",
         },
         sourceOwnership: {
           title: "ملكية المصدر",
@@ -193,7 +193,7 @@ const arSA = {
     framework: {
       title: "framework لتطبيقات agent-native apps",
       body1:
-        "Agent-Native هو framework مفتوح المصدر لبناء agents كبرمجيات حقيقية: ابدأ مع Chat أو headless agents، ثم أضف UI و jobs والتعاون حول نفس actions.",
+        "Agent-Native هو framework مفتوح المصدر لبناء agentic applications: ابدأ مع Chat، وعرّف actions مشتركة، ثم أضف UI و jobs والتعاون حول نفس state.",
       body2:
         "استخدم قاعدة بياناتك ومزود الاستضافة و model stack وكود app الخاص بك.",
       cta: "اقرأ دليل framework",
@@ -295,7 +295,7 @@ const arSA = {
     },
     quickStart: {
       title: "ابدأ مع أمر واحد",
-      body: "ينشئ أمر واحد app محلية مدعومة ب actions و durable threads و SQLite. استخدم `--headless` بدلا من ذلك عندما لا تريد UI في المتصفح بعد.",
+      body: "ينشئ أمر واحد app محلية chat-first مدعومة ب actions و durable threads و SQLite. استخدم `--headless` فقط لـ workflows automation-first التي لا تحتاج UI في المتصفح بعد.",
     },
     finalCta: {
       title: "software مبني لعصر agentic era",
