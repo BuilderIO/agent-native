@@ -39,6 +39,7 @@ import {
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { useDecks } from "@/context/DeckContext";
 import { useAgentGenerating } from "@/hooks/use-agent-generating";
+import { mergeDesignSystemData } from "@/hooks/use-deck-design-system";
 import { useDesignSystems } from "@/hooks/use-design-systems";
 import { toast } from "@/hooks/use-toast";
 import { savePromptToComposerDraft } from "@/lib/composer-draft";
@@ -161,6 +162,19 @@ export default function Index() {
   anchorRef.current = anchorElRef.current;
   const designSystemTitleById = useMemo<Map<string, string>>(
     () => new Map(designSystems.map((ds) => [ds.id, ds.title])),
+    [designSystems],
+  );
+  const designSystemById = useMemo(
+    () =>
+      new Map(
+        designSystems.flatMap((ds) => {
+          try {
+            return [[ds.id, mergeDesignSystemData(JSON.parse(ds.data))]];
+          } catch {
+            return [];
+          }
+        }),
+      ),
     [designSystems],
   );
   const deckFilter = searchParams.get("createdBy") === "me" ? "mine" : "all";
@@ -569,6 +583,7 @@ export default function Index() {
                       ? designSystemTitleById.get(deck.designSystemId)
                       : null
                   }
+                  designSystem={designSystemById.get(deck.designSystemId ?? "")}
                 />
               ))}
               {visibleDecks.length === 0 && (

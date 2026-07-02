@@ -6,6 +6,7 @@ import { useParams } from "react-router";
 
 import PresentationView from "@/components/presentation/PresentationView";
 import type { Slide } from "@/context/DeckContext";
+import { useDeckDesignSystem } from "@/hooks/use-deck-design-system";
 
 interface SharedPresentationProps {
   initialDeck?: SharedDeckResponse | null;
@@ -21,6 +22,7 @@ export default function SharedPresentation({
   const [deck, setDeck] = useState<SharedDeckResponse | null>(initialDeck);
   const [error, setError] = useState(initialError);
   const [loading, setLoading] = useState(!initialDeck && !initialError);
+  const { designSystem } = useDeckDesignSystem(deck?.designSystemId);
 
   useEffect(() => {
     if (!token) return;
@@ -87,6 +89,7 @@ export default function SharedPresentation({
       slides={slides}
       deckId={`__shared__/${token}`}
       aspectRatio={deck.aspectRatio}
+      designSystem={designSystem}
     />
   );
 }

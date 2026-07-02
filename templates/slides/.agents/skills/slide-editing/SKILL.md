@@ -23,24 +23,22 @@ All generated slides follow these conventions:
 
 | Element | Style |
 |---------|-------|
-| Background | `bg-[#000000]` (pure black) |
-| Font | `font-family: 'Poppins', sans-serif` on all text |
-| Section labels | `font-size: 16px; font-weight: 700; letter-spacing: 3px; text-transform: uppercase; color: #00E5FF` |
-| Headings | `font-size: 40px; font-weight: 900; color: #fff; line-height: 1.15; letter-spacing: -1px` |
-| Title slides | `font-size: 54px; font-weight: 900` with `justify-content: center` |
-| Bullet points | `&#x25CF;` character (8px, white), gap: 20px, font-size: 22px, color: rgba(255,255,255,0.85) |
+| Background | `var(--ds-bg)` (from the linked design system) |
+| Font | `font-family: var(--ds-heading-font), sans-serif` on all text |
+| Section labels | `font-size: 16px; font-weight: 700; letter-spacing: 3px; text-transform: uppercase; color: var(--ds-accent)` |
+| Headings | `font-size: 40px; font-weight: var(--ds-heading-weight); color: var(--ds-text); line-height: 1.15; letter-spacing: -1px` |
+| Title slides | `font-size: 54px; font-weight: var(--ds-heading-weight)` with `justify-content: center` |
+| Bullet points | `&#x25CF;` character (8px, white), gap: 20px, font-size: 22px, color: var(--ds-text) |
 | Sub-bullets | `&#x25CB;` (open circle), padding-left: 36px |
-| Bold terms | `<strong style="font-weight: 800; color: #fff;">Term</strong>` + description in rgba(255,255,255,0.55) |
-| Accent color | `#00E5FF` (cyan) for section labels, emphasis, highlights |
+| Bold terms | `<strong style="font-weight: var(--ds-heading-weight); color: var(--ds-text);">Term</strong>` + description in var(--ds-text-muted) |
+| Accent color | `var(--ds-accent)` for section labels, emphasis, highlights |
 
 ## Updating a Slide
 
 To edit a slide's content:
 
-1. **Get the deck**: `pnpm action get-deck --id=<deckId>`
-2. **Parse the JSON**, find the slide by ID
-3. **Modify the content** HTML string
-4. **Update the deck** via `PUT /api/decks/:id` with the full updated deck JSON
+1. Use `pnpm action update-slide --deckId=<deckId> --slideId=<slideId> --find="<old text>" --replace="<new text>"` for surgical token edits
+2. Use `pnpm action update-slide --deckId=<deckId> --slideId=<slideId> --fullContent="<entire slide HTML>"` only for full slide rewrites
 
 ## Image Placeholders
 

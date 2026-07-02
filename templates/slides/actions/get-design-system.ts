@@ -12,6 +12,7 @@ export default defineAction({
   }),
   readOnly: true,
   http: { method: "GET" },
+  requiresAuth: false,
   run: async ({ id }) => {
     const access = await resolveAccess("design-system", id);
     if (!access) {

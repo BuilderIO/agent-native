@@ -5,6 +5,7 @@ import { useParams, Navigate, useSearchParams } from "react-router";
 import PresentationView from "@/components/presentation/PresentationView";
 import { useDecks } from "@/context/DeckContext";
 import type { Deck } from "@/context/DeckContext";
+import { useDeckDesignSystem } from "@/hooks/use-deck-design-system";
 
 export default function Presentation() {
   const { id } = useParams<{ id: string }>();
@@ -17,6 +18,8 @@ export default function Presentation() {
   const [searchParams] = useSearchParams();
   const contextDeck = getDeck(id || "");
   const deck = contextDeck ?? fallbackDeck;
+
+  const { designSystem } = useDeckDesignSystem(deck?.designSystemId);
 
   useEffect(() => {
     if (!id || loading || contextDeck) {
@@ -64,6 +67,7 @@ export default function Presentation() {
       deckId={id}
       startIndex={startSlide}
       aspectRatio={deck.aspectRatio}
+      designSystem={designSystem}
     />
   );
 }

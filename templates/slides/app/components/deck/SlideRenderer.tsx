@@ -14,6 +14,7 @@ import rehypeRaw from "rehype-raw";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { Slide } from "@/context/DeckContext";
 import { type AspectRatio, getAspectRatioDims } from "@/lib/aspect-ratios";
+import { DEFAULT_DESIGN_SYSTEM } from "@/hooks/use-deck-design-system";
 import {
   sanitizeCssValue,
   sanitizeSlideHtml,
@@ -545,25 +546,26 @@ export function SlideInner({
     height: dims.height,
   };
 
-  const bg = slide.background || "bg-[#000000]";
+  const bg = slide.background || "var(--ds-bg, #000000)";
   const isGradientClass = bg.startsWith("bg-");
   const safeBackground = !isGradientClass ? sanitizeCssValue(bg) : null;
   const bgStyle = safeBackground ? { background: safeBackground } : undefined;
   const bgClass = isGradientClass ? bg : "";
   const isCentered = slide.layout === "title";
 
-  const dsStyle = designSystem
-    ? ({
-        "--ds-accent": designSystem.colors.accent,
-        "--ds-bg": designSystem.colors.background,
-        "--ds-text": designSystem.colors.text,
-        "--ds-text-muted": designSystem.colors.textMuted,
-        "--ds-heading-font": designSystem.typography.headingFont,
-        "--ds-body-font": designSystem.typography.bodyFont,
-        "--ds-primary": designSystem.colors.primary,
-        "--ds-radius": designSystem.borders.radius,
-      } as React.CSSProperties)
-    : {};
+  const ds = designSystem ?? DEFAULT_DESIGN_SYSTEM;
+  const dsStyle = {
+    "--ds-accent": ds.colors.accent,
+    "--ds-bg": ds.colors.background,
+    "--ds-text": ds.colors.text,
+    "--ds-text-muted": ds.colors.textMuted,
+    "--ds-primary": ds.colors.primary,
+    "--ds-heading-font": ds.typography.headingFont,
+    "--ds-body-font": ds.typography.bodyFont,
+    "--ds-heading-weight": String(ds.typography.headingWeight),
+    "--ds-body-weight": String(ds.typography.bodyWeight),
+    "--ds-radius": ds.borders.radius,
+  } as React.CSSProperties;
 
   // If slide has excalidraw data, render it as a static SVG thumbnail
   if (

@@ -20,6 +20,7 @@ import {
 } from "@/components/ui/sheet";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { Slide } from "@/context/DeckContext";
+import { useDeckDesignSystem } from "@/hooks/use-deck-design-system";
 import {
   useDeckVersion,
   useDeckVersions,
@@ -85,6 +86,9 @@ export default function HistoryPanel({
 
   const versions = versionsQuery.data?.versions ?? [];
   const selectedVersion = versionQuery.data;
+  const { designSystem: versionDesignSystem } = useDeckDesignSystem(
+    selectedVersion?.designSystemId ?? null,
+  );
   const selectedSlides = useMemo(
     () =>
       (selectedVersion?.slides ?? []).map((slide) => ({
@@ -194,6 +198,7 @@ export default function HistoryPanel({
                             | undefined
                         }
                         className="border border-border bg-black"
+                        designSystem={versionDesignSystem}
                       />
                       <p className="mt-1.5 truncate text-[11px] text-muted-foreground">
                         {t("history.slideNumber", { number: index + 1 })}

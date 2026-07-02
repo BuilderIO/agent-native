@@ -908,6 +908,7 @@ export default function DeckEditor() {
                   }}
                   slidePresence={slidePresence}
                   aspectRatio={deck.aspectRatio}
+                  designSystem={designSystem}
                 />
               </DndContext>
             </div>

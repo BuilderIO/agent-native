@@ -53,11 +53,13 @@ async function createShareLink(event: any, deckId: string) {
   const db = getDb();
   let storedDeck: any;
   let title = "Untitled";
+  let designSystemId: string | null = null;
 
   try {
     const access = await assertAccess("deck", deckId, "admin");
     title = access.resource.title ?? "Untitled";
     storedDeck = JSON.parse(access.resource.data);
+    designSystemId = access.resource.designSystemId ?? null;
   } catch (err) {
     if (err instanceof ForbiddenError) {
       setResponseStatus(event, err.statusCode);
@@ -83,6 +85,7 @@ async function createShareLink(event: any, deckId: string) {
     title: title || storedDeck.title || "Untitled",
     slides: JSON.stringify(slides),
     aspectRatio: storedDeck.aspectRatio ?? null,
+    designSystemId,
     createdAt: now,
   });
 
@@ -135,6 +138,7 @@ export const getSharedDeck = defineEventHandler(async (event) => {
     title: shared.title,
     slides: JSON.parse(shared.slides),
     aspectRatio: shared.aspectRatio as SharedDeckResponse["aspectRatio"],
+    designSystemId: shared.designSystemId ?? null,
   };
   return response;
 });

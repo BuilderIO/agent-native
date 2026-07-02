@@ -49,6 +49,15 @@ When generating slides, replace default values with design system tokens:
 - `#000000` background -> `colors.background`
 - `rgba(255,255,255,0.55)` -> `colors.textMuted`
 
+## Retroactive application
+
+To apply a design system to an existing deck:
+1. Call `apply-design-system --deckId=<id> --designSystemId=<id>`
+2. That is all. The renderer reads the linked design system and
+   applies all tokens via CSS custom properties automatically.
+Do not call get-deck or update-slide. Do not rewrite slide HTML.
+The CSS cascade handles token application instantly.
+
 ## Tweaks
 
 The Tweaks panel provides live CSS variable overrides:
