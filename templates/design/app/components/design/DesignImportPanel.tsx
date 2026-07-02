@@ -2,8 +2,9 @@ import { appApiPath, useActionMutation, useT } from "@agent-native/core/client";
 import {
   IconBrandFigma,
   IconBrandGithub,
+  IconChevronRight,
+  IconCircleCheck,
   IconCode,
-  IconFileImport,
   IconHtml,
   IconUpload,
 } from "@tabler/icons-react";
@@ -20,13 +21,6 @@ import { toast } from "sonner";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
 import { sendToDesignAgentChat } from "@/lib/agent-chat";
 import { cn } from "@/lib/utils";
@@ -43,6 +37,8 @@ interface ImportResult {
   warnings?: string[];
   error?: string;
 }
+
+type ImportMode = "figma-paste" | "fig-file" | "html";
 
 function hasFigmaPayload(html: string): boolean {
   return /\(figmeta\)|\(figma\)|data-metadata=|data-buffer=/i.test(html);
@@ -70,6 +66,8 @@ export function DesignImportPanel({ context }: DesignImportPanelProps) {
   const htmlFileInputRef = useRef<HTMLInputElement | null>(null);
   const [htmlText, setHtmlText] = useState("");
   const [uploading, setUploading] = useState(false);
+  const [activeMode, setActiveMode] = useState<ImportMode | null>(null);
+  const [activeUploadName, setActiveUploadName] = useState<string | null>(null);
   const [lastResult, setLastResult] = useState<ImportResult | null>(null);
 
   const finishImport = useCallback(
@@ -170,6 +168,7 @@ export function DesignImportPanel({ context }: DesignImportPanelProps) {
   const uploadFile = useCallback(
     async (file: File) => {
       setUploading(true);
+      setActiveUploadName(file.name);
       const body = new FormData();
       body.append("designId", context.designId);
       body.append("file", file);
@@ -197,6 +196,7 @@ export function DesignImportPanel({ context }: DesignImportPanelProps) {
         });
       } finally {
         setUploading(false);
+        setActiveUploadName(null);
       }
     },
     [context.designId, finishImport, t],
@@ -205,6 +205,7 @@ export function DesignImportPanel({ context }: DesignImportPanelProps) {
   const handleFigmaFileChange = useCallback(
     (file: File | undefined) => {
       if (!file) return;
+      setActiveMode("fig-file");
       void uploadFile(file);
       if (fileInputRef.current) fileInputRef.current.value = "";
     },
@@ -214,6 +215,7 @@ export function DesignImportPanel({ context }: DesignImportPanelProps) {
   const handleHtmlFileChange = useCallback(
     async (file: File | undefined) => {
       if (!file) return;
+      setActiveMode("html");
       try {
         importHtmlString(await file.text(), file.name);
       } finally {
@@ -234,176 +236,184 @@ export function DesignImportPanel({ context }: DesignImportPanelProps) {
   const busy = importSource.isPending || uploading;
 
   return (
-    <div className="flex h-full flex-col overflow-y-auto bg-background">
-      <div className="space-y-4 p-4">
-        <div>
-          <h2 className="text-sm font-semibold">
+    <div className="flex min-h-0 flex-1 flex-col bg-background">
+      <div className="flex h-16 shrink-0 items-center border-b border-border/60 px-4">
+        <div className="min-w-0">
+          <h3 className="truncate text-xl font-semibold tracking-tight text-foreground">
             {t("designEditor.import.title")}
-          </h2>
-          <p className="mt-1 text-xs text-muted-foreground">
-            {t("designEditor.import.description")}
+          </h3>
+          <p className="mt-0.5 truncate text-xs text-muted-foreground">
+            {"Bring source screens into this design" /* i18n-ignore */}
           </p>
         </div>
+      </div>
 
-        <Card>
-          <CardHeader className="space-y-2 p-4">
-            <div className="flex items-start gap-3">
-              <IconBrandFigma className="mt-0.5 size-5 text-muted-foreground" />
-              <div>
-                <CardTitle className="text-sm">
-                  {t("designEditor.import.figmaPasteTitle")}
-                </CardTitle>
-                <CardDescription className="text-xs">
-                  {t("designEditor.import.figmaPasteDescription")}
-                </CardDescription>
-              </div>
-            </div>
-          </CardHeader>
-          <CardContent className="space-y-3 p-4 pt-0">
-            <div
-              role="textbox"
-              tabIndex={0}
-              onPaste={handlePaste}
-              className={cn(
-                "rounded-md border border-dashed bg-muted/30 p-4 text-xs text-muted-foreground outline-none transition",
-                "focus:border-primary focus:bg-background focus:ring-2 focus:ring-primary/15",
-              )}
-            >
-              {t("designEditor.import.figmaPasteTarget")}
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="space-y-2 p-4">
-            <div className="flex items-start gap-3">
-              <IconUpload className="mt-0.5 size-5 text-muted-foreground" />
-              <div>
-                <CardTitle className="text-sm">
-                  {t("designEditor.import.figUploadTitle")}
-                </CardTitle>
-                <CardDescription className="text-xs">
-                  {t("designEditor.import.figUploadDescription")}
-                </CardDescription>
-              </div>
-            </div>
-          </CardHeader>
-          <CardContent className="p-4 pt-0">
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept=".fig"
-              className="hidden"
-              onChange={(event) =>
-                handleFigmaFileChange(event.target.files?.[0])
-              }
-            />
-            <Button
-              size="sm"
-              variant="outline"
-              disabled={busy}
-              onClick={() => fileInputRef.current?.click()}
-            >
-              <IconFileImport className="mr-2 size-4" />
-              {t("designEditor.import.chooseFigFile")}
-            </Button>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="space-y-2 p-4">
-            <div className="flex items-start gap-3">
-              <IconHtml className="mt-0.5 size-5 text-muted-foreground" />
-              <div>
-                <CardTitle className="text-sm">
-                  {t("designEditor.import.htmlTitle")}
-                </CardTitle>
-                <CardDescription className="text-xs">
-                  {t("designEditor.import.htmlDescription")}
-                </CardDescription>
-              </div>
-            </div>
-          </CardHeader>
-          <CardContent className="space-y-3 p-4 pt-0">
-            <Textarea
-              value={htmlText}
-              onChange={(event) => setHtmlText(event.target.value)}
-              placeholder={t("designEditor.import.htmlPlaceholder")}
-              className="min-h-28 text-xs"
-            />
-            <div className="flex flex-wrap gap-2">
-              <Button
-                size="sm"
-                disabled={busy || !htmlText.trim()}
-                onClick={() => importHtmlString(htmlText, "html-import.html")}
+      <div className="design-inspector-scroll min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 pb-4 pt-4">
+        <div className="space-y-1">
+          <ImportSourceRow
+            id="figma-paste-import"
+            icon={<IconBrandFigma className="size-3.5" />}
+            title={t("designEditor.import.figmaPasteTitle")}
+            description={
+              "Copy a frame in Figma, then paste here." /* i18n-ignore */
+            }
+            isOpen={activeMode === "figma-paste"}
+            onToggle={() =>
+              setActiveMode((mode) =>
+                mode === "figma-paste" ? null : "figma-paste",
+              )
+            }
+          >
+            <div className="p-2.5">
+              <div
+                role="textbox"
+                tabIndex={0}
+                aria-label={t("designEditor.import.figmaPasteTarget")}
+                onPaste={handlePaste}
+                className={cn(
+                  "flex min-h-24 cursor-text items-center justify-center rounded-md border border-dashed border-border bg-muted/30 px-3 py-4 text-center text-xs text-muted-foreground outline-none transition-colors",
+                  "focus:border-primary/60 focus:bg-background focus:ring-2 focus:ring-primary/15",
+                )}
               >
-                {t("designEditor.import.importHtml")}
-              </Button>
+                {t("designEditor.import.figmaPasteTarget")}
+              </div>
+            </div>
+          </ImportSourceRow>
+
+          <ImportSourceRow
+            id="fig-file-import"
+            icon={<IconUpload className="size-3.5" />}
+            title={t("designEditor.import.figUploadTitle")}
+            description={"Upload exported Figma frames." /* i18n-ignore */}
+            isOpen={activeMode === "fig-file"}
+            onToggle={() =>
+              setActiveMode((mode) => (mode === "fig-file" ? null : "fig-file"))
+            }
+          >
+            <div className="space-y-2 p-2.5">
               <input
-                ref={htmlFileInputRef}
+                ref={fileInputRef}
                 type="file"
-                accept=".html,.htm"
+                accept=".fig"
                 className="hidden"
                 onChange={(event) =>
-                  handleHtmlFileChange(event.target.files?.[0])
+                  handleFigmaFileChange(event.target.files?.[0])
                 }
               />
               <Button
                 size="sm"
                 variant="outline"
+                className="h-8 w-full justify-center"
                 disabled={busy}
-                onClick={() => htmlFileInputRef.current?.click()}
+                onClick={() => fileInputRef.current?.click()}
               >
-                {t("designEditor.import.chooseHtmlFile")}
+                {uploading
+                  ? "Importing..." /* i18n-ignore */
+                  : t("designEditor.import.chooseFigFile")}
               </Button>
+              <p className="truncate text-[10px] leading-snug text-muted-foreground">
+                {
+                  activeUploadName ??
+                    "Export only the frames you need." /* i18n-ignore */
+                }
+              </p>
             </div>
-          </CardContent>
-        </Card>
+          </ImportSourceRow>
 
-        <ComingSoonCard
-          icon={<IconBrandGithub className="size-5" />}
-          title={t("designEditor.import.githubTitle")}
-          description={t("designEditor.import.githubDescription")}
-          badge={t("designEditor.import.comingSoon")}
-        />
-
-        <Card>
-          <CardHeader className="space-y-2 p-4">
-            <div className="flex items-start gap-3">
-              <IconCode className="mt-0.5 size-5 text-muted-foreground" />
-              <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-2">
-                  <CardTitle className="text-sm">
-                    {t("designEditor.import.localTitle")}
-                  </CardTitle>
-                  <Badge variant="secondary" className="text-[10px]">
-                    {t("designEditor.import.comingSoon")}
-                  </Badge>
-                </div>
-                <CardDescription className="text-xs">
-                  {t("designEditor.import.localDescription")}
-                </CardDescription>
+          <ImportSourceRow
+            id="html-import"
+            icon={<IconHtml className="size-3.5" />}
+            title={t("designEditor.import.htmlTitle")}
+            description={"Paste or choose a standalone file." /* i18n-ignore */}
+            isOpen={activeMode === "html"}
+            onToggle={() =>
+              setActiveMode((mode) => (mode === "html" ? null : "html"))
+            }
+          >
+            <div className="space-y-2 p-2.5">
+              <Textarea
+                value={htmlText}
+                onChange={(event) => setHtmlText(event.target.value)}
+                placeholder={t("designEditor.import.htmlPlaceholder")}
+                className="min-h-24 resize-none text-xs"
+              />
+              <div className="flex gap-1.5">
+                <Button
+                  size="sm"
+                  className="h-8 flex-1 px-2"
+                  disabled={busy || !htmlText.trim()}
+                  onClick={() => importHtmlString(htmlText, "html-import.html")}
+                >
+                  {t("designEditor.import.importHtml")}
+                </Button>
+                <input
+                  ref={htmlFileInputRef}
+                  type="file"
+                  accept=".html,.htm"
+                  className="hidden"
+                  onChange={(event) =>
+                    handleHtmlFileChange(event.target.files?.[0])
+                  }
+                />
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-8 px-2"
+                  disabled={busy}
+                  onClick={() => htmlFileInputRef.current?.click()}
+                >
+                  {t("designEditor.import.chooseHtmlFile")}
+                </Button>
               </div>
             </div>
-          </CardHeader>
-          <CardContent className="space-y-3 p-4 pt-0">
-            <p className="text-xs text-muted-foreground">
-              {t("designEditor.import.visualEditGuidance")}
-            </p>
-            <Button size="sm" variant="outline" onClick={askVisualEdit}>
-              {t("designEditor.import.useVisualEditNow")}
-            </Button>
-          </CardContent>
-        </Card>
+          </ImportSourceRow>
+        </div>
+
+        <div className="mt-5 border-t border-border/60 pt-4">
+          <p className="mb-2 text-xs font-medium text-muted-foreground">
+            {"More sources" /* i18n-ignore */}
+          </p>
+          <div className="space-y-1">
+            <CompactSourceRow
+              icon={<IconBrandGithub className="size-3.5" />}
+              title={t("designEditor.import.githubTitle")}
+              description={
+                "Repository import is coming soon." /* i18n-ignore */
+              }
+              badge={t("designEditor.import.comingSoon")}
+            />
+            <CompactSourceRow
+              icon={<IconCode className="size-3.5" />}
+              title={t("designEditor.import.localTitle")}
+              description={
+                "Connect a running app with visual-edit." /* i18n-ignore */
+              }
+              badge={t("designEditor.import.comingSoon")}
+              action={
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="h-7 px-2 text-[11px]"
+                  onClick={askVisualEdit}
+                >
+                  {t("designEditor.import.useVisualEditNow")}
+                </Button>
+              }
+            />
+          </div>
+        </div>
 
         {lastResult?.files?.length ? (
-          <div className="rounded-md border bg-muted/30 p-3 text-xs">
-            <div className="font-medium">
+          <div className="mt-5 rounded-md border border-border/70 bg-muted/30 px-2.5 py-2">
+            <div className="flex items-center gap-1.5 text-xs font-medium text-foreground">
+              <IconCircleCheck className="size-3.5 text-muted-foreground" />
               {t("designEditor.import.lastImport")}
             </div>
-            <ul className="mt-2 space-y-1 text-muted-foreground">
-              {lastResult.files.map((file) => (
-                <li key={file.id}>{file.filename}</li>
+            <ul className="mt-1.5 space-y-0.5 text-[11px] text-muted-foreground">
+              {lastResult.files.slice(0, 3).map((file) => (
+                <li key={file.id} className="truncate">
+                  {file.filename}
+                </li>
               ))}
             </ul>
           </div>
@@ -413,33 +423,97 @@ export function DesignImportPanel({ context }: DesignImportPanelProps) {
   );
 }
 
-function ComingSoonCard({
+function ImportSourceRow({
+  id,
+  icon,
+  title,
+  description,
+  isOpen,
+  onToggle,
+  children,
+}: {
+  id: string;
+  icon: ReactNode;
+  title: string;
+  description: string;
+  isOpen: boolean;
+  onToggle: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <div className="overflow-hidden rounded-md">
+      <button
+        type="button"
+        aria-expanded={isOpen}
+        aria-controls={id}
+        onClick={onToggle}
+        className={cn(
+          "group flex w-full cursor-pointer items-center gap-3 rounded-md px-2 py-2.5 text-left transition-colors hover:bg-accent/60 active:bg-accent",
+          isOpen && "bg-accent/45",
+        )}
+      >
+        <span className="flex size-9 shrink-0 items-center justify-center rounded-md border border-border/70 bg-muted/70 text-muted-foreground transition-colors group-hover:border-border group-hover:bg-muted">
+          {icon}
+        </span>
+        <span className="min-w-0 flex-1">
+          <span className="block truncate text-sm font-medium leading-tight text-foreground">
+            {title}
+          </span>
+          <span className="mt-0.5 line-clamp-1 text-xs leading-snug text-muted-foreground">
+            {description}
+          </span>
+        </span>
+        <IconChevronRight
+          className={cn(
+            "size-4 shrink-0 text-muted-foreground transition-transform",
+            isOpen && "rotate-90",
+          )}
+        />
+      </button>
+      {isOpen ? (
+        <div
+          id={id}
+          className="mb-2 mt-1 overflow-hidden rounded-md border border-border/70 bg-background/70"
+        >
+          {children}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function CompactSourceRow({
   icon,
   title,
   description,
   badge,
+  action,
 }: {
   icon: ReactNode;
   title: string;
   description: string;
   badge: string;
+  action?: ReactNode;
 }) {
   return (
-    <Card className="opacity-80">
-      <CardHeader className="space-y-2 p-4">
-        <div className="flex items-start gap-3">
-          <span className="mt-0.5 text-muted-foreground">{icon}</span>
-          <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-2">
-              <CardTitle className="text-sm">{title}</CardTitle>
-              <Badge variant="secondary" className="text-[10px]">
-                {badge}
-              </Badge>
-            </div>
-            <CardDescription className="text-xs">{description}</CardDescription>
-          </div>
-        </div>
-      </CardHeader>
-    </Card>
+    <div className="flex items-center gap-2 rounded-md px-2 py-2 text-left opacity-85">
+      <span className="flex size-8 shrink-0 items-center justify-center rounded-md border border-border/60 bg-muted/50 text-muted-foreground">
+        {icon}
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="flex items-center gap-1.5">
+          <span className="truncate text-xs font-medium text-foreground">
+            {title}
+          </span>
+          <Badge variant="secondary" className="h-4 px-1 text-[9px]">
+            {badge}
+          </Badge>
+        </span>
+        <span className="mt-0.5 block truncate text-[10px] text-muted-foreground">
+          {description}
+        </span>
+      </span>
+      {action}
+    </div>
   );
 }
