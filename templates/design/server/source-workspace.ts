@@ -167,16 +167,27 @@ export async function writeInlineSourceFile(args: {
     };
   }
 
+  if (await hasCollabState(args.file.id)) {
+    const liveBeforeApply = await getText(args.file.id, "content");
+    if (
+      args.expectedVersionHash &&
+      args.expectedVersionHash !== sourceContentHash(liveBeforeApply)
+    ) {
+      throw new Error(
+        "Source file changed since it was read. Re-read the file and retry.",
+      );
+    }
+    if (liveBeforeApply !== args.content) {
+      await applyText(args.file.id, args.content, "content", "agent");
+    }
+  } else {
+    await seedFromText(args.file.id, args.content);
+  }
+
   await db
     .update(schema.designFiles)
     .set({ content: args.content, updatedAt })
     .where(eq(schema.designFiles.id, args.file.id));
-
-  if (await hasCollabState(args.file.id)) {
-    await applyText(args.file.id, args.content, "content", "agent");
-  } else {
-    await seedFromText(args.file.id, args.content);
-  }
 
   await db
     .update(schema.designs)

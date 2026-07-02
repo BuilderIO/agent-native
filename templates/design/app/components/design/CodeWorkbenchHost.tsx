@@ -140,7 +140,19 @@ const WORKBENCH_SRC_DOC = `<!DOCTYPE html>
   function render() {
     renderFiles();
     const active = state.files.find((file) => file.path === state.activePath);
-    tabEl.innerHTML = active ? '<span>' + active.path + '</span>' + (state.dirty ? '<span class="dirty"></span>' : '') : "No file";
+    tabEl.replaceChildren();
+    if (active) {
+      const label = document.createElement("span");
+      label.textContent = active.path;
+      tabEl.appendChild(label);
+      if (state.dirty) {
+        const dirty = document.createElement("span");
+        dirty.className = "dirty";
+        tabEl.appendChild(dirty);
+      }
+    } else {
+      tabEl.textContent = "No file";
+    }
     metaEl.textContent = state.dirty ? "Unsaved changes" : (state.versionHash ? "Saved " + state.versionHash : "");
     saveEl.disabled = !state.canEdit || !state.dirty || state.saving || !active;
     revertEl.disabled = !state.dirty || !active;
@@ -211,6 +223,12 @@ export function CodeWorkbenchHost({
       file.path === selectedPath ||
       (activeFileId && file.fileId === activeFileId),
   );
+
+  useEffect(() => {
+    setActivePath(null);
+    setDraftsByPath({});
+    onActiveFileChange?.(null);
+  }, [designId, onActiveFileChange]);
 
   useEffect(() => {
     if (!activeFileId && !activeFilename) return;

@@ -529,6 +529,8 @@ export function getDesignEditorStateUrlSearch(args: {
   currentSearch: string;
   viewMode: "single" | "overview";
   screenId?: string | null;
+  codeFileId?: string | null;
+  codeFilename?: string | null;
   selectionId?: string | null;
   leftPanel?: DesignLeftPanel | null;
   zoom?: number | null;
@@ -545,8 +547,16 @@ export function getDesignEditorStateUrlSearch(args: {
   } else {
     params.delete("screen");
   }
-  params.delete("fileId");
-  params.delete("filename");
+  if (args.leftPanel === "code" && args.codeFileId) {
+    params.set("fileId", args.codeFileId);
+  } else {
+    params.delete("fileId");
+  }
+  if (args.leftPanel === "code" && !args.codeFileId && args.codeFilename) {
+    params.set("filename", args.codeFilename);
+  } else {
+    params.delete("filename");
+  }
   if (args.selectionId) {
     params.set("selection", args.selectionId);
   } else {
@@ -14414,6 +14424,8 @@ ${serializedHtml}
       viewMode,
       screenId: activeFile?.id ?? activeFileId,
       leftPanel: activeLeftPanel,
+      codeFileId: activeLeftPanel === "code" ? activeCodeFile?.fileId : null,
+      codeFilename: activeLeftPanel === "code" ? activeCodeFile?.path : null,
       selectionId:
         selectedUrlSelectionId ??
         (preserveInitialRouteSelection ? initialRouteSelectionId : null),
@@ -14431,6 +14443,8 @@ ${serializedHtml}
   }, [
     activeFile?.id,
     activeFileId,
+    activeCodeFile?.fileId,
+    activeCodeFile?.path,
     activeLeftPanel,
     codeLayerOwnerByNodeId.size,
     files,
