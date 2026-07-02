@@ -1380,6 +1380,7 @@ export function createAgentChatAdapter(
       const turnId = generateTurnId();
       let runId: string | null = null;
       let lastSeq = -1;
+      const seenRunSeqs = new Map<string, number>();
       let currentRunDispatchMode: string | null = null;
       let currentMessageText = normalizeMentions(
         recoveryMessageText.trim() || userMessageText,
@@ -1548,6 +1549,27 @@ export function createAgentChatAdapter(
         if (mode) currentRunDispatchMode = mode;
       };
 
+      const rememberRunSeq = (seq: number) => {
+        lastSeq = seq;
+        if (runId) {
+          seenRunSeqs.set(runId, seq);
+        }
+      };
+
+      const reconnectCursorForRun = (
+        nextRunId: string,
+        previousRunId: string | null,
+      ) => {
+        const rememberedSeq = seenRunSeqs.get(nextRunId);
+        if (rememberedSeq !== undefined) {
+          lastSeq = rememberedSeq;
+          return;
+        }
+        if (previousRunId !== nextRunId) {
+          lastSeq = -1;
+        }
+      };
+
       const currentSSEOptions = () => ({
         durableBackgroundRun:
           currentRunDispatchMode?.startsWith("background") === true,
@@ -1671,7 +1693,7 @@ export function createAgentChatAdapter(
                 toolCallCounter,
                 tabId,
                 (seq) => {
-                  lastSeq = seq;
+                  rememberRunSeq(seq);
                   if (threadId) updateActiveRunSeq(seq);
                 },
                 runId,
@@ -1765,12 +1787,13 @@ export function createAgentChatAdapter(
                   return false;
                 }
                 const activeRunId = String(active.runId);
+                const previousRunId = runId;
                 runId = activeRunId;
                 if (!attemptedRunIds.includes(activeRunId)) {
                   attemptedRunIds.push(activeRunId);
                 }
-                lastSeq = -1;
-                setActiveRun({ threadId, runId: activeRunId, lastSeq: -1 });
+                reconnectCursorForRun(activeRunId, previousRunId);
+                setActiveRun({ threadId, runId: activeRunId, lastSeq });
                 const reconnected = yield* reconnectCurrentRun();
                 if (reconnected) return true;
               }
@@ -1844,12 +1867,13 @@ export function createAgentChatAdapter(
                 if (activeStatus !== "running" && activeStatus !== "starting") {
                   return false;
                 }
+                const previousRunId = runId;
                 runId = activeRunId;
                 if (!attemptedRunIds.includes(activeRunId)) {
                   attemptedRunIds.push(activeRunId);
                 }
-                lastSeq = -1;
-                setActiveRun({ threadId, runId: activeRunId, lastSeq: -1 });
+                reconnectCursorForRun(activeRunId, previousRunId);
+                setActiveRun({ threadId, runId: activeRunId, lastSeq });
                 const reconnected = yield* reconnectCurrentRun();
                 if (reconnected) return true;
               } catch (activeErr: unknown) {
@@ -2290,13 +2314,14 @@ export function createAgentChatAdapter(
                 }
                 if (activeRunId) {
                   try {
+                    const previousRunId = runId;
                     runId = activeRunId;
                     if (!attemptedRunIds.includes(runId)) {
                       attemptedRunIds.push(runId);
                     }
-                    lastSeq = -1;
+                    reconnectCursorForRun(activeRunId, previousRunId);
                     if (threadId) {
-                      setActiveRun({ threadId, runId, lastSeq: -1 });
+                      setActiveRun({ threadId, runId, lastSeq });
                     }
                     const reconnected = yield* reconnectCurrentRun();
                     if (reconnected) return;
@@ -2423,7 +2448,7 @@ export function createAgentChatAdapter(
               toolCallCounter,
               tabId,
               (seq) => {
-                lastSeq = seq;
+                rememberRunSeq(seq);
                 if (runId && threadId) {
                   updateActiveRunSeq(seq);
                 }

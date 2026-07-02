@@ -151,9 +151,10 @@ export const SSE_ACTION_PREPARATION_STALL_TIMEOUT_MS = 90_000;
 export interface SSEStreamOptions {
   /**
    * Durable background runs have their own server-side liveness budget and
-   * heartbeat. While one is active, keepalive-only periods and zero-byte
-   * action-preparation activity should keep the client attached instead of
-   * aborting and starting duplicate continuations.
+   * heartbeat. While one is active, generic keepalive-only periods keep the
+   * client attached. Tool-input preparation is stricter: real byte progress
+   * keeps long payloads alive, but zero-byte/silent preparation still recovers
+   * so one stuck action cannot pin the chat forever.
    */
   durableBackgroundRun?: boolean;
 }
@@ -278,6 +279,24 @@ function findPendingToolCallIndex(
   return -1;
 }
 
+function findCompletedToolCallIndex(
+  content: ContentPart[],
+  toolCallId?: string,
+): number {
+  if (!toolCallId) return -1;
+  for (let i = content.length - 1; i >= 0; i--) {
+    const part = content[i];
+    if (
+      part.type === "tool-call" &&
+      part.toolCallId === toolCallId &&
+      part.result !== undefined
+    ) {
+      return i;
+    }
+  }
+  return -1;
+}
+
 function appendActivityTrail(
   trail: ActivityTrailEntry[],
   next: ActivityTrailEntry,
@@ -359,12 +378,7 @@ function updatePreparingActionState(
   return undefined;
 }
 
-function hasStalledPreparingAction(
-  state: PreparingActionState,
-  now: number,
-  options?: SSEStreamOptions,
-) {
-  if (options?.durableBackgroundRun === true) return false;
+function hasStalledPreparingAction(state: PreparingActionState, now: number) {
   // Fire only when a tool input has gone SILENT — no further streaming deltas
   // for the whole window — never merely because a large input has been
   // streaming for a long time. `lastProgressAt` advances on every delta
@@ -787,6 +801,9 @@ export function processEvent(
   if (ev.type === "tool_start") {
     const args = (ev.input ?? {}) as Record<string, string>;
     const tool = ev.tool ?? "unknown";
+    if (findCompletedToolCallIndex(content, ev.id) >= 0) {
+      return { action: "continue" };
+    }
     if (typeof window !== "undefined") {
       window.dispatchEvent(
         new CustomEvent("agent-native:tool-start", {
@@ -868,6 +885,9 @@ export function processEvent(
     // so a tool_done frame with an undefined tool name still matches its
     // pending tool-call entry instead of leaving it forever unresolved.
     const doneTool = ev.tool ?? "unknown";
+    if (findCompletedToolCallIndex(content, ev.id) >= 0) {
+      return { action: "continue" };
+    }
     if (typeof window !== "undefined") {
       window.dispatchEvent(
         new CustomEvent("agent-native:tool-done", {
@@ -1340,9 +1360,7 @@ export async function* readSSEStream(
         );
 
         if (result) yield withStreamMetadata(result);
-        if (
-          hasStalledPreparingAction(preparingActionState, Date.now(), options)
-        ) {
+        if (hasStalledPreparingAction(preparingActionState, Date.now())) {
           throw new AgentAutoContinueSignal({
             reason: "no_progress",
             activityTrail: [...activityTrail],
@@ -1525,9 +1543,7 @@ export async function readSSEStreamRaw(
               : { reason: "stream_ended", activityTrail: [...activityTrail] },
           );
         }
-        if (
-          hasStalledPreparingAction(preparingActionState, Date.now(), options)
-        ) {
+        if (hasStalledPreparingAction(preparingActionState, Date.now())) {
           onUpdate(contentSnapshot(content));
           throw new AgentAutoContinueSignal({
             reason: "no_progress",

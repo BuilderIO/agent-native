@@ -612,26 +612,77 @@ describe("SSE event processor no-progress recovery", () => {
     ]);
   });
 
-  it("keeps a durable background stream alive on zero-byte preparation activity", async () => {
+  it("recovers a durable background stream stuck on zero-byte preparation activity", async () => {
     vi.useFakeTimers();
 
-    const donePromise = drain(
-      readSSEStream(
-        preparingActionZeroByteActivityThenDoneStream(),
-        [],
-        { value: 0 },
-        undefined,
-        undefined,
-        undefined,
-        { durableBackgroundRun: true },
-      ),
-    );
+    const errPromise = (async () => {
+      try {
+        await drain(
+          readSSEStream(
+            preparingActionZeroByteActivityThenDoneStream(),
+            [],
+            { value: 0 },
+            undefined,
+            undefined,
+            undefined,
+            { durableBackgroundRun: true },
+          ),
+        );
+      } catch (err) {
+        return err;
+      }
+    })();
 
     await vi.advanceTimersByTimeAsync(
-      SSE_ACTION_PREPARATION_STALL_TIMEOUT_MS + 30_000,
+      SSE_ACTION_PREPARATION_STALL_TIMEOUT_MS + 1,
     );
 
-    await expect(donePromise).resolves.toBeDefined();
+    const err = await errPromise;
+
+    expect(err).toBeInstanceOf(AgentAutoContinueSignal);
+    expect((err as AgentAutoContinueSignal).reason).toBe("no_progress");
+    expect((err as AgentAutoContinueSignal).activityTrail).toEqual([
+      {
+        label: "Preparing edit screen action",
+        tool: "edit-design",
+      },
+    ]);
+  });
+
+  it("recovers a durable background stream stuck on preparation keepalives", async () => {
+    vi.useFakeTimers();
+
+    const errPromise = (async () => {
+      try {
+        for await (const _ of readSSEStream(
+          preparingActionKeepaliveStream(),
+          [],
+          { value: 0 },
+          undefined,
+          undefined,
+          undefined,
+          { durableBackgroundRun: true },
+        )) {
+          // no-op
+        }
+      } catch (err) {
+        return err;
+      }
+    })();
+
+    await vi.advanceTimersByTimeAsync(
+      SSE_ACTION_PREPARATION_STALL_TIMEOUT_MS + 1,
+    );
+    const err = await errPromise;
+
+    expect(err).toBeInstanceOf(AgentAutoContinueSignal);
+    expect((err as AgentAutoContinueSignal).reason).toBe("no_progress");
+    expect((err as AgentAutoContinueSignal).activityTrail).toEqual([
+      {
+        label: "Preparing edit screen action",
+        tool: "edit-design",
+      },
+    ]);
   });
 
   it("keeps durable background keepalives attached until a terminal event", async () => {
@@ -666,6 +717,28 @@ describe("SSE event processor no-progress recovery", () => {
         [],
         { value: 0 },
         undefined,
+      ),
+    );
+
+    for (let i = 0; i < 4; i++) {
+      await vi.advanceTimersByTimeAsync(30_000);
+    }
+
+    await expect(donePromise).resolves.toBeDefined();
+  });
+
+  it("does not stall a durable background run while large tool input is still streaming progress", async () => {
+    vi.useFakeTimers();
+
+    const donePromise = drain(
+      readSSEStream(
+        preparingActionProgressStream(),
+        [],
+        { value: 0 },
+        undefined,
+        undefined,
+        undefined,
+        { durableBackgroundRun: true },
       ),
     );
 
@@ -1602,6 +1675,58 @@ describe("SSE event processor error classification", () => {
         toolName: "update-dashboard",
         result: '{"saved":true}',
         repeatCount: 2,
+      }),
+    );
+  });
+
+  it("ignores replayed completed tool events with the same server id", async () => {
+    const results = await drain(
+      readSSEStream(
+        eventStream([
+          {
+            type: "tool_start",
+            tool: "delete-file",
+            id: "call-1",
+            input: { fileId: "screen-1" },
+          },
+          {
+            type: "tool_done",
+            tool: "delete-file",
+            id: "call-1",
+            result: '{"deleted":true}',
+          },
+          { type: "text", text: "Continuing with the selected screen." },
+          {
+            type: "tool_start",
+            tool: "delete-file",
+            id: "call-1",
+            input: { fileId: "screen-1" },
+          },
+          {
+            type: "tool_done",
+            tool: "delete-file",
+            id: "call-1",
+            result: '{"deleted":true}',
+          },
+          { type: "done" },
+        ]),
+        [],
+        { value: 0 },
+        "tab-tool-replay",
+      ),
+    );
+
+    const finalContent = results.at(-1)?.content ?? [];
+    const toolCalls = finalContent.filter(
+      (part): part is Extract<ContentPart, { type: "tool-call" }> =>
+        part.type === "tool-call",
+    );
+    expect(toolCalls).toHaveLength(1);
+    expect(toolCalls[0]).toEqual(
+      expect.objectContaining({
+        toolCallId: "call-1",
+        toolName: "delete-file",
+        result: '{"deleted":true}',
       }),
     );
   });
