@@ -314,6 +314,17 @@ CREATE INDEX IF NOT EXISTS plans_recap_pr_merged_idx ON plans(kind, source_type,
 CREATE INDEX IF NOT EXISTS plans_source_pr_idx ON plans(source_repo, source_pr_number)`,
       },
     },
+    {
+      version: 33,
+      sql: {
+        postgres: `ALTER TABLE plans ADD COLUMN IF NOT EXISTS source_author_email TEXT;
+ALTER TABLE plans ADD COLUMN IF NOT EXISTS source_author_name TEXT;
+ALTER TABLE plans ADD COLUMN IF NOT EXISTS source_author_login TEXT`,
+        sqlite: `ALTER TABLE plans ADD COLUMN source_author_email TEXT;
+ALTER TABLE plans ADD COLUMN source_author_name TEXT;
+ALTER TABLE plans ADD COLUMN source_author_login TEXT`,
+      },
+    },
   ],
   { table: "plans_migrations" },
 );

@@ -59,6 +59,9 @@ export const plans = table("plans", {
   sourcePrNumber: integer("source_pr_number"),
   sourcePrState: text("source_pr_state"),
   sourcePrMergedAt: text("source_pr_merged_at"),
+  sourceAuthorEmail: text("source_author_email"),
+  sourceAuthorName: text("source_author_name"),
+  sourceAuthorLogin: text("source_author_login"),
   // Stable key used by PR Visual Recap publish retries to replace the recap
   // created by an earlier attempt instead of creating duplicate recap rows.
   recapIdempotencyKey: text("recap_idempotency_key"),

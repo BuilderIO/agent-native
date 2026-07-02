@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 
+import { SOURCE_AUTHOR_COMMENT_MENTION_EMAIL } from "@shared/comment-context";
 import type { PlanBundle } from "@shared/types";
 import { describe, expect, it } from "vitest";
 
@@ -9,10 +10,13 @@ import {
   addPlanCommentToBundle,
   buildNativeAnchorFromElement,
   buildCommentThreads,
+  canSubmitInlineCommentDraft,
   canEditPlanContentRole,
   commentAuthorEmails,
   commentThreadsForVisualSurfaceMode,
   commentThreadsForVisibility,
+  defaultInlineCommentDraftForPlanContext,
+  isPlanCommentShortcutEditableTarget,
   mentionQueryAtCaret,
   localPlanBridgeRetryDelay,
   nativeMarkerPlacementForAnchor,
@@ -25,6 +29,7 @@ import {
   shouldRetryLocalPlanBridgeBundle,
   shouldShowPlanLoadError,
   shouldKeepCommentPopoverOpenForTarget,
+  shouldHandlePlanCommentShortcut,
   resolvePlanOrgAccessPrompt,
 } from "./PlansPage";
 
@@ -498,6 +503,106 @@ describe("plan comment thread UI model", () => {
       resolutionTarget: "human",
       mentions: [{ label: "Tiana", email: "tiana@example.com" }],
     });
+  });
+
+  it("defaults recap human comments to the source author instead of the owner", () => {
+    const draft = defaultInlineCommentDraftForPlanContext({
+      planKind: "recap",
+      ownerEmail: "svc-pr-recap@builder.io",
+      sourceAuthorName: "Sami",
+      sourceAuthorLogin: "sami",
+      accessRole: "viewer",
+      currentEmail: "steve@builder.io",
+    });
+
+    expect(draft).toEqual({
+      message: `@[Sami](mailto:${encodeURIComponent(SOURCE_AUTHOR_COMMENT_MENTION_EMAIL)}) `,
+      mentions: [
+        {
+          email: SOURCE_AUTHOR_COMMENT_MENTION_EMAIL,
+          label: "Sami",
+          role: "source-author",
+        },
+      ],
+      resolutionTarget: "human",
+    });
+  });
+
+  it("does not fall back to the recap service owner when source author email is absent", () => {
+    const draft = defaultInlineCommentDraftForPlanContext({
+      planKind: "recap",
+      ownerEmail: "svc-pr-recap@builder.io",
+      accessRole: "viewer",
+      currentEmail: "steve@builder.io",
+    });
+
+    expect(draft).toEqual({
+      message: "",
+      mentions: [],
+      resolutionTarget: "agent",
+    });
+  });
+
+  it("does not submit human-targeted inline comments without a mention", () => {
+    expect(
+      canSubmitInlineCommentDraft({
+        draft: {
+          message: "please check this",
+          mentions: [],
+          resolutionTarget: "human",
+        },
+      }),
+    ).toBe(false);
+    expect(
+      canSubmitInlineCommentDraft({
+        draft: {
+          message: "please check this",
+          mentions: [],
+          resolutionTarget: "agent",
+        },
+      }),
+    ).toBe(true);
+  });
+
+  it("handles comment shortcuts only outside editable targets", () => {
+    expect(
+      shouldHandlePlanCommentShortcut(
+        new KeyboardEvent("keydown", { key: "c" }),
+      ),
+    ).toBe(true);
+    expect(
+      shouldHandlePlanCommentShortcut(
+        new KeyboardEvent("keydown", {
+          key: "m",
+          metaKey: true,
+          shiftKey: true,
+        }),
+      ),
+    ).toBe(true);
+    expect(
+      shouldHandlePlanCommentShortcut(
+        new KeyboardEvent("keydown", {
+          key: "m",
+          ctrlKey: true,
+          shiftKey: true,
+        }),
+      ),
+    ).toBe(false);
+
+    const input = document.createElement("input");
+    const editor = document.createElement("div");
+    editor.contentEditable = "true";
+    editor.setAttribute("contenteditable", "true");
+    document.body.append(input, editor);
+    input.focus();
+    expect(
+      shouldHandlePlanCommentShortcut(
+        new KeyboardEvent("keydown", { key: "c" }),
+      ),
+    ).toBe(false);
+    expect(isPlanCommentShortcutEditableTarget(editor)).toBe(true);
+    input.remove();
+    editor.remove();
   });
 
   it("does not resolve prototype comment anchors against the wrong active screen", () => {
