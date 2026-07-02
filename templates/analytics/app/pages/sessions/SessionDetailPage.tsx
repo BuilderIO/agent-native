@@ -1243,7 +1243,14 @@ function sanitizeCssText(value: string): string {
   if (!containsStylesheetNetworkLoad(value)) return value;
   return value
     .replace(/@import\s+(?:url\s*\()?[^;{}]+;?/gi, "")
-    .replace(/\burl\s*\((?:\\.|[^\\)])*\)/gi, "none");
+    .replace(/\burl\s*\(\s*((?:\\.|[^\\)])*)\)/gi, sanitizeCssUrlToken);
+}
+
+function sanitizeCssUrlToken(match: string, rawValue: string): string {
+  const urlValue = rawValue.trim();
+  const unquoted = urlValue.replace(/^(['"])(.*)\1$/, "$2").trim();
+  if (/^(?:data:|blob:|#)/i.test(unquoted)) return match;
+  return "none";
 }
 
 function sanitizeAttributes(attributes: AnyRecord): AnyRecord {
@@ -1256,6 +1263,11 @@ function sanitizeAttributes(attributes: AnyRecord): AnyRecord {
     if (normalized === "style") {
       const style = sanitizeCssText(String(value));
       if (style.trim()) next[key] = style;
+      continue;
+    }
+    if (normalized === "_csstext") {
+      const cssText = sanitizeCssText(String(value));
+      if (cssText.trim()) next[key] = cssText;
       continue;
     }
     next[key] = value;

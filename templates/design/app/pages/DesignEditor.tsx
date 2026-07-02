@@ -151,6 +151,10 @@ import {
   type CanvasContextMenuHandle,
 } from "@/components/design/CanvasContextMenu";
 import {
+  CodeWorkbenchHost,
+  type CodeWorkbenchActiveFile,
+} from "@/components/design/CodeWorkbenchHost";
+import {
   DesignCanvas,
   type IframeContextMenuPayload,
   type IframeHotkeyPayload,
@@ -552,18 +556,34 @@ export function getDesignEditorStateUrlSearch(args: {
   currentSearch: string;
   viewMode: "single" | "overview";
   screenId?: string | null;
+  codeFileId?: string | null;
+  codeFilename?: string | null;
   selectionId?: string | null;
+  leftPanel?: DesignLeftPanel | null;
   zoom?: number | null;
 }) {
   const params = new URLSearchParams(args.currentSearch);
   params.set("view", args.viewMode);
+  if (args.leftPanel && args.leftPanel !== "file") {
+    params.set("panel", args.leftPanel);
+  } else {
+    params.delete("panel");
+  }
   if (args.screenId) {
     params.set("screen", args.screenId);
   } else {
     params.delete("screen");
   }
-  params.delete("fileId");
-  params.delete("filename");
+  if (args.leftPanel === "code" && args.codeFileId) {
+    params.set("fileId", args.codeFileId);
+  } else {
+    params.delete("fileId");
+  }
+  if (args.leftPanel === "code" && !args.codeFileId && args.codeFilename) {
+    params.set("filename", args.codeFilename);
+  } else {
+    params.delete("filename");
+  }
   if (args.selectionId) {
     params.set("selection", args.selectionId);
   } else {
@@ -3503,7 +3523,8 @@ type DesignLeftPanel =
   | "assets"
   | "tools"
   | "tokens"
-  | "import";
+  | "import"
+  | "code";
 
 const INITIAL_GENERATION_DISABLED_LEFT_PANELS = new Set<DesignLeftPanel>([
   "file",
@@ -3511,6 +3532,7 @@ const INITIAL_GENERATION_DISABLED_LEFT_PANELS = new Set<DesignLeftPanel>([
   "tools",
   "tokens",
   "import",
+  "code",
 ]);
 
 function normalizeDesignLeftPanel(value: unknown): DesignLeftPanel | undefined {
@@ -3520,7 +3542,8 @@ function normalizeDesignLeftPanel(value: unknown): DesignLeftPanel | undefined {
     value === "assets" ||
     value === "tools" ||
     value === "tokens" ||
-    value === "import"
+    value === "import" ||
+    value === "code"
     ? value
     : undefined;
 }
@@ -3579,6 +3602,11 @@ function DesignWorkspaceRail({
       icon: <IconAssembly className="size-[15px]" />,
     },
   ];
+  const codeItem = {
+    panel: "code" as const,
+    label: "Code" /* i18n-ignore */,
+    icon: <IconCode className="size-[15px]" />,
+  };
 
   return (
     <nav
@@ -3637,6 +3665,51 @@ function DesignWorkspaceRail({
             </Tooltip>
           );
         })}
+        <div className="mt-auto flex w-full flex-col items-center border-t border-border/70 pt-3">
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                aria-label={codeItem.label}
+                aria-disabled={disabledPanels?.has(codeItem.panel) || undefined}
+                aria-current={
+                  activePanel === codeItem.panel ? "page" : undefined
+                }
+                tabIndex={disabledPanels?.has(codeItem.panel) ? -1 : undefined}
+                onClick={(event) => {
+                  if (disabledPanels?.has(codeItem.panel)) {
+                    event.preventDefault();
+                    return;
+                  }
+                  onPanelChange(codeItem.panel);
+                }}
+                className={cn(
+                  "group flex w-12 cursor-pointer flex-col items-center justify-start gap-1 rounded-none text-[10px] font-[450] leading-none text-muted-foreground outline-none transition-colors hover:text-foreground focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]",
+                  disabledPanels?.has(codeItem.panel) &&
+                    "cursor-default opacity-35 hover:text-muted-foreground",
+                  activePanel === codeItem.panel && "text-foreground",
+                )}
+              >
+                <span
+                  className={cn(
+                    "flex size-8 items-center justify-center rounded-lg transition-colors",
+                    activePanel === codeItem.panel
+                      ? "bg-[var(--design-editor-selection-color)] text-[var(--design-editor-accent-color)]"
+                      : "text-muted-foreground group-hover:bg-[var(--design-editor-layer-hover-color)] group-hover:text-foreground",
+                    disabledPanels?.has(codeItem.panel) &&
+                      "group-hover:bg-transparent group-hover:text-muted-foreground",
+                  )}
+                >
+                  {codeItem.icon}
+                </span>
+                <span className="max-w-full truncate leading-none">
+                  {codeItem.label}
+                </span>
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="right">{codeItem.label}</TooltipContent>
+          </Tooltip>
+        </div>
       </div>
       {onMotionToggle ? (
         <div className="mt-4 flex w-full flex-col items-center border-t border-border/70 pt-3">
@@ -4623,6 +4696,8 @@ export default function DesignEditor() {
     useState<InspectorTab>("design");
   const [activeLeftPanel, setActiveLeftPanel] =
     useState<DesignLeftPanel>("file");
+  const [activeCodeFile, setActiveCodeFile] =
+    useState<CodeWorkbenchActiveFile | null>(null);
   const initialSearchCommandAppliedForIdRef = useRef<string | null>(null);
   const initialUrlSelectionHydratedForIdRef = useRef<string | null>(null);
   const [leftSidebarWidth, setLeftSidebarWidth] = useState(256);
@@ -4911,11 +4986,17 @@ export default function DesignEditor() {
       event.stopPropagation();
       event.currentTarget.setPointerCapture?.(event.pointerId);
       const startX = event.clientX;
-      const startWidth = side === "left" ? leftSidebarWidth : rightSidebarWidth;
+      const codePanelOpen = side === "left" && activeLeftPanel === "code";
+      const startWidth =
+        side === "left"
+          ? codePanelOpen
+            ? Math.max(leftSidebarWidth, 640)
+            : Math.min(leftSidebarWidth, 420)
+          : rightSidebarWidth;
       const setWidth =
         side === "left" ? setLeftSidebarWidth : setRightSidebarWidth;
-      const minWidth = side === "left" ? 220 : 240;
-      const maxWidth = side === "left" ? 420 : 390;
+      const minWidth = side === "left" ? (codePanelOpen ? 520 : 220) : 240;
+      const maxWidth = side === "left" ? (codePanelOpen ? 860 : 420) : 390;
       const previousCursor = document.body.style.cursor;
       const previousUserSelect = document.body.style.userSelect;
       const dragShield = document.createElement("div");
@@ -4954,7 +5035,7 @@ export default function DesignEditor() {
       window.addEventListener("pointerup", cleanup);
       window.addEventListener("pointercancel", cleanup);
     },
-    [leftSidebarWidth, rightSidebarWidth],
+    [activeLeftPanel, leftSidebarWidth, rightSidebarWidth],
   );
   // Undo/redo state driven by Y.UndoManager
   const [canUndo, setCanUndo] = useState(false);
@@ -9149,6 +9230,14 @@ export default function DesignEditor() {
       activeTool,
       inspectorTab: activeInspectorTab,
       leftPanel: activeLeftPanel,
+      codeWorkspace: {
+        open: activeLeftPanel === "code",
+        backendKind: activeCodeFile?.backendKind ?? "virtual-inline",
+        activePath: activeCodeFile?.path ?? null,
+        activeFileId: activeCodeFile?.fileId ?? null,
+        dirty: activeCodeFile?.dirty ?? false,
+        versionHash: activeCodeFile?.versionHash ?? null,
+      },
       // §8 DesignNavigationState additions — dock + breakpoint context
       dock: { kind: "motion" as const, open: motionDockOpen },
       motion: {
@@ -9217,6 +9306,7 @@ export default function DesignEditor() {
       activeTool: selection.activeTool,
       inspectorTab: selection.inspectorTab,
       leftPanel: selection.leftPanel,
+      codeWorkspace: selection.codeWorkspace,
       dock: selection.dock,
       motion: selection.motion,
       breakpoint: selection.breakpoint,
@@ -9258,6 +9348,7 @@ export default function DesignEditor() {
     activeTool,
     activeInspectorTab,
     activeLeftPanel,
+    activeCodeFile,
     overviewSelectedScreenIds,
     viewMode,
     zoom,
@@ -14367,6 +14458,9 @@ ${serializedHtml}
       currentSearch: location.search,
       viewMode,
       screenId: activeFile?.id ?? activeFileId,
+      leftPanel: activeLeftPanel,
+      codeFileId: activeLeftPanel === "code" ? activeCodeFile?.fileId : null,
+      codeFilename: activeLeftPanel === "code" ? activeCodeFile?.path : null,
       selectionId:
         selectedUrlSelectionId ??
         (preserveInitialRouteSelection ? initialRouteSelectionId : null),
@@ -14384,6 +14478,9 @@ ${serializedHtml}
   }, [
     activeFile?.id,
     activeFileId,
+    activeCodeFile?.fileId,
+    activeCodeFile?.path,
+    activeLeftPanel,
     codeLayerOwnerByNodeId.size,
     files,
     id,
@@ -16302,7 +16399,14 @@ ${serializedHtml}
     </div>
   );
 
-  const leftContentWidth = Math.max(leftSidebarWidth, 320);
+  const leftContentWidth =
+    activeLeftPanel === "code"
+      ? Math.max(leftSidebarWidth, 640)
+      : Math.max(Math.min(leftSidebarWidth, 420), 320);
+  const routeCodeFileId =
+    activeLeftPanel === "code" ? searchParams.get("fileId") : null;
+  const routeCodeFilename =
+    activeLeftPanel === "code" ? searchParams.get("filename") : null;
   return (
     // h-full not flex-1: the parent <main> uses overflow-y-auto, not flex,
     // so flex-1 on the child doesn't resolve to the available height. h-full
@@ -16846,6 +16950,32 @@ ${serializedHtml}
                     }
                   />
                 )}
+              </div>
+              <div
+                className={cn(
+                  "min-h-0 flex-1 flex-col overflow-hidden",
+                  activeLeftPanel === "code" ? "flex" : "hidden",
+                )}
+              >
+                {id ? (
+                  <CodeWorkbenchHost
+                    designId={id}
+                    activeFileId={
+                      activeLeftPanel === "code"
+                        ? routeCodeFileId
+                        : (activeFile?.id ?? activeFileId)
+                    }
+                    activeFilename={
+                      activeLeftPanel === "code"
+                        ? routeCodeFilename
+                        : activeFile?.filename
+                    }
+                    selectedNodeId={selectedElementLayerId}
+                    selectedSelector={selectedCanvasSelector}
+                    canEdit={canEditDesign}
+                    onActiveFileChange={setActiveCodeFile}
+                  />
+                ) : null}
               </div>
             </div>
             <div

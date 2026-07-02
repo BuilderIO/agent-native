@@ -354,6 +354,7 @@ describe("session replay", () => {
       recordCrossOriginIframes: false,
       collectFonts: false,
       inlineImages: false,
+      inlineStylesheet: true,
       sampling: {
         mousemove: 50,
         mouseInteraction: true,

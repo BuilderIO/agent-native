@@ -12,8 +12,15 @@ export interface NavigationState {
   editorView?: "single" | "overview";
   inspectorTab?: "design" | "tweaks" | "extensions";
   inspector?: "design" | "tweaks" | "extensions";
-  leftPanel?: "file" | "agent" | "assets" | "tools" | "tokens" | "import";
-  panel?: "file" | "agent" | "assets" | "tools" | "tokens" | "import";
+  leftPanel?:
+    | "file"
+    | "agent"
+    | "assets"
+    | "tools"
+    | "tokens"
+    | "import"
+    | "code";
+  panel?: "file" | "agent" | "assets" | "tools" | "tokens" | "import" | "code";
   fileId?: string;
   screenId?: string;
   filename?: string;
@@ -47,8 +54,15 @@ export interface DesignEditorCommand {
   viewMode?: "single" | "overview";
   inspectorTab?: "design" | "tweaks" | "extensions";
   inspector?: "design" | "tweaks" | "extensions";
-  leftPanel?: "file" | "agent" | "assets" | "tools" | "tokens" | "import";
-  panel?: "file" | "agent" | "assets" | "tools" | "tokens" | "import";
+  leftPanel?:
+    | "file"
+    | "agent"
+    | "assets"
+    | "tools"
+    | "tokens"
+    | "import"
+    | "code";
+  panel?: "file" | "agent" | "assets" | "tools" | "tokens" | "import" | "code";
   fileId?: string;
   screenId?: string;
   filename?: string;
@@ -88,14 +102,23 @@ function normalizeInspectorTab(
 
 function normalizeLeftPanel(
   value: unknown,
-): "file" | "agent" | "assets" | "tools" | "tokens" | "import" | undefined {
+):
+  | "file"
+  | "agent"
+  | "assets"
+  | "tools"
+  | "tokens"
+  | "import"
+  | "code"
+  | undefined {
   if (value === "extensions") return "tools";
   return value === "file" ||
     value === "agent" ||
     value === "assets" ||
     value === "tools" ||
     value === "tokens" ||
-    value === "import"
+    value === "import" ||
+    value === "code"
     ? value
     : undefined;
 }
@@ -185,6 +208,8 @@ export function useNavigationState(enabled = true) {
           searchParams.get("inspector"),
         );
         if (inspectorTab) state.inspectorTab = inspectorTab;
+        const leftPanel = normalizeLeftPanel(searchParams.get("panel"));
+        if (leftPanel) state.leftPanel = leftPanel;
         const screen = searchParams.get("screen");
         if (screen) state.screen = screen;
         const fileId = searchParams.get("fileId");
