@@ -205,13 +205,26 @@ function baseActivityLabel(ev: SSEEvent, tool?: string): string {
   return humanizeToolLabelText(ev.label ?? "Working", tool);
 }
 
-function visibleActivityLabel(ev: SSEEvent, tool?: string): string {
-  const label = baseActivityLabel(ev, tool);
-  const progressBytes = activityProgressBytes(ev);
-  if (progressBytes === undefined || !isPreparingActionActivity(ev)) {
-    return label;
+function preparationActivityLabel(
+  tool: string | undefined,
+  progressBytes: number | undefined,
+): string {
+  const action = humanizeToolName(tool);
+  if (progressBytes === undefined) {
+    return `Starting ${action}...`;
   }
-  return `${label} (${formatProgressBytes(progressBytes)} streamed)`;
+  if (progressBytes <= 0) {
+    return `Preparing ${action}...`;
+  }
+  return `Writing ${action}... (${formatProgressBytes(progressBytes)} prepared)`;
+}
+
+function visibleActivityLabel(ev: SSEEvent, tool?: string): string {
+  const progressBytes = activityProgressBytes(ev);
+  if (isPreparingActionActivity(ev)) {
+    return preparationActivityLabel(tool, progressBytes);
+  }
+  return baseActivityLabel(ev, tool);
 }
 
 function findPendingToolCallIndex(
