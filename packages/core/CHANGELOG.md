@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.84.51
+
+### Patch Changes
+
+- 55e4678: Recover durable background chat runs when action input preparation stops making byte progress, and avoid duplicate tool cards when reconnects replay completed tool events.
+
 ## 0.84.50
 
 ### Patch Changes
