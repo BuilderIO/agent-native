@@ -422,6 +422,25 @@ export const parityMatrix: ParityRow[] = [
     followUpPR: null,
   },
   {
+    id: "source-sync.docs-content-dogfood-workspace",
+    surface: "source-sync",
+    label: "Create or upgrade an internal Builder docs/blog dogfood workspace",
+    uiEntrypoints: ["actions/configure-docs-content-dogfood-workspace.ts"],
+    durableEffect:
+      "The workspace database gets content-operations fields, saved views, and row-level source safety indicators where source data exists.",
+    uiImplementation:
+      "Currently agent/action-facing for internal dogfood setup rather than a primary visible UI wizard.",
+    status: "action-backed",
+    actions: ["configure-docs-content-dogfood-workspace"],
+    exception: null,
+    reliabilityRisk:
+      "Depends on separate scale, bulk-update, and source-component mapping lanes for broader docs/blog operational guarantees.",
+    spinePriority: "P1",
+    testCoverage: "covered",
+    followUpPR: null,
+    coverageRefs: ["actions/configure-docs-content-dogfood-workspace.test.ts"],
+  },
+  {
     id: "source-sync.provider-api-and-staged-datasets",
     surface: "source-sync",
     label:
