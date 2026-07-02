@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.84.50
+
+### Patch Changes
+
+- 24a6bd2: Retry agent chat startup timeouts before showing an error when no run stream starts.
+
 ## 0.84.49
 
 ### Patch Changes
