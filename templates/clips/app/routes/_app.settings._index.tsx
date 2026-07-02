@@ -593,7 +593,7 @@ export default function SettingsIndexRoute() {
         );
       }
       setS3Values({});
-      await refreshApiKeyStatus();
+      await Promise.all([refreshApiKeyStatus(), storageStatus.refetch()]);
       toast.success(t("settings.keyCleared"));
     } catch (err) {
       toast.error(
