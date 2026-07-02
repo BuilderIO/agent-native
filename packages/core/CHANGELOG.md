@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.84.52
+
+### Patch Changes
+
+- ca38cc7: Carry action-preparation stall detection across reconnect reads for the same run so zero-byte tool input retries cannot keep background chats alive indefinitely.
+
 ## 0.84.51
 
 ### Patch Changes
