@@ -1118,19 +1118,21 @@ export default function RecordRoute() {
               setUiState("uploading");
             }
           },
-          onChunk: ({ index, bytes, total }) => {
+          onChunk: ({ index, total }) => {
             // `total` is only known once the full recording is sliced into
             // fixed-size chunks after stop(); the live per-chunk uploads
             // during recording report `total: null` and don't drive this bar.
-            setUploadProgress(total ? (index + 1) / total : null);
+            const fraction = total ? (index + 1) / total : null;
+            setUploadProgress(fraction);
             const recordingId = pendingRef.current?.id;
             if (!recordingId) return;
+            // Only expose a percentage here — this state is agent-visible, and
+            // chunk/byte counts are an internal transport detail, not
+            // something to surface to the user.
             void writeAppState(`recording-upload-${recordingId}`, {
               recordingId,
               status: "uploading",
-              chunksReceived: index + 1,
-              totalChunks: total ?? undefined,
-              lastChunkBytes: bytes,
+              progress: fraction !== null ? Math.round(fraction * 100) : null,
               updatedAt: new Date().toISOString(),
             }).catch(() => {});
           },
