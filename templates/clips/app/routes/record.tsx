@@ -2451,7 +2451,9 @@ export default function RecordRoute() {
           users wonder if the app froze). */}
       {(uiState === "uploading" || uiState === "compressing") && (
         <div className="fixed inset-0 z-[120] flex flex-col items-center justify-center gap-3 bg-black/70 text-white backdrop-blur">
-          <Spinner className="h-10 w-10 text-white/70" />
+          {!(uiState === "uploading" && uploadProgress !== null) && (
+            <Spinner className="h-10 w-10 text-white/70" />
+          )}
           {uiState === "compressing" ? (
             <>
               <div className="text-sm">
