@@ -517,10 +517,17 @@ export default defineEventHandler(async (event: H3Event) => {
             compressedSourceUrl &&
             !shouldSkipCompressedBuilderMediaProbe(compressedSourceUrl)
           ) {
-            upstream = await fetchProviderMedia(
-              compressedSourceUrl,
-              rangeHeader,
-            );
+            try {
+              upstream = await fetchProviderMedia(
+                compressedSourceUrl,
+                rangeHeader,
+              );
+            } catch (err) {
+              upstream = {
+                status: statusCodeForProviderFetchError(err),
+                error: messageForProviderFetchError(err),
+              };
+            }
             if (shouldRememberCompressedBuilderMediaMiss(upstream)) {
               rememberCompressedBuilderMediaMiss(compressedSourceUrl);
             }

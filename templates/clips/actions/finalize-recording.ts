@@ -138,13 +138,6 @@ function shouldVerifyServedMediaUrl(value: string): boolean {
 async function responseHasReadableMediaBytes(
   response: Response,
 ): Promise<boolean> {
-  const rawContentLength = response.headers.get("content-length");
-  const contentLength =
-    rawContentLength === null ? NaN : Number.parseInt(rawContentLength, 10);
-  if (Number.isFinite(contentLength) && contentLength > 0) {
-    await response.body?.cancel().catch(() => undefined);
-    return true;
-  }
   const body = await response.arrayBuffer().catch(() => new ArrayBuffer(0));
   return body.byteLength > 0;
 }

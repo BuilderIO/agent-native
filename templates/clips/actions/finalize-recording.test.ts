@@ -219,6 +219,35 @@ describe("finalize-recording media serve verification", () => {
     }
   });
 
+  it("does not trust content-length without readable media bytes", async () => {
+    const chunkKeys = seedBufferedRecording();
+    vi.mocked(fetch).mockResolvedValue(
+      new Response("", {
+        status: 206,
+        headers: { "content-length": "1024" },
+      }),
+    );
+
+    await expect(
+      finalizeRecording.run({ id: "rec-1", mimeType: "video/mp4" }),
+    ).rejects.toThrow(/stored-but-unservable/i);
+
+    expect(mockUpdateSets).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          status: "failed",
+          failureReason: expect.stringMatching(/stored-but-unservable/i),
+        }),
+      ]),
+    );
+    expect(mockUpdateSets).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ status: "ready" })]),
+    );
+    for (const key of chunkKeys) {
+      expect(mockDeleteAppState).not.toHaveBeenCalledWith(key);
+    }
+  });
+
   it("marks ready when media verification gets one 500 and then succeeds", async () => {
     const chunkKeys = seedBufferedRecording();
     vi.mocked(fetch)
