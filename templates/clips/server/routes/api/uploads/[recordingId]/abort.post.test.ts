@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockWriteAppState = vi.hoisted(() => vi.fn());
+const mockReadAppState = vi.hoisted(() => vi.fn());
 const mockDeleteAppStateByPrefix = vi.hoisted(() => vi.fn());
 const mockGetRouterParam = vi.hoisted(() => vi.fn());
 const mockReadBody = vi.hoisted(() => vi.fn());
@@ -29,6 +30,7 @@ const mockDb = vi.hoisted(() => ({
 }));
 
 vi.mock("@agent-native/core/application-state", () => ({
+  readAppState: (...args: unknown[]) => mockReadAppState(...args),
   writeAppState: (...args: unknown[]) => mockWriteAppState(...args),
   deleteAppStateByPrefix: (...args: unknown[]) =>
     mockDeleteAppStateByPrefix(...args),
@@ -99,6 +101,16 @@ describe("/api/uploads/:recordingId/abort route", () => {
     mockOwnerEmailMatches.mockReturnValue("owner-match");
     mockDeleteAppStateByPrefix.mockResolvedValue(2);
     mockDeleteResumableSession.mockResolvedValue(undefined);
+    mockReadAppState.mockResolvedValue({
+      recordingId: "rec-1",
+      status: "uploading",
+      mimeType: "video/mp4",
+      durationMs: 1234,
+      width: 1280,
+      height: 720,
+      hasAudio: true,
+      hasCamera: false,
+    });
     mockWriteAppState.mockResolvedValue(undefined);
   });
 
@@ -111,6 +123,19 @@ describe("/api/uploads/:recordingId/abort route", () => {
 
     expect(mockDeleteAppStateByPrefix).not.toHaveBeenCalled();
     expect(mockDeleteResumableSession).not.toHaveBeenCalled();
+    expect(mockWriteAppState).toHaveBeenCalledWith(
+      "recording-upload-rec-1",
+      expect.objectContaining({
+        recordingId: "rec-1",
+        status: "failed",
+        mimeType: "video/mp4",
+        durationMs: 1234,
+        width: 1280,
+        height: 720,
+        hasAudio: true,
+        hasCamera: false,
+      }),
+    );
     expect(mockUpdateSets).toEqual(
       expect.arrayContaining([
         expect.objectContaining({

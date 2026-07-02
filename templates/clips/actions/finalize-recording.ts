@@ -215,7 +215,15 @@ async function failStoredButUnservableRecording(params: {
         ownerEmailMatches(schema.recordings.ownerEmail, ownerEmail),
       ),
     );
+  const uploadStateRaw = await readAppState(`recording-upload-${id}`).catch(
+    () => null,
+  );
+  const uploadState =
+    uploadStateRaw && typeof uploadStateRaw === "object"
+      ? (uploadStateRaw as Record<string, unknown>)
+      : {};
   await writeAppState(`recording-upload-${id}`, {
+    ...uploadState,
     recordingId: id,
     status: "failed",
     failureReason,

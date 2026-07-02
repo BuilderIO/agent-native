@@ -6,6 +6,7 @@
  */
 
 import {
+  readAppState,
   writeAppState,
   deleteAppStateByPrefix,
 } from "@agent-native/core/application-state";
@@ -91,7 +92,15 @@ export default defineEventHandler(async (event: H3Event) => {
       })
       .where(eq(schema.recordings.id, recordingId));
 
+    const existingUploadStateRaw = await readAppState(
+      `recording-upload-${recordingId}`,
+    ).catch(() => null);
+    const existingUploadState =
+      existingUploadStateRaw && typeof existingUploadStateRaw === "object"
+        ? (existingUploadStateRaw as Record<string, unknown>)
+        : {};
     await writeAppState(`recording-upload-${recordingId}`, {
+      ...existingUploadState,
       recordingId,
       status: "failed",
       failureReason,

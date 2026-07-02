@@ -214,6 +214,19 @@ describe("finalize-recording media serve verification", () => {
     expect(mockUpdateSets).not.toEqual(
       expect.arrayContaining([expect.objectContaining({ status: "ready" })]),
     );
+    expect(mockWriteAppState).toHaveBeenCalledWith(
+      "recording-upload-rec-1",
+      expect.objectContaining({
+        recordingId: "rec-1",
+        status: "failed",
+        mimeType: "video/mp4",
+        durationMs: 1234,
+        width: 1280,
+        height: 720,
+        hasAudio: true,
+        hasCamera: false,
+      }),
+    );
     for (const key of chunkKeys) {
       expect(mockDeleteAppState).not.toHaveBeenCalledWith(key);
     }
