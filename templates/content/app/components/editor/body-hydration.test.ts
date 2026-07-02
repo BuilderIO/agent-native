@@ -6,7 +6,9 @@ import {
   documentBodyHydrationIsPending,
 } from "./body-hydration";
 
-function documentWithHydration(status: "pending" | "hydrating" | "hydrated") {
+function documentWithHydration(
+  status: "pending" | "hydrating" | "hydrated" | "error",
+) {
   return {
     id: "row-page",
     parentId: "database-page",
@@ -35,13 +37,16 @@ function documentWithHydration(status: "pending" | "hydrating" | "hydrated") {
 }
 
 describe("body hydration editing gates", () => {
-  it("treats pending and hydrating Builder bodies as not yet editable", () => {
+  it("treats any non-hydrated Builder body as not yet editable", () => {
     expect(
       documentBodyHydrationIsPending(documentWithHydration("pending")),
     ).toBe(true);
     expect(
       documentBodyHydrationIsPending(documentWithHydration("hydrating")),
     ).toBe(true);
+    expect(documentBodyHydrationIsPending(documentWithHydration("error"))).toBe(
+      true,
+    );
     expect(
       documentBodyHydrationIsPending(documentWithHydration("hydrated")),
     ).toBe(false);

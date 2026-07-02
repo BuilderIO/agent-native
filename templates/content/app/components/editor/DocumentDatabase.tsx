@@ -171,6 +171,10 @@ import { cn } from "@/lib/utils";
 
 import { resolveBuilderCmsWriteEffect } from "../../../actions/_builder-cms-write-adapter.js";
 import { databaseItemBodyHydrationIsPending } from "./body-hydration";
+import {
+  builderBodyHydrationPumpKey,
+  shouldPumpBuilderBodyHydration,
+} from "./builder-body-hydration-pump";
 import { BuilderBodySyncingNotice } from "./BuilderBodySyncingNotice";
 import { BuilderSourceReviewDialog } from "./database-sources/BuilderSourceReviewDialog";
 import { type BuilderReviewPublicationTransitions } from "./database-sources/BuilderSourceReviewDialog";
@@ -621,6 +625,20 @@ function DatabaseTable({
     builderContinuationClientErrorKey,
     setBuilderContinuationClientErrorKey,
   ] = useState<string | null>(null);
+  const autoPumpBuilderBodiesRef = useRef<string | null>(null);
+  const [builderHydrationClientErrorKey, setBuilderHydrationClientErrorKey] =
+    useState<string | null>(null);
+  const [builderProgressHighWater, setBuilderProgressHighWater] = useState<{
+    sourceId: string | null;
+    fetchedCount: number;
+    hydratedCount: number;
+    rowsComplete: boolean;
+  }>({
+    sourceId: null,
+    fetchedCount: 0,
+    hydratedCount: 0,
+    rowsComplete: false,
+  });
   const previewStateRef = useRef<{
     documentId: string | null;
     visibleItems: ContentDatabaseItem[];
@@ -741,6 +759,53 @@ function DatabaseTable({
   }, [visibleItems]);
 
   useEffect(() => {
+    if (!source || source.sourceType !== "builder-cms") {
+      autoPumpBuilderBodiesRef.current = null;
+      setBuilderHydrationClientErrorKey(null);
+      setBuilderProgressHighWater({
+        sourceId: null,
+        fetchedCount: 0,
+        hydratedCount: 0,
+        rowsComplete: false,
+      });
+      return;
+    }
+    const rawFetchedCount =
+      typeof source.metadata.lastReadFetchedEntryCount === "number"
+        ? source.metadata.lastReadFetchedEntryCount
+        : typeof source.metadata.lastReadEntryCount === "number"
+          ? source.metadata.lastReadEntryCount
+          : 0;
+    const fetchedCount =
+      source.metadata.lastReadHasMore === false
+        ? Math.max(rawFetchedCount, source.bodyHydration?.total ?? 0)
+        : rawFetchedCount;
+    const hydratedCount = source.bodyHydration?.hydrated ?? 0;
+    const rowsComplete = source.metadata.lastReadHasMore === false;
+    setBuilderProgressHighWater((current) => {
+      if (current.sourceId !== source.id) {
+        return {
+          sourceId: source.id,
+          fetchedCount,
+          hydratedCount,
+          rowsComplete,
+        };
+      }
+      const next = {
+        sourceId: source.id,
+        fetchedCount: Math.max(current.fetchedCount, fetchedCount),
+        hydratedCount: Math.max(current.hydratedCount, hydratedCount),
+        rowsComplete: current.rowsComplete || rowsComplete,
+      };
+      return next.fetchedCount === current.fetchedCount &&
+        next.hydratedCount === current.hydratedCount &&
+        next.rowsComplete === current.rowsComplete
+        ? current
+        : next;
+    });
+  }, [source]);
+
+  useEffect(() => {
     if (
       !canEdit ||
       !source ||
@@ -777,6 +842,35 @@ function DatabaseTable({
     document.id,
     refreshSource.mutate,
     refreshSource.isPending,
+    source,
+  ]);
+
+  useEffect(() => {
+    if (
+      !canEdit ||
+      !source ||
+      !shouldPumpBuilderBodyHydration(
+        source,
+        processBuilderBodies.isPending,
+        builderHydrationClientErrorKey,
+      )
+    ) {
+      return;
+    }
+    const hydrationKey = builderBodyHydrationPumpKey(source);
+    if (!hydrationKey || autoPumpBuilderBodiesRef.current === hydrationKey) {
+      return;
+    }
+    autoPumpBuilderBodiesRef.current = hydrationKey;
+    processBuilderBodies.mutate(
+      { sourceId: source.id },
+      { onError: () => setBuilderHydrationClientErrorKey(hydrationKey) },
+    );
+  }, [
+    builderHydrationClientErrorKey,
+    canEdit,
+    processBuilderBodies.isPending,
+    processBuilderBodies.mutate,
     source,
   ]);
 
@@ -1521,6 +1615,7 @@ function DatabaseTable({
               builderSourceContinuationKey(source)
             : false
         }
+        progressHighWater={builderProgressHighWater}
         onContinue={() => {
           if (!source) return;
           const continuationKey = builderSourceContinuationKey(source);
@@ -5722,12 +5817,19 @@ function BuilderSourceContinuationBar({
   canEdit,
   pending,
   clientError,
+  progressHighWater,
   onContinue,
 }: {
   source: ContentDatabaseSource | null;
   canEdit: boolean;
   pending: boolean;
   clientError: boolean;
+  progressHighWater: {
+    sourceId: string | null;
+    fetchedCount: number;
+    hydratedCount: number;
+    rowsComplete: boolean;
+  };
   onContinue: () => void;
 }) {
   if (
@@ -5737,15 +5839,38 @@ function BuilderSourceContinuationBar({
   ) {
     return null;
   }
-  const status = clientError ? "error" : builderSourceRowFetchStatus(source);
+  const rowsComplete =
+    source.metadata.lastReadHasMore === false ||
+    (progressHighWater.sourceId === source.id &&
+      progressHighWater.rowsComplete);
+  const rawStatus = clientError ? "error" : builderSourceRowFetchStatus(source);
+  const status = rowsComplete && rawStatus === "fetching" ? null : rawStatus;
   const bodyHydration = source.bodyHydration;
-  const fetchedCount =
+  const rawFetchedCount =
     typeof source.metadata.lastReadFetchedEntryCount === "number"
       ? source.metadata.lastReadFetchedEntryCount
       : typeof source.metadata.lastReadEntryCount === "number"
         ? source.metadata.lastReadEntryCount
         : null;
-  const hasMore = source.metadata.lastReadHasMore === true;
+  const hydratedCount = bodyHydration
+    ? Math.max(
+        bodyHydration.hydrated,
+        progressHighWater.sourceId === source.id
+          ? progressHighWater.hydratedCount
+          : 0,
+      )
+    : 0;
+  const fetchedCount =
+    rowsComplete && bodyHydration
+      ? Math.max(
+          rawFetchedCount ?? 0,
+          bodyHydration.total,
+          progressHighWater.sourceId === source.id
+            ? progressHighWater.fetchedCount
+            : 0,
+        )
+      : rawFetchedCount;
+  const hasMore = source.metadata.lastReadHasMore === true && !rowsComplete;
   const bodyHydrationActive =
     !hasMore &&
     !!bodyHydration &&
@@ -5753,7 +5878,7 @@ function BuilderSourceContinuationBar({
     bodyHydration.pending + bodyHydration.hydrating > 0;
   if (!status && !bodyHydrationActive) return null;
   const progressPercent = bodyHydrationActive
-    ? Math.round((bodyHydration!.hydrated / bodyHydration!.total) * 100)
+    ? Math.round((hydratedCount / bodyHydration!.total) * 100)
     : builderSourceContinuationProgressPercent(source);
   const label =
     status === "error" ? (
@@ -5771,7 +5896,7 @@ function BuilderSourceContinuationBar({
         <DatabaseText
           k="builderBodiesSyncingProgress"
           values={{
-            hydrated: bodyHydration.hydrated,
+            hydrated: hydratedCount,
             total: bodyHydration.total,
           }}
         />
@@ -5781,7 +5906,7 @@ function BuilderSourceContinuationBar({
         k="builderRowsFetchedBodiesSyncing"
         values={{
           rows: fetchedCount,
-          hydrated: bodyHydration.hydrated,
+          hydrated: hydratedCount,
           total: bodyHydration.total,
         }}
       />
