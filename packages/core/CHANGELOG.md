@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.84.61
+
+### Patch Changes
+
+- 3a66817: Recover share access lookups when a hosted database is missing newer additive resource columns, and prefer Netlify unpooled database URLs for migrations.
+
 ## 0.84.60
 
 ### Patch Changes
