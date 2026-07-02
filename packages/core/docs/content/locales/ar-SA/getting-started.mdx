@@ -52,6 +52,15 @@ export default defineAction({
           href: "/response-insights",
         },
       },
+      chartSeries: {
+        type: "bar",
+        xKey: "day",
+        series: [{ key: "responses", label: "Responses" }],
+        data: Array.from({ length: 10 }, (_, day) => ({
+          day: day + 1,
+          responses: Math.round(Math.random() * 10) + 10,
+        })),
+      },
     }),
 });
 ```
