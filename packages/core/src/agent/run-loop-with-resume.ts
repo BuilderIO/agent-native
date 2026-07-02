@@ -27,6 +27,8 @@ import {
   appendAgentLoopContinuation,
   isResumableEngineError,
   continuationReasonForResumableError,
+  lastUnfinishedPreparingActionToolFromEvents,
+  type AgentLoopContinuationReason,
 } from "./production-agent.js";
 import { resolveRunSoftTimeoutMs } from "./run-manager.js";
 import type { ResolveRunSoftTimeoutOptions } from "./run-manager.js";
@@ -35,6 +37,26 @@ import {
   classifyToolCallJournal,
   buildResumeJournalNote,
 } from "./tool-call-journal.js";
+import type { AgentChatEvent } from "./types.js";
+
+async function readCurrentTurnEventsForResume(
+  threadId: string | undefined,
+): Promise<AgentChatEvent[]> {
+  if (!threadId) return [];
+  try {
+    return await getCurrentTurnEventsForThread(threadId);
+  } catch {
+    return [];
+  }
+}
+
+function actionPreparationContinuationOptions(
+  events: readonly AgentChatEvent[],
+): { actionPreparationTool?: string } {
+  const actionPreparationTool =
+    lastUnfinishedPreparingActionToolFromEvents(events);
+  return actionPreparationTool ? { actionPreparationTool } : {};
+}
 
 /**
  * Derive the per-turn tool-call journal from the durable run-event ledger and,
@@ -57,13 +79,11 @@ import {
  * complete write tool (returning the journaled result instead). See
  * `tool-call-journal.ts` (`findCompletedJournalEntry`) for the keying used.
  */
-async function appendToolCallJournalNote(
+function appendToolCallJournalNote(
   messages: EngineMessage[],
-  threadId: string | undefined,
-): Promise<void> {
-  if (!threadId) return;
+  events: readonly AgentChatEvent[],
+): void {
   try {
-    const events = await getCurrentTurnEventsForThread(threadId);
     if (events.length === 0) return;
     const journal = classifyToolCallJournal(events);
     const note = buildResumeJournalNote(journal);
@@ -77,6 +97,20 @@ async function appendToolCallJournalNote(
     // parse must not break the resume that the continuation nudge already set
     // up — the model still continues, just without the structured journal.
   }
+}
+
+async function appendContinuationAndJournal(
+  messages: EngineMessage[],
+  reason: AgentLoopContinuationReason,
+  threadId: string | undefined,
+): Promise<void> {
+  const events = await readCurrentTurnEventsForResume(threadId);
+  appendAgentLoopContinuation(
+    messages,
+    reason,
+    actionPreparationContinuationOptions(events),
+  );
+  appendToolCallJournalNote(messages, events);
 }
 
 async function hasCompletedSideEffectToolCallInCurrentTurn(
@@ -197,8 +231,11 @@ export async function runAgentLoopDirectWithSoftTimeout(
       addUsage(nextUsage);
       if (softTimedOut && !upstreamSignal.aborted) {
         lastAttemptWasUnfinishedContinuation = true;
-        appendAgentLoopContinuation(opts.messages, "run_timeout");
-        await appendToolCallJournalNote(opts.messages, opts.threadId);
+        await appendContinuationAndJournal(
+          opts.messages,
+          "run_timeout",
+          opts.threadId,
+        );
         continue;
       }
       return usage;
@@ -212,8 +249,11 @@ export async function runAgentLoopDirectWithSoftTimeout(
         ) {
           opts.send({ type: "clear" });
         }
-        appendAgentLoopContinuation(opts.messages, "run_timeout");
-        await appendToolCallJournalNote(opts.messages, opts.threadId);
+        await appendContinuationAndJournal(
+          opts.messages,
+          "run_timeout",
+          opts.threadId,
+        );
         continue;
       }
       // Resumable transport / gateway interruptions: the LLM call was cut off
@@ -236,11 +276,11 @@ export async function runAgentLoopDirectWithSoftTimeout(
         ) {
           opts.send({ type: "clear" });
         }
-        appendAgentLoopContinuation(
+        await appendContinuationAndJournal(
           opts.messages,
           continuationReasonForResumableError(err),
+          opts.threadId,
         );
-        await appendToolCallJournalNote(opts.messages, opts.threadId);
         continue;
       }
       throw err;

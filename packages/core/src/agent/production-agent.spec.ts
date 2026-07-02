@@ -16,6 +16,7 @@ import { EngineError } from "./engine/types.js";
 import {
   AGENT_INTERNAL_CONTINUE_PROMPT,
   appendAgentLoopContinuation,
+  backgroundContinuationReasonForRun,
   buildUserContentWithAttachments,
   claimBackgroundWorkerRunEarly,
   createPlanModeActionRegistry,
@@ -24,6 +25,7 @@ import {
   isRetryableError,
   actionsToEngineTools,
   MAX_BACKGROUND_RUN_CONTINUATIONS,
+  lastUnfinishedPreparingActionToolFromEvents,
   resolveAgentOwnerEmail,
   resolveBackgroundDispatchOutcome,
   resolveSkillReferenceContent,
@@ -4250,6 +4252,68 @@ describe("shouldChainBackgroundContinuation (server-driven background chain)", (
         continuationCount: 3,
       }),
     ).toBe(true);
+  });
+
+  it("preserves the specific continuation reason for recoverable background errors", () => {
+    expect(
+      backgroundContinuationReasonForRun(
+        makeRun([
+          {
+            type: "error",
+            error: "Builder gateway timed out after 45s",
+            errorCode: "builder_gateway_timeout",
+            recoverable: true,
+          },
+        ]),
+      ),
+    ).toBe("gateway_timeout");
+    expect(
+      backgroundContinuationReasonForRun(
+        makeRun([
+          {
+            type: "error",
+            error: "socket hang up",
+            recoverable: true,
+          },
+        ]),
+      ),
+    ).toBe("network_interrupted");
+  });
+
+  it("keeps unfinished action-preparation context through recoverable errors", () => {
+    expect(
+      lastUnfinishedPreparingActionToolFromEvents([
+        {
+          type: "activity",
+          label: "Preparing edit-design action",
+          tool: "edit-design",
+          id: "tool-1",
+          progressBytes: 0,
+        },
+        {
+          type: "error",
+          error: "Builder gateway timed out after 45s",
+          errorCode: "builder_gateway_timeout",
+          recoverable: true,
+        },
+      ]),
+    ).toBe("edit-design");
+    expect(
+      lastUnfinishedPreparingActionToolFromEvents([
+        {
+          type: "activity",
+          label: "Preparing edit-design action",
+          tool: "edit-design",
+          id: "tool-1",
+          progressBytes: 0,
+        },
+        {
+          type: "error",
+          error: "Missing API key",
+          errorCode: "missing_credentials",
+        },
+      ]),
+    ).toBeUndefined();
   });
 
   it("does NOT chain an aborted/user-stopped background run", () => {

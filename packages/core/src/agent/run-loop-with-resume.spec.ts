@@ -244,6 +244,53 @@ describe("runAgentLoopDirectWithSoftTimeout", () => {
     expect(continuationMessages).toHaveLength(1);
   });
 
+  it("includes unfinished action-preparation guidance on foreground resume", async () => {
+    let attempts = 0;
+    const messages: EngineMessage[] = [
+      { role: "user", content: [{ type: "text", text: "go" }] },
+    ];
+    mockGetCurrentTurnEventsForThread.mockResolvedValue([
+      {
+        type: "activity",
+        label: "Preparing edit-design action",
+        tool: "edit-design",
+        id: "tool-1",
+        progressBytes: 0,
+      },
+    ]);
+
+    mockRunAgentLoop.mockImplementation(async () => {
+      attempts++;
+      if (attempts === 1) {
+        throw new EngineError("Builder gateway timed out after 45s", {
+          errorCode: "builder_gateway_timeout",
+        });
+      }
+      return {
+        inputTokens: 100,
+        outputTokens: 50,
+        cacheReadTokens: 80,
+        cacheWriteTokens: 0,
+        model: "test-model",
+      };
+    });
+
+    await runAgentLoopDirectWithSoftTimeout(
+      makeOpts(messages, new AbortController().signal, undefined, "thread-1"),
+      60_000,
+    );
+
+    expect(attempts).toBe(2);
+    const continuationText = messages
+      .map((m) => (m.content[0]?.type === "text" ? m.content[0].text : ""))
+      .find((t) => t.startsWith(AGENT_INTERNAL_CONTINUE_PROMPT));
+    expect(continuationText).toContain("upstream gateway timeout");
+    expect(continuationText).toContain(
+      "preparing the `edit-design` action input",
+    );
+    expect(continuationText).toContain("smaller `edit-design` payload");
+  });
+
   it("allows direct callers to use the background-function timeout regime", async () => {
     vi.useFakeTimers();
     try {

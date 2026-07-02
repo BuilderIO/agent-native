@@ -4110,12 +4110,14 @@ function isPreparingActionActivityEvent(
   return label.startsWith("preparing ") && label.includes(" action");
 }
 
-function lastUnfinishedPreparingActionTool(run: ActiveRun): string | undefined {
+export function lastUnfinishedPreparingActionToolFromEvents(
+  events: readonly AgentChatEvent[],
+): string | undefined {
   let active: {
     id?: string;
     tool: string;
   } | null = null;
-  for (const { event } of run.events) {
+  for (const event of events) {
     if (isPreparingActionActivityEvent(event)) {
       const tool = event.tool?.trim();
       if (tool) {
@@ -4137,6 +4139,9 @@ function lastUnfinishedPreparingActionTool(run: ActiveRun): string | undefined {
       }
       continue;
     }
+    if (event.type === "error" && isRecoverableContinuationError(event)) {
+      continue;
+    }
     if (
       event.type === "clear" ||
       event.type === "done" ||
@@ -4149,7 +4154,13 @@ function lastUnfinishedPreparingActionTool(run: ActiveRun): string | undefined {
   return active?.tool;
 }
 
-function backgroundContinuationReasonForRun(
+function lastUnfinishedPreparingActionTool(run: ActiveRun): string | undefined {
+  return lastUnfinishedPreparingActionToolFromEvents(
+    run.events.map(({ event }) => event),
+  );
+}
+
+export function backgroundContinuationReasonForRun(
   run: ActiveRun,
 ): AgentLoopContinuationReason {
   const last = run.events.at(-1)?.event;
@@ -4159,6 +4170,11 @@ function backgroundContinuationReasonForRun(
     isAgentLoopContinuationReason(last.reason)
   ) {
     return last.reason;
+  }
+  if (last?.type === "error" && isRecoverableContinuationError(last)) {
+    return continuationReasonForResumableError(
+      new EngineError(last.error, { errorCode: last.errorCode }),
+    );
   }
   return "run_timeout";
 }
