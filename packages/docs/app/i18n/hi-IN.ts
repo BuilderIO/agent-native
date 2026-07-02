@@ -410,8 +410,8 @@ const hiIN = {
   },
   templatesPage: {
     title: "ओपन-सोर्स, एजेंट-नेटिव ऐप्स आपके स्वामित्व में हैं",
-    eyebrow: "100% मुफ़्त और खुला स्रोत",
-    body: "एक टेम्प्लेट फोर्क करें, इसे स्थानीय रूप से चलाएं, और एजेंट को इसे विकसित करने दें। आपके पास कोड है और आप हर चीज़ को कस्टमाइज़ कर सकते हैं।",
+    eyebrow: "एक working app fork करें और agent को इसे evolve करने दें।",
+    body: "आप हर चीज़ customize कर सकते हैं।",
     community: "Blank app चाहिए? Framework guide से scratch से शुरू करें।",
     createYourOwn: "Scratch से शुरू करें",
   },

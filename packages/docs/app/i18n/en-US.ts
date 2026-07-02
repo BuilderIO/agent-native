@@ -409,8 +409,8 @@ const enUS = {
   },
   templatesPage: {
     title: "Open-source agentic apps you own",
-    eyebrow: "100% free and open source",
-    body: "Fork a working app, run it locally, and let the agent evolve it. You own the code and can customize everything.",
+    eyebrow: "Fork a working app and let the agent evolve it.",
+    body: "You can customize everything.",
     community:
       "Want a blank app instead? Start from scratch with the framework guide.",
     createYourOwn: "Start from scratch",

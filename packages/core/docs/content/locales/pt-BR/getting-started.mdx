@@ -48,7 +48,7 @@ export default defineAction({
         title: "42 responses",
         description: "Completion rose this week.",
         primaryAction: {
-          label: "Open response insights",
+          label: "Abrir insights de respostas",
           href: "/response-insights",
         },
       },
@@ -64,11 +64,20 @@ pnpm action analyze-responses --formId demo
 
 Ou peça ao agent no navegador:
 
-> Analyze the recent responses for the demo form.
+> Analise as respostas recentes do formulário de demonstração.
 
 ## 3. Renderize o resultado no chat {#render-inline}
 
 Como a action declara `outputSchema` e `chatUI.renderer`, o transcript não transforma dados estruturados em texto corrido. Ele renderiza um componente React nativo: resumo, gráfico, tabela e link para a página detalhada. Veja [Native Chat UI](/docs/native-chat-ui).
+
+<WireframeBlock id="doc-block-inline-result-wireframe-pt">
+  <Screen
+    surface="desktop"
+    html={
+      "<div style='min-height:520px;box-sizing:border-box;padding:36px;display:flex;justify-content:center;background:var(--wf-bg)'><div style='width:min(780px,100%);display:flex;flex-direction:column;gap:18px'><div style='align-self:flex-end;max-width:70%' class='wf-card'><strong>User</strong><p style='margin:8px 0 0'>Analise as respostas recentes do formulário de demonstração.</p></div><div style='align-self:flex-start;width:min(620px,100%)' class='wf-card'><strong>Agent</strong><p class='wf-muted' style='margin:8px 0 14px'>Aqui estão os insights de respostas mais recentes.</p><div class='wf-card' style='display:grid;grid-template-columns:1.15fr .85fr;gap:14px'><div><div style='display:flex;align-items:baseline;justify-content:space-between'><strong>42 responses</strong><span class='wf-pill'>+18%</span></div><div style='height:120px;margin-top:16px;display:flex;align-items:end;gap:10px'><div style='height:46%;flex:1;background:currentColor;opacity:.18;border-radius:8px'></div><div style='height:72%;flex:1;background:currentColor;opacity:.28;border-radius:8px'></div><div style='height:94%;flex:1;background:currentColor;opacity:.42;border-radius:8px'></div></div></div><div><strong>Principais respostas</strong><div style='margin-top:14px;display:flex;flex-direction:column;gap:8px'><div class='wf-row'><span>Yes</span><span>31</span></div><div class='wf-row'><span>No</span><span>11</span></div></div><button class='primary' style='margin-top:16px;width:100%'>Abrir insights de respostas</button></div></div></div></div></div>"
+    }
+  />
+</WireframeBlock>
 
 ## 4. Persista dados em SQL {#persist-data}
 
@@ -85,7 +94,7 @@ Não crie uma REST route duplicada só para o navegador; UI e agent devem compar
 
 Adicione a route `/response-insights` com `useActionQuery("list-response-insights")` e `useActionMutation("create-response-insight")`. A página é uma projeção do SQL state; os dados continuam sendo escritos pelas mesmas actions.
 
-Estenda `view-screen` e `navigate` para que o agent saiba a route atual e possa abrir `/response-insights`. Resultados também podem incluir `href: "/response-insights"` para mostrar um botão "Open response insights".
+Estenda `view-screen` e `navigate` para que o agent saiba a route atual e possa abrir `/response-insights`. Resultados também podem incluir `href: "/response-insights"` para mostrar um botão "Abrir insights de respostas".
 
 Quando o chat em página inteira abrir uma página da app, use `AgentChatSurface`, `AgentSidebar`, `useAgentChatHomeHandoff`, `useAgentChatHomeHandoffLinks` e `chatViewTransition` de [Agent Surfaces](/docs/agent-surfaces#rich-chat) para mover o chat para a lateral sem perder o thread.
 

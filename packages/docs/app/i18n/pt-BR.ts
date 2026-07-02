@@ -409,8 +409,8 @@ const ptBR = {
   },
   templatesPage: {
     title: "Aplicativos de código aberto e nativos do agente que você possui",
-    eyebrow: "100% gratuito e de código aberto",
-    body: "Bifurque um modelo, execute-o localmente e deixe o agente evoluí-lo. Você possui o código e pode personalizar tudo.",
+    eyebrow: "Bifurque uma app funcional e deixe o agente evoluí-la.",
+    body: "Você pode personalizar tudo.",
     community:
       "Quer uma app em branco? Comece do zero com o guia do framework.",
     createYourOwn: "Começar do zero",

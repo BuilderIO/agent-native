@@ -410,8 +410,9 @@ const deDE = {
   },
   templatesPage: {
     title: "Open-Source-Agent-native Apps, die Sie besitzen",
-    eyebrow: "100 % kostenlos und Open Source",
-    body: "Forken Sie eine Vorlage, führen Sie sie lokal aus und lassen Sie sie vom Agenten weiterentwickeln. Sie besitzen den Code und können alles anpassen.",
+    eyebrow:
+      "Forke eine funktionierende App und lass sie vom Agenten weiterentwickeln.",
+    body: "Du kannst alles anpassen.",
     community:
       "Du möchtest lieber eine leere App? Starte von Grund auf mit dem Framework-Guide.",
     createYourOwn: "Von Grund auf starten",

@@ -494,14 +494,15 @@ function AppsSection({
       className="border-t border-[var(--docs-border)] py-20 px-6"
     >
       <div className="mb-12 text-center">
-        <h2 className="mb-3 text-5xl font-bold tracking-tight md:text-6xl">
+        <h2 className="mb-3 text-3xl font-bold tracking-tight md:text-4xl">
           {t("templatesPage.title")}
         </h2>
-        <p className="mb-5 text-2xl font-semibold text-[var(--docs-accent)]">
+        <p className="mx-auto max-w-2xl text-base leading-relaxed text-[var(--fg-secondary)]">
           {t("templatesPage.eyebrow")}
-        </p>
-        <p className="mx-auto max-w-4xl text-2xl leading-relaxed text-[var(--fg-secondary)]">
-          {t("templatesPage.body")}
+          <span className="font-semibold text-[var(--docs-accent)]">
+            {" "}
+            {t("templatesPage.body")}
+          </span>
         </p>
       </div>
 

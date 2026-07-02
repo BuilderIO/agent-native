@@ -410,8 +410,9 @@ const frFR = {
   },
   templatesPage: {
     title: "Applications open source natives pour agents que vous possédez",
-    eyebrow: "100% gratuit et open source",
-    body: "Créez un modèle, exécutez-le localement et laissez l'agent le faire évoluer. Vous possédez le code et pouvez tout personnaliser.",
+    eyebrow:
+      "Forkez une app fonctionnelle et laissez l'agent la faire évoluer.",
+    body: "Vous pouvez tout personnaliser.",
     community:
       "Vous préférez une app vide ? Commencez de zéro avec le guide du framework.",
     createYourOwn: "Commencer de zéro",

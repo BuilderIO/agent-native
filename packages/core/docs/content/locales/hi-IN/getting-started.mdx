@@ -48,7 +48,7 @@ export default defineAction({
         title: "42 responses",
         description: "Completion rose this week.",
         primaryAction: {
-          label: "Open response insights",
+          label: "प्रतिक्रिया insights खोलें",
           href: "/response-insights",
         },
       },
@@ -64,11 +64,20 @@ pnpm action analyze-responses --formId demo
 
 या browser में agent से पूछें:
 
-> Analyze the recent responses for the demo form.
+> डेमो फ़ॉर्म की हाल की प्रतिक्रियाओं का विश्लेषण करें.
 
 ## 3. result को chat में render करें {#render-inline}
 
 क्योंकि action `outputSchema` और `chatUI.renderer` declare करता है, transcript structured data को plain text में नहीं बदलता. यह summary, chart, table और detail page link को native React component के रूप में render करता है. देखें [Native Chat UI](/docs/native-chat-ui).
+
+<WireframeBlock id="doc-block-inline-result-wireframe-hi">
+  <Screen
+    surface="desktop"
+    html={
+      "<div style='min-height:520px;box-sizing:border-box;padding:36px;display:flex;justify-content:center;background:var(--wf-bg)'><div style='width:min(780px,100%);display:flex;flex-direction:column;gap:18px'><div style='align-self:flex-end;max-width:70%' class='wf-card'><strong>User</strong><p style='margin:8px 0 0'>डेमो फ़ॉर्म की हाल की प्रतिक्रियाओं का विश्लेषण करें.</p></div><div style='align-self:flex-start;width:min(620px,100%)' class='wf-card'><strong>Agent</strong><p class='wf-muted' style='margin:8px 0 14px'>ये नवीनतम प्रतिक्रिया insights हैं.</p><div class='wf-card' style='display:grid;grid-template-columns:1.15fr .85fr;gap:14px'><div><div style='display:flex;align-items:baseline;justify-content:space-between'><strong>42 responses</strong><span class='wf-pill'>+18%</span></div><div style='height:120px;margin-top:16px;display:flex;align-items:end;gap:10px'><div style='height:46%;flex:1;background:currentColor;opacity:.18;border-radius:8px'></div><div style='height:72%;flex:1;background:currentColor;opacity:.28;border-radius:8px'></div><div style='height:94%;flex:1;background:currentColor;opacity:.42;border-radius:8px'></div></div></div><div><strong>शीर्ष उत्तर</strong><div style='margin-top:14px;display:flex;flex-direction:column;gap:8px'><div class='wf-row'><span>Yes</span><span>31</span></div><div class='wf-row'><span>No</span><span>11</span></div></div><button class='primary' style='margin-top:16px;width:100%'>प्रतिक्रिया insights खोलें</button></div></div></div></div></div>"
+    }
+  />
+</WireframeBlock>
 
 ## 4. SQL में data persist करें {#persist-data}
 
@@ -85,7 +94,7 @@ Browser के लिए अलग duplicate REST route न बनाएं; UI 
 
 `/response-insights` route जोड़ें और `useActionQuery("list-response-insights")`, `useActionMutation("create-response-insight")` इस्तेमाल करें. यह page SQL state का projection है; data वही actions लिखते हैं.
 
-`view-screen` और `navigate` को extend करें ताकि agent current route जान सके और `/response-insights` खोल सके. Results में `href: "/response-insights"` भी हो सकता है, जिससे chat में "Open response insights" button दिखे.
+`view-screen` और `navigate` को extend करें ताकि agent current route जान सके और `/response-insights` खोल सके. Results में `href: "/response-insights"` भी हो सकता है, जिससे chat में "प्रतिक्रिया insights खोलें" button दिखे.
 
 जब full-page chat app page खोलता है, तो [Agent Surfaces](/docs/agent-surfaces#rich-chat) से `AgentChatSurface`, `AgentSidebar`, `useAgentChatHomeHandoff`, `useAgentChatHomeHandoffLinks` और `chatViewTransition` इस्तेमाल करें ताकि वही thread रखते हुए chat side panel में slide हो जाए.
 

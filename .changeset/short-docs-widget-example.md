@@ -2,4 +2,4 @@
 "@agent-native/core": patch
 ---
 
-Shorten the getting started data insights widget example.
+Clarify the Getting Started inline result example with a shorter widget snippet and wireframe.

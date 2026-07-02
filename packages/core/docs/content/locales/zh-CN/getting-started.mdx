@@ -58,7 +58,7 @@ export default defineAction({
         title: "42 responses",
         description: "Completion rose this week.",
         primaryAction: {
-          label: "Open response insights",
+          label: "打开回复洞察",
           href: "/response-insights",
         },
       },
@@ -81,11 +81,20 @@ pnpm action analyze-responses --formId demo
 
 也可以在浏览器里问 agent：
 
-> Analyze the recent responses for the demo form.
+> 分析演示表单的最新回复。
 
 ## 3. 内联渲染结果 {#render-inline}
 
 因为 action 声明了 `outputSchema` 和 `chatUI.renderer`，聊天记录不需要把结构化数据压成一段文字。它会渲染原生 React 组件：摘要、图表、表格，以及打开深入页面的链接。更多模式见 [Native Chat UI](/docs/native-chat-ui)。
+
+<WireframeBlock id="doc-block-inline-result-wireframe-zh-cn">
+  <Screen
+    surface="desktop"
+    html={
+      "<div style='min-height:520px;box-sizing:border-box;padding:36px;display:flex;justify-content:center;background:var(--wf-bg)'><div style='width:min(780px,100%);display:flex;flex-direction:column;gap:18px'><div style='align-self:flex-end;max-width:70%' class='wf-card'><strong>User</strong><p style='margin:8px 0 0'>分析演示表单的最新回复。</p></div><div style='align-self:flex-start;width:min(620px,100%)' class='wf-card'><strong>Agent</strong><p class='wf-muted' style='margin:8px 0 14px'>这是最新的回复洞察。</p><div class='wf-card' style='display:grid;grid-template-columns:1.15fr .85fr;gap:14px'><div><div style='display:flex;align-items:baseline;justify-content:space-between'><strong>42 responses</strong><span class='wf-pill'>+18%</span></div><div style='height:120px;margin-top:16px;display:flex;align-items:end;gap:10px'><div style='height:46%;flex:1;background:currentColor;opacity:.18;border-radius:8px'></div><div style='height:72%;flex:1;background:currentColor;opacity:.28;border-radius:8px'></div><div style='height:94%;flex:1;background:currentColor;opacity:.42;border-radius:8px'></div></div></div><div><strong>热门回答</strong><div style='margin-top:14px;display:flex;flex-direction:column;gap:8px'><div class='wf-row'><span>Yes</span><span>31</span></div><div class='wf-row'><span>No</span><span>11</span></div></div><button class='primary' style='margin-top:16px;width:100%'>打开回复洞察</button></div></div></div></div></div>"
+    }
+  />
+</WireframeBlock>
 
 ## 4. 持久化数据 {#persist-data}
 
@@ -107,7 +116,7 @@ pnpm action analyze-responses --formId demo
 
 - `view-screen` 返回当前 route、选中的 insight 和页面上下文。
 - `navigate` 写入 `/response-insights` 这样的同源 path。
-- action 结果可以包含 `href: "/response-insights"`，让聊天显示“Open response insights”按钮。
+- action 结果可以包含 `href: "/response-insights"`，让聊天显示“打开回复洞察”按钮。
 
 当完整聊天页打开 app 页面时，使用 [Agent Surfaces](/docs/agent-surfaces#rich-chat) 里的 `AgentChatSurface`、`AgentSidebar`、`useAgentChatHomeHandoff`、`useAgentChatHomeHandoffLinks` 和 `chatViewTransition`，让聊天滑到侧边栏并保留同一个 thread。
 
