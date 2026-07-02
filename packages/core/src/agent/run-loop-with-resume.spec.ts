@@ -249,19 +249,18 @@ describe("runAgentLoopDirectWithSoftTimeout", () => {
     const messages: EngineMessage[] = [
       { role: "user", content: [{ type: "text", text: "go" }] },
     ];
-    mockGetCurrentTurnEventsForThread.mockResolvedValue([
-      {
-        type: "activity",
-        label: "Preparing edit-design action",
-        tool: "edit-design",
-        id: "tool-1",
-        progressBytes: 0,
-      },
-    ]);
+    mockGetCurrentTurnEventsForThread.mockResolvedValue([]);
 
-    mockRunAgentLoop.mockImplementation(async () => {
+    mockRunAgentLoop.mockImplementation(async (opts) => {
       attempts++;
       if (attempts === 1) {
+        opts.send({
+          type: "activity",
+          label: "Preparing edit-design action",
+          tool: "edit-design",
+          id: "tool-1",
+          progressBytes: 0,
+        });
         throw new EngineError("Builder gateway timed out after 45s", {
           errorCode: "builder_gateway_timeout",
         });
@@ -285,6 +284,63 @@ describe("runAgentLoopDirectWithSoftTimeout", () => {
       .map((m) => (m.content[0]?.type === "text" ? m.content[0].text : ""))
       .find((t) => t.startsWith(AGENT_INTERNAL_CONTINUE_PROMPT));
     expect(continuationText).toContain("upstream gateway timeout");
+    expect(continuationText).toContain(
+      "preparing the `edit-design` action input",
+    );
+    expect(continuationText).toContain("smaller `edit-design` payload");
+  });
+
+  it("continues internally when runAgentLoop checkpoints for no-progress action preparation", async () => {
+    let attempts = 0;
+    const messages: EngineMessage[] = [
+      { role: "user", content: [{ type: "text", text: "go" }] },
+    ];
+    mockGetCurrentTurnEventsForThread.mockResolvedValue([]);
+
+    mockRunAgentLoop.mockImplementation(async (opts) => {
+      attempts++;
+      if (attempts === 1) {
+        opts.send({
+          type: "activity",
+          label: "Preparing edit-design action",
+          tool: "edit-design",
+          id: "tool-1",
+          progressBytes: 0,
+        });
+        opts.send({
+          type: "auto_continue",
+          reason: "no_progress",
+        });
+        return {
+          inputTokens: 7,
+          outputTokens: 0,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+          model: "test-model",
+        };
+      }
+      return {
+        inputTokens: 100,
+        outputTokens: 50,
+        cacheReadTokens: 80,
+        cacheWriteTokens: 0,
+        model: "test-model",
+      };
+    });
+
+    const usage = await runAgentLoopDirectWithSoftTimeout(
+      makeOpts(messages, new AbortController().signal, undefined, "thread-1"),
+      60_000,
+    );
+
+    expect(attempts).toBe(2);
+    expect(usage.inputTokens).toBe(107);
+    const continuationText = messages
+      .map((m) => (m.content[0]?.type === "text" ? m.content[0].text : ""))
+      .find((t) => t.startsWith(AGENT_INTERNAL_CONTINUE_PROMPT));
+    expect(continuationText).toContain(
+      "stopped producing progress events while the connection stayed open",
+    );
     expect(continuationText).toContain(
       "preparing the `edit-design` action input",
     );

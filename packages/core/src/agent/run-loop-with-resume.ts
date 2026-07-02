@@ -41,13 +41,22 @@ import type { AgentChatEvent } from "./types.js";
 
 async function readCurrentTurnEventsForResume(
   threadId: string | undefined,
+  localEvents: readonly AgentChatEvent[] = [],
 ): Promise<AgentChatEvent[]> {
-  if (!threadId) return [];
+  let persistedEvents: AgentChatEvent[] = [];
   try {
-    return await getCurrentTurnEventsForThread(threadId);
+    persistedEvents = threadId
+      ? await getCurrentTurnEventsForThread(threadId)
+      : [];
   } catch {
-    return [];
+    persistedEvents = [];
   }
+  if (localEvents.length === 0) return persistedEvents;
+  const seen = new Set(persistedEvents.map((event) => JSON.stringify(event)));
+  return [
+    ...persistedEvents,
+    ...localEvents.filter((event) => !seen.has(JSON.stringify(event))),
+  ];
 }
 
 function actionPreparationContinuationOptions(
@@ -103,8 +112,9 @@ async function appendContinuationAndJournal(
   messages: EngineMessage[],
   reason: AgentLoopContinuationReason,
   threadId: string | undefined,
+  localEvents: readonly AgentChatEvent[] = [],
 ): Promise<void> {
-  const events = await readCurrentTurnEventsForResume(threadId);
+  const events = await readCurrentTurnEventsForResume(threadId, localEvents);
   appendAgentLoopContinuation(
     messages,
     reason,
@@ -115,10 +125,10 @@ async function appendContinuationAndJournal(
 
 async function hasCompletedSideEffectToolCallInCurrentTurn(
   threadId: string | undefined,
+  localEvents: readonly AgentChatEvent[] = [],
 ): Promise<boolean> {
-  if (!threadId) return false;
   try {
-    const events = await getCurrentTurnEventsForThread(threadId);
+    const events = await readCurrentTurnEventsForResume(threadId, localEvents);
     if (events.length === 0) return false;
     return events.some(
       (event) =>
@@ -129,6 +139,24 @@ async function hasCompletedSideEffectToolCallInCurrentTurn(
   } catch {
     return false;
   }
+}
+
+function internalContinuationReasonForAttempt(
+  events: readonly AgentChatEvent[],
+): AgentLoopContinuationReason | undefined {
+  const last = events.at(-1);
+  if (last?.type !== "auto_continue") return undefined;
+  if (
+    last.reason === "run_timeout" ||
+    last.reason === "loop_limit" ||
+    last.reason === "no_progress" ||
+    last.reason === "stream_ended" ||
+    last.reason === "gateway_timeout" ||
+    last.reason === "network_interrupted"
+  ) {
+    return last.reason;
+  }
+  return undefined;
 }
 
 /**
@@ -195,6 +223,7 @@ export async function runAgentLoopDirectWithSoftTimeout(
     usage.model = next.model;
   };
 
+  const localTurnEvents: AgentChatEvent[] = [];
   let attempts = 0;
   // Tracks whether the most recent attempt ended by scheduling another
   // continuation (soft-timeout or resumable error → `continue`) rather than
@@ -223,18 +252,39 @@ export async function runAgentLoopDirectWithSoftTimeout(
       controller.abort();
     }, timeoutMs);
 
+    const attemptStartIndex = localTurnEvents.length;
+    const send = (event: AgentChatEvent) => {
+      localTurnEvents.push(event);
+      opts.send(event);
+    };
+
     try {
       const nextUsage = await runAgentLoop({
         ...opts,
+        send,
         signal: controller.signal,
       });
       addUsage(nextUsage);
+      const attemptEvents = localTurnEvents.slice(attemptStartIndex);
+      const internalContinuationReason =
+        internalContinuationReasonForAttempt(attemptEvents);
+      if (internalContinuationReason && !upstreamSignal.aborted) {
+        lastAttemptWasUnfinishedContinuation = true;
+        await appendContinuationAndJournal(
+          opts.messages,
+          internalContinuationReason,
+          opts.threadId,
+          localTurnEvents,
+        );
+        continue;
+      }
       if (softTimedOut && !upstreamSignal.aborted) {
         lastAttemptWasUnfinishedContinuation = true;
         await appendContinuationAndJournal(
           opts.messages,
           "run_timeout",
           opts.threadId,
+          localTurnEvents,
         );
         continue;
       }
@@ -245,7 +295,10 @@ export async function runAgentLoopDirectWithSoftTimeout(
         // resumed model doesn't re-emit it and produce duplicated output.
         lastAttemptWasUnfinishedContinuation = true;
         if (
-          !(await hasCompletedSideEffectToolCallInCurrentTurn(opts.threadId))
+          !(await hasCompletedSideEffectToolCallInCurrentTurn(
+            opts.threadId,
+            localTurnEvents,
+          ))
         ) {
           opts.send({ type: "clear" });
         }
@@ -253,6 +306,7 @@ export async function runAgentLoopDirectWithSoftTimeout(
           opts.messages,
           "run_timeout",
           opts.threadId,
+          localTurnEvents,
         );
         continue;
       }
@@ -272,7 +326,10 @@ export async function runAgentLoopDirectWithSoftTimeout(
       if (!upstreamSignal.aborted && isResumableEngineError(err)) {
         lastAttemptWasUnfinishedContinuation = true;
         if (
-          !(await hasCompletedSideEffectToolCallInCurrentTurn(opts.threadId))
+          !(await hasCompletedSideEffectToolCallInCurrentTurn(
+            opts.threadId,
+            localTurnEvents,
+          ))
         ) {
           opts.send({ type: "clear" });
         }
@@ -280,6 +337,7 @@ export async function runAgentLoopDirectWithSoftTimeout(
           opts.messages,
           continuationReasonForResumableError(err),
           opts.threadId,
+          localTurnEvents,
         );
         continue;
       }
@@ -302,7 +360,12 @@ export async function runAgentLoopDirectWithSoftTimeout(
     // the terminal message stands alone instead of trailing a half sentence.
     // Preserve completed tool cards: they are the user's only durable proof
     // that a side effect landed before the final assistant note timed out.
-    if (!(await hasCompletedSideEffectToolCallInCurrentTurn(opts.threadId))) {
+    if (
+      !(await hasCompletedSideEffectToolCallInCurrentTurn(
+        opts.threadId,
+        localTurnEvents,
+      ))
+    ) {
       opts.send({ type: "clear" });
     }
     opts.send({

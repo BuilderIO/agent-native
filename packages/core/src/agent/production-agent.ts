@@ -2867,6 +2867,14 @@ export async function runAgentLoop(opts: {
         };
 
         for await (const event of eventStream) {
+          if (hasActionPreparationStalled()) {
+            send({
+              type: "auto_continue",
+              reason: "no_progress",
+            });
+            endedForActionPreparationNoProgress = true;
+            break;
+          }
           // In-loop processor seam (stream hook). Each chunk is offered to every
           // processor's `processOutputStream` before the loop handles it. A
           // processor `abort()` throws a TripWire; catch it locally so it is not
