@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.84.37
+
+### Patch Changes
+
+- 885a0bd: Hide docs formatter guards from rendered content, refine assistant recovery status labels, and keep live background workers from being auto-retried as stuck.
+
 ## 0.84.36
 
 ### Patch Changes
