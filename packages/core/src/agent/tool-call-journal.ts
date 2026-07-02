@@ -72,6 +72,9 @@ const INPUT_SIGNATURE_MAX_CHARS = 120;
 /** Max length of a per-tool-call result summary surfaced in the resume note. */
 const RESULT_SUMMARY_MAX_CHARS = 400;
 
+/** Max length of explicit next-step guidance surfaced outside result summaries. */
+const NEXT_REQUIRED_ACTION_MAX_CHARS = 900;
+
 function inputSignature(input: unknown): string {
   if (input == null) return "";
   try {
@@ -279,6 +282,34 @@ function summarizeResult(result: string | undefined): string {
     : oneLine;
 }
 
+function parseResultObject(
+  result: string | undefined,
+): Record<string, unknown> {
+  if (!result) return {};
+  const trimmed = result.trim();
+  if (!trimmed.startsWith("{")) return {};
+  try {
+    const parsed = JSON.parse(trimmed);
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>)
+      : {};
+  } catch {
+    return {};
+  }
+}
+
+function summarizeNextRequiredAction(
+  result: string | undefined,
+): string | null {
+  const action = parseResultObject(result).nextRequiredAction;
+  if (typeof action !== "string") return null;
+  const oneLine = action.replace(/\s+/g, " ").trim();
+  if (!oneLine) return null;
+  return oneLine.length > NEXT_REQUIRED_ACTION_MAX_CHARS
+    ? oneLine.slice(0, NEXT_REQUIRED_ACTION_MAX_CHARS) + "..."
+    : oneLine;
+}
+
 function describeInput(input: unknown): string {
   if (!input) return "";
   const sig = displayInputSignature(input);
@@ -311,9 +342,13 @@ export function buildResumeJournalNote(
       "Already completed (do NOT re-run these — their side effects already happened; reuse the results below):",
     );
     for (const entry of journal.completed) {
+      const nextRequiredAction = summarizeNextRequiredAction(entry.result);
       lines.push(
         `- ${entry.tool}${describeInput(entry.input)} → ${summarizeResult(entry.result)}`,
       );
+      if (nextRequiredAction) {
+        lines.push(`  Next required action from result: ${nextRequiredAction}`);
+      }
     }
   }
 
