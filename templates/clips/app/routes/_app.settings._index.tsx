@@ -514,10 +514,6 @@ export default function SettingsIndexRoute() {
     if (bucket && !/^[a-z0-9][a-z0-9\-.]{1,61}[a-z0-9]$/.test(bucket)) {
       errors["S3_BUCKET"] = t("settings.s3BucketInvalid");
     }
-    const region = (values["S3_REGION"] ?? "").trim();
-    if (region && !/^([a-z][a-z0-9]*-)+\d+$|^auto$/.test(region)) {
-      errors["S3_REGION"] = t("settings.s3RegionInvalid");
-    }
     return errors;
   }
 
