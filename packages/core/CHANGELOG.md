@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.84.57
+
+### Patch Changes
+
+- 5250e7f: Document temporary agent links for session replays and private clips.
+
 ## 0.84.56
 
 ### Patch Changes
