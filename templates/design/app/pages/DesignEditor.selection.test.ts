@@ -21,6 +21,7 @@ import {
   getOverviewDisplayZoom,
   getOverviewEnterTarget,
   getOverviewScreenIdsFromLayerSelection,
+  getOverviewScreenRuntimeReplacementKey,
   getOverviewZoomScale,
   getPendingVisualStylePropertyCount,
   parseInlineStyleAttribute,
@@ -37,6 +38,7 @@ import {
   shouldIgnoreOverviewLayerCreationEcho,
   shouldBlockPendingVisualStyleNavigation,
   shouldShowPendingVisualStyleApply,
+  shouldUseOverviewRuntimeReplacement,
   shouldMirrorSelectedElementToAgentChat,
   sortCodeLayerIdsByTreeOrder,
   formatPendingVisualStylePrompt,
@@ -867,6 +869,63 @@ describe("DesignEditor layer move source snapshots", () => {
         fileContentById,
       }),
     ).toBe("other screen content");
+  });
+
+  it("changes the overview runtime replacement key when same-screen content changes", () => {
+    const before = getOverviewScreenRuntimeReplacementKey({
+      screenId: "active",
+      updatedAt: "2026-07-01T23:00:00.000Z",
+      content: "Desktop · QA smoke",
+    });
+    const after = getOverviewScreenRuntimeReplacementKey({
+      screenId: "active",
+      updatedAt: "2026-07-01T23:00:00.000Z",
+      content: "Desktop · QA verified",
+    });
+
+    expect(after).not.toBe(before);
+  });
+
+  it("changes the overview runtime replacement key when the saved version changes", () => {
+    const before = getOverviewScreenRuntimeReplacementKey({
+      screenId: "active",
+      updatedAt: "2026-07-01T23:00:00.000Z",
+      content: "same content",
+    });
+    const after = getOverviewScreenRuntimeReplacementKey({
+      screenId: "active",
+      updatedAt: "2026-07-01T23:01:00.000Z",
+      content: "same content",
+    });
+
+    expect(after).not.toBe(before);
+  });
+
+  it("uses overview runtime replacement only for inline screens without external snapshots", () => {
+    expect(
+      shouldUseOverviewRuntimeReplacement({
+        sourceType: "inline",
+        externalSnapshotHtml: null,
+      }),
+    ).toBe(true);
+    expect(
+      shouldUseOverviewRuntimeReplacement({
+        sourceType: "inline",
+        externalSnapshotHtml: "<html>snapshot</html>",
+      }),
+    ).toBe(false);
+    expect(
+      shouldUseOverviewRuntimeReplacement({
+        sourceType: "localhost",
+        externalSnapshotHtml: "<html>snapshot</html>",
+      }),
+    ).toBe(false);
+    expect(
+      shouldUseOverviewRuntimeReplacement({
+        sourceType: "fusion",
+        externalSnapshotHtml: "<html>snapshot</html>",
+      }),
+    ).toBe(false);
   });
 
   it("does not use a stale active snapshot for a different active file", () => {

@@ -277,6 +277,59 @@ type CspDirective = {
   tokens: string[];
 };
 
+const CSP_DIRECTIVES_WITH_VALUE_TOKENS = new Set([
+  "base-uri",
+  "block-all-mixed-content",
+  "child-src",
+  "connect-src",
+  "default-src",
+  "fenced-frame-src",
+  "font-src",
+  "form-action",
+  "frame-ancestors",
+  "frame-src",
+  "img-src",
+  "manifest-src",
+  "media-src",
+  "navigate-to",
+  "object-src",
+  "plugin-types",
+  "prefetch-src",
+  "referrer",
+  "reflected-xss",
+  "require-sri-for",
+  "require-trusted-types-for",
+  "report-to",
+  "report-uri",
+  "sandbox",
+  "script-src",
+  "script-src-attr",
+  "script-src-elem",
+  "style-src",
+  "style-src-attr",
+  "style-src-elem",
+  "trusted-types",
+  "upgrade-insecure-requests",
+  "webrtc",
+  "worker-src",
+]);
+
+function hasCommaJoinedCspPolicies(policy: string): boolean {
+  let commaIndex = policy.indexOf(",");
+  while (commaIndex !== -1) {
+    const afterComma = policy.slice(commaIndex + 1);
+    const directive = /^\s+([a-z][a-z0-9-]*)(?=\s|;|$)/i.exec(afterComma)?.[1];
+    if (
+      directive &&
+      CSP_DIRECTIVES_WITH_VALUE_TOKENS.has(directive.toLowerCase())
+    ) {
+      return true;
+    }
+    commaIndex = policy.indexOf(",", commaIndex + 1);
+  }
+  return false;
+}
+
 function parseCsp(policy: string): CspDirective[] {
   return policy
     .split(";")
@@ -349,13 +402,96 @@ function appendToExistingCspDirective(
   existing.tokens = appendCspTokens(existing.tokens, additions);
 }
 
-function augmentExistingCspForFrameworkScripts(
+function hasStrictNonceScriptPolicy(tokens: readonly string[]): boolean {
+  return tokens.some(
+    (token) => token === "'strict-dynamic'" || token.startsWith("'nonce-"),
+  );
+}
+
+function appendToScriptCspDirective(
+  directives: CspDirective[],
+  name: string,
+  additions: readonly string[],
+): boolean {
+  const existing = findCspDirective(directives, name);
+  if (existing) {
+    if (hasStrictNonceScriptPolicy(existing.tokens)) return false;
+    existing.tokens = appendCspTokens(existing.tokens, additions);
+    return true;
+  }
+
+  const defaultSrc = findCspDirective(directives, "default-src");
+  if (!defaultSrc || hasStrictNonceScriptPolicy(defaultSrc.tokens)) {
+    return false;
+  }
+  directives.push({
+    name,
+    tokens: appendCspTokens([...defaultSrc.tokens], additions),
+  });
+  return true;
+}
+
+function appendToEffectiveScriptElementCspDirective(
+  directives: CspDirective[],
+  additions: readonly string[],
+): boolean {
+  const scriptSrcElem = findCspDirective(directives, "script-src-elem");
+  if (scriptSrcElem) {
+    if (hasStrictNonceScriptPolicy(scriptSrcElem.tokens)) return false;
+    scriptSrcElem.tokens = appendCspTokens(scriptSrcElem.tokens, additions);
+    return true;
+  }
+
+  return appendToScriptCspDirective(directives, "script-src", additions);
+}
+
+function augmentExistingEnforcedCspForFrameworkScripts(
+  policy: string,
+  options: {
+    gaScriptSrcTokens: readonly string[];
+    gaEnabled: boolean;
+  },
+): string {
+  // Multiple CSP headers are surfaced by Headers.get() as one comma-joined
+  // string. CSP is not a comma-list header, so serializing a parsed combined
+  // value would turn two policies into one invalid policy. Leave those headers
+  // app-owned; a comma inside a source/report URL is still safe to parse.
+  if (hasCommaJoinedCspPolicies(policy)) return policy;
+
+  const directives = parseCsp(policy);
+  if (!directives.length) return policy;
+
+  if (options.gaEnabled) {
+    const addedScriptElement = appendToEffectiveScriptElementCspDirective(
+      directives,
+      options.gaScriptSrcTokens,
+    );
+    if (addedScriptElement) {
+      appendToExistingOrDefaultCspDirective(
+        directives,
+        "connect-src",
+        GA_CSP_CONNECT_HOSTS,
+      );
+      appendToExistingOrDefaultCspDirective(
+        directives,
+        "img-src",
+        GA_CSP_IMG_HOSTS,
+      );
+    }
+  }
+
+  return serializeCsp(directives);
+}
+
+function augmentExistingReportOnlyCspForFrameworkScripts(
   policy: string,
   options: {
     scriptSrcTokens: readonly string[];
     gaEnabled: boolean;
   },
 ): string {
+  if (hasCommaJoinedCspPolicies(policy)) return policy;
+
   const directives = parseCsp(policy);
   if (!directives.length) return policy;
 
@@ -364,7 +500,6 @@ function augmentExistingCspForFrameworkScripts(
     "script-src",
     options.scriptSrcTokens,
   );
-  // `script-src-elem` overrides `script-src` for script tags when present.
   appendToExistingCspDirective(
     directives,
     "script-src-elem",
@@ -409,10 +544,11 @@ function augmentExistingCspForFrameworkScripts(
  * instead of reporting a violation on every page load.
  *
  * If an app or host already sends an enforced CSP with `script-src`,
- * `script-src-elem`, `connect-src`, `img-src`, or `default-src`, we merge the
- * framework's GA/GTM allowances into the existing directive. That keeps
- * stricter deployments working without adding a new enforced script policy to
- * routes that only declare unrelated directives such as `frame-ancestors`.
+ * `script-src-elem`, `connect-src`, `img-src`, or `default-src`, we merge only
+ * GA-specific allowances into existing host/hash policies. Strict nonce or
+ * `strict-dynamic` script policies stay app-owned because blindly appending
+ * hashes or hosts would widen the policy without reliably loading our injected
+ * scripts.
  *
  * Templates additionally render a theme-init inline script whose exact content
  * varies by template (default theme param, custom docs variant, etc.) and which
@@ -440,6 +576,7 @@ function applyDocumentCsp(headers: Headers, sentryScript: string | null): void {
   const gaInlineBody = getGaInlineConfigScriptBody();
   const gaHash = gaInlineBody ? computeInlineScriptHash(gaInlineBody) : null;
   const gaHosts = gaInlineBody ? [...GA_CSP_SCRIPT_HOSTS] : [];
+  const gaScriptSrcTokens = [...(gaHash ? [gaHash] : []), ...gaHosts];
   const scriptSrcTokens = [
     "'self'",
     ...(sentryHash ? [sentryHash] : []),
@@ -449,6 +586,7 @@ function applyDocumentCsp(headers: Headers, sentryScript: string | null): void {
 
   const cspAugmentOptions = {
     scriptSrcTokens,
+    gaScriptSrcTokens,
     gaEnabled: Boolean(gaInlineBody),
   };
   const existing = headers.get("content-security-policy") ?? "";
@@ -460,7 +598,10 @@ function applyDocumentCsp(headers: Headers, sentryScript: string | null): void {
   } else {
     headers.set(
       "content-security-policy",
-      augmentExistingCspForFrameworkScripts(existing, cspAugmentOptions),
+      augmentExistingEnforcedCspForFrameworkScripts(
+        existing,
+        cspAugmentOptions,
+      ),
     );
   }
 
@@ -471,7 +612,10 @@ function applyDocumentCsp(headers: Headers, sentryScript: string | null): void {
   } else {
     headers.set(
       "content-security-policy-report-only",
-      augmentExistingCspForFrameworkScripts(existingRo, cspAugmentOptions),
+      augmentExistingReportOnlyCspForFrameworkScripts(
+        existingRo,
+        cspAugmentOptions,
+      ),
     );
   }
 }
