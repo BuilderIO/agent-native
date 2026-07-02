@@ -403,8 +403,8 @@ const messages = {
   },
   templatesPage: {
     title: "您擁有的開放原始碼、Agent-Native 應用程式",
-    eyebrow: "100% 免費和開放原始碼",
-    body: "分叉一個範本，在本機執行它，然後讓代理對其進行改進。您擁有程式碼並可以自訂一切。",
+    eyebrow: "Fork 一個可執行的 app，讓 agent 繼續改進它。",
+    body: "你可以自訂一切。",
     community: "想要空白應用？從框架指南開始從零建置。",
     createYourOwn: "從零開始",
   },

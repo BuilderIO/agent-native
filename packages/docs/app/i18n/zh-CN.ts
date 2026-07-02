@@ -405,8 +405,8 @@ const zhCN = {
   },
   templatesPage: {
     title: "您拥有的开源、代理本机应用程序",
-    eyebrow: "100% 免费和开源",
-    body: "分叉一个模板，在本地运行它，然后让代理对其进行改进。您拥有代码并可以自定义一切。",
+    eyebrow: "Fork 一个可运行的 app，让 agent 继续改进它。",
+    body: "你可以自定义一切。",
     community: "想要空白应用？从框架指南开始从零构建。",
     createYourOwn: "从零开始",
   },
