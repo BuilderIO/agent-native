@@ -3017,7 +3017,19 @@ export async function runAgentLoop(opts: {
               error: event.error,
             });
           } else if (event.type === "assistant-content") {
-            clearActiveToolInputs();
+            const contentHasPreparedToolCall = event.parts.some(
+              (part) => part.type === "tool-call",
+            );
+            const contentHasAssistantText = event.parts.some(
+              (part) =>
+                part.type === "text" &&
+                typeof part.text === "string" &&
+                part.text.length > 0,
+            );
+            if (contentHasPreparedToolCall || contentHasAssistantText) {
+              clearActiveToolInputs();
+              resetZeroByteToolInputRestart();
+            }
             assistantContent = event.parts;
           } else if (event.type === "usage") {
             usage.inputTokens += event.inputTokens;
