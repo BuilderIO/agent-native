@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.84.32
+
+### Patch Changes
+
+- da8ac0a: Keep tail-resume reconnect content display-only, recover zero-byte action-prep stalls, and polish Design screen tool labels.
+
 ## 0.84.31
 
 ### Patch Changes
