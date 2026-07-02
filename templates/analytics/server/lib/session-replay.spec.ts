@@ -170,6 +170,37 @@ describe("session replay ingest parsing", () => {
     });
   });
 
+  it("accepts full snapshot chunks larger than the SQL inline fallback cap", () => {
+    const fullSnapshotText = "x".repeat(300 * 1024);
+    const parsed = parseSessionReplayIngestPayload({
+      publicKey: "anpk_test",
+      replayId: "recording_1",
+      sessionId: "session_1",
+      userId: "dev@example.com",
+      sequence: 1,
+      events: [
+        {
+          type: 2,
+          timestamp: 1,
+          data: {
+            node: {
+              type: 2,
+              tagName: "html",
+              childNodes: [{ type: 3, textContent: fullSnapshotText }],
+            },
+          },
+        },
+      ],
+    });
+
+    expect(parsed.chunks[0]).toMatchObject({
+      seq: 1,
+      eventCount: 1,
+      storageKind: "inline",
+    });
+    expect(parsed.chunks[0]?.byteLength).toBeGreaterThan(256 * 1024);
+  });
+
   it("accepts anonymous replay payloads without a signed-in user email", () => {
     const parsed = parseSessionReplayIngestPayload({
       publicKey: "anpk_test",

@@ -152,7 +152,8 @@ const MAX_REPLAY_BLOB_REF_LENGTH = 16 * 1024;
 const MAX_REPLAY_METADATA_BYTES = 16 * 1024;
 const MAX_REPLAY_EVENTS_PER_CHUNK = 1_000;
 const MAX_REPLAY_EVENTS_READ = 10_000;
-const MAX_REPLAY_EVENTS_RESPONSE_BYTES = 2 * 1024 * 1024;
+const MAX_REPLAY_EVENTS_RESPONSE_BYTES =
+  MAX_BLOB_REPLAY_CHUNK_BYTES + 512 * 1024;
 const DEFAULT_SESSION_RECORDINGS_LIMIT = 50;
 const MAX_SESSION_RECORDINGS_LIMIT = 100;
 const DEFAULT_REPLAY_RETENTION_DAYS = 30;
@@ -550,6 +551,12 @@ async function storeReplayChunkBlob(
         503,
       );
     }
+    if (chunk.byteLength > MAX_INLINE_REPLAY_CHUNK_BYTES) {
+      throw replayError(
+        "Session replay chunk is too large for inline SQL fallback. Configure private blob storage for full snapshot playback.",
+        503,
+      );
+    }
     warnInlineReplayFallback();
     return chunk;
   }
@@ -590,10 +597,7 @@ function normalizeReplayChunk(rawValue: unknown): NormalizedSessionReplayChunk {
     storageKind === "inline"
       ? Buffer.byteLength(inlineData ?? "", "utf8")
       : (replayInteger(raw.byteLength ?? raw.bytes) ?? 0);
-  const maxBytes =
-    storageKind === "inline"
-      ? MAX_INLINE_REPLAY_CHUNK_BYTES
-      : MAX_BLOB_REPLAY_CHUNK_BYTES;
+  const maxBytes = MAX_BLOB_REPLAY_CHUNK_BYTES;
   if (byteLength <= 0 || byteLength > maxBytes) {
     throw replayError(
       `Replay ${storageKind} chunks must be between 1 and ${maxBytes} bytes`,
