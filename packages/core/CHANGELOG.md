@@ -1,5 +1,12 @@
 # @agent-native/core
 
+## 0.84.53
+
+### Patch Changes
+
+- 899ebf1: Hide the diff "Show all lines" footer when annotation anchoring already renders every line.
+- c1e18fb: Make session replay uploads retry failed batches without advancing sequence ids.
+
 ## 0.84.52
 
 ### Patch Changes
