@@ -38,56 +38,7 @@ npx @agent-native/core@latest create my-app
 
 ## 2. 新增 action {#add-an-action}
 
-Action 是 agent 與 UI 共同呼叫的一個 typed operation。可將入門範例換成 `actions/analyze-responses.ts`：它分析表單回覆並返回 Response insights。
-
-```ts
-export default defineAction({
-  description: "Analyze recent form responses and summarize the trend.",
-  outputSchema: dataInsightsWidgetResultSchema,
-  chatUI: {
-    renderer: ACTION_CHAT_UI_DATA_INSIGHTS_RENDERER,
-    title: "Response insights",
-  },
-  readOnly: true,
-  run: async () =>
-    createDataInsightsWidgetResult({
-      title: "Response insights",
-      display: {
-        title: "42 responses",
-        description: "Completion rose this week.",
-        primaryAction: {
-          label: "開啟回覆洞察",
-          href: "/response-insights",
-        },
-      },
-      chartSeries: {
-        type: "bar",
-        xKey: "day",
-        series: [{ key: "responses", label: "Responses" }],
-        data: Array.from({ length: 10 }, (_, day) => ({
-          day: day + 1,
-          responses: Math.round(Math.random() * 10) + 10,
-        })),
-      },
-    }),
-});
-```
-
-直接執行：
-
-```bash
-pnpm action analyze-responses --formId demo
-```
-
-或在瀏覽器中詢問 agent：
-
-> 分析示範表單的最新回覆。
-
-## 3. 內嵌渲染結果 {#render-inline}
-
-因為 action 宣告了 `outputSchema` 與 `chatUI.renderer`，聊天紀錄不必把結構化資料壓成文字。它會渲染原生 React 元件：摘要、圖表、表格，以及開啟深入頁面的連結。更多模式請見 [Native Chat UI](/docs/native-chat-ui)。
-
-如果想建立自己的圖表，而不是使用內建 data widgets，可以給 action 一個產品專屬 renderer id，並返回你自己的已驗證 JSON 形狀：
+Action 是 agent 與 UI 共同呼叫的一個 typed operation。可將入門範例換成 `actions/analyze-responses.ts`：它分析表單回覆並返回自訂聊天圖表的已驗證資料形狀。
 
 ```ts
 // actions/analyze-responses.ts
@@ -123,12 +74,25 @@ export default defineAction({
       { day: "Mon", responses: 12 },
       { day: "Tue", responses: 18 },
       { day: "Wed", responses: 24 },
+      { day: "Thu", responses: 21 },
     ],
   }),
 });
 ```
 
-然後在 app 啟動時為這個完全相同的 renderer id 註冊 React 元件，例如從 `app/root.tsx` 匯入一次 `app/chat-renderers.tsx`：
+直接執行：
+
+```bash
+pnpm action analyze-responses --formId demo
+```
+
+或在瀏覽器中詢問 agent：
+
+> 分析示範表單的最新回覆。
+
+## 3. 內嵌渲染結果 {#render-inline}
+
+因為 action 宣告了 `outputSchema` 與產品專屬的 `chatUI.renderer`，聊天紀錄不必把結構化資料壓成文字。然後在 app 啟動時為這個完全相同的 renderer id 註冊 React 元件，例如從 `app/root.tsx` 匯入一次 `app/chat-renderers.tsx`：
 
 ```tsx
 // app/chat-renderers.tsx
@@ -173,6 +137,8 @@ registerActionChatRenderer({
   Component: ResponseChart,
 });
 ```
+
+對於可重用的通用輸出，framework 也提供內建 `data-chart` 與 `data-table` renderers，以及用於組合摘要/圖表/表格卡片的 `data-insights`。更多模式請見 [Native Chat UI](/docs/native-chat-ui)。
 
 <WireframeBlock id="doc-block-inline-result-wireframe-zh-tw">
   <Screen

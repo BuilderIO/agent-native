@@ -1528,9 +1528,9 @@ function elementStroke(node: Element, fallback: string): string {
   return fallback;
 }
 
-function visibleBorderSides(node: Element): Array<
-  "top" | "right" | "bottom" | "left"
-> {
+function visibleBorderSides(
+  node: Element,
+): Array<"top" | "right" | "bottom" | "left"> {
   const cs = getComputedStyle(node);
   const sides: Array<"top" | "right" | "bottom" | "left"> = [];
   for (const [side, widthProp, colorProp] of [
@@ -1556,7 +1556,7 @@ function visibleBorderSides(node: Element): Array<
 function inferRoughKind(node: HTMLElement): string {
   const explicit = node.getAttribute("data-rough");
   if (explicit) return explicit;
-  if (node.tagName === "HR") return "line:top";
+  if (node.tagName === "HR") return "line:middle";
   const sides = visibleBorderSides(node);
   if (sides.length !== 1) return "rect";
   switch (sides[0]) {
@@ -1569,6 +1569,7 @@ function inferRoughKind(node: HTMLElement): string {
     case "left":
       return "line:left";
   }
+  return "rect";
 }
 
 function build(
@@ -1670,7 +1671,9 @@ function build(
       drawable = gen.line(x + w, y, x + w, y + h, o);
     } else if (kind === "line:bottom") {
       drawable = gen.line(x, y + h, x + w, y + h, o);
-    } else if (kind === "line:top" || node.tagName === "HR") {
+    } else if (kind === "line:top") {
+      drawable = gen.line(x, y, x + w, y, o);
+    } else if (kind === "line:middle") {
       drawable = gen.line(x, y + h / 2, x + w, y + h / 2, o);
     } else {
       const cr = parseFloat(getComputedStyle(node).borderTopLeftRadius) || 0;
