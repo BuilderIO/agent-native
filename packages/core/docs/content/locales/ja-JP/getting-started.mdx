@@ -15,33 +15,6 @@ Agent-Native は agentic applications を作るためのフレームワークで
 4. データを SQL に永続化する。
 5. 視覚的に確認したいときに agent が開けるページを追加する。
 
-<FileTree
-  id="doc-block-chat-first-map"
-  title="chat-first app の形"
-  entries={[
-    {
-      path: "app/routes/_index.tsx",
-      note: "ユーザーが最初に使うフルページの chat surface",
-    },
-    {
-      path: "actions/analyze-responses.ts",
-      note: "agent、UI、CLI、HTTP、MCP、A2A が呼び出せる typed operation",
-    },
-    {
-      path: "server/db/schema.ts",
-      note: "agent が追加または更新できる永続的な Response insights data",
-    },
-    {
-      path: "app/routes/response-insights.tsx",
-      note: "chat result の背後にある data を閲覧する durable app page",
-    },
-    {
-      path: "actions/view-screen.ts + actions/navigate.ts",
-      note: "agent が適切な screen を開くための context と navigation actions",
-    },
-  ]}
-/>
-
 ## 1. Chat app を作成する {#create-your-app}
 
 [Node.js 22+](https://nodejs.org) と [pnpm](https://pnpm.io) が必要です。
@@ -131,16 +104,6 @@ my-app/
 ## 本格的な Analytics の出発点が必要な場合 {#analytics-starting-point}
 
 上の Response insights 例は、framework の部品を見やすくするために小さくしています。実際の analytics product を作るなら、[Analytics](/docs/template-analytics) から始めてください。providers を接続し、既存の dashboards と agent actions を使い、そこからカスタマイズできる堅牢な出発点です。
-
-## 上級: まだブラウザー UI が不要な場合 {#no-browser-ui}
-
-定期レポート、queue、CLI loop、integration worker、外部 agent からの呼び出しには no-browser scaffold を使えます。
-
-```bash
-npx @agent-native/core@latest create my-agent --headless
-```
-
-これは actions、sessions、run history、settings、credentials、SQL state を持つ Agent-Native app のままです。automation-first 形態であり、標準の入門経路ではありません。詳しくは [Automation-First Apps](/docs/pure-agent-apps) を参照してください。
 
 ## 次のステップ {#next}
 

@@ -19,33 +19,6 @@ The first useful path is:
 5. Add a page the agent can open when visual inspection is better than another
    paragraph in the transcript.
 
-<FileTree
-  id="doc-block-chat-first-map"
-  title="The chat-first app shape"
-  entries={[
-    {
-      path: "app/routes/_index.tsx",
-      note: "the full-page chat surface users start from",
-    },
-    {
-      path: "actions/analyze-responses.ts",
-      note: "a typed operation the agent, UI, CLI, HTTP, MCP, and A2A can call",
-    },
-    {
-      path: "server/db/schema.ts",
-      note: "persistent response-insight data the agent can add or update",
-    },
-    {
-      path: "app/routes/response-insights.tsx",
-      note: "a durable app page for browsing the data behind the chat result",
-    },
-    {
-      path: "actions/view-screen.ts + actions/navigate.ts",
-      note: "context and navigation actions so the agent can open the right screen",
-    },
-  ]}
-/>
-
 Want a complete domain app instead? Clone a rich template such as
 [Mail](/docs/template-mail), [Calendar](/docs/template-calendar),
 [Forms](/docs/template-forms), [Analytics](/docs/template-analytics), or
@@ -123,22 +96,12 @@ export default defineAction({
         title: "Responses by day",
         xKey: "day",
         series: [{ key: "responses", label: "Responses" }],
-        data: [
-          { day: "Mon", responses: 8 },
-          { day: "Tue", responses: 13 },
-          { day: "Wed", responses: 21 },
-        ],
+        data: [{ day: "Mon", responses: 8 }], // Add real rows here.
       },
       table: {
         title: "Top answers",
-        columns: [
-          { key: "answer", label: "Answer" },
-          { key: "count", label: "Count", align: "right" },
-        ],
-        rows: [
-          { answer: "Yes", count: 31 },
-          { answer: "No", count: 11 },
-        ],
+        columns: [{ key: "answer", label: "Answer" }],
+        rows: [{ answer: "Yes" }],
         totalRows: 2,
       },
     }),
@@ -285,22 +248,6 @@ framework pieces. If you are building a real analytics product, start from
 [Analytics](/docs/template-analytics) instead. It is the robust starting point:
 connect your providers, use the existing dashboards and agent actions, then
 customize the app from there.
-
-## Advanced: no browser UI yet {#no-browser-ui}
-
-Some workflows really do not need a browser surface at first: scheduled reports,
-queues, integration workers, CLI loops, or another app calling this app over
-A2A/MCP. For those cases, use the no-browser scaffold:
-
-```bash
-npx @agent-native/core@latest create my-agent --headless
-```
-
-That is still an Agent-Native app with actions, sessions, run history, settings,
-credentials, and SQL state. It is not the main getting-started path because most
-agentic products benefit from chat, inline results, and eventually durable
-screens. See [Automation-First Apps](/docs/pure-agent-apps) for the no-browser
-pattern.
 
 ## Where to go next {#next}
 

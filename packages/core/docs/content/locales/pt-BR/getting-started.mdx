@@ -15,33 +15,6 @@ O fluxo útil:
 4. Persistir dados em SQL.
 5. Adicionar uma página que o agent pode abrir quando a inspeção visual fizer mais sentido.
 
-<FileTree
-  id="doc-block-chat-first-map"
-  title="A forma da app chat-first"
-  entries={[
-    {
-      path: "app/routes/_index.tsx",
-      note: "a superfície de chat em página inteira onde usuários começam",
-    },
-    {
-      path: "actions/analyze-responses.ts",
-      note: "uma operação tipada que agent, UI, CLI, HTTP, MCP e A2A podem chamar",
-    },
-    {
-      path: "server/db/schema.ts",
-      note: "dados persistentes de Response insights que o agent pode adicionar ou atualizar",
-    },
-    {
-      path: "app/routes/response-insights.tsx",
-      note: "uma página durável para navegar pelos dados por trás do resultado do chat",
-    },
-    {
-      path: "actions/view-screen.ts + actions/navigate.ts",
-      note: "actions de contexto e navegação para o agent abrir a tela certa",
-    },
-  ]}
-/>
-
 ## 1. Crie uma Chat app {#create-your-app}
 
 Você precisa de [Node.js 22+](https://nodejs.org) e [pnpm](https://pnpm.io).
@@ -131,16 +104,6 @@ my-app/
 ## Quer um ponto de partida completo para analytics? {#analytics-starting-point}
 
 O exemplo de Response insights acima é pequeno de propósito para mostrar as peças do framework. Se você estiver criando um produto real de analytics, comece com [Analytics](/docs/template-analytics). É o ponto de partida robusto: conecte seus providers, use os dashboards e agent actions existentes e personalize a partir daí.
-
-## Avançado: sem UI de navegador ainda {#no-browser-ui}
-
-Relatórios agendados, filas, CLI loops, integration workers ou chamadas de outro agent podem usar o scaffold sem navegador:
-
-```bash
-npx @agent-native/core@latest create my-agent --headless
-```
-
-Isso ainda é uma Agent-Native app com actions, sessions, run history, settings, credentials e SQL state. É uma forma automation-first, não o caminho principal de início. Veja [Automation-First Apps](/docs/pure-agent-apps).
 
 ## Próximos passos {#next}
 

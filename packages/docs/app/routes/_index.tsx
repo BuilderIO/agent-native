@@ -435,10 +435,10 @@ function ActionSurfaceSection({
     <section className="border-t border-[var(--docs-border)] bg-black px-6 py-20 text-white md:py-24">
       <div className="mx-auto grid max-w-[1200px] gap-10 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)] lg:items-center">
         <div className="min-w-0">
-          <h2 className="m-0 max-w-xl text-4xl font-semibold leading-tight tracking-tight md:text-5xl">
+          <h2 className="m-0 max-w-xl text-3xl font-bold leading-tight tracking-tight md:text-4xl">
             {t("home.actionSurface.title")}
           </h2>
-          <p className="mt-6 max-w-xl text-base leading-relaxed text-white/62 md:text-lg">
+          <p className="mt-4 max-w-xl text-base leading-relaxed text-white/58">
             {t("home.actionSurface.body")}
           </p>
           <div className="mt-7 flex flex-col gap-3 sm:flex-row">
@@ -494,11 +494,14 @@ function AppsSection({
       className="border-t border-[var(--docs-border)] py-20 px-6"
     >
       <div className="mb-12 text-center">
-        <h2 className="mb-3 text-3xl font-bold tracking-tight md:text-4xl">
-          {t("home.templates.title")}
+        <h2 className="mb-3 text-5xl font-bold tracking-tight md:text-6xl">
+          {t("templatesPage.title")}
         </h2>
-        <p className="mb-3 text-sm font-semibold text-[var(--docs-accent)]">
-          {t("home.templates.eyebrow")}
+        <p className="mb-5 text-2xl font-semibold text-[var(--docs-accent)]">
+          {t("templatesPage.eyebrow")}
+        </p>
+        <p className="mx-auto max-w-4xl text-2xl leading-relaxed text-[var(--fg-secondary)]">
+          {t("templatesPage.body")}
         </p>
       </div>
 

@@ -88,7 +88,7 @@ const enUS = {
       badge: "Open source framework",
       titleLine1: "The framework for",
       titleAccent: "agentic apps",
-      body: "Agent-Native is an open-source framework for apps where agents and UI share the same actions, state, and context. Start with chat, add actions, then grow into the app screens your workflow deserves.",
+      body: "Agent-Native is an open-source framework for apps where agents and UI share the same actions, state, and context.",
       primaryCta: "Start building",
       secondaryCta: "Browse apps",
     },

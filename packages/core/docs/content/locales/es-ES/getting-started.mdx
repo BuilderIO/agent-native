@@ -15,33 +15,6 @@ El recorrido útil es:
 4. Persistir datos en SQL.
 5. Añadir una página que el agent pueda abrir cuando conviene inspeccionar el resultado visualmente.
 
-<FileTree
-  id="doc-block-chat-first-map"
-  title="La forma de app chat-first"
-  entries={[
-    {
-      path: "app/routes/_index.tsx",
-      note: "la superficie de chat completa donde empiezan los usuarios",
-    },
-    {
-      path: "actions/analyze-responses.ts",
-      note: "una operación tipada que agent, UI, CLI, HTTP, MCP y A2A pueden llamar",
-    },
-    {
-      path: "server/db/schema.ts",
-      note: "datos persistentes de Response insights que el agent puede añadir o actualizar",
-    },
-    {
-      path: "app/routes/response-insights.tsx",
-      note: "una página persistente para revisar los datos detrás del resultado del chat",
-    },
-    {
-      path: "actions/view-screen.ts + actions/navigate.ts",
-      note: "acciones de contexto y navegación para que el agent abra la pantalla correcta",
-    },
-  ]}
-/>
-
 ## 1. Crea una Chat app {#create-your-app}
 
 Necesitas [Node.js 22+](https://nodejs.org) y [pnpm](https://pnpm.io).
@@ -131,16 +104,6 @@ my-app/
 ## ¿Quieres un punto de partida completo para analytics? {#analytics-starting-point}
 
 El ejemplo de Response insights anterior es pequeño a propósito para mostrar las piezas del framework. Si vas a crear un producto real de analytics, empieza con [Analytics](/docs/template-analytics). Es el punto de partida robusto: conecta tus providers, usa los dashboards y agent actions existentes, y personaliza desde ahí.
-
-## Avanzado: aún sin UI de navegador {#no-browser-ui}
-
-Informes programados, colas, CLI loops, integration workers o llamadas desde otro agent pueden usar el scaffold sin navegador:
-
-```bash
-npx @agent-native/core@latest create my-agent --headless
-```
-
-Sigue siendo una Agent-Native app con actions, sessions, run history, settings, credentials y SQL state. Es una forma automation-first, no el camino principal de inicio. Consulta [Automation-First Apps](/docs/pure-agent-apps).
 
 ## Siguientes pasos {#next}
 

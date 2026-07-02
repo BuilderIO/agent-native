@@ -15,33 +15,6 @@ Der nützliche Einstieg:
 4. Daten in SQL persistieren.
 5. Eine Seite hinzufügen, die der Agent öffnen kann, wenn visuelle Prüfung besser ist.
 
-<FileTree
-  id="doc-block-chat-first-map"
-  title="Die chat-first App-Form"
-  entries={[
-    {
-      path: "app/routes/_index.tsx",
-      note: "die vollständige Chat-Fläche, mit der Benutzer beginnen",
-    },
-    {
-      path: "actions/analyze-responses.ts",
-      note: "eine typisierte Operation, die Agent, UI, CLI, HTTP, MCP und A2A aufrufen können",
-    },
-    {
-      path: "server/db/schema.ts",
-      note: "persistente Response-insights-Daten, die der Agent hinzufügen oder aktualisieren kann",
-    },
-    {
-      path: "app/routes/response-insights.tsx",
-      note: "eine dauerhafte App-Seite für die Daten hinter dem Chat-Ergebnis",
-    },
-    {
-      path: "actions/view-screen.ts + actions/navigate.ts",
-      note: "Kontext- und Navigations-actions, damit der Agent den richtigen Screen öffnet",
-    },
-  ]}
-/>
-
 ## 1. Chat app erstellen {#create-your-app}
 
 Sie brauchen [Node.js 22+](https://nodejs.org) und [pnpm](https://pnpm.io).
@@ -131,16 +104,6 @@ my-app/
 ## Sie möchten einen vollständigen Analytics-Startpunkt? {#analytics-starting-point}
 
 Das Response-insights-Beispiel oben ist absichtlich klein, damit die Framework-Bausteine sichtbar bleiben. Wenn Sie ein echtes Analytics-Produkt bauen, starten Sie stattdessen mit [Analytics](/docs/template-analytics). Das ist der robuste Startpunkt: Provider verbinden, vorhandene Dashboards und agent actions nutzen und von dort aus anpassen.
-
-## Fortgeschritten: noch keine Browser-UI {#no-browser-ui}
-
-Geplante Reports, Queues, CLI loops, integration workers oder Aufrufe von anderen Agents können das Scaffold ohne Browser nutzen:
-
-```bash
-npx @agent-native/core@latest create my-agent --headless
-```
-
-Das bleibt eine Agent-Native app mit actions, sessions, run history, settings, credentials und SQL state. Es ist eine automation-first Form, nicht der Hauptpfad für den Einstieg. Siehe [Automation-First Apps](/docs/pure-agent-apps).
 
 ## Nächste Schritte {#next}
 

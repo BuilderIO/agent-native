@@ -15,33 +15,6 @@ Agent-Native agentic applications बनाने के लिए है: AI ag
 4. data को SQL में persist करें.
 5. ऐसा page जोड़ें जिसे visual inspection ज़रूरी होने पर agent खोल सके.
 
-<FileTree
-  id="doc-block-chat-first-map"
-  title="chat-first app shape"
-  entries={[
-    {
-      path: "app/routes/_index.tsx",
-      note: "full-page chat surface जहां users शुरू करते हैं",
-    },
-    {
-      path: "actions/analyze-responses.ts",
-      note: "typed operation जिसे agent, UI, CLI, HTTP, MCP और A2A call कर सकते हैं",
-    },
-    {
-      path: "server/db/schema.ts",
-      note: "persistent Response insights data जिसे agent add या update कर सकता है",
-    },
-    {
-      path: "app/routes/response-insights.tsx",
-      note: "chat result के पीछे data browse करने वाला durable app page",
-    },
-    {
-      path: "actions/view-screen.ts + actions/navigate.ts",
-      note: "context और navigation actions ताकि agent सही screen खोल सके",
-    },
-  ]}
-/>
-
 ## 1. Chat app बनाएं {#create-your-app}
 
 [Node.js 22+](https://nodejs.org) और [pnpm](https://pnpm.io) चाहिए.
@@ -131,16 +104,6 @@ my-app/
 ## Analytics के लिए मजबूत starting point चाहिए? {#analytics-starting-point}
 
 ऊपर वाला Response insights example जानबूझकर छोटा है ताकि framework की pieces साफ दिखें. अगर आप वास्तविक analytics product बना रहे हैं, तो [Analytics](/docs/template-analytics) से शुरू करें. यह robust starting point है: अपने providers connect करें, existing dashboards और agent actions इस्तेमाल करें, फिर वहीं से customize करें.
-
-## Advanced: अभी browser UI नहीं चाहिए {#no-browser-ui}
-
-Scheduled reports, queues, CLI loops, integration workers या दूसरे agent की calls no-browser scaffold इस्तेमाल कर सकती हैं:
-
-```bash
-npx @agent-native/core@latest create my-agent --headless
-```
-
-यह फिर भी actions, sessions, run history, settings, credentials और SQL state वाली Agent-Native app है. यह automation-first shape है, मुख्य getting-started path नहीं. देखें [Automation-First Apps](/docs/pure-agent-apps).
 
 ## आगे क्या {#next}
 

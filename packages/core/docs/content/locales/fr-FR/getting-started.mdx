@@ -15,33 +15,6 @@ Le parcours utile :
 4. Persister les données dans SQL.
 5. Ajouter une page que l'agent peut ouvrir lorsqu'une inspection visuelle est préférable.
 
-<FileTree
-  id="doc-block-chat-first-map"
-  title="La forme d'app chat-first"
-  entries={[
-    {
-      path: "app/routes/_index.tsx",
-      note: "la surface de chat complète où les utilisateurs commencent",
-    },
-    {
-      path: "actions/analyze-responses.ts",
-      note: "une opération typée que l'agent, l'UI, la CLI, HTTP, MCP et A2A peuvent appeler",
-    },
-    {
-      path: "server/db/schema.ts",
-      note: "données Response insights persistantes que l'agent peut ajouter ou mettre à jour",
-    },
-    {
-      path: "app/routes/response-insights.tsx",
-      note: "une page d'app durable pour parcourir les données derrière le résultat du chat",
-    },
-    {
-      path: "actions/view-screen.ts + actions/navigate.ts",
-      note: "actions de contexte et de navigation pour ouvrir le bon écran",
-    },
-  ]}
-/>
-
 ## 1. Créer une Chat app {#create-your-app}
 
 Vous avez besoin de [Node.js 22+](https://nodejs.org) et de [pnpm](https://pnpm.io).
@@ -131,16 +104,6 @@ my-app/
 ## Vous voulez un vrai point de départ analytics ? {#analytics-starting-point}
 
 L'exemple Response insights ci-dessus est volontairement petit pour montrer les pièces du framework. Si vous construisez un vrai produit analytics, commencez plutôt avec [Analytics](/docs/template-analytics). C'est le point de départ robuste : connectez vos providers, utilisez les dashboards et agent actions existants, puis personnalisez à partir de là.
-
-## Avancé : pas encore d'UI navigateur {#no-browser-ui}
-
-Les rapports planifiés, files, CLI loops, integration workers ou appels d'un autre agent peuvent utiliser le scaffold sans navigateur :
-
-```bash
-npx @agent-native/core@latest create my-agent --headless
-```
-
-Cela reste une Agent-Native app avec actions, sessions, run history, settings, credentials et SQL state. C'est une forme automation-first, pas le chemin principal de démarrage. Voir [Automation-First Apps](/docs/pure-agent-apps).
 
 ## Suite {#next}
 
