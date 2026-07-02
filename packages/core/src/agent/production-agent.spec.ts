@@ -1050,6 +1050,73 @@ describe("runAgentLoop", () => {
     );
   });
 
+  it("tracks a zero-byte action input delta without a start event", async () => {
+    let now = 1_000_000;
+    const dateNow = vi.spyOn(Date, "now").mockImplementation(() => now);
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: true,
+      },
+      async *stream(): AsyncIterable<EngineEvent> {
+        yield { type: "gateway-heartbeat" };
+        now += 10_000;
+        yield {
+          type: "tool-input-delta",
+          id: "tool-edit",
+          name: "edit-design",
+          text: "",
+        };
+        now += 91_000;
+        yield { type: "gateway-heartbeat" };
+        yield { type: "text-delta", text: "should not continue" };
+      },
+    };
+    const events: AgentChatEvent[] = [];
+
+    try {
+      await runAgentLoop({
+        engine,
+        model: "test-model",
+        systemPrompt: "system",
+        tools: [],
+        messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+        actions: {
+          "edit-design": actionEntry({ readOnly: false }),
+        },
+        send: (event) => events.push(event),
+        signal: new AbortController().signal,
+      });
+    } finally {
+      dateNow.mockRestore();
+    }
+
+    expect(events).toContainEqual({
+      type: "activity",
+      label: "Preparing edit-design action",
+      tool: "edit-design",
+      id: "tool-edit",
+      progressBytes: 0,
+    });
+    expect(events.at(-1)).toEqual({
+      type: "auto_continue",
+      reason: "no_progress",
+    });
+    expect(events).not.toContainEqual(
+      expect.objectContaining({ type: "text", text: "should not continue" }),
+    );
+    expect(events).not.toContainEqual(
+      expect.objectContaining({ type: "tool_start" }),
+    );
+  });
+
   it("keeps tracking stalled action input after a prepared tool-call snapshot", async () => {
     let now = 1_000_000;
     const dateNow = vi.spyOn(Date, "now").mockImplementation(() => now);

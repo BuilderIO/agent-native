@@ -2971,14 +2971,19 @@ export async function runAgentLoop(opts: {
               (event.id ? toolInputNames.get(event.id) : undefined);
             let progressBytes: number | undefined;
             if (key) {
-              const previous = toolInputBytes.get(key) ?? 0;
+              const hadByteRecord = toolInputBytes.has(key);
+              const previous = hadByteRecord
+                ? (toolInputBytes.get(key) ?? 0)
+                : 0;
               progressBytes =
                 previous +
                 new TextEncoder().encode(event.text ?? "").byteLength;
               toolInputBytes.set(key, progressBytes);
-              if (progressBytes > previous) {
+              if (!hadByteRecord || progressBytes > previous) {
                 trackActiveToolInput(key, toolName, progressBytes);
-                resetZeroByteToolInputRestart(toolName);
+                if (progressBytes > 0) {
+                  resetZeroByteToolInputRestart(toolName);
+                }
               }
             }
             sendToolInputActivity(toolName, key, progressBytes);
