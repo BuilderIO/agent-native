@@ -4145,25 +4145,72 @@ export function lastUnfinishedPreparingActionToolFromEvents(
       tool: string;
     }
   >();
+  const idlessToolStarts = new Map<string, number>();
+  const removeOldestMatchingActivePreparation = (
+    tool: string,
+    shouldRemove: (value: {
+      id?: string;
+      order: number;
+      tool: string;
+    }) => boolean = () => true,
+  ) => {
+    let oldest:
+      | {
+          key: string;
+          order: number;
+        }
+      | undefined;
+    for (const [key, value] of active) {
+      if (value.tool !== tool || !shouldRemove(value)) continue;
+      if (!oldest || value.order < oldest.order) {
+        oldest = {
+          key,
+          order: value.order,
+        };
+      }
+    }
+    if (oldest) active.delete(oldest.key);
+    return Boolean(oldest);
+  };
   const removeMatchingActivePreparation = (event: {
     id?: string;
     tool?: string;
+    type: "tool_done" | "tool_start";
   }) => {
     const id = event.id?.trim();
     const tool = event.tool?.trim();
-    if (id) active.delete(`id:${id}`);
     if (!tool) return;
-    for (const [key, value] of active) {
-      if (value.tool !== tool) continue;
-      if (!id || !value.id) active.delete(key);
+    if (id) {
+      if (!active.delete(`id:${id}`)) {
+        removeOldestMatchingActivePreparation(tool, (value) => !value.id);
+      }
+      return;
     }
+
+    if (event.type === "tool_start") {
+      if (removeOldestMatchingActivePreparation(tool)) {
+        idlessToolStarts.set(tool, (idlessToolStarts.get(tool) ?? 0) + 1);
+      }
+      return;
+    }
+
+    const startedCount = idlessToolStarts.get(tool) ?? 0;
+    if (startedCount > 0) {
+      if (startedCount === 1) {
+        idlessToolStarts.delete(tool);
+      } else {
+        idlessToolStarts.set(tool, startedCount - 1);
+      }
+      return;
+    }
+    removeOldestMatchingActivePreparation(tool);
   };
   events.forEach((event, order) => {
     if (isPreparingActionActivityEvent(event)) {
       const tool = event.tool?.trim();
       if (tool) {
         const id = event.id?.trim();
-        const key = id ? `id:${id}` : `tool:${tool}`;
+        const key = id ? `id:${id}` : `tool:${tool}:${order}`;
         active.set(key, {
           tool,
           order,
@@ -4186,6 +4233,7 @@ export function lastUnfinishedPreparingActionToolFromEvents(
       event.type === "missing_api_key"
     ) {
       active.clear();
+      idlessToolStarts.clear();
     }
   });
   let latest:
@@ -5433,7 +5481,7 @@ export function createProductionAgentHandler(
       completionError?: unknown,
     ) => {
       if (!trackedProgressRunId || !trackedProgressOwner) return;
-      if (!completionError && endsAtInternalContinuationBoundary(run)) {
+      if (!completionError && endsAtContinuationBoundary(run)) {
         return;
       }
       const terminalStatus =
@@ -5529,7 +5577,7 @@ export function createProductionAgentHandler(
               if (
                 isBackgroundWorker &&
                 run.status === "errored" &&
-                !endsAtInternalContinuationBoundary(run)
+                !endsAtContinuationBoundary(run)
               ) {
                 const errEvent = [...run.events]
                   .reverse()

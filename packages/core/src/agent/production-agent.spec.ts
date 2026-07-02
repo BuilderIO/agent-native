@@ -4571,6 +4571,44 @@ describe("shouldChainBackgroundContinuation (server-driven background chain)", (
     ).toBe("edit-design");
   });
 
+  it("keeps same-tool action-preparation context when id-less tool events finish one parallel input", () => {
+    expect(
+      lastUnfinishedPreparingActionToolFromEvents([
+        {
+          type: "activity",
+          label: "Preparing edit-design action",
+          tool: "edit-design",
+          id: "edit-1",
+          progressBytes: 1024,
+        },
+        {
+          type: "activity",
+          label: "Preparing edit-design action",
+          tool: "edit-design",
+          id: "edit-2",
+          progressBytes: 2048,
+        },
+        {
+          type: "tool_start",
+          tool: "edit-design",
+          input: { fileId: "file-1" },
+        },
+        {
+          type: "tool_done",
+          tool: "edit-design",
+          input: { fileId: "file-1" },
+          result: '{"ok":true}',
+        },
+        {
+          type: "error",
+          error: "Builder gateway timed out after 45s",
+          errorCode: "builder_gateway_timeout",
+          recoverable: true,
+        },
+      ]),
+    ).toBe("edit-design");
+  });
+
   it("does NOT chain an aborted/user-stopped background run", () => {
     expect(
       shouldChainBackgroundContinuation({
