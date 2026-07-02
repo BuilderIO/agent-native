@@ -4,6 +4,11 @@ export const CLIP_AGENT_CONTEXT_VERSION = 1;
 export const AGENT_CONTEXT_ENDPOINT = "/api/agent-context.json";
 export const AGENT_TRANSCRIPT_ENDPOINT = "/api/agent-transcript.json";
 export const AGENT_FRAME_ENDPOINT = "/api/agent-frame.jpg";
+export const CLIP_AGENT_ACCESS_TOKEN_PREFIX = "clip-agent-context";
+
+export function agentAccessTokenResourceId(recordingId: string): string {
+  return `${CLIP_AGENT_ACCESS_TOKEN_PREFIX}:${recordingId}`;
+}
 
 export interface AgentApiUrls {
   contextUrl: string;

@@ -75,7 +75,11 @@ const PENDING_SELECTION_KEY = "pending-selection-context";
 // ─── displayableUserMessageText ───────────────────────────────────────────────
 
 export function displayableUserMessageText(text: string): string {
-  return text.replace(/<context>[\s\S]*?<\/context>\n?/g, "").trim();
+  return text
+    .replace(/<context\b[^>]*>[\s\S]*?<\/context>\n?/gi, "")
+    .replace(/<context\b[^>]*>[\s\S]*$/gi, "")
+    .replace(/<\/context>/gi, "")
+    .trim();
 }
 
 // ─── Message timestamp helpers ────────────────────────────────────────────────
@@ -214,7 +218,7 @@ export function SelectionAttachedPill() {
   if (length === null || length === 0) return null;
 
   return (
-    <div className="shrink-0 px-3 pt-1.5 -mb-1">
+    <div className="agent-selection-attached-pill shrink-0 px-3 pt-1.5 -mb-1">
       <div className="inline-flex items-center gap-1.5 rounded-full border border-border bg-muted/50 px-2 py-0.5 text-[11px] text-muted-foreground">
         <IconQuote size={11} />
         <span>{length.toLocaleString()} chars of selection attached</span>

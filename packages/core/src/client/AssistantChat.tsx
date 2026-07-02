@@ -89,6 +89,7 @@ import {
   AssistantMessage,
   SelectionAttachedPill,
   RunningActivityStatus,
+  displayableUserMessageText,
 } from "./chat/message-components.js";
 import {
   repoHasAssistantMessage,
@@ -153,6 +154,7 @@ import {
 import {
   AgentAutoContinueSignal,
   type ContentPart,
+  type PreparingActionState,
   readSSEStreamRaw,
   settleInterruptedToolCalls,
 } from "./sse-event-processor.js";
@@ -176,6 +178,8 @@ export {
 } from "./assistant-ui-recovery.js";
 
 export { displayableUserMessageText } from "./chat/message-components.js";
+
+type AuthSessionCheckResult = "available" | "missing" | "unknown";
 
 const useBrowserLayoutEffect =
   typeof window === "undefined" ? useEffect : useLayoutEffect;
@@ -491,13 +495,14 @@ function getMessageText(message: unknown): string {
   const msg = (message as { message?: unknown })?.message ?? message;
   const content = (msg as { content?: unknown })?.content;
   if (Array.isArray(content)) {
-    return content
-      .filter((p: any) => p?.type === "text" && typeof p.text === "string")
-      .map((p: any) => p.text)
-      .join("\n")
-      .trim();
+    return displayableUserMessageText(
+      content
+        .filter((p: any) => p?.type === "text" && typeof p.text === "string")
+        .map((p: any) => p.text)
+        .join("\n"),
+    );
   }
-  return typeof content === "string" ? content.trim() : "";
+  return typeof content === "string" ? displayableUserMessageText(content) : "";
 }
 
 function contentPartFollowKey(part: any): string {
@@ -581,6 +586,61 @@ export function reconnectActivityFallbackContent(
       activity: true,
     },
   ];
+}
+
+function toolCallIdFromContentPart(part: unknown): string | null {
+  if (!part || typeof part !== "object") return null;
+  const candidate = part as { type?: unknown; toolCallId?: unknown };
+  if (candidate.type !== "tool-call") return null;
+  return typeof candidate.toolCallId === "string" && candidate.toolCallId
+    ? candidate.toolCallId
+    : null;
+}
+
+function toolCallPartHasResult(part: unknown): boolean {
+  if (!part || typeof part !== "object") return false;
+  const candidate = part as { type?: unknown; result?: unknown };
+  return candidate.type === "tool-call" && "result" in candidate;
+}
+
+function collectRenderedToolCallStates(
+  messages: readonly unknown[],
+): Map<string, { hasResult: boolean }> {
+  const states = new Map<string, { hasResult: boolean }>();
+  for (const message of messages) {
+    const msg = (message as { message?: unknown })?.message ?? message;
+    const content = (msg as { content?: unknown })?.content;
+    if (!Array.isArray(content)) continue;
+    for (const part of content) {
+      const id = toolCallIdFromContentPart(part);
+      if (!id) continue;
+      const existing = states.get(id);
+      states.set(id, {
+        hasResult: Boolean(existing?.hasResult || toolCallPartHasResult(part)),
+      });
+    }
+  }
+  return states;
+}
+
+export function dedupeReconnectContentAgainstMessages(
+  content: ContentPart[],
+  messages: readonly unknown[],
+): ContentPart[] {
+  if (content.length === 0 || messages.length === 0) return content;
+  const renderedToolCallStates = collectRenderedToolCallStates(messages);
+  if (renderedToolCallStates.size === 0) return content;
+
+  let changed = false;
+  const filtered = content.filter((part) => {
+    const id = toolCallIdFromContentPart(part);
+    const existing = id ? renderedToolCallStates.get(id) : undefined;
+    if (!id || !existing) return true;
+    if (toolCallPartHasResult(part) && !existing.hasResult) return true;
+    changed = true;
+    return false;
+  });
+  return changed ? filtered : content;
 }
 
 const RECOVERY_USER_MESSAGE_PREFIXES = [
@@ -675,7 +735,7 @@ export function resolveAssistantChatRunningStatusLabel({
 }): string {
   if (runningActivityLabel) return runningActivityLabel;
   if (isAutoResuming) return "Resuming";
-  if (isReconnecting && hasReconnectContent) return "Continuing";
+  if (isReconnecting && hasReconnectContent) return "Still working";
   return "Thinking";
 }
 
@@ -1262,6 +1322,7 @@ const AssistantChatInner = forwardRef<
   }, [threadRuntime]);
   const agentEngineConfigured = useAgentEngineConfigured(
     providerStatusChecksEnabled,
+    { tabId, threadId },
   );
   const missingApiKey = agentEngineConfigured.missing;
   const isComposerDisabled = missingApiKey || composerDisabled;
@@ -1293,10 +1354,19 @@ const AssistantChatInner = forwardRef<
     setComposerError(LLM_MISSING_CREDENTIALS_MESSAGE);
     setMissingKeyBouncePulse((p) => p + 1);
     if (typeof window !== "undefined") {
-      window.dispatchEvent(new Event("agent-chat:missing-api-key"));
+      window.dispatchEvent(
+        new CustomEvent("agent-chat:missing-api-key", {
+          detail: { tabId, threadId },
+        }),
+      );
     }
     return false;
-  }, [agentEngineConfigured.state, providerStatusChecksEnabled]);
+  }, [
+    agentEngineConfigured.state,
+    providerStatusChecksEnabled,
+    tabId,
+    threadId,
+  ]);
   const [authError, setAuthError] = useState<{
     sessionExpired?: boolean;
   } | null>(null);
@@ -1516,7 +1586,7 @@ const AssistantChatInner = forwardRef<
   const textStreaming = showRunningInUI || externalStreaming;
   // A revealed activity label wins; otherwise keep recovery states calm and
   // product-facing. Reconnect is transport machinery, so normal replay reads as
-  // "Continuing" instead of exposing "Reconnecting" mid-chat.
+  // ongoing work instead of exposing "Reconnecting" mid-chat.
   const runningStatusLabel = resolveAssistantChatRunningStatusLabel({
     runningActivityLabel,
     isAutoResuming,
@@ -1525,15 +1595,10 @@ const AssistantChatInner = forwardRef<
   });
   const reconnectActivityContent = useMemo(
     () =>
-      (isReconnecting || reconnectFrozen) && reconnectContent.length === 0
+      isReconnecting || reconnectFrozen
         ? reconnectActivityFallbackContent(runningActivityTool)
         : [],
-    [
-      isReconnecting,
-      reconnectFrozen,
-      reconnectContent.length,
-      runningActivityTool,
-    ],
+    [isReconnecting, reconnectFrozen, runningActivityTool],
   );
   const lastBroadcastRunningRef = useRef(isRunning);
   const tiptapRef = useRef<TiptapComposerHandle>(null);
@@ -1863,6 +1928,27 @@ const AssistantChatInner = forwardRef<
       const streamReconnect = async () => {
         let noProgressDuringReconnect = false;
         let latestContent: ContentPart[] = [];
+        const preparingActionState: PreparingActionState = {};
+        const sameRunStillActive = async (): Promise<
+          "active" | "inactive" | "unknown"
+        > => {
+          try {
+            const res = await fetch(
+              `${apiUrl}/runs/active?threadId=${encodeURIComponent(threadId)}`,
+              { signal: abortCtrl.signal },
+            );
+            if (!res.ok) return "unknown";
+            const info = (await res.json()) as ActiveRunLookup;
+            return info.active === true &&
+              String(info.runId ?? "") === runId &&
+              info.status === "running" &&
+              !activeRunLooksStale(info)
+              ? "active"
+              : "inactive";
+          } catch {
+            return "unknown";
+          }
+        };
         const threadPollInterval =
           afterSeq > 0
             ? window.setInterval(() => {
@@ -1871,15 +1957,28 @@ const AssistantChatInner = forwardRef<
               }, 2000)
             : undefined;
         try {
-          const sseRes = await fetch(
-            `${apiUrl}/runs/${encodeURIComponent(runId)}/events?after=${afterSeq}`,
-            { signal: abortCtrl.signal },
-          );
-          if (sseRes.ok && sseRes.body) {
-            const content: ContentPart[] = [];
-            latestContent = content;
-            const toolCallCounter = { value: 0 };
+          const content: ContentPart[] = [];
+          latestContent = content;
+          const toolCallCounter = { value: 0 };
 
+          while (
+            reconnectRunIdRef.current === runId &&
+            !abortCtrl.signal.aborted
+          ) {
+            const reconnectAfterSeq = resolveReconnectAfterSeq(threadId, runId);
+            reconnectTailOnlyRef.current = reconnectAfterSeq > 0;
+            const sseRes = await fetch(
+              `${apiUrl}/runs/${encodeURIComponent(runId)}/events?after=${reconnectAfterSeq}`,
+              { signal: abortCtrl.signal },
+            );
+            if (!sseRes.ok || !sseRes.body) {
+              const activeState = await sameRunStillActive();
+              if (activeState !== "inactive") {
+                await new Promise((resolve) => window.setTimeout(resolve, 250));
+                continue;
+              }
+              break;
+            }
             let rafPending = false;
             let latestSnapshot: ContentPart[] = [];
             const scheduleUpdate = (snapshot: ContentPart[]) => {
@@ -1892,20 +1991,46 @@ const AssistantChatInner = forwardRef<
               });
             };
 
-            await readSSEStreamRaw(
-              sseRes.body,
-              content,
-              toolCallCounter,
-              tabId,
-              scheduleUpdate,
-              (seq) => {
-                markReconnectProgress();
-                updateActiveRunSeq(seq);
-              },
-            );
-            if (afterSeq === 0) {
-              setReconnectContent([...content]);
+            try {
+              await readSSEStreamRaw(
+                sseRes.body,
+                content,
+                toolCallCounter,
+                tabId,
+                scheduleUpdate,
+                (seq) => {
+                  markReconnectProgress();
+                  updateActiveRunSeq(seq);
+                },
+                { preparingActionState },
+              );
+              if (reconnectAfterSeq === 0) {
+                setReconnectContent([...content]);
+              }
+              break;
+            } catch (err) {
+              if (
+                err instanceof AgentAutoContinueSignal &&
+                err.reason === "stream_ended"
+              ) {
+                if (reconnectAfterSeq === 0) {
+                  setReconnectContent([...content]);
+                }
+                const activeState = await sameRunStillActive();
+                if (activeState !== "inactive") {
+                  await new Promise((resolve) =>
+                    window.setTimeout(resolve, 250),
+                  );
+                  continue;
+                }
+              }
+              throw err;
             }
+          }
+          if (reconnectTimedOut && abortCtrl.signal.aborted) {
+            const timeoutError = new Error("Reconnect timed out");
+            timeoutError.name = "AbortError";
+            throw timeoutError;
           }
         } catch (err) {
           if (
@@ -2382,23 +2507,31 @@ const AssistantChatInner = forwardRef<
   }, []);
 
   // Listen for auth error events from the adapter
-  const checkAuthSession = useCallback(async () => {
-    try {
-      const res = await fetch(agentNativePath("/_agent-native/auth/session"), {
-        cache: "no-store",
-      });
-      if (!res.ok) return false;
-      const data = await res.json().catch(() => null);
-      const hasSession = !!data && !data.error;
-      setAuthSessionAvailable(hasSession);
-      if (hasSession) {
-        setAuthError(null);
+  const checkAuthSession =
+    useCallback(async (): Promise<AuthSessionCheckResult> => {
+      try {
+        const res = await fetch(
+          agentNativePath("/_agent-native/auth/session"),
+          {
+            cache: "no-store",
+          },
+        );
+        if (!res.ok) {
+          return res.status === 401 || res.status === 403
+            ? "missing"
+            : "unknown";
+        }
+        const data = await res.json().catch(() => null);
+        const hasSession = !!data && !data.error;
+        setAuthSessionAvailable(hasSession);
+        if (hasSession) {
+          setAuthError(null);
+        }
+        return hasSession ? "available" : "missing";
+      } catch {
+        return "unknown";
       }
-      return hasSession;
-    } catch {
-      return false;
-    }
-  }, []);
+    }, []);
 
   useEffect(() => {
     const handler = (e: Event) => {
@@ -2420,9 +2553,12 @@ const AssistantChatInner = forwardRef<
       ) {
         return;
       }
-      setAuthSessionAvailable(false);
-      setAuthError({ sessionExpired: detail?.reason === "session-expired" });
-      void checkAuthSession();
+      void (async () => {
+        const sessionState = await checkAuthSession();
+        if (sessionState !== "missing") return;
+        setAuthSessionAvailable(false);
+        setAuthError({ sessionExpired: detail?.reason === "session-expired" });
+      })();
     };
     window.addEventListener("agent-chat:auth-error", handler);
     return () => window.removeEventListener("agent-chat:auth-error", handler);
@@ -2438,8 +2574,9 @@ const AssistantChatInner = forwardRef<
     // symptom we want signal on.
     const stuckCapture = window.setTimeout(() => {
       void (async () => {
-        const hasSession = await checkAuthSession();
-        if (hasSession) return;
+        const sessionState = await checkAuthSession();
+        if (sessionState === "available") return;
+        if (sessionState !== "missing") return;
         if (!shouldCaptureStuckAuthCard) return;
         captureError(new Error("agent-chat:auth_error_card_stuck"), {
           tags: {
@@ -3200,14 +3337,19 @@ const AssistantChatInner = forwardRef<
     ],
   );
 
+  const visibleReconnectContent = useMemo(
+    () => dedupeReconnectContentAgainstMessages(reconnectContent, messages),
+    [messages, reconnectContent],
+  );
+
   const autoscrollFollowKey = useMemo(
     () =>
       [
         messages.map(messageFollowKey).join(";"),
         `q:${queuedMessages.map(queuedMessageFollowKey).join("|")}`,
-        `r:${reconnectContentFollowKey(reconnectContent)}`,
+        `r:${reconnectContentFollowKey(visibleReconnectContent)}`,
       ].join(";;"),
-    [messages, queuedMessages, reconnectContent],
+    [messages, queuedMessages, visibleReconnectContent],
   );
 
   const {
@@ -3391,6 +3533,15 @@ const AssistantChatInner = forwardRef<
     queryKey: ["guided-questions"],
     ...(browserTabId ? { browserTabId } : {}),
   });
+  const hasComposerAccessoryAboveStack = Boolean(
+    composerError ||
+    showComposerSlot ||
+    showCenteredEmptyThreadFooterSlot ||
+    (guidedQuestions && guidedQuestions.length > 0) ||
+    showScrollToBottom ||
+    composerContextItems.length > 0 ||
+    showPlanModeCallout,
+  );
 
   // Human-in-the-loop approvals: when the user approves a paused `needsApproval`
   // tool call, re-issue the turn carrying the call's approval key so the server
@@ -3706,11 +3857,13 @@ const AssistantChatInner = forwardRef<
                         />
                       )}
                       {(isReconnecting || reconnectFrozen) &&
-                        reconnectContent.length > 0 && (
-                          <ReconnectStreamMessage content={reconnectContent} />
+                        visibleReconnectContent.length > 0 && (
+                          <ReconnectStreamMessage
+                            content={visibleReconnectContent}
+                          />
                         )}
                       {(isReconnecting || reconnectFrozen) &&
-                        reconnectContent.length === 0 &&
+                        visibleReconnectContent.length === 0 &&
                         reconnectActivityContent.length > 0 && (
                           <ReconnectStreamMessage
                             content={reconnectActivityContent}
@@ -3720,9 +3873,9 @@ const AssistantChatInner = forwardRef<
                         <RunningActivityStatus label={runningStatusLabel} />
                       )}
                       {queuedMessages.map((msg) => {
-                        const displayText = msg.text
-                          .replace(/<context>[\s\S]*?<\/context>\n?/g, "")
-                          .trim();
+                        const displayText = displayableUserMessageText(
+                          msg.text,
+                        );
                         return (
                           <div
                             key={msg.id}
@@ -3816,7 +3969,6 @@ const AssistantChatInner = forwardRef<
                     onSwitchToAct={handleSwitchToAct}
                   />
                 )}
-                <SelectionAttachedPill />
                 {/* Inline attachment / body-size error */}
                 {composerError && (
                   <div
@@ -3835,124 +3987,142 @@ const AssistantChatInner = forwardRef<
                     </button>
                   </div>
                 )}
-                {missingApiKey &&
-                !authError &&
-                missingApiKeySetupAboveComposer ? (
-                  <BuilderSetupCard
-                    onConnected={handleBuilderConnected}
-                    bouncePulse={missingKeyBouncePulse}
-                    layout={missingApiKeySetupLayout}
-                  />
-                ) : null}
-                {/* Input area */}
-                <AgentComposerFrame
-                  layoutVariant={composerLayoutVariant}
-                  className={cn(
-                    composerAreaClassName,
-                    missingApiKey && "cursor-pointer",
-                    isComposerDisabled && "opacity-70",
-                  )}
-                  onClick={
-                    missingApiKey
-                      ? () => setMissingKeyBouncePulse((p) => p + 1)
-                      : undefined
+                <div
+                  className="agent-composer-stack"
+                  data-agent-composer-adjacent-ui={
+                    hasComposerAccessoryAboveStack ? "true" : undefined
                   }
                 >
-                  <ComposerAttachmentPreviewStrip />
-                  <TiptapComposer
-                    focusRef={tiptapRef}
-                    disabled={isComposerDisabled}
-                    placeholder={
+                  <SelectionAttachedPill />
+                  {missingApiKey &&
+                  !authError &&
+                  missingApiKeySetupAboveComposer ? (
+                    <div
+                      className="agent-composer-setup-card"
+                      data-agent-composer-setup-position="above"
+                    >
+                      <BuilderSetupCard
+                        onConnected={handleBuilderConnected}
+                        bouncePulse={missingKeyBouncePulse}
+                        layout={missingApiKeySetupLayout}
+                      />
+                    </div>
+                  ) : null}
+                  {/* Input area */}
+                  <AgentComposerFrame
+                    layoutVariant={composerLayoutVariant}
+                    className={cn(
+                      composerAreaClassName,
+                      missingApiKey && "cursor-pointer",
+                      isComposerDisabled && "opacity-70",
+                    )}
+                    onClick={
                       missingApiKey
-                        ? missingApiKeySetupAboveComposer
-                          ? "Connect AI above to start chatting..."
-                          : "Connect AI below to start chatting..."
-                        : composerDisabled
-                          ? (composerDisabledPlaceholder ??
-                            "Open Desktop to use this chat.")
-                          : isRunning
-                            ? queuedMessages.length > 0
-                              ? `${queuedMessages.length} queued — send a follow-up...`
-                              : "Send a follow-up..."
-                            : composerPlaceholder
-                    }
-                    onSubmit={
-                      isRunning || composerContextItems.length > 0
-                        ? (text, references, attachments, options) =>
-                            void addToQueue(
-                              text,
-                              undefined,
-                              references.length > 0 ? references : undefined,
-                              attachments,
-                              undefined,
-                              resolveAssistantChatSubmitIntent({
-                                isRunning,
-                                requestedIntent: options?.intent,
-                              }),
-                              undefined,
-                              true,
-                            )
+                        ? () => setMissingKeyBouncePulse((p) => p + 1)
                         : undefined
                     }
-                    onSlashCommand={onSlashCommand}
-                    onBeforeSubmit={ensureAgentEngineReadyForSubmit}
-                    execMode={execMode}
-                    onExecModeChange={onExecModeChange}
-                    planModeDisabled={planModeDisabled}
-                    planModeDisabledReason={planModeDisabledReason}
-                    selectedModel={selectedModel ?? defaultModel}
-                    selectedEffort={selectedEffort}
-                    availableModels={availableModels}
-                    onModelChange={onModelChange}
-                    onEffortChange={onEffortChange}
-                    imageModelMenu={imageModelMenu}
-                    onConnectProvider={onConnectProvider}
-                    toolbarSlot={composerToolbarSlot}
-                    contextItems={composerContextItems}
-                    onRemoveContextItem={removeComposerContextItem}
-                    plusMenuMode={plusMenuMode}
-                    layoutVariant={composerLayoutVariant}
-                    providerConnectStatusEnabled={providerStatusChecksEnabled}
-                    draftScope={threadId || tabId}
-                    interceptBuildRequestsForBuilder
-                    onAttachmentError={setComposerError}
-                    extraActionButton={
-                      contextXRayEnabled ||
-                      composerExtraActionButton ||
-                      showRunningInUI ? (
-                        <>
-                          {contextXRayEnabled && (
-                            <ContextMeter threadId={threadId} />
-                          )}
-                          {composerExtraActionButton}
-                          {showRunningInUI && (
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <button
-                                  type="button"
-                                  onClick={stopActiveRun}
-                                  className="shrink-0 flex h-7 w-7 items-center justify-center rounded-md bg-muted text-foreground hover:bg-muted/80"
-                                >
-                                  <IconPlayerStop className="h-3.5 w-3.5" />
-                                </button>
-                              </TooltipTrigger>
-                              <TooltipContent>Stop generating</TooltipContent>
-                            </Tooltip>
-                          )}
-                        </>
-                      ) : undefined
-                    }
-                  />
-                </AgentComposerFrame>
-                {missingApiKey &&
-                !authError &&
-                !missingApiKeySetupAboveComposer ? (
-                  <BuilderSetupCard
-                    onConnected={handleBuilderConnected}
-                    bouncePulse={missingKeyBouncePulse}
-                    layout={missingApiKeySetupLayout}
-                  />
-                ) : null}
+                  >
+                    <ComposerAttachmentPreviewStrip />
+                    <TiptapComposer
+                      focusRef={tiptapRef}
+                      disabled={isComposerDisabled}
+                      placeholder={
+                        missingApiKey
+                          ? missingApiKeySetupAboveComposer
+                            ? "Connect AI above to start chatting..."
+                            : "Connect AI below to start chatting..."
+                          : composerDisabled
+                            ? (composerDisabledPlaceholder ??
+                              "Open Desktop to use this chat.")
+                            : isRunning
+                              ? queuedMessages.length > 0
+                                ? `${queuedMessages.length} queued — send a follow-up...`
+                                : "Send a follow-up..."
+                              : composerPlaceholder
+                      }
+                      onSubmit={
+                        isRunning || composerContextItems.length > 0
+                          ? (text, references, attachments, options) =>
+                              void addToQueue(
+                                text,
+                                undefined,
+                                references.length > 0 ? references : undefined,
+                                attachments,
+                                undefined,
+                                resolveAssistantChatSubmitIntent({
+                                  isRunning,
+                                  requestedIntent: options?.intent,
+                                }),
+                                undefined,
+                                true,
+                              )
+                          : undefined
+                      }
+                      onSlashCommand={onSlashCommand}
+                      onBeforeSubmit={ensureAgentEngineReadyForSubmit}
+                      execMode={execMode}
+                      onExecModeChange={onExecModeChange}
+                      planModeDisabled={planModeDisabled}
+                      planModeDisabledReason={planModeDisabledReason}
+                      selectedModel={selectedModel ?? defaultModel}
+                      selectedEffort={selectedEffort}
+                      availableModels={availableModels}
+                      onModelChange={onModelChange}
+                      onEffortChange={onEffortChange}
+                      imageModelMenu={imageModelMenu}
+                      onConnectProvider={onConnectProvider}
+                      toolbarSlot={composerToolbarSlot}
+                      contextItems={composerContextItems}
+                      onRemoveContextItem={removeComposerContextItem}
+                      plusMenuMode={plusMenuMode}
+                      layoutVariant={composerLayoutVariant}
+                      providerConnectStatusEnabled={providerStatusChecksEnabled}
+                      draftScope={threadId || tabId}
+                      interceptBuildRequestsForBuilder
+                      onAttachmentError={setComposerError}
+                      extraActionButton={
+                        contextXRayEnabled ||
+                        composerExtraActionButton ||
+                        showRunningInUI ? (
+                          <>
+                            {contextXRayEnabled && (
+                              <ContextMeter threadId={threadId} />
+                            )}
+                            {composerExtraActionButton}
+                            {showRunningInUI && (
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <button
+                                    type="button"
+                                    onClick={stopActiveRun}
+                                    className="shrink-0 flex h-7 w-7 items-center justify-center rounded-md bg-muted text-foreground hover:bg-muted/80"
+                                  >
+                                    <IconPlayerStop className="h-3.5 w-3.5" />
+                                  </button>
+                                </TooltipTrigger>
+                                <TooltipContent>Stop generating</TooltipContent>
+                              </Tooltip>
+                            )}
+                          </>
+                        ) : undefined
+                      }
+                    />
+                  </AgentComposerFrame>
+                  {missingApiKey &&
+                  !authError &&
+                  !missingApiKeySetupAboveComposer ? (
+                    <div
+                      className="agent-composer-setup-card"
+                      data-agent-composer-setup-position="below"
+                    >
+                      <BuilderSetupCard
+                        onConnected={handleBuilderConnected}
+                        bouncePulse={missingKeyBouncePulse}
+                        layout={missingApiKeySetupLayout}
+                      />
+                    </div>
+                  ) : null}
+                </div>
               </div>
             </TextStreamingContext.Provider>
           </ChatRunningContext.Provider>

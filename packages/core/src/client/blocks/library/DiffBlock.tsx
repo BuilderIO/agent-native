@@ -838,8 +838,8 @@ function DiffRead({
     effectiveMode === "split" ? splitLineCount : rows.length;
   const shouldLimitRows = totalVisibleLineCount > DEFAULT_VISIBLE_DIFF_LINES;
   // Never truncate away an annotated row: extend the window past the last one.
-  const effectiveRowLimit = useMemo(() => {
-    if (showAllRows || !shouldLimitRows) return undefined;
+  const collapsedRowLimit = useMemo(() => {
+    if (!shouldLimitRows) return undefined;
     let limit = DEFAULT_VISIBLE_DIFF_LINES;
     if (hasAnnotations) {
       for (let idx = rows.length - 1; idx >= limit; idx -= 1) {
@@ -850,8 +850,10 @@ function DiffRead({
       }
     }
     return limit;
-  }, [showAllRows, shouldLimitRows, hasAnnotations, rows, markersForRow]);
-  const rowLimit = effectiveRowLimit;
+  }, [shouldLimitRows, hasAnnotations, rows, markersForRow]);
+  const hasHiddenRows =
+    collapsedRowLimit != null && collapsedRowLimit < totalVisibleLineCount;
+  const rowLimit = showAllRows ? undefined : collapsedRowLimit;
   const displayedRows =
     effectiveMode === "unified" && rowLimit ? rows.slice(0, rowLimit) : rows;
 
@@ -965,7 +967,7 @@ function DiffRead({
           ctx={ctx}
         />
       )}
-      {!unchanged && shouldLimitRows && (
+      {!unchanged && hasHiddenRows && (
         <button
           type="button"
           data-plan-interactive

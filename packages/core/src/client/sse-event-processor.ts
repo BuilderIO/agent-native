@@ -151,11 +151,18 @@ export const SSE_ACTION_PREPARATION_STALL_TIMEOUT_MS = 90_000;
 export interface SSEStreamOptions {
   /**
    * Durable background runs have their own server-side liveness budget and
-   * heartbeat. While one is active, keepalive-only periods and zero-byte
-   * action-preparation activity should keep the client attached instead of
-   * aborting and starting duplicate continuations.
+   * heartbeat. While one is active, generic keepalive-only periods keep the
+   * client attached. Tool-input preparation is stricter: real byte progress
+   * keeps long payloads alive, but zero-byte/silent preparation still recovers
+   * so one stuck action cannot pin the chat forever.
    */
   durableBackgroundRun?: boolean;
+  /**
+   * Optional caller-owned preparation watchdog state. Passing the same object
+   * across reconnect reads keeps a stuck action preparation from getting a
+   * fresh stall budget every time the browser reattaches to the same run.
+   */
+  preparingActionState?: PreparingActionState;
 }
 
 type ActivityTrailEntry = AgentActivityTrailEntry;
@@ -176,8 +183,9 @@ type PreparingActionEntry = {
   lastProgressAt?: number;
 };
 
-type PreparingActionState = {
+export type PreparingActionState = {
   entries?: Map<string, PreparingActionEntry>;
+  toolEntries?: Map<string, PreparingActionEntry>;
 };
 
 function formatProgressBytes(bytes: number): string {
@@ -278,6 +286,24 @@ function findPendingToolCallIndex(
   return -1;
 }
 
+function findCompletedToolCallIndex(
+  content: ContentPart[],
+  toolCallId?: string,
+): number {
+  if (!toolCallId) return -1;
+  for (let i = content.length - 1; i >= 0; i--) {
+    const part = content[i];
+    if (
+      part.type === "tool-call" &&
+      part.toolCallId === toolCallId &&
+      part.result !== undefined
+    ) {
+      return i;
+    }
+  }
+  return -1;
+}
+
 function appendActivityTrail(
   trail: ActivityTrailEntry[],
   next: ActivityTrailEntry,
@@ -293,6 +319,37 @@ function appendActivityTrail(
   }
 }
 
+function refreshPreparingToolEntry(state: PreparingActionState, tool: string) {
+  const remainingEntries = [...(state.entries?.values() ?? [])].filter(
+    (entry) => entry.tool === tool,
+  );
+  if (remainingEntries.length === 0) {
+    state.toolEntries?.delete(tool);
+    return;
+  }
+  const deadlineBasis = (entry: PreparingActionEntry) =>
+    entry.lastProgressAt ?? entry.startedAt ?? Number.POSITIVE_INFINITY;
+  const oldestEntry = remainingEntries.reduce((oldest, entry) =>
+    deadlineBasis(entry) < deadlineBasis(oldest) ? entry : oldest,
+  );
+  const lastProgressBytes = remainingEntries.reduce<number | undefined>(
+    (max, entry) =>
+      entry.lastProgressBytes === undefined
+        ? max
+        : Math.max(max ?? 0, entry.lastProgressBytes),
+    undefined,
+  );
+  const toolEntries =
+    state.toolEntries ?? new Map<string, PreparingActionEntry>();
+  state.toolEntries = toolEntries;
+  toolEntries.set(tool, {
+    tool,
+    startedAt: oldestEntry.startedAt,
+    lastProgressAt: oldestEntry.lastProgressAt,
+    lastProgressBytes,
+  });
+}
+
 function updatePreparingActionState(
   state: PreparingActionState,
   ev: SSEEvent,
@@ -301,7 +358,8 @@ function updatePreparingActionState(
   if (ev.type === "activity" && isPreparingActionActivity(ev)) {
     const tool = ev.tool?.trim() || undefined;
     if (!tool) return false;
-    const key = ev.id?.trim() || tool;
+    const id = ev.id?.trim();
+    const key = id || tool;
     const entries = state.entries ?? new Map<string, PreparingActionEntry>();
     state.entries = entries;
     let entry = entries.get(key);
@@ -314,22 +372,35 @@ function updatePreparingActionState(
       };
       entries.set(key, entry);
     }
+    const toolEntries =
+      state.toolEntries ?? new Map<string, PreparingActionEntry>();
+    state.toolEntries = toolEntries;
+    let toolEntry = toolEntries.get(tool);
+    if (!toolEntry) {
+      toolEntry = {
+        tool,
+        startedAt: now,
+        lastProgressAt: undefined,
+        lastProgressBytes: undefined,
+      };
+      toolEntries.set(tool, toolEntry);
+    }
     const progressBytes = activityProgressBytes(ev);
     const previousBytes = entry.lastProgressBytes ?? 0;
+    let madeProgress = false;
     if (progressBytes !== undefined) {
       entry.lastProgressBytes = Math.max(previousBytes, progressBytes);
+      toolEntry.lastProgressBytes = Math.max(
+        toolEntry.lastProgressBytes ?? 0,
+        progressBytes,
+      );
+      madeProgress = id ? progressBytes > previousBytes : progressBytes > 0;
     }
-    if (!ev.id?.trim()) {
-      if (progressBytes !== undefined && progressBytes > 0) {
-        entry.lastProgressAt = now;
-        return true;
-      }
-      return false;
-    }
-    if (progressBytes !== undefined && progressBytes > previousBytes) {
+    if (madeProgress) {
       // A byte increase is proof the model is still streaming this action's
       // argument. Repeated zero-byte prep activity is only a heartbeat.
       entry.lastProgressAt = now;
+      toolEntry.lastProgressAt = now;
       return true;
     }
     return false;
@@ -348,29 +419,31 @@ function updatePreparingActionState(
       const tool = ev.tool?.trim();
       const id = ev.id?.trim();
       for (const [key, entry] of state.entries ?? []) {
-        if ((id && key === id) || (!id && entry.tool === tool)) {
+        if ((id && key === id) || (!id && tool && entry.tool === tool)) {
           state.entries?.delete(key);
         }
       }
+      if (tool) {
+        refreshPreparingToolEntry(state, tool);
+      }
     } else {
       state.entries?.clear();
+      state.toolEntries?.clear();
     }
   }
   return undefined;
 }
 
-function hasStalledPreparingAction(
-  state: PreparingActionState,
-  now: number,
-  options?: SSEStreamOptions,
-) {
-  if (options?.durableBackgroundRun === true) return false;
+function hasStalledPreparingAction(state: PreparingActionState, now: number) {
   // Fire only when a tool input has gone SILENT — no further streaming deltas
   // for the whole window — never merely because a large input has been
   // streaming for a long time. `lastProgressAt` advances on every delta
   // heartbeat, so an actively-streaming large output keeps resetting this and
   // survives; a genuinely stuck prep (keepalive-only, no deltas) trips it.
-  for (const entry of state.entries?.values() ?? []) {
+  for (const entry of [
+    ...(state.toolEntries?.values() ?? []),
+    ...(state.entries?.values() ?? []),
+  ]) {
     if (
       entry.startedAt !== undefined &&
       now - (entry.lastProgressAt ?? entry.startedAt) >=
@@ -523,6 +596,15 @@ function dispatchActivityClear(tabId: string | undefined) {
   if (typeof window === "undefined") return;
   window.dispatchEvent(
     new CustomEvent("agent-chat:activity-clear", {
+      detail: { tabId },
+    }),
+  );
+}
+
+function dispatchMissingApiKey(tabId: string | undefined) {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(
+    new CustomEvent("agent-chat:missing-api-key", {
       detail: { tabId },
     }),
   );
@@ -787,6 +869,9 @@ export function processEvent(
   if (ev.type === "tool_start") {
     const args = (ev.input ?? {}) as Record<string, string>;
     const tool = ev.tool ?? "unknown";
+    if (findCompletedToolCallIndex(content, ev.id) >= 0) {
+      return { action: "continue" };
+    }
     if (typeof window !== "undefined") {
       window.dispatchEvent(
         new CustomEvent("agent-native:tool-start", {
@@ -868,6 +953,9 @@ export function processEvent(
     // so a tool_done frame with an undefined tool name still matches its
     // pending tool-call entry instead of leaving it forever unresolved.
     const doneTool = ev.tool ?? "unknown";
+    if (findCompletedToolCallIndex(content, ev.id) >= 0) {
+      return { action: "continue" };
+    }
     if (typeof window !== "undefined") {
       window.dispatchEvent(
         new CustomEvent("agent-native:tool-done", {
@@ -977,7 +1065,7 @@ export function processEvent(
       errorCode,
     };
     if (typeof window !== "undefined") {
-      window.dispatchEvent(new Event("agent-chat:missing-api-key"));
+      dispatchMissingApiKey(tabId);
       window.dispatchEvent(
         new CustomEvent("agent-chat:run-error", {
           detail: { ...runError, tabId },
@@ -1077,9 +1165,7 @@ export function processEvent(
     }
     const normalized = normalizeChatError(errMsg, ev.errorCode);
     if (isMissingCredentialText(errMsg, ev.errorCode)) {
-      if (typeof window !== "undefined") {
-        window.dispatchEvent(new Event("agent-chat:missing-api-key"));
-      }
+      dispatchMissingApiKey(tabId);
     }
     const runError = {
       message: normalized.message,
@@ -1219,7 +1305,8 @@ export async function* readSSEStream(
   let buf = "";
   let lastMeaningfulEventAt = Date.now();
   const activityTrail: ActivityTrailEntry[] = [];
-  const preparingActionState: PreparingActionState = {};
+  const preparingActionState: PreparingActionState =
+    options?.preparingActionState ?? {};
   const processEventState: ProcessEventState = {
     completedToolsAfterLastAssistantText: new Set(),
   };
@@ -1340,9 +1427,7 @@ export async function* readSSEStream(
         );
 
         if (result) yield withStreamMetadata(result);
-        if (
-          hasStalledPreparingAction(preparingActionState, Date.now(), options)
-        ) {
+        if (hasStalledPreparingAction(preparingActionState, Date.now())) {
           throw new AgentAutoContinueSignal({
             reason: "no_progress",
             activityTrail: [...activityTrail],
@@ -1413,7 +1498,8 @@ export async function readSSEStreamRaw(
   let buf = "";
   let lastMeaningfulEventAt = Date.now();
   const activityTrail: ActivityTrailEntry[] = [];
-  const preparingActionState: PreparingActionState = {};
+  const preparingActionState: PreparingActionState =
+    options?.preparingActionState ?? {};
   const processEventState: ProcessEventState = {
     completedToolsAfterLastAssistantText: new Set(),
   };
@@ -1525,9 +1611,7 @@ export async function readSSEStreamRaw(
               : { reason: "stream_ended", activityTrail: [...activityTrail] },
           );
         }
-        if (
-          hasStalledPreparingAction(preparingActionState, Date.now(), options)
-        ) {
+        if (hasStalledPreparingAction(preparingActionState, Date.now())) {
           onUpdate(contentSnapshot(content));
           throw new AgentAutoContinueSignal({
             reason: "no_progress",

@@ -44,6 +44,7 @@ import type { AgentChatEvent, RunEvent } from "./types.js";
 function actionEntry(opts: {
   description?: string;
   readOnly?: boolean;
+  allowInPlanMode?: boolean;
   parallelSafe?: boolean;
   actions?: string[];
 }): ActionEntry {
@@ -67,6 +68,9 @@ function actionEntry(opts: {
           },
     },
     ...(typeof opts.readOnly === "boolean" ? { readOnly: opts.readOnly } : {}),
+    ...(typeof opts.allowInPlanMode === "boolean"
+      ? { allowInPlanMode: opts.allowInPlanMode }
+      : {}),
     ...(typeof opts.parallelSafe === "boolean"
       ? { parallelSafe: opts.parallelSafe }
       : {}),
@@ -544,6 +548,10 @@ describe("buildUserContentWithAttachments", () => {
   it("builds a plan-mode registry with only read-only tools", async () => {
     const registry = attachToolSearch({
       read: actionEntry({ readOnly: true }),
+      "read-but-act-only": actionEntry({
+        readOnly: true,
+        allowInPlanMode: false,
+      }),
       write: actionEntry({ readOnly: false }),
       bash: actionEntry({ readOnly: false }),
       "set-url-path": actionEntry({ readOnly: true }),
@@ -585,6 +593,9 @@ describe("buildUserContentWithAttachments", () => {
     expect(searchResult.results.map((tool: any) => tool.name)).not.toContain(
       "write",
     );
+    expect(searchResult.results.map((tool: any) => tool.name)).not.toContain(
+      "read-but-act-only",
+    );
   });
 
   it("treats mixed tools as read-only only for allowed arguments", () => {
@@ -598,6 +609,14 @@ describe("buildUserContentWithAttachments", () => {
 
     const urlTool = actionEntry({ readOnly: true });
     expect(isPlanModeToolCallAllowed("set-url-path", {}, urlTool)).toBe(false);
+
+    const readOnlyActOnlyTool = actionEntry({
+      readOnly: true,
+      allowInPlanMode: false,
+    });
+    expect(
+      isPlanModeToolCallAllowed("deep-analysis", {}, readOnlyActOnlyTool),
+    ).toBe(false);
 
     const bashTool = actionEntry({ readOnly: false });
     expect(
@@ -1397,6 +1416,86 @@ describe("runAgentLoop", () => {
           name: "edit-design",
           text: "",
         };
+        yield { type: "text-delta", text: "should not continue" };
+      },
+    };
+    const events: AgentChatEvent[] = [];
+
+    try {
+      await runAgentLoop({
+        engine,
+        model: "test-model",
+        systemPrompt: "system",
+        tools: [],
+        messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+        actions: {
+          "edit-design": actionEntry({ readOnly: false }),
+        },
+        send: (event) => events.push(event),
+        signal: new AbortController().signal,
+      });
+    } finally {
+      dateNow.mockRestore();
+    }
+
+    expect(
+      events.filter(
+        (event) =>
+          event.type === "activity" &&
+          event.tool === "edit-design" &&
+          event.progressBytes === 0,
+      ).length,
+    ).toBeGreaterThanOrEqual(2);
+    expect(events.at(-1)).toEqual({
+      type: "auto_continue",
+      reason: "no_progress",
+    });
+    expect(events).not.toContainEqual(
+      expect.objectContaining({ type: "text", text: "should not continue" }),
+    );
+    expect(events).not.toContainEqual(
+      expect.objectContaining({ type: "tool_start" }),
+    );
+  });
+
+  it("does not treat fresh zero-byte action input ids as progress", async () => {
+    let now = 1_000_000;
+    const dateNow = vi.spyOn(Date, "now").mockImplementation(() => now);
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: true,
+      },
+      async *stream(): AsyncIterable<EngineEvent> {
+        yield {
+          type: "tool-input-delta",
+          id: "tool-edit-a",
+          name: "edit-design",
+          text: "",
+        };
+        now += 45_000;
+        yield {
+          type: "tool-input-delta",
+          id: "tool-edit-b",
+          name: "edit-design",
+          text: "",
+        };
+        now += 44_000;
+        yield {
+          type: "tool-input-delta",
+          id: "tool-edit-c",
+          name: "edit-design",
+          text: "",
+        };
+        now += 2_000;
+        yield { type: "gateway-heartbeat" };
         yield { type: "text-delta", text: "should not continue" };
       },
     };

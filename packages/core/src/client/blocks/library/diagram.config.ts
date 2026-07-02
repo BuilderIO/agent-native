@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 import { childCodeFenceFields, serializeChildCodeFenceFields } from "../mdx.js";
-import type { BlockMdxConfig } from "../types.js";
+import type { BlockMdxConfig, BlockVisualFrame } from "../types.js";
 
 /**
  * Pure (React-free) part of the shared `diagram` block: its data schema and MDX
@@ -45,6 +45,8 @@ export interface DiagramData {
   html?: string;
   css?: string;
   caption?: string;
+  /** Outer surface frame. `auto` lets the host choose the right default. */
+  frame?: BlockVisualFrame;
   /**
    * Legacy compatibility path for older/simple node graphs. New plans should use
    * `html`/`css` when layout quality matters.
@@ -120,6 +122,8 @@ const diagramNoteSchema = z.object({
   y: z.number().min(0).max(100).optional(),
 }) as z.ZodType<DiagramNote>;
 
+const visualFrameSchema = z.enum(["auto", "show", "hide"]);
+
 /**
  * The block can be a flexible HTML/SVG fragment or a legacy positional
  * node/edge/note graph, so it ships a custom `Edit` rather than relying on the
@@ -144,6 +148,7 @@ export const diagramSchema = z
       })
       .optional(),
     caption: z.string().trim().max(600).optional(),
+    frame: visualFrameSchema.optional(),
     nodes: z.array(diagramNodeSchema).max(80).optional(),
     edges: z.array(diagramEdgeSchema).max(120).optional(),
     notes: z.array(diagramNoteSchema).max(40).optional(),
@@ -167,7 +172,9 @@ function graphDataForAttr(data: DiagramData): DiagramData | undefined {
   if (data.edges?.length) graph.edges = data.edges;
   if (data.notes?.length) graph.notes = data.notes;
   if (Object.keys(graph).length > 0) return graph;
-  return hasChildFenceData(data) ? undefined : data;
+  if (hasChildFenceData(data)) return undefined;
+  const { frame: _frame, ...dataForAttr } = data;
+  return Object.keys(dataForAttr).length > 0 ? dataForAttr : undefined;
 }
 
 /**
@@ -185,11 +192,15 @@ export const diagramMdx: BlockMdxConfig<DiagramData> = {
       | Record<string, unknown>
       | undefined,
     caption: data.caption,
+    frame: data.frame,
   }),
   fromAttrs: (attrs) => ({
     ...(attrs.object<DiagramData>("data") ?? {}),
     ...(attrs.string("caption") !== undefined
       ? { caption: attrs.string("caption") }
+      : {}),
+    ...(attrs.string("frame") !== undefined
+      ? { frame: attrs.string("frame") as BlockVisualFrame }
       : {}),
   }),
   serializeChildren: (data) =>
