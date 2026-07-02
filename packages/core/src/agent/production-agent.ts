@@ -2970,6 +2970,7 @@ export async function runAgentLoop(opts: {
               event.name ??
               (event.id ? toolInputNames.get(event.id) : undefined);
             let progressBytes: number | undefined;
+            let startedZeroByteInput = false;
             if (key) {
               const hadByteRecord = toolInputBytes.has(key);
               const previous = hadByteRecord
@@ -2983,10 +2984,24 @@ export async function runAgentLoop(opts: {
                 trackActiveToolInput(key, toolName, progressBytes);
                 if (progressBytes > 0) {
                   resetZeroByteToolInputRestart(toolName);
+                } else if (!hadByteRecord) {
+                  startedZeroByteInput = true;
                 }
               }
             }
             sendToolInputActivity(toolName, key, progressBytes);
+            if (
+              startedZeroByteInput &&
+              toolName &&
+              noteZeroByteToolInputStart(toolName)
+            ) {
+              send({
+                type: "auto_continue",
+                reason: "no_progress",
+              });
+              endedForActionPreparationNoProgress = true;
+              break;
+            }
           } else if (event.type === "gateway-heartbeat") {
             send({ type: "stream_keepalive" });
           } else if (event.type === "tool-call") {
