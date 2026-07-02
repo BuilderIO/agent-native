@@ -1641,6 +1641,7 @@ describe("SSE event processor error classification", () => {
             argsText: "",
             args: {},
             activity: true,
+            isError: true,
             result: "Stopped before this action started.",
           }),
           {
