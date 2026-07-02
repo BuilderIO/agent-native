@@ -682,6 +682,23 @@
   line-height: 1.75rem;
 }
 
+.agent-composer-stack {
+  position: relative;
+  flex-shrink: 0;
+  width: 100%;
+}
+
+.agent-composer-stack[data-agent-composer-adjacent-ui="true"],
+.agent-composer-stack:has(.agent-selection-attached-pill) {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.agent-composer-setup-card {
+  width: 100%;
+}
+
 [data-agent-empty-state="centered"] {
   justify-content: center;
 }
@@ -689,6 +706,33 @@
 [data-agent-empty-state="centered"] > .agent-chat-scroll {
   flex: 0 0 auto;
   overflow: visible;
+}
+
+[data-agent-empty-state="centered"]
+  > .agent-composer-stack:not([data-agent-composer-adjacent-ui="true"]):not(
+    :has(.agent-selection-attached-pill)
+  )
+  > .agent-composer-setup-card {
+  position: absolute;
+  left: 0;
+  right: 0;
+  z-index: 3;
+}
+
+[data-agent-empty-state="centered"]
+  > .agent-composer-stack:not([data-agent-composer-adjacent-ui="true"]):not(
+    :has(.agent-selection-attached-pill)
+  )
+  > .agent-composer-setup-card[data-agent-composer-setup-position="above"] {
+  bottom: calc(100% + 0.5rem);
+}
+
+[data-agent-empty-state="centered"]
+  > .agent-composer-stack:not([data-agent-composer-adjacent-ui="true"]):not(
+    :has(.agent-selection-attached-pill)
+  )
+  > .agent-composer-setup-card[data-agent-composer-setup-position="below"] {
+  top: calc(100% + 0.5rem);
 }
 
 [data-agent-empty-state="compact-setup"] > .agent-chat-scroll {
