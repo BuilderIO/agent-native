@@ -67,7 +67,10 @@ import {
   type TweakSelections,
 } from "@shared/resolve-tweaks";
 import { utilityStem, widthToPrefix } from "@shared/responsive-classes";
-import { normalizeDesignSourceType } from "@shared/source-mode";
+import {
+  normalizeDesignSourceType,
+  type DesignSourceType,
+} from "@shared/source-mode";
 import {
   IconArrowLeft,
   IconArrowUpRight,
@@ -357,6 +360,16 @@ export function getOverviewScreenRuntimeReplacementKey({
   content: string;
 }) {
   return [screenId, updatedAt ?? "", getContentSignature(content)].join(":");
+}
+
+export function shouldUseOverviewRuntimeReplacement({
+  sourceType,
+  externalSnapshotHtml,
+}: {
+  sourceType?: DesignSourceType | null;
+  externalSnapshotHtml?: string | null;
+}) {
+  return sourceType === "inline" && !externalSnapshotHtml;
 }
 
 function dedupeStringIds(ids: string[]): string[] {
@@ -17272,12 +17285,18 @@ ${serializedHtml}
                           liveScreenSnapshotsById[screen.id]?.html;
                         const screenContentSignature =
                           getContentSignature(screenContent);
-                        const runtimeReplacementKey =
-                          getOverviewScreenRuntimeReplacementKey({
-                            screenId: screen.id,
-                            updatedAt: screen.updatedAt,
-                            content: screenContent,
+                        const useRuntimeReplacement =
+                          shouldUseOverviewRuntimeReplacement({
+                            sourceType: screenSourceType,
+                            externalSnapshotHtml: screenSnapshot,
                           });
+                        const runtimeReplacementKey = useRuntimeReplacement
+                          ? getOverviewScreenRuntimeReplacementKey({
+                              screenId: screen.id,
+                              updatedAt: screen.updatedAt,
+                              content: screenContent,
+                            })
+                          : undefined;
                         const screenContentKey = screenIsActive
                           ? [screen.id, contentRenderRevision].join(":")
                           : [
@@ -17291,7 +17310,9 @@ ${serializedHtml}
                           <DesignCanvas
                             content={screenContent}
                             contentKey={screenContentKey}
-                            runtimeReplacementContent={screenContent}
+                            runtimeReplacementContent={
+                              useRuntimeReplacement ? screenContent : undefined
+                            }
                             runtimeReplacementKey={runtimeReplacementKey}
                             screenId={screen.id}
                             zoom={100}
