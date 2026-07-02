@@ -780,6 +780,58 @@ describe("session replay", () => {
     await flush;
   });
 
+  it("rolls back and retries failed unload keepalive reservations", async () => {
+    const { fetchMock, storage } = installBrowser(
+      "https://app.agent-native.com/inbox",
+    );
+    vi.stubGlobal("CompressionStream", undefined);
+    fetchMock
+      .mockResolvedValueOnce(new Response("nope", { status: 500 }))
+      .mockResolvedValue(new Response("{}"));
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    let recordOptions: any;
+    recordMock.mockImplementation((options) => {
+      recordOptions = options;
+      return vi.fn();
+    });
+    const { startSessionReplay, flushSessionReplay } =
+      await freshSessionReplay();
+
+    await startSessionReplay({
+      publicKey: "anpk_test",
+      endpoint: "https://analytics.example.test/session-replay",
+      maxEventsPerBatch: 50,
+      flushIntervalMs: 100_000,
+    });
+    recordOptions.emit({ type: 3, data: { href: "/bfcache" } });
+    await flushSessionReplay("pagehide");
+    expect(
+      JSON.parse(storage.get("agent-native.session_replay_id") ?? "{}")
+        .sequence,
+    ).toBe(0);
+
+    await flushSessionReplay("retry");
+    await waitForAssertion(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+
+    const bodies = await Promise.all(
+      fetchMock.mock.calls.map(([, init]) =>
+        parseReplayUpload(init as RequestInit),
+      ),
+    );
+    expect(bodies.map((body) => body.sequence)).toEqual([0, 0]);
+    expect(bodies[1].events.map((event: any) => event.data.href)).toEqual([
+      "/bfcache",
+    ]);
+    expect(
+      JSON.parse(storage.get("agent-native.session_replay_id") ?? "{}")
+        .sequence,
+    ).toBe(1);
+    expect(warn).toHaveBeenCalledWith(
+      "[session-replay] upload failed",
+      expect.any(Error),
+    );
+  });
+
   it("passes custom rrweb event sampling through to the recorder", async () => {
     installBrowser("https://app.agent-native.com/inbox");
     let recordOptions: any;

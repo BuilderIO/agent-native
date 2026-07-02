@@ -930,6 +930,21 @@ function advanceReplaySequence(
   );
 }
 
+function rollbackReplaySequenceReservation(
+  state: SessionReplayState,
+  payload: ReplayUploadPayload,
+): void {
+  if (state.replayId !== payload.replayId) return;
+  if (state.sequence !== payload.sequence + 1) return;
+  state.sequence = payload.sequence;
+  persistReplaySequence(
+    payload.sessionId,
+    payload.replayId,
+    state.startedAtMs,
+    state.sequence,
+  );
+}
+
 export async function flushSessionReplay(reason = "manual"): Promise<void> {
   const state = getState();
   if (!state.options || !hasPendingReplayBatch(state) || state.flushing) return;
@@ -955,9 +970,8 @@ export async function flushSessionReplay(reason = "manual"): Promise<void> {
     if (!reservedSequence) advanceReplaySequence(state, payload);
     uploaded = true;
   } catch (error) {
-    if (!reservedSequence) {
-      restoreReplayEvents(state, events);
-    }
+    if (reservedSequence) rollbackReplaySequenceReservation(state, payload);
+    restoreReplayEvents(state, events);
     console.warn("[session-replay] upload failed", error);
   } finally {
     state.flushing = false;
