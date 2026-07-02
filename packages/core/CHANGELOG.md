@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.84.49
+
+### Patch Changes
+
+- 5b96985: Recover agent runs that keep restarting empty tool input preparation without streaming action arguments.
+
 ## 0.84.48
 
 ### Patch Changes
