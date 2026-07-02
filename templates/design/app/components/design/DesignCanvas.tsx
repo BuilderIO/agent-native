@@ -1775,6 +1775,11 @@ export function DesignCanvas({
   // explicit viewport width (e.g. 390 / 768 / 1280 side-by-side breakpoints).
   const resolvedWidth =
     previewWidthPx != null ? `${previewWidthPx}px` : iframeWidth;
+  const focusScrollSurface = useCallback(() => {
+    const surface = scrollContainerRef.current;
+    if (!surface || document.activeElement === surface) return;
+    surface.focus({ preventScroll: true });
+  }, []);
 
   // Wrap the iframe in a positioned container so DrawOverlay /
   // CanvasCommentPins can absolutely-position themselves on top of the
@@ -1901,6 +1906,9 @@ export function DesignCanvas({
       return (
         <div
           ref={scrollContainerRef}
+          tabIndex={-1}
+          onPointerEnter={focusScrollSurface}
+          onMouseEnter={focusScrollSurface}
           className="relative h-full w-full overflow-hidden"
         >
           {iframeElement}
@@ -1915,6 +1923,9 @@ export function DesignCanvas({
     return (
       <div
         ref={scrollContainerRef}
+        tabIndex={-1}
+        onPointerEnter={focusScrollSurface}
+        onMouseEnter={focusScrollSurface}
         className="relative h-full w-full overflow-hidden"
         style={{
           width: embeddedFrame.displayWidth,
@@ -1945,6 +1956,9 @@ export function DesignCanvas({
   return (
     <div
       ref={scrollContainerRef}
+      tabIndex={-1}
+      onPointerEnter={focusScrollSurface}
+      onMouseEnter={focusScrollSurface}
       className="relative flex-1 h-full overflow-auto"
     >
       {/* Canvas area. "none" mode fills the canvas (responsive preview);

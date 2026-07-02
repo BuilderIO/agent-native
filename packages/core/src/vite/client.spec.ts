@@ -327,6 +327,9 @@ describe("route warmup config", () => {
       expect(config.define?.__AGENT_NATIVE_BUILD_GA_MEASUREMENT_ID__).toBe(
         JSON.stringify("G-UNITTEST123"),
       );
+      expect(
+        config.define?.["process.env.AGENT_NATIVE_BUILD_GA_MEASUREMENT_ID"],
+      ).toBe(JSON.stringify("G-UNITTEST123"));
     } finally {
       if (previous === undefined) {
         delete process.env.GA_MEASUREMENT_ID;
@@ -444,6 +447,9 @@ describe("agentNative Vite plugin preset", () => {
     expect(config.define.__AGENT_NATIVE_BUILD_GA_MEASUREMENT_ID__).toBe(
       JSON.stringify(process.env.GA_MEASUREMENT_ID?.trim() || ""),
     );
+    expect(
+      config.define["process.env.AGENT_NATIVE_BUILD_GA_MEASUREMENT_ID"],
+    ).toBe(JSON.stringify(process.env.GA_MEASUREMENT_ID?.trim() || ""));
     expect(config.server.port).toBe(4242);
     expect(config.server.fs.allow).toContain("/tmp/app-assets");
     expect(config.server.fs.deny).toContain("secret.txt");

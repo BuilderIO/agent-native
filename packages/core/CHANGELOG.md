@@ -1,5 +1,41 @@
 # @agent-native/core
 
+## 0.84.29
+
+### Patch Changes
+
+- 5f60aaa: Fix hosted Google Analytics / Tag Manager injection by baking the measurement id into Nitro server bundles and merging the required GA/GTM script, connect, and image hosts into existing stricter document CSPs.
+
+## 0.84.28
+
+### Patch Changes
+
+- ffd5b99: Make agent chat thread handoffs robust when opening the panel from external UI controls.
+
+## 0.84.27
+
+### Patch Changes
+
+- 6fb954b: Require admin access for shareable resource visibility changes.
+
+## 0.84.26
+
+### Patch Changes
+
+- f041345: Track action-preparation progress by streamed tool-input id so parallel same-name tool calls do not hide real progress.
+
+## 0.84.25
+
+### Patch Changes
+
+- a11293f: Keep tail-resume reconnect content display-only, recover zero-byte action-prep stalls, and polish Design screen tool labels.
+
+## 0.84.24
+
+### Patch Changes
+
+- d88a57f: Fix chat tool-call rows shrinking, keep running chats visibly thinking, stream reconnect content incrementally, and collapse exact repeated tool rows.
+
 ## 0.84.23
 
 ### Patch Changes
