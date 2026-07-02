@@ -351,6 +351,77 @@ describe("shareable resource access helpers", () => {
     });
   });
 
+  it("resolves access when the Drizzle table has additive columns missing from the database", async () => {
+    const driftDocs = table("qa_drift_docs", {
+      id: text("id").primaryKey(),
+      title: text("title").notNull(),
+      data: text("data").notNull(),
+      futureColumn: text("future_column"),
+      ...ownableColumns(),
+    });
+    const driftShares = createSharesTable("qa_drift_doc_shares");
+    const driftType = "qa-doc-schema-drift";
+
+    sqlite.exec(`
+      CREATE TABLE qa_drift_docs (
+        id TEXT PRIMARY KEY,
+        title TEXT NOT NULL,
+        data TEXT NOT NULL,
+        owner_email TEXT NOT NULL,
+        org_id TEXT,
+        visibility TEXT NOT NULL DEFAULT 'private'
+      );
+      CREATE TABLE qa_drift_doc_shares (
+        id TEXT PRIMARY KEY,
+        resource_id TEXT NOT NULL,
+        principal_type TEXT NOT NULL,
+        principal_id TEXT NOT NULL,
+        role TEXT NOT NULL DEFAULT 'viewer',
+        created_by TEXT NOT NULL,
+        created_at TEXT NOT NULL
+      );
+    `);
+    registerShareableResource({
+      type: driftType,
+      resourceTable: driftDocs,
+      sharesTable: driftShares,
+      displayName: "Schema Drift Doc",
+      titleColumn: "title",
+      getDb: () => db,
+      publicAccessRole: (resource) =>
+        resource.data === '{"publicEdit":true}' ? "editor" : "viewer",
+    });
+
+    sqlite
+      .prepare(
+        `INSERT INTO qa_drift_docs (id, title, data, owner_email, org_id, visibility)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        "drift-public",
+        "Drift Public",
+        '{"publicEdit":true}',
+        outsiderEmail,
+        orgId,
+        "public",
+      );
+
+    await runWithRequestContext({}, async () => {
+      await expect(
+        resolveAccess(driftType, "drift-public"),
+      ).resolves.toMatchObject({
+        role: "editor",
+        resource: {
+          id: "drift-public",
+          title: "Drift Public",
+          data: '{"publicEdit":true}',
+          ownerEmail: outsiderEmail,
+          visibility: "public",
+        },
+      });
+    });
+  });
+
   it("rejects visibility changes from org and public viewer access", async () => {
     await insertDoc({
       id: "doc-org-viewer-policy",

@@ -78,6 +78,10 @@ export function getDatabaseAuthToken(): string | undefined {
   );
 }
 
+function getAppEnvPrefix(): string | undefined {
+  return process.env.APP_NAME?.toUpperCase().replace(/-/g, "_") || undefined;
+}
+
 /**
  * Database URL to use for migrations — identical to DATABASE_URL but with the
  * Neon connection-pooler suffix stripped. Neon's PgBouncer runs in transaction
@@ -89,7 +93,15 @@ export function getDatabaseAuthToken(): string | undefined {
  * Non-Neon URLs and already-direct Neon URLs are returned unchanged.
  */
 export function getMigrationDatabaseUrl(): string {
-  const url = getDatabaseUrl();
+  const appName = getAppEnvPrefix();
+  const appUnpooled = appName
+    ? process.env[`${appName}_DATABASE_URL_UNPOOLED`]
+    : undefined;
+  const url =
+    appUnpooled ||
+    process.env.NETLIFY_DATABASE_URL_UNPOOLED ||
+    process.env.DATABASE_URL_UNPOOLED ||
+    getDatabaseUrl();
   // Neon pooler hostname: ep-<id>-pooler.<region>.<cloud>.neon.tech
   // Direct hostname:      ep-<id>.<region>.<cloud>.neon.tech
   // The region between `-pooler.` and `.neon.tech` can contain multiple
