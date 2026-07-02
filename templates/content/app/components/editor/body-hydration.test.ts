@@ -4,6 +4,9 @@ import { describe, expect, it } from "vitest";
 import {
   databaseItemBodyHydrationIsPending,
   documentBodyHydrationIsPending,
+  isEffectivelyEmptyDocumentContent,
+  previewBodyHydrationIsPending,
+  shouldIgnorePreviewEmptyNormalization,
 } from "./body-hydration";
 
 function documentWithHydration(
@@ -68,5 +71,49 @@ describe("body hydration editing gates", () => {
     } satisfies ContentDatabaseItem;
 
     expect(databaseItemBodyHydrationIsPending(item)).toBe(true);
+  });
+
+  it("uses fresh document-level hydration for preview gating", () => {
+    const item = {
+      id: "item-a",
+      databaseId: "database",
+      position: 0,
+      document: documentWithHydration("hydrated"),
+      properties: [],
+      bodyHydration: {
+        status: "hydrated",
+        attemptedAt: null,
+        error: null,
+        version: "v1",
+      },
+    } satisfies ContentDatabaseItem;
+
+    expect(
+      previewBodyHydrationIsPending({
+        item,
+        document: documentWithHydration("hydrating"),
+      }),
+    ).toBe(true);
+  });
+
+  it("treats the editor empty block sentinel as empty content", () => {
+    expect(isEffectivelyEmptyDocumentContent("")).toBe(true);
+    expect(isEffectivelyEmptyDocumentContent(" <empty-block/> ")).toBe(true);
+    expect(isEffectivelyEmptyDocumentContent("Hydrated body")).toBe(false);
+  });
+
+  it("ignores untouched empty preview normalization before it can dirty-save", () => {
+    expect(
+      shouldIgnorePreviewEmptyNormalization({
+        currentContent: "",
+        nextContent: "<empty-block/>",
+      }),
+    ).toBe(true);
+    expect(
+      shouldIgnorePreviewEmptyNormalization({
+        currentContent: "Hydrated body",
+        nextContent: "<empty-block/>",
+      }),
+    ).toBe(false);
   });
 });

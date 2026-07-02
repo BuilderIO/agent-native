@@ -1,8 +1,35 @@
 import { describe, expect, it } from "vitest";
 
-import { isStaleBuilderImageSourceComponentSave } from "./update-document";
+import {
+  isEffectivelyEmptyDocumentContent,
+  isStaleBuilderImageSourceComponentSave,
+  shouldRejectStaleEmptyBodySave,
+} from "./update-document";
 
 describe("update document", () => {
+  it("rejects stale empty body saves but allows a current legitimate clear", () => {
+    expect(
+      shouldRejectStaleEmptyBodySave({
+        incomingContent: "<empty-block/>",
+        currentContent: "Hydrated Builder body",
+        loadedUpdatedAt: "2026-07-02T12:00:00.000Z",
+        currentUpdatedAt: "2026-07-02T12:00:02.000Z",
+      }),
+    ).toBe(true);
+
+    expect(
+      shouldRejectStaleEmptyBodySave({
+        incomingContent: "<empty-block/>",
+        currentContent: "Hydrated Builder body",
+        loadedUpdatedAt: "2026-07-02T12:00:02.000Z",
+        currentUpdatedAt: "2026-07-02T12:00:02.000Z",
+      }),
+    ).toBe(false);
+
+    expect(isEffectivelyEmptyDocumentContent("<empty-block/>")).toBe(true);
+    expect(isEffectivelyEmptyDocumentContent("Real content")).toBe(false);
+  });
+
   it("detects stale Builder image marker saves after readable image hydration", () => {
     const sourceContent =
       "Opening paragraph.\n\n![Diagram](https://cdn.builder.io/image.png)\n\nClosing paragraph.";

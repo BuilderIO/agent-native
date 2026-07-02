@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   createPreviewDocumentSaveController,
+  skippedPreviewDocumentSave,
   type PreviewDocumentPayload,
 } from "./previewDocumentSaveController";
 
@@ -217,6 +218,51 @@ describe("previewDocumentSaveController", () => {
     await c.flush();
     expect(save).not.toHaveBeenCalled();
     expect(c.lastSaved).toEqual({ title: "T9", content: "C9" });
+  });
+
+  it("drops a skipped pending-row save so hydrated content can be adopted", async () => {
+    const onSaved = vi.fn();
+    const save = vi.fn().mockResolvedValue(skippedPreviewDocumentSave());
+    const c = makeController({
+      save,
+      onSaved,
+      init: {
+        title: "Builder row",
+        content: "",
+        loadedUpdatedAt: "2026-07-02T12:00:00.000Z",
+      },
+    });
+
+    c.changeContent("<empty-block/>");
+    vi.advanceTimersByTime(450);
+    await flushMicrotasks();
+
+    expect(save).toHaveBeenCalledExactlyOnceWith(DOC, {
+      title: "Builder row",
+      content: "<empty-block/>",
+      loadedUpdatedAt: "2026-07-02T12:00:00.000Z",
+    });
+    expect(onSaved).not.toHaveBeenCalled();
+    expect(c.hasSavedLocally).toBe(false);
+    expect(c.pending).toEqual({
+      title: "Builder row",
+      content: "",
+      loadedUpdatedAt: "2026-07-02T12:00:00.000Z",
+    });
+
+    c.mark({
+      title: "Builder row",
+      content: "Hydrated Builder body",
+      loadedUpdatedAt: "2026-07-02T12:00:02.000Z",
+    });
+    await c.flush();
+
+    expect(save).toHaveBeenCalledTimes(1);
+    expect(c.pending).toEqual({
+      title: "Builder row",
+      content: "Hydrated Builder body",
+      loadedUpdatedAt: "2026-07-02T12:00:02.000Z",
+    });
   });
 
   it("title and content edits both flush together in one payload", async () => {

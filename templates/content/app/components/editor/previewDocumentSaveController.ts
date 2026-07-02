@@ -57,6 +57,15 @@
 export interface PreviewDocumentPayload {
   title: string;
   content: string;
+  loadedUpdatedAt?: string;
+}
+
+export interface PreviewDocumentSaveSkipped {
+  skipped: true;
+}
+
+export function skippedPreviewDocumentSave(): PreviewDocumentSaveSkipped {
+  return { skipped: true };
 }
 
 export interface PreviewDocumentSaveController {
@@ -152,7 +161,17 @@ export function createPreviewDocumentSaveController(args: {
 
     const attempted = { ...pending };
     const promise = Promise.resolve(args.save(documentId, attempted))
-      .then(() => {
+      .then((result) => {
+        if (
+          result &&
+          typeof result === "object" &&
+          "skipped" in result &&
+          result.skipped === true
+        ) {
+          pending = { ...lastSaved };
+          inFlight = null;
+          return;
+        }
         lastSaved = attempted;
         hasSavedLocally = true;
         inFlight = null;
