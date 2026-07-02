@@ -542,6 +542,55 @@ describe("session replay", () => {
     expect(new Set(bodies.map((body) => body.replayId)).size).toBe(1);
   });
 
+  it("retries failed replay uploads without advancing the sequence", async () => {
+    const { fetchMock, storage } = installBrowser(
+      "https://app.agent-native.com/inbox",
+    );
+    fetchMock
+      .mockResolvedValueOnce(new Response("nope", { status: 500 }))
+      .mockResolvedValue(new Response("{}"));
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    let recordOptions: any;
+    recordMock.mockImplementation((options) => {
+      recordOptions = options;
+      return vi.fn();
+    });
+    const { startSessionReplay, flushSessionReplay } =
+      await freshSessionReplay();
+
+    await startSessionReplay({
+      publicKey: "anpk_test",
+      endpoint: "https://analytics.example.test/session-replay",
+      maxEventsPerBatch: 1,
+      flushIntervalMs: 100_000,
+    });
+    recordOptions.emit({ type: 3, data: { href: "/first" } });
+    await waitForAssertion(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+
+    await flushSessionReplay("retry");
+    await waitForAssertion(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+
+    recordOptions.emit({ type: 3, data: { href: "/second" } });
+    await waitForAssertion(() => expect(fetchMock).toHaveBeenCalledTimes(3));
+
+    const bodies = await Promise.all(
+      fetchMock.mock.calls.map(([, init]) =>
+        parseReplayUpload(init as RequestInit),
+      ),
+    );
+    expect(bodies.map((body) => body.sequence)).toEqual([0, 0, 1]);
+    expect(bodies[1].events[0].data.href).toBe("/first");
+    expect(bodies[2].events[0].data.href).toBe("/second");
+    expect(
+      JSON.parse(storage.get("agent-native.session_replay_id") ?? "{}")
+        .sequence,
+    ).toBe(2);
+    expect(warn).toHaveBeenCalledWith(
+      "[session-replay] upload failed",
+      expect.any(Error),
+    );
+  });
+
   it("blocks disallowed URLs before importing the recorder", async () => {
     installBrowser("https://app.agent-native.com/settings/billing");
     const { startSessionReplay } = await freshSessionReplay();

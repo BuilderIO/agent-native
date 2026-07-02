@@ -663,11 +663,18 @@ function replayPropertiesForUpload(
   return properties;
 }
 
+interface ReplayUploadPayload {
+  body: string;
+  replayId: string;
+  sessionId: string;
+  sequence: number;
+}
+
 function buildReplayBody(
   state: SessionReplayState,
   reason: string,
   events: QueuedReplayEvent[],
-): string | null {
+): ReplayUploadPayload | null {
   const options = state.options;
   if (!options || !state.replayId) return null;
   const sessionId = getAnalyticsSessionId();
@@ -708,19 +715,17 @@ function buildReplayBody(
     timestamp: new Date().toISOString(),
     properties,
   };
-  state.sequence += 1;
-  persistReplaySequence(
-    sessionId,
-    state.replayId,
-    state.startedAtMs,
-    state.sequence,
-  );
   // Events are already serialized+scrubbed JSON strings; splice them into the
   // envelope without re-serializing the (potentially large) events array.
   const envelopeJson = JSON.stringify(envelope);
-  return `${envelopeJson.slice(0, -1)},"events":[${events
-    .map((event) => event.json)
-    .join(",")}]}`;
+  return {
+    body: `${envelopeJson.slice(0, -1)},"events":[${events
+      .map((event) => event.json)
+      .join(",")}]}`,
+    replayId: state.replayId,
+    sessionId,
+    sequence: state.sequence,
+  };
 }
 
 interface ReplayUploadBody {
@@ -778,7 +783,7 @@ async function sendReplayUpload(
     const sent = navigator.sendBeacon(options.endpoint, body);
     if (sent) return;
   }
-  await fetch(options.endpoint, {
+  const response = await fetch(options.endpoint, {
     method: "POST",
     body: upload.body,
     keepalive: true,
@@ -786,7 +791,12 @@ async function sendReplayUpload(
       ...upload.headers,
       "X-Agent-Native-Analytics-Key": options.publicKey,
     },
-  }).catch(() => {});
+  });
+  if (!response.ok) {
+    throw new Error(
+      `Session replay upload failed with HTTP ${response.status}`,
+    );
+  }
 }
 
 function isFinalFlushReason(reason: string): boolean {
@@ -800,23 +810,49 @@ function isFinalFlushReason(reason: string): boolean {
   ].includes(reason);
 }
 
+function queuedReplayBytes(events: QueuedReplayEvent[]): number {
+  return events.reduce((total, event) => total + event.json.length, 0);
+}
+
+function restoreReplayEvents(
+  state: SessionReplayState,
+  events: QueuedReplayEvent[],
+): void {
+  state.queue = events.concat(state.queue);
+  state.queuedBytes = queuedReplayBytes(state.queue);
+}
+
+function advanceReplaySequence(
+  state: SessionReplayState,
+  payload: ReplayUploadPayload,
+): void {
+  if (state.replayId !== payload.replayId) return;
+  state.sequence = Math.max(state.sequence, payload.sequence + 1);
+  persistReplaySequence(
+    payload.sessionId,
+    payload.replayId,
+    state.startedAtMs,
+    state.sequence,
+  );
+}
+
 export async function flushSessionReplay(reason = "manual"): Promise<void> {
   const state = getState();
   if (!state.options || state.queue.length === 0 || state.flushing) return;
   const events = state.queue.splice(0, state.queue.length);
   state.queuedBytes = 0;
-  const body = buildReplayBody(state, reason, events);
-  if (!body || !state.options) {
-    state.queue = events.concat(state.queue);
-    state.queuedBytes += events.reduce(
-      (total, event) => total + event.json.length,
-      0,
-    );
+  const payload = buildReplayBody(state, reason, events);
+  if (!payload || !state.options) {
+    restoreReplayEvents(state, events);
     return;
   }
   state.flushing = true;
   try {
-    await sendReplayUpload(state.options, body);
+    await sendReplayUpload(state.options, payload.body);
+    advanceReplaySequence(state, payload);
+  } catch (error) {
+    restoreReplayEvents(state, events);
+    console.warn("[session-replay] upload failed", error);
   } finally {
     state.flushing = false;
   }
