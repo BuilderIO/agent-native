@@ -30,7 +30,7 @@ Cada um é um aplicativo real que você pode usar hoje e a plataforma de lançam
 | [**Plan**](/docs/template-plan)           | Planos visuais e recapitulações de relações públicas com diagramas, wireframes e anotações.                                                  |
 | [**Dispatch**](/docs/template-dispatch)   | O plano de controle do espaço de trabalho: segredos compartilhados, integrações reutilizáveis, Slack/Telegram, trabalhos agendados.          |
 
-Não quer um app de domínio? Use [Chat](/docs/template-chat) quando quiser um aplicativo básico com o qual os usuários possam conversar imediatamente, ou comece com uma ação em [Pure-Agent Apps](/docs/pure-agent-apps).
+Não quer um app de domínio? Use [Chat](/docs/template-chat) quando quiser um aplicativo básico com o qual os usuários possam conversar imediatamente e que possa crescer com actions, resultados nativos e telas. Use [Automation-First Apps](/docs/pure-agent-apps) apenas quando o fluxo ainda não precisar de UI no navegador.
 
 Veja o catálogo completo em [Apps](/apps) ou vá direto para um. Por exemplo, [Dispatch](/docs/template-dispatch) é um ótimo lugar para começar se você quiser um aplicativo estilo espaço de trabalho.
 
@@ -168,7 +168,7 @@ Não está pronto para montar o andaime? Você pode adicionar superpoderes nativ
 
 ## Com base nisso
 
-- [**Getting Started**](/docs/getting-started) — crie um aplicativo de bate-papo mínimo ou um agente sem cabeça
+- [**Getting Started**](/docs/getting-started) — crie uma app chat-first, adicione uma action, renderize resultado estruturado e evolua para uma página
 - [**Messaging the agent**](/docs/messaging) — como os usuários (e você) conversam com o agente que acompanha cada modelo
 - [**Multi-App Workspace**](/docs/multi-app-workspace) — agrupa vários modelos em um espaço de trabalho que compartilha autenticação, marca e agente
 - [**Dispatch**](/docs/template-dispatch) — o modelo do plano de controle do espaço de trabalho
@@ -182,7 +182,7 @@ Se você estiver montando um andaime agora, o comando CLI é:
 npx @agent-native/core@latest create my-platform
 ```
 
-Você receberá um seletor de seleção múltipla. Escolha um aplicativo (autônomo) ou vários (espaço de trabalho — os aplicativos compartilham autenticação, marca, configuração do agente e banco de dados). Cada modelo escolhido é estruturado em `apps/<name>/` com todos os arquivos que você precisa. Para um aplicativo somente de ação em vez de um modelo UI, use `npx @agent-native/core@latest create my-agent --headless`.
+Você receberá um seletor de seleção múltipla. Escolha um aplicativo (autônomo) ou vários (espaço de trabalho — os aplicativos compartilham autenticação, marca, configuração do agente e banco de dados). Cada modelo escolhido é estruturado em `apps/<name>/` com todos os arquivos que você precisa. Para uma automação sem UI no navegador em vez de um modelo UI, use `npx @agent-native/core@latest create my-agent --headless`.
 
 Preencha `.env` (principalmente `ANTHROPIC_API_KEY` e `DATABASE_URL`), `pnpm install`, `pnpm dev` e funciona. Sem "TODO: implementar login", sem rotas de espaço reservado.
 

@@ -80,8 +80,8 @@ const arSA = {
       titleLine1: "framework من أجل",
       titleAccent: "agentic apps",
       body: "ابدأ مع Chat-first app و app-agent loop. أضف actions وشاشات و jobs و workflows مع نمو agent لديك.",
-      primaryCta: "ابدأ البناء",
-      secondaryCta: "عرض الوثائق",
+      primaryCta: "جرّب تطبيقًا",
+      secondaryCta: "اقرأ الوثائق",
     },
     code: {
       quickStartComment: "أنشئ app بأمر واحد",
@@ -94,8 +94,7 @@ const arSA = {
       eyebrow: "مصمم بعمق للوكلاء، وليس ذكاء اصطناعياً ملحقاً",
       title: "إجراء واحد يفتح سطح التطبيق كله",
       body: "عرّف العملية مرة واحدة. يحولها Agent-Native إلى إجراء UI، وأداة agent، ونقطة HTTP، وسطح MCP/A2A، وأمر CLI، وفحص صلاحيات، وسجل تدقيق.",
-      seeActions: "عرض الإجراءات",
-      frameworkGuide: "قراءة دليل الإطار",
+      buildAction: "أنشئ إجراء",
       benefits: {
         oneActionDefinition: {
           title: "تعريف إجراء واحد",
@@ -106,8 +105,8 @@ const arSA = {
           body: "Auth والمشاركة والحوكمة وسجلات التدقيق ترافق العمل.",
         },
         headedOrHeadless: {
-          title: "بواجهة أو بلا واجهة",
-          body: "شغّله كتطبيق، أو سير عمل agent، أو queue، أو مهمة مجدولة.",
+          title: "Apps وautomations وagents",
+          body: "شغّل نفس operation من chat أو UI أو jobs مجدولة أو queues أو agents خارجية أو scripts.",
         },
         contextRichInput: {
           title: "إدخال غني بالسياق",
@@ -178,7 +177,7 @@ const arSA = {
         },
         workspaces: {
           title: "مساحات العمل",
-          body: "تطبيقات بواجهة أو headless تكتشف بعضها وتنسق عبر A2A.",
+          body: "Agentic apps قابلة للتركيب تكتشف بعضها وتنسق عبر A2A.",
         },
         sourceOwnership: {
           title: "ملكية المصدر",
@@ -193,7 +192,7 @@ const arSA = {
     framework: {
       title: "framework لتطبيقات agent-native apps",
       body1:
-        "Agent-Native هو framework مفتوح المصدر لبناء agents كبرمجيات حقيقية: ابدأ مع Chat أو headless agents، ثم أضف UI و jobs والتعاون حول نفس actions.",
+        "Agent-Native هو framework مفتوح المصدر لبناء agentic applications: ابدأ مع Chat، وعرّف actions مشتركة، ثم أضف UI و jobs والتعاون حول نفس state.",
       body2:
         "استخدم قاعدة بياناتك ومزود الاستضافة و model stack وكود app الخاص بك.",
       cta: "اقرأ دليل framework",
@@ -295,12 +294,12 @@ const arSA = {
     },
     quickStart: {
       title: "ابدأ مع أمر واحد",
-      body: "ينشئ أمر واحد app محلية مدعومة ب actions و durable threads و SQLite. استخدم `--headless` بدلا من ذلك عندما لا تريد UI في المتصفح بعد.",
+      body: "ينشئ أمر واحد app محلية chat-first مدعومة ب actions و durable threads و SQLite. استخدم `--headless` فقط لـ workflows automation-first التي لا تحتاج UI في المتصفح بعد.",
     },
     finalCta: {
       title: "software مبني لعصر agentic era",
       body: "ابدأ مع أمر واحد أو durable action، شغّله عبر app-agent loop، ثم نمّه إلى UI و jobs وتعاون من دون إعادة كتابة العملية. مفتوح المصدر. Forkable. لك.",
-      primaryCta: "ابدأ مع Action",
+      primaryCta: "جرّب تطبيقًا",
       secondaryCta: "اقرأ الوثائق",
       githubCta: "عرض على GitHub",
     },
@@ -409,8 +408,8 @@ const arSA = {
   },
   templatesPage: {
     title: "تطبيقات الوكيل الأصلية مفتوحة المصدر التي تمتلكها",
-    eyebrow: "100% مجاني ومفتوح المصدر",
-    body: "قم بتفرع القالب، وتشغيله محليًا، والسماح للوكيل بتطويره. أنت تمتلك الكود ويمكنك تخصيص كل شيء.",
+    eyebrow: "انسخ تطبيقًا جاهزًا ودع الوكيل يطوره.",
+    body: "يمكنك تخصيص كل شيء.",
     community: "تريد تطبيقا فارغا؟ ابدأ من الصفر مع دليل إطار العمل.",
     createYourOwn: "ابدأ من الصفر",
   },

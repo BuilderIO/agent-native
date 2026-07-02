@@ -34,47 +34,43 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 function normalizeActionDataWidgetResult(
   context: ToolRendererContext,
 ): DataWidgetResult | null {
+  const renderer = context.chatUI?.renderer;
+  if (isRecord(context.resultJson)) {
+    if (renderer === ACTION_CHAT_UI_DATA_TABLE_RENDERER) {
+      return normalizeDataWidgetResult({
+        ...context.resultJson,
+        widget: DATA_TABLE_WIDGET,
+        table: isRecord(context.resultJson.table)
+          ? context.resultJson.table
+          : context.resultJson,
+      });
+    }
+    if (renderer === ACTION_CHAT_UI_DATA_CHART_RENDERER) {
+      return normalizeDataWidgetResult({
+        ...context.resultJson,
+        widget: DATA_CHART_WIDGET,
+        chartSeries: isRecord(context.resultJson.chartSeries)
+          ? context.resultJson.chartSeries
+          : context.resultJson,
+      });
+    }
+    if (renderer === ACTION_CHAT_UI_DATA_INSIGHTS_RENDERER) {
+      return normalizeDataWidgetResult({
+        ...context.resultJson,
+        widget: DATA_INSIGHTS_WIDGET,
+      });
+    }
+  }
+
   const result = normalizeDataWidgetResult(context.resultJson);
   if (result) return result;
 
-  const renderer = context.chatUI?.renderer;
   if (
     renderer === ACTION_CHAT_UI_DATA_WIDGET_RENDERER ||
     context.toolName === "render-data-widget"
   ) {
     const argsResult = normalizeDataWidgetResult(context.args);
     if (argsResult) return argsResult;
-  }
-
-  if (!isRecord(context.resultJson)) return null;
-
-  if (renderer === ACTION_CHAT_UI_DATA_TABLE_RENDERER) {
-    return normalizeDataWidgetResult({
-      widget: DATA_TABLE_WIDGET,
-      table: isRecord(context.resultJson.table)
-        ? context.resultJson.table
-        : context.resultJson,
-      display: isRecord(context.resultJson.display)
-        ? context.resultJson.display
-        : undefined,
-    });
-  }
-  if (renderer === ACTION_CHAT_UI_DATA_CHART_RENDERER) {
-    return normalizeDataWidgetResult({
-      widget: DATA_CHART_WIDGET,
-      chartSeries: isRecord(context.resultJson.chartSeries)
-        ? context.resultJson.chartSeries
-        : context.resultJson,
-      display: isRecord(context.resultJson.display)
-        ? context.resultJson.display
-        : undefined,
-    });
-  }
-  if (renderer === ACTION_CHAT_UI_DATA_INSIGHTS_RENDERER) {
-    return normalizeDataWidgetResult({
-      ...context.resultJson,
-      widget: DATA_INSIGHTS_WIDGET,
-    });
   }
 
   return null;

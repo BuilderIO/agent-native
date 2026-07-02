@@ -49,6 +49,14 @@ function artboardStyle(html: string): string {
   return match[1];
 }
 
+function classStyle(html: string, className: string): string {
+  const tag =
+    html.match(
+      new RegExp(`<div[^>]*class="[^"]*\\b${className}\\b[^"]*"[^>]*>`),
+    )?.[0] ?? "";
+  return tag.match(/\sstyle="([^"]*)"/)?.[1] ?? "";
+}
+
 /** Pull the inline `style` attribute of the scale-reservation wrapper. */
 function fitWrapperStyle(html: string): string {
   const outerTag =
@@ -82,16 +90,22 @@ function roughScopeInnerHtml(html: string): string {
 }
 
 describe("wireframe auto-height frame", () => {
-  it("keeps broad helper containers out of the default rough.js target set", () => {
+  it("roughens standard wireframe primitives by default", () => {
     expect(HTML_ROUGH_SELECTOR).toContain("[data-rough]");
     expect(HTML_ROUGH_SELECTOR).toContain("button");
     expect(HTML_ROUGH_SELECTOR).toContain("input");
-    expect(HTML_ROUGH_SELECTOR).not.toContain(".wf-card");
-    expect(HTML_ROUGH_SELECTOR).not.toContain(".wf-box");
+    expect(HTML_ROUGH_SELECTOR).toContain(".wf-btn");
+    expect(HTML_ROUGH_SELECTOR).toContain(".wf-card");
+    expect(HTML_ROUGH_SELECTOR).toContain(".wf-box");
+    expect(HTML_ROUGH_SELECTOR).toContain(".wf-pill");
+    expect(HTML_ROUGH_SELECTOR).toContain(".wf-chip");
+    expect(HTML_ROUGH_SELECTOR).toContain(".wf-icon-fallback");
+    expect(HTML_ROUGH_SELECTOR).toContain("[style*='border:']");
+    expect(HTML_ROUGH_SELECTOR).toContain("[style*='border-bottom:']");
     expect(HTML_ROUGH_SELECTOR).not.toContain(".wf-frame-target");
   });
 
-  it("keeps helper container borders visible after rough.js is ready", () => {
+  it("hides standard primitive borders after rough.js redraws them", () => {
     const css = readFileSync("src/styles/blocks.css", "utf8");
     const hideRule =
       css.match(
@@ -99,9 +113,33 @@ describe("wireframe auto-height frame", () => {
       )?.[0] ?? "";
 
     expect(hideRule).toContain("button");
-    expect(hideRule).toContain('[data-rough]:not([data-rough="none"])');
-    expect(hideRule).not.toContain(".wf-card");
-    expect(hideRule).not.toContain(".wf-box");
+    expect(hideRule).toContain("[data-rough]");
+    expect(hideRule).toContain(".wf-btn");
+    expect(hideRule).toContain(".wf-card");
+    expect(hideRule).toContain(".wf-box");
+    expect(hideRule).toContain(".wf-pill");
+    expect(hideRule).toContain(".wf-chip");
+    expect(hideRule).toContain(".wf-icon-fallback");
+    expect(hideRule).toContain('[style*="border:"]');
+    expect(hideRule).toContain('[style*="border-bottom:"]');
+    expect(hideRule).toContain(':not([data-rough="none"])');
+  });
+
+  it("styles wf-row as a label/value row primitive", () => {
+    const css = readFileSync("src/styles/blocks.css", "utf8");
+    const rowRule =
+      css.match(
+        /\.plan-html-frame:not\(\[data-render-mode="design"\]\) \.wf-row\s*\{[^}]*\}/s,
+      )?.[0] ?? "";
+    const valueRule =
+      css.match(
+        /\.plan-html-frame:not\(\[data-render-mode="design"\]\) \.wf-row > :last-child\s*\{[^}]*\}/s,
+      )?.[0] ?? "";
+
+    expect(rowRule).toContain("display: flex");
+    expect(rowRule).toContain("justify-content: space-between");
+    expect(valueRule).toContain("margin-inline-start: auto");
+    expect(valueRule).toContain("text-align: end");
   });
 
   it("strips theme-breaking Tailwind color and shadow classes from wireframes", () => {
@@ -197,6 +235,39 @@ describe("wireframe auto-height frame", () => {
     const style = artboardStyle(html);
 
     expect(style).not.toMatch(/box-shadow/i);
+  });
+
+  it("does not paint a default artboard or root screen backdrop", () => {
+    const kitHtml = render({
+      surface: "browser",
+      screen: [
+        {
+          el: "card",
+          children: [{ el: "text", text: "Preserved card fill" }],
+        },
+      ],
+    });
+    const css = readFileSync("src/styles/blocks.css", "utf8");
+    const htmlFrameRule =
+      css.match(/\.plan-html-frame\s*\{[^}]*\}/s)?.[0] ?? "";
+
+    expect(artboardStyle(kitHtml)).not.toMatch(/(^|;)\s*background\s*:/);
+    expect(classStyle(kitHtml, "plan-wf")).toMatch(
+      /background\s*:\s*transparent/,
+    );
+    expect(kitHtml).toContain("background:var(--card)");
+    expect(htmlFrameRule).toContain("background: transparent");
+    expect(htmlFrameRule).not.toContain("background: var(--wf-paper)");
+  });
+
+  it("does not render a static outer artboard border", () => {
+    const html = render({
+      surface: "browser",
+      skeleton: true,
+      html: "<div>Skeleton mockup</div>",
+    });
+
+    expect(roughScopeInnerHtml(html)).not.toContain("border:1.5px solid");
   });
 
   it("renders a contextual visual style toggle", () => {

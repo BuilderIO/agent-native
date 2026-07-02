@@ -1,16 +1,11 @@
 ---
-title: "تطبيقات Pure-Agent"
-description: "التطبيقات التي يكون فيها الوكيل هو المنتج بالكامل: حلقة وكيل التطبيق هي الباب الأمامي، وتتم إضافة UI فقط عندما يحتاج إليه البشر."
+title: "Automation-First Apps"
+description: "Agent-Native apps بلا متصفح من أجل scheduled jobs وqueues وscripts وintegration workers وagents خارجية."
 ---
 
-# تطبيقات Pure-Agent
+# Automation-First Apps
 
-تطبيق الوكيل النقي هو الحد الأدنى من تطبيق الوكيل الأصلي: حلقة وكيل التطبيق هي
-منتج، وليس لوحة معلومات. يمكنك إرسال طلب من المحطة، Slack، عبر البريد الإلكتروني،
-مهمة مجدولة، أو وكيل آخر، أو الدردشة — "تلخيص رسائل البريد الإلكتروني غير المقروءة"، أو "نشر
-المقاييس اليومية إلى Slack" - ويعمل الوكيل ويعيد النتيجة أينما كانت
-ينتمي. لا يزال تطبيقًا حقيقيًا: actions، الجلسات، حالة التطبيق، السجل،
-الإعدادات وبيانات الاعتماد وسجلات المشاركة كلها موجودة في SQL.
+Automation-first app هو Agent-Native app بلا متصفح من أجل scheduled jobs وqueues وscripts وintegration workers وagents خارجية. ليس المسار الافتراضي في Getting Started، لكنه مفيد عندما لا يحتاج workflow إلى صفحة بعد. لا يزال app حقيقيًا: actions وsessions وapplication state وrun history وsettings وcredentials وسجلات المشاركة كلها موجودة في SQL.
 
 <Diagram id="doc-block-1l5rx7k" title={"حلقة وكيل التطبيق هي الباب الأمامي"} summary={"تصل العديد من نقاط الدخول إلى حلقة وكيل واحدة عبر إجراءات وحالة SQL-backed؛ تعود النتائج إلى المكان الذي جاء منه الطلب. تتم إضافة واجهة المستخدم فقط عندما يحتاج البشر إلى الإشراف."}>
 

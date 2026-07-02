@@ -80,8 +80,8 @@ const esES = {
       titleLine1: "El framework para",
       titleAccent: "apps agentic",
       body: "Empieza con una Chat-first app y el app-agent loop. Añade actions, pantallas, jobs y workflows a medida que crece tu agent.",
-      primaryCta: "Empezar a construir",
-      secondaryCta: "Ver la documentación",
+      primaryCta: "Probar una app",
+      secondaryCta: "Leer la documentación",
     },
     code: {
       quickStartComment: "Crea una app con un comando",
@@ -95,8 +95,7 @@ const esES = {
       eyebrow: "Profundamente agentic, no solo IA pegada",
       title: "Una acción te da toda la superficie de la app",
       body: "Define una operación una vez. Agent-Native la convierte en acción de UI, herramienta del agent, endpoint HTTP, superficie MCP/A2A, comando CLI, permiso acotado y registro de auditoría.",
-      seeActions: "Ver acciones",
-      frameworkGuide: "Leer la guía del framework",
+      buildAction: "Crear una acción",
       benefits: {
         oneActionDefinition: {
           title: "Una sola definición de acción",
@@ -107,8 +106,8 @@ const esES = {
           body: "Auth, sharing, governance y audit logs acompañan al trabajo.",
         },
         headedOrHeadless: {
-          title: "Con UI o headless",
-          body: "Ejecútala como app, workflow de agent, cola o tarea programada.",
+          title: "Apps, automatizaciones y agents",
+          body: "Ejecuta la misma operación desde chat, UI, tareas programadas, colas, agents externos o scripts.",
         },
         contextRichInput: {
           title: "Entrada rica en contexto",
@@ -179,7 +178,7 @@ const esES = {
         },
         workspaces: {
           title: "Workspaces",
-          body: "Apps con UI o headless que se descubren entre sí y coordinan por A2A.",
+          body: "Apps agentic componibles que se descubren entre sí y coordinan por A2A.",
         },
         sourceOwnership: {
           title: "Propiedad del código fuente",
@@ -194,7 +193,7 @@ const esES = {
     framework: {
       title: "El framework para apps agent-native",
       body1:
-        "Agent-Native es un framework open source para construir agents como software real: empieza con Chat o agents headless, y luego añade UI, jobs y colaboración alrededor de las mismas actions.",
+        "Agent-Native es un framework open source para crear agentic applications: empieza con Chat, define actions compartidas y luego añade UI, jobs y colaboración alrededor del mismo estado.",
       body2:
         "Trae tu propia base de datos, proveedor de hosting, stack de modelos y código de app.",
       cta: "Leer la guía del framework",
@@ -223,7 +222,7 @@ const esES = {
     },
     templates: {
       title: "Prueba una app Agent-Native",
-      eyebrow: "100% gratis y open source",
+      eyebrow: "Bifurca una app funcional y deja que el agente la evolucione.",
       cta: "Ver apps",
     },
     skills: {
@@ -296,12 +295,12 @@ const esES = {
     },
     quickStart: {
       title: "Empieza con un comando",
-      body: "Un comando crea una app local respaldada por actions, durable threads y SQLite. Usa `--headless` cuando aún no quieras UI de navegador.",
+      body: "Un comando crea una app local chat-first respaldada por actions, durable threads y SQLite. Usa `--headless` solo para workflows automation-first sin UI de navegador todavía.",
     },
     finalCta: {
       title: "Software construido para la era agentic",
       body: "Empieza con un comando o un durable action, pásalo por el app-agent loop y luego hazlo crecer hasta UI, jobs y colaboración sin reescribir la operación. Open source. Forkable. Tuyo.",
-      primaryCta: "Empezar con un Action",
+      primaryCta: "Probar una app",
       secondaryCta: "Leer la documentación",
       githubCta: "Ver en GitHub",
     },
@@ -410,8 +409,8 @@ const esES = {
   },
   templatesPage: {
     title: "Aplicaciones nativas del agente de código abierto de su propiedad",
-    eyebrow: "100% gratis y de código abierto",
-    body: "Bifurque una plantilla, ejecútela localmente y deje que el agente la evolucione. Eres dueño del código y puedes personalizarlo todo.",
+    eyebrow: "Bifurca una app funcional y deja que el agente la evolucione.",
+    body: "Puedes personalizarlo todo.",
     community:
       "¿Prefieres una app en blanco? Empieza desde cero con la guía del framework.",
     createYourOwn: "Empezar desde cero",

@@ -78,8 +78,8 @@ const messages = {
       titleLine1: "面向",
       titleAccent: "agentic apps 的框架",
       body: "從 Chat-first app 和 app-agent loop 開始。隨著你的 agent 成長，新增 actions、介面、jobs 和 workflows。",
-      primaryCta: "開始建置",
-      secondaryCta: "檢視檔案",
+      primaryCta: "試用一個 app",
+      secondaryCta: "閱讀檔案",
     },
     code: {
       quickStartComment: "用一條指令建立 app",
@@ -91,8 +91,7 @@ const messages = {
       eyebrow: "真正為代理而生，不是外掛式 AI",
       title: "一個 action 打開整個應用能力面",
       body: "只定義一次操作。Agent-Native 會把它變成 UI action、agent 工具、HTTP 端點、MCP/A2A 能力面、CLI 指令、權限檢查和稽核紀錄。",
-      seeActions: "查看 actions",
-      frameworkGuide: "閱讀框架指南",
+      buildAction: "建立一個 action",
       benefits: {
         oneActionDefinition: {
           title: "一個 action 定義",
@@ -103,8 +102,8 @@ const messages = {
           body: "Auth、分享、治理與稽核日誌會隨著工作一起生效。",
         },
         headedOrHeadless: {
-          title: "可有介面，也可 headless",
-          body: "能作為 app、agent workflow、佇列或排程工作執行。",
+          title: "Apps、automations 與 agents",
+          body: "同一個 operation 可從 chat、UI、排程工作、佇列、外部 agents 或 scripts 執行。",
         },
         contextRichInput: {
           title: "富含脈絡的輸入",
@@ -175,7 +174,7 @@ const messages = {
         },
         workspaces: {
           title: "工作區",
-          body: "有介面或 headless 的應用能互相探索，並透過 A2A 協調。",
+          body: "可組合的 agentic apps 能互相探索，並透過 A2A 協調。",
         },
         sourceOwnership: {
           title: "原始碼所有權",
@@ -190,7 +189,7 @@ const messages = {
     framework: {
       title: "面向 agent-native apps 的框架",
       body1:
-        "Agent-Native 是一個開放原始碼框架，用來把 agents 建置成真正的軟體：從 Chat 或 headless agents 開始，再圍繞同一組 actions 新增 UI、jobs 和協作。",
+        "Agent-Native 是一個開放原始碼框架，用來建置 agentic applications：從 Chat 開始，定義共享 actions，再圍繞同一份 state 新增 UI、jobs 和協作。",
       body2: "使用你自己的資料庫、託管服務、模型堆疊和 app 程式碼。",
       cta: "閱讀框架指南",
       primitives: {
@@ -217,7 +216,7 @@ const messages = {
     },
     templates: {
       title: "試用一個 Agent-Native app",
-      eyebrow: "100% 免費且開放原始碼",
+      eyebrow: "Fork 一個可執行的 app，讓 agent 繼續改進它。",
       cta: "檢視 apps",
     },
     skills: {
@@ -289,12 +288,12 @@ const messages = {
     },
     quickStart: {
       title: "從一條指令開始",
-      body: "一條指令會建立一個本機 app，背後有 actions、durable threads 和 SQLite 支撐。還沒有瀏覽器 UI 需求時，可以改用 `--headless`。",
+      body: "一條指令會建立一個聊天優先的本機 app，背後有 actions、durable threads 和 SQLite 支撐。只有 automation-first workflow 暫時不需要瀏覽器 UI 時才使用 `--headless`。",
     },
     finalCta: {
       title: "為 agentic 時代而建的軟體",
       body: "從一條指令或 durable action 開始，讓它跑過 app-agent loop，然後在不重寫操作的情況下成長為 UI、jobs 和協作。開放原始碼。可 fork。屬於你。",
-      primaryCta: "從 Action 開始",
+      primaryCta: "試用一個 app",
       secondaryCta: "閱讀檔案",
       githubCta: "在 GitHub 檢視",
     },
@@ -403,8 +402,8 @@ const messages = {
   },
   templatesPage: {
     title: "您擁有的開放原始碼、Agent-Native 應用程式",
-    eyebrow: "100% 免費和開放原始碼",
-    body: "分叉一個範本，在本機執行它，然後讓代理對其進行改進。您擁有程式碼並可以自訂一切。",
+    eyebrow: "Fork 一個可執行的 app，讓 agent 繼續改進它。",
+    body: "你可以自訂一切。",
     community: "想要空白應用？從框架指南開始從零建置。",
     createYourOwn: "從零開始",
   },

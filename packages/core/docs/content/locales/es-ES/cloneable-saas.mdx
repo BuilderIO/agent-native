@@ -30,7 +30,7 @@ Cada una es una aplicación real que puedes usar hoy y la plataforma de lanzamie
 | [**Plan**](/docs/template-plan)           | Planos visuales y resúmenes de relaciones públicas con diagramas, esquemas y anotaciones.                                                        |
 | [**Dispatch**](/docs/template-dispatch)   | El plano de control del espacio de trabajo: secretos compartidos, integraciones reutilizables, Slack/Telegram, trabajos programados.             |
 
-¿No quieres una aplicación de dominio? Utilice [Chat](/docs/template-chat) cuando desee una aplicación básica con la que los usuarios puedan hablar inmediatamente, o comience con una acción en [Pure-Agent Apps](/docs/pure-agent-apps).
+¿No quieres una aplicación de dominio? Usa [Chat](/docs/template-chat) cuando quieras una app básica con la que los usuarios puedan hablar inmediatamente y que pueda crecer con actions, resultados nativos y pantallas. Usa [Automation-First Apps](/docs/pure-agent-apps) solo cuando el flujo todavía no necesite UI de navegador.
 
 Vea el catálogo completo en [Apps](/apps) o vaya directamente a uno; por ejemplo, [Dispatch](/docs/template-dispatch) es un excelente lugar para comenzar si desea una aplicación estilo espacio de trabajo.
 
@@ -168,7 +168,7 @@ No es necesario. Cada plantilla también está disponible como una aplicación a
 
 ## Aprovechando esto
 
-- [**Getting Started**](/docs/getting-started): crea una aplicación de chat mínima o un agente sin cabeza
+- [**Getting Started**](/docs/getting-started): crea una app chat-first, añade una action, renderiza un resultado estructurado y crece hacia una página
 - [**Messaging the agent**](/docs/messaging): cómo los usuarios (y usted) hablan con el agente que se envía con cada plantilla
 - [**Multi-App Workspace**](/docs/multi-app-workspace): agrupa varias plantillas en un espacio de trabajo que comparte autenticación, marca y agente
 - [**Dispatch**](/docs/template-dispatch): la plantilla del plano de control del espacio de trabajo
@@ -182,7 +182,7 @@ Si está realizando un scaffolding ahora, el comando CLI es:
 npx @agent-native/core@latest create my-platform
 ```
 
-Obtendrás un selector de selección múltiple. Elija una aplicación (independiente) o varias (espacio de trabajo: las aplicaciones comparten autenticación, marca, configuración del agente y base de datos). Cada plantilla seleccionada se estructura en `apps/<name>/` con cada archivo que necesita. Para una aplicación de solo acción en lugar de una plantilla UI, use `npx @agent-native/core@latest create my-agent --headless`.
+Obtendrás un selector de selección múltiple. Elija una aplicación (independiente) o varias (espacio de trabajo: las aplicaciones comparten autenticación, marca, configuración del agente y base de datos). Cada plantilla seleccionada se estructura en `apps/<name>/` con cada archivo que necesita. Para una automatización sin UI de navegador en lugar de una plantilla UI, use `npx @agent-native/core@latest create my-agent --headless`.
 
 Complete `.env` (principalmente `ANTHROPIC_API_KEY` y `DATABASE_URL`), `pnpm install`, `pnpm dev` y funciona. Sin "TODO: implementar inicio de sesión", sin rutas de marcador de posición.
 

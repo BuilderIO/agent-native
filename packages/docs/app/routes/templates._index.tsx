@@ -18,11 +18,12 @@ export default function TemplatesPage() {
         <h1 className="mb-3 text-3xl font-bold tracking-tight md:text-4xl">
           {t("templatesPage.title")}
         </h1>
-        <p className="mb-3 text-sm font-semibold text-[var(--docs-accent)]">
-          {t("templatesPage.eyebrow")}
-        </p>
         <p className="mx-auto max-w-2xl text-base leading-relaxed text-[var(--fg-secondary)]">
-          {t("templatesPage.body")}
+          {t("templatesPage.eyebrow")}
+          <span className="font-semibold text-[var(--docs-accent)]">
+            {" "}
+            {t("templatesPage.body")}
+          </span>
         </p>
       </div>
 

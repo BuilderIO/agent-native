@@ -95,8 +95,7 @@ const frFR = {
       eyebrow: "Profondément agentique, pas une IA ajoutée à côté",
       title: "Une action expose toute la surface de l’app",
       body: "Définissez une opération une fois. Agent-Native en fait l’action UI, l’outil agent, le endpoint HTTP, la surface MCP/A2A, la commande CLI, le contrôle de permission et la piste d’audit.",
-      seeActions: "Voir les actions",
-      frameworkGuide: "Lire le guide du framework",
+      buildAction: "Créer une action",
       benefits: {
         oneActionDefinition: {
           title: "Une seule définition d’action",
@@ -107,8 +106,8 @@ const frFR = {
           body: "Auth, partage, gouvernance et journaux d’audit accompagnent le travail.",
         },
         headedOrHeadless: {
-          title: "Avec interface ou headless",
-          body: "Exécutez-la comme app, workflow agent, file d’attente ou tâche planifiée.",
+          title: "Apps, automatisations et agents",
+          body: "Exécutez la même opération depuis chat, UI, tâches planifiées, files, agents externes ou scripts.",
         },
         contextRichInput: {
           title: "Entrée riche en contexte",
@@ -179,7 +178,7 @@ const frFR = {
         },
         workspaces: {
           title: "Espaces de travail",
-          body: "Apps avec interface ou headless qui se découvrent entre elles et se coordonnent via A2A.",
+          body: "Apps agentic composables qui se découvrent entre elles et se coordonnent via A2A.",
         },
         sourceOwnership: {
           title: "Propriété de la source",
@@ -194,7 +193,7 @@ const frFR = {
     framework: {
       title: "Le framework pour apps agent-native",
       body1:
-        "Agent-Native est un framework open source pour construire des agents comme de vrais logiciels : commencez avec Chat ou des agents headless, puis ajoutez UI, jobs et collaboration autour des mêmes actions.",
+        "Agent-Native est un framework open source pour construire des agentic applications : commencez avec Chat, définissez des actions partagées, puis ajoutez UI, jobs et collaboration autour du même état.",
       body2:
         "Apportez votre propre base de données, fournisseur d'hébergement, stack de modèles et code d'app.",
       cta: "Lire le guide du framework",
@@ -296,7 +295,7 @@ const frFR = {
     },
     quickStart: {
       title: "Commencez avec une commande",
-      body: "Une commande crée une app locale adossée à actions, durable threads et SQLite. Utilisez plutôt `--headless` quand vous ne voulez pas encore d'UI navigateur.",
+      body: "Une commande crée une app locale chat-first adossée à actions, durable threads et SQLite. Utilisez `--headless` seulement pour les workflows automation-first sans UI navigateur pour le moment.",
     },
     finalCta: {
       title: "Un logiciel conçu pour l'ère agentic",
@@ -410,8 +409,9 @@ const frFR = {
   },
   templatesPage: {
     title: "Applications open source natives pour agents que vous possédez",
-    eyebrow: "100% gratuit et open source",
-    body: "Créez un modèle, exécutez-le localement et laissez l'agent le faire évoluer. Vous possédez le code et pouvez tout personnaliser.",
+    eyebrow:
+      "Forkez une app fonctionnelle et laissez l'agent la faire évoluer.",
+    body: "Vous pouvez tout personnaliser.",
     community:
       "Vous préférez une app vide ? Commencez de zéro avec le guide du framework.",
     createYourOwn: "Commencer de zéro",
