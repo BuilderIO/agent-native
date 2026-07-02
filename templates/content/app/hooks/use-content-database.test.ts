@@ -10,6 +10,7 @@ import {
   clearDeletedContentDatabaseFromCache,
   contentDatabaseQueryKey,
   invalidateBuilderBodyHydrationQueries,
+  invalidateContentDatabaseSourceRefreshQueries,
   readCachedContentDatabaseResponse,
   writeContentDatabaseResponseToCache,
 } from "./use-content-database";
@@ -217,6 +218,44 @@ describe("applySourceFieldPropertyToDatabaseResponse", () => {
 
     expect(applySourceFieldPropertyToDatabaseResponse(current, patch)).toBe(
       current,
+    );
+  });
+});
+
+describe("invalidateContentDatabaseSourceRefreshQueries", () => {
+  it("keeps continuation invalidations linear and narrowly targeted", () => {
+    const invalidations: Array<{ queryKey: readonly unknown[] }> = [];
+    const queryClient = {
+      invalidateQueries: (filters: { queryKey: readonly unknown[] }) => {
+        invalidations.push(filters);
+      },
+    };
+
+    for (let page = 0; page < 5; page++) {
+      invalidateContentDatabaseSourceRefreshQueries(
+        queryClient,
+        "database-page",
+      );
+    }
+
+    expect(invalidations).toHaveLength(10);
+    expect(
+      invalidations.filter(
+        (filters) =>
+          filters.queryKey.length === 1 && filters.queryKey[0] === "action",
+      ),
+    ).toHaveLength(0);
+    expect(invalidations).toEqual(
+      Array.from({ length: 5 }).flatMap(() => [
+        { queryKey: contentDatabaseQueryKey("database-page") },
+        {
+          queryKey: [
+            "action",
+            "get-content-database-source",
+            { documentId: "database-page" },
+          ],
+        },
+      ]),
     );
   });
 });

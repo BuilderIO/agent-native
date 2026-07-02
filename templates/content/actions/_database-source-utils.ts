@@ -42,6 +42,7 @@ import {
   builderMdxBodyToBuilderBlocks,
 } from "../shared/builder-mdx.js";
 import {
+  normalizePropertyValue,
   parsePropertyOptions,
   serializePropertyOptions,
   serializePropertyValue,
@@ -2266,6 +2267,7 @@ export async function seedMockSourceFields(args: {
   properties: DocumentProperty[];
   builderModelFields?: BuilderCmsModelFieldSummary[];
   builderSampleEntries?: BuilderCmsSourceEntry[];
+  existingFields?: ContentDatabaseSourceFieldRowDb[];
   now: string;
 }) {
   const db = getDb();
@@ -2475,7 +2477,28 @@ export async function seedMockSourceFields(args: {
     }
   }
 
-  await db.insert(schema.contentDatabaseSourceFields).values(rows);
+  const existingFieldBySourceKey = new Map(
+    (args.existingFields ?? []).map((field) => [
+      field.sourceFieldKey.trim().toLowerCase(),
+      field,
+    ]),
+  );
+  const mergedRows = rows.map((row) => {
+    const existing = existingFieldBySourceKey.get(
+      row.sourceFieldKey.trim().toLowerCase(),
+    );
+    if (!existing?.propertyId) return row;
+    return {
+      ...row,
+      id: existing.id,
+      propertyId: existing.propertyId,
+      localFieldKey: existing.localFieldKey,
+      mappingType: existing.mappingType,
+      createdAt: existing.createdAt,
+    };
+  });
+
+  await db.insert(schema.contentDatabaseSourceFields).values(mergedRows);
 }
 
 export async function seedMockSourceRows(args: {
@@ -2570,6 +2593,90 @@ export function sourceValuesForSeededSourceRow(args: {
     sourceTable: args.sourceTable,
     now: args.now,
   }).sourceValues;
+}
+
+async function materializeSourceFieldPropertyValues(args: {
+  database: ContentDatabaseRow;
+  sourceId: string;
+  fields: ContentDatabaseSourceFieldRowDb[];
+  documentIds?: string[];
+  now: string;
+}) {
+  const boundFields = args.fields.filter((field) => field.propertyId);
+  if (boundFields.length === 0) return;
+  const db = getDb();
+  const documentIdSet =
+    args.documentIds && args.documentIds.length > 0
+      ? new Set(args.documentIds)
+      : null;
+  const propertyIds = Array.from(
+    new Set(boundFields.map((field) => field.propertyId!)),
+  );
+  const definitions = await db
+    .select()
+    .from(schema.documentPropertyDefinitions)
+    .where(inArray(schema.documentPropertyDefinitions.id, propertyIds));
+  const definitionById = new Map(
+    definitions.map((definition) => [definition.id, definition]),
+  );
+  const sourceRows = await db
+    .select()
+    .from(schema.contentDatabaseSourceRows)
+    .where(eq(schema.contentDatabaseSourceRows.sourceId, args.sourceId));
+  const scopedRows = documentIdSet
+    ? sourceRows.filter((row) => documentIdSet.has(row.documentId))
+    : sourceRows;
+  if (scopedRows.length === 0) return;
+
+  const existingValues = await db
+    .select()
+    .from(schema.documentPropertyValues)
+    .where(inArray(schema.documentPropertyValues.propertyId, propertyIds));
+  const existingByDocumentAndProperty = new Map(
+    existingValues.map((value) => [
+      `${value.documentId}\0${value.propertyId}`,
+      value,
+    ]),
+  );
+
+  for (const row of scopedRows) {
+    const sourceValues =
+      parseObject<Record<string, DocumentPropertyValue>>(
+        row.sourceValuesJson,
+      ) ?? {};
+    for (const field of boundFields) {
+      const propertyId = field.propertyId!;
+      const definition = definitionById.get(propertyId);
+      if (!definition) continue;
+      const normalized = normalizePropertyValue(
+        definition.type as DocumentProperty["definition"]["type"],
+        sourceValues[field.sourceFieldKey],
+      );
+      if (normalized === null) continue;
+      const valueJson = serializePropertyValue(normalized);
+      const key = `${row.documentId}\0${propertyId}`;
+      const existing = existingByDocumentAndProperty.get(key);
+      if (existing) {
+        if (existing.valueJson === valueJson) continue;
+        await db
+          .update(schema.documentPropertyValues)
+          .set({ valueJson, updatedAt: args.now })
+          .where(eq(schema.documentPropertyValues.id, existing.id));
+      } else {
+        const value = {
+          id: nanoid(),
+          ownerEmail: args.database.ownerEmail,
+          documentId: row.documentId,
+          propertyId,
+          valueJson,
+          createdAt: args.now,
+          updatedAt: args.now,
+        };
+        await db.insert(schema.documentPropertyValues).values(value);
+        existingByDocumentAndProperty.set(key, value);
+      }
+    }
+  }
 }
 
 function openChangeSetKey(row: ContentDatabaseSourceChangeSetRowDb) {
@@ -3058,6 +3165,10 @@ export async function resyncBuilderCmsSourceSnapshot(args: {
     .select()
     .from(schema.contentDatabaseSourceRows)
     .where(eq(schema.contentDatabaseSourceRows.sourceId, args.source.id));
+  const existingFields = await db
+    .select()
+    .from(schema.contentDatabaseSourceFields)
+    .where(eq(schema.contentDatabaseSourceFields.sourceId, args.source.id));
   if (builderRead.state === "live") {
     const imported = await importBuilderCmsEntriesAsDatabaseItems({
       database: args.database,
@@ -3122,6 +3233,7 @@ export async function resyncBuilderCmsSourceSnapshot(args: {
       properties,
       builderModelFields,
       builderSampleEntries: builderEntries,
+      existingFields,
       now: args.now,
     });
 
@@ -3150,6 +3262,17 @@ export async function resyncBuilderCmsSourceSnapshot(args: {
         now: args.now,
         existingBuilderRows,
         builderEntriesByDocumentId,
+      });
+      const refreshedFields = await db
+        .select()
+        .from(schema.contentDatabaseSourceFields)
+        .where(eq(schema.contentDatabaseSourceFields.sourceId, args.source.id));
+      await materializeSourceFieldPropertyValues({
+        database: args.database,
+        sourceId: args.source.id,
+        fields: refreshedFields,
+        documentIds: fetchedDocumentIds,
+        now: args.now,
       });
       await enqueueBuilderBodyHydrationForItems({
         sourceId: args.source.id,
@@ -3209,6 +3332,7 @@ export async function resyncBuilderCmsSourceSnapshot(args: {
     properties,
     builderModelFields,
     builderSampleEntries: builderEntries,
+    existingFields,
     now: args.now,
   });
   // Row-union: a resync must only (re)link items that BELONG to this source —
@@ -3242,6 +3366,17 @@ export async function resyncBuilderCmsSourceSnapshot(args: {
     now: args.now,
     existingBuilderRows,
     builderEntriesByDocumentId,
+  });
+  const refreshedFields = await db
+    .select()
+    .from(schema.contentDatabaseSourceFields)
+    .where(eq(schema.contentDatabaseSourceFields.sourceId, args.source.id));
+  await materializeSourceFieldPropertyValues({
+    database: args.database,
+    sourceId: args.source.id,
+    fields: refreshedFields,
+    documentIds: itemsToLink.map((item) => item.document.id),
+    now: args.now,
   });
   if (builderRead.state === "live") {
     await enqueueBuilderBodyHydrationForItems({

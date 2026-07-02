@@ -598,25 +598,28 @@ export function useDbSync(
         // etc.). Templates' own data queries do NOT live here — they react
         // through `useChangeVersion(source)` in their query keys instead, so
         // a single change event doesn't fan out into "refetch everything".
+        // Suppressed-action-only batches skip this whole list (their
+        // mutations perform their own narrow invalidation) — but events must
+        // STILL reach the onEvent forwarding below, so guard, don't return.
         if (!suppressesWholeBatch) {
           queryClient.invalidateQueries({ queryKey: ["action"] });
-        }
-        queryClient.invalidateQueries({ queryKey: ["extension"] });
-        queryClient.invalidateQueries({ queryKey: ["extensions"] });
-        queryClient.invalidateQueries({ queryKey: ["extension-slots"] });
-        queryClient.invalidateQueries({ queryKey: ["slot-installs"] });
-        queryClient.invalidateQueries({ queryKey: ["slot-available"] });
-        queryClient.invalidateQueries({ queryKey: ["tool"] });
-        queryClient.invalidateQueries({ queryKey: ["tools"] });
-        queryClient.invalidateQueries({ queryKey: ["app-state"] });
-        if (hasAppStateEvent(relevant, "navigate")) {
-          queryClient.invalidateQueries({ queryKey: ["navigate-command"] });
-        }
-        if (hasAppStateEvent(relevant, "show-questions")) {
-          queryClient.invalidateQueries({ queryKey: ["show-questions"] });
-        }
-        if (hasAppStateEvent(relevant, "__set_url__")) {
-          queryClient.invalidateQueries({ queryKey: ["__set_url__"] });
+          queryClient.invalidateQueries({ queryKey: ["extension"] });
+          queryClient.invalidateQueries({ queryKey: ["extensions"] });
+          queryClient.invalidateQueries({ queryKey: ["extension-slots"] });
+          queryClient.invalidateQueries({ queryKey: ["slot-installs"] });
+          queryClient.invalidateQueries({ queryKey: ["slot-available"] });
+          queryClient.invalidateQueries({ queryKey: ["tool"] });
+          queryClient.invalidateQueries({ queryKey: ["tools"] });
+          queryClient.invalidateQueries({ queryKey: ["app-state"] });
+          if (hasAppStateEvent(relevant, "navigate")) {
+            queryClient.invalidateQueries({ queryKey: ["navigate-command"] });
+          }
+          if (hasAppStateEvent(relevant, "show-questions")) {
+            queryClient.invalidateQueries({ queryKey: ["show-questions"] });
+          }
+          if (hasAppStateEvent(relevant, "__set_url__")) {
+            queryClient.invalidateQueries({ queryKey: ["__set_url__"] });
+          }
         }
       }
 

@@ -12,6 +12,7 @@ export function useDbSync() {
     // the next event — a self-sustaining refetch storm on every poll tick.
     suppressActionInvalidationFor: [
       "process-builder-body-hydration",
+      "refresh-content-database-source",
       "refresh-notion-sync-status",
     ],
     queryKeys: [

@@ -61,7 +61,11 @@ vi.mock("./_builder-cms-read-client.js", async () => {
             title: "A One",
             urlPath: "/a-one",
             updatedAt: "2026-01-01T00:00:00.000Z",
-            sourceValues: { "data.title": "A One" },
+            sourceValues: {
+              "data.title": "A One",
+              "data.author": "Ada Lovelace",
+              "data.date": 1781546400000,
+            },
           },
           {
             id: "entry-a2",
@@ -69,7 +73,11 @@ vi.mock("./_builder-cms-read-client.js", async () => {
             title: "A Two",
             urlPath: "/a-two",
             updatedAt: "2026-01-01T00:00:00.000Z",
-            sourceValues: { "data.title": "A Two" },
+            sourceValues: {
+              "data.title": "A Two",
+              "data.author": "Grace Hopper",
+              "data.date": 1781632800000,
+            },
           },
         ];
         const shouldPage =
@@ -293,6 +301,64 @@ it("resync advances Builder partial reads with a cursor and converges on the fin
     createdAt: now,
     updatedAt: now,
   });
+  await db.insert(schema.documentPropertyDefinitions).values([
+    {
+      id: "prop-author",
+      ownerEmail: OWNER,
+      databaseId,
+      name: "Author",
+      type: "text",
+      position: 0,
+      createdAt: now,
+      updatedAt: now,
+    },
+    {
+      id: "prop-date",
+      ownerEmail: OWNER,
+      databaseId,
+      name: "Date",
+      type: "date",
+      position: 1,
+      createdAt: now,
+      updatedAt: now,
+    },
+  ]);
+  await db.insert(schema.contentDatabaseSourceFields).values([
+    {
+      id: "field-author",
+      ownerEmail: OWNER,
+      sourceId: "src-partial",
+      propertyId: "prop-author",
+      localFieldKey: "prop-author",
+      sourceFieldKey: "data.author",
+      sourceFieldLabel: "Author",
+      sourceFieldType: "text",
+      mappingType: "property",
+      writeOwner: "source",
+      readOnly: 0,
+      provenance: "Builder model field",
+      freshness: "fresh",
+      createdAt: now,
+      updatedAt: now,
+    },
+    {
+      id: "field-date",
+      ownerEmail: OWNER,
+      sourceId: "src-partial",
+      propertyId: "prop-date",
+      localFieldKey: "prop-date",
+      sourceFieldKey: "data.date",
+      sourceFieldLabel: "Date",
+      sourceFieldType: "datetime",
+      mappingType: "property",
+      writeOwner: "source",
+      readOnly: 0,
+      provenance: "Builder model field",
+      freshness: "fresh",
+      createdAt: now,
+      updatedAt: now,
+    },
+  ]);
 
   await db.insert(schema.documents).values({
     id: "doc-stale",
@@ -356,6 +422,62 @@ it("resync advances Builder partial reads with a cursor and converges on the fin
   expect(
     rows.map((row: { sourceRowId: string }) => row.sourceRowId).sort(),
   ).toEqual(["entry-a1", "entry-stale"]);
+  let fields = await db
+    .select()
+    .from(schema.contentDatabaseSourceFields)
+    .where(eq(schema.contentDatabaseSourceFields.sourceId, "src-partial"));
+  expect(
+    fields
+      .filter((field: { sourceFieldKey: string }) =>
+        ["data.author", "data.date"].includes(field.sourceFieldKey),
+      )
+      .map(
+        (field: {
+          id: string;
+          propertyId: string | null;
+          localFieldKey: string;
+          sourceFieldKey: string;
+        }) => ({
+          id: field.id,
+          propertyId: field.propertyId,
+          localFieldKey: field.localFieldKey,
+          sourceFieldKey: field.sourceFieldKey,
+        }),
+      )
+      .sort((a, b) => a.sourceFieldKey.localeCompare(b.sourceFieldKey)),
+  ).toEqual([
+    {
+      id: "field-author",
+      propertyId: "prop-author",
+      localFieldKey: "prop-author",
+      sourceFieldKey: "data.author",
+    },
+    {
+      id: "field-date",
+      propertyId: "prop-date",
+      localFieldKey: "prop-date",
+      sourceFieldKey: "data.date",
+    },
+  ]);
+  let values = await db
+    .select({
+      documentId: schema.documentPropertyValues.documentId,
+      propertyId: schema.documentPropertyValues.propertyId,
+      valueJson: schema.documentPropertyValues.valueJson,
+    })
+    .from(schema.documentPropertyValues);
+  expect(
+    values.map(
+      (value: { propertyId: string; valueJson: string }) =>
+        `${value.propertyId}:${value.valueJson}`,
+    ),
+  ).toContain('prop-author:"Ada Lovelace"');
+  expect(
+    values.some(
+      (value: { propertyId: string; valueJson: string }) =>
+        value.propertyId === "prop-date" && JSON.parse(value.valueJson),
+    ),
+  ).toBe(true);
 
   source = afterFirst;
   await resync({ database, source, now: "2026-01-01T00:01:00.000Z" });
@@ -379,6 +501,34 @@ it("resync advances Builder partial reads with a cursor and converges on the fin
   expect(
     rows.map((row: { sourceRowId: string }) => row.sourceRowId).sort(),
   ).toEqual(["entry-a1", "entry-a2"]);
+  fields = await db
+    .select()
+    .from(schema.contentDatabaseSourceFields)
+    .where(eq(schema.contentDatabaseSourceFields.sourceId, "src-partial"));
+  expect(
+    fields
+      .filter((field: { sourceFieldKey: string }) =>
+        ["data.author", "data.date"].includes(field.sourceFieldKey),
+      )
+      .every((field: { propertyId: string | null }) => field.propertyId),
+  ).toBe(true);
+  values = await db
+    .select({
+      propertyId: schema.documentPropertyValues.propertyId,
+      valueJson: schema.documentPropertyValues.valueJson,
+    })
+    .from(schema.documentPropertyValues);
+  expect(
+    values.map(
+      (value: { propertyId: string; valueJson: string }) =>
+        `${value.propertyId}:${value.valueJson}`,
+    ),
+  ).toEqual(
+    expect.arrayContaining([
+      'prop-author:"Ada Lovelace"',
+      'prop-author:"Grace Hopper"',
+    ]),
+  );
   expect(builderReadMock.calls.map((call) => call.offset ?? 0)).toEqual([0, 1]);
 });
 

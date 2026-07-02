@@ -544,14 +544,24 @@ export function useRefreshContentDatabaseSource(documentId: string) {
     ContentDatabaseSourceStatusResponse,
     RefreshContentDatabaseSourceRequest
   >("refresh-content-database-source", {
+    skipActionQueryInvalidation: true,
     onSuccess: () => {
-      queryClient.invalidateQueries({
-        queryKey: contentDatabaseQueryKey(documentId),
-      });
-      queryClient.invalidateQueries({
-        queryKey: ["action", "get-content-database-source", { documentId }],
-      });
+      invalidateContentDatabaseSourceRefreshQueries(queryClient, documentId);
     },
+  });
+}
+
+export function invalidateContentDatabaseSourceRefreshQueries(
+  queryClient: {
+    invalidateQueries: (filters: { queryKey: readonly unknown[] }) => unknown;
+  },
+  documentId: string,
+) {
+  queryClient.invalidateQueries({
+    queryKey: contentDatabaseQueryKey(documentId),
+  });
+  queryClient.invalidateQueries({
+    queryKey: ["action", "get-content-database-source", { documentId }],
   });
 }
 
