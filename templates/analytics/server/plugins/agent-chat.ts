@@ -7,6 +7,7 @@ import {
 } from "@agent-native/core/server";
 
 import actionsRegistry from "../../.generated/actions-registry.js";
+import { applyAnalyticsPlanModePolicy } from "../lib/agent-chat-plan-mode";
 import { renderDataDictionary } from "../lib/data-dictionary-context";
 import {
   failedDataQueryAttemptMessage,
@@ -26,7 +27,6 @@ import {
   listScopedSettingRecords,
   resolveSettingsScope,
 } from "../lib/scoped-settings";
-import { applyAnalyticsPlanModePolicy } from "./agent-chat-plan-mode";
 
 const DATA_DICT_PREFIX = "data-dict-";
 
@@ -68,7 +68,7 @@ const INITIAL_TOOL_NAMES = [
 export {
   applyAnalyticsPlanModePolicy,
   PLAN_MODE_ACT_ONLY_TOOLS,
-} from "./agent-chat-plan-mode";
+} from "../lib/agent-chat-plan-mode";
 
 function latestUserText(
   messages: AgentLoopFinalResponseGuardContext["messages"],
