@@ -2,7 +2,9 @@ import type { ContentDatabaseSource } from "@shared/api";
 import { describe, expect, it } from "vitest";
 
 import {
+  builderBodyHydrationMutationMadeProgress,
   builderBodyHydrationPumpKey,
+  builderBodyHydrationProgressKey,
   shouldPumpBuilderBodyHydration,
 } from "./builder-body-hydration-pump";
 
@@ -74,9 +76,45 @@ describe("Builder body hydration pump", () => {
     const key = builderBodyHydrationPumpKey(builderSource);
 
     expect(key).toBe("builder-source:457:0:40:0:497");
+    expect(builderBodyHydrationProgressKey(builderSource)).toBe(
+      "builder-source:457:40:497",
+    );
     expect(shouldPumpBuilderBodyHydration(builderSource, false, key)).toBe(
       false,
     );
+  });
+
+  it("treats a resolved batch with no hydrated progress and remaining work as stalled", () => {
+    expect(
+      builderBodyHydrationMutationMadeProgress({
+        sourceId: "builder-source",
+        processed: 8,
+        succeeded: 0,
+        failed: 8,
+        remaining: 6,
+      }),
+    ).toBe(false);
+  });
+
+  it("treats successful or queue-draining batches as progress", () => {
+    expect(
+      builderBodyHydrationMutationMadeProgress({
+        sourceId: "builder-source",
+        processed: 8,
+        succeeded: 1,
+        failed: 7,
+        remaining: 6,
+      }),
+    ).toBe(true);
+    expect(
+      builderBodyHydrationMutationMadeProgress({
+        sourceId: "builder-source",
+        processed: 6,
+        succeeded: 0,
+        failed: 6,
+        remaining: 0,
+      }),
+    ).toBe(true);
   });
 
   it("stops when no queued or hydrating bodies remain", () => {

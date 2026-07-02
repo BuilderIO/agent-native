@@ -613,6 +613,9 @@ const messages = {
     builderBodiesQueued: "{{count}} 個排隊中",
     builderBodySync: "正文同步",
     builderBodySyncFailed: "{{count}} 個失敗",
+    builderBodySyncFailedNotice: "此文章正文無法從 Builder 同步",
+    builderBodySyncFailedDescription:
+      "此列仍可編輯，但 Builder 正文未完成同步。發佈或推送變更前請檢查文章內容。",
     builderBodySyncing: "內容仍在從 Builder 同步",
     builderBodySyncingDescription:
       "同步 Builder 正文完成前會暫停編輯，避免覆寫既有文章內容。",
@@ -624,8 +627,12 @@ const messages = {
       "此批次完成後請再次審查，以準備其餘 Builder 變更。",
     builderBodiesSyncingProgress:
       "正在同步 {{total}} 個正文中的 {{hydrated}} 個。",
+    builderBodiesSyncFinishedWithFailures:
+      "已同步 {{total}} 個正文中的 {{hydrated}} 個。{{failed}} 個失敗。",
     builderRowsFetchedBodiesSyncing:
       "已擷取 {{rows}} 列。正在同步 {{total}} 個正文中的 {{hydrated}} 個。",
+    builderRowsFetchedBodiesSyncFinishedWithFailures:
+      "已擷取 {{rows}} 列。已同步 {{total}} 個正文中的 {{hydrated}} 個。{{failed}} 個失敗。",
     builderRowsFetchedSyncingBodies:
       "Builder 列已全部擷取。文章正文仍在同步中。",
     builderRowsFetched: "已擷取 {{count}} 個 Builder 列",

@@ -9,6 +9,7 @@ import {
   buildBuilderLocalOutboundChangeSets,
   builderBodyChangeForLocalContent,
   builderBodyHydrationPriorityForRequest,
+  builderBodyHydrationAttemptIsTerminal,
   builderBodyNeedsSourceComponentWrite,
   builderBodyHydrationVersion,
   builderCmsEntryAlreadyRepresented,
@@ -180,7 +181,12 @@ describe("database source helpers", () => {
           "__builder.body.blocksHash": "blocks-hash-1",
         },
       }),
-    ).toBe("blocks-hash-1:readable-native-images-v4");
+    ).toBe("blocks-hash-1:readable-native-images-v5");
+  });
+
+  it("caps Builder body hydration retries on the fifth failed attempt", () => {
+    expect(builderBodyHydrationAttemptIsTerminal(4)).toBe(false);
+    expect(builderBodyHydrationAttemptIsTerminal(5)).toBe(true);
   });
 
   it("prioritizes opened Builder body hydration ahead of background work", () => {

@@ -915,6 +915,16 @@ function rawRefData(args: {
   };
 }
 
+function escapeBuilderMdxText(value: string) {
+  return value.replace(/(^|[^\\])([<{}])/g, (_match, prefix, character) => {
+    return `${prefix}\\${character}`;
+  });
+}
+
+function unescapeBuilderMdxText(value: string) {
+  return value.replace(/\\([<{}])/g, "$1");
+}
+
 interface BlocksToMdxContext {
   rawRoot: string;
   files: Record<string, string>;
@@ -974,7 +984,9 @@ async function builderBlockToMdx(
   if (name === "Text") {
     const data: BuilderTextData = {
       ...raw,
-      body: htmlToMarkdown(String(options.text ?? "")).trim(),
+      body: escapeBuilderMdxText(
+        htmlToMarkdown(String(options.text ?? "")).trim(),
+      ),
     };
     return serializeRegistryBlockToMdx("builder-text", {
       id,
@@ -1775,14 +1787,15 @@ function applyTextData(
   const block = rawBlockForData(data, sidecars);
   const rawOptions = componentOptions(block);
   const originalBody = htmlToMarkdown(String(rawOptions.text ?? ""));
+  const body = unescapeBuilderMdxText(data.body);
   if (
-    normalizeMarkdownForCompare(data.body) ===
+    normalizeMarkdownForCompare(body) ===
     normalizeMarkdownForCompare(originalBody)
   ) {
     return block;
   }
   const options = ensureComponentOptions(block, data.componentName ?? "Text");
-  options.text = markdownToBuilderTextHtml(data.body);
+  options.text = markdownToBuilderTextHtml(body);
   return block;
 }
 

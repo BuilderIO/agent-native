@@ -2,10 +2,12 @@ import type { ContentDatabaseItem, Document } from "@shared/api";
 import { describe, expect, it } from "vitest";
 
 import {
+  builderBodyHydrationIsTerminalError,
   databaseItemBodyHydrationIsPending,
   documentBodyHydrationIsPending,
   isEffectivelyEmptyDocumentContent,
   previewBodyHydrationIsPending,
+  previewBodyHydrationIsTerminalError,
   shouldIgnorePreviewEmptyNormalization,
 } from "./body-hydration";
 
@@ -40,7 +42,7 @@ function documentWithHydration(
 }
 
 describe("body hydration editing gates", () => {
-  it("treats any non-hydrated Builder body as not yet editable", () => {
+  it("treats only in-progress Builder body hydration as not yet editable", () => {
     expect(
       documentBodyHydrationIsPending(documentWithHydration("pending")),
     ).toBe(true);
@@ -48,10 +50,23 @@ describe("body hydration editing gates", () => {
       documentBodyHydrationIsPending(documentWithHydration("hydrating")),
     ).toBe(true);
     expect(documentBodyHydrationIsPending(documentWithHydration("error"))).toBe(
-      true,
+      false,
     );
     expect(
       documentBodyHydrationIsPending(documentWithHydration("hydrated")),
+    ).toBe(false);
+  });
+
+  it("detects terminal Builder body hydration errors separately from pending gates", () => {
+    expect(
+      builderBodyHydrationIsTerminalError(
+        documentWithHydration("error").databaseMembership?.bodyHydration,
+      ),
+    ).toBe(true);
+    expect(
+      builderBodyHydrationIsTerminalError(
+        documentWithHydration("pending").databaseMembership?.bodyHydration,
+      ),
     ).toBe(false);
   });
 
@@ -92,6 +107,29 @@ describe("body hydration editing gates", () => {
       previewBodyHydrationIsPending({
         item,
         document: documentWithHydration("hydrating"),
+      }),
+    ).toBe(true);
+  });
+
+  it("uses fresh document-level hydration for terminal preview errors", () => {
+    const item = {
+      id: "item-a",
+      databaseId: "database",
+      position: 0,
+      document: documentWithHydration("hydrated"),
+      properties: [],
+      bodyHydration: {
+        status: "hydrated",
+        attemptedAt: null,
+        error: null,
+        version: "v1",
+      },
+    } satisfies ContentDatabaseItem;
+
+    expect(
+      previewBodyHydrationIsTerminalError({
+        item,
+        document: documentWithHydration("error"),
       }),
     ).toBe(true);
   });
