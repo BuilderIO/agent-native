@@ -365,6 +365,149 @@ function parallelSameToolPreparationStream(
   });
 }
 
+function parallelSameToolStalledSiblingStream(
+  tool = "edit-design",
+): ReadableStream<Uint8Array> {
+  const timers: ReturnType<typeof setTimeout>[] = [];
+  let keepalive: ReturnType<typeof setInterval> | undefined;
+  return new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.enqueue(
+        new TextEncoder().encode(
+          `data: ${JSON.stringify({
+            type: "activity",
+            label: `Preparing ${tool} action`,
+            tool,
+            id: "call-a",
+            progressBytes: 0,
+          })}\n\n`,
+        ),
+      );
+      timers.push(
+        setTimeout(() => {
+          controller.enqueue(
+            new TextEncoder().encode(
+              `data: ${JSON.stringify({
+                type: "tool_start",
+                tool,
+                id: "call-b",
+                input: {},
+              })}\n\n`,
+            ),
+          );
+        }, 30_000),
+      );
+      keepalive = setInterval(() => {
+        try {
+          controller.enqueue(
+            new TextEncoder().encode(
+              `data: ${JSON.stringify({ type: "stream_keepalive" })}\n\n`,
+            ),
+          );
+        } catch {
+          // The watchdog may have cancelled the stream first.
+        }
+      }, 10_000);
+    },
+    cancel() {
+      for (const timer of timers) clearTimeout(timer);
+      if (keepalive) clearInterval(keepalive);
+    },
+  });
+}
+
+function clearedOlderSameToolSiblingStream(
+  tool = "edit-design",
+): ReadableStream<Uint8Array> {
+  const timers: ReturnType<typeof setTimeout>[] = [];
+  let keepalive: ReturnType<typeof setInterval> | undefined;
+  return new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.enqueue(
+        new TextEncoder().encode(
+          `data: ${JSON.stringify({
+            type: "activity",
+            label: `Preparing ${tool} action`,
+            tool,
+            id: "call-a",
+            progressBytes: 0,
+          })}\n\n`,
+        ),
+      );
+      timers.push(
+        setTimeout(() => {
+          controller.enqueue(
+            new TextEncoder().encode(
+              `data: ${JSON.stringify({
+                type: "activity",
+                label: `Preparing ${tool} action`,
+                tool,
+                id: "call-b",
+                progressBytes: 0,
+              })}\n\n`,
+            ),
+          );
+          controller.enqueue(
+            new TextEncoder().encode(
+              `data: ${JSON.stringify({
+                type: "tool_start",
+                tool,
+                id: "call-a",
+                input: {},
+              })}\n\n`,
+            ),
+          );
+        }, 60_000),
+      );
+      timers.push(
+        setTimeout(() => {
+          controller.enqueue(
+            new TextEncoder().encode(
+              `data: ${JSON.stringify({
+                type: "tool_start",
+                tool,
+                id: "call-b",
+                input: {},
+              })}\n\n`,
+            ),
+          );
+          controller.enqueue(
+            new TextEncoder().encode(
+              `data: ${JSON.stringify({
+                type: "tool_done",
+                tool,
+                id: "call-b",
+                result: "ok",
+              })}\n\n`,
+            ),
+          );
+          controller.enqueue(
+            new TextEncoder().encode(
+              `data: ${JSON.stringify({ type: "done" })}\n\n`,
+            ),
+          );
+          controller.close();
+        }, SSE_ACTION_PREPARATION_STALL_TIMEOUT_MS + 10_000),
+      );
+      keepalive = setInterval(() => {
+        try {
+          controller.enqueue(
+            new TextEncoder().encode(
+              `data: ${JSON.stringify({ type: "stream_keepalive" })}\n\n`,
+            ),
+          );
+        } catch {
+          // The watchdog may have cancelled the stream first.
+        }
+      }, 10_000);
+    },
+    cancel() {
+      for (const timer of timers) clearTimeout(timer);
+      if (keepalive) clearInterval(keepalive);
+    },
+  });
+}
+
 function noIdPositivePreparationFallbackStream(
   tool = "edit-design",
 ): ReadableStream<Uint8Array> {
@@ -685,6 +828,64 @@ describe("SSE event processor no-progress recovery", () => {
     ]);
   });
 
+  it("carries zero-byte preparation stalls across durable reconnect reads", async () => {
+    vi.useFakeTimers();
+
+    const preparingActionState = {};
+    const readPreparationReplay = async (id: string) => {
+      try {
+        await drain(
+          readSSEStream(
+            eventStream([
+              {
+                type: "activity",
+                label: "Preparing edit-design action",
+                tool: "edit-design",
+                id,
+                progressBytes: 0,
+              },
+            ]),
+            [],
+            { value: 0 },
+            undefined,
+            undefined,
+            undefined,
+            { durableBackgroundRun: true, preparingActionState },
+          ),
+        );
+      } catch (err) {
+        return err;
+      }
+      return undefined;
+    };
+
+    const firstErr = await readPreparationReplay("call-a");
+    expect(firstErr).toBeInstanceOf(AgentAutoContinueSignal);
+    expect((firstErr as AgentAutoContinueSignal).reason).toBe("stream_ended");
+
+    await vi.advanceTimersByTimeAsync(
+      Math.floor(SSE_ACTION_PREPARATION_STALL_TIMEOUT_MS / 2),
+    );
+
+    const secondErr = await readPreparationReplay("call-b");
+    expect(secondErr).toBeInstanceOf(AgentAutoContinueSignal);
+    expect((secondErr as AgentAutoContinueSignal).reason).toBe("stream_ended");
+
+    await vi.advanceTimersByTimeAsync(
+      Math.ceil(SSE_ACTION_PREPARATION_STALL_TIMEOUT_MS / 2) + 1,
+    );
+
+    const thirdErr = await readPreparationReplay("call-c");
+    expect(thirdErr).toBeInstanceOf(AgentAutoContinueSignal);
+    expect((thirdErr as AgentAutoContinueSignal).reason).toBe("no_progress");
+    expect((thirdErr as AgentAutoContinueSignal).activityTrail).toEqual([
+      {
+        label: "Preparing edit screen action",
+        tool: "edit-design",
+      },
+    ]);
+  });
+
   it("keeps durable background keepalives attached until a terminal event", async () => {
     vi.useFakeTimers();
 
@@ -762,6 +963,58 @@ describe("SSE event processor no-progress recovery", () => {
     );
 
     await vi.advanceTimersByTimeAsync(SSE_NO_PROGRESS_TIMEOUT_MS + 5_000);
+
+    await expect(donePromise).resolves.toBeDefined();
+  });
+
+  it("keeps sibling same-tool preparations tracked after an id-specific tool starts", async () => {
+    vi.useFakeTimers();
+
+    const errPromise = (async () => {
+      try {
+        await drain(
+          readSSEStream(
+            parallelSameToolStalledSiblingStream(),
+            [],
+            { value: 0 },
+            undefined,
+            undefined,
+            undefined,
+            { durableBackgroundRun: true },
+          ),
+        );
+      } catch (err) {
+        return err;
+      }
+    })();
+
+    await vi.advanceTimersByTimeAsync(
+      SSE_ACTION_PREPARATION_STALL_TIMEOUT_MS + 1,
+    );
+
+    const err = await errPromise;
+    expect(err).toBeInstanceOf(AgentAutoContinueSignal);
+    expect((err as AgentAutoContinueSignal).reason).toBe("no_progress");
+  });
+
+  it("recomputes same-tool preparation age after an older sibling clears", async () => {
+    vi.useFakeTimers();
+
+    const donePromise = drain(
+      readSSEStream(
+        clearedOlderSameToolSiblingStream(),
+        [],
+        { value: 0 },
+        undefined,
+        undefined,
+        undefined,
+        { durableBackgroundRun: true },
+      ),
+    );
+
+    await vi.advanceTimersByTimeAsync(
+      SSE_ACTION_PREPARATION_STALL_TIMEOUT_MS + 10_000,
+    );
 
     await expect(donePromise).resolves.toBeDefined();
   });

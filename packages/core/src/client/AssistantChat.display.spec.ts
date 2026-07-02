@@ -169,7 +169,7 @@ describe("resolveAssistantChatRunningStatusLabel", () => {
     ).toBe("Preparing generate-design action");
   });
 
-  it("shows replayed recovery as continuing instead of reconnecting", () => {
+  it("shows replayed recovery as still working instead of reconnecting", () => {
     expect(
       resolveAssistantChatRunningStatusLabel({
         runningActivityLabel: null,
@@ -177,7 +177,7 @@ describe("resolveAssistantChatRunningStatusLabel", () => {
         isReconnecting: true,
         hasReconnectContent: true,
       }),
-    ).toBe("Continuing");
+    ).toBe("Still working");
   });
 
   it("keeps bare reconnect recovery as thinking", () => {
@@ -226,6 +226,35 @@ describe("waitForThreadRunToClear", () => {
       "setTimeout(() => {\n        reconnectTimedOut = true;",
     );
     expect(helperSource).not.toContain("20_000");
+  });
+
+  it("reattaches to the same active run when a hosted reconnect stream ends", () => {
+    const source = readFileSync("src/client/AssistantChat.tsx", {
+      encoding: "utf8",
+    });
+    const start = source.indexOf("const startReconnectToRun = useCallback");
+    const end = source.indexOf("const reconnectActiveRunForThread");
+    const helperSource = source.slice(start, end);
+
+    expect(start).toBeGreaterThan(-1);
+    expect(end).toBeGreaterThan(start);
+    expect(helperSource).toContain(
+      "const preparingActionState: PreparingActionState = {}",
+    );
+    expect(helperSource).toContain("sameRunStillActive");
+    expect(helperSource).toContain("{ signal: abortCtrl.signal }");
+    expect(helperSource).toContain('return "unknown"');
+    expect(helperSource).toContain('err.reason === "stream_ended"');
+    expect(helperSource).toContain(
+      "const reconnectAfterSeq = resolveReconnectAfterSeq(threadId, runId)",
+    );
+    expect(helperSource).toContain("if (!sseRes.ok || !sseRes.body)");
+    expect(helperSource).toContain("{ preparingActionState }");
+    expect(helperSource).toContain(
+      "reconnectTimedOut && abortCtrl.signal.aborted",
+    );
+    expect(helperSource).toContain('activeState !== "inactive"');
+    expect(helperSource).toContain("continue;");
   });
 
   it("shows active tool activity before falling back to calm recovery labels", () => {

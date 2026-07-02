@@ -21,6 +21,9 @@ let claimStateRows: Array<{
   started_at?: number | null;
   heartbeat_at?: number | null;
 }> = [];
+let runListRows: Array<Record<string, unknown>> = [];
+let refreshedRunListRows: Array<Record<string, unknown>> | null = null;
+let runListSelectCount = 0;
 let runOwnerRows: Array<{ owner_email: string | null }> = [];
 let insertEventBehavior: () => void = () => {};
 
@@ -52,6 +55,20 @@ const mockDb = {
     // getRunStatus: SELECT status FROM agent_runs WHERE id = ?
     if (/SELECT status FROM agent_runs WHERE id/i.test(rawSql)) {
       return { rows: runStatusRows, rowsAffected: 0 };
+    }
+    if (
+      /SELECT id, thread_id, turn_id, status, started_at, heartbeat_at, completed_at, last_progress_at, error_code, abort_reason, dispatch_mode, terminal_reason, diag_stage/i.test(
+        rawSql,
+      ) &&
+      /WHERE thread_id = \?/i.test(rawSql) &&
+      /LIMIT \?/i.test(rawSql)
+    ) {
+      const rows =
+        refreshedRunListRows && runListSelectCount > 0
+          ? refreshedRunListRows
+          : runListRows;
+      runListSelectCount++;
+      return { rows, rowsAffected: 0 };
     }
     // readBackgroundRunClaim: SELECT dispatch_mode, status, diag_stage, started_at, heartbeat_at FROM agent_runs WHERE id = ?
     if (
@@ -102,6 +119,7 @@ const {
   tryClaimRunSlot,
   updateRunStatusIfRunning,
   getRunStatus,
+  listRunsForThread,
   readBackgroundRunClaim,
   getRunOwnerEmail,
   writeLedgerEntry,
@@ -120,6 +138,9 @@ describe("run store", () => {
     claimSlotRows = [];
     runStatusRows = [];
     claimStateRows = [];
+    runListRows = [];
+    refreshedRunListRows = null;
+    runListSelectCount = 0;
     runOwnerRows = [];
     ledgerRows = [];
     insertEventBehavior = () => {};
@@ -287,8 +308,10 @@ describe("run store", () => {
     );
     expect(repair?.args[0]).toBe("completed");
     expect(repair?.args[1]).toBe(123_456);
-    expect(repair?.args[6]).toBe("done");
-    expect(repair?.args[7]).toBe("run-done-event");
+    expect(repair?.args[2]).toBeNull();
+    expect(repair?.args[3]).toBeNull();
+    expect(repair?.args[4]).toBe("done");
+    expect(repair?.args[5]).toBe("run-done-event");
     expect(
       execCalls.some(
         (call) =>
@@ -315,6 +338,58 @@ describe("run store", () => {
     expect(repair?.sql).toContain("heartbeat_at");
     expect(repair?.args[0]).toBe("completed");
     expect(repair?.args[1]).toBeNull();
+  });
+
+  it("repairs terminal event rows before listing runs for debug surfaces", async () => {
+    runListRows = [
+      {
+        id: "run-done-event",
+        thread_id: "thread-done",
+        turn_id: null,
+        status: "running",
+        started_at: 1000,
+        heartbeat_at: 1500,
+        completed_at: null,
+        last_progress_at: 1500,
+        error_code: null,
+        abort_reason: null,
+        dispatch_mode: "background-processing",
+        terminal_reason: null,
+        diag_stage: null,
+      },
+    ];
+    refreshedRunListRows = [
+      {
+        ...runListRows[0],
+        status: "completed",
+        completed_at: 123_456,
+        terminal_reason: "done",
+      },
+    ];
+    latestEventRows = [
+      {
+        seq: 9,
+        event_at: 123_456,
+        event_data: JSON.stringify({ type: "done" }),
+      },
+    ];
+
+    const runs = await listRunsForThread("thread-done");
+
+    expect(runs[0]?.status).toBe("completed");
+    expect(runs[0]?.completedAt).toBe(123_456);
+    expect(runs[0]?.terminalReason).toBe("done");
+    expect(runListSelectCount).toBe(2);
+    const repair = execCalls.find(
+      (call) =>
+        /UPDATE agent_runs/i.test(call.sql) &&
+        /SET status = \?/i.test(call.sql),
+    );
+    expect(repair?.args[0]).toBe("completed");
+    expect(repair?.args[2]).toBeNull();
+    expect(repair?.args[3]).toBeNull();
+    expect(repair?.args[4]).toBe("done");
+    expect(repair?.args[5]).toBe("run-done-event");
   });
 
   it("reapIfStale honors last_progress_at as liveness so a progressing run is not reaped mid-tool", async () => {

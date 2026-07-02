@@ -153,6 +153,7 @@ import {
 import {
   AgentAutoContinueSignal,
   type ContentPart,
+  type PreparingActionState,
   readSSEStreamRaw,
   settleInterruptedToolCalls,
 } from "./sse-event-processor.js";
@@ -675,7 +676,7 @@ export function resolveAssistantChatRunningStatusLabel({
 }): string {
   if (runningActivityLabel) return runningActivityLabel;
   if (isAutoResuming) return "Resuming";
-  if (isReconnecting && hasReconnectContent) return "Continuing";
+  if (isReconnecting && hasReconnectContent) return "Still working";
   return "Thinking";
 }
 
@@ -1516,7 +1517,7 @@ const AssistantChatInner = forwardRef<
   const textStreaming = showRunningInUI || externalStreaming;
   // A revealed activity label wins; otherwise keep recovery states calm and
   // product-facing. Reconnect is transport machinery, so normal replay reads as
-  // "Continuing" instead of exposing "Reconnecting" mid-chat.
+  // ongoing work instead of exposing "Reconnecting" mid-chat.
   const runningStatusLabel = resolveAssistantChatRunningStatusLabel({
     runningActivityLabel,
     isAutoResuming,
@@ -1863,6 +1864,27 @@ const AssistantChatInner = forwardRef<
       const streamReconnect = async () => {
         let noProgressDuringReconnect = false;
         let latestContent: ContentPart[] = [];
+        const preparingActionState: PreparingActionState = {};
+        const sameRunStillActive = async (): Promise<
+          "active" | "inactive" | "unknown"
+        > => {
+          try {
+            const res = await fetch(
+              `${apiUrl}/runs/active?threadId=${encodeURIComponent(threadId)}`,
+              { signal: abortCtrl.signal },
+            );
+            if (!res.ok) return "unknown";
+            const info = (await res.json()) as ActiveRunLookup;
+            return info.active === true &&
+              String(info.runId ?? "") === runId &&
+              info.status === "running" &&
+              !activeRunLooksStale(info)
+              ? "active"
+              : "inactive";
+          } catch {
+            return "unknown";
+          }
+        };
         const threadPollInterval =
           afterSeq > 0
             ? window.setInterval(() => {
@@ -1871,15 +1893,28 @@ const AssistantChatInner = forwardRef<
               }, 2000)
             : undefined;
         try {
-          const sseRes = await fetch(
-            `${apiUrl}/runs/${encodeURIComponent(runId)}/events?after=${afterSeq}`,
-            { signal: abortCtrl.signal },
-          );
-          if (sseRes.ok && sseRes.body) {
-            const content: ContentPart[] = [];
-            latestContent = content;
-            const toolCallCounter = { value: 0 };
+          const content: ContentPart[] = [];
+          latestContent = content;
+          const toolCallCounter = { value: 0 };
 
+          while (
+            reconnectRunIdRef.current === runId &&
+            !abortCtrl.signal.aborted
+          ) {
+            const reconnectAfterSeq = resolveReconnectAfterSeq(threadId, runId);
+            reconnectTailOnlyRef.current = reconnectAfterSeq > 0;
+            const sseRes = await fetch(
+              `${apiUrl}/runs/${encodeURIComponent(runId)}/events?after=${reconnectAfterSeq}`,
+              { signal: abortCtrl.signal },
+            );
+            if (!sseRes.ok || !sseRes.body) {
+              const activeState = await sameRunStillActive();
+              if (activeState !== "inactive") {
+                await new Promise((resolve) => window.setTimeout(resolve, 250));
+                continue;
+              }
+              break;
+            }
             let rafPending = false;
             let latestSnapshot: ContentPart[] = [];
             const scheduleUpdate = (snapshot: ContentPart[]) => {
@@ -1892,20 +1927,46 @@ const AssistantChatInner = forwardRef<
               });
             };
 
-            await readSSEStreamRaw(
-              sseRes.body,
-              content,
-              toolCallCounter,
-              tabId,
-              scheduleUpdate,
-              (seq) => {
-                markReconnectProgress();
-                updateActiveRunSeq(seq);
-              },
-            );
-            if (afterSeq === 0) {
-              setReconnectContent([...content]);
+            try {
+              await readSSEStreamRaw(
+                sseRes.body,
+                content,
+                toolCallCounter,
+                tabId,
+                scheduleUpdate,
+                (seq) => {
+                  markReconnectProgress();
+                  updateActiveRunSeq(seq);
+                },
+                { preparingActionState },
+              );
+              if (reconnectAfterSeq === 0) {
+                setReconnectContent([...content]);
+              }
+              break;
+            } catch (err) {
+              if (
+                err instanceof AgentAutoContinueSignal &&
+                err.reason === "stream_ended"
+              ) {
+                if (reconnectAfterSeq === 0) {
+                  setReconnectContent([...content]);
+                }
+                const activeState = await sameRunStillActive();
+                if (activeState !== "inactive") {
+                  await new Promise((resolve) =>
+                    window.setTimeout(resolve, 250),
+                  );
+                  continue;
+                }
+              }
+              throw err;
             }
+          }
+          if (reconnectTimedOut && abortCtrl.signal.aborted) {
+            const timeoutError = new Error("Reconnect timed out");
+            timeoutError.name = "AbortError";
+            throw timeoutError;
           }
         } catch (err) {
           if (

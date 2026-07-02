@@ -763,9 +763,9 @@ export async function reconcileTerminalRunFromEvents(
     sql: `UPDATE agent_runs
           SET status = ?,
               completed_at = COALESCE(completed_at, ?, ${livenessBasisSql()}),
-              error_code = CASE WHEN ? IS NOT NULL THEN ? ELSE error_code END,
-              error_detail = CASE WHEN ? IS NOT NULL THEN ? ELSE error_detail END,
-              terminal_reason = COALESCE(terminal_reason, ?)
+              error_code = ?,
+              error_detail = ?,
+              terminal_reason = ?
           WHERE id = ?
             AND (
               status = 'running'
@@ -775,8 +775,6 @@ export async function reconcileTerminalRunFromEvents(
       status,
       latest.eventAt,
       errorCode,
-      errorCode,
-      errorDetail,
       errorDetail,
       terminalReason,
       runId,
@@ -1248,7 +1246,7 @@ export async function listRunsForThread(
   await ensureRunTables();
   const limit = Math.min(Math.max(options.limit ?? 10, 1), 50);
   const client = getDbExec();
-  const { rows } = await client.execute({
+  let { rows } = await client.execute({
     sql: `SELECT id, thread_id, turn_id, status, started_at, heartbeat_at, completed_at, last_progress_at, error_code, abort_reason, dispatch_mode, terminal_reason, diag_stage
           FROM agent_runs
           WHERE thread_id = ?
@@ -1256,6 +1254,35 @@ export async function listRunsForThread(
           LIMIT ?`,
     args: [threadId, limit],
   });
+  let repairedTerminalRow = false;
+  for (const r of rows) {
+    const row = r as {
+      id?: string;
+      status?: string;
+      error_code?: string | null;
+    };
+    const runId = row.id;
+    if (!runId) continue;
+    const canReconcileFromEvents =
+      row.status === "running" ||
+      (row.status === "errored" &&
+        row.error_code === STALE_RUN_ERROR_EVENT.errorCode);
+    if (!canReconcileFromEvents) continue;
+    repairedTerminalRow =
+      (await reconcileTerminalRunFromEvents(runId).catch(() => false)) ||
+      repairedTerminalRow;
+  }
+  if (repairedTerminalRow) {
+    const refreshed = await client.execute({
+      sql: `SELECT id, thread_id, turn_id, status, started_at, heartbeat_at, completed_at, last_progress_at, error_code, abort_reason, dispatch_mode, terminal_reason, diag_stage
+            FROM agent_runs
+            WHERE thread_id = ?
+            ORDER BY started_at DESC
+            LIMIT ?`,
+      args: [threadId, limit],
+    });
+    rows = refreshed.rows;
+  }
   return rows.map((r) => {
     const row = r as {
       id: string;

@@ -157,6 +157,12 @@ export interface SSEStreamOptions {
    * so one stuck action cannot pin the chat forever.
    */
   durableBackgroundRun?: boolean;
+  /**
+   * Optional caller-owned preparation watchdog state. Passing the same object
+   * across reconnect reads keeps a stuck action preparation from getting a
+   * fresh stall budget every time the browser reattaches to the same run.
+   */
+  preparingActionState?: PreparingActionState;
 }
 
 type ActivityTrailEntry = AgentActivityTrailEntry;
@@ -177,8 +183,9 @@ type PreparingActionEntry = {
   lastProgressAt?: number;
 };
 
-type PreparingActionState = {
+export type PreparingActionState = {
   entries?: Map<string, PreparingActionEntry>;
+  toolEntries?: Map<string, PreparingActionEntry>;
 };
 
 function formatProgressBytes(bytes: number): string {
@@ -312,6 +319,37 @@ function appendActivityTrail(
   }
 }
 
+function refreshPreparingToolEntry(state: PreparingActionState, tool: string) {
+  const remainingEntries = [...(state.entries?.values() ?? [])].filter(
+    (entry) => entry.tool === tool,
+  );
+  if (remainingEntries.length === 0) {
+    state.toolEntries?.delete(tool);
+    return;
+  }
+  const deadlineBasis = (entry: PreparingActionEntry) =>
+    entry.lastProgressAt ?? entry.startedAt ?? Number.POSITIVE_INFINITY;
+  const oldestEntry = remainingEntries.reduce((oldest, entry) =>
+    deadlineBasis(entry) < deadlineBasis(oldest) ? entry : oldest,
+  );
+  const lastProgressBytes = remainingEntries.reduce<number | undefined>(
+    (max, entry) =>
+      entry.lastProgressBytes === undefined
+        ? max
+        : Math.max(max ?? 0, entry.lastProgressBytes),
+    undefined,
+  );
+  const toolEntries =
+    state.toolEntries ?? new Map<string, PreparingActionEntry>();
+  state.toolEntries = toolEntries;
+  toolEntries.set(tool, {
+    tool,
+    startedAt: oldestEntry.startedAt,
+    lastProgressAt: oldestEntry.lastProgressAt,
+    lastProgressBytes,
+  });
+}
+
 function updatePreparingActionState(
   state: PreparingActionState,
   ev: SSEEvent,
@@ -320,7 +358,8 @@ function updatePreparingActionState(
   if (ev.type === "activity" && isPreparingActionActivity(ev)) {
     const tool = ev.tool?.trim() || undefined;
     if (!tool) return false;
-    const key = ev.id?.trim() || tool;
+    const id = ev.id?.trim();
+    const key = id || tool;
     const entries = state.entries ?? new Map<string, PreparingActionEntry>();
     state.entries = entries;
     let entry = entries.get(key);
@@ -333,22 +372,35 @@ function updatePreparingActionState(
       };
       entries.set(key, entry);
     }
+    const toolEntries =
+      state.toolEntries ?? new Map<string, PreparingActionEntry>();
+    state.toolEntries = toolEntries;
+    let toolEntry = toolEntries.get(tool);
+    if (!toolEntry) {
+      toolEntry = {
+        tool,
+        startedAt: now,
+        lastProgressAt: undefined,
+        lastProgressBytes: undefined,
+      };
+      toolEntries.set(tool, toolEntry);
+    }
     const progressBytes = activityProgressBytes(ev);
     const previousBytes = entry.lastProgressBytes ?? 0;
+    let madeProgress = false;
     if (progressBytes !== undefined) {
       entry.lastProgressBytes = Math.max(previousBytes, progressBytes);
+      toolEntry.lastProgressBytes = Math.max(
+        toolEntry.lastProgressBytes ?? 0,
+        progressBytes,
+      );
+      madeProgress = id ? progressBytes > previousBytes : progressBytes > 0;
     }
-    if (!ev.id?.trim()) {
-      if (progressBytes !== undefined && progressBytes > 0) {
-        entry.lastProgressAt = now;
-        return true;
-      }
-      return false;
-    }
-    if (progressBytes !== undefined && progressBytes > previousBytes) {
+    if (madeProgress) {
       // A byte increase is proof the model is still streaming this action's
       // argument. Repeated zero-byte prep activity is only a heartbeat.
       entry.lastProgressAt = now;
+      toolEntry.lastProgressAt = now;
       return true;
     }
     return false;
@@ -367,12 +419,16 @@ function updatePreparingActionState(
       const tool = ev.tool?.trim();
       const id = ev.id?.trim();
       for (const [key, entry] of state.entries ?? []) {
-        if ((id && key === id) || (!id && entry.tool === tool)) {
+        if ((id && key === id) || (!id && tool && entry.tool === tool)) {
           state.entries?.delete(key);
         }
       }
+      if (tool) {
+        refreshPreparingToolEntry(state, tool);
+      }
     } else {
       state.entries?.clear();
+      state.toolEntries?.clear();
     }
   }
   return undefined;
@@ -384,7 +440,10 @@ function hasStalledPreparingAction(state: PreparingActionState, now: number) {
   // streaming for a long time. `lastProgressAt` advances on every delta
   // heartbeat, so an actively-streaming large output keeps resetting this and
   // survives; a genuinely stuck prep (keepalive-only, no deltas) trips it.
-  for (const entry of state.entries?.values() ?? []) {
+  for (const entry of [
+    ...(state.toolEntries?.values() ?? []),
+    ...(state.entries?.values() ?? []),
+  ]) {
     if (
       entry.startedAt !== undefined &&
       now - (entry.lastProgressAt ?? entry.startedAt) >=
@@ -1239,7 +1298,8 @@ export async function* readSSEStream(
   let buf = "";
   let lastMeaningfulEventAt = Date.now();
   const activityTrail: ActivityTrailEntry[] = [];
-  const preparingActionState: PreparingActionState = {};
+  const preparingActionState: PreparingActionState =
+    options?.preparingActionState ?? {};
   const processEventState: ProcessEventState = {
     completedToolsAfterLastAssistantText: new Set(),
   };
@@ -1431,7 +1491,8 @@ export async function readSSEStreamRaw(
   let buf = "";
   let lastMeaningfulEventAt = Date.now();
   const activityTrail: ActivityTrailEntry[] = [];
-  const preparingActionState: PreparingActionState = {};
+  const preparingActionState: PreparingActionState =
+    options?.preparingActionState ?? {};
   const processEventState: ProcessEventState = {
     completedToolsAfterLastAssistantText: new Set(),
   };
