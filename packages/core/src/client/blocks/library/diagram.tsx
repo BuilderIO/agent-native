@@ -89,6 +89,7 @@ function HtmlDiagram({
   const ref = useRef<HTMLDivElement>(null);
   const isDark = useIsDark();
   const style = useWireframeStyle();
+  const showFrame = resolveVisualFrame(data.frame, ctx);
   const scopeId = useId().replace(/[^a-zA-Z0-9_-]/g, "");
   // Sanitize author HTML/CSS at the render point (defense-in-depth against
   // stored XSS). Self-contained in core via the shared block sanitizer (DOM-based
@@ -114,6 +115,7 @@ function HtmlDiagram({
         dir={ctx.textDirection}
         data-theme={isDark ? "dark" : "light"}
         data-style={style}
+        data-frame={showFrame ? "show" : "hide"}
         data-text-direction={ctx.textDirection}
         data-plan-diagram-scope={scopeId}
       >
@@ -126,7 +128,7 @@ function HtmlDiagram({
       <RoughOverlay
         scopeRef={ref}
         enabled={style === "sketchy"}
-        drawFrame={false}
+        drawFrame={showFrame}
         selector={DIAGRAM_ROUGH_SELECTOR}
       />
       {data.caption && !compact && (
@@ -136,6 +138,15 @@ function HtmlDiagram({
       )}
     </div>
   );
+}
+
+function resolveVisualFrame(
+  frame: DiagramData["frame"],
+  ctx: BlockRenderContext,
+): boolean {
+  const resolved =
+    frame && frame !== "auto" ? frame : (ctx.visualFrame ?? "show");
+  return resolved !== "hide";
 }
 
 /* -------------------------------------------------------------------------- */
@@ -186,11 +197,13 @@ function PositionedDiagram({
   compact,
   markerId,
   direction,
+  showFrame,
 }: {
   data: DiagramData;
   compact?: boolean;
   markerId: string;
   direction?: BlockRenderContext["textDirection"];
+  showFrame: boolean;
 }) {
   const nodes = (data.nodes ?? []).map((node) => ({
     ...node,
@@ -228,7 +241,10 @@ function PositionedDiagram({
 
   return (
     <div
-      className="plan-sketch rounded-[16px] border border-border bg-muted p-5"
+      className={cn(
+        "plan-sketch",
+        showFrame ? "rounded-[16px] border border-border bg-muted p-5" : "p-0",
+      )}
       dir={direction}
       data-text-direction={direction}
     >
@@ -426,10 +442,12 @@ function SequenceDiagram({
   data,
   compact,
   direction,
+  showFrame,
 }: {
   data: DiagramData;
   compact?: boolean;
   direction?: BlockRenderContext["textDirection"];
+  showFrame: boolean;
 }) {
   const edges = data.edges ?? [];
   const nodes = orderDiagramNodes(data.nodes ?? [], edges);
@@ -443,7 +461,10 @@ function SequenceDiagram({
   const visualNodes = direction === "rtl" ? [...nodes].reverse() : nodes;
   return (
     <div
-      className="plan-sketch rounded-[16px] border border-border bg-muted p-5"
+      className={cn(
+        "plan-sketch",
+        showFrame ? "rounded-[16px] border border-border bg-muted p-5" : "p-0",
+      )}
       dir={direction}
       data-text-direction={direction}
     >
@@ -524,6 +545,7 @@ function DiagramBody({
   compact?: boolean;
 }) {
   const markerId = useId().replace(/:/g, "");
+  const showFrame = resolveVisualFrame(data.frame, ctx);
   if (data.html?.trim()) {
     return <HtmlDiagram data={data} ctx={ctx} compact={compact} />;
   }
@@ -534,6 +556,7 @@ function DiagramBody({
         compact={compact}
         markerId={markerId}
         direction={ctx.textDirection}
+        showFrame={showFrame}
       />
     );
   }
@@ -542,6 +565,7 @@ function DiagramBody({
       data={data}
       compact={compact}
       direction={ctx.textDirection}
+      showFrame={showFrame}
     />
   );
 }

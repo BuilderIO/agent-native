@@ -148,6 +148,7 @@ export type PlanWireframeSurface =
   | "browser";
 
 export type PlanVisualCanvasMode = "wireframe" | "design";
+export type PlanVisualFrame = "auto" | "show" | "hide";
 
 /** Tone keyword reused across screen primitives. The renderer maps to color. */
 export type PlanWireframeTone = "default" | "accent" | "warn" | "ok" | "muted";
@@ -259,6 +260,8 @@ export type PlanWireframeBlock = PlanBlockBase & {
     /** `design` renders full-fidelity branded HTML/CSS instead of a sketch. */
     renderMode?: PlanVisualCanvasMode;
     caption?: string;
+    /** Outer surface frame. `auto` lets the host choose the right default. */
+    frame?: PlanVisualFrame;
     /**
      * Neutral, textless loading register. The renderer drops borders, the sketch
      * outline, and color, rendering soft placeholder geometry only — a real
@@ -365,6 +368,8 @@ export type PlanDiagramBlock = PlanBlockBase & {
     html?: string;
     css?: string;
     caption?: string;
+    /** Outer surface frame. `auto` lets the host choose the right default. */
+    frame?: PlanVisualFrame;
     nodes?: PlanDiagramNode[];
     edges?: PlanDiagramEdge[];
     notes?: Array<{
@@ -1215,12 +1220,14 @@ const wireframeSurfaceSchema = z.enum([
 ]);
 
 const visualCanvasModeSchema = z.enum(["wireframe", "design"]);
+const visualFrameSchema = z.enum(["auto", "show", "hide"]);
 
 export const wireframeDataSchema: z.ZodType<PlanWireframeBlock["data"]> = z
   .object({
     surface: wireframeSurfaceSchema,
     renderMode: visualCanvasModeSchema.optional(),
     caption: z.string().trim().max(400).optional(),
+    frame: visualFrameSchema.optional(),
     skeleton: z.boolean().optional(),
     html: z
       .string()
@@ -1357,6 +1364,7 @@ const diagramDataSchema: z.ZodType<PlanDiagramBlock["data"]> = z
       })
       .optional(),
     caption: z.string().trim().max(600).optional(),
+    frame: visualFrameSchema.optional(),
     nodes: z.array(diagramNodeSchema).max(80).optional(),
     edges: z.array(diagramEdgeSchema).max(120).optional(),
     notes: z

@@ -26,12 +26,12 @@ import { WireframeBlock } from "./wireframe.js";
 
 const ctx = {} as unknown as BlockRenderContext;
 
-function render(data: WireframeData): string {
+function render(data: WireframeData, renderCtx = ctx): string {
   return renderToStaticMarkup(
     createElement(WireframeBlock, {
       data,
       blockId: "wf-1",
-      ctx,
+      ctx: renderCtx,
     }),
   );
 }
@@ -131,6 +131,40 @@ describe("wireframe auto-height frame", () => {
     expect(html).toContain("bg-white");
     expect(html).toContain("text-zinc-950");
     expect(html).toContain("shadow-xl");
+  });
+
+  it("shows the surface frame by default", () => {
+    const html = render({
+      surface: "browser",
+      html: "<div>Framed by default</div>",
+    });
+
+    expect(html).toContain('data-frame="show"');
+  });
+
+  it("lets host context hide the surface frame by default", () => {
+    const html = render(
+      {
+        surface: "browser",
+        html: "<div>Docs-style borderless mockup</div>",
+      },
+      { visualFrame: "hide" },
+    );
+
+    expect(html).toContain('data-frame="hide"');
+  });
+
+  it("lets explicit block data override the host frame default", () => {
+    const html = render(
+      {
+        surface: "browser",
+        frame: "show",
+        html: "<div>Docs block that wants containment</div>",
+      },
+      { visualFrame: "hide" },
+    );
+
+    expect(html).toContain('data-frame="show"');
   });
 
   it("floors the artboard with min-height and sets no fixed height (kit tree)", () => {

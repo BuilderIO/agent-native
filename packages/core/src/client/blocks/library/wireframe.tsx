@@ -113,6 +113,7 @@ function ArtboardFrame({
   skeleton,
   renderMode,
   roughOverlay = true,
+  showFrame = true,
   selector,
   caption,
   render,
@@ -129,6 +130,7 @@ function ArtboardFrame({
   skeleton?: boolean;
   renderMode?: "wireframe" | "design";
   roughOverlay?: boolean;
+  showFrame?: boolean;
   selector: string;
   caption?: string;
   render: (ctx: {
@@ -237,6 +239,7 @@ function ArtboardFrame({
           ref={ref}
           className="plan-kit-artboard relative"
           data-rough-scope="wireframe"
+          data-frame={showFrame ? "show" : "hide"}
           style={{
             width,
             // Auto-height by default (content-driven, floored at `minHeight`);
@@ -266,7 +269,7 @@ function ArtboardFrame({
           >
             {render({ theme, style })}
           </div>
-          {!roughEnabled && (
+          {!roughEnabled && showFrame && (
             <div
               className="pointer-events-none absolute inset-0"
               style={{
@@ -278,6 +281,7 @@ function ArtboardFrame({
           <RoughOverlay
             scopeRef={ref}
             enabled={roughEnabled}
+            drawFrame={showFrame}
             frameRadius={preset.radius}
             selector={selector}
           />
@@ -328,10 +332,12 @@ function WireframeStyleToggleButton() {
 function HtmlArtboard({
   data,
   ctx: _ctx,
+  showFrame,
   compact,
 }: {
   data: WireframeData;
   ctx: BlockRenderContext;
+  showFrame: boolean;
   compact?: boolean;
 }) {
   const renderMode = data.renderMode ?? "wireframe";
@@ -365,6 +371,7 @@ function HtmlArtboard({
       compact={compact}
       skeleton={data.skeleton}
       renderMode={renderMode}
+      showFrame={showFrame}
       selector={HTML_ROUGH_SELECTOR}
       caption={data.caption}
       render={({ theme, style }) => (
@@ -372,6 +379,7 @@ function HtmlArtboard({
           className="plan-html-frame"
           data-theme={theme}
           data-style={style}
+          data-frame={showFrame ? "show" : "hide"}
           data-render-mode={renderMode}
           data-plan-design-scope={scopeId}
           data-skeleton={data.skeleton ? "true" : undefined}
@@ -393,9 +401,11 @@ function HtmlArtboard({
 
 function KitArtboard({
   data,
+  showFrame,
   compact,
 }: {
   data: WireframeData;
+  showFrame: boolean;
   compact?: boolean;
 }) {
   return (
@@ -403,6 +413,7 @@ function KitArtboard({
       surface={data.surface}
       compact={compact}
       skeleton={data.skeleton}
+      showFrame={showFrame}
       selector="[data-rough]"
       caption={data.caption}
       render={({ theme, style }) => (
@@ -445,10 +456,27 @@ function WireframeSurfaceView({
   ctx: BlockRenderContext;
   compact?: boolean;
 }) {
+  const showFrame = resolveVisualFrame(data.frame, ctx);
   if (isHtmlData(data)) {
-    return <HtmlArtboard data={data} ctx={ctx} compact={compact} />;
+    return (
+      <HtmlArtboard
+        data={data}
+        ctx={ctx}
+        showFrame={showFrame}
+        compact={compact}
+      />
+    );
   }
-  return <KitArtboard data={data} compact={compact} />;
+  return <KitArtboard data={data} showFrame={showFrame} compact={compact} />;
+}
+
+function resolveVisualFrame(
+  frame: WireframeData["frame"],
+  ctx: BlockRenderContext,
+): boolean {
+  const resolved =
+    frame && frame !== "auto" ? frame : (ctx.visualFrame ?? "show");
+  return resolved !== "hide";
 }
 
 /* -------------------------------------------------------------------------- */
