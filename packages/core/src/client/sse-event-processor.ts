@@ -319,6 +319,40 @@ function appendActivityTrail(
   }
 }
 
+function refreshPreparingToolEntry(
+  state: PreparingActionState,
+  tool: string,
+) {
+  const remainingEntries = [...(state.entries?.values() ?? [])].filter(
+    (entry) => entry.tool === tool,
+  );
+  if (remainingEntries.length === 0) {
+    state.toolEntries?.delete(tool);
+    return;
+  }
+  const deadlineBasis = (entry: PreparingActionEntry) =>
+    entry.lastProgressAt ?? entry.startedAt ?? Number.POSITIVE_INFINITY;
+  const oldestEntry = remainingEntries.reduce((oldest, entry) =>
+    deadlineBasis(entry) < deadlineBasis(oldest) ? entry : oldest,
+  );
+  const lastProgressBytes = remainingEntries.reduce<number | undefined>(
+    (max, entry) =>
+      entry.lastProgressBytes === undefined
+        ? max
+        : Math.max(max ?? 0, entry.lastProgressBytes),
+    undefined,
+  );
+  const toolEntries =
+    state.toolEntries ?? new Map<string, PreparingActionEntry>();
+  state.toolEntries = toolEntries;
+  toolEntries.set(tool, {
+    tool,
+    startedAt: oldestEntry.startedAt,
+    lastProgressAt: oldestEntry.lastProgressAt,
+    lastProgressBytes,
+  });
+}
+
 function updatePreparingActionState(
   state: PreparingActionState,
   ev: SSEEvent,
@@ -392,13 +426,8 @@ function updatePreparingActionState(
           state.entries?.delete(key);
         }
       }
-      if (
-        tool &&
-        ![...(state.entries?.values() ?? [])].some(
-          (entry) => entry.tool === tool,
-        )
-      ) {
-        state.toolEntries?.delete(tool);
+      if (tool) {
+        refreshPreparingToolEntry(state, tool);
       }
     } else {
       state.entries?.clear();
