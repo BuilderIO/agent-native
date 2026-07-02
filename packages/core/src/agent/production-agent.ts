@@ -2857,15 +2857,25 @@ export async function runAgentLoop(opts: {
         const hasActionPreparationStalled = () => {
           if (activeToolInputs.size === 0) return false;
           const now = Date.now();
-          let latestProgressAt = 0;
+          let earliestStartedAt = Number.POSITIVE_INFINITY;
+          let latestPositiveProgressAt = 0;
           for (const active of activeToolInputs.values()) {
-            if (active.lastProgressAt > latestProgressAt) {
-              latestProgressAt = active.lastProgressAt;
+            if (active.startedAt < earliestStartedAt) {
+              earliestStartedAt = active.startedAt;
+            }
+            if (
+              active.bytes > 0 &&
+              active.lastProgressAt > latestPositiveProgressAt
+            ) {
+              latestPositiveProgressAt = active.lastProgressAt;
             }
           }
-          return (
-            now - latestProgressAt >= ACTION_PREPARATION_NO_PROGRESS_TIMEOUT_MS
-          );
+          const progressAt =
+            latestPositiveProgressAt > 0
+              ? latestPositiveProgressAt
+              : earliestStartedAt;
+          if (!Number.isFinite(progressAt)) return false;
+          return now - progressAt >= ACTION_PREPARATION_NO_PROGRESS_TIMEOUT_MS;
         };
         const trackActiveToolInput = (
           key: string,

@@ -1,5 +1,17 @@
 # @agent-native/core
 
+## 0.84.48
+
+### Patch Changes
+
+- f99bea8: Recover long-running agent turns that repeatedly prepare zero-byte tool inputs.
+
+## 0.84.47
+
+### Patch Changes
+
+- a234670: Keep explicit `nextRequiredAction` tool-result guidance visible in automatic continuation prompts even when the full tool result is too large to include.
+
 ## 0.84.46
 
 ### Patch Changes
