@@ -12,7 +12,13 @@ import {
   IconArrowLeft,
   IconX,
 } from "@tabler/icons-react";
-import React, { useState, useRef, useEffect, useMemo } from "react";
+import React, {
+  useState,
+  useRef,
+  useEffect,
+  useMemo,
+  useCallback,
+} from "react";
 import { createPortal } from "react-dom";
 
 import { setAgentChatContextItem } from "../agent-chat.js";
@@ -740,6 +746,16 @@ function AssetsPickerModal({
   const sourceUrl = useMemo(() => assetPickerUrl(), []);
   const iframeUrl = useMemo(() => withEmbeddedParams(sourceUrl), [sourceUrl]);
   const targetOrigin = useMemo(() => assetPickerOrigin(iframeUrl), [iframeUrl]);
+  const configurePicker = useCallback(() => {
+    if (!targetOrigin) return;
+    iframeRef.current?.contentWindow?.postMessage(
+      embedEnvelope("message", {
+        name: "configure",
+        payload: { mediaType: "image", count: 3 },
+      }),
+      targetOrigin,
+    );
+  }, [targetOrigin]);
 
   useEffect(() => {
     if (open) setPickerReady(false);
@@ -755,13 +771,7 @@ function AssetsPickerModal({
 
       if (event.data.type === "ready") {
         setPickerReady(true);
-        iframeRef.current?.contentWindow?.postMessage(
-          embedEnvelope("message", {
-            name: "configure",
-            payload: { mediaType: "image", count: 3 },
-          }),
-          targetOrigin,
-        );
+        configurePicker();
         return;
       }
 
@@ -801,7 +811,7 @@ function AssetsPickerModal({
       window.removeEventListener("message", handleMessage);
       window.removeEventListener("keydown", handleKey);
     };
-  }, [onOpenChange, open, targetOrigin]);
+  }, [configurePicker, onOpenChange, open, targetOrigin]);
 
   if (!open || typeof document === "undefined") return null;
 
@@ -846,6 +856,10 @@ function AssetsPickerModal({
               sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-downloads"
               allow="clipboard-read; clipboard-write; microphone; fullscreen"
               referrerPolicy="strict-origin-when-cross-origin"
+              onLoad={() => {
+                configurePicker();
+                setPickerReady(true);
+              }}
             />
           </div>
         ) : (

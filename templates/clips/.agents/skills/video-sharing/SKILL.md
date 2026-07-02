@@ -189,10 +189,11 @@ temporary agent-link path:
 - Frame extraction must use the checked recording media path and must not expose
   raw provider URLs.
 
-The share popover's "Share with agents" field should copy the agent context URL,
-or a tokenized share page URL, not raw transcript text. The context response
-points agents at the transcript and frame APIs so they can fetch only the visual
-context they need.
+The share popover's "Share with agents" field should copy an agent context URL
+or tokenized share page URL, not raw transcript text. Its "Copy agent prompt"
+field may wrap that URL with instructions to fetch transcripts, frames, and
+browser diagnostics, but it should still point agents at the context response so
+they can fetch only the visual context they need.
 
 ## View counting
 

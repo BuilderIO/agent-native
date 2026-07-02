@@ -144,7 +144,7 @@ function ShaderPreview({ descriptor, animated }: ShaderPreviewProps) {
 
 function ParamLabel({ children }: { children: React.ReactNode }) {
   return (
-    <span className="w-[5.5rem] shrink-0 truncate text-[11px] text-muted-foreground">
+    <span className="w-[5.5rem] shrink-0 truncate !text-[11px] text-muted-foreground">
       {children}
     </span>
   );
@@ -174,7 +174,7 @@ function ColorSwatch({ color, label, onChange }: ColorSwatchProps) {
       <TooltipTrigger asChild>
         {/* The label wraps the native color input so clicking the swatch opens the picker */}
         <label
-          className="flex h-6 min-w-0 cursor-pointer items-center gap-1.5 rounded px-1 text-[11px] text-muted-foreground transition-colors hover:bg-[var(--design-editor-control-bg)] hover:text-foreground focus-within:bg-[var(--design-editor-control-bg)]"
+          className="flex h-6 min-w-0 cursor-pointer items-center gap-1.5 rounded px-1 !text-[11px] text-muted-foreground transition-colors hover:bg-[var(--design-editor-control-bg)] hover:text-foreground focus-within:bg-[var(--design-editor-control-bg)]"
           title={label}
         >
           <span
@@ -232,12 +232,12 @@ function ParamRow({ paramDef, value, onChange }: ParamRowProps) {
       <div className="flex h-6 items-center gap-1.5">
         <ParamLabel>{label}</ParamLabel>
         <Select value={strVal} onValueChange={(v) => onChange(key, v)}>
-          <SelectTrigger className="h-6 flex-1 text-[11px]">
+          <SelectTrigger className="h-6 flex-1 !text-[11px]">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
             {(options ?? []).map((opt: string) => (
-              <SelectItem key={opt} value={opt} className="text-[11px]">
+              <SelectItem key={opt} value={opt} className="!text-[11px]">
                 {opt}
               </SelectItem>
             ))}
@@ -253,7 +253,10 @@ function ParamRow({ paramDef, value, onChange }: ParamRowProps) {
     const switchId = `shader-param-${key}`;
     return (
       <div className="flex h-6 items-center justify-between gap-1.5">
-        <Label htmlFor={switchId} className="text-[11px] text-muted-foreground">
+        <Label
+          htmlFor={switchId}
+          className="!text-[11px] text-muted-foreground"
+        >
           {label}
         </Label>
         <Switch
@@ -288,7 +291,7 @@ function ParamRow({ paramDef, value, onChange }: ParamRowProps) {
     return (
       <div className="flex flex-col gap-1">
         {/* Section label sits at the top of the stop list */}
-        <span className="text-[11px] text-muted-foreground">{label}</span>
+        <span className="!text-[11px] text-muted-foreground">{label}</span>
         {/* Color stop rows — each a swatch + hex + remove button */}
         <div className="flex flex-col gap-0.5">
           {arrVal.map((color, i) => {
@@ -333,7 +336,7 @@ function ParamRow({ paramDef, value, onChange }: ParamRowProps) {
           {arrVal.length < limit && (
             <button
               type="button"
-              className="flex h-6 items-center gap-1.5 rounded px-1 text-[11px] text-muted-foreground hover:bg-[var(--design-editor-control-bg)] hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+              className="flex h-6 items-center gap-1.5 rounded px-1 !text-[11px] text-muted-foreground hover:bg-[var(--design-editor-control-bg)] hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
               onClick={() => onChange(key, [...arrVal, "#ffffff"])}
             >
               <span className="flex size-4 shrink-0 items-center justify-center rounded-[3px] border border-dashed border-muted-foreground/50 text-[10px]">
@@ -469,7 +472,7 @@ export function ShaderControls({
           <button
             type="button"
             onClick={onBack}
-            className="flex h-6 items-center gap-1 rounded px-1 text-[11px] text-muted-foreground hover:bg-[var(--design-editor-control-bg)] hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+            className="flex h-6 items-center gap-1 rounded px-1 !text-[11px] text-muted-foreground hover:bg-[var(--design-editor-control-bg)] hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
           >
             <IconArrowLeft className="size-3" />
             <span>{"Back to presets" /* i18n-ignore shader nav */}</span>
@@ -481,12 +484,12 @@ export function ShaderControls({
       <div className="flex h-6 items-center gap-1.5 px-3">
         <ParamLabel>{"Preset" /* i18n-ignore */}</ParamLabel>
         <Select value={descriptor.preset} onValueChange={handlePresetChange}>
-          <SelectTrigger className="h-6 flex-1 text-[11px]">
+          <SelectTrigger className="h-6 flex-1 !text-[11px]">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
             {(SHADER_PRESETS as readonly ShaderPresetDef[]).map((p) => (
-              <SelectItem key={p.name} value={p.name} className="text-[11px]">
+              <SelectItem key={p.name} value={p.name} className="!text-[11px]">
                 {p.label}
               </SelectItem>
             ))}
@@ -499,7 +502,7 @@ export function ShaderControls({
         <Label
           htmlFor={animateSwitchId}
           className={cn(
-            "text-[11px] text-muted-foreground",
+            "!text-[11px] text-muted-foreground",
             reducedMotion && "opacity-50",
           )}
         >

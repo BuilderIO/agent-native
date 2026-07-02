@@ -6,6 +6,11 @@ import {
   resolveOrgDirectoryOrigin,
 } from "./org-directory.js";
 
+const getOrgDomainMock = vi.hoisted(() => vi.fn());
+const getOrgA2ASecretMock = vi.hoisted(() => vi.fn());
+const signA2ATokenMock = vi.hoisted(() => vi.fn());
+const serviceIdentityEmailMock = vi.hoisted(() => vi.fn());
+
 const ORIGINAL_ENV = { ...process.env };
 
 function resetEnv() {
@@ -17,6 +22,19 @@ function resetEnv() {
 beforeEach(() => {
   resetEnv();
   _resetOrgDirectoryCache();
+  vi.clearAllMocks();
+  getOrgDomainMock.mockResolvedValue("acme.com");
+  getOrgA2ASecretMock.mockResolvedValue("org-secret");
+  signA2ATokenMock.mockImplementation(
+    async (
+      _email: string,
+      _orgDomain?: string,
+      _orgSecret?: string,
+      options?: { preferGlobalSecret?: boolean },
+    ) =>
+      options?.preferGlobalSecret ? "shared-service-jwt" : "org-service-jwt",
+  );
+  serviceIdentityEmailMock.mockReturnValue("svc-mcp-client@service.org-a");
 });
 
 afterEach(() => {
@@ -35,6 +53,19 @@ vi.mock("../a2a/caller-auth.js", () => ({
     orgSecret: "org-secret",
     metadata: {},
   })),
+}));
+
+vi.mock("../org/context.js", () => ({
+  getOrgDomain: getOrgDomainMock,
+  getOrgA2ASecret: getOrgA2ASecretMock,
+}));
+
+vi.mock("../a2a/client.js", () => ({
+  signA2AToken: signA2ATokenMock,
+}));
+
+vi.mock("./connect-store.js", () => ({
+  serviceIdentityEmail: serviceIdentityEmailMock,
 }));
 
 describe("resolveOrgDirectoryOrigin", () => {
@@ -150,6 +181,111 @@ describe("fetchOrgApps", () => {
       vi.fn(async () => new Response("nope", { status: 401 })),
     );
     await expect(fetchOrgApps({ selfId: "mail" })).resolves.toEqual([]);
+  });
+
+  it("retries the org directory with fallback bearer tokens on auth rejection", async () => {
+    process.env.AGENT_NATIVE_ORG_DIRECTORY_URL = "https://dispatch.acme.com";
+    const mod = await import("../a2a/caller-auth.js");
+    vi.mocked(mod.resolveA2ACallerAuth).mockResolvedValueOnce({
+      apiKey: "shared-signed-jwt",
+      apiKeyFallbacks: ["org-signed-jwt"],
+      userEmail: "caller@acme.com",
+      orgId: "org-a",
+      orgDomain: "acme.com",
+      orgSecret: "org-secret",
+      metadata: {},
+    });
+    const authHeaders: string[] = [];
+    const fetchSpy = vi
+      .fn()
+      .mockImplementationOnce(async (_url: string, init?: RequestInit) => {
+        authHeaders.push(
+          String((init?.headers as Record<string, string>).Authorization),
+        );
+        return new Response("Invalid or expired A2A token", { status: 401 });
+      })
+      .mockImplementationOnce(async (_url: string, init?: RequestInit) => {
+        authHeaders.push(
+          String((init?.headers as Record<string, string>).Authorization),
+        );
+        return new Response(
+          JSON.stringify({
+            apps: [{ id: "calendar", name: "Cal", url: "https://c.acme.com" }],
+          }),
+          { status: 200 },
+        );
+      });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    await expect(fetchOrgApps({ selfId: "mail" })).resolves.toEqual([
+      expect.objectContaining({ id: "calendar" }),
+    ]);
+    expect(authHeaders).toEqual([
+      "Bearer shared-signed-jwt",
+      "Bearer org-signed-jwt",
+    ]);
+  });
+
+  it("retries service-scoped org directory lookups with fallback bearer tokens", async () => {
+    process.env.AGENT_NATIVE_ORG_DIRECTORY_URL = "https://dispatch.acme.com";
+    process.env.A2A_SECRET = "shared-secret";
+    const authHeaders: string[] = [];
+    const fetchSpy = vi
+      .fn()
+      .mockImplementationOnce(async (_url: string, init?: RequestInit) => {
+        authHeaders.push(
+          String((init?.headers as Record<string, string>).Authorization),
+        );
+        return new Response("Invalid or expired A2A token", { status: 401 });
+      })
+      .mockImplementationOnce(async (_url: string, init?: RequestInit) => {
+        authHeaders.push(
+          String((init?.headers as Record<string, string>).Authorization),
+        );
+        return new Response(
+          JSON.stringify({
+            apps: [{ id: "calendar", name: "Cal", url: "https://c.acme.com" }],
+          }),
+          { status: 200 },
+        );
+      });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    await expect(
+      fetchOrgApps({ selfId: "mail", serviceOrgId: " org-a " }),
+    ).resolves.toEqual([expect.objectContaining({ id: "calendar" })]);
+    expect(getOrgDomainMock).toHaveBeenCalledWith("org-a");
+    expect(getOrgA2ASecretMock).toHaveBeenCalledWith("org-a");
+    expect(serviceIdentityEmailMock).toHaveBeenCalledWith(
+      "mcp-client",
+      "org-a",
+    );
+    expect(signA2ATokenMock).toHaveBeenNthCalledWith(
+      1,
+      "svc-mcp-client@service.org-a",
+      "acme.com",
+      "org-secret",
+      {
+        expiresIn: "5m",
+        preferGlobalSecret: true,
+        extraClaims: { org_id: "org-a" },
+      },
+    );
+    expect(signA2ATokenMock).toHaveBeenNthCalledWith(
+      2,
+      "svc-mcp-client@service.org-a",
+      "acme.com",
+      "org-secret",
+      {
+        expiresIn: "5m",
+        preferGlobalSecret: false,
+        extraClaims: { org_id: "org-a" },
+      },
+    );
+    expect(authHeaders).toEqual([
+      "Bearer shared-service-jwt",
+      "Bearer org-service-jwt",
+    ]);
   });
 
   it("returns [] silently when the directory is unreachable (no throw)", async () => {

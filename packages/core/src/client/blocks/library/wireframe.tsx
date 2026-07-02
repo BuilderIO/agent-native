@@ -56,8 +56,8 @@ import {
  * - The plan-only prototype runtime, design-element selection, and legacy region
  *   fallback are intentionally NOT ported; those are plan-canvas features, not
  *   part of the document-block render. The kit element vocabulary, the `--wf-*`
- *   token contract, and the `.plan-wf` / `[data-rough]` classes the overlay
- *   measures are preserved exactly.
+ *   token contract, and the `.plan-wf` / `.wf-*` / `[data-rough]` classes the
+ *   overlay measures are preserved exactly.
  *
  * The section carries the app-neutral `an-block` class plus the legacy
  * `plan-block` class so plan renders byte-identically while any other app gets
@@ -164,12 +164,6 @@ function ArtboardFrame({
   const designMode = renderMode === "design";
   const sketchy = !designMode && style === "sketchy" && !skeleton;
   const roughEnabled = sketchy && roughOverlay;
-  const paper = designMode
-    ? "hsl(var(--background))"
-    : "var(--plan-document, hsl(var(--background)))";
-  const frameBorder = skeleton
-    ? "var(--plan-placeholder-line, var(--plan-line, hsl(var(--border))))"
-    : "var(--plan-line, hsl(var(--border)))";
 
   useEffect(() => {
     const element = fitRef.current;
@@ -243,7 +237,6 @@ function ArtboardFrame({
             // a fixed `canvasSize` locks the height for canvas artboards.
             ...(fixedHeight != null ? { height: fixedHeight } : { minHeight }),
             borderRadius: preset.radius,
-            background: paper,
             ...(fitScale !== 1
               ? {
                   transform: `scale(${fitScale})`,
@@ -266,18 +259,10 @@ function ArtboardFrame({
           >
             {render({ theme, style })}
           </div>
-          {!roughEnabled && (
-            <div
-              className="pointer-events-none absolute inset-0"
-              style={{
-                borderRadius: preset.radius,
-                border: `1.5px solid ${frameBorder}`,
-              }}
-            />
-          )}
           <RoughOverlay
             scopeRef={ref}
             enabled={roughEnabled}
+            drawFrame={false}
             frameRadius={preset.radius}
             selector={selector}
           />

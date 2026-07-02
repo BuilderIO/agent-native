@@ -20,3 +20,6 @@ timeout = 75
 [functions.dashboard-report-sweep-background]
 timeout = 300
 memory = "2gb"
+
+[functions.analytics-alert-sweep-background]
+timeout = 120

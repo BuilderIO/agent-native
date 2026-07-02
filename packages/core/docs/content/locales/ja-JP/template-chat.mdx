@@ -7,13 +7,13 @@ description: "最小限のチャットファーストのエージェントネイ
 
 チャットは、エージェントネイティブ アプリの基本的な開始点です。中央にチャット、左側にスレッド リスト、標準のアプリ ナビゲーション、認証、ライブ同期、actions、および 1 つのサンプル アクションを備えたクリーンな ChatGPT スタイルのシェルが提供されます。ドメイン テンプレートにコミットせずに構築できる実際のブラウザ アプリが必要な場合は、ここから始めてください。
 
-ブラウザー UI を使用しない最小のアクションのみのランタイムが必要な場合は、[Pure-Agent Apps](/docs/pure-agent-apps) から始めてください。完成したドメイン プロダクトの形状が必要な場合は、[Calendar](/docs/template-calendar)、[Mail](/docs/template-mail)、[Content](/docs/template-content)、[Forms](/docs/template-forms)、[Analytics](/docs/template-analytics)、または別のドメイン テンプレートから開始してください。
+ブラウザー UI を使用しない automation-first runtime が必要な場合は、[Automation-First Apps](/docs/pure-agent-apps) から始めてください。完成したドメイン プロダクトの形状が必要な場合は、[Calendar](/docs/template-calendar)、[Mail](/docs/template-mail)、[Content](/docs/template-content)、[Forms](/docs/template-forms)、[Analytics](/docs/template-analytics)、または別のドメイン テンプレートから開始してください。
 
 <WireframeBlock id="doc-block-12k6jf8">
   <Screen
     surface="desktop"
     html={
-      "<div style='min-height:560px;box-sizing:border-box;display:flex;align-items:center;justify-content:center;padding:56px 40px'><div style='display:flex;flex-direction:column;align-items:center;justify-content:center;gap:28px;width:min(700px,92%);min-height:430px'><div style='height:34px'></div><div style='text-align:center'><h1 style='margin:0'>何をお手伝いできますか？</h1><p class='wf-muted' style='margin:10px 0 0'>何でもチャットできます。actions、コンポーネント、ページ、ジョブ、独自バックエンドを追加できます。</p></div><div class='wf-card' style='width:100%;min-height:150px;display:flex;flex-direction:column;gap:18px'><span class='wf-muted'>エージェントにメッセージ...</span><div style='flex:1'></div><div style='display:flex;align-items:center;gap:10px'><span data-icon='plus' aria-label='Attach'></span><div style='flex:1'></div><span class='wf-pill'>Sonnet 4.6 · Auto</span><span class='wf-pill'>Act</span><button class='primary'>↑</button></div></div><div style='height:34px'></div></div></div>"
+      "<div style='min-height:560px;box-sizing:border-box;display:flex;align-items:center;justify-content:center;padding:56px 40px'><div style='display:flex;flex-direction:column;align-items:center;justify-content:center;gap:28px;width:min(700px,92%);min-height:430px'><div style='height:34px'></div><div style='text-align:center'><h1 style='margin:0'>何をお手伝いできますか？</h1><p class='wf-muted' style='margin:10px 0 0'>何でもチャットできます。actions、コンポーネント、ページ、ジョブ、独自バックエンドを追加できます。</p></div><div class='wf-card' style='width:100%;min-height:150px;display:flex;flex-direction:column;gap:18px'><span class='wf-muted'>エージェントにメッセージ...</span><div style='flex:1'></div><div style='display:flex;align-items:center;gap:10px'><span data-icon='plus' aria-label='Attach'></span><div style='flex:1'></div><span class='wf-pill'>Sonnet 5 · 自動</span><span class='wf-pill'>Act</span><button class='primary'>↑</button></div></div><div style='height:34px'></div></div></div>"
     }
   />
 </WireframeBlock>
@@ -200,4 +200,4 @@ export default function ChatRoute() {
 - [**Agent Surfaces**](/docs/agent-surfaces) — ヘッドレス、チャット、埋め込み、フルアプリのパターン
 - [**Actions**](/docs/actions) — アクション システム チャットと UI の両方を呼び出します
 - [**Native チャット UI**](/docs/native-chat-ui) — チャット サーフェス プリミティブとランタイム オプション
-- [**Pure-Agent Apps**](/docs/pure-agent-apps) — 後でチャットに成長できるアクション専用アプリ
+- [**Automation-First Apps**](/docs/pure-agent-apps) — ブラウザー UI のない automations、queues、scripts、external agent workflows

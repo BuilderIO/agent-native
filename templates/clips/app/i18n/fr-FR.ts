@@ -427,6 +427,9 @@ const messages = {
     embed: "Intégrer",
     shareLink: "Lien de partage",
     shareWithAgents: "Partager avec les agents",
+    copyAgentPrompt: "Copier le prompt pour agent",
+    agentPrompt:
+      "Récupère cette URL de contexte Clips pour agent : {{agentContextUrl}}. Utilise transcript.segments pour le contexte parlé, récupère recommendedFrames ou les URLs de l'API d'images pour voir l'écran, et consulte browserDiagnostics s'il est présent pour les journaux de console expurgés et les métadonnées de requêtes fetch/XHR.",
     agentTokenDescription:
       "Cette URL temporaire pour agents permet de lire le clip sans le rendre public. Elle expire dans deux heures.",
     gifPreview: "aperçu de GIF",
@@ -440,6 +443,7 @@ const messages = {
     askOwnerPublic: "Demandez au propriétaire de le rendre public.",
     responsive: "Réactif (16:9)",
     fixedSize: "Taille fixe",
+    embedIframeTitle: "Video Clips",
     width: "Largeur",
     height: "Hauteur",
     autoplay: "Lecture automatique",

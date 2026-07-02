@@ -674,7 +674,7 @@ export function LanguagePicker({
   className?: string;
   includeSystem?: boolean;
   label?: string;
-  variant?: "select" | "icon";
+  variant?: "select" | "icon" | "ghost-icon";
 }) {
   const { locale, preference, setPreference } = useLocale();
   const [open, setOpen] = useState(false);
@@ -716,10 +716,15 @@ export function LanguagePicker({
             title={triggerLabel}
             data-language-picker-trigger
             className={cn(
-              "shrink-0 rounded-md border border-border bg-background text-foreground outline-none transition-colors hover:border-foreground/30 hover:bg-accent/40 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 data-[state=open]:border-foreground/30 data-[state=open]:bg-accent/40",
+              "shrink-0 rounded-md outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
+              variant === "ghost-icon"
+                ? "flex h-9 w-9 items-center justify-center text-muted-foreground hover:bg-accent hover:text-foreground data-[state=open]:bg-accent data-[state=open]:text-foreground"
+                : "border border-border bg-background text-foreground hover:border-foreground/30 hover:bg-accent/40 hover:text-foreground data-[state=open]:border-foreground/30 data-[state=open]:bg-accent/40",
               variant === "icon"
                 ? "flex h-8 w-8 items-center justify-center"
-                : "flex h-9 w-full items-center justify-between gap-2 px-3 text-start text-sm",
+                : variant === "select"
+                  ? "flex h-9 w-full items-center justify-between gap-2 px-3 text-start text-sm"
+                  : null,
             )}
           >
             <span className="flex min-w-0 items-center gap-2">
@@ -740,12 +745,12 @@ export function LanguagePicker({
         </PopoverPrimitive.Trigger>
         <PopoverPrimitive.Portal>
           <PopoverPrimitive.Content
-            align={variant === "icon" ? "end" : "start"}
+            align={variant === "select" ? "start" : "end"}
             sideOffset={6}
             role="menu"
             className={cn(
               "z-[9999] max-h-[min(20rem,var(--radix-popover-content-available-height))] overflow-y-auto rounded-lg border border-border bg-popover p-1 text-popover-foreground shadow-lg outline-none will-change-[transform,opacity] data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[state=closed]:duration-100 data-[state=open]:duration-150 data-[state=closed]:ease-in data-[state=open]:ease-out data-[side=bottom]:slide-in-from-top-1 data-[side=left]:slide-in-from-right-1 data-[side=right]:slide-in-from-left-1 data-[side=top]:slide-in-from-bottom-1",
-              variant === "icon"
+              variant === "icon" || variant === "ghost-icon"
                 ? "min-w-56"
                 : "w-[min(20rem,calc(100vw-2rem))] min-w-[var(--radix-popover-trigger-width)]",
             )}

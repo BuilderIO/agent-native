@@ -77,11 +77,11 @@ const koKR = {
   home: {
     hero: {
       badge: "오픈소스 framework",
-      titleLine1: "에이전트 애플리케이션",
-      titleAccent: "직접 소유하는",
+      titleLine1: "agentic apps 를 위한",
+      titleAccent: "framework",
       body: "Chat-first app 과 app-agent loop 에서 시작하세요. agent 가 성장하면 actions, 화면, jobs, workflows 를 추가할 수 있습니다.",
-      primaryCta: "템플릿으로 시작",
-      secondaryCta: "문서 보기",
+      primaryCta: "app 사용해 보기",
+      secondaryCta: "문서 읽기",
     },
     code: {
       quickStartComment: "명령 하나로 app 만들기",
@@ -91,10 +91,109 @@ const koKR = {
         "하나의 action 이 agent, UI, HTTP, MCP, A2A, CLI 를 구동합니다.",
       frameworkDescription: "로컬 app-agent loop 에서 hello 를 보냅니다.",
     },
+    actionSurface: {
+      eyebrow: "겉에 붙인 AI가 아니라 깊이 agentic",
+      title: "하나의 action이 앱 전체 표면을 엽니다",
+      body: "작업을 한 번만 정의하세요. Agent-Native는 이를 UI action, agent 도구, HTTP endpoint, MCP/A2A 표면, CLI 명령, 권한 검사, 감사 기록으로 바꿉니다.",
+      buildAction: "Action 만들기",
+      benefits: {
+        oneActionDefinition: {
+          title: "하나의 action 정의",
+          body: "UI, agent, HTTP, MCP, A2A, CLI가 모두 같은 작업을 호출합니다.",
+        },
+        scopedByDefault: {
+          title: "기본 범위 지정",
+          body: "Auth, 공유, 거버넌스, 감사 로그가 작업과 함께 적용됩니다.",
+        },
+        headedOrHeadless: {
+          title: "Apps, automations, agents",
+          body: "같은 operation을 chat, UI, scheduled jobs, queues, external agents, scripts에서 실행할 수 있습니다.",
+        },
+        contextRichInput: {
+          title: "컨텍스트가 풍부한 입력",
+          body: "채팅, 음성, skills, 지침, UI 상태가 같은 루프에 남습니다.",
+        },
+        openAgentProtocols: {
+          title: "열린 agent 프로토콜",
+          body: "A2A, MCP, MCP apps, 외부 agents는 프레임워크 수준의 기본 요소입니다.",
+        },
+        observableByDesign: {
+          title: "설계부터 관측 가능",
+          body: "Trace, eval, 피드백, 감사 기록으로 agent 작업을 확인할 수 있습니다.",
+        },
+      },
+    },
+    modules: {
+      pageEyebrow: "모듈형 프레임워크",
+      title: "agentic 앱을 위한 내장 모듈",
+      body: "Agents가 처음부터 즉흥적으로 만들면 안 되는 프로덕션 부분을 사람이 검증한 조각으로 제공합니다. 그대로 쓰거나, 소스를 확인하거나, 앱에 다른 것이 필요할 때 교체하세요.",
+      pageBody:
+        "Agent-Native는 agents가 즉흥적으로 만들면 안 되는 프로덕션 작업을 위해 사람이 검증한 조각을 제공합니다. 그대로 쓰거나, 소스를 확인하거나, 제품에 맞게 교체하세요.",
+      viewAll: "모든 모듈 보기",
+      browseApps: "모듈로 만든 앱 보기",
+      items: {
+        autoStateSyncing: {
+          title: "자동 상태 동기화",
+          body: "Agent 변경이 UI를 업데이트하고, UI 상태도 별도 브리지 없이 agent에게 계속 보입니다.",
+        },
+        actions: {
+          title: "작업 actions",
+          body: "작업을 한 번 정의하고 UI, agent, HTTP, MCP, A2A, CLI에서 사용합니다.",
+        },
+        sqlStateOrm: {
+          title: "SQL 상태와 ORM",
+          body: "지속되는 앱 데이터, application state, migration, 공급자 독립 schema.",
+        },
+        dbAdmin: {
+          title: "데이터베이스 관리",
+          body: "Agent가 읽을 수 있는 schema, query 표면, migration, 별도 back office 없는 admin 도구.",
+        },
+        authGovernance: {
+          title: "인증과 거버넌스",
+          body: "로그인, 조직, multi-tenancy, 권한, 승인, 정책 hook.",
+        },
+        sharing: {
+          title: "공유",
+          body: "공유 링크, 범위 지정 접근, 공개 또는 비공개 리소스, 댓글, 리뷰 표면.",
+        },
+        realtimeCollaboration: {
+          title: "실시간 협업",
+          body: "다중 사용자 편집, 라이브 presence, optimistic UI, 서버 기반 조정.",
+        },
+        agentInteroperability: {
+          title: "Agent 상호 운용성",
+          body: "A2A, MCP, MCP apps, 외부 agents, harness agents, 앱 간 handoff.",
+        },
+        automationsQueues: {
+          title: "자동화와 큐",
+          body: "이벤트 기반 작업, 예약 작업, background runs, 신뢰할 수 있는 mutations.",
+        },
+        agentUiSurface: {
+          title: "Agent UI 표면",
+          body: "채팅, skills, 지침, generative UI, 음성 입력, agent가 볼 수 있는 컨텍스트.",
+        },
+        observability: {
+          title: "관측성",
+          body: "Trace, eval, 피드백, 실험, agents가 수행한 일을 증명하는 근거.",
+        },
+        workspaces: {
+          title: "워크스페이스",
+          body: "Composable agentic apps가 서로를 발견하고 A2A로 조정합니다.",
+        },
+        sourceOwnership: {
+          title: "소스 소유권",
+          body: "Docs와 source는 agents가 검사, fork, eject, patch, 교체할 수 있는 곳에 있습니다.",
+        },
+        auditLogs: {
+          title: "감사 로그",
+          body: "사람과 agent 변경을 사용자가 접근 가능한 리소스 범위로 오래 기록합니다.",
+        },
+      },
+    },
     framework: {
       title: "agent-native apps 를 위한 framework",
       body1:
-        "Agent-Native 는 agents 를 실제 소프트웨어로 만들기 위한 오픈소스 framework 입니다. Chat 또는 headless agents 에서 시작하고, 같은 actions 를 중심으로 UI, jobs, 협업을 추가하세요.",
+        "Agent-Native 는 agentic applications를 만들기 위한 오픈소스 framework 입니다. Chat에서 시작하고, shared actions를 정의한 뒤, 같은 state를 중심으로 UI, jobs, 협업을 추가하세요.",
       body2:
         "자체 데이터베이스, 호스팅 제공자, 모델 스택, app 코드를 가져오세요.",
       cta: "framework 가이드 읽기",
@@ -122,9 +221,9 @@ const koKR = {
       },
     },
     templates: {
-      title: "완전한 기능의 app 을 fork 하고 맞춤화",
-      eyebrow: "100% 무료 오픈소스",
-      cta: "모든 템플릿 보기",
+      title: "Agent-Native app 사용해 보기",
+      eyebrow: "작동하는 app을 포크하고 agent가 발전시키게 하세요.",
+      cta: "apps 보기",
     },
     skills: {
       title: "skill 로 사용해 보기",
@@ -196,12 +295,12 @@ const koKR = {
     },
     quickStart: {
       title: "명령으로 시작",
-      body: "명령 하나가 actions, durable threads, SQLite 로 뒷받침되는 로컬 app 을 만듭니다. 아직 브라우저 UI 가 필요 없다면 `--headless` 를 사용하세요.",
+      body: "명령 하나가 actions, durable threads, SQLite로 뒷받침되는 chat-first 로컬 app을 만듭니다. 아직 브라우저 UI가 필요 없는 automation-first workflow에만 `--headless`를 사용하세요.",
     },
     finalCta: {
-      title: "직접 소유하는 소프트웨어, agentic era 를 위해 구축",
+      title: "agentic era 를 위해 구축된 소프트웨어",
       body: "명령 또는 durable action 에서 시작해 app-agent loop 를 거치고, 작업을 다시 쓰지 않고 UI, jobs, 협업으로 키우세요. 오픈소스. Fork 가능. 당신의 것입니다.",
-      primaryCta: "Action 으로 시작",
+      primaryCta: "app 사용해 보기",
       secondaryCta: "문서 읽기",
       githubCta: "GitHub 에서 보기",
     },
@@ -310,8 +409,8 @@ const koKR = {
   },
   templatesPage: {
     title: "귀하가 소유한 오픈 소스 에이전트 기반 앱",
-    eyebrow: "100% 무료 및 오픈 소스",
-    body: "템플릿을 포크하여 로컬에서 실행하고 에이전트가 이를 발전시키도록 합니다. 귀하는 코드를 소유하고 모든 것을 맞춤 설정할 수 있습니다.",
+    eyebrow: "작동하는 app을 포크하고 agent가 발전시키게 하세요.",
+    body: "모든 것을 맞춤 설정할 수 있습니다.",
     community:
       "빈 앱에서 시작하고 싶다면 프레임워크 가이드로 처음부터 시작하세요.",
     createYourOwn: "처음부터 시작",

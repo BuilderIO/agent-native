@@ -14,9 +14,14 @@ import type { AgentRunOutput } from "./types.js";
 
 // Mock production-agent: actionsToEngineTools is a no-op, runAgentLoop is
 // injected per-test via the runLoop seam so this default is never hit.
-vi.mock("../agent/production-agent.js", () => ({
-  actionsToEngineTools: () => [],
+const productionMod = vi.hoisted(() => ({
+  actionsToEngineTools: vi.fn(() => []),
   runAgentLoop: vi.fn(),
+}));
+vi.mock("../agent/production-agent.js", () => ({
+  actionsToEngineTools: (...a: unknown[]) =>
+    productionMod.actionsToEngineTools(...a),
+  runAgentLoop: (...a: unknown[]) => productionMod.runAgentLoop(...a),
 }));
 
 const engineMod = vi.hoisted(() => ({
@@ -43,7 +48,8 @@ vi.mock("../observability/store.js", () => ({
 const { defineEval } = await import("./define-eval.js");
 const { contains, exactMatch, usesTool, llmJudge, createScorer } =
   await import("./scorer.js");
-const { scoreEval, runEvals } = await import("./runner.js");
+const { scoreEval, runEvals, runEvalSuite } = await import("./runner.js");
+const { formatReport } = await import("./report.js");
 const { createAgentRunner } = await import("./agent-runner.js");
 
 /** A fake runner that returns a fixed output and supplies a judge stub. */
@@ -80,6 +86,17 @@ function fakeRunner(
 beforeEach(() => {
   vi.clearAllMocks();
   storeMod.insertEvalResult.mockResolvedValue(undefined);
+  engineMod.resolveEngine.mockResolvedValue({
+    defaultModel: "fake-model",
+  });
+  engineMod.getStoredModelForEngine.mockResolvedValue(null);
+  productionMod.runAgentLoop.mockResolvedValue({
+    inputTokens: 0,
+    outputTokens: 0,
+    cacheReadTokens: 0,
+    cacheWriteTokens: 0,
+    model: "fake-model",
+  });
 });
 
 describe("scoreEval with a JS scorer", () => {
@@ -180,6 +197,29 @@ describe("scoreEval with a JS scorer", () => {
       thresholdOverride: 0.9,
     });
     expect(failing.passed).toBe(false);
+  });
+
+  it("reports skipped evals without running the agent or scorers", async () => {
+    const e = defineEval({
+      name: "gated nightly",
+      input: { prompt: "x" },
+      skipReason: "Skipped because NIGHTLY_EVALS is unset",
+      scorers: [],
+    });
+    const runner = fakeRunner({ text: "should not run" });
+    const runSpy = vi.spyOn(runner, "runAgent");
+
+    const row = await scoreEval(e, runner);
+
+    expect(runSpy).not.toHaveBeenCalled();
+    expect(row).toMatchObject({
+      eval: "gated nightly",
+      status: "skipped",
+      skipReason: "Skipped because NIGHTLY_EVALS is unset",
+      passed: true,
+      avgScore: 0,
+      scores: [],
+    });
   });
 });
 
@@ -340,5 +380,110 @@ describe("persistence to the observability store", () => {
     });
     await runEvals([e], fakeRunner({ text: "a" }), { persist: false });
     expect(storeMod.insertEvalResult).not.toHaveBeenCalled();
+  });
+
+  it("does not persist skipped rows", async () => {
+    const e = defineEval({
+      name: "skipped-persist",
+      input: { prompt: "x" },
+      skipReason: "No eval secrets configured",
+      scorers: [],
+    });
+    await runEvals([e], fakeRunner({ text: "unused" }), { persist: true });
+    expect(storeMod.insertEvalResult).not.toHaveBeenCalled();
+  });
+});
+
+describe("runEvalSuite runner creation", () => {
+  it("creates a runner for custom evals because run(ctx) may call runAgent", async () => {
+    const e = defineEval({
+      name: "custom-run-calls-agent",
+      input: { prompt: "x" },
+      run: (ctx) => ctx.runAgent(ctx.input),
+      scorers: [
+        createScorer({
+          name: "always_pass",
+          generateScore() {
+            return 1;
+          },
+        }),
+      ],
+    });
+
+    const result = await runEvalSuite({
+      evals: [e],
+      actions: {},
+      persist: false,
+    });
+
+    expect(result.report.failed).toBe(0);
+    expect(engineMod.resolveEngine).toHaveBeenCalled();
+    expect(productionMod.runAgentLoop).toHaveBeenCalled();
+  });
+
+  it("does not resolve an engine or discover actions when all evals are skipped", async () => {
+    const e = defineEval({
+      name: "skipped",
+      input: { prompt: "x" },
+      skipReason: "Manual gate is disabled",
+      scorers: [],
+    });
+
+    const result = await runEvalSuite({ evals: [e], persist: false });
+
+    expect(result.report).toMatchObject({
+      total: 1,
+      passed: 1,
+      failed: 0,
+      skipped: 1,
+    });
+    expect(result.report.results[0]).toMatchObject({
+      status: "skipped",
+      skipReason: "Manual gate is disabled",
+    });
+    expect(engineMod.resolveEngine).not.toHaveBeenCalled();
+  });
+});
+
+describe("formatReport", () => {
+  it("distinguishes skipped rows from passed rows", async () => {
+    const skipped = defineEval({
+      name: "skipped",
+      input: { prompt: "x" },
+      skipReason: "Missing eval gate",
+      scorers: [],
+    });
+    const passed = defineEval({
+      name: "passed",
+      input: { prompt: "x" },
+      scorers: [contains("ok")],
+    });
+    const report = await runEvals(
+      [skipped, passed],
+      fakeRunner({ text: "ok" }),
+      { persist: false },
+    );
+
+    const formatted = formatReport(report);
+
+    expect(formatted).toContain("- skipped  (skipped)");
+    expect(formatted).toContain("reason: Missing eval gate");
+    expect(formatted).toContain("PASS: 1/1 evals passed, 1 skipped");
+  });
+
+  it("does not label fully skipped reports as passing", async () => {
+    const skipped = defineEval({
+      name: "skipped",
+      input: { prompt: "x" },
+      skipReason: "Missing eval gate",
+      scorers: [],
+    });
+    const report = await runEvals([skipped], fakeRunner({ text: "ok" }), {
+      persist: false,
+    });
+
+    const formatted = formatReport(report);
+
+    expect(formatted).toContain("SKIPPED: 0/0 evals passed, 1 skipped");
   });
 });

@@ -54,7 +54,7 @@ export default function AnalyticsPage() {
         <IconCalendar className="w-3.5 h-3.5 me-1.5 sm:me-2 opacity-50" />
         <SelectValue placeholder={t("analytics.selectRange")} />
       </SelectTrigger>
-      <SelectContent className="bg-zinc-900 border-white/10">
+      <SelectContent className="bg-popover border-border text-popover-foreground">
         <SelectItem value="7">
           {t("analytics.lastDays", { count: 7 })}
         </SelectItem>

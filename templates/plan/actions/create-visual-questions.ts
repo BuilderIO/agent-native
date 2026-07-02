@@ -149,7 +149,7 @@ export default defineAction({
         "Open an interactive visual intake form with chips, mockup options, diagrams, freeform answers, and agent handoff.",
       iframeTitle: "Agent-Native Plan",
       openLabel: "Open Visual Questions",
-      height: 860,
+      height: 900,
     }),
   },
   run: async (args) => {

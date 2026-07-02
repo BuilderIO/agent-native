@@ -17,6 +17,7 @@ import {
 } from "./_builder-cms-read-client.js";
 import type { BuilderCmsSourceEntry } from "./_builder-cms-source-adapter.js";
 import {
+  enqueueBuilderBodyHydrationForItems,
   ensureDatabaseSourceProperty,
   importBuilderCmsEntriesAsDatabaseItems,
   mapBuilderCmsEntriesToLocalItems,
@@ -383,6 +384,19 @@ export default defineAction({
         now,
         builderEntriesByDocumentId,
       });
+      if (read.state === "live") {
+        await enqueueBuilderBodyHydrationForItems({
+          sourceId: source.id,
+          ownerEmail: database.ownerEmail,
+          orgId: database.orgId,
+          sourceTable: source.sourceTable,
+          items: refreshedSetup.response.items.filter((item) =>
+            builderEntriesByDocumentId.has(item.document.id),
+          ),
+          builderEntriesByDocumentId,
+          now,
+        });
+      }
       await updateBuilderCmsSourceReadMetadata({
         sourceId: source.id,
         sourceTable: source.sourceTable,

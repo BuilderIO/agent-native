@@ -1798,7 +1798,9 @@ function AppLayoutInner({ children }: AppLayoutProps) {
           view !== "draft-queue" ? (
             <GoogleConnectBanner variant="hero" />
           ) : (
-            <main className="flex flex-1 overflow-hidden">{children}</main>
+            <main className="agent-native-app-main flex flex-1 overflow-hidden">
+              {children}
+            </main>
           )}
         </div>
       </div>
@@ -2120,7 +2122,9 @@ function StandardLayout({ children }: AppLayoutProps) {
 
       <InvitationBanner />
 
-      <main className="flex flex-1 overflow-hidden">{children}</main>
+      <main className="agent-native-app-main flex flex-1 overflow-hidden">
+        {children}
+      </main>
     </div>
   );
 }

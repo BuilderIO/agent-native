@@ -1,3 +1,15 @@
+import {
+  isComponentInstance,
+  instanceFromNode,
+  type ComponentInstance,
+} from "./component-model";
+import type { TailwindBreakpointPrefix } from "./design-state.js";
+import {
+  parseClassGroups,
+  parseClassToken,
+  setPropertyClass,
+  removePropertyClass,
+} from "./responsive-classes.js";
 import type { DesignSourceType } from "./source-mode";
 
 export type CodeLayerSourceKind =
@@ -137,10 +149,32 @@ export type VisualStyleProperty =
 
 export interface StyleToken {
   property: VisualStyleProperty;
+  /**
+   * The resolved value at the *base* breakpoint (unprefixed), or the inline
+   * style value.  For class-sourced tokens this is the utility string of the
+   * base class (e.g. `"text-sm"`).  Use `breakpointValues` to inspect how the
+   * value differs across responsive prefixes.
+   */
   value: string;
   token: string;
   source: "inline-style" | "class";
   confidence: number;
+  /**
+   * For class-sourced tokens only: the resolved utility string per responsive
+   * prefix.  Only prefixes that have an explicit class token are included.
+   *
+   * @example
+   * // className="text-sm md:text-base lg:text-lg"
+   * // styleToken for "color" property would have:
+   * // breakpointValues = { base: "text-sm", md: "text-base", lg: "text-lg" }
+   */
+  breakpointValues?: Partial<Record<TailwindBreakpointPrefix, string>>;
+  /**
+   * For class-sourced tokens only: the prefixes (other than `"base"`) at which
+   * this property has a responsive override in the class list.  Populated when
+   * `breakpointValues` has keys other than `"base"`.
+   */
+  overriddenAtPrefixes?: TailwindBreakpointPrefix[];
 }
 
 export interface LayoutContext {
@@ -178,6 +212,28 @@ export type EditCapability =
       reason?: string;
     }
   | {
+      /**
+       * Responsive-class editing — adds, replaces, or removes a Tailwind
+       * utility at a specific breakpoint prefix without touching other
+       * breakpoints.  Uses the helpers in `responsive-classes.ts`
+       * (setPropertyClass / removePropertyClass) and the same deterministic
+       * HTML-patch path as `class` edits.
+       *
+       * The `prefix` field indicates the active breakpoint scope for which
+       * this capability was computed (derived from the canvas frame width via
+       * `widthToPrefix`).  Callers may target any prefix — `prefix` is
+       * informational, not a constraint.
+       */
+      kind: "responsive-class";
+      /** Active breakpoint scope (informational). */
+      prefix: TailwindBreakpointPrefix;
+      operations: Array<"add" | "remove" | "replace">;
+      /** Properties that currently have per-breakpoint overrides (non-empty means overrides exist). */
+      overriddenProperties: string[];
+      confidence: number;
+      reason?: string;
+    }
+  | {
       kind: "text";
       operations: Array<"setTextContent">;
       confidence: number;
@@ -211,6 +267,15 @@ export interface CodeLayerNode {
   capabilities: EditCapability[];
   confidence: number;
   source: CodeLayerSourceSpan | null;
+  /**
+   * Present when the node is the root of a component instance — i.e. it
+   * carries a `data-agent-native-component` attribute (Alpine-annotated or
+   * build-time-instrumented).  The canvas uses this to draw the component
+   * outline and the inspector uses it to surface component-level controls.
+   *
+   * `undefined` when the node is not a component root.
+   */
+  componentInstance?: ComponentInstance;
 }
 
 export interface ProjectionDiagnostic {
@@ -234,6 +299,12 @@ export type CodeLayerTreeNodeType =
   | "group"
   | "component"
   | "shape"
+  | "ellipse"
+  | "vector"
+  | "line"
+  | "arrow"
+  | "polygon"
+  | "star"
   | "text"
   | "image"
   | "element";
@@ -324,11 +395,91 @@ export interface MoveNodeEditIntent {
   placement: "before" | "after" | "inside";
 }
 
+/**
+ * GROUP: wrap sibling nodes sharing a parent inside a new <div> wrapper.
+ * The wrapper is inserted at the position of the first target; targets are
+ * reparented into it in source order. The new wrapper gets a fresh
+ * data-agent-native-node-id and data-agent-native-layer-name="Group".
+ *
+ * When autoLayout is true the wrapper also receives
+ * `display:flex; flex-direction:column; gap:8px` and
+ * position/left/top/right/bottom are stripped from each wrapped child.
+ *
+ * Returns "unsupported" if the targets don't share a common parent.
+ */
+export interface WrapNodesEditIntent {
+  kind: "wrapNodes";
+  targetIds: string[];
+  autoLayout?: boolean;
+}
+
+/**
+ * UNGROUP: replace the wrapper node with its children, spliced into the
+ * wrapper's parent at the wrapper's position, then remove the wrapper.
+ */
+export interface UnwrapEditIntent {
+  kind: "unwrap";
+  targetId: string;
+}
+
+/**
+ * CONVERT an existing container to/from auto-layout.
+ * When enabled, sets display:flex (+ flex-direction, gap) on the target and
+ * strips position:absolute/left/top/right/bottom from its DIRECT children.
+ * When !enabled, sets display:block (turns auto-layout off).
+ */
+export interface AutoLayoutEditIntent {
+  kind: "autoLayout";
+  targetId: string;
+  enabled: boolean;
+  direction?: "row" | "column";
+  gap?: string;
+}
+
+/**
+ * Responsive-class edit intent — adds, replaces, or removes a single Tailwind
+ * utility at the given `prefix` (breakpoint scope) without touching classes at
+ * other breakpoints.
+ *
+ * Examples:
+ * - Add `text-base` at `md:` on a node that already has `text-sm` base:
+ *   `{ kind: "responsive-class", target, prefix: "md", operation: "add", utility: "text-base" }`
+ *
+ * - Replace whatever `text-*` class currently lives at `lg:` with `text-xl`:
+ *   `{ kind: "responsive-class", target, prefix: "lg", operation: "replace", utility: "text-xl" }`
+ *
+ * - Remove the `md:` override for the `text` stem, falling back to the base:
+ *   `{ kind: "responsive-class", target, prefix: "md", operation: "remove", stem: "text" }`
+ *
+ * `utility` should be the bare utility without its prefix (e.g. `"text-lg"`,
+ * not `"md:text-lg"`).  The prefix is applied automatically.
+ * `stem` is required only for `"remove"` operations.
+ */
+export interface ResponsiveClassEditIntent {
+  kind: "responsive-class";
+  target: EditIntentTarget;
+  /** Target breakpoint prefix.  Use `"base"` to edit the unprefixed class. */
+  prefix: TailwindBreakpointPrefix;
+  operation: "add" | "remove" | "replace";
+  /** The bare utility to add or replace (without prefix).  Required for add/replace. */
+  utility?: string;
+  /**
+   * The CSS-property stem to remove (e.g. `"text"`, `"bg"`, `"p"`).
+   * Required for `"remove"` operations; ignored for add/replace (the stem is
+   * derived from `utility` instead).
+   */
+  stem?: string;
+}
+
 export type EditIntent =
   | StyleEditIntent
   | ClassEditIntent
   | TextEditIntent
-  | MoveNodeEditIntent;
+  | MoveNodeEditIntent
+  | WrapNodesEditIntent
+  | UnwrapEditIntent
+  | AutoLayoutEditIntent
+  | ResponsiveClassEditIntent;
 
 export interface EditIntentResolution {
   status: "resolved" | "conflict" | "unsupported";
@@ -372,6 +523,8 @@ export interface PatchResult {
   after?: PatchNodeSummary;
   changed: boolean;
   message?: string;
+  /** For wrapNodes: the data-agent-native-node-id of the newly created wrapper. */
+  wrapperNodeId?: string;
 }
 
 export interface ApplyVisualEditResult {
@@ -1234,6 +1387,8 @@ function stableSourceIdForElement(element: ParsedElement): string | null {
 
 function styleTokensFor(element: ParsedElement): StyleToken[] {
   const tokens: StyleToken[] = [];
+
+  // --- Inline styles (no breakpoint concept) ---
   for (const declaration of parseStyleDeclarations(
     attributeValue(element, "style"),
   )) {
@@ -1248,61 +1403,104 @@ function styleTokensFor(element: ParsedElement): StyleToken[] {
     });
   }
 
-  for (const token of classList(element)) {
-    const classStyle = classStyleToken(token);
-    if (classStyle) tokens.push(classStyle);
+  // --- Class tokens — responsive-aware ---
+  // Group all class tokens by breakpoint prefix so we can build per-property
+  // breakpointValues maps and detect overrides.
+  const classValue = attributeValue(element, "class") ?? "";
+  const groups = parseClassGroups(classValue);
+
+  // For each property, collect the utility value at every prefix that has one.
+  // We key by property so we emit one token per property, not one per class.
+  const propertyMap = new Map<
+    VisualStyleProperty,
+    {
+      property: VisualStyleProperty;
+      confidence: number;
+      breakpointValues: Partial<Record<TailwindBreakpointPrefix, string>>;
+      /** The raw token for the base occurrence (for backward-compat `token` field). */
+      baseToken: string;
+    }
+  >();
+
+  const allPrefixes: ReadonlyArray<TailwindBreakpointPrefix> = [
+    "base",
+    "sm",
+    "md",
+    "lg",
+    "xl",
+    "2xl",
+  ];
+
+  for (const prefix of allPrefixes) {
+    for (const rawToken of groups[prefix]) {
+      const parsed = parseClassToken(rawToken);
+      const mapped = utilityToStyleProperty(parsed.utility);
+      if (!mapped) continue;
+      const { property, confidence } = mapped;
+
+      // Resolve the display value the same way classStyleToken does.
+      const resolvedValue =
+        property === "display"
+          ? parsed.utility === "hidden"
+            ? "none"
+            : parsed.utility
+          : parsed.utility; // utility without prefix, e.g. "text-sm"
+
+      const existing = propertyMap.get(property);
+      if (existing) {
+        existing.breakpointValues[prefix] = resolvedValue;
+        if (existing.confidence < confidence) existing.confidence = confidence;
+      } else {
+        propertyMap.set(property, {
+          property,
+          confidence,
+          breakpointValues: { [prefix]: resolvedValue },
+          baseToken: rawToken,
+        });
+      }
+    }
+  }
+
+  for (const entry of propertyMap.values()) {
+    const baseValue = entry.breakpointValues["base"] ?? "";
+    // The full original token for the base occurrence (for backward compat).
+    const rawBaseToken = entry.baseToken;
+    const overriddenAt = Object.keys(entry.breakpointValues).filter(
+      (p) => p !== "base",
+    ) as TailwindBreakpointPrefix[];
+
+    tokens.push({
+      property: entry.property,
+      // `value` = the base utility string (backward-compatible).
+      value: baseValue || rawBaseToken,
+      token: rawBaseToken,
+      source: "class",
+      confidence: entry.confidence,
+      breakpointValues: { ...entry.breakpointValues },
+      overriddenAtPrefixes: overriddenAt.length > 0 ? overriddenAt : undefined,
+    });
   }
 
   return tokens;
 }
 
-function classStyleToken(token: string): StyleToken | null {
-  const normalized = token.replace(/^[a-z]+:/, "");
-  if (/^w-/.test(normalized)) {
-    return {
-      property: "width",
-      value: token,
-      token,
-      source: "class",
-      confidence: 0.64,
-    };
-  }
-  if (/^h-/.test(normalized)) {
-    return {
-      property: "height",
-      value: token,
-      token,
-      source: "class",
-      confidence: 0.64,
-    };
-  }
-  if (/^bg-/.test(normalized)) {
-    return {
-      property: "background",
-      value: token,
-      token,
-      source: "class",
-      confidence: 0.6,
-    };
-  }
-  if (/^(p|px|py|pt|pr|pb|pl)-/.test(normalized)) {
-    return {
-      property: "padding",
-      value: token,
-      token,
-      source: "class",
-      confidence: 0.62,
-    };
-  }
-  if (/^gap-/.test(normalized)) {
-    return {
-      property: "gap",
-      value: token,
-      token,
-      source: "class",
-      confidence: 0.62,
-    };
-  }
+/**
+ * Map a bare Tailwind utility (without any responsive prefix, e.g. `"text-sm"`
+ * not `"md:text-sm"`) to the `VisualStyleProperty` it most likely controls.
+ * Returns `null` when the utility is not recognised.
+ *
+ * This is called by both the legacy `classStyleToken` path and the new
+ * responsive-aware `styleTokensFor` implementation.
+ */
+function utilityToStyleProperty(
+  utility: string,
+): { property: VisualStyleProperty; confidence: number } | null {
+  if (/^w-/.test(utility)) return { property: "width", confidence: 0.64 };
+  if (/^h-/.test(utility)) return { property: "height", confidence: 0.64 };
+  if (/^bg-/.test(utility)) return { property: "background", confidence: 0.6 };
+  if (/^(p|px|py|pt|pr|pb|pl)-/.test(utility))
+    return { property: "padding", confidence: 0.62 };
+  if (/^gap-/.test(utility)) return { property: "gap", confidence: 0.62 };
   if (
     [
       "block",
@@ -1313,26 +1511,24 @@ function classStyleToken(token: string): StyleToken | null {
       "grid",
       "inline-grid",
       "hidden",
-    ].includes(normalized)
+    ].includes(utility)
   ) {
-    return {
-      property: "display",
-      value: normalized === "hidden" ? "none" : normalized,
-      token,
-      source: "class",
-      confidence: 0.68,
-    };
+    return { property: "display", confidence: 0.68 };
   }
-  if (/^text-/.test(normalized)) {
-    return {
-      property: "color",
-      value: token,
-      token,
-      source: "class",
-      confidence: 0.45,
-    };
-  }
+  if (/^text-/.test(utility)) return { property: "color", confidence: 0.45 };
   return null;
+}
+
+function classStyleToken(token: string): StyleToken | null {
+  const { utility } = parseClassToken(token);
+  const mapped = utilityToStyleProperty(utility);
+  if (!mapped) return null;
+  const { property, confidence } = mapped;
+  // The legacy value field preserves the original full token (including prefix)
+  // for backward compatibility.  The responsive path uses `breakpointValues`.
+  const value =
+    property === "display" ? (utility === "hidden" ? "none" : utility) : token;
+  return { property, value, token, source: "class", confidence };
 }
 
 function layoutFor(
@@ -1469,9 +1665,39 @@ function layerNameFor(
 }
 
 function treeTypeForNode(node: CodeLayerNode): CodeLayerTreeNodeType {
+  // Canvas primitives (drawn shapes / board objects) carry their kind via
+  // data-an-primitive so the layers panel shows a true shape/text/frame icon
+  // instead of the generic code glyph. The marker wins over tag heuristics:
+  // these primitives are <div>s, which would otherwise classify as "element".
+  const primitiveKind = node.dataAttributes["data-an-primitive"];
+  if (primitiveKind) {
+    if (primitiveKind === "text") return "text";
+    if (primitiveKind === "frame") return "frame";
+    if (primitiveKind === "image") return "image";
+    if (
+      primitiveKind === "ellipse" ||
+      primitiveKind === "circle" ||
+      primitiveKind === "oval"
+    ) {
+      return "ellipse";
+    }
+    // SVG-based vector primitives each get their own type so the layers panel
+    // renders a true pen/line/arrow/polygon/star icon instead of falling
+    // through to the rectangle ("shape") glyph.
+    if (primitiveKind === "path") return "vector";
+    if (primitiveKind === "line") return "line";
+    if (primitiveKind === "arrow") return "arrow";
+    if (primitiveKind === "polygon") return "polygon";
+    if (primitiveKind === "star") return "star";
+    // rectangle/rect and anything else still classify as a generic shape.
+    return "shape";
+  }
   if (TEXT_LAYER_TAGS.has(node.tag)) return "text";
   if (IMAGE_LAYER_TAGS.has(node.tag)) return "image";
   if (SHAPE_LAYER_TAGS.has(node.tag)) return "shape";
+  // A node annotated as a component instance is always classified as "component"
+  // regardless of its tag — this is the canonical detection path.
+  if (node.componentInstance) return "component";
   if (
     COMPONENT_LAYER_TAGS.has(node.tag) ||
     node.classes.some((item) => /component|card|button|control/.test(item))
@@ -1483,6 +1709,50 @@ function treeTypeForNode(node: CodeLayerNode): CodeLayerTreeNodeType {
   }
   if (node.children.length > 0) return "group";
   return "element";
+}
+
+function isCollapsibleDocumentShellNode(
+  node: CodeLayerTreeNode,
+  nodesById: Map<string, CodeLayerNode>,
+): boolean {
+  if (node.tag !== "html" && node.tag !== "body") return false;
+  return nodesById.get(node.id)?.layerNameSource === "tag";
+}
+
+function compactCodeLayerTreeNodes(
+  nodes: CodeLayerTreeNode[],
+  nodesById: Map<string, CodeLayerNode>,
+  ancestors: Set<string> = new Set(),
+): CodeLayerTreeNode[] {
+  const compacted: CodeLayerTreeNode[] = [];
+  const siblingIds = new Set<string>();
+
+  for (const node of nodes) {
+    if (ancestors.has(node.id)) continue;
+
+    const nextAncestors = new Set(ancestors);
+    nextAncestors.add(node.id);
+    const children = compactCodeLayerTreeNodes(
+      node.children,
+      nodesById,
+      nextAncestors,
+    );
+    const compactedNode: CodeLayerTreeNode = { ...node, children };
+    const promotedNodes = isCollapsibleDocumentShellNode(
+      compactedNode,
+      nodesById,
+    )
+      ? children
+      : [compactedNode];
+
+    for (const promotedNode of promotedNodes) {
+      if (siblingIds.has(promotedNode.id)) continue;
+      siblingIds.add(promotedNode.id);
+      compacted.push(promotedNode);
+    }
+  }
+
+  return compacted;
 }
 
 function capabilitiesFor(element: ParsedElement): EditCapability[] {
@@ -1499,6 +1769,39 @@ function capabilitiesFor(element: ParsedElement): EditCapability[] {
     },
   ];
 
+  // Responsive-class capability — detect which properties already carry
+  // breakpoint overrides so the inspector can surface override indicators.
+  const classValue = attributeValue(element, "class") ?? "";
+  const groups = parseClassGroups(classValue);
+  const overriddenProps: string[] = [];
+  const responsivePrefixes: ReadonlyArray<TailwindBreakpointPrefix> = [
+    "sm",
+    "md",
+    "lg",
+    "xl",
+    "2xl",
+  ];
+  for (const prefix of responsivePrefixes) {
+    for (const rawToken of groups[prefix]) {
+      const { utility } = parseClassToken(rawToken);
+      // Derive a property stem to use as the override indicator label.
+      const stemPart = utility.split("-")[0];
+      if (stemPart && !overriddenProps.includes(stemPart)) {
+        overriddenProps.push(stemPart);
+      }
+    }
+  }
+  // The prefix here is "base" as the default; callers that know the active
+  // frame width should use widthToPrefix() from responsive-classes.ts to
+  // determine the appropriate editing prefix.
+  capabilities.push({
+    kind: "responsive-class",
+    prefix: "base",
+    operations: ["add", "remove", "replace"],
+    overriddenProperties: overriddenProps,
+    confidence: 0.87,
+  });
+
   if (!element.selfClosing) {
     capabilities.push({
       kind: "text",
@@ -1514,10 +1817,32 @@ function capabilitiesFor(element: ParsedElement): EditCapability[] {
   return capabilities;
 }
 
+// Internal nodes of an <svg> (the <path>/<polygon>/<circle>/... geometry) are
+// rendering primitives, never selectable design layers. Projecting them adds a
+// meaningless expandable child to every pen vector / line / arrow / polygon /
+// star (and to any inline SVG icon). Treat the <svg> as a leaf: skip everything
+// that has an <svg> ancestor.
+function hasSvgAncestor(
+  element: ParsedElement,
+  elements: ParsedElement[],
+): boolean {
+  let parentIndex = element.parentIndex;
+  while (parentIndex !== undefined) {
+    const parent = elements[parentIndex];
+    if (!parent) break;
+    if (parent.tag === "svg") return true;
+    parentIndex = parent.parentIndex;
+  }
+  return false;
+}
+
 function buildProjection(
   html: string,
   source: CodeLayerSource,
 ): ProjectionBuild {
+  // Tolerate non-string input from any caller (e.g. content not yet loaded):
+  // an empty projection is correct; crashing the editor is not.
+  if (typeof html !== "string") html = "";
   const elements = parseHtmlElements(html);
   const nodeIdByElementIndex = new Map<number, string>();
   const nodes: CodeLayerNode[] = [];
@@ -1525,6 +1850,7 @@ function buildProjection(
 
   for (const element of elements) {
     if (NON_VISUAL_TAGS.has(element.tag)) continue;
+    if (hasSvgAncestor(element, elements)) continue;
     const nodeId = nodeIdFor(element, elements, source);
     nodeIdByElementIndex.set(element.index, nodeId);
   }
@@ -1559,7 +1885,7 @@ function buildProjection(
       ]),
     );
 
-    nodes.push({
+    const node: CodeLayerNode = {
       id: nodeId,
       tag: element.tag,
       layerName: layerName.name,
@@ -1597,7 +1923,17 @@ function buildProjection(
         closeStart: element.closeStart,
         closeEnd: element.closeEnd,
       },
-    });
+    };
+
+    // Detect component instances — nodes that carry data-agent-native-component.
+    // Populate the metadata so the canvas can outline component roots and the
+    // inspector can surface component-level controls.
+    if (isComponentInstance(node)) {
+      const instance = instanceFromNode(node);
+      if (instance) node.componentInstance = instance;
+    }
+
+    nodes.push(node);
     elementByNodeId.set(nodeId, element);
   }
 
@@ -1628,7 +1964,11 @@ export function buildCodeLayerProjection(
   html: string,
   options: { source?: CodeLayerSource } = {},
 ): CodeLayerProjection {
-  return buildProjection(html, options.source ?? { kind: "inline-html" })
+  // Defensive: callers (memos/effects) may project before content has loaded
+  // (e.g. `activeContent` is briefly undefined on first render). Projecting a
+  // non-string must yield an empty projection, never crash the editor.
+  const safeHtml = typeof html === "string" ? html : "";
+  return buildProjection(safeHtml, options.source ?? { kind: "inline-html" })
     .projection;
 }
 
@@ -1741,9 +2081,10 @@ export function buildCodeLayerTree(
   const treeById = new Map<string, CodeLayerTreeNode>();
 
   for (const node of projection.nodes) {
+    const componentName = node.componentInstance?.name;
     treeById.set(node.id, {
       id: node.id,
-      name: node.layerName,
+      name: componentName ?? node.layerName,
       type: treeTypeForNode(node),
       tag: node.tag,
       selector: node.selector,
@@ -1768,26 +2109,36 @@ export function buildCodeLayerTree(
     });
   }
 
+  const childIdsByParentId = new Map<string, Set<string>>();
   for (const node of projection.nodes) {
     const parent =
       node.parentId && nodesById.has(node.parentId)
         ? treeById.get(node.parentId)
         : undefined;
     const treeNode = treeById.get(node.id);
-    if (parent && treeNode) parent.children.push(treeNode);
+    if (!parent || !treeNode || parent.id === treeNode.id) continue;
+    const childIds = childIdsByParentId.get(parent.id) ?? new Set<string>();
+    if (childIds.has(treeNode.id)) continue;
+    childIds.add(treeNode.id);
+    childIdsByParentId.set(parent.id, childIds);
+    parent.children.push(treeNode);
   }
 
-  const roots = projection.rootNodeIds
-    .map((id) => treeById.get(id))
-    .filter((node): node is CodeLayerTreeNode => Boolean(node));
-  const rootIds = new Set(roots.map((node) => node.id));
+  const roots: CodeLayerTreeNode[] = [];
+  const rootIds = new Set<string>();
+  const appendRoot = (id: string) => {
+    if (rootIds.has(id)) return;
+    const treeNode = treeById.get(id);
+    if (!treeNode) return;
+    rootIds.add(id);
+    roots.push(treeNode);
+  };
+
+  projection.rootNodeIds.forEach(appendRoot);
   for (const node of projection.nodes) {
-    if (!node.parentId && !rootIds.has(node.id)) {
-      const treeNode = treeById.get(node.id);
-      if (treeNode) roots.push(treeNode);
-    }
+    if (!node.parentId) appendRoot(node.id);
   }
-  return roots;
+  return compactCodeLayerTreeNodes(roots, nodesById);
 }
 
 function normalizeSelectorForMatch(selector: string): string {
@@ -1795,6 +2146,26 @@ function normalizeSelectorForMatch(selector: string): string {
     .trim()
     .replace(/\s*>\s*/g, " > ")
     .replace(/\s+/g, " ");
+}
+
+function selectorPartTag(selectorPart: string): string | null {
+  const match = selectorPart.trim().match(/^([A-Za-z][A-Za-z0-9:-]*)/);
+  return match?.[1]?.toLowerCase() ?? null;
+}
+
+function isDocumentRootSelectorPart(selectorPart: string): boolean {
+  const tag = selectorPartTag(selectorPart);
+  return tag === "html" || tag === "body";
+}
+
+// Removes positional `:nth-of-type(n)` suffixes from a selector. Runtime
+// bridge selectors fall back to `:nth-of-type` for elements without a durable
+// id, and that position is computed against the live (possibly Alpine-mutated)
+// DOM. When the stored source order differs, the positional index no longer
+// lines up. Dropping the suffix lets resolution fall back to the element's
+// stable signal (tag, classes, attributes, ancestor path).
+function stripPositionalNthOfType(selector: string): string {
+  return selector.replace(/:nth-of-type\(\d+\)/g, "");
 }
 
 function lastSelectorPart(selector: string): string {
@@ -1926,7 +2297,11 @@ function selectorPathMatchesElement(
   let current: ParsedElement | undefined = element;
   for (let index = parts.length - 1; index >= 0; index -= 1) {
     const selectorPart = parts[index];
-    if (!current || !selectorPart) return false;
+    if (!selectorPart) return false;
+    if (!current) {
+      if (isDocumentRootSelectorPart(selectorPart)) continue;
+      return false;
+    }
     if (!simpleSelectorMatchesElement(current, selectorPart)) return false;
     current =
       current.parentIndex === undefined
@@ -2024,26 +2399,52 @@ function resolveTarget(
     };
   }
 
-  const matches = projection.nodes.filter((node) =>
-    selectorMatches(
-      node,
-      target.selector ?? "",
-      elementByNodeId.get(node.id),
-      elementByIndex,
-    ),
-  );
+  const selectorValue = target.selector ?? "";
+  const matchesForSelector = (value: string): CodeLayerNode[] =>
+    projection.nodes.filter((node) =>
+      selectorMatches(
+        node,
+        value,
+        elementByNodeId.get(node.id),
+        elementByIndex,
+      ),
+    );
+
+  const matches = matchesForSelector(selectorValue);
   if (matches.length === 1 && matches[0]) {
     return { status: "resolved", node: matches[0] };
   }
   if (matches.length > 1) {
     return {
       status: "conflict",
-      message: `Selector "${target.selector}" matched ${matches.length} code layer nodes.`,
+      message: `Selector "${selectorValue}" matched ${matches.length} code layer nodes.`,
     };
   }
+
+  // Strict matching found nothing. Runtime selectors anchor unstamped elements
+  // with positional `:nth-of-type(n)` parts, which drift when the live DOM
+  // order differs from the stored source (reordered or runtime-inserted nodes).
+  // Retry once with the positional suffixes dropped so an element that is still
+  // unique by its tag/classes/attributes resolves instead of surfacing a hard
+  // "did not match" error. Genuinely ambiguous results stay a conflict rather
+  // than silently editing the wrong node.
+  const positionTolerantSelector = stripPositionalNthOfType(selectorValue);
+  if (positionTolerantSelector && positionTolerantSelector !== selectorValue) {
+    const tolerantMatches = matchesForSelector(positionTolerantSelector);
+    if (tolerantMatches.length === 1 && tolerantMatches[0]) {
+      return { status: "resolved", node: tolerantMatches[0] };
+    }
+    if (tolerantMatches.length > 1) {
+      return {
+        status: "conflict",
+        message: `Selector "${selectorValue}" matched ${tolerantMatches.length} code layer nodes after ignoring positional :nth-of-type (the element may have been reordered or added at runtime). Re-select the element to refresh its id.`,
+      };
+    }
+  }
+
   return {
     status: "conflict",
-    message: `Selector "${target.selector}" did not match a code layer node.`,
+    message: `Selector "${selectorValue}" did not match a code layer node.`,
   };
 }
 
@@ -2250,6 +2651,71 @@ function applyTextEdit(
   };
 }
 
+/**
+ * Apply a responsive-class edit intent to the HTML source.
+ *
+ * - `"add"`:     calls `setPropertyClass(className, prefix, utility)` — adds a
+ *               new token at the target prefix (or replaces the existing one for
+ *               the same stem).
+ * - `"replace"`: same as `"add"` — `setPropertyClass` already handles the
+ *               replace-if-same-stem semantics.
+ * - `"remove"`:  calls `removePropertyClass(className, prefix, stem)` — strips
+ *               all tokens with the given property stem at the target prefix,
+ *               falling back to the base value (Tailwind cascade).
+ *
+ * Uses the helpers from `responsive-classes.ts` so the logic is shared with
+ * the StatesPanel / inspector UI.
+ */
+function applyResponsiveClassEdit(
+  html: string,
+  element: ParsedElement,
+  intent: ResponsiveClassEditIntent,
+): { content: string; capability: EditCapability } | PatchResultStatus {
+  const currentClass = attributeValue(element, "class") ?? "";
+
+  let nextClass: string;
+  if (intent.operation === "remove") {
+    if (!intent.stem) {
+      // stem is required for remove
+      return "unsupported";
+    }
+    if (!isSafeClassToken(intent.stem)) return "unsupported";
+    nextClass = removePropertyClass(currentClass, intent.prefix, intent.stem);
+  } else {
+    // "add" and "replace" both use setPropertyClass
+    if (!intent.utility) return "unsupported";
+    if (!isSafeClassToken(intent.utility)) return "unsupported";
+    nextClass = setPropertyClass(currentClass, intent.prefix, intent.utility);
+  }
+
+  if (nextClass === currentClass) {
+    // No-op — nothing to patch.
+    return {
+      content: html,
+      capability: {
+        kind: "responsive-class",
+        prefix: intent.prefix,
+        operations: [intent.operation],
+        overriddenProperties: [],
+        confidence: 0.87,
+      },
+    };
+  }
+
+  return {
+    content: replaceOrInsertAttribute(html, element, "class", nextClass),
+    capability: {
+      kind: "responsive-class",
+      prefix: intent.prefix,
+      operations: [intent.operation],
+      overriddenProperties: intent.utility
+        ? [intent.utility.split("-")[0] ?? ""]
+        : [],
+      confidence: 0.87,
+    },
+  };
+}
+
 function applyMoveNodeEdit(
   html: string,
   element: ParsedElement,
@@ -2286,6 +2752,379 @@ function applyMoveNodeEdit(
       kind: "structure",
       operations: ["moveNode"],
       confidence: 0.78,
+    },
+  };
+}
+
+/** Generate a fresh unique data-agent-native-node-id value not already in the set. */
+function freshNodeId(usedIds: Set<string>, basis: string): string {
+  const base = `an-${hashStable(basis)}`;
+  let value = base;
+  let suffix = 1;
+  while (usedIds.has(value)) {
+    value = `an-${hashStable(`${base}:${suffix}`)}`;
+    suffix += 1;
+  }
+  usedIds.add(value);
+  return value;
+}
+
+/**
+ * Strip the given CSS property names from an inline style attribute value.
+ * Returns the new style string (may be empty if all declarations were removed).
+ */
+function stripStyleProperties(
+  styleValue: string | null,
+  propertiesToRemove: string[],
+): string {
+  if (!styleValue) return "";
+  const toRemove = new Set(propertiesToRemove.map((p) => p.toLowerCase()));
+  const remaining = parseStyleDeclarations(styleValue).filter(
+    (decl) => !toRemove.has(decl.property),
+  );
+  return serializeStyleDeclarations(remaining);
+}
+
+/** Absolute-positioning properties stripped when converting a child to auto-layout flow. */
+const AUTO_LAYOUT_STRIP_PROPS = [
+  "position",
+  "left",
+  "top",
+  "right",
+  "bottom",
+  "inset",
+] as const;
+
+/**
+ * Apply display:flex + direction + gap to a raw open-tag string and return it.
+ * Only touches the style attribute.
+ */
+function addAutoLayoutStyleToOpenTag(
+  openTag: string,
+  element: ParsedElement,
+  html: string,
+  direction: "row" | "column",
+  gap: string,
+): string {
+  const currentStyle = attributeValue(element, "style");
+  let declarations = parseStyleDeclarations(currentStyle);
+  const setOrReplace = (prop: string, val: string) => {
+    const existing = declarations.find((d) => d.property === prop);
+    if (existing) {
+      existing.value = val;
+    } else {
+      declarations.push({ property: prop, value: val });
+    }
+  };
+  setOrReplace("display", "flex");
+  setOrReplace("flex-direction", direction);
+  setOrReplace("gap", gap);
+  const nextStyle = serializeStyleDeclarations(declarations);
+  // We work on a scratch copy relative to element boundaries
+  const attr = getAttribute(element, "style");
+  if (attr) {
+    return `${openTag.slice(0, attr.start - element.start)}${attr.name}="${escapeHtmlAttribute(nextStyle)}"${openTag.slice(attr.end - element.start)}`;
+  }
+  // Insert before closing >
+  const closeChar = openTag.endsWith("/>")
+    ? openTag.length - 2
+    : openTag.length - 1;
+  return `${openTag.slice(0, closeChar)} style="${escapeHtmlAttribute(nextStyle)}"${openTag.slice(closeChar)}`;
+}
+
+/**
+ * Strip absolute-positioning properties from a child's inline style, applying
+ * the edit directly to the html string at the child element's source spans.
+ * Returns the updated html string.
+ */
+function stripAbsolutePositioningFromChild(
+  html: string,
+  child: ParsedElement,
+): string {
+  const currentStyle = attributeValue(child, "style");
+  if (!currentStyle) return html;
+  const nextStyle = stripStyleProperties(currentStyle, [
+    ...AUTO_LAYOUT_STRIP_PROPS,
+  ]);
+  return replaceOrInsertAttribute(html, child, "style", nextStyle);
+}
+
+/**
+ * GROUP: wrap targetted sibling elements (sharing a common parent) in a new
+ * <div> wrapper. Targets must all share the same parent element.
+ */
+function applyWrapNodes(
+  html: string,
+  build: ProjectionBuild,
+  intent: WrapNodesEditIntent,
+):
+  | { content: string; capability: EditCapability; wrapperNodeId: string }
+  | PatchResultStatus {
+  const { targetIds, autoLayout = false } = intent;
+  if (targetIds.length === 0) return "unsupported";
+
+  // Resolve all target nodes via nodeId attribute matching.
+  const targetElements: ParsedElement[] = [];
+  for (const id of targetIds) {
+    const node = build.projection.nodes.find(
+      (n) =>
+        n.dataAttributes["data-agent-native-node-id"] === id || n.id === id,
+    );
+    if (!node) return "conflict";
+    const el = build.elementByNodeId.get(node.id);
+    if (!el) return "conflict";
+    targetElements.push(el);
+  }
+
+  // All targets must share the same parent.
+  const parentIndexes = new Set(targetElements.map((el) => el.parentIndex));
+  if (parentIndexes.size !== 1) return "unsupported";
+
+  // Sort targets by their source position (ascending).
+  targetElements.sort((a, b) => a.start - b.start);
+
+  const siblingIndexes = targetElements
+    .map((el) => el.siblingIndex)
+    .sort((a, b) => a - b);
+  const firstSiblingIndex = siblingIndexes[0];
+  if (firstSiblingIndex === undefined) return "unsupported";
+  const targetsAreContiguous = siblingIndexes.every(
+    (siblingIndex, index) => siblingIndex === firstSiblingIndex + index,
+  );
+  if (!targetsAreContiguous) return "unsupported";
+
+  // Collect existing node ids so we can generate a unique one.
+  const usedIds = new Set(
+    build.projection.nodes.flatMap((n) => {
+      const id = n.dataAttributes["data-agent-native-node-id"];
+      return id ? [id] : [];
+    }),
+  );
+
+  const wrapperNodeId = freshNodeId(
+    usedIds,
+    `wrap:${targetElements.map((el) => el.start).join(":")}`,
+  );
+
+  // Collect the source fragments for all targets.
+  const fragments = targetElements.map((el) => {
+    let frag = html.slice(el.start, el.end);
+    // If autoLayout, strip positioning from each wrapped child.
+    if (autoLayout) {
+      // We need a ParsedElement that reflects the fragment's own positions.
+      // Re-parse the fragment to find the root element and strip its style.
+      const fragElements = parseHtmlElements(frag);
+      const root = fragElements.find((fe) => fe.parentIndex === undefined);
+      if (root) {
+        frag = stripAbsolutePositioningFromChild(frag, root);
+      }
+    }
+    return frag;
+  });
+
+  const autoLayoutStyle = autoLayout
+    ? ` style="display: flex; flex-direction: column; gap: 8px"`
+    : "";
+  const wrapperOpen = `<div data-agent-native-node-id="${escapeHtmlAttribute(wrapperNodeId)}" data-agent-native-layer-name="Group"${autoLayoutStyle}>`;
+  const wrapperClose = `</div>`;
+  const wrapperContent = `${wrapperOpen}${fragments.join("")}${wrapperClose}`;
+
+  // Build the replacement: remove all targets from html (back to front) then
+  // insert the wrapper at the first target's position.
+  // Sort by position descending to remove safely.
+  const sorted = [...targetElements].sort((a, b) => b.start - a.start);
+
+  // Remove all targets from the html (back to front).
+  let result = html;
+  let firstTargetStart = targetElements[0]!.start;
+
+  for (const el of sorted) {
+    const start = el.start;
+    const end = el.end;
+    if (start < firstTargetStart) {
+      firstTargetStart = start;
+    }
+    result = `${result.slice(0, start)}${result.slice(end)}`;
+  }
+
+  // Re-compute firstTargetStart relative to the modified string: all removals
+  // before it shift it. Count how many bytes were removed before firstTargetStart.
+  let bytesRemovedBefore = 0;
+  for (const el of targetElements) {
+    if (el.start < targetElements[0]!.start) {
+      bytesRemovedBefore += el.end - el.start;
+    }
+  }
+  const insertAt = firstTargetStart - bytesRemovedBefore;
+
+  result = `${result.slice(0, insertAt)}${wrapperContent}${result.slice(insertAt)}`;
+
+  return {
+    content: result,
+    capability: {
+      kind: "structure",
+      operations: ["moveNode"],
+      confidence: 0.82,
+    },
+    wrapperNodeId,
+  };
+}
+
+/**
+ * UNGROUP: replace the wrapper node with its children, spliced into the
+ * wrapper's parent at the wrapper's position, then remove the wrapper.
+ */
+function applyUnwrap(
+  html: string,
+  build: ProjectionBuild,
+  intent: UnwrapEditIntent,
+): { content: string; capability: EditCapability } | PatchResultStatus {
+  const { targetId } = intent;
+  const node = build.projection.nodes.find(
+    (n) =>
+      n.dataAttributes["data-agent-native-node-id"] === targetId ||
+      n.id === targetId,
+  );
+  if (!node) return "conflict";
+  if (!node.source) return "needsAgent";
+
+  const element = build.elementByNodeId.get(node.id);
+  if (!element) return "conflict";
+  if (element.selfClosing || element.contentStart >= element.contentEnd) {
+    // Nothing to unwrap from an empty/void element.
+    return "unsupported";
+  }
+
+  // The children's source content is the element's inner HTML.
+  const innerContent = html.slice(element.contentStart, element.contentEnd);
+
+  // Replace the whole element (start..end) with its inner content.
+  const result = `${html.slice(0, element.start)}${innerContent}${html.slice(element.end)}`;
+
+  return {
+    content: result,
+    capability: {
+      kind: "structure",
+      operations: ["moveNode"],
+      confidence: 0.82,
+    },
+  };
+}
+
+/**
+ * CONVERT: toggle auto-layout (display:flex) on an existing container.
+ */
+function applyAutoLayout(
+  html: string,
+  build: ProjectionBuild,
+  intent: AutoLayoutEditIntent,
+): { content: string; capability: EditCapability } | PatchResultStatus {
+  const { targetId, enabled, direction = "column", gap = "8px" } = intent;
+  const node = build.projection.nodes.find(
+    (n) =>
+      n.dataAttributes["data-agent-native-node-id"] === targetId ||
+      n.id === targetId,
+  );
+  if (!node) return "conflict";
+  if (!node.source) return "needsAgent";
+
+  const element = build.elementByNodeId.get(node.id);
+  if (!element) return "conflict";
+
+  if (!enabled) {
+    // Turn off auto-layout: set display:block.
+    const currentStyle = attributeValue(element, "style");
+    let declarations = parseStyleDeclarations(currentStyle);
+    const displayDecl = declarations.find((d) => d.property === "display");
+    if (displayDecl) {
+      displayDecl.value = "block";
+    } else {
+      declarations.push({ property: "display", value: "block" });
+    }
+    const nextStyle = serializeStyleDeclarations(declarations);
+    return {
+      content: replaceOrInsertAttribute(html, element, "style", nextStyle),
+      capability: {
+        kind: "style",
+        properties: ["display"],
+        confidence: 0.9,
+      },
+    };
+  }
+
+  // Enable auto-layout: set display:flex + direction + gap on the container.
+  // Apply all three style properties in a single mutation against the already-
+  // resolved element so that elements with no stable data attributes or HTML id
+  // are handled correctly.  Re-parsing after each individual property write
+  // caused a silent no-op for those elements because the re-parse-based element
+  // finder could not locate them after the first write changed the style attr.
+  const currentStyle = attributeValue(element, "style");
+  let declarations = parseStyleDeclarations(currentStyle);
+  const setOrReplace = (prop: string, val: string) => {
+    const existing = declarations.find((d) => d.property === prop);
+    if (existing) {
+      existing.value = val;
+    } else {
+      declarations.push({ property: prop, value: val });
+    }
+  };
+  setOrReplace("display", "flex");
+  setOrReplace("flex-direction", direction);
+  setOrReplace("gap", gap);
+  let result = replaceOrInsertAttribute(
+    html,
+    element,
+    "style",
+    serializeStyleDeclarations(declarations),
+  );
+
+  // Strip absolute positioning from direct children.
+  // Re-parse to get up-to-date child element positions after the style mutation.
+  const updatedElements = parseHtmlElements(result);
+  // Locate the target element in the updated parse.  Prefer stable data
+  // attributes and HTML id; fall back to matching by original source position
+  // (safe because the container open-tag length only changed by the style attr
+  // rewrite, which shifts nothing before element.start).
+  const stableAttrPairs: Array<[string, string]> = [];
+  for (const attrName of STABLE_NODE_ID_ATTRIBUTES) {
+    const v = attributeValue(element, attrName);
+    if (v) stableAttrPairs.push([attrName, v]);
+  }
+  const htmlIdValue = attributeValue(element, "id");
+  const findElementInParsed = (
+    elements: ParsedElement[],
+  ): ParsedElement | undefined => {
+    for (const attrPair of stableAttrPairs) {
+      const found = elements.find(
+        (fe) => attributeValue(fe, attrPair[0]) === attrPair[1],
+      );
+      if (found) return found;
+    }
+    if (htmlIdValue) {
+      return elements.find((fe) => attributeValue(fe, "id") === htmlIdValue);
+    }
+    // Fallback: match by original start position.  The container's start offset
+    // is unchanged because only its open-tag content (style attr) was modified.
+    return elements.find((fe) => fe.start === element.start);
+  };
+  const updatedTarget = findElementInParsed(updatedElements);
+
+  if (updatedTarget) {
+    // Process children in reverse order so offsets stay valid.
+    const childIndexes = [...updatedTarget.childIndexes].reverse();
+    for (const childIndex of childIndexes) {
+      const child = updatedElements[childIndex];
+      if (!child) continue;
+      result = stripAbsolutePositioningFromChild(result, child);
+    }
+  }
+
+  return {
+    content: result,
+    capability: {
+      kind: "style",
+      properties: ["display", "flex-direction", "gap"],
+      confidence: 0.88,
     },
   };
 }
@@ -2333,6 +3172,121 @@ export function applyVisualEdit(
   }
 
   const initial = buildProjection(html, source);
+
+  // --- Structural intents that don't resolve a single target node ---
+
+  if (intent.kind === "wrapNodes") {
+    const wrapEdit = applyWrapNodes(html, initial, intent);
+    if (typeof wrapEdit === "string") {
+      return {
+        content: html,
+        projection: initial.projection,
+        result: {
+          ...patchResult(
+            wrapEdit,
+            source,
+            intent,
+            false,
+            wrapEdit === "unsupported"
+              ? "wrapNodes requires all targets to share a common parent element."
+              : "Could not resolve one or more target nodes for wrapNodes.",
+          ),
+        },
+      };
+    }
+    const nextProjection = buildCodeLayerProjection(wrapEdit.content, {
+      source,
+    });
+    return {
+      content: wrapEdit.content,
+      projection: nextProjection,
+      result: {
+        ...patchResult(
+          "applied",
+          source,
+          intent,
+          wrapEdit.content !== html,
+          wrapEdit.content === html
+            ? "No source change was needed."
+            : "Nodes wrapped.",
+        ),
+        wrapperNodeId: wrapEdit.wrapperNodeId,
+      },
+    };
+  }
+
+  if (intent.kind === "unwrap") {
+    const unwrapEdit = applyUnwrap(html, initial, intent);
+    if (typeof unwrapEdit === "string") {
+      return {
+        content: html,
+        projection: initial.projection,
+        result: patchResult(
+          unwrapEdit,
+          source,
+          intent,
+          false,
+          unwrapEdit === "conflict"
+            ? `Could not resolve unwrap target "${intent.targetId}".`
+            : "Cannot unwrap a self-closing or empty element.",
+        ),
+      };
+    }
+    const nextProjection = buildCodeLayerProjection(unwrapEdit.content, {
+      source,
+    });
+    return {
+      content: unwrapEdit.content,
+      projection: nextProjection,
+      result: patchResult(
+        "applied",
+        source,
+        intent,
+        unwrapEdit.content !== html,
+        unwrapEdit.content === html
+          ? "No source change was needed."
+          : "Node unwrapped.",
+      ),
+    };
+  }
+
+  if (intent.kind === "autoLayout") {
+    const alEdit = applyAutoLayout(html, initial, intent);
+    if (typeof alEdit === "string") {
+      return {
+        content: html,
+        projection: initial.projection,
+        result: patchResult(
+          alEdit,
+          source,
+          intent,
+          false,
+          alEdit === "conflict"
+            ? `Could not resolve autoLayout target "${intent.targetId}".`
+            : "Cannot apply autoLayout to this element.",
+        ),
+      };
+    }
+    const nextProjection = buildCodeLayerProjection(alEdit.content, { source });
+    return {
+      content: alEdit.content,
+      projection: nextProjection,
+      result: patchResult(
+        "applied",
+        source,
+        intent,
+        alEdit.content !== html,
+        alEdit.content === html
+          ? "No source change was needed."
+          : intent.enabled
+            ? "Auto-layout enabled."
+            : "Auto-layout disabled.",
+      ),
+    };
+  }
+
+  // --- Target-resolved intents (style / class / textContent / moveNode) ---
+
   const resolution = resolveTarget(initial, intent.target);
   if (resolution.status !== "resolved" || !resolution.node) {
     return {
@@ -2376,6 +3330,8 @@ export function applyVisualEdit(
     edit = applyClassEdit(html, element, intent);
   } else if (intent.kind === "textContent") {
     edit = applyTextEdit(html, element, intent);
+  } else if (intent.kind === "responsive-class") {
+    edit = applyResponsiveClassEdit(html, element, intent);
   } else {
     const anchorResolution = resolveTarget(initial, intent.anchor);
     if (anchorResolution.status !== "resolved" || !anchorResolution.node) {
@@ -2467,5 +3423,193 @@ export function applyVisualEdit(
       before,
       after,
     ),
+  };
+}
+
+/**
+ * Attributes injected by the editor at runtime that must NOT appear in
+ * on-disk source files. These are stripped before any write-back so that
+ * the saved file stays clean and matches what a developer would author.
+ *
+ * - `data-agent-native-node-id` — stable selection id stamped by the editor.
+ * - `data-agent-native-layer-name` is intentionally kept: it is a
+ *   developer-authored attribute (the canonical layer-name hint) and is
+ *   useful in committed source.  Only ephemeral runtime stamps are removed.
+ */
+const EDITOR_ONLY_ATTRIBUTES: readonly string[] = ["data-agent-native-node-id"];
+
+/**
+ * Strip editor-only runtime attributes from an HTML string, returning clean
+ * source suitable for writing back to disk.
+ *
+ * Currently removes `data-agent-native-node-id` (and any future attributes
+ * listed in EDITOR_ONLY_ATTRIBUTES). The function operates on the raw HTML
+ * string with a regex that handles both quoted forms and unquoted values, and
+ * is safe to apply to already-clean source (idempotent).
+ *
+ * @param html  The raw HTML string, potentially containing editor stamps.
+ * @returns     A new string with all editor-only attributes removed.
+ */
+export function stripEditorOnlyAttributes(html: string): string {
+  if (!html || typeof html !== "string") return html ?? "";
+  let result = html;
+  for (const attr of EDITOR_ONLY_ATTRIBUTES) {
+    // Match the attribute with optional surrounding whitespace. The value may
+    // be double-quoted, single-quoted, or unquoted (no spaces / > chars).
+    // A leading \s+ is required so we only strip the attribute name+value pair
+    // and leave surrounding markup intact.
+    const re = new RegExp(
+      `\\s+${attr.replace(/-/g, "\\-")}\\s*=\\s*(?:"[^"]*"|'[^']*'|[^\\s"'=><\`]+)`,
+      "gi",
+    );
+    result = result.replace(re, "");
+  }
+  return result;
+}
+
+export interface MoveNodeBetweenDocumentsOptions {
+  nodeId: string;
+  anchorNodeId?: string;
+  placement?: "before" | "after" | "inside";
+}
+
+export interface MoveNodeBetweenDocumentsResult {
+  sourceHtml: string;
+  destHtml: string;
+  status: "applied" | "unsupported";
+  message?: string;
+  /**
+   * The data-agent-native-node-id of the moved node in destHtml.
+   * May differ from the original nodeId when a collision caused a re-stamp.
+   * Only present when status is "applied".
+   */
+  movedNodeId?: string;
+}
+
+/**
+ * Move a node (by data-agent-native-node-id) from sourceHtml into destHtml.
+ * The node's serialized subtree is removed from sourceHtml and inserted into
+ * destHtml relative to anchorNodeId (default: append to <body> or end of doc).
+ * Any node ids in the moved subtree that already exist in destHtml are
+ * re-stamped to stay unique. No external dependencies.
+ */
+export function moveNodeBetweenDocuments(
+  sourceHtml: string,
+  destHtml: string,
+  opts: MoveNodeBetweenDocumentsOptions,
+): MoveNodeBetweenDocumentsResult {
+  const { nodeId, anchorNodeId, placement = "inside" } = opts;
+
+  // --- Locate the node in sourceHtml ---
+  const sourceElements = parseHtmlElements(sourceHtml);
+  const sourceTarget = sourceElements.find(
+    (el) => attributeValue(el, "data-agent-native-node-id") === nodeId,
+  );
+  if (!sourceTarget) {
+    return {
+      sourceHtml,
+      destHtml,
+      status: "unsupported",
+      message: `Node with data-agent-native-node-id="${nodeId}" not found in sourceHtml.`,
+    };
+  }
+
+  // --- Extract the subtree fragment ---
+  let fragment = sourceHtml.slice(sourceTarget.start, sourceTarget.end);
+
+  // --- Collect all existing node ids in destHtml to avoid collisions ---
+  const destElements = parseHtmlElements(destHtml);
+  const destUsedIds = new Set<string>(
+    destElements
+      .map((el) => attributeValue(el, "data-agent-native-node-id"))
+      .filter((v): v is string => v !== null),
+  );
+
+  // --- Re-stamp any colliding node ids in the fragment ---
+  // We do this by parsing the fragment as its own HTML and replacing ids.
+  const fragElements = parseHtmlElements(fragment);
+  // Build replacement map: old id → new id
+  const idRemap = new Map<string, string>();
+  for (const fragEl of fragElements) {
+    const existingId = attributeValue(fragEl, "data-agent-native-node-id");
+    if (!existingId) continue;
+    if (destUsedIds.has(existingId)) {
+      const newId = freshNodeId(
+        destUsedIds,
+        `moved:${existingId}:${fragEl.start}`,
+      );
+      idRemap.set(existingId, newId);
+    } else {
+      destUsedIds.add(existingId);
+    }
+  }
+
+  // Apply id remaps to the fragment (back to front by attribute position).
+  if (idRemap.size > 0) {
+    const remapEdits: Array<{ start: number; end: number; value: string }> = [];
+    for (const fragEl of fragElements) {
+      const attr = getAttribute(fragEl, "data-agent-native-node-id");
+      if (!attr || typeof attr.value !== "string") continue;
+      const newId = idRemap.get(attr.value);
+      if (!newId) continue;
+      remapEdits.push({
+        start: attr.start,
+        end: attr.end,
+        value: `data-agent-native-node-id="${escapeHtmlAttribute(newId)}"`,
+      });
+    }
+    // Apply back to front.
+    remapEdits.sort((a, b) => b.start - a.start);
+    for (const edit of remapEdits) {
+      fragment = `${fragment.slice(0, edit.start)}${edit.value}${fragment.slice(edit.end)}`;
+    }
+  }
+
+  // --- Remove node from sourceHtml ---
+  const nextSourceHtml = `${sourceHtml.slice(0, sourceTarget.start)}${sourceHtml.slice(sourceTarget.end)}`;
+
+  // --- Insert fragment into destHtml ---
+  let nextDestHtml: string;
+
+  if (anchorNodeId) {
+    const anchor = destElements.find(
+      (el) => attributeValue(el, "data-agent-native-node-id") === anchorNodeId,
+    );
+    if (!anchor) {
+      return {
+        sourceHtml,
+        destHtml,
+        status: "unsupported",
+        message: `Anchor node with data-agent-native-node-id="${anchorNodeId}" not found in destHtml.`,
+      };
+    }
+    const insertAt =
+      placement === "before"
+        ? anchor.start
+        : placement === "after"
+          ? anchor.end
+          : anchor.selfClosing
+            ? anchor.end
+            : anchor.contentEnd;
+    nextDestHtml = `${destHtml.slice(0, insertAt)}${fragment}${destHtml.slice(insertAt)}`;
+  } else {
+    // Default: find <body> and append inside it, or append at end of doc.
+    const bodyEl = destElements.find((el) => el.tag === "body");
+    const insertAt = bodyEl
+      ? bodyEl.selfClosing
+        ? bodyEl.end
+        : bodyEl.contentEnd
+      : destHtml.length;
+    nextDestHtml = `${destHtml.slice(0, insertAt)}${fragment}${destHtml.slice(insertAt)}`;
+  }
+
+  // The moved node keeps its original id unless it collided and was re-stamped.
+  const movedNodeId = idRemap.get(nodeId) ?? nodeId;
+
+  return {
+    sourceHtml: nextSourceHtml,
+    destHtml: nextDestHtml,
+    status: "applied",
+    movedNodeId,
   };
 }

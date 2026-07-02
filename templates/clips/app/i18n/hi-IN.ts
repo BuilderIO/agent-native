@@ -412,6 +412,9 @@ const messages = {
     embed: "एम्बेड",
     shareLink: "शेयर लिंक",
     shareWithAgents: "एजेंटों के साथ साझा करें",
+    copyAgentPrompt: "एजेंट प्रॉम्प्ट कॉपी करें",
+    agentPrompt:
+      "यह Clips एजेंट संदर्भ URL प्राप्त करें: {{agentContextUrl}}। बोले गए संदर्भ के लिए transcript.segments का उपयोग करें, स्क्रीन देखने के लिए recommendedFrames या फ्रेम API URL प्राप्त करें, और यदि browserDiagnostics मौजूद हो तो संशोधित कंसोल लॉग और fetch/XHR अनुरोध मेटाडेटा जांचें।",
     agentTokenDescription:
       "यह अस्थायी एजेंट URL क्लिप को सार्वजनिक किए बिना एजेंटों को इसे पढ़ने देता है। यह दो घंटे बाद समाप्त हो जाता है।",
     gifPreview: "GIF पूर्वावलोकन",
@@ -425,6 +428,7 @@ const messages = {
     askOwnerPublic: "मालिक से इसे सार्वजनिक करने के लिए कहें.",
     responsive: "प्रतिक्रियाशील (16:9)",
     fixedSize: "निश्चित आकार",
+    embedIframeTitle: "Clips वीडियो",
     width: "चौड़ाई",
     height: "ऊंचाई",
     autoplay: "स्वत: प्ले",

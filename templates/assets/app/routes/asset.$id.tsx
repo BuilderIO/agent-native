@@ -134,8 +134,8 @@ export default function AssetDetailPage() {
   }
 
   return (
-    <div className="grid h-full min-h-0 grid-cols-1 lg:grid-cols-[360px_minmax(0,1fr)]">
-      <aside className="overflow-y-auto border-b border-border bg-background p-5 lg:border-b-0 lg:border-r">
+    <div className="assets-asset-detail-layout grid h-full min-h-0 grid-cols-1">
+      <aside className="assets-asset-detail-sidebar overflow-y-auto border-b border-border bg-background p-5">
         <div className="mb-4">
           <Button variant="ghost" size="sm" asChild className="-ml-2 gap-2">
             <Link to={libraryBackPath}>

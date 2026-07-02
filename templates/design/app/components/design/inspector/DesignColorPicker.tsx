@@ -14,6 +14,7 @@ import type { ShaderDescriptor } from "@shared/shader-presets";
 import { IconChevronDown, IconColorPicker } from "@tabler/icons-react";
 import {
   useEffect,
+  useMemo,
   useRef,
   useState,
   type JSX,
@@ -27,6 +28,13 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import {
   Tooltip,
   TooltipContent,
@@ -130,6 +138,11 @@ export interface DesignColorPickerProps {
   value: string;
   onChange: (value: string) => void;
   onPaintValueChange?: (value: string) => void;
+  onImageFillChange?: (value: ImageFillValue) => void;
+  backgroundImage?: string;
+  backgroundSize?: string;
+  backgroundRepeat?: string;
+  backgroundPosition?: string;
   label?: string;
   opacity?: number;
   onOpacityChange?: (opacity: number) => void;
@@ -190,6 +203,87 @@ interface HsvaColor {
 // ─── Constants ─────────────────────────────────────────────────────────────────
 
 const FALLBACK_COLOR: RgbaColor = { r: 0, g: 0, b: 0, a: 1 };
+
+// ─── Extended CSS color parser ──────────────────────────────────────────────────
+//
+// `parseCssColor` from color-utils handles hex, comma-separated rgb/rgba, and
+// hsl/hsla. Browsers increasingly emit modern CSS Level 4 formats from
+// getComputedStyle: space-separated `rgb(R G B)`, `rgb(R G B / A)`, and
+// opaque formats like `oklch(...)` or `color(display-p3 ...)`.
+//
+// This local wrapper extends the parser to cover those cases so that colors
+// arriving from the canvas's computed-style bridge are always usable.
+
+const MODERN_RGB_PATTERN =
+  /^rgba?\(\s*([0-9.]+)\s+([0-9.]+)\s+([0-9.]+)(?:\s*\/\s*([0-9.]+%?))?\s*\)$/i;
+
+/** Canvas element reused across calls for DOM-based color resolution. */
+let _resolverCanvas: HTMLCanvasElement | null = null;
+let _resolverCtx: CanvasRenderingContext2D | null = null;
+
+/**
+ * Parses a CSS color string into RgbaColor, extending the base parser with:
+ *   - Modern space-separated `rgb(R G B)` / `rgb(R G B / A)` syntax
+ *   - Opaque formats (oklch, color, etc.) resolved via a hidden canvas
+ *
+ * Falls back to null if the value is unparseable and the DOM is unavailable.
+ */
+function parseCssColorExtended(value: string): RgbaColor | null {
+  // 1. Try the standard parser first (handles hex, comma rgb/rgba, hsl/hsla).
+  const standard = parseCssColor(value);
+  if (standard) return standard;
+
+  const trimmed = value.trim();
+  if (!trimmed || trimmed === "transparent" || trimmed === "none") return null;
+
+  // 2. Modern space-separated rgb/rgba — CSS Level 4.
+  const modernRgb = trimmed.match(MODERN_RGB_PATTERN);
+  if (modernRgb) {
+    const parseAlphaLocal = (v: string | undefined): number => {
+      if (!v) return 1;
+      if (v.endsWith("%"))
+        return Math.max(0, Math.min(1, Number(v.slice(0, -1)) / 100));
+      return Math.max(0, Math.min(1, Number(v)));
+    };
+    return {
+      r: Math.round(Math.max(0, Math.min(255, Number(modernRgb[1])))),
+      g: Math.round(Math.max(0, Math.min(255, Number(modernRgb[2])))),
+      b: Math.round(Math.max(0, Math.min(255, Number(modernRgb[3])))),
+      a: parseAlphaLocal(modernRgb[4]),
+    };
+  }
+
+  // 3. DOM-based resolver for oklch, color(display-p3 ...), hsl (modern), etc.
+  //    Uses a hidden 1×1 canvas to resolve any valid CSS color to rgb().
+  if (typeof document === "undefined") return null;
+  try {
+    if (!_resolverCanvas) {
+      _resolverCanvas = document.createElement("canvas");
+      _resolverCanvas.width = 1;
+      _resolverCanvas.height = 1;
+    }
+    if (!_resolverCtx) {
+      _resolverCtx = _resolverCanvas.getContext("2d", {
+        willReadFrequently: true,
+      });
+    }
+    const ctx = _resolverCtx;
+    if (!ctx) return null;
+    // Detect invalid color values: save fillStyle before and after assignment.
+    // If the browser rejects the value, fillStyle won't change.
+    const prev = ctx.fillStyle;
+    ctx.fillStyle = trimmed;
+    const next = ctx.fillStyle; // browser normalises to rgb/hex on accept
+    // If the value was rejected, fillStyle stays at the previous value.
+    if (next === prev) return null;
+    ctx.clearRect(0, 0, 1, 1);
+    ctx.fillRect(0, 0, 1, 1);
+    const [r, g, b, a] = ctx.getImageData(0, 0, 1, 1).data;
+    return { r, g, b, a: a / 255 };
+  } catch {
+    return null;
+  }
+}
 
 const DEFAULT_LABELS: DesignColorPickerLabels = {
   trigger: "Open color picker", // i18n-ignore fallback component label
@@ -568,6 +662,24 @@ const NOISE_FALLBACK_CSS =
   "repeating-conic-gradient(#0000 0% 25%, #00000010 0% 50%) 0 0 / 6px 6px, #8a8a8a";
 const PATTERN_FALLBACK_CSS =
   "repeating-linear-gradient(45deg, #00000014 0 6px, #ffffff14 6px 12px), #9aa0a6";
+const BLEND_MODE_OPTIONS = [
+  { value: "normal", label: "Normal" },
+  { value: "multiply", label: "Multiply" },
+  { value: "screen", label: "Screen" },
+  { value: "overlay", label: "Overlay" },
+  { value: "darken", label: "Darken" },
+  { value: "lighten", label: "Lighten" },
+  { value: "color-dodge", label: "Color dodge" }, // i18n-ignore design blend mode label
+  { value: "color-burn", label: "Color burn" }, // i18n-ignore design blend mode label
+  { value: "hard-light", label: "Hard light" }, // i18n-ignore design blend mode label
+  { value: "soft-light", label: "Soft light" }, // i18n-ignore design blend mode label
+  { value: "difference", label: "Difference" },
+  { value: "exclusion", label: "Exclusion" },
+  { value: "hue", label: "Hue" },
+  { value: "saturation", label: "Saturation" },
+  { value: "color", label: "Color" },
+  { value: "luminosity", label: "Luminosity" },
+] as const;
 
 // ─── Main component ────────────────────────────────────────────────────────────
 
@@ -575,12 +687,17 @@ export function DesignColorPicker({
   value,
   onChange,
   onPaintValueChange,
+  onImageFillChange,
+  backgroundImage,
+  backgroundSize,
+  backgroundRepeat,
+  backgroundPosition,
   label: _label,
   opacity,
   onOpacityChange,
-  blendMode: _blendMode,
-  onBlendModeChange: _onBlendModeChange,
-  showBlendMode: _showBlendMode,
+  blendMode,
+  onBlendModeChange,
+  showBlendMode = false,
   fillRows: _fillRows,
   selectedFillId: _selectedFillId,
   onFillSelect: _onFillSelect,
@@ -605,13 +722,40 @@ export function DesignColorPicker({
   className,
 }: DesignColorPickerProps) {
   const copy = { ...DEFAULT_LABELS, ...labels };
-  const color = parseCssColor(value) ?? FALLBACK_COLOR;
+  const color = parseCssColorExtended(value) ?? FALLBACK_COLOR;
   const hsv = rgbaToHsv(color);
   const hsl = rgbaToHsl(color);
   const effectiveOpacity = opacity ?? alphaToOpacity(color.a);
+  const blendModeValue = BLEND_MODE_OPTIONS.some(
+    (option) => option.value === blendMode,
+  )
+    ? blendMode
+    : "normal";
+  const parsedImageFill = useMemo(
+    () =>
+      backgroundImage !== undefined ||
+      backgroundSize !== undefined ||
+      backgroundRepeat !== undefined ||
+      backgroundPosition !== undefined
+        ? parseImageFillCss({
+            backgroundImage: backgroundImage ?? value,
+            backgroundSize,
+            backgroundRepeat,
+            backgroundPosition,
+          })
+        : parseImageFillCss(value),
+    [
+      backgroundImage,
+      backgroundPosition,
+      backgroundRepeat,
+      backgroundSize,
+      value,
+    ],
+  );
 
   const [mode, setMode] = useState<DesignColorMode>("hex");
   const [hexDraft, setHexDraft] = useState(() => toDisplayHex(color));
+  const hexDraftRef = useRef(hexDraft);
   const [open, setOpen] = useState(false);
   const [picking, setPicking] = useState(false);
   const skipNextHexBlurCommitRef = useRef(false);
@@ -634,10 +778,9 @@ export function DesignColorPicker({
     null,
   );
   const [selectedStopId, setSelectedStopId] = useState<string>("");
-  const [imageFill, setImageFill] = useState<ImageFillValue>({
-    url: "",
-    fit: "fill",
-  });
+  const [imageFill, setImageFill] = useState<ImageFillValue>(
+    () => parsedImageFill ?? { url: "", fit: "fill" },
+  );
   const [shaderDescriptor, setShaderDescriptor] =
     useState<ShaderDescriptor | null>(null);
 
@@ -651,20 +794,30 @@ export function DesignColorPicker({
 
   // Resolve the active gradient: prefer EditPanel-driven props; otherwise parse
   // the live CSS value, falling back to local edit state.
-  const parsedGradient = parseGradientCss(value, gradientType ?? "linear");
+  const parsedGradient = useMemo(
+    () => parseGradientCss(value, gradientType ?? "linear"),
+    [gradientType, value],
+  );
+  const fallbackGradient = useMemo(
+    () =>
+      GRADIENT_TYPES.has(effectivePaintType)
+        ? defaultGradient(
+            effectivePaintType as GradientKind,
+            toCssColor(color) || "#000000",
+          )
+        : null,
+    [color.r, color.g, color.b, color.a, effectivePaintType],
+  );
   const activeGradient: GradientValue | null = GRADIENT_TYPES.has(
     effectivePaintType,
   )
-    ? (localGradient ??
-      parsedGradient ??
-      defaultGradient(
-        effectivePaintType as GradientKind,
-        toCssColor(color) || "#000000",
-      ))
+    ? (localGradient ?? parsedGradient ?? fallbackGradient)
     : null;
 
   useEffect(() => {
-    setHexDraft(toDisplayHex(color));
+    const nextHex = toDisplayHex(color);
+    hexDraftRef.current = nextHex;
+    setHexDraft(nextHex);
   }, [color.r, color.g, color.b]);
 
   // The local override (the user's explicit paint-type click) persists for the
@@ -674,16 +827,14 @@ export function DesignColorPicker({
 
   // Keep image-fill state synced when the incoming value is an image fill.
   useEffect(() => {
-    if (effectivePaintType !== "image") return;
-    const parsed = parseImageFillCss(value);
-    if (
-      parsed &&
-      (parsed.url !== imageFill.url || parsed.fit !== imageFill.fit)
-    ) {
-      setImageFill(parsed);
-    }
+    if (!parsedImageFill) return;
+    setImageFill((current) =>
+      current.url === parsedImageFill.url && current.fit === parsedImageFill.fit
+        ? current
+        : parsedImageFill,
+    );
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [value, effectivePaintType]);
+  }, [parsedImageFill?.url, parsedImageFill?.fit]);
 
   // Ensure a selected stop id exists whenever a gradient is active.
   useEffect(() => {
@@ -715,17 +866,20 @@ export function DesignColorPicker({
   };
 
   const commitHex = () => {
-    const parsed = parseCssColor(`#${hexDraft.replace(/^#/, "")}`);
+    const currentDraft = hexDraftRef.current;
+    const parsed = parseCssColor(`#${currentDraft.replace(/^#/, "")}`);
     if (!parsed) {
-      setHexDraft(toDisplayHex(activeGradient ? fieldColor : color));
+      const reverted = toDisplayHex(activeGradient ? fieldColor : color);
+      hexDraftRef.current = reverted;
+      setHexDraft(reverted);
       return;
     }
     if (activeGradient) {
-      const hexIncludesAlpha = hasHexAlpha(hexDraft);
+      const hexIncludesAlpha = hasHexAlpha(currentDraft);
       emitStopColor(hexIncludesAlpha ? parsed : { ...parsed, a: fieldColor.a });
       return;
     }
-    const hexIncludesAlpha = hasHexAlpha(hexDraft);
+    const hexIncludesAlpha = hasHexAlpha(currentDraft);
     const nextOpacity = hexIncludesAlpha
       ? alphaToOpacity(parsed.a)
       : effectiveOpacity;
@@ -754,7 +908,8 @@ export function DesignColorPicker({
 
   // The 2D field edits the selected gradient stop's color when in gradient mode.
   const fieldColor: RgbaColor = activeGradient
-    ? (parseCssColor(selectedStop?.color ?? "#000000") ?? FALLBACK_COLOR)
+    ? (parseCssColorExtended(selectedStop?.color ?? "#000000") ??
+      FALLBACK_COLOR)
     : color;
   const rawFieldHsv = rgbaToHsv(fieldColor);
   // Preserve the last non-zero hue so dragging through gray doesn't lose it.
@@ -771,7 +926,7 @@ export function DesignColorPicker({
   const selectedStopColor = selectedStop?.color;
   useEffect(() => {
     if (!activeGradient || !selectedStopColor) return;
-    const parsed = parseCssColor(selectedStopColor);
+    const parsed = parseCssColorExtended(selectedStopColor);
     if (parsed) setHexDraft(toDisplayHex(parsed));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedStopColor, selectedStopId]);
@@ -807,6 +962,10 @@ export function DesignColorPicker({
 
   const emitImageFill = (next: ImageFillValue) => {
     setImageFill(next);
+    if (onImageFillChange) {
+      onImageFillChange(next);
+      return;
+    }
     emitPaintValue(imageFillToCss(next));
   };
 
@@ -860,7 +1019,14 @@ export function DesignColorPicker({
       return;
     }
     if (nextType === "image") {
-      emitPaintValue(imageFill.url ? imageFillToCss(imageFill) : "transparent");
+      const nextImageFill = parsedImageFill ?? imageFill;
+      if (onImageFillChange && nextImageFill.url) {
+        onImageFillChange(nextImageFill);
+        return;
+      }
+      emitPaintValue(
+        nextImageFill.url ? imageFillToCss(nextImageFill) : "transparent",
+      );
       return;
     }
     if (nextType === "video") {
@@ -919,8 +1085,11 @@ export function DesignColorPicker({
           disabled={disabled}
           aria-label={copy.hex}
           spellCheck={false}
-          className="h-6 min-w-0 rounded-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-2 text-[11px] tabular-nums uppercase"
-          onChange={(e) => setHexDraft(e.target.value)}
+          className="h-6 min-w-0 rounded-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-2 !text-[11px] tabular-nums uppercase md:!text-[11px]"
+          onChange={(e) => {
+            hexDraftRef.current = e.target.value;
+            setHexDraft(e.target.value);
+          }}
           onFocus={(e) => e.target.select()}
           onKeyDown={(e) => {
             if (e.key === "Enter") {
@@ -930,7 +1099,9 @@ export function DesignColorPicker({
               e.currentTarget.blur();
             }
             if (e.key === "Escape") {
-              setHexDraft(toDisplayHex(color));
+              const reverted = toDisplayHex(color);
+              hexDraftRef.current = reverted;
+              setHexDraft(reverted);
               skipNextHexBlurCommitRef.current = true;
               e.currentTarget.blur();
             }
@@ -1035,7 +1206,7 @@ export function DesignColorPicker({
             disabled={disabled}
             aria-label={copy.trigger}
             className={cn(
-              "flex h-6 w-full items-center gap-1.5 rounded-md border border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-2 text-[11px] shadow-none",
+              "flex h-6 w-full items-center gap-1.5 rounded-md border border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-2 !text-[11px] shadow-none",
               "hover:bg-[var(--design-editor-panel-raised-bg)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1",
               disabled && "pointer-events-none opacity-50",
             )}
@@ -1045,10 +1216,10 @@ export function DesignColorPicker({
               className="size-4 shrink-0 rounded-[3px] border border-border/60"
               style={triggerSwatchStyle(value, color)}
             />
-            <span className="min-w-0 flex-1 truncate text-left tabular-nums uppercase text-[11px]">
+            <span className="min-w-0 flex-1 truncate text-left tabular-nums uppercase !text-[11px]">
               {triggerLabel(effectivePaintType, color)}
             </span>
-            <span className="tabular-nums text-muted-foreground text-[11px]">
+            <span className="tabular-nums text-muted-foreground !text-[11px]">
               {effectiveOpacity}%
             </span>
           </button>
@@ -1060,8 +1231,18 @@ export function DesignColorPicker({
           align="start"
           sideOffset={8}
           className="z-[10000] w-[252px] p-0 shadow-xl"
+          // Keep the picker open when the style change triggered by a paint-type
+          // switch causes the canvas to re-project the element. Without this,
+          // Radix treats the resulting focus shift as an "interact outside" event
+          // and closes the popover before the type switch is visible.
+          onInteractOutside={(e) => {
+            // Allow closing only for genuine pointer clicks on the canvas area
+            // (the user clicked somewhere else). Programmatic focus changes from
+            // the canvas bridge (element re-projection) should not close the picker.
+            if (e.type === "focusoutside") e.preventDefault();
+          }}
         >
-          <div className="overflow-hidden rounded-md bg-popover text-popover-foreground">
+          <div className="rounded-md bg-popover text-popover-foreground">
             {view === "shader" ? (
               <ShaderFillsPanel
                 descriptor={shaderDescriptor ?? undefined}
@@ -1181,7 +1362,7 @@ export function DesignColorPicker({
                       placeholder={"Video URL (mp4, webm)" /* i18n-ignore */}
                       aria-label={"Video URL" /* i18n-ignore */}
                       spellCheck={false}
-                      className="h-6 w-full rounded-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-2 text-[11px]"
+                      className="h-6 w-full rounded-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-2 !text-[11px] md:!text-[11px]"
                       onKeyDown={(e) => {
                         if (e.key === "Enter") {
                           e.preventDefault();
@@ -1384,13 +1565,46 @@ export function DesignColorPicker({
                               setOpacity(next);
                             }
                           }}
-                          className="h-full min-w-0 flex-1 rounded-none border-0 bg-transparent px-1 text-[11px] tabular-nums shadow-none focus-visible:ring-0"
+                          className="h-full min-w-0 flex-1 rounded-none border-0 bg-transparent px-1 !text-[11px] tabular-nums shadow-none focus-visible:ring-0"
                           compact
                         />
                         <span className="flex w-4 shrink-0 items-center justify-center border-l border-border/60 text-[10px] text-muted-foreground">
                           %
                         </span>
                       </div>
+                    </div>
+                  </div>
+                )}
+
+                {showBlendMode && onBlendModeChange && (
+                  <div className="border-t border-border/70 px-3 py-2.5">
+                    <div className="flex items-center gap-1.5">
+                      <span className="min-w-0 flex-1 !text-[11px] text-muted-foreground">
+                        {copy.blendMode}
+                      </span>
+                      <Select
+                        value={blendModeValue}
+                        disabled={disabled}
+                        onValueChange={onBlendModeChange}
+                      >
+                        <SelectTrigger
+                          aria-label={copy.blendMode}
+                          className="h-6 min-w-0 flex-1 rounded-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-1.5 !text-[11px] shadow-none focus:ring-1 focus:ring-[var(--design-editor-accent-color)]"
+                        >
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {BLEND_MODE_OPTIONS.map((option) => (
+                            <SelectItem
+                              key={option.value}
+                              value={option.value}
+                              className="!text-[11px]"
+                            >
+                              {option.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
                     </div>
                   </div>
                 )}
@@ -1402,7 +1616,7 @@ export function DesignColorPicker({
                     section is never empty. */}
                 <div className="border-t border-border/70 px-3 py-2.5">
                   {/* Source label — matches the design editor layout */}
-                  <div className="mb-2 flex h-6 w-full items-center justify-between px-0.5 text-[11px] text-muted-foreground">
+                  <div className="mb-2 flex h-6 w-full items-center justify-between px-0.5 !text-[11px] text-muted-foreground">
                     {"Document colors" /* i18n-ignore design picker source */}
                   </div>
 
@@ -1504,7 +1718,7 @@ function ColorModelPill({
         onClick={() => setMenuOpen((o) => !o)}
         className={cn(
           "flex h-6 w-[4.5rem] items-center gap-0.5 rounded px-1.5",
-          "text-[11px] font-semibold text-foreground",
+          "!text-[11px] font-semibold text-foreground",
           "bg-transparent border-0 shadow-none",
           "hover:bg-[var(--design-editor-control-bg)]",
           "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
@@ -1537,7 +1751,7 @@ function ColorModelPill({
                 setMenuOpen(false);
               }}
               className={cn(
-                "flex w-full items-center px-2 py-1 text-[11px]",
+                "flex w-full items-center px-2 py-1 !text-[11px]",
                 "hover:bg-accent hover:text-accent-foreground",
                 "focus-visible:outline-none focus-visible:bg-accent",
                 m.value === value
@@ -1775,16 +1989,21 @@ function ScrubbyNumberInput({
   compact?: boolean;
 }) {
   const [draft, setDraft] = useState<string>(() => String(value));
+  const draftRef = useRef(draft);
   const skipBlurRef = useRef(false);
 
   useEffect(() => {
-    setDraft(String(value));
+    const nextDraft = String(value);
+    draftRef.current = nextDraft;
+    setDraft(nextDraft);
   }, [value]);
 
   const commit = () => {
-    const parsed = Number(draft);
+    const parsed = Number(draftRef.current);
     if (!Number.isFinite(parsed)) {
-      setDraft(String(value));
+      const reverted = String(value);
+      draftRef.current = reverted;
+      setDraft(reverted);
       return;
     }
     onChange(clamp(parsed, min, max));
@@ -1799,12 +2018,15 @@ function ScrubbyNumberInput({
       max={max}
       disabled={disabled}
       className={cn(
-        "h-6 w-full rounded-md border border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] text-center text-[11px] tabular-nums",
+        "h-6 w-full rounded-md border border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] text-center !text-[11px] tabular-nums",
         "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
         compact && "border-0 shadow-none focus-visible:ring-0",
         className,
       )}
-      onChange={(e) => setDraft(e.target.value)}
+      onChange={(e) => {
+        draftRef.current = e.target.value;
+        setDraft(e.target.value);
+      }}
       onFocus={(e) => e.target.select()}
       onKeyDown={(e) => {
         if (e.key === "Enter") {
@@ -1814,21 +2036,23 @@ function ScrubbyNumberInput({
           e.currentTarget.blur();
         }
         if (e.key === "Escape") {
-          setDraft(String(value));
+          const reverted = String(value);
+          draftRef.current = reverted;
+          setDraft(reverted);
           skipBlurRef.current = true;
           e.currentTarget.blur();
         }
         if (e.key === "ArrowUp") {
           e.preventDefault();
           const step = e.shiftKey ? 10 : 1;
-          const parsed = Number(draft);
+          const parsed = Number(draftRef.current);
           const base = Number.isFinite(parsed) ? parsed : value;
           onChange(clamp(base + step, min, max));
         }
         if (e.key === "ArrowDown") {
           e.preventDefault();
           const step = e.shiftKey ? 10 : 1;
-          const parsed = Number(draft);
+          const parsed = Number(draftRef.current);
           const base = Number.isFinite(parsed) ? parsed : value;
           onChange(clamp(base - step, min, max));
         }

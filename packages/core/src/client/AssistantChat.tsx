@@ -37,9 +37,14 @@ import React, {
 import { LLM_MISSING_CREDENTIALS_MESSAGE } from "../agent/engine/credential-errors.js";
 import type { ReasoningEffort } from "../shared/reasoning-effort.js";
 import {
+  ACTIVE_RUN_STATE_EVENT,
+  clearActiveRunIfMatches,
+  getActiveRunActivityTool,
   getActiveRun,
   resolveReconnectAfterSeq,
   setActiveRun,
+  type ActiveRunState,
+  updateActiveRunActivity,
   updateActiveRunSeq,
 } from "./active-run-state.js";
 import {
@@ -91,6 +96,7 @@ import {
   getRepoMessage,
   shouldImportServerThreadData,
   dedupeRepoMessagesById,
+  dropEmptyAssistantMessages,
 } from "./chat/repo-helpers.js";
 import {
   BuilderSetupCard,
@@ -228,7 +234,15 @@ function createUserMessageRunConfig(
 
 const PENDING_SELECTION_KEY = "pending-selection-context";
 const ACTIVE_RUN_CLEAR_TIMEOUT_MS = 5_000;
+const ACTIVE_RUN_STUCK_THRESHOLD_MS = 90_000;
 const ACTIVE_RUN_POLL_INTERVAL_MS = 150;
+const AUTO_RESUME_STATUS_TIMEOUT_MS = 30_000;
+// How long a single activity (model call, tool prep, long tool) must stay
+// in-flight before its label is surfaced in the running indicator. Below this
+// the indicator stays a steady "Thinking" so normal fast turns don't flicker
+// through transient labels ("Contacting model", "Preparing X action"); past it
+// the live label appears so a genuinely slow step reads as working, not hung.
+const ACTIVITY_LABEL_REVEAL_DELAY_MS = 6_000;
 const SUBMIT_ENGINE_STATUS_TIMEOUT_MS = 1000;
 
 type ActiveRunLookup = {
@@ -237,15 +251,52 @@ type ActiveRunLookup = {
   threadId?: string;
   status?: string;
   heartbeatAt?: number | null;
+  lastProgressAt?: number | null;
+  serverNow?: number;
 };
 
 function activeRunLooksStale(runInfo: ActiveRunLookup): boolean {
-  const heartbeatAt =
-    typeof runInfo.heartbeatAt === "number" ? runInfo.heartbeatAt : null;
+  const lastProgressAt =
+    typeof runInfo.lastProgressAt === "number" ? runInfo.lastProgressAt : null;
+  const nowMs =
+    typeof runInfo.serverNow === "number" ? runInfo.serverNow : Date.now();
   return (
     runInfo.status === "running" &&
-    heartbeatAt != null &&
-    Date.now() - heartbeatAt > 5000
+    lastProgressAt != null &&
+    nowMs - lastProgressAt > ACTIVE_RUN_STUCK_THRESHOLD_MS
+  );
+}
+
+/**
+ * Decide whether a reconnect should give up with "no progress". The signal is
+ * *time since the last streamed event*, NOT total reconnect duration: a healthy
+ * long-running tool (e.g. image generation, which emits `activity` heartbeats
+ * every few seconds) makes continuous progress and must never be aborted just
+ * for running longer than the threshold. Only genuine silence for the full
+ * stuck threshold counts as stuck. Pure + exported so the decision is unit
+ * testable without driving the whole reconnect lifecycle.
+ */
+export function reconnectProgressTimedOut(args: {
+  lastProgressAt: number;
+  now: number;
+  thresholdMs?: number;
+}): boolean {
+  const threshold = args.thresholdMs ?? ACTIVE_RUN_STUCK_THRESHOLD_MS;
+  return args.now - args.lastProgressAt >= threshold;
+}
+
+function activeRunMatchesThread(
+  state: ActiveRunState | null,
+  threadId: string | undefined,
+): boolean {
+  return Boolean(threadId && state?.threadId === threadId && state.runId);
+}
+
+function isAssistantUiDuplicateMessageIdError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error ?? "");
+  return (
+    message.includes("MessageRepository") &&
+    message.includes("same id already exists")
   );
 }
 
@@ -295,14 +346,13 @@ async function waitForThreadRunToClear(apiUrl: string, threadId?: string) {
         `${apiUrl}/runs/active?threadId=${encodeURIComponent(threadId)}`,
       );
       if (res.ok) {
-        const info = await res.json();
-        const heartbeatAt =
-          typeof info?.heartbeatAt === "number" ? info.heartbeatAt : null;
-        const stale =
-          info?.status === "running" &&
-          heartbeatAt != null &&
-          Date.now() - heartbeatAt > 5000;
-        if (!info?.active || info?.status !== "running" || stale) return;
+        const info = (await res.json()) as ActiveRunLookup;
+        if (
+          !info?.active ||
+          info?.status !== "running" ||
+          activeRunLooksStale(info)
+        )
+          return;
       }
     } catch {
       // Transient poll failure — try again until the short grace period ends.
@@ -516,6 +566,23 @@ function reconnectContentFollowKey(content: ContentPart[]): string {
   return content.map(contentPartFollowKey).join("|");
 }
 
+export function reconnectActivityFallbackContent(
+  toolName: string | null | undefined,
+): ContentPart[] {
+  const tool = toolName?.trim();
+  if (!tool) return [];
+  return [
+    {
+      type: "tool-call",
+      toolCallId: `reconnect-activity:${tool}`,
+      toolName: tool,
+      argsText: "",
+      args: {},
+      activity: true,
+    },
+  ];
+}
+
 const RECOVERY_USER_MESSAGE_PREFIXES = [
   "Continue from where you left off",
   "Continue from where you stopped",
@@ -564,6 +631,54 @@ export function resolveAssistantChatSubmitIntent({
   return requestedIntent ?? "immediate";
 }
 
+export function resolveAssistantChatRunningState({
+  forceStopped,
+  isRuntimeRunning,
+  isReconnecting,
+  optimisticRunning,
+  isAutoResuming,
+  hasActiveServerRun,
+}: {
+  forceStopped: boolean;
+  isRuntimeRunning: boolean;
+  isReconnecting: boolean;
+  optimisticRunning: boolean;
+  isAutoResuming: boolean;
+  hasActiveServerRun?: boolean;
+}): { isRunning: boolean; showRunningInUI: boolean } {
+  const isRunning =
+    !forceStopped &&
+    (isRuntimeRunning ||
+      isReconnecting ||
+      optimisticRunning ||
+      Boolean(hasActiveServerRun));
+  return {
+    isRunning,
+    // During auto-continuation, assistant-ui can briefly mark the message done
+    // between chunks even though the adapter is about to POST the next run.
+    // Keep the visible chat state running so the latest assistant message shows
+    // Thinking/Resuming and does not expose footer actions prematurely.
+    showRunningInUI: !forceStopped && (isRunning || isAutoResuming),
+  };
+}
+
+export function resolveAssistantChatRunningStatusLabel({
+  runningActivityLabel,
+  isAutoResuming,
+  isReconnecting,
+  hasReconnectContent,
+}: {
+  runningActivityLabel: string | null | undefined;
+  isAutoResuming: boolean;
+  isReconnecting: boolean;
+  hasReconnectContent: boolean;
+}): string {
+  if (runningActivityLabel) return runningActivityLabel;
+  if (isAutoResuming) return "Resuming";
+  if (isReconnecting && hasReconnectContent) return "Continuing";
+  return "Thinking";
+}
+
 type QueuedMessage = {
   id: string;
   text: string;
@@ -586,8 +701,15 @@ export interface AssistantChatHandle {
   ): void;
   /** Programmatically prefill the composer without submitting. */
   prefillMessage(text: string): void;
-  /** Add or replace keyed context for the next composer submission. */
-  setComposerContextItem(item: AgentChatContextItem): void;
+  /**
+   * Add or replace keyed context for the next composer submission.
+   * Focuses the composer by default; pass `{ focus: false }` for passive
+   * context mirroring (e.g. canvas selection) that must not steal focus.
+   */
+  setComposerContextItem(
+    item: AgentChatContextItem,
+    options?: { focus?: boolean },
+  ): void;
   /** Remove a keyed context item from the composer. */
   removeComposerContextItem(key: string): void;
   /** Clear all staged context items from the composer. */
@@ -849,7 +971,7 @@ function ensureMessageMetadata(repo: any): any {
   // throws "performOp/link: A message with the same id already exists in the
   // parent tree" (Sentry AGENT-NATIVE-BROWSER-2Q) when fed repeated ids. No-op
   // for the normal no-duplicate case. See dedupeRepoMessagesById.
-  repo = dedupeRepoMessagesById(repo);
+  repo = dropEmptyAssistantMessages(dedupeRepoMessagesById(repo));
   if (!repo?.messages || !Array.isArray(repo.messages)) return repo;
   for (const entry of repo.messages) {
     // Handle both wrapped ({ message: { ... } }) and flat ({ role, ... }) formats
@@ -1143,6 +1265,17 @@ const AssistantChatInner = forwardRef<
   );
   const missingApiKey = agentEngineConfigured.missing;
   const isComposerDisabled = missingApiKey || composerDisabled;
+  // Once a provider connects, `useAgentEngineConfigured` flips to "configured"
+  // off the `agent-engine:configured-changed` event. The composer banner is a
+  // separate piece of state that would otherwise only clear on manual dismiss
+  // or the next successful send, so drop the stale "no LLM provider" message
+  // here to match the resolved connection.
+  useEffect(() => {
+    if (agentEngineConfigured.state !== "configured") return;
+    setComposerError((current) =>
+      current === LLM_MISSING_CREDENTIALS_MESSAGE ? null : current,
+    );
+  }, [agentEngineConfigured.state]);
   const missingApiKeySetupAboveComposer =
     missingApiKeySetupLayout === "sidebar";
   // Increments each time the user tries to chat while no LLM is connected.
@@ -1311,29 +1444,112 @@ const AssistantChatInner = forwardRef<
   // True during the 250ms continuation window and startup of the next chunk
   // (adapter's auto-continue delay before POSTing the next chunk).
   const [isAutoResuming, setIsAutoResuming] = useState(false);
+  const autoResumeTimerRef = useRef<number | null>(null);
+  const [optimisticRunning, setOptimisticRunning] = useState(false);
+  const [runningActivityLabel, setRunningActivityLabel] = useState<
+    string | null
+  >(null);
+  const [runningActivityTool, setRunningActivityTool] = useState<string | null>(
+    null,
+  );
+  // Delayed-reveal state for the activity label (see ACTIVITY_LABEL_REVEAL_DELAY_MS).
+  // `latest` holds the most recent activity label; `surfaced` flips true once the
+  // reveal timer fires; `timer` is the pending one-shot reveal.
+  const activityLabelTimerRef = useRef<number | null>(null);
+  const latestActivityLabelRef = useRef<string | null>(null);
+  const activityLabelSurfacedRef = useRef(false);
+  const resetRunningActivity = useCallback(() => {
+    if (activityLabelTimerRef.current !== null) {
+      window.clearTimeout(activityLabelTimerRef.current);
+      activityLabelTimerRef.current = null;
+    }
+    latestActivityLabelRef.current = null;
+    activityLabelSurfacedRef.current = false;
+    setRunningActivityLabel(null);
+    setRunningActivityTool(null);
+    updateActiveRunActivity(null);
+  }, []);
   const [reconnectContent, setReconnectContent] = useState<ContentPart[]>([]);
   // When stop is clicked during reconnect, keep content visible (don't wipe it)
   const [reconnectFrozen, setReconnectFrozen] = useState(false);
   const reconnectRunIdRef = useRef<string | null>(null);
-  const [reconnectAfterSeq, setReconnectAfterSeq] = useState(0);
+  const reconnectTailOnlyRef = useRef(false);
+  const reconnectCanMaterializeRef = useRef(false);
   const reconnectAbortRef = useRef<AbortController | null>(null);
   // Nuclear stop: user clicked stop. Clears the stop button/indicator AND
   // lets new submissions go through immediately — prevents the "stuck
   // queueing forever" state where isReconnecting or isRuntimeRunning gets
   // wedged (e.g. after a tab refresh + stop during reconnect).
   const [forceStopped, setForceStopped] = useState(false);
-  // Real running state — drives submission/queue gating. Treat reconnecting
-  // to an active run the same as running, UNLESS the user has explicitly
-  // clicked stop (forceStopped).
-  const isRunning = !forceStopped && (isRuntimeRunning || isReconnecting);
-  const textStreaming = isRunning || externalStreaming;
-  // UI-only running state — drives the stop button and thinking indicator.
-  const showRunningInUI = isRunning;
+  const [hasActiveServerRun, setHasActiveServerRun] = useState(() =>
+    activeRunMatchesThread(getActiveRun(), threadId),
+  );
+  useEffect(() => {
+    const syncActiveRun = (state = getActiveRun()) => {
+      setHasActiveServerRun(activeRunMatchesThread(state, threadId));
+    };
+    syncActiveRun();
+    const handler = (event: Event) => {
+      const state = (event as CustomEvent<{ state?: ActiveRunState | null }>)
+        .detail?.state;
+      syncActiveRun(state ?? null);
+    };
+    const storageHandler = () => syncActiveRun();
+    window.addEventListener(ACTIVE_RUN_STATE_EVENT, handler);
+    window.addEventListener("storage", storageHandler);
+    return () => {
+      window.removeEventListener(ACTIVE_RUN_STATE_EVENT, handler);
+      window.removeEventListener("storage", storageHandler);
+    };
+  }, [threadId]);
+  // Real running state drives submission/queue gating; UI running also covers
+  // short auto-continuation gaps so the latest assistant message does not flash
+  // into a done state while the agent is still working.
+  const { isRunning, showRunningInUI } = resolveAssistantChatRunningState({
+    forceStopped,
+    isRuntimeRunning,
+    isReconnecting,
+    optimisticRunning,
+    isAutoResuming,
+    hasActiveServerRun,
+  });
+  const textStreaming = showRunningInUI || externalStreaming;
+  // A revealed activity label wins; otherwise keep recovery states calm and
+  // product-facing. Reconnect is transport machinery, so normal replay reads as
+  // "Continuing" instead of exposing "Reconnecting" mid-chat.
+  const runningStatusLabel = resolveAssistantChatRunningStatusLabel({
+    runningActivityLabel,
+    isAutoResuming,
+    isReconnecting,
+    hasReconnectContent: reconnectContent.length > 0,
+  });
+  const reconnectActivityContent = useMemo(
+    () =>
+      (isReconnecting || reconnectFrozen) && reconnectContent.length === 0
+        ? reconnectActivityFallbackContent(runningActivityTool)
+        : [],
+    [
+      isReconnecting,
+      reconnectFrozen,
+      reconnectContent.length,
+      runningActivityTool,
+    ],
+  );
   const lastBroadcastRunningRef = useRef(isRunning);
   const tiptapRef = useRef<TiptapComposerHandle>(null);
   // Stable ref to the "stop active run" action so addToQueue can abort
   // a running turn without adding many unstable closure deps to its dep list.
   const stopActiveRunRef = useRef<() => void>(() => {});
+
+  const markOptimisticRunning = useCallback(() => {
+    setOptimisticRunning(true);
+    if (typeof window === "undefined") return;
+    window.dispatchEvent(
+      new CustomEvent("agentNative.chatRunning", {
+        detail: { isRunning: true, tabId: tabId || threadId },
+      }),
+    );
+  }, [tabId, threadId]);
 
   useEffect(() => {
     if (lastBroadcastRunningRef.current === isRunning) return;
@@ -1344,6 +1560,20 @@ const AssistantChatInner = forwardRef<
       }),
     );
   }, [isRunning, tabId, threadId]);
+
+  useEffect(() => {
+    if (!optimisticRunning) return;
+    if (!forceStopped && !isRuntimeRunning && !isReconnecting) return;
+    setOptimisticRunning(false);
+  }, [forceStopped, isReconnecting, isRuntimeRunning, optimisticRunning]);
+
+  useEffect(() => {
+    if (!optimisticRunning) return;
+    const timer = window.setTimeout(() => {
+      setOptimisticRunning(false);
+    }, 15_000);
+    return () => window.clearTimeout(timer);
+  }, [optimisticRunning]);
 
   // ─── Chat persistence ──────────────────────────────────────────────
   const hasRestoredRef = useRef(false);
@@ -1401,6 +1631,7 @@ const AssistantChatInner = forwardRef<
       // re-evaluates against the runtime exactly as before instead of
       // short-circuiting to the rejected repo.
       let settled = true;
+      let settledRepo = repo;
       if (repo?.messages?.length > 0) {
         let shouldImport = true;
         try {
@@ -1415,7 +1646,9 @@ const AssistantChatInner = forwardRef<
           if (options?.markTitleGenerated) {
             titleGeneratedRef.current = true;
           }
-          threadRuntime.import(ensureMessageMetadata(repo));
+          const importRepo = ensureMessageMetadata(repo);
+          threadRuntime.import(importRepo);
+          settledRepo = importRepo;
         } else {
           settled = false;
         }
@@ -1436,7 +1669,7 @@ const AssistantChatInner = forwardRef<
       }
       if (settled && signature !== null) {
         lastImportedSignatureRef.current = signature;
-        lastImportedRepoRef.current = repo;
+        lastImportedRepoRef.current = settledRepo;
       }
       return repo;
     },
@@ -1467,9 +1700,40 @@ const AssistantChatInner = forwardRef<
     }
   }, [apiUrl, importThreadData, loadHistoryRepository, threadId]);
 
+  const exportCleanThreadRepo = useCallback(
+    () =>
+      ensureMessageMetadata(normalizeThreadRepository(threadRuntime.export())),
+    [threadRuntime],
+  );
+
+  const appendThreadMessage = useCallback(
+    (message: Parameters<typeof threadRuntime.append>[0]) => {
+      try {
+        threadRuntime.append(message);
+        return;
+      } catch (error) {
+        if (!isAssistantUiDuplicateMessageIdError(error)) throw error;
+      }
+
+      try {
+        threadRuntime.import(exportCleanThreadRepo());
+      } catch {
+        // Best effort cleanup; retry below handles the still-duplicated case.
+      }
+
+      try {
+        threadRuntime.append(message);
+      } catch (retryError) {
+        if (isAssistantUiDuplicateMessageIdError(retryError)) return;
+        throw retryError;
+      }
+    },
+    [exportCleanThreadRepo, threadRuntime],
+  );
+
   const cacheCurrentThreadSnapshot = useCallback(() => {
     if (!threadId || messages.length === 0) return;
-    const repo = threadRuntime.export();
+    const repo = exportCleanThreadRepo();
     const threadData = JSON.stringify(stripBase64FromRepo(repo));
     const { title, preview } = extractThreadMeta(repo);
     writeCachedThreadSnapshot(apiUrl, threadId, {
@@ -1478,7 +1742,7 @@ const AssistantChatInner = forwardRef<
       preview,
       messageCount: messages.length,
     });
-  }, [apiUrl, messages.length, threadId, threadRuntime]);
+  }, [apiUrl, exportCleanThreadRepo, messages.length, threadId]);
 
   useBrowserLayoutEffect(() => {
     if (hasImportedInitialCachedSnapshotRef.current) return;
@@ -1526,11 +1790,15 @@ const AssistantChatInner = forwardRef<
 
       reconnectRunIdRef.current = runId;
       const afterSeq = resolveReconnectAfterSeq(threadId, runId);
-      setReconnectAfterSeq(afterSeq);
+      reconnectTailOnlyRef.current = afterSeq > 0;
+      reconnectCanMaterializeRef.current = afterSeq === 0;
+      const storedActivityTool = getActiveRunActivityTool(threadId, runId);
+      setRunningActivityTool(storedActivityTool);
       setActiveRun({
         threadId,
         runId,
         lastSeq: afterSeq > 0 ? afterSeq - 1 : -1,
+        ...(storedActivityTool ? { activityTool: storedActivityTool } : {}),
       });
       setIsReconnecting(true);
       setReconnectFrozen(false);
@@ -1565,11 +1833,32 @@ const AssistantChatInner = forwardRef<
       }, 1000);
 
       let reconnectTimedOut = false;
-      const maxReconnectTimer = setTimeout(() => {
+      // Idle deadline, NOT a total-duration cap. A long-but-healthy run (image
+      // generation emits `activity` heartbeats every few seconds) keeps
+      // advancing `lastReconnectProgressAt`, so it is never aborted for simply
+      // taking longer than the threshold. Only true silence for the full stuck
+      // threshold trips it — the same semantics as `activeRunLooksStale` and the
+      // SSE-level no-progress timeout. `markReconnectProgress` resets it on every
+      // streamed event (see the `onSeq` callback below, which fires for every
+      // event including activity, for both fresh and tail-resume reconnects).
+      let lastReconnectProgressAt = Date.now();
+      const markReconnectProgress = () => {
+        lastReconnectProgressAt = Date.now();
+      };
+      const idleCheck = setInterval(() => {
+        if (
+          !reconnectProgressTimedOut({
+            lastProgressAt: lastReconnectProgressAt,
+            now: Date.now(),
+          })
+        ) {
+          return;
+        }
         reconnectTimedOut = true;
         abortCtrl.abort();
         clearInterval(watchdog);
-      }, 20_000);
+        clearInterval(idleCheck);
+      }, 1000);
 
       const streamReconnect = async () => {
         let noProgressDuringReconnect = false;
@@ -1594,7 +1883,6 @@ const AssistantChatInner = forwardRef<
             let rafPending = false;
             let latestSnapshot: ContentPart[] = [];
             const scheduleUpdate = (snapshot: ContentPart[]) => {
-              if (afterSeq > 0) return;
               latestSnapshot = snapshot;
               if (rafPending) return;
               rafPending = true;
@@ -1610,7 +1898,10 @@ const AssistantChatInner = forwardRef<
               toolCallCounter,
               tabId,
               scheduleUpdate,
-              (seq) => updateActiveRunSeq(seq),
+              (seq) => {
+                markReconnectProgress();
+                updateActiveRunSeq(seq);
+              },
             );
             if (afterSeq === 0) {
               setReconnectContent([...content]);
@@ -1634,7 +1925,7 @@ const AssistantChatInner = forwardRef<
             window.clearInterval(threadPollInterval);
           }
           clearInterval(watchdog);
-          clearTimeout(maxReconnectTimer);
+          clearInterval(idleCheck);
         }
 
         if (noProgressDuringReconnect && reconnectRunIdRef.current === runId) {
@@ -1666,23 +1957,29 @@ const AssistantChatInner = forwardRef<
             await refreshThreadFromServer();
             setReconnectContent([]);
             setReconnectFrozen(false);
+            reconnectTailOnlyRef.current = false;
           } else {
             settleInterruptedToolCalls(latestContent);
             setReconnectContent([...latestContent]);
             setReconnectFrozen(latestContent.length > 0);
+            reconnectCanMaterializeRef.current = latestContent.length > 0;
           }
           setRunErrorInfo({
             message:
-              "The previous agent run stopped producing visible progress while reconnecting, so it was stopped before it could keep looping.",
+              "The previous agent run stopped producing visible progress during recovery, so it was stopped before it could keep looping.",
             errorCode: "reconnect_no_progress",
             recoverable: true,
             runId,
           });
           setDismissedRunErrorKey(null);
+          clearActiveRunIfMatches(threadId, runId);
           reconnectAbortRef.current = null;
           setIsReconnecting(false);
           reconnectRunIdRef.current = null;
-          setReconnectAfterSeq(0);
+          reconnectTailOnlyRef.current = false;
+          if (afterSeq > 0) {
+            reconnectCanMaterializeRef.current = false;
+          }
           window.dispatchEvent(
             new CustomEvent("agentNative.chatRunning", {
               detail: { isRunning: false, tabId: tabId || threadId },
@@ -1691,7 +1988,7 @@ const AssistantChatInner = forwardRef<
           return;
         }
 
-        setReconnectFrozen(true);
+        setReconnectFrozen(afterSeq === 0);
         let loaded = false;
         for (let attempt = 0; attempt < 10; attempt++) {
           await new Promise((r) => setTimeout(r, 500));
@@ -1700,16 +1997,25 @@ const AssistantChatInner = forwardRef<
           if (repoHasAssistantMessage(repo)) {
             setReconnectContent([]);
             setReconnectFrozen(false);
+            reconnectCanMaterializeRef.current = false;
             loaded = true;
             break;
           }
         }
 
         if (reconnectRunIdRef.current === runId) {
+          if (afterSeq > 0) {
+            setReconnectContent([]);
+            setReconnectFrozen(false);
+          }
+          clearActiveRunIfMatches(threadId, runId);
           reconnectAbortRef.current = null;
           setIsReconnecting(false);
           reconnectRunIdRef.current = null;
-          setReconnectAfterSeq(0);
+          reconnectTailOnlyRef.current = false;
+          if (loaded || afterSeq > 0 || latestContent.length === 0) {
+            reconnectCanMaterializeRef.current = false;
+          }
           window.dispatchEvent(
             new CustomEvent("agentNative.chatRunning", {
               detail: { isRunning: false, tabId: tabId || threadId },
@@ -1717,7 +2023,12 @@ const AssistantChatInner = forwardRef<
           );
         }
         if (!loaded) {
-          await refreshThreadFromServer();
+          const repo = await refreshThreadFromServer();
+          if (afterSeq > 0 || repoHasAssistantMessage(repo)) {
+            setReconnectContent([]);
+            setReconnectFrozen(false);
+            reconnectCanMaterializeRef.current = false;
+          }
         }
       };
 
@@ -1731,6 +2042,7 @@ const AssistantChatInner = forwardRef<
     useCallback(async (): Promise<boolean> => {
       if (!threadId) return false;
       try {
+        const storedActiveRun = getActiveRun();
         const runRes = await fetch(
           `${apiUrl}/runs/active?threadId=${encodeURIComponent(threadId)}`,
         );
@@ -1741,6 +2053,11 @@ const AssistantChatInner = forwardRef<
           runInfo.status !== "running" ||
           activeRunLooksStale(runInfo)
         ) {
+          if (storedActiveRun?.threadId === threadId) {
+            clearActiveRunIfMatches(threadId, storedActiveRun.runId);
+          } else if (runInfo.runId) {
+            clearActiveRunIfMatches(threadId, String(runInfo.runId));
+          }
           await refreshThreadFromServer();
           return false;
         }
@@ -1975,7 +2292,7 @@ const AssistantChatInner = forwardRef<
     const timeSinceLastSave = now - lastSaveTimeRef.current;
     if (timeSinceLastSave < 5000) return;
 
-    const repo = threadRuntime.export();
+    const repo = exportCleanThreadRepo();
     const { title, preview } = extractThreadMeta(repo);
     const threadData = JSON.stringify(stripBase64FromRepo(repo));
     const snapshot = {
@@ -1989,7 +2306,7 @@ const AssistantChatInner = forwardRef<
     savedTitleRef.current = title;
     writeCachedThreadSnapshot(apiUrl, threadId, snapshot);
     onSaveThreadRef.current(threadId, snapshot);
-  }, [apiUrl, messages, isRunning, threadId, threadRuntime]);
+  }, [apiUrl, exportCleanThreadRepo, messages, isRunning, threadId]);
 
   // Persist full thread data after each completed response
   useEffect(() => {
@@ -1997,7 +2314,7 @@ const AssistantChatInner = forwardRef<
     if (isRunning) return;
     if (messages.length === 0) return;
 
-    const repo = threadRuntime.export();
+    const repo = exportCleanThreadRepo();
 
     if (threadId && onSaveThreadRef.current) {
       // Save to server via the hook callback
@@ -2019,7 +2336,7 @@ const AssistantChatInner = forwardRef<
         sessionStorage.setItem(storageKey, JSON.stringify(repo));
       } catch {}
     }
-  }, [apiUrl, messages, isRunning, threadId, tabId, threadRuntime]);
+  }, [apiUrl, exportCleanThreadRepo, messages, isRunning, threadId, tabId]);
 
   useEffect(() => {
     onMessageCountChange?.(messages.length);
@@ -2113,6 +2430,8 @@ const AssistantChatInner = forwardRef<
 
   useEffect(() => {
     if (!authError) return;
+    const shouldCaptureStuckAuthCard =
+      authSessionAvailable || authError.sessionExpired;
     // Auto-recovery (`checkAuthSession`) runs immediately + at 250ms. If the
     // card is still showing 3 seconds later, recovery failed and the user
     // is about to hit "Refresh chat" — that's the "Reload UI required"
@@ -2121,6 +2440,7 @@ const AssistantChatInner = forwardRef<
       void (async () => {
         const hasSession = await checkAuthSession();
         if (hasSession) return;
+        if (!shouldCaptureStuckAuthCard) return;
         captureError(new Error("agent-chat:auth_error_card_stuck"), {
           tags: {
             context: "agent-native-chat",
@@ -2192,11 +2512,9 @@ const AssistantChatInner = forwardRef<
     return () => window.removeEventListener("agent-chat:run-error", handler);
   }, [tabId]);
 
-  // Real activity means the next chunk has started — leave the auto-resume
-  // ("Resuming") state so the indicator settles back to "Thinking". The
-  // activity label itself is intentionally not surfaced: the running
-  // indicator stays a steady "Thinking" rather than flipping through
-  // transient step labels.
+  // Real activity means the next chunk has started. Surface longer-lived
+  // activity such as "Still generating image" so active-run reconnects do not
+  // look like failures while the server is still making progress.
   useEffect(() => {
     const handler = (e: Event) => {
       const detail = (e as CustomEvent).detail as {
@@ -2205,13 +2523,46 @@ const AssistantChatInner = forwardRef<
         tabId?: string;
       };
       if (tabId && detail?.tabId && detail.tabId !== tabId) return;
-      if (typeof detail?.label === "string" && detail.label.trim()) {
-        setIsAutoResuming(false);
+      const label =
+        typeof detail?.label === "string" ? detail.label.trim() : "";
+      if (!label) return;
+      const tool = typeof detail?.tool === "string" ? detail.tool.trim() : "";
+      setIsAutoResuming(false);
+      setRunningActivityTool(tool || null);
+      updateActiveRunActivity(tool || null);
+      latestActivityLabelRef.current = label;
+      // Already past the delay → keep the visible label current.
+      if (activityLabelSurfacedRef.current) {
+        setRunningActivityLabel(label);
+        return;
+      }
+      // Not yet surfaced → arm a single reveal timer on the FIRST activity of
+      // this in-flight period. A burst of quick steps that all finish (clear)
+      // before the timer fires never surfaces anything, so normal fast turns
+      // stay a steady "Thinking". A step still in-flight at the deadline reveals
+      // the latest label so a slow operation reads as working, not hung.
+      if (activityLabelTimerRef.current === null) {
+        activityLabelTimerRef.current = window.setTimeout(() => {
+          activityLabelTimerRef.current = null;
+          activityLabelSurfacedRef.current = true;
+          if (latestActivityLabelRef.current) {
+            setRunningActivityLabel(latestActivityLabelRef.current);
+          }
+        }, ACTIVITY_LABEL_REVEAL_DELAY_MS);
       }
     };
+    const clear = (e: Event) => {
+      const detail = (e as CustomEvent).detail as { tabId?: string };
+      if (tabId && detail?.tabId && detail.tabId !== tabId) return;
+      resetRunningActivity();
+    };
     window.addEventListener("agent-chat:activity", handler);
-    return () => window.removeEventListener("agent-chat:activity", handler);
-  }, [tabId]);
+    window.addEventListener("agent-chat:activity-clear", clear);
+    return () => {
+      window.removeEventListener("agent-chat:activity", handler);
+      window.removeEventListener("agent-chat:activity-clear", clear);
+    };
+  }, [resetRunningActivity, tabId]);
 
   // Show "Resuming…" during the adapter's auto-continuation window (the
   // ~250ms gap between the end of one serverless chunk and the POST for the
@@ -2220,19 +2571,41 @@ const AssistantChatInner = forwardRef<
     const handler = (e: Event) => {
       const detail = (e as CustomEvent).detail as { tabId?: string };
       if (tabId && detail?.tabId && detail.tabId !== tabId) return;
+      if (autoResumeTimerRef.current !== null) {
+        window.clearTimeout(autoResumeTimerRef.current);
+      }
       setIsAutoResuming(true);
+      autoResumeTimerRef.current = window.setTimeout(() => {
+        autoResumeTimerRef.current = null;
+        setIsAutoResuming(false);
+      }, AUTO_RESUME_STATUS_TIMEOUT_MS);
     };
     window.addEventListener("agent-chat:auto-continue", handler);
-    return () =>
+    return () => {
+      if (autoResumeTimerRef.current !== null) {
+        window.clearTimeout(autoResumeTimerRef.current);
+        autoResumeTimerRef.current = null;
+      }
       window.removeEventListener("agent-chat:auto-continue", handler);
+    };
   }, [tabId]);
 
-  // Clear auto-resume state when the run stops.
+  // Clear auto-resume once the next chunk has visibly started or the user stops.
+  // Do not clear solely because `isRunning` is false: auto-resume intentionally
+  // covers that between-chunk gap so the chat never looks idle while work is
+  // still scheduled.
   useEffect(() => {
-    if (!isRunning) {
+    if (isRunning || forceStopped) {
+      if (autoResumeTimerRef.current !== null) {
+        window.clearTimeout(autoResumeTimerRef.current);
+        autoResumeTimerRef.current = null;
+      }
       setIsAutoResuming(false);
     }
-  }, [isRunning]);
+    if (!isRunning && !isAutoResuming) {
+      resetRunningActivity();
+    }
+  }, [forceStopped, isAutoResuming, isRunning, resetRunningActivity]);
 
   // Auto-dequeue: when the agent is idle, send the next queued message. This
   // intentionally does not depend on observing the running -> idle transition:
@@ -2280,7 +2653,7 @@ const AssistantChatInner = forwardRef<
             next.attachments && next.attachments.length > 0
               ? next.attachments
               : (imageAttachments ?? []);
-          threadRuntime.append({
+          appendThreadMessage({
             role: "user",
             content: [{ type: "text", text: next.text }],
             ...(messageAttachments.length > 0
@@ -2334,12 +2707,12 @@ const AssistantChatInner = forwardRef<
     };
   }, [
     apiUrl,
+    appendThreadMessage,
     applyLocalQueuedMessages,
     isRestoring,
     isRunning,
     queuedMessages,
     threadId,
-    threadRuntime,
   ]);
 
   // Clear frozen reconnect content + forceStopped only on the false→true
@@ -2355,6 +2728,7 @@ const AssistantChatInner = forwardRef<
       if (reconnectFrozen) {
         setReconnectFrozen(false);
         setReconnectContent([]);
+        reconnectCanMaterializeRef.current = false;
       }
       if (forceStopped) {
         setForceStopped(false);
@@ -2375,6 +2749,11 @@ const AssistantChatInner = forwardRef<
 
   const materializeFrozenReconnectContent = useCallback(() => {
     if (!reconnectFrozen || reconnectContent.length === 0) return;
+    if (!reconnectCanMaterializeRef.current) {
+      setReconnectFrozen(false);
+      setReconnectContent([]);
+      return;
+    }
     try {
       const frozenContent = cloneContentParts(reconnectContent);
       settleInterruptedToolCalls(frozenContent);
@@ -2415,6 +2794,7 @@ const AssistantChatInner = forwardRef<
       threadRuntime.import(ensureMessageMetadata(repo));
       setReconnectFrozen(false);
       setReconnectContent([]);
+      reconnectCanMaterializeRef.current = false;
     } catch (err) {
       captureError(err, {
         tags: {
@@ -2443,6 +2823,7 @@ const AssistantChatInner = forwardRef<
   // all the stop-related state in its own dep array.
   const stopActiveRun = useCallback(() => {
     setForceStopped(true);
+    setOptimisticRunning(false);
     const activeRun = getActiveRun();
     const runIdToAbort = reconnectRunIdRef.current ?? activeRun?.runId;
     userStoppedRunRef.current = {
@@ -2452,6 +2833,7 @@ const AssistantChatInner = forwardRef<
     setRunErrorInfo(null);
     setDismissedRunErrorKey(null);
     if (runIdToAbort) {
+      if (threadId) clearActiveRunIfMatches(threadId, runIdToAbort);
       fetch(`${apiUrl}/runs/${encodeURIComponent(runIdToAbort)}/abort`, {
         method: "POST",
       }).catch(() => {});
@@ -2460,9 +2842,19 @@ const AssistantChatInner = forwardRef<
       reconnectAbortRef.current?.abort();
       reconnectAbortRef.current = null;
       reconnectRunIdRef.current = null;
-      setReconnectAfterSeq(0);
       setIsReconnecting(false);
-      setReconnectFrozen(reconnectContent.length > 0);
+      const shouldFreezeReconnectContent =
+        !reconnectTailOnlyRef.current &&
+        reconnectCanMaterializeRef.current &&
+        reconnectContent.length > 0;
+      if (shouldFreezeReconnectContent) {
+        setReconnectFrozen(true);
+      } else {
+        setReconnectFrozen(false);
+        setReconnectContent([]);
+        reconnectCanMaterializeRef.current = false;
+      }
+      reconnectTailOnlyRef.current = false;
     }
     threadRuntime.cancelRun();
     if (typeof window !== "undefined") {
@@ -2683,19 +3075,25 @@ const AssistantChatInner = forwardRef<
           },
         ]);
       } else {
-        threadRuntime.append({
-          role: "user",
-          content: [{ type: "text", text: submittedText }],
-          ...(messageAttachments.length > 0
-            ? { attachments: messageAttachments }
-            : {}),
-          ...createUserMessageRunConfig(
-            references,
-            effectiveRequestMode,
-            recoveryAction,
-            trackInRunsTray,
-          ),
-        } as Parameters<typeof threadRuntime.append>[0]);
+        markOptimisticRunning();
+        try {
+          appendThreadMessage({
+            role: "user",
+            content: [{ type: "text", text: submittedText }],
+            ...(messageAttachments.length > 0
+              ? { attachments: messageAttachments }
+              : {}),
+            ...createUserMessageRunConfig(
+              references,
+              effectiveRequestMode,
+              recoveryAction,
+              trackInRunsTray,
+            ),
+          } as Parameters<typeof threadRuntime.append>[0]);
+        } catch (error) {
+          setOptimisticRunning(false);
+          throw error;
+        }
       }
       if (submitted.includesContext) {
         updateComposerContextItems(() => []);
@@ -2708,7 +3106,8 @@ const AssistantChatInner = forwardRef<
       execMode,
       isRunning,
       materializeFrozenReconnectContent,
-      threadRuntime,
+      markOptimisticRunning,
+      appendThreadMessage,
       updateComposerContextItems,
     ],
   );
@@ -2738,9 +3137,17 @@ const AssistantChatInner = forwardRef<
         tiptapRef.current?.setText(text);
         tiptapRef.current?.focus();
       },
-      setComposerContextItem(item: AgentChatContextItem) {
+      setComposerContextItem(
+        item: AgentChatContextItem,
+        options?: { focus?: boolean },
+      ) {
         stageComposerContextItem(item);
-        tiptapRef.current?.focus();
+        // Only pull focus into the composer for explicit user gestures.
+        // Passive context mirroring (e.g. a canvas selection staged with
+        // openSidebar:false) must not steal focus — doing so blurs an active
+        // inline text editor living in the design canvas iframe and tears it
+        // down the instant it opens.
+        if (options?.focus !== false) tiptapRef.current?.focus();
       },
       removeComposerContextItem(key: string) {
         removeComposerContextItem(key);
@@ -2767,14 +3174,14 @@ const AssistantChatInner = forwardRef<
         addToQueue(text, images);
       },
       isRunning() {
-        return thread.isRunning;
+        return isRunning;
       },
       focusComposer() {
         tiptapRef.current?.focus();
       },
       exportThreadSnapshot() {
         if (messages.length === 0) return null;
-        const repo = threadRuntime.export();
+        const repo = exportCleanThreadRepo();
         const { title, preview } = extractThreadMeta(repo);
         return {
           threadData: JSON.stringify(repo),
@@ -2786,10 +3193,10 @@ const AssistantChatInner = forwardRef<
     }),
     [
       addToQueue,
+      exportCleanThreadRepo,
+      isRunning,
       messages.length,
       stageComposerContextItem,
-      thread.isRunning,
-      threadRuntime,
     ],
   );
 
@@ -2959,6 +3366,12 @@ const AssistantChatInner = forwardRef<
     centeredEmptyState && !isRestoring && hasThreadFooterSlot;
   const showComposerSlot =
     Boolean(composerSlot) && (!centerComposerWhenEmpty || centeredEmptyState);
+  const compactMissingKeyEmptyState =
+    missingApiKeySetupAboveComposer &&
+    missingApiKey &&
+    !authError &&
+    showEmptyState &&
+    !isRestoring;
 
   // Clarifying-question surface: the `ask-question` action writes a
   // GuidedQuestionPayload to application_state under "guided-questions". The
@@ -2986,7 +3399,8 @@ const AssistantChatInner = forwardRef<
   const approvalCtx = useMemo<ApprovalContextValue>(
     () => ({
       onApprove: (approvalKey: string) => {
-        threadRuntime.append({
+        markOptimisticRunning();
+        appendThreadMessage({
           role: "user",
           content: [
             {
@@ -3008,18 +3422,22 @@ const AssistantChatInner = forwardRef<
         } as Parameters<typeof threadRuntime.append>[0]);
       },
     }),
-    [threadRuntime, execMode],
+    [appendThreadMessage, execMode, markOptimisticRunning],
   );
 
   return (
     <CheckpointContext.Provider value={checkpointCtx}>
       <MessageActionsContext.Provider value={messageActionsCtx}>
         <ApprovalContext.Provider value={approvalCtx}>
-          <ChatRunningContext.Provider value={isRunning}>
+          <ChatRunningContext.Provider value={showRunningInUI}>
             <TextStreamingContext.Provider value={textStreaming}>
               <div
                 data-agent-empty-state={
-                  centeredEmptyState ? "centered" : undefined
+                  centeredEmptyState
+                    ? "centered"
+                    : compactMissingKeyEmptyState
+                      ? "compact-setup"
+                      : undefined
                 }
                 className={cn(
                   "relative flex flex-1 flex-col h-full min-h-0 text-foreground",
@@ -3201,7 +3619,7 @@ const AssistantChatInner = forwardRef<
                                   setMissingKeyBouncePulse((p) => p + 1);
                                   return;
                                 }
-                                threadRuntime.append({
+                                appendThreadMessage({
                                   role: "user",
                                   content: [{ type: "text", text: suggestion }],
                                 });
@@ -3288,23 +3706,18 @@ const AssistantChatInner = forwardRef<
                         />
                       )}
                       {(isReconnecting || reconnectFrozen) &&
-                        reconnectAfterSeq === 0 &&
                         reconnectContent.length > 0 && (
                           <ReconnectStreamMessage content={reconnectContent} />
                         )}
+                      {(isReconnecting || reconnectFrozen) &&
+                        reconnectContent.length === 0 &&
+                        reconnectActivityContent.length > 0 && (
+                          <ReconnectStreamMessage
+                            content={reconnectActivityContent}
+                          />
+                        )}
                       {showRunningInUI && (
-                        <RunningActivityStatus
-                          label={
-                            isReconnecting
-                              ? "Reconnecting"
-                              : isAutoResuming
-                                ? "Resuming"
-                                : // Keep a steady "Thinking" while the model works —
-                                  // never flip through transient activity labels
-                                  // (e.g. "Contacting model", "Preparing X action").
-                                  "Thinking"
-                          }
-                        />
+                        <RunningActivityStatus label={runningStatusLabel} />
                       )}
                       {queuedMessages.map((msg) => {
                         const displayText = msg.text
@@ -3375,27 +3788,25 @@ const AssistantChatInner = forwardRef<
                   </div>
                 ) : null}
                 {guidedQuestions && guidedQuestions.length > 0 && (
-                  <div className="shrink-0 px-3 pb-2 pt-1">
-                    <div className="rounded-lg border border-border bg-card/60 shadow-sm">
-                      <GuidedQuestionFlow
-                        questions={guidedQuestions}
-                        onSubmit={handleGuidedQuestionsSubmit}
-                        onSkip={handleGuidedQuestionsSkip}
-                        {...(guidedQuestionsTitle
-                          ? { title: guidedQuestionsTitle }
-                          : {})}
-                        {...(guidedQuestionsDescription
-                          ? { description: guidedQuestionsDescription }
-                          : {})}
-                        {...(guidedQuestionsSkipLabel
-                          ? { skipLabel: guidedQuestionsSkipLabel }
-                          : {})}
-                        {...(guidedQuestionsSubmitLabel
-                          ? { submitLabel: guidedQuestionsSubmitLabel }
-                          : {})}
-                        className="h-auto items-stretch justify-stretch bg-transparent"
-                      />
-                    </div>
+                  <div className="shrink-0 px-3 pb-2">
+                    <GuidedQuestionFlow
+                      questions={guidedQuestions}
+                      onSubmit={handleGuidedQuestionsSubmit}
+                      onSkip={handleGuidedQuestionsSkip}
+                      {...(guidedQuestionsTitle
+                        ? { title: guidedQuestionsTitle }
+                        : {})}
+                      {...(guidedQuestionsDescription
+                        ? { description: guidedQuestionsDescription }
+                        : {})}
+                      {...(guidedQuestionsSkipLabel
+                        ? { skipLabel: guidedQuestionsSkipLabel }
+                        : {})}
+                      {...(guidedQuestionsSubmitLabel
+                        ? { submitLabel: guidedQuestionsSubmitLabel }
+                        : {})}
+                      className="h-auto items-stretch justify-stretch bg-transparent"
+                    />
                   </div>
                 )}
                 {showPlanModeCallout && (

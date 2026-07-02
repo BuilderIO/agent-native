@@ -108,6 +108,30 @@ describe("open-asset-picker", () => {
     expect(writeAppStateMock).not.toHaveBeenCalled();
   });
 
+  it("supports a vertical embedded picker layout", async () => {
+    getRequestRunContextMock.mockReturnValue({ browserTabId: "tab-vertical" });
+
+    const result = await action.run(
+      {
+        callerAppId: "design",
+        layout: "vertical",
+      },
+      { caller: "tool" } as any,
+    );
+
+    expect(result).toMatchObject({
+      layout: "vertical",
+      url: "/library?__an_picker=1&mediaType=image&callerAppId=design&layout=vertical",
+    });
+    expect(writeAppStateMock).toHaveBeenCalledWith(
+      "navigate:tab-vertical",
+      expect.objectContaining({
+        path: result.path,
+        layout: "vertical",
+      }),
+    );
+  });
+
   it("does not write a global navigation command when no tab target exists", async () => {
     const result = await action.run(
       {

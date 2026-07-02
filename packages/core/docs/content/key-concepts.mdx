@@ -13,7 +13,7 @@ Every agent-native app is three things working together:
 
 > **Agent** — Autonomous AI that reads data, writes data, runs actions, and modifies code. Customizable with skills and instructions.
 >
-> **Application** — The product surface around the agent. This may be action-only at first, rich chat, a small control plane, or a full React UI with dashboards, flows, and visualizations.
+> **Application** — The product surface around the agent. This may start as chat, add native inline results, grow into a small control plane, or become a full React UI with dashboards, flows, and visualizations.
 >
 > **Computer** — Database, browser, code execution. Agents work directly with SQL and built-in tools; MCP servers are optional add-ons, not the foundation.
 
@@ -31,7 +31,7 @@ Every agent-native app is three things working together:
     <div class="diagram-card">
       <span class="diagram-pill">Application</span
       ><small class="diagram-muted"
-        >action-only, chat, control plane, or full React UI</small
+        >chat, inline results, control plane, or full React UI</small
       >
     </div>
   </div>
@@ -78,12 +78,12 @@ Every agent-native app is three things working together:
 
 </Diagram>
 
-Headless apps can run the same production app-agent loop from the folder with `pnpm agent`, while UI apps mount the embedded agent panel and run locally with `pnpm dev`. In the cloud, Builder.io provides a managed frame — the environment that hosts the agent next to your app — with collaboration, visual editing, and managed infrastructure for teams.
+Automation-first apps can run the same production app-agent loop from the folder with `pnpm agent`, while UI apps mount the embedded agent panel and run locally with `pnpm dev`. In the cloud, Builder.io provides a managed frame — the environment that hosts the agent next to your app — with collaboration, visual editing, and managed infrastructure for teams.
 
 ## Agent building blocks {#agent-building-blocks}
 
 Every agent-native app has the same agent building blocks, regardless of whether
-the product surface is headless, chat-first, or a full UI:
+the product surface is chat-first, automation-first, or a full UI:
 
 <FileTree
   id="doc-block-1ae57y4"
@@ -127,7 +127,7 @@ Six rules govern the architecture:
 
 ## The four-area checklist {#four-area-checklist}
 
-Every user-facing feature should update all applicable areas. Skipping an applicable area breaks the agent-native contract; forcing a UI onto an action-only primitive is also a smell.
+Every user-facing feature should update all applicable areas. Skipping an applicable area breaks the agent-native contract; forcing a screen onto an automation that no human needs to browse is also a smell.
 
 | Area             | Description                                                    |
 | ---------------- | -------------------------------------------------------------- |
@@ -136,7 +136,7 @@ Every user-facing feature should update all applicable areas. Skipping an applic
 | **3. Skills**    | Update AGENTS.md and/or create a skill documenting the pattern |
 | **4. App-State** | Navigation state, view-screen data, and navigate commands      |
 
-A feature with only UI is invisible to the agent. A full UI feature with only actions is invisible to the user. A feature without app-state means the agent is blind to what the user is doing. A headless operation can legitimately start with action + instructions and add UI/app-state later when humans need to browse, approve, configure, or share it.
+A feature with only UI is invisible to the agent. A full UI feature with only actions is invisible to the user. A feature without app-state means the agent is blind to what the user is doing. An automation-first operation can legitimately start with action + instructions and add chat, UI, or app-state later when humans need to browse, approve, configure, or share it.
 
 ## Data in SQL {#data-in-sql}
 
@@ -275,7 +275,7 @@ Why not call an LLM inline?
 - **AI is non-deterministic.** You need conversation flow to give feedback and iterate — not one-shot buttons.
 - **Context matters.** The agent has your full codebase, instructions, skills, and history. An inline call has none of that.
 - **The agent can do more.** It can run actions, browse the web, modify code, and chain multiple steps together.
-- **Headless execution.** Because everything goes through the agent, any app can be driven entirely from Slack, Telegram, or another agent via [A2A](/docs/a2a-protocol).
+- **External execution.** Because everything goes through the agent and actions, any app can be driven from Slack, Telegram, scheduled jobs, scripts, or another agent via [A2A](/docs/a2a-protocol).
 
 ## Actions system {#actions-system}
 
@@ -404,7 +404,7 @@ See [Context Awareness](/docs/context-awareness) for the full pattern: navigatio
 
 Implement a domain operation once as an action; the framework exposes it to every consumer. The same `defineAction()` becomes an agent tool, a typesafe UI hook, an HTTP endpoint, a CLI command, an MCP tool, and an A2A tool, with optional `link`, `mcpApp`, native-widget metadata, or Generative UI wrappers added only when a surface needs richer interaction. Skills and instructions cover behavior.
 
-For the full protocol/surface matrix (MCP server and OAuth, MCP Apps, A2A, deep links, native chat widgets, Generative UI, AgentChatRuntime connectors, Agent Web, and the adapter horizon for ACP and A2UI), and for choosing a product shape — headless, rich chat, embedded sidecar, or full app — see [Agent Surfaces](/docs/agent-surfaces).
+For the full protocol/surface matrix (MCP server and OAuth, MCP Apps, A2A, deep links, native chat widgets, Generative UI, AgentChatRuntime connectors, Agent Web, and the adapter horizon for ACP and A2UI), and for choosing a product shape — chat, inline UI, full app pages, embedded sidecar, automation, or external-agent access — see [Agent Surfaces](/docs/agent-surfaces).
 
 ## Agent modifies code {#agent-modifies-code}
 
@@ -463,6 +463,6 @@ For detailed guidance on specific patterns:
 - [Context Awareness](/docs/context-awareness) — navigation state, view-screen, navigate commands
 - [Skills Guide](/docs/skills-guide) — framework skills, domain skills, creating custom skills
 - [Native Chat UI](/docs/native-chat-ui) — action-declared tables, charts, and BYO runtime posture
-- [Agent Surfaces](/docs/agent-surfaces) — headless, rich chat, embedded sidecar, and full-app paths
+- [Agent Surfaces](/docs/agent-surfaces) — chat, native inline UI, full app pages, embedded sidecar, automation, and external-agent paths
 - [A2A Protocol](/docs/a2a-protocol) — agent-to-agent communication
 - [Multi-App Workspace](/docs/multi-app-workspace) — host many apps in one monorepo with shared auth, skills, components, and credentials

@@ -12,6 +12,7 @@ import type { NotificationChannel } from "./types.js";
 const resolveKeyReferences = vi.fn();
 const validateUrlAllowlist = vi.fn();
 const getKeyAllowlist = vi.fn();
+const sendEmail = vi.fn();
 
 let fetchMock: ReturnType<typeof vi.fn>;
 
@@ -20,6 +21,11 @@ function okResponse() {
 }
 
 async function loadWebhookChannel(): Promise<NotificationChannel | undefined> {
+  const channels = await loadChannels();
+  return channels.find((c) => c.name === "webhook");
+}
+
+async function loadChannels(): Promise<NotificationChannel[]> {
   vi.resetModules();
   const registered: NotificationChannel[] = [];
   vi.doMock("./registry.js", () => ({
@@ -35,9 +41,12 @@ async function loadWebhookChannel(): Promise<NotificationChannel | undefined> {
   vi.doMock("../extensions/url-safety.js", () => ({
     ssrfSafeFetch: (...args: unknown[]) => fetchMock(...args),
   }));
+  vi.doMock("../server/email.js", () => ({
+    sendEmail: (...args: unknown[]) => sendEmail(...args),
+  }));
   const { registerBuiltinNotificationChannels } = await import("./channels.js");
   registerBuiltinNotificationChannels();
-  return registered.find((c) => c.name === "webhook");
+  return registered;
 }
 
 beforeEach(() => {
@@ -52,6 +61,7 @@ beforeEach(() => {
   }));
   validateUrlAllowlist.mockReturnValue(true);
   getKeyAllowlist.mockResolvedValue(null);
+  sendEmail.mockResolvedValue(undefined);
 });
 
 afterEach(() => {
@@ -60,6 +70,10 @@ afterEach(() => {
   vi.resetModules();
   delete process.env.NOTIFICATIONS_WEBHOOK_URL;
   delete process.env.NOTIFICATIONS_WEBHOOK_AUTH;
+  delete process.env.NOTIFICATIONS_SLACK_WEBHOOK_URL;
+  delete process.env.NOTIFICATIONS_SLACK_WEBHOOK_AUTH;
+  delete process.env.NOTIFICATIONS_EMAIL_RECIPIENTS;
+  delete process.env.NOTIFICATIONS_EMAIL_CHANNEL;
 });
 
 describe("webhook notification channel", () => {
@@ -211,5 +225,79 @@ describe("webhook notification channel", () => {
     ).rejects.toThrow(/401: upstream rejected: bad token/);
     // The reader is drained then released rather than left open.
     expect(cancelled).toBe(true);
+  });
+});
+
+describe("Slack notification channel", () => {
+  it("is registered from NOTIFICATIONS_SLACK_WEBHOOK_URL and posts Slack JSON", async () => {
+    process.env.NOTIFICATIONS_SLACK_WEBHOOK_URL =
+      "https://hooks.slack.example.com/services/T/B/C";
+    const channels = await loadChannels();
+    const channel = channels.find((c) => c.name === "slack")!;
+
+    await channel.deliver(
+      {
+        severity: "critical",
+        title: "Clip uploads failing",
+        body: "8 failures in 10 minutes",
+        metadata: { ruleId: "alert_1" },
+      },
+      { owner: "alice@example.com" },
+    );
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe("https://hooks.slack.example.com/services/T/B/C");
+    expect(init.method).toBe("POST");
+    const payload = JSON.parse(init.body);
+    expect(payload.text).toContain("[critical] Clip uploads failing");
+    expect(payload.blocks[0].text.text).toBe("*Clip uploads failing*");
+  });
+});
+
+describe("email notification channel", () => {
+  it("sends to metadata recipients and environment fallback recipients once each", async () => {
+    process.env.NOTIFICATIONS_EMAIL_CHANNEL = "1";
+    process.env.NOTIFICATIONS_EMAIL_RECIPIENTS =
+      "ops@example.com, Alice@Example.com";
+    const channels = await loadChannels();
+    const channel = channels.find((c) => c.name === "email")!;
+
+    await channel.deliver(
+      {
+        severity: "warning",
+        title: "Error spike",
+        body: "More failures than expected",
+        metadata: {
+          emailRecipients: ["alice@example.com", "alerts@example.com"],
+          emailSubject: "Custom subject",
+          ruleId: "rule_1",
+        },
+      },
+      { owner: "alice@example.com" },
+    );
+
+    expect(sendEmail).toHaveBeenCalledTimes(3);
+    expect(sendEmail.mock.calls.map(([args]) => args.to).sort()).toEqual([
+      "alerts@example.com",
+      "alice@example.com",
+      "ops@example.com",
+    ]);
+    expect(sendEmail.mock.calls[0][0].subject).toBe("Custom subject");
+    expect(sendEmail.mock.calls[0][0].text).toContain('"ruleId": "rule_1"');
+    expect(sendEmail.mock.calls[0][0].text).not.toContain("emailRecipients");
+  });
+
+  it("does nothing when email has no recipients", async () => {
+    process.env.NOTIFICATIONS_EMAIL_CHANNEL = "1";
+    const channels = await loadChannels();
+    const channel = channels.find((c) => c.name === "email")!;
+
+    await channel.deliver(
+      { severity: "info", title: "FYI" },
+      { owner: "alice@example.com" },
+    );
+
+    expect(sendEmail).not.toHaveBeenCalled();
   });
 });

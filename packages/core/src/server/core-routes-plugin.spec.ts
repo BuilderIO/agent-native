@@ -8,6 +8,7 @@ import {
   signBuilderConnectToken,
 } from "./builder-browser.js";
 import {
+  buildBuilderWaitlistFormPayload,
   resolveBuilderOwnerContextForRequest,
   resolveBuilderWaitlistFormTargetForRequest,
   resolveFrameworkSseRoutes,
@@ -300,6 +301,78 @@ describe("resolveBuilderWaitlistFormTargetForRequest", () => {
     expect(resolveBuilderWaitlistFormTargetForRequest(event)).toEqual({
       formId: "custom-form",
       formsOrigin: "https://forms.example.com",
+    });
+  });
+});
+
+describe("buildBuilderWaitlistFormPayload", () => {
+  it("flags the existing Builder waitlist as background coding by default", () => {
+    const event = createMockEvent(
+      "https://forms.agent-native.com/_agent-native/builder/branch-waitlist",
+    );
+
+    expect(
+      buildBuilderWaitlistFormPayload(event, "steve@builder.io", {
+        prompt: "Change the app header",
+        source: "connect_builder_card",
+      }),
+    ).toMatchObject({
+      data: {
+        email: "steve@builder.io",
+        prompt: "Change the app header",
+        source: "connect_builder_card",
+        useCase: "builder_agent_background_coding",
+      },
+      _meta: {
+        source: "connect_builder_card",
+        useCase: "builder_agent_background_coding",
+      },
+    });
+  });
+
+  it("preserves an explicit waitlist use case for downstream Forms and Slack routing", () => {
+    const event = createMockEvent(
+      "https://forms.agent-native.com/_agent-native/builder/branch-waitlist",
+    );
+
+    expect(
+      buildBuilderWaitlistFormPayload(event, "steve@builder.io", {
+        pageUrl: "https://design.agent-native.com/design/abc",
+        prompt: "Publish design",
+        source: "design_editor_publish_app_menu",
+        useCase: "design_publish_app",
+      }),
+    ).toMatchObject({
+      data: {
+        appUrl: "https://design.agent-native.com/design/abc",
+        source: "design_editor_publish_app_menu",
+        useCase: "design_publish_app",
+      },
+      _meta: {
+        pageUrl: "https://design.agent-native.com/design/abc",
+        source: "design_editor_publish_app_menu",
+        useCase: "design_publish_app",
+      },
+    });
+  });
+
+  it("falls back to the default use case for unknown waitlist values", () => {
+    const event = createMockEvent(
+      "https://forms.agent-native.com/_agent-native/builder/branch-waitlist",
+    );
+
+    expect(
+      buildBuilderWaitlistFormPayload(event, "steve@builder.io", {
+        source: "connect_builder_card",
+        useCase: "totally_wrong_branch",
+      }),
+    ).toMatchObject({
+      data: {
+        useCase: "builder_agent_background_coding",
+      },
+      _meta: {
+        useCase: "builder_agent_background_coding",
+      },
     });
   });
 });

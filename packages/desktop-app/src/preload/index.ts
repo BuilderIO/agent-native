@@ -1,5 +1,3 @@
-import path from "node:path";
-
 import type { AppConfig, FrameSettings } from "@shared/app-registry";
 import type { CodeAgentPermissionMode } from "@shared/code-agents";
 import {
@@ -52,6 +50,7 @@ const CODE_AGENTS_SUBSCRIBE_TRANSCRIPT_CHANNEL =
 const CODE_AGENTS_UNSUBSCRIBE_TRANSCRIPT_CHANNEL =
   "code-agents:unsubscribe-transcript";
 const CODE_AGENTS_TRANSCRIPT_EVENTS_CHANNEL = "code-agents:transcript-events";
+const WEBVIEW_PRELOAD_PATH = `${__dirname.replace(/[/\\]$/, "")}/webview.js`;
 
 type CodeAgentTranscriptSubscriptionBatch = CodeAgentTranscriptResult & {
   subscriptionId?: string;
@@ -69,7 +68,7 @@ const electronAPI = {
   },
 
   /** Dedicated preload for hosted app webviews. Exposes only app-safe bridges. */
-  webviewPreloadPath: path.join(__dirname, "webview.js"),
+  webviewPreloadPath: WEBVIEW_PRELOAD_PATH,
 
   /** Window chrome controls */
   windowControls: {

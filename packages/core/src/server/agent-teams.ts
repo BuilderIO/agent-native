@@ -17,6 +17,7 @@
 
 import { AsyncLocalStorage } from "node:async_hooks";
 
+import { applyAgentTextEventToBuffer } from "../a2a/response-text.js";
 import type { AgentEngine, EngineMessage } from "../agent/engine/types.js";
 import type {
   ActionEntry,
@@ -1158,7 +1159,11 @@ function summarizeAgentChatEvent(event: RunEvent): {
         metadata: { reason: payload.reason },
       };
     case "clear":
-      return null;
+      return {
+        kind: "status",
+        message: "",
+        metadata: { agentChatEventType: "clear" },
+      };
     case "agent_call":
       return {
         kind: "status",
@@ -1759,7 +1764,10 @@ export async function processAgentTeamRun(
             const wrappedSend = (event: AgentChatEvent) => {
               send(event);
               if (event.type === "text") {
-                accumulatedText += event.text;
+                accumulatedText = applyAgentTextEventToBuffer(
+                  accumulatedText,
+                  event,
+                );
                 task.preview = accumulatedText.slice(-800);
                 const now = Date.now();
                 if (now - lastProgressSent >= PROGRESS_INTERVAL_MS) {
@@ -1772,6 +1780,20 @@ export async function processAgentTeamRun(
                   });
                   if (ownerEmail) void updateTaskProgressRun(task, ownerEmail);
                 }
+              } else if (event.type === "clear") {
+                accumulatedText = applyAgentTextEventToBuffer(
+                  accumulatedText,
+                  event,
+                );
+                task.preview = "";
+                lastProgressSent = Date.now();
+                saveTask(task).catch((err) => {
+                  console.warn(
+                    `[agent-teams] clear save failed for task ${task.taskId}:`,
+                    describeDbError(err),
+                  );
+                });
+                if (ownerEmail) void updateTaskProgressRun(task, ownerEmail);
               } else if (event.type === "tool_start") {
                 task.currentStep = `Running ${event.tool}...`;
               } else if (event.type === "tool_done") {

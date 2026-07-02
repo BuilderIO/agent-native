@@ -7,7 +7,12 @@ import {
 } from "@agent-native/core/client";
 import { useLiveTranscription } from "@agent-native/core/client/transcription/use-live-transcription";
 import type { BrowserDiagnosticsData } from "@shared/browser-diagnostics";
-import { chunkUploadUrl } from "@shared/recording-core";
+import { waitForReadyRecordingAfterFinalizeError } from "@shared/finalize-recovery";
+import {
+  chunkUploadUrl,
+  pickMimeType,
+  type UploadMode,
+} from "@shared/recording-core";
 import {
   IconAlertTriangle,
   IconArrowLeft,
@@ -95,6 +100,7 @@ import { CountdownOverlay } from "@/components/recorder/countdown-overlay";
 import { PreRecordPanel } from "@/components/recorder/pre-record-panel";
 import {
   RecorderEngine,
+  canUseTimeslicedRecorderChunks,
   NO_MIC_DEVICE_ID,
   type DisplaySurface,
   type RecorderFinalizeResult,
@@ -493,6 +499,10 @@ function friendlyRecordingErrorMessage(error: string): string {
   return error;
 }
 
+function userFacingActionErrorMessage(error: string): string {
+  return error.replace(/^Action [a-z0-9-]+ failed:\s*/i, "").trim() || error;
+}
+
 function captureThumbnailFromPreview(
   video: HTMLVideoElement | null,
   recordingId: string,
@@ -567,6 +577,7 @@ interface PendingRecording {
   id: string;
   uploadChunkUrl: string;
   abortUrl: string;
+  uploadMode?: UploadMode;
 }
 
 function PreRecordPanelSkeleton() {
@@ -1194,6 +1205,8 @@ export default function RecordRoute() {
               visibility: reportContext ? "org" : "public",
               spaceIds: spaceIdFromUrl ? [spaceIdFromUrl] : undefined,
               folderId: folderIdFromUrl ?? undefined,
+              mimeType: pickMimeType() || undefined,
+              requestStreaming: canUseTimeslicedRecorderChunks(pickMimeType()),
             }),
           },
         );
@@ -1213,10 +1226,12 @@ export default function RecordRoute() {
             id: string;
             uploadChunkUrl: string;
             abortUrl: string;
+            uploadMode?: UploadMode;
           };
           id?: string;
           uploadChunkUrl?: string;
           abortUrl?: string;
+          uploadMode?: UploadMode;
         };
         const info = created.result ?? (created as PendingRecording);
         if (!info?.id) {
@@ -1244,6 +1259,7 @@ export default function RecordRoute() {
           recordingId: info.id,
           uploadUrl: uploadChunkUrl,
           abortUrl,
+          uploadMode: info.uploadMode,
         });
         await saveBugReportContextRef.current(info.id);
 
@@ -1551,12 +1567,32 @@ export default function RecordRoute() {
             hasAudio: isFinal ? true : undefined,
             hasCamera: isFinal ? false : undefined,
           });
-          const chunkRes = await fetch(chunkUrl, {
-            method: "POST",
-            headers: { "Content-Type": uploadMimeType },
-            body: await slice.arrayBuffer(),
-            signal: abort.signal,
-          });
+          let chunkRes: Response;
+          try {
+            chunkRes = await fetch(chunkUrl, {
+              method: "POST",
+              headers: { "Content-Type": uploadMimeType },
+              body: await slice.arrayBuffer(),
+              signal: abort.signal,
+            });
+          } catch (err) {
+            if (
+              isFinal &&
+              createdId &&
+              (err as { name?: string } | null)?.name !== "AbortError"
+            ) {
+              const recovered = await waitForReadyRecordingAfterFinalizeError({
+                uploadUrl: uploadBase,
+                recordingId: createdId,
+                preferAuthenticated: true,
+              });
+              if (recovered) {
+                finalChunkResult = recovered;
+                break;
+              }
+            }
+            throw err;
+          }
           if (!chunkRes.ok) {
             const text = await chunkRes.text().catch(() => "");
             const error = new Error(
@@ -1567,6 +1603,22 @@ export default function RecordRoute() {
               }),
             );
             (error as Error & { status?: number }).status = chunkRes.status;
+            if (
+              isFinal &&
+              createdId &&
+              chunkRes.status !== 413 &&
+              !isUploadSizeError(error.message)
+            ) {
+              const recovered = await waitForReadyRecordingAfterFinalizeError({
+                uploadUrl: uploadBase,
+                recordingId: createdId,
+                preferAuthenticated: true,
+              });
+              if (recovered) {
+                finalChunkResult = recovered;
+                break;
+              }
+            }
             throw error;
           }
           if (isFinal) {
@@ -1697,7 +1749,7 @@ export default function RecordRoute() {
       } catch (err) {
         throw new Error(
           err instanceof Error
-            ? err.message
+            ? userFacingActionErrorMessage(err.message)
             : t("recordRoute.couldNotImportLoom"),
         );
       } finally {
@@ -2366,7 +2418,6 @@ export default function RecordRoute() {
           isPaused={isPaused}
           onTogglePause={togglePause}
           onStop={() => void doStop()}
-          onConfetti={fireConfetti}
           onCancel={() => void doCancel()}
         />
       )}

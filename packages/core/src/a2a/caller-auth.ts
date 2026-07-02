@@ -8,6 +8,7 @@ const DEFAULT_A2A_CALLER_TOKEN_TTL = "30m";
 
 export interface A2ACallerAuth {
   apiKey?: string;
+  apiKeyFallbacks?: string[];
   userEmail?: string;
   orgId?: string;
   orgDomain?: string;
@@ -38,21 +39,49 @@ export async function resolveA2ACallerAuth(options?: {
     } catch {}
   }
 
-  let apiKey: string | undefined;
+  const apiKeyAttempts: string[] = [];
+  const addApiKeyAttempt = (token: string | undefined) => {
+    if (!token || apiKeyAttempts.includes(token)) return;
+    apiKeyAttempts.push(token);
+  };
   if (userEmail && (orgSecret || process.env.A2A_SECRET)) {
-    try {
-      apiKey = await signA2AToken(userEmail, orgDomain, orgSecret, {
-        expiresIn: options?.expiresIn ?? DEFAULT_A2A_CALLER_TOKEN_TTL,
-        preferGlobalSecret: !orgSecret,
-      });
-    } catch {}
+    if (process.env.A2A_SECRET?.trim()) {
+      try {
+        addApiKeyAttempt(
+          await signA2AToken(userEmail, orgDomain, orgSecret, {
+            expiresIn: options?.expiresIn ?? DEFAULT_A2A_CALLER_TOKEN_TTL,
+            preferGlobalSecret: true,
+          }),
+        );
+      } catch {}
+    }
+    if (orgSecret) {
+      try {
+        addApiKeyAttempt(
+          await signA2AToken(userEmail, orgDomain, orgSecret, {
+            expiresIn: options?.expiresIn ?? DEFAULT_A2A_CALLER_TOKEN_TTL,
+            preferGlobalSecret: false,
+          }),
+        );
+      } catch {}
+    }
   }
 
   if (options?.includeGoogleToken) {
     await attachGoogleTokenMetadata(metadata, userEmail);
   }
 
-  return { apiKey, userEmail, orgId, orgDomain, orgSecret, metadata };
+  return {
+    apiKey: apiKeyAttempts[0],
+    ...(apiKeyAttempts.length > 1
+      ? { apiKeyFallbacks: apiKeyAttempts.slice(1) }
+      : {}),
+    userEmail,
+    orgId,
+    orgDomain,
+    orgSecret,
+    metadata,
+  };
 }
 
 async function attachGoogleTokenMetadata(

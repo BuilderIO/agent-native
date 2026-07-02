@@ -19,18 +19,21 @@ export type { ProviderApiMethod, ProviderApiRequestArgs };
 const resolveDesignCredential: ProviderApiCredentialResolver = async (
   options,
 ) => {
-  if (options.provider !== "github" || options.key !== "GITHUB_TOKEN") {
+  const supported =
+    (options.provider === "github" && options.key === "GITHUB_TOKEN") ||
+    (options.provider === "figma" && options.key === "FIGMA_ACCESS_TOKEN");
+  if (!supported) {
     return null;
   }
 
-  const value = await resolveSecret("GITHUB_TOKEN");
+  const value = await resolveSecret(options.key);
   if (!value) return null;
 
   return {
-    key: "GITHUB_TOKEN",
+    key: options.key,
     value,
     source: `${DESIGN_APP_ID}_secret`,
-    provider: "github",
+    provider: options.provider,
     scope: "request",
   };
 };

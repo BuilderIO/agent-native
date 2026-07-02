@@ -123,6 +123,33 @@ export function pgliteDataDirFromUrl(url: string): string {
   return dataDir;
 }
 
+export function pgliteRuntimeDataDir(dataDir: string): string {
+  if (dataDir === "memory://") return dataDir;
+  if (!isServerlessRuntime() || path.isAbsolute(dataDir)) return dataDir;
+
+  const safeParts = dataDir
+    .split(/[\\/]+/)
+    .filter((part) => part && part !== "." && part !== "..");
+  const safeRelative =
+    safeParts.length > 0
+      ? path.join(...safeParts)
+      : path.join("data", "pglite");
+  return path.join("/tmp", safeRelative);
+}
+
+async function preparePgliteDataDir(dataDir: string): Promise<string> {
+  const runtimeDataDir = pgliteRuntimeDataDir(dataDir);
+  if (runtimeDataDir === "memory://") return runtimeDataDir;
+
+  try {
+    const fs = await import("fs");
+    fs.mkdirSync(runtimeDataDir, { recursive: true });
+  } catch {
+    // Edge runtimes may not expose fs. PGlite will surface any real open error.
+  }
+  return runtimeDataDir;
+}
+
 async function importOptionalModule(specifier: string): Promise<any> {
   return import(/* @vite-ignore */ specifier);
 }
@@ -170,7 +197,7 @@ export async function loadPgliteDrizzle(): Promise<{
 const _pgliteClients = new Map<string, Promise<any>>();
 
 export async function getPgliteClient(url: string): Promise<any> {
-  const dataDir = pgliteDataDirFromUrl(url);
+  const dataDir = await preparePgliteDataDir(pgliteDataDirFromUrl(url));
   let ready = _pgliteClients.get(dataDir);
   if (!ready) {
     ready = loadPglitePackage().then(({ PGlite }) => PGlite.create(dataDir));
@@ -190,7 +217,7 @@ export async function closePgliteClients(): Promise<void> {
 }
 
 export async function closePgliteClient(url: string): Promise<void> {
-  const dataDir = pgliteDataDirFromUrl(url);
+  const dataDir = pgliteRuntimeDataDir(pgliteDataDirFromUrl(url));
   const ready = _pgliteClients.get(dataDir);
   _pgliteClients.delete(dataDir);
   if (!ready) return;
@@ -810,10 +837,19 @@ export function neonPoolMax(): number {
  * (agent/durable-background.ts), replicated here to avoid a `db` → `agent`
  * import cycle. Keep the signals in sync with that function.
  */
-function isBackgroundFunctionPoolContext(): boolean {
+export function isBackgroundFunctionPoolContext(): boolean {
   if (
     (globalThis as Record<string, unknown>)
       .__AGENT_NATIVE_BACKGROUND_RUNTIME__ === true
+  ) {
+    return true;
+  }
+  // Set by the HMAC-authenticated agent-chat `_process-run` route before it
+  // re-enters the normal chat handler. This mirrors the marker-only runtime
+  // proof used by durable-background.ts without importing agent code into db/.
+  if (
+    (globalThis as Record<string, unknown>)
+      .__AGENT_NATIVE_BACKGROUND_RUNTIME_EXPECTED__ === true
   ) {
     return true;
   }

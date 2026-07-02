@@ -72,6 +72,10 @@ export interface AutoLayoutMatrixValue {
     horizontal?: number;
     vertical?: number;
   };
+  mixedSize?: {
+    horizontal?: boolean;
+    vertical?: boolean;
+  };
   childSizing: {
     horizontal: AutoLayoutSizing;
     vertical: AutoLayoutSizing;
@@ -147,10 +151,17 @@ export interface AutoLayoutMatrixProps {
   onPaddingLinkedChange: (linked: boolean) => void;
   onClipContentChange?: (clipContent: boolean) => void;
   onDistribute?: (axis: DistributionAxis) => void;
+  onGapModeChange?: (mode: "fixed" | "auto", axis: DistributionAxis) => void;
   onChildSizingChange: (
     axis: AutoLayoutSizingAxis,
     sizing: AutoLayoutSizing,
   ) => void;
+  /**
+   * Invoked when the user directly edits the resolved size (scrub or type) in
+   * fixed-sizing mode. `value` is the new size in CSS pixels. Optional —
+   * when omitted the resolved-size display is read-only (mode-picker only).
+   */
+  onChildSizeChange?: (axis: AutoLayoutSizingAxis, value: number) => void;
   /**
    * Set or clear a min/max constraint on an axis. `value === null` clears it.
    * Optional — when omitted the "Add min/max…" rows and constraint sub-rows are
@@ -177,6 +188,7 @@ export interface AutoLayoutMatrixProps {
   availableChildSizing?: Partial<
     Record<AutoLayoutSizingAxis, AutoLayoutSizing[]>
   >;
+  showChildLayoutControls?: boolean;
   labels?: Partial<AutoLayoutMatrixLabels>;
   disabled?: boolean;
   className?: string;
@@ -240,11 +252,14 @@ export function AutoLayoutMatrix({
   onPaddingLinkedChange,
   onClipContentChange,
   onDistribute,
+  onGapModeChange,
   onChildSizingChange,
   onChildMinMaxChange,
   onApplyVariable,
   onDisplayChange,
+  onChildSizeChange,
   availableChildSizing,
+  showChildLayoutControls = true,
   labels,
   disabled = false,
   className,
@@ -288,69 +303,71 @@ export function AutoLayoutMatrix({
     <TooltipProvider delayDuration={250}>
       <div className={cn("space-y-3", className)}>
         {/* ── Flow ── */}
-        <div className="space-y-1.5">
-          <ControlLabel>
-            {"Flow" /* i18n-ignore design inspector label */}
-          </ControlLabel>
-          <div className="flex items-center gap-1.5">
-            {/* 4-segment flow bar: normal / vertical / horizontal / grid */}
-            <div className="flex h-7 flex-1 items-center gap-0.5 rounded-md bg-[var(--design-editor-control-bg)] p-0.5">
-              <FlowButton
-                label={"Normal flow" /* i18n-ignore design inspector label */}
-                active={activeFlow === "normal"}
-                disabled={disabled}
-                onClick={() => selectFlow("normal")}
-              >
-                <IconFlowNormal />
-              </FlowButton>
-              <FlowButton
-                label={copy.vertical}
-                active={activeFlow === "vertical"}
-                disabled={disabled}
-                onClick={() => selectFlow("vertical")}
-              >
-                <IconFlowVertical className="size-3.5" />
-              </FlowButton>
-              <FlowButton
-                label={copy.horizontal}
-                active={activeFlow === "horizontal"}
-                disabled={disabled}
-                onClick={() => selectFlow("horizontal")}
-              >
-                <IconFlowHorizontal className="size-3.5" />
-              </FlowButton>
-              <FlowButton
-                label={"Grid" /* i18n-ignore design inspector label */}
-                active={activeFlow === "grid"}
-                disabled={disabled}
-                onClick={() => selectFlow("grid")}
-              >
-                <IconFlowGrid className="size-3.5" />
-              </FlowButton>
-            </div>
-            {/* Reset / reverse-flow button */}
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
+        {showChildLayoutControls ? (
+          <div className="space-y-1.5">
+            <ControlLabel>
+              {"Flow" /* i18n-ignore design inspector label */}
+            </ControlLabel>
+            <div className="flex items-center gap-1.5">
+              {/* 4-segment flow bar: normal / vertical / horizontal / grid */}
+              <div className="flex h-7 flex-1 items-center gap-0.5 rounded-md bg-[var(--design-editor-control-bg)] p-0.5">
+                <FlowButton
+                  label={"Normal flow" /* i18n-ignore design inspector label */}
+                  active={activeFlow === "normal"}
                   disabled={disabled}
-                  aria-label={
-                    "Reset auto layout flow" /* i18n-ignore inspector tooltip */
-                  }
-                  onClick={() => selectFlow("horizontal")}
-                  className="size-7 shrink-0 rounded-md text-muted-foreground hover:bg-[var(--design-editor-control-bg)] hover:text-foreground"
+                  onClick={() => selectFlow("normal")}
                 >
-                  <IconArrowBackUp className="size-4" />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>
-                {"Reset auto layout flow" /* i18n-ignore inspector tooltip */}
-              </TooltipContent>
-            </Tooltip>
+                  <IconFlowNormal />
+                </FlowButton>
+                <FlowButton
+                  label={copy.vertical}
+                  active={activeFlow === "vertical"}
+                  disabled={disabled}
+                  onClick={() => selectFlow("vertical")}
+                >
+                  <IconFlowVertical className="size-3.5" />
+                </FlowButton>
+                <FlowButton
+                  label={copy.horizontal}
+                  active={activeFlow === "horizontal"}
+                  disabled={disabled}
+                  onClick={() => selectFlow("horizontal")}
+                >
+                  <IconFlowHorizontal className="size-3.5" />
+                </FlowButton>
+                <FlowButton
+                  label={"Grid" /* i18n-ignore design inspector label */}
+                  active={activeFlow === "grid"}
+                  disabled={disabled}
+                  onClick={() => selectFlow("grid")}
+                >
+                  <IconFlowGrid className="size-3.5" />
+                </FlowButton>
+              </div>
+              {/* Reset / reverse-flow button */}
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    disabled={disabled}
+                    aria-label={
+                      "Reset auto layout flow" /* i18n-ignore inspector tooltip */
+                    }
+                    onClick={() => selectFlow("horizontal")}
+                    className="size-7 shrink-0 rounded-md text-muted-foreground hover:bg-[var(--design-editor-control-bg)] hover:text-foreground"
+                  >
+                    <IconArrowBackUp className="size-4" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  {"Reset auto layout flow" /* i18n-ignore inspector tooltip */}
+                </TooltipContent>
+              </Tooltip>
+            </div>
           </div>
-        </div>
+        ) : null}
 
         {/* ── Resizing ── */}
         <div className="space-y-1.5">
@@ -363,6 +380,7 @@ export function AutoLayoutMatrix({
               sizingAxis="horizontal"
               value={value.childSizing.horizontal}
               resolvedSize={value.resolvedSize?.horizontal}
+              mixed={Boolean(value.mixedSize?.horizontal)}
               minMax={value.childMinMax?.horizontal}
               options={resolveSizingOptions(
                 availableChildSizing?.horizontal,
@@ -371,6 +389,11 @@ export function AutoLayoutMatrix({
               labels={copy}
               disabled={disabled}
               onChange={(next) => onChildSizingChange("horizontal", next)}
+              onSizeChange={
+                onChildSizeChange
+                  ? (px) => onChildSizeChange("horizontal", px)
+                  : undefined
+              }
               onMinMaxChange={onChildMinMaxChange}
               onApplyVariable={onApplyVariable}
             />
@@ -379,6 +402,7 @@ export function AutoLayoutMatrix({
               sizingAxis="vertical"
               value={value.childSizing.vertical}
               resolvedSize={value.resolvedSize?.vertical}
+              mixed={Boolean(value.mixedSize?.vertical)}
               minMax={value.childMinMax?.vertical}
               options={resolveSizingOptions(
                 availableChildSizing?.vertical,
@@ -387,6 +411,11 @@ export function AutoLayoutMatrix({
               labels={copy}
               disabled={disabled}
               onChange={(next) => onChildSizingChange("vertical", next)}
+              onSizeChange={
+                onChildSizeChange
+                  ? (px) => onChildSizeChange("vertical", px)
+                  : undefined
+              }
               onMinMaxChange={onChildMinMaxChange}
               onApplyVariable={onApplyVariable}
             />
@@ -417,143 +446,147 @@ export function AutoLayoutMatrix({
           </div>
         </div>
 
-        {/* ── Alignment + Gap (single label row) ── */}
-        <div className="grid grid-cols-[78px_1fr] items-start gap-3">
-          {/* Left: Alignment label + compact 3×3 matrix (no border box) */}
-          <div className="space-y-1.5">
-            <ControlLabel>
-              {"Alignment" /* i18n-ignore design inspector label */}
-            </ControlLabel>
-            <CompactAlignmentMatrix
-              value={value.alignment}
-              onChange={onAlignmentChange}
-              direction={value.direction}
-              disabled={disabled || isBlock}
-              onDistribute={onDistribute}
-            />
-          </div>
+        {showChildLayoutControls && !isBlock ? (
+          <div className="grid grid-cols-[78px_1fr] items-start gap-3">
+            <div className="space-y-1.5">
+              <ControlLabel>
+                {"Alignment" /* i18n-ignore design inspector label */}
+              </ControlLabel>
+              <CompactAlignmentMatrix
+                value={value.alignment}
+                onChange={onAlignmentChange}
+                direction={value.direction}
+                disabled={disabled}
+                onDistribute={onDistribute}
+              />
+            </div>
 
-          {/* Right: Gap label + [icon] value [▾] + sliders */}
-          <div className="space-y-1.5">
-            <ControlLabel>{copy.gap}</ControlLabel>
-            <GapField
-              value={value.gap}
-              onGapChange={onGapChange}
-              onDistribute={onDistribute}
-              label={copy.gap}
-              disabled={disabled || isBlock}
-              direction={value.direction}
-              gapMode={value.spaceBetween ? "auto" : "fixed"}
-            />
+            <div className="space-y-1.5">
+              <ControlLabel>{copy.gap}</ControlLabel>
+              <GapField
+                value={value.gap}
+                onGapChange={onGapChange}
+                onDistribute={onDistribute}
+                onGapModeChange={onGapModeChange}
+                label={copy.gap}
+                disabled={disabled}
+                direction={value.direction}
+                gapMode={value.spaceBetween ? "auto" : "fixed"}
+              />
+            </div>
           </div>
-        </div>
+        ) : null}
 
         {/* ── Padding ── */}
-        <div className="space-y-1.5">
-          <ControlLabel>{copy.padding}</ControlLabel>
-          {value.paddingLinked ? (
-            /* Default linked state: 2 compact fields + link toggle */
-            <div className="grid grid-cols-[1fr_1fr_auto] items-center gap-1.5">
-              <PaddingField
-                icon={IconPaddingHorizontal}
-                ariaLabel={copy.paddingLeft + " / " + copy.paddingRight}
-                value={horizontalPaddingValue}
-                onChange={(next) =>
-                  onPaddingChange({
-                    top: value.padding.top,
-                    bottom: value.padding.bottom,
-                    left: next,
-                    right: next,
-                  })
-                }
-                disabled={disabled}
-              />
-              <PaddingField
-                icon={IconPaddingVertical}
-                ariaLabel={copy.paddingTop + " / " + copy.paddingBottom}
-                value={verticalPaddingValue}
-                onChange={(next) =>
-                  onPaddingChange({
-                    top: next,
-                    bottom: next,
-                    left: value.padding.left,
-                    right: value.padding.right,
-                  })
-                }
-                disabled={disabled}
-              />
-              <PaddingLinkButton
-                linked
-                disabled={disabled}
-                linkLabel={copy.linkPadding}
-                unlinkLabel={copy.unlinkPadding}
-                onToggle={() => onPaddingLinkedChange(false)}
-              />
-            </div>
-          ) : (
-            /* Unlinked state: expand to 4 separate T / R / B / L fields */
-            <div className="grid grid-cols-[1fr_1fr_auto] items-center gap-1.5">
-              <div className="col-span-2 grid grid-cols-2 gap-1.5">
+        {showChildLayoutControls ? (
+          <div className="space-y-1.5">
+            <ControlLabel>{copy.padding}</ControlLabel>
+            {value.paddingLinked ? (
+              /* Default linked state: 2 compact fields + link toggle */
+              <div className="grid grid-cols-[1fr_1fr_auto] items-center gap-1.5">
                 <PaddingField
-                  icon={IconPaddingTopMini}
-                  ariaLabel={copy.paddingTop}
-                  value={value.padding.top}
+                  icon={IconPaddingHorizontal}
+                  ariaLabel={copy.paddingLeft + " / " + copy.paddingRight}
+                  value={horizontalPaddingValue}
                   onChange={(next) =>
-                    onPaddingChange({ ...value.padding, top: next })
+                    onPaddingChange({
+                      top: value.padding.top,
+                      bottom: value.padding.bottom,
+                      left: next,
+                      right: next,
+                    })
                   }
                   disabled={disabled}
                 />
                 <PaddingField
-                  icon={IconPaddingRightMini}
-                  ariaLabel={copy.paddingRight}
-                  value={value.padding.right}
+                  icon={IconPaddingVertical}
+                  ariaLabel={copy.paddingTop + " / " + copy.paddingBottom}
+                  value={verticalPaddingValue}
                   onChange={(next) =>
-                    onPaddingChange({ ...value.padding, right: next })
+                    onPaddingChange({
+                      top: next,
+                      bottom: next,
+                      left: value.padding.left,
+                      right: value.padding.right,
+                    })
                   }
                   disabled={disabled}
                 />
-                <PaddingField
-                  icon={IconPaddingBottomMini}
-                  ariaLabel={copy.paddingBottom}
-                  value={value.padding.bottom}
-                  onChange={(next) =>
-                    onPaddingChange({ ...value.padding, bottom: next })
-                  }
+                <PaddingLinkButton
+                  linked
                   disabled={disabled}
-                />
-                <PaddingField
-                  icon={IconPaddingLeftMini}
-                  ariaLabel={copy.paddingLeft}
-                  value={value.padding.left}
-                  onChange={(next) =>
-                    onPaddingChange({ ...value.padding, left: next })
-                  }
-                  disabled={disabled}
+                  linkLabel={copy.linkPadding}
+                  unlinkLabel={copy.unlinkPadding}
+                  onToggle={() => onPaddingLinkedChange(false)}
                 />
               </div>
-              <PaddingLinkButton
-                linked={false}
-                disabled={disabled}
-                linkLabel={copy.linkPadding}
-                unlinkLabel={copy.unlinkPadding}
-                onToggle={() => onPaddingLinkedChange(true)}
-              />
-            </div>
-          )}
-        </div>
+            ) : (
+              /* Unlinked state: expand to 4 separate T / R / B / L fields */
+              <div className="grid grid-cols-[1fr_1fr_auto] items-center gap-1.5">
+                <div className="col-span-2 grid grid-cols-2 gap-1.5">
+                  <PaddingField
+                    icon={IconPaddingTopMini}
+                    ariaLabel={copy.paddingTop}
+                    value={value.padding.top}
+                    onChange={(next) =>
+                      onPaddingChange({ ...value.padding, top: next })
+                    }
+                    disabled={disabled}
+                  />
+                  <PaddingField
+                    icon={IconPaddingRightMini}
+                    ariaLabel={copy.paddingRight}
+                    value={value.padding.right}
+                    onChange={(next) =>
+                      onPaddingChange({ ...value.padding, right: next })
+                    }
+                    disabled={disabled}
+                  />
+                  <PaddingField
+                    icon={IconPaddingBottomMini}
+                    ariaLabel={copy.paddingBottom}
+                    value={value.padding.bottom}
+                    onChange={(next) =>
+                      onPaddingChange({ ...value.padding, bottom: next })
+                    }
+                    disabled={disabled}
+                  />
+                  <PaddingField
+                    icon={IconPaddingLeftMini}
+                    ariaLabel={copy.paddingLeft}
+                    value={value.padding.left}
+                    onChange={(next) =>
+                      onPaddingChange({ ...value.padding, left: next })
+                    }
+                    disabled={disabled}
+                  />
+                </div>
+                <PaddingLinkButton
+                  linked={false}
+                  disabled={disabled}
+                  linkLabel={copy.linkPadding}
+                  unlinkLabel={copy.unlinkPadding}
+                  onToggle={() => onPaddingLinkedChange(true)}
+                />
+              </div>
+            )}
+          </div>
+        ) : null}
 
         {/* ── Clip content ── */}
-        <label className="flex h-6 cursor-pointer items-center gap-2 text-[11px] text-foreground">
-          <Checkbox
-            checked={Boolean(value.clipContent)}
-            disabled={disabled}
-            onCheckedChange={(checked) =>
-              onClipContentChange?.(checked === true)
-            }
-            className="size-3.5 rounded-[3px]"
-          />
-          <span>{copy.clipContent}</span>
-        </label>
+        {showChildLayoutControls ? (
+          <label className="flex h-6 cursor-pointer items-center gap-2 !text-[11px] text-foreground">
+            <Checkbox
+              checked={Boolean(value.clipContent)}
+              disabled={disabled}
+              onCheckedChange={(checked) =>
+                onClipContentChange?.(checked === true)
+              }
+              className="size-3.5 rounded-[3px]"
+            />
+            <span>{copy.clipContent}</span>
+          </label>
+        ) : null}
       </div>
     </TooltipProvider>
   );
@@ -785,7 +818,7 @@ function AlignmentBars({
 /** Small uppercase muted section label, 11px. */
 function ControlLabel({ children }: { children: ReactNode }) {
   return (
-    <span className="block text-[11px] font-medium text-muted-foreground">
+    <span className="block !text-[11px] font-medium text-muted-foreground">
       {children}
     </span>
   );
@@ -842,6 +875,7 @@ function GapField({
   value,
   onGapChange,
   onDistribute,
+  onGapModeChange,
   label,
   disabled,
   direction,
@@ -850,6 +884,7 @@ function GapField({
   value: number;
   onGapChange: (gap: number) => void;
   onDistribute?: (axis: DistributionAxis) => void;
+  onGapModeChange?: (mode: "fixed" | "auto", axis: DistributionAxis) => void;
   label: string;
   disabled: boolean;
   direction: AutoLayoutDirection;
@@ -860,16 +895,15 @@ function GapField({
       {/* [gap-icon] value [▾] in one control surface */}
       <div
         className={cn(
-          "flex h-7 min-w-0 flex-1 items-center rounded-md bg-[var(--design-editor-control-bg)] pl-1.5",
+          "flex h-7 min-w-0 flex-1 items-center rounded-md bg-[var(--design-editor-control-bg)]",
           disabled && "opacity-40",
         )}
       >
-        <span className="flex shrink-0 items-center text-muted-foreground">
-          <IconGap className="size-3.5" />
-        </span>
         <ScrubInput
           label={label}
           ariaLabel={label}
+          tooltipLabel={label}
+          icon={IconGap}
           value={value}
           onChange={(next) => onGapChange(next)}
           unit="px"
@@ -878,8 +912,8 @@ function GapField({
           precision={1}
           disabled={disabled}
           className="min-w-0 flex-1 gap-0"
-          labelClassName="hidden"
-          inputClassName="h-6 border-0 bg-transparent px-1 text-[11px] shadow-none focus-visible:ring-0"
+          labelClassName="h-7 w-6 justify-center gap-0 rounded-l-md rounded-r-none text-muted-foreground [&>span]:hidden"
+          inputClassName="h-6 border-0 bg-transparent px-1 !text-[11px] shadow-none focus-visible:ring-0"
         />
         {onDistribute != null ? (
           <DropdownMenu>
@@ -913,16 +947,20 @@ function GapField({
               <DropdownMenuCheckboxItem
                 checked={gapMode !== "auto"}
                 className="text-[12px]"
-                onSelect={() => {
-                  /* Fixed gap: keep current numeric value (already numeric). */
-                }}
+                onSelect={() => onGapModeChange?.("fixed", direction)}
               >
                 {"Fixed" /* i18n-ignore design gap mode label */}
               </DropdownMenuCheckboxItem>
               <DropdownMenuCheckboxItem
                 checked={gapMode === "auto"}
                 className="text-[12px]"
-                onSelect={() => onDistribute(direction)}
+                onSelect={() => {
+                  if (onGapModeChange) {
+                    onGapModeChange("auto", direction);
+                    return;
+                  }
+                  onDistribute?.(direction);
+                }}
               >
                 {"Auto" /* i18n-ignore design gap mode label */}
               </DropdownMenuCheckboxItem>
@@ -972,16 +1010,15 @@ function PaddingField({
   return (
     <div
       className={cn(
-        "flex h-7 min-w-0 items-center rounded-md bg-[var(--design-editor-control-bg)] pl-1.5",
+        "flex h-7 min-w-0 items-center rounded-md bg-[var(--design-editor-control-bg)]",
         disabled && "opacity-40",
       )}
     >
-      <span className="flex shrink-0 items-center text-muted-foreground">
-        <Icon className="size-3.5" />
-      </span>
       <ScrubInput
         label={ariaLabel}
         ariaLabel={ariaLabel}
+        tooltipLabel={ariaLabel}
+        icon={Icon}
         value={value}
         onChange={(next) => onChange(next)}
         unit="px"
@@ -990,8 +1027,8 @@ function PaddingField({
         precision={1}
         disabled={disabled}
         className="min-w-0 flex-1 gap-0"
-        labelClassName="hidden"
-        inputClassName="h-6 border-0 bg-transparent px-1 text-[11px] shadow-none focus-visible:ring-0"
+        labelClassName="h-7 w-6 justify-center gap-0 rounded-l-md rounded-r-none text-muted-foreground [&>span]:hidden"
+        inputClassName="h-6 border-0 bg-transparent px-1 !text-[11px] shadow-none focus-visible:ring-0"
       />
     </div>
   );
@@ -1048,6 +1085,7 @@ export interface SizingFieldProps {
   sizingAxis: AutoLayoutSizingAxis;
   value: AutoLayoutSizing;
   resolvedSize?: number;
+  mixed?: boolean;
   /** Currently-set min/max constraints (px). */
   minMax?: SizingFieldMinMax;
   options?: AutoLayoutSizing[];
@@ -1055,6 +1093,12 @@ export interface SizingFieldProps {
   labels?: Partial<AutoLayoutMatrixLabels>;
   disabled: boolean;
   onChange: (value: AutoLayoutSizing) => void;
+  /**
+   * Invoked when the user directly scrubs or types a new pixel value while in
+   * "fixed" sizing mode. When omitted the numeric display is read-only and the
+   * entire trigger is a mode-picker dropdown (legacy behaviour).
+   */
+  onSizeChange?: (px: number) => void;
   onMinMaxChange?: (
     axis: AutoLayoutSizingAxis,
     kind: "min" | "max",
@@ -1080,23 +1124,18 @@ export function SizingField({
   sizingAxis,
   value,
   resolvedSize,
+  mixed = false,
   minMax,
   options = SIZING_OPTIONS,
   labels: labelOverrides,
   disabled,
   onChange,
+  onSizeChange,
   onMinMaxChange,
   onApplyVariable,
 }: SizingFieldProps) {
   const labels = { ...DEFAULT_AUTO_LAYOUT_LABELS, ...labelOverrides };
   const isWidth = sizingAxis === "horizontal";
-  // Local pending state for a newly-opened constraint editor. Holds the kind
-  // and seed value so the sub-row is visible before the user has confirmed a
-  // value. We only commit to onMinMaxChange when the user types or scrubs.
-  const [pending, setPending] = useState<{
-    kind: "min" | "max";
-    seed: number;
-  } | null>(null);
 
   const minValue = minMax?.min ?? null;
   const maxValue = minMax?.max ?? null;
@@ -1115,114 +1154,190 @@ export function SizingField({
   const minLabel = isWidth ? labels.minWidth : labels.minHeight;
   const maxLabel = isWidth ? labels.maxWidth : labels.maxHeight;
 
+  // Whether we're in editable fixed mode (ScrubInput shown for size).
+  const isEditableFixed = value === "fixed" && onSizeChange != null;
+
   const openEditor = (kind: "min" | "max") => {
-    // Compute a sensible seed but do NOT write it to the parent yet — only
-    // show the pending sub-row. The value is committed when the user first
-    // scrubs/types in the ConstraintSubRow.
+    // Commit immediately so the shown row always reflects real state and
+    // persists across selection changes, remounts, and parent re-renders.
     const seed = Math.max(0, Math.round(resolvedSize ?? 0));
     const seedValue = kind === "min" ? seed : seed || 1;
-    setPending({ kind, seed: seedValue });
+    onMinMaxChange?.(sizingAxis, kind, seedValue);
   };
+
+  // Shared dropdown content (mode picker menu).
+  const dropdownContent = (
+    <DropdownMenuContent
+      align="start"
+      className="min-w-[180px] text-[12px]"
+      sideOffset={4}
+    >
+      {/* ── Modes ── */}
+      <SizingMenuItem
+        icon={<IconSizingFixed />}
+        label={labels.fixed}
+        active={value === "fixed"}
+        onSelect={() => onChange("fixed")}
+      />
+      {canHug ? (
+        <SizingMenuItem
+          icon={<IconSizingHug />}
+          label={labels.hugContents}
+          active={value === "hug"}
+          onSelect={() => onChange("hug")}
+        />
+      ) : null}
+      {canFill ? (
+        <SizingMenuItem
+          icon={<IconSizingFill />}
+          label={labels.fillContainer}
+          active={value === "fill"}
+          onSelect={() => onChange("fill")}
+        />
+      ) : null}
+
+      {/* ── Min / Max ── */}
+      {onMinMaxChange ? (
+        <>
+          <DropdownMenuSeparator />
+          <SizingMenuItem
+            icon={<IconSizingMin />}
+            label={addMinLabel}
+            active={hasMin}
+            disabled={hasMin}
+            onSelect={() => openEditor("min")}
+          />
+          <SizingMenuItem
+            icon={<IconSizingMax />}
+            label={addMaxLabel}
+            active={hasMax}
+            disabled={hasMax}
+            onSelect={() => openEditor("max")}
+          />
+        </>
+      ) : null}
+
+      {/* ── Variable ── */}
+      <DropdownMenuSeparator />
+      <SizingMenuItem
+        icon={<IconSizingVariable />}
+        label={labels.applyVariable}
+        disabled={!onApplyVariable}
+        onSelect={() => onApplyVariable?.(sizingAxis)}
+      />
+    </DropdownMenuContent>
+  );
 
   return (
     <div className="flex min-w-0 flex-col gap-1">
-      <DropdownMenu>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <DropdownMenuTrigger asChild>
-              <button
-                type="button"
-                aria-label={`${axis} ${Math.round(resolvedSize ?? 0)} ${labels[value]}`}
-                disabled={disabled}
-                className={cn(
-                  "flex h-7 w-full items-center gap-1 overflow-hidden rounded-md px-1.5",
-                  "bg-[var(--design-editor-control-bg)] text-[11px]",
-                  "hover:bg-[var(--design-editor-panel-raised-bg)]",
-                  "disabled:pointer-events-none disabled:opacity-40",
-                  "focus:outline-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color,hsl(var(--primary)))]",
-                )}
-              >
-                {/* Axis letter */}
-                <span className="shrink-0 text-muted-foreground">{axis}</span>
-                {/* Resolved size */}
-                <span className="min-w-0 flex-1 truncate text-left tabular-nums text-foreground">
-                  {Math.round(resolvedSize ?? 0)}
-                </span>
-                {/* Mode word (Hug/Fill only) */}
-                {showWord ? (
-                  <span className="shrink-0 truncate text-muted-foreground">
-                    {labels[value]}
+      {isEditableFixed ? (
+        /*
+         * Editable fixed mode: split the trigger into two zones —
+         *   [axis letter | ScrubInput (numeric) | ▾ mode-picker caret]
+         * The ScrubInput occupies the center and lets the user type or
+         * drag-to-scrub the size in px. The chevron opens the mode dropdown.
+         */
+        <DropdownMenu>
+          <div
+            className={cn(
+              "flex h-7 w-full items-center overflow-hidden rounded-md",
+              "bg-[var(--design-editor-control-bg)] !text-[11px]",
+              disabled && "pointer-events-none opacity-40",
+            )}
+          >
+            {/* Scrub-editable size value */}
+            <ScrubInput
+              label={axis}
+              ariaLabel={`${axis} size in pixels`}
+              tooltipLabel={`${axis} size`}
+              icon={null}
+              value={mixed ? 0 : Math.round(resolvedSize ?? 0)}
+              onChange={(next) => onSizeChange!(Math.max(0, Math.round(next)))}
+              mixed={mixed}
+              unit="px"
+              min={0}
+              step={1}
+              precision={0}
+              disabled={disabled}
+              className="min-w-0 flex-1 gap-0"
+              labelClassName="h-7 w-5 justify-center gap-0 rounded-l-md rounded-r-none px-0 text-muted-foreground"
+              inputClassName="h-6 border-0 bg-transparent px-1 !text-[11px] shadow-none focus-visible:ring-0"
+            />
+            {/* Caret opens the mode picker */}
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <DropdownMenuTrigger asChild>
+                  <button
+                    type="button"
+                    aria-label={`${axis} sizing mode — ${labels[value]}`}
+                    disabled={disabled}
+                    className={cn(
+                      "flex h-7 w-6 shrink-0 items-center justify-center rounded-r-md",
+                      "text-muted-foreground hover:text-foreground",
+                      "focus:outline-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color,hsl(var(--primary)))]",
+                    )}
+                  >
+                    <ChevronDownMini />
+                  </button>
+                </DropdownMenuTrigger>
+              </TooltipTrigger>
+              <TooltipContent>
+                {`${axis} · ${labels[value]} — click to change sizing mode`}
+              </TooltipContent>
+            </Tooltip>
+          </div>
+          {dropdownContent}
+        </DropdownMenu>
+      ) : (
+        /*
+         * Non-editable / hug / fill mode: keep the original single-button
+         * dropdown trigger showing [axis | resolved size | mode word | ▾].
+         */
+        <DropdownMenu>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <DropdownMenuTrigger asChild>
+                <button
+                  type="button"
+                  aria-label={`${axis} ${mixed ? "Mixed" : Math.round(resolvedSize ?? 0)} ${labels[value]}`}
+                  disabled={disabled}
+                  className={cn(
+                    "flex h-7 w-full items-center gap-1 overflow-hidden rounded-md px-1.5",
+                    "bg-[var(--design-editor-control-bg)] !text-[11px]",
+                    "hover:bg-[var(--design-editor-panel-raised-bg)]",
+                    "disabled:pointer-events-none disabled:opacity-40",
+                    "focus:outline-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color,hsl(var(--primary)))]",
+                  )}
+                >
+                  {/* Axis letter */}
+                  <span className="shrink-0 text-muted-foreground">{axis}</span>
+                  {/* Resolved size */}
+                  <span
+                    className={cn(
+                      "min-w-0 flex-1 truncate text-left tabular-nums",
+                      mixed ? "text-muted-foreground" : "text-foreground",
+                    )}
+                  >
+                    {mixed ? "Mixed" : Math.round(resolvedSize ?? 0)}
                   </span>
-                ) : null}
-                {/* Caret */}
-                <span className="flex shrink-0 items-center text-muted-foreground">
-                  <ChevronDownMini />
-                </span>
-              </button>
-            </DropdownMenuTrigger>
-          </TooltipTrigger>
-          <TooltipContent>{`${axis} · ${labels[value]}`}</TooltipContent>
-        </Tooltip>
-        <DropdownMenuContent
-          align="start"
-          className="min-w-[180px] text-[12px]"
-          sideOffset={4}
-        >
-          {/* ── Modes ── */}
-          <SizingMenuItem
-            icon={<IconSizingFixed />}
-            label={labels.fixed}
-            active={value === "fixed"}
-            onSelect={() => onChange("fixed")}
-          />
-          {canHug ? (
-            <SizingMenuItem
-              icon={<IconSizingHug />}
-              label={labels.hugContents}
-              active={value === "hug"}
-              onSelect={() => onChange("hug")}
-            />
-          ) : null}
-          {canFill ? (
-            <SizingMenuItem
-              icon={<IconSizingFill />}
-              label={labels.fillContainer}
-              active={value === "fill"}
-              onSelect={() => onChange("fill")}
-            />
-          ) : null}
-
-          {/* ── Min / Max ── */}
-          {onMinMaxChange ? (
-            <>
-              <DropdownMenuSeparator />
-              <SizingMenuItem
-                icon={<IconSizingMin />}
-                label={addMinLabel}
-                active={hasMin}
-                disabled={hasMin}
-                onSelect={() => openEditor("min")}
-              />
-              <SizingMenuItem
-                icon={<IconSizingMax />}
-                label={addMaxLabel}
-                active={hasMax}
-                disabled={hasMax}
-                onSelect={() => openEditor("max")}
-              />
-            </>
-          ) : null}
-
-          {/* ── Variable ── */}
-          <DropdownMenuSeparator />
-          <SizingMenuItem
-            icon={<IconSizingVariable />}
-            label={labels.applyVariable}
-            disabled={!onApplyVariable}
-            onSelect={() => onApplyVariable?.(sizingAxis)}
-          />
-        </DropdownMenuContent>
-      </DropdownMenu>
+                  {/* Mode word (Hug/Fill only) */}
+                  {showWord ? (
+                    <span className="shrink-0 truncate text-muted-foreground">
+                      {labels[value]}
+                    </span>
+                  ) : null}
+                  {/* Caret */}
+                  <span className="flex shrink-0 items-center text-muted-foreground">
+                    <ChevronDownMini />
+                  </span>
+                </button>
+              </DropdownMenuTrigger>
+            </TooltipTrigger>
+            <TooltipContent>{`${axis} · ${labels[value]} — click to change sizing mode`}</TooltipContent>
+          </Tooltip>
+          {dropdownContent}
+        </DropdownMenu>
+      )}
 
       {/* ── Constraint sub-rows ── */}
       {hasMin ? (
@@ -1236,19 +1351,6 @@ export function SizingField({
             onMinMaxChange?.(sizingAxis, "min", null);
           }}
         />
-      ) : pending?.kind === "min" ? (
-        // Pending (uncommitted) min row — shown before the user confirms a value.
-        <ConstraintSubRow
-          label={minLabel}
-          value={pending.seed}
-          disabled={disabled}
-          removeLabel={labels.removeConstraint}
-          onChange={(next) => {
-            setPending(null);
-            onMinMaxChange?.(sizingAxis, "min", next);
-          }}
-          onRemove={() => setPending(null)}
-        />
       ) : null}
       {hasMax ? (
         <ConstraintSubRow
@@ -1260,19 +1362,6 @@ export function SizingField({
           onRemove={() => {
             onMinMaxChange?.(sizingAxis, "max", null);
           }}
-        />
-      ) : pending?.kind === "max" ? (
-        // Pending (uncommitted) max row — shown before the user confirms a value.
-        <ConstraintSubRow
-          label={maxLabel}
-          value={pending.seed}
-          disabled={disabled}
-          removeLabel={labels.removeConstraint}
-          onChange={(next) => {
-            setPending(null);
-            onMinMaxChange?.(sizingAxis, "max", next);
-          }}
-          onRemove={() => setPending(null)}
         />
       ) : null}
     </div>
@@ -1345,7 +1434,7 @@ function ConstraintSubRow({
         disabled={disabled}
         className="min-w-0 flex-1 gap-0"
         labelClassName="hidden"
-        inputClassName="h-5 border-0 bg-transparent px-1 text-[11px] shadow-none focus-visible:ring-0"
+        inputClassName="h-5 border-0 bg-transparent px-1 !text-[11px] shadow-none focus-visible:ring-0"
       />
       <Tooltip>
         <TooltipTrigger asChild>

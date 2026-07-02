@@ -1,5 +1,7 @@
 // @vitest-environment happy-dom
 
+import { readFileSync } from "node:fs";
+
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -24,6 +26,10 @@ import {
   isAssistantUiRecoverableRenderError,
   isAssistantUiStaleIndexError,
   latestNonRecoveryUserMessageText,
+  reconnectActivityFallbackContent,
+  reconnectProgressTimedOut,
+  resolveAssistantChatRunningState,
+  resolveAssistantChatRunningStatusLabel,
   resolveAssistantChatSubmitIntent,
 } from "./AssistantChat.js";
 
@@ -96,6 +102,392 @@ describe("resolveAssistantChatSubmitIntent", () => {
         requestedIntent: undefined,
       }),
     ).toBe("immediate");
+  });
+});
+
+describe("resolveAssistantChatRunningState", () => {
+  it("keeps UI running during auto-continuation gaps without changing queue gating", () => {
+    expect(
+      resolveAssistantChatRunningState({
+        forceStopped: false,
+        isRuntimeRunning: false,
+        isReconnecting: false,
+        optimisticRunning: false,
+        isAutoResuming: true,
+      }),
+    ).toEqual({ isRunning: false, showRunningInUI: true });
+  });
+
+  it("keeps the chat visibly running while the server still has an active run", () => {
+    expect(
+      resolveAssistantChatRunningState({
+        forceStopped: false,
+        isRuntimeRunning: false,
+        isReconnecting: false,
+        optimisticRunning: false,
+        isAutoResuming: false,
+        hasActiveServerRun: true,
+      }),
+    ).toEqual({ isRunning: true, showRunningInUI: true });
+  });
+
+  it("keeps auto-resume visible through the between-chunk idle gap", () => {
+    const source = readFileSync("src/client/AssistantChat.tsx", {
+      encoding: "utf8",
+    });
+
+    expect(source).toContain("AUTO_RESUME_STATUS_TIMEOUT_MS");
+    expect(source).toContain("autoResumeTimerRef");
+    expect(source).toContain("!isRunning && !isAutoResuming");
+    expect(source).not.toContain(
+      "if (!isRunning) {\n      setIsAutoResuming(false);",
+    );
+  });
+
+  it("clears both running states after an explicit stop", () => {
+    expect(
+      resolveAssistantChatRunningState({
+        forceStopped: true,
+        isRuntimeRunning: true,
+        isReconnecting: true,
+        optimisticRunning: true,
+        isAutoResuming: true,
+      }),
+    ).toEqual({ isRunning: false, showRunningInUI: false });
+  });
+});
+
+describe("resolveAssistantChatRunningStatusLabel", () => {
+  it("keeps active tool activity ahead of recovery labels", () => {
+    expect(
+      resolveAssistantChatRunningStatusLabel({
+        runningActivityLabel: "Preparing generate-design action",
+        isAutoResuming: false,
+        isReconnecting: true,
+        hasReconnectContent: true,
+      }),
+    ).toBe("Preparing generate-design action");
+  });
+
+  it("shows replayed recovery as continuing instead of reconnecting", () => {
+    expect(
+      resolveAssistantChatRunningStatusLabel({
+        runningActivityLabel: null,
+        isAutoResuming: false,
+        isReconnecting: true,
+        hasReconnectContent: true,
+      }),
+    ).toBe("Continuing");
+  });
+
+  it("keeps bare reconnect recovery as thinking", () => {
+    expect(
+      resolveAssistantChatRunningStatusLabel({
+        runningActivityLabel: null,
+        isAutoResuming: false,
+        isReconnecting: true,
+        hasReconnectContent: false,
+      }),
+    ).toBe("Thinking");
+  });
+});
+
+describe("waitForThreadRunToClear", () => {
+  it("uses server-relative run progress when deciding whether an active run is stale", () => {
+    const source = readFileSync("src/client/AssistantChat.tsx", {
+      encoding: "utf8",
+    });
+    const start = source.indexOf("async function waitForThreadRunToClear");
+    const end = source.indexOf("// ─── Composer Attachment Preview");
+    const helperSource = source.slice(start, end);
+
+    expect(start).toBeGreaterThan(-1);
+    expect(end).toBeGreaterThan(start);
+    expect(helperSource).toContain("activeRunLooksStale(info)");
+    expect(helperSource).not.toContain("heartbeatAt");
+  });
+
+  it("aborts the reconnect on an idle gap, not a fixed total duration", () => {
+    const source = readFileSync("src/client/AssistantChat.tsx", {
+      encoding: "utf8",
+    });
+    const start = source.indexOf("const startReconnectToRun = useCallback");
+    const end = source.indexOf("const reconnectActiveRunForThread");
+    const helperSource = source.slice(start, end);
+
+    expect(start).toBeGreaterThan(-1);
+    expect(end).toBeGreaterThan(start);
+    // The no-progress decision must be a sliding idle deadline that resets on
+    // streamed events — never a one-shot `setTimeout(..., THRESHOLD)` that caps
+    // total reconnect duration and falsely fails a healthy long run.
+    expect(helperSource).toContain("markReconnectProgress");
+    expect(helperSource).toContain("reconnectProgressTimedOut");
+    expect(helperSource).not.toContain(
+      "setTimeout(() => {\n        reconnectTimedOut = true;",
+    );
+    expect(helperSource).not.toContain("20_000");
+  });
+
+  it("shows active tool activity before falling back to calm recovery labels", () => {
+    const source = readFileSync("src/client/AssistantChat.tsx", {
+      encoding: "utf8",
+    });
+    const start = source.indexOf("const runningStatusLabel =");
+    const end = source.indexOf("const lastBroadcastRunningRef");
+    const labelSource = source.slice(start, end);
+
+    expect(start).toBeGreaterThan(-1);
+    expect(end).toBeGreaterThan(start);
+    expect(labelSource.indexOf("runningActivityLabel")).toBeLessThan(
+      labelSource.indexOf("isReconnecting"),
+    );
+    expect(labelSource).toContain("resolveAssistantChatRunningStatusLabel");
+    expect(labelSource).toContain("hasReconnectContent");
+  });
+
+  it("clears stale stored active-run state when the server has no usable run", () => {
+    const source = readFileSync("src/client/AssistantChat.tsx", {
+      encoding: "utf8",
+    });
+    const start = source.indexOf("const reconnectActiveRunForThread");
+    const end = source.indexOf("useEffect(() => {\n    if (!threadId");
+    const reconnectSource = source.slice(start, end);
+
+    expect(start).toBeGreaterThan(-1);
+    expect(end).toBeGreaterThan(start);
+    expect(reconnectSource).toContain("const storedActiveRun = getActiveRun()");
+    expect(reconnectSource).toContain(
+      "clearActiveRunIfMatches(threadId, storedActiveRun.runId)",
+    );
+  });
+
+  it("does not freeze tail-only reconnect snapshots when stopped", () => {
+    const source = readFileSync("src/client/AssistantChat.tsx", {
+      encoding: "utf8",
+    });
+    const reconnectStart = source.indexOf("const startReconnectToRun");
+    const reconnectEnd = source.indexOf("const reconnectActiveRunForThread");
+    const reconnectSource = source.slice(reconnectStart, reconnectEnd);
+    const stopStart = source.indexOf("const stopActiveRun = useCallback");
+    const stopEnd = source.indexOf("const addToQueue = useCallback");
+    const stopSource = source.slice(stopStart, stopEnd);
+
+    expect(reconnectStart).toBeGreaterThan(-1);
+    expect(reconnectEnd).toBeGreaterThan(reconnectStart);
+    expect(stopStart).toBeGreaterThan(-1);
+    expect(stopEnd).toBeGreaterThan(stopStart);
+    expect(reconnectSource).toContain(
+      "reconnectTailOnlyRef.current = afterSeq > 0",
+    );
+    expect(stopSource).toContain("!reconnectTailOnlyRef.current");
+    expect(stopSource).toContain("reconnectCanMaterializeRef.current");
+    expect(stopSource).toContain("reconnectContent.length > 0");
+    expect(stopSource).toContain("reconnectTailOnlyRef.current = false");
+  });
+
+  it("builds a running tool card for tail-reconnect activity", () => {
+    expect(reconnectActivityFallbackContent(" generate-design ")).toEqual([
+      expect.objectContaining({
+        type: "tool-call",
+        toolName: "generate-design",
+        argsText: "",
+        args: {},
+        activity: true,
+      }),
+    ]);
+    expect(reconnectActivityFallbackContent("")).toEqual([]);
+  });
+
+  it("rehydrates reconnect activity from active-run state", () => {
+    const source = readFileSync("src/client/AssistantChat.tsx", {
+      encoding: "utf8",
+    });
+    const start = source.indexOf("const startReconnectToRun = useCallback");
+    const end = source.indexOf("const reconnectActiveRunForThread");
+    const helperSource = source.slice(start, end);
+
+    expect(start).toBeGreaterThan(-1);
+    expect(end).toBeGreaterThan(start);
+    expect(helperSource).toContain("getActiveRunActivityTool(threadId, runId)");
+    expect(helperSource).toContain(
+      "setRunningActivityTool(storedActivityTool)",
+    );
+    expect(helperSource).toContain("activityTool: storedActivityTool");
+  });
+
+  it("clears stored active-run state when reconnect or stop unwinds the run", () => {
+    const source = readFileSync("src/client/AssistantChat.tsx", {
+      encoding: "utf8",
+    });
+    const reconnectStart = source.indexOf(
+      "const startReconnectToRun = useCallback",
+    );
+    const reconnectEnd = source.indexOf("const reconnectActiveRunForThread");
+    const reconnectSource = source.slice(reconnectStart, reconnectEnd);
+    const stopStart = source.indexOf("const stopActiveRun = useCallback");
+    const stopEnd = source.indexOf(
+      "// Keep the ref current so addToQueue can call it",
+    );
+    const stopSource = source.slice(stopStart, stopEnd);
+
+    expect(reconnectStart).toBeGreaterThan(-1);
+    expect(reconnectEnd).toBeGreaterThan(reconnectStart);
+    expect(stopStart).toBeGreaterThan(-1);
+    expect(stopEnd).toBeGreaterThan(stopStart);
+    expect(reconnectSource).toContain(
+      "clearActiveRunIfMatches(threadId, runId)",
+    );
+    expect(stopSource).toContain(
+      "clearActiveRunIfMatches(threadId, runIdToAbort)",
+    );
+  });
+
+  it("renders tail-resume reconnect content instead of hiding it behind the fallback", () => {
+    const source = readFileSync("src/client/AssistantChat.tsx", {
+      encoding: "utf8",
+    });
+    const start = source.indexOf("{(isReconnecting || reconnectFrozen) &&");
+    const end = source.indexOf("{showRunningInUI &&", start);
+    const renderSource = source.slice(start, end);
+
+    expect(start).toBeGreaterThan(-1);
+    expect(end).toBeGreaterThan(start);
+    expect(renderSource).toContain("reconnectContent.length > 0");
+    expect(renderSource).toContain("reconnectContent.length === 0");
+    expect(renderSource).not.toContain("reconnectAfterSeq");
+  });
+
+  it("keeps tail-resume reconnect content display-only on normal completion", () => {
+    const source = readFileSync("src/client/AssistantChat.tsx", {
+      encoding: "utf8",
+    });
+    const start = source.indexOf("setReconnectFrozen(afterSeq === 0)");
+    const end = source.indexOf("const reconnectActiveRunForThread");
+    const completionSource = source.slice(start, end);
+    const materializeStart = source.indexOf(
+      "const materializeFrozenReconnectContent = useCallback",
+    );
+    const materializeEnd = source.indexOf(
+      "// Abort the active server run",
+      materializeStart,
+    );
+    const materializeSource = source.slice(materializeStart, materializeEnd);
+
+    expect(start).toBeGreaterThan(-1);
+    expect(end).toBeGreaterThan(start);
+    expect(materializeStart).toBeGreaterThan(-1);
+    expect(materializeEnd).toBeGreaterThan(materializeStart);
+    expect(source).toContain(
+      "reconnectCanMaterializeRef.current = afterSeq === 0",
+    );
+    expect(completionSource).toContain("setReconnectFrozen(afterSeq === 0)");
+    expect(completionSource).toContain("if (afterSeq > 0)");
+    expect(completionSource).toContain("setReconnectContent([])");
+    expect(completionSource).toContain("setReconnectFrozen(false)");
+    expect(completionSource).toContain(
+      "if (loaded || afterSeq > 0 || latestContent.length === 0)",
+    );
+    expect(completionSource).toContain(
+      "afterSeq > 0 || repoHasAssistantMessage(repo)",
+    );
+    expect(completionSource).not.toContain("setReconnectFrozen(true)");
+    expect(materializeSource).toContain("!reconnectCanMaterializeRef.current");
+    expect(materializeSource).toContain("setReconnectContent([])");
+    expect(materializeSource).toContain("return;");
+  });
+
+  it("keeps stopped fresh reconnect content materializable", () => {
+    const source = readFileSync("src/client/AssistantChat.tsx", {
+      encoding: "utf8",
+    });
+    const stopStart = source.indexOf("const stopActiveRun = useCallback");
+    const stopEnd = source.indexOf(
+      "// Keep the ref current so addToQueue can call it",
+      stopStart,
+    );
+    const stopSource = source.slice(stopStart, stopEnd);
+    const freezeStart = stopSource.indexOf("if (shouldFreezeReconnectContent)");
+    const elseStart = stopSource.indexOf("} else {", freezeStart);
+    const freezeBranch = stopSource.slice(freezeStart, elseStart);
+
+    expect(stopStart).toBeGreaterThan(-1);
+    expect(stopEnd).toBeGreaterThan(stopStart);
+    expect(stopSource).toContain("!reconnectTailOnlyRef.current");
+    expect(stopSource).toContain("reconnectCanMaterializeRef.current");
+    expect(stopSource).toContain("reconnectContent.length > 0");
+    expect(freezeStart).toBeGreaterThan(-1);
+    expect(elseStart).toBeGreaterThan(freezeStart);
+    expect(freezeBranch).toContain("setReconnectFrozen(true)");
+    expect(freezeBranch).not.toContain(
+      "reconnectCanMaterializeRef.current = false",
+    );
+  });
+
+  it("keeps no-progress fresh reconnect content materializable", () => {
+    const source = readFileSync("src/client/AssistantChat.tsx", {
+      encoding: "utf8",
+    });
+    const start = source.indexOf(
+      "if (noProgressDuringReconnect && reconnectRunIdRef.current === runId)",
+    );
+    const end = source.indexOf("setReconnectFrozen(afterSeq === 0)", start);
+    const noProgressSource = source.slice(start, end);
+    const tailStart = noProgressSource.indexOf("if (afterSeq > 0)");
+    const freshStart = noProgressSource.indexOf("} else {", tailStart);
+    const freshEnd = noProgressSource.indexOf("setRunErrorInfo", freshStart);
+    const freshBranch = noProgressSource.slice(freshStart, freshEnd);
+
+    expect(start).toBeGreaterThan(-1);
+    expect(end).toBeGreaterThan(start);
+    expect(tailStart).toBeGreaterThan(-1);
+    expect(freshStart).toBeGreaterThan(tailStart);
+    expect(freshBranch).toContain(
+      "reconnectCanMaterializeRef.current = latestContent.length > 0",
+    );
+    expect(noProgressSource).toContain(
+      "if (afterSeq > 0) {\n            reconnectCanMaterializeRef.current = false;\n          }",
+    );
+  });
+});
+
+describe("reconnectProgressTimedOut", () => {
+  const threshold = 90_000;
+
+  it("never times out a run that keeps streaming heartbeats", () => {
+    // Simulate a long image generation that emits an activity heartbeat every
+    // 8s over 5 minutes of reconnect wall-clock. Each event resets the idle
+    // deadline, so the gap is always 8s — far under the 90s stuck threshold.
+    // A one-shot total-duration cap (the prior behaviour) would have fired at
+    // 90s and falsely surfaced `reconnect_no_progress`.
+    let lastProgressAt = 0;
+    for (let now = 0; now <= 300_000; now += 8_000) {
+      expect(
+        reconnectProgressTimedOut({
+          lastProgressAt,
+          now,
+          thresholdMs: threshold,
+        }),
+      ).toBe(false);
+      lastProgressAt = now; // event arrived → markReconnectProgress()
+    }
+  });
+
+  it("times out only after true silence for the full threshold", () => {
+    const lastProgressAt = 1_000;
+    expect(
+      reconnectProgressTimedOut({
+        lastProgressAt,
+        now: lastProgressAt + threshold - 1,
+        thresholdMs: threshold,
+      }),
+    ).toBe(false);
+    expect(
+      reconnectProgressTimedOut({
+        lastProgressAt,
+        now: lastProgressAt + threshold,
+        thresholdMs: threshold,
+      }),
+    ).toBe(true);
   });
 });
 

@@ -32,6 +32,7 @@ const UNQUOTED_SECRET_VALUE_RE = new RegExp(
 type CaptureSurface = "browser" | "window" | "monitor" | "camera";
 type ConsoleLevel = "debug" | "log" | "info" | "warn" | "error";
 type NetworkType = "fetch" | "xhr";
+type UploadMode = "streaming" | "buffered";
 
 type ExtensionSettings = {
   clipsBaseUrl: string;
@@ -134,6 +135,7 @@ type NativeRecording = {
   recordingId: string;
   clipsBaseUrl: string;
   uploadUrl: string;
+  uploadMode: UploadMode;
   targetTabId: number;
   targetTitle: string | null;
   targetUrl: string | null;
@@ -261,6 +263,7 @@ const CROSS_TAB_FOLLOW: boolean = false;
 // The tab the recording was launched from — the only tab activeTab lets us touch.
 let overlayTabId: number | null = null;
 let countdownEndsAtMs = 0;
+let armingNativeRecordingSessionId: string | null = null;
 
 function desiredParts(): OverlayPart[] {
   // The on-page controls match the desktop app: a left-edge vertical pill plus
@@ -950,15 +953,7 @@ function createSession(
 }
 
 async function handlePopupStart(message: PopupStartMessage) {
-  const tab = await queryActiveTab();
-  if (!tab || typeof tab.id !== "number") {
-    return { ok: false, error: "No active tab is available to record." };
-  }
-
-  const settings = await readSettings(message.settings);
-  await storageSet(settings);
-
-  if (activeNativeRecording) {
+  if (activeNativeRecording || armingNativeRecordingSessionId) {
     return {
       ok: false,
       error: "Clips is already recording. Stop the active clip first.",
@@ -966,7 +961,22 @@ async function handlePopupStart(message: PopupStartMessage) {
   }
 
   const sessionId = crypto.randomUUID();
-  return armRecording({ sessionId, tab, settings });
+  armingNativeRecordingSessionId = sessionId;
+  try {
+    const tab = await queryActiveTab();
+    if (!tab || typeof tab.id !== "number") {
+      return { ok: false, error: "No active tab is available to record." };
+    }
+
+    const settings = await readSettings(message.settings);
+    await storageSet(settings);
+
+    return await armRecording({ sessionId, tab, settings });
+  } finally {
+    if (armingNativeRecordingSessionId === sessionId) {
+      armingNativeRecordingSessionId = null;
+    }
+  }
 }
 
 // Arm a Loom-style in-page recording: show the native picker, create the row,
@@ -1041,6 +1051,7 @@ async function armRecording(args: {
     id?: string;
     uploadChunkUrl?: string;
     abortUrl?: string;
+    uploadMode?: UploadMode;
   };
   let created: CreatedRecording;
   try {
@@ -1053,6 +1064,8 @@ async function armRecording(args: {
       hasAudio:
         settings.includeMicrophone || settings.captureSurface !== "camera",
       visibility: "public",
+      mimeType: "video/webm",
+      requestStreaming: true,
     });
   } catch (err) {
     captureExtensionError(err, {
@@ -1083,6 +1096,7 @@ async function armRecording(args: {
     recordingId: created.id,
     clipsBaseUrl: settings.clipsBaseUrl,
     uploadUrl,
+    uploadMode: created.uploadMode ?? "buffered",
     targetTabId: tab.id as number,
     targetTitle: tab.title?.trim() || null,
     targetUrl: tab.url?.trim() || null,
@@ -1114,6 +1128,7 @@ async function armRecording(args: {
       sessionId,
       recordingId: created.id,
       uploadUrl,
+      uploadMode: created.uploadMode ?? "buffered",
       hasCamera: cameraInvolved,
       startDelayMs,
       authToken,
@@ -1266,6 +1281,7 @@ async function handleOverlayRestart() {
       sessionId: recording.sessionId,
       recordingId: recording.recordingId,
       uploadUrl: recording.uploadUrl,
+      uploadMode: recording.uploadMode ?? "buffered",
       hasCamera:
         recording.captureSurface === "camera" || recording.includeCamera,
       startDelayMs: COUNTDOWN_SECONDS * 1000,
@@ -1474,6 +1490,7 @@ async function handlePopupStatus() {
   return {
     ok: true,
     activeRecording: activeNativeRecording,
+    arming: Boolean(armingNativeRecordingSessionId),
   };
 }
 

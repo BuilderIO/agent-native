@@ -424,6 +424,9 @@ const messages = {
     embed: "埋め込み",
     shareLink: "共有リンク",
     shareWithAgents: "エージェントと共有する",
+    copyAgentPrompt: "エージェント用プロンプトをコピー",
+    agentPrompt:
+      "この Clips エージェントコンテキスト URL を取得してください: {{agentContextUrl}}。音声の文脈には transcript.segments を使い、画面を見るために recommendedFrames またはフレーム API URL を取得し、browserDiagnostics がある場合は、編集済みのコンソールログと fetch/XHR リクエストのメタデータを確認してください。",
     agentTokenDescription:
       "この一時的なエージェント URL により、クリップを公開せずにエージェントが読み取れます。2 時間後に期限切れになります。",
     gifPreview: "GIF プレビュー",
@@ -437,6 +440,7 @@ const messages = {
     askOwnerPublic: "所有者に公開するよう依頼してください。",
     responsive: "レスポンシブ (16:9)",
     fixedSize: "固定サイズ",
+    embedIframeTitle: "Clips動画",
     width: "幅",
     height: "身長",
     autoplay: "自動再生",

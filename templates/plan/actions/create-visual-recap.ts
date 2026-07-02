@@ -265,7 +265,7 @@ export default defineAction({
         "Open the Agent-Native Plan review surface for a visual code-review recap.",
       iframeTitle: "Agent-Native Plan",
       openLabel: "Open Recap",
-      height: 860,
+      height: 900,
     }),
   },
   run: async (args) => {

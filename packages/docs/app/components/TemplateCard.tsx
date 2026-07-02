@@ -26,7 +26,7 @@ export const templates = [
     demoUrl: "https://plan.agent-native.com",
     color: "#52525B",
     screenshot:
-      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fb6f4213ac7cc42eeb10c12e8ccda8936?format=webp&width=800",
+      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fefc6a3ac908149fa92e2b9392c0bb372?format=webp&width=800",
   },
   {
     name: "Design",
@@ -36,7 +36,7 @@ export const templates = [
     demoUrl: "https://design.agent-native.com",
     color: "#F472B6",
     screenshot:
-      "https://cdn.builder.io/api/v1/image/assets%2F348da13fcd8b414c87de9066196f7266%2F961bedb713a94463b834c1f2f4643bcf?format=webp&width=800",
+      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fe2c86908c2fa4f119ee4aa90b4823944?format=webp&width=800",
   },
   {
     name: "Content",
@@ -312,7 +312,7 @@ function TemplateLaunchButton({ template }: { template: Template }) {
 export function TemplateCard({ template }: { template: Template }) {
   const { locale } = useLocale();
   const t = useT();
-  const templatePath = sitePathForLocale(`/templates/${template.slug}`, locale);
+  const templatePath = sitePathForLocale(`/apps/${template.slug}`, locale);
   const replaces = t(`templates.${template.slug}.replaces`);
   const description = t(`templates.${template.slug}.description`);
 

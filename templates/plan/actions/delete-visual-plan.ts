@@ -1,4 +1,4 @@
-import { defineAction, embedApp } from "@agent-native/core";
+import { defineAction } from "@agent-native/core";
 import { deleteCollabState } from "@agent-native/core/collab";
 import { getDbExec } from "@agent-native/core/db";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
@@ -206,14 +206,6 @@ export default defineAction({
   needsApproval: (args) => args.mode === "hard",
   mcpApp: {
     compactCatalog: true,
-    resource: embedApp({
-      title: "Delete Plan Data",
-      description:
-        "Open the Agent-Native Plan surface to manage hosted plan deletion.",
-      iframeTitle: "Agent-Native Plan",
-      openLabel: "Open Plan",
-      height: 860,
-    }),
   },
   run: async (args) => {
     const deleteOwnerEmail = requireDeleteOwnerEmail();
