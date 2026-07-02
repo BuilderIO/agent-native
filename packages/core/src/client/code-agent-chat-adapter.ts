@@ -180,7 +180,8 @@ export function createCodeAgentChatAdapter(
           }
 
           const content = codeAgentTranscriptEventsToContent(tailedEvents);
-          if (content.length > 0 && nextEvents.length > 0) {
+          const sawClear = nextEvents.some(isAgentChatClearTranscriptEvent);
+          if ((content.length > 0 || sawClear) && nextEvents.length > 0) {
             yieldedContent = true;
             yield withRunMetadata({ content: [...content] }, runId);
           }
@@ -255,9 +256,15 @@ function findLastAgentChatClearEventIndex(
   events: readonly CodeAgentChatTranscriptEvent[],
 ): number {
   for (let index = events.length - 1; index >= 0; index--) {
-    if (events[index]?.metadata?.agentChatEventType === "clear") return index;
+    if (isAgentChatClearTranscriptEvent(events[index])) return index;
   }
   return -1;
+}
+
+function isAgentChatClearTranscriptEvent(
+  event: CodeAgentChatTranscriptEvent | undefined,
+): boolean {
+  return event?.metadata?.agentChatEventType === "clear";
 }
 
 function latestUserMessage(

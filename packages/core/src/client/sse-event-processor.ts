@@ -702,7 +702,10 @@ export function processEvent(
     content.length = 0;
     resetProcessEventState(state);
     dispatchActivityClear(tabId);
-    return { action: "continue" };
+    return {
+      action: "yield",
+      result: { content: contentSnapshot(content) } as ChatModelRunResult,
+    };
   }
 
   if (ev.type === "text") {

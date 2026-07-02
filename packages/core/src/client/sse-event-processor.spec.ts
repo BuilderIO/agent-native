@@ -1820,9 +1820,10 @@ describe("SSE event processor error classification", () => {
       },
     );
 
-    await drain(
+    const results = await drain(
       readSSEStream(
         eventStream([
+          { type: "text", text: "Rejected draft" },
           {
             type: "activity",
             label: "Preparing data-source-status action",
@@ -1837,6 +1838,7 @@ describe("SSE event processor error classification", () => {
       ),
     );
 
+    expect(results).toContainEqual({ content: [] });
     expect(dispatchEvent).toHaveBeenCalledWith(
       expect.objectContaining({
         type: "agent-chat:activity-clear",
