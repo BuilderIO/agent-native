@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.84.56
+
+### Patch Changes
+
+- a0615f8: Make PR visual recap screenshots link directly to the interactive recap and publish source-author metadata for recap comments.
+
 ## 0.84.55
 
 ### Patch Changes
