@@ -1,0 +1,14 @@
+{
+  "name": "Risk Review",
+  "description": "Weekly CS risk review — HubSpot-flagged renewal deals sorted by days in risk status, plus Pylon early-warning accounts not yet flagged in HubSpot.",
+  "columns": 1,
+  "panels": [
+    {
+      "id": "risk-meeting-extension",
+      "title": "Risk Review",
+      "chartType": "extension",
+      "width": 1,
+      "config": { "extensionId": "risk-meeting" }
+    }
+  ]
+}

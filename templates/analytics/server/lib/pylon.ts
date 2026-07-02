@@ -83,9 +83,7 @@ export const PYLON_RISK_SENTIMENTS = new Set([
   "high_risk_detractor",
 ]);
 
-export function isRiskSentiment(
-  sentiment: string | null | undefined,
-): boolean {
+export function isRiskSentiment(sentiment: string | null | undefined): boolean {
   return !!sentiment && PYLON_RISK_SENTIMENTS.has(sentiment.toLowerCase());
 }
 

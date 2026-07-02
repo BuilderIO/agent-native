@@ -224,9 +224,7 @@ export async function getRiskDeals(
     return {
       id: deal.id,
       dealname: props.dealname ?? "",
-      riskStatus: String(
-        props.risk_status ?? "",
-      ) as RiskDeal["riskStatus"],
+      riskStatus: String(props.risk_status ?? "") as RiskDeal["riskStatus"],
       riskSummary: props.risk_summary ?? null,
       riskCategory: props.risk_category ?? null,
       nextStep: props.hs_next_step ?? null,
@@ -234,7 +232,7 @@ export async function getRiskDeals(
       daysInCurrentRiskStatus: hasLastUpdated ? daysSince(lastUpdatedMs) : 0,
       riskStatusLastUpdated: hasLastUpdated ? toIsoDate(lastUpdatedMs) : null,
       csmName: ownerId ? (owners[ownerId] ?? null) : null,
-      dealStageLabel: lookups.stageLabels[stageId] ?? stageId || null,
+      dealStageLabel: lookups.stageLabels[stageId] ?? (stageId || null),
       arr: toNumber(props.total_contract_value),
       closedate: props.closedate ?? null,
       pipeline: pipelineId

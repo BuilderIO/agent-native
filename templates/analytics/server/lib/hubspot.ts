@@ -488,9 +488,7 @@ export async function searchHubSpotDealsByRiskStatuses(options: {
   }
 
   const limit = Math.max(1, Math.min(100, options.limit ?? 100));
-  const properties = await resolveDealProperties(
-    options.extraProperties ?? [],
-  );
+  const properties = await resolveDealProperties(options.extraProperties ?? []);
 
   const body: Record<string, unknown> = {
     filterGroups: [

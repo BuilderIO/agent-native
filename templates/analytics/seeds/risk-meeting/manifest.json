@@ -1,0 +1,7 @@
+{
+  "id": "risk-meeting",
+  "name": "Risk Review",
+  "description": "Weekly CS risk review — HubSpot-flagged renewal deals and Pylon early-warning accounts.",
+  "icon": "alert-triangle",
+  "contentFile": "../../scripts/alphine-risk-meeting.html"
+}

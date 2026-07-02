@@ -1,0 +1,461 @@
+<div x-data="riskMeetingApp" x-init="init()" x-on:keydown.window="handleKey($event)" class="space-y-4">
+  <div class="flex flex-wrap items-center justify-between gap-3">
+    <div>
+      <h1 class="text-lg font-semibold tracking-tight">Risk Review</h1>
+      <p class="text-xs text-muted-foreground">Weekly renewal risk review — HubSpot flagged deals and Pylon early warnings</p>
+    </div>
+    <button
+      type="button"
+      class="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-xs hover:bg-muted disabled:opacity-50"
+      :disabled="loading"
+      x-on:click="refresh()"
+    >
+      <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" :class="loading ? 'animate-spin' : ''"><path d="M20 11a8.1 8.1 0 0 0 -15.5 -2m-.5 -4v4h4" /><path d="M4 13a8.1 8.1 0 0 0 15.5 2m.5 4v-4h-4" /></svg>
+      <span x-text="loading ? 'Loading…' : 'Refresh'"></span>
+    </button>
+  </div>
+
+  <template x-if="notice">
+    <div class="flex items-start gap-2 rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-800">
+      <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="mt-0.5 shrink-0"><path d="M12 9v4" /><path d="M10.36 3.94l-8.36 14.5a1.73 1.73 0 0 0 1.5 2.56h16.72a1.73 1.73 0 0 0 1.5 -2.56l-8.36 -14.5a1.73 1.73 0 0 0 -3 0z" /><path d="M12 16h.01" /></svg>
+      <span x-text="notice"></span>
+    </div>
+  </template>
+
+  <template x-if="error">
+    <p class="rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-700" x-text="error"></p>
+  </template>
+
+  <div class="flex rounded-lg border border-border bg-muted/30 p-0.5 text-xs w-fit">
+    <button type="button" class="rounded-md px-3 py-1.5" :class="tab === 'hubspot' ? 'bg-background shadow-sm font-medium' : 'text-muted-foreground'" x-on:click="tab = 'hubspot'" x-text="'HubSpot Flagged (' + filteredHubspot().length + ')'"></button>
+    <button type="button" class="rounded-md px-3 py-1.5" :class="tab === 'pylon' ? 'bg-background shadow-sm font-medium' : 'text-muted-foreground'" x-on:click="tab = 'pylon'" x-text="'Pylon Early Warning (' + filteredPylon().length + ')'"></button>
+  </div>
+
+  <template x-if="tab === 'hubspot'">
+    <div class="grid grid-cols-1 gap-3 lg:grid-cols-5">
+      <div class="lg:col-span-2 space-y-3">
+        <div class="flex flex-wrap items-center gap-1.5">
+          <template x-for="status in statuses" :key="status">
+            <button
+              type="button"
+              class="rounded-full border px-2.5 py-1 text-[11px]"
+              :class="statusFilter === status ? 'border-primary bg-primary text-primary-foreground' : 'border-border text-muted-foreground hover:bg-muted'"
+              x-on:click="statusFilter = status"
+              x-text="status"
+            ></button>
+          </template>
+        </div>
+        <template x-if="csmOptions().length > 1">
+          <select x-model="csmFilter" class="w-full rounded-md border border-border bg-background px-2 py-1.5 text-xs">
+            <template x-for="csm in csmOptions()" :key="csm">
+              <option :value="csm" x-text="csm"></option>
+            </template>
+          </select>
+        </template>
+        <div class="max-h-[70vh] space-y-1 overflow-y-auto pr-1">
+          <template x-if="!loading && filteredHubspot().length === 0">
+            <p class="rounded-md border border-dashed border-border p-4 text-center text-xs text-muted-foreground">No deals match the current filters.</p>
+          </template>
+          <template x-for="deal in filteredHubspot()" :key="deal.id">
+            <button
+              type="button"
+              class="w-full rounded-md border p-2.5 text-left text-xs transition-colors"
+              :class="deal.id === selectedHubspotId ? 'border-primary bg-primary/5' : 'border-border hover:bg-muted'"
+              x-on:click="selectedHubspotId = deal.id"
+            >
+              <div class="flex items-center justify-between gap-2">
+                <span class="truncate font-medium" x-text="deal.dealname"></span>
+                <span class="shrink-0 rounded border px-1.5 py-0.5 text-[10px]" :class="statusClass(deal.riskStatus)" x-text="deal.riskStatus"></span>
+              </div>
+              <div class="mt-1 flex items-center justify-between gap-2 text-[11px] text-muted-foreground">
+                <span x-text="deal.csmName || '—'"></span>
+                <span :class="daysClass(deal.daysInCurrentRiskStatus)" x-text="deal.daysInCurrentRiskStatus + 'd in status'"></span>
+              </div>
+              <template x-if="deal.pylonSentiment">
+                <span class="mt-1 inline-block rounded px-1.5 py-0.5 text-[10px]" :class="sentimentClass(deal.pylonSentiment)" x-text="'Pylon: ' + sentimentLabel(deal.pylonSentiment)"></span>
+              </template>
+            </button>
+          </template>
+        </div>
+      </div>
+
+      <div class="lg:col-span-3">
+        <template x-if="selectedDeal()">
+          <div class="space-y-3 rounded-lg border border-border p-4 text-sm" x-data="{ deal: selectedDeal() }">
+            <div class="flex items-start justify-between gap-2 border-b border-border pb-3">
+              <div>
+                <h2 class="font-semibold" x-text="deal.dealname"></h2>
+                <span class="mt-1 inline-block rounded border px-2 py-0.5 text-[11px]" :class="statusClass(deal.riskStatus)" x-text="deal.riskStatus"></span>
+              </div>
+              <template x-if="deal.pylonAccountId">
+                <a :href="'https://app.usepylon.com/accounts/' + deal.pylonAccountId" target="_blank" rel="noreferrer" class="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-[11px] hover:bg-muted">
+                  View in Pylon
+                  <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 7h-5a2 2 0 0 0 -2 2v9a2 2 0 0 0 2 2h9a2 2 0 0 0 2 -2v-5" /><path d="M10 14l10 -10" /><path d="M15 4h5v5" /></svg>
+                </a>
+              </template>
+            </div>
+
+            <div>
+              <h3 class="text-xs font-medium text-muted-foreground">Risk summary</h3>
+              <p class="mt-1 whitespace-pre-wrap text-xs" x-text="deal.riskSummary || 'No summary recorded.'"></p>
+            </div>
+            <div>
+              <h3 class="text-xs font-medium text-muted-foreground">Next step</h3>
+              <p class="mt-1 whitespace-pre-wrap text-xs" x-text="deal.nextStep || 'No next step recorded.'"></p>
+            </div>
+            <template x-if="deal.churnNotes">
+              <div>
+                <h3 class="text-xs font-medium text-muted-foreground">Churn notes</h3>
+                <p class="mt-1 whitespace-pre-wrap text-xs" x-text="deal.churnNotes"></p>
+              </div>
+            </template>
+            <template x-if="riskCategoryChips(deal).length">
+              <div class="flex flex-wrap gap-1.5">
+                <template x-for="chip in riskCategoryChips(deal)" :key="chip">
+                  <span class="rounded-full border border-border px-2 py-0.5 text-[10px] text-muted-foreground" x-text="chip"></span>
+                </template>
+              </div>
+            </template>
+
+            <div class="grid grid-cols-2 gap-3 rounded-md bg-muted/30 p-3 text-xs sm:grid-cols-3">
+              <div><span class="text-muted-foreground">CSM</span><p class="font-medium" x-text="deal.csmName || '—'"></p></div>
+              <div><span class="text-muted-foreground">Stage</span><p class="font-medium" x-text="deal.dealStageLabel || '—'"></p></div>
+              <div><span class="text-muted-foreground">ARR</span><p class="font-medium" x-text="money(deal.arr)"></p></div>
+              <div><span class="text-muted-foreground">Pipeline</span><p class="font-medium" x-text="deal.pipeline || '—'"></p></div>
+              <div><span class="text-muted-foreground">Close date</span><p class="font-medium" x-text="date(deal.closedate)"></p></div>
+              <div><span class="text-muted-foreground">Risk status since</span><p class="font-medium" x-text="date(deal.riskStatusLastUpdated)"></p></div>
+            </div>
+          </div>
+        </template>
+      </div>
+    </div>
+  </template>
+
+  <template x-if="tab === 'pylon'">
+    <div class="grid grid-cols-1 gap-3 lg:grid-cols-5">
+      <div class="lg:col-span-2 space-y-3">
+        <template x-if="pylonCsmOptions().length > 1">
+          <select x-model="pylonCsmFilter" class="w-full rounded-md border border-border bg-background px-2 py-1.5 text-xs">
+            <template x-for="csm in pylonCsmOptions()" :key="csm">
+              <option :value="csm" x-text="csm"></option>
+            </template>
+          </select>
+        </template>
+        <div class="max-h-[70vh] space-y-1 overflow-y-auto pr-1">
+          <template x-if="!loading && filteredPylon().length === 0">
+            <p class="rounded-md border border-dashed border-border p-4 text-center text-xs text-muted-foreground">No early-warning accounts match the current filters.</p>
+          </template>
+          <template x-for="account in filteredPylon()" :key="account.pylonAccountId">
+            <button
+              type="button"
+              class="w-full rounded-md border p-2.5 text-left text-xs transition-colors"
+              :class="account.pylonAccountId === selectedPylonId ? 'border-primary bg-primary/5' : 'border-border hover:bg-muted'"
+              x-on:click="selectedPylonId = account.pylonAccountId"
+            >
+              <div class="flex items-center justify-between gap-2">
+                <span class="truncate font-medium" x-text="account.accountName"></span>
+                <span class="shrink-0 rounded px-1.5 py-0.5 text-[10px]" :class="sentimentClass(account.pylonSentiment)" x-text="sentimentLabel(account.pylonSentiment)"></span>
+              </div>
+              <div class="mt-1 flex items-center justify-between gap-2 text-[11px] text-muted-foreground">
+                <span x-text="account.csmName || '—'"></span>
+                <span x-text="money(account.totalArr)"></span>
+              </div>
+            </button>
+          </template>
+        </div>
+      </div>
+
+      <div class="lg:col-span-3">
+        <template x-if="selectedPylon()">
+          <div class="space-y-3 rounded-lg border border-border p-4 text-sm" x-data="{ account: selectedPylon() }">
+            <div class="rounded-md border border-blue-500/30 bg-blue-500/10 px-3 py-2 text-xs text-blue-800">
+              Not yet flagged in HubSpot — Pylon sentiment is the only early-warning signal for this account.
+            </div>
+            <div class="flex items-start justify-between gap-2 border-b border-border pb-3">
+              <div>
+                <h2 class="font-semibold" x-text="account.accountName"></h2>
+                <span class="mt-1 inline-block rounded px-2 py-0.5 text-[11px]" :class="sentimentClass(account.pylonSentiment)" x-text="sentimentLabel(account.pylonSentiment)"></span>
+              </div>
+              <a :href="'https://app.usepylon.com/accounts/' + account.pylonAccountId" target="_blank" rel="noreferrer" class="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-[11px] hover:bg-muted">
+                View in Pylon
+                <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 7h-5a2 2 0 0 0 -2 2v9a2 2 0 0 0 2 2h9a2 2 0 0 0 2 -2v-5" /><path d="M10 14l10 -10" /><path d="M15 4h5v5" /></svg>
+              </a>
+            </div>
+            <div class="grid grid-cols-3 gap-3 rounded-md bg-muted/30 p-3 text-xs">
+              <div><span class="text-muted-foreground">CSM</span><p class="font-medium" x-text="account.csmName || '—'"></p></div>
+              <div><span class="text-muted-foreground">Total ARR</span><p class="font-medium" x-text="money(account.totalArr)"></p></div>
+              <div><span class="text-muted-foreground">Deals</span><p class="font-medium" x-text="account.dealCount"></p></div>
+              <div class="col-span-3"><span class="text-muted-foreground">Earliest close date</span><p class="font-medium" x-text="date(account.earliestClosedate)"></p></div>
+            </div>
+          </div>
+        </template>
+      </div>
+    </div>
+  </template>
+</div>
+
+<script>
+document.addEventListener('alpine:init', () => {
+  const ACTIVE_STATUSES = ['On the Radar', 'Churn Risk', 'Confirmed Churn', 'No Save Attempted'];
+
+  Alpine.data('riskMeetingApp', () => ({
+    loading: false,
+    error: '',
+    notice: '',
+    tab: 'hubspot',
+    statusFilter: 'All',
+    csmFilter: 'All',
+    pylonCsmFilter: 'All',
+    selectedHubspotId: null,
+    selectedPylonId: null,
+    deals: [],
+    pylonOnlyDeals: [],
+    statuses: ['All', ...ACTIVE_STATUSES],
+
+    async init() {
+      await this.load();
+    },
+
+    async refresh() {
+      await this.load();
+    },
+
+    async load() {
+      this.loading = true;
+      this.error = '';
+      this.notice = '';
+      try {
+        await this.loadHubspotFast();
+      } catch (e) {
+        this.error = e?.message || 'Failed to load HubSpot risk deals.';
+      } finally {
+        this.loading = false;
+      }
+      // Enrichment runs in the background so the list is usable immediately.
+      this.loadEnrichment();
+    },
+
+    async loadHubspotFast() {
+      const probe = await appAction('hubspot-deals', { riskStatuses: ['Churn Risk'], limit: 5 }).catch(() => null);
+      const serverSupportsRiskStatus = !!probe && String(probe.guidance || '').includes('risk_status');
+
+      let rawDeals = [];
+      let stageLabels = {};
+
+      if (serverSupportsRiskStatus) {
+        let after;
+        for (let page = 0; page < 10; page++) {
+          const result = await appAction('hubspot-deals', { riskStatuses: ACTIVE_STATUSES, limit: 100, after });
+          rawDeals.push(...(result.deals || []));
+          stageLabels = { ...stageLabels, ...(result.stageLabels || {}) };
+          if (!result.nextAfter) break;
+          after = result.nextAfter;
+        }
+      } else {
+        this.notice = 'HubSpot server search is not deployed yet — showing a keyword-based approximation. Deploy the Analytics app for the full ~41-account list.';
+        const byId = new Map();
+        await Promise.all(
+          ACTIVE_STATUSES.flatMap((status) => [
+            appAction('hubspot-deals', { query: status, limit: 100 })
+              .then((r) => {
+                stageLabels = { ...stageLabels, ...(r.stageLabels || {}) };
+                for (const deal of r.deals || []) byId.set(deal.id, deal);
+              })
+              .catch(() => {}),
+            appAction('hubspot-records', { objectType: 'deals', query: status, limit: 100 })
+              .then((r) => {
+                for (const record of r.records || []) {
+                  if (!byId.has(record.id)) byId.set(record.id, record);
+                }
+              })
+              .catch(() => {}),
+          ]),
+        );
+        rawDeals = Array.from(byId.values());
+      }
+
+      const normalized = rawDeals
+        .map((deal) => this.toRiskDeal(deal, stageLabels))
+        .filter(Boolean)
+        .filter((deal) => !this.isPastCloseDate(deal.closedate))
+        .sort((a, b) => b.daysInCurrentRiskStatus - a.daysInCurrentRiskStatus);
+
+      this.deals = normalized;
+      if (!this.selectedHubspotId && normalized.length) {
+        this.selectedHubspotId = normalized[0].id;
+      }
+
+      if (serverSupportsRiskStatus && normalized.length < 25) {
+        this.notice = 'HubSpot returned fewer flagged deals than expected. Waiting on Pylon enrichment to fill in the rest.';
+      }
+    },
+
+    async loadEnrichment() {
+      try {
+        const timeout = new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 28000));
+        const result = await Promise.race([appAction('risk-meeting', {}), timeout]);
+
+        const byId = new Map(this.deals.map((d) => [d.id, d]));
+        for (const enriched of result.deals || []) {
+          const existing = byId.get(enriched.id);
+          if (existing) {
+            Object.assign(existing, enriched);
+          } else {
+            byId.set(enriched.id, enriched);
+          }
+        }
+        this.deals = Array.from(byId.values()).sort(
+          (a, b) => b.daysInCurrentRiskStatus - a.daysInCurrentRiskStatus,
+        );
+        this.pylonOnlyDeals = result.pylonOnlyDeals || [];
+        this.notice = '';
+        if (!this.selectedHubspotId && this.deals.length) this.selectedHubspotId = this.deals[0].id;
+        if (!this.selectedPylonId && this.pylonOnlyDeals.length) {
+          this.selectedPylonId = this.pylonOnlyDeals[0].pylonAccountId;
+        }
+      } catch (e) {
+        if (this.deals.length) {
+          this.notice = 'Showing HubSpot data only — Pylon enrichment did not complete in time.';
+        } else {
+          this.error = e?.message || 'Failed to load the risk meeting data.';
+        }
+      }
+    },
+
+    toRiskDeal(deal, stageLabels) {
+      const p = deal.properties || {};
+      const status = String(p.risk_status || '').trim();
+      if (!ACTIVE_STATUSES.includes(status)) return null;
+      const updated = p.risk_status_last_updated ? Number(p.risk_status_last_updated) : null;
+      const days = updated ? Math.max(0, Math.floor((Date.now() - updated) / 86400000)) : 0;
+      return {
+        id: deal.id,
+        dealname: p.dealname || p.deal_name || 'Untitled deal',
+        riskStatus: status,
+        riskSummary: p.risk_summary || null,
+        riskCategory: p.risk_category || null,
+        nextStep: p.hs_next_step || null,
+        churnNotes: p.churn_notes || null,
+        daysInCurrentRiskStatus: days,
+        riskStatusLastUpdated: updated ? new Date(updated).toISOString().slice(0, 10) : null,
+        csmName: p.owner_name || p.hubspot_owner_name || null,
+        dealStageLabel: stageLabels[p.dealstage] || p.stage_name || p.dealstage || null,
+        arr: Number(p.total_contract_value || p.amount || 0) || null,
+        closedate: p.closedate || null,
+        pipeline: p.pipeline_name || p.pipeline || null,
+        pylonSentiment: null,
+        pylonAccountId: null,
+      };
+    },
+
+    isPastCloseDate(closedate) {
+      if (!closedate) return false;
+      const ms = Date.parse(closedate);
+      return Number.isFinite(ms) && ms < Date.now();
+    },
+
+    money(value) {
+      const n = Number(value || 0);
+      if (!n) return '—';
+      if (Math.abs(n) >= 1000000) return '$' + (n / 1000000).toFixed(1) + 'm';
+      if (Math.abs(n) >= 1000) return '$' + Math.round(n / 1000).toLocaleString() + 'k';
+      return '$' + Math.round(n).toLocaleString();
+    },
+
+    date(value) {
+      if (!value) return '—';
+      const d = new Date(value);
+      if (Number.isNaN(d.getTime())) return '—';
+      return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+    },
+
+    statusClass(status) {
+      if (status === 'Confirmed Churn') return 'border-red-500 text-red-700 bg-red-500/10';
+      if (status === 'Churn Risk') return 'border-orange-500 text-orange-700 bg-orange-500/10';
+      if (status === 'On the Radar') return 'border-yellow-500 text-yellow-700 bg-yellow-500/10';
+      return 'border-muted text-muted-foreground bg-muted';
+    },
+
+    daysClass(days) {
+      if (days >= 60) return 'text-red-600 font-medium';
+      if (days >= 30) return 'text-orange-600 font-medium';
+      return 'text-muted-foreground';
+    },
+
+    sentimentClass(sentiment) {
+      if (sentiment === 'high_risk_detractor') return 'bg-red-500/10 text-red-700';
+      if (sentiment === 'frustrated') return 'bg-orange-500/10 text-orange-700';
+      return 'bg-blue-500/10 text-blue-700';
+    },
+
+    sentimentLabel(sentiment) {
+      return String(sentiment || '')
+        .split('_')
+        .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+        .join(' ') || '—';
+    },
+
+    riskCategoryChips(deal) {
+      return String(deal?.riskCategory || '')
+        .split(';')
+        .map((chip) => chip.trim())
+        .filter(Boolean);
+    },
+
+    csmOptions() {
+      return ['All', ...new Set(this.deals.map((d) => d.csmName).filter(Boolean))];
+    },
+
+    pylonCsmOptions() {
+      return ['All', ...new Set(this.pylonOnlyDeals.map((d) => d.csmName).filter(Boolean))];
+    },
+
+    filteredHubspot() {
+      return this.deals.filter((deal) => {
+        if (this.statusFilter !== 'All' && deal.riskStatus !== this.statusFilter) return false;
+        if (this.csmFilter !== 'All' && deal.csmName !== this.csmFilter) return false;
+        return true;
+      });
+    },
+
+    filteredPylon() {
+      return this.pylonOnlyDeals.filter(
+        (account) => this.pylonCsmFilter === 'All' || account.csmName === this.pylonCsmFilter,
+      );
+    },
+
+    selectedDeal() {
+      const rows = this.filteredHubspot();
+      return rows.find((d) => d.id === this.selectedHubspotId) || rows[0] || null;
+    },
+
+    selectedPylon() {
+      const rows = this.filteredPylon();
+      return rows.find((d) => d.pylonAccountId === this.selectedPylonId) || rows[0] || null;
+    },
+
+    move(delta) {
+      if (this.tab === 'hubspot') {
+        const rows = this.filteredHubspot();
+        const idx = Math.max(0, rows.findIndex((d) => d.id === this.selectedHubspotId));
+        this.selectedHubspotId = rows[Math.min(Math.max(idx + delta, 0), rows.length - 1)]?.id || null;
+      } else {
+        const rows = this.filteredPylon();
+        const idx = Math.max(0, rows.findIndex((d) => d.pylonAccountId === this.selectedPylonId));
+        this.selectedPylonId = rows[Math.min(Math.max(idx + delta, 0), rows.length - 1)]?.pylonAccountId || null;
+      }
+    },
+
+    handleKey(event) {
+      if (event.key === 'ArrowDown') {
+        event.preventDefault();
+        this.move(1);
+      }
+      if (event.key === 'ArrowUp') {
+        event.preventDefault();
+        this.move(-1);
+      }
+    },
+  }));
+});
+</script>
