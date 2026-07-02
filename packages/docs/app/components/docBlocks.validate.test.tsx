@@ -294,6 +294,26 @@ describe("docs visual blocks", () => {
     });
   });
 
+  it("accepts the diagram frame attribute", () => {
+    const segment = splitDocSegments(
+      [
+        '<Diagram frame="hide">',
+        "",
+        "```html",
+        '<div class="diagram-node">A</div>',
+        "```",
+        "",
+        "</Diagram>",
+      ].join("\n"),
+    ).find(isValidatableBlockSegment);
+
+    expect(segment).toMatchObject({
+      kind: "block",
+      type: "diagram",
+    });
+    expect(segment && validateDocSegment(segment)).toEqual({ ok: true });
+  });
+
   it("fails registered MDX tags with unknown nested data keys", () => {
     const segment = splitDocSegments(
       '<FileTree title="Files" entries={[{ path: "app/page.tsx", surprise: true }]} />',

@@ -148,6 +148,11 @@ details live in `.agents/skills/`.
   `get-session-replay-summary` and fetches rrweb payloads only through scoped
   chunk routes. Do not expose storage/provider URLs, raw chunk table access, or
   unscoped replay blobs in UI, actions, dashboards, docs, or prompts.
+- The session detail page can mint a temporary `Copy for agent` link through
+  `create-session-replay-agent-link`. That URL carries an `agent_access` token
+  scoped to one recording for two hours; SSR embeds an agent discovery payload
+  and the JSON APIs expose only summary/timeline metadata plus bounded event
+  reads.
 - Dashboard rows that include `recording_id` should link to
   `/sessions/:recordingId`; rows that only include `session_id` can link to a
   filtered `/sessions` search.

@@ -98,6 +98,7 @@ function useDocBlockContext(): BlockRenderContext {
     () => ({
       dialect: "gfm",
       textDirection: "ltr",
+      visualFrame: "hide",
       showCodeAnnotationOverlays: false,
       renderMarkdown: (markdown) => <MarkdownInline markdown={markdown} />,
       renderBlock: ({ block, compactVisuals }) => (

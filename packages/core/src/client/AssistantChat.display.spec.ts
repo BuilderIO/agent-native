@@ -22,6 +22,7 @@ import {
   AssistantMessageListErrorBoundary,
   AssistantUiStaleIndexErrorBoundary,
   assistantUiRecoverableRenderErrorKind,
+  dedupeReconnectContentAgainstMessages,
   displayableUserMessageText,
   isAssistantUiRecoverableRenderError,
   isAssistantUiStaleIndexError,
@@ -40,6 +41,20 @@ describe("displayableUserMessageText", () => {
         "\n\n<context>\nHidden attachment instructions\n</context>",
       ),
     ).toBe("");
+  });
+
+  it("preserves visible text while stripping hidden context blocks", () => {
+    expect(
+      displayableUserMessageText(
+        "hi\n\n<context>\n## Fusion recap\nHidden selection\n</context>",
+      ),
+    ).toBe("hi");
+  });
+
+  it("strips unfinished context payloads from generated labels", () => {
+    expect(
+      displayableUserMessageText("hi <context> ## Fusion recap hidden payload"),
+    ).toBe("hi");
   });
 });
 
@@ -102,6 +117,149 @@ describe("resolveAssistantChatSubmitIntent", () => {
         requestedIntent: undefined,
       }),
     ).toBe("immediate");
+  });
+});
+
+describe("dedupeReconnectContentAgainstMessages", () => {
+  it("hides replayed reconnect tool calls already present in thread messages", () => {
+    const persistedMessages = [
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "tool-call",
+            toolCallId: "toolu_1",
+            toolName: "write-file",
+            argsText: "{}",
+            args: {},
+            result: "ok",
+          },
+        ],
+      },
+    ];
+
+    expect(
+      dedupeReconnectContentAgainstMessages(
+        [
+          {
+            type: "tool-call",
+            toolCallId: "toolu_1",
+            toolName: "write-file",
+            argsText: "{}",
+            args: {},
+            result: "ok",
+          },
+          { type: "text", text: "Continuing..." },
+        ],
+        persistedMessages,
+      ),
+    ).toEqual([{ type: "text", text: "Continuing..." }]);
+  });
+
+  it("keeps distinct repeated tool calls with different ids", () => {
+    const persistedMessages = [
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "tool-call",
+            toolCallId: "toolu_1",
+            toolName: "db-query",
+            argsText: '{"sql":"select 1"}',
+            args: { sql: "select 1" },
+            result: "1",
+          },
+        ],
+      },
+    ];
+    const repeatedCall = {
+      type: "tool-call" as const,
+      toolCallId: "toolu_2",
+      toolName: "db-query",
+      argsText: '{"sql":"select 1"}',
+      args: { sql: "select 1" },
+      result: "1",
+    };
+
+    expect(
+      dedupeReconnectContentAgainstMessages([repeatedCall], persistedMessages),
+    ).toEqual([repeatedCall]);
+  });
+
+  it("keeps reconnect completions when the rendered tool call is still pending", () => {
+    const persistedMessages = [
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "tool-call",
+            toolCallId: "toolu_pending",
+            toolName: "db-query",
+            argsText: '{"sql":"select 1"}',
+            args: { sql: "select 1" },
+          },
+        ],
+      },
+    ];
+    const completedCall = {
+      type: "tool-call" as const,
+      toolCallId: "toolu_pending",
+      toolName: "db-query",
+      argsText: '{"sql":"select 1"}',
+      args: { sql: "select 1" },
+      result: "1",
+    };
+
+    expect(
+      dedupeReconnectContentAgainstMessages([completedCall], persistedMessages),
+    ).toEqual([completedCall]);
+  });
+
+  it("shows fallback activity when all reconnect content was already rendered", () => {
+    const source = readFileSync("src/client/AssistantChat.tsx", {
+      encoding: "utf8",
+    });
+
+    expect(source).toContain("visibleReconnectContent.length === 0");
+    expect(source).not.toContain(
+      "reconnectContent.length === 0 &&\n                        reconnectActivityContent.length > 0",
+    );
+  });
+});
+
+describe("centered empty chat setup layout", () => {
+  it("floats the setup card outside the centered composer stack unless adjacent UI needs space", () => {
+    const css = readFileSync("src/styles/agent-native.css", {
+      encoding: "utf8",
+    });
+    const source = readFileSync("src/client/AssistantChat.tsx", {
+      encoding: "utf8",
+    });
+    const messageComponents = readFileSync(
+      "src/client/chat/message-components.tsx",
+      { encoding: "utf8" },
+    );
+
+    expect(source).toContain("hasComposerAccessoryAboveStack");
+    expect(source).toContain("data-agent-composer-adjacent-ui");
+    expect(source).toContain("showScrollToBottom");
+    expect(source).toContain("composerContextItems.length > 0");
+    expect(source).toContain('className="agent-composer-stack"');
+    expect(messageComponents).toContain("agent-selection-attached-pill");
+    expect(source).toContain('data-agent-composer-setup-position="above"');
+    expect(source).toContain('data-agent-composer-setup-position="below"');
+    expect(css).toMatch(
+      /\[data-agent-empty-state="centered"\]\s*>\s*\.agent-composer-stack:not\(\s*\[data-agent-composer-adjacent-ui="true"\]\s*\):not\(\s*:has\(\.agent-selection-attached-pill\)\s*\)\s*>\s*\.agent-composer-setup-card\s*\{[^}]*position:\s*absolute;/s,
+    );
+    expect(css).toMatch(
+      /\.agent-composer-stack\[data-agent-composer-adjacent-ui="true"\]\s*,\s*\.agent-composer-stack:has\(\.agent-selection-attached-pill\)\s*\{[^}]*display:\s*flex;[^}]*flex-direction:\s*column;[^}]*gap:\s*0\.5rem;/s,
+    );
+    expect(css).toMatch(
+      /data-agent-composer-setup-position="above"\]\s*\{[^}]*bottom:\s*calc\(100% \+ 0\.5rem\);/s,
+    );
+    expect(css).toMatch(
+      /data-agent-composer-setup-position="below"\]\s*\{[^}]*top:\s*calc\(100% \+ 0\.5rem\);/s,
+    );
   });
 });
 
@@ -169,7 +327,7 @@ describe("resolveAssistantChatRunningStatusLabel", () => {
     ).toBe("Preparing generate-design action");
   });
 
-  it("shows replayed recovery as continuing instead of reconnecting", () => {
+  it("shows replayed recovery as still working instead of reconnecting", () => {
     expect(
       resolveAssistantChatRunningStatusLabel({
         runningActivityLabel: null,
@@ -177,7 +335,7 @@ describe("resolveAssistantChatRunningStatusLabel", () => {
         isReconnecting: true,
         hasReconnectContent: true,
       }),
-    ).toBe("Continuing");
+    ).toBe("Still working");
   });
 
   it("keeps bare reconnect recovery as thinking", () => {
@@ -226,6 +384,35 @@ describe("waitForThreadRunToClear", () => {
       "setTimeout(() => {\n        reconnectTimedOut = true;",
     );
     expect(helperSource).not.toContain("20_000");
+  });
+
+  it("reattaches to the same active run when a hosted reconnect stream ends", () => {
+    const source = readFileSync("src/client/AssistantChat.tsx", {
+      encoding: "utf8",
+    });
+    const start = source.indexOf("const startReconnectToRun = useCallback");
+    const end = source.indexOf("const reconnectActiveRunForThread");
+    const helperSource = source.slice(start, end);
+
+    expect(start).toBeGreaterThan(-1);
+    expect(end).toBeGreaterThan(start);
+    expect(helperSource).toContain(
+      "const preparingActionState: PreparingActionState = {}",
+    );
+    expect(helperSource).toContain("sameRunStillActive");
+    expect(helperSource).toContain("{ signal: abortCtrl.signal }");
+    expect(helperSource).toContain('return "unknown"');
+    expect(helperSource).toContain('err.reason === "stream_ended"');
+    expect(helperSource).toContain(
+      "const reconnectAfterSeq = resolveReconnectAfterSeq(threadId, runId)",
+    );
+    expect(helperSource).toContain("if (!sseRes.ok || !sseRes.body)");
+    expect(helperSource).toContain("{ preparingActionState }");
+    expect(helperSource).toContain(
+      "reconnectTimedOut && abortCtrl.signal.aborted",
+    );
+    expect(helperSource).toContain('activeState !== "inactive"');
+    expect(helperSource).toContain("continue;");
   });
 
   it("shows active tool activity before falling back to calm recovery labels", () => {
@@ -352,8 +539,8 @@ describe("waitForThreadRunToClear", () => {
 
     expect(start).toBeGreaterThan(-1);
     expect(end).toBeGreaterThan(start);
-    expect(renderSource).toContain("reconnectContent.length > 0");
-    expect(renderSource).toContain("reconnectContent.length === 0");
+    expect(renderSource).toContain("visibleReconnectContent.length > 0");
+    expect(renderSource).toContain("visibleReconnectContent.length === 0");
     expect(renderSource).not.toContain("reconnectAfterSeq");
   });
 

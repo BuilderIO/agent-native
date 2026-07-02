@@ -20,6 +20,7 @@ import {
   type AgentActivityTrailEntry,
   type AgentAutoContinueErrorInfo,
   type ContentPart,
+  type PreparingActionState,
   readSSEStream,
   settleInterruptedToolCalls,
 } from "./sse-event-processor.js";
@@ -1380,6 +1381,11 @@ export function createAgentChatAdapter(
       const turnId = generateTurnId();
       let runId: string | null = null;
       let lastSeq = -1;
+      const seenRunSeqs = new Map<string, number>();
+      const preparingActionStatesByRun = new Map<
+        string,
+        PreparingActionState
+      >();
       let currentRunDispatchMode: string | null = null;
       let currentMessageText = normalizeMentions(
         recoveryMessageText.trim() || userMessageText,
@@ -1520,6 +1526,18 @@ export function createAgentChatAdapter(
         );
       };
 
+      const dispatchMissingApiKey = () => {
+        if (typeof window === "undefined") return;
+        window.dispatchEvent(
+          new CustomEvent("agent-chat:missing-api-key", {
+            detail: {
+              ...(tabId ? { tabId } : {}),
+              ...(threadId ? { threadId } : {}),
+            },
+          }),
+        );
+      };
+
       const tryRecoverAuthOnce = async (): Promise<boolean> => {
         if (authRecoveryAttempted || abortSignal.aborted) return false;
         authRecoveryAttempted = true;
@@ -1548,9 +1566,44 @@ export function createAgentChatAdapter(
         if (mode) currentRunDispatchMode = mode;
       };
 
+      const rememberRunSeq = (seq: number) => {
+        lastSeq = seq;
+        if (runId) {
+          seenRunSeqs.set(runId, seq);
+        }
+      };
+
+      const reconnectCursorForRun = (
+        nextRunId: string,
+        previousRunId: string | null,
+      ) => {
+        const rememberedSeq = seenRunSeqs.get(nextRunId);
+        if (rememberedSeq !== undefined) {
+          lastSeq = rememberedSeq;
+          return;
+        }
+        if (previousRunId !== nextRunId) {
+          lastSeq = -1;
+        }
+      };
+
+      const preparingActionStateForRun = (
+        id: string | null,
+      ): PreparingActionState | undefined => {
+        if (!id) return undefined;
+        const existing = preparingActionStatesByRun.get(id);
+        if (existing) return existing;
+        const state: PreparingActionState = {};
+        preparingActionStatesByRun.set(id, state);
+        return state;
+      };
+
       const currentSSEOptions = () => ({
         durableBackgroundRun:
           currentRunDispatchMode?.startsWith("background") === true,
+        ...(runId
+          ? { preparingActionState: preparingActionStateForRun(runId) }
+          : {}),
       });
 
       const captureChatClientError = (
@@ -1671,7 +1724,7 @@ export function createAgentChatAdapter(
                 toolCallCounter,
                 tabId,
                 (seq) => {
-                  lastSeq = seq;
+                  rememberRunSeq(seq);
                   if (threadId) updateActiveRunSeq(seq);
                 },
                 runId,
@@ -1765,12 +1818,13 @@ export function createAgentChatAdapter(
                   return false;
                 }
                 const activeRunId = String(active.runId);
+                const previousRunId = runId;
                 runId = activeRunId;
                 if (!attemptedRunIds.includes(activeRunId)) {
                   attemptedRunIds.push(activeRunId);
                 }
-                lastSeq = -1;
-                setActiveRun({ threadId, runId: activeRunId, lastSeq: -1 });
+                reconnectCursorForRun(activeRunId, previousRunId);
+                setActiveRun({ threadId, runId: activeRunId, lastSeq });
                 const reconnected = yield* reconnectCurrentRun();
                 if (reconnected) return true;
               }
@@ -1844,12 +1898,13 @@ export function createAgentChatAdapter(
                 if (activeStatus !== "running" && activeStatus !== "starting") {
                   return false;
                 }
+                const previousRunId = runId;
                 runId = activeRunId;
                 if (!attemptedRunIds.includes(activeRunId)) {
                   attemptedRunIds.push(activeRunId);
                 }
-                lastSeq = -1;
-                setActiveRun({ threadId, runId: activeRunId, lastSeq: -1 });
+                reconnectCursorForRun(activeRunId, previousRunId);
+                setActiveRun({ threadId, runId: activeRunId, lastSeq });
                 const reconnected = yield* reconnectCurrentRun();
                 if (reconnected) return true;
               } catch (activeErr: unknown) {
@@ -2290,13 +2345,14 @@ export function createAgentChatAdapter(
                 }
                 if (activeRunId) {
                   try {
+                    const previousRunId = runId;
                     runId = activeRunId;
                     if (!attemptedRunIds.includes(runId)) {
                       attemptedRunIds.push(runId);
                     }
-                    lastSeq = -1;
+                    reconnectCursorForRun(activeRunId, previousRunId);
                     if (threadId) {
-                      setActiveRun({ threadId, runId, lastSeq: -1 });
+                      setActiveRun({ threadId, runId, lastSeq });
                     }
                     const reconnected = yield* reconnectCurrentRun();
                     if (reconnected) return;
@@ -2374,9 +2430,7 @@ export function createAgentChatAdapter(
                 if (isMissingCredentialMessage(body)) {
                   const failure = missingCredentialFailure(body);
                   if (typeof window !== "undefined") {
-                    window.dispatchEvent(
-                      new Event("agent-chat:missing-api-key"),
-                    );
+                    dispatchMissingApiKey();
                     window.dispatchEvent(
                       new CustomEvent("agent-chat:run-error", {
                         detail: { ...failure.runError, tabId },
@@ -2423,7 +2477,7 @@ export function createAgentChatAdapter(
               toolCallCounter,
               tabId,
               (seq) => {
-                lastSeq = seq;
+                rememberRunSeq(seq);
                 if (runId && threadId) {
                   updateActiveRunSeq(seq);
                 }
@@ -2589,7 +2643,7 @@ export function createAgentChatAdapter(
             if (isMissingCredentialMessage(errMsg)) {
               const failure = missingCredentialFailure(errMsg);
               if (typeof window !== "undefined") {
-                window.dispatchEvent(new Event("agent-chat:missing-api-key"));
+                dispatchMissingApiKey();
                 window.dispatchEvent(
                   new CustomEvent("agent-chat:run-error", {
                     detail: { ...failure.runError, tabId },

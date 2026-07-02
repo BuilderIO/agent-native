@@ -1276,7 +1276,7 @@ html.dark .shiki span {
 .docs-article .docs-block .border-plan-line {
   border-color: var(--code-border) !important;
 }
-.docs-article .docs-block .plan-diagram-frame {
+.docs-article .docs-block .plan-diagram-frame[data-frame="hide"] {
   --wf-paper: transparent;
   border: 0;
   background: transparent;

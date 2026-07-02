@@ -165,10 +165,12 @@ export function createPlanBlockRenderContext(options: {
   editingDisabled?: boolean;
   showCodeAnnotationOverlays?: boolean;
   codeAnnotationLayout?: BlockRenderContext["codeAnnotationLayout"];
+  visualFrame?: BlockRenderContext["visualFrame"];
 }): BlockRenderContext {
   const ctx: BlockRenderContext & PlanBlockRenderContextExtras = {
     dialect: "gfm",
     textDirection: options.textDirection,
+    visualFrame: options.visualFrame ?? "show",
     showCodeAnnotationOverlays: options.showCodeAnnotationOverlays,
     codeAnnotationLayout: options.codeAnnotationLayout,
     onQuestionFormSubmit: options.onVisualQuestionsSubmit,

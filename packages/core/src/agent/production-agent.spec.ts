@@ -44,6 +44,7 @@ import type { AgentChatEvent, RunEvent } from "./types.js";
 function actionEntry(opts: {
   description?: string;
   readOnly?: boolean;
+  allowInPlanMode?: boolean;
   parallelSafe?: boolean;
   actions?: string[];
 }): ActionEntry {
@@ -67,6 +68,9 @@ function actionEntry(opts: {
           },
     },
     ...(typeof opts.readOnly === "boolean" ? { readOnly: opts.readOnly } : {}),
+    ...(typeof opts.allowInPlanMode === "boolean"
+      ? { allowInPlanMode: opts.allowInPlanMode }
+      : {}),
     ...(typeof opts.parallelSafe === "boolean"
       ? { parallelSafe: opts.parallelSafe }
       : {}),
@@ -544,6 +548,10 @@ describe("buildUserContentWithAttachments", () => {
   it("builds a plan-mode registry with only read-only tools", async () => {
     const registry = attachToolSearch({
       read: actionEntry({ readOnly: true }),
+      "read-but-act-only": actionEntry({
+        readOnly: true,
+        allowInPlanMode: false,
+      }),
       write: actionEntry({ readOnly: false }),
       bash: actionEntry({ readOnly: false }),
       "set-url-path": actionEntry({ readOnly: true }),
@@ -585,6 +593,9 @@ describe("buildUserContentWithAttachments", () => {
     expect(searchResult.results.map((tool: any) => tool.name)).not.toContain(
       "write",
     );
+    expect(searchResult.results.map((tool: any) => tool.name)).not.toContain(
+      "read-but-act-only",
+    );
   });
 
   it("treats mixed tools as read-only only for allowed arguments", () => {
@@ -598,6 +609,14 @@ describe("buildUserContentWithAttachments", () => {
 
     const urlTool = actionEntry({ readOnly: true });
     expect(isPlanModeToolCallAllowed("set-url-path", {}, urlTool)).toBe(false);
+
+    const readOnlyActOnlyTool = actionEntry({
+      readOnly: true,
+      allowInPlanMode: false,
+    });
+    expect(
+      isPlanModeToolCallAllowed("deep-analysis", {}, readOnlyActOnlyTool),
+    ).toBe(false);
 
     const bashTool = actionEntry({ readOnly: false });
     expect(

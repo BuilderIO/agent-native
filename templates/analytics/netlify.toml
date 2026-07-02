@@ -9,11 +9,14 @@ GA_MEASUREMENT_ID = "G-ESF7FYXGN9"
 NITRO_PRESET = "netlify"
 NPM_CONFIG_PRODUCTION = "false"
 AGENT_PROD_CODE_EXECUTION = "sandboxed"
+AGENT_CHAT_DURABLE_BACKGROUND = "true"
 
 # A2A delegation calls run a full agent loop (LLM + tool calls + DB queries).
 # Hosted agent chat uses a soft timeout before this function timeout so the
 # hidden auto-continuation path can hand off before Netlify kills the function.
 # If AGENT_RUN_SOFT_TIMEOUT_MS is customized, keep it below this timeout.
+# Agent chat runs are dispatched to the emitted Netlify background function;
+# the normal server timeout still protects non-background HTTP handlers.
 [functions."*"]
 timeout = 75
 

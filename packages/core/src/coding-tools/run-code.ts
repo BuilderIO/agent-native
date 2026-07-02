@@ -75,6 +75,7 @@ export function createRunCodeEntry(
 
   return {
     readOnly: true,
+    allowInPlanMode: false,
     // Allow a generous per-call timeout so large data-processing jobs don't hit
     // the agent-loop's default 60 s cap.
     timeoutMs: MAX_TIMEOUT_MS,

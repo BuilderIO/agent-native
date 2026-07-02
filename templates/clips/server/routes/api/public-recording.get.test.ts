@@ -68,6 +68,8 @@ vi.mock("../../lib/share-password.js", () => ({
 }));
 
 vi.mock("../../../shared/agent-context.js", () => ({
+  agentAccessTokenResourceId: (recordingId: string) =>
+    `clip-agent-context:${recordingId}`,
   buildAgentApiUrls: (...args: unknown[]) => mockBuildAgentApiUrls(...args),
 }));
 

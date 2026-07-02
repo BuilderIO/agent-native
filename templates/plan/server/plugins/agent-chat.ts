@@ -10,6 +10,8 @@ import actionsRegistry from "../../.generated/actions-registry.js";
 import { PLAN_CONNECTOR_CATALOG } from "../lib/plan-connector-catalog.js";
 import { resolvePlanAnonymousOwner } from "../lib/public-plans.js";
 
+const PLAN_BACKGROUND_RUN_SOFT_TIMEOUT_MS = 13 * 60_000;
+
 // ---------------------------------------------------------------------------
 // Register plan event-bus events
 // ---------------------------------------------------------------------------
@@ -130,6 +132,8 @@ const planAgentChatOptions = {
   resolveOrgId: async (event) => (await getOrgContext(event)).orgId,
   connectorCatalog: PLAN_CONNECTOR_CATALOG,
   disableMcp: true,
+  durableBackgroundRuns: true,
+  runSoftTimeoutMs: PLAN_BACKGROUND_RUN_SOFT_TIMEOUT_MS,
 };
 
 export default createAgentChatPlugin(planAgentChatOptions);

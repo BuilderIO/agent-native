@@ -751,7 +751,10 @@ describe("createAgentChatAdapter", () => {
     );
 
     expect(dispatchEvent).toHaveBeenCalledWith(
-      expect.objectContaining({ type: "agent-chat:missing-api-key" }),
+      expect.objectContaining({
+        type: "agent-chat:missing-api-key",
+        detail: { tabId: "chat-missing-credentials" },
+      }),
     );
     expect(dispatchEvent).toHaveBeenCalledWith(
       expect.objectContaining({ type: "agent-chat:run-error" }),
@@ -1415,6 +1418,103 @@ describe("createAgentChatAdapter", () => {
     );
     const last = results.at(-1) as any;
     expect(last.content.at(-1).text).toBe("recovered from active run");
+  });
+
+  it("preserves the same-run cursor when active-run recovery follows a failed tail reconnect", async () => {
+    vi.stubGlobal("window", { dispatchEvent: vi.fn() });
+    vi.stubGlobal(
+      "CustomEvent",
+      class CustomEvent {
+        type: string;
+        detail: unknown;
+        constructor(type: string, init?: { detail?: unknown }) {
+          this.type = type;
+          this.detail = init?.detail;
+        }
+      },
+    );
+
+    let tailReconnects = 0;
+    const eventUrls: string[] = [];
+    const fetchSpy = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/_agent-native/agent-chat" && init?.method === "POST") {
+        return sseResponse(
+          [
+            {
+              type: "tool_start",
+              tool: "delete-file",
+              id: "call-1",
+              input: { fileId: "screen-1" },
+              seq: 0,
+            },
+            {
+              type: "tool_done",
+              tool: "delete-file",
+              id: "call-1",
+              result: '{"deleted":true}',
+              seq: 1,
+            },
+          ],
+          "run-existing",
+        );
+      }
+      if (url.includes("/runs/run-existing/events")) {
+        eventUrls.push(url);
+        if (url.includes("after=2")) {
+          tailReconnects += 1;
+          return tailReconnects === 1
+            ? jsonResponse({ error: "temporary failure" }, 503)
+            : sseResponse(
+                [
+                  { type: "text", text: " tail recovered", seq: 2 },
+                  { type: "done", seq: 3 },
+                ],
+                "run-existing",
+              );
+        }
+        return jsonResponse({ error: "replayed from start" }, 500);
+      }
+      if (url.includes("/runs/active")) {
+        return jsonResponse({
+          active: true,
+          runId: "run-existing",
+          threadId: "thread-recover",
+          status: "running",
+          heartbeatAt: Date.now(),
+        });
+      }
+      return jsonResponse({ error: "unexpected" }, 500);
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const adapter = createAgentChatAdapter({
+      apiUrl: "/_agent-native/agent-chat",
+      tabId: "chat-recover-tail",
+      threadId: "thread-recover",
+    });
+
+    const results = await drain(
+      adapter.run({
+        messages: [
+          {
+            role: "user",
+            content: [{ type: "text", text: "keep going" }],
+          },
+        ],
+        abortSignal: new AbortController().signal,
+      } as any),
+    );
+
+    expect(eventUrls).toEqual([
+      "/_agent-native/agent-chat/runs/run-existing/events?after=2",
+      "/_agent-native/agent-chat/runs/run-existing/events?after=2",
+    ]);
+    const last = results.at(-1) as any;
+    const toolCalls = last.content.filter(
+      (part: any) => part.type === "tool-call",
+    );
+    expect(toolCalls).toHaveLength(1);
+    expect(last.content.at(-1).text).toBe(" tail recovered");
   });
 
   it("retries queued message conflicts instead of binding the old run", async () => {

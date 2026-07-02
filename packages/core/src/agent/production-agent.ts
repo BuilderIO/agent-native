@@ -26,7 +26,7 @@ import {
   parseFrontmatter,
 } from "../resources/metadata.js";
 import {
-  isDeployCredentialFallbackAllowed,
+  canUseDeployCredentialFallbackForRequest,
   readDeployCredentialEnv,
 } from "../server/credential-provider.js";
 import { readBody } from "../server/h3-helpers.js";
@@ -458,31 +458,15 @@ export function engineToProvider(engineName: string): string {
 }
 
 /**
- * Returns true when this process should block generic deploy-level provider
- * credentials for signed-in chat requests.
- *
- * Self-hosted single-tenant deployments keep the env-var fallback so the
- * original BYO-server UX continues to work without a per-user key.
- */
-function shouldBlockDeployCredentialFallback(): boolean {
-  return !isDeployCredentialFallbackAllowed();
-}
-
-/**
  * Resolve the active engine's provider and look up the user's API key for it.
  *
- * In shared hosted deploys we deliberately refuse the deploy-level fallback
- * for authenticated users. Without that gate any
- * signed-in user who hasn't configured their own provider key would silently
- * inherit the deployment's key (uncapped billing on the owner's account,
- * prompt logging tied to the deployment owner) — exactly the prior-incident
- * pattern we hit on 2026-04-29.
+ * If the owner has no scoped key, fall back to provider keys supplied by the
+ * hosting environment only when the current request can safely use deploy-level
+ * credentials. This is a read from process-level config, not a request-scoped
+ * write to `process.env`.
  *
- * Single-tenant (local-dev, self-hosted SQLite) keeps the env fallback.
- *
- * Callers in `agent-chat-plugin.ts`, `triggers/dispatcher.ts`,
- * `jobs/scheduler.ts`, and `integrations/plugin.ts` historically layer
- * another deployment-key fallback after this must keep the same gate.
+ * Callers that layer another deployment-key fallback after this should keep the
+ * same precedence: scoped key first, host-provided env key second.
  */
 export async function getOwnerActiveApiKey(
   ownerEmail: string | null | undefined,
@@ -495,14 +479,7 @@ export async function getOwnerActiveApiKey(
     const provider = engineToProvider(activeEngine);
     const userKey = await getOwnerApiKey(provider, ownerEmail);
     if (userKey) return userKey;
-    if (shouldBlockDeployCredentialFallback()) {
-      // Shared hosted default: refuse the env fallback. A null user
-      // (unauthenticated / background context with no owner) gets undefined
-      // here too — there's no user to bill, and the call site must surface a
-      // "configure a key" error to the requester rather than silently using
-      // the deploy key.
-      return undefined;
-    }
+    if (!canUseDeployCredentialFallbackForRequest()) return undefined;
     const envVar = PROVIDER_TO_ENV[provider];
     return envVar ? readDeployCredentialEnv(envVar) : undefined;
   } catch {
@@ -552,6 +529,10 @@ export interface ActionEntry {
   /** If true, completion does NOT trigger a screen-refresh change event.
    *  Set automatically by `defineAction` when `http.method === "GET"`. */
   readOnly?: boolean;
+  /** False keeps a read-only tool available in Act mode but hides/blocks it in
+   *  Plan mode. Use for tools that perform substantive work even without
+   *  mutating state. */
+  allowInPlanMode?: boolean;
   /** If true, this action can run concurrently with other same-turn
    *  read-only/parallel-safe tool calls. Only use for actions that handle
    *  their own write ordering and idempotency. */
@@ -705,6 +686,7 @@ export function isPlanModeToolCallAllowed(
   input: unknown,
   entry: ActionEntry,
 ): boolean {
+  if (entry.allowInPlanMode === false) return false;
   if (PLAN_MODE_BLOCKED_READONLY_TOOLS.has(name)) return false;
 
   if (name === "web-request") {
@@ -802,6 +784,7 @@ export function createPlanModeActionRegistry(
 
   for (const [name, entry] of Object.entries(actions)) {
     if (name === TOOL_SEARCH_ACTION_NAME) continue;
+    if (entry.allowInPlanMode === false) continue;
     if (PLAN_MODE_BLOCKED_READONLY_TOOLS.has(name)) continue;
 
     const allowedActions = PLAN_MODE_ALLOWED_ACTIONS[name];
@@ -4760,15 +4743,14 @@ export function createProductionAgentHandler(
     // for that provider instead of the global active engine's provider.
     // DIAGNOSTIC-ONLY: bracket per-owner API-key resolution (settings/app_secrets reads).
     workerStep("apikey_start");
+    const allowDeployCredentialFallback =
+      canUseDeployCredentialFallbackForRequest();
     let userApiKey: string | undefined;
     if (requestEngine) {
       const provider = engineToProvider(requestEngine);
       userApiKey = await getOwnerApiKey(provider, ownerEmail);
-      if (!userApiKey && !shouldBlockDeployCredentialFallback()) {
-        // Single-tenant only: env fallback for the requested provider. Shared
-        // hosted deploys never silently substitute the deploy-level key for
-        // an authenticated user (see getOwnerActiveApiKey for the full
-        // rationale).
+      if (!userApiKey && allowDeployCredentialFallback) {
+        // Read-only env fallback for the requested provider.
         const envVar = PROVIDER_TO_ENV[provider];
         userApiKey = envVar ? readDeployCredentialEnv(envVar) : undefined;
       }
@@ -4779,16 +4761,12 @@ export function createProductionAgentHandler(
     workerStep("apikey_done");
 
     // `options.apiKey` is the value the template constructed the plugin with
-    // (e.g. wired from a deployment env var). On a shared hosted deploy this
-    // is the same cross-tenant hazard as any deploy-level provider key:
-    // accepting it as the final fallback would silently bill every key-less
-    // user to the deployment's account. Honour it only when the generic
-    // deploy fallback policy allows it.
-    const effectiveApiKey = shouldBlockDeployCredentialFallback()
-      ? userApiKey
-      : (userApiKey ??
-        options.apiKey ??
-        readDeployCredentialEnv("ANTHROPIC_API_KEY"));
+    // (often wired from a deployment env var). Honor it as host-provided
+    // read-only configuration after scoped keys when deploy fallback is safe.
+    const hostApiKey = allowDeployCredentialFallback
+      ? (options.apiKey ?? readDeployCredentialEnv("ANTHROPIC_API_KEY"))
+      : undefined;
+    const effectiveApiKey = userApiKey ?? hostApiKey;
 
     // Resolve engine — per-request engine override takes priority
     // DIAGNOSTIC-ONLY: bracket engine resolution (Builder credential / app-default
