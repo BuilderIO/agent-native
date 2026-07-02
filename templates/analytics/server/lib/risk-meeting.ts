@@ -75,9 +75,13 @@ export interface RiskMeetingData {
 }
 
 interface CompanyInfo {
+  rootOrgId: string | null;
   domain: string | null;
-  type: string | null;
-  lifecyclestage: string | null;
+  accountProfile: string | null;
+}
+
+function strOrNull(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
 function toNumber(value: string | null | undefined): number | null {
@@ -112,9 +116,14 @@ function stageLookups(pipelines: Pipeline[]) {
   return { stageLabels, pipelineLabels };
 }
 
-// Joins deals to their primary company's domain (and profile) with batched
-// association reads so a cohort of N deals costs O(N/100) HTTP calls instead
-// of N — required to stay inside the 30s extension iframe budget.
+// Joins deals to their primary company's `root_org_id` / `domain` /
+// `account_profile` with batched association reads so a cohort of N deals
+// costs O(N/100) HTTP calls instead of N — required to stay inside the 30s
+// extension iframe budget. Property names match fusion-analytics's
+// getDealCompanyMaps() exactly: root_org_id is the primary Pylon join key
+// (also synced into Pylon as a custom field), domain is the fallback, and
+// account_profile === "Enterprise Active Customer" marks the Pylon-eligible
+// enterprise segment.
 async function buildDealCompanyMap(
   dealIds: string[],
 ): Promise<Map<string, CompanyInfo>> {
@@ -135,24 +144,14 @@ async function buildDealCompanyMap(
   const companies = await readHubSpotObjects({
     objectType: "companies",
     ids: companyIds,
-    properties: ["domain", "type", "lifecyclestage"],
+    properties: ["root_org_id", "domain", "account_profile"],
   });
   const companyById = new Map<string, CompanyInfo>();
   for (const company of companies) {
-    const domain = company.properties.domain;
     companyById.set(company.id, {
-      domain:
-        typeof domain === "string" && domain.trim()
-          ? domain.trim().toLowerCase()
-          : null,
-      type:
-        typeof company.properties.type === "string"
-          ? company.properties.type
-          : null,
-      lifecyclestage:
-        typeof company.properties.lifecyclestage === "string"
-          ? company.properties.lifecyclestage
-          : null,
+      rootOrgId: strOrNull(company.properties.root_org_id),
+      domain: strOrNull(company.properties.domain)?.toLowerCase() ?? null,
+      accountProfile: strOrNull(company.properties.account_profile),
     });
   }
 
@@ -167,13 +166,20 @@ async function buildDealCompanyMap(
   return result;
 }
 
-// Best-effort classification of the Fusion "Enterprise Active Customer"
-// segment from the standard HubSpot company `type` / `lifecyclestage` fields.
+function lookupPylon(
+  company: CompanyInfo | undefined,
+  pylonSentimentMap: PylonSentimentMap,
+) {
+  if (!company) return undefined;
+  return (
+    (company.rootOrgId && pylonSentimentMap.get(company.rootOrgId)) ||
+    (company.domain && pylonSentimentMap.get(company.domain)) ||
+    undefined
+  );
+}
+
 function isEnterpriseActiveCustomer(info: CompanyInfo | undefined): boolean {
-  if (!info) return false;
-  const type = (info.type ?? "").toLowerCase();
-  const lifecycle = (info.lifecyclestage ?? "").toLowerCase();
-  return type.includes("enterprise") && lifecycle.includes("customer");
+  return info?.accountProfile === "Enterprise Active Customer";
 }
 
 export async function getRiskDeals(
@@ -216,10 +222,10 @@ export async function getRiskDeals(
     const ownerId = String(
       props.customer_success_owner ?? props.hubspot_owner_id ?? "",
     );
-    const company = companyByDeal.get(deal.id);
-    const pylonEntry = company?.domain
-      ? pylonSentimentMap.byDomain.get(company.domain)
-      : undefined;
+    const pylonEntry = lookupPylon(
+      companyByDeal.get(deal.id),
+      pylonSentimentMap,
+    );
 
     return {
       id: deal.id,
@@ -250,14 +256,16 @@ export async function getRiskDeals(
   return riskDeals;
 }
 
+// Determines which Pylon accounts already have an active-risk HubSpot deal,
+// using ALL deals regardless of close date (a past-dated flagged deal still
+// means a CSM has engaged this account in HubSpot). Mirrors
+// fusion-analytics's getPylonOnlyRiskDeals exactly rather than reusing the
+// future-dated cohort from getRiskDeals.
 export async function getPylonOnlyRiskDeals(
   pylonSentimentMap: PylonSentimentMap,
-  flaggedPylonAccountIds: Set<string>,
 ): Promise<PylonEarlyWarningAccount[]> {
-  const hasRiskAccounts = Array.from(pylonSentimentMap.byDomain.values()).some(
-    (entry) =>
-      isRiskSentiment(entry.sentiment) &&
-      !flaggedPylonAccountIds.has(entry.pylonAccountId),
+  const hasRiskAccounts = Array.from(pylonSentimentMap.values()).some((entry) =>
+    isRiskSentiment(entry.sentiment),
   );
   if (!hasRiskAccounts) return [];
 
@@ -270,6 +278,15 @@ export async function getPylonOnlyRiskDeals(
     allDeals.map((deal) => deal.id),
   );
 
+  const activeStatuses = new Set<string>(ACTIVE_RISK_STATUSES);
+  const flaggedPylonAccountIds = new Set<string>();
+  for (const deal of allDeals) {
+    const status = String(deal.properties.risk_status ?? "").trim();
+    if (!activeStatuses.has(status)) continue;
+    const entry = lookupPylon(companyByDeal.get(deal.id), pylonSentimentMap);
+    if (entry) flaggedPylonAccountIds.add(entry.pylonAccountId);
+  }
+
   interface Accumulator extends PylonEarlyWarningAccount {
     earliestCloseMs: number;
   }
@@ -278,10 +295,9 @@ export async function getPylonOnlyRiskDeals(
 
   for (const deal of allDeals) {
     const company = companyByDeal.get(deal.id);
-    if (!company?.domain) continue;
     if (!isEnterpriseActiveCustomer(company)) continue;
 
-    const entry = pylonSentimentMap.byDomain.get(company.domain);
+    const entry = lookupPylon(company, pylonSentimentMap);
     if (!entry || !isRiskSentiment(entry.sentiment)) continue;
     if (flaggedPylonAccountIds.has(entry.pylonAccountId)) continue;
 
@@ -326,16 +342,10 @@ export async function getPylonOnlyRiskDeals(
 
 export async function getRiskMeetingData(): Promise<RiskMeetingData> {
   const pylonSentimentMap = await getPylonSentimentMap();
-  const deals = await getRiskDeals(pylonSentimentMap);
-  const flaggedPylonAccountIds = new Set(
-    deals
-      .map((deal) => deal.pylonAccountId)
-      .filter((id): id is string => Boolean(id)),
-  );
-  const pylonOnlyDeals = await getPylonOnlyRiskDeals(
-    pylonSentimentMap,
-    flaggedPylonAccountIds,
-  );
+  const [deals, pylonOnlyDeals] = await Promise.all([
+    getRiskDeals(pylonSentimentMap),
+    getPylonOnlyRiskDeals(pylonSentimentMap),
+  ]);
 
   return {
     deals,

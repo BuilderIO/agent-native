@@ -54,6 +54,8 @@ export interface PylonAccount {
   id: string;
   name: string;
   domain?: string;
+  primary_domain?: string;
+  custom_fields?: Record<string, { value?: string }>;
   [key: string]: unknown;
 }
 
@@ -87,21 +89,34 @@ export function isRiskSentiment(sentiment: string | null | undefined): boolean {
   return !!sentiment && PYLON_RISK_SENTIMENTS.has(sentiment.toLowerCase());
 }
 
+// CSMs set `general_sentiment` on managed enterprise accounts synced from
+// HubSpot; `account.hubspot.root_org_id` / `account.hubspot.domain` are the
+// HubSpot-synced join keys Pylon stores as custom fields.
+function customFields(
+  account: PylonAccount,
+): Record<string, { value?: string }> {
+  return account.custom_fields ?? {};
+}
+
 function extractSentiment(account: PylonAccount): string | null {
-  const raw =
-    (account.sentiment as string | undefined) ??
-    (account.health_sentiment as string | undefined) ??
-    ((account.custom_fields as Record<string, unknown> | undefined)
-      ?.sentiment as string | undefined);
+  const raw = customFields(account)["general_sentiment"]?.value;
   return typeof raw === "string" && raw.trim()
     ? raw.trim().toLowerCase()
     : null;
 }
 
+function extractRootOrgId(account: PylonAccount): string | null {
+  const raw = customFields(account)["account.hubspot.root_org_id"]?.value;
+  return typeof raw === "string" && raw.trim() ? raw.trim() : null;
+}
+
 function extractDomain(account: PylonAccount): string | null {
-  const domain = account.domain;
-  return typeof domain === "string" && domain.trim()
-    ? domain.trim().toLowerCase()
+  const raw =
+    customFields(account)["account.hubspot.domain"]?.value ||
+    account.primary_domain ||
+    account.domain;
+  return typeof raw === "string" && raw.trim()
+    ? raw.trim().toLowerCase()
     : null;
 }
 
@@ -139,17 +154,14 @@ export interface PylonSentimentEntry {
   accountName: string;
 }
 
-export interface PylonSentimentMap {
-  byAccountId: Map<string, PylonSentimentEntry>;
-  byDomain: Map<string, PylonSentimentEntry>;
-}
+// Keyed by BOTH HubSpot root_org_id (primary) and company domain (fallback) —
+// root_org_id is a hex string and domains contain dots, so there's no key
+// collision keeping both in one map, matching the CRM company join below.
+export type PylonSentimentMap = Map<string, PylonSentimentEntry>;
 
-// Builds a lookup keyed by both Pylon account id and domain so HubSpot deals
-// can be joined either way when enriching the risk meeting cohort.
 export async function getPylonSentimentMap(): Promise<PylonSentimentMap> {
   const accounts = await getAllPylonAccounts();
-  const byAccountId = new Map<string, PylonSentimentEntry>();
-  const byDomain = new Map<string, PylonSentimentEntry>();
+  const sentimentMap: PylonSentimentMap = new Map();
 
   for (const account of accounts) {
     const sentiment = extractSentiment(account);
@@ -159,12 +171,13 @@ export async function getPylonSentimentMap(): Promise<PylonSentimentMap> {
       pylonAccountId: account.id,
       accountName: account.name,
     };
-    byAccountId.set(account.id, entry);
+    const rootOrgId = extractRootOrgId(account);
+    if (rootOrgId) sentimentMap.set(rootOrgId, entry);
     const domain = extractDomain(account);
-    if (domain) byDomain.set(domain, entry);
+    if (domain) sentimentMap.set(domain, entry);
   }
 
-  return { byAccountId, byDomain };
+  return sentimentMap;
 }
 
 export async function getAccount(id: string): Promise<PylonAccount> {
