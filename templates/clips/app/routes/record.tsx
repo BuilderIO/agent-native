@@ -109,7 +109,6 @@ import {
 import { RecordingToolbar } from "@/components/recorder/recording-toolbar";
 import { StorageSetupCard } from "@/components/recorder/storage-setup-card";
 import { Button } from "@/components/ui/button";
-import { Progress } from "@/components/ui/progress";
 import { Spinner } from "@/components/ui/spinner";
 
 export function meta() {
@@ -2471,11 +2470,14 @@ export default function RecordRoute() {
               <div className="text-sm">{t("recordRoute.savingRecording")}</div>
               {uploadProgress !== null && (
                 <div className="flex w-48 flex-col items-center gap-1">
-                  <Progress
-                    value={Math.round(uploadProgress * 100)}
-                    className="h-1.5 bg-white/20"
-                    indicatorClassName="bg-white"
-                  />
+                  <div className="h-1.5 w-full overflow-hidden rounded-full bg-white/20">
+                    <div
+                      className="h-full rounded-full bg-white transition-all"
+                      style={{
+                        width: `${Math.min(100, Math.max(0, Math.round(uploadProgress * 100)))}%`,
+                      }}
+                    />
+                  </div>
                   <div className="text-[11px] text-white/50">
                     {Math.round(uploadProgress * 100)}%
                   </div>
