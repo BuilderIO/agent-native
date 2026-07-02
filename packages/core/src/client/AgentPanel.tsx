@@ -2097,7 +2097,7 @@ function URLSync({ browserTabId }: { browserTabId?: string }) {
       // Replace rather than push so repeated agent URL updates don't
       // clutter the history stack and can't trigger extra remounts from
       // router navigation lifecycle.
-      navigate(url, { replace: true, flushSync: true });
+      window.setTimeout(() => navigate(url, { replace: true }), 0);
     } catch {
       // Malformed command — ignore.
     }

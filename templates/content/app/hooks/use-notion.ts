@@ -46,10 +46,11 @@ export function documentSyncStatusQueryKey(
   documentId: string,
   options?: { autoSync?: boolean },
 ) {
+  const normalizedDocumentId = documentId.trim();
   return [
     "action",
     "refresh-notion-sync-status",
-    { documentId, autoSync: !!options?.autoSync },
+    { documentId: normalizedDocumentId, autoSync: !!options?.autoSync },
   ] as const;
 }
 
@@ -82,18 +83,19 @@ export function useDocumentSyncStatus(
 ) {
   const queryClient = useQueryClient();
   const lastObservedSyncedAtRef = useRef<string | null>(null);
+  const normalizedDocumentId = documentId?.trim() || null;
   const query = useQuery<DocumentSyncStatus>({
-    queryKey: documentId
-      ? documentSyncStatusQueryKey(documentId, options)
+    queryKey: normalizedDocumentId
+      ? documentSyncStatusQueryKey(normalizedDocumentId, options)
       : ["action", "refresh-notion-sync-status", null],
     queryFn: () => {
-      if (!documentId) throw new Error("documentId is required");
+      if (!normalizedDocumentId) throw new Error("documentId is required");
       return callAction<DocumentSyncStatus>("refresh-notion-sync-status", {
-        documentId,
+        documentId: normalizedDocumentId,
         autoSync: !!options?.autoSync,
       });
     },
-    enabled: !!documentId,
+    enabled: !!normalizedDocumentId,
     // Poll Notion aggressively when auto-sync is on so remote changes appear
     // within ~2s. Server throttles match (see REFRESH_THROTTLE_AUTO_SYNC_MS in
     // notion-sync.ts) so we make at most one real Notion request per 2s per doc.
@@ -101,7 +103,7 @@ export function useDocumentSyncStatus(
   });
 
   useEffect(() => {
-    if (!documentId || !query.data?.lastSyncedAt) return;
+    if (!normalizedDocumentId || !query.data?.lastSyncedAt) return;
     if (lastObservedSyncedAtRef.current === query.data.lastSyncedAt) return;
 
     lastObservedSyncedAtRef.current = query.data.lastSyncedAt;
@@ -109,7 +111,7 @@ export function useDocumentSyncStatus(
     const cachedDocument = queryClient.getQueryData<Document>([
       "action",
       "get-document",
-      { id: documentId },
+      { id: normalizedDocumentId },
     ]);
     const syncedLocalUpdatedAt = query.data.lastPushedLocalUpdatedAt;
 
@@ -119,12 +121,12 @@ export function useDocumentSyncStatus(
       syncedLocalUpdatedAt > cachedDocument.updatedAt
     ) {
       queryClient.invalidateQueries({
-        queryKey: ["action", "get-document", { id: documentId }],
+        queryKey: ["action", "get-document", { id: normalizedDocumentId }],
       });
       queryClient.invalidateQueries({ queryKey: ["action", "list-documents"] });
     }
   }, [
-    documentId,
+    normalizedDocumentId,
     query.data?.lastPushedLocalUpdatedAt,
     query.data?.lastSyncedAt,
     queryClient,

@@ -1,3 +1,5 @@
+import { AsyncLocalStorage } from "node:async_hooks";
+
 import { drizzle as drizzleD1 } from "drizzle-orm/d1";
 import type { LibSQLDatabase } from "drizzle-orm/libsql";
 
@@ -238,15 +240,26 @@ function getBetterSqliteDrizzle() {
  * The patched transaction also patches the tx object it passes to the callback
  * so that nested async calls (tx.transaction(async …)) work recursively.
  */
-function patchBetterSqliteTransactions<
+/** @internal exported for the async-tx concurrency spec */
+export function patchBetterSqliteTransactions<
   DB extends { transaction: (...args: any[]) => any; session: any },
 >(db: DB, sqlite: { inTransaction: boolean; exec: (sql: string) => void }): DB {
   let savepointSeq = 0;
+  // Concurrent TOP-LEVEL async transactions on the single better-sqlite3
+  // connection must not interleave: a second transaction starting while the
+  // first is open would see `inTransaction` and open a savepoint INSIDE the
+  // first transaction, which then commits out from under it ("no such
+  // savepoint"). Serialize top-level transactions through a promise chain;
+  // genuine same-task nesting (tx.transaction or db.transaction inside an
+  // open callback) is detected via AsyncLocalStorage and keeps the direct
+  // savepoint path so it cannot deadlock on the queue.
+  const txContext = new AsyncLocalStorage<boolean>();
+  let txChain: Promise<unknown> = Promise.resolve();
 
   function makeAsyncTransaction(
     originalTransaction: (...args: any[]) => any,
   ): (...args: any[]) => Promise<unknown> {
-    return async function asyncTransaction(
+    async function runTransactionBody(
       cb: (tx: unknown) => unknown,
     ): Promise<unknown> {
       // Extract the drizzle tx proxy synchronously — call the original with a
@@ -310,6 +323,23 @@ function patchBetterSqliteTransactions<
         }
         throw err;
       }
+    }
+
+    return function asyncTransaction(
+      cb: (tx: unknown) => unknown,
+    ): Promise<unknown> {
+      if (txContext.getStore()) {
+        // Same-task nesting: run directly (savepoint path inside the open
+        // transaction). Queueing here would deadlock behind the outer tx.
+        return runTransactionBody(cb);
+      }
+      const run = () => txContext.run(true, () => runTransactionBody(cb));
+      const next = txChain.then(run, run);
+      txChain = next.then(
+        () => undefined,
+        () => undefined,
+      );
+      return next;
     };
   }
 

@@ -427,10 +427,10 @@ export function useCollabReconcile({
         return;
       }
 
-      queueMicrotask(() => {
+      const applyTimer = setTimeout(() => {
         if (cancelled || editor.isDestroyed) return;
         // Re-check doc-equivalence at apply time. Between the decision above and
-        // this microtask a peer/Yjs edit (or our own prior apply) may have made
+        // this task a peer/Yjs edit (or our own prior apply) may have made
         // the editor already represent this value — re-applying would be a
         // wasted setContent that, for non-idempotent input, re-triggers the
         // loop. Skip when the editor's current serialization already matches the
@@ -466,7 +466,8 @@ export function useCollabReconcile({
         if (contentUpdatedAt) {
           lastAppliedUpdatedAtRef.current = contentUpdatedAt;
         }
-      });
+      }, 0);
+      retry = applyTimer;
     };
 
     apply();

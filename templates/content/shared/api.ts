@@ -98,6 +98,7 @@ export interface DocumentUpdateRequest {
   content?: string;
   icon?: string | null;
   isFavorite?: boolean;
+  loadedUpdatedAt?: string;
 }
 
 export interface DocumentUpdateResponse extends Document {
@@ -587,6 +588,12 @@ export interface ContentDatabaseSource {
     liveReadConfigured?: boolean;
     lastReadEntryCount?: number;
     lastReadMatchedRowCount?: number;
+    lastReadLimit?: number;
+    lastReadFetchedEntryCount?: number;
+    lastReadPartial?: boolean;
+    lastReadHasMore?: boolean;
+    lastReadNextOffset?: number;
+    sourceFetchState?: "idle" | "fetching" | "error";
     allowDraftWrites?: boolean;
     allowPublishWrites?: boolean;
     allowedWriteModes?: ContentDatabaseSourcePushMode[];
@@ -814,6 +821,7 @@ export interface RefreshContentDatabaseSourceRequest {
   databaseId?: string;
   documentId?: string;
   sourceId?: string;
+  fullRefresh?: boolean;
 }
 
 export interface DisconnectContentDatabaseSourceRequest {
@@ -826,6 +834,8 @@ export interface AddContentDatabaseSourceFieldPropertyRequest {
   databaseId?: string;
   documentId?: string;
   sourceFieldId: string;
+  sourceId?: string;
+  sourceFieldKey?: string;
 }
 
 export interface BindContentDatabaseSourceFieldRequest {
@@ -962,6 +972,8 @@ export interface ContentDatabaseSourceReviewPayload {
   summary: string;
   sourceName: string;
   sourceTable: string;
+  totalRowCount?: number;
+  preparedRowLimit?: number;
   pushMode: ContentDatabaseSourcePushMode;
   dryRunOnly: boolean;
   liveWritesEnabled: boolean;
