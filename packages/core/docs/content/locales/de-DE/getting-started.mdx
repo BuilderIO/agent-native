@@ -79,6 +79,93 @@ Oder im Browser den Agent fragen:
 
 Weil die action `outputSchema` und `chatUI.renderer` deklariert, muss der Transcript strukturierte Daten nicht in Fließtext verwandeln. Er rendert eine native React-Komponente: Zusammenfassung, Diagramm, Tabelle und Link zur Detailseite. Siehe [Native Chat UI](/docs/native-chat-ui).
 
+Wenn Sie statt der eingebauten Data Widgets ein eigenes Diagramm bauen möchten, geben Sie der action eine produktspezifische Renderer-ID und geben Sie eine eigene validierte JSON-Form zurück:
+
+```ts
+// actions/analyze-responses.ts
+import { defineAction } from "@agent-native/core/action";
+import { z } from "zod";
+
+const responseChartRenderer = "responses.response-chart";
+
+const responseChartResultSchema = z.object({
+  title: z.string(),
+  points: z.array(
+    z.object({
+      day: z.string(),
+      responses: z.number(),
+    }),
+  ),
+});
+
+export default defineAction({
+  description: "Analyze recent form responses and render a custom chart.",
+  schema: z.object({
+    formId: z.string().default("demo"),
+  }),
+  outputSchema: responseChartResultSchema,
+  chatUI: {
+    renderer: responseChartRenderer,
+    title: "Response chart",
+  },
+  readOnly: true,
+  run: async ({ formId }) => ({
+    title: `Responses for ${formId}`,
+    points: [
+      { day: "Mon", responses: 12 },
+      { day: "Tue", responses: 18 },
+      { day: "Wed", responses: 24 },
+    ],
+  }),
+});
+```
+
+Registrieren Sie dann beim App-Start eine React-Komponente für genau diese Renderer-ID, zum Beispiel indem `app/chat-renderers.tsx` einmal aus `app/root.tsx` importiert wird:
+
+```tsx
+// app/chat-renderers.tsx
+import {
+  registerActionChatRenderer,
+  type ToolRendererProps,
+} from "@agent-native/core/client/chat";
+
+type ResponseChartResult = {
+  title: string;
+  points: Array<{ day: string; responses: number }>;
+};
+
+function ResponseChart({ context }: ToolRendererProps) {
+  const result = context.resultJson as ResponseChartResult;
+  const max = Math.max(...result.points.map((point) => point.responses), 1);
+
+  return (
+    <section className="rounded-lg border bg-card p-4">
+      <h3 className="text-sm font-medium">{result.title}</h3>
+      <div className="mt-4 flex h-32 items-end gap-2">
+        {result.points.map((point) => (
+          <div
+            key={point.day}
+            className="flex flex-1 flex-col items-center gap-2"
+          >
+            <div
+              className="w-full rounded-t bg-primary"
+              style={{ height: `${(point.responses / max) * 100}%` }}
+            />
+            <span className="text-xs text-muted-foreground">{point.day}</span>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+registerActionChatRenderer({
+  id: "responses.response-chart",
+  renderer: "responses.response-chart",
+  Component: ResponseChart,
+});
+```
+
 <WireframeBlock id="doc-block-inline-result-wireframe-de">
   <Screen
     surface="desktop"
