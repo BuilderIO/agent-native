@@ -13189,8 +13189,21 @@ export default function DesignEditor() {
     setOverviewSelectAllRequest((request) => request + 1);
   }, [files]);
 
+  const shouldHandleEditorHotkey = useCallback((event: KeyboardEvent) => {
+    const key = event.key.length === 1 ? event.key.toLowerCase() : event.key;
+    const primary = event.metaKey || event.ctrlKey;
+    const plainPasteHotkey =
+      primary && key === "v" && !event.altKey && !event.shiftKey;
+    if (!plainPasteHotkey) return true;
+    return (
+      (event as KeyboardEvent & { __agentNativeIframeHotkey?: boolean })
+        .__agentNativeIframeHotkey === true
+    );
+  }, []);
+
   useDesignHotkeys({
     enabled: !embedded && !(pendingQuestions && pendingQuestions.length > 0),
+    shouldHandleEvent: shouldHandleEditorHotkey,
     onMoveTool: canEditDesign ? handleMoveTool : undefined,
     onFrameTool: canEditDesign ? handleFrameTool : undefined,
     onRectangleTool: canEditDesign ? handleRectTool : undefined,
