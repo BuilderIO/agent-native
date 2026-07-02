@@ -17055,19 +17055,12 @@ ${serializedHtml}
                 )}
               >
                 {id && canEditDesign ? (
-                  <>
-                    <div className="flex min-h-8 shrink-0 items-center border-b border-border/60 px-3">
-                      <h3 className="min-w-0 flex-1 truncate text-xs font-semibold text-foreground">
-                        {t("designEditor.tokens.title")}
-                      </h3>
-                    </div>
-                    <div className="design-inspector-scroll min-h-0 flex-1 overflow-y-auto overscroll-contain">
-                      <TokensPanel
-                        designId={id}
-                        onTokensApplied={handleTokensApplied}
-                      />
-                    </div>
-                  </>
+                  <div className="design-inspector-scroll min-h-0 flex-1 overflow-y-auto overscroll-contain">
+                    <TokensPanel
+                      designId={id}
+                      onTokensApplied={handleTokensApplied}
+                    />
+                  </div>
                 ) : (
                   <ReadOnlyEditorPanel
                     title={"Tokens require editor access" /* i18n-ignore */}

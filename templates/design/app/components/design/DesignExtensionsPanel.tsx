@@ -19,6 +19,7 @@ import {
   IconChevronDown,
   IconExternalLink,
   IconLock,
+  IconLayoutGrid,
   IconMessageCircle,
   IconPalette,
   IconPhoto,
@@ -34,6 +35,7 @@ import {
   useRef,
   useState,
   type FormEvent,
+  type DragEvent as ReactDragEvent,
 } from "react";
 import { toast } from "sonner";
 
@@ -150,6 +152,7 @@ type FirstPartyRow = {
 
 const DEFAULT_ASSETS_PICKER_URL =
   "https://assets.agent-native.com/library?__an_picker=1&mediaType=image&layout=vertical";
+const SHOW_FIGMA_ASSET_TAB = false;
 
 interface PickedAssetPayload {
   url?: unknown;
@@ -368,11 +371,11 @@ function ToolFilterMenu<T extends string>({
           type="button"
           variant="outline"
           size="sm"
-          className="h-8 cursor-pointer gap-1.5 rounded-md bg-transparent px-2.5 text-sm font-medium"
+          className="h-7 cursor-pointer gap-1 rounded-md bg-transparent px-2 !text-[11px] font-medium"
         >
-          <IconAdjustmentsHorizontal className="size-4 text-muted-foreground" />
+          <IconAdjustmentsHorizontal className="size-3 text-muted-foreground" />
           <span>{triggerLabel}</span>
-          <IconChevronDown className="size-3.5 text-muted-foreground" />
+          <IconChevronDown className="size-3 text-muted-foreground" />
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" className="min-w-36">
@@ -451,7 +454,12 @@ const NATIVE_ASSET_CATEGORY_LABELS: Record<
 };
 
 export function AssetLibraryPanel({ context }: AssetLibraryPanelProps) {
+  const panelRef = useRef<HTMLDivElement | null>(null);
   const [assetPickerReady, setAssetPickerReady] = useState(false);
+  const [nativeSearchQuery, setNativeSearchQuery] = useState("");
+  const [draggedNativeAsset, setDraggedNativeAsset] =
+    useState<DesignNativeAsset | null>(null);
+  const [dropOverlayLeft, setDropOverlayLeft] = useState<number | null>(null);
   const [figmaFileInput, setFigmaFileInput] = useState("");
   const [figmaQueryInput, setFigmaQueryInput] = useState("");
   const [figmaRequest, setFigmaRequest] = useState<{
@@ -476,6 +484,24 @@ export function AssetLibraryPanel({ context }: AssetLibraryPanelProps) {
       : undefined,
     { enabled: Boolean(figmaRequest) },
   );
+  const filteredNativeAssets = useMemo(() => {
+    const assets = nativeAssets.data?.assets ?? [];
+    const query = nativeSearchQuery.trim().toLowerCase();
+    if (!query) return assets;
+    return assets.filter((asset) =>
+      [
+        asset.title,
+        asset.description,
+        asset.componentName,
+        asset.category,
+        NATIVE_ASSET_CATEGORY_LABELS[asset.category],
+      ]
+        .join(" ")
+        .toLowerCase()
+        .includes(query),
+    );
+  }, [nativeAssets.data?.assets, nativeSearchQuery]);
+  const canInsertNativeAssets = Boolean(context.activeFileId);
   const notifyAssetInserted = useCallback(
     (result: unknown, title: string) => {
       if (!result || typeof result !== "object") return;
@@ -553,23 +579,68 @@ export function AssetLibraryPanel({ context }: AssetLibraryPanelProps) {
     [context.designId, context.activeFileId, insertAsset, notifyAssetInserted],
   );
 
-  const handleInsertNativeAsset = (asset: DesignNativeAsset) => {
-    insertNativeAsset.mutate(
-      {
-        kind: asset.kind,
-        designId: context.designId || undefined,
-        fileId: context.activeFileId || undefined,
-      },
-      {
-        onSuccess: (result) => {
-          notifyAssetInserted(result, asset.title);
-          toast.success(`${asset.title} inserted into design.`);
+  const handleInsertNativeAsset = useCallback(
+    (asset: DesignNativeAsset) => {
+      if (!context.activeFileId) {
+        toast.error("Open a design screen first to insert assets.");
+        return;
+      }
+      insertNativeAsset.mutate(
+        {
+          kind: asset.kind,
+          designId: context.designId || undefined,
+          fileId: context.activeFileId || undefined,
         },
-        onError: (error) => {
-          toast.error(error.message || "Failed to insert native asset.");
+        {
+          onSuccess: (result) => {
+            notifyAssetInserted(result, asset.title);
+            toast.success(`${asset.title} inserted into design.`);
+          },
+          onError: (error) => {
+            toast.error(error.message || "Failed to insert Design asset.");
+          },
         },
-      },
-    );
+      );
+    },
+    [
+      context.activeFileId,
+      context.designId,
+      insertNativeAsset,
+      notifyAssetInserted,
+    ],
+  );
+
+  const clearNativeAssetDrag = useCallback(() => {
+    setDraggedNativeAsset(null);
+    setDropOverlayLeft(null);
+  }, []);
+
+  useEffect(() => {
+    if (!draggedNativeAsset) return;
+    window.addEventListener("dragend", clearNativeAssetDrag);
+    return () => window.removeEventListener("dragend", clearNativeAssetDrag);
+  }, [clearNativeAssetDrag, draggedNativeAsset]);
+
+  const handleNativeAssetDragStart = (
+    event: ReactDragEvent<HTMLDivElement>,
+    asset: DesignNativeAsset,
+  ) => {
+    if (!canInsertNativeAssets || insertNativeAsset.isPending) {
+      event.preventDefault();
+      return;
+    }
+    setDraggedNativeAsset(asset);
+    setDropOverlayLeft(panelRef.current?.getBoundingClientRect().right ?? 0);
+    event.dataTransfer.effectAllowed = "copy";
+    event.dataTransfer.setData("text/plain", asset.title);
+  };
+
+  const handleNativeAssetDrop = (event: ReactDragEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+    if (!draggedNativeAsset) return;
+    handleInsertNativeAsset(draggedNativeAsset);
+    clearNativeAssetDrag();
   };
 
   const handleBrowseFigma = (event: FormEvent<HTMLFormElement>) => {
@@ -612,22 +683,32 @@ export function AssetLibraryPanel({ context }: AssetLibraryPanelProps) {
   };
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
+    <div ref={panelRef} className="flex min-h-0 flex-1 flex-col">
       <Tabs defaultValue="native" className="flex min-h-0 flex-1 flex-col">
         <div className="border-b border-border/60 px-2 py-1.5">
-          <TabsList className="grid h-7 w-full grid-cols-3 rounded-md p-0.5">
+          <TabsList
+            className={cn(
+              "grid h-7 w-full rounded-md p-0.5",
+              SHOW_FIGMA_ASSET_TAB ? "grid-cols-3" : "grid-cols-2",
+            )}
+          >
             <TabsTrigger value="native" className="h-6 gap-1 px-2 !text-[11px]">
-              <IconAssembly className="size-3" />
-              Native
+              <IconLayoutGrid className="size-3" />
+              Design
             </TabsTrigger>
             <TabsTrigger value="media" className="h-6 gap-1 px-2 !text-[11px]">
               <IconPhoto className="size-3" />
               Media
             </TabsTrigger>
-            <TabsTrigger value="figma" className="h-6 gap-1 px-2 !text-[11px]">
-              <IconBrandFigma className="size-3" />
-              Figma
-            </TabsTrigger>
+            {SHOW_FIGMA_ASSET_TAB ? (
+              <TabsTrigger
+                value="figma"
+                className="h-6 gap-1 px-2 !text-[11px]"
+              >
+                <IconBrandFigma className="size-3" />
+                Figma
+              </TabsTrigger>
+            ) : null}
           </TabsList>
         </div>
 
@@ -650,35 +731,67 @@ export function AssetLibraryPanel({ context }: AssetLibraryPanelProps) {
           )}
 
           {!nativeAssets.isLoading && nativeAssets.data && (
-            <div className="space-y-1.5">
-              {nativeAssets.data.assets.map((asset) => (
-                <button
-                  key={asset.kind}
-                  type="button"
-                  disabled={
-                    !context.activeFileId || insertNativeAsset.isPending
-                  }
-                  onClick={() => handleInsertNativeAsset(asset)}
-                  className="group flex w-full cursor-pointer items-start gap-2 rounded-md border border-border bg-background px-2 py-2 text-left transition hover:border-primary/50 hover:bg-accent/30 disabled:cursor-not-allowed disabled:opacity-55"
-                >
-                  <span className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-md border border-border/70 bg-muted/50 text-muted-foreground group-hover:text-foreground">
-                    <IconAssembly className="size-4" />
-                  </span>
-                  <span className="min-w-0 flex-1">
-                    <span className="flex items-center gap-1.5">
-                      <span className="truncate !text-[11px] font-medium leading-tight text-foreground">
-                        {asset.title}
+            <div className="space-y-2">
+              <p className="text-[10px] leading-snug text-muted-foreground">
+                Drag Design elements into the canvas to add them to the current
+                screen.
+              </p>
+              <div className="relative">
+                <IconSearch className="pointer-events-none absolute left-2 top-1/2 size-3 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  value={nativeSearchQuery}
+                  onChange={(event) => setNativeSearchQuery(event.target.value)}
+                  placeholder="Search Design assets"
+                  className="h-7 bg-muted/50 pl-7 !text-[11px] shadow-none md:!text-[11px]"
+                />
+              </div>
+              {filteredNativeAssets.length === 0 ? (
+                <p className="rounded border border-border bg-muted/30 px-2 py-1.5 text-[10px] leading-snug text-muted-foreground">
+                  No Design assets match this search.
+                </p>
+              ) : (
+                <div role="list" className="space-y-1.5">
+                  {filteredNativeAssets.map((asset) => (
+                    <div
+                      key={asset.kind}
+                      role="listitem"
+                      aria-disabled={
+                        !canInsertNativeAssets || insertNativeAsset.isPending
+                      }
+                      draggable={
+                        canInsertNativeAssets && !insertNativeAsset.isPending
+                      }
+                      onDragStart={(event) =>
+                        handleNativeAssetDragStart(event, asset)
+                      }
+                      onDragEnd={clearNativeAssetDrag}
+                      className={cn(
+                        "group flex w-full items-start gap-2 rounded-md border border-border bg-background px-2 py-2 text-left transition hover:border-primary/50 hover:bg-accent/30",
+                        canInsertNativeAssets && !insertNativeAsset.isPending
+                          ? "cursor-grab active:cursor-grabbing"
+                          : "cursor-not-allowed opacity-55",
+                      )}
+                    >
+                      <span className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-md border border-border/70 bg-muted/50 text-muted-foreground group-hover:text-foreground">
+                        <IconLayoutGrid className="size-4" />
                       </span>
-                      <span className="shrink-0 rounded border border-border/70 px-1 py-0.5 text-[9px] leading-none text-muted-foreground">
-                        {NATIVE_ASSET_CATEGORY_LABELS[asset.category]}
+                      <span className="min-w-0 flex-1">
+                        <span className="flex items-center gap-1.5">
+                          <span className="truncate !text-[11px] font-medium leading-tight text-foreground">
+                            {asset.title}
+                          </span>
+                          <span className="shrink-0 rounded border border-border/70 px-1 py-0.5 text-[9px] leading-none text-muted-foreground">
+                            {NATIVE_ASSET_CATEGORY_LABELS[asset.category]}
+                          </span>
+                        </span>
+                        <span className="mt-1 line-clamp-2 text-[10px] leading-snug text-muted-foreground">
+                          {asset.description}
+                        </span>
                       </span>
-                    </span>
-                    <span className="mt-1 line-clamp-2 text-[10px] leading-snug text-muted-foreground">
-                      {asset.description}
-                    </span>
-                  </span>
-                </button>
-              ))}
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           )}
         </TabsContent>
@@ -704,135 +817,155 @@ export function AssetLibraryPanel({ context }: AssetLibraryPanelProps) {
           </div>
         </TabsContent>
 
-        <TabsContent
-          value="figma"
-          className="design-inspector-scroll m-0 min-h-0 flex-1 overflow-y-auto p-2.5"
-        >
-          <form className="space-y-1.5" onSubmit={handleBrowseFigma}>
-            <Input
-              value={figmaFileInput}
-              onChange={(event) => setFigmaFileInput(event.target.value)}
-              placeholder="Figma file URL or key"
-              className="h-7 !text-[11px] md:!text-[11px]"
-            />
-            <div className="flex gap-1.5">
+        {SHOW_FIGMA_ASSET_TAB ? (
+          <TabsContent
+            value="figma"
+            className="design-inspector-scroll m-0 min-h-0 flex-1 overflow-y-auto p-2.5"
+          >
+            <form className="space-y-1.5" onSubmit={handleBrowseFigma}>
               <Input
-                value={figmaQueryInput}
-                onChange={(event) => setFigmaQueryInput(event.target.value)}
-                placeholder="Search components"
-                className="h-7 min-w-0 flex-1 !text-[11px] md:!text-[11px]"
+                value={figmaFileInput}
+                onChange={(event) => setFigmaFileInput(event.target.value)}
+                placeholder="Figma file URL or key"
+                className="h-7 !text-[11px] md:!text-[11px]"
               />
-              <Button
-                type="submit"
-                size="sm"
-                className="h-7 cursor-pointer gap-1 px-2 !text-[11px]"
-                disabled={!figmaFileInput.trim() || figmaAssets.isFetching}
-              >
-                <IconSearch className="size-3" />
-                {figmaAssets.isFetching ? "Loading" : "Browse"}
-              </Button>
-            </div>
-          </form>
+              <div className="flex gap-1.5">
+                <Input
+                  value={figmaQueryInput}
+                  onChange={(event) => setFigmaQueryInput(event.target.value)}
+                  placeholder="Search components"
+                  className="h-7 min-w-0 flex-1 !text-[11px] md:!text-[11px]"
+                />
+                <Button
+                  type="submit"
+                  size="sm"
+                  className="h-7 cursor-pointer gap-1 px-2 !text-[11px]"
+                  disabled={!figmaFileInput.trim() || figmaAssets.isFetching}
+                >
+                  <IconSearch className="size-3" />
+                  {figmaAssets.isFetching ? "Loading" : "Browse"}
+                </Button>
+              </div>
+            </form>
 
-          {figmaAssets.isError && (
-            <p className="mt-2 rounded border border-destructive/30 bg-destructive/5 px-2 py-1.5 text-[10px] leading-snug text-destructive">
-              {figmaAssets.error.message}
-            </p>
-          )}
-
-          {figmaAssets.isFetching && (
-            <div className="mt-2 grid grid-cols-2 gap-1.5">
-              {Array.from({ length: 4 }).map((_, index) => (
-                <Skeleton key={index} className="aspect-square rounded-md" />
-              ))}
-            </div>
-          )}
-
-          {!figmaAssets.isFetching &&
-            figmaAssets.data &&
-            figmaAssets.data.assets.length === 0 && (
-              <p className="mt-2 rounded border border-border bg-muted/30 px-2 py-1.5 text-[10px] leading-snug text-muted-foreground">
-                No components matched this Figma file and search.
+            {figmaAssets.isError && (
+              <p className="mt-2 rounded border border-destructive/30 bg-destructive/5 px-2 py-1.5 text-[10px] leading-snug text-destructive">
+                {figmaAssets.error.message}
               </p>
             )}
 
-          {!figmaAssets.isFetching &&
-            figmaAssets.data &&
-            figmaAssets.data.assets.length > 0 && (
-              <div className="mt-2 space-y-1.5">
-                <div className="flex items-center justify-between gap-2 text-[10px] text-muted-foreground">
-                  <span>
-                    {figmaAssets.data.returned} of {figmaAssets.data.total}
-                  </span>
-                  <span className="truncate">{figmaAssets.data.fileKey}</span>
-                </div>
-                <div className="grid grid-cols-2 gap-1.5">
-                  {figmaAssets.data.assets.map((asset) => {
-                    const preview = asset.thumbnailUrl ?? asset.renderUrl;
-                    const canInsert = Boolean(
-                      context.activeFileId &&
-                      (asset.insertUrl ??
-                        asset.renderUrl ??
-                        asset.thumbnailUrl),
-                    );
-                    return (
-                      <div
-                        key={asset.id}
-                        className="overflow-hidden rounded-md border border-border bg-background"
-                      >
-                        <button
-                          type="button"
-                          className="block aspect-square w-full cursor-pointer bg-muted/30"
-                          disabled={!canInsert || insertFigmaAsset.isPending}
-                          onClick={() => handleInsertFigmaAsset(asset)}
-                        >
-                          {preview ? (
-                            <img
-                              src={preview}
-                              alt={asset.name}
-                              className="size-full object-contain p-2"
-                              loading="lazy"
-                            />
-                          ) : (
-                            <span className="flex size-full items-center justify-center text-muted-foreground">
-                              <IconAssembly className="size-5" />
-                            </span>
-                          )}
-                        </button>
-                        <div className="border-t border-border/70 px-1.5 py-1">
-                          <div className="flex items-center gap-1">
-                            <span className="min-w-0 flex-1 truncate text-[10px] font-medium leading-tight">
-                              {asset.name}
-                            </span>
-                            {asset.sourceUrl && (
-                              <a
-                                href={asset.sourceUrl}
-                                target="_blank"
-                                rel="noreferrer"
-                                className="shrink-0 text-muted-foreground hover:text-foreground"
-                                aria-label="Open in Figma"
-                              >
-                                <IconExternalLink className="size-3" />
-                              </a>
-                            )}
-                          </div>
-                          <p className="mt-0.5 truncate text-[9px] text-muted-foreground">
-                            {asset.kind === "component_set"
-                              ? "Component set"
-                              : "Component"}
-                            {asset.containingFrame?.name
-                              ? ` · ${asset.containingFrame.name}`
-                              : ""}
-                          </p>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
+            {figmaAssets.isFetching && (
+              <div className="mt-2 grid grid-cols-2 gap-1.5">
+                {Array.from({ length: 4 }).map((_, index) => (
+                  <Skeleton key={index} className="aspect-square rounded-md" />
+                ))}
               </div>
             )}
-        </TabsContent>
+
+            {!figmaAssets.isFetching &&
+              figmaAssets.data &&
+              figmaAssets.data.assets.length === 0 && (
+                <p className="mt-2 rounded border border-border bg-muted/30 px-2 py-1.5 text-[10px] leading-snug text-muted-foreground">
+                  No components matched this Figma file and search.
+                </p>
+              )}
+
+            {!figmaAssets.isFetching &&
+              figmaAssets.data &&
+              figmaAssets.data.assets.length > 0 && (
+                <div className="mt-2 space-y-1.5">
+                  <div className="flex items-center justify-between gap-2 text-[10px] text-muted-foreground">
+                    <span>
+                      {figmaAssets.data.returned} of {figmaAssets.data.total}
+                    </span>
+                    <span className="truncate">{figmaAssets.data.fileKey}</span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-1.5">
+                    {figmaAssets.data.assets.map((asset) => {
+                      const preview = asset.thumbnailUrl ?? asset.renderUrl;
+                      const canInsert = Boolean(
+                        context.activeFileId &&
+                        (asset.insertUrl ??
+                          asset.renderUrl ??
+                          asset.thumbnailUrl),
+                      );
+                      return (
+                        <div
+                          key={asset.id}
+                          className="overflow-hidden rounded-md border border-border bg-background"
+                        >
+                          <button
+                            type="button"
+                            className="block aspect-square w-full cursor-pointer bg-muted/30"
+                            disabled={!canInsert || insertFigmaAsset.isPending}
+                            onClick={() => handleInsertFigmaAsset(asset)}
+                          >
+                            {preview ? (
+                              <img
+                                src={preview}
+                                alt={asset.name}
+                                className="size-full object-contain p-2"
+                                loading="lazy"
+                              />
+                            ) : (
+                              <span className="flex size-full items-center justify-center text-muted-foreground">
+                                <IconLayoutGrid className="size-5" />
+                              </span>
+                            )}
+                          </button>
+                          <div className="border-t border-border/70 px-1.5 py-1">
+                            <div className="flex items-center gap-1">
+                              <span className="min-w-0 flex-1 truncate text-[10px] font-medium leading-tight">
+                                {asset.name}
+                              </span>
+                              {asset.sourceUrl && (
+                                <a
+                                  href={asset.sourceUrl}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="shrink-0 text-muted-foreground hover:text-foreground"
+                                  aria-label="Open in Figma"
+                                >
+                                  <IconExternalLink className="size-3" />
+                                </a>
+                              )}
+                            </div>
+                            <p className="mt-0.5 truncate text-[9px] text-muted-foreground">
+                              {asset.kind === "component_set"
+                                ? "Component set"
+                                : "Component"}
+                              {asset.containingFrame?.name
+                                ? ` · ${asset.containingFrame.name}`
+                                : ""}
+                            </p>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+          </TabsContent>
+        ) : null}
       </Tabs>
+
+      {draggedNativeAsset && dropOverlayLeft !== null ? (
+        <div
+          className="fixed bottom-0 right-0 top-0 z-[120] cursor-copy"
+          style={{ left: dropOverlayLeft }}
+          onDragOver={(event) => {
+            event.preventDefault();
+            event.dataTransfer.dropEffect = "copy";
+          }}
+          onDrop={handleNativeAssetDrop}
+        >
+          <div className="pointer-events-none absolute inset-3 flex items-center justify-center rounded-xl border border-dashed border-primary/50 bg-primary/5 text-primary shadow-[inset_0_0_0_1px_rgba(255,255,255,0.18)]">
+            <div className="rounded-md border border-border bg-background/95 px-3 py-2 text-xs font-medium shadow-sm">
+              Drop to add {draggedNativeAsset.title} to this design
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       {!context.activeFileId && (
         <p className="border-t border-border/60 px-2.5 py-1.5 text-[10px] text-amber-600 dark:text-amber-400">
@@ -1310,8 +1443,8 @@ export function DesignExtensionsPanel({
 
   return (
     <div className={cn("flex min-h-0 flex-1 flex-col", className)}>
-      <div className="flex h-16 shrink-0 items-center gap-3 border-b border-border/60 px-4">
-        <h3 className="min-w-0 flex-1 truncate text-xl font-semibold tracking-tight text-foreground">
+      <div className="flex min-h-8 shrink-0 items-center gap-2 border-b border-border/60 px-3">
+        <h3 className="min-w-0 flex-1 truncate text-xs font-semibold text-foreground">
           {title ?? t("designEditor.extensions")}
         </h3>
         <CreateExtensionPopover
@@ -1321,18 +1454,18 @@ export function DesignExtensionsPanel({
         />
       </div>
 
-      <div className="design-inspector-scroll min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 pb-4 pt-4">
-        <div className="relative mb-4">
-          <IconSearch className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+      <div className="design-inspector-scroll min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 pb-4 pt-3">
+        <div className="relative mb-3">
+          <IconSearch className="pointer-events-none absolute left-2 top-1/2 size-3 -translate-y-1/2 text-muted-foreground" />
           <Input
             value={searchQuery}
             onChange={(event) => setSearchQuery(event.target.value)}
             placeholder="Search all tools"
-            className="h-9 border-0 bg-muted/70 pl-8 text-sm shadow-none focus-visible:ring-1"
+            className="h-7 border-0 bg-muted/70 pl-7 !text-[11px] shadow-none focus-visible:ring-1 md:!text-[11px]"
           />
         </div>
 
-        <div className="mb-5 flex flex-wrap gap-2">
+        <div className="mb-4 flex flex-wrap gap-1.5">
           <ToolFilterMenu
             label="Source"
             value={sourceFilter}
@@ -1367,7 +1500,7 @@ export function DesignExtensionsPanel({
           <>
             {visibleInstalls.length > 0 ? (
               <div className="mb-6">
-                <p className="mb-3 text-sm font-medium text-muted-foreground">
+                <p className="mb-2 text-xs font-medium text-muted-foreground">
                   Recents
                 </p>
                 <div className="space-y-2">
@@ -1387,7 +1520,7 @@ export function DesignExtensionsPanel({
 
             {visibleFirstPartyRows.length > 0 ? (
               <div className="mb-6">
-                <p className="mb-3 text-sm font-medium text-muted-foreground">
+                <p className="mb-2 text-xs font-medium text-muted-foreground">
                   Suggested
                 </p>
                 <div className="space-y-1">
@@ -1411,7 +1544,7 @@ export function DesignExtensionsPanel({
 
             {visibleInstallable.length > 0 ? (
               <div className="border-t border-border/60 pt-4">
-                <p className="mb-3 text-sm font-medium text-muted-foreground">
+                <p className="mb-2 text-xs font-medium text-muted-foreground">
                   Available
                 </p>
                 <div className="space-y-1">
@@ -1498,7 +1631,7 @@ function CreateExtensionPopover({
           type="button"
           variant="outline"
           size="sm"
-          className="h-8 cursor-pointer rounded-md bg-transparent px-3 text-sm font-medium"
+          className="h-6 cursor-pointer rounded-md bg-transparent px-2 !text-[11px] font-medium"
           aria-label={t("designEditor.addExtension")}
         >
           Create

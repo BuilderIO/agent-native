@@ -176,18 +176,13 @@ export function DesignImportPanel({ context }: DesignImportPanelProps) {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col bg-background">
-      <div className="flex h-14 shrink-0 items-center border-b border-border/60 px-3.5">
-        <div className="min-w-0">
-          <h3 className="truncate text-base font-semibold tracking-tight text-foreground">
-            {t("designEditor.import.title")}
-          </h3>
-          <p className="mt-0.5 truncate text-[11px] text-muted-foreground">
-            {"Bring source screens into this design" /* i18n-ignore */}
-          </p>
-        </div>
+      <div className="flex min-h-8 shrink-0 items-center border-b border-border/60 px-3">
+        <h3 className="min-w-0 flex-1 truncate text-xs font-semibold text-foreground">
+          {t("designEditor.import.title")}
+        </h3>
       </div>
 
-      <div className="design-inspector-scroll min-h-0 flex-1 overflow-y-auto overscroll-contain px-3.5 pb-4 pt-3">
+      <div className="design-inspector-scroll min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 pb-4 pt-3">
         <div className="space-y-0.5">
           <ImportSourceRow
             id="figma-paste-import"
