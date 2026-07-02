@@ -1352,6 +1352,7 @@ export function buildBuilderLocalOutboundChangeSets(args: {
   // untagged / "Local" row falls back to the primary (allowUnsourcedCreates).
   taggedSourceByDocumentId?: Map<string, string>;
   bodyChangeByDocumentId?: Map<string, ContentDatabaseSourceBodyChange>;
+  sourceImportedDocumentIds?: Set<string>;
 }): ContentDatabaseSourceChangeSet[] {
   if (normalizeSourceType(args.source.sourceType) !== "builder-cms") return [];
 
@@ -1489,6 +1490,7 @@ export function buildBuilderLocalOutboundChangeSets(args: {
     const allowUnsourcedCreates = args.allowUnsourcedCreates ?? true;
     for (const item of args.databaseItems) {
       if (linkedDocumentIds.has(item.documentId)) continue;
+      if (args.sourceImportedDocumentIds?.has(item.documentId)) continue;
       // Owned by another collection's row identity — not this source's to create.
       if (args.otherSourceDocumentIds?.has(item.documentId)) continue;
       const taggedSourceId = args.taggedSourceByDocumentId?.get(
@@ -1918,9 +1920,8 @@ async function loadSourceSnapshot(
     await Promise.all(
       allDocumentIds.map(async (documentId) => {
         if (!hydratedDocumentIds.has(documentId)) return;
-        const row = sourceRowByDocumentId.get(documentId) ?? {
-          sourceValuesJson: "{}",
-        };
+        const row = sourceRowByDocumentId.get(documentId);
+        if (!row) return;
         const bodyChange = await builderBodyChangeForLocalContent({
           row,
           localContent: documentContentById.get(documentId),
@@ -1945,6 +1946,11 @@ async function loadSourceSnapshot(
     allowUnsourcedCreates: isPrimarySource,
     taggedSourceByDocumentId,
     bodyChangeByDocumentId,
+    sourceImportedDocumentIds: new Set(
+      rowRows
+        .filter((row) => row.provenance === "Builder CMS read adapter")
+        .map((row) => row.documentId),
+    ),
   });
   const rowByDocumentId = new Map(rowRows.map((row) => [row.documentId, row]));
   const changeSets = [...storedChangeSets, ...localOutboundChangeSets].map(
@@ -3033,8 +3039,14 @@ export async function importBuilderCmsEntriesAsDatabaseItems(args: {
   // per-source re-import idempotency is still handled by
   // builderCmsEntryAlreadyRepresented (existingSourceRows).
   skipTitleDedup?: boolean;
-}) {
-  if (args.entries.length === 0) return 0;
+}): Promise<{
+  imported: number;
+  importedEntriesByDocumentId: Map<string, BuilderCmsSourceEntry>;
+}> {
+  const importedEntriesByDocumentId = new Map<string, BuilderCmsSourceEntry>();
+  if (args.entries.length === 0) {
+    return { imported: 0, importedEntriesByDocumentId };
+  }
   const db = getDb();
   const [databaseDocument] = await db
     .select()
@@ -3118,9 +3130,10 @@ export async function importBuilderCmsEntriesAsDatabaseItems(args: {
       updatedAt: args.now,
     });
     imported += 1;
+    importedEntriesByDocumentId.set(documentId, entry);
   }
 
-  return imported;
+  return { imported, importedEntriesByDocumentId };
 }
 
 export async function resyncBuilderCmsSourceSnapshot(args: {
@@ -3165,19 +3178,21 @@ export async function resyncBuilderCmsSourceSnapshot(args: {
     .select()
     .from(schema.contentDatabaseSourceRows)
     .where(eq(schema.contentDatabaseSourceRows.sourceId, args.source.id));
+  let importedEntriesByDocumentId = new Map<string, BuilderCmsSourceEntry>();
   const existingFields = await db
     .select()
     .from(schema.contentDatabaseSourceFields)
     .where(eq(schema.contentDatabaseSourceFields.sourceId, args.source.id));
   if (builderRead.state === "live") {
-    const imported = await importBuilderCmsEntriesAsDatabaseItems({
+    const importResult = await importBuilderCmsEntriesAsDatabaseItems({
       database: args.database,
       entries: builderEntries,
       now: args.now,
       sourceTable: args.source.sourceTable,
       existingSourceRows: existingRows,
     });
-    if (imported && imported > 0) {
+    importedEntriesByDocumentId = importResult.importedEntriesByDocumentId;
+    if (importResult.imported > 0) {
       ({ properties, response } = await sourceSetupPayload(args.database.id));
       existingRows = await db
         .select()
@@ -3198,6 +3213,9 @@ export async function resyncBuilderCmsSourceSnapshot(args: {
           existingRows,
         })
       : new Map<string, BuilderCmsSourceEntry>();
+  for (const [documentId, entry] of importedEntriesByDocumentId) {
+    builderEntriesByDocumentId.set(documentId, entry);
+  }
   const existingBuilderRows = new Map<string, ExistingBuilderSourceRowIdentity>(
     existingRows.map((row) => [
       row.documentId,

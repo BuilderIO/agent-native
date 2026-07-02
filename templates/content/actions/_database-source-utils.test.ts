@@ -343,6 +343,23 @@ describe("database source helpers", () => {
     expect(change).toBeNull();
   });
 
+  it("reports a real user body edit after Builder body hydration", async () => {
+    const change = await builderBodyChangeForLocalContent({
+      row: {
+        sourceValuesJson: JSON.stringify({
+          [BUILDER_CMS_BODY_BLOCKS_HASH_KEY]: "builder-hash",
+          [BUILDER_CMS_BODY_CONTENT_KEY]: "Readable Builder body",
+        }),
+      },
+      localContent: "Readable Builder body with a local edit",
+    });
+
+    expect(change).toMatchObject({
+      summary: "Builder body blocks changed.",
+      proposedContent: "Readable Builder body with a local edit",
+    });
+  });
+
   it("detects a changed mapped property field on an existing row (not just title)", () => {
     const [changeSet] = buildBuilderLocalOutboundChangeSets({
       source: { sourceType: "builder-cms" },
@@ -470,6 +487,68 @@ describe("database source helpers", () => {
     expect(
       pending.find((cs) => cs.documentId === "doc-linked"),
     ).toBeUndefined();
+  });
+
+  it("does not create a draft for a row imported from Builder even when linkage is missing", () => {
+    const pending = buildBuilderLocalOutboundChangeSets({
+      source: { sourceType: "builder-cms" },
+      rowRows: [],
+      documentTitleById: new Map([
+        ["doc-imported", "Best AI Coding Tools for Developers in 2024"],
+      ]),
+      storedChangeSets: [],
+      databaseItems: [
+        { databaseItemId: "item-imported", documentId: "doc-imported" },
+      ],
+      sourceImportedDocumentIds: new Set(["doc-imported"]),
+      bodyChangeByDocumentId: new Map([
+        [
+          "doc-imported",
+          {
+            summary: "Builder body blocks changed.",
+            currentExcerpt: "",
+            proposedExcerpt: "Hydrated body",
+            currentHash: null,
+            proposedHash: "hydrated-hash",
+            proposedContent: "Hydrated body",
+            proposedBlocksJson: "[]",
+            sidecarsJson: "{}",
+            warnings: [],
+          },
+        ],
+      ]),
+    } as Parameters<typeof buildBuilderLocalOutboundChangeSets>[0]);
+
+    expect(pending).toHaveLength(0);
+  });
+
+  it("treats duplicate Builder natural keys as ambiguous rather than guessing a row link", () => {
+    const entries = [
+      {
+        id: "entry-1",
+        model: "blog-article",
+        title: "Duplicate title",
+        urlPath: "/duplicate",
+        sourceValues: { "data.title": "Duplicate title" },
+      },
+      {
+        id: "entry-2",
+        model: "blog-article",
+        title: "Duplicate title",
+        urlPath: "/duplicate",
+        sourceValues: { "data.title": "Duplicate title" },
+      },
+    ];
+
+    const links = mapBuilderCmsEntriesToLocalItems({
+      entries,
+      items: [item("doc-1", "Duplicate title")],
+      sourceTable: "blog-article",
+      now: "2026-07-02T00:00:00.000Z",
+      existingRows: [],
+    });
+
+    expect(links.size).toBe(0);
   });
 
   it("does not create rows owned by another source (row-union scoping)", () => {

@@ -969,6 +969,8 @@ export interface ContentDatabaseSourceReviewPayload {
   summary: string;
   sourceName: string;
   sourceTable: string;
+  totalRowCount?: number;
+  preparedRowLimit?: number;
   pushMode: ContentDatabaseSourcePushMode;
   dryRunOnly: boolean;
   liveWritesEnabled: boolean;

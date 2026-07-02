@@ -617,6 +617,11 @@ const messages = {
     builderBodySyncingDescription:
       "同步 Builder 正文完成前會暫停編輯，避免覆寫既有文章內容。",
     builderBodiesHydrated: "已同步 {{hydrated}} / {{total}} 個正文",
+    builderReviewShowingRows:
+      "此次審查顯示 {{total}} 個 Builder 列中的 {{shown}} 個。",
+    builderReviewShowMore: "顯示更多",
+    builderReviewRemainingBatches:
+      "此批次完成後請再次審查，以準備其餘 Builder 變更。",
     builderRowsFetched: "已擷取 {{count}} 個 Builder 列",
     builderRowsFetchingMore: "正在擷取更多列",
     builderRowsFetchFailed: "列擷取需要處理",

@@ -346,8 +346,12 @@ export default defineAction({
       const priorDocumentIds = new Set(
         beforeSetup.response.items.map((item) => item.document.id),
       );
+      let importedEntriesByDocumentId = new Map<
+        string,
+        BuilderCmsSourceEntry
+      >();
       if (additionalRead.state === "live") {
-        await importBuilderCmsEntriesAsDatabaseItems({
+        const importResult = await importBuilderCmsEntriesAsDatabaseItems({
           database,
           entries: additionalEntries,
           now,
@@ -355,6 +359,7 @@ export default defineAction({
           existingSourceRows: [],
           skipTitleDedup: true,
         });
+        importedEntriesByDocumentId = importResult.importedEntriesByDocumentId;
       }
       const additionalSetup = await sourceSetupPayload(database.id);
       // Only the items this collection just created — exclude the primary's.
@@ -371,6 +376,9 @@ export default defineAction({
               existingRows: [],
             })
           : undefined;
+      for (const [documentId, entry] of importedEntriesByDocumentId) {
+        additionalEntriesByDocumentId?.set(documentId, entry);
+      }
       await seedMockSourceFields({
         sourceId: additionalSourceId,
         ownerEmail: database.ownerEmail,
@@ -446,14 +454,16 @@ export default defineAction({
             model: sourceTable,
           })
         : [];
+    let importedEntriesByDocumentId = new Map<string, BuilderCmsSourceEntry>();
     if (builderRead?.state === "live") {
-      await importBuilderCmsEntriesAsDatabaseItems({
+      const importResult = await importBuilderCmsEntriesAsDatabaseItems({
         database,
         entries: builderEntries,
         now,
         sourceTable,
         existingSourceRows,
       });
+      importedEntriesByDocumentId = importResult.importedEntriesByDocumentId;
     }
 
     const refreshedSetup = await sourceSetupPayload(database.id);
@@ -467,6 +477,9 @@ export default defineAction({
             existingRows: existingSourceRows,
           })
         : undefined;
+    for (const [documentId, entry] of importedEntriesByDocumentId) {
+      builderEntriesByDocumentId?.set(documentId, entry);
+    }
 
     await seedMockSourceFields({
       sourceId,

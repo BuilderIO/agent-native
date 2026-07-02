@@ -20,6 +20,7 @@ import getSource from "./get-content-database-source";
 import listBuilderModels from "./list-builder-cms-models";
 import prepareExecution from "./prepare-builder-source-execution";
 import prepareReview, {
+  BUILDER_SOURCE_REVIEW_PREPARE_LIMIT,
   buildBuilderSourceReviewPayload,
 } from "./prepare-builder-source-review";
 import refreshSource from "./refresh-content-database-source";
@@ -538,5 +539,8 @@ describe("content database source actions", () => {
     expect(review.rows[0]?.title).toBe("New title");
     expect(review.rows[0]?.fieldChanges[0]?.sourceFieldKey).toBe("data.title");
     expect(review.result.message).toContain("Push will check the update only");
+    expect(BUILDER_SOURCE_REVIEW_PREPARE_LIMIT).toBe(100);
+    expect(review.totalRowCount).toBe(1);
+    expect(review.preparedRowLimit).toBe(1);
   });
 });

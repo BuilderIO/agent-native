@@ -36,6 +36,11 @@ const databaseMessages = {
   builderBodySyncingDescription:
     "Editing is paused until the Builder body finishes syncing, so the existing article content is not overwritten.",
   builderBodiesHydrated: "{{hydrated}} of {{total}} bodies hydrated",
+  builderReviewShowingRows:
+    "Showing {{shown}} of {{total}} Builder rows for this review.",
+  builderReviewShowMore: "Show more",
+  builderReviewRemainingBatches:
+    "Review again after this batch to prepare the remaining Builder changes.",
   builderRowsFetched: "{{count}} Builder rows fetched",
   builderRowsFetchingMore: "fetching more rows",
   builderRowsFetchFailed: "row fetch needs attention",
@@ -7728,6 +7733,11 @@ export const messagesByLocale = {
       builderBodySyncing: "内容仍在从 Builder 同步",
       builderBodySyncingDescription:
         "同步 Builder 正文完成前会暂停编辑，避免覆盖现有文章内容。",
+      builderReviewShowingRows:
+        "此次审查显示 {{total}} 个 Builder 行中的 {{shown}} 个。",
+      builderReviewShowMore: "显示更多",
+      builderReviewRemainingBatches:
+        "此批次完成后请再次审查，以准备其余 Builder 更改。",
       builderRowsFetchedSoFar: "目前已获取 {{count}} 行。",
       builderRowsFinishingUp: "Builder 行即将完成加载。",
       builderRowsLoadingBackground: "Builder 仍在后台加载行。",
@@ -7872,6 +7882,11 @@ export const messagesByLocale = {
         "El contenido aún se está sincronizando desde Builder",
       builderBodySyncingDescription:
         "La edición está en pausa hasta que el cuerpo de Builder termine de sincronizarse, para no sobrescribir el contenido existente del artículo.",
+      builderReviewShowingRows:
+        "Mostrando {{shown}} de {{total}} filas de Builder para esta revisión.",
+      builderReviewShowMore: "Mostrar más",
+      builderReviewRemainingBatches:
+        "Revisa de nuevo después de este lote para preparar los cambios restantes de Builder.",
       builderRowsFetchedSoFar: "{{count}} filas obtenidas hasta ahora.",
       builderRowsFinishingUp:
         "Las filas de Builder están terminando de cargarse.",
@@ -8029,6 +8044,11 @@ export const messagesByLocale = {
         "Le contenu est encore en cours de synchronisation depuis Builder",
       builderBodySyncingDescription:
         "La modification est suspendue jusqu'à la fin de la synchronisation du corps Builder, afin de ne pas écraser le contenu existant de l'article.",
+      builderReviewShowingRows:
+        "Affichage de {{shown}} lignes Builder sur {{total}} pour cette revue.",
+      builderReviewShowMore: "Afficher plus",
+      builderReviewRemainingBatches:
+        "Relancez la revue après ce lot pour préparer les modifications Builder restantes.",
       builderRowsFetchedSoFar: "{{count}} lignes récupérées jusqu’à présent.",
       builderRowsFinishingUp: "Les lignes Builder terminent leur chargement.",
       builderRowsLoadingBackground:
@@ -8187,6 +8207,11 @@ export const messagesByLocale = {
       builderBodySyncing: "Inhalte werden noch von Builder synchronisiert",
       builderBodySyncingDescription:
         "Die Bearbeitung ist pausiert, bis der Builder-Textkörper fertig synchronisiert ist, damit der bestehende Artikelinhalt nicht überschrieben wird.",
+      builderReviewShowingRows:
+        "Zeige {{shown}} von {{total}} Builder-Zeilen für diese Überprüfung.",
+      builderReviewShowMore: "Mehr anzeigen",
+      builderReviewRemainingBatches:
+        "Nach diesem Stapel erneut überprüfen, um die restlichen Builder-Änderungen vorzubereiten.",
       builderRowsFetchedSoFar: "{{count}} Zeilen bisher abgerufen.",
       builderRowsFinishingUp: "Builder-Zeilen werden fertig geladen.",
       builderRowsLoadingBackground:
@@ -8346,6 +8371,11 @@ export const messagesByLocale = {
       builderBodySyncing: "コンテンツはまだ Builder から同期中です",
       builderBodySyncingDescription:
         "既存の記事内容を上書きしないよう、Builder 本文の同期が完了するまで編集は一時停止されます。",
+      builderReviewShowingRows:
+        "このレビューでは {{total}} 件中 {{shown}} 件の Builder 行を表示しています。",
+      builderReviewShowMore: "さらに表示",
+      builderReviewRemainingBatches:
+        "残りの Builder 変更を準備するには、このバッチの後で再度レビューしてください。",
       builderRowsFetchedSoFar: "現在 {{count}} 行を取得済みです。",
       builderRowsFinishingUp: "Builder 行の読み込みを完了しています。",
       builderRowsLoadingBackground:
@@ -8499,6 +8529,11 @@ export const messagesByLocale = {
       builderBodySyncing: "콘텐츠가 아직 Builder에서 동기화되는 중입니다",
       builderBodySyncingDescription:
         "기존 문서 내용을 덮어쓰지 않도록 Builder 본문 동기화가 완료될 때까지 편집이 일시 중지됩니다.",
+      builderReviewShowingRows:
+        "이 검토에서 Builder 행 {{total}}개 중 {{shown}}개를 표시하고 있습니다.",
+      builderReviewShowMore: "더 보기",
+      builderReviewRemainingBatches:
+        "남은 Builder 변경 사항을 준비하려면 이 배치 후 다시 검토하세요.",
       builderRowsFetchedSoFar: "지금까지 {{count}}개 행을 가져왔습니다.",
       builderRowsFinishingUp: "Builder 행 로드를 마무리하는 중입니다.",
       builderRowsLoadingBackground:
@@ -8645,6 +8680,11 @@ export const messagesByLocale = {
       builderBodySyncing: "O conteúdo ainda está sincronizando do Builder",
       builderBodySyncingDescription:
         "A edição fica pausada até o corpo do Builder terminar de sincronizar, para não sobrescrever o conteúdo existente do artigo.",
+      builderReviewShowingRows:
+        "Mostrando {{shown}} de {{total}} linhas do Builder para esta revisão.",
+      builderReviewShowMore: "Mostrar mais",
+      builderReviewRemainingBatches:
+        "Revise novamente após este lote para preparar as alterações restantes do Builder.",
       builderRowsFetchedSoFar: "{{count}} linhas buscadas até agora.",
       builderRowsFinishingUp:
         "As linhas do Builder estão terminando de carregar.",
@@ -8803,6 +8843,11 @@ export const messagesByLocale = {
       builderBodySyncing: "सामग्री अभी भी Builder से सिंक हो रही है",
       builderBodySyncingDescription:
         "Builder का मुख्य भाग सिंक पूरा होने तक संपादन रोका गया है, ताकि मौजूदा लेख सामग्री अधिलेखित न हो।",
+      builderReviewShowingRows:
+        "इस समीक्षा के लिए {{total}} में से {{shown}} Builder पंक्तियाँ दिखाई जा रही हैं।",
+      builderReviewShowMore: "और दिखाएँ",
+      builderReviewRemainingBatches:
+        "शेष Builder परिवर्तन तैयार करने के लिए इस बैच के बाद फिर से समीक्षा करें।",
       builderRowsFetchedSoFar: "अब तक {{count}} पंक्तियां लाई गईं।",
       builderRowsFinishingUp: "Builder पंक्तियां लोड होना पूरा कर रही हैं।",
       builderRowsLoadingBackground:
@@ -8947,6 +8992,11 @@ export const messagesByLocale = {
       builderBodySyncing: "لا يزال المحتوى قيد المزامنة من Builder",
       builderBodySyncingDescription:
         "يتم إيقاف التحرير مؤقتًا حتى تكتمل مزامنة نص Builder، حتى لا يتم استبدال محتوى المقالة الحالي.",
+      builderReviewShowingRows:
+        "يتم عرض {{shown}} من {{total}} صفوف Builder لهذه المراجعة.",
+      builderReviewShowMore: "عرض المزيد",
+      builderReviewRemainingBatches:
+        "راجع مرة أخرى بعد هذه الدفعة لتحضير تغييرات Builder المتبقية.",
       builderRowsFetchedSoFar: "تم جلب {{count}} صفًا حتى الآن.",
       builderRowsFinishingUp: "صفوف Builder توشك على إكمال التحميل.",
       builderRowsLoadingBackground: "لا يزال Builder يحمّل الصفوف في الخلفية.",

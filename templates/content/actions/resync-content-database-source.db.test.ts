@@ -36,6 +36,45 @@ vi.mock("./_builder-cms-read-client.js", async () => {
         offset?: number;
       }) => {
         builderReadMock.calls.push({ model, maxPages, offset });
+        if (model === "collection-duplicates") {
+          return {
+            state: "live",
+            entries: [
+              {
+                id: "entry-dup-1",
+                model: "collection-duplicates",
+                title: "Best AI Coding Tools for Developers in 2024",
+                urlPath: "/blog/builder-best-ai-coding-tools",
+                updatedAt: "2026-01-01T00:00:00.000Z",
+                sourceValues: {
+                  "data.title": "Best AI Coding Tools for Developers in 2024",
+                },
+              },
+              {
+                id: "entry-dup-2",
+                model: "collection-duplicates",
+                title: "Best AI Coding Tools for Developers in 2024",
+                urlPath: "/blog/builder-best-ai-coding-tools",
+                updatedAt: "2026-01-01T00:00:00.000Z",
+                sourceValues: {
+                  "data.title": "Best AI Coding Tools for Developers in 2024",
+                },
+              },
+            ],
+            fetchedAt: "2026-01-01T00:00:00.000Z",
+            message: null,
+            progress: {
+              requestedLimit: 500,
+              pageSize: 100,
+              startOffset: 0,
+              nextOffset: 2,
+              fetchedEntryCount: 2,
+              hasMore: false,
+              partial: false,
+              readMode: "builder-api",
+            },
+          };
+        }
         if (model !== "collection-a") {
           return {
             state: "unconfigured",
@@ -116,6 +155,7 @@ const TEST_DB_PATH = join(
 let getDb: () => any;
 let schema: typeof import("../server/db/schema.js");
 let resync: typeof import("./_database-source-utils.js").resyncBuilderCmsSourceSnapshot;
+let importBuilderEntries: typeof import("./_database-source-utils.js").importBuilderCmsEntriesAsDatabaseItems;
 
 const OWNER = "owner@example.com";
 
@@ -128,6 +168,8 @@ beforeAll(async () => {
   await plugin(undefined as any);
   resync = (await import("./_database-source-utils.js"))
     .resyncBuilderCmsSourceSnapshot;
+  importBuilderEntries = (await import("./_database-source-utils.js"))
+    .importBuilderCmsEntriesAsDatabaseItems;
 }, 60000);
 
 afterAll(() => {
@@ -266,6 +308,60 @@ it("resync re-links only the source's own rows, never another collection's (self
     .where(eq(schema.contentDatabaseSourceRows.sourceId, "src-b"));
   expect(bRows.map((r: { documentId: string }) => r.documentId)).toEqual([
     "doc-b1",
+  ]);
+});
+
+it("records freshly imported Builder row identities even when title and URL keys collide", async () => {
+  builderReadMock.mode = "full";
+  builderReadMock.calls = [];
+  const db = getDb();
+  const now = new Date().toISOString();
+  const databaseId = "db_resync_duplicate_keys";
+  const databaseDocId = "doc_db_resync_duplicate_keys";
+  await db.insert(schema.documents).values({
+    id: databaseDocId,
+    ownerEmail: OWNER,
+    title: "DB duplicate keys",
+    createdAt: now,
+    updatedAt: now,
+  });
+  await db.insert(schema.contentDatabases).values({
+    id: databaseId,
+    ownerEmail: OWNER,
+    documentId: databaseDocId,
+    title: "DB duplicate keys",
+    createdAt: now,
+    updatedAt: now,
+  });
+  const [database] = await db
+    .select()
+    .from(schema.contentDatabases)
+    .where(eq(schema.contentDatabases.id, databaseId));
+  const read = await (
+    await import("./_builder-cms-read-client.js")
+  ).readBuilderCmsContentEntries({ model: "collection-duplicates" });
+  const entries = read.state === "live" ? read.entries : [];
+  const importResult = await importBuilderEntries({
+    database,
+    entries,
+    now,
+    sourceTable: "collection-duplicates",
+    existingSourceRows: [],
+    skipTitleDedup: true,
+  });
+  const importedIds = Array.from(
+    importResult.importedEntriesByDocumentId.values(),
+  ).map((entry) => entry.id);
+
+  expect(importResult.imported).toBe(2);
+  expect(importedIds.sort()).toEqual(["entry-dup-1", "entry-dup-2"]);
+  const documents = await db
+    .select({ title: schema.documents.title })
+    .from(schema.documents)
+    .where(eq(schema.documents.parentId, databaseDocId));
+  expect(documents.map((row: { title: string }) => row.title).sort()).toEqual([
+    "Best AI Coding Tools for Developers in 2024",
+    "Best AI Coding Tools for Developers in 2024",
   ]);
 });
 
