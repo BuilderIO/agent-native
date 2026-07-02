@@ -429,6 +429,11 @@ function ReplayPlayer({
       if (events.length < 2) {
         throw new Error(t("sessions.noReplayEvents"));
       }
+      if (
+        !events.some((event) => event.type === RRWEB_EVENT_TYPE.FullSnapshot)
+      ) {
+        throw new Error(t("sessions.noReplayEvents"));
+      }
       setStatus("loading");
       setError(null);
       await import("@rrweb/replay/dist/style.css");
