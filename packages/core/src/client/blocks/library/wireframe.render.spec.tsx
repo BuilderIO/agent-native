@@ -212,6 +212,16 @@ describe("wireframe auto-height frame", () => {
     expect(style).not.toMatch(/box-shadow/i);
   });
 
+  it("does not render a static outer artboard border", () => {
+    const html = render({
+      surface: "browser",
+      skeleton: true,
+      html: "<div>Skeleton mockup</div>",
+    });
+
+    expect(roughScopeInnerHtml(html)).not.toContain("border:1.5px solid");
+  });
+
   it("renders a contextual visual style toggle", () => {
     const html = render({
       surface: "browser",

@@ -57,7 +57,7 @@ export default defineAction({
   outputSchema: responseChartResultSchema,
   chatUI: {
     renderer: responseChartRenderer,
-    title: "Response chart",
+    title: "प्रतिक्रिया चार्ट",
   },
   readOnly: true,
   run: async ({ formId }) => ({
@@ -136,7 +136,7 @@ Reusable generic outputs के लिए framework built-in `data-chart` और
   <Screen
     surface="desktop"
     html={
-      "<div style='min-height:520px;box-sizing:border-box;padding:36px;display:flex;justify-content:center;background:var(--wf-bg)'><div style='width:min(780px,100%);display:flex;flex-direction:column;gap:18px'><div style='align-self:flex-end;max-width:70%' class='wf-card' data-rough><strong>User</strong><p style='margin:8px 0 0'>डेमो फ़ॉर्म की हाल की प्रतिक्रियाओं का विश्लेषण करें.</p></div><div style='align-self:flex-start;width:min(620px,100%)' class='wf-card' data-rough><strong>Agent</strong><p class='wf-muted' style='margin:8px 0 14px'>ये नवीनतम प्रतिक्रिया insights हैं.</p><div class='wf-card' data-rough style='display:grid;grid-template-columns:1.15fr .85fr;gap:14px'><div><div style='display:flex;align-items:baseline;justify-content:space-between'><strong>42 responses</strong><span class='wf-pill accent' data-rough>+18%</span></div><div data-rough='line:bottom' style='height:120px;margin-top:16px;display:flex;align-items:end;gap:10px;border-bottom:1.4px solid var(--wf-line);padding-bottom:4px'><div data-rough style='height:46%;flex:1;background:color-mix(in srgb, var(--wf-accent) 18%, transparent);border:1.4px solid var(--wf-accent);border-radius:8px'></div><div data-rough style='height:72%;flex:1;background:color-mix(in srgb, var(--wf-accent) 28%, transparent);border:1.4px solid var(--wf-accent);border-radius:8px'></div><div data-rough style='height:94%;flex:1;background:color-mix(in srgb, var(--wf-accent) 42%, transparent);border:1.4px solid var(--wf-accent);border-radius:8px'></div></div></div><div><strong>शीर्ष उत्तर</strong><div style='margin-top:14px;display:flex;flex-direction:column;gap:8px'><div class='wf-row wf-box' data-rough style='display:flex;justify-content:space-between;gap:12px;padding:6px 10px'><span>Yes</span><span>31</span></div><div class='wf-row wf-box' data-rough style='display:flex;justify-content:space-between;gap:12px;padding:6px 10px'><span>No</span><span>11</span></div></div><button class='primary' data-rough style='margin-top:16px;width:100%'>प्रतिक्रिया insights खोलें</button></div></div></div></div></div>"
+      "<div style='min-height:340px;box-sizing:border-box;padding:24px;display:flex;justify-content:center;align-items:center;background:var(--wf-bg)'><div style='width:min(660px,100%);display:flex;flex-direction:column;gap:14px'><div class='wf-card' data-rough style='align-self:flex-end;max-width:70%;padding:12px 14px'><strong>User</strong><p style='margin:6px 0 0'>डेमो प्रतिक्रियाओं का विश्लेषण करें.</p></div><div class='wf-card' data-rough style='align-self:flex-start;width:min(520px,100%);padding:14px'><strong>Agent</strong><p class='wf-muted' style='margin:6px 0 12px'>responses.response-chart से रेंडर किया गया.</p><section class='wf-card' data-rough style='padding:14px'><h3 style='margin:0 0 12px;font-size:14px'>प्रतिक्रिया चार्ट</h3><div data-rough='line:bottom' style='height:104px;display:flex;align-items:end;gap:8px;border-bottom:1.4px solid var(--wf-line);padding-bottom:4px'><div style='flex:1;display:flex;flex-direction:column;align-items:center;gap:6px'><div data-rough style='height:38px;width:100%;background:color-mix(in srgb, var(--wf-accent) 24%, transparent);border:1.4px solid var(--wf-accent);border-radius:8px 8px 3px 3px'></div><span class='wf-muted'>सोम</span></div><div style='flex:1;display:flex;flex-direction:column;align-items:center;gap:6px'><div data-rough style='height:62px;width:100%;background:color-mix(in srgb, var(--wf-accent) 30%, transparent);border:1.4px solid var(--wf-accent);border-radius:8px 8px 3px 3px'></div><span class='wf-muted'>मंगल</span></div><div style='flex:1;display:flex;flex-direction:column;align-items:center;gap:6px'><div data-rough style='height:86px;width:100%;background:color-mix(in srgb, var(--wf-accent) 36%, transparent);border:1.4px solid var(--wf-accent);border-radius:8px 8px 3px 3px'></div><span class='wf-muted'>बुध</span></div><div style='flex:1;display:flex;flex-direction:column;align-items:center;gap:6px'><div data-rough style='height:54px;width:100%;background:color-mix(in srgb, var(--wf-accent) 42%, transparent);border:1.4px solid var(--wf-accent);border-radius:8px 8px 3px 3px'></div><span class='wf-muted'>गुरु</span></div></div></section></div></div></div>"
     }
   />
 </WireframeBlock>
@@ -156,6 +156,15 @@ Browser के लिए अलग duplicate REST route न बनाएं; UI 
 
 `/response-insights` route जोड़ें और `useActionQuery("list-response-insights")`, `useActionMutation("create-response-insight")` इस्तेमाल करें. यह page SQL state का projection है; data वही actions लिखते हैं.
 
+<WireframeBlock id="doc-block-response-insights-page-wireframe-hi">
+  <Screen
+    surface="desktop"
+    html={
+      "<main style='min-height:420px;box-sizing:border-box;padding:28px;background:var(--wf-bg)'><section class='wf-card' data-rough style='max-width:760px;margin:0 auto;display:flex;flex-direction:column;gap:18px'><header><div class='wf-pill accent' data-rough>/response-insights</div><h2 style='margin:10px 0 4px;font-size:28px'>प्रतिक्रिया insights</h2><p class='wf-muted' style='margin:0'>फ़ॉर्म प्रतिक्रियाओं से agent ने बनाए insights.</p></header><button class='primary' data-rough style='align-self:flex-start'>डेमो फ़ॉर्म विश्लेषित करें</button><section style='display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px'><article class='wf-box' data-rough style='padding:12px'><strong>मूल्य निर्धारण थीम</strong><p class='wf-muted' style='margin:8px 0 0'>यूज़र टीम प्लान मांगते हैं.</p></article><article class='wf-box' data-rough style='padding:12px'><strong>ऑनबोर्डिंग ड्रॉप-ऑफ़</strong><p class='wf-muted' style='margin:8px 0 0'>तीन चरणों को ज्यादा स्पष्ट copy चाहिए.</p></article></section><section class='wf-card' data-rough style='display:flex;flex-direction:column;gap:10px'><div class='wf-row wf-box' data-rough style='padding:10px 12px'><strong>डेमो फ़ॉर्म</strong><span class='wf-muted'>42 प्रतिक्रियाओं का विश्लेषण हुआ</span></div><div class='wf-row wf-box' data-rough style='padding:10px 12px'><strong>अगला चरण</strong><span class='wf-muted'>दो draft insights देखें</span></div></section></section></main>"
+    }
+  />
+</WireframeBlock>
+
 `view-screen` और `navigate` को extend करें ताकि agent current route जान सके और `/response-insights` खोल सके. Results में `href: "/response-insights"` भी हो सकता है, जिससे chat में "प्रतिक्रिया insights खोलें" button दिखे.
 
 जब full-page chat app page खोलता है, तो [Agent Surfaces](/docs/agent-surfaces#rich-chat) से `AgentChatSurface`, `AgentSidebar`, `useAgentChatHomeHandoff`, `useAgentChatHomeHandoffLinks` और `chatViewTransition` इस्तेमाल करें ताकि वही thread रखते हुए chat side panel में slide हो जाए.
@@ -174,7 +183,7 @@ my-app/
 
 ## Analytics के लिए मजबूत starting point चाहिए? {#analytics-starting-point}
 
-ऊपर वाला Response insights example जानबूझकर छोटा है ताकि framework की pieces साफ दिखें. अगर आप वास्तविक analytics product बना रहे हैं, तो [Analytics](/docs/template-analytics) से शुरू करें. यह robust starting point है: अपने providers connect करें, existing dashboards और agent actions इस्तेमाल करें, फिर वहीं से customize करें.
+ऊपर वाला प्रतिक्रिया insights example जानबूझकर छोटा है ताकि framework की pieces साफ दिखें. अगर आप वास्तविक analytics product बना रहे हैं, तो [Analytics](/docs/template-analytics) से शुरू करें. यह robust starting point है: अपने providers connect करें, existing dashboards और agent actions इस्तेमाल करें, फिर वहीं से customize करें.
 
 ## आगे क्या {#next}
 

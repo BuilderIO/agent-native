@@ -167,9 +167,6 @@ function ArtboardFrame({
   const paper = designMode
     ? "hsl(var(--background))"
     : "var(--plan-document, hsl(var(--background)))";
-  const frameBorder = skeleton
-    ? "var(--plan-placeholder-line, var(--plan-line, hsl(var(--border))))"
-    : "var(--plan-line, hsl(var(--border)))";
 
   useEffect(() => {
     const element = fitRef.current;
@@ -266,18 +263,10 @@ function ArtboardFrame({
           >
             {render({ theme, style })}
           </div>
-          {!roughEnabled && (
-            <div
-              className="pointer-events-none absolute inset-0"
-              style={{
-                borderRadius: preset.radius,
-                border: `1.5px solid ${frameBorder}`,
-              }}
-            />
-          )}
           <RoughOverlay
             scopeRef={ref}
             enabled={roughEnabled}
+            drawFrame={false}
             frameRadius={preset.radius}
             selector={selector}
           />

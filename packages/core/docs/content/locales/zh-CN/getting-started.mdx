@@ -67,7 +67,7 @@ export default defineAction({
   outputSchema: responseChartResultSchema,
   chatUI: {
     renderer: responseChartRenderer,
-    title: "Response chart",
+    title: "回复图表",
   },
   readOnly: true,
   run: async ({ formId }) => ({
@@ -146,14 +146,14 @@ registerActionChatRenderer({
   <Screen
     surface="desktop"
     html={
-      "<div style='min-height:520px;box-sizing:border-box;padding:36px;display:flex;justify-content:center;background:var(--wf-bg)'><div style='width:min(780px,100%);display:flex;flex-direction:column;gap:18px'><div style='align-self:flex-end;max-width:70%' class='wf-card' data-rough><strong>User</strong><p style='margin:8px 0 0'>分析演示表单的最新回复。</p></div><div style='align-self:flex-start;width:min(620px,100%)' class='wf-card' data-rough><strong>Agent</strong><p class='wf-muted' style='margin:8px 0 14px'>这是最新的回复洞察。</p><div class='wf-card' data-rough style='display:grid;grid-template-columns:1.15fr .85fr;gap:14px'><div><div style='display:flex;align-items:baseline;justify-content:space-between'><strong>42 responses</strong><span class='wf-pill accent' data-rough>+18%</span></div><div data-rough='line:bottom' style='height:120px;margin-top:16px;display:flex;align-items:end;gap:10px;border-bottom:1.4px solid var(--wf-line);padding-bottom:4px'><div data-rough style='height:46%;flex:1;background:color-mix(in srgb, var(--wf-accent) 18%, transparent);border:1.4px solid var(--wf-accent);border-radius:8px'></div><div data-rough style='height:72%;flex:1;background:color-mix(in srgb, var(--wf-accent) 28%, transparent);border:1.4px solid var(--wf-accent);border-radius:8px'></div><div data-rough style='height:94%;flex:1;background:color-mix(in srgb, var(--wf-accent) 42%, transparent);border:1.4px solid var(--wf-accent);border-radius:8px'></div></div></div><div><strong>热门回答</strong><div style='margin-top:14px;display:flex;flex-direction:column;gap:8px'><div class='wf-row wf-box' data-rough style='display:flex;justify-content:space-between;gap:12px;padding:6px 10px'><span>Yes</span><span>31</span></div><div class='wf-row wf-box' data-rough style='display:flex;justify-content:space-between;gap:12px;padding:6px 10px'><span>No</span><span>11</span></div></div><button class='primary' data-rough style='margin-top:16px;width:100%'>打开回复洞察</button></div></div></div></div></div>"
+      "<div style='min-height:340px;box-sizing:border-box;padding:24px;display:flex;justify-content:center;align-items:center;background:var(--wf-bg)'><div style='width:min(660px,100%);display:flex;flex-direction:column;gap:14px'><div class='wf-card' data-rough style='align-self:flex-end;max-width:70%;padding:12px 14px'><strong>User</strong><p style='margin:6px 0 0'>分析演示回复。</p></div><div class='wf-card' data-rough style='align-self:flex-start;width:min(520px,100%);padding:14px'><strong>Agent</strong><p class='wf-muted' style='margin:6px 0 12px'>由 responses.response-chart 渲染。</p><section class='wf-card' data-rough style='padding:14px'><h3 style='margin:0 0 12px;font-size:14px'>回复图表</h3><div data-rough='line:bottom' style='height:104px;display:flex;align-items:end;gap:8px;border-bottom:1.4px solid var(--wf-line);padding-bottom:4px'><div style='flex:1;display:flex;flex-direction:column;align-items:center;gap:6px'><div data-rough style='height:38px;width:100%;background:color-mix(in srgb, var(--wf-accent) 24%, transparent);border:1.4px solid var(--wf-accent);border-radius:8px 8px 3px 3px'></div><span class='wf-muted'>周一</span></div><div style='flex:1;display:flex;flex-direction:column;align-items:center;gap:6px'><div data-rough style='height:62px;width:100%;background:color-mix(in srgb, var(--wf-accent) 30%, transparent);border:1.4px solid var(--wf-accent);border-radius:8px 8px 3px 3px'></div><span class='wf-muted'>周二</span></div><div style='flex:1;display:flex;flex-direction:column;align-items:center;gap:6px'><div data-rough style='height:86px;width:100%;background:color-mix(in srgb, var(--wf-accent) 36%, transparent);border:1.4px solid var(--wf-accent);border-radius:8px 8px 3px 3px'></div><span class='wf-muted'>周三</span></div><div style='flex:1;display:flex;flex-direction:column;align-items:center;gap:6px'><div data-rough style='height:54px;width:100%;background:color-mix(in srgb, var(--wf-accent) 42%, transparent);border:1.4px solid var(--wf-accent);border-radius:8px 8px 3px 3px'></div><span class='wf-muted'>周四</span></div></div></section></div></div></div>"
     }
   />
 </WireframeBlock>
 
 ## 4. 持久化数据 {#persist-data}
 
-当结果需要回看、比较或更新时，把数据写入 SQL。为 Response insights 添加 schema，并把读写都放在 actions 后面：
+当结果需要回看、比较或更新时，把数据写入 SQL。为 回复洞察 添加 schema，并把读写都放在 actions 后面：
 
 - `create-response-insight` 写入新的 insight。
 - `list-response-insights` 为页面读取数据。
@@ -166,6 +166,15 @@ registerActionChatRenderer({
 
 添加 `/response-insights` route，用 `useActionQuery("list-response-insights")`
 读取数据，用 `useActionMutation("create-response-insight")` 触发分析。这个页面只是 SQL state 的投影；数据仍由同一组 actions 写入。
+
+<WireframeBlock id="doc-block-response-insights-page-wireframe-zh-cn">
+  <Screen
+    surface="desktop"
+    html={
+      "<div style='min-height:520px;box-sizing:border-box;padding:28px;display:grid;grid-template-columns:minmax(220px,.72fr) minmax(360px,1.3fr);gap:20px;background:var(--wf-bg)'><aside class='wf-card' data-rough style='display:flex;flex-direction:column;gap:14px'><div class='wf-pill' data-rough>聊天线程</div><div class='wf-box' data-rough style='padding:10px'><strong>Agent</strong><p class='wf-muted' style='margin:6px 0 10px'>我已保存最新分析。</p><button class='primary' data-rough style='width:100%'>打开回复洞察</button></div><div class='wf-row wf-box' data-rough style='padding:8px 10px'>action 结果 -> /response-insights</div></aside><main class='wf-card' data-rough style='display:flex;flex-direction:column;gap:18px'><div style='display:flex;align-items:flex-start;justify-content:space-between;gap:16px'><div><div class='wf-pill accent' data-rough>/response-insights</div><h2 style='margin:10px 0 4px;font-size:28px'>回复洞察</h2><p class='wf-muted' style='margin:0'>从聊天打开的持久 app 页面。</p></div><button class='primary' data-rough>分析最新内容</button></div><section class='wf-card' data-rough style='display:grid;grid-template-columns:1fr 1fr;gap:12px'><article class='wf-box' data-rough style='padding:12px'><strong>演示表单</strong><p class='wf-muted' style='margin:8px 0 0'>42 条回复 / +18%</p></article><article class='wf-box' data-rough style='padding:12px'><strong>结账调研</strong><p class='wf-muted' style='margin:8px 0 0'>17 条回复 / 需查看</p></article></section><section class='wf-card' data-rough style='padding:0;overflow:hidden'><div class='wf-row' data-rough='line:bottom' style='display:grid;grid-template-columns:1.1fr 2fr .8fr;gap:12px;padding:10px 12px;font-weight:600'><span>洞察</span><span>摘要</span><span>状态</span></div><div class='wf-row' data-rough='line:bottom' style='display:grid;grid-template-columns:1.1fr 2fr .8fr;gap:12px;padding:10px 12px'><span>定价</span><span>用户想要团队计划。</span><span>就绪</span></div><div class='wf-row' data-rough style='display:grid;grid-template-columns:1.1fr 2fr .8fr;gap:12px;padding:10px 12px'><span>引导流程</span><span>三个步骤导致流失。</span><span>草稿</span></div></section></main></div>"
+    }
+  />
+</WireframeBlock>
 
 扩展 `view-screen` 和 `navigate`：
 
@@ -189,7 +198,7 @@ my-app/
 
 ## 想要完整的 Analytics 起点？ {#analytics-starting-point}
 
-上面的 Response insights 示例故意保持很小，方便你看清框架部件。如果你要构建真正的 analytics 产品，请从 [Analytics](/docs/template-analytics) 开始。它是更强健的起点：连接 providers，使用现有 dashboards 和 agent actions，然后继续自定义。
+上面的 回复洞察 示例故意保持很小，方便你看清框架部件。如果你要构建真正的 analytics 产品，请从 [Analytics](/docs/template-analytics) 开始。它是更强健的起点：连接 providers，使用现有 dashboards 和 agent actions，然后继续自定义。
 
 ## 下一步 {#next}
 

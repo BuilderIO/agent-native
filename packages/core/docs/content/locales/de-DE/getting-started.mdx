@@ -57,7 +57,7 @@ export default defineAction({
   outputSchema: responseChartResultSchema,
   chatUI: {
     renderer: responseChartRenderer,
-    title: "Response chart",
+    title: "Antwortdiagramm",
   },
   readOnly: true,
   run: async ({ formId }) => ({
@@ -130,13 +130,13 @@ registerActionChatRenderer({
 });
 ```
 
-Für wiederverwendbare generische Ausgaben liefert das Framework außerdem eingebaute `data-chart`- und `data-table`-Renderer sowie `data-insights` für kombinierte Summary-/Diagramm-/Tabellenkarten. Siehe [Native Chat UI](/docs/native-chat-ui).
+Für wiederverwendbare generische Ausgaben liefert das Framework außerdem eingebaute `data-chart`- und `data-table`-Renderer sowie `data-insights` für kombinierte Zusammenfassung-/Diagramm-/Tabellenkarten. Siehe [Native Chat UI](/docs/native-chat-ui).
 
 <WireframeBlock id="doc-block-inline-result-wireframe-de">
   <Screen
     surface="desktop"
     html={
-      "<div style='min-height:520px;box-sizing:border-box;padding:36px;display:flex;justify-content:center;background:var(--wf-bg)'><div style='width:min(780px,100%);display:flex;flex-direction:column;gap:18px'><div style='align-self:flex-end;max-width:70%' class='wf-card' data-rough><strong>User</strong><p style='margin:8px 0 0'>Analysiere die letzten Antworten für das Demo-Formular.</p></div><div style='align-self:flex-start;width:min(620px,100%)' class='wf-card' data-rough><strong>Agent</strong><p class='wf-muted' style='margin:8px 0 14px'>Hier sind die neuesten Antwort-Insights.</p><div class='wf-card' data-rough style='display:grid;grid-template-columns:1.15fr .85fr;gap:14px'><div><div style='display:flex;align-items:baseline;justify-content:space-between'><strong>42 responses</strong><span class='wf-pill accent' data-rough>+18%</span></div><div data-rough='line:bottom' style='height:120px;margin-top:16px;display:flex;align-items:end;gap:10px;border-bottom:1.4px solid var(--wf-line);padding-bottom:4px'><div data-rough style='height:46%;flex:1;background:color-mix(in srgb, var(--wf-accent) 18%, transparent);border:1.4px solid var(--wf-accent);border-radius:8px'></div><div data-rough style='height:72%;flex:1;background:color-mix(in srgb, var(--wf-accent) 28%, transparent);border:1.4px solid var(--wf-accent);border-radius:8px'></div><div data-rough style='height:94%;flex:1;background:color-mix(in srgb, var(--wf-accent) 42%, transparent);border:1.4px solid var(--wf-accent);border-radius:8px'></div></div></div><div><strong>Top-Antworten</strong><div style='margin-top:14px;display:flex;flex-direction:column;gap:8px'><div class='wf-row wf-box' data-rough style='display:flex;justify-content:space-between;gap:12px;padding:6px 10px'><span>Yes</span><span>31</span></div><div class='wf-row wf-box' data-rough style='display:flex;justify-content:space-between;gap:12px;padding:6px 10px'><span>No</span><span>11</span></div></div><button class='primary' data-rough style='margin-top:16px;width:100%'>Antwort-Insights öffnen</button></div></div></div></div></div>"
+      "<div style='min-height:340px;box-sizing:border-box;padding:24px;display:flex;justify-content:center;align-items:center;background:var(--wf-bg)'><div style='width:min(660px,100%);display:flex;flex-direction:column;gap:14px'><div class='wf-card' data-rough style='align-self:flex-end;max-width:70%;padding:12px 14px'><strong>User</strong><p style='margin:6px 0 0'>Analysiere Demo-Antworten.</p></div><div class='wf-card' data-rough style='align-self:flex-start;width:min(520px,100%);padding:14px'><strong>Agent</strong><p class='wf-muted' style='margin:6px 0 12px'>Gerendert mit responses.response-chart.</p><section class='wf-card' data-rough style='padding:14px'><h3 style='margin:0 0 12px;font-size:14px'>Antwortdiagramm</h3><div data-rough='line:bottom' style='height:104px;display:flex;align-items:end;gap:8px;border-bottom:1.4px solid var(--wf-line);padding-bottom:4px'><div style='flex:1;display:flex;flex-direction:column;align-items:center;gap:6px'><div data-rough style='height:38px;width:100%;background:color-mix(in srgb, var(--wf-accent) 24%, transparent);border:1.4px solid var(--wf-accent);border-radius:8px 8px 3px 3px'></div><span class='wf-muted'>Mo</span></div><div style='flex:1;display:flex;flex-direction:column;align-items:center;gap:6px'><div data-rough style='height:62px;width:100%;background:color-mix(in srgb, var(--wf-accent) 30%, transparent);border:1.4px solid var(--wf-accent);border-radius:8px 8px 3px 3px'></div><span class='wf-muted'>Di</span></div><div style='flex:1;display:flex;flex-direction:column;align-items:center;gap:6px'><div data-rough style='height:86px;width:100%;background:color-mix(in srgb, var(--wf-accent) 36%, transparent);border:1.4px solid var(--wf-accent);border-radius:8px 8px 3px 3px'></div><span class='wf-muted'>Mi</span></div><div style='flex:1;display:flex;flex-direction:column;align-items:center;gap:6px'><div data-rough style='height:54px;width:100%;background:color-mix(in srgb, var(--wf-accent) 42%, transparent);border:1.4px solid var(--wf-accent);border-radius:8px 8px 3px 3px'></div><span class='wf-muted'>Do</span></div></div></section></div></div></div>"
     }
   />
 </WireframeBlock>
@@ -155,6 +155,15 @@ Erstellen Sie keine doppelte REST route nur für den Browser; UI und Agent sollt
 ## 5. Seite hinzufügen, die der Agent öffnen kann {#add-a-page}
 
 Fügen Sie eine Route `/response-insights` mit `useActionQuery("list-response-insights")` und `useActionMutation("create-response-insight")` hinzu. Die Seite ist eine Projektion des SQL state; geschrieben wird weiter über dieselben actions.
+
+<WireframeBlock id="doc-block-response-insights-page-wireframe-de">
+  <Screen
+    surface="desktop"
+    html={
+      "<main style='min-height:440px;box-sizing:border-box;padding:28px;background:var(--wf-bg)'><section class='wf-card' data-rough style='max-width:780px;margin:0 auto;display:flex;flex-direction:column;gap:18px'><div class='wf-row wf-box' data-rough style='padding:10px 12px;gap:12px;justify-content:space-between'><span><strong>Agent-Ergebnis</strong> opened this app page</span><span class='wf-pill accent' data-rough>/response-insights</span></div><header><h2 style='margin:0 0 4px;font-size:28px'>Antwort-Insights</h2><p class='wf-muted' style='margin:0'>Insights, die der Agent aus Formularantworten erstellt hat.</p></header><button class='primary' data-rough style='align-self:flex-start'>Demo-Formular analysieren</button><section style='display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px'><article class='wf-box' data-rough style='padding:12px'><strong>Preisthema</strong><p class='wf-muted' style='margin:8px 0 0'>Nutzer fragen nach einem Team-Tarif.</p></article><article class='wf-box' data-rough style='padding:12px'><strong>Onboarding-Abbruch</strong><p class='wf-muted' style='margin:8px 0 0'>Drei Schritte brauchen klarere Texte.</p></article></section><section class='wf-card' data-rough style='display:flex;flex-direction:column;gap:10px'><div class='wf-row wf-box' data-rough style='padding:10px 12px'><strong>Demo-Formular</strong><span class='wf-muted'>42 Antworten analysiert</span></div><div class='wf-row wf-box' data-rough style='padding:10px 12px'><strong>Nächster Schritt</strong><span class='wf-muted'>Zwei Insight-Entwürfe prüfen</span></div></section></section></main>"
+    }
+  />
+</WireframeBlock>
 
 Erweitern Sie `view-screen` und `navigate`, damit der Agent die aktuelle Route kennt und `/response-insights` öffnen kann. Ergebnisse können außerdem `href: "/response-insights"` enthalten, um im Chat einen Button "Antwort-Insights öffnen" zu zeigen.
 

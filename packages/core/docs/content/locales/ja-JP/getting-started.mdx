@@ -57,7 +57,7 @@ export default defineAction({
   outputSchema: responseChartResultSchema,
   chatUI: {
     renderer: responseChartRenderer,
-    title: "Response chart",
+    title: "回答グラフ",
   },
   readOnly: true,
   run: async ({ formId }) => ({
@@ -136,7 +136,7 @@ registerActionChatRenderer({
   <Screen
     surface="desktop"
     html={
-      "<div style='min-height:520px;box-sizing:border-box;padding:36px;display:flex;justify-content:center;background:var(--wf-bg)'><div style='width:min(780px,100%);display:flex;flex-direction:column;gap:18px'><div style='align-self:flex-end;max-width:70%' class='wf-card' data-rough><strong>User</strong><p style='margin:8px 0 0'>デモフォームの最近の回答を分析して。</p></div><div style='align-self:flex-start;width:min(620px,100%)' class='wf-card' data-rough><strong>Agent</strong><p class='wf-muted' style='margin:8px 0 14px'>最新の回答インサイトです。</p><div class='wf-card' data-rough style='display:grid;grid-template-columns:1.15fr .85fr;gap:14px'><div><div style='display:flex;align-items:baseline;justify-content:space-between'><strong>42 responses</strong><span class='wf-pill accent' data-rough>+18%</span></div><div data-rough='line:bottom' style='height:120px;margin-top:16px;display:flex;align-items:end;gap:10px;border-bottom:1.4px solid var(--wf-line);padding-bottom:4px'><div data-rough style='height:46%;flex:1;background:color-mix(in srgb, var(--wf-accent) 18%, transparent);border:1.4px solid var(--wf-accent);border-radius:8px'></div><div data-rough style='height:72%;flex:1;background:color-mix(in srgb, var(--wf-accent) 28%, transparent);border:1.4px solid var(--wf-accent);border-radius:8px'></div><div data-rough style='height:94%;flex:1;background:color-mix(in srgb, var(--wf-accent) 42%, transparent);border:1.4px solid var(--wf-accent);border-radius:8px'></div></div></div><div><strong>上位の回答</strong><div style='margin-top:14px;display:flex;flex-direction:column;gap:8px'><div class='wf-row wf-box' data-rough style='display:flex;justify-content:space-between;gap:12px;padding:6px 10px'><span>Yes</span><span>31</span></div><div class='wf-row wf-box' data-rough style='display:flex;justify-content:space-between;gap:12px;padding:6px 10px'><span>No</span><span>11</span></div></div><button class='primary' data-rough style='margin-top:16px;width:100%'>回答インサイトを開く</button></div></div></div></div></div>"
+      "<div style='min-height:340px;box-sizing:border-box;padding:24px;display:flex;justify-content:center;align-items:center;background:var(--wf-bg)'><div style='width:min(660px,100%);display:flex;flex-direction:column;gap:14px'><div class='wf-card' data-rough style='align-self:flex-end;max-width:70%;padding:12px 14px'><strong>User</strong><p style='margin:6px 0 0'>デモの回答を分析して。</p></div><div class='wf-card' data-rough style='align-self:flex-start;width:min(520px,100%);padding:14px'><strong>Agent</strong><p class='wf-muted' style='margin:6px 0 12px'>responses.response-chart で描画。</p><section class='wf-card' data-rough style='padding:14px'><h3 style='margin:0 0 12px;font-size:14px'>回答チャート</h3><div data-rough='line:bottom' style='height:104px;display:flex;align-items:end;gap:8px;border-bottom:1.4px solid var(--wf-line);padding-bottom:4px'><div style='flex:1;display:flex;flex-direction:column;align-items:center;gap:6px'><div data-rough style='height:38px;width:100%;background:color-mix(in srgb, var(--wf-accent) 24%, transparent);border:1.4px solid var(--wf-accent);border-radius:8px 8px 3px 3px'></div><span class='wf-muted'>月</span></div><div style='flex:1;display:flex;flex-direction:column;align-items:center;gap:6px'><div data-rough style='height:62px;width:100%;background:color-mix(in srgb, var(--wf-accent) 30%, transparent);border:1.4px solid var(--wf-accent);border-radius:8px 8px 3px 3px'></div><span class='wf-muted'>火</span></div><div style='flex:1;display:flex;flex-direction:column;align-items:center;gap:6px'><div data-rough style='height:86px;width:100%;background:color-mix(in srgb, var(--wf-accent) 36%, transparent);border:1.4px solid var(--wf-accent);border-radius:8px 8px 3px 3px'></div><span class='wf-muted'>水</span></div><div style='flex:1;display:flex;flex-direction:column;align-items:center;gap:6px'><div data-rough style='height:54px;width:100%;background:color-mix(in srgb, var(--wf-accent) 42%, transparent);border:1.4px solid var(--wf-accent);border-radius:8px 8px 3px 3px'></div><span class='wf-muted'>木</span></div></div></section></div></div></div>"
     }
   />
 </WireframeBlock>
@@ -156,6 +156,15 @@ registerActionChatRenderer({
 
 `/response-insights` route を追加し、`useActionQuery("list-response-insights")` と `useActionMutation("create-response-insight")` を使います。このページは SQL state の表示であり、データは同じ actions で書き込まれます。
 
+<WireframeBlock id="doc-block-response-insights-page-wireframe-ja">
+  <Screen
+    surface="desktop"
+    html={
+      "<main style='min-height:440px;box-sizing:border-box;padding:28px;background:var(--wf-bg)'><section class='wf-card' data-rough style='max-width:780px;margin:0 auto;display:flex;flex-direction:column;gap:18px'><div class='wf-row wf-box' data-rough style='padding:10px 12px;gap:12px;justify-content:space-between'><span><strong>エージェント結果</strong> opened this app page</span><span class='wf-pill accent' data-rough>/response-insights</span></div><header><h2 style='margin:0 0 4px;font-size:28px'>回答インサイト</h2><p class='wf-muted' style='margin:0'>エージェントがフォーム回答から作成したインサイト。</p></header><button class='primary' data-rough style='align-self:flex-start'>デモフォームを分析</button><section style='display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px'><article class='wf-box' data-rough style='padding:12px'><strong>料金テーマ</strong><p class='wf-muted' style='margin:8px 0 0'>ユーザーはチームプランを求めています。</p></article><article class='wf-box' data-rough style='padding:12px'><strong>オンボーディング離脱</strong><p class='wf-muted' style='margin:8px 0 0'>3つのステップにより明確な文言が必要です。</p></article></section><section class='wf-card' data-rough style='display:flex;flex-direction:column;gap:10px'><div class='wf-row wf-box' data-rough style='padding:10px 12px'><strong>デモフォーム</strong><span class='wf-muted'>42件の回答を分析済み</span></div><div class='wf-row wf-box' data-rough style='padding:10px 12px'><strong>次のステップ</strong><span class='wf-muted'>2件のインサイト下書きを確認</span></div></section></section></main>"
+    }
+  />
+</WireframeBlock>
+
 `view-screen` と `navigate` を拡張し、agent が現在の route を理解して `/response-insights` を開けるようにします。結果に `href: "/response-insights"` を含めれば、チャットに "回答インサイトを開く" ボタンを表示できます。
 
 フルページ chat から app ページを開くときは、[Agent Surfaces](/docs/agent-surfaces#rich-chat) の `AgentChatSurface`、`AgentSidebar`、`useAgentChatHomeHandoff`、`useAgentChatHomeHandoffLinks`、`chatViewTransition` を使い、同じ thread のままチャットをサイドバーへ移動します。
@@ -174,7 +183,7 @@ my-app/
 
 ## 本格的な Analytics の出発点が必要な場合 {#analytics-starting-point}
 
-上の Response insights 例は、framework の部品を見やすくするために小さくしています。実際の analytics product を作るなら、[Analytics](/docs/template-analytics) から始めてください。providers を接続し、既存の dashboards と agent actions を使い、そこからカスタマイズできる堅牢な出発点です。
+上の 回答インサイト 例は、framework の部品を見やすくするために小さくしています。実際の analytics product を作るなら、[Analytics](/docs/template-analytics) から始めてください。providers を接続し、既存の dashboards と agent actions を使い、そこからカスタマイズできる堅牢な出発点です。
 
 ## 次のステップ {#next}
 

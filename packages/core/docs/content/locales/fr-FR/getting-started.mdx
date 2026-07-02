@@ -57,7 +57,7 @@ export default defineAction({
   outputSchema: responseChartResultSchema,
   chatUI: {
     renderer: responseChartRenderer,
-    title: "Response chart",
+    title: "Graphique des réponses",
   },
   readOnly: true,
   run: async ({ formId }) => ({
@@ -136,7 +136,7 @@ Pour les sorties génériques réutilisables, le framework fournit aussi les ren
   <Screen
     surface="desktop"
     html={
-      "<div style='min-height:520px;box-sizing:border-box;padding:36px;display:flex;justify-content:center;background:var(--wf-bg)'><div style='width:min(780px,100%);display:flex;flex-direction:column;gap:18px'><div style='align-self:flex-end;max-width:70%' class='wf-card' data-rough><strong>User</strong><p style='margin:8px 0 0'>Analyse les réponses récentes du formulaire de démonstration.</p></div><div style='align-self:flex-start;width:min(620px,100%)' class='wf-card' data-rough><strong>Agent</strong><p class='wf-muted' style='margin:8px 0 14px'>Voici les derniers insights de réponses.</p><div class='wf-card' data-rough style='display:grid;grid-template-columns:1.15fr .85fr;gap:14px'><div><div style='display:flex;align-items:baseline;justify-content:space-between'><strong>42 responses</strong><span class='wf-pill accent' data-rough>+18%</span></div><div data-rough='line:bottom' style='height:120px;margin-top:16px;display:flex;align-items:end;gap:10px;border-bottom:1.4px solid var(--wf-line);padding-bottom:4px'><div data-rough style='height:46%;flex:1;background:color-mix(in srgb, var(--wf-accent) 18%, transparent);border:1.4px solid var(--wf-accent);border-radius:8px'></div><div data-rough style='height:72%;flex:1;background:color-mix(in srgb, var(--wf-accent) 28%, transparent);border:1.4px solid var(--wf-accent);border-radius:8px'></div><div data-rough style='height:94%;flex:1;background:color-mix(in srgb, var(--wf-accent) 42%, transparent);border:1.4px solid var(--wf-accent);border-radius:8px'></div></div></div><div><strong>Réponses principales</strong><div style='margin-top:14px;display:flex;flex-direction:column;gap:8px'><div class='wf-row wf-box' data-rough style='display:flex;justify-content:space-between;gap:12px;padding:6px 10px'><span>Yes</span><span>31</span></div><div class='wf-row wf-box' data-rough style='display:flex;justify-content:space-between;gap:12px;padding:6px 10px'><span>No</span><span>11</span></div></div><button class='primary' data-rough style='margin-top:16px;width:100%'>Ouvrir les insights de réponses</button></div></div></div></div></div>"
+      "<div style='min-height:340px;box-sizing:border-box;padding:24px;display:flex;justify-content:center;align-items:center;background:var(--wf-bg)'><div style='width:min(660px,100%);display:flex;flex-direction:column;gap:14px'><div class='wf-card' data-rough style='align-self:flex-end;max-width:70%;padding:12px 14px'><strong>User</strong><p style='margin:6px 0 0'>Analyse les réponses de démo.</p></div><div class='wf-card' data-rough style='align-self:flex-start;width:min(520px,100%);padding:14px'><strong>Agent</strong><p class='wf-muted' style='margin:6px 0 12px'>Rendu avec responses.response-chart.</p><section class='wf-card' data-rough style='padding:14px'><h3 style='margin:0 0 12px;font-size:14px'>Graphique des réponses</h3><div data-rough='line:bottom' style='height:104px;display:flex;align-items:end;gap:8px;border-bottom:1.4px solid var(--wf-line);padding-bottom:4px'><div style='flex:1;display:flex;flex-direction:column;align-items:center;gap:6px'><div data-rough style='height:38px;width:100%;background:color-mix(in srgb, var(--wf-accent) 24%, transparent);border:1.4px solid var(--wf-accent);border-radius:8px 8px 3px 3px'></div><span class='wf-muted'>Lun</span></div><div style='flex:1;display:flex;flex-direction:column;align-items:center;gap:6px'><div data-rough style='height:62px;width:100%;background:color-mix(in srgb, var(--wf-accent) 30%, transparent);border:1.4px solid var(--wf-accent);border-radius:8px 8px 3px 3px'></div><span class='wf-muted'>Mar</span></div><div style='flex:1;display:flex;flex-direction:column;align-items:center;gap:6px'><div data-rough style='height:86px;width:100%;background:color-mix(in srgb, var(--wf-accent) 36%, transparent);border:1.4px solid var(--wf-accent);border-radius:8px 8px 3px 3px'></div><span class='wf-muted'>Mer</span></div><div style='flex:1;display:flex;flex-direction:column;align-items:center;gap:6px'><div data-rough style='height:54px;width:100%;background:color-mix(in srgb, var(--wf-accent) 42%, transparent);border:1.4px solid var(--wf-accent);border-radius:8px 8px 3px 3px'></div><span class='wf-muted'>Jeu</span></div></div></section></div></div></div>"
     }
   />
 </WireframeBlock>
@@ -156,6 +156,15 @@ N'ajoutez pas de REST route en double pour le navigateur ; l'UI et l'agent doiv
 
 Ajoutez une route `/response-insights` avec `useActionQuery("list-response-insights")` et `useActionMutation("create-response-insight")`. La page est une projection du SQL state ; les données restent écrites par les mêmes actions.
 
+<WireframeBlock id="doc-block-response-insights-page-wireframe-fr">
+  <Screen
+    surface="desktop"
+    html={
+      "<main style='min-height:440px;box-sizing:border-box;padding:28px;background:var(--wf-bg)'><section class='wf-card' data-rough style='max-width:780px;margin:0 auto;display:flex;flex-direction:column;gap:18px'><div class='wf-row wf-box' data-rough style='padding:10px 12px;gap:12px;justify-content:space-between'><span><strong>Résultat de l'agent</strong> opened this app page</span><span class='wf-pill accent' data-rough>/response-insights</span></div><header><h2 style='margin:0 0 4px;font-size:28px'>Insights de réponses</h2><p class='wf-muted' style='margin:0'>Insights créés par l'agent à partir des réponses du formulaire.</p></header><button class='primary' data-rough style='align-self:flex-start'>Analyser le formulaire de démonstration</button><section style='display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px'><article class='wf-box' data-rough style='padding:12px'><strong>Thème de tarification</strong><p class='wf-muted' style='margin:8px 0 0'>Les utilisateurs demandent un forfait équipe.</p></article><article class='wf-box' data-rough style='padding:12px'><strong>Abandon d'onboarding</strong><p class='wf-muted' style='margin:8px 0 0'>Trois étapes demandent un texte plus clair.</p></article></section><section class='wf-card' data-rough style='display:flex;flex-direction:column;gap:10px'><div class='wf-row wf-box' data-rough style='padding:10px 12px'><strong>Formulaire de démonstration</strong><span class='wf-muted'>42 réponses analysées</span></div><div class='wf-row wf-box' data-rough style='padding:10px 12px'><strong>Étape suivante</strong><span class='wf-muted'>Relire deux brouillons d'insights</span></div></section></section></main>"
+    }
+  />
+</WireframeBlock>
+
 Étendez `view-screen` et `navigate` pour que l'agent connaisse la route active et puisse ouvrir `/response-insights`. Les résultats peuvent aussi contenir `href: "/response-insights"` pour afficher un bouton "Ouvrir les insights de réponses".
 
 Quand le chat pleine page ouvre une page d'app, utilisez `AgentChatSurface`, `AgentSidebar`, `useAgentChatHomeHandoff`, `useAgentChatHomeHandoffLinks` et `chatViewTransition` depuis [Agent Surfaces](/docs/agent-surfaces#rich-chat) pour glisser le chat dans le panneau latéral sans perdre le thread.
@@ -174,7 +183,7 @@ my-app/
 
 ## Vous voulez un vrai point de départ analytics ? {#analytics-starting-point}
 
-L'exemple Response insights ci-dessus est volontairement petit pour montrer les pièces du framework. Si vous construisez un vrai produit analytics, commencez plutôt avec [Analytics](/docs/template-analytics). C'est le point de départ robuste : connectez vos providers, utilisez les dashboards et agent actions existants, puis personnalisez à partir de là.
+L'exemple Insights de réponses ci-dessus est volontairement petit pour montrer les pièces du framework. Si vous construisez un vrai produit analytics, commencez plutôt avec [Analytics](/docs/template-analytics). C'est le point de départ robuste : connectez vos providers, utilisez les dashboards et agent actions existants, puis personnalisez à partir de là.
 
 ## Suite {#next}
 
