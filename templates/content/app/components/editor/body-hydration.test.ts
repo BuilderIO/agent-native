@@ -88,6 +88,28 @@ describe("body hydration editing gates", () => {
     expect(databaseItemBodyHydrationIsPending(item)).toBe(true);
   });
 
+  it("treats unknown source-row hydration as pending until the document response arrives", () => {
+    const item = {
+      id: "item-a",
+      databaseId: "database",
+      position: 0,
+      document: {
+        ...documentWithHydration("hydrated"),
+        databaseMembership: {
+          databaseId: "database",
+          databaseDocumentId: "database-page",
+          databaseTitle: "Content calendar",
+          position: 0,
+          sourceId: "builder-source",
+        },
+      },
+      properties: [],
+    } satisfies ContentDatabaseItem;
+
+    expect(databaseItemBodyHydrationIsPending(item)).toBe(true);
+    expect(previewBodyHydrationIsPending({ item, document: null })).toBe(true);
+  });
+
   it("uses fresh document-level hydration for preview gating", () => {
     const item = {
       id: "item-a",

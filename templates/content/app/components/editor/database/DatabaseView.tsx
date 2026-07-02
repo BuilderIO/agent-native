@@ -1000,12 +1000,14 @@ function DatabaseTable({
   }
 
   function prioritizeBuilderBodyHydrationForItem(item: ContentDatabaseItem) {
-    if (!databaseItemBodyHydrationIsPending(item)) return;
     const sourceId = item.document.databaseMembership?.sourceId ?? source?.id;
     if (!sourceId) return;
     const builderSource =
       sources.find((candidate) => candidate.id === sourceId) ?? source;
     if (builderSource?.sourceType !== "builder-cms") return;
+    const hydration =
+      item.bodyHydration ?? item.document.databaseMembership?.bodyHydration;
+    if (hydration && !databaseItemBodyHydrationIsPending(item)) return;
     processBuilderBodies.mutate({
       sourceId,
       documentId: item.document.id,
@@ -5920,22 +5922,26 @@ function SourceDetailsFieldPicker({
     );
   };
   const addSelected = async () => {
-    const sourceFieldIds = fields
+    const sourceFields = fields
       .filter((field) => selected.has(field.id))
-      .map((field) => field.id);
-    if (sourceFieldIds.length === 0) {
+      .map((field) => ({
+        sourceFieldId: field.id,
+        sourceId: source.id,
+        sourceFieldKey: field.sourceFieldKey,
+      }));
+    if (sourceFields.length === 0) {
       onDone();
       return;
     }
     try {
-      for (const sourceFieldId of sourceFieldIds) {
-        await addField.mutateAsync({ documentId, sourceFieldId });
+      for (const field of sourceFields) {
+        await addField.mutateAsync({ documentId, ...field });
       }
       toast.success(dbText("detailFieldsAdded"), {
         description:
-          sourceFieldIds.length === 1
+          sourceFields.length === 1
             ? dbText("addedOneFieldFromSource")
-            : dbText("addedFieldsFromSource", { count: sourceFieldIds.length }),
+            : dbText("addedFieldsFromSource", { count: sourceFields.length }),
       });
       onDone();
     } catch (error) {

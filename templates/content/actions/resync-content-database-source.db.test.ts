@@ -614,6 +614,11 @@ it("resync advances Builder partial reads with a cursor and converges on the fin
       sourceFieldKey: "data.date",
     },
   ]);
+  const [firstUnboundUrlField] = fields.filter(
+    (field: { sourceFieldKey: string; propertyId: string | null }) =>
+      field.sourceFieldKey === "data.url" && !field.propertyId,
+  );
+  expect(firstUnboundUrlField?.id).toBeTruthy();
   let values = await db
     .select({
       documentId: schema.documentPropertyValues.documentId,
@@ -660,6 +665,11 @@ it("resync advances Builder partial reads with a cursor and converges on the fin
     .select()
     .from(schema.contentDatabaseSourceFields)
     .where(eq(schema.contentDatabaseSourceFields.sourceId, "src-partial"));
+  const [secondUnboundUrlField] = fields.filter(
+    (field: { sourceFieldKey: string; propertyId: string | null }) =>
+      field.sourceFieldKey === "data.url" && !field.propertyId,
+  );
+  expect(secondUnboundUrlField?.id).toBe(firstUnboundUrlField.id);
   expect(
     fields
       .filter((field: { sourceFieldKey: string }) =>

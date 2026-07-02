@@ -22,6 +22,13 @@ export function builderBodyHydrationIsTerminalError(
 export function databaseItemBodyHydrationIsPending(
   item: Pick<ContentDatabaseItem, "bodyHydration" | "document">,
 ) {
+  if (
+    item.document.databaseMembership?.sourceId &&
+    !item.bodyHydration &&
+    !item.document.databaseMembership.bodyHydration
+  ) {
+    return true;
+  }
   return builderBodyHydrationIsPending(
     item.bodyHydration ?? item.document.databaseMembership?.bodyHydration,
   );
@@ -39,6 +46,16 @@ export function previewBodyHydrationIsPending(args: {
   item: Pick<ContentDatabaseItem, "bodyHydration" | "document">;
   document: Pick<Document, "databaseMembership"> | null | undefined;
 }) {
+  const membership =
+    args.document?.databaseMembership ?? args.item.document.databaseMembership;
+  if (
+    membership?.sourceId &&
+    !args.document &&
+    !args.item.bodyHydration &&
+    !args.item.document.databaseMembership?.bodyHydration
+  ) {
+    return true;
+  }
   return (
     databaseItemBodyHydrationIsPending(args.item) ||
     (args.document ? documentBodyHydrationIsPending(args.document) : false)

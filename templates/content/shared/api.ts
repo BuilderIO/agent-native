@@ -834,6 +834,8 @@ export interface AddContentDatabaseSourceFieldPropertyRequest {
   databaseId?: string;
   documentId?: string;
   sourceFieldId: string;
+  sourceId?: string;
+  sourceFieldKey?: string;
 }
 
 export interface BindContentDatabaseSourceFieldRequest {

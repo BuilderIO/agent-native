@@ -1746,6 +1746,151 @@ export async function getAllContentDatabaseSourceSnapshots(
   return snapshots;
 }
 
+async function readSourceSnapshotRowsOnce(args: {
+  source: ContentDatabaseSourceRowDb;
+  database: ContentDatabaseRow | ContentDatabase;
+  isBuilderSource: boolean;
+}) {
+  const db = getDb();
+  const rowRows = await db
+    .select()
+    .from(schema.contentDatabaseSourceRows)
+    .where(eq(schema.contentDatabaseSourceRows.sourceId, args.source.id))
+    .orderBy(asc(schema.contentDatabaseSourceRows.createdAt));
+  // For Builder sources, load ALL database items (not just synced source rows)
+  // so brand-new local rows (no source link) can become create_draft change-sets.
+  const databaseItemRows = args.isBuilderSource
+    ? await db
+        .select({
+          id: schema.contentDatabaseItems.id,
+          documentId: schema.contentDatabaseItems.documentId,
+          bodyHydrationStatus: schema.contentDatabaseItems.bodyHydrationStatus,
+        })
+        .from(schema.contentDatabaseItems)
+        .where(
+          and(
+            eq(schema.contentDatabaseItems.databaseId, args.database.id),
+            eq(schema.contentDatabaseItems.ownerEmail, args.source.ownerEmail),
+          ),
+        )
+    : [];
+  const allDocumentIds = Array.from(
+    new Set([
+      ...rowRows.map((row) => row.documentId),
+      ...databaseItemRows.map((item) => item.documentId),
+    ]),
+  );
+  const rowDocuments =
+    allDocumentIds.length > 0
+      ? await db
+          .select({
+            id: schema.documents.id,
+            title: schema.documents.title,
+            content: schema.documents.content,
+          })
+          .from(schema.documents)
+          .where(
+            and(
+              inArray(schema.documents.id, allDocumentIds),
+              eq(schema.documents.ownerEmail, args.source.ownerEmail),
+            ),
+          )
+      : [];
+  const propertyValueRows =
+    args.isBuilderSource && allDocumentIds.length > 0
+      ? await db
+          .select({
+            documentId: schema.documentPropertyValues.documentId,
+            propertyId: schema.documentPropertyValues.propertyId,
+            valueJson: schema.documentPropertyValues.valueJson,
+          })
+          .from(schema.documentPropertyValues)
+          .where(
+            and(
+              inArray(schema.documentPropertyValues.documentId, allDocumentIds),
+              eq(
+                schema.documentPropertyValues.ownerEmail,
+                args.source.ownerEmail,
+              ),
+            ),
+          )
+      : [];
+  return {
+    rowRows,
+    databaseItemRows,
+    allDocumentIds,
+    rowDocuments,
+    propertyValueRows,
+  };
+}
+
+async function sourceSnapshotConsistencyMarker(args: {
+  source: ContentDatabaseSourceRowDb;
+  database: ContentDatabaseRow | ContentDatabase;
+  isBuilderSource: boolean;
+}) {
+  const db = getDb();
+  const [rows] = await db
+    .select({
+      count: sql<number>`COUNT(*)`,
+      maxUpdatedAt: sql<
+        string | null
+      >`MAX(${schema.contentDatabaseSourceRows.updatedAt})`,
+    })
+    .from(schema.contentDatabaseSourceRows)
+    .where(eq(schema.contentDatabaseSourceRows.sourceId, args.source.id));
+  const [items] = args.isBuilderSource
+    ? await db
+        .select({
+          count: sql<number>`COUNT(*)`,
+          maxUpdatedAt: sql<
+            string | null
+          >`MAX(${schema.contentDatabaseItems.updatedAt})`,
+        })
+        .from(schema.contentDatabaseItems)
+        .where(
+          and(
+            eq(schema.contentDatabaseItems.databaseId, args.database.id),
+            eq(schema.contentDatabaseItems.ownerEmail, args.source.ownerEmail),
+          ),
+        )
+    : [{ count: 0, maxUpdatedAt: null }];
+  return {
+    rowCount: Number(rows?.count ?? 0),
+    rowMaxUpdatedAt: rows?.maxUpdatedAt ?? null,
+    itemCount: Number(items?.count ?? 0),
+    itemMaxUpdatedAt: items?.maxUpdatedAt ?? null,
+  };
+}
+
+function sourceSnapshotConsistencyMarkersEqual(
+  left: Awaited<ReturnType<typeof sourceSnapshotConsistencyMarker>>,
+  right: Awaited<ReturnType<typeof sourceSnapshotConsistencyMarker>>,
+) {
+  return (
+    left.rowCount === right.rowCount &&
+    left.rowMaxUpdatedAt === right.rowMaxUpdatedAt &&
+    left.itemCount === right.itemCount &&
+    left.itemMaxUpdatedAt === right.itemMaxUpdatedAt
+  );
+}
+
+async function loadSourceSnapshotRowsOptimistically(args: {
+  source: ContentDatabaseSourceRowDb;
+  database: ContentDatabaseRow | ContentDatabase;
+  isBuilderSource: boolean;
+}) {
+  let latest: Awaited<ReturnType<typeof readSourceSnapshotRowsOnce>> | null =
+    null;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const before = await sourceSnapshotConsistencyMarker(args);
+    latest = await readSourceSnapshotRowsOnce(args);
+    const after = await sourceSnapshotConsistencyMarker(args);
+    if (sourceSnapshotConsistencyMarkersEqual(before, after)) return latest;
+  }
+  return latest ?? (await readSourceSnapshotRowsOnce(args));
+}
+
 async function loadSourceSnapshot(
   source: ContentDatabaseSourceRowDb,
   database: ContentDatabaseRow | ContentDatabase,
@@ -1827,78 +1972,10 @@ async function loadSourceSnapshot(
     allDocumentIds,
     rowDocuments,
     propertyValueRows,
-  } = await db.transaction(async (tx) => {
-    const rowRows = await tx
-      .select()
-      .from(schema.contentDatabaseSourceRows)
-      .where(eq(schema.contentDatabaseSourceRows.sourceId, source.id))
-      .orderBy(asc(schema.contentDatabaseSourceRows.createdAt));
-    // For Builder sources, load ALL database items (not just synced source rows)
-    // so brand-new local rows (no source link) can become create_draft change-sets.
-    const databaseItemRows = isBuilderSource
-      ? await tx
-          .select({
-            id: schema.contentDatabaseItems.id,
-            documentId: schema.contentDatabaseItems.documentId,
-            bodyHydrationStatus:
-              schema.contentDatabaseItems.bodyHydrationStatus,
-          })
-          .from(schema.contentDatabaseItems)
-          .where(
-            and(
-              eq(schema.contentDatabaseItems.databaseId, database.id),
-              eq(schema.contentDatabaseItems.ownerEmail, source.ownerEmail),
-            ),
-          )
-      : [];
-    const allDocumentIds = Array.from(
-      new Set([
-        ...rowRows.map((row) => row.documentId),
-        ...databaseItemRows.map((item) => item.documentId),
-      ]),
-    );
-    const rowDocuments =
-      allDocumentIds.length > 0
-        ? await tx
-            .select({
-              id: schema.documents.id,
-              title: schema.documents.title,
-              content: schema.documents.content,
-            })
-            .from(schema.documents)
-            .where(
-              and(
-                inArray(schema.documents.id, allDocumentIds),
-                eq(schema.documents.ownerEmail, source.ownerEmail),
-              ),
-            )
-        : [];
-    const propertyValueRows =
-      isBuilderSource && allDocumentIds.length > 0
-        ? await tx
-            .select({
-              documentId: schema.documentPropertyValues.documentId,
-              propertyId: schema.documentPropertyValues.propertyId,
-              valueJson: schema.documentPropertyValues.valueJson,
-            })
-            .from(schema.documentPropertyValues)
-            .where(
-              and(
-                inArray(
-                  schema.documentPropertyValues.documentId,
-                  allDocumentIds,
-                ),
-                eq(schema.documentPropertyValues.ownerEmail, source.ownerEmail),
-              ),
-            )
-        : [];
-    return {
-      rowRows,
-      databaseItemRows,
-      allDocumentIds,
-      rowDocuments,
-      propertyValueRows,
-    };
+  } = await loadSourceSnapshotRowsOptimistically({
+    source,
+    database,
+    isBuilderSource,
   });
   const rows = rowRows.map(serializeSourceRowRecord);
   const documentTitleById = new Map(
@@ -2600,13 +2677,15 @@ export async function seedMockSourceFields(args: {
     const existing = existingFieldBySourceKey.get(
       row.sourceFieldKey.trim().toLowerCase(),
     );
-    if (!existing?.propertyId) return row;
+    if (!existing) return row;
     return {
       ...row,
       id: existing.id,
-      propertyId: existing.propertyId,
-      localFieldKey: existing.localFieldKey,
-      mappingType: existing.mappingType,
+      propertyId: existing.propertyId ?? row.propertyId,
+      localFieldKey: existing.propertyId
+        ? existing.localFieldKey
+        : row.localFieldKey,
+      mappingType: existing.propertyId ? existing.mappingType : row.mappingType,
       createdAt: existing.createdAt,
     };
   });
