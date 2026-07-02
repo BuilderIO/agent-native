@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.84.47
+
+### Patch Changes
+
+- a234670: Keep explicit `nextRequiredAction` tool-result guidance visible in automatic continuation prompts even when the full tool result is too large to include.
+
 ## 0.84.46
 
 ### Patch Changes
