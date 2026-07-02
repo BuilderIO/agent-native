@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.84.34
+
+### Patch Changes
+
+- 56f3d91: Fix hosted Google Analytics / Tag Manager injection by baking the measurement id into Nitro server bundles and merging the required GA/GTM script, connect, and image hosts into existing stricter document CSPs.
+
 ## 0.84.33
 
 ### Patch Changes
