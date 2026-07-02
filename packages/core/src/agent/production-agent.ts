@@ -44,6 +44,7 @@ import {
   normalizeReasoningEffortForModel,
   type ReasoningEffort,
 } from "../shared/reasoning-effort.js";
+import { actionPreparationContinuationNote } from "./action-continuation-guidance.js";
 import { applyContextDirectives } from "./context-xray/apply-directives.js";
 import { loadContextDirectives } from "./context-xray/directives-store.js";
 import {
@@ -984,6 +985,7 @@ function maxRetriesForError(err: unknown): number {
   return MAX_RETRIES;
 }
 const TOOL_INPUT_ACTIVITY_INTERVAL_MS = 1500;
+const ACTION_PREPARATION_NO_PROGRESS_TIMEOUT_MS = 90_000;
 const MAX_TEXT_ATTACHMENT_CHARS = 60_000;
 const MAX_SELECTION_CONTEXT_CHARS = 8_000;
 const MAX_RESOURCE_INVENTORY_ITEMS = 40;
@@ -1693,11 +1695,13 @@ export type AgentLoopContinuationReason =
   | "max_tokens"
   | "stream_ended"
   | "gateway_timeout"
-  | "network_interrupted";
+  | "network_interrupted"
+  | "no_progress";
 
 export function appendAgentLoopContinuation(
   messages: EngineMessage[],
   reason: AgentLoopContinuationReason,
+  options: { actionPreparationTool?: string } = {},
 ) {
   const note =
     reason === "loop_limit"
@@ -1710,16 +1714,35 @@ export function appendAgentLoopContinuation(
             ? "The previous LLM call hit an upstream gateway timeout before the response finished streaming."
             : reason === "network_interrupted"
               ? "The previous LLM call was cut off by a transport-level interruption (socket dropped, connection reset, or stream closed unexpectedly)."
-              : "The previous run reached an internal execution budget.";
+              : reason === "no_progress"
+                ? "The previous run stopped producing progress events while the connection stayed open."
+                : "The previous run reached an internal execution budget.";
+  const actionInputNote = options.actionPreparationTool
+    ? actionPreparationContinuationNote(options.actionPreparationTool)
+    : "";
   messages.push({
     role: "user",
     content: [
       {
         type: "text",
-        text: `${AGENT_INTERNAL_CONTINUE_PROMPT}\n\nInternal note: ${note}`,
+        text: `${AGENT_INTERNAL_CONTINUE_PROMPT}\n\nInternal note: ${note}${actionInputNote}`,
       },
     ],
   });
+}
+
+function isAgentLoopContinuationReason(
+  reason: unknown,
+): reason is AgentLoopContinuationReason {
+  return (
+    reason === "run_timeout" ||
+    reason === "loop_limit" ||
+    reason === "max_tokens" ||
+    reason === "stream_ended" ||
+    reason === "gateway_timeout" ||
+    reason === "network_interrupted" ||
+    reason === "no_progress"
+  );
 }
 
 /**
@@ -2792,6 +2815,15 @@ export async function runAgentLoop(opts: {
         const toolInputNames = new Map<string, string>();
         const toolInputBytes = new Map<string, number>();
         let lastToolInputActivityAt = 0;
+        type ActiveToolInputPreparation = {
+          id: string;
+          toolName?: string;
+          startedAt: number;
+          lastProgressAt: number;
+          bytes: number;
+        };
+        let activeToolInput: ActiveToolInputPreparation | null = null;
+        let endedForActionPreparationNoProgress = false;
         const sendToolInputActivity = (
           toolName: string | undefined,
           toolInputId?: string,
@@ -2813,6 +2845,25 @@ export async function runAgentLoop(opts: {
             ...(toolInputId ? { id: toolInputId } : {}),
             ...(typeof progressBytes === "number" ? { progressBytes } : {}),
           });
+        };
+        const resetActiveToolInput = (
+          toolName: string | undefined,
+          toolInputId?: string,
+        ) => {
+          if (!activeToolInput) return;
+          if (
+            (toolInputId && activeToolInput.id === toolInputId) ||
+            (!toolInputId && toolName && activeToolInput.toolName === toolName)
+          ) {
+            activeToolInput = null;
+          }
+        };
+        const hasActionPreparationStalled = () => {
+          if (!activeToolInput) return false;
+          return (
+            Date.now() - activeToolInput.lastProgressAt >=
+            ACTION_PREPARATION_NO_PROGRESS_TIMEOUT_MS
+          );
         };
 
         for await (const event of eventStream) {
@@ -2845,6 +2896,14 @@ export async function runAgentLoop(opts: {
             if (key && event.name) {
               toolInputNames.set(key, event.name);
               toolInputBytes.set(key, 0);
+              const now = Date.now();
+              activeToolInput = {
+                id: key,
+                toolName: event.name,
+                startedAt: now,
+                lastProgressAt: now,
+                bytes: 0,
+              };
             }
             sendToolInputActivity(event.name, key, undefined, true);
           } else if (event.type === "tool-input-delta") {
@@ -2859,19 +2918,32 @@ export async function runAgentLoop(opts: {
                 previous +
                 new TextEncoder().encode(event.text ?? "").byteLength;
               toolInputBytes.set(key, progressBytes);
+              if (progressBytes > previous) {
+                const now = Date.now();
+                activeToolInput = {
+                  id: key,
+                  ...(toolName ? { toolName } : {}),
+                  startedAt: now,
+                  lastProgressAt: now,
+                  bytes: progressBytes,
+                };
+              }
             }
             sendToolInputActivity(toolName, key, progressBytes);
           } else if (event.type === "gateway-heartbeat") {
             send({ type: "stream_keepalive" });
           } else if (event.type === "tool-call") {
             // The authoritative tool-call blocks arrive in assistant-content.
+            resetActiveToolInput(event.name, event.id);
           } else if (event.type === "tool-call-error") {
+            resetActiveToolInput(event.name, event.id);
             toolCallErrors.set(event.id, {
               name: event.name,
               input: event.input,
               error: event.error,
             });
           } else if (event.type === "assistant-content") {
+            activeToolInput = null;
             assistantContent = event.parts;
           } else if (event.type === "usage") {
             usage.inputTokens += event.inputTokens;
@@ -2889,6 +2961,18 @@ export async function runAgentLoop(opts: {
               });
             }
           }
+          if (hasActionPreparationStalled()) {
+            send({
+              type: "auto_continue",
+              reason: "no_progress",
+            });
+            endedForActionPreparationNoProgress = true;
+            break;
+          }
+        }
+
+        if (endedForActionPreparationNoProgress) {
+          return usage;
         }
 
         break;
@@ -4018,6 +4102,67 @@ function endsAtInternalContinuationBoundary(run: ActiveRun): boolean {
   return last.type === "error" && isRecoverableContinuationError(last);
 }
 
+function isPreparingActionActivityEvent(
+  event: AgentChatEvent,
+): event is Extract<AgentChatEvent, { type: "activity" }> {
+  if (event.type !== "activity") return false;
+  const label = event.label.trim().toLowerCase();
+  return label.startsWith("preparing ") && label.includes(" action");
+}
+
+function lastUnfinishedPreparingActionTool(run: ActiveRun): string | undefined {
+  let active: {
+    id?: string;
+    tool: string;
+  } | null = null;
+  for (const { event } of run.events) {
+    if (isPreparingActionActivityEvent(event)) {
+      const tool = event.tool?.trim();
+      if (tool) {
+        active = {
+          tool,
+          ...(event.id?.trim() ? { id: event.id.trim() } : {}),
+        };
+      }
+      continue;
+    }
+    if (event.type === "tool_start" || event.type === "tool_done") {
+      const tool = event.tool?.trim();
+      const id = event.id?.trim();
+      if (
+        active &&
+        ((id && active.id === id) || (!id && tool && active.tool === tool))
+      ) {
+        active = null;
+      }
+      continue;
+    }
+    if (
+      event.type === "clear" ||
+      event.type === "done" ||
+      event.type === "error" ||
+      event.type === "missing_api_key"
+    ) {
+      active = null;
+    }
+  }
+  return active?.tool;
+}
+
+function backgroundContinuationReasonForRun(
+  run: ActiveRun,
+): AgentLoopContinuationReason {
+  const last = run.events.at(-1)?.event;
+  if (last?.type === "loop_limit") return "loop_limit";
+  if (
+    last?.type === "auto_continue" &&
+    isAgentLoopContinuationReason(last.reason)
+  ) {
+    return last.reason;
+  }
+  return "run_timeout";
+}
+
 /**
  * Hard cap on server-driven background→background continuation chunks for a
  * single logical turn. A `backgroundFunction` run gets a ~13-min soft timeout,
@@ -4981,7 +5126,19 @@ export function createProductionAgentHandler(
           ?.threadData;
         const resumed = threadDataToEngineMessages(priorThreadData);
         if (resumed.length > 0) {
-          appendAgentLoopContinuation(resumed, "run_timeout");
+          const actionPreparationTool =
+            typeof backgroundRunMarker?.actionPreparationTool === "string" &&
+            backgroundRunMarker.actionPreparationTool.trim()
+              ? backgroundRunMarker.actionPreparationTool.trim()
+              : undefined;
+          const continuationReason = isAgentLoopContinuationReason(
+            backgroundRunMarker?.continuationReason,
+          )
+            ? backgroundRunMarker.continuationReason
+            : "run_timeout";
+          appendAgentLoopContinuation(resumed, continuationReason, {
+            ...(actionPreparationTool ? { actionPreparationTool } : {}),
+          });
           messages.length = 0;
           messages.push(...resumed);
         }
@@ -5334,6 +5491,10 @@ export function createProductionAgentHandler(
                 // its seq log starts clean; same turnId folds the assistant
                 // message across chunks.
                 const nextRunId = generateRunId();
+                const actionPreparationTool =
+                  lastUnfinishedPreparingActionTool(run);
+                const continuationReason =
+                  backgroundContinuationReasonForRun(run);
                 const continuationDispatchPath =
                   resolveAgentChatProcessRunDispatchPath();
                 const continuationExpectsNetlifyBackgroundFunction =
@@ -5358,6 +5519,10 @@ export function createProductionAgentHandler(
                         runId: nextRunId,
                         turnId: effectiveTurnId,
                         continuationCount: backgroundContinuationCount + 1,
+                        continuationReason,
+                        ...(actionPreparationTool
+                          ? { actionPreparationTool }
+                          : {}),
                         backgroundFunctionRuntimeExpected:
                           continuationExpectsNetlifyBackgroundFunction,
                       },
