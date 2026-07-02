@@ -1,14 +1,29 @@
 import { defineAction } from "@agent-native/core";
 import { accessFilter } from "@agent-native/core/sharing";
-import { and, asc, eq, isNull, ne, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, ne, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { documentDiscoveryFilter } from "../server/lib/documents.js";
-import type { ListContentDatabasesResponse } from "../shared/api.js";
+import type {
+  ContentDatabaseSourceType,
+  ListContentDatabasesResponse,
+} from "../shared/api.js";
 
 function escapeLike(s: string): string {
   return s.replace(/([\\%_])/g, "\\$1");
+}
+
+function normalizeSummarySourceType(value: string): ContentDatabaseSourceType {
+  if (
+    value === "builder-cms" ||
+    value === "local-table" ||
+    value === "local-folder" ||
+    value === "github-url"
+  ) {
+    return value;
+  }
+  return "mock-local";
 }
 
 export default defineAction({
@@ -66,12 +81,51 @@ export default defineAction({
       ? await queryBuilder.limit(args.limit)
       : await queryBuilder;
 
+    const sources =
+      rows.length > 0
+        ? await db
+            .select({
+              id: schema.contentDatabaseSources.id,
+              databaseId: schema.contentDatabaseSources.databaseId,
+              sourceType: schema.contentDatabaseSources.sourceType,
+              sourceName: schema.contentDatabaseSources.sourceName,
+              sourceTable: schema.contentDatabaseSources.sourceTable,
+            })
+            .from(schema.contentDatabaseSources)
+            .where(
+              inArray(
+                schema.contentDatabaseSources.databaseId,
+                rows.map((row) => row.id),
+              ),
+            )
+        : [];
+    const sourcesByDatabaseId = new Map<
+      string,
+      Array<{
+        id: string;
+        sourceType: ContentDatabaseSourceType;
+        sourceName: string;
+        sourceTable: string;
+      }>
+    >();
+    for (const source of sources) {
+      const databaseSources = sourcesByDatabaseId.get(source.databaseId) ?? [];
+      databaseSources.push({
+        id: source.id,
+        sourceType: normalizeSummarySourceType(source.sourceType),
+        sourceName: source.sourceName,
+        sourceTable: source.sourceTable,
+      });
+      sourcesByDatabaseId.set(source.databaseId, databaseSources);
+    }
+
     const databases = rows.map((row) => ({
       databaseId: row.id,
       documentId: row.documentId,
       // The document's live title (matches the sidebar) rather than the
       // possibly-stale content_databases.title.
       title: row.title ?? "Untitled database",
+      sources: sourcesByDatabaseId.get(row.id) ?? [],
     }));
 
     return { databases };

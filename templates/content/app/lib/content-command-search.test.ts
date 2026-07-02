@@ -60,6 +60,62 @@ describe("content command search", () => {
     ]);
   });
 
+  it("groups SQL-backed imported local-file results by source metadata", () => {
+    const importedLocal = document(
+      "sql-imported-local",
+      "Imported local guide",
+      "Local folder result",
+    );
+    importedLocal.source = {
+      mode: "local-files",
+      kind: "file",
+      path: "docs/imported-local-guide.mdx",
+    };
+
+    const groups = groupContentCommandSearchResults({
+      query: "local",
+      documents: [document("doc-1", "Local strategy"), importedLocal],
+      databases: [],
+    });
+
+    expect(groups.documents.map((doc) => doc.id)).toEqual(["doc-1"]);
+    expect(groups.localFiles.map((doc) => doc.id)).toEqual([
+      "sql-imported-local",
+    ]);
+  });
+
+  it("keeps connected database source identities available to command search", () => {
+    const groups = groupContentCommandSearchResults({
+      query: "workspace",
+      documents: [],
+      databases: [
+        {
+          databaseId: "db-1",
+          documentId: "db-doc-1",
+          title: "Workspace sources",
+          sources: [
+            {
+              id: "source-builder",
+              sourceType: "builder-cms",
+              sourceName: "Builder docs",
+              sourceTable: "docs-content",
+            },
+            {
+              id: "source-github",
+              sourceType: "github-url",
+              sourceName: "Docs repo",
+              sourceTable: "https://github.com/BuilderIO/agent-native",
+            },
+          ],
+        },
+      ],
+    });
+
+    expect(
+      groups.databases[0]?.sources?.map((source) => source.sourceType),
+    ).toEqual(["builder-cms", "github-url"]);
+  });
+
   it("uses document page routes for selectable results", () => {
     expect(contentCommandDocumentPath("doc-1")).toBe("/page/doc-1");
     expect(contentCommandDocumentPath("local-file:ZG9jcy9sYXVuY2gubWQ")).toBe(

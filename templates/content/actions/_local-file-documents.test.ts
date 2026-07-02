@@ -134,7 +134,7 @@ describe("content local file documents", () => {
     expect(readFile(root, "docs/guide.mdx")).toContain("Alpha gamma needle.");
 
     await expect(
-      searchDocuments.run({ query: "needle", limit: 10 }),
+      searchDocuments.run({ query: "needle", limit: 10, sourceScope: "all" }),
     ).resolves.toMatchObject({
       documents: [
         expect.objectContaining({
@@ -152,6 +152,34 @@ describe("content local file documents", () => {
       title: "Guide",
       content: expect.stringContaining("Alpha gamma needle."),
     });
+  });
+
+  it("lets search scope include or exclude local-file truth", async () => {
+    const root = setupLocalContentRepo();
+    writeFile(root, "docs/guide.mdx", "# Guide\n\nScoped needle.");
+
+    await expect(
+      searchDocuments.run({
+        query: "needle",
+        limit: 10,
+        sourceScope: "local-files",
+      }),
+    ).resolves.toMatchObject({
+      documents: [
+        expect.objectContaining({
+          id: localFileDocumentId("docs/guide.mdx"),
+          source: expect.objectContaining({ mode: "local-files" }),
+        }),
+      ],
+    });
+
+    await expect(
+      searchDocuments.run({
+        query: "needle",
+        limit: 10,
+        sourceScope: "database",
+      }),
+    ).resolves.toEqual({ documents: [] });
   });
 
   it("reuses parsed local documents across repeated searches", async () => {

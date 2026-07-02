@@ -6,6 +6,7 @@ import type {
   BuilderCmsModelsResponse,
   ChangeContentDatabaseSourceRoleRequest,
   ContentDatabaseResponse,
+  ContentDatabaseSourceType,
   CreateInlineDatabaseRequest,
   CreateInlineDatabaseResponse,
   ListTrashedContentDatabasesResponse,
@@ -408,7 +409,7 @@ export function useContentDatabases(args: {
 
 export function useSuggestSourceJoinKey(args: {
   documentId: string;
-  candidateSourceType: "mock-local" | "builder-cms" | "local-table";
+  candidateSourceType: ContentDatabaseSourceType;
   candidateSourceTable: string;
   enabled: boolean;
 }) {

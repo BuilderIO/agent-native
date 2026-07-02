@@ -16,6 +16,7 @@ import {
   type ContentDatabaseSourceChangeSet,
   type ContentDatabaseSourceJoinRequest,
   type ContentDatabaseSourceReviewPayload,
+  type ContentDatabaseSourceType,
   type ContentDatabaseSourceWriteMode,
   type ExecuteBuilderSourceBatchResponse,
   type SourceJoinSuggestion,
@@ -3558,7 +3559,7 @@ type DatabaseSettingsPanel =
 // the leaf can attach without re-fetching.
 // A second source being added, awaiting the canonical-key confirm step.
 type PendingSourceCandidate = {
-  sourceType: "mock-local" | "builder-cms" | "local-table";
+  sourceType: ContentDatabaseSourceType;
   sourceName: string;
   sourceTable: string;
   displayName: string;
@@ -4929,11 +4930,13 @@ function SourcesListView({
               ? () => onOpenSecondary(connected)
               : connected.sourceType === "builder-cms"
                 ? () => onOpenConnectedBuilder(connected)
-                : undefined
+                : () => onOpenSecondary(connected)
           }
           disabled={
-            connected.metadata.federation?.role !== "secondary" &&
-            connected.sourceType !== "builder-cms"
+            connected.sourceType !== "builder-cms" &&
+            connected.sourceType !== "local-folder" &&
+            connected.sourceType !== "github-url" &&
+            connected.metadata.federation?.role !== "secondary"
           }
         />
       ))}
@@ -5333,6 +5336,8 @@ function sourceRoleLabel(
   source: ContentDatabaseSource | null | undefined,
   index: number,
 ) {
+  if (source?.sourceType === "local-folder") return "Repo truth";
+  if (source?.sourceType === "github-url") return "Git truth";
   if (sourceAddsDetails(source)) return db("addingDetails");
   return index === 0 ? db("addingItems") : db("addingItems");
 }

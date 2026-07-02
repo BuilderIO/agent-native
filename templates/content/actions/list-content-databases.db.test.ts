@@ -77,6 +77,87 @@ describe("list-content-databases", () => {
             databaseId: "db-cmdk",
             documentId: "db-doc-cmdk",
             title: "CmdK Database TestDB",
+            sources: [],
+          },
+        ],
+      });
+    });
+  });
+
+  it("returns coexisting Builder, local folder, and GitHub URL source identities", async () => {
+    await createDatabaseDocument({
+      documentId: "db-doc-sources",
+      databaseId: "db-sources",
+      title: "Multi-source workspace",
+    });
+    const db = getDb();
+    const now = new Date().toISOString();
+    await db.insert(schema.contentDatabaseSources).values([
+      {
+        id: "source-builder",
+        ownerEmail: OWNER,
+        databaseId: "db-sources",
+        sourceType: "builder-cms",
+        sourceName: "Builder blog",
+        sourceTable: "blog_article",
+        createdAt: now,
+        updatedAt: now,
+      },
+      {
+        id: "source-local",
+        ownerEmail: OWNER,
+        databaseId: "db-sources",
+        sourceType: "local-folder",
+        sourceName: "Docs folder",
+        sourceTable: "docs",
+        createdAt: now,
+        updatedAt: now,
+      },
+      {
+        id: "source-github",
+        ownerEmail: OWNER,
+        databaseId: "db-sources",
+        sourceType: "github-url",
+        sourceName: "Docs repo URL",
+        sourceTable: "https://github.com/BuilderIO/agent-native/tree/main/docs",
+        createdAt: now,
+        updatedAt: now,
+      },
+    ]);
+
+    await runWithRequestContext({ userEmail: OWNER }, async () => {
+      await expect(
+        listContentDatabasesAction.run({
+          query: "multi-source",
+          limit: 6,
+        }),
+      ).resolves.toEqual({
+        databases: [
+          {
+            databaseId: "db-sources",
+            documentId: "db-doc-sources",
+            title: "Multi-source workspace",
+            sources: [
+              {
+                id: "source-builder",
+                sourceType: "builder-cms",
+                sourceName: "Builder blog",
+                sourceTable: "blog_article",
+              },
+              {
+                id: "source-local",
+                sourceType: "local-folder",
+                sourceName: "Docs folder",
+                sourceTable: "docs",
+              },
+              {
+                id: "source-github",
+                sourceType: "github-url",
+                sourceName: "Docs repo URL",
+                sourceTable:
+                  "https://github.com/BuilderIO/agent-native/tree/main/docs",
+              },
+            ],
           },
         ],
       });

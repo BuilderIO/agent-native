@@ -40,7 +40,13 @@ import {
 } from "./_local-table-source.js";
 
 const sourceTypeSchema = z
-  .enum(["mock-local", "builder-cms", "local-table"])
+  .enum([
+    "mock-local",
+    "builder-cms",
+    "local-table",
+    "local-folder",
+    "github-url",
+  ])
   .default("mock-local");
 
 // Per-source key mapping the UI commits after the canonical-key confirm step.
@@ -117,7 +123,7 @@ function identityFederation(
 
 export default defineAction({
   description:
-    "Attach or replace a safe local source binding for a content database. Builder CMS bindings store source metadata, field mappings, row identity, provenance, freshness, capabilities, and local-only diff state without calling external APIs.",
+    "Attach or replace a mounted source binding for a content database. Builder CMS bindings can import rows and guarded write metadata; local-folder and github-url bindings require a real path or https://github.com/... URL and register repo-truth workspace scope without Git automation.",
   schema: z.object({
     databaseId: z.string().optional().describe("Database ID"),
     documentId: z.string().optional().describe("Database document/page ID"),
@@ -131,7 +137,9 @@ export default defineAction({
     sourceTable: z
       .string()
       .optional()
-      .describe("Source table/model name, for example content_items."),
+      .describe(
+        "Source table/model name. For local-folder, pass the folder path. For github-url, pass a https://github.com/... URL.",
+      ),
     relationshipMode: z
       .enum(["items", "details"])
       .optional()
@@ -162,17 +170,51 @@ export default defineAction({
       "mock-local") as ContentDatabaseSourceType;
     const sourceName =
       args.sourceName?.trim() ||
-      (sourceType === "builder-cms" ? "Builder CMS" : "Mock local source");
-    const sourceTable =
-      args.sourceTable?.trim() ||
+      (sourceType === "builder-cms"
+        ? "Builder CMS"
+        : sourceType === "local-folder"
+          ? "Local folder"
+          : sourceType === "github-url"
+            ? "GitHub URL"
+            : "Mock local source");
+    const sourceTable = args.sourceTable?.trim() || "";
+    const resolvedSourceTable =
+      sourceTable ||
       (sourceType === "builder-cms" ? "blog_article" : "content_items");
+    if (
+      (sourceType === "local-folder" || sourceType === "github-url") &&
+      !sourceTable
+    ) {
+      throw new Error(
+        sourceType === "local-folder"
+          ? "Local folder sources require a folder path."
+          : "GitHub URL sources require a https://github.com/... URL.",
+      );
+    }
 
     const existingSource = await getExistingSource(database.id);
     if (sourceType === "local-table") {
-      if (sourceTable === database.id) {
+      if (resolvedSourceTable === database.id) {
         throw new Error("A database can't be added as a source of itself.");
       }
-      await resolveReadableLocalTableSource(sourceTable);
+      await resolveReadableLocalTableSource(resolvedSourceTable);
+    }
+    if (sourceType === "github-url") {
+      let parsed: URL | null = null;
+      try {
+        parsed = new URL(sourceTable);
+      } catch {
+        parsed = null;
+      }
+      if (
+        !parsed ||
+        parsed.protocol !== "https:" ||
+        parsed.hostname !== "github.com"
+      ) {
+        throw new Error(
+          "GitHub URL sources must be https://github.com/... URLs.",
+        );
+      }
     }
 
     const relationshipMode =
@@ -188,15 +230,22 @@ export default defineAction({
       let entries: BuilderCmsSourceEntry[];
       let modelFields: BuilderCmsModelFieldSummary[];
       if (sourceType === "builder-cms") {
-        const read = await readBuilderCmsContentEntries({ model: sourceTable });
+        const read = await readBuilderCmsContentEntries({
+          model: resolvedSourceTable,
+        });
         entries = read.state === "live" ? read.entries : [];
-        modelFields = await readBuilderCmsModelFields({ model: sourceTable });
+        modelFields = await readBuilderCmsModelFields({
+          model: resolvedSourceTable,
+        });
       } else if (sourceType === "local-table") {
         // sourceTable carries the target database id for a local-table source.
-        ({ entries, modelFields } = await readLocalTableEntries(sourceTable, {
-          limit: args.limit,
-          offset: args.offset,
-        }));
+        ({ entries, modelFields } = await readLocalTableEntries(
+          resolvedSourceTable,
+          {
+            limit: args.limit,
+            offset: args.offset,
+          },
+        ));
       } else {
         entries = [];
         modelFields = [];
@@ -206,14 +255,14 @@ export default defineAction({
         database,
         sourceType,
         sourceName,
-        sourceTable,
+        sourceTable: resolvedSourceTable,
         now,
       });
       await storeSecondarySourceRows({
         sourceId: secondaryId,
         ownerEmail: database.ownerEmail,
         sourceType,
-        sourceTable,
+        sourceTable: resolvedSourceTable,
         entries,
         now,
       });
@@ -260,22 +309,26 @@ export default defineAction({
     ) {
       // Don't add the same collection twice — each "add" starts a fresh source
       // with no prior rows, so a duplicate attach would re-import duplicate rows.
-      if (await databaseSourceExistsForTable(database.id, sourceTable)) {
-        throw new Error(`"${sourceTable}" is already attached as a source.`);
+      if (
+        await databaseSourceExistsForTable(database.id, resolvedSourceTable)
+      ) {
+        throw new Error(
+          `"${resolvedSourceTable}" is already attached as a source.`,
+        );
       }
       const additionalRead = await readBuilderCmsContentEntries({
-        model: sourceTable,
+        model: resolvedSourceTable,
       });
       const additionalEntries =
         additionalRead.state === "live" ? additionalRead.entries : [];
       const additionalModelFields = await readBuilderCmsModelFields({
-        model: sourceTable,
+        model: resolvedSourceTable,
       });
       const additionalSourceId = await insertSecondarySource({
         database,
         sourceType,
         sourceName,
-        sourceTable,
+        sourceTable: resolvedSourceTable,
         now,
       });
       // Snapshot existing items BEFORE importing so we can bind the new source
@@ -289,7 +342,7 @@ export default defineAction({
           database,
           entries: additionalEntries,
           now,
-          sourceTable,
+          sourceTable: resolvedSourceTable,
           existingSourceRows: [],
           skipTitleDedup: true,
         });
@@ -304,7 +357,7 @@ export default defineAction({
           ? mapBuilderCmsEntriesToLocalItems({
               entries: additionalEntries,
               items: importedItems,
-              sourceTable,
+              sourceTable: resolvedSourceTable,
               now,
               existingRows: [],
             })
@@ -322,7 +375,7 @@ export default defineAction({
         sourceId: additionalSourceId,
         ownerEmail: database.ownerEmail,
         sourceType,
-        sourceTable,
+        sourceTable: resolvedSourceTable,
         items: importedItems,
         now,
         builderEntriesByDocumentId: additionalEntriesByDocumentId,
@@ -332,7 +385,7 @@ export default defineAction({
           sourceId: additionalSourceId,
           ownerEmail: database.ownerEmail,
           orgId: database.orgId,
-          sourceTable,
+          sourceTable: resolvedSourceTable,
           items: importedItems,
           builderEntriesByDocumentId: additionalEntriesByDocumentId,
           now,
@@ -340,7 +393,7 @@ export default defineAction({
       }
       await updateBuilderCmsSourceReadMetadata({
         sourceId: additionalSourceId,
-        sourceTable,
+        sourceTable: resolvedSourceTable,
         readState: additionalRead.state,
         entryCount: additionalRead.entries.length,
         matchedRowCount: additionalEntriesByDocumentId?.size ?? 0,
@@ -358,7 +411,39 @@ export default defineAction({
     }
 
     if (relationshipMode === "items" && existingSource) {
-      throw new Error("Only Builder sources can add more items right now.");
+      if (sourceType !== "local-folder" && sourceType !== "github-url") {
+        throw new Error(
+          "Only Builder, local folder, or GitHub URL sources can add more items right now.",
+        );
+      }
+      if (
+        await databaseSourceExistsForTable(database.id, resolvedSourceTable)
+      ) {
+        throw new Error(
+          `"${resolvedSourceTable}" is already attached as a source.`,
+        );
+      }
+      const additionalSourceId = await insertSecondarySource({
+        database,
+        sourceType,
+        sourceName,
+        sourceTable: resolvedSourceTable,
+        now,
+      });
+      const setup = await sourceSetupPayload(database.id);
+      await seedMockSourceFields({
+        sourceId: additionalSourceId,
+        ownerEmail: database.ownerEmail,
+        sourceType,
+        properties: setup.properties,
+        now,
+      });
+      await ensureDatabaseSourceProperty({ database, now });
+
+      return getContentDatabaseResponse(database.id, {
+        limit: args.limit,
+        offset: args.offset,
+      });
     }
 
     const existingSourceRows = existingSource
@@ -369,13 +454,13 @@ export default defineAction({
       source: existingSource,
       sourceType,
       sourceName,
-      sourceTable,
+      sourceTable: resolvedSourceTable,
       now,
     });
     const builderRead =
       sourceType === "builder-cms"
         ? await readBuilderCmsContentEntries({
-            model: sourceTable,
+            model: resolvedSourceTable,
           })
         : null;
     const builderEntries =
@@ -383,7 +468,7 @@ export default defineAction({
     const builderModelFields =
       sourceType === "builder-cms"
         ? await readBuilderCmsModelFields({
-            model: sourceTable,
+            model: resolvedSourceTable,
           })
         : [];
     if (builderRead?.state === "live") {
@@ -391,7 +476,7 @@ export default defineAction({
         database,
         entries: builderEntries,
         now,
-        sourceTable,
+        sourceTable: resolvedSourceTable,
         existingSourceRows,
       });
     }
@@ -402,7 +487,7 @@ export default defineAction({
         ? mapBuilderCmsEntriesToLocalItems({
             entries: builderEntries,
             items: refreshedSetup.response.items,
-            sourceTable,
+            sourceTable: resolvedSourceTable,
             now,
             existingRows: existingSourceRows,
           })
@@ -417,21 +502,23 @@ export default defineAction({
       builderSampleEntries: builderEntries,
       now,
     });
-    await seedMockSourceRows({
-      sourceId,
-      ownerEmail: database.ownerEmail,
-      sourceType,
-      sourceTable,
-      items: refreshedSetup.response.items,
-      now,
-      builderEntriesByDocumentId,
-    });
+    if (sourceType !== "local-folder" && sourceType !== "github-url") {
+      await seedMockSourceRows({
+        sourceId,
+        ownerEmail: database.ownerEmail,
+        sourceType,
+        sourceTable: resolvedSourceTable,
+        items: refreshedSetup.response.items,
+        now,
+        builderEntriesByDocumentId,
+      });
+    }
     if (sourceType === "builder-cms" && builderRead?.state === "live") {
       await enqueueBuilderBodyHydrationForItems({
         sourceId,
         ownerEmail: database.ownerEmail,
         orgId: database.orgId,
-        sourceTable,
+        sourceTable: resolvedSourceTable,
         items: refreshedSetup.response.items,
         builderEntriesByDocumentId,
         now,
@@ -440,7 +527,7 @@ export default defineAction({
     if (sourceType === "builder-cms" && builderRead) {
       await updateBuilderCmsSourceReadMetadata({
         sourceId,
-        sourceTable,
+        sourceTable: resolvedSourceTable,
         readState: builderRead.state,
         entryCount: builderRead.entries.length,
         matchedRowCount: builderEntriesByDocumentId?.size ?? 0,

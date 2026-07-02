@@ -1,4 +1,4 @@
-import type { ContentDatabaseSummary } from "@shared/api";
+import type { ContentDatabaseSummary, DocumentSourceInfo } from "@shared/api";
 
 export interface CommandSearchDocumentResult {
   id: string;
@@ -8,6 +8,7 @@ export interface CommandSearchDocumentResult {
   snippet: string;
   contentLength: number;
   hideFromSearch: boolean;
+  source?: DocumentSourceInfo;
   updatedAt: string;
 }
 
@@ -22,9 +23,10 @@ export interface ContentCommandSearchGroups {
 }
 
 export function isLocalFileSearchResult(
-  document: Pick<CommandSearchDocumentResult, "id">,
+  document: Pick<CommandSearchDocumentResult, "id" | "source">,
 ) {
   return (
+    document.source?.mode === "local-files" ||
     document.id.startsWith("local-file:") ||
     document.id.startsWith("local-folder:")
   );

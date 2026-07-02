@@ -1,6 +1,6 @@
 import { defineAction } from "@agent-native/core";
 import { accessFilter } from "@agent-native/core/sharing";
-import { and, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -8,6 +8,7 @@ import {
   documentDiscoveryFilter,
   parseDocumentHideFromSearch,
 } from "../server/lib/documents.js";
+import { serializeDocumentSource } from "./_document-source.js";
 import {
   isContentLocalFileMode,
   listLocalFileDocuments,
@@ -39,12 +40,21 @@ export default defineAction({
   schema: z.object({
     query: z.string().describe("Search text"),
     limit: z.coerce.number().int().min(1).max(200).default(50),
+    sourceScope: z
+      .enum(["all", "database", "local-files"])
+      .default("all")
+      .describe(
+        "Optional source scope. Use local-files for repo/local-file truth and database for SQL-backed pages.",
+      ),
   }),
   http: { method: "GET" },
   run: async (args) => {
     const query = args.query;
 
     if (await isContentLocalFileMode()) {
+      if (args.sourceScope === "database") {
+        return { documents: [] };
+      }
       const normalizedQuery = query.toLowerCase();
       const docs = (await listLocalFileDocuments())
         .filter((doc) => doc.source?.kind !== "folder")
@@ -67,6 +77,7 @@ export default defineAction({
           snippet: makeSnippet(doc.content, query),
           contentLength: doc.content.length,
           hideFromSearch: doc.hideFromSearch,
+          source: doc.source,
           updatedAt: doc.updatedAt,
         })),
       };
@@ -83,6 +94,11 @@ export default defineAction({
         icon: schema.documents.icon,
         content: schema.documents.content,
         hideFromSearch: schema.documents.hideFromSearch,
+        sourceMode: schema.documents.sourceMode,
+        sourceKind: schema.documents.sourceKind,
+        sourcePath: schema.documents.sourcePath,
+        sourceRootPath: schema.documents.sourceRootPath,
+        sourceUpdatedAt: schema.documents.sourceUpdatedAt,
         updatedAt: schema.documents.updatedAt,
       })
       .from(schema.documents)
@@ -90,6 +106,11 @@ export default defineAction({
         and(
           accessFilter(schema.documents, schema.documentShares),
           documentDiscoveryFilter(),
+          args.sourceScope === "local-files"
+            ? eq(schema.documents.sourceMode, "local-files")
+            : args.sourceScope === "database"
+              ? sql`(${schema.documents.sourceMode} IS NULL OR ${schema.documents.sourceMode} = 'database')`
+              : undefined,
           sql`(${schema.documents.title} LIKE ${pattern} ESCAPE '\\' OR ${schema.documents.content} LIKE ${pattern} ESCAPE '\\')`,
         ),
       )
@@ -105,6 +126,7 @@ export default defineAction({
         snippet: makeSnippet(doc.content, query),
         contentLength: doc.content.length,
         hideFromSearch: parseDocumentHideFromSearch(doc.hideFromSearch),
+        source: serializeDocumentSource(doc),
         updatedAt: doc.updatedAt,
       })),
     };

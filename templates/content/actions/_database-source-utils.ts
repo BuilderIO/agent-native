@@ -172,7 +172,14 @@ function normalizeWriteOwner(
 function normalizeSourceType(
   value: string | null | undefined,
 ): ContentDatabaseSourceType {
-  if (value === "builder-cms" || value === "local-table") return value;
+  if (
+    value === "builder-cms" ||
+    value === "local-table" ||
+    value === "local-folder" ||
+    value === "github-url"
+  ) {
+    return value;
+  }
   return "mock-local";
 }
 
@@ -262,6 +269,8 @@ function sourceMetadataLabel(
 ) {
   if (sourceType === "builder-cms") return `builder.cms.${sourceTable}`;
   if (sourceType === "local-table") return `local.table.${sourceTable}`;
+  if (sourceType === "local-folder") return `local.folder.${sourceTable}`;
+  if (sourceType === "github-url") return `github.url.${sourceTable}`;
   return `mock-local.${sourceTable}`;
 }
 
@@ -2100,6 +2109,38 @@ export function serializeSourceMetadataRecord(args: {
   if (isBuilder) {
     return JSON.stringify(builderCmsSourceMetadata(args.sourceTable));
   }
+  if (args.sourceType === "local-folder") {
+    return JSON.stringify({
+      primaryKey: "path",
+      titleField: "title",
+      naturalKeyField: "path",
+      pushMode: "none",
+      pushModeLabel: "Repo truth",
+      pushModeDescription:
+        "The mounted local folder is the source of truth; Content keeps scope and search metadata only.",
+      notes:
+        "Local folder workspace registration. File writes stay on the local-file action path and git review remains external.",
+      readMode: "local-files",
+      label: sourceMetadataLabel(args.sourceType, args.sourceTable),
+      truthSemantics: "local-folder",
+    });
+  }
+  if (args.sourceType === "github-url") {
+    return JSON.stringify({
+      primaryKey: "url",
+      titleField: "title",
+      naturalKeyField: "url",
+      pushMode: "none",
+      pushModeLabel: "Git truth",
+      pushModeDescription:
+        "The GitHub URL identifies repo truth; this registration does not clone, commit, or push.",
+      notes:
+        "GitHub URL workspace registration for source scope. Full Git workflow automation is intentionally out of scope.",
+      readMode: "github-url",
+      label: sourceMetadataLabel(args.sourceType, args.sourceTable),
+      truthSemantics: "github-url",
+    });
+  }
   return JSON.stringify({
     primaryKey: "id",
     titleField: "title",
@@ -2151,6 +2192,20 @@ export function sourceCapabilitiesForType(
       readOnlyRefresh: true,
     });
   }
+  if (sourceType === "local-folder" || sourceType === "github-url") {
+    return serializeSourceCapabilitiesRecord({
+      canRefresh: false,
+      canCreateChangeSets: false,
+      canWriteFields: false,
+      canWriteBody: false,
+      canPush: false,
+      canPull: false,
+      canPublish: false,
+      canStageLocalRevision: false,
+      liveWritesEnabled: false,
+      readOnlyRefresh: false,
+    });
+  }
   return serializeSourceCapabilitiesRecord();
 }
 
@@ -2199,25 +2254,31 @@ export async function seedMockSourceFields(args: {
 }) {
   const db = getDb();
   const isBuilder = args.sourceType === "builder-cms";
+  const isMountedRepoSource =
+    args.sourceType === "local-folder" || args.sourceType === "github-url";
   const rows = [
-    {
-      id: crypto.randomUUID(),
-      ownerEmail: args.ownerEmail,
-      sourceId: args.sourceId,
-      propertyId: null,
-      localFieldKey: "title",
-      sourceFieldKey: isBuilder ? "data.title" : "title",
-      sourceFieldLabel: "Title",
-      sourceFieldType: "string",
-      mappingType: "title",
-      writeOwner: isBuilder ? "source" : "local",
-      readOnly: 0,
-      provenance: "source title",
-      freshness: "fresh",
-      lastSyncedAt: args.now,
-      createdAt: args.now,
-      updatedAt: args.now,
-    },
+    ...(!isMountedRepoSource
+      ? [
+          {
+            id: crypto.randomUUID(),
+            ownerEmail: args.ownerEmail,
+            sourceId: args.sourceId,
+            propertyId: null,
+            localFieldKey: "title",
+            sourceFieldKey: isBuilder ? "data.title" : "title",
+            sourceFieldLabel: "Title",
+            sourceFieldType: "string",
+            mappingType: "title",
+            writeOwner: isBuilder ? "source" : "local",
+            readOnly: 0,
+            provenance: "source title",
+            freshness: "fresh",
+            lastSyncedAt: args.now,
+            createdAt: args.now,
+            updatedAt: args.now,
+          },
+        ]
+      : []),
     ...(isBuilder
       ? [
           {
@@ -2233,6 +2294,33 @@ export async function seedMockSourceFields(args: {
             writeOwner: "source",
             readOnly: 1,
             provenance: "Builder natural key",
+            freshness: "fresh",
+            lastSyncedAt: args.now,
+            createdAt: args.now,
+            updatedAt: args.now,
+          },
+        ]
+      : []),
+    ...(isMountedRepoSource
+      ? [
+          {
+            id: crypto.randomUUID(),
+            ownerEmail: args.ownerEmail,
+            sourceId: args.sourceId,
+            propertyId: null,
+            localFieldKey:
+              args.sourceType === "github-url" ? "github_url" : "source_path",
+            sourceFieldKey: args.sourceType === "github-url" ? "url" : "path",
+            sourceFieldLabel:
+              args.sourceType === "github-url" ? "GitHub URL" : "Local path",
+            sourceFieldType: args.sourceType === "github-url" ? "url" : "text",
+            mappingType: "system",
+            writeOwner: "source",
+            readOnly: 1,
+            provenance:
+              args.sourceType === "github-url"
+                ? "GitHub URL workspace identity"
+                : "Local folder workspace identity",
             freshness: "fresh",
             lastSyncedAt: args.now,
             createdAt: args.now,
@@ -2285,56 +2373,58 @@ export async function seedMockSourceFields(args: {
     // "Source") and only for Builder sources, so a user's own field happening
     // to be named "Source" — or any non-Builder/local-table source — is left
     // untouched.
-    ...args.properties
-      .filter(
-        (property) =>
-          !(
-            isBuilder &&
-            property.definition.name === SOURCE_PROPERTY_NAME &&
-            property.definition.type === "select"
-          ),
-      )
-      .map((property) => ({
-        id: crypto.randomUUID(),
-        ownerEmail: args.ownerEmail,
-        sourceId: args.sourceId,
-        propertyId: property.definition.id,
-        localFieldKey: property.definition.id,
-        sourceFieldKey: isBuilder
-          ? builderCmsSourceFieldKey(
-              property.definition.id,
-              property.definition.name,
-            )
-          : `fields.${slugifySourceField(property.definition.name)}`,
-        sourceFieldLabel: property.definition.name,
-        sourceFieldType: property.definition.type,
-        mappingType: "property",
-        writeOwner:
-          property.definition.type === "created_time" ||
-          property.definition.type === "created_by" ||
-          property.definition.type === "last_edited_time" ||
-          property.definition.type === "last_edited_by"
-            ? "derived"
-            : isBuilder
-              ? "source"
-              : "local",
-        readOnly:
-          property.definition.type === "created_time" ||
-          property.definition.type === "created_by" ||
-          property.definition.type === "last_edited_time" ||
-          property.definition.type === "last_edited_by"
-            ? 1
-            : 0,
-        provenance:
-          property.definition.type === "formula" ||
-          property.definition.type === "rollup"
-            ? "derived"
-            : "source field",
-        freshness: "fresh",
-        lastSyncedAt: args.now,
-        createdAt: args.now,
-        updatedAt: args.now,
-      })),
+    ...(!isMountedRepoSource
+      ? args.properties
+          .filter(
+            (property) =>
+              !(
+                isBuilder &&
+                property.definition.name === SOURCE_PROPERTY_NAME &&
+                property.definition.type === "select"
+              ),
+          )
+          .map((property) => ({
+            id: crypto.randomUUID(),
+            ownerEmail: args.ownerEmail,
+            sourceId: args.sourceId,
+            propertyId: property.definition.id,
+            localFieldKey: property.definition.id,
+            sourceFieldKey: isBuilder
+              ? builderCmsSourceFieldKey(
+                  property.definition.id,
+                  property.definition.name,
+                )
+              : `fields.${slugifySourceField(property.definition.name)}`,
+            sourceFieldLabel: property.definition.name,
+            sourceFieldType: property.definition.type,
+            mappingType: "property",
+            writeOwner:
+              property.definition.type === "created_time" ||
+              property.definition.type === "created_by" ||
+              property.definition.type === "last_edited_time" ||
+              property.definition.type === "last_edited_by"
+                ? "derived"
+                : isBuilder
+                  ? "source"
+                  : "local",
+            readOnly:
+              property.definition.type === "created_time" ||
+              property.definition.type === "created_by" ||
+              property.definition.type === "last_edited_time" ||
+              property.definition.type === "last_edited_by"
+                ? 1
+                : 0,
+            provenance:
+              property.definition.type === "formula" ||
+              property.definition.type === "rollup"
+                ? "derived"
+                : "source field",
+            freshness: "fresh",
+            lastSyncedAt: args.now,
+            createdAt: args.now,
+            updatedAt: args.now,
+          }))
+      : []),
   ];
   if (isBuilder) {
     const existingSourceFieldKeys = new Set(
@@ -2493,6 +2583,23 @@ export function sourceValuesForSeededSourceRow(args: {
   >(args.existingSourceValuesJson);
   if (args.builderEntry?.sourceValues) return args.builderEntry.sourceValues;
   if (existingSourceValues) return existingSourceValues;
+  if (args.sourceType === "local-folder") {
+    return {
+      title: args.item.document.title,
+      path:
+        args.item.document.source?.path ??
+        args.item.document.source?.rootPath ??
+        args.sourceTable,
+      "sys.truth": "local-folder",
+    };
+  }
+  if (args.sourceType === "github-url") {
+    return {
+      title: args.item.document.title,
+      url: args.sourceTable,
+      "sys.truth": "github-url",
+    };
+  }
   if (args.sourceType !== "builder-cms") return {};
   return buildBuilderCmsFixtureEntry({
     item: args.item,

@@ -12,9 +12,11 @@ import {
   mockProposedValue,
   normalizeSourceFederation,
   normalizeSourceFreshness,
-  sourceValuesForSeededSourceRow,
+  serializeSourceMetadataRecord,
+  sourceCapabilitiesForType,
   sourceChangeSetKey,
   sourceChangeSetSummary,
+  sourceValuesForSeededSourceRow,
 } from "./_database-source-utils";
 
 function property(
@@ -65,6 +67,45 @@ describe("database source helpers", () => {
     expect(normalizeSourceFreshness("fresh")).toBe("fresh");
     expect(normalizeSourceFreshness("stale")).toBe("stale");
     expect(normalizeSourceFreshness("mysterious fog")).toBe("unknown");
+  });
+
+  it("describes local folder and GitHub URL sources as repo truth", () => {
+    expect(
+      JSON.parse(
+        serializeSourceMetadataRecord({
+          sourceType: "local-folder",
+          sourceTable: "docs",
+        }),
+      ),
+    ).toMatchObject({
+      naturalKeyField: "path",
+      pushMode: "none",
+      truthSemantics: "local-folder",
+    });
+
+    expect(
+      JSON.parse(
+        serializeSourceMetadataRecord({
+          sourceType: "github-url",
+          sourceTable:
+            "https://github.com/BuilderIO/agent-native/tree/main/docs",
+        }),
+      ),
+    ).toMatchObject({
+      naturalKeyField: "url",
+      pushMode: "none",
+      truthSemantics: "github-url",
+    });
+
+    expect(JSON.parse(sourceCapabilitiesForType("local-folder"))).toMatchObject(
+      {
+        canRefresh: false,
+        canPush: false,
+        canCreateChangeSets: false,
+        liveWritesEnabled: false,
+        readOnlyRefresh: false,
+      },
+    );
   });
 
   it("drops stored federation metadata with unsafe regex formulas", () => {
@@ -898,6 +939,41 @@ describe("database source helpers", () => {
       }),
     ).toEqual({
       "data.url": "/blog/persisted-url",
+    });
+  });
+
+  it("captures local folder and GitHub source values without Builder fields", () => {
+    const localItem = item("doc-local", "Local doc");
+    localItem.document.source = {
+      mode: "local-files",
+      kind: "file",
+      path: "docs/local-doc.mdx",
+    };
+
+    expect(
+      sourceValuesForSeededSourceRow({
+        sourceType: "local-folder",
+        item: localItem,
+        sourceTable: "docs",
+        now: "2026-06-08T13:00:00.000Z",
+      }),
+    ).toEqual({
+      title: "Local doc",
+      path: "docs/local-doc.mdx",
+      "sys.truth": "local-folder",
+    });
+
+    expect(
+      sourceValuesForSeededSourceRow({
+        sourceType: "github-url",
+        item: item("doc-github", "GitHub doc"),
+        sourceTable: "https://github.com/BuilderIO/agent-native/tree/main/docs",
+        now: "2026-06-08T13:00:00.000Z",
+      }),
+    ).toEqual({
+      title: "GitHub doc",
+      url: "https://github.com/BuilderIO/agent-native/tree/main/docs",
+      "sys.truth": "github-url",
     });
   });
 

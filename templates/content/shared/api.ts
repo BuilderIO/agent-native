@@ -362,7 +362,9 @@ export interface ContentDatabaseSourceOverlay {
 export type ContentDatabaseSourceType =
   | "mock-local"
   | "builder-cms"
-  | "local-table";
+  | "local-table"
+  | "local-folder"
+  | "github-url";
 export type ContentDatabaseSourceSyncState =
   | "idle"
   | "linked"
@@ -757,10 +759,18 @@ export interface ChangeContentDatabaseSourceRoleRequest {
   offset?: number;
 }
 
+export interface ContentDatabaseSummarySource {
+  id: string;
+  sourceType: ContentDatabaseSourceType;
+  sourceName: string;
+  sourceTable: string;
+}
+
 export interface ContentDatabaseSummary {
   databaseId: string;
   documentId: string;
   title: string;
+  sources?: ContentDatabaseSummarySource[];
 }
 
 export interface ListContentDatabasesResponse {

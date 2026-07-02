@@ -85,6 +85,38 @@ describe("content database source actions", () => {
     });
   });
 
+  it("accepts local folder and GitHub URL mounted source attachment args", () => {
+    expect(
+      attachSource.schema.parse({
+        databaseId: "database",
+        sourceType: "local-folder",
+        sourceName: "Docs repo",
+        sourceTable: "docs",
+        relationshipMode: "items",
+      }),
+    ).toEqual({
+      databaseId: "database",
+      sourceType: "local-folder",
+      sourceName: "Docs repo",
+      sourceTable: "docs",
+      relationshipMode: "items",
+      limit: 100,
+      offset: 0,
+    });
+
+    expect(
+      attachSource.schema.parse({
+        databaseId: "database",
+        sourceType: "github-url",
+        sourceName: "Docs on GitHub",
+        sourceTable: "https://github.com/BuilderIO/agent-native/tree/main/docs",
+      }),
+    ).toMatchObject({
+      sourceType: "github-url",
+      sourceTable: "https://github.com/BuilderIO/agent-native/tree/main/docs",
+    });
+  });
+
   it("rejects unsafe source federation normalization formulas", () => {
     expect(() =>
       attachSource.schema.parse({

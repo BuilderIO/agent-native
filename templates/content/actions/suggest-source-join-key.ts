@@ -20,7 +20,13 @@ export default defineAction({
   schema: z.object({
     databaseId: z.string().optional().describe("Database ID"),
     documentId: z.string().optional().describe("Database document/page ID"),
-    candidateSourceType: z.enum(["mock-local", "builder-cms", "local-table"]),
+    candidateSourceType: z.enum([
+      "mock-local",
+      "builder-cms",
+      "local-table",
+      "local-folder",
+      "github-url",
+    ]),
     candidateSourceTable: z
       .string()
       .describe("Model/table name of the source being added."),

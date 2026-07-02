@@ -109,7 +109,14 @@ function identityFederation(
 }
 
 function sourceType(value: string): ContentDatabaseSourceType {
-  if (value === "builder-cms" || value === "local-table") return value;
+  if (
+    value === "builder-cms" ||
+    value === "local-table" ||
+    value === "local-folder" ||
+    value === "github-url"
+  ) {
+    return value;
+  }
   return "mock-local";
 }
 
@@ -265,6 +272,14 @@ export default defineAction({
     if (!source) throw new Error("Source not found.");
 
     const normalizedType = sourceType(source.sourceType);
+    const isMountedRepoSource =
+      normalizedType === "local-folder" || normalizedType === "github-url";
+
+    if (isMountedRepoSource) {
+      throw new Error(
+        "Local folder and GitHub URL sources only register workspace scope; source role changes are not supported.",
+      );
+    }
 
     if (args.relationshipMode === "details") {
       if (!args.join) {
