@@ -2670,7 +2670,6 @@ export async function runAgentLoop(opts: {
     }
   }
 
-  const bufferTextUntilFinalGuard = Boolean(opts.finalResponseGuard);
   let finalGuardRetries = 0;
   let iterations = 0;
 
@@ -2700,7 +2699,7 @@ export async function runAgentLoop(opts: {
     }
 
     let assistantContent: EngineContentPart[] | undefined;
-    let bufferedAssistantText = "";
+    let streamedAssistantText = "";
     let terminalStopReason:
       | Extract<EngineEvent, { type: "stop" }>["reason"]
       | undefined;
@@ -2768,7 +2767,7 @@ export async function runAgentLoop(opts: {
 
     for (let retry = 0; ; retry++) {
       assistantContent = undefined;
-      bufferedAssistantText = "";
+      streamedAssistantText = "";
       terminalStopReason = undefined;
       toolCallErrors.clear();
       try {
@@ -2833,11 +2832,8 @@ export async function runAgentLoop(opts: {
             }
           }
           if (event.type === "text-delta") {
-            if (bufferTextUntilFinalGuard) {
-              bufferedAssistantText += event.text;
-            } else {
-              send({ type: "text", text: event.text });
-            }
+            streamedAssistantText += event.text;
+            send({ type: "text", text: event.text });
           } else if (event.type === "thinking-delta") {
             thinkingBuffer += event.text;
             // Forward thinking deltas as a distinct event type so the UI
@@ -3007,21 +3003,22 @@ export async function runAgentLoop(opts: {
       }
     }
 
-    const flushBufferedAssistantText = () => {
-      if (!bufferTextUntilFinalGuard) return;
-      const text =
-        bufferedAssistantText || collectTextParts(assistantContentForHistory);
+    const flushUnstreamedAssistantText = () => {
+      if (streamedAssistantText) return;
+      const text = collectTextParts(assistantContentForHistory);
       if (text) send({ type: "text", text });
     };
 
     if (toolCallParts.length === 0) {
       if (terminalStopReason === "max_tokens") {
-        flushBufferedAssistantText();
+        flushUnstreamedAssistantText();
         appendAgentLoopContinuation(messages, "max_tokens");
         continue;
       }
-      const guard = opts.finalResponseGuard
-        ? await opts.finalResponseGuard({
+      let guard: Awaited<ReturnType<AgentLoopFinalResponseGuard>> | null = null;
+      if (opts.finalResponseGuard) {
+        try {
+          guard = await opts.finalResponseGuard({
             messages,
             assistantContent: assistantContentForHistory,
             text: collectTextParts(assistantContentForHistory),
@@ -3029,8 +3026,12 @@ export async function runAgentLoop(opts: {
             toolResults: [...toolResultHistory],
             retryCount: finalGuardRetries,
             executionMode: opts.executionMode ?? "act",
-          })
-        : null;
+          });
+        } catch (err) {
+          send({ type: "clear" });
+          throw err;
+        }
+      }
       let guardEmittedFallback = false;
       if (guard) {
         const retryMessage =
@@ -3039,16 +3040,18 @@ export async function runAgentLoop(opts: {
           typeof guard === "string" ? guard : guard.fallbackMessage;
         if (finalGuardRetries < 1) {
           finalGuardRetries += 1;
+          send({ type: "clear" });
           messages.push({
             role: "user",
             content: [{ type: "text", text: retryMessage }],
           });
           continue;
         }
+        send({ type: "clear" });
         send({ type: "text", text: fallbackMessage ?? retryMessage });
         guardEmittedFallback = true;
       } else {
-        flushBufferedAssistantText();
+        flushUnstreamedAssistantText();
       }
       // Some providers (notably OpenAI Responses for gpt-5+) can stream a
       // successful turn that contains only reasoning content and zero output
@@ -3059,7 +3062,7 @@ export async function runAgentLoop(opts: {
       if (
         !guardEmittedFallback &&
         collectTextParts(assistantContentForHistory).trim().length === 0 &&
-        bufferedAssistantText.trim().length === 0
+        streamedAssistantText.trim().length === 0
       ) {
         send({
           type: "text",
@@ -3076,7 +3079,7 @@ export async function runAgentLoop(opts: {
     // permanently disabled for the rest of a long multi-step run.
     finalGuardRetries = 0;
 
-    flushBufferedAssistantText();
+    flushUnstreamedAssistantText();
 
     let requestedActionStop: { message: string; errorCode?: string } | null =
       null;

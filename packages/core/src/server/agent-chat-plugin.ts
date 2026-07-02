@@ -21,7 +21,10 @@ import {
   hasConfiguredA2ASecret,
   isA2AProductionRuntime,
 } from "../a2a/auth-policy.js";
-import { collectFinalResponseTextFromAgentEvents } from "../a2a/response-text.js";
+import {
+  applyAgentTextEventToBuffer,
+  collectFinalResponseTextFromAgentEvents,
+} from "../a2a/response-text.js";
 import { updateTaskStatusMessage } from "../a2a/task-store.js";
 import { ACTION_CHAT_UI_DATA_WIDGET_RENDERER } from "../action-ui.js";
 import type { ActionHttpConfig } from "../action.js";
@@ -5179,7 +5182,10 @@ export function createAgentChatPlugin(
                 ],
                 actions: mcpActions,
                 send: (event) => {
-                  if (event.type === "text") accumulatedText += event.text;
+                  accumulatedText = applyAgentTextEventToBuffer(
+                    accumulatedText,
+                    event,
+                  );
                 },
                 signal: controller.signal,
               },

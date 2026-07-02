@@ -698,11 +698,15 @@ export function processEvent(
   };
 } {
   if (ev.type === "clear") {
-    // Server is retrying — discard partial text/tool output from the failed attempt
-    content.length = 0;
+    // Server is retrying — discard rejected draft text and unfinished tool
+    // output while keeping completed tool results visible.
+    clearAssistantDraftContent(content);
     resetProcessEventState(state);
     dispatchActivityClear(tabId);
-    return { action: "continue" };
+    return {
+      action: "yield",
+      result: { content: contentSnapshot(content) } as ChatModelRunResult,
+    };
   }
 
   if (ev.type === "text") {
@@ -1157,6 +1161,20 @@ export function processEvent(
   }
 
   return { action: "continue" };
+}
+
+function clearAssistantDraftContent(content: ContentPart[]): void {
+  for (let index = content.length - 1; index >= 0; index--) {
+    const part = content[index];
+    if (!part) continue;
+    if (part.type === "text") {
+      content.splice(index, 1);
+      continue;
+    }
+    if (part.type === "tool-call" && part.result === undefined) {
+      content.splice(index, 1);
+    }
+  }
 }
 
 /**

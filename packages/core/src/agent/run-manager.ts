@@ -124,6 +124,30 @@ export const DEFAULT_ERRORED_RUN_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
  */
 export const TERMINAL_RUN_RECONNECT_WINDOW_MS = 10 * 60 * 1000;
 
+/** Fast poll cadence while a SQL-backed SSE subscription is actively receiving rows. */
+export const SQL_SUBSCRIPTION_ACTIVE_POLL_MS = 125;
+
+/** Baseline SQL-backed SSE poll cadence when the run is idle. */
+export const SQL_SUBSCRIPTION_IDLE_POLL_MS = 500;
+
+/**
+ * Keep briefly polling quickly after rows arrive so token streams stay smooth,
+ * then back off to the idle cadence if the producer goes quiet.
+ */
+export const SQL_SUBSCRIPTION_ACTIVE_GRACE_MS = 2_000;
+
+/** Keep terminal/status probes at the historical cadence to bound DB work. */
+export const SQL_SUBSCRIPTION_STATUS_POLL_MS = 500;
+
+export function resolveSqlSubscriptionPollMs(
+  now: number,
+  activePollUntil: number,
+): number {
+  return now < activePollUntil
+    ? SQL_SUBSCRIPTION_ACTIVE_POLL_MS
+    : SQL_SUBSCRIPTION_IDLE_POLL_MS;
+}
+
 const PROVIDER_RATE_LIMITED_ERROR_CODE = "provider_rate_limited";
 
 function isPreparingActionActivityEvent(event: AgentChatEvent): boolean {
@@ -960,6 +984,8 @@ function subscribeFromSQL(
   return new ReadableStream({
     async start(controller) {
       let lastSeq = fromSeq;
+      let activePollUntil = 0;
+      let lastStatusCheckAt = 0;
       const ping = () => {
         try {
           controller.enqueue(encoder.encode(`: ping ${Date.now()}\n\n`));
@@ -976,6 +1002,9 @@ function subscribeFromSQL(
         try {
           // Read new events from SQL
           const events = await getRunEventsSince(runId, lastSeq);
+          if (events.length > 0) {
+            activePollUntil = Date.now() + SQL_SUBSCRIPTION_ACTIVE_GRACE_MS;
+          }
           for (const { seq, eventData } of events) {
             // Advance the cursor first, before any parse/enqueue branch can
             // `continue`/`return`. Otherwise a single corrupt (unparseable)
@@ -1009,6 +1038,18 @@ function subscribeFromSQL(
 
           // Check if run completed (no terminal event but status changed)
           if (events.length === 0) {
+            const now = Date.now();
+            if (now - lastStatusCheckAt < SQL_SUBSCRIPTION_STATUS_POLL_MS) {
+              if (!cancelled) {
+                const pollMs = resolveSqlSubscriptionPollMs(
+                  now,
+                  activePollUntil,
+                );
+                pollTimer = setTimeout(poll, pollMs);
+              }
+              return;
+            }
+            lastStatusCheckAt = now;
             // Opportunistically reap a stale producer before trusting SQL's
             // "running" status — otherwise a crashed server leaves us polling
             // forever.
@@ -1099,7 +1140,11 @@ function subscribeFromSQL(
 
           // Schedule next poll
           if (!cancelled) {
-            pollTimer = setTimeout(poll, 500);
+            const pollMs = resolveSqlSubscriptionPollMs(
+              Date.now(),
+              activePollUntil,
+            );
+            pollTimer = setTimeout(poll, pollMs);
           }
         } catch {
           // SQL error — close stream
