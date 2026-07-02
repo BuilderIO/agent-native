@@ -1,5 +1,13 @@
 # @agent-native/core
 
+## 0.84.35
+
+### Patch Changes
+
+- 3dea26c: Fix hosted Google Analytics / Tag Manager injection by baking the measurement id into Nitro server bundles and merging the required GA/GTM script, connect, and image hosts into existing stricter document CSPs.
+- 3dea26c: Improve chat tool-preparation UX by hiding zero-byte progress, using clearer preparation/writing copy, and showing a delayed long-running update hint.
+- 3dea26c: Improve background chat streaming smoothness by streaming guarded final text live and using adaptive SQL polling while run events are actively arriving.
+
 ## 0.84.34
 
 ### Patch Changes
