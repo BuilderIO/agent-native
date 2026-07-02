@@ -63,6 +63,28 @@ function normalizedBuilderBodyProse(content: string | null | undefined) {
     .trim();
 }
 
+export function isEffectivelyEmptyDocumentContent(
+  content: string | null | undefined,
+) {
+  const normalized = (content ?? "").trim();
+  return normalized === "" || normalized === "<empty-block/>";
+}
+
+export function shouldRejectStaleEmptyBodySave(args: {
+  incomingContent: string | null | undefined;
+  currentContent: string | null | undefined;
+  loadedUpdatedAt: string | null | undefined;
+  currentUpdatedAt: string | null | undefined;
+}) {
+  if (!args.loadedUpdatedAt || !args.currentUpdatedAt) return false;
+  if (!isEffectivelyEmptyDocumentContent(args.incomingContent)) return false;
+  if (isEffectivelyEmptyDocumentContent(args.currentContent)) return false;
+  return (
+    new Date(args.currentUpdatedAt).getTime() >
+    new Date(args.loadedUpdatedAt).getTime()
+  );
+}
+
 export function isStaleBuilderImageSourceComponentSave(args: {
   incomingContent: string;
   currentContent: string;
@@ -100,6 +122,10 @@ export default defineAction({
       .boolean()
       .optional()
       .describe("Favorite status (true/false)"),
+    loadedUpdatedAt: z
+      .string()
+      .optional()
+      .describe("Document updatedAt value the client loaded before editing"),
   }),
   run: async (args): Promise<DocumentUpdateResponse> => {
     const id = args.id;
@@ -171,6 +197,16 @@ export default defineAction({
         ) {
           content = existing.content;
         }
+      }
+      if (
+        shouldRejectStaleEmptyBodySave({
+          incomingContent: content,
+          currentContent: existing.content,
+          loadedUpdatedAt: args.loadedUpdatedAt,
+          currentUpdatedAt: existing.updatedAt,
+        })
+      ) {
+        content = existing.content;
       }
     }
 

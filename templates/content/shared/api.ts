@@ -98,6 +98,7 @@ export interface DocumentUpdateRequest {
   content?: string;
   icon?: string | null;
   isFavorite?: boolean;
+  loadedUpdatedAt?: string;
 }
 
 export interface DocumentUpdateResponse extends Document {

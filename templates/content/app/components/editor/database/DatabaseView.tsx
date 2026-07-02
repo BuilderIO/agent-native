@@ -174,7 +174,11 @@ import { messagesByLocale } from "@/i18n-data";
 import { cn } from "@/lib/utils";
 
 import { resolveBuilderCmsWriteEffect } from "../../../../actions/_builder-cms-write-adapter.js";
-import { databaseItemBodyHydrationIsPending } from "../body-hydration";
+import {
+  databaseItemBodyHydrationIsPending,
+  previewBodyHydrationIsPending,
+  shouldIgnorePreviewEmptyNormalization,
+} from "../body-hydration";
 import {
   builderBodyHydrationPumpKey,
   shouldPumpBuilderBodyHydration,
@@ -204,7 +208,10 @@ import {
   updatePropertyOptionColor,
 } from "../DocumentProperties";
 import { EmojiPicker } from "../EmojiPicker";
-import { createPreviewDocumentSaveController } from "../previewDocumentSaveController";
+import {
+  createPreviewDocumentSaveController,
+  skippedPreviewDocumentSave,
+} from "../previewDocumentSaveController";
 import {
   acquirePreviewDocumentSaveController,
   peekPreviewDocumentSaveController,
@@ -2418,15 +2425,15 @@ function isDatabasePreviewPortalInteraction(target: EventTarget | null) {
 }
 
 function previewPayloadsEqual(
-  a: { title: string; content: string },
-  b: { title: string; content: string },
+  a: { title: string; content: string; loadedUpdatedAt?: string },
+  b: { title: string; content: string; loadedUpdatedAt?: string },
 ) {
   return a.title === b.title && a.content === b.content;
 }
 
 function retainedPreviewPayload(
   documentId: string,
-  serverPayload: { title: string; content: string },
+  serverPayload: { title: string; content: string; loadedUpdatedAt?: string },
 ) {
   const controller = peekPreviewDocumentSaveController(documentId);
   if (!controller) return null;
@@ -2469,7 +2476,10 @@ function DatabaseItemPreview({
   const previewTitle = databaseItemPreviewTitle(item);
   const canEdit = document?.canEdit ?? item.document.canEdit ?? true;
   const canManage = document?.canManage ?? item.document.canManage ?? false;
-  const bodyHydrationPending = databaseItemBodyHydrationIsPending(item);
+  const bodyHydrationPending = previewBodyHydrationIsPending({
+    item,
+    document,
+  });
   const previewCanEdit = canEdit && !bodyHydrationPending;
   const location = useLocation();
   // Seed the displayed title/content from a RETAINED dirty controller's pending
@@ -2480,6 +2490,7 @@ function DatabaseItemPreview({
     const retained = retainedPreviewPayload(item.document.id, {
       title: item.document.title,
       content: item.document.content,
+      loadedUpdatedAt: item.document.updatedAt,
     });
     return retained?.title ?? item.document.title;
   });
@@ -2487,6 +2498,7 @@ function DatabaseItemPreview({
     const retained = retainedPreviewPayload(item.document.id, {
       title: item.document.title,
       content: item.document.content,
+      loadedUpdatedAt: item.document.updatedAt,
     });
     return retained?.content ?? item.document.content;
   });
@@ -2529,6 +2541,7 @@ function DatabaseItemPreview({
       initial: {
         title: item.document.title,
         content: item.document.content,
+        loadedUpdatedAt: item.document.updatedAt,
       },
       save: (id, payload) =>
         new Promise((resolve, reject) => {
@@ -2538,11 +2551,16 @@ function DatabaseItemPreview({
             return;
           }
           if (bodyHydrationPendingRef.current) {
-            resolve(undefined);
+            resolve(skippedPreviewDocumentSave());
             return;
           }
           updateDocumentRef.current.mutate(
-            { id, title: payload.title, content: payload.content },
+            {
+              id,
+              title: payload.title,
+              content: payload.content,
+              loadedUpdatedAt: payload.loadedUpdatedAt,
+            },
             { onSuccess: () => resolve(undefined), onError: reject },
           );
         }),
@@ -2613,6 +2631,7 @@ function DatabaseItemPreview({
     const nextTitle = document?.title ?? item.document.title;
     const nextContent = document?.content ?? item.document.content;
     const nextIcon = document?.icon ?? item.document.icon;
+    const nextLoadedUpdatedAt = document?.updatedAt ?? item.document.updatedAt;
     // Icon isn't tracked by the title/content save controller, so it can always
     // follow the server.
     setLocalIcon(nextIcon);
@@ -2633,7 +2652,10 @@ function DatabaseItemPreview({
     if (!dirty && !savedAheadOfServer) {
       setLocalTitle(nextTitle);
       setLocalContent(nextContent);
-      controller?.mark(serverPayload);
+      controller?.mark({
+        ...serverPayload,
+        loadedUpdatedAt: nextLoadedUpdatedAt,
+      });
     } else if (controller) {
       // A dirty in-progress edit or a clean local save that the query has not
       // echoed yet is newer than stale server props.
@@ -2646,9 +2668,11 @@ function DatabaseItemPreview({
     document?.title,
     document?.content,
     document?.icon,
+    document?.updatedAt,
     item.document.title,
     item.document.content,
     item.document.icon,
+    item.document.updatedAt,
   ]);
 
   useEffect(() => {
@@ -2670,6 +2694,15 @@ function DatabaseItemPreview({
   }
 
   function handleContentChange(nextContent: string) {
+    if (
+      shouldIgnorePreviewEmptyNormalization({
+        currentContent: localContent,
+        nextContent,
+      })
+    ) {
+      setLocalContent(nextContent);
+      return;
+    }
     setLocalContent(nextContent);
     if (!previewCanEdit || !document) return;
     saveControllerRef.current?.changeContent(nextContent);
