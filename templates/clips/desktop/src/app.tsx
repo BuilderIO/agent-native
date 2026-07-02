@@ -78,6 +78,7 @@ import {
   type VoiceMode,
   type VoiceProvider,
   type VoiceShortcutPreference,
+  type VoiceTextDelivery,
 } from "./lib/voice-dictation";
 import {
   useFeatureConfig,
@@ -158,6 +159,7 @@ const VOICE_CUSTOM_SHORTCUT_KEY = "clips:voice-custom-shortcut";
 const POPOVER_CUSTOM_SHORTCUT_KEY = "clips:popover-custom-shortcut";
 const VOICE_MODE_KEY = "clips:voice-mode";
 const VOICE_PROVIDER_KEY = "clips:voice-provider";
+const VOICE_TEXT_DELIVERY_KEY = "clips:voice-text-delivery";
 const VOICE_INSTRUCTIONS_KEY = "clips:voice-instructions";
 const AUTH_TOKEN_KEY = "clips:auth-token";
 const SOURCE_KEY = "clips:last-source";
@@ -605,6 +607,14 @@ export function App() {
       loadString(VOICE_PROVIDER_KEY, nativeVoiceProvider()),
     );
   });
+  const [voiceTextDelivery, setVoiceTextDelivery] = useState<VoiceTextDelivery>(
+    () => {
+      const saved = loadString(VOICE_TEXT_DELIVERY_KEY, "paste-and-copy");
+      return saved === "copy-only" || saved === "type-only"
+        ? saved
+        : "paste-and-copy";
+    },
+  );
   const [voiceInstructions, setVoiceInstructions] = useState<string>(() =>
     loadString(VOICE_INSTRUCTIONS_KEY, ""),
   );
@@ -751,6 +761,7 @@ export function App() {
       shortcut: voiceShortcut,
       mode: voiceMode,
       provider: voiceProvider,
+      textDelivery: voiceTextDelivery,
       micDeviceId: selectedMicId || null,
       micDeviceLabel: selectedMicLabel || null,
       instructions: voiceInstructions,
@@ -761,6 +772,7 @@ export function App() {
     voiceDictationEnabled,
     voiceMode,
     voiceProvider,
+    voiceTextDelivery,
     selectedMicId,
     selectedMicLabel,
     voiceInstructions,
@@ -1577,6 +1589,10 @@ export function App() {
     [voiceProvider],
   );
   useEffect(
+    () => saveString(VOICE_TEXT_DELIVERY_KEY, voiceTextDelivery),
+    [voiceTextDelivery],
+  );
+  useEffect(
     () => saveString(VOICE_INSTRUCTIONS_KEY, voiceInstructions),
     [voiceInstructions],
   );
@@ -2130,6 +2146,7 @@ export function App() {
           popoverCustomShortcut={popoverCustomShortcut}
           voiceMode={voiceMode}
           voiceProvider={voiceProvider}
+          voiceTextDelivery={voiceTextDelivery}
           voiceInstructions={voiceInstructions}
           shortcutRegistrationError={shortcutRegistrationError}
           onVoiceShortcutChange={updateVoiceShortcut}
@@ -2137,6 +2154,7 @@ export function App() {
           onPopoverCustomShortcutChange={setPopoverCustomShortcut}
           onVoiceModeChange={setVoiceMode}
           onVoiceProviderChange={setVoiceProvider}
+          onVoiceTextDeliveryChange={setVoiceTextDelivery}
           onVoiceInstructionsChange={setVoiceInstructions}
           onSignOut={signOut}
           onConnect={(url) => {
@@ -3061,6 +3079,7 @@ function Setup({
   popoverCustomShortcut,
   voiceMode,
   voiceProvider,
+  voiceTextDelivery,
   voiceInstructions,
   shortcutRegistrationError,
   onVoiceShortcutChange,
@@ -3068,6 +3087,7 @@ function Setup({
   onPopoverCustomShortcutChange,
   onVoiceModeChange,
   onVoiceProviderChange,
+  onVoiceTextDeliveryChange,
   onVoiceInstructionsChange,
   onConnect,
   onCancel,
@@ -3081,6 +3101,7 @@ function Setup({
   popoverCustomShortcut: string;
   voiceMode: VoiceMode;
   voiceProvider: VoiceProvider;
+  voiceTextDelivery: VoiceTextDelivery;
   voiceInstructions: string;
   shortcutRegistrationError: string | null;
   onVoiceShortcutChange: (value: VoiceShortcutPreference) => void;
@@ -3088,6 +3109,7 @@ function Setup({
   onPopoverCustomShortcutChange: (value: string) => void;
   onVoiceModeChange: (value: VoiceMode) => void;
   onVoiceProviderChange: (value: VoiceProvider) => void;
+  onVoiceTextDeliveryChange: (value: VoiceTextDelivery) => void;
   onVoiceInstructionsChange: (value: string) => void;
   onConnect: (url: string) => void;
   onCancel?: () => void;
@@ -3555,6 +3577,13 @@ function Setup({
   const modeHint: Record<VoiceMode, string> = {
     "push-to-talk": "Hold the shortcut while speaking. Release to stop.",
     toggle: "Press once to start, again to stop.",
+  };
+  const textDeliveryHint: Record<VoiceTextDelivery, string> = {
+    "paste-and-copy":
+      "Paste the text into the focused field and keep a copy on the clipboard.",
+    "copy-only": "Only copy the text to the clipboard. Paste it yourself.",
+    "type-only":
+      "Type the text into the focused field without changing the clipboard.",
   };
 
   function selectProviderMode(mode: VoiceProviderMode) {
@@ -4283,6 +4312,29 @@ function Setup({
               <option value="toggle">Press to start, press to stop</option>
             </select>
             <p className="setup-hint">{modeHint[voiceMode]}</p>
+          </div>
+
+          <div className="setup-section">
+            <SettingLabel
+              label="Text delivery"
+              hint="What happens with the transcribed text once dictation stops."
+              htmlFor="voice-text-delivery"
+            />
+            <select
+              id="voice-text-delivery"
+              className="setup-select"
+              value={voiceTextDelivery}
+              onChange={(event) =>
+                onVoiceTextDeliveryChange(
+                  event.target.value as VoiceTextDelivery,
+                )
+              }
+            >
+              <option value="paste-and-copy">Paste into field and copy</option>
+              <option value="copy-only">Copy to clipboard only</option>
+              <option value="type-only">Type into field only</option>
+            </select>
+            <p className="setup-hint">{textDeliveryHint[voiceTextDelivery]}</p>
           </div>
         </>
       ) : null}
