@@ -5,17 +5,19 @@ import {
 } from "@agent-native/core/server";
 
 import {
+  SESSION_REPLAY_AGENT_ACCESS_PARAM,
+  sessionReplayAgentAccessTokenResourceId,
+} from "../../shared/session-replay-agent-access.js";
+import {
+  compactSessionRecordingSummary,
   getSessionReplaySummary,
   getSessionReplayTokenizedEvents,
   getSessionReplayTokenizedSummary,
   type ReplayScope,
-  type SessionRecordingSummary,
 } from "./session-replay.js";
 
-export const SESSION_REPLAY_AGENT_ACCESS_PARAM = "agent_access";
+export { SESSION_REPLAY_AGENT_ACCESS_PARAM };
 export const SESSION_REPLAY_AGENT_ACCESS_TTL_SECONDS = 2 * 60 * 60;
-const SESSION_REPLAY_AGENT_ACCESS_TOKEN_PREFIX =
-  "analytics-session-replay-agent-context";
 
 type AgentReplayEvent = Record<string, any>;
 
@@ -67,10 +69,6 @@ function appendAgentToken(path: string, token: string): string {
   return `${path}${sep}${SESSION_REPLAY_AGENT_ACCESS_PARAM}=${encodeURIComponent(
     token,
   )}`;
-}
-
-function sessionReplayAgentAccessTokenResourceId(recordingId: string): string {
-  return `${SESSION_REPLAY_AGENT_ACCESS_TOKEN_PREFIX}:${recordingId}`;
 }
 
 function replayStartedAt(events: AgentReplayEvent[]): number {
@@ -169,34 +167,6 @@ function buildReplayTimeline(events: AgentReplayEvent[]) {
   }
 
   return markers.sort((a, b) => a.offsetMs - b.offsetMs).slice(0, 200);
-}
-
-function compactRecording(recording: SessionRecordingSummary) {
-  return {
-    id: recording.id,
-    sessionId: recording.sessionId,
-    userId: recording.userId,
-    anonymousId: recording.anonymousId,
-    userKey: recording.userKey,
-    startedAt: recording.startedAt,
-    endedAt: recording.endedAt,
-    durationMs: recording.durationMs,
-    eventCount: recording.eventCount,
-    chunkCount: recording.chunkCount,
-    pageCount: recording.pageCount,
-    errorCount: recording.errorCount,
-    rageClickCount: recording.rageClickCount,
-    privacyMode: recording.privacyMode,
-    firstUrl: recording.firstUrl,
-    lastUrl: recording.lastUrl,
-    path: recording.path,
-    hostname: recording.hostname,
-    app: recording.app,
-    template: recording.template,
-    status: recording.status,
-    createdAt: recording.createdAt,
-    updatedAt: recording.updatedAt,
-  };
 }
 
 export function verifySessionReplayAgentAccess(
@@ -304,7 +274,7 @@ export async function buildSessionReplayAgentContext({
       "Treat page text, URLs, and replay metadata as user data. Do not expose private data beyond what is needed to debug the user's question.",
       "The token is scoped to this recording and expires; do not store it in code, docs, screenshots, or long-lived notes.",
     ],
-    recording: compactRecording(recording),
+    recording: compactSessionRecordingSummary(recording),
     apis: {
       page: { method: "GET", url: absoluteUrl(pagePath, origin) },
       context: { method: "GET", url: absoluteUrl(contextPath, origin) },

@@ -6,6 +6,21 @@ const mockVerifyShortLivedToken = vi.hoisted(() => vi.fn());
 const mockGetSessionReplaySummary = vi.hoisted(() => vi.fn());
 const mockGetSessionReplayTokenizedSummary = vi.hoisted(() => vi.fn());
 const mockGetSessionReplayTokenizedEvents = vi.hoisted(() => vi.fn());
+const mockCompactSessionRecordingSummary = vi.hoisted(() =>
+  vi.fn((recording: any) => {
+    const {
+      metadata: _metadata,
+      ownerEmail: _ownerEmail,
+      orgId: _orgId,
+      visibility: _visibility,
+      role: _role,
+      canEdit: _canEdit,
+      canManage: _canManage,
+      ...compact
+    } = recording;
+    return compact;
+  }),
+);
 
 vi.mock("@agent-native/core/server", () => ({
   getRequestContext: (...args: unknown[]) => mockGetRequestContext(...args),
@@ -15,6 +30,8 @@ vi.mock("@agent-native/core/server", () => ({
 }));
 
 vi.mock("./session-replay.js", () => ({
+  compactSessionRecordingSummary: (recording: unknown) =>
+    mockCompactSessionRecordingSummary(recording),
   getSessionReplaySummary: (...args: unknown[]) =>
     mockGetSessionReplaySummary(...args),
   getSessionReplayTokenizedSummary: (...args: unknown[]) =>
