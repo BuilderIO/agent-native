@@ -1,5 +1,13 @@
 # @agent-native/core
 
+## 0.84.58
+
+### Patch Changes
+
+- cdc9033: Recover durable background chat runs when action input preparation stops making byte progress, and avoid duplicate tool cards when reconnects replay completed tool events.
+- cdc9033: Remove the shadow from agent chat context scope pills.
+- cdc9033: Prevent agent chat sidebars from jittering around nested scroll areas and suppress replayed reconnect tool cards that are already rendered in the saved thread.
+
 ## 0.84.57
 
 ### Patch Changes

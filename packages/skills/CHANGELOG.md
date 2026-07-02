@@ -1,5 +1,14 @@
 # @agent-native/skills
 
+## 0.2.232
+
+### Patch Changes
+
+- Updated dependencies [cdc9033]
+- Updated dependencies [cdc9033]
+- Updated dependencies [cdc9033]
+  - @agent-native/core@0.84.58
+
 ## 0.2.231
 
 ### Patch Changes
