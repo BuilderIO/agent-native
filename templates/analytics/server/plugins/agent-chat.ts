@@ -4,6 +4,7 @@ import {
   getRequestRunContext,
   loadActionsFromStaticRegistry,
   type AgentLoopFinalResponseGuardContext,
+  type ActionEntry,
 } from "@agent-native/core/server";
 
 import actionsRegistry from "../../.generated/actions-registry.js";
@@ -63,6 +64,34 @@ const INITIAL_TOOL_NAMES = [
   "save-data-dictionary-entry",
   "navigate",
 ];
+
+export const PLAN_MODE_ACT_ONLY_TOOLS = new Set([
+  "query-agent-native-analytics",
+  "bigquery",
+  "provider-api-request",
+  "provider-corpus-job",
+  "query-staged-dataset",
+  "account-deep-dive",
+  "hubspot-deals",
+  "hubspot-records",
+  "gong-calls",
+  "jira-search",
+  "slack-messages",
+  "sentry",
+]);
+
+export function applyAnalyticsPlanModePolicy(
+  actions: Record<string, ActionEntry>,
+): Record<string, ActionEntry> {
+  return Object.fromEntries(
+    Object.entries(actions).map(([name, entry]) => [
+      name,
+      PLAN_MODE_ACT_ONLY_TOOLS.has(name)
+        ? { ...entry, allowInPlanMode: false }
+        : entry,
+    ]),
+  );
+}
 
 function latestUserText(
   messages: AgentLoopFinalResponseGuardContext["messages"],
@@ -159,7 +188,9 @@ function realDataFinalGuard(context: AgentLoopFinalResponseGuardContext) {
 
 export default createAgentChatPlugin({
   appId: "analytics",
-  actions: loadActionsFromStaticRegistry(actionsRegistry),
+  actions: applyAnalyticsPlanModePolicy(
+    loadActionsFromStaticRegistry(actionsRegistry),
+  ),
   initialToolNames: INITIAL_TOOL_NAMES,
   finalResponseGuard: realDataFinalGuard,
   // Enable sandboxed JavaScript execution for analytics data processing.

@@ -128,11 +128,6 @@ function explicitEngineName(
   return undefined;
 }
 
-function isMultiTenantDeploy(): boolean {
-  if (process.env.NODE_ENV !== "production") return false;
-  return !isLocalDatabase();
-}
-
 function collectToolResultSummaries(
   completedRun: ActiveRun,
 ): A2AToolResultSummary[] {
@@ -151,14 +146,14 @@ async function resolveIntegrationApiKey(
   if (engineName) {
     const provider = engineToProvider(engineName);
     const userApiKey = await getOwnerApiKey(provider, ownerEmail);
-    if (userApiKey || isMultiTenantDeploy()) return userApiKey;
+    if (userApiKey) return userApiKey;
     const envVar = PROVIDER_TO_ENV[provider];
     const providerEnvKey = envVar ? readDeployCredentialEnv(envVar) : undefined;
     return providerEnvKey || fallbackApiKey.trim() || undefined;
   }
 
   const userApiKey = await getOwnerActiveApiKey(ownerEmail);
-  if (userApiKey || isMultiTenantDeploy()) return userApiKey;
+  if (userApiKey) return userApiKey;
   return fallbackApiKey.trim() || undefined;
 }
 

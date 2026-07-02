@@ -407,11 +407,14 @@ describe("integration webhook handler engine resolution", () => {
     );
   });
 
-  it("does not fall back to deployment keys in multi-tenant mode", async () => {
+  it("falls back to deployment LLM keys in production shared mode", async () => {
     const { processIntegrationTask } = await import("./webhook-handler.js");
     const sendResponse = vi.fn();
     process.env.NODE_ENV = "production";
     isLocalDatabaseMock.mockReturnValue(false);
+    readDeployCredentialEnvMock.mockImplementation((key: string) =>
+      key === "OPENAI_API_KEY" ? "openai-hosted-key" : undefined,
+    );
     const task: PendingTask = {
       id: "task-multitenant",
       platform: "fake",
@@ -447,11 +450,11 @@ describe("integration webhook handler engine resolution", () => {
       ownerEmail: task.ownerEmail,
     });
 
-    expect(readDeployCredentialEnvMock).not.toHaveBeenCalled();
+    expect(readDeployCredentialEnvMock).toHaveBeenCalledWith("OPENAI_API_KEY");
     expect(resolveEngineMock).toHaveBeenCalledWith(
       expect.objectContaining({
         engineOption: "ai-sdk:openai",
-        apiKey: undefined,
+        apiKey: "openai-hosted-key",
       }),
     );
   });
