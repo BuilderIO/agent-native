@@ -2822,7 +2822,6 @@ export async function runAgentLoop(opts: {
           startedAt: number;
           lastProgressAt: number;
           bytes: number;
-          startedFromDelta: boolean;
         };
         type ZeroByteToolInputRestart = {
           toolName: string;
@@ -2858,44 +2857,30 @@ export async function runAgentLoop(opts: {
         const hasActionPreparationStalled = () => {
           if (activeToolInputs.size === 0) return false;
           const now = Date.now();
+          let latestProgressAt = 0;
           for (const active of activeToolInputs.values()) {
-            if (
-              now - active.lastProgressAt >=
-              ACTION_PREPARATION_NO_PROGRESS_TIMEOUT_MS
-            ) {
-              return true;
+            if (active.lastProgressAt > latestProgressAt) {
+              latestProgressAt = active.lastProgressAt;
             }
           }
-          return false;
+          return (
+            now - latestProgressAt >= ACTION_PREPARATION_NO_PROGRESS_TIMEOUT_MS
+          );
         };
         const trackActiveToolInput = (
           key: string,
           toolName: string | undefined,
           bytes: number,
-          source?: "start" | "delta",
         ) => {
           const now = Date.now();
           const previous = activeToolInputs.get(key);
           const resolvedToolName = toolName ?? previous?.toolName;
-          if (bytes > 0 && resolvedToolName) {
-            for (const [activeKey, active] of activeToolInputs) {
-              if (
-                activeKey !== key &&
-                active.toolName === resolvedToolName &&
-                active.bytes === 0 &&
-                active.startedFromDelta
-              ) {
-                activeToolInputs.delete(activeKey);
-              }
-            }
-          }
           activeToolInputs.set(key, {
             id: key,
             ...(resolvedToolName ? { toolName: resolvedToolName } : {}),
             startedAt: previous?.startedAt ?? now,
             lastProgressAt: now,
             bytes,
-            startedFromDelta: previous?.startedFromDelta ?? source === "delta",
           });
         };
         const resetZeroByteToolInputRestart = (toolName?: string) => {
@@ -2967,7 +2952,7 @@ export async function runAgentLoop(opts: {
             if (key && event.name) {
               toolInputNames.set(key, event.name);
               toolInputBytes.set(key, 0);
-              trackActiveToolInput(key, event.name, 0, "start");
+              trackActiveToolInput(key, event.name, 0);
             }
             sendToolInputActivity(event.name, key, undefined, true);
             if (noteZeroByteToolInputStart(event.name)) {
@@ -2995,12 +2980,7 @@ export async function runAgentLoop(opts: {
                 new TextEncoder().encode(event.text ?? "").byteLength;
               toolInputBytes.set(key, progressBytes);
               if (!hadByteRecord || progressBytes > previous) {
-                trackActiveToolInput(
-                  key,
-                  toolName,
-                  progressBytes,
-                  hadByteRecord ? undefined : "delta",
-                );
+                trackActiveToolInput(key, toolName, progressBytes);
                 if (progressBytes > 0) {
                   resetZeroByteToolInputRestart(toolName);
                 } else if (!hadByteRecord) {
