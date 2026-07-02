@@ -1,3 +1,4 @@
+import { EventEmitter } from "events";
 import fs from "fs";
 import type { IncomingMessage, ServerResponse } from "http";
 import { createRequire, syncBuiltinESMExports } from "module";
@@ -36,6 +37,137 @@ const require = createRequire(import.meta.url);
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 let nitroFsWatchGuardInstalled = false;
 
+type FsWatchArgs = [fs.PathLike, ...any[]];
+
+function isFileWatchLimitError(
+  error: NodeJS.ErrnoException | undefined,
+): boolean {
+  return error?.code === "EMFILE" || error?.code === "ENOSPC";
+}
+
+function watchPollingIntervalMs(): number {
+  const raw = Number(process.env.CHOKIDAR_INTERVAL ?? 1000);
+  return Number.isFinite(raw) && raw > 0 ? raw : 1000;
+}
+
+function fsWatchListener(args: FsWatchArgs): fs.WatchListener<string> | null {
+  const maybeOptionsOrListener = args[1];
+  const maybeListener = args[2];
+  if (typeof maybeOptionsOrListener === "function")
+    return maybeOptionsOrListener as fs.WatchListener<string>;
+  if (typeof maybeListener === "function")
+    return maybeListener as fs.WatchListener<string>;
+  return null;
+}
+
+function fsWatchPersistent(args: FsWatchArgs): boolean {
+  const options = args[1];
+  if (!options || typeof options === "function") return true;
+  if (typeof options === "string" || Buffer.isBuffer(options)) return true;
+  return options.persistent !== false;
+}
+
+function directEntrySnapshot(
+  target: string,
+): Map<string, { mtimeMs: number; size: number; directory: boolean }> {
+  const snapshot = new Map<
+    string,
+    { mtimeMs: number; size: number; directory: boolean }
+  >();
+  const stat = fs.statSync(target);
+  if (!stat.isDirectory()) {
+    snapshot.set(path.basename(target), {
+      mtimeMs: stat.mtimeMs,
+      size: stat.size,
+      directory: false,
+    });
+    return snapshot;
+  }
+  for (const entry of fs.readdirSync(target, { withFileTypes: true })) {
+    const entryPath = path.join(target, entry.name);
+    try {
+      const entryStat = fs.statSync(entryPath);
+      snapshot.set(entry.name, {
+        mtimeMs: entryStat.mtimeMs,
+        size: entryStat.size,
+        directory: entryStat.isDirectory(),
+      });
+    } catch {
+      // The entry may have disappeared between readdir and stat.
+    }
+  }
+  return snapshot;
+}
+
+function createPollingFsWatcher(args: FsWatchArgs): fs.FSWatcher {
+  const target = String(args[0]);
+  const listener = fsWatchListener(args);
+  const emitter = new EventEmitter() as fs.FSWatcher;
+  let closed = false;
+  let previous = directEntrySnapshot(target);
+
+  if (listener) emitter.on("change", listener);
+
+  const emitChange = (eventName: "change" | "rename", filename: string) => {
+    emitter.emit("change", eventName, filename);
+  };
+
+  const timer = setInterval(() => {
+    if (closed) return;
+    let next: typeof previous;
+    try {
+      next = directEntrySnapshot(target);
+    } catch (error) {
+      emitter.emit("error", error);
+      return;
+    }
+
+    for (const [filename, current] of next) {
+      const old = previous.get(filename);
+      if (!old) {
+        emitChange("rename", filename);
+        continue;
+      }
+      if (
+        old.mtimeMs !== current.mtimeMs ||
+        old.size !== current.size ||
+        old.directory !== current.directory
+      ) {
+        emitChange("change", filename);
+      }
+    }
+    for (const filename of previous.keys()) {
+      if (!next.has(filename)) emitChange("rename", filename);
+    }
+    previous = next;
+  }, watchPollingIntervalMs());
+
+  if (!fsWatchPersistent(args)) timer.unref();
+
+  emitter.close = () => {
+    if (closed) return;
+    closed = true;
+    clearInterval(timer);
+    emitter.removeAllListeners();
+  };
+  emitter.ref = () => {
+    timer.ref();
+    return emitter;
+  };
+  emitter.unref = () => {
+    timer.unref();
+    return emitter;
+  };
+
+  return emitter;
+}
+
+function warnNitroFsWatchFallback(target: unknown, err: NodeJS.ErrnoException) {
+  console.warn(
+    `[agent-native] Falling back to polling Nitro fs.watch for ${String(target)}: ${err.message}`,
+  );
+}
+
 function installNitroFsWatchGuard(): void {
   if (nitroFsWatchGuardInstalled) return;
   nitroFsWatchGuardInstalled = true;
@@ -49,29 +181,32 @@ function installNitroFsWatchGuard(): void {
       watcher = originalWatch(...args);
     } catch (error) {
       const err = error as NodeJS.ErrnoException;
-      if (err.code !== "EMFILE" && err.code !== "ENOSPC") throw error;
-      console.warn(
-        `[agent-native] Disabled Nitro fs.watch for ${String(args[0])}: ${err.message}`,
-      );
-      return {
-        close() {},
-        on() {
-          return this as fs.FSWatcher;
-        },
-      } as unknown as fs.FSWatcher;
+      if (!isFileWatchLimitError(err)) throw error;
+      warnNitroFsWatchFallback(args[0], err);
+      return createPollingFsWatcher(args as FsWatchArgs);
     }
 
     const originalEmit = watcher.emit.bind(watcher);
+    const originalClose = watcher.close.bind(watcher);
+    let pollingFallback: fs.FSWatcher | undefined;
+
+    watcher.close = (() => {
+      pollingFallback?.close();
+      return originalClose();
+    }) as fs.FSWatcher["close"];
+
     watcher.emit = ((eventName: string | symbol, ...eventArgs: any[]) => {
       const err = eventArgs[0] as NodeJS.ErrnoException | undefined;
-      if (
-        eventName === "error" &&
-        (err?.code === "EMFILE" || err?.code === "ENOSPC")
-      ) {
-        console.warn(
-          `[agent-native] Disabled Nitro fs.watch for ${String(args[0])}: ${err.message}`,
-        );
+      if (eventName === "error" && isFileWatchLimitError(err) && err) {
+        warnNitroFsWatchFallback(args[0], err);
         watcher.close();
+        pollingFallback = createPollingFsWatcher(args as FsWatchArgs);
+        pollingFallback.on("change", (changeEvent, filename) => {
+          originalEmit("change", changeEvent, filename);
+        });
+        pollingFallback.on("error", (pollingError) => {
+          originalEmit("error", pollingError);
+        });
         return false;
       }
       return originalEmit(eventName, ...eventArgs);
