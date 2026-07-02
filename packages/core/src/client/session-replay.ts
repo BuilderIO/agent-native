@@ -615,9 +615,7 @@ function enqueueReplayEvent(
     timestampMs: replayEventTimestampMs(event),
   });
   state.queuedBytes += estimatedBytes;
-  if (state.queue.length >= state.options.maxEventsPerBatch) {
-    void flushSessionReplay("max-events");
-  }
+  flushQueuedReplayIfNeeded(state);
 }
 
 function replayExtraProperties(
@@ -870,6 +868,24 @@ function isFinalFlushReason(reason: string): boolean {
   ].includes(reason);
 }
 
+function shouldFlushQueuedReplay(state: SessionReplayState): boolean {
+  if (!state.options || state.queue.length === 0) return false;
+  return (
+    state.queue.length >= state.options.maxEventsPerBatch ||
+    state.queuedBytes >= state.options.maxBatchBytes
+  );
+}
+
+function flushQueuedReplayIfNeeded(state: SessionReplayState): void {
+  const options = state.options;
+  if (!options || !shouldFlushQueuedReplay(state)) return;
+  void flushSessionReplay(
+    state.queue.length >= options.maxEventsPerBatch
+      ? "max-events"
+      : "max-bytes",
+  );
+}
+
 function queuedReplayBytes(events: QueuedReplayEvent[]): number {
   return events.reduce((total, event) => total + event.json.length, 0);
 }
@@ -907,14 +923,19 @@ export async function flushSessionReplay(reason = "manual"): Promise<void> {
     return;
   }
   state.flushing = true;
+  let uploaded = false;
   try {
     await sendReplayUpload(state.options, payload.body);
     advanceReplaySequence(state, payload);
+    uploaded = true;
   } catch (error) {
     restoreReplayEvents(state, events);
     console.warn("[session-replay] upload failed", error);
   } finally {
     state.flushing = false;
+  }
+  if (uploaded) {
+    flushQueuedReplayIfNeeded(state);
   }
 }
 

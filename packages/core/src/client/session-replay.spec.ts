@@ -583,6 +583,46 @@ describe("session replay", () => {
     expect(body.events[0].type).toBe(2);
   });
 
+  it("flushes oversized snapshots queued behind an active upload", async () => {
+    const { fetchMock } = installBrowser("https://app.agent-native.com/inbox");
+    vi.stubGlobal("CompressionStream", undefined);
+    let recordOptions: any;
+    recordMock.mockImplementation((options) => {
+      recordOptions = options;
+      return vi.fn();
+    });
+    const { startSessionReplay } = await freshSessionReplay();
+
+    await startSessionReplay({
+      publicKey: "anpk_test",
+      endpoint: "/api/analytics/replay",
+      maxBatchBytes: 1024,
+      maxEventsPerBatch: 50,
+      flushIntervalMs: 100_000,
+    });
+    recordOptions.emit({ type: 4, data: { href: "/inbox" } });
+    recordOptions.emit({
+      type: 2,
+      data: {
+        node: {
+          type: 2,
+          tagName: "html",
+          childNodes: [{ type: 3, textContent: "x".repeat(70 * 1024) }],
+        },
+      },
+    });
+    await waitForAssertion(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+
+    const bodies = await Promise.all(
+      fetchMock.mock.calls.map(([, init]) =>
+        parseReplayUpload(init as RequestInit),
+      ),
+    );
+    expect(bodies.map((body) => body.sequence)).toEqual([0, 1]);
+    expect(bodies[0].events.map((event: any) => event.type)).toEqual([4]);
+    expect(bodies[1].events.map((event: any) => event.type)).toEqual([2]);
+  });
+
   it("passes custom rrweb event sampling through to the recorder", async () => {
     installBrowser("https://app.agent-native.com/inbox");
     let recordOptions: any;
