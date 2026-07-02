@@ -103,6 +103,48 @@ describe("RunStuckBanner", () => {
     ).toHaveLength(1);
   });
 
+  it("does not automatically abort a stuck but heartbeating background worker", async () => {
+    const onRetry = vi.fn();
+    const fetchSpy = vi.fn(async (url: string) => {
+      if (url.includes("/runs/active")) {
+        return jsonResponse({
+          active: true,
+          runId: "run-background",
+          status: "running",
+          dispatchMode: "background-processing",
+          heartbeatAt: 100_000,
+          lastProgressAt: 10_000,
+          serverNow: 101_000,
+        });
+      }
+      return jsonResponse({ error: "unexpected" }, false);
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    await act(async () => {
+      root.render(
+        <RunStuckBanner threadId="thread-1" autoRetry onRetry={onRetry} />,
+      );
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2_000);
+    });
+
+    expect(container.textContent).toContain("The agent is still working.");
+    expect(container.textContent).toContain(
+      "The background worker is still alive",
+    );
+    expect(container.textContent).not.toContain("Retrying automatically now.");
+    expect(onRetry).not.toHaveBeenCalled();
+    expect(
+      fetchSpy.mock.calls.some(
+        ([url, init]) =>
+          String(url).includes("/runs/run-background/abort") &&
+          init?.method === "POST",
+      ),
+    ).toBe(false);
+  });
+
   it("keeps manual retry/cancel controls when auto retry is disabled", async () => {
     const fetchSpy = vi.fn(async (url: string) => {
       if (url.includes("/runs/active")) {

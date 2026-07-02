@@ -42,7 +42,7 @@ npx @agent-native/core@latest create my-app
 Action 是 agent 和 UI 共同调用的一次 typed operation。可以把入门示例换成
 `actions/analyze-responses.ts`：它分析表单反馈，并返回自定义聊天图表的已验证数据形状。
 
-{/* prettier-ignore */}
+<!-- prettier-ignore -->
 ```ts
 // actions/analyze-responses.ts
 import { defineAction } from "@agent-native/core/action";
@@ -85,7 +85,7 @@ pnpm action analyze-responses --formId demo
 
 因为 action 声明了 `outputSchema` 和产品专属的 `chatUI.renderer`，聊天记录不需要把结构化数据压成一段文字。然后在 app 启动时为这个完全相同的 renderer id 注册 React 组件，例如从 `app/root.tsx` 导入一次 `app/chat-renderers.tsx`：
 
-{/* prettier-ignore */}
+<!-- prettier-ignore -->
 ```tsx
 import { registerActionChatRenderer, type ToolRendererProps,} from "@agent-native/core/client/chat";
 

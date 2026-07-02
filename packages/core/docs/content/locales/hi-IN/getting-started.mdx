@@ -32,7 +32,7 @@ pnpm dev
 
 Action वह typed operation है जिसे agent और UI दोनों call करते हैं. इस flow के लिए `actions/analyze-responses.ts` बनाएं: यह form responses analyze करता है और custom chat chart के लिए validated shape लौटाता है.
 
-{/* prettier-ignore */}
+<!-- prettier-ignore -->
 ```ts
 // actions/analyze-responses.ts
 import { defineAction } from "@agent-native/core/action";
@@ -75,7 +75,7 @@ pnpm action analyze-responses --formId demo
 
 क्योंकि action `outputSchema` और product-specific `chatUI.renderer` declare करता है, transcript structured data को plain text में नहीं बदलता. फिर app startup से उसी exact renderer id के लिए React component register करें, जैसे `app/root.tsx` से `app/chat-renderers.tsx` को एक बार import करके:
 
-{/* prettier-ignore */}
+<!-- prettier-ignore -->
 ```tsx
 import { registerActionChatRenderer, type ToolRendererProps,} from "@agent-native/core/client/chat";
 

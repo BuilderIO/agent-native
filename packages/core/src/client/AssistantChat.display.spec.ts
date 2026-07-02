@@ -29,6 +29,7 @@ import {
   reconnectActivityFallbackContent,
   reconnectProgressTimedOut,
   resolveAssistantChatRunningState,
+  resolveAssistantChatRunningStatusLabel,
   resolveAssistantChatSubmitIntent,
 } from "./AssistantChat.js";
 
@@ -156,6 +157,41 @@ describe("resolveAssistantChatRunningState", () => {
   });
 });
 
+describe("resolveAssistantChatRunningStatusLabel", () => {
+  it("keeps active tool activity ahead of recovery labels", () => {
+    expect(
+      resolveAssistantChatRunningStatusLabel({
+        runningActivityLabel: "Preparing generate-design action",
+        isAutoResuming: false,
+        isReconnecting: true,
+        hasReconnectContent: true,
+      }),
+    ).toBe("Preparing generate-design action");
+  });
+
+  it("shows replayed recovery as continuing instead of reconnecting", () => {
+    expect(
+      resolveAssistantChatRunningStatusLabel({
+        runningActivityLabel: null,
+        isAutoResuming: false,
+        isReconnecting: true,
+        hasReconnectContent: true,
+      }),
+    ).toBe("Continuing");
+  });
+
+  it("keeps bare reconnect recovery as thinking", () => {
+    expect(
+      resolveAssistantChatRunningStatusLabel({
+        runningActivityLabel: null,
+        isAutoResuming: false,
+        isReconnecting: true,
+        hasReconnectContent: false,
+      }),
+    ).toBe("Thinking");
+  });
+});
+
 describe("waitForThreadRunToClear", () => {
   it("uses server-relative run progress when deciding whether an active run is stale", () => {
     const source = readFileSync("src/client/AssistantChat.tsx", {
@@ -192,7 +228,7 @@ describe("waitForThreadRunToClear", () => {
     expect(helperSource).not.toContain("20_000");
   });
 
-  it("shows active tool activity before falling back to reconnecting", () => {
+  it("shows active tool activity before falling back to calm recovery labels", () => {
     const source = readFileSync("src/client/AssistantChat.tsx", {
       encoding: "utf8",
     });
@@ -205,10 +241,8 @@ describe("waitForThreadRunToClear", () => {
     expect(labelSource.indexOf("runningActivityLabel")).toBeLessThan(
       labelSource.indexOf("isReconnecting"),
     );
-    // A bare reconnect (no replayed content) must default to "Thinking", never a
-    // perpetual "Working" — that label was removed.
-    expect(labelSource).not.toContain('"Working"');
-    expect(labelSource).toContain('"Thinking"');
+    expect(labelSource).toContain("resolveAssistantChatRunningStatusLabel");
+    expect(labelSource).toContain("hasReconnectContent");
   });
 
   it("clears stale stored active-run state when the server has no usable run", () => {

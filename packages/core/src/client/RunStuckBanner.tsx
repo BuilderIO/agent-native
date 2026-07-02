@@ -55,6 +55,7 @@ export interface RunStuckBannerProps {
 }
 
 const AUTO_RETRY_CLAIM_TTL_MS = 5 * 60 * 1000;
+const BACKGROUND_WORKER_FRESH_HEARTBEAT_MS = 30_000;
 
 type BusyState = { type: "none" } | { type: "cancel" | "retry"; runId: string };
 
@@ -76,6 +77,16 @@ function createAutoRetryOwnerId() {
 
 function autoRetryClaimKey(threadId: string, runId: string) {
   return `agent-native:stuck-auto-retry:${threadId}:${runId}`;
+}
+
+function isFreshBackgroundWorker(state: RunStuckState): boolean {
+  return Boolean(
+    state.status === "running" &&
+    state.dispatchMode === "background-processing" &&
+    state.heartbeatSinceMs != null &&
+    state.heartbeatSinceMs >= 0 &&
+    state.heartbeatSinceMs < BACKGROUND_WORKER_FRESH_HEARTBEAT_MS,
+  );
 }
 
 function markAutoRetryClaim(key: string, ownerId: string) {
@@ -151,6 +162,7 @@ export function RunStuckBanner({
     generatedOwnerIdRef.current = createAutoRetryOwnerId();
   }
   const ownerId = autoRetryOwnerId ?? generatedOwnerIdRef.current;
+  const backgroundWorkerStillAlive = isFreshBackgroundWorker(state);
 
   const lastReportedRef = useRef<{
     isStuck: boolean;
@@ -190,6 +202,7 @@ export function RunStuckBanner({
   useEffect(() => {
     if (
       !autoRetry ||
+      backgroundWorkerStillAlive ||
       !state.isStuck ||
       !state.runId ||
       busy.type !== "none" ||
@@ -223,6 +236,7 @@ export function RunStuckBanner({
   }, [
     abortRun,
     autoRetry,
+    backgroundWorkerStillAlive,
     busy,
     onRetry,
     ownerId,
@@ -280,11 +294,17 @@ export function RunStuckBanner({
       />
       <div className="flex min-w-0 flex-1 flex-col gap-1.5">
         <div className="leading-snug">
-          <span className="font-medium">This chat looks stuck.</span>{" "}
+          <span className="font-medium">
+            {backgroundWorkerStillAlive
+              ? "The agent is still working."
+              : "This chat looks stuck."}
+          </span>{" "}
           <span className="text-muted-foreground">
             No progress
-            {stuckSeconds != null ? ` for ${stuckSeconds}s` : ""}. The agent may
-            have hit a server timeout or lost its connection.
+            {stuckSeconds != null ? ` for ${stuckSeconds}s` : ""}.{" "}
+            {backgroundWorkerStillAlive
+              ? "The background worker is still alive; large updates can take a few minutes."
+              : "The agent may have hit a server timeout or lost its connection."}
             {autoRetry && busyType === "retry"
               ? " Retrying automatically now."
               : ""}

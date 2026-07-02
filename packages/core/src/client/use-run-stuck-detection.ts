@@ -24,6 +24,10 @@ export interface RunStuckState {
   stuckSinceMs: number | null;
   /** Server timestamp (ms) of the last process-alive heartbeat. */
   heartbeatAt: number | null;
+  /** Milliseconds since `heartbeatAt`, computed against the server clock. */
+  heartbeatSinceMs: number | null;
+  /** How the run was dispatched, e.g. foreground or background-processing. */
+  dispatchMode: string | null;
 }
 
 export interface UseRunStuckDetectionOptions {
@@ -51,6 +55,7 @@ interface ActiveRunResponse {
   status?: string;
   heartbeatAt: number | null;
   lastProgressAt?: number | null;
+  dispatchMode?: string | null;
   /** Server clock at response time, used to compute elapsed server-relative. */
   serverNow?: number;
 }
@@ -62,6 +67,8 @@ const EMPTY_STATE: RunStuckState = {
   lastProgressAt: null,
   stuckSinceMs: null,
   heartbeatAt: null,
+  heartbeatSinceMs: null,
+  dispatchMode: null,
 };
 
 export function useRunStuckDetection({
@@ -102,6 +109,9 @@ export function useRunStuckDetection({
           const nowMs = data.serverNow ?? Date.now();
           const stuckSinceMs =
             lastProgressAt != null ? nowMs - lastProgressAt : null;
+          const heartbeatAt = data.heartbeatAt ?? null;
+          const heartbeatSinceMs =
+            heartbeatAt != null ? nowMs - heartbeatAt : null;
           const isStuck = Boolean(
             data.active &&
             data.status === "running" &&
@@ -114,7 +124,10 @@ export function useRunStuckDetection({
             status: data.status ?? null,
             lastProgressAt,
             stuckSinceMs,
-            heartbeatAt: data.heartbeatAt ?? null,
+            heartbeatAt,
+            heartbeatSinceMs,
+            dispatchMode:
+              typeof data.dispatchMode === "string" ? data.dispatchMode : null,
           });
           // Back off polling when nothing is in flight — there's no point
           // hammering the endpoint while the chat is idle. We still poll

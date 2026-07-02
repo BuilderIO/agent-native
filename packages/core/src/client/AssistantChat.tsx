@@ -662,6 +662,23 @@ export function resolveAssistantChatRunningState({
   };
 }
 
+export function resolveAssistantChatRunningStatusLabel({
+  runningActivityLabel,
+  isAutoResuming,
+  isReconnecting,
+  hasReconnectContent,
+}: {
+  runningActivityLabel: string | null | undefined;
+  isAutoResuming: boolean;
+  isReconnecting: boolean;
+  hasReconnectContent: boolean;
+}): string {
+  if (runningActivityLabel) return runningActivityLabel;
+  if (isAutoResuming) return "Resuming";
+  if (isReconnecting && hasReconnectContent) return "Continuing";
+  return "Thinking";
+}
+
 type QueuedMessage = {
   id: string;
   text: string;
@@ -1497,18 +1514,15 @@ const AssistantChatInner = forwardRef<
     hasActiveServerRun,
   });
   const textStreaming = showRunningInUI || externalStreaming;
-  // A revealed activity label wins; otherwise stay a steady "Thinking" by
-  // default. We only surface "Reconnecting" while we are actively replaying
-  // recovered content (reconnectContent populated). A bare reconnect with no
-  // replayed content is normal ongoing work, so it must read as "Thinking",
-  // never a perpetual "Working".
-  const runningStatusLabel = runningActivityLabel
-    ? runningActivityLabel
-    : isAutoResuming
-      ? "Resuming"
-      : isReconnecting && reconnectContent.length > 0
-        ? "Reconnecting"
-        : "Thinking";
+  // A revealed activity label wins; otherwise keep recovery states calm and
+  // product-facing. Reconnect is transport machinery, so normal replay reads as
+  // "Continuing" instead of exposing "Reconnecting" mid-chat.
+  const runningStatusLabel = resolveAssistantChatRunningStatusLabel({
+    runningActivityLabel,
+    isAutoResuming,
+    isReconnecting,
+    hasReconnectContent: reconnectContent.length > 0,
+  });
   const reconnectActivityContent = useMemo(
     () =>
       (isReconnecting || reconnectFrozen) && reconnectContent.length === 0
@@ -1952,7 +1966,7 @@ const AssistantChatInner = forwardRef<
           }
           setRunErrorInfo({
             message:
-              "The previous agent run stopped producing visible progress while reconnecting, so it was stopped before it could keep looping.",
+              "The previous agent run stopped producing visible progress during recovery, so it was stopped before it could keep looping.",
             errorCode: "reconnect_no_progress",
             recoverable: true,
             runId,
