@@ -9,6 +9,7 @@ import {
   applySourceFieldPropertyToDatabaseResponse,
   clearDeletedContentDatabaseFromCache,
   contentDatabaseQueryKey,
+  readCachedContentDatabaseResponse,
   writeContentDatabaseResponseToCache,
 } from "./use-content-database";
 
@@ -313,5 +314,46 @@ describe("writeContentDatabaseResponseToCache", () => {
       queryClient.getQueryData<ContentDatabaseResponse>(visibleQueryKey);
     expect(visibleCache?.source?.sourceTable).toBe("blog-article");
     expect(visibleCache?.items).toHaveLength(500);
+  });
+});
+
+describe("readCachedContentDatabaseResponse", () => {
+  it("reads a cached paginated response for the same database document", () => {
+    const response = databaseResponse();
+    const queryClient = new QueryClient();
+    queryClient.setQueryData<ContentDatabaseResponse>(
+      [
+        "action",
+        "get-content-database",
+        { documentId: "database-page", limit: 100 },
+      ],
+      response,
+    );
+
+    expect(
+      readCachedContentDatabaseResponse(queryClient, "database-page"),
+    ).toBe(response);
+  });
+
+  it("prefers the exact unpaginated cache entry when present", () => {
+    const paginated = databaseResponse();
+    const exact = { ...databaseResponse(), items: [] };
+    const queryClient = new QueryClient();
+    queryClient.setQueryData<ContentDatabaseResponse>(
+      [
+        "action",
+        "get-content-database",
+        { documentId: "database-page", limit: 100 },
+      ],
+      paginated,
+    );
+    queryClient.setQueryData<ContentDatabaseResponse>(
+      contentDatabaseQueryKey("database-page"),
+      exact,
+    );
+
+    expect(
+      readCachedContentDatabaseResponse(queryClient, "database-page"),
+    ).toBe(exact);
   });
 });

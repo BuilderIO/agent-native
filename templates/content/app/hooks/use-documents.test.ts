@@ -1,11 +1,15 @@
-import type { Document } from "@shared/api";
+import type { ContentDatabaseItem, Document } from "@shared/api";
+import { QueryClient } from "@tanstack/react-query";
 import { describe, expect, it } from "vitest";
 
 import {
   buildDocumentTree,
+  documentPropertiesQueryKey,
+  documentQueryKey,
   filterDocumentTreeDocuments,
   mergeDocumentIntoDocumentCache,
   mergeDocumentIntoListDocumentsCache,
+  seedDatabaseItemDocumentCaches,
 } from "./use-documents";
 
 function doc(id: string, parentId: string | null, position = 0): Document {
@@ -158,5 +162,94 @@ describe("mergeDocumentIntoDocumentCache", () => {
         updated,
       ),
     ).toEqual({ ...updated, database });
+  });
+});
+
+describe("seedDatabaseItemDocumentCaches", () => {
+  it("warms get-document and list-document-properties from a database row", () => {
+    const queryClient = new QueryClient();
+    const item: ContentDatabaseItem = {
+      id: "item-a",
+      databaseId: "database",
+      position: 0,
+      document: {
+        ...doc("row-page", "database-page"),
+        title: "Builder blog launch",
+        icon: "B",
+        canEdit: true,
+        canManage: true,
+        databaseMembership: {
+          databaseId: "database",
+          databaseDocumentId: "database-page",
+          databaseTitle: "Content calendar",
+          position: 0,
+        },
+      },
+      properties: [
+        {
+          definition: {
+            id: "status",
+            databaseId: "database",
+            name: "Status",
+            type: "text",
+            visibility: "always_show",
+            options: {},
+            position: 0,
+            createdAt: "2026-05-12T00:00:00.000Z",
+            updatedAt: "2026-05-12T00:00:00.000Z",
+          },
+          value: "Draft",
+          editable: true,
+        },
+      ],
+    };
+
+    seedDatabaseItemDocumentCaches(queryClient, item);
+
+    expect(
+      queryClient.getQueryData(documentQueryKey("row-page")),
+    ).toMatchObject({
+      id: "row-page",
+      title: "Builder blog launch",
+      icon: "B",
+      properties: item.properties,
+    });
+    expect(
+      queryClient.getQueryData(documentPropertiesQueryKey("row-page")),
+    ).toEqual({
+      documentId: "row-page",
+      databaseId: "database",
+      properties: item.properties,
+    });
+  });
+
+  it("does not overwrite an already-warm get-document cache", () => {
+    const queryClient = new QueryClient();
+    queryClient.setQueryData(documentQueryKey("row-page"), {
+      ...doc("row-page", "database-page"),
+      title: "Freshly saved title",
+      content: "Full body",
+      source: { mode: "database" },
+    });
+
+    seedDatabaseItemDocumentCaches(queryClient, {
+      id: "item-a",
+      databaseId: "database",
+      position: 0,
+      document: {
+        ...doc("row-page", "database-page"),
+        title: "Stale table title",
+      },
+      properties: [],
+    });
+
+    expect(
+      queryClient.getQueryData(documentQueryKey("row-page")),
+    ).toMatchObject({
+      id: "row-page",
+      title: "Freshly saved title",
+      content: "Full body",
+      source: { mode: "database" },
+    });
   });
 });

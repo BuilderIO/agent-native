@@ -1,18 +1,29 @@
 import { useActionQuery, useActionMutation } from "@agent-native/core/client";
 import type {
+  ContentDatabaseItem,
   Document,
   DocumentCreateRequest,
+  DocumentPropertiesResponse,
   DocumentUpdateRequest,
   DocumentUpdateResponse,
   DocumentMoveRequest,
   DocumentTreeNode,
 } from "@shared/api";
+import type { QueryClient } from "@tanstack/react-query";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 
 import { useRestoreContentDatabase } from "./use-content-database";
 
 const LIST_DOCUMENTS_QUERY_KEY = ["action", "list-documents", undefined];
+
+export function documentQueryKey(documentId: string) {
+  return ["action", "get-document", { id: documentId }] as const;
+}
+
+export function documentPropertiesQueryKey(documentId: string) {
+  return ["action", "list-document-properties", { documentId }] as const;
+}
 
 export function mergeDocumentIntoDocumentCache(
   old: unknown,
@@ -40,6 +51,42 @@ export function mergeDocumentIntoListDocumentsCache(
   );
 
   return { ...(old as object), documents: nextDocuments };
+}
+
+export function seedDatabaseItemDocumentCaches(
+  queryClient: Pick<QueryClient, "getQueryData" | "setQueryData">,
+  item: ContentDatabaseItem,
+) {
+  const document = {
+    ...item.document,
+    properties: item.properties,
+  };
+
+  // Seed only cold caches. Overwriting an existing entry would bump its
+  // freshness with possibly older table-snapshot data (a background database
+  // refetch can lag a just-saved document edit) and suppress the correcting
+  // refetch for the whole staleTime window.
+  if (
+    queryClient.getQueryData(documentQueryKey(item.document.id)) === undefined
+  ) {
+    queryClient.setQueryData<Document>(
+      documentQueryKey(item.document.id),
+      document,
+    );
+  }
+  if (
+    queryClient.getQueryData(documentPropertiesQueryKey(item.document.id)) ===
+    undefined
+  ) {
+    queryClient.setQueryData<DocumentPropertiesResponse>(
+      documentPropertiesQueryKey(item.document.id),
+      {
+        documentId: item.document.id,
+        databaseId: item.databaseId,
+        properties: item.properties,
+      },
+    );
+  }
 }
 
 export function useDocuments() {
@@ -72,9 +119,8 @@ export function useUpdateDocument() {
     DocumentUpdateRequest & { id: string }
   >("update-document", {
     onSuccess: (data, variables) => {
-      queryClient.setQueryData(
-        ["action", "get-document", { id: variables.id }],
-        (old: unknown) => mergeDocumentIntoDocumentCache(old, data),
+      queryClient.setQueryData(documentQueryKey(variables.id), (old: unknown) =>
+        mergeDocumentIntoDocumentCache(old, data),
       );
       queryClient.setQueryData(LIST_DOCUMENTS_QUERY_KEY, (old: unknown) =>
         mergeDocumentIntoListDocumentsCache(old, data),

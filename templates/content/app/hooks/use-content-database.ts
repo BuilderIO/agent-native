@@ -79,6 +79,23 @@ export function writeContentDatabaseResponseToCache(
   );
 }
 
+export function readCachedContentDatabaseResponse(
+  queryClient: Pick<QueryClient, "getQueryData" | "getQueriesData">,
+  documentId: string,
+) {
+  const exact = queryClient.getQueryData<ContentDatabaseResponse>(
+    contentDatabaseQueryKey(documentId),
+  );
+  if (exact) return exact;
+
+  const cached = queryClient
+    .getQueriesData<ContentDatabaseResponse>(
+      contentDatabaseQueryFilter(documentId),
+    )
+    .find(([, data]) => data);
+  return cached?.[1];
+}
+
 export function clearDeletedContentDatabaseFromCache(
   queryClient: Pick<QueryClient, "removeQueries" | "invalidateQueries">,
   documentId: string,
@@ -164,6 +181,7 @@ export function applySourceFieldPropertyToDatabaseResponse(
 }
 
 export function useContentDatabase(documentId: string | null, limit?: number) {
+  const queryClient = useQueryClient();
   return useActionQuery<ContentDatabaseResponse>(
     "get-content-database",
     documentId ? { documentId, limit } : undefined,
@@ -171,6 +189,13 @@ export function useContentDatabase(documentId: string | null, limit?: number) {
       enabled: !!documentId,
       retry: false,
       placeholderData: (previous) => previous,
+      initialData: () =>
+        documentId
+          ? readCachedContentDatabaseResponse(queryClient, documentId)
+          : undefined,
+      // Cross-key seeds (e.g. a differently-paginated cached response) render
+      // instantly but must refetch immediately, not sit fresh for staleTime.
+      initialDataUpdatedAt: 0,
     },
   );
 }

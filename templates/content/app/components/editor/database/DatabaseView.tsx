@@ -93,7 +93,7 @@ import {
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
 } from "react";
-import { useNavigate } from "react-router";
+import { useLocation, useNavigate } from "react-router";
 import { toast } from "sonner";
 
 import {
@@ -166,6 +166,7 @@ import {
 import {
   useDeleteDocument,
   useDocument,
+  seedDatabaseItemDocumentCaches,
   useUpdateDocument,
 } from "@/hooks/use-documents";
 import { messagesByLocale } from "@/i18n-data";
@@ -475,6 +476,7 @@ function DatabaseTable({
   isActive: boolean;
 }) {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const [databaseItemLimit, setDatabaseItemLimit] = useState(
     CONTENT_DATABASE_PAGE_SIZE,
   );
@@ -491,6 +493,7 @@ function DatabaseTable({
   const setProperty = useSetDocumentProperty(document.id, document.id);
   const updateView = useUpdateContentDatabaseView(document.id);
   const data = database.data;
+  const isDatabaseInitialLoading = database.isLoading && !data;
   const properties = data?.properties ?? [];
   const items = data?.items ?? [];
   const totalItemCount = data?.pagination?.totalItems ?? items.length;
@@ -831,6 +834,7 @@ function DatabaseTable({
   ]);
 
   function previewItemPage(item: ContentDatabaseItem) {
+    seedDatabaseItemDocumentCaches(queryClient, item);
     if (activeView.openPagesIn === "full_page") {
       openItemPage(item);
       return;
@@ -868,6 +872,7 @@ function DatabaseTable({
   }
 
   function openItemPage(item: ContentDatabaseItem) {
+    seedDatabaseItemDocumentCaches(queryClient, item);
     navigate(`/page/${item.document.id}`);
   }
 
@@ -1438,7 +1443,7 @@ function DatabaseTable({
           groupProperty={boardGroupProperty}
           databaseDocumentId={document.id}
           canEdit={canEdit}
-          isLoading={database.isLoading}
+          isLoading={isDatabaseInitialLoading}
           isCreating={addItem.isPending || setProperty.isPending}
           hasActiveConstraints={!!searchQuery || activeFilters.length > 0}
           isMoving={setProperty.isPending}
@@ -1466,7 +1471,7 @@ function DatabaseTable({
           items={visibleItems}
           databaseDocumentId={document.id}
           canEdit={canEdit}
-          isLoading={database.isLoading}
+          isLoading={isDatabaseInitialLoading}
           isCreating={addItem.isPending}
           activeFilters={activeFilters}
           hasSearch={!!searchQuery}
@@ -1489,7 +1494,7 @@ function DatabaseTable({
           items={visibleItems}
           databaseDocumentId={document.id}
           canEdit={canEdit}
-          isLoading={database.isLoading}
+          isLoading={isDatabaseInitialLoading}
           isCreating={addItem.isPending}
           activeFilters={activeFilters}
           hasSearch={!!searchQuery}
@@ -1512,7 +1517,7 @@ function DatabaseTable({
           items={visibleItems}
           databaseDocumentId={document.id}
           canEdit={canEdit}
-          isLoading={database.isLoading}
+          isLoading={isDatabaseInitialLoading}
           isCreating={addItem.isPending || setProperty.isPending}
           activeFilters={activeFilters}
           hasSearch={!!searchQuery}
@@ -1538,7 +1543,7 @@ function DatabaseTable({
           items={visibleItems}
           databaseDocumentId={document.id}
           canEdit={canEdit}
-          isLoading={database.isLoading}
+          isLoading={isDatabaseInitialLoading}
           isCreating={addItem.isPending || setProperty.isPending}
           activeFilters={activeFilters}
           hasSearch={!!searchQuery}
@@ -1572,7 +1577,7 @@ function DatabaseTable({
           sources={sources}
           databaseDocumentId={document.id}
           canEdit={canEdit}
-          isLoading={database.isLoading}
+          isLoading={isDatabaseInitialLoading}
           isCreating={addItem.isPending}
           columnWidths={columnWidths}
           sorts={sorts}
@@ -1823,7 +1828,7 @@ function DatabaseTable({
         onValidate={(transitions) => void handleBuilderReviewPush(transitions)}
       />
 
-      {!database.isLoading ? (
+      {!isDatabaseInitialLoading ? (
         activeView.type === "table" ? null : (
           <DatabaseResultCountFooter
             visibleCount={databaseFooterVisibleCount(
@@ -2327,9 +2332,11 @@ function DatabaseItemPreview({
   const deleteDocument = useDeleteDocument();
   const duplicateItem = useDuplicateDatabaseItem(databaseDocumentId);
   const { data: document, isLoading } = useDocument(item.document.id);
+  const previewDocument = document ?? item.document;
   const previewTitle = databaseItemPreviewTitle(item);
   const canEdit = document?.canEdit ?? item.document.canEdit ?? true;
   const canManage = document?.canManage ?? item.document.canManage ?? false;
+  const location = useLocation();
   // Seed the displayed title/content from a RETAINED dirty controller's pending
   // edit if one exists for this doc (reopen-before-evict), so an unsaved peek
   // edit is restored on remount instead of showing stale server content; else
@@ -2424,6 +2431,23 @@ function DatabaseItemPreview({
   const saveControllerRef = useRef<ReturnType<typeof makeController> | null>(
     null,
   );
+  useEffect(() => {
+    seedDatabaseItemDocumentCaches(queryClient, item);
+  }, [item, queryClient]);
+
+  useEffect(() => {
+    setOpeningFullPage(false);
+  }, [location.key]);
+
+  useEffect(() => {
+    if (!openingFullPage) return;
+    const timer = window.setTimeout(() => {
+      setOpeningFullPage(false);
+      toast.error(dbText("somethingWentWrong"));
+    }, 8000);
+    return () => window.clearTimeout(timer);
+  }, [openingFullPage]);
+
   useEffect(() => {
     saveControllerRef.current = acquirePreviewDocumentSaveController(
       documentId,
@@ -2713,7 +2737,7 @@ function DatabaseItemPreview({
         </SheetDescription>
       </SheetHeader>
 
-      {isLoading || !document ? (
+      {!previewDocument ? (
         <div className="grid gap-4 p-6">
           <div className="h-10 w-2/3 rounded bg-muted" />
           <div className="h-4 w-full rounded bg-muted" />
@@ -2732,7 +2756,7 @@ function DatabaseItemPreview({
                 />
               ) : (
                 <DatabaseItemPageIcon
-                  document={document}
+                  document={previewDocument}
                   className="mt-2 size-5 text-xl"
                   fallbackClassName="mt-2 size-5"
                 />
@@ -2749,9 +2773,9 @@ function DatabaseItemPreview({
                 className="min-w-0 flex-1 resize-none overflow-hidden break-words border-0 bg-transparent p-0 text-3xl font-bold leading-tight text-foreground outline-none placeholder:text-muted-foreground/40"
               />
             </div>
-            {document.databaseMembership ? (
+            {previewDocument.databaseMembership ? (
               <DocumentProperties
-                documentId={document.id}
+                documentId={previewDocument.id}
                 canEdit={canEdit}
                 popoversPortalled={false}
               />
@@ -2763,8 +2787,8 @@ function DatabaseItemPreview({
                 // editor saving through the preview document save path.
                 const primaryEditor = (
                   <VisualEditor
-                    key={document.id}
-                    documentId={document.id}
+                    key={previewDocument.id}
+                    documentId={previewDocument.id}
                     content={localContent}
                     onChange={handleContentChange}
                     ydoc={null}
@@ -2777,10 +2801,10 @@ function DatabaseItemPreview({
                 // identical loading/empty/solo/multi behavior — including the
                 // empty state (no editable body when there are zero Blocks
                 // fields). Only database rows have Blocks fields.
-                if (document.databaseMembership) {
+                if (previewDocument.databaseMembership) {
                   return (
                     <DocumentBlockFields
-                      documentId={document.id}
+                      documentId={previewDocument.id}
                       canEdit={canEdit}
                       primaryEditor={primaryEditor}
                     />
