@@ -319,10 +319,7 @@ function appendActivityTrail(
   }
 }
 
-function refreshPreparingToolEntry(
-  state: PreparingActionState,
-  tool: string,
-) {
+function refreshPreparingToolEntry(state: PreparingActionState, tool: string) {
   const remainingEntries = [...(state.entries?.values() ?? [])].filter(
     (entry) => entry.tool === tool,
   );
