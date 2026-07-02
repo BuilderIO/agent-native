@@ -17,33 +17,6 @@ headless agent，而是先有一个用户可以马上对话的 Chat app，然后
 4. 把数据持久化到 SQL。
 5. 添加一个页面，让 agent 在需要可视化检查时打开它。
 
-<FileTree
-  id="doc-block-chat-first-map"
-  title="聊天优先 app 形态"
-  entries={[
-    {
-      path: "app/routes/_index.tsx",
-      note: "用户首先进入的完整聊天页面",
-    },
-    {
-      path: "actions/analyze-responses.ts",
-      note: "agent、UI、CLI、HTTP、MCP 和 A2A 都能调用的 typed operation",
-    },
-    {
-      path: "server/db/schema.ts",
-      note: "agent 可以添加或更新的持久 Response insight 数据",
-    },
-    {
-      path: "app/routes/response-insights.tsx",
-      note: "用于浏览聊天结果背后数据的持久 app 页面",
-    },
-    {
-      path: "actions/view-screen.ts + actions/navigate.ts",
-      note: "让 agent 可以打开正确屏幕的 context 和 navigation actions",
-    },
-  ]}
-/>
-
 ## 1. 创建 Chat app {#create-your-app}
 
 需要 [Node.js 22+](https://nodejs.org) 和 [pnpm](https://pnpm.io)。
@@ -153,16 +126,6 @@ my-app/
 ## 想要完整的 Analytics 起点？ {#analytics-starting-point}
 
 上面的 Response insights 示例故意保持很小，方便你看清框架部件。如果你要构建真正的 analytics 产品，请从 [Analytics](/docs/template-analytics) 开始。它是更强健的起点：连接 providers，使用现有 dashboards 和 agent actions，然后继续自定义。
-
-## 高级：暂时不需要浏览器 UI {#no-browser-ui}
-
-定时报告、队列、CLI loop、integration worker 或外部 agent 调用这类工作，可以使用 no-browser scaffold：
-
-```bash
-npx @agent-native/core@latest create my-agent --headless
-```
-
-这仍然是 Agent-Native app：actions、sessions、run history、settings、credentials 和 SQL state 都存在。它只是 automation-first 形态，不是默认入门路径。见 [Automation-First Apps](/docs/pure-agent-apps)。
 
 ## 下一步 {#next}
 

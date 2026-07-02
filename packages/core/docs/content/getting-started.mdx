@@ -91,19 +91,9 @@ export default defineAction({
           href: "/response-insights",
         },
       },
-      chartSeries: {
-        type: "bar",
-        title: "Responses by day",
-        xKey: "day",
-        series: [{ key: "responses", label: "Responses" }],
-        data: [{ day: "Mon", responses: 8 }], // Add real rows here.
-      },
-      table: {
-        title: "Top answers",
-        columns: [{ key: "answer", label: "Answer" }],
-        rows: [{ answer: "Yes" }],
-        totalRows: 2,
-      },
+      // Keep docs compact; add real rows/series in your app.
+      chartSeries: { type: "bar", xKey: "day", series: [{ key: "responses", label: "Responses" }], data: [{ day: "Mon", responses: 8 }] },
+      table: { title: "Top answers", columns: [{ key: "answer", label: "Answer" }], rows: [{ answer: "Yes" }], totalRows: 1 },
     }),
 });
 ```
