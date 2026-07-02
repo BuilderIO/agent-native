@@ -164,9 +164,6 @@ function ArtboardFrame({
   const designMode = renderMode === "design";
   const sketchy = !designMode && style === "sketchy" && !skeleton;
   const roughEnabled = sketchy && roughOverlay;
-  const paper = designMode
-    ? "hsl(var(--background))"
-    : "var(--plan-document, hsl(var(--background)))";
 
   useEffect(() => {
     const element = fitRef.current;
@@ -240,7 +237,6 @@ function ArtboardFrame({
             // a fixed `canvasSize` locks the height for canvas artboards.
             ...(fixedHeight != null ? { height: fixedHeight } : { minHeight }),
             borderRadius: preset.radius,
-            background: paper,
             ...(fitScale !== 1
               ? {
                   transform: `scale(${fitScale})`,

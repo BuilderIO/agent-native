@@ -49,6 +49,14 @@ function artboardStyle(html: string): string {
   return match[1];
 }
 
+function classStyle(html: string, className: string): string {
+  const tag =
+    html.match(
+      new RegExp(`<div[^>]*class="[^"]*\\b${className}\\b[^"]*"[^>]*>`),
+    )?.[0] ?? "";
+  return tag.match(/\sstyle="([^"]*)"/)?.[1] ?? "";
+}
+
 /** Pull the inline `style` attribute of the scale-reservation wrapper. */
 function fitWrapperStyle(html: string): string {
   const outerTag =
@@ -210,6 +218,29 @@ describe("wireframe auto-height frame", () => {
     const style = artboardStyle(html);
 
     expect(style).not.toMatch(/box-shadow/i);
+  });
+
+  it("does not paint a default artboard or root screen backdrop", () => {
+    const kitHtml = render({
+      surface: "browser",
+      screen: [
+        {
+          el: "card",
+          children: [{ el: "text", text: "Preserved card fill" }],
+        },
+      ],
+    });
+    const css = readFileSync("src/styles/blocks.css", "utf8");
+    const htmlFrameRule =
+      css.match(/\.plan-html-frame\s*\{[^}]*\}/s)?.[0] ?? "";
+
+    expect(artboardStyle(kitHtml)).not.toMatch(/(^|;)\s*background\s*:/);
+    expect(classStyle(kitHtml, "plan-wf")).toMatch(
+      /background\s*:\s*transparent/,
+    );
+    expect(kitHtml).toContain("background:var(--card)");
+    expect(htmlFrameRule).toContain("background: transparent");
+    expect(htmlFrameRule).not.toContain("background: var(--wf-paper)");
   });
 
   it("does not render a static outer artboard border", () => {

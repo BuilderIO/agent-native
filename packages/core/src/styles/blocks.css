@@ -995,7 +995,7 @@
   min-height: 100%;
   overflow: hidden;
   box-sizing: border-box;
-  background: var(--wf-paper);
+  background: transparent;
   color: var(--wf-ink);
   font-family: var(--wf-font);
   font-size: 14px;

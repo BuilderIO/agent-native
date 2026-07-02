@@ -211,7 +211,7 @@ export function Screen({
         // clipping. The frame shell (`ArtboardFrame`) owns the height policy; a
         // caller can still override via `style.height` for a fixed canvas.
         minHeight: "100%",
-        background: V.paper,
+        background: "transparent",
         color: V.ink,
         fontFamily: V.hand,
         fontSize: V.fs,
