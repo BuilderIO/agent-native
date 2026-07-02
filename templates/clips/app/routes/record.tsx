@@ -462,6 +462,16 @@ function uploadTooLargeMessage(size: number, detail?: string): string {
   )}) after automatic compression. Trim or export a shorter copy and upload again.`;
 }
 
+/** Pre-upload size rejection for a picked file — no compression has been
+ * attempted yet, so the message must not imply it has. */
+function fileTooLargeMessage(size: number): string {
+  return `This file is too large to upload (${formatMb(
+    size,
+  )}, limit is ${formatMb(
+    MAX_UPLOAD_BYTES,
+  )}). Trim it or export a shorter copy and try again.`;
+}
+
 function isUploadFailureError(error: string): boolean {
   return (
     isUploadSizeError(error) ||
@@ -471,7 +481,7 @@ function isUploadFailureError(error: string): boolean {
 
 function friendlyRecordingErrorMessage(error: string): string {
   if (isUploadSizeError(error)) {
-    return `This video is too large for Clips after automatic compression. Trim or export a shorter copy under ${formatMb(
+    return `This video is too large for Clips. Trim or export a shorter copy under ${formatMb(
       MAX_UPLOAD_BYTES,
     )} and upload again.`;
   }
@@ -1414,6 +1424,22 @@ export default function RecordRoute() {
       if (!mimeType) {
         const message =
           "That file type isn't supported. Try MP4, WebM, or MOV.";
+        if (fileUploadAbortRef.current === abort) {
+          fileUploadAbortRef.current = null;
+        }
+        setError(message);
+        setUiState("error");
+        toast.error(message);
+        return;
+      }
+
+      // Fail fast on oversized files before we probe metadata, attempt
+      // compression, or open the upload session — no point spending time or
+      // chunking bytes for a file the server will reject anyway. Uses the
+      // same MAX_UPLOAD_BYTES ceiling as the (currently compression-gated)
+      // post-compression check below and the server chunk/finalize routes.
+      if (file.size > MAX_UPLOAD_BYTES) {
+        const message = fileTooLargeMessage(file.size);
         if (fileUploadAbortRef.current === abort) {
           fileUploadAbortRef.current = null;
         }
