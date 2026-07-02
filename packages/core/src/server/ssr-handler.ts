@@ -261,8 +261,7 @@ function applyDefaultSpeculationRulesHeader(
  * Extract the plain JS body from a `<script ...>body</script>` string.
  * Returns `null` if the input is falsy or has no recognisable `</script>` end.
  * Used to compute the sha256 hash of framework-injected inline scripts so the
- * hash can be listed in the `script-src` CSP directive without relying on
- * `'unsafe-inline'`.
+ * hash can be listed in app-owned `script-src` CSP directives.
  */
 function extractScriptBody(scriptTag: string | null): string | null {
   if (!scriptTag) return null;
@@ -547,13 +546,10 @@ function augmentExistingReportOnlyCspForFrameworkScripts(
  *
  * A third directive, `script-src`, is emitted via `Content-Security-Policy-
  * Report-Only` rather than enforced when the app has no existing document CSP.
- * The framework injects deterministic inline scripts (the Sentry config block,
- * whose hash is computed once at process startup from the resolved env vars,
- * and — when `GA_MEASUREMENT_ID` is set — the gtag config block, whose hash is
- * derived from the same string `wrapWithAnalytics` embeds). It also loads
- * Google Tag Manager / GA4 from `GA_CSP_SCRIPT_HOSTS`. All of those are listed
- * here so the report-only policy reflects the code the framework itself injects
- * instead of reporting a violation on every page load.
+ * The framework injects inline scripts for analytics, Sentry, and template
+ * setup, and hosted apps need Google Tag Manager to load without noisy CSP
+ * diagnostics. The report-only policy is intentionally permissive for scripts:
+ * it includes `'unsafe-inline'` plus the known GA/GTM loader hosts.
  *
  * If an app or host already sends an enforced CSP with `script-src`,
  * `script-src-elem`, `connect-src`, `img-src`, or `default-src`, we merge only
@@ -577,20 +573,22 @@ function applyDocumentCsp(headers: Headers, sentryScript: string | null): void {
   if (process.env.NODE_ENV !== "production") return;
   if (process.env.AGENT_NATIVE_DISABLE_DOC_CSP === "1") return;
 
-  // script-src as Report-Only: list 'self', the framework-injected inline
-  // script hashes (Sentry config + gtag config), and the Google Analytics /
-  // Tag Manager loader hosts. These are exactly the scripts the framework
-  // itself injects, so listing them keeps the report-only policy from flagging
-  // GA on every page load (and keeps it safe to graduate to enforcement).
-  // Template theme-init hashes are NOT included here — see function comment.
+  // script-src as Report-Only: keep this deliberately loose so the framework's
+  // injected analytics and template bootstrap scripts do not look blocked in
+  // browser diagnostics.
   const sentryBody = extractScriptBody(sentryScript);
   const sentryHash = sentryBody ? computeInlineScriptHash(sentryBody) : null;
   const gaInlineBody = getGaInlineConfigScriptBody();
   const gaHash = gaInlineBody ? computeInlineScriptHash(gaInlineBody) : null;
   const gaHosts = gaInlineBody ? [...GA_CSP_SCRIPT_HOSTS] : [];
-  const gaScriptSrcTokens = [...(gaHash ? [gaHash] : []), ...gaHosts];
+  const gaScriptSrcTokens = [
+    "'unsafe-inline'",
+    ...(gaHash ? [gaHash] : []),
+    ...gaHosts,
+  ];
   const scriptSrcTokens = [
     "'self'",
+    "'unsafe-inline'",
     ...(sentryHash ? [sentryHash] : []),
     ...(gaHash ? [gaHash] : []),
     ...gaHosts,
