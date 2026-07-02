@@ -1871,6 +1871,7 @@ const AssistantChatInner = forwardRef<
           try {
             const res = await fetch(
               `${apiUrl}/runs/active?threadId=${encodeURIComponent(threadId)}`,
+              { signal: abortCtrl.signal },
             );
             if (!res.ok) return "unknown";
             const info = (await res.json()) as ActiveRunLookup;

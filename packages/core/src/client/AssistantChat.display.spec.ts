@@ -242,6 +242,7 @@ describe("waitForThreadRunToClear", () => {
       "const preparingActionState: PreparingActionState = {}",
     );
     expect(helperSource).toContain("sameRunStillActive");
+    expect(helperSource).toContain("{ signal: abortCtrl.signal }");
     expect(helperSource).toContain('return "unknown"');
     expect(helperSource).toContain('err.reason === "stream_ended"');
     expect(helperSource).toContain(
