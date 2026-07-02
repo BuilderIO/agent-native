@@ -1,5 +1,17 @@
 # @agent-native/core
 
+## 0.84.36
+
+### Patch Changes
+
+- 1cf5c2b: Remove the outer artboard outline and default backdrop fill from docs wireframe blocks while preserving rough outlines and fills for wireframe UI elements.
+- 11b8b66: Reframe getting-started and related docs around chat-first agentic applications, with no-browser apps repositioned as automation-first workflows.
+- 2d984a0: Add a portable Drizzle alias helper for backend-agnostic template queries.
+- 72a92af: Align docs wireframe status rows with labels on the left and values on the right.
+- 11b8b66: Automatically recover active chat runs that stop making real progress while the worker is still alive.
+- d04226c: Clarify the Getting Started inline result example with a shorter widget snippet and wireframe.
+- 51425d9: Render standard docs wireframe primitives and inline border dividers with sketchy rough outlines by default.
+
 ## 0.84.35
 
 ### Patch Changes
