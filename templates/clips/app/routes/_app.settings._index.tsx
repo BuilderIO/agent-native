@@ -515,7 +515,7 @@ export default function SettingsIndexRoute() {
       errors["S3_BUCKET"] = t("settings.s3BucketInvalid");
     }
     const region = (values["S3_REGION"] ?? "").trim();
-    if (region && !/^[a-z]{2,}-[a-z]+-\d+$|^auto$/.test(region)) {
+    if (region && !/^([a-z][a-z0-9]*-)+\d+$|^auto$/.test(region)) {
       errors["S3_REGION"] = t("settings.s3RegionInvalid");
     }
     return errors;
@@ -562,17 +562,36 @@ export default function SettingsIndexRoute() {
   async function handleClearAllS3() {
     setClearingS3(true);
     try {
-      await Promise.all(
+      const results = await Promise.all(
         S3_STORAGE_FIELDS.filter((field) => apiKeyStatus[field.key]).map(
-          (field) =>
-            fetch(
+          async (field) => {
+            const res = await fetch(
               agentNativePath(
                 `/_agent-native/secrets/adhoc/${encodeURIComponent(field.key)}`,
               ),
               { method: "DELETE" },
-            ),
+            );
+            if (!res.ok) {
+              const body = (await res.json().catch(() => null)) as {
+                error?: string;
+              } | null;
+              throw new Error(
+                body?.error ?? `Failed to clear ${field.key} (${res.status})`,
+              );
+            }
+            const body = (await res.json().catch(() => null)) as {
+              removed?: boolean;
+            } | null;
+            return { key: field.key, removed: body?.removed !== false };
+          },
         ),
       );
+      const failed = results.filter((r) => !r.removed).map((r) => r.key);
+      if (failed.length > 0) {
+        throw new Error(
+          `Could not remove: ${failed.join(", ")}. You may not have permission.`,
+        );
+      }
       setS3Values({});
       await refreshApiKeyStatus();
       toast.success(t("settings.keyCleared"));
