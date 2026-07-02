@@ -89,6 +89,7 @@ import {
   AssistantMessage,
   SelectionAttachedPill,
   RunningActivityStatus,
+  displayableUserMessageText,
 } from "./chat/message-components.js";
 import {
   repoHasAssistantMessage,
@@ -177,6 +178,8 @@ export {
 } from "./assistant-ui-recovery.js";
 
 export { displayableUserMessageText } from "./chat/message-components.js";
+
+type AuthSessionCheckResult = "available" | "missing" | "unknown";
 
 const useBrowserLayoutEffect =
   typeof window === "undefined" ? useEffect : useLayoutEffect;
@@ -492,13 +495,14 @@ function getMessageText(message: unknown): string {
   const msg = (message as { message?: unknown })?.message ?? message;
   const content = (msg as { content?: unknown })?.content;
   if (Array.isArray(content)) {
-    return content
-      .filter((p: any) => p?.type === "text" && typeof p.text === "string")
-      .map((p: any) => p.text)
-      .join("\n")
-      .trim();
+    return displayableUserMessageText(
+      content
+        .filter((p: any) => p?.type === "text" && typeof p.text === "string")
+        .map((p: any) => p.text)
+        .join("\n"),
+    );
   }
-  return typeof content === "string" ? content.trim() : "";
+  return typeof content === "string" ? displayableUserMessageText(content) : "";
 }
 
 function contentPartFollowKey(part: any): string {
@@ -1263,6 +1267,7 @@ const AssistantChatInner = forwardRef<
   }, [threadRuntime]);
   const agentEngineConfigured = useAgentEngineConfigured(
     providerStatusChecksEnabled,
+    { tabId, threadId },
   );
   const missingApiKey = agentEngineConfigured.missing;
   const isComposerDisabled = missingApiKey || composerDisabled;
@@ -1294,10 +1299,19 @@ const AssistantChatInner = forwardRef<
     setComposerError(LLM_MISSING_CREDENTIALS_MESSAGE);
     setMissingKeyBouncePulse((p) => p + 1);
     if (typeof window !== "undefined") {
-      window.dispatchEvent(new Event("agent-chat:missing-api-key"));
+      window.dispatchEvent(
+        new CustomEvent("agent-chat:missing-api-key", {
+          detail: { tabId, threadId },
+        }),
+      );
     }
     return false;
-  }, [agentEngineConfigured.state, providerStatusChecksEnabled]);
+  }, [
+    agentEngineConfigured.state,
+    providerStatusChecksEnabled,
+    tabId,
+    threadId,
+  ]);
   const [authError, setAuthError] = useState<{
     sessionExpired?: boolean;
   } | null>(null);
@@ -2443,23 +2457,31 @@ const AssistantChatInner = forwardRef<
   }, []);
 
   // Listen for auth error events from the adapter
-  const checkAuthSession = useCallback(async () => {
-    try {
-      const res = await fetch(agentNativePath("/_agent-native/auth/session"), {
-        cache: "no-store",
-      });
-      if (!res.ok) return false;
-      const data = await res.json().catch(() => null);
-      const hasSession = !!data && !data.error;
-      setAuthSessionAvailable(hasSession);
-      if (hasSession) {
-        setAuthError(null);
+  const checkAuthSession =
+    useCallback(async (): Promise<AuthSessionCheckResult> => {
+      try {
+        const res = await fetch(
+          agentNativePath("/_agent-native/auth/session"),
+          {
+            cache: "no-store",
+          },
+        );
+        if (!res.ok) {
+          return res.status === 401 || res.status === 403
+            ? "missing"
+            : "unknown";
+        }
+        const data = await res.json().catch(() => null);
+        const hasSession = !!data && !data.error;
+        setAuthSessionAvailable(hasSession);
+        if (hasSession) {
+          setAuthError(null);
+        }
+        return hasSession ? "available" : "missing";
+      } catch {
+        return "unknown";
       }
-      return hasSession;
-    } catch {
-      return false;
-    }
-  }, []);
+    }, []);
 
   useEffect(() => {
     const handler = (e: Event) => {
@@ -2481,9 +2503,12 @@ const AssistantChatInner = forwardRef<
       ) {
         return;
       }
-      setAuthSessionAvailable(false);
-      setAuthError({ sessionExpired: detail?.reason === "session-expired" });
-      void checkAuthSession();
+      void (async () => {
+        const sessionState = await checkAuthSession();
+        if (sessionState !== "missing") return;
+        setAuthSessionAvailable(false);
+        setAuthError({ sessionExpired: detail?.reason === "session-expired" });
+      })();
     };
     window.addEventListener("agent-chat:auth-error", handler);
     return () => window.removeEventListener("agent-chat:auth-error", handler);
@@ -2499,8 +2524,9 @@ const AssistantChatInner = forwardRef<
     // symptom we want signal on.
     const stuckCapture = window.setTimeout(() => {
       void (async () => {
-        const hasSession = await checkAuthSession();
-        if (hasSession) return;
+        const sessionState = await checkAuthSession();
+        if (sessionState === "available") return;
+        if (sessionState !== "missing") return;
         if (!shouldCaptureStuckAuthCard) return;
         captureError(new Error("agent-chat:auth_error_card_stuck"), {
           tags: {
@@ -3781,9 +3807,9 @@ const AssistantChatInner = forwardRef<
                         <RunningActivityStatus label={runningStatusLabel} />
                       )}
                       {queuedMessages.map((msg) => {
-                        const displayText = msg.text
-                          .replace(/<context>[\s\S]*?<\/context>\n?/g, "")
-                          .trim();
+                        const displayText = displayableUserMessageText(
+                          msg.text,
+                        );
                         return (
                           <div
                             key={msg.id}
