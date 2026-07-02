@@ -2686,6 +2686,7 @@ export function MultiTabAssistantChat({
                   threadId={tabId}
                   apiUrl={apiUrl}
                   autoRetry
+                  autoRetryOwnerId={browserTabId}
                   onRetry={() => {
                     const handle = chatRefs.current.get(tabId);
                     handle?.sendRecoveryMessage(

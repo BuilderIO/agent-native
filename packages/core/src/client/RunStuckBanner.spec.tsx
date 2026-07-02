@@ -29,6 +29,7 @@ describe("RunStuckBanner", () => {
   beforeEach(() => {
     vi.useFakeTimers();
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    window.localStorage.clear();
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
@@ -39,6 +40,7 @@ describe("RunStuckBanner", () => {
     container.remove();
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
+    window.localStorage.clear();
     vi.useRealTimers();
   });
 
@@ -134,5 +136,129 @@ describe("RunStuckBanner", () => {
           init?.method === "POST",
       ),
     ).toBe(false);
+  });
+
+  it("clears retry busy state when recovery moves to a new stuck run", async () => {
+    const onRetry = vi.fn();
+    let activePollCount = 0;
+    const fetchSpy = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url.includes("/runs/active")) {
+        activePollCount += 1;
+        const runId = activePollCount === 1 ? "run-first" : "run-next";
+        return jsonResponse({
+          active: true,
+          runId,
+          status: "running",
+          heartbeatAt: 10_000,
+          lastProgressAt: 10_000,
+          serverNow: 101_000,
+        });
+      }
+      if (url.includes("/runs/run-first/abort")) {
+        return jsonResponse({ ok: true });
+      }
+      if (url.includes("/runs/run-next/abort")) {
+        return jsonResponse({ ok: true });
+      }
+      return jsonResponse({ error: "unexpected" }, false);
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    await act(async () => {
+      root.render(
+        <RunStuckBanner
+          threadId="thread-1"
+          autoRetry
+          autoRetryOwnerId="owner-1"
+          onRetry={onRetry}
+        />,
+      );
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2_000);
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5_000);
+    });
+
+    expect(onRetry).toHaveBeenCalledWith("run-first");
+    expect(onRetry).toHaveBeenCalledWith("run-next");
+    expect(
+      fetchSpy.mock.calls.filter(
+        ([url, init]) =>
+          String(url).includes("/runs/run-first/abort") &&
+          init?.method === "POST",
+      ),
+    ).toHaveLength(1);
+    expect(
+      fetchSpy.mock.calls.filter(
+        ([url, init]) =>
+          String(url).includes("/runs/run-next/abort") &&
+          init?.method === "POST",
+      ),
+    ).toHaveLength(1);
+  });
+
+  it("claims one automatic retry across multiple mounted chat views", async () => {
+    const onRetryOne = vi.fn();
+    const onRetryTwo = vi.fn();
+    const secondContainer = document.createElement("div");
+    document.body.appendChild(secondContainer);
+    const secondRoot = createRoot(secondContainer);
+    const fetchSpy = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url.includes("/runs/active")) {
+        return jsonResponse({
+          active: true,
+          runId: "run-shared",
+          status: "running",
+          heartbeatAt: 10_000,
+          lastProgressAt: 10_000,
+          serverNow: 101_000,
+        });
+      }
+      if (url.includes("/runs/run-shared/abort")) {
+        return jsonResponse({ ok: true });
+      }
+      return jsonResponse({ error: "unexpected" }, false);
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    try {
+      await act(async () => {
+        root.render(
+          <RunStuckBanner
+            threadId="thread-1"
+            autoRetry
+            autoRetryOwnerId="owner-1"
+            onRetry={onRetryOne}
+          />,
+        );
+        secondRoot.render(
+          <RunStuckBanner
+            threadId="thread-1"
+            autoRetry
+            autoRetryOwnerId="owner-2"
+            onRetry={onRetryTwo}
+          />,
+        );
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(2_000);
+      });
+
+      expect(
+        fetchSpy.mock.calls.filter(
+          ([url, init]) =>
+            String(url).includes("/runs/run-shared/abort") &&
+            init?.method === "POST",
+        ),
+      ).toHaveLength(1);
+      expect(onRetryOne.mock.calls.length + onRetryTwo.mock.calls.length).toBe(
+        1,
+      );
+    } finally {
+      act(() => secondRoot.unmount());
+      secondContainer.remove();
+    }
   });
 });
