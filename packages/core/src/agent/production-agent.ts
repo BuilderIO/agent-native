@@ -4137,34 +4137,94 @@ function isPreparingActionActivityEvent(
 export function lastUnfinishedPreparingActionToolFromEvents(
   events: readonly AgentChatEvent[],
 ): string | undefined {
-  let active: {
+  const active = new Map<
+    string,
+    {
+      id?: string;
+      order: number;
+      tool: string;
+    }
+  >();
+  const idlessToolStarts = new Map<string, number>();
+  const removeOldestMatchingActivePreparation = (
+    tool: string,
+    shouldRemove: (value: {
+      id?: string;
+      order: number;
+      tool: string;
+    }) => boolean = () => true,
+  ) => {
+    let oldest:
+      | {
+          key: string;
+          order: number;
+        }
+      | undefined;
+    for (const [key, value] of active) {
+      if (value.tool !== tool || !shouldRemove(value)) continue;
+      if (!oldest || value.order < oldest.order) {
+        oldest = {
+          key,
+          order: value.order,
+        };
+      }
+    }
+    if (oldest) active.delete(oldest.key);
+    return Boolean(oldest);
+  };
+  const removeMatchingActivePreparation = (event: {
     id?: string;
-    tool: string;
-  } | null = null;
-  for (const event of events) {
+    tool?: string;
+    type: "tool_done" | "tool_start";
+  }) => {
+    const id = event.id?.trim();
+    const tool = event.tool?.trim();
+    if (!tool) return;
+    if (id) {
+      if (!active.delete(`id:${id}`)) {
+        removeOldestMatchingActivePreparation(tool, (value) => !value.id);
+      }
+      return;
+    }
+
+    if (event.type === "tool_start") {
+      if (removeOldestMatchingActivePreparation(tool)) {
+        idlessToolStarts.set(tool, (idlessToolStarts.get(tool) ?? 0) + 1);
+      }
+      return;
+    }
+
+    const startedCount = idlessToolStarts.get(tool) ?? 0;
+    if (startedCount > 0) {
+      if (startedCount === 1) {
+        idlessToolStarts.delete(tool);
+      } else {
+        idlessToolStarts.set(tool, startedCount - 1);
+      }
+      return;
+    }
+    removeOldestMatchingActivePreparation(tool);
+  };
+  events.forEach((event, order) => {
     if (isPreparingActionActivityEvent(event)) {
       const tool = event.tool?.trim();
       if (tool) {
-        active = {
+        const id = event.id?.trim();
+        const key = id ? `id:${id}` : `tool:${tool}:${order}`;
+        active.set(key, {
           tool,
-          ...(event.id?.trim() ? { id: event.id.trim() } : {}),
-        };
+          order,
+          ...(id ? { id } : {}),
+        });
       }
-      continue;
+      return;
     }
     if (event.type === "tool_start" || event.type === "tool_done") {
-      const tool = event.tool?.trim();
-      const id = event.id?.trim();
-      if (
-        active &&
-        ((id && active.id === id) || (!id && tool && active.tool === tool))
-      ) {
-        active = null;
-      }
-      continue;
+      removeMatchingActivePreparation(event);
+      return;
     }
     if (event.type === "error" && isRecoverableContinuationError(event)) {
-      continue;
+      return;
     }
     if (
       event.type === "clear" ||
@@ -4172,10 +4232,46 @@ export function lastUnfinishedPreparingActionToolFromEvents(
       event.type === "error" ||
       event.type === "missing_api_key"
     ) {
-      active = null;
+      active.clear();
+      idlessToolStarts.clear();
+    }
+  });
+  let latest:
+    | {
+        order: number;
+        tool: string;
+      }
+    | undefined;
+  for (const value of active.values()) {
+    if (!latest || value.order > latest.order) {
+      latest = value;
     }
   }
-  return active?.tool;
+  return latest?.tool;
+}
+
+function endsAfterCompletedToolWithoutAssistantFinal(run: ActiveRun): boolean {
+  let completedToolAfterLastAssistantText = false;
+  for (const { event } of run.events) {
+    if (event.type === "text" && event.text.trim().length > 0) {
+      completedToolAfterLastAssistantText = false;
+      continue;
+    }
+    if (event.type === "tool_done" && event.isError !== true) {
+      completedToolAfterLastAssistantText = true;
+      continue;
+    }
+    if (
+      event.type === "clear" ||
+      event.type === "error" ||
+      event.type === "missing_api_key" ||
+      event.type === "auto_continue" ||
+      event.type === "loop_limit"
+    ) {
+      completedToolAfterLastAssistantText = false;
+    }
+  }
+  return completedToolAfterLastAssistantText;
 }
 
 function lastUnfinishedPreparingActionTool(run: ActiveRun): string | undefined {
@@ -4200,7 +4296,17 @@ export function backgroundContinuationReasonForRun(
       new EngineError(last.error, { errorCode: last.errorCode }),
     );
   }
+  if (endsAfterCompletedToolWithoutAssistantFinal(run)) {
+    return "stream_ended";
+  }
   return "run_timeout";
+}
+
+function endsAtContinuationBoundary(run: ActiveRun): boolean {
+  return (
+    endsAtInternalContinuationBoundary(run) ||
+    endsAfterCompletedToolWithoutAssistantFinal(run)
+  );
 }
 
 /**
@@ -4215,9 +4321,8 @@ export const MAX_BACKGROUND_RUN_CONTINUATIONS = 20;
 /**
  * Whether the background worker should self-fire the next server-driven
  * continuation chunk. True only when this is a background worker run that ended
- * at a recoverable soft-timeout boundary (not aborted/stopped) and the chain is
- * still under its budget. Extracted so the decision is unit testable without
- * booting the whole handler.
+ * at a recoverable unfinished boundary (not aborted/stopped) and the chain is
+ * still under its budget. Aborted / user-stopped runs do NOT chain.
  */
 export function shouldChainBackgroundContinuation(opts: {
   isBackgroundWorker: boolean;
@@ -4227,7 +4332,7 @@ export function shouldChainBackgroundContinuation(opts: {
   return (
     opts.isBackgroundWorker &&
     opts.run.status !== "aborted" &&
-    endsAtInternalContinuationBoundary(opts.run) &&
+    endsAtContinuationBoundary(opts.run) &&
     opts.continuationCount < MAX_BACKGROUND_RUN_CONTINUATIONS
   );
 }
@@ -5370,13 +5475,19 @@ export function createProductionAgentHandler(
           turnId: effectiveTurnId,
         }
       : null;
+    const willChainBackgroundContinuation = (run: ActiveRun) =>
+      shouldChainBackgroundContinuation({
+        isBackgroundWorker,
+        run,
+        continuationCount: backgroundContinuationCount,
+      });
 
     const completeTrackedProgressRun = async (
       run: ActiveRun,
       completionError?: unknown,
     ) => {
       if (!trackedProgressRunId || !trackedProgressOwner) return;
-      if (!completionError && endsAtInternalContinuationBoundary(run)) {
+      if (!completionError && willChainBackgroundContinuation(run)) {
         return;
       }
       const terminalStatus =
@@ -5472,7 +5583,7 @@ export function createProductionAgentHandler(
               if (
                 isBackgroundWorker &&
                 run.status === "errored" &&
-                !endsAtInternalContinuationBoundary(run)
+                !willChainBackgroundContinuation(run)
               ) {
                 const errEvent = [...run.events]
                   .reverse()
@@ -5501,30 +5612,24 @@ export function createProductionAgentHandler(
               // agent-teams `fireInternalDispatch({ body: { mode: "continue" }})`
               // chain. Bounded by MAX_BACKGROUND_RUN_CONTINUATIONS. Aborted /
               // user-stopped runs do NOT chain.
-              if (
-                shouldChainBackgroundContinuation({
-                  // Self-chain server-side for EVERY durable worker, not only the
-                  // ones inside a `-background` function. Server-driven
-                  // continuation is the whole point of durable background: the run
-                  // must survive the client disconnecting (closed tab), so it
-                  // cannot depend on the browser re-POSTing `auto_continue`. A
-                  // worker on the regular ~60s function — a Netlify routing miss,
-                  // or a non-Netlify host (Vercel/Cloudflare/Render/Fly) that
-                  // never emits a `-background` function — checkpoints at the 40s
-                  // soft-timeout and self-dispatches the next 40s chunk; a worker
-                  // in a real `-background` function chains ~13-min chunks. Only
-                  // the per-chunk BUDGET differs by function type (gated by
-                  // `runsInBackgroundFunction` at the startRun call below); the
-                  // continuation itself must stay server-driven on both. (The
-                  // self-chain is only reachable when the initial dispatch already
-                  // succeeded — a dispatch fast-fail degrades to the inline
-                  // foreground fallback, which is not a worker and rides the
-                  // connected client's auto_continue instead.)
-                  isBackgroundWorker,
-                  run,
-                  continuationCount: backgroundContinuationCount,
-                })
-              ) {
+              // Self-chain server-side for EVERY durable worker, not only the
+              // ones inside a `-background` function. Server-driven
+              // continuation is the whole point of durable background: the run
+              // must survive the client disconnecting (closed tab), so it
+              // cannot depend on the browser re-POSTing `auto_continue`. A
+              // worker on the regular ~60s function — a Netlify routing miss,
+              // or a non-Netlify host (Vercel/Cloudflare/Render/Fly) that
+              // never emits a `-background` function — checkpoints at the 40s
+              // soft-timeout and self-dispatches the next 40s chunk; a worker
+              // in a real `-background` function chains ~13-min chunks. Only
+              // the per-chunk BUDGET differs by function type (gated by
+              // `runsInBackgroundFunction` at the startRun call below); the
+              // continuation itself must stay server-driven on both. (The
+              // self-chain is only reachable when the initial dispatch already
+              // succeeded — a dispatch fast-fail degrades to the inline
+              // foreground fallback, which is not a worker and rides the
+              // connected client's auto_continue instead.)
+              if (willChainBackgroundContinuation(run)) {
                 // Mint the next chunk's runId here and sign the dispatch token
                 // over it, so the `_process-run` route's HMAC check and the
                 // worker's run identity agree. Fresh runId (not this chunk's) so
