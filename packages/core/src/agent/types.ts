@@ -163,6 +163,14 @@ export interface AgentChatRequest {
   __backgroundRun?: {
     runId: string;
     turnId?: string;
+    continuationReason?:
+      | "run_timeout"
+      | "loop_limit"
+      | "no_progress"
+      | "stream_ended"
+      | "gateway_timeout"
+      | "network_interrupted";
+    actionPreparationTool?: string;
     /**
      * Number of server-driven background→background continuations already
      * chained into this logical turn (0 on the first chunk). The worker

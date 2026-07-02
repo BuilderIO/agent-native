@@ -15,6 +15,8 @@ import type { AgentEngine, EngineEvent } from "./engine/types.js";
 import { EngineError } from "./engine/types.js";
 import {
   AGENT_INTERNAL_CONTINUE_PROMPT,
+  appendAgentLoopContinuation,
+  backgroundContinuationReasonForRun,
   buildUserContentWithAttachments,
   claimBackgroundWorkerRunEarly,
   createPlanModeActionRegistry,
@@ -23,6 +25,7 @@ import {
   isRetryableError,
   actionsToEngineTools,
   MAX_BACKGROUND_RUN_CONTINUATIONS,
+  lastUnfinishedPreparingActionToolFromEvents,
   resolveAgentOwnerEmail,
   resolveBackgroundDispatchOutcome,
   resolveSkillReferenceContent,
@@ -918,6 +921,302 @@ describe("runAgentLoop", () => {
         tool: "create-document",
       }),
     );
+  });
+
+  it("checkpoints when action input preparation stops streaming bytes", async () => {
+    let now = 1_000_000;
+    const dateNow = vi.spyOn(Date, "now").mockImplementation(() => now);
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: true,
+      },
+      async *stream(): AsyncIterable<EngineEvent> {
+        yield {
+          type: "tool-input-start",
+          id: "tool-edit",
+          name: "edit-design",
+        };
+        now += 91_000;
+        yield { type: "gateway-heartbeat" };
+        yield { type: "text-delta", text: "should not continue" };
+      },
+    };
+    const events: AgentChatEvent[] = [];
+
+    try {
+      await runAgentLoop({
+        engine,
+        model: "test-model",
+        systemPrompt: "system",
+        tools: [],
+        messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+        actions: {
+          "edit-design": actionEntry({ readOnly: false }),
+        },
+        send: (event) => events.push(event),
+        signal: new AbortController().signal,
+      });
+    } finally {
+      dateNow.mockRestore();
+    }
+
+    expect(events).toContainEqual({
+      type: "activity",
+      label: "Preparing edit-design action",
+      tool: "edit-design",
+      id: "tool-edit",
+    });
+    expect(events.at(-1)).toEqual({
+      type: "auto_continue",
+      reason: "no_progress",
+    });
+    expect(events).not.toContainEqual({ type: "stream_keepalive" });
+    expect(events).not.toContainEqual({ type: "done" });
+    expect(events).not.toContainEqual(
+      expect.objectContaining({ type: "text", text: "should not continue" }),
+    );
+  });
+
+  it("checkpoints a stalled action input before accepting a delayed progress event", async () => {
+    let now = 1_000_000;
+    const dateNow = vi.spyOn(Date, "now").mockImplementation(() => now);
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: true,
+      },
+      async *stream(): AsyncIterable<EngineEvent> {
+        yield {
+          type: "tool-input-start",
+          id: "tool-edit",
+          name: "edit-design",
+        };
+        now += 91_000;
+        yield {
+          type: "tool-input-delta",
+          id: "tool-edit",
+          text: "delayed bytes",
+        };
+        yield {
+          type: "assistant-content",
+          parts: [
+            {
+              type: "tool-call" as const,
+              id: "tool-edit",
+              name: "edit-design",
+              input: { replacementContent: "late" },
+            },
+          ],
+        };
+      },
+    };
+    const events: AgentChatEvent[] = [];
+
+    try {
+      await runAgentLoop({
+        engine,
+        model: "test-model",
+        systemPrompt: "system",
+        tools: [],
+        messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+        actions: {
+          "edit-design": actionEntry({ readOnly: false }),
+        },
+        send: (event) => events.push(event),
+        signal: new AbortController().signal,
+      });
+    } finally {
+      dateNow.mockRestore();
+    }
+
+    expect(events).toContainEqual({
+      type: "activity",
+      label: "Preparing edit-design action",
+      tool: "edit-design",
+      id: "tool-edit",
+    });
+    expect(events.at(-1)).toEqual({
+      type: "auto_continue",
+      reason: "no_progress",
+    });
+    expect(events).not.toContainEqual(
+      expect.objectContaining({
+        type: "activity",
+        progressBytes: expect.any(Number),
+      }),
+    );
+    expect(events).not.toContainEqual(
+      expect.objectContaining({ type: "tool_start" }),
+    );
+  });
+
+  it("tracks action-preparation stalls for multiple in-flight tool inputs", async () => {
+    let now = 1_000_000;
+    const dateNow = vi.spyOn(Date, "now").mockImplementation(() => now);
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: true,
+      },
+      async *stream(): AsyncIterable<EngineEvent> {
+        yield {
+          type: "tool-input-start",
+          id: "tool-a",
+          name: "edit-design",
+        };
+        now += 30_000;
+        yield {
+          type: "tool-input-start",
+          id: "tool-b",
+          name: "generate-design",
+        };
+        now += 30_000;
+        yield {
+          type: "tool-input-delta",
+          id: "tool-b",
+          text: "healthy",
+        };
+        now += 31_000;
+        yield {
+          type: "tool-input-delta",
+          id: "tool-b",
+          text: "still healthy",
+        };
+        yield {
+          type: "assistant-content",
+          parts: [{ type: "text" as const, text: "should not finish" }],
+        };
+      },
+    };
+    const events: AgentChatEvent[] = [];
+
+    try {
+      await runAgentLoop({
+        engine,
+        model: "test-model",
+        systemPrompt: "system",
+        tools: [],
+        messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+        actions: {
+          "edit-design": actionEntry({ readOnly: false }),
+          "generate-design": actionEntry({ readOnly: false }),
+        },
+        send: (event) => events.push(event),
+        signal: new AbortController().signal,
+      });
+    } finally {
+      dateNow.mockRestore();
+    }
+
+    expect(events).toContainEqual({
+      type: "activity",
+      label: "Preparing edit-design action",
+      tool: "edit-design",
+      id: "tool-a",
+    });
+    expect(events).toContainEqual({
+      type: "activity",
+      label: "Preparing generate-design action",
+      tool: "generate-design",
+      id: "tool-b",
+    });
+    expect(events.at(-1)).toEqual({
+      type: "auto_continue",
+      reason: "no_progress",
+    });
+    expect(events).not.toContainEqual(
+      expect.objectContaining({ type: "text", text: "should not finish" }),
+    );
+  });
+
+  it("keeps assembling a large action input while bytes keep streaming", async () => {
+    let now = 1_000_000;
+    const dateNow = vi.spyOn(Date, "now").mockImplementation(() => now);
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: true,
+      },
+      async *stream(): AsyncIterable<EngineEvent> {
+        yield {
+          type: "tool-input-start",
+          id: "tool-edit",
+          name: "edit-design",
+        };
+        for (let i = 0; i < 4; i++) {
+          now += 60_000;
+          yield {
+            type: "tool-input-delta",
+            id: "tool-edit",
+            text: "x".repeat(1024),
+          };
+        }
+        now += 60_000;
+        yield {
+          type: "assistant-content",
+          parts: [{ type: "text" as const, text: "done" }],
+        };
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+    const events: AgentChatEvent[] = [];
+
+    try {
+      await runAgentLoop({
+        engine,
+        model: "test-model",
+        systemPrompt: "system",
+        tools: [],
+        messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+        actions: {},
+        send: (event) => events.push(event),
+        signal: new AbortController().signal,
+      });
+    } finally {
+      dateNow.mockRestore();
+    }
+
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "activity",
+        tool: "edit-design",
+        progressBytes: 4096,
+      }),
+    );
+    expect(events).not.toContainEqual({
+      type: "auto_continue",
+      reason: "no_progress",
+    });
+    expect(events.at(-1)).toEqual({ type: "done" });
   });
 
   it("serializes tool calls when a turn includes mutating actions", async () => {
@@ -4121,6 +4420,68 @@ describe("shouldChainBackgroundContinuation (server-driven background chain)", (
     ).toBe(true);
   });
 
+  it("preserves the specific continuation reason for recoverable background errors", () => {
+    expect(
+      backgroundContinuationReasonForRun(
+        makeRun([
+          {
+            type: "error",
+            error: "Builder gateway timed out after 45s",
+            errorCode: "builder_gateway_timeout",
+            recoverable: true,
+          },
+        ]),
+      ),
+    ).toBe("gateway_timeout");
+    expect(
+      backgroundContinuationReasonForRun(
+        makeRun([
+          {
+            type: "error",
+            error: "socket hang up",
+            recoverable: true,
+          },
+        ]),
+      ),
+    ).toBe("network_interrupted");
+  });
+
+  it("keeps unfinished action-preparation context through recoverable errors", () => {
+    expect(
+      lastUnfinishedPreparingActionToolFromEvents([
+        {
+          type: "activity",
+          label: "Preparing edit-design action",
+          tool: "edit-design",
+          id: "tool-1",
+          progressBytes: 0,
+        },
+        {
+          type: "error",
+          error: "Builder gateway timed out after 45s",
+          errorCode: "builder_gateway_timeout",
+          recoverable: true,
+        },
+      ]),
+    ).toBe("edit-design");
+    expect(
+      lastUnfinishedPreparingActionToolFromEvents([
+        {
+          type: "activity",
+          label: "Preparing edit-design action",
+          tool: "edit-design",
+          id: "tool-1",
+          progressBytes: 0,
+        },
+        {
+          type: "error",
+          error: "Missing API key",
+          errorCode: "missing_credentials",
+        },
+      ]),
+    ).toBeUndefined();
+  });
+
   it("does NOT chain an aborted/user-stopped background run", () => {
     expect(
       shouldChainBackgroundContinuation({
@@ -4150,6 +4511,23 @@ describe("shouldChainBackgroundContinuation (server-driven background chain)", (
         continuationCount: MAX_BACKGROUND_RUN_CONTINUATIONS - 1,
       }),
     ).toBe(true);
+  });
+});
+
+describe("appendAgentLoopContinuation", () => {
+  it("includes action-specific guidance for stalled action preparation", () => {
+    const messages: any[] = [];
+
+    appendAgentLoopContinuation(messages, "no_progress", {
+      actionPreparationTool: "edit-design",
+    });
+
+    const text = messages[0].content[0].text;
+    expect(text).toContain(AGENT_INTERNAL_CONTINUE_PROMPT);
+    expect(text).toContain("preparing the `edit-design` action input");
+    expect(text).toContain("smaller `edit-design` payload");
+    expect(text).toContain("exact search/replace edits");
+    expect(text).toContain("avoid `replacementContent`");
   });
 });
 
