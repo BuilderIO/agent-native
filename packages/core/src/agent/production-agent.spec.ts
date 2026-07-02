@@ -3271,6 +3271,52 @@ describe("runAgentLoop", () => {
     expect(events.at(-1)).toEqual({ type: "done" });
   });
 
+  it("clears streamed final-answer text when the guard throws", async () => {
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(): AsyncIterable<EngineEvent> {
+        yield { type: "text-delta", text: "Unverified answer." };
+        yield {
+          type: "assistant-content",
+          parts: [{ type: "text" as const, text: "Unverified answer." }],
+        };
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+    const events: any[] = [];
+
+    await expect(
+      runAgentLoop({
+        engine,
+        model: "test-model",
+        systemPrompt: "system",
+        tools: [],
+        messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+        actions: {},
+        send: (event) => events.push(event),
+        signal: new AbortController().signal,
+        finalResponseGuard: () => {
+          throw new Error("guard unavailable");
+        },
+      }),
+    ).rejects.toThrow("guard unavailable");
+
+    expect(events.slice(0, 2)).toEqual([
+      { type: "text", text: "Unverified answer." },
+      { type: "clear" },
+    ]);
+  });
+
   it("uses the final-response guard fallback after one failed corrective retry", async () => {
     let streamCalls = 0;
     const engine: AgentEngine = {

@@ -3015,8 +3015,10 @@ export async function runAgentLoop(opts: {
         appendAgentLoopContinuation(messages, "max_tokens");
         continue;
       }
-      const guard = opts.finalResponseGuard
-        ? await opts.finalResponseGuard({
+      let guard: Awaited<ReturnType<AgentLoopFinalResponseGuard>> | null = null;
+      if (opts.finalResponseGuard) {
+        try {
+          guard = await opts.finalResponseGuard({
             messages,
             assistantContent: assistantContentForHistory,
             text: collectTextParts(assistantContentForHistory),
@@ -3024,8 +3026,12 @@ export async function runAgentLoop(opts: {
             toolResults: [...toolResultHistory],
             retryCount: finalGuardRetries,
             executionMode: opts.executionMode ?? "act",
-          })
-        : null;
+          });
+        } catch (err) {
+          send({ type: "clear" });
+          throw err;
+        }
+      }
       let guardEmittedFallback = false;
       if (guard) {
         const retryMessage =
