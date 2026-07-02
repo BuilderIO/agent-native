@@ -13,7 +13,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 const builderReadMock = vi.hoisted(() => ({
   mode: "full" as "full" | "paged",
-  calls: [] as Array<{ model: string; offset?: number }>,
+  calls: [] as Array<{ model: string; maxPages?: number; offset?: number }>,
 }));
 
 // Mock the Builder read client so resync runs "live" with deterministic entries
@@ -26,8 +26,16 @@ vi.mock("./_builder-cms-read-client.js", async () => {
     ...actual,
     readBuilderCmsModelFields: vi.fn(async () => []),
     readBuilderCmsContentEntries: vi.fn(
-      async ({ model, offset }: { model: string; offset?: number }) => {
-        builderReadMock.calls.push({ model, offset });
+      async ({
+        model,
+        maxPages,
+        offset,
+      }: {
+        model: string;
+        maxPages?: number;
+        offset?: number;
+      }) => {
+        builderReadMock.calls.push({ model, maxPages, offset });
         if (model !== "collection-a") {
           return {
             state: "unconfigured",
@@ -64,12 +72,12 @@ vi.mock("./_builder-cms-read-client.js", async () => {
             sourceValues: { "data.title": "A Two" },
           },
         ];
-        const startOffset =
-          builderReadMock.mode === "paged" ? (offset ?? 0) : 0;
-        const pageEntries =
-          builderReadMock.mode === "paged"
-            ? entries.slice(startOffset, startOffset + 1)
-            : entries;
+        const shouldPage =
+          builderReadMock.mode === "paged" && typeof maxPages === "number";
+        const startOffset = shouldPage ? (offset ?? 0) : 0;
+        const pageEntries = shouldPage
+          ? entries.slice(startOffset, startOffset + 1)
+          : entries;
         const hasMore = startOffset + pageEntries.length < entries.length;
         return {
           state: "live",
@@ -78,12 +86,12 @@ vi.mock("./_builder-cms-read-client.js", async () => {
           message: null,
           progress: {
             requestedLimit: 500,
-            pageSize: builderReadMock.mode === "paged" ? 1 : 100,
+            pageSize: shouldPage ? 1 : 100,
             startOffset,
             nextOffset: startOffset + pageEntries.length,
             fetchedEntryCount: startOffset + pageEntries.length,
             hasMore,
-            partial: builderReadMock.mode === "paged" && hasMore,
+            partial: shouldPage && hasMore,
             readMode: "builder-api",
           },
         };
@@ -372,4 +380,83 @@ it("resync advances Builder partial reads with a cursor and converges on the fin
     rows.map((row: { sourceRowId: string }) => row.sourceRowId).sort(),
   ).toEqual(["entry-a1", "entry-a2"]);
   expect(builderReadMock.calls.map((call) => call.offset ?? 0)).toEqual([0, 1]);
+});
+
+it("full Builder refresh reads every page in one resync call", async () => {
+  builderReadMock.mode = "paged";
+  builderReadMock.calls = [];
+  const db = getDb();
+  const now = new Date().toISOString();
+  const databaseId = "db_resync_full_refresh";
+  const databaseDocId = "doc_db_resync_full_refresh";
+  await db.insert(schema.documents).values({
+    id: databaseDocId,
+    ownerEmail: OWNER,
+    title: "DB full refresh",
+    createdAt: now,
+    updatedAt: now,
+  });
+  await db.insert(schema.contentDatabases).values({
+    id: databaseId,
+    ownerEmail: OWNER,
+    documentId: databaseDocId,
+    title: "DB full refresh",
+    createdAt: now,
+    updatedAt: now,
+  });
+  await db.insert(schema.contentDatabaseSources).values({
+    id: "src-full-refresh",
+    ownerEmail: OWNER,
+    databaseId,
+    sourceType: "builder-cms",
+    sourceName: "collection-a",
+    sourceTable: "collection-a",
+    metadataJson: JSON.stringify({
+      sourceFetchState: "fetching",
+      lastReadHasMore: true,
+      lastReadNextOffset: 1,
+      activeReadSourceRowIds: ["entry-a1"],
+    }),
+    createdAt: now,
+    updatedAt: now,
+  });
+
+  const [database] = await db
+    .select()
+    .from(schema.contentDatabases)
+    .where(eq(schema.contentDatabases.id, databaseId));
+  const [source] = await db
+    .select()
+    .from(schema.contentDatabaseSources)
+    .where(eq(schema.contentDatabaseSources.id, "src-full-refresh"));
+
+  await resync({
+    database,
+    source,
+    now: "2026-01-01T00:02:00.000Z",
+    runFullRefresh: true,
+  });
+
+  const [after] = await db
+    .select()
+    .from(schema.contentDatabaseSources)
+    .where(eq(schema.contentDatabaseSources.id, "src-full-refresh"));
+  const metadata = JSON.parse(after.metadataJson ?? "{}");
+  expect(after.syncState).toBe("idle");
+  expect(after.freshness).toBe("fresh");
+  expect(metadata.lastReadFetchedEntryCount).toBe(2);
+  expect(metadata.lastReadPartial).toBe(false);
+  expect(metadata.sourceFetchState).toBe("idle");
+  expect(metadata.activeReadSourceRowIds).toBeUndefined();
+
+  const rows = await db
+    .select({ sourceRowId: schema.contentDatabaseSourceRows.sourceRowId })
+    .from(schema.contentDatabaseSourceRows)
+    .where(eq(schema.contentDatabaseSourceRows.sourceId, "src-full-refresh"));
+  expect(
+    rows.map((row: { sourceRowId: string }) => row.sourceRowId).sort(),
+  ).toEqual(["entry-a1", "entry-a2"]);
+  expect(builderReadMock.calls).toEqual([
+    { model: "collection-a", maxPages: undefined, offset: 0 },
+  ]);
 });

@@ -820,6 +820,7 @@ export interface RefreshContentDatabaseSourceRequest {
   databaseId?: string;
   documentId?: string;
   sourceId?: string;
+  fullRefresh?: boolean;
 }
 
 export interface DisconnectContentDatabaseSourceRequest {

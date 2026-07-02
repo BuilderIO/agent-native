@@ -36,6 +36,11 @@ const databaseMessages = {
   builderRowsFetched: "{{count}} Builder rows fetched",
   builderRowsFetchingMore: "fetching more rows",
   builderRowsFetchFailed: "row fetch needs attention",
+  builderRowsFetchedSoFar: "{{count}} rows fetched so far.",
+  builderRowsFinishingUp: "Builder rows are finishing up.",
+  builderRowsLoadingBackground:
+    "Builder is still loading rows in the background.",
+  builderRowsLoadingHitSnag: "Builder row loading hit a snag.",
   checkingForMatchingFields: "Checking for matching fields...",
   checkingHowTheseRecordsMatch: "Checking how these records match...",
   chooseFields: "Choose fields",
@@ -58,6 +63,7 @@ const databaseMessages = {
   click: "Click",
   column: "Column",
   columnOptions: "Column options",
+  continue: "Continue",
   clearColumn: "Clear column",
   clearRow: "Clear row",
   deleteColumn: "Delete column",
@@ -210,6 +216,7 @@ const databaseMessages = {
   notMappedToBuilder: "Not mapped to Builder.",
   openPage: "Open page",
   openPagesIn: "Open pages in",
+  opening: "Opening...",
   previewThisDatabasePageWithoutLeavingTheDatabase:
     "Preview this database page without leaving the database.",
   properties: "Properties",
@@ -7645,6 +7652,12 @@ export const messagesByLocale = {
       ...databaseExactEnglishMessagesByLocale["zh-CN"],
       builderBodiesReadyLocally: "Builder 文章正文已在本地准备就绪。",
       builderBodySync: "正文同步",
+      builderRowsFetchedSoFar: "目前已获取 {{count}} 行。",
+      builderRowsFinishingUp: "Builder 行即将完成加载。",
+      builderRowsLoadingBackground: "Builder 仍在后台加载行。",
+      builderRowsLoadingHitSnag: "Builder 行加载遇到问题。",
+      continue: "继续",
+      opening: "正在打开...",
     },
     localFiles: localFilesMessagesByLocale["zh-CN"],
     root: {
@@ -7779,6 +7792,15 @@ export const messagesByLocale = {
       builderBodiesReadyLocally:
         "Los cuerpos de los artículos de Builder están listos localmente.",
       builderBodySync: "Sincronización del cuerpo",
+      builderRowsFetchedSoFar: "{{count}} filas obtenidas hasta ahora.",
+      builderRowsFinishingUp:
+        "Las filas de Builder están terminando de cargarse.",
+      builderRowsLoadingBackground:
+        "Builder sigue cargando filas en segundo plano.",
+      builderRowsLoadingHitSnag:
+        "La carga de filas de Builder tuvo un problema.",
+      continue: "Continuar",
+      opening: "Abriendo...",
     },
     localFiles: localFilesMessagesByLocale["es-ES"],
     root: {
@@ -7923,6 +7945,14 @@ export const messagesByLocale = {
       builderBodiesReadyLocally:
         "Les corps d’articles Builder sont prêts localement.",
       builderBodySync: "Synchronisation du corps",
+      builderRowsFetchedSoFar: "{{count}} lignes récupérées jusqu’à présent.",
+      builderRowsFinishingUp: "Les lignes Builder terminent leur chargement.",
+      builderRowsLoadingBackground:
+        "Builder charge encore des lignes en arrière-plan.",
+      builderRowsLoadingHitSnag:
+        "Le chargement des lignes Builder a rencontré un problème.",
+      continue: "Continuer",
+      opening: "Ouverture...",
     },
     localFiles: localFilesMessagesByLocale["fr-FR"],
     root: {
@@ -8070,6 +8100,14 @@ export const messagesByLocale = {
       ...databaseExactEnglishMessagesByLocale["de-DE"],
       builderBodiesReadyLocally: "Builder-Artikelinhalte sind lokal bereit.",
       builderBodySync: "Inhaltssynchronisierung",
+      builderRowsFetchedSoFar: "{{count}} Zeilen bisher abgerufen.",
+      builderRowsFinishingUp: "Builder-Zeilen werden fertig geladen.",
+      builderRowsLoadingBackground:
+        "Builder lädt weiterhin Zeilen im Hintergrund.",
+      builderRowsLoadingHitSnag:
+        "Beim Laden der Builder-Zeilen ist ein Problem aufgetreten.",
+      continue: "Fortfahren",
+      opening: "Wird geöffnet...",
     },
     localFiles: localFilesMessagesByLocale["de-DE"],
     root: {
@@ -8218,6 +8256,13 @@ export const messagesByLocale = {
       builderBodiesReadyLocally:
         "Builder の記事本文はローカルで準備できています。",
       builderBodySync: "本文同期",
+      builderRowsFetchedSoFar: "現在 {{count}} 行を取得済みです。",
+      builderRowsFinishingUp: "Builder 行の読み込みを完了しています。",
+      builderRowsLoadingBackground:
+        "Builder はバックグラウンドで行を読み込み続けています。",
+      builderRowsLoadingHitSnag: "Builder 行の読み込みで問題が発生しました。",
+      continue: "続行",
+      opening: "開いています...",
     },
     localFiles: localFilesMessagesByLocale["ja-JP"],
     root: {
@@ -8361,6 +8406,13 @@ export const messagesByLocale = {
       ...databaseExactEnglishMessagesByLocale["ko-KR"],
       builderBodiesReadyLocally: "Builder 문서 본문이 로컬에서 준비되었습니다.",
       builderBodySync: "본문 동기화",
+      builderRowsFetchedSoFar: "지금까지 {{count}}개 행을 가져왔습니다.",
+      builderRowsFinishingUp: "Builder 행 로드를 마무리하는 중입니다.",
+      builderRowsLoadingBackground:
+        "Builder가 백그라운드에서 행을 계속 로드하고 있습니다.",
+      builderRowsLoadingHitSnag: "Builder 행 로드 중 문제가 발생했습니다.",
+      continue: "계속",
+      opening: "여는 중...",
     },
     localFiles: localFilesMessagesByLocale["ko-KR"],
     root: {
@@ -8497,6 +8549,15 @@ export const messagesByLocale = {
       builderBodiesReadyLocally:
         "Os corpos dos artigos do Builder estão prontos localmente.",
       builderBodySync: "Sincronização do corpo",
+      builderRowsFetchedSoFar: "{{count}} linhas buscadas até agora.",
+      builderRowsFinishingUp:
+        "As linhas do Builder estão terminando de carregar.",
+      builderRowsLoadingBackground:
+        "O Builder ainda está carregando linhas em segundo plano.",
+      builderRowsLoadingHitSnag:
+        "O carregamento de linhas do Builder encontrou um problema.",
+      continue: "Continuar",
+      opening: "Abrindo...",
     },
     localFiles: localFilesMessagesByLocale["pt-BR"],
     root: {
@@ -8643,6 +8704,13 @@ export const messagesByLocale = {
       ...databaseExactEnglishMessagesByLocale["hi-IN"],
       builderBodiesReadyLocally: "Builder लेखों की बॉडी स्थानीय रूप से तैयार है।",
       builderBodySync: "बॉडी सिंक",
+      builderRowsFetchedSoFar: "अब तक {{count}} पंक्तियां लाई गईं।",
+      builderRowsFinishingUp: "Builder पंक्तियां लोड होना पूरा कर रही हैं।",
+      builderRowsLoadingBackground:
+        "Builder अभी भी पृष्ठभूमि में पंक्तियां लोड कर रहा है।",
+      builderRowsLoadingHitSnag: "Builder पंक्तियां लोड करने में समस्या आई।",
+      continue: "जारी रखें",
+      opening: "खोला जा रहा है...",
     },
     localFiles: localFilesMessagesByLocale["hi-IN"],
     root: {
@@ -8777,6 +8845,12 @@ export const messagesByLocale = {
       ...databaseExactEnglishMessagesByLocale["ar-SA"],
       builderBodiesReadyLocally: "أصبحت نصوص مقالات Builder جاهزة محليًا.",
       builderBodySync: "مزامنة النص",
+      builderRowsFetchedSoFar: "تم جلب {{count}} صفًا حتى الآن.",
+      builderRowsFinishingUp: "صفوف Builder توشك على إكمال التحميل.",
+      builderRowsLoadingBackground: "لا يزال Builder يحمّل الصفوف في الخلفية.",
+      builderRowsLoadingHitSnag: "واجه تحميل صفوف Builder مشكلة.",
+      continue: "متابعة",
+      opening: "جارٍ الفتح...",
     },
     localFiles: localFilesMessagesByLocale["ar-SA"],
     root: {

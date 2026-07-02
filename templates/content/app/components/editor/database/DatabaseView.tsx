@@ -246,6 +246,8 @@ const DATABASE_OPEN_PAGES_IN: ContentDatabaseOpenPagesIn[] = [
   "full_page",
 ];
 const DATABASE_FILTER_MODES: DatabaseFilterMode[] = ["and", "or"];
+export const BUILDER_SOURCE_CONTINUATION_STALL_MS = 45_000;
+export const BUILDER_SOURCE_CONTINUATION_MAX_WATCHDOG_REFIRES = 2;
 
 type DatabaseMessageKey = keyof (typeof messagesByLocale)["en-US"]["database"];
 
@@ -557,6 +559,14 @@ function DatabaseTable({
   const hydratedViewRef = useRef("");
   const saveViewTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const autoContinueBuilderSourceRef = useRef<string | null>(null);
+  const builderContinuationWatchdogRef = useRef<{
+    key: string | null;
+    refires: number;
+  }>({ key: null, refires: 0 });
+  const [
+    builderContinuationClientErrorKey,
+    setBuilderContinuationClientErrorKey,
+  ] = useState<string | null>(null);
   const previewStateRef = useRef<{
     documentId: string | null;
     visibleItems: ContentDatabaseItem[];
@@ -680,23 +690,86 @@ function DatabaseTable({
     ) {
       return;
     }
-    const offset =
-      typeof source.metadata.lastReadNextOffset === "number"
-        ? source.metadata.lastReadNextOffset
-        : null;
-    if (offset === null) return;
-    const continuationKey = `${source.id}:${offset}`;
+    const continuationKey = builderSourceContinuationKey(source);
+    if (!continuationKey) return;
+    if (builderContinuationClientErrorKey === continuationKey) return;
     if (autoContinueBuilderSourceRef.current === continuationKey) return;
     autoContinueBuilderSourceRef.current = continuationKey;
-    refreshSource.mutate({
-      documentId: document.id,
-      sourceId: source.id,
-    });
+    refreshSource.mutate(
+      {
+        documentId: document.id,
+        sourceId: source.id,
+      },
+      {
+        onError: () => setBuilderContinuationClientErrorKey(continuationKey),
+      },
+    );
   }, [
+    builderContinuationClientErrorKey,
     canEdit,
     document.id,
     isActive,
-    refreshSource,
+    refreshSource.mutate,
+    refreshSource.isPending,
+    source,
+  ]);
+
+  useEffect(() => {
+    const continuationKey =
+      source?.sourceType === "builder-cms"
+        ? builderSourceContinuationKey(source)
+        : null;
+    if (
+      !isActive ||
+      !canEdit ||
+      !source ||
+      source.sourceType !== "builder-cms" ||
+      sourceAddsDetails(source) ||
+      refreshSource.isPending ||
+      builderSourceRowFetchStatus(source) !== "fetching" ||
+      source.metadata.lastReadHasMore !== true ||
+      !continuationKey ||
+      builderContinuationClientErrorKey === continuationKey
+    ) {
+      return;
+    }
+    if (builderContinuationWatchdogRef.current.key !== continuationKey) {
+      builderContinuationWatchdogRef.current = {
+        key: continuationKey,
+        refires: 0,
+      };
+    }
+    const timer = window.setTimeout(() => {
+      const watchdog = builderContinuationWatchdogRef.current;
+      if (watchdog.key !== continuationKey) return;
+      if (
+        builderSourceContinuationWatchdogDecision(watchdog.refires) === "error"
+      ) {
+        setBuilderContinuationClientErrorKey(continuationKey);
+        return;
+      }
+      builderContinuationWatchdogRef.current = {
+        key: continuationKey,
+        refires: watchdog.refires + 1,
+      };
+      autoContinueBuilderSourceRef.current = null;
+      refreshSource.mutate(
+        {
+          documentId: document.id,
+          sourceId: source.id,
+        },
+        {
+          onError: () => setBuilderContinuationClientErrorKey(continuationKey),
+        },
+      );
+    }, BUILDER_SOURCE_CONTINUATION_STALL_MS);
+    return () => window.clearTimeout(timer);
+  }, [
+    builderContinuationClientErrorKey,
+    canEdit,
+    document.id,
+    isActive,
+    refreshSource.mutate,
     refreshSource.isPending,
     source,
   ]);
@@ -1326,14 +1399,35 @@ function DatabaseTable({
         source={source}
         canEdit={canEdit}
         pending={refreshSource.isPending}
-        onContinue={() =>
+        clientError={
           source
-            ? refreshSource.mutate({
-                documentId: document.id,
-                sourceId: source.id,
-              })
-            : undefined
+            ? builderContinuationClientErrorKey ===
+              builderSourceContinuationKey(source)
+            : false
         }
+        onContinue={() => {
+          if (!source) return;
+          const continuationKey = builderSourceContinuationKey(source);
+          setBuilderContinuationClientErrorKey(null);
+          autoContinueBuilderSourceRef.current = null;
+          builderContinuationWatchdogRef.current = {
+            key: continuationKey,
+            refires: 0,
+          };
+          refreshSource.mutate(
+            {
+              documentId: document.id,
+              sourceId: source.id,
+            },
+            {
+              onError: () => {
+                if (continuationKey) {
+                  setBuilderContinuationClientErrorKey(continuationKey);
+                }
+              },
+            },
+          );
+        }}
       />
 
       {activeView.type === "board" ? (
@@ -2564,7 +2658,7 @@ function DatabaseItemPreview({
               ) : (
                 <IconExternalLink className="size-3.5" />
               )}
-              {openingFullPage ? "Opening..." : dbText("openPage")}
+              {openingFullPage ? dbText("opening") : dbText("openPage")}
             </Button>
             {canEdit || canManage ? (
               <DropdownMenu
@@ -5261,11 +5355,13 @@ function BuilderSourceContinuationBar({
   source,
   canEdit,
   pending,
+  clientError,
   onContinue,
 }: {
   source: ContentDatabaseSource | null;
   canEdit: boolean;
   pending: boolean;
+  clientError: boolean;
   onContinue: () => void;
 }) {
   if (
@@ -5275,7 +5371,7 @@ function BuilderSourceContinuationBar({
   ) {
     return null;
   }
-  const status = builderSourceRowFetchStatus(source);
+  const status = clientError ? "error" : builderSourceRowFetchStatus(source);
   if (!status) return null;
   const fetchedCount =
     typeof source.metadata.lastReadFetchedEntryCount === "number"
@@ -5284,16 +5380,17 @@ function BuilderSourceContinuationBar({
         ? source.metadata.lastReadEntryCount
         : null;
   const hasMore = source.metadata.lastReadHasMore === true;
+  const progressPercent = builderSourceContinuationProgressPercent(source);
   const label =
     status === "error"
-      ? "Builder row loading hit a snag."
+      ? dbText("builderRowsLoadingHitSnag")
       : hasMore
-        ? "Builder is still loading rows in the background."
-        : "Builder rows are finishing up.";
+        ? dbText("builderRowsLoadingBackground")
+        : dbText("builderRowsFinishingUp");
   const detail =
     fetchedCount === null
-      ? "The table stays usable while Content continues the source refresh."
-      : `${fetchedCount} row${fetchedCount === 1 ? "" : "s"} fetched so far. The table stays usable while Content continues the source refresh.`;
+      ? null
+      : dbText("builderRowsFetchedSoFar", { count: fetchedCount });
 
   return (
     <div
@@ -5307,16 +5404,18 @@ function BuilderSourceContinuationBar({
       <div className="flex min-w-0 items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="font-medium">{label}</div>
-          <div
-            className={cn(
-              "mt-0.5 break-words",
-              status === "error"
-                ? "text-destructive/80"
-                : "text-muted-foreground",
-            )}
-          >
-            {detail}
-          </div>
+          {detail ? (
+            <div
+              className={cn(
+                "mt-0.5 break-words",
+                status === "error"
+                  ? "text-destructive/80"
+                  : "text-muted-foreground",
+              )}
+            >
+              {detail}
+            </div>
+          ) : null}
         </div>
         <Button
           type="button"
@@ -5331,12 +5430,22 @@ function BuilderSourceContinuationBar({
           ) : (
             <IconRefresh className="mr-1 size-3.5" />
           )}
-          {status === "error" ? dbText("retry") : "Continue"}
+          {status === "error" ? dbText("retry") : dbText("continue")}
         </Button>
       </div>
       {status === "fetching" ? (
         <div className="h-1.5 overflow-hidden rounded-full bg-background">
-          <div className="h-full w-2/3 rounded-full bg-foreground/70 transition-[width]" />
+          <div
+            className={cn(
+              "h-full rounded-full bg-foreground/70 transition-[width]",
+              progressPercent === null ? "w-full animate-pulse" : null,
+            )}
+            style={
+              progressPercent === null
+                ? undefined
+                : { width: `${progressPercent}%` }
+            }
+          />
         </div>
       ) : null}
     </div>
@@ -6020,6 +6129,36 @@ export function builderSourceRowFetchStatus(
     return "fetching";
   }
   return null;
+}
+
+export function builderSourceContinuationKey(
+  source: Pick<ContentDatabaseSource, "id" | "metadata">,
+) {
+  const offset =
+    typeof source.metadata.lastReadNextOffset === "number"
+      ? source.metadata.lastReadNextOffset
+      : null;
+  return offset === null ? null : `${source.id}:${offset}`;
+}
+
+export function builderSourceContinuationProgressPercent(
+  source: Pick<ContentDatabaseSource, "metadata">,
+) {
+  const fetched = source.metadata.lastReadFetchedEntryCount;
+  const limit = source.metadata.lastReadLimit;
+  if (typeof fetched !== "number" || typeof limit !== "number" || limit <= 0) {
+    return null;
+  }
+  const rawPercent = Math.max(0, Math.min(100, (fetched / limit) * 100));
+  return source.metadata.lastReadHasMore === true
+    ? Math.min(95, rawPercent)
+    : rawPercent;
+}
+
+export function builderSourceContinuationWatchdogDecision(refires: number) {
+  return refires >= BUILDER_SOURCE_CONTINUATION_MAX_WATCHDOG_REFIRES
+    ? "error"
+    : "refire";
 }
 
 function sourceBuilderReadModeSummary(source: ContentDatabaseSource) {
