@@ -228,6 +228,24 @@ describe("waitForThreadRunToClear", () => {
     expect(helperSource).not.toContain("20_000");
   });
 
+  it("reattaches to the same active run when a hosted reconnect stream ends", () => {
+    const source = readFileSync("src/client/AssistantChat.tsx", {
+      encoding: "utf8",
+    });
+    const start = source.indexOf("const startReconnectToRun = useCallback");
+    const end = source.indexOf("const reconnectActiveRunForThread");
+    const helperSource = source.slice(start, end);
+
+    expect(start).toBeGreaterThan(-1);
+    expect(end).toBeGreaterThan(start);
+    expect(helperSource).toContain("sameRunStillActive");
+    expect(helperSource).toContain('err.reason === "stream_ended"');
+    expect(helperSource).toContain(
+      "const reconnectAfterSeq = resolveReconnectAfterSeq(threadId, runId)",
+    );
+    expect(helperSource).toContain("continue;");
+  });
+
   it("shows active tool activity before falling back to calm recovery labels", () => {
     const source = readFileSync("src/client/AssistantChat.tsx", {
       encoding: "utf8",
