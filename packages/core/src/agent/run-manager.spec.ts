@@ -53,8 +53,11 @@ import {
   resolveCompletedRunRetentionMs,
   resolveErroredRunRetentionMs,
   resolveRunSoftTimeoutMs,
+  resolveSqlSubscriptionPollMs,
   startRun,
   subscribeToRun,
+  SQL_SUBSCRIPTION_ACTIVE_POLL_MS,
+  SQL_SUBSCRIPTION_IDLE_POLL_MS,
   TERMINAL_RUN_RECONNECT_WINDOW_MS,
 } from "./run-manager.js";
 import {
@@ -167,6 +170,18 @@ describe("run manager soft timeout", () => {
   afterEach(() => {
     restoreHostedEnvAfterTest();
     vi.useRealTimers();
+  });
+
+  it("uses the active SQL subscription cadence only inside the active polling window", () => {
+    expect(resolveSqlSubscriptionPollMs(1_000, 1_001)).toBe(
+      SQL_SUBSCRIPTION_ACTIVE_POLL_MS,
+    );
+    expect(resolveSqlSubscriptionPollMs(1_000, 1_000)).toBe(
+      SQL_SUBSCRIPTION_IDLE_POLL_MS,
+    );
+    expect(resolveSqlSubscriptionPollMs(1_000, 999)).toBe(
+      SQL_SUBSCRIPTION_IDLE_POLL_MS,
+    );
   });
 
   it("emits an internal continuation signal and aborts the run chunk", async () => {

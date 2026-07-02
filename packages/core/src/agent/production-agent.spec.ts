@@ -3157,10 +3157,13 @@ describe("runAgentLoop", () => {
       "act",
       "act",
     ]);
-    expect(events).not.toContainEqual({
-      type: "text",
-      text: "Looks up and to the right.",
-    });
+    expect(events.slice(0, 2)).toEqual([
+      {
+        type: "text",
+        text: "Looks up and to the right.",
+      },
+      { type: "clear" },
+    ]);
     expect(events).toContainEqual({
       type: "tool_start",
       tool: "query-data",
@@ -3217,7 +3220,7 @@ describe("runAgentLoop", () => {
     expect(guard.mock.calls[0]?.[0].executionMode).toBe("plan");
   });
 
-  it("flushes guarded final-answer text after the guard accepts it", async () => {
+  it("streams guarded final-answer text before the guard accepts it", async () => {
     const engine: AgentEngine = {
       name: "test",
       label: "Test",
@@ -3240,6 +3243,7 @@ describe("runAgentLoop", () => {
       },
     };
     const events: any[] = [];
+    let eventsAtGuard: any[] = [];
 
     await runAgentLoop({
       engine,
@@ -3250,9 +3254,16 @@ describe("runAgentLoop", () => {
       actions: {},
       send: (event) => events.push(event),
       signal: new AbortController().signal,
-      finalResponseGuard: () => null,
+      finalResponseGuard: () => {
+        eventsAtGuard = [...events];
+        return null;
+      },
     });
 
+    expect(eventsAtGuard).toContainEqual({
+      type: "text",
+      text: "Grounded answer.",
+    });
     expect(events).toContainEqual({
       type: "text",
       text: "Grounded answer.",
@@ -3303,12 +3314,17 @@ describe("runAgentLoop", () => {
     });
 
     expect(streamCalls).toBe(2);
-    expect(events).not.toContainEqual({ type: "text", text: "fake answer" });
-    expect(events).not.toContainEqual({ type: "text", text: "still fake" });
-    expect(events).toContainEqual({
-      type: "text",
-      text: "I stopped because no real data-source query ran.",
-    });
+    expect(events).toEqual([
+      { type: "text", text: "fake answer" },
+      { type: "clear" },
+      { type: "text", text: "still fake" },
+      { type: "clear" },
+      {
+        type: "text",
+        text: "I stopped because no real data-source query ran.",
+      },
+      { type: "done" },
+    ]);
     expect(events.at(-1)).toEqual({ type: "done" });
   });
 
