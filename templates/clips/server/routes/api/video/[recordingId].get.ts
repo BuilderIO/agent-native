@@ -214,13 +214,13 @@ function rememberCompressedBuilderMediaMiss(compressedSourceUrl: string): void {
 function shouldFallbackToOriginalMedia(
   upstream: Response | { error: string; status: number },
 ): boolean {
-  return [403, 404, 416].includes(upstream.status);
+  return upstream.status >= 500 || [403, 404, 416].includes(upstream.status);
 }
 
 function shouldRememberCompressedBuilderMediaMiss(
   upstream: Response | { error: string; status: number },
 ): boolean {
-  return [403, 404].includes(upstream.status);
+  return upstream.status >= 500 || [403, 404].includes(upstream.status);
 }
 
 async function fetchProviderMedia(
