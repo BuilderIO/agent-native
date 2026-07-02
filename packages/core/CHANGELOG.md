@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.84.44
+
+### Patch Changes
+
+- 79726e5: Keep action preparation stall detection active across assistant text snapshots so hosted runs recover from zero-byte tool prep.
+
 ## 0.84.43
 
 ### Patch Changes
