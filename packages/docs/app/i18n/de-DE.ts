@@ -223,7 +223,8 @@ const deDE = {
     },
     templates: {
       title: "Teste eine Agent-Native-App",
-      eyebrow: "100 % kostenlos und Open Source",
+      eyebrow:
+        "Forke eine funktionierende App und lass sie vom Agenten weiterentwickeln.",
       cta: "Apps ansehen",
     },
     skills: {

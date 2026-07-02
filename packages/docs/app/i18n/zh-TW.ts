@@ -217,7 +217,7 @@ const messages = {
     },
     templates: {
       title: "試用一個 Agent-Native app",
-      eyebrow: "100% 免費且開放原始碼",
+      eyebrow: "Fork 一個可執行的 app，讓 agent 繼續改進它。",
       cta: "檢視 apps",
     },
     skills: {

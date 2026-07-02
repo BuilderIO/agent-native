@@ -223,7 +223,7 @@ const esES = {
     },
     templates: {
       title: "Prueba una app Agent-Native",
-      eyebrow: "100% gratis y open source",
+      eyebrow: "Bifurca una app funcional y deja que el agente la evolucione.",
       cta: "Ver apps",
     },
     skills: {

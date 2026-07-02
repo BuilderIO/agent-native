@@ -232,7 +232,7 @@ const enUS = {
     },
     templates: {
       title: "Try an Agent-Native app",
-      eyebrow: "100% free and open source",
+      eyebrow: "Fork a working app and let the agent evolve it.",
       cta: "Browse apps",
     },
     skills: {

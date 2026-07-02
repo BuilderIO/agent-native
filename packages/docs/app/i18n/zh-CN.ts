@@ -219,7 +219,7 @@ const zhCN = {
     },
     templates: {
       title: "试用一个 Agent-Native app",
-      eyebrow: "100% 免费且开源",
+      eyebrow: "Fork 一个可运行的 app，让 agent 继续改进它。",
       cta: "查看 apps",
     },
     skills: {

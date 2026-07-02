@@ -223,7 +223,7 @@ const koKR = {
     },
     templates: {
       title: "Agent-Native app 사용해 보기",
-      eyebrow: "100% 무료 오픈소스",
+      eyebrow: "작동하는 app을 포크하고 agent가 발전시키게 하세요.",
       cta: "apps 보기",
     },
     skills: {
