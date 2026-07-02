@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.84.33
+
+### Patch Changes
+
+- 8cc9620: Keep Nitro/Vite dev servers responsive when native file watchers hit EMFILE or ENOSPC by falling back to polling instead of replacing failed watches with no-ops.
+
 ## 0.84.32
 
 ### Patch Changes
