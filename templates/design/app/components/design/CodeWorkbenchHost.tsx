@@ -760,10 +760,12 @@ export function CodeWorkbenchHost({
             <span>{activeLanguage}</span>
             <span>{cursorLabel}</span>
             <span className="ml-auto truncate">
-              {previewSummary ??
-                (canEditSource
-                  ? "Preview on save, apply with version check" /* i18n-ignore */
-                  : "Read-only source") /* i18n-ignore */}
+              {
+                previewSummary ??
+                  (canEditSource
+                    ? "Preview on save, apply with version check" /* i18n-ignore */
+                    : "Read-only source") /* i18n-ignore */
+              }
             </span>
           </div>
         </main>
