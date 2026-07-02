@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.84.38
+
+### Patch Changes
+
+- 203c1c3: Keep durable background chat runs attached during long action preparation instead of aborting on keepalive-only or zero-byte preparation activity.
+
 ## 0.84.37
 
 ### Patch Changes
