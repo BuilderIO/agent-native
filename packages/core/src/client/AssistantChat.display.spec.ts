@@ -169,7 +169,7 @@ describe("resolveAssistantChatRunningStatusLabel", () => {
     ).toBe("Preparing generate-design action");
   });
 
-  it("shows replayed recovery as continuing instead of reconnecting", () => {
+  it("shows replayed recovery as still working instead of reconnecting", () => {
     expect(
       resolveAssistantChatRunningStatusLabel({
         runningActivityLabel: null,
@@ -177,7 +177,7 @@ describe("resolveAssistantChatRunningStatusLabel", () => {
         isReconnecting: true,
         hasReconnectContent: true,
       }),
-    ).toBe("Continuing");
+    ).toBe("Still working");
   });
 
   it("keeps bare reconnect recovery as thinking", () => {

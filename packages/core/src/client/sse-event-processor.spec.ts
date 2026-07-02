@@ -685,6 +685,64 @@ describe("SSE event processor no-progress recovery", () => {
     ]);
   });
 
+  it("carries zero-byte preparation stalls across durable reconnect reads", async () => {
+    vi.useFakeTimers();
+
+    const preparingActionState = {};
+    const readPreparationReplay = async (id: string) => {
+      try {
+        await drain(
+          readSSEStream(
+            eventStream([
+              {
+                type: "activity",
+                label: "Preparing edit-design action",
+                tool: "edit-design",
+                id,
+                progressBytes: 0,
+              },
+            ]),
+            [],
+            { value: 0 },
+            undefined,
+            undefined,
+            undefined,
+            { durableBackgroundRun: true, preparingActionState },
+          ),
+        );
+      } catch (err) {
+        return err;
+      }
+      return undefined;
+    };
+
+    const firstErr = await readPreparationReplay("call-a");
+    expect(firstErr).toBeInstanceOf(AgentAutoContinueSignal);
+    expect((firstErr as AgentAutoContinueSignal).reason).toBe("stream_ended");
+
+    await vi.advanceTimersByTimeAsync(
+      Math.floor(SSE_ACTION_PREPARATION_STALL_TIMEOUT_MS / 2),
+    );
+
+    const secondErr = await readPreparationReplay("call-b");
+    expect(secondErr).toBeInstanceOf(AgentAutoContinueSignal);
+    expect((secondErr as AgentAutoContinueSignal).reason).toBe("stream_ended");
+
+    await vi.advanceTimersByTimeAsync(
+      Math.ceil(SSE_ACTION_PREPARATION_STALL_TIMEOUT_MS / 2) + 1,
+    );
+
+    const thirdErr = await readPreparationReplay("call-c");
+    expect(thirdErr).toBeInstanceOf(AgentAutoContinueSignal);
+    expect((thirdErr as AgentAutoContinueSignal).reason).toBe("no_progress");
+    expect((thirdErr as AgentAutoContinueSignal).activityTrail).toEqual([
+      {
+        label: "Preparing edit screen action",
+        tool: "edit-design",
+      },
+    ]);
+  });
+
   it("keeps durable background keepalives attached until a terminal event", async () => {
     vi.useFakeTimers();
 
