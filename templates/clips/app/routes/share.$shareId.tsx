@@ -376,9 +376,17 @@ export default function ShareRoute() {
     [],
   );
   const [downloading, setDownloading] = useState(false);
+  const agentAccessToken = useMemo(() => {
+    if (typeof window === "undefined") return "";
+    return (
+      new URLSearchParams(window.location.search).get(
+        CLIPS_AGENT_ACCESS_PARAM,
+      ) ?? ""
+    );
+  }, []);
 
   const dataQ = useQuery({
-    queryKey: ["public-recording", shareId, password],
+    queryKey: ["public-recording", shareId, password, agentAccessToken],
     queryFn: async () => {
       const url = new URL(
         `${appBasePath()}/api/public-recording`,
@@ -386,6 +394,9 @@ export default function ShareRoute() {
       );
       url.searchParams.set("id", shareId ?? "");
       if (password) url.searchParams.set("password", password);
+      if (agentAccessToken) {
+        url.searchParams.set(CLIPS_AGENT_ACCESS_PARAM, agentAccessToken);
+      }
       const res = await fetch(url.toString());
       const data = await res.json().catch(() => ({}));
       return { ok: res.ok, status: res.status, data };

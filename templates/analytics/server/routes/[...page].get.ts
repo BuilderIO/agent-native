@@ -16,8 +16,25 @@ const ssrHandler = createH3SSRHandler(
   () => import("virtual:react-router/server-build"),
 );
 
+function configuredAppBasePath(): string {
+  const raw = process.env.VITE_APP_BASE_PATH || process.env.APP_BASE_PATH || "";
+  if (!raw || raw === "/") return "";
+  const normalized = raw.startsWith("/") ? raw : `/${raw}`;
+  return normalized.replace(/\/+$/, "");
+}
+
+function stripAppBasePath(pathname: string): string {
+  const basePath = configuredAppBasePath();
+  if (!basePath) return pathname;
+  if (pathname === basePath) return "/";
+  if (pathname.startsWith(`${basePath}/`)) {
+    return pathname.slice(basePath.length) || "/";
+  }
+  return pathname;
+}
+
 function sessionRecordingIdFromPath(pathname: string): string | null {
-  const match = pathname.match(/^\/sessions\/([^/]+)\/?$/);
+  const match = stripAppBasePath(pathname).match(/^\/sessions\/([^/]+)\/?$/);
   if (!match?.[1]) return null;
   try {
     return decodeURIComponent(match[1]);
