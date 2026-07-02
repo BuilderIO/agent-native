@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.84.60
+
+### Patch Changes
+
+- 4b6ca6c: Loosen the document script CSP allowances so hosted Google Tag Manager scripts and framework inline bootstrap scripts do not trigger CSP violations.
+
 ## 0.84.59
 
 ### Patch Changes
