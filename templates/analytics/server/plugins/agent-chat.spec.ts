@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import {
   applyAnalyticsPlanModePolicy,
   PLAN_MODE_ACT_ONLY_TOOLS,
-} from "./agent-chat";
+} from "./agent-chat-plan-mode";
 
 type PlanModePolicyEntry = ActionEntry & { allowInPlanMode?: boolean };
 
