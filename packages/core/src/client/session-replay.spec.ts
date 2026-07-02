@@ -735,6 +735,57 @@ describe("session replay", () => {
     );
   });
 
+  it("does not retry failed batches on every newly queued event", async () => {
+    const { fetchMock } = installBrowser("https://app.agent-native.com/inbox");
+    vi.stubGlobal("CompressionStream", undefined);
+    fetchMock
+      .mockResolvedValueOnce(new Response("nope", { status: 500 }))
+      .mockResolvedValue(new Response("{}"));
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    let recordOptions: any;
+    recordMock.mockImplementation((options) => {
+      recordOptions = options;
+      return vi.fn();
+    });
+    const { startSessionReplay, flushSessionReplay } =
+      await freshSessionReplay();
+
+    await startSessionReplay({
+      publicKey: "anpk_test",
+      endpoint: "https://analytics.example.test/session-replay",
+      maxEventsPerBatch: 1,
+      flushIntervalMs: 100_000,
+    });
+    recordOptions.emit({ type: 3, data: { href: "/first" } });
+    await waitForAssertion(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    await tick();
+
+    recordOptions.emit({ type: 3, data: { href: "/second" } });
+    await tick();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    await flushSessionReplay("interval");
+    await waitForAssertion(() =>
+      expect(fetchMock.mock.calls.length).toBeGreaterThanOrEqual(2),
+    );
+    const bodies = await Promise.all(
+      fetchMock.mock.calls.map(([, init]) =>
+        parseReplayUpload(init as RequestInit),
+      ),
+    );
+    expect(bodies.map((body) => body.sequence)).toEqual([0, 0, 1]);
+    expect(bodies[1].events.map((event: any) => event.data.href)).toEqual([
+      "/first",
+    ]);
+    expect(bodies[2].events.map((event: any) => event.data.href)).toEqual([
+      "/second",
+    ]);
+    expect(warn).toHaveBeenCalledWith(
+      "[session-replay] upload failed",
+      expect.any(Error),
+    );
+  });
+
   it("reserves the next sequence before unload keepalive uploads", async () => {
     const { fetchMock, storage } = installBrowser(
       "https://app.agent-native.com/inbox",
@@ -767,6 +818,51 @@ describe("session replay", () => {
     });
     recordOptions.emit({ type: 3, data: { href: "/leaving" } });
     const flush = flushSessionReplay("pagehide");
+    await waitForAssertion(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(init.keepalive).toBe(true);
+    expect(
+      JSON.parse(storage.get("agent-native.session_replay_id") ?? "{}")
+        .sequence,
+    ).toBe(1);
+
+    upload.resolve(new Response("{}"));
+    await flush;
+  });
+
+  it("reserves the next sequence before visibility-hidden keepalive uploads", async () => {
+    const { fetchMock, storage } = installBrowser(
+      "https://app.agent-native.com/inbox",
+    );
+    vi.stubGlobal("CompressionStream", undefined);
+    const upload = deferred<Response>();
+    fetchMock.mockImplementation((input: unknown) => {
+      if (String(input).includes("/_agent-native/auth/session")) {
+        return Promise.resolve(
+          new Response(JSON.stringify({ error: "not authenticated" }), {
+            headers: { "Content-Type": "application/json" },
+          }),
+        );
+      }
+      return upload.promise;
+    });
+    let recordOptions: any;
+    recordMock.mockImplementation((options) => {
+      recordOptions = options;
+      return vi.fn();
+    });
+    const { startSessionReplay, flushSessionReplay } =
+      await freshSessionReplay();
+
+    await startSessionReplay({
+      publicKey: "anpk_test",
+      endpoint: "https://analytics.example.test/session-replay",
+      maxEventsPerBatch: 50,
+      flushIntervalMs: 100_000,
+    });
+    recordOptions.emit({ type: 3, data: { href: "/hidden" } });
+    const flush = flushSessionReplay("visibility-hidden");
     await waitForAssertion(() => expect(fetchMock).toHaveBeenCalledTimes(1));
 
     const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];

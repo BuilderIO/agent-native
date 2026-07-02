@@ -868,8 +868,12 @@ function isFinalFlushReason(reason: string): boolean {
   ].includes(reason);
 }
 
-function isPageUnloadFlushReason(reason: string): boolean {
-  return reason === "pagehide" || reason === "beforeunload";
+function shouldReserveSequenceBeforeKeepalive(reason: string): boolean {
+  return (
+    reason === "pagehide" ||
+    reason === "beforeunload" ||
+    reason === "visibility-hidden"
+  );
 }
 
 function hasFullSnapshot(events: QueuedReplayEvent[]): boolean {
@@ -892,10 +896,7 @@ function shouldFlushQueuedReplay(state: SessionReplayState): boolean {
 function flushQueuedReplayIfNeeded(state: SessionReplayState): void {
   const options = state.options;
   if (!options) return;
-  if (state.retryBatches.length > 0) {
-    void flushSessionReplay("retry");
-    return;
-  }
+  if (state.retryBatches.length > 0) return;
   if (!shouldFlushQueuedReplay(state)) return;
   const reason = hasFullSnapshot(state.queue)
     ? "full-snapshot"
@@ -960,7 +961,7 @@ export async function flushSessionReplay(reason = "manual"): Promise<void> {
   let reservedSequence = false;
   try {
     await sendReplayUpload(state.options, payload.body, {
-      beforeKeepaliveUpload: isPageUnloadFlushReason(reason)
+      beforeKeepaliveUpload: shouldReserveSequenceBeforeKeepalive(reason)
         ? () => {
             advanceReplaySequence(state, payload);
             reservedSequence = true;
