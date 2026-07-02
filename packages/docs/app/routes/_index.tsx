@@ -1,5 +1,4 @@
 import { useLocale, useT } from "@agent-native/core/client";
-import { IconCode } from "@tabler/icons-react";
 import { useState } from "react";
 import { Link } from "react-router";
 
@@ -435,40 +434,25 @@ function ActionSurfaceSection({
     <section className="border-t border-[var(--docs-border)] bg-black px-6 py-20 text-white md:py-24">
       <div className="mx-auto grid max-w-[1200px] gap-10 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)] lg:items-center">
         <div className="min-w-0">
-          <h2 className="m-0 max-w-xl text-4xl font-semibold leading-tight tracking-tight md:text-5xl">
+          <h2 className="m-0 max-w-xl text-3xl font-bold leading-tight tracking-tight md:text-4xl">
             {t("home.actionSurface.title")}
           </h2>
-          <p className="mt-6 max-w-xl text-base leading-relaxed text-white/62 md:text-lg">
+          <p className="mt-4 max-w-xl text-base leading-relaxed text-white/58">
             {t("home.actionSurface.body")}
           </p>
           <div className="mt-7 flex flex-col gap-3 sm:flex-row">
             <Link
               data-an-prefetch="render"
-              to={localizedPath("/docs/actions")}
+              to={localizedPath("/docs/getting-started")}
               className="inline-flex min-w-0 items-center justify-center gap-2 rounded-full bg-white px-6 py-3 text-sm font-medium text-black no-underline transition hover:opacity-[0.85] hover:no-underline"
               onClick={() =>
                 trackEvent("click cta", {
-                  label: "see_actions",
+                  label: "build_action",
                   location: "action_surface_section",
                 })
               }
             >
-              {t("home.actionSurface.seeActions")}
-              <IconCode size={16} stroke={1.8} aria-hidden />
-            </Link>
-            <Link
-              data-an-prefetch="render"
-              to={localizedPath("/docs/what-is-agent-native")}
-              className="inline-flex min-w-0 items-center justify-center gap-2 rounded-full border border-white/16 px-6 py-3 text-sm font-medium text-white no-underline transition hover:border-white/40 hover:no-underline"
-              onClick={() =>
-                trackEvent("click cta", {
-                  label: "framework_guide",
-                  location: "action_surface_section",
-                })
-              }
-            >
-              {t("home.actionSurface.frameworkGuide")}
-              <span aria-hidden>→</span>
+              {t("home.actionSurface.buildAction")}
             </Link>
           </div>
         </div>
@@ -497,8 +481,12 @@ function AppsSection({
         <h2 className="mb-3 text-3xl font-bold tracking-tight md:text-4xl">
           {t("home.templates.title")}
         </h2>
-        <p className="mb-3 text-sm font-semibold text-[var(--docs-accent)]">
-          {t("home.templates.eyebrow")}
+        <p className="mx-auto max-w-2xl text-base leading-relaxed text-[var(--fg-secondary)]">
+          {t("templatesPage.eyebrow")}
+          <span className="font-semibold text-[var(--docs-accent)]">
+            {" "}
+            {t("templatesPage.body")}
+          </span>
         </p>
       </div>
 
@@ -608,11 +596,11 @@ export default defineAction({
             <div className="flex flex-wrap items-center justify-center gap-4">
               <Link
                 data-an-prefetch="render"
-                to={localizedPath("/docs/getting-started")}
+                to={localizedPath("/apps")}
                 className="primary-button"
                 onClick={() =>
                   trackEvent("click cta", {
-                    label: "start_building",
+                    label: "try_app",
                     location: "hero",
                   })
                 }
@@ -634,11 +622,11 @@ export default defineAction({
               </Link>
               <Link
                 data-an-prefetch="render"
-                to={localizedPath("/apps")}
+                to={localizedPath("/docs")}
                 className="inline-flex items-center gap-2 rounded-full border border-[var(--docs-border)] px-6 py-3 text-sm font-medium text-[var(--fg)] no-underline transition hover:border-[var(--fg-secondary)] hover:no-underline"
                 onClick={() =>
                   trackEvent("click cta", {
-                    label: "browse_apps",
+                    label: "read_the_docs",
                     location: "hero",
                   })
                 }
@@ -672,11 +660,11 @@ export default defineAction({
             <div className="flex flex-col items-center justify-center gap-4 sm:flex-row">
               <Link
                 data-an-prefetch="render"
-                to={localizedPath("/docs/getting-started")}
+                to={localizedPath("/apps")}
                 className="primary-button"
                 onClick={() =>
                   trackEvent("click cta", {
-                    label: "start_with_action",
+                    label: "try_app",
                     location: "footer",
                   })
                 }

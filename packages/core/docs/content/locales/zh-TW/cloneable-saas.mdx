@@ -30,7 +30,7 @@ description: "分叉一個可用的 SaaS 產品並使其成為您的產品 - 包
 | [**Plan**](/docs/template-plan)           | 帶有圖表、線框圖和註解的視覺計畫和 PR 概述。                                                    |
 | [**Dispatch**](/docs/template-dispatch)   | 工作區控制平面：共用秘密、可重用整合、Slack/Telegram、計畫作業。                                |
 
-不需要域應用程式？當您想要一個使用者可以立即交談的基本應用程式時，請使用 [Chat](/docs/template-chat)，或者從 [Pure-Agent Apps](/docs/pure-agent-apps) 中的一個操作開始。
+不需要域應用程式？當您想要一個使用者可以立即交談，並可繼續擴展 actions、原生結果和頁面的基本應用程式時，請使用 [Chat](/docs/template-chat)。只有在暫時不需要瀏覽器 UI 的自動化工作流程中，才使用 [Automation-First Apps](/docs/pure-agent-apps)。
 
 檢視 [Apps](/apps) 下的完整目錄，或直接跳到其中一個 - 例如，如果您想要一款工作區風格的應用，[Dispatch](/docs/template-dispatch) 是一個很好的起點。
 
@@ -166,7 +166,7 @@ description: "分叉一個可用的 SaaS 產品並使其成為您的產品 - 包
 
 ## 在此基礎上建置
 
-- [**Getting Started**](/docs/getting-started) - 建立一個最小的聊天應用程式或無頭代理
+- [**Getting Started**](/docs/getting-started) - 建立聊天優先應用程式，新增 action，渲染結構化結果，並擴展為頁面
 - [**Messaging the agent**](/docs/messaging) - 使用者（和您）如何與每個範本附帶的代理對話
 - [**Multi-App Workspace**](/docs/multi-app-workspace) — 將多個範本捆綁到一個共用驗證、品牌和代理的工作區
 - [**Dispatch**](/docs/template-dispatch) — 工作區控制平面範本
@@ -180,7 +180,7 @@ description: "分叉一個可用的 SaaS 產品並使其成為您的產品 - 包
 npx @agent-native/core@latest create my-platform
 ```
 
-您將獲得一個多選選取器。選取一個應用程式（獨立）或多個應用程式（工作區 - 應用程式共用驗證、品牌、代理設定和資料庫）。每個挑選的範本都與您需要的每個檔案一起建置到 `apps/<name>/` 中。對於僅限操作的應用程式而不是範本 UI，請使用 `npx @agent-native/core@latest create my-agent --headless`。
+您將獲得一個多選選取器。選取一個應用程式（獨立）或多個應用程式（工作區 - 應用程式共用驗證、品牌、代理設定和資料庫）。每個挑選的範本都與您需要的每個檔案一起建置到 `apps/<name>/` 中。對於沒有瀏覽器 UI 的自動化應用程式，而不是範本 UI，請使用 `npx @agent-native/core@latest create my-agent --headless`。
 
 填寫`.env`（主要是`ANTHROPIC_API_KEY`和`DATABASE_URL`）、`pnpm install`、`pnpm dev`，就可以了。沒有“TODO：實現登入”，沒有預留位置路由。
 

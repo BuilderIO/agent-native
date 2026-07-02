@@ -80,8 +80,8 @@ const hiIN = {
       titleLine1: "agentic apps के लिए",
       titleAccent: "framework",
       body: "Chat-first app और app-agent loop से शुरू करें। जैसे-जैसे आपका agent बढ़े, actions, स्क्रीन, jobs और workflows जोड़ें।",
-      primaryCta: "बनाना शुरू करें",
-      secondaryCta: "दस्तावेज़ देखें",
+      primaryCta: "एक app आज़माएँ",
+      secondaryCta: "दस्तावेज़ पढ़ें",
     },
     code: {
       quickStartComment: "एक command से app बनाएं",
@@ -95,8 +95,7 @@ const hiIN = {
       eyebrow: "ऊपर से चिपकाई AI नहीं, सच में agentic",
       title: "एक action पूरी app surface खोल देता है",
       body: "एक operation एक बार define करें। Agent-Native उसे UI action, agent tool, HTTP endpoint, MCP/A2A surface, CLI command, scoped permission check और audit trail में बदल देता है।",
-      seeActions: "Actions देखें",
-      frameworkGuide: "Framework guide पढ़ें",
+      buildAction: "एक action बनाएं",
       benefits: {
         oneActionDefinition: {
           title: "एक action definition",
@@ -107,8 +106,8 @@ const hiIN = {
           body: "Auth, sharing, governance और audit logs काम के साथ चलते हैं।",
         },
         headedOrHeadless: {
-          title: "UI वाली या headless",
-          body: "इसे app, agent workflow, queue या scheduled task की तरह चलाएँ।",
+          title: "Apps, automations और agents",
+          body: "उसी operation को chat, UI, scheduled jobs, queues, external agents या scripts से चलाएँ।",
         },
         contextRichInput: {
           title: "संदर्भ-समृद्ध input",
@@ -179,7 +178,7 @@ const hiIN = {
         },
         workspaces: {
           title: "Workspaces layer",
-          body: "UI वाली या headless apps जो एक-दूसरे को discover करती हैं और A2A से coordinate करती हैं।",
+          body: "Composable agentic apps जो एक-दूसरे को discover करती हैं और A2A से coordinate करती हैं।",
         },
         sourceOwnership: {
           title: "Source ownership layer",
@@ -194,7 +193,7 @@ const hiIN = {
     framework: {
       title: "agent-native apps के लिए framework",
       body1:
-        "Agent-Native एक ओपन सोर्स framework है जो agents को वास्तविक software की तरह बनाने के लिए है: Chat या headless agents से शुरू करें, फिर उन्हीं actions के आसपास UI, jobs और सहयोग जोड़ें।",
+        "Agent-Native agentic applications बनाने के लिए open-source framework है: Chat से शुरू करें, shared actions define करें, फिर उसी state के आसपास UI, jobs और collaboration जोड़ें।",
       body2:
         "अपना database, hosting provider, model stack और app code साथ लाएं।",
       cta: "framework guide पढ़ें",
@@ -296,12 +295,12 @@ const hiIN = {
     },
     quickStart: {
       title: "एक command से शुरू करें",
-      body: "एक command actions, durable threads और SQLite पर backed स्थानीय app बनाता है। जब अभी browser UI नहीं चाहिए, तो इसके बजाय `--headless` इस्तेमाल करें।",
+      body: "एक command actions, durable threads और SQLite पर backed chat-first स्थानीय app बनाता है। `--headless` केवल तब इस्तेमाल करें जब automation-first workflow को अभी browser UI नहीं चाहिए।",
     },
     finalCta: {
       title: "agentic era के लिए बना software",
       body: "एक command या durable action से शुरू करें, इसे app-agent loop से चलाएं, फिर operation को दोबारा लिखे बिना UI, jobs और collaboration में बढ़ाएं। ओपन सोर्स। Forkable। आपका।",
-      primaryCta: "Action से शुरू करें",
+      primaryCta: "एक app आज़माएँ",
       secondaryCta: "दस्तावेज़ पढ़ें",
       githubCta: "GitHub पर देखें",
     },
@@ -410,8 +409,8 @@ const hiIN = {
   },
   templatesPage: {
     title: "ओपन-सोर्स, एजेंट-नेटिव ऐप्स आपके स्वामित्व में हैं",
-    eyebrow: "100% मुफ़्त और खुला स्रोत",
-    body: "एक टेम्प्लेट फोर्क करें, इसे स्थानीय रूप से चलाएं, और एजेंट को इसे विकसित करने दें। आपके पास कोड है और आप हर चीज़ को कस्टमाइज़ कर सकते हैं।",
+    eyebrow: "एक working app fork करें और agent को इसे evolve करने दें।",
+    body: "आप हर चीज़ customize कर सकते हैं।",
     community: "Blank app चाहिए? Framework guide से scratch से शुरू करें।",
     createYourOwn: "Scratch से शुरू करें",
   },

@@ -30,7 +30,7 @@ description: "動作する SaaS 製品をフォークして、エージェント
 | [**Plan**](/docs/template-plan)           | 図、ワイヤーフレーム、注釈を使用した視覚的な計画と PR の要約。                                                                          |
 | [**Dispatch**](/docs/template-dispatch)   | ワークスペース コントロール プレーン: 共有シークレット、再利用可能な統合、Slack/テレグラム、スケジュールされたジョブ。                  |
 
-ドメイン アプリが不要ですか?ユーザーがすぐに会話できる基本的なアプリが必要な場合は、[Chat](/docs/template-chat) を使用するか、[Pure-Agent Apps](/docs/pure-agent-apps) でアクションから始めてください。
+ドメイン アプリが不要ですか? ユーザーがすぐに会話でき、actions、ネイティブ結果、画面へ拡張できる基本アプリが必要な場合は、[Chat](/docs/template-chat) を使用してください。まだブラウザー UI が不要な workflow の場合だけ [Automation-First Apps](/docs/pure-agent-apps) を使用します。
 
 [Apps](/apps) で完全なカタログを参照するか、カタログに直接ジャンプしてください。たとえば、ワークスペース スタイルのアプリが必要な場合は、[Dispatch](/docs/template-dispatch) から始めるのが最適です。
 
@@ -182,7 +182,7 @@ description: "動作する SaaS 製品をフォークして、エージェント
 npx @agent-native/core@latest create my-platform
 ```
 
-複数選択ピッカーが表示されます。 1 つのアプリ (スタンドアロン) または複数のアプリ (ワークスペース - アプリは認証、ブランド、エージェント構成、データベースを共有) を選択します。選択した各テンプレートは、必要なすべてのファイルとともに `apps/<name>/` にスキャフォールディングされます。テンプレート UI の代わりにアクション専用アプリの場合は、`npx @agent-native/core@latest create my-agent --headless` を使用します。
+複数選択ピッカーが表示されます。 1 つのアプリ (スタンドアロン) または複数のアプリ (ワークスペース - アプリは認証、ブランド、エージェント構成、データベースを共有) を選択します。選択した各テンプレートは、必要なすべてのファイルとともに `apps/<name>/` にスキャフォールディングされます。テンプレート UI の代わりにブラウザー UI のない automation を作る場合は、`npx @agent-native/core@latest create my-agent --headless` を使用します。
 
 `.env` (主に `ANTHROPIC_API_KEY` と `DATABASE_URL`)、`pnpm install`、`pnpm dev` を入力すると機能します。 「TODO: ログインの実装」、プレースホルダー ルートはありません。
 

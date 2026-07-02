@@ -80,8 +80,8 @@ const jaJP = {
       titleLine1: "agentic apps のための",
       titleAccent: "framework",
       body: "Chat-first app と app-agent loop から始めましょう。agent の成長に合わせて actions、画面、jobs、workflows を追加できます。",
-      primaryCta: "構築を始める",
-      secondaryCta: "ドキュメントを見る",
+      primaryCta: "app を試す",
+      secondaryCta: "ドキュメントを読む",
     },
     code: {
       quickStartComment: "1 つのコマンドで app を作成",
@@ -95,8 +95,7 @@ const jaJP = {
       eyebrow: "後付けAIではなく、深くエージェント指向",
       title: "ひとつのアクションでアプリ全体の面を開く",
       body: "操作を一度だけ定義します。Agent-Native はそれを UI アクション、agent ツール、HTTP エンドポイント、MCP/A2A 面、CLI コマンド、権限チェック、監査証跡にします。",
-      seeActions: "アクションを見る",
-      frameworkGuide: "フレームワークガイドを読む",
+      buildAction: "アクションを作る",
       benefits: {
         oneActionDefinition: {
           title: "ひとつのアクション定義",
@@ -107,8 +106,8 @@ const jaJP = {
           body: "Auth、共有、ガバナンス、監査ログが作業と一緒に適用されます。",
         },
         headedOrHeadless: {
-          title: "UI ありでも headless でも",
-          body: "アプリ、agent ワークフロー、キュー、スケジュールタスクとして実行できます。",
+          title: "Apps、automations、agents",
+          body: "同じ operation を chat、UI、scheduled jobs、queues、external agents、scripts から実行できます。",
         },
         contextRichInput: {
           title: "文脈豊かな入力",
@@ -179,7 +178,7 @@ const jaJP = {
         },
         workspaces: {
           title: "ワークスペース",
-          body: "UI ありまたは headless のアプリが互いを発見し、A2A で連携します。",
+          body: "Composable agentic apps が互いを発見し、A2A で連携します。",
         },
         sourceOwnership: {
           title: "ソース所有権",
@@ -194,7 +193,7 @@ const jaJP = {
     framework: {
       title: "agent-native apps のための framework",
       body1:
-        "Agent-Native は、agents を実際のソフトウェアとして構築するためのオープンソース framework です。Chat または headless agents から始め、同じ actions を中心に UI、jobs、コラボレーションを追加できます。",
+        "Agent-Native は agentic applications を構築するためのオープンソース framework です。Chat から始め、共有 actions を定義し、同じ state を中心に UI、jobs、コラボレーションを追加できます。",
       body2:
         "自分のデータベース、ホスティングプロバイダー、モデルスタック、app コードを持ち込めます。",
       cta: "framework ガイドを読む",
@@ -296,12 +295,12 @@ const jaJP = {
     },
     quickStart: {
       title: "コマンドから始める",
-      body: "1 つのコマンドで、actions、durable threads、SQLite を備えたローカル app を作成します。まだブラウザー UI が不要な場合は `--headless` を使ってください。",
+      body: "1 つのコマンドで、actions、durable threads、SQLite を備えた chat-first ローカル app を作成します。ブラウザー UI がまだ不要な automation-first workflow の場合だけ `--headless` を使ってください。",
     },
     finalCta: {
       title: "agentic era のために作られたソフトウェア",
       body: "コマンドまたは durable action から始め、app-agent loop に通し、操作を書き直さずに UI、jobs、コラボレーションへ育てられます。オープンソース。Fork 可能。あなたのものです。",
-      primaryCta: "Action から始める",
+      primaryCta: "app を試す",
       secondaryCta: "ドキュメントを読む",
       githubCta: "GitHub で見る",
     },
@@ -410,8 +409,8 @@ const jaJP = {
   },
   templatesPage: {
     title: "あなたが所有するオープンソースのエージェントネイティブ アプリ",
-    eyebrow: "100%無料かつオープンソース",
-    body: "テンプレートをフォークしてローカルで実行し、エージェントに進化させます。コードはあなたが所有しており、すべてをカスタマイズできます。",
+    eyebrow: "動く app をフォークし、agent に進化させます。",
+    body: "すべてをカスタマイズできます。",
     community:
       "空のアプリから始めたい場合は、フレームワークガイドでゼロから始められます。",
     createYourOwn: "ゼロから始める",

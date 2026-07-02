@@ -88,9 +88,9 @@ const enUS = {
       badge: "Open source framework",
       titleLine1: "The framework for",
       titleAccent: "agentic apps",
-      body: "Agent-Native is an open-source framework for apps where agents and UI share the same actions, state, and context. Start headless, add a UI when you need one, or fork a working app and make it yours.",
-      primaryCta: "Start building",
-      secondaryCta: "Browse apps",
+      body: "Agent-Native is an open-source framework for apps where agents and UI share the same actions, state, and context.",
+      primaryCta: "Try an app",
+      secondaryCta: "Read the docs",
     },
     code: {
       quickStartComment: "Create an app with one command",
@@ -104,8 +104,7 @@ const enUS = {
       eyebrow: "Deeply agentic, not AI-adjacent",
       title: "One action gives you the whole app surface",
       body: "Define an operation once. Agent-Native turns it into the UI action, agent tool, HTTP endpoint, MCP/A2A surface, CLI command, scoped permission check, and audit trail.",
-      seeActions: "See actions",
-      frameworkGuide: "Read the framework guide",
+      buildAction: "Build an action",
       benefits: {
         oneActionDefinition: {
           title: "One action definition",
@@ -116,8 +115,8 @@ const enUS = {
           body: "Auth, sharing, governance, and audit logs travel with the work.",
         },
         headedOrHeadless: {
-          title: "Headed or headless",
-          body: "Run as an app, an agent workflow, a queue, or a scheduled task.",
+          title: "Apps, automations, and agents",
+          body: "Run the same operation from chat, UI, scheduled jobs, queues, external agents, or scripts.",
         },
         contextRichInput: {
           title: "Context-rich input",
@@ -188,7 +187,7 @@ const enUS = {
         },
         workspaces: {
           title: "Workspaces",
-          body: "Composable headed or headless apps that discover each other and coordinate over A2A.",
+          body: "Composable agentic apps that discover each other and coordinate over A2A.",
         },
         sourceOwnership: {
           title: "Source ownership",
@@ -203,7 +202,7 @@ const enUS = {
     framework: {
       title: "The framework for agent-native apps",
       body1:
-        "Agent-Native is an open-source framework for building agents as real software: start with chat or headless agents, then add UI, jobs, and collaboration around the same actions.",
+        "Agent-Native is an open-source framework for building agentic applications: start with chat, define shared actions, then add UI, jobs, and collaboration around the same state.",
       body2:
         "Bring your own database, hosting provider, model stack, and app code.",
       cta: "Read the framework guide",
@@ -232,7 +231,7 @@ const enUS = {
     },
     templates: {
       title: "Try an Agent-Native app",
-      eyebrow: "100% free and open source",
+      eyebrow: "Fork a working app and let the agent evolve it.",
       cta: "Browse apps",
     },
     skills: {
@@ -305,13 +304,13 @@ const enUS = {
     },
     quickStart: {
       title: "Start with a Command",
-      body: "One command creates a local app backed by actions, durable threads, and SQLite. Use `--headless` instead when you want no browser UI yet.",
+      body: "One command creates a chat-first local app backed by actions, durable threads, and SQLite. Use `--headless` only for automation-first workflows with no browser UI yet.",
     },
     finalCta: {
       title: "Software built for the agentic era",
       body: "Start with a command or a durable action, run it through the app-agent loop, then grow it into UI, jobs, and collaboration without rewriting the operation. Open source. Forkable. Yours.",
-      primaryCta: "Start with an action",
-      secondaryCta: "Read the Docs",
+      primaryCta: "Try an app",
+      secondaryCta: "Read the docs",
       githubCta: "View on GitHub",
     },
     batteries: {
@@ -409,8 +408,8 @@ const enUS = {
   },
   templatesPage: {
     title: "Open-source agentic apps you own",
-    eyebrow: "100% free and open source",
-    body: "Fork a working app, run it locally, and let the agent evolve it. You own the code and can customize everything.",
+    eyebrow: "Fork a working app and let the agent evolve it.",
+    body: "You can customize everything.",
     community:
       "Want a blank app instead? Start from scratch with the framework guide.",
     createYourOwn: "Start from scratch",

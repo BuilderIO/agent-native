@@ -30,7 +30,7 @@ Jede davon ist eine echte App, die Sie heute verwenden können, und die Startram
 | [**Plan**](/docs/template-plan)           | Visuelle Pläne und PR-Zusammenfassungen mit Diagrammen, Wireframes und Anmerkungen.                                                                        |
 | [**Dispatch**](/docs/template-dispatch)   | Die Workspace-Steuerungsebene: gemeinsame Geheimnisse, wiederverwendbare Integrationen, Slack/Telegram, geplante Jobs.                                     |
 
-Sie möchten keine Domain-App? Verwenden Sie [Chat](/docs/template-chat), wenn Sie eine einfache App wünschen, mit der Benutzer sofort sprechen können, oder beginnen Sie mit einer Aktion in [Pure-Agent Apps](/docs/pure-agent-apps).
+Sie möchten keine Domain-App? Verwenden Sie [Chat](/docs/template-chat), wenn Sie eine einfache App wünschen, mit der Benutzer sofort sprechen können und die mit actions, nativen Ergebnissen und Seiten wachsen kann. Verwenden Sie [Automation-First Apps](/docs/pure-agent-apps) nur, wenn der Workflow noch keine Browser-UI braucht.
 
 Sehen Sie sich den vollständigen Katalog unter [Apps](/apps) an oder springen Sie direkt zu einem – [Dispatch](/docs/template-dispatch) ist beispielsweise ein großartiger Ausgangspunkt, wenn Sie eine App im Workspace-Stil wünschen.
 
@@ -168,7 +168,7 @@ Nicht bereit für den Gerüstbau? Sie können einem Codierungsagenten, den Sie b
 
 ## Darauf aufbauen
 
-- [**Getting Started**](/docs/getting-started) – Erstellen Sie eine minimale Chat-App oder einen Headless-Agenten
+- [**Getting Started**](/docs/getting-started) – Erstellen Sie eine chat-first App, fügen Sie eine action hinzu, rendern Sie ein strukturiertes Ergebnis und wachsen Sie zu einer Seite
 - [**Messaging the agent**](/docs/messaging) – wie Benutzer (und Sie) mit dem Agenten kommunizieren, der mit jeder Vorlage geliefert wird
 - [**Multi-App Workspace**](/docs/multi-app-workspace) – Bündeln Sie mehrere Vorlagen in einem Arbeitsbereich, der Authentifizierung, Marke und Agent teilt
 - [**Dispatch**](/docs/template-dispatch) – die Vorlage für die Steuerungsebene des Arbeitsbereichs
@@ -182,7 +182,7 @@ Wenn Sie jetzt ein Gerüst erstellen, lautet der CLI-Befehl:
 npx @agent-native/core@latest create my-platform
 ```
 
-Sie erhalten eine Mehrfachauswahl-Auswahl. Wählen Sie eine App (eigenständig) oder mehrere (Arbeitsbereich – Apps teilen sich Authentifizierung, Marke, Agentenkonfiguration und Datenbank). Jede ausgewählte Vorlage wird mit jeder benötigten Datei in `apps/<name>/` eingebunden. Für eine reine Aktions-App anstelle einer Vorlage UI verwenden Sie `npx @agent-native/core@latest create my-agent --headless`.
+Sie erhalten eine Mehrfachauswahl-Auswahl. Wählen Sie eine App (eigenständig) oder mehrere (Arbeitsbereich – Apps teilen sich Authentifizierung, Marke, Agentenkonfiguration und Datenbank). Jede ausgewählte Vorlage wird mit jeder benötigten Datei in `apps/<name>/` eingebunden. Für eine Automation ohne Browser-UI anstelle einer Vorlage UI verwenden Sie `npx @agent-native/core@latest create my-agent --headless`.
 
 Geben Sie `.env` (hauptsächlich `ANTHROPIC_API_KEY` und `DATABASE_URL`), `pnpm install`, `pnpm dev` ein und es funktioniert. Kein „TODO: Login implementieren“, keine Platzhalterrouten.
 

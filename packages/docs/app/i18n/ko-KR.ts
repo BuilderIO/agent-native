@@ -80,8 +80,8 @@ const koKR = {
       titleLine1: "agentic apps 를 위한",
       titleAccent: "framework",
       body: "Chat-first app 과 app-agent loop 에서 시작하세요. agent 가 성장하면 actions, 화면, jobs, workflows 를 추가할 수 있습니다.",
-      primaryCta: "구축 시작",
-      secondaryCta: "문서 보기",
+      primaryCta: "app 사용해 보기",
+      secondaryCta: "문서 읽기",
     },
     code: {
       quickStartComment: "명령 하나로 app 만들기",
@@ -95,8 +95,7 @@ const koKR = {
       eyebrow: "겉에 붙인 AI가 아니라 깊이 agentic",
       title: "하나의 action이 앱 전체 표면을 엽니다",
       body: "작업을 한 번만 정의하세요. Agent-Native는 이를 UI action, agent 도구, HTTP endpoint, MCP/A2A 표면, CLI 명령, 권한 검사, 감사 기록으로 바꿉니다.",
-      seeActions: "Actions 보기",
-      frameworkGuide: "프레임워크 가이드 읽기",
+      buildAction: "Action 만들기",
       benefits: {
         oneActionDefinition: {
           title: "하나의 action 정의",
@@ -107,8 +106,8 @@ const koKR = {
           body: "Auth, 공유, 거버넌스, 감사 로그가 작업과 함께 적용됩니다.",
         },
         headedOrHeadless: {
-          title: "UI 포함 또는 headless",
-          body: "앱, agent workflow, queue, 예약 작업으로 실행할 수 있습니다.",
+          title: "Apps, automations, agents",
+          body: "같은 operation을 chat, UI, scheduled jobs, queues, external agents, scripts에서 실행할 수 있습니다.",
         },
         contextRichInput: {
           title: "컨텍스트가 풍부한 입력",
@@ -179,7 +178,7 @@ const koKR = {
         },
         workspaces: {
           title: "워크스페이스",
-          body: "UI가 있거나 headless인 앱들이 서로를 발견하고 A2A로 조정합니다.",
+          body: "Composable agentic apps가 서로를 발견하고 A2A로 조정합니다.",
         },
         sourceOwnership: {
           title: "소스 소유권",
@@ -194,7 +193,7 @@ const koKR = {
     framework: {
       title: "agent-native apps 를 위한 framework",
       body1:
-        "Agent-Native 는 agents 를 실제 소프트웨어로 만들기 위한 오픈소스 framework 입니다. Chat 또는 headless agents 에서 시작하고, 같은 actions 를 중심으로 UI, jobs, 협업을 추가하세요.",
+        "Agent-Native 는 agentic applications를 만들기 위한 오픈소스 framework 입니다. Chat에서 시작하고, shared actions를 정의한 뒤, 같은 state를 중심으로 UI, jobs, 협업을 추가하세요.",
       body2:
         "자체 데이터베이스, 호스팅 제공자, 모델 스택, app 코드를 가져오세요.",
       cta: "framework 가이드 읽기",
@@ -223,7 +222,7 @@ const koKR = {
     },
     templates: {
       title: "Agent-Native app 사용해 보기",
-      eyebrow: "100% 무료 오픈소스",
+      eyebrow: "작동하는 app을 포크하고 agent가 발전시키게 하세요.",
       cta: "apps 보기",
     },
     skills: {
@@ -296,12 +295,12 @@ const koKR = {
     },
     quickStart: {
       title: "명령으로 시작",
-      body: "명령 하나가 actions, durable threads, SQLite 로 뒷받침되는 로컬 app 을 만듭니다. 아직 브라우저 UI 가 필요 없다면 `--headless` 를 사용하세요.",
+      body: "명령 하나가 actions, durable threads, SQLite로 뒷받침되는 chat-first 로컬 app을 만듭니다. 아직 브라우저 UI가 필요 없는 automation-first workflow에만 `--headless`를 사용하세요.",
     },
     finalCta: {
       title: "agentic era 를 위해 구축된 소프트웨어",
       body: "명령 또는 durable action 에서 시작해 app-agent loop 를 거치고, 작업을 다시 쓰지 않고 UI, jobs, 협업으로 키우세요. 오픈소스. Fork 가능. 당신의 것입니다.",
-      primaryCta: "Action 으로 시작",
+      primaryCta: "app 사용해 보기",
       secondaryCta: "문서 읽기",
       githubCta: "GitHub 에서 보기",
     },
@@ -410,8 +409,8 @@ const koKR = {
   },
   templatesPage: {
     title: "귀하가 소유한 오픈 소스 에이전트 기반 앱",
-    eyebrow: "100% 무료 및 오픈 소스",
-    body: "템플릿을 포크하여 로컬에서 실행하고 에이전트가 이를 발전시키도록 합니다. 귀하는 코드를 소유하고 모든 것을 맞춤 설정할 수 있습니다.",
+    eyebrow: "작동하는 app을 포크하고 agent가 발전시키게 하세요.",
+    body: "모든 것을 맞춤 설정할 수 있습니다.",
     community:
       "빈 앱에서 시작하고 싶다면 프레임워크 가이드로 처음부터 시작하세요.",
     createYourOwn: "처음부터 시작",

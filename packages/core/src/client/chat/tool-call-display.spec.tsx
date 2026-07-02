@@ -115,6 +115,40 @@ describe("ToolCallDisplay native renderers", () => {
     expect(container.textContent).toContain("Ada");
   });
 
+  it("renders chart-only data insight payloads without a table", () => {
+    act(() => {
+      root.render(
+        <ToolCallDisplay
+          toolName="response-insights"
+          args={{}}
+          result={dataInsightResult({ table: undefined })}
+          isRunning={false}
+        />,
+      );
+    });
+
+    expect(container.textContent).toContain("Responses by day");
+    expect(container.textContent).not.toContain("Recent rows");
+    expect(container.textContent).not.toContain("Ada");
+  });
+
+  it("renders table-only data insight payloads without a chart", () => {
+    act(() => {
+      root.render(
+        <ToolCallDisplay
+          toolName="response-insights"
+          args={{}}
+          result={dataInsightResult({ chartSeries: undefined })}
+          isRunning={false}
+        />,
+      );
+    });
+
+    expect(container.textContent).toContain("Recent rows");
+    expect(container.textContent).toContain("Ada");
+    expect(container.textContent).not.toContain("Responses by day");
+  });
+
   it("falls back for malformed widget payloads", () => {
     act(() => {
       root.render(
@@ -389,6 +423,42 @@ describe("ToolCallDisplay native renderers", () => {
 
     expect(container.textContent).toContain("Top customers");
     expect(container.textContent).toContain("Ada");
+  });
+
+  it("honors chart action renderers over combined insight payloads", () => {
+    act(() => {
+      root.render(
+        <ToolCallDisplay
+          toolName="response-insights"
+          args={{}}
+          result={dataInsightResult()}
+          chatUI={{ renderer: "core.data-chart" }}
+          isRunning={false}
+        />,
+      );
+    });
+
+    expect(container.textContent).toContain("Responses by day");
+    expect(container.textContent).not.toContain("Recent rows");
+    expect(container.textContent).not.toContain("Ada");
+  });
+
+  it("honors table action renderers over combined insight payloads", () => {
+    act(() => {
+      root.render(
+        <ToolCallDisplay
+          toolName="response-insights"
+          args={{}}
+          result={dataInsightResult()}
+          chatUI={{ renderer: "core.data-table" }}
+          isRunning={false}
+        />,
+      );
+    });
+
+    expect(container.textContent).toContain("Recent rows");
+    expect(container.textContent).toContain("Ada");
+    expect(container.textContent).not.toContain("Responses by day");
   });
 
   it("renders action-declared inline extensions natively", () => {

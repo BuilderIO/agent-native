@@ -1,259 +1,193 @@
 ---
 title: "はじめに"
-description: "エージェント アプリを作成し、命令、skills、actions を理解してから、エージェントが最初のアクションを呼び出す様子を観察します。"
+description: "チャットから始まる agentic app を作成し、action を追加し、構造化結果をインライン表示して、agent が開ける永続ページへ広げます。"
 ---
 
 # はじめに
 
-Agent-Native アプリは、AI エージェントと UI に同じ actions、データ、および
-状態。基本的なエージェントは、それをガイドする命令 (skills) から作成されます。
-再現可能な動作と、実際の作業を可能にする actions。
+Agent-Native は agentic applications を作るためのフレームワークです。AI agent と UI は同じ [actions](/docs/actions)、SQL データ、application state を共有します。最初に headless agent を作るのではなく、ユーザーがすぐ会話できる Chat app から始め、必要なアプリ画面を足していきます。
 
-**完全なアプリから開始したいですか?** 豊富なテンプレートの 1 つを複製します —
-[Chat](/docs/template-chat), [Mail](/docs/template-mail),
-[Calendar](/docs/template-calendar), [Content](/docs/template-content),
-[Analytics](/docs/template-analytics)、および [many more](/docs/cloneable-saas) —
-それぞれがカスタマイズしたフル機能のアプリです。
+基本の流れ:
 
-ゼロから構築しますか?事前の唯一の選択肢は、UI が必要かどうかです —
-その後のすべて (命令の作成、skills の追加、actions の定義、実行
-エージェント）はどちらの方法でも同じです。
+1. Chat app を作成する。
+2. action を追加する。
+3. action の結果をチャット内のネイティブ UI として表示する。
+4. データを SQL に永続化する。
+5. 視覚的に確認したいときに agent が開けるページを追加する。
 
-<FileTree
-  id="doc-block-10kfbl8"
-  title={"基本的な Agent-Native エージェント"}
-  entries={[
-    {
-      path: "AGENTS.md",
-      note: "常時有効な指示: 目的、ルール、トーン、エージェントができることのマップ",
-    },
-    {
-      path: ".agents/skills/customer-research/SKILL.md",
-      note: "タスクが一致したときにエージェントが読み込む再利用可能な playbook",
-    },
-    {
-      path: "actions/summarize-week.ts",
-      note: "エージェント、UI、CLI、HTTP、MCP、A2A、jobs、webhooks が実行できる型付きコード",
-    },
-  ]}
-/>
-
-これは、チャット UI、ヘッドレス エージェント、または完全なアプリから開始するかどうかに当てはまります。
-UI は表面を変更します。命令、skills、および actions はエージェントに
-指導と行動。
-
-## 1.アプリを作成します
+## 1. Chat app を作成する {#create-your-app}
 
 [Node.js 22+](https://nodejs.org) と [pnpm](https://pnpm.io) が必要です。
 
-フラグなしで `create` を実行すると、どのように開始するかを尋ねられます (完全なテンプレート、
-チャット、またはヘッドレス) 他の何よりも前に:
-
-```bash
-npx @agent-native/core@latest create my-app
-```
-
-または、フラグを渡してプロンプトをスキップします。
-
-**UI が必要ですか?** チャット テンプレートから開始します。作業エージェントに加えて
-カスタマイズ可能なチャット UI、追加したすべてのアクションが自動的にチャットに表示されます:
-
 ```bash
 npx @agent-native/core@latest create my-app --template chat
-```
-
-**単なるヘッドレス プリミティブですか?** ヘッドレスで開始します — 同じ actions とエージェント
-ループ、UI シェルなし:
-
-```bash
-npx @agent-native/core@latest create my-agent --headless
-```
-
-次に、作成したフォルダーからインストールします。
-
-```bash
-cd my-agent # または、チャット テンプレートを選択した場合は my-app
+cd my-app
 pnpm install
-```
-
-ここからは、この 2 つは同じです。
-
-## 2.アクションを追加
-
-アクションとは、エージェント (および UI) が呼び出すことができる 1 つの操作です。両方の足場
-このサンプルが同梱されています:
-
-<AnnotatedCode
-  id="doc-block-7yg0w9"
-  title={"最初の action"}
-  filename="actions/hello.ts"
-  language="ts"
-  code={
-    'import { defineAction } from "@agent-native/core/action";\nimport { z } from "zod";\n\nexport default defineAction({\n  description: "ローカルエージェントから挨拶します。",\n  schema: z.object({\n    name: z.string().default("world"),\n  }),\n  http: { method: "GET" },\n  readOnly: true,\n  run: async ({ name }) => {\n    return { message: `Hello, ${name}!` };\n  },\n});'
-  }
-  annotations={[
-    {
-      lines: "5",
-      label: "ツール説明",
-      note: "エージェントは `description` を読み、いつツールとして呼び出すかを判断します。",
-    },
-    {
-      lines: "6-8",
-      label: "型付き契約",
-      note: "1 つの zod `schema` が、エージェント、UI、HTTP、MCP、A2A のすべての入力を検証します。",
-    },
-    {
-      lines: "9",
-      label: "HTTP 動詞",
-      note: "このアクションを自動マウントされる HTTP エンドポイントとして公開します。",
-    },
-    {
-      lines: "10",
-      label: "読み取り専用",
-      note: "`readOnly` は、このアクションが承認なしで安全に呼び出せ、クエリとしてキャッシュ可能であることを示します。",
-    },
-    {
-      lines: "11-13",
-      label: "単一の実装",
-      note: "`run` 本体は、すべてのサーフェスが実行する唯一の信頼できる実装です。",
-    },
-  ]}
-/>
-
-`hello` をドメイン内の最初の実際の操作に置き換えます。一度定義すれば、
-あらゆる表面がそれを拾います。
-
-毎ターン適用されるガイダンスとして `AGENTS.md` を使用してください。
-エージェントには、再利用可能なワークフローまたはドメイン プロシージャが必要です。
-エージェントには、データの読み取り、書き込み、API の呼び出しなどを行うための、型指定されたテスト可能な方法が必要です。
-承認を実行します。
-
-## 3.実行してください
-
-アクションを直接呼び出します:
-
-```bash
-pnpm action hello --name Steve
-```
-
-または、エージェントに電話してもらうよう依頼してください。
-
-```bash
-pnpm agent "Call the hello action for Steve and explain what happened."
-```
-
-チャット テンプレートから開始した場合は、アプリを実行し、同じエージェントを使用します。
-ブラウザ — 定義したすべてのアクションをすでに呼び出すことができます:
-
-```bash
 pnpm dev
 ```
 
-その 1 つのアクションは、チャット UI、CLI、HTTP、MCP、A2A からアクセスできるようになりました。
-スケジュールされたジョブ、および webhooks。一度定義すれば、どこからでも呼び出すことができます。
+このテンプレートには durable chat threads、auth、live sync、`actions/` ディレクトリ、標準の `view-screen` / `navigate` actions、拡張できる React app が含まれます。
 
-<Diagram id="doc-block-1e9l236" title={"1 つのアクションであらゆる面に対応"} summary={"単一の defineAction ファイルは、追加の配線なしですべてのコンシューマに展開されます。"}>
+## 2. action を追加する {#add-an-action}
 
-```html
-<div class="diagram-fan">
-  <div class="diagram-box" data-rough>defineAction</div>
-  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
-  <div class="diagram-surfaces">
-    <span class="diagram-pill">チャット UI</span
-    ><span class="diagram-pill">CLI</span><span class="diagram-pill">HTTP</span
-    ><span class="diagram-pill">MCP</span><span class="diagram-pill">A2A</span
-    ><span class="diagram-pill">スケジュール済みジョブ</span
-    ><span class="diagram-pill">Webhooks</span>
-  </div>
-</div>
+action は agent と UI が共有する typed operation です。この流れでは `actions/analyze-responses.ts` を作成し、フォーム回答を分析してカスタムチャットグラフ用の検証済み形状を返します。
+
+<!-- prettier-ignore -->
+```ts
+// actions/analyze-responses.ts
+import { defineAction } from "@agent-native/core/action";
+import { z } from "zod";
+
+const responseChartResultSchema = z.object({
+  title: z.string(),
+  points: z.array(z.object({ day: z.string(), responses: z.number() })),
+});
+
+export default defineAction({
+  description: "Analyze recent form responses and render a custom chart.",
+  schema: z.object({ 
+    formId: z.string().default("demo") 
+  }),
+  outputSchema: responseChartResultSchema,
+  chatUI: { 
+    renderer: "responses.response-chart", 
+    title: "回答チャート" 
+  },
+  readOnly: true,
+  run: async ({ formId }) => ({
+    title: `Responses for ${formId}`,
+    points: [{ day: "Mon", responses: 12 }, { day: "Tue", responses: 18 }, { day: "Wed", responses: 24 }, { day: "Thu", responses: 21 }],
+  }),
+});
 ```
 
-```css
-.diagram-fan {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  flex-wrap: wrap;
-}
-.diagram-fan .diagram-surfaces {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  max-width: 420px;
-}
-.diagram-fan .diagram-arrow {
-  font-size: 22px;
-  line-height: 1;
-}
+直接実行できます:
+
+```bash
+pnpm action analyze-responses --formId demo
 ```
 
-</Diagram>
+またはブラウザーで agent に依頼します:
 
-## 状態は組み込まれています
+> デモフォームの最近の回答を分析して。
 
-ヘッドレスはステートレスを意味するものではありません。 Actions、セッション、アプリケーションの状態、スレッド、
-実行履歴と資格情報はすべて SQL に存在します。ローカルでは、
-`data/app.db`;運用環境では、`DATABASE_URL` を設定します。参照
-[Deployment](/docs/deployment).
+## 3. チャット内に結果を表示する {#render-inline}
 
-<Callout id="doc-block-1st025c" tone="info">
+action が `outputSchema` とプロダクト固有の `chatUI.renderer` を宣言しているため、チャットは構造化データを長い文章に潰しません。次に、app の起動時にその正確な renderer id に対応する React コンポーネントを登録します。たとえば `app/root.tsx` から `app/chat-renderers.tsx` を一度 import します。
 
-**ヘッドレスは依然として実際のアプリです。**アプリとエージェントのループは、セッション、スレッド、実行、設定、資格情報を SQL に保持します。これはステートレス プロンプトではありません。アクションや状態に手を加えずに、後から UI を追加できます。
-
-</Callout>
-
-## UI をカスタマイズ
-
-チャット テンプレートから開始した場合は、UI を編集できます。チャット自体
-`<AgentChatSurface>` コンポーネント上に構築された 1 つの小さなルートです:
-
+<!-- prettier-ignore -->
 ```tsx
-// app/routes/_index.tsx
-import { AgentChatSurface } from "@agent-native/core/client";
+import { registerActionChatRenderer, type ToolRendererProps,} from "@agent-native/core/client/chat";
 
-export default function ChatRoute() {
-  return <AgentChatSurface mode="page" className="h-full" />;
+type ResponseChartResult = {
+  title: string;
+  points: Array<{ day: string; responses: number }>;
+};
+
+function ResponseChart({ context }: ToolRendererProps) {
+  const result = context.resultJson as ResponseChartResult;
+  const max = Math.max(...result.points.map((point) => point.responses), 1);
+  return (
+    <section className="rounded-lg border bg-card p-4">
+      <h3 className="text-sm font-medium">{result.title}</h3>
+      <div className="mt-4 flex h-32 items-end gap-2">
+        {result.points.map((point) => (
+          <div key={point.day} className="flex flex-1 flex-col items-center gap-2">
+            <div className="w-full rounded-t bg-primary" style={{ height: `${(point.responses / max) * 100}%` }} />
+            <span className="text-xs text-muted-foreground">{point.day}</span>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
 }
+
+registerActionChatRenderer({
+  id: "responses.response-chart",
+  renderer: "responses.response-chart",
+  Component: ResponseChart,
+});
 ```
 
-- **`app/routes/_index.tsx`** — チャット ページ。提案を変更します。空白
-  状態、レイアウト。
-- **`app/root.tsx`** — アプリシェル。
-  エージェント。
-- `<AgentSidebar>` を使用してエージェントを任意の画面にドロップし、手動で操作します
-  `sendToAgentChat()` でボタンを押すか、
-  `useActionMutation()`.
+再利用できる汎用出力には、framework 組み込みの `data-chart` と `data-table` renderers も使えます。`data-insights` は summary/chart/table を組み合わせたカード向けです。詳しくは [Native Chat UI](/docs/native-chat-ui) を参照してください。
 
-完全なコンポーネント セットについては、[Drop-in Agent](/docs/drop-in-agent) を参照してください。
-[Native チャット UI](/docs/native-chat-ui) はアクションの結果をテーブルとしてレンダリングします。
-プレーンテキストの代わりにグラフと入力されたカード。
+<WireframeBlock id="doc-block-inline-result-wireframe-ja">
+  <Screen
+    surface="desktop"
+    html={
+      "<div style='min-height:340px;box-sizing:border-box;padding:24px;display:flex;justify-content:center;align-items:center;background:var(--wf-bg)'><div style='width:min(530px,100%);display:flex;flex-direction:column;gap:14px'><div class='wf-card' data-rough style='align-self:flex-end;max-width:70%;padding:12px 14px'><strong>User</strong><p style='margin:6px 0 0'>デモの回答を分析して。</p></div><div class='wf-card' data-rough style='align-self:flex-start;width:min(370px,100%);padding:14px'><strong>Agent</strong><p class='wf-muted' style='margin:6px 0 12px'>responses.response-chart で描画。</p><section class='wf-card' data-rough style='padding:14px'><h3 style='margin:0 0 12px;font-size:14px'>回答チャート</h3><div data-rough='line:bottom' style='height:104px;display:flex;align-items:end;gap:8px;border-bottom:1.4px solid var(--wf-line);padding-bottom:4px'><div style='flex:1;display:flex;flex-direction:column;align-items:center;gap:6px'><div data-rough style='height:38px;width:100%;background:color-mix(in srgb, var(--wf-accent) 24%, transparent);border:1.4px solid var(--wf-accent);border-radius:8px 8px 3px 3px'></div><span class='wf-muted'>月</span></div><div style='flex:1;display:flex;flex-direction:column;align-items:center;gap:6px'><div data-rough style='height:62px;width:100%;background:color-mix(in srgb, var(--wf-accent) 30%, transparent);border:1.4px solid var(--wf-accent);border-radius:8px 8px 3px 3px'></div><span class='wf-muted'>火</span></div><div style='flex:1;display:flex;flex-direction:column;align-items:center;gap:6px'><div data-rough style='height:86px;width:100%;background:color-mix(in srgb, var(--wf-accent) 36%, transparent);border:1.4px solid var(--wf-accent);border-radius:8px 8px 3px 3px'></div><span class='wf-muted'>水</span></div><div style='flex:1;display:flex;flex-direction:column;align-items:center;gap:6px'><div data-rough style='height:54px;width:100%;background:color-mix(in srgb, var(--wf-accent) 42%, transparent);border:1.4px solid var(--wf-accent);border-radius:8px 8px 3px 3px'></div><span class='wf-muted'>木</span></div></div></section></div></div></div>"
+    }
+  />
+</WireframeBlock>
 
-**ヘッドレスで始めましたが、後で UI が必要ですか?** チャット テンプレートは UI オンランプです —
-その `app/` レイヤー (React ルーター + Vite) はまさにヘッドレス足場です
-は除外されます。最もクリーンな方法は、チャットから開始 (または再スキャフォールディング) することです
-テンプレート; `actions/`、エージェント、および SQL の状態は変更されずに引き継がれます。参照
-間にあるすべてのサーフェスに対して [Agent Surfaces](/docs/agent-surfaces)。
+## 4. SQL に永続化する {#persist-data}
 
-## プロジェクトの構造
+結果を後で見返す、比較する、更新する必要があるなら SQL に保存し、読み書きは actions の後ろに置きます。
+
+テーブルは `drizzle-orm/sqlite-core` や `drizzle-orm/pg-core` から import するのではなく、framework のポータブルな helper で定義します。
+
+```ts
+// server/db/schema.ts
+import { integer, now, table, text } from "@agent-native/core/db/schema";
+
+export const responseInsights = table("response_insights", {
+  id: text("id").primaryKey(),
+  formId: text("form_id").notNull(),
+  title: text("title").notNull(),
+  summary: text("summary").notNull(),
+  responseCount: integer("response_count").notNull(),
+  createdAt: text("created_at").notNull().default(now()),
+  updatedAt: text("updated_at").notNull().default(now()),
+});
+```
+
+これらの helper は設定された SQL backend を選ぶため、同じ schema がローカルの SQLite と、production の Postgres、Turso/libSQL、D1、その他の対応 SQL provider で動きます。
+
+- `create-response-insight` は新しい insight を書き込みます。
+- `list-response-insights` はページ用のデータを読みます。
+- `update-response-insight` はレコードを更新します。
+- `analyze-responses` はチャット用のネイティブ widget を返し続けます。
+
+ブラウザー専用の重複 REST route は作らず、UI と agent が actions を共有します。
+
+## 5. agent が開けるページを追加する {#add-a-page}
+
+`/response-insights` route を追加し、`useActionQuery("list-response-insights")` と `useActionMutation("create-response-insight")` を使います。このページは SQL state の表示であり、データは同じ actions で書き込まれます。
+
+<WireframeBlock id="doc-block-response-insights-page-wireframe-ja">
+  <Screen
+    surface="desktop"
+    html={
+      "<main style='min-height:440px;box-sizing:border-box;padding:28px;background:var(--wf-bg)'><section style='max-width:960px;margin:0 auto;display:grid;grid-template-columns:minmax(0,1fr) 260px;gap:16px;align-items:stretch'><section class='wf-card' data-rough style='display:flex;flex-direction:column;gap:16px'><header><h2 style='margin:0 0 4px;font-size:28px'>回答インサイト</h2><p class='wf-muted' style='margin:0'>エージェントがフォーム回答から作成したインサイト。</p></header><button class='primary' data-rough style='align-self:flex-start'>デモフォームを分析</button><section style='display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px'><article class='wf-box' data-rough style='padding:12px'><strong>料金テーマ</strong><p class='wf-muted' style='margin:8px 0 0'>ユーザーはチームプランを求めています。</p></article><article class='wf-box' data-rough style='padding:12px'><strong>オンボーディング離脱</strong><p class='wf-muted' style='margin:8px 0 0'>3つのステップにより明確な文言が必要です。</p></article></section><section class='wf-card' data-rough style='display:flex;flex-direction:column;gap:10px'><div class='wf-row wf-box' data-rough style='padding:10px 12px;gap:12px;justify-content:space-between'><strong>デモフォーム</strong><span class='wf-muted'>42件の回答を分析済み</span></div><div class='wf-row wf-box' data-rough style='padding:10px 12px;gap:12px;justify-content:space-between'><strong>次のステップ</strong><span class='wf-muted'>2件のインサイト下書きを確認</span></div></section></section><aside class='wf-card' data-rough style='height:100%;box-sizing:border-box;display:flex;flex-direction:column;gap:12px'><strong>チャット</strong><div class='wf-box' data-rough style='align-self:flex-end;max-width:210px;padding:10px 12px'><span class='wf-muted'>あなた</span><p style='margin:4px 0 0'>回答インサイトを開く。</p></div><div class='wf-box' data-rough style='align-self:flex-start;max-width:210px;padding:10px 12px'><span class='wf-muted'>Agent</span><p style='margin:4px 0 0'>回答インサイトを開きました。</p></div></aside></section></main>"
+    }
+  />
+</WireframeBlock>
+
+`view-screen` と `navigate` を拡張し、agent が現在の route を理解して `/response-insights` を開けるようにします。結果に `href: "/response-insights"` を含めれば、チャットに "回答インサイトを開く" ボタンを表示できます。
+
+フルページ chat から app ページを開くときは、[Agent Surfaces](/docs/agent-surfaces#rich-chat) の `AgentChatSurface`、`AgentSidebar`、`useAgentChatHomeHandoff`、`useAgentChatHomeHandoffLinks`、`chatViewTransition` を使い、同じ thread のままチャットをサイドバーへ移動します。
+
+## プロジェクト構成 {#project-structure}
 
 ```text
 my-app/
-  actions/         # エージェントが呼び出せるアクション
-  app/             # React フロントエンド（UI テンプレートのみ。headless では省略）
-  server/          # Nitro API サーバー（ルート、プラグイン）
-  AGENTS.md        # 常に適用されるエージェント指示
+  actions/         # エージェントとUIから呼び出せる操作
+  app/             # Reactのルート、ページ、チャット画面
+  server/          # NitroサーバーとSQLスキーマ
+  AGENTS.md        # アプリアージェントの常時有効な指示
   .agents/         # 必要に応じてエージェントが読み込むスキル
-  data/app.db      # DATABASE_URL 未設定時のローカル SQLite 状態
+  data/app.db      # DATABASE_URL未設定時のローカルSQLite状態
 ```
 
-## 次にどこに行くか
+## 本格的な Analytics の出発点が必要な場合 {#analytics-starting-point}
 
-- **[Key Concepts](/docs/key-concepts)** — コア アーキテクチャ: SQL、actions、
-  同期とコンテキスト認識。
-- **[Actions](/docs/actions)** — 完全なアクション API: スキーマ、HTTP、認証、
-  承認。
-- **[Agent Surfaces](/docs/agent-surfaces)** — ヘッドレス、チャット、埋め込みサイドカー
-  および完全なアプリ。
-- **[Drop-in Agent](/docs/drop-in-agent)** — エージェント チャットを React アプリに追加します。
-- **[Deployment](/docs/deployment)** — アプリを独自のドメインに配置します。
-- **[FAQ](/docs/faq)** — セットアップと製品に関する質問。
+上の 回答インサイト 例は、framework の部品を見やすくするために小さくしています。実際の analytics product を作るなら、[Analytics](/docs/template-analytics) から始めてください。providers を接続し、既存の dashboards と agent actions を使い、そこからカスタマイズできる堅牢な出発点です。
+
+## 次のステップ {#next}
+
+- **[Actions](/docs/actions)** — schemas、auth、approvals、hooks、transport。
+- **[Native Chat UI](/docs/native-chat-ui)** — action 結果をテーブル、グラフ、typed cards として表示。
+- **[Chat Template](/docs/template-chat)** — 最小の chat-first app。
+- **[Analytics Template](/docs/template-analytics)** — 堅牢な analytics app の出発点。providers を接続してカスタマイズできます。
+- **[Context Awareness](/docs/context-awareness)** — `view-screen`、`navigate`、route state、選択中のオブジェクト。
+- **[Agent Surfaces](/docs/agent-surfaces)** — chat、inline UI、app pages、embedded sidecars、automation、外部 agent。

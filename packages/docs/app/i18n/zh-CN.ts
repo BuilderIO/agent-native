@@ -80,8 +80,8 @@ const zhCN = {
       titleLine1: "面向",
       titleAccent: "agentic apps 的框架",
       body: "从 Chat-first app 和 app-agent loop 开始。随着你的 agent 成长，添加 actions、界面、jobs 和 workflows。",
-      primaryCta: "开始构建",
-      secondaryCta: "查看文档",
+      primaryCta: "试用一个 app",
+      secondaryCta: "阅读文档",
     },
     code: {
       quickStartComment: "用一条命令创建 app",
@@ -93,8 +93,7 @@ const zhCN = {
       eyebrow: "真正面向代理，而不是外挂式 AI",
       title: "一个 action 覆盖整套应用能力面",
       body: "只定义一次操作。Agent-Native 会把它变成 UI action、agent 工具、HTTP 端点、MCP/A2A 能力面、CLI 命令、权限检查和审计记录。",
-      seeActions: "查看 actions",
-      frameworkGuide: "阅读框架指南",
+      buildAction: "构建一个 action",
       benefits: {
         oneActionDefinition: {
           title: "一个 action 定义",
@@ -105,8 +104,8 @@ const zhCN = {
           body: "Auth、共享、治理和审计日志会随工作一起生效。",
         },
         headedOrHeadless: {
-          title: "可带界面，也可 headless",
-          body: "可以作为 app、agent workflow、队列或定时任务运行。",
+          title: "Apps、automations 和 agents",
+          body: "同一个 operation 可从 chat、UI、定时任务、队列、外部 agents 或 scripts 运行。",
         },
         contextRichInput: {
           title: "富上下文输入",
@@ -177,7 +176,7 @@ const zhCN = {
         },
         workspaces: {
           title: "工作区",
-          body: "带界面或 headless 的应用可互相发现，并通过 A2A 协调。",
+          body: "可组合的 agentic apps 可互相发现，并通过 A2A 协调。",
         },
         sourceOwnership: {
           title: "源码所有权",
@@ -192,7 +191,7 @@ const zhCN = {
     framework: {
       title: "面向 agent-native apps 的框架",
       body1:
-        "Agent-Native 是一个开源框架，用来把 agents 构建成真正的软件：从 Chat 或 headless agents 开始，再围绕同一组 actions 添加 UI、jobs 和协作。",
+        "Agent-Native 是一个开源框架，用来构建 agentic applications：从 Chat 开始，定义共享 actions，再围绕同一份 state 添加 UI、jobs 和协作。",
       body2: "使用你自己的数据库、托管服务、模型栈和 app 代码。",
       cta: "阅读框架指南",
       primitives: {
@@ -219,7 +218,7 @@ const zhCN = {
     },
     templates: {
       title: "试用一个 Agent-Native app",
-      eyebrow: "100% 免费且开源",
+      eyebrow: "Fork 一个可运行的 app，让 agent 继续改进它。",
       cta: "查看 apps",
     },
     skills: {
@@ -291,12 +290,12 @@ const zhCN = {
     },
     quickStart: {
       title: "从一条命令开始",
-      body: "一条命令会创建一个本地 app，背后有 actions、durable threads 和 SQLite 支撑。还没有浏览器 UI 需求时，可以改用 `--headless`。",
+      body: "一条命令会创建一个聊天优先的本地 app，背后有 actions、durable threads 和 SQLite 支撑。只有 automation-first workflow 暂时不需要浏览器 UI 时才使用 `--headless`。",
     },
     finalCta: {
       title: "为 agentic 时代而建的软件",
       body: "从一条命令或 durable action 开始，让它跑过 app-agent loop，然后在不重写操作的情况下成长为 UI、jobs 和协作。开源。可 fork。属于你。",
-      primaryCta: "从 Action 开始",
+      primaryCta: "试用一个 app",
       secondaryCta: "阅读文档",
       githubCta: "在 GitHub 查看",
     },
@@ -405,8 +404,8 @@ const zhCN = {
   },
   templatesPage: {
     title: "您拥有的开源、代理本机应用程序",
-    eyebrow: "100% 免费和开源",
-    body: "分叉一个模板，在本地运行它，然后让代理对其进行改进。您拥有代码并可以自定义一切。",
+    eyebrow: "Fork 一个可运行的 app，让 agent 继续改进它。",
+    body: "你可以自定义一切。",
     community: "想要空白应用？从框架指南开始从零构建。",
     createYourOwn: "从零开始",
   },

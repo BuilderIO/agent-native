@@ -1,5 +1,55 @@
 # @agent-native/core
 
+## 0.84.37
+
+### Patch Changes
+
+- 885a0bd: Hide docs formatter guards from rendered content, refine assistant recovery status labels, and keep live background workers from being auto-retried as stuck.
+
+## 0.84.36
+
+### Patch Changes
+
+- 1cf5c2b: Remove the outer artboard outline and default backdrop fill from docs wireframe blocks while preserving rough outlines and fills for wireframe UI elements.
+- 11b8b66: Reframe getting-started and related docs around chat-first agentic applications, with no-browser apps repositioned as automation-first workflows.
+- 2d984a0: Add a portable Drizzle alias helper for backend-agnostic template queries.
+- 72a92af: Align docs wireframe status rows with labels on the left and values on the right.
+- 11b8b66: Automatically recover active chat runs that stop making real progress while the worker is still alive.
+- d04226c: Clarify the Getting Started inline result example with a shorter widget snippet and wireframe.
+- 51425d9: Render standard docs wireframe primitives and inline border dividers with sketchy rough outlines by default.
+
+## 0.84.35
+
+### Patch Changes
+
+- 3dea26c: Fix hosted Google Analytics / Tag Manager injection by baking the measurement id into Nitro server bundles and merging the required GA/GTM script, connect, and image hosts into existing stricter document CSPs.
+- 3dea26c: Improve chat tool-preparation UX by hiding zero-byte progress, using clearer preparation/writing copy, and showing a delayed long-running update hint.
+- 3dea26c: Improve background chat streaming smoothness by streaming guarded final text live and using adaptive SQL polling while run events are actively arriving.
+
+## 0.84.34
+
+### Patch Changes
+
+- 56f3d91: Fix hosted Google Analytics / Tag Manager injection by baking the measurement id into Nitro server bundles and merging the required GA/GTM script, connect, and image hosts into existing stricter document CSPs.
+
+## 0.84.33
+
+### Patch Changes
+
+- 8cc9620: Keep Nitro/Vite dev servers responsive when native file watchers hit EMFILE or ENOSPC by falling back to polling instead of replacing failed watches with no-ops.
+
+## 0.84.32
+
+### Patch Changes
+
+- da8ac0a: Keep tail-resume reconnect content display-only, recover zero-byte action-prep stalls, and polish Design screen tool labels.
+
+## 0.84.31
+
+### Patch Changes
+
+- 3190dea: Inline rrweb stylesheet snapshots by default so Analytics session replay captures can play back styled pages without live CSS fetches.
+
 ## 0.84.30
 
 ### Patch Changes

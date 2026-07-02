@@ -30,7 +30,7 @@ Chacune est une véritable application que vous pouvez utiliser aujourd'hui, et 
 | [**Plan**](/docs/template-plan)           | Plans visuels et récapitulatifs des relations publiques avec diagrammes, wireframes et annotations.                                                            |
 | [**Dispatch**](/docs/template-dispatch)   | Le plan de contrôle de l'espace de travail : secrets partagés, intégrations réutilisables, Slack/Telegram, tâches planifiées.                                  |
 
-Vous ne voulez pas d'application de domaine ? Utilisez [Chat](/docs/template-chat) lorsque vous souhaitez une application de base avec laquelle les utilisateurs peuvent parler immédiatement, ou commencez par une action dans [Pure-Agent Apps](/docs/pure-agent-apps).
+Vous ne voulez pas d'application de domaine ? Utilisez [Chat](/docs/template-chat) lorsque vous souhaitez une application de base avec laquelle les utilisateurs peuvent parler immédiatement et que vous pouvez étendre avec des actions, des résultats natifs et des écrans. Utilisez [Automation-First Apps](/docs/pure-agent-apps) seulement lorsque le workflow n'a pas encore besoin d'UI navigateur.
 
 Consultez le catalogue complet sous [Apps](/apps) ou passez directement à l'un d'entre eux. Par exemple, [Dispatch](/docs/template-dispatch) est un excellent point de départ si vous souhaitez une application de style espace de travail.
 
@@ -182,7 +182,7 @@ Si vous créez un échafaudage maintenant, la commande CLI est :
 npx @agent-native/core@latest create my-platform
 ```
 
-Vous obtiendrez un sélecteur à sélection multiple. Choisissez une application (autonome) ou plusieurs (espace de travail : les applications partagent l'authentification, la marque, la configuration de l'agent et la base de données). Chaque modèle sélectionné est intégré dans `apps/<name>/` avec chaque fichier dont vous avez besoin. Pour une application d'action uniquement au lieu d'un modèle UI, utilisez `npx @agent-native/core@latest create my-agent --headless`.
+Vous obtiendrez un sélecteur à sélection multiple. Choisissez une application (autonome) ou plusieurs (espace de travail : les applications partagent l'authentification, la marque, la configuration de l'agent et la base de données). Chaque modèle sélectionné est intégré dans `apps/<name>/` avec chaque fichier dont vous avez besoin. Pour une automation sans UI navigateur au lieu d'un modèle UI, utilisez `npx @agent-native/core@latest create my-agent --headless`.
 
 Remplissez `.env` (principalement `ANTHROPIC_API_KEY` et `DATABASE_URL`), `pnpm install`, `pnpm dev`, et cela fonctionne. Pas de "TODO : implémenter la connexion", pas de routes d'espace réservé.
 
