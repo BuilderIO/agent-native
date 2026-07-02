@@ -835,6 +835,12 @@ export default function RecordRoute() {
   const [compressionProgress, setCompressionProgress] = useState<number | null>(
     null,
   );
+  // Fraction (0-1) of upload chunks confirmed sent so far. Chunks are fixed-size
+  // slices of the already-recorded blob, so chunksSent / totalChunks is a
+  // truthful proxy for bytes uploaded — not simulated. Null means the total
+  // chunk count isn't known yet (e.g. the brief live-streaming remainder
+  // upload), so the overlay falls back to an indeterminate spinner.
+  const [uploadProgress, setUploadProgress] = useState<number | null>(null);
 
   const queryClient = useQueryClient();
   const { isDesktopApp } = useDesktopPromo();
@@ -1103,19 +1109,29 @@ export default function RecordRoute() {
               // upload — applies whether or not we just came from
               // compressing.
               setCompressionProgress(null);
+              // Reset upload progress at the start of each upload attempt so
+              // a retry doesn't briefly show the previous attempt's percent.
+              setUploadProgress(null);
               // Always sync the UI back to "uploading"; if we were already
               // there from doStop's pre-stop transition, this is a no-op.
               setUiState("uploading");
             }
           },
-          onChunk: ({ index, bytes }) => {
+          onChunk: ({ index, total }) => {
+            // `total` is only known once the full recording is sliced into
+            // fixed-size chunks after stop(); the live per-chunk uploads
+            // during recording report `total: null` and don't drive this bar.
+            const fraction = total ? (index + 1) / total : null;
+            setUploadProgress(fraction);
             const recordingId = pendingRef.current?.id;
             if (!recordingId) return;
+            // Only expose a percentage here — this state is agent-visible, and
+            // chunk/byte counts are an internal transport detail, not
+            // something to surface to the user.
             void writeAppState(`recording-upload-${recordingId}`, {
               recordingId,
               status: "uploading",
-              chunksReceived: index + 1,
-              lastChunkBytes: bytes,
+              progress: fraction !== null ? Math.round(fraction * 100) : null,
               updatedAt: new Date().toISOString(),
             }).catch(() => {});
           },
@@ -1378,6 +1394,7 @@ export default function RecordRoute() {
       setError(null);
       setUiState("uploading");
       setCompressionProgress(null);
+      setUploadProgress(null);
 
       const acceptedMime = new Set([
         "video/mp4",
@@ -1628,6 +1645,7 @@ export default function RecordRoute() {
                 unknown
               > | null) ?? null;
           }
+          setUploadProgress((i + 1) / totalChunks);
         }
 
         setUiState("complete");
@@ -1699,6 +1717,7 @@ export default function RecordRoute() {
           fileUploadAbortRef.current = null;
         }
         setCompressionProgress(null);
+        setUploadProgress(null);
       }
     },
     [markStorageConfigured, navigate, probeVideoMetadata],
@@ -1863,6 +1882,7 @@ export default function RecordRoute() {
       setCameraStream(null);
       setPreviewStream(null);
       setCompressionProgress(null);
+      setUploadProgress(null);
       setUiState("complete");
       if (result.waitingForStorage) {
         toast.info(t("recordRoute.recordingReadyToUpload"), {
@@ -2006,6 +2026,7 @@ export default function RecordRoute() {
 
     setError(null);
     setCompressionProgress(null);
+    setUploadProgress(null);
     setUiState("uploading");
     try {
       const retryResult = await engine.retryUpload();
@@ -2022,6 +2043,7 @@ export default function RecordRoute() {
         body: JSON.stringify({ reason: message }),
       }).catch(() => {});
       setCompressionProgress(null);
+      setUploadProgress(null);
       setError(message);
       setUiState("error");
       toast.error(t("recordRoute.uploadFailed"), {
@@ -2085,6 +2107,7 @@ export default function RecordRoute() {
     setPreviewStream(null);
     setIsPaused(false);
     setUiState("idle");
+    setUploadProgress(null);
     pendingRef.current = null;
     engineRef.current = null;
   }, [extensionCapture, liveTranscription]);
@@ -2427,7 +2450,9 @@ export default function RecordRoute() {
           users wonder if the app froze). */}
       {(uiState === "uploading" || uiState === "compressing") && (
         <div className="fixed inset-0 z-[120] flex flex-col items-center justify-center gap-3 bg-black/70 text-white backdrop-blur">
-          <Spinner className="h-10 w-10 text-white/70" />
+          {!(uiState === "uploading" && uploadProgress !== null) && (
+            <Spinner className="h-10 w-10 text-white/70" />
+          )}
           {uiState === "compressing" ? (
             <>
               <div className="text-sm">
@@ -2441,7 +2466,24 @@ export default function RecordRoute() {
               </div>
             </>
           ) : (
-            <div className="text-sm">{t("recordRoute.savingRecording")}</div>
+            <>
+              <div className="text-sm">{t("recordRoute.savingRecording")}</div>
+              {uploadProgress !== null && (
+                <div className="flex w-48 flex-col items-center gap-1">
+                  <div className="h-1.5 w-full overflow-hidden rounded-full bg-white/20">
+                    <div
+                      className="h-full rounded-full bg-white transition-all"
+                      style={{
+                        width: `${Math.min(100, Math.max(0, Math.round(uploadProgress * 100)))}%`,
+                      }}
+                    />
+                  </div>
+                  <div className="text-[11px] text-white/50">
+                    {Math.round(uploadProgress * 100)}%
+                  </div>
+                </div>
+              )}
+            </>
           )}
           <button
             onClick={doCancel}
