@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.84.48
+
+### Patch Changes
+
+- f99bea8: Recover long-running agent turns that repeatedly prepare zero-byte tool inputs.
+
 ## 0.84.47
 
 ### Patch Changes
