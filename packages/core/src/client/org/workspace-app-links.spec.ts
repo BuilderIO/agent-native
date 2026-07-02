@@ -41,6 +41,38 @@ describe("org switcher app links", () => {
     expect(apps.map((app) => app.id)).not.toContain("videos");
   });
 
+  it("uses this origin under /<app>/ for a path-prefixed deployment", () => {
+    const prevWindow = (globalThis as { window?: unknown }).window;
+    (globalThis as { window?: unknown }).window = {
+      location: { origin: "https://apps.evinced.tech" },
+    };
+    try {
+      // VITE_APP_BASE_PATH is baked by a path-prefixed deploy — links must stay
+      // on this origin, not escape to *.agent-native.com.
+      const apps = defaultOrgAppLinks({ VITE_APP_BASE_PATH: "/mail" });
+      expect(apps.find((a) => a.id === "mail")?.href).toBe(
+        "https://apps.evinced.tech/mail",
+      );
+      expect(apps.find((a) => a.id === "dispatch")?.href).toBe(
+        "https://apps.evinced.tech/dispatch/overview",
+      );
+      expect(apps.every((a) => !a.href.includes("agent-native.com"))).toBe(
+        true,
+      );
+    } finally {
+      (globalThis as { window?: unknown }).window = prevWindow;
+    }
+  });
+
+  it("keeps the first-party *.agent-native.com URLs when not path-prefixed", () => {
+    // No VITE_APP_BASE_PATH → the app is served at its own root (subdomain
+    // layout); keep the prod URLs.
+    const apps = defaultOrgAppLinks({});
+    expect(apps.find((a) => a.id === "mail")?.href).toBe(
+      "https://mail.agent-native.com",
+    );
+  });
+
   it("normalizes workspace app manifests against the workspace gateway", () => {
     const apps = parseWorkspaceAppLinks(
       {

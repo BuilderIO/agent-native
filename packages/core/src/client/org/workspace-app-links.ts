@@ -206,22 +206,36 @@ export function parseWorkspaceAppLinksJson(
   }
 }
 
-export function defaultOrgAppLinks(): OrgSwitcherAppLink[] {
+export function defaultOrgAppLinks(
+  env: RuntimeEnv = runtimeEnv(),
+): OrgSwitcherAppLink[] {
+  // A path-prefixed deployment (e.g. apps.example.com/<app>/) bakes
+  // VITE_APP_BASE_PATH=/<app> into the client at build time. There, the sibling
+  // apps live on THIS origin under /<app>/ — using the hardcoded
+  // *.agent-native.com prod URLs would send users off to the official hosted
+  // site instead of the current deployment. Fall back to prodUrl only when the
+  // app is served at its own root (the first-party agent-native.com layout).
+  const pathPrefixed = Boolean(envString(env, "VITE_APP_BASE_PATH"));
+  const origin =
+    pathPrefixed && typeof window !== "undefined"
+      ? window.location.origin
+      : null;
   return sortAppLinks(
     coreTemplates()
       .filter((template) => !template.hidden && template.prodUrl)
-      .map((template) => ({
-        id: template.name,
-        name: template.label,
-        href:
-          template.name === DISPATCH_ID
-            ? appendPath(template.prodUrl!, "overview")
-            : template.prodUrl!,
-        description: template.hint,
-        icon: template.icon,
-        isDispatch: template.name === DISPATCH_ID,
-        status: "ready" as const,
-      })),
+      .map((template) => {
+        const base = origin ? `${origin}/${template.name}` : template.prodUrl!;
+        return {
+          id: template.name,
+          name: template.label,
+          href:
+            template.name === DISPATCH_ID ? appendPath(base, "overview") : base,
+          description: template.hint,
+          icon: template.icon,
+          isDispatch: template.name === DISPATCH_ID,
+          status: "ready" as const,
+        };
+      }),
   );
 }
 
@@ -318,7 +332,7 @@ export function useOrgSwitcherAppLinks(
   const env = useMemo(() => runtimeEnv(), []);
   const isWorkspace = useMemo(() => isWorkspaceAppEnvironment(env), [env]);
   const [apps, setApps] = useState<OrgSwitcherAppLink[]>(() =>
-    isWorkspace ? initialWorkspaceLinks(env) : defaultOrgAppLinks(),
+    isWorkspace ? initialWorkspaceLinks(env) : defaultOrgAppLinks(env),
   );
   const [isLoading, setIsLoading] = useState(false);
 
