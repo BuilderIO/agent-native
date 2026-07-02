@@ -388,11 +388,18 @@ function updatePreparingActionState(
       const tool = ev.tool?.trim();
       const id = ev.id?.trim();
       for (const [key, entry] of state.entries ?? []) {
-        if ((id && key === id) || (tool && entry.tool === tool)) {
+        if ((id && key === id) || (!id && tool && entry.tool === tool)) {
           state.entries?.delete(key);
         }
       }
-      if (tool) state.toolEntries?.delete(tool);
+      if (
+        tool &&
+        ![...(state.entries?.values() ?? [])].some(
+          (entry) => entry.tool === tool,
+        )
+      ) {
+        state.toolEntries?.delete(tool);
+      }
     } else {
       state.entries?.clear();
       state.toolEntries?.clear();

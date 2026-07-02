@@ -1906,7 +1906,14 @@ const AssistantChatInner = forwardRef<
               `${apiUrl}/runs/${encodeURIComponent(runId)}/events?after=${reconnectAfterSeq}`,
               { signal: abortCtrl.signal },
             );
-            if (!sseRes.ok || !sseRes.body) break;
+            if (!sseRes.ok || !sseRes.body) {
+              const activeState = await sameRunStillActive();
+              if (activeState !== "inactive") {
+                await new Promise((resolve) => window.setTimeout(resolve, 250));
+                continue;
+              }
+              break;
+            }
             let rafPending = false;
             let latestSnapshot: ContentPart[] = [];
             const scheduleUpdate = (snapshot: ContentPart[]) => {

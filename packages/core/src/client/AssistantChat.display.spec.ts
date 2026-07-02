@@ -247,6 +247,7 @@ describe("waitForThreadRunToClear", () => {
     expect(helperSource).toContain(
       "const reconnectAfterSeq = resolveReconnectAfterSeq(threadId, runId)",
     );
+    expect(helperSource).toContain("if (!sseRes.ok || !sseRes.body)");
     expect(helperSource).toContain("{ preparingActionState }");
     expect(helperSource).toContain('activeState !== "inactive"');
     expect(helperSource).toContain("continue;");
