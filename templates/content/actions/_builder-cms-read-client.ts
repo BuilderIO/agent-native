@@ -575,7 +575,7 @@ async function readBuilderCmsContentEntriesViaMcp(args: {
       pageSize: BUILDER_CMS_PAGE_SIZE,
       startOffset,
       nextOffset: startOffset + hydratedEntries.length,
-      fetchedEntryCount: hydratedEntries.length,
+      fetchedEntryCount: startOffset + hydratedEntries.length,
       hasMore: false,
       partial: false,
       readMode: "mcp",
