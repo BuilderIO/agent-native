@@ -80,8 +80,8 @@ const esES = {
       titleLine1: "El framework para",
       titleAccent: "apps agentic",
       body: "Empieza con una Chat-first app y el app-agent loop. Añade actions, pantallas, jobs y workflows a medida que crece tu agent.",
-      primaryCta: "Empezar a construir",
-      secondaryCta: "Ver la documentación",
+      primaryCta: "Probar una app",
+      secondaryCta: "Leer la documentación",
     },
     code: {
       quickStartComment: "Crea una app con un comando",
@@ -95,8 +95,7 @@ const esES = {
       eyebrow: "Profundamente agentic, no solo IA pegada",
       title: "Una acción te da toda la superficie de la app",
       body: "Define una operación una vez. Agent-Native la convierte en acción de UI, herramienta del agent, endpoint HTTP, superficie MCP/A2A, comando CLI, permiso acotado y registro de auditoría.",
-      seeActions: "Ver acciones",
-      frameworkGuide: "Leer la guía del framework",
+      buildAction: "Crear una acción",
       benefits: {
         oneActionDefinition: {
           title: "Una sola definición de acción",
@@ -301,7 +300,7 @@ const esES = {
     finalCta: {
       title: "Software construido para la era agentic",
       body: "Empieza con un comando o un durable action, pásalo por el app-agent loop y luego hazlo crecer hasta UI, jobs y colaboración sin reescribir la operación. Open source. Forkable. Tuyo.",
-      primaryCta: "Empezar con un Action",
+      primaryCta: "Probar una app",
       secondaryCta: "Leer la documentación",
       githubCta: "Ver en GitHub",
     },

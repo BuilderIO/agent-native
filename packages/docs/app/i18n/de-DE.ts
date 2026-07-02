@@ -80,8 +80,8 @@ const deDE = {
       titleLine1: "Das Framework für",
       titleAccent: "agentic Apps",
       body: "Starte mit einer Chat-first app und dem app-agent loop. Füge actions, Screens, jobs und workflows hinzu, während dein agent wächst.",
-      primaryCta: "Mit dem Bauen starten",
-      secondaryCta: "Docs ansehen",
+      primaryCta: "App ausprobieren",
+      secondaryCta: "Docs lesen",
     },
     code: {
       quickStartComment: "Erstelle eine App mit einem Befehl",
@@ -95,8 +95,7 @@ const deDE = {
       eyebrow: "Wirklich agentisch, nicht nur KI daneben",
       title: "Eine Aktion öffnet die ganze App-Oberfläche",
       body: "Definiere eine Operation einmal. Agent-Native macht daraus UI-Aktion, Agent-Tool, HTTP-Endpunkt, MCP/A2A-Oberfläche, CLI-Befehl, Berechtigungsprüfung und Audit-Trail.",
-      seeActions: "Aktionen ansehen",
-      frameworkGuide: "Framework-Leitfaden lesen",
+      buildAction: "Eine Aktion erstellen",
       benefits: {
         oneActionDefinition: {
           title: "Eine Aktionsdefinition",
@@ -302,7 +301,7 @@ const deDE = {
     finalCta: {
       title: "Software, gebaut für die agentic era",
       body: "Starte mit einem Befehl oder einem durable action, führe es durch den app-agent loop und erweitere es dann zu UI, jobs und Zusammenarbeit, ohne die Operation neu zu schreiben. Open Source. Forkable. Deins.",
-      primaryCta: "Mit einem Action starten",
+      primaryCta: "App ausprobieren",
       secondaryCta: "Docs lesen",
       githubCta: "Auf GitHub ansehen",
     },

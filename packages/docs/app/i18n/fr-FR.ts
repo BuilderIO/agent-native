@@ -95,8 +95,7 @@ const frFR = {
       eyebrow: "Profondément agentique, pas une IA ajoutée à côté",
       title: "Une action expose toute la surface de l’app",
       body: "Définissez une opération une fois. Agent-Native en fait l’action UI, l’outil agent, le endpoint HTTP, la surface MCP/A2A, la commande CLI, le contrôle de permission et la piste d’audit.",
-      seeActions: "Voir les actions",
-      frameworkGuide: "Lire le guide du framework",
+      buildAction: "Créer une action",
       benefits: {
         oneActionDefinition: {
           title: "Une seule définition d’action",

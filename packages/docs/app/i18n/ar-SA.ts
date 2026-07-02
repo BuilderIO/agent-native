@@ -80,8 +80,8 @@ const arSA = {
       titleLine1: "framework من أجل",
       titleAccent: "agentic apps",
       body: "ابدأ مع Chat-first app و app-agent loop. أضف actions وشاشات و jobs و workflows مع نمو agent لديك.",
-      primaryCta: "ابدأ البناء",
-      secondaryCta: "عرض الوثائق",
+      primaryCta: "جرّب تطبيقًا",
+      secondaryCta: "اقرأ الوثائق",
     },
     code: {
       quickStartComment: "أنشئ app بأمر واحد",
@@ -94,8 +94,7 @@ const arSA = {
       eyebrow: "مصمم بعمق للوكلاء، وليس ذكاء اصطناعياً ملحقاً",
       title: "إجراء واحد يفتح سطح التطبيق كله",
       body: "عرّف العملية مرة واحدة. يحولها Agent-Native إلى إجراء UI، وأداة agent، ونقطة HTTP، وسطح MCP/A2A، وأمر CLI، وفحص صلاحيات، وسجل تدقيق.",
-      seeActions: "عرض الإجراءات",
-      frameworkGuide: "قراءة دليل الإطار",
+      buildAction: "أنشئ إجراء",
       benefits: {
         oneActionDefinition: {
           title: "تعريف إجراء واحد",
@@ -300,7 +299,7 @@ const arSA = {
     finalCta: {
       title: "software مبني لعصر agentic era",
       body: "ابدأ مع أمر واحد أو durable action، شغّله عبر app-agent loop، ثم نمّه إلى UI و jobs وتعاون من دون إعادة كتابة العملية. مفتوح المصدر. Forkable. لك.",
-      primaryCta: "ابدأ مع Action",
+      primaryCta: "جرّب تطبيقًا",
       secondaryCta: "اقرأ الوثائق",
       githubCta: "عرض على GitHub",
     },

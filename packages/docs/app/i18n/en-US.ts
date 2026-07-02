@@ -89,8 +89,8 @@ const enUS = {
       titleLine1: "The framework for",
       titleAccent: "agentic apps",
       body: "Agent-Native is an open-source framework for apps where agents and UI share the same actions, state, and context.",
-      primaryCta: "Start building",
-      secondaryCta: "Browse apps",
+      primaryCta: "Try an app",
+      secondaryCta: "Read the docs",
     },
     code: {
       quickStartComment: "Create an app with one command",
@@ -104,8 +104,7 @@ const enUS = {
       eyebrow: "Deeply agentic, not AI-adjacent",
       title: "One action gives you the whole app surface",
       body: "Define an operation once. Agent-Native turns it into the UI action, agent tool, HTTP endpoint, MCP/A2A surface, CLI command, scoped permission check, and audit trail.",
-      seeActions: "See actions",
-      frameworkGuide: "Read the framework guide",
+      buildAction: "Build an action",
       benefits: {
         oneActionDefinition: {
           title: "One action definition",
@@ -310,8 +309,8 @@ const enUS = {
     finalCta: {
       title: "Software built for the agentic era",
       body: "Start with a command or a durable action, run it through the app-agent loop, then grow it into UI, jobs, and collaboration without rewriting the operation. Open source. Forkable. Yours.",
-      primaryCta: "Start with an action",
-      secondaryCta: "Read the Docs",
+      primaryCta: "Try an app",
+      secondaryCta: "Read the docs",
       githubCta: "View on GitHub",
     },
     batteries: {

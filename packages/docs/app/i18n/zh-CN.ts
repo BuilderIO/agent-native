@@ -80,8 +80,8 @@ const zhCN = {
       titleLine1: "面向",
       titleAccent: "agentic apps 的框架",
       body: "从 Chat-first app 和 app-agent loop 开始。随着你的 agent 成长，添加 actions、界面、jobs 和 workflows。",
-      primaryCta: "开始构建",
-      secondaryCta: "查看文档",
+      primaryCta: "试用一个 app",
+      secondaryCta: "阅读文档",
     },
     code: {
       quickStartComment: "用一条命令创建 app",
@@ -93,8 +93,7 @@ const zhCN = {
       eyebrow: "真正面向代理，而不是外挂式 AI",
       title: "一个 action 覆盖整套应用能力面",
       body: "只定义一次操作。Agent-Native 会把它变成 UI action、agent 工具、HTTP 端点、MCP/A2A 能力面、CLI 命令、权限检查和审计记录。",
-      seeActions: "查看 actions",
-      frameworkGuide: "阅读框架指南",
+      buildAction: "构建一个 action",
       benefits: {
         oneActionDefinition: {
           title: "一个 action 定义",
@@ -296,7 +295,7 @@ const zhCN = {
     finalCta: {
       title: "为 agentic 时代而建的软件",
       body: "从一条命令或 durable action 开始，让它跑过 app-agent loop，然后在不重写操作的情况下成长为 UI、jobs 和协作。开源。可 fork。属于你。",
-      primaryCta: "从 Action 开始",
+      primaryCta: "试用一个 app",
       secondaryCta: "阅读文档",
       githubCta: "在 GitHub 查看",
     },

@@ -80,8 +80,8 @@ const koKR = {
       titleLine1: "agentic apps 를 위한",
       titleAccent: "framework",
       body: "Chat-first app 과 app-agent loop 에서 시작하세요. agent 가 성장하면 actions, 화면, jobs, workflows 를 추가할 수 있습니다.",
-      primaryCta: "구축 시작",
-      secondaryCta: "문서 보기",
+      primaryCta: "app 사용해 보기",
+      secondaryCta: "문서 읽기",
     },
     code: {
       quickStartComment: "명령 하나로 app 만들기",
@@ -95,8 +95,7 @@ const koKR = {
       eyebrow: "겉에 붙인 AI가 아니라 깊이 agentic",
       title: "하나의 action이 앱 전체 표면을 엽니다",
       body: "작업을 한 번만 정의하세요. Agent-Native는 이를 UI action, agent 도구, HTTP endpoint, MCP/A2A 표면, CLI 명령, 권한 검사, 감사 기록으로 바꿉니다.",
-      seeActions: "Actions 보기",
-      frameworkGuide: "프레임워크 가이드 읽기",
+      buildAction: "Action 만들기",
       benefits: {
         oneActionDefinition: {
           title: "하나의 action 정의",
@@ -301,7 +300,7 @@ const koKR = {
     finalCta: {
       title: "agentic era 를 위해 구축된 소프트웨어",
       body: "명령 또는 durable action 에서 시작해 app-agent loop 를 거치고, 작업을 다시 쓰지 않고 UI, jobs, 협업으로 키우세요. 오픈소스. Fork 가능. 당신의 것입니다.",
-      primaryCta: "Action 으로 시작",
+      primaryCta: "app 사용해 보기",
       secondaryCta: "문서 읽기",
       githubCta: "GitHub 에서 보기",
     },

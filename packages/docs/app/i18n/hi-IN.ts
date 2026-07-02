@@ -80,8 +80,8 @@ const hiIN = {
       titleLine1: "agentic apps के लिए",
       titleAccent: "framework",
       body: "Chat-first app और app-agent loop से शुरू करें। जैसे-जैसे आपका agent बढ़े, actions, स्क्रीन, jobs और workflows जोड़ें।",
-      primaryCta: "बनाना शुरू करें",
-      secondaryCta: "दस्तावेज़ देखें",
+      primaryCta: "एक app आज़माएँ",
+      secondaryCta: "दस्तावेज़ पढ़ें",
     },
     code: {
       quickStartComment: "एक command से app बनाएं",
@@ -95,8 +95,7 @@ const hiIN = {
       eyebrow: "ऊपर से चिपकाई AI नहीं, सच में agentic",
       title: "एक action पूरी app surface खोल देता है",
       body: "एक operation एक बार define करें। Agent-Native उसे UI action, agent tool, HTTP endpoint, MCP/A2A surface, CLI command, scoped permission check और audit trail में बदल देता है।",
-      seeActions: "Actions देखें",
-      frameworkGuide: "Framework guide पढ़ें",
+      buildAction: "एक action बनाएं",
       benefits: {
         oneActionDefinition: {
           title: "एक action definition",
@@ -301,7 +300,7 @@ const hiIN = {
     finalCta: {
       title: "agentic era के लिए बना software",
       body: "एक command या durable action से शुरू करें, इसे app-agent loop से चलाएं, फिर operation को दोबारा लिखे बिना UI, jobs और collaboration में बढ़ाएं। ओपन सोर्स। Forkable। आपका।",
-      primaryCta: "Action से शुरू करें",
+      primaryCta: "एक app आज़माएँ",
       secondaryCta: "दस्तावेज़ पढ़ें",
       githubCta: "GitHub पर देखें",
     },

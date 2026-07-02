@@ -80,8 +80,8 @@ const jaJP = {
       titleLine1: "agentic apps のための",
       titleAccent: "framework",
       body: "Chat-first app と app-agent loop から始めましょう。agent の成長に合わせて actions、画面、jobs、workflows を追加できます。",
-      primaryCta: "構築を始める",
-      secondaryCta: "ドキュメントを見る",
+      primaryCta: "app を試す",
+      secondaryCta: "ドキュメントを読む",
     },
     code: {
       quickStartComment: "1 つのコマンドで app を作成",
@@ -95,8 +95,7 @@ const jaJP = {
       eyebrow: "後付けAIではなく、深くエージェント指向",
       title: "ひとつのアクションでアプリ全体の面を開く",
       body: "操作を一度だけ定義します。Agent-Native はそれを UI アクション、agent ツール、HTTP エンドポイント、MCP/A2A 面、CLI コマンド、権限チェック、監査証跡にします。",
-      seeActions: "アクションを見る",
-      frameworkGuide: "フレームワークガイドを読む",
+      buildAction: "アクションを作る",
       benefits: {
         oneActionDefinition: {
           title: "ひとつのアクション定義",
@@ -301,7 +300,7 @@ const jaJP = {
     finalCta: {
       title: "agentic era のために作られたソフトウェア",
       body: "コマンドまたは durable action から始め、app-agent loop に通し、操作を書き直さずに UI、jobs、コラボレーションへ育てられます。オープンソース。Fork 可能。あなたのものです。",
-      primaryCta: "Action から始める",
+      primaryCta: "app を試す",
       secondaryCta: "ドキュメントを読む",
       githubCta: "GitHub で見る",
     },
