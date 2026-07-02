@@ -1159,7 +1159,11 @@ function summarizeAgentChatEvent(event: RunEvent): {
         metadata: { reason: payload.reason },
       };
     case "clear":
-      return null;
+      return {
+        kind: "status",
+        message: "",
+        metadata: { agentChatEventType: "clear" },
+      };
     case "agent_call":
       return {
         kind: "status",

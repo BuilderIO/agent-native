@@ -54,6 +54,16 @@ describe("codeAgentTranscriptEventsToContent", () => {
       },
     ]);
   });
+
+  it("drops transcript content before a hosted agent clear marker", () => {
+    const content = codeAgentTranscriptEventsToContent([
+      event("draft", "system", "Rejected draft", { role: "assistant" }),
+      event("clear", "status", "", { agentChatEventType: "clear" }),
+      event("final", "system", "Corrected answer", { role: "assistant" }),
+    ]);
+
+    expect(content).toEqual([{ type: "text", text: "Corrected answer" }]);
+  });
 });
 
 describe("createCodeAgentChatAdapter", () => {

@@ -220,8 +220,10 @@ export function createCodeAgentChatAdapter(
 export function codeAgentTranscriptEventsToContent(
   events: readonly CodeAgentChatTranscriptEvent[],
 ): ContentPart[] {
+  const clearIndex = findLastAgentChatClearEventIndex(events);
+  const visibleEvents = clearIndex >= 0 ? events.slice(clearIndex + 1) : events;
   const normalized = normalizeCodeAgentTranscript(
-    events.map(toCoreCodeAgentTranscriptEvent),
+    visibleEvents.map(toCoreCodeAgentTranscriptEvent),
   );
   const content: ContentPart[] = [];
 
@@ -247,6 +249,15 @@ export function codeAgentTranscriptEventsToContent(
   }
 
   return content;
+}
+
+function findLastAgentChatClearEventIndex(
+  events: readonly CodeAgentChatTranscriptEvent[],
+): number {
+  for (let index = events.length - 1; index >= 0; index--) {
+    if (events[index]?.metadata?.agentChatEventType === "clear") return index;
+  }
+  return -1;
 }
 
 function latestUserMessage(
