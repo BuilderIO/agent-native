@@ -1,6 +1,6 @@
 import { useActionMutation, useActionQuery } from "@agent-native/core/client";
 import { IconCode, IconDeviceFloppy } from "@tabler/icons-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -185,7 +185,7 @@ export function CodeWorkbenchHost({
 }: CodeWorkbenchHostProps) {
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
   const [activePath, setActivePath] = useState<string | null>(null);
-  const [draftContent, setDraftContent] = useState("");
+  const [draftsByPath, setDraftsByPath] = useState<Record<string, string>>({});
   const [ready, setReady] = useState(false);
 
   const sourceFilesQuery = useActionQuery("list-source-files", { designId });
@@ -201,6 +201,10 @@ export function CodeWorkbenchHost({
   const readSource = readSourceQuery.data as any;
   const applySourceEditMutation = useActionMutation("apply-source-edit");
   const savedContent = readSource?.content ?? "";
+  const draftContent =
+    selectedPath && draftsByPath[selectedPath] !== undefined
+      ? draftsByPath[selectedPath]
+      : savedContent;
   const dirty = draftContent !== savedContent;
   const activeSourceFile = sourceFiles.find(
     (file: any) =>
@@ -219,10 +223,21 @@ export function CodeWorkbenchHost({
     }
   }, [activeFileId, activeFilename, activePath, sourceFiles]);
 
-  useEffect(() => {
-    if (typeof readSource?.content !== "string") return;
-    setDraftContent(readSource.content);
-  }, [readSource?.path, readSource?.versionHash, readSource?.content]);
+  const setSelectedDraftContent = useCallback(
+    (content: string) => {
+      if (!selectedPath) return;
+      setDraftsByPath((current) => {
+        const next = { ...current };
+        if (content === savedContent) {
+          delete next[selectedPath];
+        } else {
+          next[selectedPath] = content;
+        }
+        return next;
+      });
+    },
+    [savedContent, selectedPath],
+  );
 
   useEffect(() => {
     onActiveFileChange?.(
@@ -310,11 +325,11 @@ export function CodeWorkbenchHost({
         message.type === "design-code-workbench:content-change" &&
         typeof message.content === "string"
       ) {
-        setDraftContent(message.content);
+        setSelectedDraftContent(message.content);
         return;
       }
       if (message.type === "design-code-workbench:revert") {
-        setDraftContent(savedContent);
+        setSelectedDraftContent(savedContent);
         return;
       }
       if (message.type === "design-code-workbench:save") {
@@ -351,6 +366,7 @@ export function CodeWorkbenchHost({
     readSource?.versionHash,
     savedContent,
     selectedPath,
+    setSelectedDraftContent,
   ]);
 
   return (

@@ -130,7 +130,24 @@ export async function writeInlineSourceFile(args: {
   expectedVersionHash?: string;
 }): Promise<{ versionHash: string; changed: boolean; updatedAt: string }> {
   await assertAccess("design", args.designId, "editor");
-  const current = await readLiveSourceFile(args.file);
+  const db = getDb();
+  const [currentFile] = await db
+    .select({
+      id: schema.designFiles.id,
+      designId: schema.designFiles.designId,
+      filename: schema.designFiles.filename,
+      fileType: schema.designFiles.fileType,
+      content: schema.designFiles.content,
+      createdAt: schema.designFiles.createdAt,
+      updatedAt: schema.designFiles.updatedAt,
+    })
+    .from(schema.designFiles)
+    .where(eq(schema.designFiles.id, args.file.id))
+    .limit(1);
+  if (!currentFile || currentFile.designId !== args.designId) {
+    throw new Error("Source file not found.");
+  }
+  const current = await readLiveSourceFile(currentFile);
   if (
     args.expectedVersionHash &&
     args.expectedVersionHash !== current.versionHash
@@ -146,11 +163,10 @@ export async function writeInlineSourceFile(args: {
     return {
       versionHash: current.versionHash,
       changed: false,
-      updatedAt: args.file.updatedAt ?? updatedAt,
+      updatedAt: currentFile.updatedAt ?? updatedAt,
     };
   }
 
-  const db = getDb();
   await db
     .update(schema.designFiles)
     .set({ content: args.content, updatedAt })
