@@ -817,6 +817,61 @@ describe("runAgentLoopDirectWithSoftTimeout", () => {
     expect(continuationNote).toBeDefined();
   });
 
+  it("keeps completed tool nextRequiredAction guidance visible on resume", async () => {
+    mockGetCurrentTurnEventsForThread.mockResolvedValue([
+      {
+        type: "tool_start",
+        tool: "get-design-snapshot",
+        input: { designId: "design-1", fileId: "file-1" },
+      },
+      {
+        type: "tool_done",
+        tool: "get-design-snapshot",
+        input: { designId: "design-1", fileId: "file-1" },
+        result: JSON.stringify({
+          files: [{ id: "file-1", content: "x".repeat(2000) }],
+          nextRequiredAction:
+            "Call edit-design exactly once with designId design-1 and fileId file-1. Do not call get-design-snapshot again.",
+        }),
+      },
+    ]);
+
+    let attempts = 0;
+    const messages: EngineMessage[] = [
+      { role: "user", content: [{ type: "text", text: "go" }] },
+    ];
+    mockRunAgentLoop.mockImplementation(async () => {
+      attempts++;
+      if (attempts === 1) {
+        throw new EngineError("Builder gateway timed out", {
+          errorCode: "builder_gateway_timeout",
+        });
+      }
+      return {
+        inputTokens: 1,
+        outputTokens: 1,
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0,
+        model: "test-model",
+      };
+    });
+
+    await runAgentLoopDirectWithSoftTimeout(
+      makeOpts(messages, new AbortController().signal, undefined, "thread-1"),
+      60_000,
+    );
+
+    expect(attempts).toBe(2);
+    const journalNote = messages
+      .map((m) => (m.content[0]?.type === "text" ? m.content[0].text : ""))
+      .find((t) =>
+        t.includes("Tool-call journal from the interrupted attempt"),
+      );
+    expect(journalNote).toContain("Next required action from result");
+    expect(journalNote).toContain("Call edit-design exactly once");
+    expect(journalNote).toContain("Do not call get-design-snapshot again");
+  });
+
   it("does not inject a journal note on resume when the turn had no tool calls", async () => {
     // No tool activity in the ledger → no structured note, so resume behavior is
     // unchanged from before this feature.
