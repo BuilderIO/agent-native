@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.84.45
+
+### Patch Changes
+
+- a4f9e3e: Keep action preparation stall detection active after prepared tool-call snapshots until the tool actually starts.
+
 ## 0.84.44
 
 ### Patch Changes
