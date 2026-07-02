@@ -763,9 +763,9 @@ export async function reconcileTerminalRunFromEvents(
     sql: `UPDATE agent_runs
           SET status = ?,
               completed_at = COALESCE(completed_at, ?, ${livenessBasisSql()}),
-              error_code = CASE WHEN ? IS NOT NULL THEN ? ELSE error_code END,
-              error_detail = CASE WHEN ? IS NOT NULL THEN ? ELSE error_detail END,
-              terminal_reason = COALESCE(terminal_reason, ?)
+              error_code = ?,
+              error_detail = ?,
+              terminal_reason = ?
           WHERE id = ?
             AND (
               status = 'running'
@@ -775,8 +775,6 @@ export async function reconcileTerminalRunFromEvents(
       status,
       latest.eventAt,
       errorCode,
-      errorCode,
-      errorDetail,
       errorDetail,
       terminalReason,
       runId,

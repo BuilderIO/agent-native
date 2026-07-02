@@ -1963,6 +1963,11 @@ const AssistantChatInner = forwardRef<
               throw err;
             }
           }
+          if (reconnectTimedOut && abortCtrl.signal.aborted) {
+            const timeoutError = new Error("Reconnect timed out");
+            timeoutError.name = "AbortError";
+            throw timeoutError;
+          }
         } catch (err) {
           if (
             err instanceof AgentAutoContinueSignal &&

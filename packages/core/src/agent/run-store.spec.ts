@@ -308,8 +308,10 @@ describe("run store", () => {
     );
     expect(repair?.args[0]).toBe("completed");
     expect(repair?.args[1]).toBe(123_456);
-    expect(repair?.args[6]).toBe("done");
-    expect(repair?.args[7]).toBe("run-done-event");
+    expect(repair?.args[2]).toBeNull();
+    expect(repair?.args[3]).toBeNull();
+    expect(repair?.args[4]).toBe("done");
+    expect(repair?.args[5]).toBe("run-done-event");
     expect(
       execCalls.some(
         (call) =>
@@ -384,7 +386,10 @@ describe("run store", () => {
         /SET status = \?/i.test(call.sql),
     );
     expect(repair?.args[0]).toBe("completed");
-    expect(repair?.args[7]).toBe("run-done-event");
+    expect(repair?.args[2]).toBeNull();
+    expect(repair?.args[3]).toBeNull();
+    expect(repair?.args[4]).toBe("done");
+    expect(repair?.args[5]).toBe("run-done-event");
   });
 
   it("reapIfStale honors last_progress_at as liveness so a progressing run is not reaped mid-tool", async () => {
