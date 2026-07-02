@@ -16,4 +16,18 @@ describe("CodeWorkbenchHost theming", () => {
     expect(source).not.toContain("#0b0d12");
     expect(source).not.toContain("bg-[#0b0d12]");
   });
+
+  it("keeps workbench file selection and draft base versions independent", () => {
+    const source = readFileSync(
+      "app/components/design/CodeWorkbenchHost.tsx",
+      "utf8",
+    );
+
+    expect(source).toContain("lastExternalTargetKeyRef");
+    expect(source).toContain("baseVersionHash");
+    expect(source).toContain("activeDraft?.baseVersionHash");
+    expect(source).not.toContain(
+      "[activeFileId, activeFilename, activePath, sourceFiles]",
+    );
+  });
 });

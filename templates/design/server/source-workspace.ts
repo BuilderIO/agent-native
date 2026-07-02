@@ -23,7 +23,7 @@ export interface SourceWorkspaceFile {
   designId: string;
   filename: string;
   fileType: string;
-  content: string;
+  content?: string | null;
   createdAt: string | null;
   updatedAt: string | null;
 }
@@ -55,23 +55,36 @@ function roleCanEdit(role: unknown): boolean {
 
 export async function resolveSourceWorkspace(
   designId: string,
+  options: { includeContent?: boolean } = {},
 ): Promise<SourceWorkspaceContext> {
   const access = await resolveAccess("design", designId);
   if (!access) throw new Error("Design not found");
 
   const db = getDb();
-  const files = await db
-    .select({
-      id: schema.designFiles.id,
-      designId: schema.designFiles.designId,
-      filename: schema.designFiles.filename,
-      fileType: schema.designFiles.fileType,
-      content: schema.designFiles.content,
-      createdAt: schema.designFiles.createdAt,
-      updatedAt: schema.designFiles.updatedAt,
-    })
-    .from(schema.designFiles)
-    .where(eq(schema.designFiles.designId, designId));
+  const files = options.includeContent
+    ? await db
+        .select({
+          id: schema.designFiles.id,
+          designId: schema.designFiles.designId,
+          filename: schema.designFiles.filename,
+          fileType: schema.designFiles.fileType,
+          content: schema.designFiles.content,
+          createdAt: schema.designFiles.createdAt,
+          updatedAt: schema.designFiles.updatedAt,
+        })
+        .from(schema.designFiles)
+        .where(eq(schema.designFiles.designId, designId))
+    : await db
+        .select({
+          id: schema.designFiles.id,
+          designId: schema.designFiles.designId,
+          filename: schema.designFiles.filename,
+          fileType: schema.designFiles.fileType,
+          createdAt: schema.designFiles.createdAt,
+          updatedAt: schema.designFiles.updatedAt,
+        })
+        .from(schema.designFiles)
+        .where(eq(schema.designFiles.designId, designId));
 
   return {
     designId,

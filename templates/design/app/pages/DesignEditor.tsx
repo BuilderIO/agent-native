@@ -16368,6 +16368,10 @@ ${serializedHtml}
     activeLeftPanel === "code"
       ? Math.max(leftSidebarWidth, 640)
       : Math.max(Math.min(leftSidebarWidth, 420), 320);
+  const routeCodeFileId =
+    activeLeftPanel === "code" ? searchParams.get("fileId") : null;
+  const routeCodeFilename =
+    activeLeftPanel === "code" ? searchParams.get("filename") : null;
   return (
     // h-full not flex-1: the parent <main> uses overflow-y-auto, not flex,
     // so flex-1 on the child doesn't resolve to the available height. h-full
@@ -16904,8 +16908,16 @@ ${serializedHtml}
                 {id ? (
                   <CodeWorkbenchHost
                     designId={id}
-                    activeFileId={activeFile?.id ?? activeFileId}
-                    activeFilename={activeFile?.filename}
+                    activeFileId={
+                      activeLeftPanel === "code"
+                        ? routeCodeFileId
+                        : (activeFile?.id ?? activeFileId)
+                    }
+                    activeFilename={
+                      activeLeftPanel === "code"
+                        ? routeCodeFilename
+                        : activeFile?.filename
+                    }
                     selectedNodeId={selectedElementLayerId}
                     selectedSelector={selectedCanvasSelector}
                     canEdit={canEditDesign}

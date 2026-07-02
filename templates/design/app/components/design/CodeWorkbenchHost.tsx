@@ -12,6 +12,11 @@ interface CodeWorkbenchTheme {
   values: Record<string, string>;
 }
 
+interface CodeWorkbenchDraft {
+  content: string;
+  baseVersionHash?: string;
+}
+
 export interface CodeWorkbenchActiveFile {
   path: string;
   fileId?: string;
@@ -300,8 +305,11 @@ export function CodeWorkbenchHost({
 }: CodeWorkbenchHostProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
+  const lastExternalTargetKeyRef = useRef<string | null>(null);
   const [activePath, setActivePath] = useState<string | null>(null);
-  const [draftsByPath, setDraftsByPath] = useState<Record<string, string>>({});
+  const [draftsByPath, setDraftsByPath] = useState<
+    Record<string, CodeWorkbenchDraft>
+  >({});
   const [ready, setReady] = useState(false);
   const [theme, setTheme] = useState<CodeWorkbenchTheme>(() => ({
     colorScheme: "light",
@@ -321,10 +329,11 @@ export function CodeWorkbenchHost({
   const readSource = readSourceQuery.data as any;
   const applySourceEditMutation = useActionMutation("apply-source-edit");
   const savedContent = readSource?.content ?? "";
+  const activeDraft = selectedPath ? draftsByPath[selectedPath] : undefined;
   const draftContent =
-    selectedPath && draftsByPath[selectedPath] !== undefined
-      ? draftsByPath[selectedPath]
-      : savedContent;
+    activeDraft !== undefined ? activeDraft.content : savedContent;
+  const expectedVersionHash =
+    activeDraft?.baseVersionHash ?? readSource?.versionHash;
   const dirty = draftContent !== savedContent;
   const activeSourceFile = sourceFiles.find(
     (file: any) =>
@@ -359,19 +368,28 @@ export function CodeWorkbenchHost({
   useEffect(() => {
     setActivePath(null);
     setDraftsByPath({});
+    lastExternalTargetKeyRef.current = null;
     onActiveFileChange?.(null);
   }, [designId, onActiveFileChange]);
 
   useEffect(() => {
-    if (!activeFileId && !activeFilename) return;
+    const externalTargetKey = [activeFileId ?? "", activeFilename ?? ""].join(
+      ":",
+    );
+    if (!activeFileId && !activeFilename) {
+      lastExternalTargetKeyRef.current = null;
+      return;
+    }
+    if (lastExternalTargetKeyRef.current === externalTargetKey) return;
     const match = sourceFiles.find(
       (file: any) =>
         file.fileId === activeFileId || file.path === activeFilename,
     );
-    if (match?.path && match.path !== activePath) {
+    if (match?.path) {
+      lastExternalTargetKeyRef.current = externalTargetKey;
       setActivePath(match.path);
     }
-  }, [activeFileId, activeFilename, activePath, sourceFiles]);
+  }, [activeFileId, activeFilename, sourceFiles]);
 
   const setSelectedDraftContent = useCallback(
     (content: string) => {
@@ -381,12 +399,16 @@ export function CodeWorkbenchHost({
         if (content === savedContent) {
           delete next[selectedPath];
         } else {
-          next[selectedPath] = content;
+          next[selectedPath] = {
+            content,
+            baseVersionHash:
+              current[selectedPath]?.baseVersionHash ?? readSource?.versionHash,
+          };
         }
         return next;
       });
     },
-    [savedContent, selectedPath],
+    [readSource?.versionHash, savedContent, selectedPath],
   );
 
   useEffect(() => {
@@ -490,11 +512,16 @@ export function CodeWorkbenchHost({
           {
             designId,
             path: selectedPath,
-            expectedVersionHash: readSource?.versionHash,
+            expectedVersionHash,
             edit: { kind: "full-replace", content: draftContent },
           } as any,
           {
             onSuccess: () => {
+              setDraftsByPath((current) => {
+                const next = { ...current };
+                delete next[selectedPath];
+                return next;
+              });
               toast.success("Source file saved" /* i18n-ignore */);
             },
             onError: (error) => {
@@ -515,6 +542,7 @@ export function CodeWorkbenchHost({
     designId,
     dirty,
     draftContent,
+    expectedVersionHash,
     readSource?.versionHash,
     savedContent,
     selectedPath,
@@ -550,11 +578,16 @@ export function CodeWorkbenchHost({
               {
                 designId,
                 path: selectedPath,
-                expectedVersionHash: readSource?.versionHash,
+                expectedVersionHash,
                 edit: { kind: "full-replace", content: draftContent },
               } as any,
               {
                 onSuccess: () => {
+                  setDraftsByPath((current) => {
+                    const next = { ...current };
+                    delete next[selectedPath];
+                    return next;
+                  });
                   toast.success("Source file saved" /* i18n-ignore */);
                 },
                 onError: (error) => {

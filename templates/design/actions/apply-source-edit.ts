@@ -47,7 +47,9 @@ export default defineAction({
       path: ["path"],
     }),
   run: async ({ designId, path, fileId, edit, expectedVersionHash }) => {
-    const workspace = await resolveSourceWorkspace(designId);
+    const workspace = await resolveSourceWorkspace(designId, {
+      includeContent: true,
+    });
     if (workspace.sourceType !== "inline") {
       throw new Error("Only inline Design files are editable in this MVP.");
     }
@@ -67,7 +69,7 @@ export default defineAction({
       designId,
       file,
       content: next.content,
-      expectedVersionHash: live.versionHash,
+      expectedVersionHash: expectedVersionHash ?? live.versionHash,
     });
 
     return {

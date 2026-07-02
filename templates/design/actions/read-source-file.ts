@@ -27,7 +27,9 @@ export default defineAction({
   readOnly: true,
   http: { method: "GET" },
   run: async ({ designId, path, fileId }) => {
-    const workspace = await resolveSourceWorkspace(designId);
+    const workspace = await resolveSourceWorkspace(designId, {
+      includeContent: true,
+    });
     const file = findSourceWorkspaceFile(workspace.files, { fileId, path });
     const live = await readLiveSourceFile(file);
     return {
