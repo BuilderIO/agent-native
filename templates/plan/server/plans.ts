@@ -766,7 +766,6 @@ export async function loadPlanBundle(planId: string): Promise<PlanBundle> {
       hostedPlanId: plan.hostedPlanId,
       hostedPlanUrl: plan.hostedPlanUrl,
       sourceUrl: plan.sourceUrl,
-      sourceAuthorEmail: plan.sourceAuthorEmail,
       sourceAuthorName: plan.sourceAuthorName,
       sourceAuthorLogin: plan.sourceAuthorLogin,
       html: plan.html,
@@ -822,7 +821,6 @@ export async function summarizePlans(
       | "hostedPlanId"
       | "hostedPlanUrl"
       | "sourceUrl"
-      | "sourceAuthorEmail"
       | "sourceAuthorName"
       | "sourceAuthorLogin"
       | "createdAt"
@@ -883,7 +881,6 @@ export async function summarizePlans(
       hostedPlanId: plan.hostedPlanId,
       hostedPlanUrl: plan.hostedPlanUrl,
       sourceUrl: plan.sourceUrl,
-      sourceAuthorEmail: plan.sourceAuthorEmail,
       sourceAuthorName: plan.sourceAuthorName,
       sourceAuthorLogin: plan.sourceAuthorLogin,
       createdAt: plan.createdAt,

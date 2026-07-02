@@ -7,7 +7,10 @@ import {
 } from "@agent-native/core/server";
 import { eq } from "drizzle-orm";
 
-import { extractCommentMentions } from "../../shared/comment-context.js";
+import {
+  SOURCE_AUTHOR_COMMENT_MENTION_EMAIL,
+  extractCommentMentions,
+} from "../../shared/comment-context.js";
 import type { PlanBundle, PlanComment } from "../../shared/types.js";
 import { getDb, schema } from "../db/index.js";
 
@@ -29,6 +32,7 @@ function normalizeEmail(email: string | null | undefined): string | null {
 
 function isSyntheticQaEmail(email: string): boolean {
   const trimmed = email.trim().toLowerCase();
+  if (trimmed === SOURCE_AUTHOR_COMMENT_MENTION_EMAIL) return true;
   const at = trimmed.lastIndexOf("@");
   if (at <= 0) return false;
   const local = trimmed.slice(0, at);

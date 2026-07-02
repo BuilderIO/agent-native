@@ -26,6 +26,7 @@ import {
   type DomainMatchOrg,
 } from "@agent-native/core/client/org";
 import {
+  SOURCE_AUTHOR_COMMENT_MENTION_EMAIL,
   extractCommentMentions,
   formatPlanCommentAnchorForAgent,
   formatPlanCommentMentionToken,
@@ -1306,15 +1307,31 @@ export function shouldHandlePlanCommentShortcut(
 export function defaultInlineCommentDraftForPlanContext(input: {
   planKind?: PlanKind | null;
   ownerEmail?: string | null;
-  sourceAuthorEmail?: string | null;
   sourceAuthorName?: string | null;
+  sourceAuthorLogin?: string | null;
   accessRole?: NonNullable<PlanBundle["access"]>["role"] | null;
   currentEmail?: string | null;
 }): CommentDraft {
   const currentEmail = normalizeCommentEmail(input.currentEmail);
-  const targetEmail = normalizeCommentEmail(
-    input.planKind === "recap" ? input.sourceAuthorEmail : input.ownerEmail,
-  );
+  if (input.planKind === "recap") {
+    const targetLabel =
+      input.sourceAuthorName?.trim() || input.sourceAuthorLogin?.trim();
+    if (!targetLabel || input.accessRole === "owner") {
+      return { message: "", mentions: [], resolutionTarget: "agent" };
+    }
+    const mention: PlanCommentMention = {
+      email: SOURCE_AUTHOR_COMMENT_MENTION_EMAIL,
+      label: targetLabel,
+      role: "source-author",
+    };
+    return {
+      message: `${formatPlanCommentMentionToken(mention)} `,
+      mentions: [mention],
+      resolutionTarget: "human",
+    };
+  }
+
+  const targetEmail = normalizeCommentEmail(input.ownerEmail);
   if (
     !targetEmail ||
     input.accessRole === "owner" ||
@@ -1322,11 +1339,9 @@ export function defaultInlineCommentDraftForPlanContext(input: {
   ) {
     return { message: "", mentions: [], resolutionTarget: "agent" };
   }
-  const targetName =
-    input.planKind === "recap" ? input.sourceAuthorName?.trim() : undefined;
   const mention = {
     email: targetEmail,
-    label: targetName || displayNameForMention(targetEmail),
+    label: displayNameForMention(targetEmail),
   };
   return {
     message: `${formatPlanCommentMentionToken(mention)} `,
@@ -3375,16 +3390,16 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
     return defaultInlineCommentDraftForPlanContext({
       planKind: bundle?.plan.kind,
       ownerEmail: bundle?.access?.ownerEmail,
-      sourceAuthorEmail: bundle?.plan.sourceAuthorEmail,
       sourceAuthorName: bundle?.plan.sourceAuthorName,
+      sourceAuthorLogin: bundle?.plan.sourceAuthorLogin,
       accessRole: effectivePlanAccessRole,
       currentEmail: collabUser?.email,
     });
   }, [
     bundle?.access?.ownerEmail,
     bundle?.plan.kind,
-    bundle?.plan.sourceAuthorEmail,
     bundle?.plan.sourceAuthorName,
+    bundle?.plan.sourceAuthorLogin,
     collabUser?.email,
     effectivePlanAccessRole,
   ]);
@@ -9429,6 +9444,22 @@ function commentBodyText(message: string) {
     .trim();
 }
 
+export function canSubmitInlineCommentDraft(input: {
+  draft: CommentDraft;
+  isSubmitting?: boolean;
+  lockToAgent?: boolean;
+}) {
+  const needsHumanMention =
+    !input.lockToAgent &&
+    input.draft.resolutionTarget === "human" &&
+    input.draft.mentions.length === 0;
+  return (
+    commentBodyText(input.draft.message).length > 0 &&
+    !needsHumanMention &&
+    !input.isSubmitting
+  );
+}
+
 export function mentionQueryAtCaret(root: HTMLElement) {
   const selection = window.getSelection();
   if (!selection || selection.rangeCount === 0) return null;
@@ -9726,7 +9757,11 @@ function InlineCommentPopover({
       mountedRef.current = false;
     };
   }, []);
-  const canSubmit = commentBodyText(draft.message).length > 0 && !isSubmitting;
+  const canSubmit = canSubmitInlineCommentDraft({
+    draft,
+    isSubmitting,
+    lockToAgent,
+  });
   const submit = async () => {
     if (!canSubmit) return;
     setSubmitError(false);

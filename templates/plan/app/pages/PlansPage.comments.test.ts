@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 
+import { SOURCE_AUTHOR_COMMENT_MENTION_EMAIL } from "@shared/comment-context";
 import type { PlanBundle } from "@shared/types";
 import { describe, expect, it } from "vitest";
 
@@ -9,6 +10,7 @@ import {
   addPlanCommentToBundle,
   buildNativeAnchorFromElement,
   buildCommentThreads,
+  canSubmitInlineCommentDraft,
   canEditPlanContentRole,
   commentAuthorEmails,
   commentThreadsForVisualSurfaceMode,
@@ -507,15 +509,21 @@ describe("plan comment thread UI model", () => {
     const draft = defaultInlineCommentDraftForPlanContext({
       planKind: "recap",
       ownerEmail: "svc-pr-recap@builder.io",
-      sourceAuthorEmail: "sami@builder.io",
       sourceAuthorName: "Sami",
+      sourceAuthorLogin: "sami",
       accessRole: "viewer",
       currentEmail: "steve@builder.io",
     });
 
     expect(draft).toEqual({
-      message: "@[Sami](mailto:sami%40builder.io) ",
-      mentions: [{ email: "sami@builder.io", label: "Sami" }],
+      message: `@[Sami](mailto:${encodeURIComponent(SOURCE_AUTHOR_COMMENT_MENTION_EMAIL)}) `,
+      mentions: [
+        {
+          email: SOURCE_AUTHOR_COMMENT_MENTION_EMAIL,
+          label: "Sami",
+          role: "source-author",
+        },
+      ],
       resolutionTarget: "human",
     });
   });
@@ -533,6 +541,27 @@ describe("plan comment thread UI model", () => {
       mentions: [],
       resolutionTarget: "agent",
     });
+  });
+
+  it("does not submit human-targeted inline comments without a mention", () => {
+    expect(
+      canSubmitInlineCommentDraft({
+        draft: {
+          message: "please check this",
+          mentions: [],
+          resolutionTarget: "human",
+        },
+      }),
+    ).toBe(false);
+    expect(
+      canSubmitInlineCommentDraft({
+        draft: {
+          message: "please check this",
+          mentions: [],
+          resolutionTarget: "agent",
+        },
+      }),
+    ).toBe(true);
   });
 
   it("handles comment shortcuts only outside editable targets", () => {

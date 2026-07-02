@@ -152,7 +152,6 @@ export default defineAction({
             hostedPlanId: schema.plans.hostedPlanId,
             hostedPlanUrl: schema.plans.hostedPlanUrl,
             sourceUrl: schema.plans.sourceUrl,
-            sourceAuthorEmail: schema.plans.sourceAuthorEmail,
             sourceAuthorName: schema.plans.sourceAuthorName,
             sourceAuthorLogin: schema.plans.sourceAuthorLogin,
             createdAt: schema.plans.createdAt,

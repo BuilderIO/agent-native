@@ -57,6 +57,9 @@ vi.mock("@agent-native/core/org", async (importOriginal) => {
 
 type AnyAction = { run: (args: any) => Promise<any> };
 let createVisualRecap: AnyAction;
+let loadPlanBundle: (planId: string) => Promise<{
+  plan: Record<string, unknown>;
+}>;
 
 const OWNER = "owner@example.com";
 const ORG = "org-1";
@@ -157,6 +160,8 @@ beforeAll(async () => {
 
   createVisualRecap = (await import("./create-visual-recap.js"))
     .default as AnyAction;
+  loadPlanBundle = (await import("../server/plans.js"))
+    .loadPlanBundle as typeof loadPlanBundle;
 });
 
 afterAll(() => {
@@ -203,6 +208,10 @@ describe("create-visual-recap: sourceUrl", () => {
     expect(first?.sourceAuthorEmail).toBe("sami@builder.io");
     expect(first?.sourceAuthorName).toBe("Sami");
     expect(first?.sourceAuthorLogin).toBe("sami");
+    const bundle = await asOwner(() => loadPlanBundle(planId));
+    expect(bundle.plan.sourceAuthorEmail).toBeUndefined();
+    expect(bundle.plan.sourceAuthorName).toBe("Sami");
+    expect(bundle.plan.sourceAuthorLogin).toBe("sami");
 
     await asOwner(() =>
       createVisualRecap.run({
