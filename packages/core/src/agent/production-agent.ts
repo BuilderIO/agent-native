@@ -2867,6 +2867,13 @@ export async function runAgentLoop(opts: {
           }
           return false;
         };
+        const allowsParallelInputPreparation = (toolName?: string) => {
+          if (!toolName) return true;
+          const entry = actions[toolName];
+          return (
+            !entry || entry.readOnly === true || entry.parallelSafe === true
+          );
+        };
         const trackActiveToolInput = (
           key: string,
           toolName: string | undefined,
@@ -2875,7 +2882,11 @@ export async function runAgentLoop(opts: {
           const now = Date.now();
           const previous = activeToolInputs.get(key);
           const resolvedToolName = toolName ?? previous?.toolName;
-          if (bytes > 0 && resolvedToolName) {
+          if (
+            bytes > 0 &&
+            resolvedToolName &&
+            !allowsParallelInputPreparation(resolvedToolName)
+          ) {
             for (const [activeKey, active] of activeToolInputs) {
               if (
                 activeKey !== key &&

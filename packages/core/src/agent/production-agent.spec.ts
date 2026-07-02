@@ -1491,7 +1491,9 @@ describe("runAgentLoop", () => {
         systemPrompt: "system",
         tools: [],
         messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
-        actions: {},
+        actions: {
+          "edit-design": actionEntry({ readOnly: false }),
+        },
         send: (event) => events.push(event),
         signal: new AbortController().signal,
       });
@@ -1512,6 +1514,86 @@ describe("runAgentLoop", () => {
       reason: "no_progress",
     });
     expect(events.at(-1)).toEqual({ type: "done" });
+  });
+
+  it("keeps parallel-safe same-action input stalls tracked while a sibling streams", async () => {
+    let now = 1_000_000;
+    const dateNow = vi.spyOn(Date, "now").mockImplementation(() => now);
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: true,
+      },
+      async *stream(): AsyncIterable<EngineEvent> {
+        yield {
+          type: "tool-input-start",
+          id: "parallel-search-a",
+          name: "search",
+        };
+        now += 45_000;
+        yield {
+          type: "tool-input-start",
+          id: "parallel-search-b",
+          name: "search",
+        };
+        now += 2_000;
+        yield {
+          type: "tool-input-delta",
+          id: "parallel-search-b",
+          name: "search",
+          text: '{"query":"healthy sibling',
+        };
+        now += 44_000;
+        yield {
+          type: "tool-input-delta",
+          id: "parallel-search-b",
+          name: "search",
+          text: ' still streaming"}',
+        };
+        yield { type: "text-delta", text: "should not continue" };
+      },
+    };
+    const events: AgentChatEvent[] = [];
+
+    try {
+      await runAgentLoop({
+        engine,
+        model: "test-model",
+        systemPrompt: "system",
+        tools: [],
+        messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+        actions: {
+          search: actionEntry({ readOnly: false, parallelSafe: true }),
+        },
+        send: (event) => events.push(event),
+        signal: new AbortController().signal,
+      });
+    } finally {
+      dateNow.mockRestore();
+    }
+
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "activity",
+        tool: "search",
+        id: "parallel-search-b",
+        progressBytes: 25,
+      }),
+    );
+    expect(events.at(-1)).toEqual({
+      type: "auto_continue",
+      reason: "no_progress",
+    });
+    expect(events).not.toContainEqual(
+      expect.objectContaining({ type: "text", text: "should not continue" }),
+    );
   });
 
   it("tracks action-preparation stalls for multiple in-flight tool inputs", async () => {
