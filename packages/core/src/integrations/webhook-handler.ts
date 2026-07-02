@@ -36,7 +36,10 @@ import { isLocalDatabase } from "../db/client.js";
 import { resolveOrgIdForEmail } from "../org/context.js";
 import { withConfiguredAppBasePath } from "../server/app-base-path.js";
 import { FRAMEWORK_ROUTE_PREFIX } from "../server/core-routes-plugin.js";
-import { readDeployCredentialEnv } from "../server/credential-provider.js";
+import {
+  canUseDeployCredentialFallbackForRequest,
+  readDeployCredentialEnv,
+} from "../server/credential-provider.js";
 import { runWithRequestContext } from "../server/request-context.js";
 import { A2A_CONTINUATION_QUEUED_MARKER } from "./a2a-continuation-marker.js";
 import { signInternalToken } from "./internal-token.js";
@@ -137,16 +140,18 @@ function collectToolResultSummaries(
     .map((event) => ({ tool: event.tool, result: event.result }));
 }
 
-async function resolveIntegrationApiKey(
+export async function resolveIntegrationApiKey(
   engineOption: WebhookHandlerOptions["engine"],
   ownerEmail: string,
   fallbackApiKey: string,
 ): Promise<string | undefined> {
+  const canUseDeployFallback = canUseDeployCredentialFallbackForRequest();
   const engineName = explicitEngineName(engineOption);
   if (engineName) {
     const provider = engineToProvider(engineName);
     const userApiKey = await getOwnerApiKey(provider, ownerEmail);
     if (userApiKey) return userApiKey;
+    if (!canUseDeployFallback) return undefined;
     const envVar = PROVIDER_TO_ENV[provider];
     const providerEnvKey = envVar ? readDeployCredentialEnv(envVar) : undefined;
     return providerEnvKey || fallbackApiKey.trim() || undefined;
@@ -154,6 +159,7 @@ async function resolveIntegrationApiKey(
 
   const userApiKey = await getOwnerActiveApiKey(ownerEmail);
   if (userApiKey) return userApiKey;
+  if (!canUseDeployFallback) return undefined;
   return fallbackApiKey.trim() || undefined;
 }
 

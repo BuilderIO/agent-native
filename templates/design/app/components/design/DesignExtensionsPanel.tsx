@@ -152,7 +152,7 @@ type FirstPartyRow = {
 
 const DEFAULT_ASSETS_PICKER_URL =
   "https://assets.agent-native.com/library?__an_picker=1&mediaType=image&layout=vertical";
-const SHOW_FIGMA_ASSET_TAB = false;
+const SHOW_FIGMA_ASSET_TAB = true;
 
 interface PickedAssetPayload {
   url?: unknown;

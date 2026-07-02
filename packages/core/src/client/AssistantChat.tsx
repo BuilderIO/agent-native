@@ -1581,15 +1581,10 @@ const AssistantChatInner = forwardRef<
   });
   const reconnectActivityContent = useMemo(
     () =>
-      (isReconnecting || reconnectFrozen) && reconnectContent.length === 0
+      isReconnecting || reconnectFrozen
         ? reconnectActivityFallbackContent(runningActivityTool)
         : [],
-    [
-      isReconnecting,
-      reconnectFrozen,
-      reconnectContent.length,
-      runningActivityTool,
-    ],
+    [isReconnecting, reconnectFrozen, runningActivityTool],
   );
   const lastBroadcastRunningRef = useRef(isRunning);
   const tiptapRef = useRef<TiptapComposerHandle>(null);
@@ -3842,7 +3837,7 @@ const AssistantChatInner = forwardRef<
                           />
                         )}
                       {(isReconnecting || reconnectFrozen) &&
-                        reconnectContent.length === 0 &&
+                        visibleReconnectContent.length === 0 &&
                         reconnectActivityContent.length > 0 && (
                           <ReconnectStreamMessage
                             content={reconnectActivityContent}

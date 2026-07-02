@@ -328,6 +328,11 @@ export function DesignImportPanel({ context }: DesignImportPanelProps) {
                 command={VISUAL_EDIT_CONNECT_COMMAND}
                 onCopy={copyVisualEditCommand}
               />
+              <p className="text-[10px] leading-snug text-muted-foreground">
+                {
+                  "Replace <port> with the running app's local port." /* i18n-ignore */
+                }
+              </p>
             </div>
           </ImportSourceRow>
         </div>

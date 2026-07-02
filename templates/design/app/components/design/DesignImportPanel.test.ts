@@ -60,7 +60,10 @@ describe("DesignImportPanel", () => {
       "npx @agent-native/core@latest skills add visual-edit",
     );
     expect(importConstants).toContain(
-      "npx @agent-native/core@latest design connect --url http://localhost:5173 --root . --daemon",
+      "npx @agent-native/core@latest design connect --url 'http://localhost:<port>' --root . --daemon",
+    );
+    expect(source).toContain(
+      "Replace <port> with the running app's local port.",
     );
   });
 });

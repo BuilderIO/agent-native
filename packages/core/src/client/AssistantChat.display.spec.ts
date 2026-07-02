@@ -200,6 +200,17 @@ describe("dedupeReconnectContentAgainstMessages", () => {
       dedupeReconnectContentAgainstMessages([completedCall], persistedMessages),
     ).toEqual([completedCall]);
   });
+
+  it("shows fallback activity when all reconnect content was already rendered", () => {
+    const source = readFileSync("src/client/AssistantChat.tsx", {
+      encoding: "utf8",
+    });
+
+    expect(source).toContain("visibleReconnectContent.length === 0");
+    expect(source).not.toContain(
+      "reconnectContent.length === 0 &&\n                        reconnectActivityContent.length > 0",
+    );
+  });
 });
 
 describe("centered empty chat setup layout", () => {
@@ -515,7 +526,7 @@ describe("waitForThreadRunToClear", () => {
     expect(start).toBeGreaterThan(-1);
     expect(end).toBeGreaterThan(start);
     expect(renderSource).toContain("visibleReconnectContent.length > 0");
-    expect(renderSource).toContain("reconnectContent.length === 0");
+    expect(renderSource).toContain("visibleReconnectContent.length === 0");
     expect(renderSource).not.toContain("reconnectAfterSeq");
   });
 
