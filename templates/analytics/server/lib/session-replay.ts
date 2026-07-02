@@ -1524,6 +1524,7 @@ export async function getSessionReplayTokenizedSummary(
   recordingId: string,
 ): Promise<SessionRecordingSummary> {
   const db = getDb() as any;
+  // guard:allow-unscoped -- called only after verifySessionReplayAgentAccess(recordingId, token) verifies a signed, recording-scoped agent_access token.
   const [row] = await db
     .select()
     .from(schema.sessionRecordings)
