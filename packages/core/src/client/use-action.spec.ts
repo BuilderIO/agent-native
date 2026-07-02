@@ -1,6 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { callAction, serializeActionQueryParams } from "./use-action.js";
+import {
+  callAction,
+  serializeActionQueryParams,
+  shouldRetryActionQueryForError,
+} from "./use-action.js";
 
 function jsonResponse(body: unknown, init: ResponseInit = {}): Response {
   return new Response(JSON.stringify(body), {
@@ -72,5 +76,40 @@ describe("callAction", () => {
         cache: "no-store",
       },
     );
+  });
+});
+
+describe("shouldRetryActionQueryForError", () => {
+  it("does not retry browser resource-exhaustion failures", () => {
+    expect(
+      shouldRetryActionQueryForError(
+        0,
+        new Error(
+          "Action list-documents failed: net::ERR_INSUFFICIENT_RESOURCES",
+        ),
+      ),
+    ).toBe(false);
+  });
+
+  it("allows a single retry for network-level failures (Chrome reports pool exhaustion as a generic fetch failure)", () => {
+    const networkError = new Error(
+      "Action list-documents failed: Failed to fetch",
+    );
+    expect(shouldRetryActionQueryForError(0, networkError)).toBe(true);
+    expect(shouldRetryActionQueryForError(1, networkError)).toBe(false);
+  });
+
+  it("keeps three retries for HTTP errors that reached the server", () => {
+    const httpError = Object.assign(
+      new Error("Action list-documents failed: HTTP 500"),
+      { status: 500 },
+    );
+    expect(shouldRetryActionQueryForError(2, httpError)).toBe(true);
+    expect(shouldRetryActionQueryForError(3, httpError)).toBe(false);
+  });
+
+  it("does not retry auth failures", () => {
+    expect(shouldRetryActionQueryForError(0, { status: 401 })).toBe(false);
+    expect(shouldRetryActionQueryForError(0, { status: 403 })).toBe(false);
   });
 });

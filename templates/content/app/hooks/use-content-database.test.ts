@@ -9,6 +9,7 @@ import {
   applySourceFieldPropertyToDatabaseResponse,
   clearDeletedContentDatabaseFromCache,
   contentDatabaseQueryKey,
+  invalidateBuilderBodyHydrationQueries,
   readCachedContentDatabaseResponse,
   writeContentDatabaseResponseToCache,
 } from "./use-content-database";
@@ -355,5 +356,64 @@ describe("readCachedContentDatabaseResponse", () => {
     expect(
       readCachedContentDatabaseResponse(queryClient, "database-page"),
     ).toBe(exact);
+  });
+});
+
+describe("invalidateBuilderBodyHydrationQueries", () => {
+  it("keeps a 300-row Builder hydration to a per-page invalidation budget", () => {
+    const calls: Array<{ queryKey?: readonly unknown[] }> = [];
+    const queryClient = {
+      invalidateQueries: (options: { queryKey?: readonly unknown[] }) => {
+        calls.push(options);
+      },
+    };
+
+    for (let page = 0; page < 6; page++) {
+      invalidateBuilderBodyHydrationQueries(queryClient, "database-page", {
+        documentId: undefined,
+      });
+    }
+
+    expect(calls).toHaveLength(12);
+    expect(calls).toEqual(
+      Array.from({ length: 6 }).flatMap(() => [
+        { queryKey: contentDatabaseQueryKey("database-page") },
+        {
+          queryKey: [
+            "action",
+            "get-content-database-source",
+            { documentId: "database-page" },
+          ],
+        },
+      ]),
+    );
+    expect(calls.some((call) => call.queryKey?.[1] === "list-documents")).toBe(
+      false,
+    );
+  });
+
+  it("invalidates the opened row document only for priority hydration", () => {
+    const calls: Array<{ queryKey?: readonly unknown[] }> = [];
+    const queryClient = {
+      invalidateQueries: (options: { queryKey?: readonly unknown[] }) => {
+        calls.push(options);
+      },
+    };
+
+    invalidateBuilderBodyHydrationQueries(queryClient, "database-page", {
+      documentId: "row-page",
+    });
+
+    expect(calls).toEqual([
+      { queryKey: contentDatabaseQueryKey("database-page") },
+      {
+        queryKey: [
+          "action",
+          "get-content-database-source",
+          { documentId: "database-page" },
+        ],
+      },
+      { queryKey: ["action", "get-document", { id: "row-page" }] },
+    ]);
   });
 });

@@ -6,6 +6,7 @@ export function useDbSync() {
 
   useCoreDbSync({
     queryClient,
+    suppressActionInvalidationFor: ["process-builder-body-hydration"],
     queryKeys: [
       "action",
       "document-sync",

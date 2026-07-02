@@ -547,20 +547,31 @@ export function useProcessBuilderBodyHydration(documentId: string) {
     ProcessBuilderBodyHydrationResponse,
     ProcessBuilderBodyHydrationRequest
   >("process-builder-body-hydration", {
+    skipActionQueryInvalidation: true,
     onSuccess: (_data, variables) => {
-      queryClient.invalidateQueries({
-        queryKey: contentDatabaseQueryKey(documentId),
-      });
-      queryClient.invalidateQueries({
-        queryKey: ["action", "get-content-database-source", { documentId }],
-      });
-      if (variables?.documentId) {
-        queryClient.invalidateQueries({
-          queryKey: ["action", "get-document", { id: variables.documentId }],
-        });
-      }
+      invalidateBuilderBodyHydrationQueries(queryClient, documentId, variables);
     },
   });
+}
+
+export function invalidateBuilderBodyHydrationQueries(
+  queryClient: {
+    invalidateQueries: (filters: { queryKey: readonly unknown[] }) => unknown;
+  },
+  documentId: string,
+  variables?: Pick<ProcessBuilderBodyHydrationRequest, "documentId"> | null,
+) {
+  queryClient.invalidateQueries({
+    queryKey: contentDatabaseQueryKey(documentId),
+  });
+  queryClient.invalidateQueries({
+    queryKey: ["action", "get-content-database-source", { documentId }],
+  });
+  if (variables?.documentId) {
+    queryClient.invalidateQueries({
+      queryKey: ["action", "get-document", { id: variables.documentId }],
+    });
+  }
 }
 
 export function useDisconnectContentDatabaseSource(documentId: string) {

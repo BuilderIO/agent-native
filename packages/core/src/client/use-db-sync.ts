@@ -486,6 +486,9 @@ export function _resetSyncTransportRegistryForTests(): void {
  *   compatibility invalidate triggered by `action` events. Use this to keep
  *   expensive active queries on explicit-refresh semantics while still letting
  *   normal source-versioned queries react through `useChangeVersion`.
+ * @param options.suppressActionInvalidationFor - Action names whose sync events
+ *   should not invalidate all action queries. Use only for high-volume
+ *   background actions that perform their own narrow client invalidation.
  */
 export function useDbSync(
   options: {
@@ -501,6 +504,7 @@ export function useDbSync(
     pauseWhenHidden?: boolean;
     ignoreSource?: string;
     actionInvalidatePredicate?: (query: Query) => boolean;
+    suppressActionInvalidationFor?: string[];
   } = {},
 ): void {
   const {
@@ -524,6 +528,11 @@ export function useDbSync(
     options.actionInvalidatePredicate,
   );
   actionInvalidatePredicateRef.current = options.actionInvalidatePredicate;
+  const suppressActionInvalidationForRef = useRef(
+    options.suppressActionInvalidationFor,
+  );
+  suppressActionInvalidationForRef.current =
+    options.suppressActionInvalidationFor;
 
   useEffect(() => {
     const id = Symbol("useDbSync");
@@ -546,6 +555,17 @@ export function useDbSync(
       const relevant = ignore
         ? events.filter((e) => e.requestSource !== ignore)
         : events;
+      const suppressedActions = new Set(
+        suppressActionInvalidationForRef.current ?? [],
+      );
+      const isSuppressedActionEvent = (evt: SyncEvent) =>
+        evt.source === "action" &&
+        typeof evt.key === "string" &&
+        suppressedActions.has(evt.key);
+      const suppressesWholeBatch =
+        relevant.length > 0 &&
+        relevant.every((evt) => evt.source === "action") &&
+        relevant.every(isSuppressedActionEvent);
 
       // Bump per-source change counters. Components that read these via
       // `useChangeVersion(source)` and fold the value into a React Query
@@ -558,7 +578,9 @@ export function useDbSync(
       }
 
       if (relevant.length > 0 && queryClient) {
-        const hasActionEvent = relevant.some((evt) => evt.source === "action");
+        const hasActionEvent = relevant.some(
+          (evt) => evt.source === "action" && !isSuppressedActionEvent(evt),
+        );
         if (hasActionEvent) {
           // Custom apps frequently start with raw `useQuery` calls before
           // graduating to `useActionQuery` or source-versioned query keys.
@@ -576,7 +598,9 @@ export function useDbSync(
         // etc.). Templates' own data queries do NOT live here — they react
         // through `useChangeVersion(source)` in their query keys instead, so
         // a single change event doesn't fan out into "refetch everything".
-        queryClient.invalidateQueries({ queryKey: ["action"] });
+        if (!suppressesWholeBatch) {
+          queryClient.invalidateQueries({ queryKey: ["action"] });
+        }
         queryClient.invalidateQueries({ queryKey: ["extension"] });
         queryClient.invalidateQueries({ queryKey: ["extensions"] });
         queryClient.invalidateQueries({ queryKey: ["extension-slots"] });

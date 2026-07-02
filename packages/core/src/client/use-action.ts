@@ -42,12 +42,37 @@ function isAuthFailure(error: unknown): boolean {
   );
 }
 
-function defaultActionQueryRetry(
+/** @internal */
+export function shouldRetryActionQueryForError(
   failureCount: number,
   error: unknown,
 ): boolean {
   if (isAuthFailure(error)) return false;
+  if (isBrowserResourceExhaustion(error)) return false;
+  // Network-level failures never carry an HTTP `status` (actionFetch only
+  // sets it after a response arrives). Chrome reports connection-pool
+  // exhaustion (net::ERR_INSUFFICIENT_RESOURCES) as a generic "Failed to
+  // fetch", indistinguishable from a transient blip — allow one retry, not
+  // three, so an exhausted tab cannot sustain its own fetch storm.
+  if (isNetworkLevelFailure(error)) return failureCount < 1;
   return failureCount < 3;
+}
+
+function isBrowserResourceExhaustion(error: unknown): boolean {
+  const message =
+    error instanceof Error
+      ? error.message
+      : typeof error === "string"
+        ? error
+        : "";
+  return /ERR_INSUFFICIENT_RESOURCES|insufficient resources/i.test(message);
+}
+
+function isNetworkLevelFailure(error: unknown): boolean {
+  return (
+    error instanceof Error &&
+    (error as { status?: unknown }).status === undefined
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -298,7 +323,7 @@ export function useActionQuery<
   return useQuery<R>({
     queryKey: ["action", actionName, params],
     queryFn: () => actionFetch<R>(actionName, "GET", params),
-    retry: defaultActionQueryRetry,
+    retry: shouldRetryActionQueryForError,
     ...options,
   });
 }
@@ -334,12 +359,14 @@ export function useActionMutation<
     "mutationFn"
   > & {
     method?: "POST" | "PUT" | "DELETE";
+    skipActionQueryInvalidation?: boolean;
   },
 ) {
   const queryClient = useQueryClient();
   const {
     method: methodOpt,
     onSuccess,
+    skipActionQueryInvalidation = false,
     ...restOptions
   } = options ?? ({} as any);
   const method = methodOpt ?? "POST";
@@ -352,8 +379,11 @@ export function useActionMutation<
     mutationFn: (params) =>
       actionFetch<D>(actionName, method, params as Record<string, any>),
     onSuccess: (...args: [any, any, any]) => {
-      // Invalidate related action queries
-      queryClient.invalidateQueries({ queryKey: ["action"] });
+      // Most mutations change app data broadly. High-volume background
+      // mutations can opt out and perform narrower invalidation in onSuccess.
+      if (!skipActionQueryInvalidation) {
+        queryClient.invalidateQueries({ queryKey: ["action"] });
+      }
       (onSuccess as Function)?.(...args);
     },
   });
