@@ -70,6 +70,43 @@ export const ApprovalContext = React.createContext<ApprovalContextValue | null>(
   null,
 );
 
+export const TOOL_LONG_RUNNING_HINT_DELAY_MS = 45_000;
+
+function ToolLongRunningHintShell({
+  toolName,
+  isRunning,
+  children,
+}: {
+  toolName: string;
+  isRunning: boolean;
+  children: React.ReactNode;
+}) {
+  const [showLongRunningHint, setShowLongRunningHint] = useState(false);
+
+  useEffect(() => {
+    if (!isRunning) {
+      setShowLongRunningHint(false);
+      return;
+    }
+    setShowLongRunningHint(false);
+    const timeout = window.setTimeout(() => {
+      setShowLongRunningHint(true);
+    }, TOOL_LONG_RUNNING_HINT_DELAY_MS);
+    return () => window.clearTimeout(timeout);
+  }, [isRunning, toolName]);
+
+  return (
+    <>
+      {children}
+      {isRunning && showLongRunningHint && (
+        <div className="mt-0.5 px-2.5 text-[11px] leading-snug text-muted-foreground/80">
+          Still working. Large updates can take a minute or two.
+        </div>
+      )}
+    </>
+  );
+}
+
 // ─── Tool-payload formatting ──────────────────────────────────────────────────
 
 type ToolDetailSection = "input" | "result";
@@ -435,38 +472,43 @@ export function ToolCallDisplay({
   // These must be separate components so hook order in ToolCallDisplayGeneric
   // is always stable (no conditional hook calls).
   const toolKind = structuredMeta?.toolKind as string | undefined;
+  const wrapToolDisplay = (children: React.ReactNode) => (
+    <ToolLongRunningHintShell toolName={toolName} isRunning={isRunning}>
+      {children}
+    </ToolLongRunningHintShell>
+  );
   if (toolKind === "bash") {
-    return (
+    return wrapToolDisplay(
       <BashCell
         meta={
           structuredMeta as unknown as Parameters<typeof BashCell>[0]["meta"]
         }
         output={result}
         isRunning={isRunning}
-      />
+      />,
     );
   }
   if (toolKind === "edit") {
-    return (
+    return wrapToolDisplay(
       <EditCell
         meta={
           structuredMeta as unknown as Parameters<typeof EditCell>[0]["meta"]
         }
         isRunning={isRunning}
-      />
+      />,
     );
   }
   if (toolKind === "write") {
-    return (
+    return wrapToolDisplay(
       <WriteCell
         meta={
           structuredMeta as unknown as Parameters<typeof WriteCell>[0]["meta"]
         }
         isRunning={isRunning}
-      />
+      />,
     );
   }
-  return (
+  return wrapToolDisplay(
     <ToolCallDisplayGeneric
       toolName={toolName}
       argsText={argsText}
@@ -477,7 +519,7 @@ export function ToolCallDisplay({
       isRunning={isRunning}
       approval={approval}
       repeatCount={repeatCount}
-    />
+    />,
   );
 }
 
