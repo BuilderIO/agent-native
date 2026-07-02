@@ -110,6 +110,7 @@ describe("/api/uploads/:recordingId/abort route", () => {
     });
 
     expect(mockDeleteAppStateByPrefix).not.toHaveBeenCalled();
+    expect(mockDeleteResumableSession).not.toHaveBeenCalled();
     expect(mockUpdateSets).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -141,5 +142,6 @@ describe("/api/uploads/:recordingId/abort route", () => {
     expect(mockDeleteAppStateByPrefix).toHaveBeenCalledWith(
       "recording-chunks-rec-1-",
     );
+    expect(mockDeleteResumableSession).toHaveBeenCalledWith("rec-1");
   });
 });

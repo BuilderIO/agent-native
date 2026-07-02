@@ -70,14 +70,16 @@ export default defineEventHandler(async (event: H3Event) => {
       return { ok: true, recordingId, alreadyReady: true, chunksCleared: 0 };
     }
 
-    const preserveBufferedChunks =
+    const preserveRecoveryState =
       existing.status === "failed" &&
       (isStoredButUnservableFinalizeError(failureReason) ||
         isStoredButUnservableFinalizeError(existing.failureReason));
-    const cleared = preserveBufferedChunks
+    const cleared = preserveRecoveryState
       ? 0
       : await deleteAppStateByPrefix(`recording-chunks-${recordingId}-`);
-    await deleteResumableSession(recordingId).catch(() => {});
+    if (!preserveRecoveryState) {
+      await deleteResumableSession(recordingId).catch(() => {});
+    }
 
     const now = new Date().toISOString();
     await db
