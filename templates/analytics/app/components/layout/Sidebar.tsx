@@ -7,12 +7,15 @@ import {
   IconStar,
   IconPencil,
   IconSettings,
+  IconFilter,
   IconGripVertical,
   IconBook2,
   IconDatabase,
   IconReportAnalytics,
   IconSearch,
   IconArchive,
+  IconPin,
+  IconPlus,
   IconBuilding,
   IconLock,
   IconLink,
@@ -37,11 +40,13 @@ import {
   useRef,
   useMemo,
   Fragment,
+  type FormEvent,
 } from "react";
 import { Link, useLocation, useNavigate } from "react-router";
 import { toast } from "sonner";
 
 import { getIdToken } from "@/lib/auth";
+import { ANALYTICS_CHAT_STORAGE_KEY } from "@/lib/chat-handoff";
 import { cn, shortcutModifierLabel } from "@/lib/utils";
 import {
   dashboards,
@@ -69,9 +74,11 @@ import {
   callAction,
   appPath,
   navigateWithAgentChatViewTransition,
+  useChatThreads,
   useActionMutation,
   useChangeVersions,
   useT,
+  type ChatThreadSummary,
 } from "@agent-native/core/client";
 import { ExtensionsSidebarSection } from "@agent-native/core/client/extensions";
 import { OrgSwitcher } from "@agent-native/core/client/org";
@@ -93,6 +100,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { Input } from "@/components/ui/input";
 import {
   Popover,
   PopoverTrigger,
@@ -251,7 +259,7 @@ function SidebarSectionSettingsPopover({
               className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground/65 opacity-0 transition-all hover:bg-sidebar-accent hover:text-foreground focus:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring group-hover/section:opacity-100 data-[state=open]:opacity-100"
               aria-label={settingsLabel}
             >
-              <IconSettings className="h-3.5 w-3.5" />
+              <IconFilter className="h-3.5 w-3.5" />
             </button>
           </PopoverTrigger>
         </TooltipTrigger>
@@ -1172,6 +1180,293 @@ async function fetchAnalysisDetailForPrefetch(id: string): Promise<unknown> {
   } catch {
     return null;
   }
+}
+
+const ANALYTICS_ACTIVE_THREAD_KEY = `agent-chat-active-thread:${ANALYTICS_CHAT_STORAGE_KEY}`;
+
+function formatThreadAge(updatedAt: number) {
+  const diffMs = Math.max(0, Date.now() - updatedAt);
+  const minutes = Math.floor(diffMs / 60_000);
+  if (minutes < 1) return "now";
+  if (minutes < 60) return `${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h`;
+  const days = Math.floor(hours / 24);
+  if (days < 7) return `${days}d`;
+  return new Date(updatedAt).toLocaleDateString([], {
+    month: "short",
+    day: "numeric",
+  });
+}
+
+function threadTitle(thread: ChatThreadSummary, untitledLabel: string) {
+  return thread.title || thread.preview || untitledLabel;
+}
+
+function threadUpdatedAt(thread: ChatThreadSummary) {
+  return Number.isFinite(thread.updatedAt)
+    ? thread.updatedAt
+    : Number.isFinite(thread.createdAt)
+      ? thread.createdAt
+      : 0;
+}
+
+function compareThreads(a: ChatThreadSummary, b: ChatThreadSummary) {
+  const aPinned = a.pinnedAt ?? 0;
+  const bPinned = b.pinnedAt ?? 0;
+  if (aPinned || bPinned) return bPinned - aPinned;
+  return threadUpdatedAt(b) - threadUpdatedAt(a);
+}
+
+function persistedAnalyticsThreadId() {
+  if (typeof window === "undefined") return null;
+  try {
+    return window.localStorage.getItem(ANALYTICS_ACTIVE_THREAD_KEY);
+  } catch {
+    return null;
+  }
+}
+
+function AnalyticsChatsSection() {
+  const navigate = useNavigate();
+  const t = useT();
+  const {
+    threads,
+    activeThreadId,
+    createThread,
+    switchThread,
+    pinThread,
+    archiveThread,
+    renameThread,
+    refreshThreads,
+  } = useChatThreads(undefined, ANALYTICS_CHAT_STORAGE_KEY, undefined, {
+    autoCreate: false,
+    restoreActiveThread: false,
+  });
+  const [renamingThreadId, setRenamingThreadId] = useState<string | null>(null);
+  const [renameDraft, setRenameDraft] = useState("");
+  const renameInputRef = useRef<HTMLInputElement | null>(null);
+  const committingRenameRef = useRef(false);
+
+  const visibleThreads = useMemo(
+    () =>
+      threads
+        .filter((thread) => thread.messageCount > 0 && !thread.archivedAt)
+        .sort(compareThreads)
+        .slice(0, SIDEBAR_PREVIEW_COUNT),
+    [threads],
+  );
+
+  useEffect(() => {
+    const refresh = () => refreshThreads();
+    const handleRunning = (event: Event) => {
+      const detail = (event as CustomEvent).detail as
+        | { isRunning?: unknown }
+        | undefined;
+      if (typeof detail?.isRunning === "boolean") refreshThreads();
+    };
+
+    window.addEventListener("agent-chat:threads-updated", refresh);
+    window.addEventListener("agentNative.chatRunning", handleRunning);
+    window.addEventListener("focus", refresh);
+    return () => {
+      window.removeEventListener("agent-chat:threads-updated", refresh);
+      window.removeEventListener("agentNative.chatRunning", handleRunning);
+      window.removeEventListener("focus", refresh);
+    };
+  }, [refreshThreads]);
+
+  useEffect(() => {
+    if (!renamingThreadId) return;
+    requestAnimationFrame(() => {
+      renameInputRef.current?.focus();
+      renameInputRef.current?.select();
+    });
+  }, [renamingThreadId]);
+
+  function openThread(threadId: string, options?: { isNew?: boolean }) {
+    switchThread(threadId);
+    navigateWithAgentChatViewTransition(navigate, "/ask");
+    window.requestAnimationFrame(() => {
+      window.dispatchEvent(
+        new CustomEvent("agent-chat:open-thread", {
+          detail: { threadId, newThread: options?.isNew === true },
+        }),
+      );
+    });
+  }
+
+  async function handleNewChat() {
+    const threadId = await createThread();
+    if (threadId) openThread(threadId, { isNew: true });
+  }
+
+  async function handleArchiveThread(threadId: string) {
+    const wasActive =
+      threadId === activeThreadId || threadId === persistedAnalyticsThreadId();
+    const archived = await archiveThread(threadId);
+    if (!archived) {
+      toast.error(t("chat.archiveFailed"));
+      return;
+    }
+    if (wasActive) {
+      await handleNewChat();
+    }
+  }
+
+  function startRenameThread(thread: ChatThreadSummary) {
+    committingRenameRef.current = false;
+    setRenameDraft(threadTitle(thread, t("chat.untitledChat")));
+    setRenamingThreadId(thread.id);
+  }
+
+  function cancelRenameThread() {
+    committingRenameRef.current = true;
+    setRenamingThreadId(null);
+    setRenameDraft("");
+  }
+
+  async function commitRenameThread() {
+    if (committingRenameRef.current) return;
+    const threadId = renamingThreadId;
+    const title = renameDraft.trim();
+    if (!threadId) return;
+    committingRenameRef.current = true;
+    setRenamingThreadId(null);
+    setRenameDraft("");
+    if (title) {
+      const renamed = await renameThread(threadId, title);
+      if (!renamed) toast.error(t("chat.renameFailed"));
+    }
+    committingRenameRef.current = false;
+  }
+
+  function handleRenameSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    void commitRenameThread();
+  }
+
+  return (
+    <div className="ms-4 min-w-0 space-y-0.5">
+      {visibleThreads.map((thread) => {
+        const title = threadTitle(thread, t("chat.untitledChat"));
+        const isActive =
+          thread.id === activeThreadId ||
+          thread.id === persistedAnalyticsThreadId();
+        const isRenaming = thread.id === renamingThreadId;
+        return (
+          <div
+            key={thread.id}
+            className={cn(
+              "group/item relative flex min-w-0 items-center rounded-lg transition-colors",
+              isActive
+                ? "bg-sidebar-accent text-sidebar-accent-foreground"
+                : "text-muted-foreground hover:bg-sidebar-accent/50 hover:text-primary",
+            )}
+          >
+            {isRenaming ? (
+              <form
+                onSubmit={handleRenameSubmit}
+                className="flex min-w-0 flex-1 items-center px-1"
+              >
+                <Input
+                  ref={renameInputRef}
+                  value={renameDraft}
+                  onChange={(event) => setRenameDraft(event.target.value)}
+                  onBlur={() => void commitRenameThread()}
+                  onKeyDown={(event) => {
+                    if (event.key === "Escape") {
+                      event.preventDefault();
+                      cancelRenameThread();
+                    }
+                  }}
+                  maxLength={160}
+                  aria-label={t("chat.renameThread", { title })}
+                  className="h-6 min-w-0 rounded-sm border-sidebar-border bg-background px-1.5 text-xs"
+                />
+              </form>
+            ) : (
+              <>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      type="button"
+                      onClick={() => openThread(thread.id)}
+                      className="min-w-0 flex-1 px-2 py-1.5 pe-12 text-start text-xs outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    >
+                      <span className="block truncate">{title}</span>
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent side="right">{title}</TooltipContent>
+                </Tooltip>
+                <div className="pointer-events-none absolute end-1 top-1/2 flex -translate-y-1/2 items-center gap-0.5">
+                  <span className="pointer-events-none pe-1 text-[11px] text-muted-foreground/60 transition-opacity group-hover/item:opacity-0 group-focus-within/item:opacity-0">
+                    {isActive ? "" : formatThreadAge(threadUpdatedAt(thread))}
+                  </span>
+                  <DropdownMenu>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <DropdownMenuTrigger asChild>
+                          <button
+                            type="button"
+                            aria-label={t("chat.optionsFor", { title })}
+                            className="pointer-events-auto rounded p-0.5 text-muted-foreground/50 opacity-0 transition-all hover:text-foreground focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring group-hover/item:opacity-100 group-focus-within/item:opacity-100 data-[state=open]:opacity-100 data-[state=open]:text-foreground"
+                          >
+                            <IconDots className="h-3 w-3" />
+                          </button>
+                        </DropdownMenuTrigger>
+                      </TooltipTrigger>
+                      <TooltipContent side="right">
+                        {t("chat.optionsFor", { title })}
+                      </TooltipContent>
+                    </Tooltip>
+                    <DropdownMenuContent
+                      side="right"
+                      align="start"
+                      className="w-44"
+                    >
+                      <DropdownMenuItem
+                        onSelect={() => startRenameThread(thread)}
+                      >
+                        <IconPencil className="me-2 h-3.5 w-3.5" />
+                        {t("chat.renameChat")}
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        onSelect={() =>
+                          void pinThread(thread.id, !thread.pinnedAt)
+                        }
+                      >
+                        <IconPin className="me-2 h-3.5 w-3.5" />
+                        {thread.pinnedAt
+                          ? t("chat.unpinChat")
+                          : t("chat.pinChat")}
+                      </DropdownMenuItem>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuItem
+                        onSelect={() => void handleArchiveThread(thread.id)}
+                        className="text-destructive focus:text-destructive"
+                      >
+                        <IconArchive className="me-2 h-3.5 w-3.5" />
+                        {t("chat.archiveChat")}
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </div>
+              </>
+            )}
+          </div>
+        );
+      })}
+      <button
+        type="button"
+        onClick={() => void handleNewChat()}
+        className="flex w-full cursor-pointer items-center gap-2 rounded-lg px-3 py-1.5 text-xs text-muted-foreground/60 hover:bg-sidebar-accent/50 hover:text-primary"
+      >
+        <IconPlus className="h-3 w-3" />
+        {t("chat.newChat")}
+      </button>
+    </div>
+  );
 }
 
 function getQuerySnapshots<T>(queryClient: QueryClient, queryKey: QueryKey) {
@@ -2101,30 +2396,33 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
           <div className="flex min-h-0 flex-1 flex-col overflow-y-auto overflow-x-hidden py-2">
             <nav className="grid min-w-0 items-start px-2 text-sm font-medium lg:px-4 space-y-1">
               {/* Ask link */}
-              <Link
-                to="/ask"
-                onClick={(event) => {
-                  if (
-                    location.pathname !== "/ask" &&
-                    !event.metaKey &&
-                    !event.ctrlKey &&
-                    !event.shiftKey &&
-                    !event.altKey
-                  ) {
-                    event.preventDefault();
-                    navigateWithAgentChatViewTransition(navigate, "/ask");
-                  }
-                }}
-                className={cn(
-                  "flex items-center gap-3 rounded-lg px-3 py-2 transition-all hover:text-primary",
-                  location.pathname === "/ask"
-                    ? "bg-sidebar-accent text-sidebar-accent-foreground"
-                    : "text-muted-foreground hover:bg-sidebar-accent/50",
-                )}
-              >
-                <IconMessageCircle className="h-4 w-4" />
-                {t("navigation.ask")}
-              </Link>
+              <div className="min-w-0 space-y-1">
+                <Link
+                  to="/ask"
+                  onClick={(event) => {
+                    if (
+                      location.pathname !== "/ask" &&
+                      !event.metaKey &&
+                      !event.ctrlKey &&
+                      !event.shiftKey &&
+                      !event.altKey
+                    ) {
+                      event.preventDefault();
+                      navigateWithAgentChatViewTransition(navigate, "/ask");
+                    }
+                  }}
+                  className={cn(
+                    "flex items-center gap-3 rounded-lg px-3 py-2 transition-all hover:text-primary",
+                    location.pathname === "/ask"
+                      ? "bg-sidebar-accent text-sidebar-accent-foreground"
+                      : "text-muted-foreground hover:bg-sidebar-accent/50",
+                  )}
+                >
+                  <IconMessageCircle className="h-4 w-4" />
+                  {t("navigation.ask")}
+                </Link>
+                {location.pathname === "/ask" && <AnalyticsChatsSection />}
+              </div>
 
               {/* Sessions link */}
               <Link

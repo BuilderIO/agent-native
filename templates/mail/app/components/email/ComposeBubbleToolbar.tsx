@@ -306,11 +306,11 @@ export function ComposeBubbleToolbar({
                 setLinkUrl("");
               }
             }}
-            className="bg-transparent border-none outline-none text-white text-sm w-48 px-1 py-0.5 placeholder:text-gray-400"
+            className="bg-transparent border-none outline-none text-popover-foreground text-sm w-48 px-1 py-0.5 placeholder:text-muted-foreground"
           />
           <button
             onClick={handleSetLink}
-            className="text-xs text-blue-400 hover:text-blue-300 px-1.5 py-0.5 font-medium"
+            className="text-xs text-primary hover:text-primary/80 px-1.5 py-0.5 font-medium"
           >
             {t("mail.compose.apply")}
           </button>
@@ -319,8 +319,11 @@ export function ComposeBubbleToolbar({
         <div className="flex items-center gap-1 px-1">
           {isGenerating ? (
             <>
-              <IconLoader2 size={14} className="animate-spin text-gray-400" />
-              <span className="text-xs text-gray-400 px-1">
+              <IconLoader2
+                size={14}
+                className="animate-spin text-muted-foreground"
+              />
+              <span className="text-xs text-muted-foreground px-1">
                 {t("mail.compose.generating")}
               </span>
             </>
@@ -344,13 +347,13 @@ export function ComposeBubbleToolbar({
                     setAiPrompt("");
                   }
                 }}
-                className="bg-transparent border-none outline-none text-white text-sm w-52 px-1 py-0.5 placeholder:text-gray-400 resize-none leading-snug"
+                className="bg-transparent border-none outline-none text-popover-foreground text-sm w-52 px-1 py-0.5 placeholder:text-muted-foreground resize-none leading-snug"
               />
               <Tooltip>
                 <TooltipTrigger asChild>
                   <button
                     onClick={() => void handleAiAssist()}
-                    className="text-xs text-blue-400 hover:text-blue-300 px-1.5 py-0.5 font-medium shrink-0 self-end pb-1"
+                    className="text-xs text-primary hover:text-primary/80 px-1.5 py-0.5 font-medium shrink-0 self-end pb-1"
                   >
                     {t("mail.compose.generate")}
                   </button>
@@ -369,7 +372,7 @@ export function ComposeBubbleToolbar({
           {items.map((item, i) => {
             if ("type" in item && item.type === "divider") {
               return (
-                <div key={`d-${i}`} className="w-px h-5 bg-gray-600 mx-0.5" />
+                <div key={`d-${i}`} className="w-px h-5 bg-border mx-0.5" />
               );
             }
             const {
@@ -391,8 +394,8 @@ export function ComposeBubbleToolbar({
                     className={cn(
                       "p-1.5 rounded transition-colors",
                       active
-                        ? "bg-gray-600 text-white"
-                        : "text-gray-300 hover:bg-gray-700 hover:text-white",
+                        ? "bg-accent text-accent-foreground"
+                        : "text-popover-foreground/75 hover:bg-accent hover:text-accent-foreground",
                     )}
                   >
                     <Icon size={14} strokeWidth={2.5} />
@@ -402,7 +405,7 @@ export function ComposeBubbleToolbar({
               </Tooltip>
             );
           })}
-          <div className="w-px h-5 bg-gray-600 mx-0.5" />
+          <div className="w-px h-5 bg-border mx-0.5" />
           <Tooltip>
             <TooltipTrigger asChild>
               <button
@@ -412,7 +415,7 @@ export function ComposeBubbleToolbar({
                   setShowAiInput(true);
                   setShowLinkInput(false);
                 }}
-                className="p-1.5 rounded transition-colors text-gray-300 hover:bg-gray-700 hover:text-white"
+                className="p-1.5 rounded transition-colors text-popover-foreground/75 hover:bg-accent hover:text-accent-foreground"
               >
                 <IconPencil size={14} strokeWidth={2.5} />
               </button>

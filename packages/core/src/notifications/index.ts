@@ -8,6 +8,7 @@ export type {
 
 export {
   notify,
+  notifyWithDelivery,
   registerNotificationChannel,
   unregisterNotificationChannel,
   listNotificationChannels,

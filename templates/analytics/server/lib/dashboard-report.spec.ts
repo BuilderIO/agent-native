@@ -158,6 +158,10 @@ describe("dashboard report email", () => {
       }),
     );
     const emailArgs = mocks.sendEmail.mock.calls[0]?.[0];
+    expect(emailArgs.html).toContain("font-size:15px");
+    expect(emailArgs.html).toContain("Here's your report of");
+    expect(emailArgs.html).not.toContain("Here's the report of");
+    expect(emailArgs.html).not.toContain("Change recipients");
     expect(emailArgs.html).toContain("Edit subscription settings");
     expect(emailArgs.html).toContain("reportSettings=1");
     expect(emailArgs.html).not.toContain("reportPanelLimit");
@@ -206,5 +210,18 @@ describe("dashboard report email", () => {
         text: expect.stringContaining("Dashboard image unavailable"),
       }),
     );
+  });
+
+  it("fails before sending when the caller requires a screenshot", async () => {
+    mocks.launch.mockRejectedValue(new Error("chromium died"));
+
+    await expect(
+      sendDashboardReportSubscription(subscription(), {
+        requireScreenshot: true,
+      }),
+    ).rejects.toThrow("Dashboard screenshot unavailable: chromium died");
+
+    expect(mocks.launch).toHaveBeenCalledTimes(2);
+    expect(mocks.sendEmail).not.toHaveBeenCalled();
   });
 });

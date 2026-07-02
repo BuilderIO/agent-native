@@ -162,7 +162,7 @@ export function Layout({ children }: LayoutProps) {
           browserTabId={getBrowserTabId()}
         >
           <main
-            className="relative flex min-w-0 min-h-0 flex-1 flex-col overflow-x-hidden"
+            className="agent-native-app-main relative flex min-w-0 min-h-0 flex-1 flex-col overflow-x-hidden"
             style={
               {
                 "--content-sidebar-width": `${contentSidebarWidth}px`,

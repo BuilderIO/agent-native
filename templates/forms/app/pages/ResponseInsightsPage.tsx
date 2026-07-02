@@ -119,7 +119,7 @@ function LoadingState() {
   return (
     <div className="space-y-4 p-4">
       <Skeleton className="h-10 w-72" />
-      <div className="grid gap-3 sm:grid-cols-4">
+      <div className="forms-response-metrics-grid grid gap-3">
         {Array.from({ length: 4 }).map((_, index) => (
           <Skeleton key={index} className="h-20 rounded-md" />
         ))}
@@ -204,9 +204,9 @@ export function ResponseInsightsPage() {
         </Button>
       </header>
 
-      <main className="grid gap-4 p-4 lg:grid-cols-[minmax(0,1fr)_minmax(360px,0.9fr)]">
+      <main className="forms-response-insights-grid grid gap-4 p-4">
         <section className="space-y-4">
-          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          <div className="forms-response-metrics-grid grid gap-3">
             <Metric
               label="Responses"
               value={formatNumber(summary.responses)}

@@ -1,6 +1,6 @@
 import {
+  appApiPath,
   PromptComposer,
-  useActionQuery,
   useSendToAgentChat,
   useT,
 } from "@agent-native/core/client";
@@ -18,6 +18,7 @@ import {
   IconRoute,
   IconTimelineEvent,
 } from "@tabler/icons-react";
+import { useQuery } from "@tanstack/react-query";
 import {
   type ReactNode,
   useCallback,
@@ -42,6 +43,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { getIdToken } from "@/lib/auth";
 import { cn } from "@/lib/utils";
 
 type SessionRecordingSummary = {
@@ -83,7 +85,20 @@ type ReplayChunkEvents = {
   unavailable?: boolean;
 };
 
-type SessionReplayEventsResponse = {
+type SessionReplayManifestResponse = {
+  recording: SessionRecordingSummary;
+  chunks: Array<{
+    seq: number;
+    checksum: string;
+    byteLength: number;
+    eventCount: number;
+    startedAt: string | null;
+    endedAt: string | null;
+    bytesPath: string;
+  }>;
+};
+
+type SessionReplayPlaybackResponse = {
   recording: SessionRecordingSummary;
   chunks: ReplayChunkEvents[];
   eventCount: number;
@@ -110,6 +125,11 @@ type SkipRange = {
   endMs: number;
 };
 
+type ReplayViewportDimensions = {
+  width: number;
+  height: number;
+};
+
 const DEFAULT_PLAYER_WIDTH = 1024;
 const DEFAULT_PLAYER_HEIGHT = 640;
 const DEFAULT_SPEED = 2;
@@ -117,6 +137,8 @@ const SPEED_OPTIONS = [0.5, 1, 2, 4, 8];
 const SKIP_STEP_MS = 5000;
 const MIN_IDLE_SKIP_MS = 8000;
 const IDLE_EDGE_PAD_MS = 1200;
+const REPLAY_CHUNK_FETCH_CONCURRENCY = 6;
+const REPLAY_CHUNK_UNAVAILABLE_MESSAGE = "Session replay chunk is unavailable";
 
 const RRWEB_EVENT_TYPE = {
   FullSnapshot: 2,
@@ -150,18 +172,13 @@ export default function SessionDetailPage() {
   const t = useT();
   const { recordingId = "" } = useParams();
   const { codeRequiredDialog } = useSendToAgentChat();
-  const { data, isLoading, error } =
-    useActionQuery<SessionReplayEventsResponse>(
-      "get-session-replay-events",
-      { recordingId, limit: 10000 },
-      { enabled: Boolean(recordingId), staleTime: 30_000 },
-    );
+  const { data, isLoading, error } = useSessionReplayPlayback(recordingId);
   const recording = data?.recording;
 
   return (
-    <div className="flex h-full min-h-0 w-full flex-col gap-3 overflow-hidden">
+    <div className="analytics-session-detail-page flex h-full min-h-0 w-full flex-col gap-3 overflow-hidden">
       {codeRequiredDialog}
-      <div className="flex shrink-0 flex-col gap-3 md:flex-row md:items-center md:justify-between">
+      <div className="analytics-session-detail-header flex shrink-0 flex-col gap-3">
         <div className="flex min-w-0 items-center gap-2">
           <Button variant="ghost" size="sm" asChild className="shrink-0">
             <Link to="/sessions">
@@ -191,7 +208,9 @@ export default function SessionDetailPage() {
         <Card>
           <CardContent className="flex items-center gap-3 p-6 text-sm text-destructive">
             <IconExclamationCircle className="h-5 w-5" />
-            {t("sessions.loadFailed", { message: error.message })}
+            {t("sessions.loadFailed", {
+              message: error instanceof Error ? error.message : String(error),
+            })}
           </CardContent>
         </Card>
       ) : isLoading ? (
@@ -263,7 +282,7 @@ function AskSessionPopover({
 function ReplayWorkbench({
   response,
 }: {
-  response: SessionReplayEventsResponse;
+  response: SessionReplayPlaybackResponse;
 }) {
   const events = useReplayEvents(response);
   const markers = useMemo(() => buildReplayMarkers(events), [events]);
@@ -287,7 +306,7 @@ function ReplayWorkbench({
   }, [currentTime, markers]);
 
   return (
-    <div className="grid h-full min-h-0 gap-3 xl:grid-cols-[minmax(0,1fr)_330px]">
+    <div className="analytics-session-detail-workbench grid h-full min-h-0 gap-3">
       <ReplayPlayer
         events={events}
         markers={markers}
@@ -313,7 +332,7 @@ function ReplayPlayer({
 }: {
   events: AnyReplayEvent[];
   markers: ReplayMarker[];
-  response: SessionReplayEventsResponse;
+  response: SessionReplayPlaybackResponse;
   onTimeUpdate: (ms: number) => void;
   registerSeek: (seek: (ms: number, autoplay?: boolean) => void) => void;
 }) {
@@ -334,9 +353,12 @@ function ReplayPlayer({
     height: number;
   } | null>(null);
   const [fitScale, setFitScale] = useState(1);
+  const initialDims = useMemo(() => replayViewportDimensions(events), [events]);
 
-  const playerWidth = streamedDims?.width ?? DEFAULT_PLAYER_WIDTH;
-  const playerHeight = streamedDims?.height ?? DEFAULT_PLAYER_HEIGHT;
+  const playerWidth =
+    streamedDims?.width ?? initialDims?.width ?? DEFAULT_PLAYER_WIDTH;
+  const playerHeight =
+    streamedDims?.height ?? initialDims?.height ?? DEFAULT_PLAYER_HEIGHT;
   const skipRanges = useMemo(() => buildIdleSkipRanges(events), [events]);
   const skipRangesRef = useLiveRef(skipRanges);
   const skipInactiveRef = useLiveRef(skipInactive);
@@ -414,7 +436,7 @@ function ReplayPlayer({
       if (cancelled || !stageRootRef.current) return;
 
       stageRootRef.current.innerHTML = "";
-      setStreamedDims(null);
+      setStreamedDims(initialDims);
       localReplayer = new Replayer(events as any[], {
         root: stageRootRef.current,
         speed: DEFAULT_SPEED,
@@ -431,6 +453,7 @@ function ReplayPlayer({
       const meta = localReplayer.getMetaData?.();
       const total = Number(meta?.totalTime ?? replayDuration(events));
       setTotalTime(Number.isFinite(total) ? total : 0);
+      applyReplayFrameDimensions(localReplayer, initialDims);
       localReplayer.on?.("finish", () => {
         setPlaying(false);
         const finalTime = Number(localReplayer.getCurrentTime?.() ?? total);
@@ -438,9 +461,19 @@ function ReplayPlayer({
       });
       localReplayer.on?.("resize", (payload: unknown) => {
         const dims = payload as { width?: unknown; height?: unknown };
-        if (typeof dims.width === "number" && typeof dims.height === "number") {
-          setStreamedDims({ width: dims.width, height: dims.height });
+        const nextDims = normalizeReplayDimensions(dims.width, dims.height);
+        if (nextDims) {
+          applyReplayFrameDimensions(localReplayer, nextDims);
+          revealReplayFrame(localReplayer);
+          setStreamedDims(nextDims);
         }
+      });
+      localReplayer.on?.("fullsnapshot-rebuilded", () => {
+        applyReplayFrameDimensions(
+          localReplayer,
+          replayViewportDimensions(events) ?? initialDims,
+        );
+        revealReplayFrame(localReplayer);
       });
       updateTime(0);
       setStatus("ready");
@@ -456,6 +489,13 @@ function ReplayPlayer({
         }
         setPlaying(false);
       }
+      window.requestAnimationFrame(() => {
+        applyReplayFrameDimensions(
+          localReplayer,
+          replayViewportDimensions(events) ?? initialDims,
+        );
+        revealReplayFrame(localReplayer);
+      });
     }
 
     void loadReplay().catch((loadError: any) => {
@@ -479,7 +519,7 @@ function ReplayPlayer({
       replayerRef.current = null;
       if (stageRootRef.current) stageRootRef.current.innerHTML = "";
     };
-  }, [events, t, updateTime]);
+  }, [events, initialDims, t, updateTime]);
 
   useEffect(() => {
     if (!playing || status !== "ready") {
@@ -842,7 +882,7 @@ function ReplayTimeline({
   const t = useT();
   const visibleMarkers = markers.slice(0, 120);
   return (
-    <Card className="flex min-h-0 overflow-hidden">
+    <Card className="analytics-session-detail-timeline min-h-0 overflow-hidden">
       <CardContent className="flex min-h-0 flex-1 flex-col p-0">
         <div className="shrink-0 border-b px-3 py-2">
           <div className="flex items-center gap-2 text-sm font-semibold">
@@ -923,15 +963,150 @@ function MarkerIcon({ kind }: { kind: ReplayMarker["kind"] }) {
 
 function DetailSkeleton() {
   return (
-    <div className="grid min-h-0 flex-1 gap-3 xl:grid-cols-[minmax(0,1fr)_330px]">
+    <div className="analytics-session-detail-workbench grid min-h-0 flex-1 gap-3">
       <Skeleton className="h-full min-h-[420px] w-full" />
-      <Skeleton className="h-full min-h-[420px] w-full" />
+      <Skeleton className="analytics-session-detail-timeline h-full min-h-[420px] w-full" />
     </div>
   );
 }
 
+function useSessionReplayPlayback(recordingId: string) {
+  return useQuery({
+    queryKey: ["session-replay-playback", recordingId],
+    enabled: Boolean(recordingId),
+    staleTime: 30_000,
+    gcTime: 60_000,
+    queryFn: () => fetchSessionReplayPlayback(recordingId),
+  });
+}
+
+export async function fetchSessionReplayPlayback(
+  recordingId: string,
+): Promise<SessionReplayPlaybackResponse> {
+  const manifest = await fetchReplayManifest(recordingId);
+  const chunks = await fetchReplayChunks(manifest.chunks);
+  const unavailableChunks = chunks.filter((chunk) => chunk.unavailable).length;
+  const eventCount = chunks.reduce(
+    (sum, chunk) => sum + chunk.events.length,
+    0,
+  );
+  return {
+    recording: manifest.recording,
+    chunks,
+    eventCount,
+    truncated: false,
+    unavailableChunks,
+  };
+}
+
+async function fetchReplayManifest(
+  recordingId: string,
+): Promise<SessionReplayManifestResponse> {
+  const response = await fetchReplayApi(
+    `/api/session-replay/recordings/${encodeURIComponent(
+      recordingId,
+    )}/manifest`,
+  );
+  if (!response.ok) throw await replayFetchError(response);
+  return (await response.json()) as SessionReplayManifestResponse;
+}
+
+async function fetchReplayChunks(
+  chunks: SessionReplayManifestResponse["chunks"],
+): Promise<ReplayChunkEvents[]> {
+  const results = new Array<ReplayChunkEvents>(chunks.length);
+  let nextIndex = 0;
+
+  async function worker() {
+    while (nextIndex < chunks.length) {
+      const index = nextIndex;
+      nextIndex += 1;
+      results[index] = await fetchReplayChunk(chunks[index]);
+    }
+  }
+
+  await Promise.all(
+    Array.from(
+      { length: Math.min(REPLAY_CHUNK_FETCH_CONCURRENCY, chunks.length) },
+      worker,
+    ),
+  );
+  return results;
+}
+
+async function fetchReplayChunk(
+  chunk: SessionReplayManifestResponse["chunks"][number],
+): Promise<ReplayChunkEvents> {
+  const response = await fetchReplayApi(chunk.bytesPath);
+  if (!response.ok) {
+    const error = await replayFetchError(response);
+    if (isUnavailableReplayChunk(response, error)) {
+      return replayUnavailableChunk(chunk);
+    }
+    throw error;
+  }
+  const payload = await response.json();
+  return {
+    seq: chunk.seq,
+    checksum: chunk.checksum,
+    byteLength: chunk.byteLength,
+    eventCount: chunk.eventCount,
+    events: replayPayloadEvents(payload),
+  };
+}
+
+function isUnavailableReplayChunk(response: Response, error: Error): boolean {
+  return (
+    response.status === 404 &&
+    error.message === REPLAY_CHUNK_UNAVAILABLE_MESSAGE
+  );
+}
+
+function replayUnavailableChunk(
+  chunk: SessionReplayManifestResponse["chunks"][number],
+): ReplayChunkEvents {
+  return {
+    seq: chunk.seq,
+    checksum: chunk.checksum,
+    byteLength: chunk.byteLength,
+    eventCount: chunk.eventCount,
+    events: [],
+    unavailable: true,
+  };
+}
+
+async function fetchReplayApi(path: string): Promise<Response> {
+  const token = await getIdToken();
+  return fetch(appApiPath(path), {
+    headers: {
+      Accept: "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+  });
+}
+
+async function replayFetchError(response: Response): Promise<Error> {
+  try {
+    const payload = await response.json();
+    if (isRecord(payload) && typeof payload.error === "string") {
+      return new Error(payload.error);
+    }
+  } catch {
+    // Fall through to the status text.
+  }
+  return new Error(response.statusText || `HTTP ${response.status}`);
+}
+
+export function replayPayloadEvents(payload: unknown): unknown[] {
+  if (Array.isArray(payload)) return payload;
+  if (isRecord(payload) && Array.isArray(payload.events)) {
+    return payload.events;
+  }
+  return payload ? [payload] : [];
+}
+
 function useReplayEvents(
-  response: SessionReplayEventsResponse,
+  response: SessionReplayPlaybackResponse,
 ): AnyReplayEvent[] {
   return useMemo(
     () =>
@@ -1008,13 +1183,13 @@ function sanitizeMutationData(data: AnyRecord): AnyRecord {
         typeof copy.value === "string" &&
         containsStylesheetNetworkLoad(copy.value)
       ) {
-        copy.value = "";
+        copy.value = sanitizeCssText(copy.value);
       }
       if (
         typeof copy.textContent === "string" &&
         containsStylesheetNetworkLoad(copy.textContent)
       ) {
-        copy.textContent = "";
+        copy.textContent = sanitizeCssText(copy.textContent);
       }
       return copy;
     });
@@ -1035,21 +1210,12 @@ function sanitizeSerializedNode(node: unknown): AnyRecord | null {
       childNodes: [],
     };
   }
-  if (next.type === 2 && tagName === "style") {
-    return {
-      ...next,
-      attributes: isRecord(next.attributes)
-        ? sanitizeAttributes(next.attributes)
-        : {},
-      childNodes: [],
-    };
-  }
   if (
     next.type === 3 &&
     typeof next.textContent === "string" &&
     containsStylesheetNetworkLoad(next.textContent)
   ) {
-    next.textContent = "";
+    next.textContent = sanitizeCssText(next.textContent);
   }
   if (
     next.type === 2 &&
@@ -1073,6 +1239,20 @@ function containsStylesheetNetworkLoad(value: string): boolean {
   return /@import\b/i.test(value) || /\burl\s*\(/i.test(value);
 }
 
+function sanitizeCssText(value: string): string {
+  if (!containsStylesheetNetworkLoad(value)) return value;
+  return value
+    .replace(/@import\s+(?:url\s*\()?[^;{}]+;?/gi, "")
+    .replace(/\burl\s*\(\s*((?:\\.|[^\\)])*)\)/gi, sanitizeCssUrlToken);
+}
+
+function sanitizeCssUrlToken(match: string, rawValue: string): string {
+  const urlValue = rawValue.trim();
+  const unquoted = urlValue.replace(/^(['"])(.*)\1$/, "$2").trim();
+  if (/^(?:data:|blob:|#)/i.test(unquoted)) return match;
+  return "none";
+}
+
 function sanitizeAttributes(attributes: AnyRecord): AnyRecord {
   const next: AnyRecord = {};
   for (const [key, value] of Object.entries(attributes)) {
@@ -1080,7 +1260,16 @@ function sanitizeAttributes(attributes: AnyRecord): AnyRecord {
     if (normalized.startsWith("on")) continue;
     if (normalized === "srcdoc") continue;
     if (isReplayResourceAttribute(normalized)) continue;
-    if (normalized === "style" && /\burl\s*\(/i.test(String(value))) continue;
+    if (normalized === "style") {
+      const style = sanitizeCssText(String(value));
+      if (style.trim()) next[key] = style;
+      continue;
+    }
+    if (normalized === "_csstext") {
+      const cssText = sanitizeCssText(String(value));
+      if (cssText.trim()) next[key] = cssText;
+      continue;
+    }
     next[key] = value;
   }
   return next;
@@ -1238,6 +1427,66 @@ function currentUrlAt(events: AnyReplayEvent[], currentTime: number): string {
     else break;
   }
   return current;
+}
+
+export function replayViewportDimensions(
+  events: AnyReplayEvent[],
+): ReplayViewportDimensions | null {
+  for (const event of events) {
+    if (event.type !== RRWEB_EVENT_TYPE.Meta) continue;
+    const dims = normalizeReplayDimensions(
+      event.data?.width,
+      event.data?.height,
+    );
+    if (dims) return dims;
+  }
+  return null;
+}
+
+function normalizeReplayDimensions(
+  width: unknown,
+  height: unknown,
+): ReplayViewportDimensions | null {
+  if (
+    typeof width !== "number" ||
+    typeof height !== "number" ||
+    !Number.isFinite(width) ||
+    !Number.isFinite(height) ||
+    width <= 0 ||
+    height <= 0
+  ) {
+    return null;
+  }
+  return {
+    width: Math.round(width),
+    height: Math.round(height),
+  };
+}
+
+function applyReplayFrameDimensions(
+  replayer: any,
+  dims: ReplayViewportDimensions | null,
+) {
+  const width = dims?.width ?? DEFAULT_PLAYER_WIDTH;
+  const height = dims?.height ?? DEFAULT_PLAYER_HEIGHT;
+  const wrapper = replayer?.wrapper as HTMLElement | undefined;
+  const iframe = replayer?.iframe as HTMLIFrameElement | undefined;
+  const mouseTail = replayer?.mouseTail as HTMLCanvasElement | undefined;
+  for (const element of [wrapper, iframe]) {
+    if (!element) continue;
+    element.style.width = `${width}px`;
+    element.style.height = `${height}px`;
+  }
+  for (const element of [iframe, mouseTail]) {
+    if (!element) continue;
+    element.setAttribute("width", String(width));
+    element.setAttribute("height", String(height));
+  }
+}
+
+function revealReplayFrame(replayer: any) {
+  const iframe = replayer?.iframe as HTMLIFrameElement | undefined;
+  if (iframe) iframe.style.display = "inherit";
 }
 
 function replayStartedAt(events: AnyReplayEvent[]): number {

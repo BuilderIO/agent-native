@@ -417,6 +417,9 @@ const messages = {
     embed: "임베드",
     shareLink: "공유 링크",
     shareWithAgents: "상담원과 공유",
+    copyAgentPrompt: "에이전트 프롬프트 복사",
+    agentPrompt:
+      "이 Clips 에이전트 컨텍스트 URL을 가져오세요: {{agentContextUrl}}. 말한 내용의 맥락은 transcript.segments를 사용하고, 화면을 보기 위해 recommendedFrames 또는 프레임 API URL을 가져오며, browserDiagnostics가 있으면 수정된 콘솔 로그와 fetch/XHR 요청 메타데이터를 확인하세요.",
     agentTokenDescription:
       "이 에이전트 URL는 수명이 짧은 토큰을 사용하므로 에이전트는 비밀번호를 노출하지 않고도 클립을 읽을 수 있습니다.",
     gifPreview: "GIF 미리보기",
@@ -430,6 +433,7 @@ const messages = {
     askOwnerPublic: "소유자에게 공개하도록 요청하세요.",
     responsive: "반응형(16:9)",
     fixedSize: "고정 크기",
+    embedIframeTitle: "Clips 동영상",
     width: "너비",
     height: "키",
     autoplay: "자동재생",

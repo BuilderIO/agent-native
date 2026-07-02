@@ -108,19 +108,25 @@ cd templates/content && pnpm action <name> [args]
 | `list-local-component-files`                |                                                                                                                                                                | List registered local MDX component source files                                                                                        |
 | `write-local-component-file`                | `--workspaceId <id> --path <relative-component-path> --content <source>`                                                                                       | Create or update a file in a registered local `components/` folder                                                                      |
 | `create-content-database`                   | `[--documentId <id>] [--parentId <id>] [--title <text>]`                                                                                                       | Create a database page or convert an existing page into a database                                                                      |
+| `create-inline-content-database`            | `--hostDocumentId <id> [--title <text>]`                                                                                                                       | Create a database owned by an inline database block in the host document                                                                |
 | `get-content-database`                      | `--databaseId <id>` or `--documentId <id>`                                                                                                                     | Get a database table with property schema and item pages                                                                                |
+| `list-trashed-content-databases`            |                                                                                                                                                                | List soft-deleted databases visible in the sidebar Trash surface                                                                        |
+| `restore-content-database`                  | `--databaseId <id>`                                                                                                                                            | Restore a soft-deleted database from the sidebar Trash surface                                                                          |
 | `get-content-database-source`               | `--databaseId <id>` or `--documentId <id>`                                                                                                                     | Inspect local/no-source or source-backed status, mappings, row identity, freshness, and change sets                                     |
 | `attach-content-database-source`            | `--databaseId <id>` or `--documentId <id> [--sourceType mock\|builder-cms] [--sourceName] [--sourceTable] [--relationshipMode items\|details] [--join <json>]` | Attach a source binding; use `items` to add more rows and `details` to match a source onto existing rows                                |
 | `change-content-database-source-role`       | `--databaseId <id>` or `--documentId <id> --sourceId <id> --relationshipMode items\|details [--join <json>]`                                                   | Change an attached source between adding rows and adding matched detail columns without removing the source                             |
 | `refresh-content-database-source`           | `--databaseId <id>` or `--documentId <id>`                                                                                                                     | Refresh the read-only source status envelope; Builder CMS reads live entries only when configured                                       |
+| `process-builder-body-hydration`            | `--sourceId <id> [--documentId <id>] [--limit <n>]`                                                                                                            | Hydrate queued Builder article bodies into readable Content markdown with preserved source-component markers                            |
 | `set-content-database-source-write-mode`    | `--databaseId <id>` or `--documentId <id> --liveWritesEnabled true\|false [--allowedWriteModes <json>]`                                                        | Enable/disable per-source Builder live writes; enabling is allowed only for `agent-native-blog-article-test` with explicit modes        |
 | `stage-builder-revision`                    | `--databaseId <id>` or `--documentId <id>`                                                                                                                     | Stage pending local Builder CMS changes as a local-only save-revision record; never calls Builder                                       |
 | `review-content-database-source-change-set` | `--databaseId <id>` or `--documentId <id> --changeSetId <id> --decision approve\|reject [--note]`                                                              | Approve or reject a local source change-set review record without provider writes                                                       |
-| `prepare-builder-source-execution`          | `--databaseId <id>` or `--documentId <id> --changeSetId <id> [--pushModeConfirmation autosave\|draft\|publish]`                                                | Prepare a dry-run Builder execution gate with request semantics/idempotency key; never calls Builder                                    |
+| `prepare-builder-source-execution`          | `--databaseId <id>` or `--documentId <id> --changeSetId <id> [--pushModeConfirmation autosave\|draft\|publish]`                                                | Prepare a dry-run Builder execution gate for approved field/body changes with request semantics/idempotency key; never calls Builder    |
 | `validate-builder-source-execution`         | `--databaseId <id>` or `--documentId <id> --changeSetId <id> [--idempotencyKey <key>]`                                                                         | Validate/replay a prepared Builder execution gate locally as a dry run; never calls Builder                                             |
 | `execute-builder-source-execution`          | `--databaseId <id>` or `--documentId <id> --changeSetId <id> [--idempotencyKey <key>] [--pushModeConfirmation autosave\|draft\|publish]`                       | Execute a guarded live Builder write only when approved, validated, enabled, idempotent, and targeting `agent-native-blog-article-test` |
 | `add-database-item`                         | `--databaseId <id> [--title <text>] [--propertyValues <json>]`                                                                                                 | Add a page row to a database, optionally seeding property values                                                                        |
-| `duplicate-database-item`                   | `--itemId <id>` or `--documentId <id> [--title <text>]`                                                                                                        | Duplicate a database row page and its stored property values                                                                            |
+| `duplicate-database-item`                   | `--itemId <id>` or `--documentId <id> [--title <text>]`                                                                                                        | Duplicate exactly one database row page and its stored property values; for two or more rows, use `duplicate-database-items` once       |
+| `duplicate-database-items`                  | `--databaseId <id>` or `--documentId <databaseDocumentId> --itemIds <json-array>` or `--documentIds <json-array>`                                              | Preferred multi-row duplicate action; duplicate multiple database row pages atomically and return ordered duplicate item/document IDs   |
+| `delete-database-items`                     | `--databaseId <id>` or `--documentId <databaseDocumentId> --itemIds <json-array>` or `--documentIds <json-array>`                                              | Preferred multi-row delete action; delete multiple database row pages atomically while preserving `delete-document` admin semantics     |
 | `move-database-item`                        | `--itemId <id>` or `--documentId <id> --position <number>`                                                                                                     | Move a database row page to a new zero-based table position                                                                             |
 | `update-content-database-view`              | `--databaseId <id> --viewConfig <json>`                                                                                                                        | Persist database views, sorts, filters, hidden properties, and view settings                                                            |
 | `list-document-properties`                  | `--documentId <id> [--format json]`                                                                                                                            | List Notion-style property definitions and values for a document                                                                        |
@@ -208,6 +214,14 @@ Content has two file workflows:
   Edit reusable symbol content in that emitted source file; do not retarget
   `entry`, `model`, or `source` in the parent MDX unless a dedicated Builder
   retargeting workflow is added.
+- **Builder source components:** Builder CMS database body hydration renders
+  unsupported provider-native body blocks as `<SourceComponent ... />` markers.
+  Treat these as read-only preservation anchors, not editable local blocks.
+  Agents may edit surrounding prose, but must not delete, duplicate, move, or
+  rewrite `rawRef`, `rawHash`, or marker ids unless a dedicated provider
+  conversion workflow exists. Guarded Builder write-back refuses missing,
+  tampered, or structurally moved markers so source-native components are not
+  lost.
 - **Picked folders and components:** browser-picked folders can be the
   source of truth for `.md`/`.mdx` files, but the browser does not expose an
   absolute path that Vite can compile. Component previews from a picked
@@ -558,12 +572,18 @@ columns updates that row page's grouping property through
 multi-select, users can add a new board group from the board itself; this
 appends a new option to the grouped property definition.
 Use
-`create-content-database`, `get-content-database`,
-`add-database-item`, `duplicate-database-item`, `move-database-item`,
+`create-content-database`, `create-inline-content-database`,
+`get-content-database`, `list-trashed-content-databases`,
+`restore-content-database`, `add-database-item`, `duplicate-database-item`,
+`duplicate-database-items`, `delete-database-items`, `move-database-item`,
 `update-content-database-view`, `list-document-properties`,
 `configure-document-property`, `set-document-property`,
 `duplicate-document-property`, and `delete-document-property`; do not edit
 property rows or view config via raw SQL when an action can do it.
+When targeting more than one database row, call `duplicate-database-items` or
+`delete-database-items` once with a native JSON array of `itemIds` or
+`documentIds`. Do not loop `duplicate-database-item` or `delete-document` for
+multi-row duplicate/delete requests.
 
 ## UI Components
 

@@ -4,7 +4,7 @@ import { eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
-import { nowIso, stringifyJson } from "../server/lib/json.js";
+import { nowIso, parseJson, stringifyJson } from "../server/lib/json.js";
 import {
   ASPECT_RATIOS,
   GENERATION_PRESET_REFERENCE_POLICIES,
@@ -29,6 +29,12 @@ export default defineAction({
     model: z.enum(IMAGE_MODELS).optional(),
     textPolicy: z.string().optional(),
     referencePolicy: z.enum(GENERATION_PRESET_REFERENCE_POLICIES).optional(),
+    includeLogo: z.coerce
+      .boolean()
+      .optional()
+      .describe(
+        "When true, images generated with this preset composite the library's canonical logo (no-op if the library has no canonical logo).",
+      ),
     settings: z.record(z.string(), z.unknown()).optional(),
     sortOrder: z.coerce.number().optional(),
   }),
@@ -67,8 +73,15 @@ export default defineAction({
     ] as const) {
       if (args[key] !== undefined) updates[key] = args[key];
     }
-    if (args.settings !== undefined) {
-      updates.settings = stringifyJson(args.settings);
+    if (args.settings !== undefined || args.includeLogo !== undefined) {
+      const nextSettings = {
+        ...parseJson<Record<string, unknown>>(preset.settings, {}),
+        ...(args.settings ?? {}),
+      };
+      if (args.includeLogo !== undefined) {
+        nextSettings.includeLogo = args.includeLogo;
+      }
+      updates.settings = stringifyJson(nextSettings);
     }
     await db
       .update(schema.assetGenerationPresets)

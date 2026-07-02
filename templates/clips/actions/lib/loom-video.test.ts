@@ -7,7 +7,7 @@ vi.mock("@agent-native/core/extensions/url-safety", () => ({
   ssrfSafeFetch: (...args: unknown[]) => mockSsrfSafeFetch(...args),
 }));
 
-import { downloadLoomVideo } from "./loom-video";
+import { downloadLoomVideo, LoomVideoUnavailableError } from "./loom-video";
 
 describe("downloadLoomVideo", () => {
   beforeEach(() => {
@@ -68,6 +68,23 @@ describe("downloadLoomVideo", () => {
         shareUrl: "https://www.loom.com/share/abcDEF_123456",
       }),
     ).rejects.toThrow(/cannot import safely/i);
+  });
+
+  it("returns a user-facing error when Loom exposes no MP4", async () => {
+    mockSsrfSafeFetch.mockResolvedValueOnce(
+      new Response(null, { status: 204 }),
+    );
+
+    const download = downloadLoomVideo({
+      loomId: "abcDEF_123456",
+      shareUrl: "https://www.loom.com/share/abcDEF_123456",
+    });
+
+    await expect(download).rejects.toMatchObject({
+      name: "LoomVideoUnavailableError",
+      statusCode: 422,
+    });
+    await expect(download).rejects.toBeInstanceOf(LoomVideoUnavailableError);
   });
 
   it("rejects videos larger than the Clips upload limit", async () => {

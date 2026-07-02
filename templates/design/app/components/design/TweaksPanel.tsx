@@ -58,7 +58,7 @@ export function TweaksPanelContent({
       ) : (
         <div className="flex flex-col items-center gap-2 py-6 text-center">
           <IconAdjustmentsHorizontal className="size-5 text-muted-foreground/40" />
-          <p className="text-[11px] leading-snug text-muted-foreground/70">
+          <p className="!text-[11px] leading-snug text-muted-foreground/70">
             {t("designEditor.noTweakControls")}
           </p>
           {onRequestTweaks && (
@@ -66,7 +66,7 @@ export function TweaksPanelContent({
               type="button"
               variant="outline"
               size="sm"
-              className="h-6 cursor-pointer px-2.5 text-[11px]"
+              className="h-6 cursor-pointer border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-2.5 !text-[11px] text-foreground shadow-none hover:bg-[var(--design-editor-panel-raised-bg)] hover:text-foreground focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)] focus-visible:ring-offset-0"
               onClick={(e) => onRequestTweaks(e.currentTarget)}
             >
               <IconPlus className="size-3" />
@@ -153,7 +153,7 @@ export function TweaksPanel({
             type="button"
             onMouseDown={(e) => e.stopPropagation()}
             onClick={() => setCollapsed((c) => !c)}
-            className="cursor-pointer text-[11px] font-semibold text-foreground hover:text-foreground/80"
+            className="cursor-pointer !text-[11px] font-semibold text-foreground hover:text-foreground/80"
           >
             {t("designEditor.tweaks")}
           </button>
@@ -225,7 +225,9 @@ function TweakControl({
   if (tweak.type === "toggle") {
     return (
       <div className="flex h-6 items-center justify-between gap-1.5">
-        <span className="text-[11px] text-muted-foreground">{tweak.label}</span>
+        <span className="!text-[11px] text-muted-foreground">
+          {tweak.label}
+        </span>
         <Switch
           checked={!!value}
           onCheckedChange={(checked) => onChange(checked)}
@@ -237,7 +239,7 @@ function TweakControl({
 
   return (
     <div className="space-y-1">
-      <span className="text-[11px] text-muted-foreground">{tweak.label}</span>
+      <span className="!text-[11px] text-muted-foreground">{tweak.label}</span>
 
       {((tweak.type as string) === "color-swatch" ||
         (tweak.type as string) === "color-swatches") && (
@@ -271,7 +273,7 @@ function TweakControl({
               key={opt.value}
               onClick={() => onChange(opt.value)}
               className={cn(
-                "flex flex-1 cursor-pointer items-center justify-center px-2 text-[11px] font-medium transition-colors",
+                "flex flex-1 cursor-pointer items-center justify-center px-2 !text-[11px] font-medium transition-colors",
                 value === opt.value
                   ? "bg-accent text-foreground"
                   : "text-muted-foreground/70 hover:bg-accent/50 hover:text-foreground",
@@ -285,19 +287,33 @@ function TweakControl({
 
       {tweak.type === "slider" && (
         <div className="flex h-6 items-center gap-1.5">
-          <Slider
-            min={tweak.min ?? 0}
-            max={tweak.max ?? 100}
-            step={tweak.step ?? 1}
-            value={[typeof value === "number" ? value : 50]}
-            onValueChange={([v]) => onChange(v)}
-            className="flex-1"
-          />
-          <span className="min-w-[2ch] text-right text-[11px] tabular-nums text-muted-foreground">
-            {typeof value === "number" ? value : 50}
-            {tweak.unit ??
-              (tweak.cssVar?.toLowerCase().includes("radius") ? "px" : "")}
-          </span>
+          {(() => {
+            const sliderMin = tweak.min ?? 0;
+            const sliderMax = tweak.max ?? 100;
+            const rawNum = typeof value === "number" ? value : Number(value);
+            const sliderValue = Number.isFinite(rawNum)
+              ? Math.min(sliderMax, Math.max(sliderMin, rawNum))
+              : sliderMin;
+            return (
+              <>
+                <Slider
+                  min={sliderMin}
+                  max={sliderMax}
+                  step={tweak.step ?? 1}
+                  value={[sliderValue]}
+                  onValueChange={([v]) => onChange(v)}
+                  className="flex-1"
+                />
+                <span className="min-w-[2ch] text-right !text-[11px] tabular-nums text-muted-foreground">
+                  {sliderValue}
+                  {tweak.unit ??
+                    (tweak.cssVar?.toLowerCase().includes("radius")
+                      ? "px"
+                      : "")}
+                </span>
+              </>
+            );
+          })()}
         </div>
       )}
     </div>

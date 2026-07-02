@@ -44,6 +44,7 @@ import {
 } from "date-fns";
 import { useState, useEffect, useMemo } from "react";
 import { Link, useLocation, useNavigate } from "react-router";
+import { toast } from "sonner";
 
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { Button } from "@/components/ui/button";
@@ -322,6 +323,8 @@ function GoogleConnectSidebarButton() {
     isGoogleDesktopAuthPending,
     startDesktopGoogleAuth,
   } = useGoogleDesktopAuth({
+    onError: (issue) =>
+      toast.error(issue.message || issue.error || t("settings.googleFailed")),
     onSuccess: () => window.location.reload(),
   });
 
@@ -330,6 +333,12 @@ function GoogleConnectSidebarButton() {
     setWantAuthUrl(false);
     window.open(authUrl.data.url, "_blank");
   }, [wantAuthUrl, authUrl.data]);
+
+  useEffect(() => {
+    if (!authUrl.error) return;
+    toast.error(authUrl.error.message);
+    setWantAuthUrl(false);
+  }, [authUrl.error]);
 
   function handleConnect() {
     if (isDesktopGoogleAuth) {
@@ -435,6 +444,8 @@ function GoogleAccountsSection({
     isGoogleDesktopAuthPending,
     startDesktopGoogleAuth,
   } = useGoogleDesktopAuth({
+    onError: (issue) =>
+      toast.error(issue.message || issue.error || t("settings.googleFailed")),
     onSuccess: () => window.location.reload(),
   });
 
@@ -443,6 +454,12 @@ function GoogleAccountsSection({
     window.open(addAccountUrl.data.url, "_blank");
     setWantAddAccount(false);
   }, [wantAddAccount, addAccountUrl.data]);
+
+  useEffect(() => {
+    if (!addAccountUrl.error) return;
+    toast.error(addAccountUrl.error.message);
+    setWantAddAccount(false);
+  }, [addAccountUrl.error]);
 
   function handleAddAccount() {
     if (isDesktopGoogleAuth) {

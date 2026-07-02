@@ -3,6 +3,8 @@ name: visual-edit
 description: >-
   Open a running local app in Design overview mode as URL-backed iframe screens
   for visual editing, flow review, duplication, and route-state exploration.
+  Use when the user asks to inspect, compare, or edit a real local app visually
+  in Design.
 metadata:
   visibility: exported
 ---
@@ -32,6 +34,17 @@ iframe-backed screens on the infinite canvas.
   and create one screen per URL/path. Shorthand like
   `localhost:1234/onboarding/1` means `http://localhost:1234/onboarding/1`.
 
+## Review Quality
+
+- Treat the running app as the truth. Preserve its component language, tokens,
+  route state, and real content unless the user explicitly asks for a new visual
+  direction.
+- Use multiple URL states to reveal meaningful UX moments: empty/loading/error
+  states, focused panels, modals, responsive breakpoints, and completed flow
+  steps when those matter to the review.
+- For visual edits, compare before/after at the relevant viewport sizes and
+  check key hover/focus/scroll states when the app exposes them.
+
 ## Required Local Bridge
 
 From the target app repo, make sure its dev server is running, then run the
@@ -52,8 +65,13 @@ For one-shot agent setup, ask for JSON and keep the long-running bridge open in
 a second terminal if the user needs live updates:
 
 ```bash
-npx @agent-native/core@latest design connect --url http://localhost:5173 --root . --json
+npx @agent-native/core@latest design connect --url http://localhost:5173 --root .
+curl http://127.0.0.1:7331/manifest.json
 ```
+
+Do not use `--json` for an editable session. `--json`, `--once`, and
+`--dry-run` print the manifest and exit, so Design will fall back to a
+non-editable live iframe as soon as it tries to refresh the snapshot.
 
 ## Action Flow
 

@@ -113,6 +113,13 @@ export interface AgentChatContextSetOptions extends AgentChatContextItem {
    * Defaults to true so the user can see the staged context.
    */
   openSidebar?: boolean;
+  /**
+   * Whether to move keyboard focus into the composer when staging the item.
+   * Defaults to true. Pass `false` for context that mirrors ambient UI state
+   * (e.g. a canvas element selection) so staging never steals focus from an
+   * unrelated editor — such as an inline text editor in a design canvas.
+   */
+  focus?: boolean;
 }
 
 /** @deprecated Use `AgentChatContextSetOptions` instead. */
@@ -122,6 +129,26 @@ export interface AgentChatContextState {
   items: AgentChatContextItem[];
   updatedAt: number;
 }
+
+export interface AgentChatOpenThreadRequest {
+  threadId: string;
+  newThread?: boolean;
+  openRequestId?: string;
+}
+
+export interface AgentChatOpenTaskRequest {
+  threadId: string;
+  parentThreadId?: string;
+  description?: string;
+  name?: string;
+  openRequestId?: string;
+}
+
+export type BufferedAgentChatOpenRequest = {
+  id: string;
+  eventType: "agent-chat:open-thread" | "agent-task-open";
+  detail: AgentChatOpenThreadRequest | AgentChatOpenTaskRequest;
+};
 
 export interface AgentComposerReference {
   label: string;
@@ -236,6 +263,14 @@ const SELF_SUBMIT_BUFFER_TTL_MS = 8000;
 const bufferedSelfSubmits: BufferedSelfSubmit[] = [];
 const claimedSubmitIds = new Set<string>();
 
+interface BufferedOpenRequest extends BufferedAgentChatOpenRequest {
+  at: number;
+}
+
+const OPEN_REQUEST_BUFFER_TTL_MS = 8000;
+const bufferedOpenRequests: BufferedOpenRequest[] = [];
+const claimedOpenRequestIds = new Set<string>();
+
 function pruneSelfSubmitBuffer(now: number): void {
   for (let i = bufferedSelfSubmits.length - 1; i >= 0; i -= 1) {
     if (now - bufferedSelfSubmits[i].at > SELF_SUBMIT_BUFFER_TTL_MS) {
@@ -252,6 +287,32 @@ function bufferSelfSubmit(data: Record<string, unknown>): void {
   const now = Date.now();
   pruneSelfSubmitBuffer(now);
   bufferedSelfSubmits.push({ id, data, at: now });
+}
+
+function pruneOpenRequestBuffer(now: number): void {
+  for (let i = bufferedOpenRequests.length - 1; i >= 0; i -= 1) {
+    if (now - bufferedOpenRequests[i].at > OPEN_REQUEST_BUFFER_TTL_MS) {
+      const [removed] = bufferedOpenRequests.splice(i, 1);
+      if (removed) claimedOpenRequestIds.delete(removed.id);
+    }
+  }
+}
+
+function bufferOpenRequest(
+  eventType: BufferedAgentChatOpenRequest["eventType"],
+  detail: AgentChatOpenThreadRequest | AgentChatOpenTaskRequest,
+): BufferedOpenRequest {
+  const now = Date.now();
+  pruneOpenRequestBuffer(now);
+  const id = `open-${now}-${Math.random().toString(36).slice(2, 8)}`;
+  const entry: BufferedOpenRequest = {
+    id,
+    eventType,
+    detail: { ...detail, openRequestId: id },
+    at: now,
+  };
+  bufferedOpenRequests.push(entry);
+  return entry;
 }
 
 /** Unclaimed self-submit payloads, for the panel to replay once it mounts. */
@@ -272,10 +333,28 @@ export function claimAgentChatSubmit(id: string | undefined): boolean {
   return true;
 }
 
+/** Unclaimed open-thread/task requests, for the panel to replay once it mounts. */
+export function drainBufferedAgentChatOpenRequests(): BufferedAgentChatOpenRequest[] {
+  pruneOpenRequestBuffer(Date.now());
+  return bufferedOpenRequests
+    .filter((entry) => !claimedOpenRequestIds.has(entry.id))
+    .map(({ id, eventType, detail }) => ({ id, eventType, detail }));
+}
+
+/** Claim an open-thread/task request; false if already handled. Idless events pass. */
+export function claimAgentChatOpenRequest(id: unknown): boolean {
+  if (typeof id !== "string" || !id) return true;
+  if (claimedOpenRequestIds.has(id)) return false;
+  claimedOpenRequestIds.add(id);
+  return true;
+}
+
 /** Test-only: reset the self-submit buffer and claim set. */
 export function _resetAgentChatSubmitBufferForTests(): void {
   bufferedSelfSubmits.length = 0;
   claimedSubmitIds.clear();
+  bufferedOpenRequests.length = 0;
+  claimedOpenRequestIds.clear();
 }
 
 export function normalizeAgentChatContextItem(
@@ -631,6 +710,52 @@ function postAgentChatReferenceMessage(
   }
 }
 
+function openAgentPanelForChat(): void {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(
+    new CustomEvent("agent-panel:set-mode", {
+      detail: { mode: "chat" },
+    }),
+  );
+  window.dispatchEvent(new CustomEvent("agent-panel:open"));
+}
+
+function dispatchBufferedOpenRequest(entry: BufferedOpenRequest): void {
+  if (typeof window === "undefined") return;
+  const dispatch = () => {
+    window.dispatchEvent(
+      new CustomEvent(entry.eventType, { detail: entry.detail }),
+    );
+  };
+  setTimeout(dispatch, 0);
+}
+
+export function requestAgentChatThreadOpen(
+  detail: AgentChatOpenThreadRequest,
+): void {
+  if (typeof window === "undefined" || !detail.threadId.trim()) return;
+  openAgentPanelForChat();
+  dispatchBufferedOpenRequest(
+    bufferOpenRequest("agent-chat:open-thread", {
+      ...detail,
+      threadId: detail.threadId.trim(),
+    }),
+  );
+}
+
+export function requestAgentTaskOpen(detail: AgentChatOpenTaskRequest): void {
+  if (typeof window === "undefined" || !detail.threadId.trim()) return;
+  openAgentPanelForChat();
+  const parentThreadId = detail.parentThreadId?.trim();
+  dispatchBufferedOpenRequest(
+    bufferOpenRequest("agent-task-open", {
+      ...detail,
+      threadId: detail.threadId.trim(),
+      ...(parentThreadId ? { parentThreadId } : {}),
+    }),
+  );
+}
+
 function isMcpAppChatBridgeEnabled(): boolean {
   if (typeof window === "undefined" || window.parent === window) return false;
   if (readEmbedMcpChatBridgeFlagFromUrl()) markEmbedMcpChatBridgeActive();
@@ -865,9 +990,17 @@ export function setAgentChatContextItem(
   publishAgentChatContextItems(
     withReplacedAgentChatContextItem(agentChatContextState.items, item),
   );
-  postAgentChatContextMessage(AGENT_CHAT_SET_CONTEXT_MESSAGE_TYPE, item, {
-    openSidebar: opts.openSidebar !== false,
-  });
+  // Forward an explicit `focus: false` so the receiving composer can stage the
+  // chip without stealing focus. Focus stays enabled by default (field omitted)
+  // for every existing caller.
+  const messageData = opts.focus === false ? { ...item, focus: false } : item;
+  postAgentChatContextMessage(
+    AGENT_CHAT_SET_CONTEXT_MESSAGE_TYPE,
+    messageData,
+    {
+      openSidebar: opts.openSidebar !== false,
+    },
+  );
 }
 
 /** @deprecated Use `setAgentChatContextItem` instead. */

@@ -25,6 +25,13 @@ export interface ImageFillValue {
   fit: ImageFitMode;
 }
 
+export interface ImageFillBackgroundStyles {
+  backgroundImage: string;
+  backgroundSize?: string;
+  backgroundRepeat?: string;
+  backgroundPosition?: string;
+}
+
 const FIT_MODES: Array<{ mode: ImageFitMode; label: string }> = [
   { mode: "fill", label: "Fill" }, // i18n-ignore image fit mode
   { mode: "fit", label: "Fit" }, // i18n-ignore image fit mode
@@ -33,6 +40,16 @@ const FIT_MODES: Array<{ mode: ImageFitMode; label: string }> = [
 ];
 
 // ─── CSS serialization ─────────────────────────────────────────────────────────
+
+/**
+ * Escape a URL for embedding inside a double-quoted CSS url("...") token.
+ * Only `"` and `\` are CSS-significant inside a double-quoted string; newlines
+ * must also be stripped. Everything else (parens, commas, single-quotes, etc.)
+ * is safe inside double quotes, so we leave it alone to keep the URL intact.
+ */
+function escapeForQuotedUrl(url: string): string {
+  return url.replace(/\\/g, "\\\\").replace(/"/g, "%22").replace(/\r?\n/g, "");
+}
 
 const CHECKER_A = "#d4d4d4";
 const CHECKERBOARD_IMAGE = `linear-gradient(45deg, ${CHECKER_A} 25%, transparent 25%), linear-gradient(-45deg, ${CHECKER_A} 25%, transparent 25%), linear-gradient(45deg, transparent 75%, ${CHECKER_A} 75%), linear-gradient(-45deg, transparent 75%, ${CHECKER_A} 75%)`;
@@ -55,7 +72,7 @@ function imageFitMarker(fit: ImageFitMode): string {
 export function imageFillToCss(value: ImageFillValue): string {
   const url = value.url.trim();
   if (!url) return "transparent";
-  const safeUrl = url.replace(/["')]/g, encodeURIComponent);
+  const safeUrl = escapeForQuotedUrl(url);
   const image = `url("${safeUrl}")`;
   switch (value.fit) {
     case "fit":
@@ -70,26 +87,163 @@ export function imageFillToCss(value: ImageFillValue): string {
   }
 }
 
-const URL_RE = /url\((['"]?)([^'")]+)\1\)/i;
+export function imageFillToBackgroundStyles(
+  value: ImageFillValue,
+): Record<
+  | "backgroundImage"
+  | "backgroundSize"
+  | "backgroundRepeat"
+  | "backgroundPosition",
+  string
+> {
+  const url = value.url.trim();
+  if (!url) {
+    return {
+      backgroundImage: "none",
+      backgroundSize: "auto",
+      backgroundRepeat: "no-repeat",
+      backgroundPosition: "center",
+    };
+  }
+  const safeUrl = escapeForQuotedUrl(url);
+  const backgroundImage = `url("${safeUrl}") ${imageFitMarker(value.fit)}`;
+  switch (value.fit) {
+    case "fit":
+      return {
+        backgroundImage,
+        backgroundSize: "contain",
+        backgroundRepeat: "no-repeat",
+        backgroundPosition: "center",
+      };
+    case "tile":
+      return {
+        backgroundImage,
+        backgroundSize: "auto",
+        backgroundRepeat: "repeat",
+        backgroundPosition: "top left",
+      };
+    case "crop":
+      return {
+        backgroundImage,
+        backgroundSize: "cover",
+        backgroundRepeat: "no-repeat",
+        backgroundPosition: "center",
+      };
+    case "fill":
+    default:
+      return {
+        backgroundImage,
+        backgroundSize: "cover",
+        backgroundRepeat: "no-repeat",
+        backgroundPosition: "center",
+      };
+  }
+}
 
-/** Extract the URL + fit mode from a CSS background value, if present. */
-export function parseImageFillCss(value: string): ImageFillValue | null {
-  const match = value.match(URL_RE);
+// Matches url() in three forms:
+//   group 1 — double-quoted:  url("...anything...")
+//   group 2 — single-quoted:  url('...anything...')
+//   group 3 — unquoted:       url(...no-parens-or-quotes...)
+const URL_RE = /url\(\s*(?:"([^"]*)"|'([^']*)'|([^)'"]*?))\s*\)/i;
+
+function normalizeCssLayer(value: string | undefined): string {
+  return value?.trim().toLowerCase() ?? "";
+}
+
+function firstCssLayer(value: string | undefined): string {
+  const trimmed = value?.trim() ?? "";
+  if (!trimmed) return "";
+  let depth = 0;
+  for (let index = 0; index < trimmed.length; index += 1) {
+    const char = trimmed[index];
+    if (char === "(") depth += 1;
+    if (char === ")") depth = Math.max(0, depth - 1);
+    if (char === "," && depth === 0) return trimmed.slice(0, index).trim();
+  }
+  return trimmed;
+}
+
+function isStartBackgroundPosition(position: string): boolean {
+  if (!position) return false;
+  const normalized = position
+    .replace(/\s+/g, " ")
+    .replace(/\b0(?:\.0+)?(?:px|em|rem|%)\b/g, "0")
+    .trim();
+  const tokens = normalized.split(" ").filter(Boolean);
+  if (tokens.length === 1) {
+    return tokens[0] === "0" || tokens[0] === "top" || tokens[0] === "left";
+  }
+  const horizontal = tokens[0];
+  const vertical = tokens[1];
+  return (
+    (horizontal === "left" || horizontal === "0") &&
+    (vertical === "top" || vertical === "0")
+  );
+}
+
+function inferFitFromBackgroundStyles(
+  styles: ImageFillBackgroundStyles,
+): ImageFitMode | null {
+  const size = normalizeCssLayer(firstCssLayer(styles.backgroundSize));
+  const repeat = normalizeCssLayer(firstCssLayer(styles.backgroundRepeat));
+  const position = normalizeCssLayer(firstCssLayer(styles.backgroundPosition));
+
+  if (size === "contain") return "fit";
+  if (repeat === "repeat" || repeat === "repeat-x" || repeat === "repeat-y") {
+    return "tile";
+  }
+  if (size === "auto" && repeat === "repeat") return "tile";
+  if (
+    isStartBackgroundPosition(position) &&
+    (repeat === "repeat" || size === "auto")
+  ) {
+    return "tile";
+  }
+  if (size === "cover") return "fill";
+  return null;
+}
+
+/** Extract the URL + fit mode from CSS background input, if present. */
+export function parseImageFillCss(value: string): ImageFillValue | null;
+export function parseImageFillCss(
+  value: ImageFillBackgroundStyles,
+): ImageFillValue | null;
+export function parseImageFillCss(
+  value: string | ImageFillBackgroundStyles,
+): ImageFillValue | null {
+  const styles = typeof value === "string" ? { backgroundImage: value } : value;
+  const match = styles.backgroundImage.match(URL_RE);
   if (!match) return null;
-  const url = match[2];
-  const marker = value.match(FIT_MARKER_RE)?.[1] as ImageFitMode | undefined;
+  const url = (match[1] ?? match[2] ?? match[3] ?? "").trim();
+  const marker = styles.backgroundImage.match(FIT_MARKER_RE)?.[1] as
+    | ImageFitMode
+    | undefined;
   if (marker) return { url, fit: marker };
+  const inferredFit = inferFitFromBackgroundStyles(styles);
+  if (inferredFit) return { url, fit: inferredFit };
   // Heuristic fallback when no marker comment is present (e.g. CSS pasted from
   // DevTools or Figma inspect). Note: "crop" and "fill" produce identical CSS
   // (center / cover no-repeat), so external CSS without the marker comment will
   // always parse as "fill". Crop mode is only recoverable via the proprietary
   // agent-native-image-fit marker written by imageFillToCss.
   let fit: ImageFitMode = "fill";
-  if (/contain/i.test(value)) fit = "fit";
-  else if (/repeat(?!\s+no)/i.test(value) && !/no-repeat/i.test(value))
+  const backgroundImage = styles.backgroundImage;
+  if (/contain/i.test(backgroundImage)) fit = "fit";
+  else if (
+    /repeat(?!\s+no)/i.test(backgroundImage) &&
+    !/no-repeat/i.test(backgroundImage)
+  )
     fit = "tile";
-  else if (/cover/i.test(value)) fit = "fill";
+  else if (/cover/i.test(backgroundImage)) fit = "fill";
   return { url, fit };
+}
+
+export function mergeImageFitDraft(
+  value: ImageFillValue,
+  urlDraft: string,
+  fit: ImageFitMode,
+): ImageFillValue {
+  return { ...value, url: urlDraft.trim(), fit };
 }
 
 // ─── Component ─────────────────────────────────────────────────────────────────
@@ -109,13 +263,15 @@ export function ImageFillControls({
 }: ImageFillControlsProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [urlDraft, setUrlDraft] = useState(value.url);
+  const urlDraftRef = useRef(value.url);
 
   useEffect(() => {
+    urlDraftRef.current = value.url;
     setUrlDraft(value.url);
   }, [value.url]);
 
   const commitUrl = () => {
-    onChange({ ...value, url: urlDraft.trim() });
+    onChange({ ...value, url: urlDraftRef.current.trim() });
   };
 
   const handleFilePick = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -141,7 +297,7 @@ export function ImageFillControls({
         className="relative h-24 w-full overflow-hidden rounded-md border border-border/60"
         style={{
           backgroundImage: value.url
-            ? `url("${value.url.trim().replace(/["')]/g, encodeURIComponent)}")`
+            ? `url("${escapeForQuotedUrl(value.url.trim())}")`
             : CHECKERBOARD_IMAGE,
           backgroundSize: value.url
             ? value.fit === "fit"
@@ -191,8 +347,11 @@ export function ImageFillControls({
           placeholder={"Image URL" /* i18n-ignore */}
           aria-label={"Image URL" /* i18n-ignore */}
           spellCheck={false}
-          className="h-6 min-w-0 flex-1 rounded-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-2 text-[11px]"
-          onChange={(event) => setUrlDraft(event.target.value)}
+          className="h-6 min-w-0 flex-1 rounded-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-2 !text-[11px] md:!text-[11px]"
+          onChange={(event) => {
+            urlDraftRef.current = event.target.value;
+            setUrlDraft(event.target.value);
+          }}
           onBlur={commitUrl}
           onKeyDown={(event) => {
             if (event.key === "Enter") {
@@ -232,15 +391,22 @@ export function ImageFillControls({
       {/* ── Fit mode dropdown ─────────────────────────────────────────────── */}
       <Select
         value={value.fit}
-        onValueChange={(v) => onChange({ ...value, fit: v as ImageFitMode })}
+        onValueChange={(v) =>
+          onChange(
+            mergeImageFitDraft(value, urlDraftRef.current, v as ImageFitMode),
+          )
+        }
         disabled={disabled}
       >
-        <SelectTrigger className="h-6 w-full rounded-md border border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-2 text-[11px] shadow-none focus:ring-0 focus:ring-offset-0 focus-visible:ring-2 focus-visible:ring-ring [&>svg]:size-3 [&>svg]:shrink-0">
+        <SelectTrigger
+          aria-label={"Fill" /* i18n-ignore image fit selector */}
+          className="h-6 w-full rounded-md border border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-2 !text-[11px] shadow-none focus:ring-0 focus:ring-offset-0 focus-visible:ring-2 focus-visible:ring-ring [&>svg]:size-3 [&>svg]:shrink-0"
+        >
           <SelectValue />
         </SelectTrigger>
-        <SelectContent className="text-[11px]">
+        <SelectContent className="!text-[11px]">
           {FIT_MODES.map(({ mode, label }) => (
-            <SelectItem key={mode} value={mode} className="text-[11px]">
+            <SelectItem key={mode} value={mode} className="!text-[11px]">
               {label}
             </SelectItem>
           ))}

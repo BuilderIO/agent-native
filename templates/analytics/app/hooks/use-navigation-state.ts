@@ -4,6 +4,10 @@ import {
 } from "@agent-native/core/client";
 import { useLocation } from "react-router";
 
+import {
+  ANALYTICS_CHAT_STORAGE_KEY,
+  hasRecentAnalyticsChat,
+} from "@/lib/chat-handoff";
 import { rememberLastOpened } from "@/lib/last-opened";
 import { TAB_ID } from "@/lib/tab-id";
 
@@ -102,7 +106,9 @@ export function useNavigationState() {
     },
     onNavigate: (_command, path) => {
       if (location.pathname === "/ask" && pathnameFromPath(path) !== "/ask") {
-        markAgentChatHomeHandoff("analytics");
+        if (hasRecentAnalyticsChat()) {
+          markAgentChatHomeHandoff(ANALYTICS_CHAT_STORAGE_KEY);
+        }
       }
     },
   });

@@ -155,6 +155,7 @@ export function serializeGenerationRun(row: any) {
 }
 
 export function serializeGenerationPreset(row: any): GenerationPresetSummary {
+  const settings = parseJson<Record<string, unknown>>(row.settings, {});
   return {
     id: row.id,
     libraryId: row.libraryId,
@@ -169,7 +170,8 @@ export function serializeGenerationPreset(row: any): GenerationPresetSummary {
     model: row.model,
     textPolicy: row.textPolicy ?? "",
     referencePolicy: row.referencePolicy ?? "auto",
-    settings: parseJson<Record<string, unknown>>(row.settings, {}),
+    includeLogo: settings.includeLogo === true,
+    settings,
     sortOrder: Number(row.sortOrder ?? 0),
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,

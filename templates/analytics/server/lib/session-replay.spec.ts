@@ -1,8 +1,11 @@
+import { gzipSync } from "node:zlib";
+
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const getDbMock = vi.hoisted(() => vi.fn());
 const putPrivateBlobMock = vi.hoisted(() => vi.fn());
 const deletePrivateBlobMock = vi.hoisted(() => vi.fn());
+const readPrivateBlobMock = vi.hoisted(() => vi.fn());
 const resolveAccessMock = vi.hoisted(() => vi.fn());
 
 vi.mock("../db/index.js", async () => {
@@ -17,7 +20,7 @@ vi.mock("../db/index.js", async () => {
 vi.mock("@agent-native/core/private-blob", () => ({
   deletePrivateBlob: deletePrivateBlobMock,
   putPrivateBlob: putPrivateBlobMock,
-  readPrivateBlob: vi.fn(),
+  readPrivateBlob: readPrivateBlobMock,
 }));
 
 vi.mock("@agent-native/core/sharing", async (importOriginal) => {
@@ -39,6 +42,7 @@ import {
   getSessionReplaySummary,
   listSessionRecordings,
   parseSessionReplayIngestPayload,
+  readSessionReplayChunkBytes,
   recordSessionReplayChunks,
 } from "./session-replay";
 
@@ -130,6 +134,7 @@ describe("session replay ingest parsing", () => {
     getDbMock.mockReset();
     putPrivateBlobMock.mockReset();
     deletePrivateBlobMock.mockReset();
+    readPrivateBlobMock.mockReset();
     resolveAccessMock.mockReset();
   });
 
@@ -301,6 +306,116 @@ describe("session replay ingest parsing", () => {
       eventCount: 2,
       role: "viewer",
     });
+  });
+
+  function playableRecordingResource(id: string) {
+    return {
+      id,
+      clientRecordingId: "recording_1",
+      sessionId: "session_1",
+      userId: "user_123",
+      anonymousId: "anon_1",
+      userKey: "dev@example.com",
+      startedAt: "2026-01-01T00:00:00.000Z",
+      endedAt: "2026-01-01T00:00:04.000Z",
+      durationMs: 4000,
+      chunkCount: 1,
+      eventCount: 2,
+      totalBytes: 128,
+      pageCount: 1,
+      errorCount: 0,
+      rageClickCount: 0,
+      privacyMode: "unknown",
+      metadata: "{}",
+      ownerEmail: "owner@example.com",
+      orgId: "org_123",
+      visibility: "private",
+      status: "completed",
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:04.000Z",
+      lastIngestedAt: "2026-01-01T00:00:04.000Z",
+    };
+  }
+
+  it("serves inline replay chunks as decompressed JSON (no manual gzip encoding)", async () => {
+    resolveAccessMock.mockResolvedValue({
+      role: "viewer",
+      resource: playableRecordingResource("sr_inline"),
+    });
+    const eventsJson = JSON.stringify([{ type: 4, data: { href: "/inbox" } }]);
+    const { db } = createReplayDbMock([
+      [
+        {
+          seq: 0,
+          checksum: "checksum_0",
+          byteLength: eventsJson.length,
+          eventCount: 1,
+          storageKind: "inline",
+          storageRef: null,
+          inlineData: eventsJson,
+        },
+      ],
+    ]);
+    getDbMock.mockReturnValue(db);
+
+    const result = await readSessionReplayChunkBytes("sr_inline", 0, {
+      userEmail: "owner@example.com",
+      orgId: "org_123",
+    });
+
+    // Returns the raw JSON string, ready to be served as application/json and
+    // parsed with response.json() — no pre-gzipped body / Content-Encoding.
+    expect(result.json).toBe(eventsJson);
+    expect(JSON.parse(result.json)).toEqual([
+      { type: 4, data: { href: "/inbox" } },
+    ]);
+    expect(readPrivateBlobMock).not.toHaveBeenCalled();
+  });
+
+  it("gunzips blob-stored replay chunks before serving them as JSON", async () => {
+    resolveAccessMock.mockResolvedValue({
+      role: "viewer",
+      resource: playableRecordingResource("sr_blob"),
+    });
+    const eventsJson = JSON.stringify([
+      { type: 2, data: { node: { id: 1 } } },
+      { type: 3, data: { source: 0 } },
+    ]);
+    const storageRef = JSON.stringify({
+      kind: "agent-native.session-replay.private-blob",
+      version: 1,
+      compression: "gzip",
+      handle: { opaque: "blob-handle-1" },
+    });
+    const { db } = createReplayDbMock([
+      [
+        {
+          seq: 1,
+          checksum: "checksum_1",
+          byteLength: 4096,
+          eventCount: 2,
+          storageKind: "blob",
+          storageRef,
+          inlineData: null,
+        },
+      ],
+    ]);
+    getDbMock.mockReturnValue(db);
+    // Stored at rest gzipped; the read path must gunzip before serving.
+    readPrivateBlobMock.mockResolvedValue({
+      data: gzipSync(Buffer.from(eventsJson, "utf8")),
+    });
+
+    const result = await readSessionReplayChunkBytes("sr_blob", 1, {
+      userEmail: "owner@example.com",
+      orgId: "org_123",
+    });
+
+    expect(readPrivateBlobMock).toHaveBeenCalledWith({
+      opaque: "blob-handle-1",
+    });
+    expect(result.json).toBe(eventsJson);
+    expect(JSON.parse(result.json)).toHaveLength(2);
   });
 
   it("requires signed-in email identity and replay events in session recording lists", async () => {
@@ -678,6 +793,43 @@ describe("session replay ingest parsing", () => {
       events: [{ type: 4, timestamp: 1 }],
     });
   }
+
+  it("clamps future replay recording times before inserting rows", async () => {
+    const originalNodeEnv = process.env.NODE_ENV;
+    process.env.NODE_ENV = "production";
+    putPrivateBlobMock.mockResolvedValue(null);
+    const { db, inserts } = createReplayDbMock(replayIngestKeyDbResults(null));
+    getDbMock.mockReturnValue(db);
+    const input = parseSessionReplayIngestPayload({
+      publicKey: "anpk_test",
+      replayId: "recording_1",
+      sessionId: "session_1",
+      userId: "dev@example.com",
+      anonymousId: "anon_1",
+      sequence: 0,
+      timestamp: "2026-07-05T12:00:00.000Z",
+      events: [{ type: 4, timestamp: Date.parse("2026-07-05T12:00:01.000Z") }],
+    });
+
+    try {
+      await recordSessionReplayChunks(input, {
+        origin: "https://app.example.com",
+        requestBytes: 100,
+        now: new Date("2026-07-01T13:00:00.000Z"),
+      }).catch(() => {});
+    } finally {
+      process.env.NODE_ENV = originalNodeEnv;
+    }
+
+    const recordingInsert = inserts.find(
+      (entry) =>
+        typeof (entry.values as { clientRecordingId?: unknown })
+          ?.clientRecordingId === "string",
+    );
+    expect((recordingInsert?.values as { startedAt: string }).startedAt).toBe(
+      "2026-07-01T13:00:00.000Z",
+    );
+  });
 
   it("uploads replay chunks in the public key owner's org scope (anonymous ingest)", async () => {
     // The ingest endpoint is anonymous + cross-origin (no session). Without the

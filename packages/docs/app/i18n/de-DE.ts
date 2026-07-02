@@ -77,11 +77,11 @@ const deDE = {
   home: {
     hero: {
       badge: "Open-Source-Framework",
-      titleLine1: "Agentenanwendungen",
-      titleAccent: "in deinem Besitz",
+      titleLine1: "Das Framework für",
+      titleAccent: "agentic Apps",
       body: "Starte mit einer Chat-first app und dem app-agent loop. Füge actions, Screens, jobs und workflows hinzu, während dein agent wächst.",
-      primaryCta: "Mit einem Template starten",
-      secondaryCta: "Docs ansehen",
+      primaryCta: "App ausprobieren",
+      secondaryCta: "Docs lesen",
     },
     code: {
       quickStartComment: "Erstelle eine App mit einem Befehl",
@@ -91,10 +91,109 @@ const deDE = {
         "Ein action treibt agent, UI, HTTP, MCP, A2A und CLI an.",
       frameworkDescription: "Sage Hallo aus dem lokalen app-agent loop.",
     },
+    actionSurface: {
+      eyebrow: "Wirklich agentisch, nicht nur KI daneben",
+      title: "Eine Aktion öffnet die ganze App-Oberfläche",
+      body: "Definiere eine Operation einmal. Agent-Native macht daraus UI-Aktion, Agent-Tool, HTTP-Endpunkt, MCP/A2A-Oberfläche, CLI-Befehl, Berechtigungsprüfung und Audit-Trail.",
+      buildAction: "Eine Aktion erstellen",
+      benefits: {
+        oneActionDefinition: {
+          title: "Eine Aktionsdefinition",
+          body: "UI, Agent, HTTP, MCP, A2A und CLI rufen dieselbe Operation auf.",
+        },
+        scopedByDefault: {
+          title: "Standardmäßig begrenzt",
+          body: "Auth, Sharing, Governance und Audit-Logs begleiten die Arbeit.",
+        },
+        headedOrHeadless: {
+          title: "Apps, Automationen und Agents",
+          body: "Führe dieselbe Operation aus Chat, UI, geplanten Jobs, Queues, externen Agents oder Skripten aus.",
+        },
+        contextRichInput: {
+          title: "Kontextreiche Eingabe",
+          body: "Chat, Voice, Skills, Anweisungen und UI-Zustand bleiben im Ablauf.",
+        },
+        openAgentProtocols: {
+          title: "Offene Agent-Protokolle",
+          body: "A2A, MCP, MCP apps und externe Agents sind Framework-Grundbausteine.",
+        },
+        observableByDesign: {
+          title: "Von Anfang an beobachtbar",
+          body: "Traces, Evals, Feedback und Audit-Historie machen Agent-Arbeit prüfbar.",
+        },
+      },
+    },
+    modules: {
+      pageEyebrow: "Modulares Framework",
+      title: "Eingebaute Module für agentische Apps",
+      body: "Von Menschen geprüfte Bausteine für Produktionsbereiche, die Agents nicht neu erfinden sollten. Nutze sie direkt, prüfe den Source oder ersetze das Modul, wenn deine App etwas anderes braucht.",
+      pageBody:
+        "Agent-Native liefert von Menschen geprüfte Bausteine für Produktionsarbeit, die Agents nicht improvisieren sollten. Nutze sie direkt, prüfe den Source oder ersetze das Modul, wenn dein Produkt etwas anderes braucht.",
+      viewAll: "Alle Module ansehen",
+      browseApps: "Apps aus Modulen ansehen",
+      items: {
+        autoStateSyncing: {
+          title: "Automatische Zustandssynchronisierung",
+          body: "Agent-Änderungen aktualisieren die UI, und der UI-Zustand bleibt ohne weitere Brücke für den Agent sichtbar.",
+        },
+        actions: {
+          title: "Aktionen",
+          body: "Definiere Arbeit einmal und nutze sie aus UI, Agent, HTTP, MCP, A2A und CLI.",
+        },
+        sqlStateOrm: {
+          title: "SQL-Zustand und ORM",
+          body: "Dauerhafte App-Daten, Application State, Migrationen und providerneutrale Schemas.",
+        },
+        dbAdmin: {
+          title: "Datenbank-Admin",
+          body: "Agent-lesbare Schemas, Query-Oberflächen, Migrationen und Admin-Tools ohne eigenes Backoffice.",
+        },
+        authGovernance: {
+          title: "Auth und Governance",
+          body: "Login, Organisationen, Multi-Tenancy, Berechtigungen, Freigaben und Policy-Hooks.",
+        },
+        sharing: {
+          title: "Freigabe",
+          body: "Share-Links, begrenzter Zugriff, öffentliche oder private Ressourcen, Kommentare und Review-Flächen.",
+        },
+        realtimeCollaboration: {
+          title: "Echtzeit-Zusammenarbeit",
+          body: "Mehrbenutzer-Editing, Live-Präsenz, optimistische UI und servergestützte Abstimmung.",
+        },
+        agentInteroperability: {
+          title: "Agent-Interoperabilität",
+          body: "A2A, MCP, MCP apps, externe Agents, Harness Agents und Übergaben zwischen Apps.",
+        },
+        automationsQueues: {
+          title: "Automationen und Queues",
+          body: "Ereignisgesteuerte Arbeit, geplante Tasks, Hintergrundläufe und zuverlässige Mutationen.",
+        },
+        agentUiSurface: {
+          title: "Agent-UI-Oberfläche",
+          body: "Chat, Skills, Anweisungen, generative UI, Spracheingabe und agent-sichtbarer Kontext.",
+        },
+        observability: {
+          title: "Observability",
+          body: "Traces, Evals, Feedback, Experimente und Nachweis dessen, was Agents getan haben.",
+        },
+        workspaces: {
+          title: "Arbeitsbereiche",
+          body: "Komponierbare agentic apps, die einander entdecken und über A2A koordinieren.",
+        },
+        sourceOwnership: {
+          title: "Eigentum am Source",
+          body: "Docs und Source liegen dort, wo Agents sie prüfen, forken, ejecten, patchen oder ersetzen können.",
+        },
+        auditLogs: {
+          title: "Audit-Protokolle",
+          body: "Ein dauerhafter Verlauf menschlicher und agentischer Änderungen, begrenzt auf zugängliche Ressourcen.",
+        },
+      },
+    },
     framework: {
       title: "Das Framework für agent-native apps",
       body1:
-        "Agent-Native ist ein Open-Source-Framework, um agents als echte Software zu bauen: Starte mit Chat oder headless agents und ergänze dann UI, jobs und Zusammenarbeit rund um dieselben actions.",
+        "Agent-Native ist ein Open-Source-Framework zum Bau von agentic applications: Starte mit Chat, definiere gemeinsame actions und ergänze dann UI, jobs und Zusammenarbeit rund um denselben state.",
       body2:
         "Bring deine eigene Datenbank, deinen Hosting-Anbieter, deinen Model-Stack und deinen app-Code mit.",
       cta: "Framework-Guide lesen",
@@ -122,9 +221,10 @@ const deDE = {
       },
     },
     templates: {
-      title: "Forke und passe eine voll ausgestattete app an",
-      eyebrow: "100 % kostenlos und Open Source",
-      cta: "Alle Templates ansehen",
+      title: "Teste eine Agent-Native-App",
+      eyebrow:
+        "Forke eine funktionierende App und lass sie vom Agenten weiterentwickeln.",
+      cta: "Apps ansehen",
     },
     skills: {
       title: "Mit einem skill ausprobieren",
@@ -196,12 +296,12 @@ const deDE = {
     },
     quickStart: {
       title: "Mit einem Befehl starten",
-      body: "Ein Befehl erstellt eine lokale App mit actions, durable threads und SQLite. Nutze stattdessen `--headless`, wenn du noch keine Browser-UI willst.",
+      body: "Ein Befehl erstellt eine chat-first lokale App mit actions, durable threads und SQLite. Nutze `--headless` nur für automation-first Workflows ohne Browser-UI.",
     },
     finalCta: {
-      title: "Software, die dir gehört, gebaut für die agentic era",
+      title: "Software, gebaut für die agentic era",
       body: "Starte mit einem Befehl oder einem durable action, führe es durch den app-agent loop und erweitere es dann zu UI, jobs und Zusammenarbeit, ohne die Operation neu zu schreiben. Open Source. Forkable. Deins.",
-      primaryCta: "Mit einem Action starten",
+      primaryCta: "App ausprobieren",
       secondaryCta: "Docs lesen",
       githubCta: "Auf GitHub ansehen",
     },
@@ -310,8 +410,9 @@ const deDE = {
   },
   templatesPage: {
     title: "Open-Source-Agent-native Apps, die Sie besitzen",
-    eyebrow: "100 % kostenlos und Open Source",
-    body: "Forken Sie eine Vorlage, führen Sie sie lokal aus und lassen Sie sie vom Agenten weiterentwickeln. Sie besitzen den Code und können alles anpassen.",
+    eyebrow:
+      "Forke eine funktionierende App und lass sie vom Agenten weiterentwickeln.",
+    body: "Du kannst alles anpassen.",
     community:
       "Du möchtest lieber eine leere App? Starte von Grund auf mit dem Framework-Guide.",
     createYourOwn: "Von Grund auf starten",

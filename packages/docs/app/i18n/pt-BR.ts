@@ -77,11 +77,11 @@ const ptBR = {
   home: {
     hero: {
       badge: "Framework open source",
-      titleLine1: "Aplicações agentic",
-      titleAccent: "que são suas",
+      titleLine1: "O framework para",
+      titleAccent: "apps agentic",
       body: "Comece com uma Chat-first app e o app-agent loop. Adicione actions, telas, jobs e workflows à medida que seu agent cresce.",
-      primaryCta: "Começar com um template",
-      secondaryCta: "Ver a documentação",
+      primaryCta: "Testar uma app",
+      secondaryCta: "Ler a documentação",
     },
     code: {
       quickStartComment: "Crie uma app com um comando",
@@ -90,10 +90,109 @@ const ptBR = {
       frameworkComment: "Um action impulsiona agent, UI, HTTP, MCP, A2A e CLI.",
       frameworkDescription: "Diga olá a partir do app-agent loop local.",
     },
+    actionSurface: {
+      eyebrow: "Profundamente agentic, não IA colada por fora",
+      title: "Uma action abre toda a superfície da app",
+      body: "Defina uma operação uma vez. O Agent-Native transforma isso em ação de UI, ferramenta do agent, endpoint HTTP, superfície MCP/A2A, comando CLI, verificação de permissão e trilha de auditoria.",
+      buildAction: "Criar uma action",
+      benefits: {
+        oneActionDefinition: {
+          title: "Uma definição de action",
+          body: "UI, agent, HTTP, MCP, A2A e CLI chamam a mesma operação.",
+        },
+        scopedByDefault: {
+          title: "Escopo por padrão",
+          body: "Auth, compartilhamento, governança e audit logs acompanham o trabalho.",
+        },
+        headedOrHeadless: {
+          title: "Apps, automações e agents",
+          body: "Rode a mesma operação a partir de chat, UI, jobs agendados, filas, agents externos ou scripts.",
+        },
+        contextRichInput: {
+          title: "Entrada rica em contexto",
+          body: "Chat, voz, skills, instruções e estado da UI ficam no ciclo.",
+        },
+        openAgentProtocols: {
+          title: "Protocolos abertos de agent",
+          body: "A2A, MCP, MCP apps e agents externos são primitivas do framework.",
+        },
+        observableByDesign: {
+          title: "Observável por design",
+          body: "Traces, evals, feedback e histórico de auditoria tornam o trabalho do agent inspecionável.",
+        },
+      },
+    },
+    modules: {
+      pageEyebrow: "Framework modular",
+      title: "Módulos integrados para apps agentic",
+      body: "Peças verificadas por humanos para partes de produção que agents não deveriam inventar do zero. Use como estão, inspecione o código-fonte ou troque o módulo quando sua app precisar de algo diferente.",
+      pageBody:
+        "O Agent-Native traz peças verificadas por humanos para o trabalho de produção que agents não deveriam improvisar. Use como estão, inspecione o código-fonte ou troque o módulo quando seu produto precisar de algo diferente.",
+      viewAll: "Ver todos os módulos",
+      browseApps: "Explorar apps criadas com módulos",
+      items: {
+        autoStateSyncing: {
+          title: "Sincronização automática de estado",
+          body: "Mudanças do agent atualizam a UI, e o estado da UI continua visível para o agent sem outra ponte.",
+        },
+        actions: {
+          title: "Ações",
+          body: "Defina o trabalho uma vez e use pela UI, agent, HTTP, MCP, A2A e CLI.",
+        },
+        sqlStateOrm: {
+          title: "Estado SQL e ORM",
+          body: "Dados duráveis da app, estado da aplicação, migrações e esquemas independentes de provedor.",
+        },
+        dbAdmin: {
+          title: "Admin de banco de dados",
+          body: "Esquemas legíveis por agents, superfícies de consulta, migrações e ferramentas admin sem back office próprio.",
+        },
+        authGovernance: {
+          title: "Auth e governança",
+          body: "Login, organizações, multi-tenancy, permissões, aprovações e hooks de política.",
+        },
+        sharing: {
+          title: "Compartilhamento",
+          body: "Links compartilhados, acesso com escopo, recursos públicos ou privados, comentários e superfícies de revisão.",
+        },
+        realtimeCollaboration: {
+          title: "Colaboração em tempo real",
+          body: "Edição multiusuário, presença ao vivo, UI otimista e reconciliação apoiada pelo servidor.",
+        },
+        agentInteroperability: {
+          title: "Interoperabilidade de agents",
+          body: "A2A, MCP, MCP apps, agents externos, harness agents e passagens entre apps.",
+        },
+        automationsQueues: {
+          title: "Automações e filas",
+          body: "Trabalho acionado por eventos, tarefas agendadas, execuções em background e mutations confiáveis.",
+        },
+        agentUiSurface: {
+          title: "Superfície de UI do agent",
+          body: "Chat, skills, instruções, UI generativa, entrada por voz e contexto visível ao agent.",
+        },
+        observability: {
+          title: "Observabilidade",
+          body: "Traces, evals, feedback, experimentos e prova do que os agents disseram ter feito.",
+        },
+        workspaces: {
+          title: "Workspaces",
+          body: "Apps agentic componíveis que se descobrem e coordenam por A2A.",
+        },
+        sourceOwnership: {
+          title: "Posse do código-fonte",
+          body: "Docs e código ficam onde agents podem inspecionar, fazer fork, ejetar, corrigir ou substituir.",
+        },
+        auditLogs: {
+          title: "Logs de auditoria",
+          body: "Um registro durável de mudanças humanas e de agents, limitado aos recursos que usuários podem acessar.",
+        },
+      },
+    },
     framework: {
       title: "O framework para apps agent-native",
       body1:
-        "Agent-Native é um framework open source para construir agents como software real: comece com Chat ou agents headless, depois adicione UI, jobs e colaboração ao redor das mesmas actions.",
+        "Agent-Native é um framework open source para construir agentic applications: comece com Chat, defina actions compartilhadas e depois adicione UI, jobs e colaboração ao redor do mesmo estado.",
       body2:
         "Traga seu próprio banco de dados, provedor de hospedagem, stack de modelos e código da app.",
       cta: "Ler o guia do framework",
@@ -121,9 +220,9 @@ const ptBR = {
       },
     },
     templates: {
-      title: "Faça fork e personalize uma app completa",
+      title: "Experimente uma app Agent-Native",
       eyebrow: "100% grátis e open source",
-      cta: "Ver todos os templates",
+      cta: "Ver apps",
     },
     skills: {
       title: "Experimente com um skill",
@@ -195,12 +294,12 @@ const ptBR = {
     },
     quickStart: {
       title: "Comece com um comando",
-      body: "Um comando cria uma app local com suporte em actions, durable threads e SQLite. Use `--headless` quando ainda não quiser UI no navegador.",
+      body: "Um comando cria uma app local chat-first com suporte em actions, durable threads e SQLite. Use `--headless` apenas para workflows automation-first sem UI no navegador ainda.",
     },
     finalCta: {
-      title: "Software que é seu, feito para a era agentic",
+      title: "Software feito para a era agentic",
       body: "Comece com um comando ou um durable action, rode pelo app-agent loop e depois expanda para UI, jobs e colaboração sem reescrever a operação. Open source. Forkable. Seu.",
-      primaryCta: "Começar com um Action",
+      primaryCta: "Testar uma app",
       secondaryCta: "Ler a documentação",
       githubCta: "Ver no GitHub",
     },
@@ -309,8 +408,8 @@ const ptBR = {
   },
   templatesPage: {
     title: "Aplicativos de código aberto e nativos do agente que você possui",
-    eyebrow: "100% gratuito e de código aberto",
-    body: "Bifurque um modelo, execute-o localmente e deixe o agente evoluí-lo. Você possui o código e pode personalizar tudo.",
+    eyebrow: "Bifurque uma app funcional e deixe o agente evoluí-la.",
+    body: "Você pode personalizar tudo.",
     community:
       "Quer uma app em branco? Comece do zero com o guia do framework.",
     createYourOwn: "Começar do zero",

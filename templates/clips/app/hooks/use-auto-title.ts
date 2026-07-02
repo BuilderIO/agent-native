@@ -1,8 +1,9 @@
 /**
  * Clips AI request bridge
  *
- * Watches the `clips-ai-request-:id` application_state queue. The bridge sends
- * queued recording work to the agent chat exactly once per
+ * Polls the `list-ai-requests` action — a single access-scoped call that returns
+ * every pending `clips-ai-request-*` entry for recordings the user can access.
+ * The bridge sends queued recording work to the agent chat exactly once per
  * (recordingId, kind, requestedAt).
  *
  * Once handled we DELETE the request entry so the next page load / tab switch
@@ -21,6 +22,7 @@ import { useRecordings, type RecordingSummary } from "./use-library";
 
 const DEFAULT_TITLE = "Untitled recording";
 const POLL_INTERVAL_MS = 3000;
+const TWO_MINUTES_MS = 2 * 60 * 1000;
 
 /** True when `title` is blank or equal to the server-seeded default. */
 export function isDefaultTitle(title: string | null | undefined): boolean {
@@ -62,22 +64,21 @@ const DISPATCHABLE_REQUESTS = new Set([
   "generate-workflow",
 ]);
 
-async function readRequest(recordingId: string): Promise<AiRequest | null> {
-  const url = agentNativePath(
-    `/_agent-native/application-state/${encodeURIComponent(
-      `clips-ai-request-${recordingId}`,
-    )}`,
-  );
+async function listRequests(): Promise<Map<string, AiRequest>> {
   try {
-    const res = await fetch(url);
-    if (!res.ok) return null;
-    const payload = await res.json().catch(() => null);
-    if (!payload || typeof payload !== "object") return null;
-    // The application-state endpoint wraps stored values under `.value`.
-    const value = (payload as any).value ?? payload;
-    return value as AiRequest;
+    const result = (await callAction("list-ai-requests", {} as any, {
+      method: "GET",
+    })) as { requests?: AiRequest[] } | null | undefined;
+    return new Map(
+      (result?.requests ?? [])
+        .filter(
+          (r): r is AiRequest & { recordingId: string } => !!r?.recordingId,
+        )
+        .map((r) => [r.recordingId, r]),
+    );
   } catch {
-    return null;
+    // Swallow — the next tick retries.
+    return new Map();
   }
 }
 
@@ -120,16 +121,15 @@ export function useAutoTitleBridge(): void {
       if (cancelled || inflight.current) return;
       inflight.current = true;
       try {
+        const requestsById = await listRequests();
+        if (cancelled) return;
+
         for (const rec of readyRecordings) {
           if (cancelled) return;
 
-          const request = await readRequest(rec.id);
+          const request = requestsById.get(rec.id) ?? null;
 
-          if (
-            request?.kind &&
-            DISPATCHABLE_REQUESTS.has(request.kind) &&
-            request.recordingId === rec.id
-          ) {
+          if (request?.kind && DISPATCHABLE_REQUESTS.has(request.kind)) {
             // Server queued a delegation — use the full context it provided.
             // Key includes requestedAt so each distinct server request fires
             // exactly once, independent of any prior fallback dispatch.
@@ -164,9 +164,8 @@ export function useAutoTitleBridge(): void {
               continue;
             }
 
-            const ageMs = Date.now() - new Date(rec.createdAt).getTime();
-            const TWO_MINUTES_MS = 2 * 60 * 1000;
-            if (ageMs < TWO_MINUTES_MS) continue;
+            if (Date.now() - new Date(rec.createdAt).getTime() < TWO_MINUTES_MS)
+              continue;
 
             // Use a dedicated key so a later server-queued request (e.g. from
             // a long transcription that finishes after the 2-min window) is

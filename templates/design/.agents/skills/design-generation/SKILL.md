@@ -1,3 +1,11 @@
+---
+name: design-generation
+description: >-
+  Generate or refine complete interactive HTML prototypes in Design. Use when
+  creating screens, variants, Alpine/Tailwind prototypes, tweaks, or visual
+  refinements from a prompt or selected design.
+---
+
 # Design Generation
 
 How to generate complete, interactive HTML prototypes using Alpine.js + Tailwind CSS (via CDN). This is the core skill for the design agent.
@@ -10,22 +18,62 @@ Every generated design uses:
 - **Google Fonts** — for distinctive typography (never Inter/Roboto/Arial)
 - **CSS Custom Properties** — for theming and tweaks panel integration
 
-## Aesthetic Quality Bar — avoid generic "AI slop"
+## Why the workflow exists — it is the anti-slop engine
 
-The single biggest lever on quality is refusing the defaults the model reaches
-for. Before generating, commit to a specific, opinionated direction. Banned by
-default (use only if the user explicitly asks):
+Generic output ("AI slop") is a *workflow* failure, not a lack of talent. When one
+prompt has to set the taste, explore the options, and emit final code all at once,
+the safest answer is the statistical average of the training data: Inter, an
+indigo→violet gradient, a centered hero, three rounded icon cards. Design beats
+this by splitting those jobs across the tools — use them in order, don't collapse
+them:
 
-- **Fonts:** Inter, Roboto, Arial, system-ui, or other safe defaults. Always
-  pick a distinctive Google Font pairing (see the table below).
-- **The purple/indigo gradient on white** and other one-click hero clichés.
-- **Default shadcn/Tailwind grays** as the whole palette; flat indigo/blue
-  accents; the recurring "fingerprint" combo (teal accent + blinking status dot
-  + left accent bars + three-column hero).
-- **Predictable, evenly-weighted layouts** with no focal point.
+1. **Direction** — `show-design-questions` (or a stated thesis) sets taste on purpose.
+2. **Exploration** — `present-design-variants` compares genuinely different directions
+   before committing to one. **This step kills sameness; never skip it for open-ended work.**
+3. **Spec** — a linked design system and the `:root` token block capture the chosen look as reusable rules.
+4. **Code** — `generate-design` / `edit-design` execute a decision already made instead of guessing.
 
-Do not converge even within your own "creative" picks — vary deliberately across
-generations so two designs never share the same fingerprint.
+Jumping straight to code is how you get slop. Let the phases (below) do the work.
+
+## Aesthetic quality bar — beat distributional convergence
+
+You sample toward the "on-distribution" center by default; refuse it. **Every
+"don't" here carries a "do"** — a banned default plus where to go instead —
+because banning Inter alone just makes you reach for Roboto next. Use a banned
+item only if the user explicitly asks.
+
+- **Fonts.** Don't: Inter, Roboto, Arial, Open Sans, system-ui. Do: a distinctive
+  Google Font pairing matched to the chosen aesthetic (see the table) — editorial
+  serif, grotesk display + mono, or one variable font pushed across weight extremes.
+- **Color.** Don't: the indigo/violet slop palette (`#6366F1`, `#8B5CF6`,
+  `#A855F7`), a purple gradient on white, or everything in default grays. Do:
+  anchor on one non-default family — clay/ochre/terracotta, ink/bone/mustard,
+  charcoal/lime, oxblood/cream, navy/copper, warm paper (`#FBF7F0`) over pure
+  white — with one decisive accent used sparingly for hierarchy, not decoration.
+- **Layout.** Don't: centered hero + one CTA + a row of three icon cards,
+  rounded-everything, `0.1`-opacity drop shadows, blanket glassmorphism, or the
+  badge-above-headline cliché. Do: asymmetric 60/40 or 70/30 splits, uneven
+  visual weight, one clear focal point, and flat confident surfaces.
+- **Background.** Don't: a single flat fill. Do: layered gradients, a geometric
+  pattern, grain, or a contextual texture that matches the theme.
+- **Copy & voice.** Don't: lorem ipsum or buzzword filler ("empower", "seamless",
+  "leverage", "revolutionize", "in today's fast-paced world"). Do: realistic
+  domain content in a specific voice — copy is design material.
+
+**Second-order convergence is real.** Even your "creative" picks converge (Space
+Grotesk everywhere; teal accent + blinking dot + left accent bars). Vary
+deliberately across generations so two designs never share a fingerprint.
+
+**Principles to quote back while building:** color creates hierarchy, not
+decoration · density over decoration · earn every animation · commit to one point
+of view. **Match code to the vision** — maximalist themes want elaborate motion
+and effects; minimal themes want restraint and precise spacing. Elegance is
+executing one vision fully.
+
+**References beat adjectives, but only with a reason.** "Linear: the quiet
+confidence of its spacing" or "Stripe: dense but never crowded" points somewhere
+specific; "Linear" alone collapses back to the average, and replying to your own
+output with "make it cleaner / more premium" means you're negotiating with vibes.
 
 ## Prompt the design in four layers
 
@@ -62,6 +110,23 @@ Pick a preset by `projectType`:
   `:root` CSS variable. Never hardcode `text-white` / `bg-black` / hex literals
   in the markup — that's what keeps brand + multi-screen consistency automatic.
 
+## Building on existing code, screens, or a design system
+
+When a design system, tokens, current screens, or a connected codebase already
+exist, the slop risk flips: the failure is ignoring the brand and reverting to
+defaults. The banned-defaults list above still applies, plus:
+
+- **Inspect before inventing.** Read the linked design system, the current
+  `:root` tokens, and existing screens (or the connected localhost/repo) first.
+  Derive the type scale, palette, radius, density, and component language from
+  what is actually there — don't restate a generic direction.
+- **Treat every reversion as a missing spec entry.** If output drifts to a
+  default (Inter, pill buttons, a stock radius) despite the brand, don't just
+  re-prompt — pin the explicit value into `:root` so it can't drift again.
+- **Consistency is not sameness.** Tokens alone make every screen "the same in
+  your colors". Keep structure and layout genuinely varied per screen while the
+  palette, type, and components stay on-brand.
+
 ## Generation Workflow — the canonical 4-phase flow
 
 This flow mirrors Claude Design's UX: ask → show variants → user picks → refine. Don't skip phases for new designs.
@@ -90,8 +155,10 @@ pnpm action show-design-questions \
 ### Phase 2 — Generate side-by-side variations (2-5, three by default)
 
 For new designs, default to **three** variations (`present-design-variants`
-accepts 2-5; three is the sweet spot). In normal app-agent flows, write
-candidates to `application-state/design-variants`:
+accepts 2-5; three is the sweet spot). Call `present-design-variants` for both
+first-party and external MCP-host flows. It saves each candidate as a normal
+overview-board screen, then renders an inline chat choice with one button per
+screen name.
 
 ```json
 {
@@ -107,28 +174,23 @@ candidates to `application-state/design-variants`:
 
 Each `content` is a complete, self-contained document (Alpine.js + Tailwind via CDN, full `<head>`, CSS variables in `:root`). Variations should be **stylistically/structurally distinct** — different typography schools, layout grammars, color moods — never just color swaps. Label them with concrete style names ("Editorial Serif", not "Variant A").
 
-The framework persists the chosen content as `index.html` automatically when the user clicks "Use this one" — do NOT call `generate-design` while the picker is open.
-
-When the caller is an external MCP host (ChatGPT, Claude, Claude Code, Codex,
-Dispatch), call `present-design-variants` instead of writing
-`application-state` directly. Pass the existing `designId`, a concise prompt
-caption, and 2-5 complete HTML variants (three by default). The action opens
-the same editor variant picker as the first-party app and keeps the workflow
-visible inside MCP Apps. After that, wait for the user's pick before refining.
-
-For inline MCP-app hosts (ChatGPT / Claude / Claude Desktop main chat) the pick
-rides the chat bridge automatically — no copy/paste. But if the Design app opens
-as a browser link instead of inline (CLI hosts like Codex / Claude Code, where
-the deep link carries `handoff=chat`), the user picks a direction there and the
-editor shows a copyable handoff summary (auto-copied to the clipboard) — ask
-them to paste it back into chat so you can continue from the chosen direction.
-The user can also simply name the pick in words (e.g. "use variant A" / "the
-editorial one") instead of pasting — honor either. The
-`present-design-variants` result's `fallbackInstructions` describe this.
+Wait for the user's pick before refining. Once they choose, keep the selected
+screen, delete the unchosen variant screens with `delete-file`, and continue
+from the kept screen by calling `get-design-snapshot` with the selected
+screen's `fileId`, then calling `edit-design` on that same `fileId`. Use
+`mode: "replace-file"` when expanding the representative placeholder into the
+full chosen direction. Do not call `generate-design` after a variant pick. If
+inline chat choice buttons are unavailable in the host, ask the user to tell you
+the preferred screen name. Do not ask them to paste HTML or a generated handoff
+summary; the variants are already real screens on the board.
 
 ### Phase 3 — Save with `generate-design` (when not using variants)
 
-Skip variants and call `generate-design` directly for: refinements to an already-picked design, multi-screen additions to an existing design, or one-shot prompts where the direction is unambiguous.
+Skip variants and call `generate-design` directly for: a brand-new first
+renderable file, multi-screen additions to an existing design, or one-shot
+prompts where the direction is unambiguous. For refinements to an already-picked
+design or selected screen, use `get-design-snapshot` followed by `edit-design`
+instead.
 
 ```bash
 pnpm action generate-design \
@@ -141,6 +203,13 @@ pnpm action generate-design \
 ### Phase 4 — Always ship tweaks with the design
 
 `generate-design` accepts a `--tweaks` array — pass 3-6 of the most impactful knobs bound to CSS custom properties the design's `:root` block actually defines. Surface controls users will actually want to adjust (accent color, density, radius, dark-mode toggle, font choice). Don't ship a generic preset; let the design's structure pick the knobs.
+
+### Phase 5 — Review before calling it ready
+
+Open the generated screen or overview and inspect it like a design review:
+hierarchy, overflow, mobile fit, contrast, keyboard focus, empty/loading/error
+states for app UI, and whether the copy/content still sounds real. Fix obvious
+issues before reporting the design as ready.
 
 ## HTML Structure Requirements
 
@@ -471,7 +540,9 @@ regeneration is slow, expensive, and regresses unrelated parts.
    Each `search` must match the file **exactly and uniquely** — include enough
    surrounding context to be unambiguous. Wrapping an element in a new div is
    just a search/replace whose `replace` adds the wrapper around the original.
-3. **Reserve `generate-design` for** net-new files or large structural rewrites.
+3. **Reserve `generate-design` for** net-new files. For large structural
+   rewrites of an existing selected file, call `edit-design` with
+   `mode: "replace-file"` and the exact `fileId` from `get-design-snapshot`.
    Never resend files you aren't changing.
 4. **Treat `:root` as the global spec.** For theme-wide restyles, edit the
    tokens in `:root` rather than touching every element.
@@ -488,9 +559,8 @@ regeneration is slow, expensive, and regresses unrelated parts.
 
 ## What NOT to Do
 
-- Never use safe/generic fonts (Inter, Roboto, Arial, system-ui) or the
-  purple-on-white gradient, default shadcn grays, or the teal-accent +
-  blinking-dot + three-column-hero cliché — see the Aesthetic Quality Bar.
+- For aesthetics (fonts, palette, layout, backgrounds, copy), see the Aesthetic
+  quality bar above — every banned default there is out unless the user asks.
 - Never link prototype screens with real/relative URLs — use Alpine state,
   `data-screen`, or `#` anchors (see Multi-screen prototypes & navigation).
 - Never hardcode colors — always reference CSS custom properties (no raw
