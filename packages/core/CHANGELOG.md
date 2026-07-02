@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.84.46
+
+### Patch Changes
+
+- e7eacaa: Recover stalled action preparation when a provider emits a zero-byte tool input delta without a start event.
+
 ## 0.84.45
 
 ### Patch Changes
