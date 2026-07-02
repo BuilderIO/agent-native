@@ -13,6 +13,8 @@ import {
   commentAuthorEmails,
   commentThreadsForVisualSurfaceMode,
   commentThreadsForVisibility,
+  defaultInlineCommentDraftForPlanContext,
+  isPlanCommentShortcutEditableTarget,
   mentionQueryAtCaret,
   localPlanBridgeRetryDelay,
   nativeMarkerPlacementForAnchor,
@@ -25,6 +27,7 @@ import {
   shouldRetryLocalPlanBridgeBundle,
   shouldShowPlanLoadError,
   shouldKeepCommentPopoverOpenForTarget,
+  shouldHandlePlanCommentShortcut,
   resolvePlanOrgAccessPrompt,
 } from "./PlansPage";
 
@@ -498,6 +501,79 @@ describe("plan comment thread UI model", () => {
       resolutionTarget: "human",
       mentions: [{ label: "Tiana", email: "tiana@example.com" }],
     });
+  });
+
+  it("defaults recap human comments to the source author instead of the owner", () => {
+    const draft = defaultInlineCommentDraftForPlanContext({
+      planKind: "recap",
+      ownerEmail: "svc-pr-recap@builder.io",
+      sourceAuthorEmail: "sami@builder.io",
+      sourceAuthorName: "Sami",
+      accessRole: "viewer",
+      currentEmail: "steve@builder.io",
+    });
+
+    expect(draft).toEqual({
+      message: "@[Sami](mailto:sami%40builder.io) ",
+      mentions: [{ email: "sami@builder.io", label: "Sami" }],
+      resolutionTarget: "human",
+    });
+  });
+
+  it("does not fall back to the recap service owner when source author email is absent", () => {
+    const draft = defaultInlineCommentDraftForPlanContext({
+      planKind: "recap",
+      ownerEmail: "svc-pr-recap@builder.io",
+      accessRole: "viewer",
+      currentEmail: "steve@builder.io",
+    });
+
+    expect(draft).toEqual({
+      message: "",
+      mentions: [],
+      resolutionTarget: "agent",
+    });
+  });
+
+  it("handles comment shortcuts only outside editable targets", () => {
+    expect(
+      shouldHandlePlanCommentShortcut(
+        new KeyboardEvent("keydown", { key: "c" }),
+      ),
+    ).toBe(true);
+    expect(
+      shouldHandlePlanCommentShortcut(
+        new KeyboardEvent("keydown", {
+          key: "m",
+          metaKey: true,
+          shiftKey: true,
+        }),
+      ),
+    ).toBe(true);
+    expect(
+      shouldHandlePlanCommentShortcut(
+        new KeyboardEvent("keydown", {
+          key: "m",
+          ctrlKey: true,
+          shiftKey: true,
+        }),
+      ),
+    ).toBe(false);
+
+    const input = document.createElement("input");
+    const editor = document.createElement("div");
+    editor.contentEditable = "true";
+    editor.setAttribute("contenteditable", "true");
+    document.body.append(input, editor);
+    input.focus();
+    expect(
+      shouldHandlePlanCommentShortcut(
+        new KeyboardEvent("keydown", { key: "c" }),
+      ),
+    ).toBe(false);
+    expect(isPlanCommentShortcutEditableTarget(editor)).toBe(true);
+    input.remove();
+    editor.remove();
   });
 
   it("does not resolve prototype comment anchors against the wrong active screen", () => {

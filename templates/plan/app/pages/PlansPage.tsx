@@ -374,7 +374,7 @@ function readDesktopPlanAutoSync(planId: string | undefined): boolean {
 
 type PlanAnnotationAnchor = PlanCommentAnchor & { x: number; y: number };
 
-type CommentDraft = {
+export type CommentDraft = {
   message: string;
   mentions: PlanCommentMention[];
   resolutionTarget: PlanCommentResolutionTarget;
@@ -1243,6 +1243,96 @@ function useOrgMemberMentionSearch(query: string | null) {
 
 function displayNameForMention(email: string) {
   return emailToName(email).replace(/\s+/g, " ").trim() || email;
+}
+
+function elementForShortcutTarget(target: EventTarget | null) {
+  if (target instanceof Element) return target;
+  if (target instanceof Node) return target.parentElement;
+  return null;
+}
+
+export function isPlanCommentShortcutEditableTarget(
+  target: EventTarget | null,
+) {
+  const element = elementForShortcutTarget(target);
+  if (!element) return false;
+  return Boolean(
+    element.closest(
+      "input, textarea, select, [contenteditable]:not([contenteditable='false']), [role='textbox']",
+    ),
+  );
+}
+
+export function shouldHandlePlanCommentShortcut(
+  event: Pick<
+    KeyboardEvent,
+    | "altKey"
+    | "ctrlKey"
+    | "defaultPrevented"
+    | "key"
+    | "metaKey"
+    | "shiftKey"
+    | "target"
+  >,
+) {
+  if (event.defaultPrevented) return false;
+  const activeElement =
+    typeof document === "undefined" ? null : document.activeElement;
+  if (
+    isPlanCommentShortcutEditableTarget(activeElement) ||
+    isPlanCommentShortcutEditableTarget(event.target)
+  ) {
+    return false;
+  }
+  const key = event.key.toLowerCase();
+  if (
+    key === "c" &&
+    !event.metaKey &&
+    !event.ctrlKey &&
+    !event.altKey &&
+    !event.shiftKey
+  ) {
+    return true;
+  }
+  return (
+    key === "m" &&
+    event.metaKey &&
+    event.shiftKey &&
+    !event.ctrlKey &&
+    !event.altKey
+  );
+}
+
+export function defaultInlineCommentDraftForPlanContext(input: {
+  planKind?: PlanKind | null;
+  ownerEmail?: string | null;
+  sourceAuthorEmail?: string | null;
+  sourceAuthorName?: string | null;
+  accessRole?: NonNullable<PlanBundle["access"]>["role"] | null;
+  currentEmail?: string | null;
+}): CommentDraft {
+  const currentEmail = normalizeCommentEmail(input.currentEmail);
+  const targetEmail = normalizeCommentEmail(
+    input.planKind === "recap" ? input.sourceAuthorEmail : input.ownerEmail,
+  );
+  if (
+    !targetEmail ||
+    input.accessRole === "owner" ||
+    targetEmail === currentEmail
+  ) {
+    return { message: "", mentions: [], resolutionTarget: "agent" };
+  }
+  const targetName =
+    input.planKind === "recap" ? input.sourceAuthorName?.trim() : undefined;
+  const mention = {
+    email: targetEmail,
+    label: targetName || displayNameForMention(targetEmail),
+  };
+  return {
+    message: `${formatPlanCommentMentionToken(mention)} `,
+    mentions: [mention],
+    resolutionTarget: "human",
+  };
 }
 
 function safeDecodeURIComponent(value: string): string {
@@ -3282,25 +3372,22 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
     bundle && (localPlanMode || session || canEditPlanContent),
   );
   const defaultInlineCommentDraft = useMemo<CommentDraft>(() => {
-    const ownerEmail = normalizeCommentEmail(bundle?.access?.ownerEmail);
-    const currentEmail = normalizeCommentEmail(collabUser?.email);
-    if (
-      !ownerEmail ||
-      effectivePlanAccessRole === "owner" ||
-      ownerEmail === currentEmail
-    ) {
-      return { message: "", mentions: [], resolutionTarget: "agent" };
-    }
-    const mention = {
-      email: ownerEmail,
-      label: displayNameForMention(ownerEmail),
-    };
-    return {
-      message: `${formatPlanCommentMentionToken(mention)} `,
-      mentions: [mention],
-      resolutionTarget: "human",
-    };
-  }, [bundle?.access?.ownerEmail, collabUser?.email, effectivePlanAccessRole]);
+    return defaultInlineCommentDraftForPlanContext({
+      planKind: bundle?.plan.kind,
+      ownerEmail: bundle?.access?.ownerEmail,
+      sourceAuthorEmail: bundle?.plan.sourceAuthorEmail,
+      sourceAuthorName: bundle?.plan.sourceAuthorName,
+      accessRole: effectivePlanAccessRole,
+      currentEmail: collabUser?.email,
+    });
+  }, [
+    bundle?.access?.ownerEmail,
+    bundle?.plan.kind,
+    bundle?.plan.sourceAuthorEmail,
+    bundle?.plan.sourceAuthorName,
+    collabUser?.email,
+    effectivePlanAccessRole,
+  ]);
   const commentThreads = useMemo(
     () => buildCommentThreads(bundle?.comments ?? []),
     [bundle?.comments],
@@ -4547,13 +4634,13 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
     });
   };
 
-  const startCommenting = () => {
+  const startCommenting = useCallback(() => {
     setCanvasMarkupMode("none");
     setActiveAnnotation(null);
     setAnnotationsOpen(false);
     setCommentVisibility("open");
     setAnnotateMode(true);
-  };
+  }, []);
 
   const selectReviewMode = (mode: CanvasMarkupMode) => {
     preservePlanReaderScroll(() => {
@@ -4609,95 +4696,134 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
     scheduleNativeMarkerUpdate();
   };
 
-  const readNativeSelectionComment = (): NativeSelectionComment | null => {
-    const reader = nativeReaderRef.current;
-    const selection = window.getSelection();
-    if (!reader || !selection || selection.rangeCount === 0) return null;
-    if (selection.isCollapsed) return null;
-    const textQuote = selection.toString().replace(/\s+/g, " ").trim();
-    if (!textQuote) return null;
-    const range = selection.getRangeAt(0);
-    if (!reader.contains(range.commonAncestorContainer)) return null;
+  const readNativeSelectionComment =
+    useCallback((): NativeSelectionComment | null => {
+      const reader = nativeReaderRef.current;
+      const selection = window.getSelection();
+      if (!reader || !selection || selection.rangeCount === 0) return null;
+      if (selection.isCollapsed) return null;
+      const textQuote = selection.toString().replace(/\s+/g, " ").trim();
+      if (!textQuote) return null;
+      const range = selection.getRangeAt(0);
+      if (!reader.contains(range.commonAncestorContainer)) return null;
 
-    const rects = Array.from(range.getClientRects()).filter(
-      (rect) => rect.width > 0 && rect.height > 0,
-    );
-    const selectionRect = rects[0] ?? range.getBoundingClientRect();
-    if (selectionRect.width <= 0 || selectionRect.height <= 0) return null;
+      const rects = Array.from(range.getClientRects()).filter(
+        (rect) => rect.width > 0 && rect.height > 0,
+      );
+      const selectionRect = rects[0] ?? range.getBoundingClientRect();
+      if (selectionRect.width <= 0 || selectionRect.height <= 0) return null;
 
-    const readerRect = reader.getBoundingClientRect();
-    const pointX =
-      selectionRect.left + selectionRect.width / 2 - readerRect.left;
-    const pointY =
-      selectionRect.top + selectionRect.height / 2 - readerRect.top;
-    const startElement =
-      range.startContainer instanceof Element
-        ? range.startContainer
-        : range.startContainer.parentElement;
-    const blockElement = startElement?.closest<HTMLElement>("[data-block-id]");
-    const blockType = blockElement?.dataset.blockId
-      ? findPlanBlockById(
-          bundle?.plan.content?.blocks ?? [],
-          blockElement.dataset.blockId,
-        )?.type
-      : undefined;
-    const quoteContext = textQuoteContextForBlock({
-      block: blockElement,
-      quote: textQuote,
-    });
-    const snippet = textQuote.slice(0, 220);
-    const anchor = {
-      ...buildNativeAnchorFromElement({
-        reader,
-        target: startElement instanceof HTMLElement ? startElement : reader,
-        pointX,
-        pointY,
-        planTitle: bundle?.plan.title,
-      }),
-      snippet,
-      textQuote: snippet,
-      anchorKind: "text",
-      tagName: "selection",
-      blockType,
-      ...quoteContext,
-    } satisfies PlanAnnotationAnchor;
-    const toolbarWidth = 132;
-    const toolbarLeft = clamp(
-      pointX - toolbarWidth / 2,
-      12,
-      Math.max(12, readerRect.width - toolbarWidth - 12),
-    );
-    const toolbarTop = clamp(
-      selectionRect.top - readerRect.top - 48,
-      12,
-      Math.max(12, readerRect.height - 48),
-    );
-    return {
-      anchor,
-      toolbarLeft,
-      toolbarTop,
-      position:
-        getPositionFromAnchor(anchor) ??
-        resolveInlineCommentPosition({
+      const readerRect = reader.getBoundingClientRect();
+      const pointX =
+        selectionRect.left + selectionRect.width / 2 - readerRect.left;
+      const pointY =
+        selectionRect.top + selectionRect.height / 2 - readerRect.top;
+      const startElement =
+        range.startContainer instanceof Element
+          ? range.startContainer
+          : range.startContainer.parentElement;
+      const blockElement =
+        startElement?.closest<HTMLElement>("[data-block-id]");
+      const blockType = blockElement?.dataset.blockId
+        ? findPlanBlockById(
+            bundle?.plan.content?.blocks ?? [],
+            blockElement.dataset.blockId,
+          )?.type
+        : undefined;
+      const quoteContext = textQuoteContextForBlock({
+        block: blockElement,
+        quote: textQuote,
+      });
+      const snippet = textQuote.slice(0, 220);
+      const anchor = {
+        ...buildNativeAnchorFromElement({
+          reader,
+          target: startElement instanceof HTMLElement ? startElement : reader,
           pointX,
           pointY,
-          viewportWidth: readerRect.width,
-          viewportHeight: readerRect.height,
+          planTitle: bundle?.plan.title,
         }),
-    };
-  };
+        snippet,
+        textQuote: snippet,
+        anchorKind: "text",
+        tagName: "selection",
+        blockType,
+        ...quoteContext,
+      } satisfies PlanAnnotationAnchor;
+      const toolbarWidth = 132;
+      const toolbarLeft = clamp(
+        pointX - toolbarWidth / 2,
+        12,
+        Math.max(12, readerRect.width - toolbarWidth - 12),
+      );
+      const toolbarTop = clamp(
+        selectionRect.top - readerRect.top - 48,
+        12,
+        Math.max(12, readerRect.height - 48),
+      );
+      return {
+        anchor,
+        toolbarLeft,
+        toolbarTop,
+        position:
+          getPositionFromAnchor(anchor) ??
+          resolveInlineCommentPosition({
+            pointX,
+            pointY,
+            viewportWidth: readerRect.width,
+            viewportHeight: readerRect.height,
+          }),
+      };
+    }, [
+      bundle?.plan.content?.blocks,
+      bundle?.plan.title,
+      getPositionFromAnchor,
+    ]);
+
+  const openNativeSelectionComment = useCallback(
+    (selectionComment: NativeSelectionComment) => {
+      documentStateRef.current = readNativeDocumentState();
+      setCanvasMarkupMode("none");
+      setActiveAnnotation(null);
+      setAnnotationsOpen(false);
+      setCommentVisibility("open");
+      setAnnotateMode(true);
+      setPendingAnnotation(selectionComment.anchor);
+      setInlineCommentPosition(selectionComment.position);
+      setNativeSelectionComment(null);
+      window.getSelection()?.removeAllRanges();
+    },
+    [readNativeDocumentState],
+  );
 
   const beginNativeSelectionComment = () => {
     if (!nativeSelectionComment) return;
-    documentStateRef.current = readNativeDocumentState();
-    // Implicitly enter annotate mode when a selection comment is started
-    // outside of review mode so the inline comment popover renders correctly.
-    if (!annotateMode) setAnnotateMode(true);
-    setPendingAnnotation(nativeSelectionComment.anchor);
-    setInlineCommentPosition(nativeSelectionComment.position);
-    setNativeSelectionComment(null);
-    window.getSelection()?.removeAllRanges();
+    openNativeSelectionComment(nativeSelectionComment);
   };
+
+  useEffect(() => {
+    if (!bundle) return;
+    const handleCommentShortcut = (event: KeyboardEvent) => {
+      if (!shouldHandlePlanCommentShortcut(event)) return;
+      event.preventDefault();
+      preservePlanReaderScroll(() => {
+        const selectionComment = readNativeSelectionComment();
+        if (selectionComment) {
+          openNativeSelectionComment(selectionComment);
+          return;
+        }
+        startCommenting();
+      });
+    };
+    window.addEventListener("keydown", handleCommentShortcut);
+    return () => window.removeEventListener("keydown", handleCommentShortcut);
+  }, [
+    bundle,
+    openNativeSelectionComment,
+    preservePlanReaderScroll,
+    readNativeSelectionComment,
+    startCommenting,
+  ]);
 
   const handleNativeReaderPointerDown = (
     event: PointerEvent<HTMLDivElement>,
@@ -9666,15 +9792,19 @@ function InlineCommentPopover({
           autoFocus
           onSubmitShortcut={submit}
           onChange={(value) =>
-            setDraft((current) => ({
-              ...current,
-              ...value,
-              resolutionTarget: resolverTouched
-                ? current.resolutionTarget
-                : value.mentions.length > 0
-                  ? "human"
-                  : "agent",
-            }))
+            setDraft((current) => {
+              const addedMention =
+                value.mentions.length > current.mentions.length;
+              return {
+                ...current,
+                ...value,
+                resolutionTarget: resolverTouched
+                  ? current.resolutionTarget
+                  : addedMention
+                    ? "human"
+                    : current.resolutionTarget,
+              };
+            })
           }
         />
         <Button

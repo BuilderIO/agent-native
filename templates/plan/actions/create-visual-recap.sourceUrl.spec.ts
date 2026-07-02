@@ -131,7 +131,7 @@ beforeAll(async () => {
       usage_cache_read_tokens INTEGER, usage_cache_write_tokens INTEGER,
       usage_cost_cents_x100 INTEGER, usage_cost_source TEXT, usage_recorded_at TEXT,
       source_url TEXT, source_type TEXT, source_repo TEXT, source_pr_number INTEGER,
-      source_pr_state TEXT, source_pr_merged_at TEXT, recap_idempotency_key TEXT,
+      source_pr_state TEXT, source_pr_merged_at TEXT, source_author_email TEXT, source_author_name TEXT, source_author_login TEXT, recap_idempotency_key TEXT,
       deleted_at TEXT, deleted_by TEXT,
       owner_email TEXT NOT NULL, org_id TEXT, visibility TEXT NOT NULL DEFAULT 'private'
     );
@@ -185,6 +185,39 @@ describe("create-visual-recap: sourceUrl", () => {
     expect(result.planId).toBeTruthy();
     const row = await rawPlan(result.planId as string);
     expect(row?.sourceUrl).toBe(PR_URL);
+  });
+
+  it("stores source author metadata on create and replace", async () => {
+    const result = await asOwner(() =>
+      createVisualRecap.run({
+        mdx: MINIMAL_MDX,
+        visibility: "org",
+        sourceUrl: PR_URL,
+        sourceAuthorEmail: "Sami@Builder.IO",
+        sourceAuthorName: "Sami",
+        sourceAuthorLogin: "sami",
+      }),
+    );
+    const planId = result.planId as string;
+    const first = await rawPlan(planId);
+    expect(first?.sourceAuthorEmail).toBe("sami@builder.io");
+    expect(first?.sourceAuthorName).toBe("Sami");
+    expect(first?.sourceAuthorLogin).toBe("sami");
+
+    await asOwner(() =>
+      createVisualRecap.run({
+        planId,
+        mdx: MINIMAL_MDX,
+        visibility: "org",
+        sourceAuthorEmail: "alex@example.com",
+        sourceAuthorName: "Alex",
+        sourceAuthorLogin: "alex",
+      }),
+    );
+    const replaced = await rawPlan(planId);
+    expect(replaced?.sourceAuthorEmail).toBe("alex@example.com");
+    expect(replaced?.sourceAuthorName).toBe("Alex");
+    expect(replaced?.sourceAuthorLogin).toBe("alex");
   });
 
   it("reuses a recap with the same idempotency key", async () => {

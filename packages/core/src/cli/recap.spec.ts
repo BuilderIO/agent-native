@@ -37,6 +37,7 @@ import {
   recapRequiredSecrets,
   readVisualRecapSkillBundle,
   readRecapSourcePayload,
+  resolveGitHubPullRequestAuthor,
   sanitizeAgentFailureSummary,
   sortDiffSourceFirst,
   runShot,
@@ -483,6 +484,9 @@ describe("recap direct publish", () => {
         pr: "5440",
         sourcePrState: "merged",
         sourcePrMergedAt: "2026-06-18T12:30:00Z",
+        sourceAuthorEmail: "Sami@Builder.IO",
+        sourceAuthorName: "Sami",
+        sourceAuthorLogin: "sami",
         fetchFn,
         cwd: dir,
       });
@@ -505,6 +509,9 @@ describe("recap direct publish", () => {
         sourcePrNumber: "5440",
         sourcePrState: "merged",
         sourcePrMergedAt: "2026-06-18T12:30:00Z",
+        sourceAuthorEmail: "sami@builder.io",
+        sourceAuthorName: "Sami",
+        sourceAuthorLogin: "sami",
         currentFocus: "visual recap review",
         status: "review",
       });
@@ -512,6 +519,58 @@ describe("recap direct publish", () => {
     } finally {
       fs.rmSync(dir, { recursive: true, force: true });
     }
+  });
+
+  it("infers source author metadata from GitHub PR commits while skipping noreply emails", async () => {
+    const calls: string[] = [];
+    const fetchFn: typeof fetch = (async (input) => {
+      const url = String(input);
+      calls.push(url);
+      if (url.endsWith("/repos/BuilderIO/ai-services/pulls/5578")) {
+        return jsonResponse({ user: { login: "sami" } });
+      }
+      if (url.endsWith("/users/sami")) {
+        return jsonResponse({ login: "sami", name: "Sami", email: null });
+      }
+      if (
+        url.endsWith(
+          "/repos/BuilderIO/ai-services/pulls/5578/commits?per_page=100",
+        )
+      ) {
+        return jsonResponse([
+          {
+            author: { login: "sami" },
+            commit: {
+              author: {
+                name: "Sami",
+                email: "123+sami@users.noreply.github.com",
+              },
+            },
+          },
+          {
+            author: { login: "sami" },
+            commit: {
+              author: { name: "Sami", email: "Sami@Builder.IO" },
+            },
+          },
+        ]);
+      }
+      return textResponse("not found", 404);
+    }) as typeof fetch;
+
+    const author = await resolveGitHubPullRequestAuthor({
+      token: "gh-token",
+      repo: "BuilderIO/ai-services",
+      pr: "5578",
+      fetchFn,
+    });
+
+    expect(author).toEqual({
+      email: "sami@builder.io",
+      name: "Sami",
+      login: "sami",
+    });
+    expect(calls).toHaveLength(3);
   });
 
   it("reuses the same idempotency key across publish retries", async () => {
@@ -888,13 +947,9 @@ describe("recap comment body", () => {
       HEAD_SHA: "abcdef1234567",
     } as NodeJS.ProcessEnv);
     expect(body).toContain(
-      `<a href="https://plan.agent-native.com/recaps/plan-abc123">`,
+      `<a href="https://plan.agent-native.com/recaps/plan-abc123"><picture>  <img alt="Visual recap" src="https://plan.agent-native.com/_agent-native/recap-image/${token}.png"></picture></a>`,
     );
-    expect(body).toContain("<picture>");
-    expect(body).toContain(
-      `<img alt="Visual recap" src="https://plan.agent-native.com/_agent-native/recap-image/${token}.png">`,
-    );
-    expect(body).toContain("</picture>");
+    expect(body).not.toContain("\n<picture>\n");
     expect(body).not.toContain(`<source media="(prefers-color-scheme: dark)"`);
     expect(body).toContain(
       "Here's a [visual recap](https://plan.agent-native.com/recaps/plan-abc123) of what changed:",
@@ -921,16 +976,9 @@ describe("recap comment body", () => {
       HEAD_SHA: "abcdef1234567",
     } as NodeJS.ProcessEnv);
     expect(body).toContain(
-      `<a href="https://plan.agent-native.com/recaps/plan-abc123">`,
+      `<a href="https://plan.agent-native.com/recaps/plan-abc123"><picture>  <source media="(prefers-color-scheme: dark)" srcset="https://plan.agent-native.com/_agent-native/recap-image/${darkToken}.png">  <img alt="Visual recap" src="https://plan.agent-native.com/_agent-native/recap-image/${lightToken}.png"></picture></a>`,
     );
-    expect(body).toContain("<picture>");
-    expect(body).toContain(
-      `<source media="(prefers-color-scheme: dark)" srcset="https://plan.agent-native.com/_agent-native/recap-image/${darkToken}.png">`,
-    );
-    expect(body).toContain(
-      `<img alt="Visual recap" src="https://plan.agent-native.com/_agent-native/recap-image/${lightToken}.png">`,
-    );
-    expect(body).toContain("</picture>");
+    expect(body).not.toContain("\n<picture>\n");
     expect(body).not.toContain("![Visual recap]");
   });
 
