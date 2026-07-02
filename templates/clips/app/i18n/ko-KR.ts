@@ -421,7 +421,7 @@ const messages = {
     agentPrompt:
       "이 Clips 에이전트 컨텍스트 URL을 가져오세요: {{agentContextUrl}}. 말한 내용의 맥락은 transcript.segments를 사용하고, 화면을 보기 위해 recommendedFrames 또는 프레임 API URL을 가져오며, browserDiagnostics가 있으면 수정된 콘솔 로그와 fetch/XHR 요청 메타데이터를 확인하세요.",
     agentTokenDescription:
-      "이 에이전트 URL는 수명이 짧은 토큰을 사용하므로 에이전트는 비밀번호를 노출하지 않고도 클립을 읽을 수 있습니다.",
+      "이 임시 에이전트 URL을 사용하면 클립을 공개하지 않고도 에이전트가 읽을 수 있습니다. 2시간 후 만료됩니다.",
     gifPreview: "GIF 미리보기",
     openPlayer: "플레이어 열기",
     downloadMp4: "MP4 다운로드",
@@ -641,6 +641,11 @@ Clips의 모든 사용자 대상 변경 사항은 여기에 기록됩니다. 명
     s3SecretAccessKeyLabel: "비밀 액세스 키",
     s3RegionLabel: "리전",
     s3PublicBaseUrlLabel: "공개 기본 URL",
+    s3UrlInvalid:
+      "유효한 URL이어야 합니다 (예: https://s3.us-east-1.amazonaws.com)",
+    s3BucketInvalid:
+      "버킷 이름은 3–63자의 소문자, 숫자 또는 하이픈이어야 합니다",
+    s3RegionInvalid: '유효한 리전(예: us-east-1) 또는 "auto"이어야 합니다',
     apiSetup: "AI 설정",
     apiSetupDescription:
       "Builder.io 무료 크레딧 또는 직접 보유한 LLM 키로 AI를 연결하세요.",
@@ -655,6 +660,8 @@ Clips의 모든 사용자 대상 변경 사항은 여기에 기록됩니다. 명
     providerKeysSet: "{{count}}개 설정됨",
     checkingProviderKeys: "제공자 키 확인 중…",
     keySet: "설정됨",
+    keyCleared: "스토리지 자격 증명이 삭제되었습니다",
+    clearAllS3: "자격 증명 삭제",
     replaceKey: "키 바꾸기…",
     pasteProviderKey: "먼저 제공자 키를 붙여넣으세요.",
     apiKeySaved: "API 키가 저장됨",

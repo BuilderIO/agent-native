@@ -7,6 +7,7 @@ import {
 } from "@agent-native/core/server";
 
 import actionsRegistry from "../../.generated/actions-registry.js";
+import { applyAnalyticsPlanModePolicy } from "../lib/agent-chat-plan-mode";
 import { renderDataDictionary } from "../lib/data-dictionary-context";
 import {
   failedDataQueryAttemptMessage,
@@ -64,6 +65,11 @@ const INITIAL_TOOL_NAMES = [
   "save-data-dictionary-entry",
   "navigate",
 ];
+
+export {
+  applyAnalyticsPlanModePolicy,
+  PLAN_MODE_ACT_ONLY_TOOLS,
+} from "../lib/agent-chat-plan-mode";
 
 function latestUserText(
   messages: AgentLoopFinalResponseGuardContext["messages"],
@@ -160,7 +166,9 @@ function realDataFinalGuard(context: AgentLoopFinalResponseGuardContext) {
 
 export default createAgentChatPlugin({
   appId: "analytics",
-  actions: loadActionsFromStaticRegistry(actionsRegistry),
+  actions: applyAnalyticsPlanModePolicy(
+    loadActionsFromStaticRegistry(actionsRegistry),
+  ),
   initialToolNames: INITIAL_TOOL_NAMES,
   finalResponseGuard: realDataFinalGuard,
   // Enable sandboxed JavaScript execution for analytics data processing.

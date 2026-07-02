@@ -283,7 +283,7 @@ function ScopeBadge({
         <PopoverTrigger asChild>
           <button
             type="button"
-            className="inline-flex h-7 min-w-0 max-w-full cursor-pointer items-center gap-1.5 rounded-t-lg border border-b-0 border-input bg-background px-3 text-muted-foreground shadow-[0_-8px_24px_hsl(var(--background)/0.72)] transition-colors hover:bg-accent hover:text-foreground sm:max-w-72"
+            className="inline-flex h-7 min-w-0 max-w-full cursor-pointer items-center gap-1.5 rounded-t-lg border border-b-0 border-input bg-background px-3 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground sm:max-w-72"
             aria-label={heading}
           >
             <IconLink size={11} className="shrink-0 opacity-70" />

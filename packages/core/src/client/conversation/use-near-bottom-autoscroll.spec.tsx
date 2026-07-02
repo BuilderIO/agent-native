@@ -225,6 +225,46 @@ describe("useNearBottomAutoscroll", () => {
     expect(metrics.scrollTop).toBe(700);
   });
 
+  it("keeps following when upward wheel intent belongs to a nested scroller", async () => {
+    const apiRef = React.createRef<AutoscrollApi>();
+    const metrics = {
+      clientHeight: 200,
+      scrollHeight: 1000,
+      scrollTop: 800,
+    };
+    const nestedMetrics = {
+      clientHeight: 100,
+      scrollHeight: 300,
+      scrollTop: 100,
+    };
+    const scroller = renderHarness({
+      apiRef,
+      followKey: 1,
+      metrics,
+      streaming: true,
+    });
+    const nested = document.createElement("div");
+    nested.style.overflowY = "auto";
+    installScrollMetrics(nested, nestedMetrics);
+    scroller.appendChild(nested);
+
+    act(() => {
+      dispatchWheel(nested, -48);
+    });
+    expect(
+      container.querySelector('[data-testid="follow-state"]')?.textContent,
+    ).toBe("following");
+
+    metrics.scrollHeight = 1200;
+    renderHarness({ apiRef, followKey: 2, metrics, streaming: true });
+    await advanceAutoscrollTimers();
+
+    expect(metrics.scrollTop).toBe(1000);
+    expect(
+      container.querySelector('[data-testid="follow-state"]')?.textContent,
+    ).toBe("following");
+  });
+
   it("detaches on a small upward scroll near the bottom", async () => {
     const apiRef = React.createRef<AutoscrollApi>();
     const metrics = {

@@ -17,6 +17,7 @@ const resolveEngineMock = vi.hoisted(() => vi.fn());
 const getStoredModelForEngineMock = vi.hoisted(() => vi.fn());
 const isLocalDatabaseMock = vi.hoisted(() => vi.fn());
 const readDeployCredentialEnvMock = vi.hoisted(() => vi.fn());
+const canUseDeployCredentialFallbackForRequestMock = vi.hoisted(() => vi.fn());
 const originalNodeEnv = process.env.NODE_ENV;
 
 vi.mock("./thread-mapping-store.js", () => ({
@@ -64,6 +65,8 @@ vi.mock("../db/client.js", async () => {
 });
 
 vi.mock("../server/credential-provider.js", () => ({
+  canUseDeployCredentialFallbackForRequest:
+    canUseDeployCredentialFallbackForRequestMock,
   readDeployCredentialEnv: readDeployCredentialEnvMock,
 }));
 
@@ -166,6 +169,7 @@ describe("integration webhook handler engine resolution", () => {
     getOwnerApiKeyMock.mockResolvedValue(undefined);
     isLocalDatabaseMock.mockReturnValue(true);
     readDeployCredentialEnvMock.mockReturnValue(undefined);
+    canUseDeployCredentialFallbackForRequestMock.mockReturnValue(true);
     actionsToEngineToolsMock.mockReturnValue([]);
     getStoredModelForEngineMock.mockResolvedValue(undefined);
     resolveEngineMock.mockResolvedValue({
@@ -407,11 +411,15 @@ describe("integration webhook handler engine resolution", () => {
     );
   });
 
-  it("does not fall back to deployment keys in multi-tenant mode", async () => {
+  it("does not fall back to deployment LLM keys in production shared mode", async () => {
     const { processIntegrationTask } = await import("./webhook-handler.js");
     const sendResponse = vi.fn();
     process.env.NODE_ENV = "production";
     isLocalDatabaseMock.mockReturnValue(false);
+    canUseDeployCredentialFallbackForRequestMock.mockReturnValue(false);
+    readDeployCredentialEnvMock.mockImplementation((key: string) =>
+      key === "OPENAI_API_KEY" ? "openai-hosted-key" : undefined,
+    );
     const task: PendingTask = {
       id: "task-multitenant",
       platform: "fake",
@@ -447,7 +455,9 @@ describe("integration webhook handler engine resolution", () => {
       ownerEmail: task.ownerEmail,
     });
 
-    expect(readDeployCredentialEnvMock).not.toHaveBeenCalled();
+    expect(readDeployCredentialEnvMock).not.toHaveBeenCalledWith(
+      "OPENAI_API_KEY",
+    );
     expect(resolveEngineMock).toHaveBeenCalledWith(
       expect.objectContaining({
         engineOption: "ai-sdk:openai",

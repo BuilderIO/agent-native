@@ -600,6 +600,61 @@ export function reconnectActivityFallbackContent(
   ];
 }
 
+function toolCallIdFromContentPart(part: unknown): string | null {
+  if (!part || typeof part !== "object") return null;
+  const candidate = part as { type?: unknown; toolCallId?: unknown };
+  if (candidate.type !== "tool-call") return null;
+  return typeof candidate.toolCallId === "string" && candidate.toolCallId
+    ? candidate.toolCallId
+    : null;
+}
+
+function toolCallPartHasResult(part: unknown): boolean {
+  if (!part || typeof part !== "object") return false;
+  const candidate = part as { type?: unknown; result?: unknown };
+  return candidate.type === "tool-call" && "result" in candidate;
+}
+
+function collectRenderedToolCallStates(
+  messages: readonly unknown[],
+): Map<string, { hasResult: boolean }> {
+  const states = new Map<string, { hasResult: boolean }>();
+  for (const message of messages) {
+    const msg = (message as { message?: unknown })?.message ?? message;
+    const content = (msg as { content?: unknown })?.content;
+    if (!Array.isArray(content)) continue;
+    for (const part of content) {
+      const id = toolCallIdFromContentPart(part);
+      if (!id) continue;
+      const existing = states.get(id);
+      states.set(id, {
+        hasResult: Boolean(existing?.hasResult || toolCallPartHasResult(part)),
+      });
+    }
+  }
+  return states;
+}
+
+export function dedupeReconnectContentAgainstMessages(
+  content: ContentPart[],
+  messages: readonly unknown[],
+): ContentPart[] {
+  if (content.length === 0 || messages.length === 0) return content;
+  const renderedToolCallStates = collectRenderedToolCallStates(messages);
+  if (renderedToolCallStates.size === 0) return content;
+
+  let changed = false;
+  const filtered = content.filter((part) => {
+    const id = toolCallIdFromContentPart(part);
+    const existing = id ? renderedToolCallStates.get(id) : undefined;
+    if (!id || !existing) return true;
+    if (toolCallPartHasResult(part) && !existing.hasResult) return true;
+    changed = true;
+    return false;
+  });
+  return changed ? filtered : content;
+}
+
 const RECOVERY_USER_MESSAGE_PREFIXES = [
   "Continue from where you left off",
   "Continue from where you stopped",
@@ -1552,15 +1607,10 @@ const AssistantChatInner = forwardRef<
   });
   const reconnectActivityContent = useMemo(
     () =>
-      (isReconnecting || reconnectFrozen) && reconnectContent.length === 0
+      isReconnecting || reconnectFrozen
         ? reconnectActivityFallbackContent(runningActivityTool)
         : [],
-    [
-      isReconnecting,
-      reconnectFrozen,
-      reconnectContent.length,
-      runningActivityTool,
-    ],
+    [isReconnecting, reconnectFrozen, runningActivityTool],
   );
   const lastBroadcastRunningRef = useRef(isRunning);
   const tiptapRef = useRef<TiptapComposerHandle>(null);
@@ -3322,14 +3372,19 @@ const AssistantChatInner = forwardRef<
     ],
   );
 
+  const visibleReconnectContent = useMemo(
+    () => dedupeReconnectContentAgainstMessages(reconnectContent, messages),
+    [messages, reconnectContent],
+  );
+
   const autoscrollFollowKey = useMemo(
     () =>
       [
         messages.map(messageFollowKey).join(";"),
         `q:${queuedMessages.map(queuedMessageFollowKey).join("|")}`,
-        `r:${reconnectContentFollowKey(reconnectContent)}`,
+        `r:${reconnectContentFollowKey(visibleReconnectContent)}`,
       ].join(";;"),
-    [messages, queuedMessages, reconnectContent],
+    [messages, queuedMessages, visibleReconnectContent],
   );
 
   const {
@@ -3837,11 +3892,13 @@ const AssistantChatInner = forwardRef<
                         />
                       )}
                       {(isReconnecting || reconnectFrozen) &&
-                        reconnectContent.length > 0 && (
-                          <ReconnectStreamMessage content={reconnectContent} />
+                        visibleReconnectContent.length > 0 && (
+                          <ReconnectStreamMessage
+                            content={visibleReconnectContent}
+                          />
                         )}
                       {(isReconnecting || reconnectFrozen) &&
-                        reconnectContent.length === 0 &&
+                        visibleReconnectContent.length === 0 &&
                         reconnectActivityContent.length > 0 && (
                           <ReconnectStreamMessage
                             content={reconnectActivityContent}

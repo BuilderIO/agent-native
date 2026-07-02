@@ -315,6 +315,17 @@ CREATE INDEX IF NOT EXISTS plans_source_pr_idx ON plans(source_repo, source_pr_n
       },
     },
     {
+      version: 33,
+      sql: {
+        postgres: `ALTER TABLE plans ADD COLUMN IF NOT EXISTS source_author_email TEXT;
+ALTER TABLE plans ADD COLUMN IF NOT EXISTS source_author_name TEXT;
+ALTER TABLE plans ADD COLUMN IF NOT EXISTS source_author_login TEXT`,
+        sqlite: `ALTER TABLE plans ADD COLUMN source_author_email TEXT;
+ALTER TABLE plans ADD COLUMN source_author_name TEXT;
+ALTER TABLE plans ADD COLUMN source_author_login TEXT`,
+      },
+    },
+    {
       // Repair migration for hosted databases that recorded an earlier migration
       // while still missing additive columns now present in schema.ts. Missing
       // optional plan columns make Drizzle's full-row access lookup throw before

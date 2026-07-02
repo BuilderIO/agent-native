@@ -131,6 +131,8 @@ APIs，因此僅接受文字或靜態圖片的模型仍然可以理解內容
 | `/api/agent-transcript.json?id=<recordingId>`     | 帶有 `startMs`、`endMs`、可讀時間戳、文字和可選來源標籤的時間戳轉錄片段 |
 | `/api/agent-frame.jpg?id=<recordingId>&atMs=<ms>` | 以原始影片時間戳從影片中擷取的 JPEG 幀                                  |
 
+Temporary private agent links are also supported: the Share dialog can mint a two-hour `agent_access` URL for any recording the viewer can access. Agents use that token with the share page and JSON APIs, and the clip does not become public.
+
 端點遵循與共用頁面相同的公開/密碼/過期規則。
 受密碼保護的剪輯需要密碼一次；成功回應返回
 短暫的標記化連結，因此下游代理不需要明文
