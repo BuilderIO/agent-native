@@ -107,7 +107,13 @@ export default defineAction({
     };
 
     const databases = rows
-      .filter((row) => !sourceChainIncludesExcludedDatabase(row.id))
+      // Exclusion ids may be database ids OR database document ids — the
+      // settings panel only has the document id before any source exists.
+      .filter(
+        (row) =>
+          !excludedDatabaseIds.has(row.documentId) &&
+          !sourceChainIncludesExcludedDatabase(row.id),
+      )
       .map((row) => ({
         databaseId: row.id,
         documentId: row.documentId,

@@ -4676,6 +4676,10 @@ function DatabaseSettingsSourcePanel({
     return (
       <AddSourceView
         excludeDatabaseIds={[
+          // Always exclude this database itself — before any source exists
+          // the panel only knows the database's document id; the action
+          // matches exclusion ids against both id forms.
+          documentId,
           ...(source?.databaseId ? [source.databaseId] : []),
           ...sources
             .filter((item) => item.sourceType === "local-table")

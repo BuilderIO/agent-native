@@ -83,6 +83,32 @@ describe("list-content-databases", () => {
     });
   });
 
+  it("excludes a database when its document id is passed (no source attached yet)", async () => {
+    await createDatabaseDocument({
+      documentId: "db-doc-self",
+      databaseId: "db-self",
+      title: "Self",
+    });
+    await createDatabaseDocument({
+      documentId: "db-doc-other",
+      databaseId: "db-other",
+      title: "Other",
+    });
+
+    await runWithRequestContext({ userEmail: OWNER }, async () => {
+      const result = await listContentDatabasesAction.run({
+        excludeDatabaseIds: ["db-doc-self"],
+      });
+
+      expect(
+        result.databases.map((database) => database.databaseId),
+      ).not.toContain("db-self");
+      expect(result.databases.map((database) => database.databaseId)).toContain(
+        "db-other",
+      );
+    });
+  });
+
   it("excludes databases whose local-table source chain points back to the configured database", async () => {
     await createDatabaseDocument({
       documentId: "db-doc-root",
