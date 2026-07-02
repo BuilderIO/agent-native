@@ -33,6 +33,17 @@ interface EnvKeyStatus {
   configured: boolean;
 }
 
+// Only the Google OAuth client keys decide whether Google is set up. The
+// env-status endpoint returns every registered key (Slack, Resend, all the LLM
+// providers, …); requiring all of them to be configured meant Google was never
+// recognized as ready, so the setup wizard showed even with valid creds.
+const GOOGLE_CRED_KEYS = ["GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET"];
+
+function googleCredsConfigured(keys: EnvKeyStatus[]): boolean {
+  const googleKeys = keys.filter((k) => GOOGLE_CRED_KEYS.includes(k.key));
+  return googleKeys.length > 0 && googleKeys.every((k) => k.configured);
+}
+
 const STEPS = [
   {
     titleKey: "mail.googleConnect.enableGmailApi",
@@ -185,8 +196,7 @@ export function GoogleConnectBanner({
       if (res.ok) {
         const data: EnvKeyStatus[] = await res.json();
         setEnvStatus(data);
-        const allConfigured = data.every((k) => k.configured);
-        if (allConfigured && data.length > 0) {
+        if (googleCredsConfigured(data)) {
           setSaved(true);
           setCurrentStep(STEPS.length - 1);
         }
