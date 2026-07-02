@@ -9,6 +9,7 @@ import { IconPhoto, IconSparkles, IconVideo } from "@tabler/icons-react";
 import { useEffect } from "react";
 import { useNavigate, useParams } from "react-router";
 
+import { RecentDraftsSection } from "@/components/create/RecentDraftsSection";
 import { GenerationResults } from "@/components/generation/GenerationResults";
 import { useImageModelMenu } from "@/hooks/use-image-model-menu";
 import { ASSETS_CHAT_STORAGE_KEY } from "@/lib/chat";
@@ -121,6 +122,9 @@ export default function CreatePage() {
                   {t(`create.starters.${key}`)}
                 </button>
               ))}
+            </div>
+            <div className="mt-8 w-full text-left">
+              <RecentDraftsSection />
             </div>
           </div>
         }

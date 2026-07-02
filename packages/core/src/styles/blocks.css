@@ -995,7 +995,7 @@
   min-height: 100%;
   overflow: hidden;
   box-sizing: border-box;
-  background: var(--wf-paper);
+  background: transparent;
   color: var(--wf-ink);
   font-family: var(--wf-font);
   font-size: 14px;
@@ -1177,6 +1177,16 @@
   border-radius: var(--wf-radius);
   padding: 12px;
 }
+.plan-html-frame:not([data-render-mode="design"]) .wf-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.plan-html-frame:not([data-render-mode="design"]) .wf-row > :last-child {
+  margin-inline-start: auto;
+  text-align: end;
+}
 .plan-html-frame[data-style="sketchy"]:not([data-render-mode="design"])
   :is(.wf-card, .wf-box) {
   border-color: color-mix(in srgb, var(--wf-line) 72%, transparent);
@@ -1197,9 +1207,9 @@
   background: var(--wf-accent-soft);
 }
 
-/* Once rough has drawn, hide crisp borders only on elements rough.js actually
-   redraws. Broad helper containers keep theme-safe filled backgrounds and soft
-   borders so nested cards do not become a pile of overlapping sketch strokes. */
+/* Once rough has drawn, hide crisp borders on the standard wireframe primitives
+   that rough.js redraws. Fills and text stay in CSS; only outlines switch to
+   the hand-drawn overlay. */
 .plan-html-frame[data-rough-ready]
   :is(
     button,
@@ -1207,8 +1217,19 @@
     textarea,
     select,
     hr,
-    [data-rough]:not([data-rough="none"])
-  ) {
+    .wf-btn,
+    .wf-card,
+    .wf-box,
+    .wf-pill,
+    .wf-chip,
+    .wf-icon-fallback,
+    [style*="border:"],
+    [style*="border-top:"],
+    [style*="border-right:"],
+    [style*="border-bottom:"],
+    [style*="border-left:"],
+    [data-rough]
+  ):not([data-rough="none"]) {
   border-color: transparent !important;
 }
 
@@ -1355,8 +1376,37 @@
   color: var(--wf-ink) !important;
 }
 
-.plan-diagram-frame :is(.diagram-node, .diagram-box, .diagram-card) {
+.plan-diagram-frame
+  :is(
+    .diagram-panel,
+    .diagram-card,
+    .diagram-node,
+    .diagram-box,
+    [class*="card"],
+    [class*="panel"],
+    [class*="box"]
+  ) {
   max-width: 100%;
+  overflow-wrap: anywhere !important;
+  word-break: break-word;
+  white-space: normal !important;
+}
+
+.plan-diagram-frame
+  :is(
+    .diagram-panel,
+    .diagram-card,
+    .diagram-node,
+    .diagram-box,
+    [class*="card"],
+    [class*="panel"],
+    [class*="box"]
+  )
+  :is(h1, h2, h3, p, small, strong, span, li) {
+  max-width: 100%;
+  overflow-wrap: anywhere !important;
+  word-break: break-word;
+  white-space: normal !important;
 }
 
 /* Base padding so primitive text never touches the box edge, even when an author
@@ -1422,6 +1472,7 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  flex-wrap: wrap;
   /* A pill hugs its label. `fit-content` is a definite cross size, so a flex
    * column with the default `align-items: stretch` no longer blows the pill out
    * to full width (the number chips and short status labels stay pill-shaped).
@@ -1434,6 +1485,19 @@
   padding: 3px 11px;
   color: var(--wf-ink);
   background: var(--wf-paper);
+  overflow-wrap: anywhere !important;
+  text-align: center;
+  white-space: normal !important;
+  word-break: break-word;
+}
+
+.plan-diagram-frame
+  :is(.diagram-pill, [class*="pill"], [class*="badge"], [class*="chip"])
+  > * {
+  min-width: 0;
+  max-width: 100%;
+  overflow-wrap: anywhere !important;
+  white-space: normal !important;
 }
 
 .plan-diagram-frame :is(.diagram-accent, .diagram-pill.accent) {

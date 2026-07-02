@@ -92,6 +92,12 @@ export function normalizeCodeAgentTranscript(
 
   for (const event of events) {
     const currentTurnIndex = Math.max(turnIndex, 0);
+    if (isAgentChatClearEvent(event)) {
+      clearNormalizedAgentDraftItems(items, currentTurnIndex);
+      hiddenEvents.push(event);
+      continue;
+    }
+
     if (event.kind === "user") {
       turnIndex = turnIndex < 0 ? (items.length === 0 ? 0 : 1) : turnIndex + 1;
       items.push(createUserTurn(event, turnIndex));
@@ -357,6 +363,31 @@ function findOpenToolEvent(
     return item;
   }
   return null;
+}
+
+function isAgentChatClearEvent(event: CodeAgentTranscriptEvent): boolean {
+  return stringMetadata(event.metadata, "agentChatEventType") === "clear";
+}
+
+function clearNormalizedAgentDraftItems(
+  items: NormalizedCodeAgentTranscriptItem[],
+  turnIndex: number,
+): void {
+  for (let index = items.length - 1; index >= 0; index--) {
+    const item = items[index];
+    if (!item || item.turnIndex !== turnIndex) continue;
+    if (
+      item.type === "assistant" ||
+      item.type === "thinking" ||
+      item.type === "status"
+    ) {
+      items.splice(index, 1);
+      continue;
+    }
+    if (item.type === "tool" && item.state !== "completed") {
+      items.splice(index, 1);
+    }
+  }
 }
 
 function suppressDuplicateFinalAssistantText(

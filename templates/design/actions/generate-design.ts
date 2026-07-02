@@ -1,6 +1,5 @@
 import { defineAction, embedApp } from "@agent-native/core";
 import {
-  deleteAppState,
   readAppState,
   writeAppState,
 } from "@agent-native/core/application-state";
@@ -26,6 +25,7 @@ import {
 import {
   designGenerationSessionKey,
   type DesignGenerationSession,
+  updateGenerationSessionWithSavedFiles,
 } from "../shared/generation-session.js";
 
 /** Editor deep link so external agents can surface "Open design". */
@@ -57,31 +57,58 @@ async function updateGenerationSessionForSavedFiles(
   const session = rawSession as unknown as DesignGenerationSession;
   if (session.designId !== designId || !Array.isArray(session.frames)) return;
 
-  const saved = new Set(savedFilenames);
-  const frames = session.frames.map((frame) =>
-    frame.filename && saved.has(frame.filename)
-      ? {
-          ...frame,
-          status: "done" as const,
-          step: "Saved",
-          progress: 1,
-        }
-      : frame,
+  const nextSession = updateGenerationSessionWithSavedFiles(
+    session,
+    savedFilenames,
   );
-  const allDone = frames.every((frame) => frame.status === "done");
-  if (allDone) {
-    await deleteAppState(key);
-    return;
-  }
+  if (nextSession === session) return;
 
-  await writeAppState(key, {
-    ...session,
-    status: "generating",
-    frames,
-  } as unknown as Record<string, unknown>);
+  await writeAppState(key, nextSession as unknown as Record<string, unknown>);
 }
 
-export default defineAction({
+const generateDesignAgentParameters = {
+  type: "object",
+  properties: {
+    designId: {
+      type: "string",
+      description: "Existing design project ID to save generated content to.",
+    },
+    prompt: {
+      type: "string",
+      description: "The user's generation prompt.",
+    },
+    files: {
+      type: "string",
+      description:
+        "JSON array of files to save. Pass one compact, complete, renderable index.html first, e.g. " +
+        '[{"filename":"index.html","fileType":"html","content":"<!doctype html>..."}]. ' +
+        "Do not use generate-design to replace a selected variant screen after a variant pick; snapshot that fileId and use edit-design instead.",
+    },
+    designSystemId: {
+      type: ["string", "null"],
+      description:
+        "Optional design system ID used for generation. Pass null to unlink.",
+    },
+    projectType: {
+      type: "string",
+      enum: ["prototype", "other"],
+      description: "Optional project type hint.",
+    },
+    tweaks: {
+      type: "string",
+      description:
+        "Optional JSON array of tweak definitions. Omit unless the HTML uses matching CSS variables.",
+    },
+    canvasFrames: {
+      type: "string",
+      description:
+        "Optional JSON array of overview-canvas placements keyed by filename or fileId.",
+    },
+  },
+  required: ["designId", "prompt", "files"],
+} as const;
+
+const generateDesignAction = defineAction({
   description:
     "Save generated design content to a design project. " +
     "The agent calls this after generating HTML/CSS/JSX content to persist it " +
@@ -91,6 +118,9 @@ export default defineAction({
     "version then refine individual files with `edit-design` (search/replace) rather " +
     "than resending a big multi-file payload — a single oversized payload can get cut " +
     "off mid-stream and stall the turn. " +
+    "Do not use this action to replace a selected variant screen after a " +
+    "variant pick; call `get-design-snapshot` for the selected `fileId` and " +
+    "`edit-design` that same `fileId` instead. " +
     "Do not report a design as ready until this action succeeds. " +
     "When adding multiple screens or states, pass canvasFrames with filenames " +
     "and x/y/width/height so the new screens appear placed on the overview canvas.",
@@ -453,3 +483,14 @@ export default defineAction({
     };
   },
 });
+
+// Keep rich Zod validation for every runtime caller, but present a lean
+// string-JSON schema to native LLM tools. Anthropic models are prone to empty
+// object calls against this action's deeply nested array/object schema.
+export default {
+  ...generateDesignAction,
+  tool: {
+    ...generateDesignAction.tool,
+    parameters: generateDesignAgentParameters,
+  },
+};

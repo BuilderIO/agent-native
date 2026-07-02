@@ -11,13 +11,19 @@ import {
   type ContentDatabaseSourceChangeSet,
   type ContentDatabaseSourceExecutionState,
   type ContentDatabaseSourcePushMode,
+  type DocumentPropertyValue,
   type ExecuteBuilderSourceExecutionRequest,
 } from "../shared/api.js";
 import {
   type BuilderCmsEntryLiveState,
   readBuilderCmsEntryLiveState,
 } from "./_builder-cms-read-client.js";
-import { builderCmsQualifiedId } from "./_builder-cms-source-adapter.js";
+import {
+  BUILDER_CMS_BODY_BLOCKS_HASH_KEY,
+  BUILDER_CMS_BODY_CONTENT_KEY,
+  BUILDER_CMS_BODY_SIDECARS_KEY,
+  builderCmsQualifiedId,
+} from "./_builder-cms-source-adapter.js";
 import type {
   BuilderCmsExecutionPayload,
   BuilderCmsExecutionPlan,
@@ -255,6 +261,47 @@ function builderCmsAuthoritativeLastUpdated(
   );
 }
 
+function parseSourceValues(
+  value: string | null | undefined,
+): Record<string, DocumentPropertyValue> {
+  if (!value) return {};
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? (parsed as Record<string, DocumentPropertyValue>)
+      : {};
+  } catch {
+    return {};
+  }
+}
+
+function builderCmsReconciledSourceValuesJson(args: {
+  existingSourceValuesJson: string | null | undefined;
+  snapshotSourceValues: Record<string, DocumentPropertyValue> | undefined;
+  changeSet: ContentDatabaseSourceChangeSet;
+}) {
+  const next = {
+    ...(args.snapshotSourceValues ?? {}),
+    ...parseSourceValues(args.existingSourceValuesJson),
+  };
+  for (const field of args.changeSet.fieldChanges) {
+    next[field.sourceFieldKey] = field.proposedValue;
+  }
+  const bodyChange = args.changeSet.bodyChange;
+  if (bodyChange) {
+    if (bodyChange.proposedHash !== undefined) {
+      next[BUILDER_CMS_BODY_BLOCKS_HASH_KEY] = bodyChange.proposedHash;
+    }
+    if (bodyChange.proposedContent !== undefined) {
+      next[BUILDER_CMS_BODY_CONTENT_KEY] = bodyChange.proposedContent;
+    }
+    if (bodyChange.sidecarsJson !== undefined) {
+      next[BUILDER_CMS_BODY_SIDECARS_KEY] = bodyChange.sidecarsJson;
+    }
+  }
+  return JSON.stringify(next);
+}
+
 function sourceRowForChangeSet(
   source: ContentDatabaseSource,
   changeSet: ContentDatabaseSourceChangeSet,
@@ -270,6 +317,7 @@ function sourceRowForChangeSet(
 
 function requiresLivePreflight(effect: BuilderCmsExecutionPayload["effect"]) {
   return (
+    effect === "autosave" ||
     effect === "update_in_place" ||
     effect === "publish" ||
     effect === "unpublish"
@@ -314,6 +362,7 @@ function liveTimestampsDiffer(args: {
 function livePreflightBlockMessage(args: {
   liveState: BuilderCmsEntryLiveState;
   baselineLastUpdated: string | null;
+  baselineBlocksHash: string | null;
   effect: BuilderCmsExecutionPayload["effect"];
 }) {
   if (!args.liveState.exists) {
@@ -326,6 +375,13 @@ function livePreflightBlockMessage(args: {
     })
   ) {
     return "Builder entry changed since this diff was approved; refresh and re-review.";
+  }
+  if (
+    args.baselineBlocksHash &&
+    args.liveState.blocksHash &&
+    args.baselineBlocksHash !== args.liveState.blocksHash
+  ) {
+    return "Builder body changed since this diff was approved; refresh and re-review.";
   }
   if (args.effect === "publish" && args.liveState.published !== "draft") {
     return "Entry is already published.";
@@ -415,10 +471,20 @@ async function reconcileBuilderCmsWrite(args: {
       : [];
 
   const [row] = existingRow;
+  const snapshotRow = sourceRowForChangeSet(args.source, args.changeSet);
+  const sourceValuesJson = builderCmsReconciledSourceValuesJson({
+    existingSourceValuesJson: row?.sourceValuesJson,
+    snapshotSourceValues: snapshotRow?.sourceValues,
+    changeSet: args.changeSet,
+  });
+  const patchWithValues = {
+    ...patch,
+    sourceValuesJson,
+  };
   if (row) {
     await db
       .update(schema.contentDatabaseSourceRows)
-      .set(patch)
+      .set(patchWithValues)
       .where(eq(schema.contentDatabaseSourceRows.id, row.id));
   } else if (args.changeSet.documentId && args.changeSet.databaseItemId) {
     await db.insert(schema.contentDatabaseSourceRows).values({
@@ -428,7 +494,7 @@ async function reconcileBuilderCmsWrite(args: {
       databaseItemId: args.changeSet.databaseItemId,
       documentId: args.changeSet.documentId,
       createdAt: args.now,
-      ...patch,
+      ...patchWithValues,
     });
   } else {
     throw new Error(
@@ -763,6 +829,7 @@ export async function executeBuilderSourceExecutionWithDeps(
     const message = livePreflightBlockMessage({
       liveState,
       baselineLastUpdated: targetRow?.lastSourceUpdatedAt ?? null,
+      baselineBlocksHash: changeSet.bodyChange?.currentHash ?? null,
       effect: plan.payload.effect,
     });
     if (message) {
@@ -777,6 +844,7 @@ export async function executeBuilderSourceExecutionWithDeps(
             exists: liveState.exists,
             published: liveState.published,
             lastUpdated: liveState.lastUpdated,
+            blocksHash: liveState.blocksHash,
             id: liveState.id,
           },
         },

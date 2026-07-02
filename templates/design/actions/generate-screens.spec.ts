@@ -121,4 +121,34 @@ describe("generate-screens", () => {
       }).success,
     ).toBe(true);
   });
+
+  it("dedupes colliding target filenames", async () => {
+    const result = await action.run({
+      designId: "design_123",
+      prompt: "Generate two variations of the same screen",
+      screens: [
+        { title: "Landing", filename: "landing.html" },
+        { title: "Landing alt", filename: "landing.html" },
+      ],
+    });
+
+    expect(result.targets.map((target) => target.filename)).toEqual([
+      "landing.html",
+      "landing-2.html",
+    ]);
+  });
+
+  it("rejects variants anchored to another variant in the same request", () => {
+    expect(
+      action.schema.safeParse({
+        designId: "design_123",
+        prompt: "Explore checkout variations",
+        screens: [
+          { title: "Checkout", role: "screen" },
+          { title: "Variant A", role: "variant", variantOf: "Checkout" },
+          { title: "Variant B", role: "variant", variantOf: "Variant A" },
+        ],
+      }).success,
+    ).toBe(false);
+  });
 });

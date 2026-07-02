@@ -415,6 +415,9 @@ const messages = {
     embed: "Embed",
     shareLink: "Share link",
     shareWithAgents: "Share with agents",
+    copyAgentPrompt: "Copy agent prompt",
+    agentPrompt:
+      "Fetch this Clips agent context URL: {{agentContextUrl}}. Use transcript.segments for spoken context, fetch recommendedFrames or the frame API URLs to see the screen, and check browserDiagnostics if present for redacted console logs and fetch/XHR request metadata.",
     agentTokenDescription:
       "This agent URL uses a short-lived token, so agents can read the clip without exposing the password.",
     gifPreview: "GIF preview",
@@ -428,6 +431,7 @@ const messages = {
     askOwnerPublic: "Ask the owner to make it public.",
     responsive: "Responsive (16:9)",
     fixedSize: "Fixed size",
+    embedIframeTitle: "Clips video",
     width: "Width",
     height: "Height",
     autoplay: "Autoplay",

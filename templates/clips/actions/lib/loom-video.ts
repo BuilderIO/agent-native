@@ -17,6 +17,18 @@ export type LoomVideoDownload = {
   sourceUrl: string;
 };
 
+const LOOM_VIDEO_UNAVAILABLE_MESSAGE =
+  "Loom did not provide a downloadable MP4 for this video. Download the original from Loom and use Upload video in Clips.";
+
+export class LoomVideoUnavailableError extends Error {
+  statusCode = 422;
+
+  constructor(message = LOOM_VIDEO_UNAVAILABLE_MESSAGE) {
+    super(message);
+    this.name = "LoomVideoUnavailableError";
+  }
+}
+
 function formatBytes(bytes: number): string {
   if (bytes >= 1024 * 1024) {
     return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
@@ -128,6 +140,10 @@ async function fetchTranscodedVideoUrl({
     },
     { maxRedirects: 2 },
   );
+
+  if (response.status === 204) {
+    throw new LoomVideoUnavailableError();
+  }
 
   if (!response.ok) {
     throw new Error(

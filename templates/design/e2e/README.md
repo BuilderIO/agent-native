@@ -10,6 +10,7 @@ resizing, moving/reparenting, the layers panel, and the iframe bridge.
 pnpm e2e          # headless
 pnpm e2e:headed   # watch it drive a real browser
 pnpm e2e:ui       # Playwright UI mode
+E2E_BROWSER_CHANNEL=chrome pnpm e2e  # run the suite in installed Google Chrome
 ```
 
 - `playwright.config.ts` starts its own dev server on **:9333** backed by a
@@ -32,12 +33,12 @@ action endpoints. Both `.auth/` files are gitignored.
 
 ## Why the editor needs special handling (the hard-won bits)
 
-The design renders inside a `sandbox="allow-scripts"` iframe with **no
-`allow-same-origin`**, and a pointer-capturing shield overlay sits on top. So:
+The design renders inside a sandboxed iframe, and a pointer-capturing shield
+overlay sits on top. So:
 
 | Symptom                                                                 | Wrong approach                         | Right approach                                                                                                                                                                                             |
 | ----------------------------------------------------------------------- | -------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Can't read iframe DOM                                                   | `iframe.contentDocument` → `null`      | `page.frameLocator('iframe').locator(...)` — CDP targets the frame directly                                                                                                                                |
+| Reaching into iframe DOM                                                | parent-document locators               | `page.frameLocator('iframe').locator(...)` — Playwright targets the frame directly and stays stable across sandbox/overlay changes                                                                         |
 | Clicks "intercepted by `<div data-agent-native-edit-overlay="shield">`" | normal click (actionability fails)     | `.click({ force: true })` — the shield is _meant_ to get the event and drive selection                                                                                                                     |
 | Asserting an edit happened                                              | reading iframe state                   | listen for the bridge's parent `postMessage`s: `element-select`, `element-hover`, `visual-style-change`, `visual-structure-change` (see `installBridge`/`waitForBridge`)                                   |
 | `page.screenshot()` hangs forever                                       | `page.screenshot()`                    | `cdpScreenshot()` — CDP `Page.captureScreenshot`, no stability wait (the page never idles; the agent-chat panel polls)                                                                                     |

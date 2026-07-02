@@ -199,7 +199,7 @@ export default function Header() {
             </NavLink>
             <NavLink
               data-an-prefetch="render"
-              to={localizedPath("/templates")}
+              to={localizedPath("/apps")}
               className={({ isActive }) =>
                 isActive ? "header-link is-active" : "header-link"
               }
@@ -296,7 +296,7 @@ export default function Header() {
             </NavLink>
             <NavLink
               data-an-prefetch="render"
-              to={localizedPath("/templates")}
+              to={localizedPath("/apps")}
               className={({ isActive }) =>
                 isActive ? "header-link is-active" : "header-link"
               }

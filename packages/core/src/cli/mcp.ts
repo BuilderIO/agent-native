@@ -17,6 +17,7 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 
+import { runScreenMemoryMCPStdio } from "../mcp/screen-memory-stdio.js";
 import { runMCPStdio } from "../mcp/stdio.js";
 import {
   findWorkspaceRoot,
@@ -46,6 +47,7 @@ interface ParsedArgs {
   client?: string;
   app?: string;
   port?: number;
+  screenMemoryDir?: string;
   scope?: string;
   standalone: boolean;
   rotate: boolean;
@@ -64,6 +66,7 @@ function parseArgs(argv: string[]): ParsedArgs {
     if ((v = eat("--client")) !== undefined) out.client = v;
     else if ((v = eat("--app")) !== undefined) out.app = v;
     else if ((v = eat("--port")) !== undefined) out.port = Number(v);
+    else if ((v = eat("--dir")) !== undefined) out.screenMemoryDir = v;
     else if ((v = eat("--scope")) !== undefined) out.scope = v;
     else if (a === "--standalone") out.standalone = true;
     else if (a === "--rotate") out.rotate = true;
@@ -537,6 +540,10 @@ Usage:
       Run the MCP stdio transport (what client configs spawn).
       Default: proxy to the running local app; --standalone builds from disk.
 
+  npx @agent-native/core@latest mcp screen-memory [--dir <path>]
+      Run the local Clips Screen Memory stdio server.
+      Defaults to the Clips app-data screen-memory folder.
+
   npx @agent-native/core@latest mcp install --client <c> [--app <id>] [--scope user|project]
       Provision a token and write the client's MCP config (idempotent).
       Clients: claude-code, codex, cowork, cursor, opencode, github-copilot
@@ -557,6 +564,9 @@ export async function runMcp(args: string[]): Promise<void> {
   switch (sub) {
     case "serve":
       await cmdServe(p);
+      return;
+    case "screen-memory":
+      await runScreenMemoryMCPStdio({ storeDir: p.screenMemoryDir });
       return;
     case "install":
       await cmdInstall(p);

@@ -58,7 +58,7 @@ export default defineAction({
         "Open the converted Agent-Native Plan prototype review surface.",
       iframeTitle: "Agent-Native Plan",
       openLabel: "Open Visual Plan",
-      height: 860,
+      height: 900,
     }),
   },
   run: async (args) => {

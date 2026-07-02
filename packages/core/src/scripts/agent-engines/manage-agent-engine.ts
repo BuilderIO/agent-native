@@ -54,7 +54,7 @@ export const tool: ActionTool = {
       model: {
         type: "string",
         description:
-          "Model ID (e.g. 'gpt-5.5', 'claude-sonnet-4-6', 'gemini-3-1-pro'). Required for \"set-app-default\"; optional for \"set\" and \"test\" where it defaults to the engine's default model.",
+          "Model ID (e.g. 'gpt-5.5', 'claude-sonnet-5', 'gemini-3-1-pro'). Required for \"set-app-default\"; optional for \"set\" and \"test\" where it defaults to the engine's default model.",
       },
       baseUrl: {
         type: "string",

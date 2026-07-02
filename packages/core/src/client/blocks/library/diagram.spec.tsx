@@ -137,6 +137,20 @@ describe("DiagramBlock expand affordance", () => {
     );
   });
 
+  it("forces html diagram primitive labels to wrap inside their boxes", () => {
+    const css = readFileSync("src/styles/blocks.css", "utf8");
+
+    expect(css).toMatch(
+      /\.plan-diagram-frame\s+:is\(\s*\.diagram-panel,[^}]*\[class\*="box"\]\s*\)\s*{[^}]*overflow-wrap:\s*anywhere !important;[^}]*white-space:\s*normal !important;/s,
+    );
+    expect(css).toMatch(
+      /\.plan-diagram-frame\s+:is\(\s*\.diagram-panel,[^}]*\)\s+:is\(h1,\s*h2,\s*h3,\s*p,\s*small,\s*strong,\s*span,\s*li\)\s*{[^}]*overflow-wrap:\s*anywhere !important;[^}]*white-space:\s*normal !important;/s,
+    );
+    expect(css).toMatch(
+      /\.plan-diagram-frame\s+:is\(\.diagram-pill,[^}]*\)\s*{[^}]*flex-wrap:\s*wrap;[^}]*white-space:\s*normal !important;/s,
+    );
+  });
+
   it("renders the expand control for the legacy node-graph variant", () => {
     act(() => {
       root.render(
@@ -156,6 +170,38 @@ describe("DiagramBlock expand affordance", () => {
 
     expect(expandButton()).toBeTruthy();
     expect(styleButton()).toBeNull();
+  });
+
+  it("lets long legacy sequence edge labels wrap instead of truncating", () => {
+    act(() => {
+      root.render(
+        <DiagramRead
+          blockId="diagram-sequence-wrap"
+          ctx={{}}
+          data={{
+            nodes: [
+              { id: "start", label: "Authenticated shell" },
+              { id: "guard", label: "Sign-in guard" },
+            ],
+            edges: [
+              {
+                from: "start",
+                to: "guard",
+                label: "already on /_agent-native/sign-in",
+              },
+            ],
+          }}
+        />,
+      );
+    });
+
+    const label = Array.from(container.querySelectorAll("span")).find((node) =>
+      node.textContent?.includes("/_agent-native/sign-in"),
+    );
+
+    expect(label?.className).toContain("whitespace-normal");
+    expect(label?.className).toContain("[overflow-wrap:anywhere]");
+    expect(label?.className).not.toContain("truncate");
   });
 
   it("opens a lightbox on click and closes it on Escape", () => {

@@ -20,71 +20,87 @@ button[title="Open agent sidebar"] {
 }
 
 :root {
-  --background: 240 6% 4%;
-  --foreground: 240 6% 93%;
+  --background: 0 0% 13%;
+  --foreground: 0 0% 93%;
 
-  --card: 240 5% 8%;
-  --card-foreground: 240 6% 93%;
+  --card: 0 0% 15%;
+  --card-foreground: 0 0% 93%;
 
-  --popover: 240 5% 10%;
-  --popover-foreground: 240 6% 93%;
+  --popover: 0 0% 15%;
+  --popover-foreground: 0 0% 93%;
 
   --primary: 0 0% 75%;
-  --primary-foreground: 240 6% 4%;
+  --primary-foreground: 0 0% 10%;
 
-  --secondary: 240 4% 14%;
-  --secondary-foreground: 240 6% 93%;
+  --secondary: 0 0% 18%;
+  --secondary-foreground: 0 0% 93%;
 
-  --muted: 240 4% 14%;
-  --muted-foreground: 240 4% 55%;
+  --muted: 0 0% 16%;
+  --muted-foreground: 0 0% 55%;
 
-  --accent: 240 4% 14%;
-  --accent-foreground: 240 6% 93%;
+  --accent: 0 0% 18%;
+  --accent-foreground: 0 0% 93%;
 
   --destructive: 0 72% 51%;
   --destructive-foreground: 0 0% 100%;
 
-  --border: 240 4% 16%;
-  --input: 240 4% 16%;
+  --border: 0 0% 24%;
+  --input: 0 0% 24%;
   --ring: 0 0% 50%;
 
   --radius: 0.5rem;
 
-  --surface: 240 5% 10%;
-  --surface-hover: 240 5% 13%;
+  --surface: 0 0% 10%;
+  --surface-hover: 0 0% 15%;
+  --sidebar-background: 0 0% 10%;
+  --sidebar-foreground: 0 0% 55%;
+  --sidebar-primary: 0 0% 75%;
+  --sidebar-primary-foreground: 0 0% 10%;
+  --sidebar-accent: 0 0% 16%;
+  --sidebar-accent-foreground: 0 0% 93%;
+  --sidebar-border: 0 0% 20%;
+  --sidebar-ring: 0 0% 50%;
 }
 
 .light {
   --background: 0 0% 100%;
-  --foreground: 240 6% 10%;
+  --foreground: 0 0% 10%;
 
   --card: 0 0% 100%;
-  --card-foreground: 240 6% 10%;
+  --card-foreground: 0 0% 10%;
 
   --popover: 0 0% 100%;
-  --popover-foreground: 240 6% 10%;
+  --popover-foreground: 0 0% 10%;
 
-  --primary: 240 6% 10%;
+  --primary: 0 0% 10%;
   --primary-foreground: 0 0% 100%;
 
-  --secondary: 240 5% 96%;
-  --secondary-foreground: 240 6% 10%;
+  --secondary: 0 0% 96%;
+  --secondary-foreground: 0 0% 10%;
 
-  --muted: 240 5% 96%;
-  --muted-foreground: 240 4% 46%;
+  --muted: 0 0% 96%;
+  --muted-foreground: 0 0% 46%;
 
-  --accent: 240 5% 96%;
-  --accent-foreground: 240 6% 10%;
+  --accent: 0 0% 96%;
+  --accent-foreground: 0 0% 10%;
 
   --destructive: 0 84% 60%;
   --destructive-foreground: 0 0% 98%;
 
-  --border: 240 6% 90%;
-  --input: 240 6% 90%;
-  --ring: 240 5% 65%;
+  --border: 0 0% 90%;
+  --input: 0 0% 90%;
+  --ring: 0 0% 65%;
 
-  --surface: 240 5% 96%;
-  --surface-hover: 240 5% 92%;
+  --surface: 0 0% 96%;
+  --surface-hover: 0 0% 92%;
+  --sidebar-background: 0 0% 97%;
+  --sidebar-foreground: 0 0% 46%;
+  --sidebar-primary: 0 0% 10%;
+  --sidebar-primary-foreground: 0 0% 100%;
+  --sidebar-accent: 0 0% 96%;
+  --sidebar-accent-foreground: 0 0% 10%;
+  --sidebar-border: 0 0% 90%;
+  --sidebar-ring: 0 0% 65%;
 }
 
 @layer base {
@@ -130,6 +146,16 @@ button[title="Open agent sidebar"] {
   }
   ::-webkit-scrollbar-thumb:hover {
     background: hsl(var(--muted-foreground) / 0.5);
+  }
+}
+
+.deck-grid-container {
+  container-type: inline-size;
+}
+
+@container (max-width: 36rem) {
+  .deck-grid {
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 

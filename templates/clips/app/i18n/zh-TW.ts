@@ -399,6 +399,9 @@ const messages = {
     embed: "嵌入",
     shareLink: "分享連結",
     shareWithAgents: "與 Agent 分享",
+    copyAgentPrompt: "複製 Agent 提示",
+    agentPrompt:
+      "取得這個 Clips Agent 脈絡 URL：{{agentContextUrl}}。使用 transcript.segments 讀取語音脈絡，取得 recommendedFrames 或影格 API URL 來查看螢幕，並在 browserDiagnostics 存在時檢查已遮蔽的主控台記錄和 fetch/XHR 請求中繼資料。",
     agentTokenDescription:
       "此 Agent URL 使用短期權杖，因此 Agent 可以在不暴露密碼的情況下讀取剪輯。",
     gifPreview: "GIF 預覽",
@@ -412,6 +415,7 @@ const messages = {
     askOwnerPublic: "請樓主公開一下。",
     responsive: "反應靈敏 (16:9)",
     fixedSize: "固定尺寸",
+    embedIframeTitle: "Clips 影片",
     width: "寬度",
     height: "高度",
     autoplay: "自動播放",

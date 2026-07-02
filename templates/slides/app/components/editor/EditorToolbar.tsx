@@ -129,6 +129,8 @@ interface EditorToolbarProps {
   onDuplicateDeck?: () => void;
   /** Export the deck as PDF */
   onExportPdf?: () => void;
+  /** Export the deck as PPTX */
+  onExportPptx?: () => Promise<void> | void;
   /** Active deck aspect ratio (defaults to 16:9 when omitted) */
   aspectRatio?: AspectRatio;
   /** Change the deck's aspect ratio */
@@ -251,6 +253,7 @@ export default function EditorToolbar({
   onTogglePinMode,
   onDuplicateDeck,
   onExportPdf,
+  onExportPptx,
   aspectRatio,
   onSetAspectRatio,
   designSystemTitle,
@@ -929,6 +932,7 @@ graph TD
           deckTitle={deckTitle}
           onDuplicate={onDuplicateDeck ?? (() => {})}
           onExportPdf={onExportPdf ?? (() => {})}
+          onExportPptx={onExportPptx ?? (() => {})}
         />
       </div>
 

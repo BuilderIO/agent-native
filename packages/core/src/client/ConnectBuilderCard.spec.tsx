@@ -64,4 +64,52 @@ describe("ConnectBuilderCard", () => {
     );
     expect(container.textContent).not.toContain("Send to Builder");
   });
+
+  it("sends the background-coding use case when joining the waitlist", async () => {
+    const requests: Array<{ input: RequestInfo | URL; init?: RequestInit }> =
+      [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        requests.push({ input, init });
+        return new Response(JSON.stringify({ ok: true }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }),
+    );
+
+    await act(async () => {
+      root.render(
+        <ConnectBuilderCard
+          configured
+          builderEnabled={false}
+          connectUrl="https://builder.io/cli-auth"
+          orgName="Builder space"
+          prompt="Update the dashboard layout"
+        />,
+      );
+    });
+
+    const button = Array.from(container.querySelectorAll("button")).find(
+      (element) => element.textContent?.includes("Join the waitlist"),
+    );
+    expect(button).toBeTruthy();
+
+    await act(async () => {
+      button?.dispatchEvent(
+        new MouseEvent("click", { bubbles: true, cancelable: true }),
+      );
+      await Promise.resolve();
+    });
+
+    expect(requests).toHaveLength(1);
+    const payload = JSON.parse(String(requests[0]?.init?.body));
+    expect(payload).toMatchObject({
+      prompt: "Update the dashboard layout",
+      orgName: "Builder space",
+      source: "connect_builder_card",
+      useCase: "builder_agent_background_coding",
+    });
+  });
 });

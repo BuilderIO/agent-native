@@ -27,6 +27,8 @@ import {
   appendAgentLoopContinuation,
   isResumableEngineError,
   continuationReasonForResumableError,
+  lastUnfinishedPreparingActionToolFromEvents,
+  type AgentLoopContinuationReason,
 } from "./production-agent.js";
 import { resolveRunSoftTimeoutMs } from "./run-manager.js";
 import type { ResolveRunSoftTimeoutOptions } from "./run-manager.js";
@@ -35,6 +37,35 @@ import {
   classifyToolCallJournal,
   buildResumeJournalNote,
 } from "./tool-call-journal.js";
+import type { AgentChatEvent } from "./types.js";
+
+async function readCurrentTurnEventsForResume(
+  threadId: string | undefined,
+  localEvents: readonly AgentChatEvent[] = [],
+): Promise<AgentChatEvent[]> {
+  let persistedEvents: AgentChatEvent[] = [];
+  try {
+    persistedEvents = threadId
+      ? await getCurrentTurnEventsForThread(threadId)
+      : [];
+  } catch {
+    persistedEvents = [];
+  }
+  if (localEvents.length === 0) return persistedEvents;
+  const seen = new Set(persistedEvents.map((event) => JSON.stringify(event)));
+  return [
+    ...persistedEvents,
+    ...localEvents.filter((event) => !seen.has(JSON.stringify(event))),
+  ];
+}
+
+function actionPreparationContinuationOptions(
+  events: readonly AgentChatEvent[],
+): { actionPreparationTool?: string } {
+  const actionPreparationTool =
+    lastUnfinishedPreparingActionToolFromEvents(events);
+  return actionPreparationTool ? { actionPreparationTool } : {};
+}
 
 /**
  * Derive the per-turn tool-call journal from the durable run-event ledger and,
@@ -57,13 +88,11 @@ import {
  * complete write tool (returning the journaled result instead). See
  * `tool-call-journal.ts` (`findCompletedJournalEntry`) for the keying used.
  */
-async function appendToolCallJournalNote(
+function appendToolCallJournalNote(
   messages: EngineMessage[],
-  threadId: string | undefined,
-): Promise<void> {
-  if (!threadId) return;
+  events: readonly AgentChatEvent[],
+): void {
   try {
-    const events = await getCurrentTurnEventsForThread(threadId);
     if (events.length === 0) return;
     const journal = classifyToolCallJournal(events);
     const note = buildResumeJournalNote(journal);
@@ -77,6 +106,57 @@ async function appendToolCallJournalNote(
     // parse must not break the resume that the continuation nudge already set
     // up — the model still continues, just without the structured journal.
   }
+}
+
+async function appendContinuationAndJournal(
+  messages: EngineMessage[],
+  reason: AgentLoopContinuationReason,
+  threadId: string | undefined,
+  localEvents: readonly AgentChatEvent[] = [],
+): Promise<void> {
+  const events = await readCurrentTurnEventsForResume(threadId, localEvents);
+  appendAgentLoopContinuation(
+    messages,
+    reason,
+    actionPreparationContinuationOptions(events),
+  );
+  appendToolCallJournalNote(messages, events);
+}
+
+async function hasCompletedSideEffectToolCallInCurrentTurn(
+  threadId: string | undefined,
+  localEvents: readonly AgentChatEvent[] = [],
+): Promise<boolean> {
+  try {
+    const events = await readCurrentTurnEventsForResume(threadId, localEvents);
+    if (events.length === 0) return false;
+    return events.some(
+      (event) =>
+        event.type === "tool_done" &&
+        event.completedSideEffect === true &&
+        event.isError !== true,
+    );
+  } catch {
+    return false;
+  }
+}
+
+function internalContinuationReasonForAttempt(
+  events: readonly AgentChatEvent[],
+): AgentLoopContinuationReason | undefined {
+  const last = events.at(-1);
+  if (last?.type !== "auto_continue") return undefined;
+  if (
+    last.reason === "run_timeout" ||
+    last.reason === "loop_limit" ||
+    last.reason === "no_progress" ||
+    last.reason === "stream_ended" ||
+    last.reason === "gateway_timeout" ||
+    last.reason === "network_interrupted"
+  ) {
+    return last.reason;
+  }
+  return undefined;
 }
 
 /**
@@ -102,12 +182,12 @@ export const RUN_BUDGET_EXHAUSTED_ERROR_CODE = "run_budget_exhausted";
  * exhausts its in-invocation continuation budget without finishing. Generic and
  * framework-level (not app-specific). Mirrors the `reliable-mutations` skill's
  * "fail loud, retry as a single bulk action" guidance so the user understands
- * the turn stopped before finishing and was not partially saved by the run
- * itself. */
+ * the turn stopped before finishing without implying that earlier completed
+ * tool calls did not persist. */
 export const RUN_BUDGET_EXHAUSTED_MESSAGE =
-  "I ran out of time before finishing this step (hosted runs have a ~40s budget). " +
-  "I stopped rather than leave things half-done — nothing was partially saved by me here. " +
-  "Please retry, ideally as a single bulk action.";
+  "I ran out of time before finishing this step. " +
+  "I stopped rather than keep retrying silently. " +
+  "Check any completed tool cards above before retrying, ideally as one smaller follow-up.";
 
 /**
  * Internal entry point used by the agent-chat plugin's run handler. Wraps
@@ -143,6 +223,7 @@ export async function runAgentLoopDirectWithSoftTimeout(
     usage.model = next.model;
   };
 
+  const localTurnEvents: AgentChatEvent[] = [];
   let attempts = 0;
   // Tracks whether the most recent attempt ended by scheduling another
   // continuation (soft-timeout or resumable error → `continue`) rather than
@@ -171,16 +252,49 @@ export async function runAgentLoopDirectWithSoftTimeout(
       controller.abort();
     }, timeoutMs);
 
+    const attemptStartIndex = localTurnEvents.length;
+    const send = (event: AgentChatEvent) => {
+      localTurnEvents.push(event);
+      opts.send(event);
+    };
+
     try {
       const nextUsage = await runAgentLoop({
         ...opts,
+        send,
         signal: controller.signal,
       });
       addUsage(nextUsage);
+      const attemptEvents = localTurnEvents.slice(attemptStartIndex);
+      const internalContinuationReason =
+        internalContinuationReasonForAttempt(attemptEvents);
+      if (internalContinuationReason && !upstreamSignal.aborted) {
+        lastAttemptWasUnfinishedContinuation = true;
+        const continuationEvents = [...localTurnEvents];
+        if (
+          !(await hasCompletedSideEffectToolCallInCurrentTurn(
+            opts.threadId,
+            continuationEvents,
+          ))
+        ) {
+          opts.send({ type: "clear" });
+        }
+        await appendContinuationAndJournal(
+          opts.messages,
+          internalContinuationReason,
+          opts.threadId,
+          continuationEvents,
+        );
+        continue;
+      }
       if (softTimedOut && !upstreamSignal.aborted) {
         lastAttemptWasUnfinishedContinuation = true;
-        appendAgentLoopContinuation(opts.messages, "run_timeout");
-        await appendToolCallJournalNote(opts.messages, opts.threadId);
+        await appendContinuationAndJournal(
+          opts.messages,
+          "run_timeout",
+          opts.threadId,
+          localTurnEvents,
+        );
         continue;
       }
       return usage;
@@ -189,9 +303,20 @@ export async function runAgentLoopDirectWithSoftTimeout(
         // Clear partial text the client received before the abort so the
         // resumed model doesn't re-emit it and produce duplicated output.
         lastAttemptWasUnfinishedContinuation = true;
-        opts.send({ type: "clear" });
-        appendAgentLoopContinuation(opts.messages, "run_timeout");
-        await appendToolCallJournalNote(opts.messages, opts.threadId);
+        if (
+          !(await hasCompletedSideEffectToolCallInCurrentTurn(
+            opts.threadId,
+            localTurnEvents,
+          ))
+        ) {
+          opts.send({ type: "clear" });
+        }
+        await appendContinuationAndJournal(
+          opts.messages,
+          "run_timeout",
+          opts.threadId,
+          localTurnEvents,
+        );
         continue;
       }
       // Resumable transport / gateway interruptions: the LLM call was cut off
@@ -209,12 +334,20 @@ export async function runAgentLoopDirectWithSoftTimeout(
       // the in-memory messages array, so the next attempt re-emits it).
       if (!upstreamSignal.aborted && isResumableEngineError(err)) {
         lastAttemptWasUnfinishedContinuation = true;
-        opts.send({ type: "clear" });
-        appendAgentLoopContinuation(
+        if (
+          !(await hasCompletedSideEffectToolCallInCurrentTurn(
+            opts.threadId,
+            localTurnEvents,
+          ))
+        ) {
+          opts.send({ type: "clear" });
+        }
+        await appendContinuationAndJournal(
           opts.messages,
           continuationReasonForResumableError(err),
+          opts.threadId,
+          localTurnEvents,
         );
-        await appendToolCallJournalNote(opts.messages, opts.threadId);
         continue;
       }
       throw err;
@@ -234,7 +367,16 @@ export async function runAgentLoopDirectWithSoftTimeout(
   if (!upstreamSignal.aborted && lastAttemptWasUnfinishedContinuation) {
     // Discard any partial text already streamed for the unfinished attempt so
     // the terminal message stands alone instead of trailing a half sentence.
-    opts.send({ type: "clear" });
+    // Preserve completed tool cards: they are the user's only durable proof
+    // that a side effect landed before the final assistant note timed out.
+    if (
+      !(await hasCompletedSideEffectToolCallInCurrentTurn(
+        opts.threadId,
+        localTurnEvents,
+      ))
+    ) {
+      opts.send({ type: "clear" });
+    }
     opts.send({
       type: "error",
       error: RUN_BUDGET_EXHAUSTED_MESSAGE,

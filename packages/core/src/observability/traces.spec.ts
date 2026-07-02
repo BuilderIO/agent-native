@@ -296,4 +296,48 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
 
     expect(usage.model).toBe("claude-test");
   });
+
+  it("allows recoverable run-timeout aborts to be classified as successful run spans", async () => {
+    const { tracer, spans } = createRecordingTracer();
+    __setAgentTracerForTests(tracer as any);
+    const controller = new AbortController();
+
+    const loopOpts: any = {
+      engine: {},
+      model: "claude-test",
+      systemPrompt: "",
+      tools: [],
+      messages: [],
+      actions: {},
+      send: () => {},
+      signal: controller.signal,
+    };
+
+    await expect(
+      instrumentAgentLoop({
+        runAgentLoop: async () => {
+          controller.abort("run_timeout");
+          throw new Error("This operation was aborted");
+        },
+        loopOpts,
+        runId: "run-timeout-classified",
+        threadId: "thread-1",
+        userId: "user@example.com",
+        config: { ...DEFAULT_OBSERVABILITY_CONFIG, enabled: true },
+        classifyError: () => ({
+          status: "success",
+          errorMessage: null,
+          metadata: {
+            terminalReason: "run_timeout",
+            recoverableContinuation: true,
+          },
+        }),
+      }),
+    ).rejects.toThrow("This operation was aborted");
+
+    const runSpan = spans.find((span) => span.name === "agent.run");
+    expect(runSpan?.status?.code).toBe(SPAN_STATUS_OK);
+    expect(runSpan?.status?.message).toBeUndefined();
+    expect(runSpan?.ended).toBe(true);
+  });
 });

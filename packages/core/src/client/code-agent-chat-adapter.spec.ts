@@ -54,6 +54,45 @@ describe("codeAgentTranscriptEventsToContent", () => {
       },
     ]);
   });
+
+  it("drops transcript content before a hosted agent clear marker", () => {
+    const content = codeAgentTranscriptEventsToContent([
+      event("draft", "system", "Rejected draft", { role: "assistant" }),
+      event("clear", "status", "", { agentChatEventType: "clear" }),
+      event("final", "system", "Corrected answer", { role: "assistant" }),
+    ]);
+
+    expect(content).toEqual([{ type: "text", text: "Corrected answer" }]);
+  });
+
+  it("preserves completed hosted tool output across a clear marker", () => {
+    const content = codeAgentTranscriptEventsToContent([
+      event("tool-start", "status", "Running query.", {
+        type: "tool_start",
+        tool: "query",
+        input: { sql: "select 1" },
+      }),
+      event("tool-done", "status", "Finished query.", {
+        type: "tool_done",
+        tool: "query",
+        result: "1",
+      }),
+      event("draft", "system", "Rejected draft", { role: "assistant" }),
+      event("z-clear", "status", "", { agentChatEventType: "clear" }),
+      event("final-answer", "system", "Corrected answer", {
+        role: "assistant",
+      }),
+    ]);
+
+    expect(content).toEqual([
+      expect.objectContaining({
+        type: "tool-call",
+        toolName: "query",
+        result: "1",
+      }),
+      { type: "text", text: "Corrected answer" },
+    ]);
+  });
 });
 
 describe("createCodeAgentChatAdapter", () => {
@@ -120,6 +159,46 @@ describe("createCodeAgentChatAdapter", () => {
       content: [{ type: "text", text: "Done" }],
       metadata: { custom: { runId: "run-1" } },
     });
+  });
+
+  it("yields an empty snapshot when a hosted agent clear marker arrives alone", async () => {
+    const events: CodeAgentChatTranscriptEvent[] = [];
+    const sendFollowUp = vi.fn(async () => {
+      events.push(
+        event("draft", "system", "Rejected draft", { role: "assistant" }),
+        event("z-clear", "status", "", { agentChatEventType: "clear" }),
+      );
+      return { ok: true };
+    });
+    const controller: CodeAgentChatController = {
+      get: vi.fn(async () => ({ status: "completed" })),
+      transcript: vi.fn(async () => events),
+      sendFollowUp,
+      control: vi.fn(async () => ({ ok: true })),
+    };
+    const adapter = createCodeAgentChatAdapter({
+      controller,
+      runIdRef: { current: "run-1" },
+      pollIntervalMs: 1,
+      idlePollIntervalMs: 1,
+      terminalIdlePolls: 1,
+    });
+
+    const results = await drain(
+      adapter.run(
+        runOptions({
+          role: "user",
+          content: [{ type: "text", text: "Fix it" }],
+        }),
+      ) as AsyncIterable<unknown>,
+    );
+
+    expect(results).toContainEqual(
+      expect.objectContaining({
+        content: [],
+        metadata: { custom: { runId: "run-1" } },
+      }),
+    );
   });
 
   it("does not stop the Code run for lifecycle aborts by default", async () => {

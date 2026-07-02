@@ -1,6 +1,6 @@
 {
   "name": "@agent-native/core",
-  "version": "0.80.7",
+  "version": "0.84.52",
   "description": "Framework for agent-native application development — where AI agents and UI share SQL state, actions, and context",
   "homepage": "https://github.com/BuilderIO/agent-native#readme",
   "bugs": {
@@ -184,7 +184,7 @@
     "build": "tsgo && tsgo -p tsconfig.cli.json && node scripts/finalize-build.mjs && node scripts/check-dist-imports.mjs",
     "dev": "tsgo --watch",
     "typecheck": "tsgo --noEmit",
-    "test": "vitest --run src",
+    "test": "vitest --run src --maxWorkers=25%",
     "prepack": "tsx ../../scripts/sync-workspace-core-skills.ts --check && npm run build && cp ../../README.md ./README.md",
     "prepublishOnly": "npm run build"
   },
@@ -257,6 +257,7 @@
     "minimatch": "^10.0.0",
     "nanoid": "^5.1.9",
     "next-themes": "^0.4.6",
+    "nf3": "0.3.17",
     "nitro": "3.0.260415-beta",
     "p-limit": "^7.3.0",
     "prettier": "^3.8.3",

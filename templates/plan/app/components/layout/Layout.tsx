@@ -132,6 +132,21 @@ export function Layout({ children }: LayoutProps) {
       window.removeEventListener(PLAN_READER_VIEW_EVENT, onPlanReaderView);
   }, [planDetailRoute]);
 
+  // Embed mode: render just the reader, flowing — no Sidebar, no AgentSidebar,
+  // no h-screen shell. Those (some in shared core) lock the embed to the iframe
+  // height; bypassing them lets the document flow so the shell sizes to content
+  // (see global.css `html[data-embed]` + frame.ts content-height reporting).
+  const embedded = new URLSearchParams(location.search).get("embedded") === "1";
+  if (embedded) {
+    return (
+      <HeaderActionsProvider>
+        <div className="agent-embed-root flex w-full flex-col bg-background text-foreground">
+          {children}
+        </div>
+      </HeaderActionsProvider>
+    );
+  }
+
   const pageContent = (
     <div className="flex h-full flex-1 flex-col overflow-hidden">
       {ownsToolbar ? (
@@ -150,7 +165,9 @@ export function Layout({ children }: LayoutProps) {
       ) : (
         <Header onOpenMobileSidebar={() => setMobileSidebarOpen(true)} />
       )}
-      <main className="flex-1 overflow-y-auto">{children}</main>
+      <main className="agent-native-app-main flex-1 overflow-y-auto">
+        {children}
+      </main>
     </div>
   );
 

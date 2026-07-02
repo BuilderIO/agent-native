@@ -77,11 +77,11 @@ const jaJP = {
   home: {
     hero: {
       badge: "オープンソース framework",
-      titleLine1: "エージェントアプリケーション",
-      titleAccent: "あなたが所有する",
+      titleLine1: "agentic apps のための",
+      titleAccent: "framework",
       body: "Chat-first app と app-agent loop から始めましょう。agent の成長に合わせて actions、画面、jobs、workflows を追加できます。",
-      primaryCta: "テンプレートから始める",
-      secondaryCta: "ドキュメントを見る",
+      primaryCta: "app を試す",
+      secondaryCta: "ドキュメントを読む",
     },
     code: {
       quickStartComment: "1 つのコマンドで app を作成",
@@ -91,10 +91,109 @@ const jaJP = {
         "1 つの action が agent、UI、HTTP、MCP、A2A、CLI を動かします。",
       frameworkDescription: "ローカルの app-agent loop から hello を返します。",
     },
+    actionSurface: {
+      eyebrow: "後付けAIではなく、深くエージェント指向",
+      title: "ひとつのアクションでアプリ全体の面を開く",
+      body: "操作を一度だけ定義します。Agent-Native はそれを UI アクション、agent ツール、HTTP エンドポイント、MCP/A2A 面、CLI コマンド、権限チェック、監査証跡にします。",
+      buildAction: "アクションを作る",
+      benefits: {
+        oneActionDefinition: {
+          title: "ひとつのアクション定義",
+          body: "UI、agent、HTTP、MCP、A2A、CLI が同じ操作を呼び出します。",
+        },
+        scopedByDefault: {
+          title: "既定でスコープ付き",
+          body: "Auth、共有、ガバナンス、監査ログが作業と一緒に適用されます。",
+        },
+        headedOrHeadless: {
+          title: "Apps、automations、agents",
+          body: "同じ operation を chat、UI、scheduled jobs、queues、external agents、scripts から実行できます。",
+        },
+        contextRichInput: {
+          title: "文脈豊かな入力",
+          body: "チャット、音声、skills、指示、UI 状態が同じループに残ります。",
+        },
+        openAgentProtocols: {
+          title: "オープンな agent プロトコル",
+          body: "A2A、MCP、MCP apps、外部 agents はフレームワークの基本要素です。",
+        },
+        observableByDesign: {
+          title: "設計時点から観測可能",
+          body: "Trace、eval、フィードバック、監査履歴により agent の作業を検査できます。",
+        },
+      },
+    },
+    modules: {
+      pageEyebrow: "モジュール型フレームワーク",
+      title: "agentic アプリ向けの組み込みモジュール",
+      body: "本番で必要な部品のうち、agents がゼロから作るべきでないものを人が検証済みで用意しています。そのまま使い、ソースを確認し、必要ならモジュールを置き換えられます。",
+      pageBody:
+        "Agent-Native は、本番作業で agents が即興するべきでない部品を人が検証済みで提供します。そのまま使い、ソースを確認し、製品に合わせて置き換えられます。",
+      viewAll: "すべてのモジュールを見る",
+      browseApps: "モジュールで作られたアプリを見る",
+      items: {
+        autoStateSyncing: {
+          title: "状態の自動同期",
+          body: "Agent の変更が UI を更新し、UI 状態も別の橋なしで agent から見えるままになります。",
+        },
+        actions: {
+          title: "アクション",
+          body: "作業を一度定義し、UI、agent、HTTP、MCP、A2A、CLI から使えます。",
+        },
+        sqlStateOrm: {
+          title: "SQL 状態と ORM",
+          body: "永続的なアプリデータ、application state、マイグレーション、プロバイダー非依存の schema。",
+        },
+        dbAdmin: {
+          title: "データベース管理",
+          body: "Agent が読める schema、クエリ面、マイグレーション、専用バックオフィス不要の管理ツール。",
+        },
+        authGovernance: {
+          title: "認証とガバナンス",
+          body: "ログイン、組織、マルチテナンシー、権限、承認、ポリシーフック。",
+        },
+        sharing: {
+          title: "共有",
+          body: "共有リンク、スコープ付きアクセス、公開または非公開リソース、コメント、レビュー面。",
+        },
+        realtimeCollaboration: {
+          title: "リアルタイム共同編集",
+          body: "複数ユーザー編集、ライブプレゼンス、楽観的 UI、サーバー側の調整。",
+        },
+        agentInteroperability: {
+          title: "Agent 相互運用",
+          body: "A2A、MCP、MCP apps、外部 agents、harness agents、アプリ間ハンドオフ。",
+        },
+        automationsQueues: {
+          title: "自動化とキュー",
+          body: "イベント起点の作業、スケジュールタスク、バックグラウンド実行、信頼できる mutations。",
+        },
+        agentUiSurface: {
+          title: "Agent UI 面",
+          body: "チャット、skills、指示、生成 UI、音声入力、agent から見えるコンテキスト。",
+        },
+        observability: {
+          title: "観測可能性",
+          body: "Trace、eval、フィードバック、実験、agents が行ったことを示す証拠。",
+        },
+        workspaces: {
+          title: "ワークスペース",
+          body: "Composable agentic apps が互いを発見し、A2A で連携します。",
+        },
+        sourceOwnership: {
+          title: "ソース所有権",
+          body: "Docs と source は agents が検査、fork、eject、patch、置換できる場所にあります。",
+        },
+        auditLogs: {
+          title: "監査ログ",
+          body: "人と agent の変更を、ユーザーがアクセスできるリソース範囲で永続的に記録します。",
+        },
+      },
+    },
     framework: {
       title: "agent-native apps のための framework",
       body1:
-        "Agent-Native は、agents を実際のソフトウェアとして構築するためのオープンソース framework です。Chat または headless agents から始め、同じ actions を中心に UI、jobs、コラボレーションを追加できます。",
+        "Agent-Native は agentic applications を構築するためのオープンソース framework です。Chat から始め、共有 actions を定義し、同じ state を中心に UI、jobs、コラボレーションを追加できます。",
       body2:
         "自分のデータベース、ホスティングプロバイダー、モデルスタック、app コードを持ち込めます。",
       cta: "framework ガイドを読む",
@@ -122,9 +221,9 @@ const jaJP = {
       },
     },
     templates: {
-      title: "機能豊富な app を fork してカスタマイズ",
+      title: "Agent-Native app を試す",
       eyebrow: "100% 無料でオープンソース",
-      cta: "すべてのテンプレートを見る",
+      cta: "apps を見る",
     },
     skills: {
       title: "skill で試す",
@@ -196,12 +295,12 @@ const jaJP = {
     },
     quickStart: {
       title: "コマンドから始める",
-      body: "1 つのコマンドで、actions、durable threads、SQLite を備えたローカル app を作成します。まだブラウザー UI が不要な場合は `--headless` を使ってください。",
+      body: "1 つのコマンドで、actions、durable threads、SQLite を備えた chat-first ローカル app を作成します。ブラウザー UI がまだ不要な automation-first workflow の場合だけ `--headless` を使ってください。",
     },
     finalCta: {
-      title: "agentic era のために作られた、あなたが所有するソフトウェア",
+      title: "agentic era のために作られたソフトウェア",
       body: "コマンドまたは durable action から始め、app-agent loop に通し、操作を書き直さずに UI、jobs、コラボレーションへ育てられます。オープンソース。Fork 可能。あなたのものです。",
-      primaryCta: "Action から始める",
+      primaryCta: "app を試す",
       secondaryCta: "ドキュメントを読む",
       githubCta: "GitHub で見る",
     },
@@ -310,8 +409,8 @@ const jaJP = {
   },
   templatesPage: {
     title: "あなたが所有するオープンソースのエージェントネイティブ アプリ",
-    eyebrow: "100%無料かつオープンソース",
-    body: "テンプレートをフォークしてローカルで実行し、エージェントに進化させます。コードはあなたが所有しており、すべてをカスタマイズできます。",
+    eyebrow: "動く app をフォークし、agent に進化させます。",
+    body: "すべてをカスタマイズできます。",
     community:
       "空のアプリから始めたい場合は、フレームワークガイドでゼロから始められます。",
     createYourOwn: "ゼロから始める",

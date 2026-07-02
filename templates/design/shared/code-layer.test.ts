@@ -5,7 +5,9 @@ import {
   buildCodeLayerProjection,
   buildCodeLayerTree,
   ensureCodeLayerNodeIdsInHtml,
+  moveNodeBetweenDocuments,
   removeCodeLayerNodeFromHtml,
+  stripEditorOnlyAttributes,
   type EditIntent,
 } from "./code-layer";
 
@@ -47,6 +49,7 @@ describe("code-layer projection", () => {
     expect(hero?.capabilities.map((capability) => capability.kind)).toEqual([
       "style",
       "class",
+      "responsive-class",
       "text",
     ]);
   });
@@ -111,6 +114,65 @@ describe("code-layer projection", () => {
     expect(button?.layerNameSource).toBe("semantic");
   });
 
+  it("marks component instance nodes with componentInstance metadata", () => {
+    const html = `
+      <section class="flex gap-4">
+        <div
+          data-agent-native-component="HeroCard"
+          data-agent-native-prop-variant="primary"
+          data-agent-native-prop-size="lg"
+          data-agent-native-node-id="hero-card-1"
+          x-data="{ open: false }"
+        >Card content</div>
+        <div class="plain">No component</div>
+      </section>
+    `;
+
+    const projection = buildCodeLayerProjection(html);
+    const cardNode = projection.nodes.find(
+      (node) =>
+        node.dataAttributes["data-agent-native-component"] === "HeroCard",
+    );
+    const plainNode = projection.nodes.find((node) =>
+      node.classes.includes("plain"),
+    );
+
+    expect(cardNode).toBeTruthy();
+    expect(cardNode?.componentInstance).toBeDefined();
+    expect(cardNode?.componentInstance?.name).toBe("HeroCard");
+    expect(cardNode?.componentInstance?.nodeId).toBe(cardNode?.id);
+    expect(cardNode?.componentInstance?.selector).toBe(cardNode?.selector);
+    expect(cardNode?.componentInstance?.alpineData).toBe("{ open: false }");
+    expect(cardNode?.componentInstance?.props).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ name: "variant", value: "primary" }),
+        expect.objectContaining({ name: "size", value: "lg" }),
+      ]),
+    );
+
+    // Plain nodes must not have componentInstance.
+    expect(plainNode?.componentInstance).toBeUndefined();
+  });
+
+  it("classifies component-annotated nodes as 'component' in the layer tree", () => {
+    const html = `
+      <main>
+        <div data-agent-native-component="NavBar">Nav</div>
+        <div class="content">Content</div>
+      </main>
+    `;
+
+    const tree = buildCodeLayerTree(buildCodeLayerProjection(html));
+    const mainNode = tree[0];
+    expect(mainNode).toBeTruthy();
+    // The NavBar-annotated div must use the component name and classification.
+    const componentChild = mainNode?.children.find(
+      (child) => child.type === "component",
+    );
+    expect(componentChild).toBeTruthy();
+    expect(componentChild?.name).toBe("NavBar");
+  });
+
   it("builds a design-editor DOM layer tree from projection parentage", () => {
     const html = `
       <main data-agent-native-layer-name="Page">
@@ -142,6 +204,166 @@ describe("code-layer projection", () => {
         type: "text",
       }),
     );
+  });
+
+  it("classifies canvas primitives by their data-an-primitive kind marker", () => {
+    // Canvas primitives (drawn shapes / board objects) are <div>s, which would
+    // otherwise classify as "element" (code glyph). The kind marker makes a
+    // rectangle render with a rectangle icon, text with a text icon, etc.
+    const html = `
+      <div data-agent-native-node-id="r1" data-an-primitive="rectangle" style="position:absolute;width:80px;height:40px;background:#2563eb"></div>
+      <div data-agent-native-node-id="t1" data-an-primitive="text" style="position:absolute">Label</div>
+      <div data-agent-native-node-id="f1" data-an-primitive="frame" style="position:absolute;width:120px;height:80px"></div>
+      <div data-agent-native-node-id="e1" data-an-primitive="ellipse" style="position:absolute;width:60px;height:60px;border-radius:50%;background:#2563eb"></div>
+    `;
+    const tree = buildCodeLayerTree(buildCodeLayerProjection(html));
+    expect(tree.map((node) => node.type)).toEqual([
+      "shape",
+      "text",
+      "frame",
+      "ellipse",
+    ]);
+  });
+
+  it("classifies SVG-based vector primitives by their data-an-primitive kind marker", () => {
+    // Pen-tool vectors, lines, arrows, polygons, and stars are <svg>s. Without
+    // a distinct type they would fall through to "shape" and show a rectangle
+    // glyph. The kind marker gives each its own vector/line/arrow/polygon/star
+    // classification.
+    const html = `
+      <svg data-agent-native-node-id="p1" data-an-primitive="path" style="position:absolute"><path d="M 0 0 L 10 10"/></svg>
+      <svg data-agent-native-node-id="l1" data-an-primitive="line" style="position:absolute"><path d="M 0 5 L 100 5"/></svg>
+      <svg data-agent-native-node-id="a1" data-an-primitive="arrow" style="position:absolute"><path d="M 0 5 L 100 5" marker-end="url(#a)"/></svg>
+      <svg data-agent-native-node-id="g1" data-an-primitive="polygon" style="position:absolute"><polygon points="0,0 10,0 5,10"/></svg>
+      <svg data-agent-native-node-id="s1" data-an-primitive="star" style="position:absolute"><polygon points="0,0 2,2 4,0"/></svg>
+    `;
+    const tree = buildCodeLayerTree(buildCodeLayerProjection(html));
+    expect(tree.map((node) => node.type)).toEqual([
+      "vector",
+      "line",
+      "arrow",
+      "polygon",
+      "star",
+    ]);
+    // Each SVG primitive is a single leaf layer: its internal geometry
+    // (<path>/<polygon>) must not be projected as a child layer.
+    expect(tree.map((node) => node.children.length)).toEqual([0, 0, 0, 0, 0]);
+  });
+
+  it("does not project inline-SVG internals as child layers", () => {
+    const html = `
+      <div data-agent-native-node-id="logo" style="position:absolute">
+        <svg viewBox="0 0 24 24"><g><path d="M0 0h24v24H0z"/><circle cx="12" cy="12" r="6"/></g></svg>
+      </div>
+    `;
+    const tree = buildCodeLayerTree(buildCodeLayerProjection(html));
+    const container = tree[0];
+    const svg = container?.children.find((child) => child.tag === "svg");
+    expect(svg).toBeTruthy();
+    expect(svg?.children).toEqual([]);
+  });
+
+  it("classifies rectangle/rect data-an-primitive as a generic shape", () => {
+    const html = `
+      <div data-agent-native-node-id="r1" data-an-primitive="rectangle" style="position:absolute;width:80px;height:40px;background:#2563eb"></div>
+      <div data-agent-native-node-id="r2" data-an-primitive="rect" style="position:absolute;width:80px;height:40px;background:#2563eb"></div>
+    `;
+    const tree = buildCodeLayerTree(buildCodeLayerProjection(html));
+    expect(tree.map((node) => node.type)).toEqual(["shape", "shape"]);
+  });
+
+  it("classifies circle and oval data-an-primitive variants as ellipse", () => {
+    const html = `
+      <div data-agent-native-node-id="c1" data-an-primitive="circle" style="position:absolute;width:40px;height:40px;border-radius:50%"></div>
+      <div data-agent-native-node-id="o1" data-an-primitive="oval" style="position:absolute;width:80px;height:50px;border-radius:50%"></div>
+    `;
+    const tree = buildCodeLayerTree(buildCodeLayerProjection(html));
+    expect(tree.map((node) => node.type)).toEqual(["ellipse", "ellipse"]);
+  });
+
+  it("deduplicates malformed duplicate root ids in the layer tree", () => {
+    const html = `
+      <section data-agent-native-node-id="dup-root">First</section>
+      <section data-agent-native-node-id="dup-root">Second</section>
+    `;
+
+    const projection = buildCodeLayerProjection(html);
+    const tree = buildCodeLayerTree(projection);
+
+    expect(projection.rootNodeIds).toHaveLength(2);
+    expect(new Set(projection.rootNodeIds).size).toBe(1);
+    expect(tree).toHaveLength(1);
+    expect(new Set(tree.map((node) => node.id)).size).toBe(tree.length);
+  });
+
+  it("omits repeated document shell wrappers from layer tree roots", () => {
+    const html = `
+      <!doctype html>
+      <html data-agent-native-node-id="doc">
+        <head><title>Home</title></head>
+        <body data-agent-native-node-id="body">
+          <main data-agent-native-layer-name="Home">
+            <h1>Welcome</h1>
+          </main>
+        </body>
+      </html>
+      <!doctype html>
+      <html data-agent-native-node-id="doc">
+        <body data-agent-native-node-id="body">
+          <main data-agent-native-layer-name="Checkout">
+            <h1>Checkout</h1>
+          </main>
+        </body>
+      </html>
+    `;
+
+    const projection = buildCodeLayerProjection(html);
+    const tree = buildCodeLayerTree(projection);
+
+    expect(projection.nodes.filter((node) => node.tag === "html")).toHaveLength(
+      2,
+    );
+    expect(tree.map((node) => ({ tag: node.tag, name: node.name }))).toEqual([
+      { tag: "main", name: "Home" },
+      { tag: "main", name: "Checkout" },
+    ]);
+    expect(JSON.stringify(tree)).not.toContain('"tag":"html"');
+    expect(JSON.stringify(tree)).not.toContain('"tag":"body"');
+  });
+
+  it("omits empty unnamed document shell rows from the layer tree", () => {
+    const html = `<!doctype html><html><head></head><body></body></html>`;
+    const tree = buildCodeLayerTree(buildCodeLayerProjection(html));
+
+    expect(tree).toEqual([]);
+  });
+
+  it("keeps explicitly named document shell rows in the layer tree", () => {
+    const html = `
+      <!doctype html>
+      <html data-agent-native-layer-name="Document">
+        <body data-agent-native-layer-name="Body">
+          <main data-agent-native-layer-name="Home">
+            <h1>Welcome</h1>
+          </main>
+        </body>
+      </html>
+    `;
+
+    const tree = buildCodeLayerTree(buildCodeLayerProjection(html));
+
+    expect(tree.map((node) => ({ tag: node.tag, name: node.name }))).toEqual([
+      { tag: "html", name: "Document" },
+    ]);
+    expect(
+      tree[0]?.children.map((node) => ({ tag: node.tag, name: node.name })),
+    ).toEqual([{ tag: "body", name: "Body" }]);
+    expect(
+      tree[0]?.children[0]?.children.map((node) => ({
+        tag: node.tag,
+        name: node.name,
+      })),
+    ).toEqual([{ tag: "main", name: "Home" }]);
   });
 });
 
@@ -472,6 +694,97 @@ describe("applyVisualEdit", () => {
     );
   });
 
+  it("applies edits from runtime body-rooted selectors against fragment HTML", () => {
+    const html = `<div>One</div><div>Two</div><div>Three</div><div>Four</div>`;
+    const patch = applyVisualEdit(html, {
+      kind: "style",
+      target: {
+        selector: `body[data-agent-native-node-id="an-runtime"] > div:nth-of-type(4)`,
+      },
+      property: "color",
+      value: "#111",
+    });
+
+    expect(patch.result.status).toBe("applied");
+    expect(patch.content).toBe(
+      `<div>One</div><div>Two</div><div>Three</div><div style="color: #111">Four</div>`,
+    );
+  });
+
+  it("applies edits from runtime html/body-rooted selectors against fragment HTML", () => {
+    const html = `<main><section><button>One</button></section><section><button>Two</button></section></main>`;
+    const patch = applyVisualEdit(html, {
+      kind: "style",
+      target: {
+        selector: `html[data-agent-native-node-id="an-doc"] > body[data-agent-native-node-id="an-body"] > main > section:nth-of-type(2) > button`,
+      },
+      property: "color",
+      value: "#111",
+    });
+
+    expect(patch.result.status).toBe("applied");
+    expect(patch.content).toBe(
+      `<main><section><button>One</button></section><section><button style="color: #111">Two</button></section></main>`,
+    );
+  });
+
+  it("resolves a drifted positional selector via the unique class match", () => {
+    // The runtime DOM had `div.target` as the 2nd child after reordering, but
+    // in the stored source it is the 3rd child, so strict `:nth-of-type(2)` no
+    // longer matches. Resolution should fall back to the unique class match.
+    const html = `<section class="list"><div class="row">A</div><div class="row">B</div><div class="target">C</div></section>`;
+    const patch = applyVisualEdit(html, {
+      kind: "style",
+      target: { selector: `section.list > div.target:nth-of-type(2)` },
+      property: "color",
+      value: "#111",
+    });
+
+    expect(patch.result.status).toBe("applied");
+    expect(patch.content).toBe(
+      `<section class="list"><div class="row">A</div><div class="row">B</div><div class="target" style="color: #111">C</div></section>`,
+    );
+  });
+
+  it("keeps strict positional resolution when the DOM order is intact", () => {
+    // Regression guard: when the positional selector is still valid, the strict
+    // pass must win and edit exactly the addressed node, not loosen to the
+    // whole set of same-tag siblings.
+    const html = `<div>One</div><div>Two</div><div>Three</div><div>Four</div>`;
+    const patch = applyVisualEdit(html, {
+      kind: "style",
+      target: {
+        selector: `body[data-agent-native-node-id="an-runtime"] > div:nth-of-type(2)`,
+      },
+      property: "color",
+      value: "#111",
+    });
+
+    expect(patch.result.status).toBe("applied");
+    expect(patch.content).toBe(
+      `<div>One</div><div style="color: #111">Two</div><div>Three</div><div>Four</div>`,
+    );
+  });
+
+  it("reports an actionable conflict when a drifted positional selector is ambiguous", () => {
+    // No source div carries the runtime position, and dropping the position
+    // leaves several identical candidates. Surface a clear, actionable conflict
+    // instead of silently editing the wrong node.
+    const html = `<div>One</div><div>Two</div><div>Three</div>`;
+    const patch = applyVisualEdit(html, {
+      kind: "style",
+      target: {
+        selector: `body[data-agent-native-node-id="an-runtime"] > div:nth-of-type(9)`,
+      },
+      property: "color",
+      value: "#111",
+    });
+
+    expect(patch.result.status).toBe("conflict");
+    expect(patch.result.message).toContain("after ignoring positional");
+    expect(patch.content).toBe(html);
+  });
+
   it("does not collapse full bridge selector paths to ambiguous leaf selectors", () => {
     const html = `<main><section data-layer-name="First"><button class="secondary">First</button></section><section data-layer-name="Second"><button class="secondary">Second</button></section></main>`;
     const patch = applyVisualEdit(html, {
@@ -559,5 +872,484 @@ describe("applyVisualEdit", () => {
 
     expect(patch.result.status).toBe("unsupported");
     expect(patch.content).toBe(html);
+  });
+});
+
+describe("wrapNodes", () => {
+  it("wraps sibling nodes in a new div wrapper at first target position", () => {
+    const html = `<main><div data-agent-native-node-id="a">A</div><div data-agent-native-node-id="b">B</div><div data-agent-native-node-id="c">C</div></main>`;
+    const patch = applyVisualEdit(html, {
+      kind: "wrapNodes",
+      targetIds: ["a", "b"],
+    });
+
+    expect(patch.result.status).toBe("applied");
+    expect(patch.result.changed).toBe(true);
+    expect(patch.result.wrapperNodeId).toBeTruthy();
+    // Wrapper should contain both targets
+    expect(patch.content).toContain(
+      `data-agent-native-node-id="${patch.result.wrapperNodeId}"`,
+    );
+    expect(patch.content).toContain(`data-agent-native-layer-name="Group"`);
+    expect(patch.content).toContain(`data-agent-native-node-id="a"`);
+    expect(patch.content).toContain(`data-agent-native-node-id="b"`);
+    // Wrapper should appear before c
+    const wrapperIdx = patch.content.indexOf(
+      `data-agent-native-layer-name="Group"`,
+    );
+    const cIdx = patch.content.indexOf(`data-agent-native-node-id="c"`);
+    expect(wrapperIdx).toBeLessThan(cIdx);
+    // c is still a direct child of main, not inside the wrapper
+    expect(patch.content).toMatch(/<\/div><div data-agent-native-node-id="c">/);
+  });
+
+  it("adds autoLayout styles to wrapper and strips absolute positioning from wrapped children", () => {
+    const html = `<main><div data-agent-native-node-id="x" style="position: absolute; left: 10px; top: 20px">X</div><div data-agent-native-node-id="y" style="position: absolute; right: 5px">Y</div></main>`;
+    const patch = applyVisualEdit(html, {
+      kind: "wrapNodes",
+      targetIds: ["x", "y"],
+      autoLayout: true,
+    });
+
+    expect(patch.result.status).toBe("applied");
+    expect(patch.content).toContain("display: flex");
+    expect(patch.content).toContain("flex-direction: column");
+    expect(patch.content).toContain("gap: 8px");
+    // Absolute positioning should be stripped from children
+    expect(patch.content).not.toContain("position: absolute");
+    expect(patch.content).not.toContain("left: 10px");
+    expect(patch.content).not.toContain("top: 20px");
+    expect(patch.content).not.toContain("right: 5px");
+  });
+
+  it("returns unsupported when targets don't share a parent", () => {
+    const html = `<main><section><div data-agent-native-node-id="a">A</div></section><div data-agent-native-node-id="b">B</div></main>`;
+    const patch = applyVisualEdit(html, {
+      kind: "wrapNodes",
+      targetIds: ["a", "b"],
+    });
+
+    expect(patch.result.status).toBe("unsupported");
+    expect(patch.content).toBe(html);
+  });
+
+  it("returns unsupported when selected siblings are not contiguous", () => {
+    const html = `<main><div data-agent-native-node-id="a">A</div><div data-agent-native-node-id="b">B</div><div data-agent-native-node-id="c">C</div></main>`;
+    const patch = applyVisualEdit(html, {
+      kind: "wrapNodes",
+      targetIds: ["a", "c"],
+    });
+
+    expect(patch.result.status).toBe("unsupported");
+    expect(patch.content).toBe(html);
+  });
+
+  it("returns conflict when a target node id is not found", () => {
+    const html = `<main><div data-agent-native-node-id="a">A</div></main>`;
+    const patch = applyVisualEdit(html, {
+      kind: "wrapNodes",
+      targetIds: ["a", "does-not-exist"],
+    });
+
+    expect(patch.result.status).toBe("conflict");
+    expect(patch.content).toBe(html);
+  });
+});
+
+describe("unwrap", () => {
+  it("replaces a wrapper with its children at the wrapper's parent position", () => {
+    const html = `<main><div data-agent-native-node-id="wrapper"><span data-agent-native-node-id="a">A</span><span data-agent-native-node-id="b">B</span></div><p>after</p></main>`;
+    const patch = applyVisualEdit(html, {
+      kind: "unwrap",
+      targetId: "wrapper",
+    });
+
+    expect(patch.result.status).toBe("applied");
+    expect(patch.content).not.toContain(`data-agent-native-node-id="wrapper"`);
+    expect(patch.content).toContain(`data-agent-native-node-id="a"`);
+    expect(patch.content).toContain(`data-agent-native-node-id="b"`);
+    expect(patch.content).toContain("<p>after</p>");
+    // Children appear before <p>after</p>
+    const aIdx = patch.content.indexOf(`data-agent-native-node-id="a"`);
+    const pIdx = patch.content.indexOf("<p>after</p>");
+    expect(aIdx).toBeLessThan(pIdx);
+  });
+
+  it("round-trips through wrapNodes: wrapping then unwrapping returns equivalent content", () => {
+    const original = `<main><div data-agent-native-node-id="a">A</div><div data-agent-native-node-id="b">B</div></main>`;
+    const wrapped = applyVisualEdit(original, {
+      kind: "wrapNodes",
+      targetIds: ["a", "b"],
+    });
+    expect(wrapped.result.status).toBe("applied");
+    const wrapperId = wrapped.result.wrapperNodeId!;
+
+    const unwrapped = applyVisualEdit(wrapped.content, {
+      kind: "unwrap",
+      targetId: wrapperId,
+    });
+    expect(unwrapped.result.status).toBe("applied");
+    // After round-trip, both original nodes are direct children of <main> again.
+    expect(unwrapped.content).toContain(`data-agent-native-node-id="a"`);
+    expect(unwrapped.content).toContain(`data-agent-native-node-id="b"`);
+    expect(unwrapped.content).not.toContain(
+      `data-agent-native-node-id="${wrapperId}"`,
+    );
+  });
+
+  it("returns conflict when the targetId is not found", () => {
+    const html = `<main><div data-agent-native-node-id="a">A</div></main>`;
+    const patch = applyVisualEdit(html, {
+      kind: "unwrap",
+      targetId: "not-here",
+    });
+
+    expect(patch.result.status).toBe("conflict");
+    expect(patch.content).toBe(html);
+  });
+});
+
+describe("autoLayout", () => {
+  it("enables auto-layout on a container with display:flex + direction + gap", () => {
+    const html = `<div data-agent-native-node-id="box"><span>A</span><span>B</span></div>`;
+    const patch = applyVisualEdit(html, {
+      kind: "autoLayout",
+      targetId: "box",
+      enabled: true,
+      direction: "row",
+      gap: "16px",
+    });
+
+    expect(patch.result.status).toBe("applied");
+    expect(patch.content).toContain("display: flex");
+    expect(patch.content).toContain("flex-direction: row");
+    expect(patch.content).toContain("gap: 16px");
+  });
+
+  it("uses column and 8px defaults when direction and gap are omitted", () => {
+    const html = `<div data-agent-native-node-id="box"><span>A</span></div>`;
+    const patch = applyVisualEdit(html, {
+      kind: "autoLayout",
+      targetId: "box",
+      enabled: true,
+    });
+
+    expect(patch.result.status).toBe("applied");
+    expect(patch.content).toContain("flex-direction: column");
+    expect(patch.content).toContain("gap: 8px");
+  });
+
+  it("strips absolute positioning from direct children when enabling", () => {
+    const html = `<div data-agent-native-node-id="container"><div data-agent-native-node-id="child" style="position: absolute; left: 0; top: 0; right: 0; bottom: 0">Child</div></div>`;
+    const patch = applyVisualEdit(html, {
+      kind: "autoLayout",
+      targetId: "container",
+      enabled: true,
+    });
+
+    expect(patch.result.status).toBe("applied");
+    // Container is now flex
+    expect(patch.content).toContain("display: flex");
+    // Child's absolute positioning is stripped
+    expect(patch.content).not.toContain("position: absolute");
+    expect(patch.content).not.toContain("left: 0");
+    expect(patch.content).not.toContain("top: 0");
+    expect(patch.content).not.toContain("right: 0");
+    expect(patch.content).not.toContain("bottom: 0");
+  });
+
+  it("disables auto-layout by setting display:block", () => {
+    const html = `<div data-agent-native-node-id="box" style="display: flex; flex-direction: column; gap: 8px"><span>A</span></div>`;
+    const patch = applyVisualEdit(html, {
+      kind: "autoLayout",
+      targetId: "box",
+      enabled: false,
+    });
+
+    expect(patch.result.status).toBe("applied");
+    expect(patch.content).toContain("display: block");
+  });
+
+  it("returns conflict when targetId is not found", () => {
+    const html = `<div data-agent-native-node-id="box">A</div>`;
+    const patch = applyVisualEdit(html, {
+      kind: "autoLayout",
+      targetId: "missing",
+      enabled: true,
+    });
+
+    expect(patch.result.status).toBe("conflict");
+    expect(patch.content).toBe(html);
+  });
+});
+
+describe("moveNodeBetweenDocuments", () => {
+  it("removes the node from sourceHtml and inserts it into destHtml body", () => {
+    const sourceHtml = `<body><div data-agent-native-node-id="keep">Keep</div><div data-agent-native-node-id="move-me">Move</div></body>`;
+    const destHtml = `<body><div data-agent-native-node-id="anchor">Anchor</div></body>`;
+
+    const result = moveNodeBetweenDocuments(sourceHtml, destHtml, {
+      nodeId: "move-me",
+    });
+
+    expect(result.status).toBe("applied");
+    // Node is gone from source
+    expect(result.sourceHtml).not.toContain(
+      `data-agent-native-node-id="move-me"`,
+    );
+    expect(result.sourceHtml).toContain(`data-agent-native-node-id="keep"`);
+    // Node landed in dest
+    expect(result.destHtml).toContain(`data-agent-native-node-id="move-me"`);
+    expect(result.destHtml).toContain("Move");
+  });
+
+  it("inserts before anchor when placement is before", () => {
+    const sourceHtml = `<body><div data-agent-native-node-id="node">Node</div></body>`;
+    const destHtml = `<body><div data-agent-native-node-id="anchor">Anchor</div></body>`;
+
+    const result = moveNodeBetweenDocuments(sourceHtml, destHtml, {
+      nodeId: "node",
+      anchorNodeId: "anchor",
+      placement: "before",
+    });
+
+    expect(result.status).toBe("applied");
+    const nodeIdx = result.destHtml.indexOf(`data-agent-native-node-id="node"`);
+    const anchorIdx = result.destHtml.indexOf(
+      `data-agent-native-node-id="anchor"`,
+    );
+    expect(nodeIdx).toBeLessThan(anchorIdx);
+  });
+
+  it("inserts after anchor when placement is after", () => {
+    const sourceHtml = `<body><div data-agent-native-node-id="node">Node</div></body>`;
+    const destHtml = `<body><div data-agent-native-node-id="anchor">Anchor</div></body>`;
+
+    const result = moveNodeBetweenDocuments(sourceHtml, destHtml, {
+      nodeId: "node",
+      anchorNodeId: "anchor",
+      placement: "after",
+    });
+
+    expect(result.status).toBe("applied");
+    const anchorIdx = result.destHtml.indexOf(
+      `data-agent-native-node-id="anchor"`,
+    );
+    const nodeIdx = result.destHtml.indexOf(`data-agent-native-node-id="node"`);
+    expect(anchorIdx).toBeLessThan(nodeIdx);
+  });
+
+  it("re-stamps colliding node ids in the moved subtree to be unique in dest", () => {
+    const sourceHtml = `<body><div data-agent-native-node-id="dup"><span data-agent-native-node-id="child-dup">Child</span></div></body>`;
+    const destHtml = `<body><div data-agent-native-node-id="dup">Existing dup in dest</div></body>`;
+
+    const result = moveNodeBetweenDocuments(sourceHtml, destHtml, {
+      nodeId: "dup",
+    });
+
+    expect(result.status).toBe("applied");
+    // Collect all ids in destHtml
+    const allIds = Array.from(
+      result.destHtml.matchAll(/data-agent-native-node-id="([^"]+)"/g),
+      (m) => m[1],
+    );
+    // All ids must be unique
+    expect(new Set(allIds).size).toBe(allIds.length);
+    // The original "dup" from dest must still be present
+    expect(allIds).toContain("dup");
+  });
+
+  it("returns unsupported when the node is not found in sourceHtml", () => {
+    const result = moveNodeBetweenDocuments(
+      `<body><div data-agent-native-node-id="a">A</div></body>`,
+      `<body></body>`,
+      { nodeId: "does-not-exist" },
+    );
+
+    expect(result.status).toBe("unsupported");
+    expect(result.message).toContain("does-not-exist");
+  });
+
+  it("returns unsupported when anchor is not found in destHtml", () => {
+    const result = moveNodeBetweenDocuments(
+      `<body><div data-agent-native-node-id="node">Node</div></body>`,
+      `<body><div data-agent-native-node-id="existing">X</div></body>`,
+      { nodeId: "node", anchorNodeId: "not-here" },
+    );
+
+    expect(result.status).toBe("unsupported");
+    expect(result.message).toContain("not-here");
+  });
+
+  it("re-stamps ALL colliding ids in a deeply-nested moved subtree", () => {
+    const sourceHtml = `<body><div data-agent-native-node-id="root"><div data-agent-native-node-id="l1"><span data-agent-native-node-id="l3">Deep</span></div></div></body>`;
+    const destHtml = `<body><div data-agent-native-node-id="l1">Existing l1</div><span data-agent-native-node-id="l3">Existing l3</span></body>`;
+
+    const result = moveNodeBetweenDocuments(sourceHtml, destHtml, {
+      nodeId: "root",
+    });
+
+    expect(result.status).toBe("applied");
+    const allIds = Array.from(
+      result.destHtml.matchAll(/data-agent-native-node-id="([^"]+)"/g),
+      (m) => m[1],
+    );
+    expect(new Set(allIds).size).toBe(allIds.length);
+    // Original ids preserved
+    expect(allIds).toContain("l1");
+    expect(allIds).toContain("l3");
+    // No duplicate l1 or l3
+    expect(allIds.filter((id) => id === "l1")).toHaveLength(1);
+    expect(allIds.filter((id) => id === "l3")).toHaveLength(1);
+    // Moved content is present
+    expect(result.destHtml).toContain("Deep");
+  });
+});
+
+describe("autoLayout (regression)", () => {
+  it("applies flex styles when target is resolved by projection hash, not data-agent-native-node-id", () => {
+    // Regression: setContainerStyle previously searched only by data-agent-native-node-id,
+    // silently returning without applying any styles when the node had no such attribute.
+    // Now it uses any stable identifier (data-code-layer-id, data-layer-id, HTML id, etc.).
+    const html = `<div id="my-box"><span style="position: absolute; left: 5px">X</span></div>`;
+    const projection = buildCodeLayerProjection(html);
+    const box = projection.nodes.find((n) => n.tag === "div");
+
+    expect(box?.dataAttributes["data-agent-native-node-id"]).toBeUndefined();
+
+    const patch = applyVisualEdit(html, {
+      kind: "autoLayout",
+      targetId: box!.id,
+      enabled: true,
+    });
+
+    expect(patch.result.status).toBe("applied");
+    expect(patch.content).toContain("display: flex");
+    expect(patch.content).toContain("flex-direction: column");
+    expect(patch.content).toContain("gap: 8px");
+    // Child absolute positioning is stripped
+    expect(patch.content).not.toContain("position: absolute");
+    expect(patch.content).not.toContain("left: 5px");
+  });
+
+  it("strips absolute positioning from multiple direct children when targeting by HTML id", () => {
+    const html = `<div id="container"><div style="position: absolute; left: 0; top: 0">A</div><div style="position: absolute; left: 100px; top: 0">B</div></div>`;
+    const projection = buildCodeLayerProjection(html);
+    const container = projection.nodes.find(
+      (n) => n.tag === "div" && !n.parentId,
+    );
+    expect(container).toBeTruthy();
+
+    const patch = applyVisualEdit(html, {
+      kind: "autoLayout",
+      targetId: container!.id,
+      enabled: true,
+      direction: "row",
+      gap: "16px",
+    });
+
+    expect(patch.result.status).toBe("applied");
+    expect(patch.content).toContain("display: flex");
+    expect(patch.content).toContain("flex-direction: row");
+    expect(patch.content).toContain("gap: 16px");
+    expect(patch.content).not.toContain("position: absolute");
+    expect(patch.content).not.toContain("left: 0");
+    expect(patch.content).not.toContain("left: 100px");
+  });
+
+  it("wrapNodes with autoLayout correctly strips each child's own positioning only", () => {
+    // Each wrapped child's own absolute positioning is stripped; grandchild positioning is untouched.
+    const html = `<main><div data-agent-native-node-id="a" style="position: absolute; left: 10px"><span style="position: absolute; top: 3px">GC</span></div><div data-agent-native-node-id="b" style="position: absolute; right: 5px">B</div></main>`;
+    const patch = applyVisualEdit(html, {
+      kind: "wrapNodes",
+      targetIds: ["a", "b"],
+      autoLayout: true,
+    });
+
+    expect(patch.result.status).toBe("applied");
+    expect(patch.content).not.toContain("left: 10px");
+    expect(patch.content).not.toContain("right: 5px");
+    // Grandchild positioning is NOT touched by wrapNodes autoLayout (only direct-child strip)
+    expect(patch.content).toContain("top: 3px");
+  });
+
+  it("applies all three flex styles when element has no stable data attributes and no HTML id", () => {
+    // Regression: previously only the first style property (display:flex) was applied because
+    // re-parsing after each individual mutation could not re-locate the target element when
+    // it carried no data-agent-native-node-id, data-code-layer-id, or HTML id.  All three
+    // setContainerStyle calls after the first returned silently with no-op.
+    const html = `<div class="container"><span style="position: absolute; left: 5px">X</span></div>`;
+    const projection = buildCodeLayerProjection(html);
+    const box = projection.nodes.find((n) => n.tag === "div");
+
+    expect(box?.dataAttributes["data-agent-native-node-id"]).toBeUndefined();
+    expect(box?.attributes["id"]).toBeUndefined();
+
+    const patch = applyVisualEdit(html, {
+      kind: "autoLayout",
+      targetId: box!.id,
+      enabled: true,
+      direction: "row",
+      gap: "12px",
+    });
+
+    expect(patch.result.status).toBe("applied");
+    expect(patch.content).toContain("display: flex");
+    expect(patch.content).toContain("flex-direction: row");
+    expect(patch.content).toContain("gap: 12px");
+    // Child absolute positioning is also stripped
+    expect(patch.content).not.toContain("position: absolute");
+    expect(patch.content).not.toContain("left: 5px");
+  });
+});
+
+describe("stripEditorOnlyAttributes", () => {
+  it("removes data-agent-native-node-id from simple elements", () => {
+    const html = `<div data-agent-native-node-id="an-abc123" class="foo">hello</div>`;
+    const result = stripEditorOnlyAttributes(html);
+    expect(result).not.toContain("data-agent-native-node-id");
+    expect(result).toContain('class="foo"');
+    expect(result).toContain("hello");
+  });
+
+  it("removes data-agent-native-node-id with single-quoted value", () => {
+    const html = `<span data-agent-native-node-id='an-xyz' style="color:red">text</span>`;
+    const result = stripEditorOnlyAttributes(html);
+    expect(result).not.toContain("data-agent-native-node-id");
+    expect(result).toContain('style="color:red"');
+  });
+
+  it("strips the attribute from multiple elements", () => {
+    const html = [
+      `<div data-agent-native-node-id="an-1" id="a">`,
+      `  <p data-agent-native-node-id="an-2" class="text-sm">content</p>`,
+      `</div>`,
+    ].join("\n");
+    const result = stripEditorOnlyAttributes(html);
+    expect(result).not.toContain("data-agent-native-node-id");
+    expect(result).toContain('id="a"');
+    expect(result).toContain('class="text-sm"');
+  });
+
+  it("preserves data-agent-native-layer-name (developer-authored, not editor-only)", () => {
+    const html = `<div data-agent-native-node-id="an-abc" data-agent-native-layer-name="Card">body</div>`;
+    const result = stripEditorOnlyAttributes(html);
+    expect(result).not.toContain("data-agent-native-node-id");
+    expect(result).toContain('data-agent-native-layer-name="Card"');
+  });
+
+  it("is idempotent on already-clean source", () => {
+    const html = `<section class="p-4"><h1>Title</h1></section>`;
+    expect(stripEditorOnlyAttributes(html)).toBe(html);
+  });
+
+  it("handles empty string input", () => {
+    expect(stripEditorOnlyAttributes("")).toBe("");
+  });
+
+  it("does not corrupt adjacent attributes when removing the stamp", () => {
+    const html = `<button data-agent-native-node-id="an-z" type="button" class="btn">Click</button>`;
+    const result = stripEditorOnlyAttributes(html);
+    expect(result).toBe(`<button type="button" class="btn">Click</button>`);
   });
 });

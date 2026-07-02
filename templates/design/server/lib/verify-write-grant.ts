@@ -1,0 +1,108 @@
+/**
+ * Server-side helper: resolve and validate a localhost write-consent grant.
+ *
+ * Security model
+ * ==============
+ * - The grant row is loaded by designId + connectionId for the authenticated
+ *   user.
+ * - An expired grant (grantedUntil < now) is rejected.
+ * - The target file path must be inside rootPath — validated using Node's
+ *   path.resolve so that ".." traversal and absolute-path injection are
+ *   blocked at this layer. The bridge also performs its own realpath check.
+ * - The function throws an Error with a descriptive message on any violation so
+ *   callers can surface it cleanly to the agent.
+ */
+
+import path from "node:path";
+
+import { and, eq } from "drizzle-orm";
+
+import { getDb, schema } from "../db/index.js";
+
+export interface WriteGrantContext {
+  designId: string;
+  connectionId: string;
+  /** Email of the currently authenticated user (from request context). */
+  ownerEmail: string;
+  /** Target path relative to rootPath (or absolute — validated either way). */
+  targetPath: string;
+}
+
+export interface WriteGrantResult {
+  rootPath: string;
+  bridgeToken: string;
+  grantId: string;
+}
+
+/**
+ * Resolve the active write-consent grant for a given design + connection.
+ * Throws if no valid grant exists or the target path escapes rootPath.
+ */
+export async function verifyWriteGrant(
+  ctx: WriteGrantContext,
+): Promise<WriteGrantResult> {
+  const { designId, connectionId, ownerEmail, targetPath } = ctx;
+
+  const db = getDb();
+  const [grant] = await db
+    .select()
+    .from(schema.designLocalhostWriteGrants)
+    .where(
+      and(
+        eq(schema.designLocalhostWriteGrants.designId, designId),
+        eq(schema.designLocalhostWriteGrants.connectionId, connectionId),
+        eq(schema.designLocalhostWriteGrants.ownerEmail, ownerEmail),
+      ),
+    )
+    .limit(1);
+
+  if (!grant) {
+    throw new Error(
+      "No localhost write-consent grant found for this design + connection. " +
+        "The user must approve writes via the LocalhostWriteConsentDialog first.",
+    );
+  }
+
+  const now = new Date().toISOString();
+  if (grant.grantedUntil < now) {
+    throw new Error(
+      `Localhost write-consent grant expired at ${grant.grantedUntil}. ` +
+        "Request a new grant via the LocalhostWriteConsentDialog.",
+    );
+  }
+
+  assertPathInside(grant.rootPath, targetPath);
+
+  return {
+    rootPath: grant.rootPath,
+    bridgeToken: grant.bridgeToken,
+    grantId: grant.id,
+  };
+}
+
+/**
+ * Assert that targetPath is inside rootPath using path.resolve to block ".."
+ * traversal and absolute-path injection.
+ *
+ * The final realpath confinement (symlink escape prevention) is performed
+ * bridge-side using fs.realpath; this layer handles the logical check.
+ *
+ * Throws if the resolved target is not a descendant of the resolved root.
+ */
+export function assertPathInside(rootPath: string, targetPath: string): void {
+  const resolvedRoot = path.resolve(rootPath);
+  // targetPath may be relative (to root) or absolute — resolve relative to root
+  const resolvedTarget = path.isAbsolute(targetPath)
+    ? path.resolve(targetPath)
+    : path.resolve(rootPath, targetPath);
+
+  if (
+    resolvedTarget !== resolvedRoot &&
+    !resolvedTarget.startsWith(resolvedRoot + path.sep)
+  ) {
+    throw new Error(
+      `Path "${targetPath}" is outside the consented root "${rootPath}". ` +
+        "Write access is restricted to files inside the granted root folder.",
+    );
+  }
+}

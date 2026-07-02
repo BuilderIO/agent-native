@@ -415,6 +415,9 @@ const messages = {
     embed: "تضمين",
     shareLink: "رابط المشاركة",
     shareWithAgents: "شارك مع الوكلاء",
+    copyAgentPrompt: "نسخ مطالبة الوكيل",
+    agentPrompt:
+      "اجلب عنوان URL لسياق وكيل Clips هذا: {{agentContextUrl}}. استخدم transcript.segments للسياق المنطوق، واجلب recommendedFrames أو عناوين URL الخاصة بواجهة API للإطارات لرؤية الشاشة، وتحقق من browserDiagnostics إن وجدت لسجلات وحدة التحكم المنقحة وبيانات طلبات fetch/XHR الوصفية.",
     agentTokenDescription:
       "يستخدم هذا الوكيل URL رمزًا مميزًا قصير العمر، بحيث يمكن للعملاء قراءة المقطع دون الكشف عن كلمة المرور.",
     gifPreview: "معاينة GIF",
@@ -428,6 +431,7 @@ const messages = {
     askOwnerPublic: "اطلب من المالك نشره.",
     responsive: "مستجيب (16:9)",
     fixedSize: "حجم ثابت",
+    embedIframeTitle: "فيديو Clips",
     width: "عرض",
     height: "ارتفاع",
     autoplay: "التشغيل التلقائي",

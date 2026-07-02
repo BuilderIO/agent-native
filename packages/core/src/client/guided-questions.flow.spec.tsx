@@ -5,7 +5,12 @@ import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { askUserQuestion, useGuidedQuestionFlow } from "./guided-questions.js";
+import { sendToAgentChat } from "./agent-chat.js";
+import {
+  askUserQuestion,
+  GuidedQuestionFlow,
+  useGuidedQuestionFlow,
+} from "./guided-questions.js";
 
 // The agent's `ask-question` action writes the guided-questions payload to a
 // per-tab application-state key (`guided-questions:<tabId>`) whenever the run
@@ -17,6 +22,8 @@ import { askUserQuestion, useGuidedQuestionFlow } from "./guided-questions.js";
 vi.mock("./agent-chat.js", () => ({
   sendToAgentChat: vi.fn(),
 }));
+
+const sendToAgentChatMock = vi.mocked(sendToAgentChat);
 
 const STATE_PREFIX = "/_agent-native/application-state/";
 
@@ -44,6 +51,7 @@ describe("useGuidedQuestionFlow scoped reads", () => {
 
   beforeEach(() => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    sendToAgentChatMock.mockReset();
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
@@ -256,5 +264,105 @@ describe("useGuidedQuestionFlow scoped reads", () => {
     });
 
     await expect(answer).resolves.toBeNull();
+  });
+
+  it("submits a single-select answer immediately when requested", async () => {
+    const onSubmit = vi.fn();
+
+    await act(async () => {
+      root.render(
+        <GuidedQuestionFlow
+          title="Pick a direction"
+          questions={[
+            {
+              id: "variant",
+              type: "text-options",
+              question: "Which screen should I keep?",
+              required: true,
+              allowOther: false,
+              includeExplore: false,
+              includeDecide: false,
+              submitOnSelect: true,
+              options: [
+                { label: "Pure White", value: "pure-white" },
+                { label: "Soft Cards", value: "soft-cards" },
+              ],
+            },
+          ]}
+          onSubmit={onSubmit}
+          onSkip={vi.fn()}
+        />,
+      );
+    });
+
+    const button = Array.from(container.querySelectorAll("button")).find(
+      (candidate) => candidate.textContent?.includes("Soft Cards"),
+    );
+    expect(button).toBeTruthy();
+
+    await act(async () => {
+      button?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      await Promise.resolve();
+    });
+
+    expect(onSubmit).toHaveBeenCalledWith({ variant: "soft-cards" });
+  });
+
+  it("submits selected option values as authoritative context", async () => {
+    const selectedInstruction =
+      'Keep "Command Deck" (variant-command-deck.html, file id file-command). Then call edit-design with fileId file-command.';
+    vi.stubGlobal(
+      "fetch",
+      appStateFetchMock(
+        new Map([
+          [
+            "guided-questions",
+            JSON.stringify({
+              submitMessage: "Use this design direction.",
+              questions: [
+                {
+                  id: "variant",
+                  type: "text-options",
+                  question: "Which screen should I keep?",
+                  required: true,
+                  allowOther: false,
+                  includeExplore: false,
+                  includeDecide: false,
+                  submitOnSelect: true,
+                  options: [
+                    { label: "Command Deck", value: selectedInstruction },
+                  ],
+                },
+              ],
+            }),
+          ],
+        ]),
+      ),
+    );
+
+    const result = await renderFlow({
+      stateKey: "guided-questions",
+      queryKey: ["guided-questions"],
+      refetchInterval: false,
+    });
+
+    await act(async () => {
+      result.current().handleSubmit({ variant: selectedInstruction });
+      await Promise.resolve();
+    });
+
+    expect(sendToAgentChatMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        message: "Use this design direction.",
+        context: expect.stringContaining(
+          "Use the selected option values below as authoritative",
+        ),
+      }),
+    );
+    expect(sendToAgentChatMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        context: expect.stringContaining("file id file-command"),
+      }),
+    );
   });
 });

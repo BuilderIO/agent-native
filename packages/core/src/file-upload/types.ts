@@ -16,6 +16,8 @@ export interface FileUploadInput {
   mimeType?: string;
   /** Optional owner email for per-user scoping in fallback storage. */
   ownerEmail?: string;
+  /** Builder.io upload hint: return after asset registration instead of waiting for server-side compression. */
+  skipCompressionWait?: boolean;
 }
 
 export interface FileUploadResult {
@@ -25,6 +27,22 @@ export interface FileUploadResult {
   id?: string;
   /** The provider that handled the upload. */
   provider: string;
+}
+
+/** Opaque session handle returned by {@link FileUploadProvider.resumable.startSession}.
+ * `sessionId` is provider-specific (GCS Location URI, S3 UploadId, etc.).
+ * `meta` holds any provider state needed for subsequent relay and complete calls. */
+export interface ResumableUploadSession {
+  sessionId: string;
+  meta: Record<string, unknown>;
+}
+
+export interface ResumableChunkResult {
+  ok: boolean;
+  status: number;
+  /** Providers that need per-chunk state (e.g. S3 ETags) return updated meta
+   * here; the chunk route merges it back into the stored session. */
+  updatedMeta?: Record<string, unknown>;
 }
 
 export interface FileUploadProvider {
@@ -41,4 +59,27 @@ export interface FileUploadProvider {
   isConfiguredForRequest?: () => Promise<boolean>;
   /** Upload a file and return a URL. Throw on failure. */
   upload: (input: FileUploadInput) => Promise<FileUploadResult>;
+  /**
+   * Optional resumable/streaming upload capability.
+   * When present, create-recording will initialise a session and stream chunks
+   * during recording instead of assembling the full blob after stop().
+   */
+  resumable?: {
+    startSession(
+      filename: string,
+      mimeType: string,
+      maxBytes: number,
+    ): Promise<ResumableUploadSession>;
+    relayChunk(
+      session: ResumableUploadSession,
+      contentRange: string,
+      bytes: Uint8Array,
+      options?: { mimeType?: string },
+    ): Promise<ResumableChunkResult>;
+    completeSession(
+      session: ResumableUploadSession,
+      filename: string,
+      options?: { skipCompressionWait?: boolean },
+    ): Promise<string>;
+  };
 }

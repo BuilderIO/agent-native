@@ -1,4 +1,4 @@
-import { defineAction, embedApp } from "@agent-native/core";
+import { defineAction } from "@agent-native/core";
 import { accessFilter, currentAccess } from "@agent-native/core/sharing";
 import { and, desc, eq, isNotNull, isNull, or } from "drizzle-orm";
 import { z } from "zod";
@@ -36,14 +36,6 @@ export default defineAction({
   readOnly: true,
   mcpApp: {
     compactCatalog: true,
-    resource: embedApp({
-      title: "Plans",
-      description:
-        "Open the Agent-Native Plan index for existing plans and recaps.",
-      iframeTitle: "Agent-Native Plan",
-      openLabel: "Open Plans",
-      height: 860,
-    }),
   },
   run: async (args) => {
     // Project only the columns the list/summary needs. A bare `.select()` pulls
