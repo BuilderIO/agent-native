@@ -9,7 +9,13 @@ import { completeVideoGenerationRun } from "../server/lib/video-runs.js";
 import { serializeAsset, serializeGenerationRun } from "./_helpers.js";
 import { upsertVariantSlot } from "./variant-slots.js";
 
-const STALE_IMAGE_RUN_MS = 2 * 60 * 1000;
+// Must stay comfortably above the per-request generation budget
+// (IMAGE_GENERATION_REQUEST_TIMEOUT_MS, default 300s). Otherwise a slow but
+// healthy run (e.g. gpt-image-2 taking 2-5 min) gets prematurely declared
+// "interrupted" and the live slot flashes an error before the finished image
+// lands and flips it back to ready. Keep this last-resort reclaim well past the
+// point a run could still be legitimately in flight.
+const STALE_IMAGE_RUN_MS = 6 * 60 * 1000;
 const INTERRUPTED_IMAGE_RUN_ERROR =
   "Image generation was interrupted before a preview was created. Start a new generation to retry.";
 

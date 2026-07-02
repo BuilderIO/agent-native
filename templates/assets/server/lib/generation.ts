@@ -77,6 +77,30 @@ const MANAGED_PROVIDER_INFLIGHT_MAX_POLLS =
   process.env.NODE_ENV === "test" ? 6 : 40;
 const MANAGED_PROVIDER_INFLIGHT_POLL_MS =
   process.env.NODE_ENV === "test" ? 0 : 6000;
+// Slow image models (e.g. gpt-image-2) return the finished image synchronously
+// but can take several minutes end-to-end (generate + encode the large PNG +
+// transfer). The old 90s window was tuned for Gemini and aborted these mid-
+// response, so the request just needs a longer budget rather than the poll-and-
+// replay fallback. Override per deployment with ASSETS_IMAGE_GENERATION_TIMEOUT_MS.
+const IMAGE_GENERATION_REQUEST_TIMEOUT_MS =
+  Number(process.env.ASSETS_IMAGE_GENERATION_TIMEOUT_MS) || 300_000;
+
+// Lightweight structured logging for the image-generation providers. Slow
+// models (e.g. gpt-image-2) can exceed the 90s per-request abort window and get
+// converted into an in-flight poll, so these logs make the provider, model,
+// elapsed time, and abort/poll outcome visible when a generation "completes on
+// the provider but times out in the app". Silenced under NODE_ENV=test.
+function logGeneration(
+  event: string,
+  fields: Record<string, unknown> = {},
+): void {
+  if (process.env.NODE_ENV === "test") return;
+  const parts = Object.entries(fields)
+    .filter(([, value]) => value !== undefined)
+    .map(([key, value]) => `${key}=${value}`)
+    .join(" ");
+  console.info(`[assets] image-gen ${event}${parts ? ` ${parts}` : ""}`);
+}
 
 export async function getGeminiApiKey(): Promise<string> {
   const key = await resolveSecret("GEMINI_API_KEY");
@@ -232,6 +256,17 @@ export async function generateWithBuilderImageApi(
   }
 
   const baseUrl = getBuilderImageGenerationBaseUrl().replace(/\/$/, "");
+  const requestModel = toBuilderImageModel(input.model);
+  const startedAt = Date.now();
+  logGeneration("builder.request", {
+    model: requestModel,
+    requestedModel: input.model,
+    host: safeUrlHost(baseUrl),
+    aspectRatio: toBuilderAspectRatio(input.aspectRatio),
+    size: toBuilderImageSize(input.imageSize),
+    references: input.references.length,
+    runId: input.runId,
+  });
   const response = await fetch(`${baseUrl}/generations`, {
     method: "POST",
     headers: {
@@ -242,7 +277,7 @@ export async function generateWithBuilderImageApi(
     body: JSON.stringify({
       idempotencyKey: input.runId,
       prompt: input.compiledPrompt,
-      model: toBuilderImageModel(input.model),
+      model: requestModel,
       count: 1,
       aspectRatio: toBuilderAspectRatio(input.aspectRatio),
       size: toBuilderImageSize(input.imageSize),
@@ -267,12 +302,23 @@ export async function generateWithBuilderImageApi(
         intent: input.intent,
       },
     }),
-    signal: AbortSignal.timeout(90_000),
+    signal: AbortSignal.timeout(IMAGE_GENERATION_REQUEST_TIMEOUT_MS),
   }).catch((err) => {
-    if ((err as Error)?.name === "AbortError") {
-      // The socket aborted, but the service keeps generating under this
-      // idempotency key. Flag it so the retry loop polls the key instead of
-      // starting a fresh (double-charged) generation.
+    // `AbortSignal.timeout()` rejects with a `TimeoutError` DOMException, while a
+    // manual `AbortController.abort()` rejects with `AbortError` — treat both as
+    // "socket gave up, but the service keeps generating under this idempotency
+    // key". Flag it so the retry loop polls the key instead of starting a fresh
+    // (double-charged) generation. Matching only "AbortError" silently let the
+    // per-request timeout escape as a hard failure for slow models.
+    const name = (err as Error)?.name;
+    if (name === "AbortError" || name === "TimeoutError") {
+      logGeneration("builder.abort", {
+        model: requestModel,
+        elapsedMs: Date.now() - startedAt,
+        timeoutMs: IMAGE_GENERATION_REQUEST_TIMEOUT_MS,
+        runId: input.runId,
+        note: "socket aborted at client timeout; provider may still be running under this idempotency key",
+      });
       throw new BuilderImageGenerationError(
         "Builder-managed image generation timed out.",
         504,
@@ -280,7 +326,21 @@ export async function generateWithBuilderImageApi(
         "client_timeout",
       );
     }
+    logGeneration("builder.fetch_error", {
+      model: requestModel,
+      elapsedMs: Date.now() - startedAt,
+      name: (err as Error)?.name,
+      runId: input.runId,
+    });
     throw err;
+  });
+
+  logGeneration("builder.response", {
+    model: requestModel,
+    status: response.status,
+    ok: response.ok,
+    elapsedMs: Date.now() - startedAt,
+    runId: input.runId,
   });
 
   if (!response.ok) {
@@ -315,6 +375,14 @@ export async function generateWithBuilderImageApi(
     );
   }
 
+  logGeneration("builder.success", {
+    requestedModel: input.model,
+    providerModel: body.model.publicId || input.model,
+    provider: body.model.provider,
+    elapsedMs: Date.now() - startedAt,
+    runId: input.runId,
+  });
+
   return {
     image: Buffer.from(await imageResponse.arrayBuffer()),
     mimeType:
@@ -327,6 +395,14 @@ export async function generateWithBuilderImageApi(
     providerGenerationId: body.id,
     creditsCharged: body.creditsCharged,
   };
+}
+
+function safeUrlHost(url: string): string {
+  try {
+    return new URL(url).host;
+  } catch {
+    return "invalid-url";
+  }
 }
 
 async function generateWithRetryingBuilderImageApi(
@@ -344,6 +420,13 @@ async function generateWithRetryingBuilderImageApi(
       // until it resolves or we exhaust the polling budget.
       if (isInFlightImageGenerationError(err)) {
         if (inFlightPolls >= MANAGED_PROVIDER_INFLIGHT_MAX_POLLS) {
+          logGeneration("builder.poll_exhausted", {
+            model: input.model,
+            polls: inFlightPolls,
+            maxPolls: MANAGED_PROVIDER_INFLIGHT_MAX_POLLS,
+            runId: input.runId,
+            note: "provider never returned a completed result under this idempotency key within the wait budget",
+          });
           throw new BuilderImageGenerationError(
             "Builder-managed image generation is still running after the wait budget. It may finish shortly — try again to pick up the result.",
             504,
@@ -352,6 +435,16 @@ async function generateWithRetryingBuilderImageApi(
           );
         }
         inFlightPolls += 1;
+        logGeneration("builder.poll", {
+          model: input.model,
+          poll: inFlightPolls,
+          maxPolls: MANAGED_PROVIDER_INFLIGHT_MAX_POLLS,
+          code:
+            err instanceof BuilderImageGenerationError ? err.code : undefined,
+          status:
+            err instanceof BuilderImageGenerationError ? err.status : undefined,
+          runId: input.runId,
+        });
         await generationPollDelay();
         continue;
       }
@@ -361,6 +454,13 @@ async function generateWithRetryingBuilderImageApi(
         transientAttempts < MANAGED_PROVIDER_MAX_ATTEMPTS - 1
       ) {
         transientAttempts += 1;
+        logGeneration("builder.transient_retry", {
+          model: input.model,
+          attempt: transientAttempts,
+          status:
+            err instanceof BuilderImageGenerationError ? err.status : undefined,
+          runId: input.runId,
+        });
         await generationRetryDelay(transientAttempts);
         continue;
       }
@@ -372,6 +472,12 @@ async function generateWithRetryingBuilderImageApi(
 export async function generateWithManagedImageProvider(
   input: GenerateProviderInput,
 ): Promise<GenerateProviderOutput> {
+  logGeneration("dispatch", {
+    model: input.model,
+    intent: input.intent,
+    builderEnabled: isBuilderImageGenerationEnabled(),
+    runId: input.runId,
+  });
   if (!isBuilderImageGenerationEnabled()) {
     if (await isManualImageGenerationConfigured()) {
       return generateWithManualImageProvider(input);
@@ -392,6 +498,12 @@ export async function generateWithManagedImageProvider(
       err instanceof BuilderImageGenerationError &&
       [401, 402, 403, 429, 503, 504].includes(err.status ?? 0);
     if (shouldFallback && (await isManualImageGenerationConfigured())) {
+      logGeneration("builder.fallback_to_manual", {
+        model: input.model,
+        status:
+          err instanceof BuilderImageGenerationError ? err.status : undefined,
+        runId: input.runId,
+      });
       return generateWithManualImageProvider(input);
     }
     if (shouldFallback && err instanceof BuilderImageGenerationError) {
@@ -666,6 +778,13 @@ async function generateWithManualImageProvider(
 export async function generateWithOpenAI(
   input: GenerateProviderInput,
 ): Promise<GenerateProviderOutput> {
+  const startedAt = Date.now();
+  logGeneration("openai.request", {
+    model: "gpt-image-2",
+    requestedModel: input.model,
+    size: toOpenAIImageSize(input.aspectRatio),
+    runId: input.runId,
+  });
   const response = await fetch("https://api.openai.com/v1/images/generations", {
     method: "POST",
     headers: {
@@ -680,7 +799,22 @@ export async function generateWithOpenAI(
       quality: "medium",
       output_format: "png",
     }),
-    signal: AbortSignal.timeout(90_000),
+    signal: AbortSignal.timeout(IMAGE_GENERATION_REQUEST_TIMEOUT_MS),
+  }).catch((err) => {
+    logGeneration("openai.fetch_error", {
+      elapsedMs: Date.now() - startedAt,
+      name: (err as Error)?.name,
+      timeoutMs: IMAGE_GENERATION_REQUEST_TIMEOUT_MS,
+      runId: input.runId,
+    });
+    throw err;
+  });
+
+  logGeneration("openai.response", {
+    status: response.status,
+    ok: response.ok,
+    elapsedMs: Date.now() - startedAt,
+    runId: input.runId,
   });
 
   const body = (await response.json().catch(() => ({}))) as {

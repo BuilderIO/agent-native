@@ -38,6 +38,7 @@ export const IMAGE_MODELS = [
   "gemini-3.1-flash-image-preview",
   "gemini-3-pro-image-preview",
   "gemini-2.5-flash-image",
+  "gpt-image-2",
 ] as const;
 
 export const GENERATION_INTENTS = ["generate", "restyle", "edit"] as const;
