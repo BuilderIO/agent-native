@@ -8,6 +8,7 @@ import {
 import {
   buildBuilderLocalOutboundChangeSets,
   builderBodyChangeForLocalContent,
+  builderBodyHydrationPriorityForRequest,
   builderBodyNeedsSourceComponentWrite,
   builderBodyHydrationVersion,
   builderCmsEntryAlreadyRepresented,
@@ -21,6 +22,7 @@ import {
   sourceValuesForSeededSourceRow,
   sourceChangeSetKey,
   sourceChangeSetSummary,
+  sortBuilderBodyHydrationQueueForProcessing,
 } from "./_database-source-utils";
 
 function property(
@@ -164,6 +166,38 @@ describe("database source helpers", () => {
         },
       }),
     ).toBe("blocks-hash-1:readable-native-images-v4");
+  });
+
+  it("prioritizes opened Builder body hydration ahead of background work", () => {
+    expect(
+      builderBodyHydrationPriorityForRequest({ documentId: "doc-open" }),
+    ).toBeLessThan(builderBodyHydrationPriorityForRequest({}));
+
+    const ordered = sortBuilderBodyHydrationQueueForProcessing([
+      {
+        id: "background-old",
+        priority: builderBodyHydrationPriorityForRequest({}),
+        createdAt: "2026-07-02T10:00:00.000Z",
+      },
+      {
+        id: "opened",
+        priority: builderBodyHydrationPriorityForRequest({
+          documentId: "doc-open",
+        }),
+        createdAt: "2026-07-02T10:05:00.000Z",
+      },
+      {
+        id: "background-new",
+        priority: builderBodyHydrationPriorityForRequest({}),
+        createdAt: "2026-07-02T10:10:00.000Z",
+      },
+    ]);
+
+    expect(ordered.map((row) => row.id)).toEqual([
+      "opened",
+      "background-old",
+      "background-new",
+    ]);
   });
 
   it("detects stale Builder source markers when prose is unchanged", () => {

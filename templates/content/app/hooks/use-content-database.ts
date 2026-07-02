@@ -6,8 +6,10 @@ import type {
   BuilderCmsModelsResponse,
   ChangeContentDatabaseSourceRoleRequest,
   ContentDatabaseResponse,
+  ContentDatabaseSourceFieldMapping,
   CreateInlineDatabaseRequest,
   CreateInlineDatabaseResponse,
+  DocumentPropertyType,
   ListTrashedContentDatabasesResponse,
   ListContentDatabasesResponse,
   ContentDatabaseSourceFieldPropertyResponse,
@@ -140,6 +142,15 @@ export function applySourceFieldPropertyToDatabaseResponse(
   patch: ContentDatabaseSourceFieldPropertyResponse,
 ): ContentDatabaseResponse | undefined {
   if (!current || current.database.id !== patch.databaseId) return current;
+  const patchSource = (source: ContentDatabaseResponse["source"]) =>
+    source
+      ? {
+          ...source,
+          fields: source.fields.map((field) =>
+            field.id === patch.sourceField.id ? patch.sourceField : field,
+          ),
+        }
+      : source;
 
   const hasProperty = current.properties.some(
     (property) => property.definition.id === patch.property.definition.id,
@@ -183,14 +194,136 @@ export function applySourceFieldPropertyToDatabaseResponse(
           : [...item.properties, nextProperty],
       };
     }),
-    source: current.source
+    source: patchSource(current.source),
+    sources: current.sources?.map((source) => patchSource(source)!),
+  };
+}
+
+function propertyTypeForOptimisticSourceField(
+  sourceFieldType: string,
+): DocumentPropertyType {
+  if (sourceFieldType === "number") return "number";
+  if (sourceFieldType === "datetime" || sourceFieldType === "date") {
+    return "date";
+  }
+  if (sourceFieldType === "url") return "url";
+  if (sourceFieldType === "boolean" || sourceFieldType === "checkbox") {
+    return "checkbox";
+  }
+  return "text";
+}
+
+function optimisticSourceFieldPropertyId(sourceFieldId: string) {
+  return `optimistic-source-field-property:${sourceFieldId}`;
+}
+
+function findSourceFieldById(
+  current: ContentDatabaseResponse,
+  sourceFieldId: string,
+): ContentDatabaseSourceFieldMapping | null {
+  const sources = current.sources ?? (current.source ? [current.source] : []);
+  for (const source of sources) {
+    const field = source.fields.find(
+      (candidate) => candidate.id === sourceFieldId,
+    );
+    if (field) return field;
+  }
+  return null;
+}
+
+export function applyOptimisticSourceFieldPropertyToDatabaseResponse(
+  current: ContentDatabaseResponse | undefined,
+  variables: AddContentDatabaseSourceFieldPropertyRequest,
+): ContentDatabaseResponse | undefined {
+  if (
+    !current ||
+    (current.database.id !== variables.documentId &&
+      current.database.documentId !== variables.documentId)
+  ) {
+    return current;
+  }
+  const field = findSourceFieldById(current, variables.sourceFieldId);
+  if (!field || field.propertyId) return current;
+
+  const propertyId = optimisticSourceFieldPropertyId(field.id);
+  const now = new Date().toISOString();
+  const position =
+    Math.max(
+      -1,
+      ...current.properties.map((property) => property.definition.position),
+    ) + 1;
+  const property = {
+    definition: {
+      id: propertyId,
+      databaseId: current.database.id,
+      name: field.sourceFieldLabel,
+      type: propertyTypeForOptimisticSourceField(field.sourceFieldType),
+      visibility: "always_show" as const,
+      options: {},
+      position,
+      createdAt: now,
+      updatedAt: now,
+    },
+    value: null,
+    editable: false,
+  };
+  const sourceField = {
+    ...field,
+    propertyId,
+    propertyName: field.sourceFieldLabel,
+    localFieldKey: propertyId,
+    freshness: "unknown" as const,
+  };
+
+  return applySourceFieldPropertyToDatabaseResponse(current, {
+    databaseId: current.database.id,
+    documentId: variables.documentId,
+    property,
+    sourceField,
+    itemValues: current.items.map((item) => ({
+      itemId: item.id,
+      documentId: item.document.id,
+      value: null,
+    })),
+  });
+}
+
+function removeOptimisticSourceFieldProperty(
+  current: ContentDatabaseResponse | undefined,
+  sourceFieldId: string,
+): ContentDatabaseResponse | undefined {
+  if (!current) return current;
+  const propertyId = optimisticSourceFieldPropertyId(sourceFieldId);
+  const removeFromSource = (source: ContentDatabaseResponse["source"]) =>
+    source
       ? {
-          ...current.source,
-          fields: current.source.fields.map((field) =>
-            field.id === patch.sourceField.id ? patch.sourceField : field,
+          ...source,
+          fields: source.fields.map((field) =>
+            field.id === sourceFieldId && field.propertyId === propertyId
+              ? {
+                  ...field,
+                  propertyId: null,
+                  propertyName: null,
+                  localFieldKey: field.sourceFieldKey,
+                  freshness: "fresh" as const,
+                }
+              : field,
           ),
         }
-      : current.source,
+      : source;
+  return {
+    ...current,
+    properties: current.properties.filter(
+      (property) => property.definition.id !== propertyId,
+    ),
+    items: current.items.map((item) => ({
+      ...item,
+      properties: item.properties.filter(
+        (property) => property.definition.id !== propertyId,
+      ),
+    })),
+    source: removeFromSource(current.source),
+    sources: current.sources?.map((source) => removeFromSource(source)!),
   };
 }
 
@@ -474,10 +607,46 @@ export function useAddContentDatabaseSourceFieldProperty(documentId: string) {
     ContentDatabaseSourceFieldPropertyResponse,
     AddContentDatabaseSourceFieldPropertyRequest
   >("add-content-database-source-field-property", {
+    onMutate: async (variables) => {
+      await queryClient.cancelQueries({
+        queryKey: contentDatabaseQueryKey(documentId),
+      });
+      // Patch every cached response for this document, not just the exact
+      // unpaginated key — the rendered table observes a `{documentId, limit}`
+      // key, and setQueryData does not partial-match the way invalidate does.
+      const previous = queryClient.getQueriesData<ContentDatabaseResponse>(
+        contentDatabaseQueryFilter(documentId),
+      );
+      queryClient.setQueriesData<ContentDatabaseResponse>(
+        contentDatabaseQueryFilter(documentId),
+        (current) =>
+          applyOptimisticSourceFieldPropertyToDatabaseResponse(
+            current,
+            variables,
+          ),
+      );
+      return { previous };
+    },
+    onError: (_error, _variables, context) => {
+      const rollback = context as
+        | {
+            previous?: Array<
+              [readonly unknown[], ContentDatabaseResponse | undefined]
+            >;
+          }
+        | undefined;
+      for (const [queryKey, data] of rollback?.previous ?? []) {
+        queryClient.setQueryData(queryKey, data);
+      }
+    },
     onSuccess: (data) => {
-      queryClient.setQueryData<ContentDatabaseResponse>(
-        contentDatabaseQueryKey(documentId),
-        (current) => applySourceFieldPropertyToDatabaseResponse(current, data),
+      queryClient.setQueriesData<ContentDatabaseResponse>(
+        contentDatabaseQueryFilter(documentId),
+        (current) =>
+          applySourceFieldPropertyToDatabaseResponse(
+            removeOptimisticSourceFieldProperty(current, data.sourceField.id),
+            data,
+          ),
       );
       queryClient.invalidateQueries({
         queryKey: contentDatabaseQueryKey(documentId),

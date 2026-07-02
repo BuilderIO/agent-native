@@ -151,6 +151,7 @@ import {
   useExecuteBuilderSourceBatch,
   useMoveDatabaseItem,
   usePrepareBuilderSourceReview,
+  useProcessBuilderBodyHydration,
   useRefreshContentDatabaseSource,
   useSetContentDatabaseSourceWriteMode,
   useSuggestSourceJoinKey,
@@ -494,6 +495,7 @@ function DatabaseTable({
   const changeSourceRole = useChangeContentDatabaseSourceRole(document.id);
   const refreshSource = useRefreshContentDatabaseSource(document.id);
   const disconnectSource = useDisconnectContentDatabaseSource(document.id);
+  const processBuilderBodies = useProcessBuilderBodyHydration(document.id);
   const prepareBuilderReview = usePrepareBuilderSourceReview(document.id);
   const executeBuilderBatch = useExecuteBuilderSourceBatch(document.id);
   const setSourceWriteMode = useSetContentDatabaseSourceWriteMode(document.id);
@@ -888,6 +890,7 @@ function DatabaseTable({
 
   function previewItemPage(item: ContentDatabaseItem) {
     seedDatabaseItemDocumentCaches(queryClient, item);
+    prioritizeBuilderBodyHydrationForItem(item);
     if (activeView.openPagesIn === "full_page") {
       openItemPage(item);
       return;
@@ -926,7 +929,22 @@ function DatabaseTable({
 
   function openItemPage(item: ContentDatabaseItem) {
     seedDatabaseItemDocumentCaches(queryClient, item);
+    prioritizeBuilderBodyHydrationForItem(item);
     navigate(`/page/${item.document.id}`);
+  }
+
+  function prioritizeBuilderBodyHydrationForItem(item: ContentDatabaseItem) {
+    if (!databaseItemBodyHydrationIsPending(item)) return;
+    const sourceId = item.document.databaseMembership?.sourceId ?? source?.id;
+    if (!sourceId) return;
+    const builderSource =
+      sources.find((candidate) => candidate.id === sourceId) ?? source;
+    if (builderSource?.sourceType !== "builder-cms") return;
+    processBuilderBodies.mutate({
+      sourceId,
+      documentId: item.document.id,
+      limit: 1,
+    });
   }
 
   async function createRow(
@@ -1387,8 +1405,8 @@ function DatabaseTable({
           >
             <IconAdjustmentsHorizontal className="size-3.5" />
             {builderReviewChangeSets.length > 0 ? (
-              <span className="absolute -right-0.5 -top-0.5 flex size-3.5 items-center justify-center rounded-full bg-foreground text-[9px] leading-none text-background">
-                {builderReviewChangeSets.length}
+              <span className="absolute -right-0.5 -top-0.5 flex h-3.5 min-w-3.5 shrink-0 items-center justify-center rounded-full bg-foreground px-1 text-[9px] leading-none text-background">
+                {formatCompactCountBadge(builderReviewChangeSets.length)}
               </span>
             ) : null}
           </Button>
@@ -1755,7 +1773,10 @@ function DatabaseTable({
             setPreviewTitleFocusDocumentId(null);
           }
         }}
-        onPreviewItem={(item) => setPreviewDocumentId(item.document.id)}
+        onPreviewItem={(item) => {
+          prioritizeBuilderBodyHydrationForItem(item);
+          setPreviewDocumentId(item.document.id);
+        }}
         onTitleFocused={() => setPreviewTitleFocusDocumentId(null)}
         onOpenPage={(item) => {
           openItemPage(item);
@@ -5717,7 +5738,7 @@ function BuilderSourceContinuationBar({
     return null;
   }
   const status = clientError ? "error" : builderSourceRowFetchStatus(source);
-  if (!status) return null;
+  const bodyHydration = source.bodyHydration;
   const fetchedCount =
     typeof source.metadata.lastReadFetchedEntryCount === "number"
       ? source.metadata.lastReadFetchedEntryCount
@@ -5725,17 +5746,46 @@ function BuilderSourceContinuationBar({
         ? source.metadata.lastReadEntryCount
         : null;
   const hasMore = source.metadata.lastReadHasMore === true;
-  const progressPercent = builderSourceContinuationProgressPercent(source);
+  const bodyHydrationActive =
+    !hasMore &&
+    !!bodyHydration &&
+    bodyHydration.total > 0 &&
+    bodyHydration.pending + bodyHydration.hydrating > 0;
+  if (!status && !bodyHydrationActive) return null;
+  const progressPercent = bodyHydrationActive
+    ? Math.round((bodyHydration!.hydrated / bodyHydration!.total) * 100)
+    : builderSourceContinuationProgressPercent(source);
   const label =
     status === "error" ? (
       <DatabaseText k="builderRowsLoadingHitSnag" />
+    ) : bodyHydrationActive ? (
+      <DatabaseText k="builderRowsFetchedSyncingBodies" />
     ) : hasMore ? (
       <DatabaseText k="builderRowsLoadingBackground" />
     ) : (
       <DatabaseText k="builderRowsFinishingUp" />
     );
   const detail =
-    fetchedCount === null ? null : (
+    fetchedCount === null ? (
+      bodyHydrationActive && bodyHydration ? (
+        <DatabaseText
+          k="builderBodiesSyncingProgress"
+          values={{
+            hydrated: bodyHydration.hydrated,
+            total: bodyHydration.total,
+          }}
+        />
+      ) : null
+    ) : bodyHydrationActive && bodyHydration ? (
+      <DatabaseText
+        k="builderRowsFetchedBodiesSyncing"
+        values={{
+          rows: fetchedCount,
+          hydrated: bodyHydration.hydrated,
+          total: bodyHydration.total,
+        }}
+      />
+    ) : (
       <DatabaseText
         k="builderRowsFetchedSoFar"
         values={{ count: fetchedCount }}
@@ -5787,7 +5837,7 @@ function BuilderSourceContinuationBar({
           )}
         </Button>
       </div>
-      {status === "fetching" ? (
+      {status === "fetching" || bodyHydrationActive ? (
         <div className="h-1.5 overflow-hidden rounded-full bg-background">
           <div
             className={cn(
@@ -6582,6 +6632,7 @@ function DatabaseSettingsRow({
   disabled?: boolean;
   onClick?: () => void;
 }) {
+  const badgeLabel = formatCompactCountBadge(badgeCount);
   return (
     <button
       type="button"
@@ -6607,8 +6658,8 @@ function DatabaseSettingsRow({
         </span>
       ) : null}
       {badgeCount > 0 ? (
-        <span className="flex size-3.5 shrink-0 items-center justify-center rounded-full bg-foreground text-[9px] leading-none text-background">
-          {badgeCount}
+        <span className="flex h-3.5 min-w-3.5 shrink-0 items-center justify-center rounded-full bg-foreground px-1 text-[9px] leading-none text-background">
+          {badgeLabel}
         </span>
       ) : null}
       {onClick && !disabled ? (
@@ -6616,6 +6667,10 @@ function DatabaseSettingsRow({
       ) : null}
     </button>
   );
+}
+
+function formatCompactCountBadge(count: number) {
+  return count > 99 ? "99+" : String(count);
 }
 
 function DatabaseSettingsSwitch({
@@ -13029,8 +13084,8 @@ function DatabasePropertiesMenu({
         >
           <IconEye className="size-3.5" />
           {hiddenCount > 0 ? (
-            <span className="absolute -right-0.5 -top-0.5 flex size-3.5 items-center justify-center rounded-full bg-foreground text-[9px] leading-none text-background">
-              {hiddenCount}
+            <span className="absolute -right-0.5 -top-0.5 flex h-3.5 min-w-3.5 shrink-0 items-center justify-center rounded-full bg-foreground px-1 text-[9px] leading-none text-background">
+              {formatCompactCountBadge(hiddenCount)}
             </span>
           ) : null}
         </Button>
@@ -13706,8 +13761,8 @@ function SortMenu({
         >
           <IconArrowsSort className="size-3.5" />
           {sorts.length > 0 ? (
-            <span className="absolute -right-0.5 -top-0.5 flex size-3.5 items-center justify-center rounded-full bg-foreground text-[9px] leading-none text-background">
-              {sorts.length}
+            <span className="absolute -right-0.5 -top-0.5 flex h-3.5 min-w-3.5 shrink-0 items-center justify-center rounded-full bg-foreground px-1 text-[9px] leading-none text-background">
+              {formatCompactCountBadge(sorts.length)}
             </span>
           ) : null}
         </Button>
@@ -13903,8 +13958,8 @@ function FilterMenu({
         >
           <IconFilter className="size-3.5" />
           {active ? (
-            <span className="absolute -right-0.5 -top-0.5 flex size-3.5 items-center justify-center rounded-full bg-foreground text-[9px] leading-none text-background">
-              {activeFilters.length}
+            <span className="absolute -right-0.5 -top-0.5 flex h-3.5 min-w-3.5 shrink-0 items-center justify-center rounded-full bg-foreground px-1 text-[9px] leading-none text-background">
+              {formatCompactCountBadge(activeFilters.length)}
             </span>
           ) : null}
         </Button>

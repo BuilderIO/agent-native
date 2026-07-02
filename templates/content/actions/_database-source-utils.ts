@@ -496,6 +496,22 @@ const BUILDER_BODY_HYDRATION_BATCH_LIMIT = 8;
 const BUILDER_BODY_HYDRATION_CODEC_VERSION = "readable-native-images-v4";
 const BUILDER_CMS_REFRESH_INITIAL_PAGES = 1;
 
+export function builderBodyHydrationPriorityForRequest(args: {
+  documentId?: string | null;
+}) {
+  return args.documentId
+    ? BUILDER_BODY_HYDRATION_OPEN_PRIORITY
+    : BUILDER_BODY_HYDRATION_BACKGROUND_PRIORITY;
+}
+
+export function sortBuilderBodyHydrationQueueForProcessing<
+  T extends { priority: number; createdAt: string },
+>(rows: T[]): T[] {
+  return [...rows].sort(
+    (a, b) => a.priority - b.priority || a.createdAt.localeCompare(b.createdAt),
+  );
+}
+
 async function builderBodySnapshotForEntry(entry: BuilderCmsSourceEntry) {
   if (!entry.rawEntry) return null;
   const [readableBundle, losslessBundle] = await Promise.all([
@@ -715,7 +731,9 @@ export async function enqueueBuilderBodyHydration(args: {
 }) {
   const db = getDb();
   const sourceRowId = args.entry.id;
-  const priority = args.priority ?? BUILDER_BODY_HYDRATION_BACKGROUND_PRIORITY;
+  const priority =
+    args.priority ??
+    builderBodyHydrationPriorityForRequest({ documentId: null });
   const [existing] = await db
     .select()
     .from(schema.contentDatabaseBodyHydrationQueue)
