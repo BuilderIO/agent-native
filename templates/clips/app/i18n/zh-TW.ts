@@ -403,7 +403,7 @@ const messages = {
     agentPrompt:
       "取得這個 Clips Agent 脈絡 URL：{{agentContextUrl}}。使用 transcript.segments 讀取語音脈絡，取得 recommendedFrames 或影格 API URL 來查看螢幕，並在 browserDiagnostics 存在時檢查已遮蔽的主控台記錄和 fetch/XHR 請求中繼資料。",
     agentTokenDescription:
-      "此 Agent URL 使用短期權杖，因此 Agent 可以在不暴露密碼的情況下讀取剪輯。",
+      "這個臨時 Agent URL 可讓 Agent 讀取剪輯，而不必將其設為公開。它會在兩小時後過期。",
     gifPreview: "GIF 預覽",
     openPlayer: "開啟播放器",
     downloadMp4: "下載 MP4",

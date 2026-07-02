@@ -156,9 +156,10 @@ Required Slack app setup:
 - Deploy secrets: `SLACK_CLIENT_ID`, `SLACK_CLIENT_SECRET`, and
   `SLACK_SIGNING_SECRET`
 
-## Agent-readable public clips
+## Agent-readable clips
 
-Public recordings also expose URLs meant for external agents:
+Recordings can expose URLs meant for external agents without handing over raw
+video bytes:
 
 | Endpoint | Meaning |
 | -------- | ------- |
@@ -166,9 +167,14 @@ Public recordings also expose URLs meant for external agents:
 | `/api/agent-transcript.json?id=<recordingId>` | Timestamped transcript segments with `startMs`, `endMs`, `timestamp`, `range`, `text`, and optional `source` |
 | `/api/agent-frame.jpg?id=<recordingId>&atMs=<ms>` | JPEG frame extracted from the video at the requested original-video timestamp |
 
-These endpoints follow the same access model as `/api/public-recording`:
+These endpoints follow the same access model as `/api/public-recording`, plus a
+temporary agent-link path:
 
 - Non-public clips return not found to anonymous callers.
+- `create-recording-agent-link` resolves normal recording access, rejects
+  archived or trashed recordings, then mints a two-hour `agent_access` URL for
+  `/share/:recordingId`. The share page SSR advertises the agent context URL,
+  and the JSON endpoints accept the same scoped token.
 - Expired clips return expired.
 - Password-protected clips require `password=<pw>` once; successful JSON
   responses include short-lived tokenized links so the plaintext password is not
@@ -183,11 +189,11 @@ These endpoints follow the same access model as `/api/public-recording`:
 - Frame extraction must use the checked recording media path and must not expose
   raw provider URLs.
 
-The share popover's "Share with agents" field should copy the agent context URL,
-not raw transcript text. Its "Copy agent prompt" field may wrap that URL with
-instructions to fetch transcripts, frames, and browser diagnostics, but it should
-still point agents at the context response so they can fetch only the visual
-context they need.
+The share popover's "Share with agents" field should copy an agent context URL
+or tokenized share page URL, not raw transcript text. Its "Copy agent prompt"
+field may wrap that URL with instructions to fetch transcripts, frames, and
+browser diagnostics, but it should still point agents at the context response so
+they can fetch only the visual context they need.
 
 ## View counting
 

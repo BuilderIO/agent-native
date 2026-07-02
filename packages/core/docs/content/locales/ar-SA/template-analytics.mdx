@@ -147,6 +147,8 @@ pnpm dev
 
 **سطح موصل واسع.** تأتي أحداث BigQuery وGA4 وتحليلات المنتج وCRM والدعم والمجتمع وGitHub/Jira وSEO وأحداث `/track` للطرف الأول من خلال actions التي يمكن للوكيل الاتصال بها.
 
+**Session replay agent handoff.** Session recordings stay private, but the session detail page can mint a temporary **Copy for agent** link. The two-hour `agent_access` URL lets an external agent read replay summaries, timelines, and bounded event details without exposing blob/provider URLs or making the recording public.
+
 ### العمل مع الوكيل
 
 يعرف الوكيل دائمًا ما تنظر إليه. يتم إدخال حالة الشاشة الحالية في كل رسالة ككتلة `<current-screen>` - فهي تحتوي على العرض النشط، ولوحة المعلومات المفتوحة أو التحليل، وأي عوامل تصفية محددة.

@@ -56,6 +56,7 @@ vi.mock("./share-password.js", () => ({
   verifySharePassword: vi.fn(() => false),
 }));
 
+import { agentAccessTokenResourceId } from "../../shared/agent-context";
 import {
   buildPublicAgentContext,
   loadPublicAgentAccess,
@@ -118,8 +119,46 @@ describe("public agent context access", () => {
       expect(result.access.apiToken).toBe("signed-token");
     }
     expect(mockSignShortLivedToken).toHaveBeenCalledWith({
-      resourceId: "rec-1",
+      resourceId: agentAccessTokenResourceId("rec-1"),
     });
+  });
+
+  it("allows a scoped agent token to read private clips without making them public", async () => {
+    mockRecordings.rows = [
+      makeRecording({
+        visibility: "private",
+      }),
+    ];
+    mockVerifyShortLivedToken.mockReturnValue({ ok: true });
+
+    const result = await loadPublicAgentAccess({} as any, "rec-1", {
+      token: "agent-token",
+    });
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.access.apiToken).toBe("agent-token");
+      expect(result.access.recording.visibility).toBe("private");
+    }
+    expect(mockVerifyShortLivedToken).toHaveBeenCalledWith(
+      "agent-token",
+      agentAccessTokenResourceId("rec-1"),
+    );
+  });
+
+  it("keeps private clips hidden from callers without a scoped agent token", async () => {
+    mockRecordings.rows = [
+      makeRecording({
+        visibility: "private",
+      }),
+    ];
+
+    const result = await loadPublicAgentAccess({} as any, "rec-1");
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.failure.status).toBe(404);
+    }
   });
 });
 

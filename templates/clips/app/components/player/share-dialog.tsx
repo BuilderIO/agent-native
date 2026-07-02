@@ -1,6 +1,6 @@
 import {
-  appBasePath,
   appPath,
+  useActionMutation,
   useActionQuery,
   useSession,
   useT,
@@ -38,7 +38,6 @@ import {
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 
-import { buildAgentApiUrls } from "../../../shared/agent-context";
 import { isLoomEmbedUrl } from "../../../shared/loom";
 import { withShareAttribution } from "../../../shared/share-attribution";
 
@@ -284,46 +283,27 @@ function LinkTab({
     (data?.visibility as Visibility | null) ?? "private";
   const isPublic = visibility === "public";
   const isLoomRecording = isLoomRecordingProp || isLoomEmbedUrl(videoUrl);
-  const publicAgentContextUrl =
-    typeof window === "undefined"
-      ? ""
-      : buildAgentApiUrls(recordingId, {
-          origin: window.location.origin,
-          basePath: appBasePath(),
-        }).contextUrl;
-  const [tokenizedAgentContextUrl, setTokenizedAgentContextUrl] = useState("");
+  const createAgentLink = useActionMutation(
+    "create-recording-agent-link" as any,
+  );
+  const [agentContextUrl, setAgentContextUrl] = useState("");
 
   useEffect(() => {
-    if (!isPublic || !hasPassword || typeof window === "undefined") {
-      setTokenizedAgentContextUrl("");
-      return;
-    }
+    setAgentContextUrl("");
+  }, [recordingId, visibility]);
 
-    let cancelled = false;
-    async function loadTokenizedAgentContextUrl() {
-      setTokenizedAgentContextUrl("");
-      const res = await fetch(publicAgentContextUrl, {
-        credentials: "include",
-      }).catch(() => null);
-      if (!res?.ok) return;
-      const payload = await res.json().catch(() => null);
-      const contextUrl =
-        typeof payload?.apis?.context?.url === "string"
-          ? payload.apis.context.url
-          : "";
-      if (!cancelled) setTokenizedAgentContextUrl(contextUrl);
-    }
+  async function handleCreateAgentLink() {
+    if (createAgentLink.isPending) return;
+    const result = (await createAgentLink.mutateAsync({
+      recordingId,
+    })) as { url?: string };
+    if (!result?.url) return;
+    setAgentContextUrl(result.url);
+    copyToClipboard(result.url);
+  }
 
-    void loadTokenizedAgentContextUrl();
-    return () => {
-      cancelled = true;
-    };
-  }, [hasPassword, isPublic, publicAgentContextUrl]);
-
-  const agentContextUrl = hasPassword
-    ? tokenizedAgentContextUrl
-    : publicAgentContextUrl;
-  const agentShareDisabled = isPending || !isPublic || !agentContextUrl;
+  const agentShareDisabled =
+    isPending || createAgentLink.isPending || !agentContextUrl;
   const agentPrompt = agentContextUrl
     ? t("shareDialog.agentPrompt", { agentContextUrl })
     : "";
@@ -348,11 +328,28 @@ function LinkTab({
           (and a connect link) instead of leaving it buried in Settings. */}
       {isPublic ? <SlackShareHint canManage={canManage} /> : null}
 
-      <CopyField
-        label={t("shareDialog.shareWithAgents")}
-        value={agentContextUrl}
-        disabled={agentShareDisabled}
-      />
+      <div className="space-y-2">
+        <div className="flex items-end justify-between gap-2">
+          <div className="text-xs font-medium text-muted-foreground">
+            {t("shareDialog.shareWithAgents")}
+          </div>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="h-7"
+            onClick={() => void handleCreateAgentLink()}
+            disabled={isPending || createAgentLink.isPending}
+          >
+            {t("shareUi.copy")}
+          </Button>
+        </div>
+        <CopyField
+          label=""
+          value={agentContextUrl}
+          disabled={agentShareDisabled}
+        />
+      </div>
 
       <CopyField
         label={t("shareDialog.copyAgentPrompt")}
@@ -360,7 +357,7 @@ function LinkTab({
         disabled={agentShareDisabled}
       />
 
-      {isPublic && hasPassword ? (
+      {agentContextUrl || hasPassword || !isPublic ? (
         <p className="text-xs text-muted-foreground">
           {t("shareDialog.agentTokenDescription")}
         </p>

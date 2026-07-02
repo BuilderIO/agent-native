@@ -11,6 +11,7 @@ const originalFetch = globalThis.fetch;
 
 afterEach(() => {
   globalThis.fetch = originalFetch;
+  vi.unstubAllGlobals();
   vi.restoreAllMocks();
 });
 
@@ -315,6 +316,42 @@ describe("session replay sanitization", () => {
 });
 
 describe("session replay chunk loading", () => {
+  it("keeps copied agent access tokens on manifest and chunk fetches", async () => {
+    vi.stubGlobal("window", {
+      location: {
+        origin: "https://analytics.example.test",
+        pathname: "/sessions/sr_1",
+        search: "?agent_access=agent-token",
+      },
+    });
+    const seenUrls: string[] = [];
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      seenUrls.push(url);
+      if (url.includes("/manifest")) {
+        return jsonResponse({
+          recording: recordingSummary(),
+          chunks: [
+            replayChunkManifest(
+              1,
+              "/api/session-replay/recordings/sr_1/chunks/1",
+            ),
+          ],
+        });
+      }
+      if (url.includes("/chunks/1")) {
+        return jsonResponse({ events: [{ type: 4, timestamp: 1000 }] });
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    }) as typeof fetch;
+
+    await fetchSessionReplayPlayback("sr_1");
+
+    expect(seenUrls).toHaveLength(2);
+    expect(seenUrls[0]).toContain("agent_access=agent-token");
+    expect(seenUrls[1]).toContain("agent_access=agent-token");
+  });
+
   it("keeps explicitly unavailable chunks as partial replay segments", async () => {
     globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);

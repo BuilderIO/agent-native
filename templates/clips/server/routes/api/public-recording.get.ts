@@ -26,7 +26,10 @@ import {
   type H3Event,
 } from "h3";
 
-import { buildAgentApiUrls } from "../../../shared/agent-context.js";
+import {
+  agentAccessTokenResourceId,
+  buildAgentApiUrls,
+} from "../../../shared/agent-context.js";
 import {
   normalizeTranscriptSegments,
   parseTranscriptSegments,
@@ -248,7 +251,9 @@ export default defineEventHandler(async (event) => {
     rec.visibility === "public" && !rec.archivedAt && !rec.trashedAt;
   const agentToken =
     canExposeAgentContext && rec.password
-      ? signShortLivedToken({ resourceId: recordingId })
+      ? signShortLivedToken({
+          resourceId: agentAccessTokenResourceId(recordingId),
+        })
       : undefined;
   const agentContextUrl = canExposeAgentContext
     ? buildAgentApiUrls(recordingId, {

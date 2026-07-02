@@ -237,6 +237,8 @@ Privacy defaults are intentionally conservative but still useful for playback:
 
 The Analytics template stores replay metadata in SQL (`session_recordings`) and stores chunks through private blob refs (`session_replay_chunks`). Browsers and agents never receive provider URLs. Playback goes through scoped server routes and the default agent tools return summaries or bounded replay events, not raw chunk table access.
 
+When you need to hand a private recording to an external agent, use the session detail page's **Copy for agent** control. It mints a two-hour, recording-scoped `agent_access` link, SSRs a small discovery payload on `/sessions/:recordingId`, and exposes only the agent context/events JSON APIs. The recording's visibility does not change.
+
 For local development only, Analytics can fall back to capped SQL inline chunks when private blob storage is unavailable. Production deployments should configure private or encrypted blob storage rather than relying on Postgres for replay payloads.
 
 ## Advanced: custom providers & internals {#advanced}

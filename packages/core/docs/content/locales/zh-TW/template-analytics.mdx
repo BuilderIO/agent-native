@@ -147,6 +147,8 @@ CLI 列印本機開發 URL。使用 Google 登入，然後開啟 **資料來源*
 
 **廣泛的連線器表面。** BigQuery、GA4、產品分析、CRM、支援、社群、GitHub/Jira、SEO 和第一方 `/track` 事件均來自代理可以呼叫的 actions。
 
+**Session replay agent handoff.** Session recordings stay private, but the session detail page can mint a temporary **Copy for agent** link. The two-hour `agent_access` URL lets an external agent read replay summaries, timelines, and bounded event details without exposing blob/provider URLs or making the recording public.
+
 ### 與代理合作
 
 代理始終知道您在看什麼。目前螢幕狀態作為 `<current-screen>` 塊注入到每條訊息中 - 它包含活動檢視、開啟的儀表板或分析以及任何選定的過濾器。

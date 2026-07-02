@@ -39,7 +39,9 @@ import {
 
 import {
   assertReplayKeyBudget,
+  compactSessionRecordingSummary,
   getSessionReplaySummary,
+  getSessionReplayTokenizedEvents,
   listSessionRecordings,
   parseSessionReplayIngestPayload,
   readSessionReplayChunkBytes,
@@ -66,6 +68,7 @@ function createReplayDbMock(results: unknown[][]) {
           const rows = results.shift() ?? [];
           return {
             limit: vi.fn(async () => rows),
+            orderBy: vi.fn(async () => rows),
             then: (
               resolve: (value: unknown[]) => void,
               reject?: (reason: unknown) => void,
@@ -128,6 +131,61 @@ function conditionText(value: unknown): string {
     return item;
   });
 }
+
+describe("session replay agent summaries", () => {
+  it("omits owner, org, visibility, and metadata from compact agent payloads", () => {
+    const summary = compactSessionRecordingSummary({
+      id: "sr_1",
+      clientRecordingId: "client_1",
+      sessionId: "session_1",
+      userId: "user_1",
+      anonymousId: null,
+      userKey: "user@example.test",
+      startedAt: "2026-01-01T00:00:00.000Z",
+      endedAt: "2026-01-01T00:00:30.000Z",
+      durationMs: 30_000,
+      chunkCount: 1,
+      eventCount: 10,
+      totalBytes: 2048,
+      pageCount: 1,
+      errorCount: 0,
+      rageClickCount: 0,
+      privacyMode: "default",
+      firstUrl: "https://example.test/start",
+      lastUrl: "https://example.test/end",
+      path: "/end",
+      hostname: "example.test",
+      referrer: "https://referrer.example.test",
+      app: "analytics",
+      template: "web",
+      status: "completed",
+      metadata: { secret: "do-not-return" },
+      ownerEmail: "owner@example.test",
+      orgId: "org_1",
+      visibility: "private",
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:30.000Z",
+      lastIngestedAt: "2026-01-01T00:00:30.000Z",
+      role: "owner",
+      canEdit: true,
+      canManage: true,
+    });
+
+    expect(summary).toMatchObject({
+      id: "sr_1",
+      clientRecordingId: "client_1",
+      sessionId: "session_1",
+      totalBytes: 2048,
+      referrer: "https://referrer.example.test",
+      lastIngestedAt: "2026-01-01T00:00:30.000Z",
+    });
+    expect(summary).not.toHaveProperty("ownerEmail");
+    expect(summary).not.toHaveProperty("orgId");
+    expect(summary).not.toHaveProperty("visibility");
+    expect(summary).not.toHaveProperty("metadata");
+    expect(summary).not.toHaveProperty("canManage");
+  });
+});
 
 describe("session replay ingest parsing", () => {
   beforeEach(() => {
@@ -367,6 +425,53 @@ describe("session replay ingest parsing", () => {
       lastIngestedAt: "2026-01-01T00:00:04.000Z",
     };
   }
+
+  it("returns compact recording data from tokenized event reads", async () => {
+    const eventsJson = JSON.stringify([
+      { type: 4, timestamp: 1000, data: { href: "https://example.test" } },
+    ]);
+    const { db } = createReplayDbMock([
+      [
+        {
+          ...playableRecordingResource("sr_agent"),
+          metadata: JSON.stringify({ secret: "do-not-return" }),
+        },
+      ],
+      [
+        {
+          seq: 0,
+          checksum: "checksum_0",
+          byteLength: eventsJson.length,
+          eventCount: 1,
+          storageKind: "inline",
+          storageRef: null,
+          inlineData: eventsJson,
+        },
+      ],
+    ]);
+    getDbMock.mockReturnValue(db);
+
+    const result = await getSessionReplayTokenizedEvents("sr_agent", {
+      limit: 10,
+    });
+
+    expect(result.eventCount).toBe(1);
+    expect(result.chunks[0]?.events).toEqual([
+      { type: 4, timestamp: 1000, data: { href: "https://example.test" } },
+    ]);
+    expect(result.recording).toMatchObject({
+      id: "sr_agent",
+      clientRecordingId: "recording_1",
+      sessionId: "session_1",
+      totalBytes: 128,
+    });
+    expect(result.recording).not.toHaveProperty("metadata");
+    expect(result.recording).not.toHaveProperty("ownerEmail");
+    expect(result.recording).not.toHaveProperty("orgId");
+    expect(result.recording).not.toHaveProperty("visibility");
+    expect(result.recording).not.toHaveProperty("canEdit");
+    expect(result.recording).not.toHaveProperty("canManage");
+  });
 
   it("serves inline replay chunks as decompressed JSON (no manual gzip encoding)", async () => {
     resolveAccessMock.mockResolvedValue({

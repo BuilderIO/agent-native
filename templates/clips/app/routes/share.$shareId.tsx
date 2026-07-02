@@ -11,6 +11,7 @@ import {
 import {
   getRequestUserEmail,
   signShortLivedToken,
+  verifyShortLivedToken,
 } from "@agent-native/core/server";
 import { resolveAccess } from "@agent-native/core/sharing";
 import {
@@ -32,7 +33,12 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import type { LoaderFunctionArgs, MetaFunction } from "react-router";
+import {
+  data,
+  type HeadersArgs,
+  type LoaderFunctionArgs,
+  type MetaFunction,
+} from "react-router";
 import { useLoaderData, useNavigate, useParams } from "react-router";
 
 import { CaptureInstallButton } from "@/components/capture-install-options";
@@ -65,7 +71,12 @@ import { parsePlaybackSpeed } from "@/lib/playback-speed";
 import { isStorageSetupFailureReason } from "@/lib/storage-failures";
 
 import { getDb, schema } from "../../server/db";
-import { buildAgentApiUrls, safeJsonForHtml } from "../../shared/agent-context";
+import { CLIPS_AGENT_ACCESS_PARAM } from "../../server/lib/public-agent-context";
+import {
+  agentAccessTokenResourceId,
+  buildAgentApiUrls,
+  safeJsonForHtml,
+} from "../../shared/agent-context";
 import {
   isLoomEmbedBackedRecording,
   isLoomRecordingSource,
@@ -98,6 +109,34 @@ type SharePageLoaderData = {
   origin: string | null;
   shareUrl: string | null;
 };
+
+const PRIVATE_AGENT_SHARE_HEADERS = {
+  "Cache-Control": "private, max-age=0, no-store",
+  "Referrer-Policy": "no-referrer",
+};
+
+function emptyLoaderData(url: URL): SharePageLoaderData {
+  return {
+    recording: null,
+    agentContextUrl: null,
+    origin: url.origin,
+    shareUrl: null,
+  };
+}
+
+function shareLoaderData(
+  payload: SharePageLoaderData,
+  privateAgentAccess = false,
+) {
+  if (!privateAgentAccess) return payload;
+  return data(payload, {
+    headers: PRIVATE_AGENT_SHARE_HEADERS,
+  });
+}
+
+export function headers({ loaderHeaders }: HeadersArgs) {
+  return loaderHeaders;
+}
 
 function failureDetail(reason: string | null | undefined): string | null {
   const trimmed = reason?.trim();
@@ -132,13 +171,7 @@ function shouldShowGeneratedTitleSkeleton(
 
 export async function loader({ params, url }: LoaderFunctionArgs) {
   const id = params.shareId;
-  if (!id)
-    return {
-      recording: null,
-      agentContextUrl: null,
-      origin: url.origin,
-      shareUrl: null,
-    };
+  if (!id) return emptyLoaderData(url);
 
   const [rec] = await getDb()
     .select({
@@ -151,6 +184,7 @@ export async function loader({ params, url }: LoaderFunctionArgs) {
       status: schema.recordings.status,
       ownerEmail: schema.recordings.ownerEmail,
       password: schema.recordings.password,
+      expiresAt: schema.recordings.expiresAt,
       archivedAt: schema.recordings.archivedAt,
       trashedAt: schema.recordings.trashedAt,
     })
@@ -158,24 +192,25 @@ export async function loader({ params, url }: LoaderFunctionArgs) {
     .where(eq(schema.recordings.id, id))
     .limit(1);
 
-  if (!rec)
-    return {
-      recording: null,
-      agentContextUrl: null,
-      origin: url.origin,
-      shareUrl: null,
-    };
+  const agentAccessToken = url.searchParams.get(CLIPS_AGENT_ACCESS_PARAM) ?? "";
+  const hasAgentAccessToken = Boolean(agentAccessToken);
+  const tokenGrantsAgentAccess = agentAccessToken
+    ? verifyShortLivedToken(agentAccessToken, agentAccessTokenResourceId(id)).ok
+    : false;
 
-  if (rec.visibility !== "public") {
+  if (!rec) return shareLoaderData(emptyLoaderData(url), hasAgentAccessToken);
+
+  if (rec.expiresAt) {
+    const expires = new Date(rec.expiresAt).getTime();
+    if (Number.isFinite(expires) && expires < Date.now()) {
+      return shareLoaderData(emptyLoaderData(url), hasAgentAccessToken);
+    }
+  }
+
+  if (rec.visibility !== "public" && !tokenGrantsAgentAccess) {
     const userEmail = getRequestUserEmail();
     const access = userEmail ? await resolveAccess("recording", id) : null;
-    if (!access)
-      return {
-        recording: null,
-        agentContextUrl: null,
-        origin: url.origin,
-        shareUrl: null,
-      };
+    if (!access) return emptyLoaderData(url);
   }
 
   const recording: SharePageMetaRecording = {
@@ -190,29 +225,37 @@ export async function loader({ params, url }: LoaderFunctionArgs) {
     trashedAt: rec.trashedAt,
   };
   const canExposeAgentContext =
-    rec.visibility === "public" && !rec.archivedAt && !rec.trashedAt;
-  const token =
-    canExposeAgentContext &&
-    rec.password &&
-    getRequestUserEmail() === rec.ownerEmail
-      ? signShortLivedToken({ resourceId: id })
+    (rec.visibility === "public" || tokenGrantsAgentAccess) &&
+    !rec.archivedAt &&
+    !rec.trashedAt;
+  const token = tokenGrantsAgentAccess
+    ? agentAccessToken
+    : canExposeAgentContext &&
+        rec.password &&
+        getRequestUserEmail() === rec.ownerEmail
+      ? signShortLivedToken({ resourceId: agentAccessTokenResourceId(id) })
       : undefined;
   const canExposeAnonymousAgentContext = canExposeAgentContext && !rec.password;
   const canExposeOwnerAgentContext = canExposeAgentContext && Boolean(token);
-  return {
-    recording,
-    origin: url.origin,
-    shareUrl: `${url.origin}${url.pathname}`,
-    agentContextUrl:
-      canExposeAnonymousAgentContext || canExposeOwnerAgentContext
-        ? buildAgentApiUrls(id, {
-            origin: url.origin,
-            basePath:
-              process.env.VITE_APP_BASE_PATH || process.env.APP_BASE_PATH || "",
-            token,
-          }).contextUrl
-        : null,
-  };
+  return shareLoaderData(
+    {
+      recording,
+      origin: url.origin,
+      shareUrl: `${url.origin}${url.pathname}`,
+      agentContextUrl:
+        canExposeAnonymousAgentContext || canExposeOwnerAgentContext
+          ? buildAgentApiUrls(id, {
+              origin: url.origin,
+              basePath:
+                process.env.VITE_APP_BASE_PATH ||
+                process.env.APP_BASE_PATH ||
+                "",
+              token,
+            }).contextUrl
+          : null,
+    },
+    hasAgentAccessToken || canExposeOwnerAgentContext,
+  );
 }
 
 export const meta: MetaFunction<typeof loader> = ({ loaderData }) => {
@@ -273,7 +316,7 @@ function AgentDiscovery({
         {t("sharePage.agentReadableContext")}
       </a>
       <script
-        type="application/json"
+        type="application/agent-native+json"
         id="clips-agent-context"
         dangerouslySetInnerHTML={{ __html: safeJsonForHtml(payload) }}
       />
@@ -362,9 +405,17 @@ export default function ShareRoute() {
     [],
   );
   const [downloading, setDownloading] = useState(false);
+  const agentAccessToken = useMemo(() => {
+    if (typeof window === "undefined") return "";
+    return (
+      new URLSearchParams(window.location.search).get(
+        CLIPS_AGENT_ACCESS_PARAM,
+      ) ?? ""
+    );
+  }, []);
 
   const dataQ = useQuery({
-    queryKey: ["public-recording", shareId, password],
+    queryKey: ["public-recording", shareId, password, agentAccessToken],
     queryFn: async () => {
       const url = new URL(
         `${appBasePath()}/api/public-recording`,
@@ -372,6 +423,9 @@ export default function ShareRoute() {
       );
       url.searchParams.set("id", shareId ?? "");
       if (password) url.searchParams.set("password", password);
+      if (agentAccessToken) {
+        url.searchParams.set(CLIPS_AGENT_ACCESS_PARAM, agentAccessToken);
+      }
       const res = await fetch(url.toString());
       const data = await res.json().catch(() => ({}));
       return { ok: res.ok, status: res.status, data };

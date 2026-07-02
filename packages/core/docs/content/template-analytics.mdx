@@ -152,6 +152,8 @@ The CLI prints the local dev URL. Sign in with Google, then open the **Data Sour
 
 **Broad connector surface.** BigQuery, GA4, product analytics, CRM, support, community, GitHub/Jira, SEO, and first-party `/track` events all come through actions the agent can call.
 
+**Session replay agent handoff.** Session recordings stay private, but the session detail page can mint a temporary **Copy for agent** link. The two-hour `agent_access` URL lets an external agent read replay summaries, timelines, and bounded event details without exposing blob/provider URLs or making the recording public.
+
 ### Working with the agent
 
 The agent always knows what you're looking at. The current screen state is injected into every message as a `<current-screen>` block — it contains the active view, the open dashboard or analysis, and any selected filters.

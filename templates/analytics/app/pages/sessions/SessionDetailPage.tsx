@@ -1,11 +1,16 @@
 import {
   appApiPath,
   PromptComposer,
+  useActionMutation,
+  useActionQuery,
   useSendToAgentChat,
   useT,
 } from "@agent-native/core/client";
+import { SESSION_REPLAY_AGENT_ACCESS_PARAM } from "@shared/session-replay-agent-access";
 import {
   IconArrowLeft,
+  IconCheck,
+  IconCopy,
   IconExclamationCircle,
   IconKeyboard,
   IconMessageCircle,
@@ -201,7 +206,12 @@ export default function SessionDetailPage() {
             </div>
           ) : null}
         </div>
-        {recording ? <AskSessionPopover recording={recording} /> : null}
+        {recording ? (
+          <div className="flex shrink-0 items-center gap-2">
+            <CopySessionForAgentButton recordingId={recording.id} />
+            <AskSessionPopover recording={recording} />
+          </div>
+        ) : null}
       </div>
 
       {error ? (
@@ -221,6 +231,41 @@ export default function SessionDetailPage() {
         </div>
       ) : null}
     </div>
+  );
+}
+
+function CopySessionForAgentButton({ recordingId }: { recordingId: string }) {
+  const t = useT();
+  const [copied, setCopied] = useState(false);
+  const createLink = useActionMutation(
+    "create-session-replay-agent-link" as any,
+  );
+
+  async function handleCopy() {
+    if (createLink.isPending) return;
+    const result = (await createLink.mutateAsync({
+      recordingId,
+    })) as { url?: string };
+    if (!result?.url) return;
+    await navigator.clipboard.writeText(result.url).catch(() => {});
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1400);
+  }
+
+  return (
+    <Button
+      type="button"
+      variant="outline"
+      onClick={() => void handleCopy()}
+      disabled={createLink.isPending}
+    >
+      {copied ? (
+        <IconCheck className="h-4 w-4" />
+      ) : (
+        <IconCopy className="h-4 w-4" />
+      )}
+      {copied ? t("sessions.copiedForAgent") : t("sessions.copyForAgent")}
+    </Button>
   );
 }
 
@@ -976,8 +1021,9 @@ function DetailSkeleton() {
 }
 
 function useSessionReplayPlayback(recordingId: string) {
+  const agentAccessToken = currentSessionReplayAgentAccessToken();
   return useQuery({
-    queryKey: ["session-replay-playback", recordingId],
+    queryKey: ["session-replay-playback", recordingId, agentAccessToken],
     enabled: Boolean(recordingId),
     staleTime: 30_000,
     gcTime: 60_000,
@@ -1080,9 +1126,25 @@ function replayUnavailableChunk(
   };
 }
 
+function currentSessionReplayAgentAccessToken(): string {
+  const browserSearch =
+    typeof window === "undefined" ? "" : window.location.search;
+  return (
+    new URLSearchParams(browserSearch).get(SESSION_REPLAY_AGENT_ACCESS_PARAM) ??
+    ""
+  );
+}
+
 async function fetchReplayApi(path: string): Promise<Response> {
   const token = await getIdToken();
-  return fetch(appApiPath(path), {
+  const browserOrigin =
+    typeof window === "undefined" ? "http://localhost" : window.location.origin;
+  const url = new URL(appApiPath(path), browserOrigin);
+  const agentAccessToken = currentSessionReplayAgentAccessToken();
+  if (agentAccessToken) {
+    url.searchParams.set(SESSION_REPLAY_AGENT_ACCESS_PARAM, agentAccessToken);
+  }
+  return fetch(`${url.pathname}${url.search}${url.hash}`, {
     headers: {
       Accept: "application/json",
       ...(token ? { Authorization: `Bearer ${token}` } : {}),

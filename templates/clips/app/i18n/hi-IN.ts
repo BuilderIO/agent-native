@@ -416,7 +416,7 @@ const messages = {
     agentPrompt:
       "यह Clips एजेंट संदर्भ URL प्राप्त करें: {{agentContextUrl}}। बोले गए संदर्भ के लिए transcript.segments का उपयोग करें, स्क्रीन देखने के लिए recommendedFrames या फ्रेम API URL प्राप्त करें, और यदि browserDiagnostics मौजूद हो तो संशोधित कंसोल लॉग और fetch/XHR अनुरोध मेटाडेटा जांचें।",
     agentTokenDescription:
-      "यह एजेंट URL एक अल्पकालिक टोकन का उपयोग करता है, ताकि एजेंट पासवर्ड उजागर किए बिना क्लिप पढ़ सकें।",
+      "यह अस्थायी एजेंट URL क्लिप को सार्वजनिक किए बिना एजेंटों को इसे पढ़ने देता है। यह दो घंटे बाद समाप्त हो जाता है।",
     gifPreview: "GIF पूर्वावलोकन",
     openPlayer: "खुला खिलाड़ी",
     downloadMp4: "MP4 डाउनलोड करें",

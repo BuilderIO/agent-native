@@ -419,7 +419,7 @@ const messages = {
     agentPrompt:
       "Fetch this Clips agent context URL: {{agentContextUrl}}. Use transcript.segments for spoken context, fetch recommendedFrames or the frame API URLs to see the screen, and check browserDiagnostics if present for redacted console logs and fetch/XHR request metadata.",
     agentTokenDescription:
-      "This agent URL uses a short-lived token, so agents can read the clip without exposing the password.",
+      "This temporary agent URL lets agents read the clip without making it public. It expires after two hours.",
     gifPreview: "GIF preview",
     openPlayer: "Open player",
     downloadMp4: "Download MP4",

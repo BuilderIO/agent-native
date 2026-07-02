@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  agentAccessTokenResourceId,
   buildAgentApiUrls,
   buildRecommendedFrames,
   formatAgentTimestamp,
@@ -9,6 +10,12 @@ import {
 } from "./agent-context";
 
 describe("agent clip context helpers", () => {
+  it("scopes private agent access tokens separately from media tokens", () => {
+    expect(agentAccessTokenResourceId("rec-1")).toBe(
+      "clip-agent-context:rec-1",
+    );
+  });
+
   it("builds shareable agent API URLs with base path and token", () => {
     const urls = buildAgentApiUrls("rec 1", {
       origin: "https://clips.example.com/",
