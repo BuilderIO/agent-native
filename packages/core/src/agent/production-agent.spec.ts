@@ -1065,6 +1065,86 @@ describe("runAgentLoop", () => {
     );
   });
 
+  it("checkpoints repeated zero-byte action input restarts", async () => {
+    let now = 1_000_000;
+    const dateNow = vi.spyOn(Date, "now").mockImplementation(() => now);
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: true,
+      },
+      async *stream(): AsyncIterable<EngineEvent> {
+        yield {
+          type: "tool-input-start",
+          id: "tool-edit-a",
+          name: "edit-design",
+        };
+        yield {
+          type: "assistant-content",
+          parts: [],
+        };
+        now += 45_000;
+        yield {
+          type: "tool-input-start",
+          id: "tool-edit-b",
+          name: "edit-design",
+        };
+        yield {
+          type: "assistant-content",
+          parts: [],
+        };
+        now += 46_000;
+        yield {
+          type: "tool-input-start",
+          id: "tool-edit-c",
+          name: "edit-design",
+        };
+        yield { type: "text-delta", text: "should not continue" };
+      },
+    };
+    const events: AgentChatEvent[] = [];
+
+    try {
+      await runAgentLoop({
+        engine,
+        model: "test-model",
+        systemPrompt: "system",
+        tools: [],
+        messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+        actions: {
+          "edit-design": actionEntry({ readOnly: false }),
+        },
+        send: (event) => events.push(event),
+        signal: new AbortController().signal,
+      });
+    } finally {
+      dateNow.mockRestore();
+    }
+
+    expect(
+      events.filter(
+        (event) => event.type === "activity" && event.tool === "edit-design",
+      ),
+    ).toHaveLength(3);
+    expect(events.at(-1)).toEqual({
+      type: "auto_continue",
+      reason: "no_progress",
+    });
+    expect(events).not.toContainEqual(
+      expect.objectContaining({ type: "text", text: "should not continue" }),
+    );
+    expect(events).not.toContainEqual(
+      expect.objectContaining({ type: "tool_start" }),
+    );
+  });
+
   it("tracks action-preparation stalls for multiple in-flight tool inputs", async () => {
     let now = 1_000_000;
     const dateNow = vi.spyOn(Date, "now").mockImplementation(() => now);

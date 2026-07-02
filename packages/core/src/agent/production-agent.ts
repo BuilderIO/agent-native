@@ -986,6 +986,7 @@ function maxRetriesForError(err: unknown): number {
 }
 const TOOL_INPUT_ACTIVITY_INTERVAL_MS = 1500;
 const ACTION_PREPARATION_NO_PROGRESS_TIMEOUT_MS = 90_000;
+const ACTION_PREPARATION_ZERO_BYTE_RESTART_LIMIT = 2;
 const MAX_TEXT_ATTACHMENT_CHARS = 60_000;
 const MAX_SELECTION_CONTEXT_CHARS = 8_000;
 const MAX_RESOURCE_INVENTORY_ITEMS = 40;
@@ -2822,7 +2823,14 @@ export async function runAgentLoop(opts: {
           lastProgressAt: number;
           bytes: number;
         };
+        type ZeroByteToolInputRestart = {
+          toolName: string;
+          firstStartedAt: number;
+          lastStartedAt: number;
+          count: number;
+        };
         const activeToolInputs = new Map<string, ActiveToolInputPreparation>();
+        let zeroByteToolInputRestart: ZeroByteToolInputRestart | undefined;
         let endedForActionPreparationNoProgress = false;
         const sendToolInputActivity = (
           toolName: string | undefined,
@@ -2892,6 +2900,36 @@ export async function runAgentLoop(opts: {
             bytes,
           });
         };
+        const resetZeroByteToolInputRestart = (toolName?: string) => {
+          if (!zeroByteToolInputRestart) return;
+          if (!toolName || zeroByteToolInputRestart.toolName === toolName) {
+            zeroByteToolInputRestart = undefined;
+          }
+        };
+        const noteZeroByteToolInputStart = (toolName?: string) => {
+          if (!toolName) return false;
+          const now = Date.now();
+          if (zeroByteToolInputRestart?.toolName === toolName) {
+            zeroByteToolInputRestart = {
+              ...zeroByteToolInputRestart,
+              lastStartedAt: now,
+              count: zeroByteToolInputRestart.count + 1,
+            };
+          } else {
+            zeroByteToolInputRestart = {
+              toolName,
+              firstStartedAt: now,
+              lastStartedAt: now,
+              count: 1,
+            };
+          }
+          return (
+            zeroByteToolInputRestart.count >
+              ACTION_PREPARATION_ZERO_BYTE_RESTART_LIMIT &&
+            now - zeroByteToolInputRestart.firstStartedAt >=
+              ACTION_PREPARATION_NO_PROGRESS_TIMEOUT_MS
+          );
+        };
         const clearActiveToolInputs = () => {
           activeToolInputs.clear();
         };
@@ -2921,6 +2959,7 @@ export async function runAgentLoop(opts: {
             }
           }
           if (event.type === "text-delta") {
+            resetZeroByteToolInputRestart();
             streamedAssistantText += event.text;
             send({ type: "text", text: event.text });
           } else if (event.type === "thinking-delta") {
@@ -2937,6 +2976,14 @@ export async function runAgentLoop(opts: {
               trackActiveToolInput(key, event.name, 0);
             }
             sendToolInputActivity(event.name, key, undefined, true);
+            if (noteZeroByteToolInputStart(event.name)) {
+              send({
+                type: "auto_continue",
+                reason: "no_progress",
+              });
+              endedForActionPreparationNoProgress = true;
+              break;
+            }
           } else if (event.type === "tool-input-delta") {
             const key = event.id ?? event.name;
             const toolName =
@@ -2951,6 +2998,7 @@ export async function runAgentLoop(opts: {
               toolInputBytes.set(key, progressBytes);
               if (progressBytes > previous) {
                 trackActiveToolInput(key, toolName, progressBytes);
+                resetZeroByteToolInputRestart(toolName);
               }
             }
             sendToolInputActivity(toolName, key, progressBytes);
@@ -2959,8 +3007,10 @@ export async function runAgentLoop(opts: {
           } else if (event.type === "tool-call") {
             // The authoritative tool-call blocks arrive in assistant-content.
             resetActiveToolInput(event.name, event.id);
+            resetZeroByteToolInputRestart(event.name);
           } else if (event.type === "tool-call-error") {
             resetActiveToolInput(event.name, event.id);
+            resetZeroByteToolInputRestart(event.name);
             toolCallErrors.set(event.id, {
               name: event.name,
               input: event.input,
