@@ -177,6 +177,56 @@ function preparingActionZeroByteActivityStream(
   });
 }
 
+function preparingActionZeroByteActivityThenDoneStream(
+  tool = "edit-design",
+  intervalMs = 30_000,
+  doneAtMs = SSE_ACTION_PREPARATION_STALL_TIMEOUT_MS + 30_000,
+): ReadableStream<Uint8Array> {
+  let interval: ReturnType<typeof setInterval> | undefined;
+  let doneTimer: ReturnType<typeof setTimeout> | undefined;
+  return new ReadableStream<Uint8Array>({
+    start(controller) {
+      const sendActivity = () => {
+        controller.enqueue(
+          new TextEncoder().encode(
+            `data: ${JSON.stringify({
+              type: "activity",
+              label: `Preparing ${tool} action`,
+              tool,
+              progressBytes: 0,
+            })}\n\n`,
+          ),
+        );
+      };
+      sendActivity();
+      interval = setInterval(() => {
+        try {
+          sendActivity();
+        } catch {
+          // The watchdog may have cancelled the stream first.
+        }
+      }, intervalMs);
+      doneTimer = setTimeout(() => {
+        try {
+          if (interval) clearInterval(interval);
+          controller.enqueue(
+            new TextEncoder().encode(
+              `data: ${JSON.stringify({ type: "done" })}\n\n`,
+            ),
+          );
+          controller.close();
+        } catch {
+          // The watchdog may have cancelled the stream first.
+        }
+      }, doneAtMs);
+    },
+    cancel() {
+      if (interval) clearInterval(interval);
+      if (doneTimer) clearTimeout(doneTimer);
+    },
+  });
+}
+
 function preparingActionProgressStream(
   tool = "edit-design",
   intervalMs = 30_000,
@@ -560,6 +610,51 @@ describe("SSE event processor no-progress recovery", () => {
         tool: "edit-design",
       },
     ]);
+  });
+
+  it("keeps a durable background stream alive on zero-byte preparation activity", async () => {
+    vi.useFakeTimers();
+
+    const donePromise = drain(
+      readSSEStream(
+        preparingActionZeroByteActivityThenDoneStream(),
+        [],
+        { value: 0 },
+        undefined,
+        undefined,
+        undefined,
+        { durableBackgroundRun: true },
+      ),
+    );
+
+    await vi.advanceTimersByTimeAsync(
+      SSE_ACTION_PREPARATION_STALL_TIMEOUT_MS + 30_000,
+    );
+
+    await expect(donePromise).resolves.toBeDefined();
+  });
+
+  it("keeps durable background keepalives attached until a terminal event", async () => {
+    vi.useFakeTimers();
+
+    const donePromise = drain(
+      readSSEStream(
+        keepaliveThenDelayedDoneStream(
+          30_000,
+          SSE_NO_PROGRESS_TIMEOUT_MS + 5_000,
+        ),
+        [],
+        { value: 0 },
+        undefined,
+        undefined,
+        undefined,
+        { durableBackgroundRun: true },
+      ),
+    );
+
+    await vi.advanceTimersByTimeAsync(SSE_NO_PROGRESS_TIMEOUT_MS + 5_000);
+
+    await expect(donePromise).resolves.toBeDefined();
   });
 
   it("does not stall while a large tool input is still streaming progress", async () => {
