@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.84.40
+
+### Patch Changes
+
+- 96feefd: Checkpoint agent runs that stall while preparing an action input without streaming bytes.
+
 ## 0.84.39
 
 ### Patch Changes
