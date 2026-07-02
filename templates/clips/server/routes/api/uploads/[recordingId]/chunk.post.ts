@@ -399,15 +399,25 @@ export default defineEventHandler(async (event: H3Event) => {
 
     // Update upload progress (best-effort). If total is unknown we treat it as
     // indeterminate and keep progress at its last known value.
+    // Chunks may arrive out of order when uploaded in parallel, so take the
+    // max of the current persisted value and the incoming index to keep
+    // progress monotonically non-decreasing.
     if (total > 0) {
       const failedResponse = await stopIfUploadFailed();
       if (failedResponse) return failedResponse;
-      const progress = Math.min(100, Math.round(((index + 1) / total) * 100));
+      const chunksReceived = Math.max(
+        stateNumber(uploadState, "chunksReceived") ?? 0,
+        index + 1,
+      );
+      const progress = Math.max(
+        stateNumber(uploadState, "progress") ?? 0,
+        Math.min(100, Math.round((chunksReceived / total) * 100)),
+      );
       await writeAppState(`recording-upload-${recordingId}`, {
         recordingId,
         status: isFinal ? "processing" : "uploading",
         progress,
-        chunksReceived: index + 1,
+        chunksReceived,
         totalChunks: total,
         bytesReceived,
         maxBytes: MAX_RECORDING_UPLOAD_BYTES,
@@ -432,7 +442,10 @@ export default defineEventHandler(async (event: H3Event) => {
       await writeAppState(`recording-upload-${recordingId}`, {
         recordingId,
         status: "uploading",
-        chunksReceived: index + 1,
+        chunksReceived: Math.max(
+          stateNumber(uploadState, "chunksReceived") ?? 0,
+          index + 1,
+        ),
         bytesReceived,
         maxBytes: MAX_RECORDING_UPLOAD_BYTES,
         mimeType,
