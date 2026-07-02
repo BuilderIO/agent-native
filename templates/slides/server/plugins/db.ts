@@ -183,6 +183,13 @@ export default runMigrations(
       version: 20,
       sql: `ALTER TABLE deck_share_links ADD COLUMN IF NOT EXISTS design_system_id TEXT`,
     },
+    // v21: snapshot the resolved design system's raw `data` JSON at
+    // share-creation time so shared viewers read it directly instead of
+    // calling the auth-required get-design-system action anonymously.
+    {
+      version: 21,
+      sql: `ALTER TABLE deck_share_links ADD COLUMN IF NOT EXISTS design_system_snapshot TEXT`,
+    },
   ],
   { table: "slides_migrations" },
 );

@@ -1,12 +1,15 @@
 import { appBasePath, useT } from "@agent-native/core/client";
 import type { SharedDeckResponse } from "@shared/api";
 import { IconAlertCircle } from "@tabler/icons-react";
-import { useState, useEffect } from "react";
+import { useMemo, useState, useEffect } from "react";
 import { useParams } from "react-router";
 
 import PresentationView from "@/components/presentation/PresentationView";
 import type { Slide } from "@/context/DeckContext";
-import { useDeckDesignSystem } from "@/hooks/use-deck-design-system";
+import {
+  DEFAULT_DESIGN_SYSTEM,
+  mergeDesignSystemData,
+} from "@/hooks/use-deck-design-system";
 
 interface SharedPresentationProps {
   initialDeck?: SharedDeckResponse | null;
@@ -22,7 +25,14 @@ export default function SharedPresentation({
   const [deck, setDeck] = useState<SharedDeckResponse | null>(initialDeck);
   const [error, setError] = useState(initialError);
   const [loading, setLoading] = useState(!initialDeck && !initialError);
-  const { designSystem } = useDeckDesignSystem(deck?.designSystemId);
+  const designSystem = useMemo(() => {
+    if (!deck?.designSystemSnapshot) return DEFAULT_DESIGN_SYSTEM;
+    try {
+      return mergeDesignSystemData(JSON.parse(deck.designSystemSnapshot));
+    } catch {
+      return DEFAULT_DESIGN_SYSTEM;
+    }
+  }, [deck?.designSystemSnapshot]);
 
   useEffect(() => {
     if (!token) return;

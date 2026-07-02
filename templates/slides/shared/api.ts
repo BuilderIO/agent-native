@@ -76,6 +76,7 @@ export interface SharedDeckResponse {
   slides: SharedDeckSlide[];
   aspectRatio?: import("./aspect-ratios").AspectRatio;
   designSystemId?: string | null;
+  designSystemSnapshot?: string | null;
 }
 
 export type SharedSlideTransition =
