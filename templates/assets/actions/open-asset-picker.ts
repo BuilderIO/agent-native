@@ -1,8 +1,13 @@
 import { defineAction, embedApp } from "@agent-native/core";
+import type { ActionRunContext } from "@agent-native/core/action";
+import { writeAppState } from "@agent-native/core/application-state";
+import { getRequestRunContext } from "@agent-native/core/server/request-context";
 import { z } from "zod";
+
 import { IMAGE_QUALITY_TIERS, STYLE_STRENGTHS } from "../shared/api.js";
 
 const mediaTypeSchema = z.enum(["image", "video"]);
+const layoutSchema = z.enum(["default", "vertical"]);
 const booleanParam = z.preprocess((value) => {
   if (typeof value === "boolean") return value;
   if (typeof value !== "string") return value;
@@ -67,15 +72,23 @@ const schema = z.object({
     .default("balanced")
     .describe("How strongly to follow the library style during generation."),
   includeLogo: booleanParam
-    .default(false)
-    .describe("Whether auto-generation should include the library logo."),
+    .optional()
+    .describe(
+      "Override logo compositing for auto-generation. When omitted, the selected preset's logo setting decides whether the library's canonical logo is composited.",
+    ),
   callerAppId: z
     .string()
     .optional()
     .describe("Calling app id, for audit grouping, e.g. design."),
+  layout: layoutSchema
+    .default("default")
+    .describe(
+      "Picker layout density. Use vertical when embedding in a narrow sidebar.",
+    ),
 });
 
 type OpenAssetPickerArgs = z.infer<typeof schema>;
+const SAFE_BROWSER_TAB_ID_RE = /^[A-Za-z0-9_-]{1,96}$/;
 
 type ActionWithToolParameters = {
   tool: { parameters?: { properties?: Record<string, any> } };
@@ -108,6 +121,7 @@ const FALLBACK_INSTRUCTIONS =
 
 function pickerPath(args: Partial<OpenAssetPickerArgs>): string {
   const params = new URLSearchParams();
+  params.set("__an_picker", "1");
   params.set("mediaType", args.mediaType ?? "image");
   if (args.prompt?.trim()) params.set("prompt", args.prompt.trim());
   if (args.query?.trim()) params.set("q", args.query.trim());
@@ -126,11 +140,27 @@ function pickerPath(args: Partial<OpenAssetPickerArgs>): string {
   }
   if (args.includeLogo) params.set("includeLogo", "1");
   if (args.callerAppId?.trim()) params.set("callerAppId", args.callerAppId);
+  if (args.layout === "vertical") params.set("layout", "vertical");
   for (const runId of args.candidateRunIds ?? []) {
     if (runId.trim()) params.append("candidateRunIds", runId.trim());
   }
   if (args.autoGenerate) params.set("autoGenerate", "1");
   return `/library?${params.toString()}`;
+}
+
+function navigateCommandKey(): string | null {
+  const browserTabId = getRequestRunContext()?.browserTabId?.trim();
+  if (browserTabId && SAFE_BROWSER_TAB_ID_RE.test(browserTabId)) {
+    return `navigate:${browserTabId}`;
+  }
+  return null;
+}
+
+function shouldWriteNavigateCommand(
+  context: ActionRunContext | undefined,
+  commandKey: string | null,
+): commandKey is string {
+  return Boolean(commandKey) && context?.caller !== "mcp";
 }
 
 const action = defineAction({
@@ -172,8 +202,26 @@ const action = defineAction({
       view: "picker",
     };
   },
-  run: async (args) => {
+  run: async (args, context) => {
     const path = pickerPath(args);
+    const commandKey = navigateCommandKey();
+    if (shouldWriteNavigateCommand(context, commandKey)) {
+      const command = {
+        view: "picker" as const,
+        mediaType: args.mediaType,
+        path,
+        libraryId: args.libraryId ?? null,
+        query: args.query ?? null,
+        prompt: args.prompt ?? null,
+        aspectRatio: args.aspectRatio ?? null,
+        presetId: args.presetId ?? null,
+        layout: args.layout,
+        _writeId: `open-asset-picker-${Date.now()}-${Math.random()
+          .toString(36)
+          .slice(2, 8)}`,
+      };
+      await writeAppState(commandKey, command);
+    }
     return {
       app: "assets",
       view: "picker",
@@ -181,6 +229,7 @@ const action = defineAction({
       path,
       url: path,
       embed: true,
+      layout: args.layout,
       title:
         args.mediaType === "video"
           ? "Select a video asset"

@@ -1,11 +1,12 @@
 import type { H3Event } from "h3";
+
+import type { EnvKeyConfig } from "../../server/create-server.js";
 import type {
   PlatformAdapter,
   IncomingMessage,
   OutgoingMessage,
   IntegrationStatus,
 } from "../types.js";
-import type { EnvKeyConfig } from "../../server/create-server.js";
 
 /** Google Docs comment replies have no formal length limit but keep it reasonable */
 const GDOCS_MAX_LENGTH = 4000;

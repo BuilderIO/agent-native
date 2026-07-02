@@ -1,6 +1,6 @@
+import { useT } from "@agent-native/core/client";
 import { IconMoon, IconSun } from "@tabler/icons-react";
 import { useEffect, useState } from "react";
-import { useT } from "@agent-native/core/client";
 
 type Theme = "light" | "dark";
 

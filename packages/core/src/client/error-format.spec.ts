@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+
 import {
   BUILDER_SPACE_SETTINGS_URL,
   NEW_CHAT_ACTION_HREF,
@@ -7,6 +8,9 @@ import {
 } from "./error-format.js";
 
 describe("formatChatErrorText", () => {
+  const agentNativeUpgradeUrl =
+    "https://builder.io/account/subscription?signupSource=agent-native&agentNativeConnectSource=gateway_quota_upgrade&agentNativeFlow=connect_llm&framework=agent-native";
+
   it("adds a Builder space settings CTA for disabled gateway errors", () => {
     expect(
       formatChatErrorText(
@@ -31,11 +35,11 @@ describe("formatChatErrorText", () => {
     expect(
       formatChatErrorText(
         "Monthly credits limit reached.",
-        "https://builder.io/account/billing",
+        agentNativeUpgradeUrl,
         "credits-limit-monthly",
       ),
     ).toBe(
-      "Error: Monthly credits limit reached.\n\n[Upgrade at builder.io](https://builder.io/account/billing)",
+      `Error: Monthly credits limit reached.\n\n[Upgrade at builder.io](${agentNativeUpgradeUrl})`,
     );
   });
 
@@ -110,6 +114,20 @@ describe("formatChatErrorText", () => {
       ),
     ).toBe(
       "Error: The model provider is rate-limiting this chat right now. Wait a moment, then retry.",
+    );
+  });
+
+  it("normalizes provider API key authentication failures", () => {
+    const raw =
+      '401 {"type":"error","error":{"type":"authentication_error","message":"invalid x-api-key"},"request_id":"req_example"}';
+    const normalized = normalizeChatError(raw, "authentication_error");
+
+    expect(normalized.message).toBe(
+      "The model provider rejected the saved API key. Update the key in API Keys & Connections, then retry.",
+    );
+    expect(normalized.details).toBe(raw);
+    expect(formatChatErrorText(raw, undefined, "authentication_error")).toBe(
+      "Error: The model provider rejected the saved API key. Update the key in API Keys & Connections, then retry.",
     );
   });
 });

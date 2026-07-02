@@ -1,5 +1,3 @@
-import { useMemo, useState } from "react";
-import { Link } from "react-router";
 import {
   useSendToAgentChat,
   PromptComposer,
@@ -7,24 +5,27 @@ import {
   useT,
 } from "@agent-native/core/client";
 import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover";
-import { Badge } from "@/components/ui/badge";
-import {
   IconAlertCircle,
   IconCheck,
   IconDatabase,
   IconLoader2,
   IconPlus,
 } from "@tabler/icons-react";
-import { cn } from "@/lib/utils";
+import { useMemo, useState } from "react";
+import { Link } from "react-router";
+
+import { Badge } from "@/components/ui/badge";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import {
   credentialRowsFromStatus,
   getConfiguredDataSources,
   type DataSourceStatusResponse,
 } from "@/lib/data-source-status";
+import { cn } from "@/lib/utils";
 
 const ANALYSIS_CONTEXT =
   "The user wants to kick off a new ad-hoc analysis. " +
@@ -59,8 +60,8 @@ export function NewAnalysisDialog() {
   const status = statusData as DataSourceStatusResponse | undefined;
   const envStatus = credentialRowsFromStatus(status);
   const configuredSources = useMemo(
-    () => getConfiguredDataSources(envStatus),
-    [envStatus],
+    () => getConfiguredDataSources(envStatus, status),
+    [envStatus, status],
   );
   const configuredSourceNames = configuredSources.map((source) => source.name);
   const statusMessage = status?.message || status?.error;

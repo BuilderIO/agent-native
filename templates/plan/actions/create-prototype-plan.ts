@@ -5,19 +5,20 @@ import {
   getRequestUserName,
 } from "@agent-native/core/server/request-context";
 import { z } from "zod";
+
 import { getDb, schema } from "../server/db/index.js";
-import {
-  createPrototypePlanContent,
-  normalizePlanContent,
-  serializePlanContent,
-} from "../server/plan-content.js";
+import { assertGuestCreateWithinLimits } from "../server/lib/guest-abuse.js";
 import {
   isLocalPlanRuntime,
   resolvePlanOrgIdForWrite,
   requirePlanOwnerEmailForWrite,
 } from "../server/lib/local-identity.js";
-import { assertGuestCreateWithinLimits } from "../server/lib/guest-abuse.js";
 import { writePlanLocalFiles } from "../server/lib/local-plan-files.js";
+import {
+  createPrototypePlanContent,
+  normalizePlanContent,
+  serializePlanContent,
+} from "../server/plan-content.js";
 import {
   buildPlanHtml,
   commentInputSchema,
@@ -145,7 +146,7 @@ export default defineAction({
     readOnly: false,
     requiresAuth: true,
     isConsequential: true,
-    title: "Create Visual Plan",
+    title: "Create Prototype Plan",
     description:
       "Create a plan whose primary review surface is a functional prototype.",
   },
@@ -157,7 +158,7 @@ export default defineAction({
         "Open the Agent-Native Plan prototype review surface for functional states, comments, static mocks, and implementation notes.",
       iframeTitle: "Agent-Native Plan",
       openLabel: "Open Visual Plan",
-      height: 860,
+      height: 900,
     }),
   },
   run: async (args) => {

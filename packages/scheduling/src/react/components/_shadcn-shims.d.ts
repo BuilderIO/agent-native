@@ -6,7 +6,7 @@
  * *build time* by the consumer's bundler (Vite / React Router) using the
  * template's `tsconfig.json` `paths` setting.
  *
- * The package itself doesn't have access to that alias during `tsc`
+ * The package itself doesn't have access to that alias during `tsgo`
  * compilation, so we declare broad shapes here to make the compiler happy
  * without coupling the package to a specific shadcn version. Runtime
  * behaviour is driven entirely by the consumer's actual shadcn modules.

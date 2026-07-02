@@ -1,13 +1,14 @@
 import { defineAction } from "@agent-native/core";
-import { z } from "zod";
-import { eq } from "drizzle-orm";
-import { getDb, schema } from "../server/db/index.js";
-import { resolveAccess } from "@agent-native/core/sharing";
 import {
   getRequestUserEmail,
   getRequestOrgId,
 } from "@agent-native/core/server/request-context";
+import { resolveAccess } from "@agent-native/core/sharing";
+import { eq } from "drizzle-orm";
 import { nanoid } from "nanoid";
+import { z } from "zod";
+
+import { getDb, schema } from "../server/db/index.js";
 
 export default defineAction({
   description:
@@ -30,33 +31,61 @@ export default defineAction({
     const now = new Date().toISOString();
     const newTitle = title || `Copy of ${source.title}`;
 
-    // Copy the design
+    // Fetch source files first so we can remap canvasFrames before inserting
+    const files = await db
+      .select()
+      .from(schema.designFiles)
+      .where(eq(schema.designFiles.designId, id));
+
+    // Build old-to-new file ID mapping upfront
+    const idMap = new Map<string, string>(
+      files.map((file) => [file.id, nanoid()]),
+    );
+
+    // Remap canvasFrames keys in source.data from old IDs to new IDs
+    let newData = source.data;
+    try {
+      const parsed =
+        typeof source.data === "string" ? JSON.parse(source.data) : source.data;
+      if (parsed && typeof parsed === "object" && parsed.canvasFrames) {
+        const remapped: Record<string, unknown> = {};
+        for (const [oldId, geometry] of Object.entries(parsed.canvasFrames)) {
+          const newFileId = idMap.get(oldId);
+          remapped[newFileId ?? oldId] = geometry;
+        }
+        newData =
+          typeof source.data === "string"
+            ? JSON.stringify({ ...parsed, canvasFrames: remapped })
+            : { ...parsed, canvasFrames: remapped };
+      }
+    } catch {
+      // If data is unparseable, fall back to copying verbatim
+    }
+
+    // Copy the design with remapped canvasFrames
+    const orgId = getRequestOrgId() || null;
     await db.insert(schema.designs).values({
       id: newId,
       title: newTitle,
       description: source.description,
       projectType: source.projectType,
       designSystemId: source.designSystemId ?? null,
-      data: source.data,
+      data: newData,
       ownerEmail: (() => {
         const e = getRequestUserEmail();
         if (!e) throw new Error("no authenticated user");
         return e;
       })(),
-      orgId: getRequestOrgId() || null,
+      orgId,
+      visibility: orgId ? "org" : "private",
       createdAt: now,
       updatedAt: now,
     });
 
-    // Copy all associated files with new IDs
-    const files = await db
-      .select()
-      .from(schema.designFiles)
-      .where(eq(schema.designFiles.designId, id));
-
+    // Copy all associated files using the pre-generated IDs
     for (const file of files) {
       await db.insert(schema.designFiles).values({
-        id: nanoid(),
+        id: idMap.get(file.id)!,
         designId: newId,
         filename: file.filename,
         fileType: file.fileType,

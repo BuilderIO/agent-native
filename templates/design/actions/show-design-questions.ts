@@ -4,6 +4,8 @@ import { buildDeepLink } from "@agent-native/core/server";
 import { assertAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
 
+import "../server/db/index.js"; // ensure registerShareableResource runs
+
 function designDeepLink(designId: string): string {
   return buildDeepLink({
     app: "design",
@@ -118,6 +120,12 @@ export default defineAction({
       skipLabel: skipLabel ?? "Decide for me",
       submitLabel: submitLabel ?? "Continue",
       questions: normalizedQuestions,
+    });
+    await writeAppState("navigate", {
+      view: "editor",
+      designId,
+      editorView: "overview",
+      path: `/design/${encodeURIComponent(designId)}?view=overview`,
     });
 
     return {

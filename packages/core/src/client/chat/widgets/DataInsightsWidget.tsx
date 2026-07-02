@@ -1,7 +1,8 @@
 import { IconDatabase } from "@tabler/icons-react";
+
+import type { DataWidgetResult } from "./data-widget-types.js";
 import { DataChartWidget } from "./DataChartWidget.js";
 import { DataTableWidget } from "./DataTableWidget.js";
-import type { DataWidgetResult } from "./data-widget-types.js";
 
 function SummaryPill({ label, value }: { label: string; value: unknown }) {
   if (value === undefined || value === null || value === "") return null;

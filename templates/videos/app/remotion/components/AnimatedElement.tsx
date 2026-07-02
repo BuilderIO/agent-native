@@ -1,4 +1,5 @@
 import React from "react";
+
 import type { InteractiveComponentState } from "../hooks/useInteractiveComponent";
 
 export interface AnimatedElementProps {

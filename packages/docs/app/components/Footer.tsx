@@ -1,5 +1,6 @@
-import { Link } from "react-router";
 import { useLocale, useT } from "@agent-native/core/client";
+import { Link } from "react-router";
+
 import { sitePathForLocale } from "./docs-locale";
 
 export default function Footer() {

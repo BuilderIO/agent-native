@@ -78,6 +78,18 @@ export const documentSyncLinks = table("document_sync_links", {
   updatedAt: text("updated_at").notNull().default(now()),
 });
 
+export const builderDocSidecars = table("builder_doc_sidecars", {
+  id: text("id").primaryKey(),
+  ownerEmail: text("owner_email").notNull().default("local@localhost"),
+  orgId: text("org_id"),
+  documentId: text("document_id").notNull(),
+  path: text("path").notNull(),
+  content: text("content").notNull(),
+  contentHash: text("content_hash").notNull(),
+  createdAt: text("created_at").notNull().default(now()),
+  updatedAt: text("updated_at").notNull().default(now()),
+});
+
 export const documentPropertyDefinitions = table(
   "document_property_definitions",
   {
@@ -100,6 +112,8 @@ export const contentDatabases = table("content_databases", {
   ownerEmail: text("owner_email").notNull().default("local@localhost"),
   orgId: text("org_id"),
   documentId: text("document_id").notNull(),
+  ownerDocumentId: text("owner_document_id"),
+  ownerBlockId: text("owner_block_id"),
   title: text("title").notNull().default("Untitled database"),
   viewConfigJson: text("view_config_json").notNull().default("{}"),
   // Single source of truth for the primary "Content" Blocks field — the one
@@ -113,6 +127,7 @@ export const contentDatabases = table("content_databases", {
   // "primary intentionally deleted" (seeded once, then removed — must NOT be
   // reseeded). See delete-document-property.
   blocksSeeded: integer("blocks_seeded").notNull().default(0),
+  deletedAt: text("deleted_at"),
   createdAt: text("created_at").notNull().default(now()),
   updatedAt: text("updated_at").notNull().default(now()),
 });
@@ -124,9 +139,36 @@ export const contentDatabaseItems = table("content_database_items", {
   databaseId: text("database_id").notNull(),
   documentId: text("document_id").notNull(),
   position: integer("position").notNull().default(0),
+  bodyHydrationStatus: text("body_hydration_status")
+    .notNull()
+    .default("hydrated"),
+  bodyHydrationAttemptedAt: text("body_hydration_attempted_at"),
+  bodyHydrationError: text("body_hydration_error"),
+  bodyHydrationVersion: text("body_hydration_version"),
   createdAt: text("created_at").notNull().default(now()),
   updatedAt: text("updated_at").notNull().default(now()),
 });
+
+export const contentDatabaseBodyHydrationQueue = table(
+  "content_database_body_hydration_queue",
+  {
+    id: text("id").primaryKey(),
+    ownerEmail: text("owner_email").notNull().default("local@localhost"),
+    orgId: text("org_id"),
+    sourceId: text("source_id").notNull(),
+    databaseItemId: text("database_item_id").notNull(),
+    documentId: text("document_id").notNull(),
+    sourceRowId: text("source_row_id").notNull(),
+    sourceTable: text("source_table").notNull(),
+    sourceEntryJson: text("source_entry_json").notNull().default("{}"),
+    priority: integer("priority").notNull().default(10),
+    attempts: integer("attempts").notNull().default(0),
+    lastAttemptedAt: text("last_attempted_at"),
+    lastError: text("last_error"),
+    createdAt: text("created_at").notNull().default(now()),
+    updatedAt: text("updated_at").notNull().default(now()),
+  },
+);
 
 export const contentDatabaseSources = table("content_database_sources", {
   id: text("id").primaryKey(),

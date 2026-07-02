@@ -1,3 +1,4 @@
+import { IconPencil } from "@tabler/icons-react";
 import {
   useEffect,
   useId,
@@ -6,20 +7,21 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { IconPencil } from "@tabler/icons-react";
-import { defineBlock } from "../types.js";
+
 import { ltrCodeBlockProps } from "../code-block-direction.js";
+import { defineBlock } from "../types.js";
 import type {
   BlockReadProps,
   BlockEditProps,
   BlockRenderContext,
 } from "../types.js";
+import { useBlockCopy } from "./block-copy.js";
 import {
-  wireframeSchema,
-  wireframeMdx,
-  type WireframeData,
-  type WireframeSurface,
-} from "./wireframe.config.js";
+  sanitizeWireframeCss,
+  sanitizeWireframeHtml,
+  scopeDesignCss,
+} from "./sanitize-html.js";
+import { renderWireframeIconHtml } from "./wireframe-icons.js";
 import {
   HTML_ROUGH_SELECTOR,
   KitConfigContext,
@@ -31,11 +33,11 @@ import {
   useWireframeStyle,
 } from "./wireframe-kit.js";
 import {
-  sanitizeWireframeCss,
-  sanitizeWireframeHtml,
-  scopeDesignCss,
-} from "./sanitize-html.js";
-import { renderWireframeIconHtml } from "./wireframe-icons.js";
+  wireframeSchema,
+  wireframeMdx,
+  type WireframeData,
+  type WireframeSurface,
+} from "./wireframe.config.js";
 
 /**
  * Shared `wireframe` block — a hand-drawn low-fi mockup of one screen, rendered
@@ -54,8 +56,8 @@ import { renderWireframeIconHtml } from "./wireframe-icons.js";
  * - The plan-only prototype runtime, design-element selection, and legacy region
  *   fallback are intentionally NOT ported; those are plan-canvas features, not
  *   part of the document-block render. The kit element vocabulary, the `--wf-*`
- *   token contract, and the `.plan-wf` / `[data-rough]` classes the overlay
- *   measures are preserved exactly.
+ *   token contract, and the `.plan-wf` / `.wf-*` / `[data-rough]` classes the
+ *   overlay measures are preserved exactly.
  *
  * The section carries the app-neutral `an-block` class plus the legacy
  * `plan-block` class so plan renders byte-identically while any other app gets
@@ -162,12 +164,6 @@ function ArtboardFrame({
   const designMode = renderMode === "design";
   const sketchy = !designMode && style === "sketchy" && !skeleton;
   const roughEnabled = sketchy && roughOverlay;
-  const paper = designMode
-    ? "hsl(var(--background))"
-    : "var(--plan-document, hsl(var(--background)))";
-  const frameBorder = skeleton
-    ? "var(--plan-placeholder-line, var(--plan-line, hsl(var(--border))))"
-    : "var(--plan-line, hsl(var(--border)))";
 
   useEffect(() => {
     const element = fitRef.current;
@@ -241,7 +237,6 @@ function ArtboardFrame({
             // a fixed `canvasSize` locks the height for canvas artboards.
             ...(fixedHeight != null ? { height: fixedHeight } : { minHeight }),
             borderRadius: preset.radius,
-            background: paper,
             ...(fitScale !== 1
               ? {
                   transform: `scale(${fitScale})`,
@@ -264,18 +259,10 @@ function ArtboardFrame({
           >
             {render({ theme, style })}
           </div>
-          {!roughEnabled && (
-            <div
-              className="pointer-events-none absolute inset-0"
-              style={{
-                borderRadius: preset.radius,
-                border: `1.5px solid ${frameBorder}`,
-              }}
-            />
-          )}
           <RoughOverlay
             scopeRef={ref}
             enabled={roughEnabled}
+            drawFrame={false}
             frameRadius={preset.radius}
             selector={selector}
           />
@@ -291,9 +278,13 @@ function ArtboardFrame({
 
 function WireframeStyleToggleButton() {
   const style = useWireframeStyle();
+  const copy = useBlockCopy();
   const nextStyle = style === "sketchy" ? "clean" : "sketchy";
-  const label = nextStyle === "clean" ? "Clean" : "Sketchy";
-  const description = `Switch to ${label.toLowerCase()} visual style`;
+  const label = nextStyle === "clean" ? copy.clean : copy.sketchy;
+  const description = copy.switchVisualStyle.replace(
+    "{{style}}",
+    label.toLocaleLowerCase(),
+  );
 
   return (
     <button
@@ -307,7 +298,7 @@ function WireframeStyleToggleButton() {
         event.stopPropagation();
         toggleWireframeStyle();
       }}
-      className="absolute right-2 top-2 z-30 inline-flex h-7 items-center gap-1 rounded-md border border-border/60 bg-background/90 px-2 text-xs font-medium text-muted-foreground opacity-0 shadow-sm backdrop-blur transition-[color,opacity] hover:text-foreground focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring group-hover/wireframe-artboard:opacity-100"
+      className="absolute right-2 top-2 z-30 inline-flex h-7 items-center gap-1 rounded-md border border-border/60 bg-background px-2 text-xs font-medium text-muted-foreground opacity-0 shadow-sm transition-[color,opacity] hover:text-foreground focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring group-hover/wireframe-artboard:opacity-100"
     >
       <IconPencil className="size-3.5" aria-hidden="true" />
       <span>{label}</span>
@@ -329,13 +320,19 @@ function HtmlArtboard({
   compact?: boolean;
 }) {
   const renderMode = data.renderMode ?? "wireframe";
+  const designMode = renderMode === "design";
   // Sanitize author HTML/CSS at the render point (defense-in-depth against stored
   // XSS). Self-contained in core via the shared block sanitizer (DOM-based in the
   // browser, regex fallback on the server) so the HTML mockup path renders in any
   // app without the host wiring a sanitizer hook.
   const safeHtml = useMemo(
-    () => renderWireframeIconHtml(sanitizeWireframeHtml(data.html)),
-    [data.html],
+    () =>
+      renderWireframeIconHtml(
+        sanitizeWireframeHtml(data.html, {
+          preserveThemeClasses: designMode,
+        }),
+      ),
+    [data.html, designMode],
   );
   const scopeId = useId().replace(/[^a-zA-Z0-9_-]/g, "");
   const scopedCss = useMemo(() => {

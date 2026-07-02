@@ -82,15 +82,17 @@ export { fetchHubServers } from "./hub-client.js";
 export { isMcpToolAllowedForRequest } from "./visibility.js";
 import { isMcpToolAllowedForRequest } from "./visibility.js";
 export {
+  configureScreenMemory,
+  queryScreenMemoryContext,
+  readScreenMemoryStatus,
+  type ScreenMemoryConfig,
+  type ScreenMemoryContextItem,
+  type ScreenMemoryQueryResult,
+  type ScreenMemoryStatus,
+} from "./screen-memory-local.js";
+export {
   MCP_ACTION_RESULT_MARKER,
   isMcpActionResult,
-  type AgentMcpAppPayload,
-  type AgentMcpAppResourceContent,
-  type McpActionResult,
-} from "./app-result.js";
-import {
-  MCP_ACTION_RESULT_MARKER,
-  toolForMcpAppPayload,
   type AgentMcpAppPayload,
   type AgentMcpAppResourceContent,
   type McpActionResult,
@@ -100,14 +102,21 @@ import {
   isToolVisibilityAppOnly,
   isToolVisibilityModelOnly,
 } from "@modelcontextprotocol/ext-apps/app-bridge";
-import { MCP_APP_MIME_TYPE } from "../action.js";
 
+import { MCP_APP_MIME_TYPE } from "../action.js";
 /**
  * Convert MCP tools into `ActionEntry` values suitable for registration in
  * the agent's action registry. Each tool is marked `http: false` so it's
  * never auto-mounted as an HTTP endpoint — MCP tools are agent-only.
  */
 import type { ActionEntry } from "../agent/production-agent.js";
+import {
+  MCP_ACTION_RESULT_MARKER,
+  toolForMcpAppPayload,
+  type AgentMcpAppPayload,
+  type AgentMcpAppResourceContent,
+  type McpActionResult,
+} from "./app-result.js";
 import type { McpClientManager, McpTool } from "./manager.js";
 
 export function mcpToolsToActionEntries(

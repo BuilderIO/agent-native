@@ -1,44 +1,39 @@
-import { useEffect } from "react";
+import { AgentChatSurface, useT } from "@agent-native/core/client";
+import { useState } from "react";
+
 import {
-  AgentChatSurface,
-  markAgentChatHomeHandoff,
-} from "@agent-native/core/client";
+  ANALYTICS_CHAT_STORAGE_KEY,
+  hasRecentAnalyticsChat,
+} from "@/lib/chat-handoff";
 import { TAB_ID } from "@/lib/tab-id";
 
 export default function AskPage() {
-  useEffect(() => {
-    function handleChatRunning(event: Event) {
-      const detail = (event as CustomEvent).detail;
-      if (detail?.isRunning === true) markAgentChatHomeHandoff("analytics");
-    }
-
-    window.addEventListener("agentNative.chatRunning", handleChatRunning);
-    return () =>
-      window.removeEventListener("agentNative.chatRunning", handleChatRunning);
-  }, []);
+  const t = useT();
+  const [restoreActiveThread] = useState(() => hasRecentAnalyticsChat());
 
   return (
-    <div className="flex h-full min-h-0 flex-col bg-background">
+    <div className="analytics-ask-page flex h-full min-h-0 flex-col bg-background">
       <AgentChatSurface
         mode="page"
         chatViewTransition
         className="analytics-chat-panel"
         defaultMode="chat"
-        storageKey="analytics"
+        storageKey={ANALYTICS_CHAT_STORAGE_KEY}
+        restoreActiveThread={restoreActiveThread}
         browserTabId={TAB_ID}
         showHeader={false}
         showTabBar={false}
         dynamicSuggestions={false}
         suggestions={[]}
-        emptyStateText="Ask Analytics about your data."
+        emptyStateText={t("common.askAnalytics")}
         emptyStateDisplay="hidden"
         centerComposerWhenEmpty
         composerLayoutVariant="hero"
-        composerPlaceholder="Ask about data, dashboards, metrics, or sources..."
+        composerPlaceholder={t("common.askPlaceholder")}
         composerSlot={
           <div className="analytics-chat-intro">
-            <h1>What would you like to explore?</h1>
-            <p>Ask about data, dashboards, metrics, or sources.</p>
+            <h1>{t("common.askIntroTitle")}</h1>
+            <p>{t("common.askIntroBody")}</p>
           </div>
         }
       />

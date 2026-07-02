@@ -1,11 +1,9 @@
-import { useState } from "react";
+import { useActionMutation, useT } from "@agent-native/core/client";
 import { IconCrown, IconUserX } from "@tabler/icons-react";
-import { useActionMutation } from "@agent-native/core/client";
 import { useQueryClient } from "@tanstack/react-query";
+import { useState } from "react";
 import { toast } from "sonner";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
+
 import {
   AlertDialog,
   AlertDialogAction,
@@ -16,6 +14,9 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import {
   Select,
   SelectContent,
@@ -55,9 +56,9 @@ function initials(email: string): string {
   return (name || email).slice(0, 2).toUpperCase();
 }
 
-const ROLE_OPTIONS: { value: MemberRole; label: string }[] = [
-  { value: "member", label: "Member" },
-  { value: "admin", label: "Admin" },
+const ROLE_OPTIONS: { value: MemberRole; labelKey: string }[] = [
+  { value: "member", labelKey: "membersList.memberRole" },
+  { value: "admin", labelKey: "membersList.adminRole" },
 ];
 
 export function MembersList({
@@ -67,6 +68,7 @@ export function MembersList({
   currentUserRole,
   disabled,
 }: MembersListProps) {
+  const t = useT();
   const isAdmin = !disabled && currentUserRole === "admin";
   const [pendingRemove, setPendingRemove] = useState<MemberRow | null>(null);
   const qc = useQueryClient();
@@ -87,12 +89,16 @@ export function MembersList({
         email: member.email,
         role,
       });
-      toast.success(`Updated ${member.email}'s role to ${role}`);
+      toast.success(
+        t("membersList.roleUpdated", { email: member.email, role }),
+      );
       qc.invalidateQueries({
         queryKey: ["action", "list-organization-state"],
       });
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to update role");
+      toast.error(
+        err instanceof Error ? err.message : t("membersList.updateFailed"),
+      );
     }
   }
 
@@ -103,13 +109,13 @@ export function MembersList({
         organizationId,
         email: pendingRemove.email,
       });
-      toast.success(`Removed ${pendingRemove.email} from the organization`);
+      toast.success(t("membersList.removed", { email: pendingRemove.email }));
       qc.invalidateQueries({
         queryKey: ["action", "list-organization-state"],
       });
     } catch (err) {
       toast.error(
-        err instanceof Error ? err.message : "Failed to remove member",
+        err instanceof Error ? err.message : t("membersList.removeFailed"),
       );
     } finally {
       setPendingRemove(null);
@@ -119,7 +125,7 @@ export function MembersList({
   if (!members.length) {
     return (
       <div className="py-6 text-center text-sm text-muted-foreground">
-        No members yet.
+        {t("membersList.noMembers")}
       </div>
     );
   }
@@ -130,9 +136,11 @@ export function MembersList({
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>Member</TableHead>
-              <TableHead className="w-40">Role</TableHead>
-              <TableHead className="w-32">Joined</TableHead>
+              <TableHead>{t("membersList.member")}</TableHead>
+              <TableHead className="w-40">
+                {t("organizationSettings.role")}
+              </TableHead>
+              <TableHead className="w-32">{t("membersList.joined")}</TableHead>
               {isAdmin ? <TableHead className="w-20"></TableHead> : null}
             </TableRow>
           </TableHeader>
@@ -156,7 +164,7 @@ export function MembersList({
                           ) : null}
                           {isSelf ? (
                             <span className="text-xs text-muted-foreground">
-                              (you)
+                              {t("membersList.you")}
                             </span>
                           ) : null}
                         </div>
@@ -177,7 +185,7 @@ export function MembersList({
                         <SelectContent>
                           {ROLE_OPTIONS.map((opt) => (
                             <SelectItem key={opt.value} value={opt.value}>
-                              {opt.label}
+                              {t(opt.labelKey)}
                             </SelectItem>
                           ))}
                         </SelectContent>
@@ -201,7 +209,9 @@ export function MembersList({
                           size="icon"
                           className="h-8 w-8 text-muted-foreground hover:text-red-600"
                           onClick={() => setPendingRemove(m)}
-                          aria-label={`Remove ${m.email}`}
+                          aria-label={t("membersList.removeMemberLabel", {
+                            email: m.email,
+                          })}
                         >
                           <IconUserX className="size-4" />
                         </Button>
@@ -221,20 +231,22 @@ export function MembersList({
       >
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Remove member?</AlertDialogTitle>
+            <AlertDialogTitle>{t("membersList.removeTitle")}</AlertDialogTitle>
             <AlertDialogDescription>
               {pendingRemove
-                ? `${pendingRemove.email} will lose access to this organization. You can always invite them back.`
+                ? t("membersList.removeDescription", {
+                    email: pendingRemove.email,
+                  })
                 : ""}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
             <AlertDialogAction
               onClick={handleRemove}
               className="bg-red-600 hover:bg-red-700"
             >
-              Remove
+              {t("membersList.remove")}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

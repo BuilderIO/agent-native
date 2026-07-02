@@ -1,14 +1,10 @@
-import { useState, useEffect, useRef } from "react";
-import { Link, useLocation } from "react-router";
-import { compositions } from "@/remotion/registry";
-import { CompositionCard } from "@/components/CompositionCard";
-import { LibraryFolderRow } from "@/components/LibraryFolderRow";
-import { PropsEditor } from "@/components/PropsEditor";
-import { TrackPropertiesPanel } from "@/components/TrackPropertiesPanel";
-import { CompSettingsEditor } from "@/components/CompSettingsEditor";
-import { CameraControls } from "@/components/CameraControls";
-import { CursorControls } from "@/components/CursorControls";
-import { CurrentElementPanel } from "@/components/CurrentElementPanel";
+import {
+  DevDatabaseLink,
+  FeedbackButton,
+  useT,
+} from "@agent-native/core/client";
+import { ExtensionsSidebarSection } from "@agent-native/core/client/extensions";
+import { OrgSwitcher } from "@agent-native/core/client/org";
 import {
   IconAdjustmentsHorizontal,
   IconCamera,
@@ -20,28 +16,32 @@ import {
   IconVideo,
   IconComponents,
   IconPalette,
-  IconUsers,
   IconFolderPlus,
 } from "@tabler/icons-react";
+import { useState, useEffect, useRef } from "react";
+import { Link, useLocation } from "react-router";
+
+import { CameraControls } from "@/components/CameraControls";
+import { CompositionCard } from "@/components/CompositionCard";
+import { CompSettingsEditor } from "@/components/CompSettingsEditor";
+import { CurrentElementPanel } from "@/components/CurrentElementPanel";
+import { CursorControls } from "@/components/CursorControls";
+import { LibraryFolderRow } from "@/components/LibraryFolderRow";
 import { NewCompositionPopover } from "@/components/NewCompositionPopover";
+import { PropsEditor } from "@/components/PropsEditor";
+import { TrackPropertiesPanel } from "@/components/TrackPropertiesPanel";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import { cn } from "@/lib/utils";
-import { useComposition } from "@/contexts/CompositionContext";
-import { useTimeline } from "@/contexts/TimelineContext";
-import { usePlayback } from "@/contexts/PlaybackContext";
-import { useFolders } from "@/hooks/use-folders";
-import { ExtensionsSidebarSection } from "@agent-native/core/client/extensions";
-import {
-  DevDatabaseLink,
-  FeedbackButton,
-  useT,
-} from "@agent-native/core/client";
-import { OrgSwitcher } from "@agent-native/core/client/org";
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { useComposition } from "@/contexts/CompositionContext";
+import { usePlayback } from "@/contexts/PlaybackContext";
+import { useTimeline } from "@/contexts/TimelineContext";
+import { useFolders } from "@/hooks/use-folders";
+import { cn } from "@/lib/utils";
+import { compositions } from "@/remotion/registry";
 
 type SidebarProps = {
   open: boolean;
@@ -237,8 +237,7 @@ export function Sidebar({
       href: "/",
       active:
         !location.pathname.startsWith("/components") &&
-        !location.pathname.startsWith("/design-systems") &&
-        !location.pathname.startsWith("/team"),
+        !location.pathname.startsWith("/design-systems"),
     },
     {
       icon: IconComponents,
@@ -251,12 +250,6 @@ export function Sidebar({
       labelKey: "navigation.designSystems",
       href: "/design-systems",
       active: location.pathname.startsWith("/design-systems"),
-    },
-    {
-      icon: IconUsers,
-      labelKey: "navigation.team",
-      href: "/team",
-      active: location.pathname === "/team",
     },
   ];
 
@@ -346,7 +339,7 @@ export function Sidebar({
                       <IconFolderPlus className="h-3.5 w-3.5" />
                     </button>
                   </TooltipTrigger>
-                  <TooltipContent>New folder</TooltipContent>
+                  <TooltipContent>{t("raw.folders.newFolder")}</TooltipContent>
                 </Tooltip>
               </div>
 
@@ -427,7 +420,7 @@ export function Sidebar({
                   {folders.length > 0 &&
                     uncategorizedCompositions.length === 0 && (
                       <p className="text-[10px] text-center text-muted-foreground/40">
-                        Drop here to remove from folder
+                        {t("raw.folders.dropToRemove")}
                       </p>
                     )}
                 </div>
@@ -502,7 +495,7 @@ export function Sidebar({
                       <div className="flex items-center gap-2 p-2 rounded hover:bg-secondary/50 transition-colors">
                         <IconClick className="w-3.5 h-3.5 text-green-400" />
                         <span className="text-xs font-medium">
-                          Cursor Interactions
+                          {t("raw.sidebar.cursorInteractions")}
                         </span>
                         <IconChevronRight className="w-3 h-3 ml-auto group-open:rotate-90 transition-transform text-muted-foreground" />
                       </div>
@@ -523,7 +516,7 @@ export function Sidebar({
                     <div className="flex items-center gap-2 p-2 rounded hover:bg-secondary/50 transition-colors">
                       <IconAdjustmentsHorizontal className="w-3.5 h-3.5 text-amber-400" />
                       <span className="text-xs font-medium">
-                        Animation Track
+                        {t("raw.sidebar.animationTrack")}
                       </span>
                       {selectedTrack && (
                         <span className="text-[9px] font-mono text-muted-foreground/60 ml-auto mr-2">
@@ -546,10 +539,10 @@ export function Sidebar({
                     ) : (
                       <div className="text-center py-6 px-4 bg-muted/30 rounded-lg border border-dashed border-border">
                         <p className="text-xs text-muted-foreground">
-                          Select a track to edit its properties
+                          {t("raw.sidebar.selectTrack")}
                         </p>
                         <p className="text-xs text-muted-foreground/60 mt-1">
-                          Click any track in the timeline below
+                          {t("raw.sidebar.clickAnyTrack")}
                         </p>
                       </div>
                     )}
@@ -595,17 +588,17 @@ export function Sidebar({
               </div>
             ) : (
               <div className="text-xs text-muted-foreground text-center py-8">
-                Select a composition to edit properties
+                {t("raw.sidebar.selectComposition")}
               </div>
             )}
           </TabsContent>
         </Tabs>
 
-        <div className="border-t border-border px-2 py-1.5 shrink-0">
+        <div className="shrink-0 px-2 py-1.5">
           <ExtensionsSidebarSection />
         </div>
 
-        <div className="border-t border-border px-3 py-1.5 shrink-0 space-y-2">
+        <div className="shrink-0 space-y-2 px-3 py-1.5">
           <DevDatabaseLink />
           <FeedbackButton />
           <OrgSwitcher />

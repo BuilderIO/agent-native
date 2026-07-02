@@ -62,8 +62,9 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { blocksToProseJSON, proseJSONToBlocks } from "./plan-doc";
+
 import type { PlanBlock } from "./plan-content";
+import { blocksToProseJSON, proseJSONToBlocks } from "./plan-doc";
 
 /** Mirrors the `normalizeValue` closure in `PlanDocumentEditor`. */
 function normalizeValue(input: string): string {

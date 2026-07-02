@@ -1,43 +1,7 @@
 // Owns: tool-payload formatting helpers, ToolCallDisplay, ToolCallFallback,
 // and ReconnectStreamMessage used by AssistantChat.
 
-import React, {
-  useState,
-  useEffect,
-  useCallback,
-  useMemo,
-  useRef,
-} from "react";
 import type { ToolCallMessagePartProps } from "@assistant-ui/react";
-import type { ActionChatUIConfig } from "../../action-ui.js";
-import type { AgentMcpAppPayload } from "../../mcp-client/app-result.js";
-import type { ContentPart } from "../sse-event-processor.js";
-import { humanizeToolName } from "../tool-display.js";
-import {
-  BashCell,
-  EditCell,
-  WriteCell,
-  FilesChangedSummary,
-} from "../tool-cells/index.js";
-import { AgentTaskCard } from "../AgentTaskCard.js";
-import { ConnectBuilderCard } from "../ConnectBuilderCard.js";
-import { McpAppRenderer } from "../mcp-apps/McpAppRenderer.js";
-import { writeClipboardText } from "../clipboard.js";
-import { cn } from "../utils.js";
-import { resolveToolRenderer } from "./tool-render-registry.js";
-import {
-  isBuiltinDataWidgetActionRenderer,
-  resolveBuiltinActionChatRenderer,
-  resolveBuiltinFallbackToolRenderer,
-} from "./widgets/builtin-tool-renderers.js";
-import {
-  SmoothMarkdownText,
-  HighlightedCodeBlock,
-  markdownComponents,
-  markdownModule,
-  remarkGfmFn,
-  markdownUrlTransform,
-} from "./markdown-renderer.js";
 import {
   IconLoader2,
   IconCircleX,
@@ -51,6 +15,43 @@ import {
   IconShieldCheck,
   IconX,
 } from "@tabler/icons-react";
+import React, {
+  useState,
+  useEffect,
+  useCallback,
+  useMemo,
+  useRef,
+} from "react";
+
+import type { ActionChatUIConfig } from "../../action-ui.js";
+import type { AgentMcpAppPayload } from "../../mcp-client/app-result.js";
+import { AgentTaskCard } from "../AgentTaskCard.js";
+import { writeClipboardText } from "../clipboard.js";
+import { ConnectBuilderCard } from "../ConnectBuilderCard.js";
+import { McpAppRenderer } from "../mcp-apps/McpAppRenderer.js";
+import type { ContentPart } from "../sse-event-processor.js";
+import {
+  BashCell,
+  EditCell,
+  WriteCell,
+  FilesChangedSummary,
+} from "../tool-cells/index.js";
+import { humanizeToolName } from "../tool-display.js";
+import { cn } from "../utils.js";
+import {
+  SmoothMarkdownText,
+  HighlightedCodeBlock,
+  markdownComponents,
+  markdownModule,
+  remarkGfmFn,
+  markdownUrlTransform,
+} from "./markdown-renderer.js";
+import { resolveToolRenderer } from "./tool-render-registry.js";
+import {
+  isBuiltinDataWidgetActionRenderer,
+  resolveBuiltinActionChatRenderer,
+  resolveBuiltinFallbackToolRenderer,
+} from "./widgets/builtin-tool-renderers.js";
 
 // Exported so AssistantChatInner can provide a context value.
 export const ChatRunningContext = React.createContext(false);
@@ -68,6 +69,43 @@ export type ApprovalContextValue = {
 export const ApprovalContext = React.createContext<ApprovalContextValue | null>(
   null,
 );
+
+export const TOOL_LONG_RUNNING_HINT_DELAY_MS = 45_000;
+
+function ToolLongRunningHintShell({
+  toolName,
+  isRunning,
+  children,
+}: {
+  toolName: string;
+  isRunning: boolean;
+  children: React.ReactNode;
+}) {
+  const [showLongRunningHint, setShowLongRunningHint] = useState(false);
+
+  useEffect(() => {
+    if (!isRunning) {
+      setShowLongRunningHint(false);
+      return;
+    }
+    setShowLongRunningHint(false);
+    const timeout = window.setTimeout(() => {
+      setShowLongRunningHint(true);
+    }, TOOL_LONG_RUNNING_HINT_DELAY_MS);
+    return () => window.clearTimeout(timeout);
+  }, [isRunning, toolName]);
+
+  return (
+    <>
+      {children}
+      {isRunning && showLongRunningHint && (
+        <div className="mt-0.5 px-2.5 text-[11px] leading-snug text-muted-foreground/80">
+          Still working. Large updates can take a minute or two.
+        </div>
+      )}
+    </>
+  );
+}
 
 // ─── Tool-payload formatting ──────────────────────────────────────────────────
 
@@ -417,6 +455,7 @@ export function ToolCallDisplay({
   isRunning,
   structuredMeta,
   approval,
+  repeatCount,
 }: {
   toolName: string;
   argsText?: string;
@@ -427,43 +466,49 @@ export function ToolCallDisplay({
   isRunning: boolean;
   structuredMeta?: Record<string, unknown>;
   approval?: { approvalKey: string; dismissed?: boolean };
+  repeatCount?: number;
 }) {
   // Delegate to bespoke cells when structured metadata is present.
   // These must be separate components so hook order in ToolCallDisplayGeneric
   // is always stable (no conditional hook calls).
   const toolKind = structuredMeta?.toolKind as string | undefined;
+  const wrapToolDisplay = (children: React.ReactNode) => (
+    <ToolLongRunningHintShell toolName={toolName} isRunning={isRunning}>
+      {children}
+    </ToolLongRunningHintShell>
+  );
   if (toolKind === "bash") {
-    return (
+    return wrapToolDisplay(
       <BashCell
         meta={
           structuredMeta as unknown as Parameters<typeof BashCell>[0]["meta"]
         }
         output={result}
         isRunning={isRunning}
-      />
+      />,
     );
   }
   if (toolKind === "edit") {
-    return (
+    return wrapToolDisplay(
       <EditCell
         meta={
           structuredMeta as unknown as Parameters<typeof EditCell>[0]["meta"]
         }
         isRunning={isRunning}
-      />
+      />,
     );
   }
   if (toolKind === "write") {
-    return (
+    return wrapToolDisplay(
       <WriteCell
         meta={
           structuredMeta as unknown as Parameters<typeof WriteCell>[0]["meta"]
         }
         isRunning={isRunning}
-      />
+      />,
     );
   }
-  return (
+  return wrapToolDisplay(
     <ToolCallDisplayGeneric
       toolName={toolName}
       argsText={argsText}
@@ -473,7 +518,8 @@ export function ToolCallDisplay({
       chatUI={chatUI}
       isRunning={isRunning}
       approval={approval}
-    />
+      repeatCount={repeatCount}
+    />,
   );
 }
 
@@ -486,6 +532,7 @@ function ToolCallDisplayGeneric({
   chatUI,
   isRunning,
   approval,
+  repeatCount,
 }: {
   toolName: string;
   argsText?: string;
@@ -495,6 +542,7 @@ function ToolCallDisplayGeneric({
   chatUI?: ActionChatUIConfig;
   isRunning: boolean;
   approval?: { approvalKey: string; dismissed?: boolean };
+  repeatCount?: number;
 }) {
   const streamRef = useRef<HTMLDivElement>(null);
 
@@ -613,7 +661,7 @@ function ToolCallDisplayGeneric({
   const isExpanded = isAgentCall ? hasStreamText && expanded : expanded;
 
   return (
-    <div className="my-1 overflow-hidden">
+    <div className="my-1 w-full overflow-hidden">
       {mcpApp && <McpAppRenderer app={mcpApp} className="mb-1.5" />}
       <button
         onClick={() => canExpand && setExpanded(!isExpanded)}
@@ -639,6 +687,14 @@ function ToolCallDisplayGeneric({
         <span className="truncate min-w-0">
           <span className="font-medium">{displayName}</span>
         </span>
+        {repeatCount && repeatCount > 1 && (
+          <span
+            className="shrink-0 rounded border border-border/60 px-1.5 py-0.5 text-[10px] leading-none text-muted-foreground"
+            title={`Repeated ${repeatCount} times`}
+          >
+            {repeatCount}x
+          </span>
+        )}
         {canExpand && (
           <IconChevronDown
             className={cn(
@@ -691,10 +747,13 @@ export function ToolCallFallback({
   mcpApp?: AgentMcpAppPayload;
   chatUI?: ActionChatUIConfig;
   structuredMeta?: Record<string, unknown>;
+  activity?: boolean;
   approval?: { approvalKey: string; dismissed?: boolean };
+  repeatCount?: number;
 }) {
   const chatRunning = React.useContext(ChatRunningContext);
-  const isRunning = result === undefined && chatRunning;
+  const isRunning =
+    result === undefined && (chatRunning || rest.activity === true);
   return (
     <ToolCallDisplay
       toolName={toolName}
@@ -712,6 +771,7 @@ export function ToolCallFallback({
       structuredMeta={rest.structuredMeta}
       isRunning={isRunning}
       approval={rest.approval}
+      repeatCount={rest.repeatCount}
     />
   );
 }
@@ -726,19 +786,22 @@ export function ReconnectStreamMessage({
   content: ContentPart[];
 }) {
   const chatRunning = React.useContext(ChatRunningContext);
+  const streamingTextPartIndex =
+    content.at(-1)?.type === "text" ? content.length - 1 : -1;
 
   return (
     <div className="flex justify-start">
-      <div className="max-w-[95%] text-sm leading-relaxed text-foreground space-y-1">
+      <div className="w-full max-w-[95%] text-sm leading-relaxed text-foreground space-y-1">
         {content.map((part, i) => {
           if (part.type === "text") {
+            const partStreaming = chatRunning && i === streamingTextPartIndex;
             return (
               <SmoothMarkdownText
                 key={`reconnect-text-${i}`}
                 text={part.text}
-                streaming={chatRunning}
+                streaming={partStreaming}
                 resetKey={`reconnect-text-${i}`}
-                statusType={chatRunning ? "running" : "complete"}
+                statusType={partStreaming ? "running" : "complete"}
               />
             );
           }
@@ -753,8 +816,12 @@ export function ReconnectStreamMessage({
                 mcpApp={part.mcpApp}
                 chatUI={part.chatUI}
                 structuredMeta={part.structuredMeta}
-                isRunning={part.result === undefined && chatRunning}
+                isRunning={
+                  part.result === undefined &&
+                  (chatRunning || part.activity === true)
+                }
                 approval={part.approval}
+                repeatCount={part.repeatCount}
               />
             );
           }

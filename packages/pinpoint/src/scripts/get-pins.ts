@@ -2,6 +2,7 @@
 // MIT License
 
 import { parseArgs } from "@agent-native/core/scripts";
+
 import { FileStore } from "../storage/file-store.js";
 import type { PinStatus } from "../types/index.js";
 

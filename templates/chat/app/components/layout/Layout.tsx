@@ -1,9 +1,3 @@
-import { useState, useEffect } from "react";
-import { useLocation, useNavigate } from "react-router";
-import { IconMenu2 } from "@tabler/icons-react";
-import { Sidebar } from "./Sidebar";
-import { Header } from "./Header";
-import { HeaderActionsProvider } from "./HeaderActions";
 import {
   AgentSidebar,
   focusAgentChat,
@@ -12,8 +6,10 @@ import {
   useAgentChatHomeHandoffLinks,
   useT,
 } from "@agent-native/core/client";
-import { APP_TITLE } from "@/lib/app-config";
-import { TAB_ID } from "@/lib/tab-id";
+import { IconMenu2 } from "@tabler/icons-react";
+import { useState, useEffect } from "react";
+import { useLocation, useNavigate } from "react-router";
+
 import { Button } from "@/components/ui/button";
 import {
   Sheet,
@@ -21,6 +17,12 @@ import {
   SheetDescription,
   SheetTitle,
 } from "@/components/ui/sheet";
+import { APP_TITLE } from "@/lib/app-config";
+import { TAB_ID } from "@/lib/tab-id";
+
+import { Header } from "./Header";
+import { HeaderActionsProvider } from "./HeaderActions";
+import { Sidebar } from "./Sidebar";
 
 interface LayoutProps {
   children: React.ReactNode;
@@ -127,7 +129,7 @@ export function Layout({ children }: LayoutProps) {
       ) : (
         <Header onOpenMobileSidebar={() => setMobileSidebarOpen(true)} />
       )}
-      <main className="min-w-0 flex-1 overflow-y-auto overscroll-contain">
+      <main className="agent-native-app-main min-w-0 flex-1 overflow-y-auto overscroll-contain">
         {children}
       </main>
     </div>
@@ -135,8 +137,8 @@ export function Layout({ children }: LayoutProps) {
 
   return (
     <HeaderActionsProvider>
-      <div className="flex h-screen w-full overflow-hidden bg-background text-foreground">
-        <div className="hidden md:block">
+      <div className="agent-layout-shell flex h-screen w-full overflow-hidden bg-background text-foreground">
+        <div className="agent-layout-left-drawer hidden md:block">
           <Sidebar
             collapsed={sidebarCollapsed}
             onCollapsedChange={setSidebarCollapsed}
@@ -154,7 +156,9 @@ export function Layout({ children }: LayoutProps) {
           </SheetContent>
         </Sheet>
         {isChatRoute ? (
-          contentFrame
+          <div className="agent-layout-main-surface flex min-w-0 flex-1 overflow-hidden">
+            {contentFrame}
+          </div>
         ) : (
           <AgentSidebar
             position="right"

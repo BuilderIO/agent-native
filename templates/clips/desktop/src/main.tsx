@@ -1,18 +1,21 @@
+import { invoke } from "@tauri-apps/api/core";
 import React from "react";
 import ReactDOM from "react-dom/client";
-import { invoke } from "@tauri-apps/api/core";
+
 import { App } from "./app";
-import { Countdown } from "./overlays/countdown";
-import { Toolbar } from "./overlays/toolbar";
+import { initDesktopSentry } from "./lib/sentry";
 import { Bubble } from "./overlays/bubble";
+import { Countdown } from "./overlays/countdown";
 import { Finalizing } from "./overlays/finalizing";
-import { Onboarding } from "./overlays/onboarding";
+import { FlowBar } from "./overlays/flow-bar";
 import { MeetingNotification } from "./overlays/meeting-notification";
 import { MeetingNub } from "./overlays/meeting-nub";
-import { FlowBar } from "./overlays/flow-bar";
+import { Onboarding } from "./overlays/onboarding";
 import { RecordingPill } from "./overlays/recording-pill";
 import { RegionGuideEditor, RegionGuides } from "./overlays/region-guides";
 import { RegionRecordBorder } from "./overlays/region-record-border";
+import { Toolbar } from "./overlays/toolbar";
+
 import "./styles.css";
 
 /**
@@ -209,6 +212,7 @@ const rootEl = document.getElementById("root");
 if (rootEl) {
   const route = currentRoute();
   installRouteAttributes(route);
+  initDesktopSentry(route);
   installConsoleCapture(route);
   installBeforeUnloadCleanup();
   installHeapDebugLog();

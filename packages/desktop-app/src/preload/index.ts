@@ -1,5 +1,5 @@
-import { contextBridge, ipcRenderer } from "electron";
-import path from "node:path";
+import type { AppConfig, FrameSettings } from "@shared/app-registry";
+import type { CodeAgentPermissionMode } from "@shared/code-agents";
 import {
   IPC,
   type ActiveWebviewTarget,
@@ -42,14 +42,15 @@ import {
   type LocalAppFolderSelectResult,
   type UpdateStatus,
 } from "@shared/ipc-channels";
-import type { AppConfig, FrameSettings } from "@shared/app-registry";
-import type { CodeAgentPermissionMode } from "@shared/code-agents";
+import { isDesktopSentryConfigured } from "@shared/sentry-config";
+import { contextBridge, ipcRenderer } from "electron";
 
 const CODE_AGENTS_SUBSCRIBE_TRANSCRIPT_CHANNEL =
   "code-agents:subscribe-transcript";
 const CODE_AGENTS_UNSUBSCRIBE_TRANSCRIPT_CHANNEL =
   "code-agents:unsubscribe-transcript";
 const CODE_AGENTS_TRANSCRIPT_EVENTS_CHANNEL = "code-agents:transcript-events";
+const WEBVIEW_PRELOAD_PATH = `${__dirname.replace(/[/\\]$/, "")}/webview.js`;
 
 type CodeAgentTranscriptSubscriptionBatch = CodeAgentTranscriptResult & {
   subscriptionId?: string;
@@ -61,8 +62,13 @@ const electronAPI = {
   /** Current OS platform — used by renderer to adapt UI (e.g. traffic lights vs custom controls) */
   platform: process.platform as string,
 
+  /** Desktop shell Sentry is configured in the main process. */
+  sentry: {
+    enabled: isDesktopSentryConfigured(process.env),
+  },
+
   /** Dedicated preload for hosted app webviews. Exposes only app-safe bridges. */
-  webviewPreloadPath: path.join(__dirname, "webview.js"),
+  webviewPreloadPath: WEBVIEW_PRELOAD_PATH,
 
   /** Window chrome controls */
   windowControls: {

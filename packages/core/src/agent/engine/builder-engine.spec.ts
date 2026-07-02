@@ -1,11 +1,13 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+
+import * as captureErrorModule from "../../server/capture-error.js";
+import { CLAUDE_SONNET_MODEL_ID } from "../model-config.js";
 import {
   BUILDER_CAPABILITIES,
   BUILDER_DEFAULT_MODEL,
   createBuilderEngine,
 } from "./builder-engine.js";
 import { DEFAULT_BUILDER_MAX_OUTPUT_TOKENS } from "./output-tokens.js";
-import * as captureErrorModule from "../../server/capture-error.js";
 import type { EngineStreamOptions } from "./types.js";
 
 const credentialState = vi.hoisted(() => ({
@@ -15,6 +17,9 @@ const credentialState = vi.hoisted(() => ({
   builderOrgName: null as string | null,
   recordBuilderCredentialAuthFailure: vi.fn(async () => {}),
 }));
+
+const AGENT_NATIVE_UPGRADE_URL =
+  "https://builder.io/account/subscription?signupSource=agent-native&agentNativeConnectSource=gateway_quota_upgrade&agentNativeFlow=connect_llm&framework=agent-native";
 
 // Mock the credential provider so tests do not hit the DB (app_secrets table).
 vi.mock("../../server/credential-provider.js", async (importOriginal) => {
@@ -81,7 +86,7 @@ function jsonErrorResponse(status: number, body: unknown): Response {
 }
 
 const BASE_OPTS: EngineStreamOptions = {
-  model: "claude-sonnet-4-6",
+  model: CLAUDE_SONNET_MODEL_ID,
   systemPrompt: "You are helpful.",
   messages: [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
   tools: [],
@@ -112,13 +117,14 @@ describe("createBuilderEngine", () => {
     const engine = createBuilderEngine();
     expect(engine.name).toBe("builder");
     expect(engine.defaultModel).toBe(BUILDER_DEFAULT_MODEL);
-    expect(engine.defaultModel).toBe("claude-sonnet-4-6");
+    expect(engine.defaultModel).toBe(CLAUDE_SONNET_MODEL_ID);
     expect(engine.capabilities).toMatchObject(BUILDER_CAPABILITIES);
-    expect(engine.supportedModels).toContain("claude-sonnet-4-6");
+    expect(engine.supportedModels).toContain(CLAUDE_SONNET_MODEL_ID);
     expect(engine.supportedModels).toContain("auto");
-    expect(engine.supportedModels).toContain("claude-opus-4-7");
+    expect(engine.supportedModels).toContain("claude-opus-4-8");
     expect(engine.supportedModels).toContain("gpt-5-5");
     expect(engine.supportedModels).toContain("gpt-5-4");
+    expect(engine.supportedModels).not.toContain("claude-opus-4-7");
     expect(engine.supportedModels).not.toContain("z-ai-glm-4-5");
   });
 
@@ -204,7 +210,7 @@ describe("createBuilderEngine", () => {
     expect(String(init.headers["x-client-version"])).toMatch(/\d+\.\d+\.\d+/);
 
     const body = JSON.parse(init.body);
-    expect(body.model).toBe("claude-sonnet-4-6");
+    expect(body.model).toBe(CLAUDE_SONNET_MODEL_ID);
     expect(body.max_tokens).toBe(DEFAULT_BUILDER_MAX_OUTPUT_TOKENS);
     // With prompt caching enabled the system prompt is wrapped in an array
     // with a cache_control block on the last element.
@@ -429,7 +435,7 @@ describe("createBuilderEngine", () => {
     expect(stop?.error).toContain("monthly AI credits");
   });
 
-  it("routes upgradeUrl to the org-agnostic billing page (BUILDER_ORG_NAME is a display name, not a URL slug)", async () => {
+  it("routes upgradeUrl to the org-agnostic subscription page with Agent Native attribution", async () => {
     credentialState.builderOrgName = "Acme Corp";
     vi.stubEnv("BUILDER_ORG_NAME", "Acme Corp");
     vi.stubGlobal(
@@ -446,7 +452,7 @@ describe("createBuilderEngine", () => {
     const events = await collectEvents(engine.stream(BASE_OPTS));
 
     const stop = events.find((e) => e.type === "stop");
-    expect(stop?.upgradeUrl).toBe("https://builder.io/account/billing");
+    expect(stop?.upgradeUrl).toBe(AGENT_NATIVE_UPGRADE_URL);
   });
 
   it("maps 401 unauthorized to Builder auth stop-error", async () => {
@@ -601,7 +607,7 @@ describe("createBuilderEngine", () => {
 
     const stop = events.find((e) => e.type === "stop");
     expect(stop?.reason).toBe("error");
-    expect(stop?.upgradeUrl).toBe("https://builder.io/account/billing");
+    expect(stop?.upgradeUrl).toBe(AGENT_NATIVE_UPGRADE_URL);
   });
 
   it("maps 429 concurrency to a retryable error message", async () => {
@@ -715,11 +721,48 @@ describe("createBuilderEngine", () => {
     expect(stop?.error).toContain("Builder gateway timed out");
   });
 
-  it("uses the localhost gateway timeout cap when AGENT_NATIVE_BUILDER_GATEWAY_TIMEOUT_MS is unset", async () => {
-    vi.stubEnv(
-      "BUILDER_GATEWAY_BASE_URL",
-      "http://localhost:8080/agent-native/gateway/v1",
-    );
+  it("times out keepalive streams that do not honor fetch abort", async () => {
+    vi.stubEnv("AGENT_NATIVE_BUILDER_GATEWAY_TIMEOUT_MS", "25");
+    vi.useFakeTimers();
+    const fetchSpy = vi.fn(() => {
+      let interval: ReturnType<typeof setInterval> | undefined;
+      const stream = new ReadableStream<Uint8Array>({
+        start(controller) {
+          interval = setInterval(() => {
+            controller.enqueue(
+              new TextEncoder().encode(
+                `${JSON.stringify({ type: "heartbeat" })}\n`,
+              ),
+            );
+          }, 5);
+        },
+        cancel() {
+          if (interval) clearInterval(interval);
+        },
+      });
+      return Promise.resolve(
+        new Response(stream, {
+          status: 200,
+          headers: { "Content-Type": "application/jsonl" },
+        }),
+      );
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const engine = createBuilderEngine();
+    const eventsPromise = collectEvents(engine.stream(BASE_OPTS));
+    await vi.advanceTimersByTimeAsync(30);
+    const events = await eventsPromise;
+
+    const stop = events.find((e) => e.type === "stop");
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    expect(events.some((e) => e.type === "gateway-heartbeat")).toBe(true);
+    expect(stop?.reason).toBe("error");
+    expect(stop?.errorCode).toBe("builder_gateway_timeout");
+    expect(stop?.error).toContain("Builder gateway timed out");
+  });
+
+  it("uses the long local timeout cap when AGENT_NATIVE_BUILDER_GATEWAY_TIMEOUT_MS is unset", async () => {
     vi.useFakeTimers();
     const fetchSpy = vi.fn(
       (_url: string, init?: RequestInit) =>
@@ -742,16 +785,17 @@ describe("createBuilderEngine", () => {
     await vi.advanceTimersByTimeAsync(0);
     expect(settledEarly).toBe(false);
 
-    await vi.advanceTimersByTimeAsync(135_000);
+    await vi.advanceTimersByTimeAsync(795_000);
     const events = await eventsPromise;
 
     const stop = events.find((e) => e.type === "stop");
     expect(stop?.reason).toBe("error");
     expect(stop?.errorCode).toBe("builder_gateway_timeout");
-    expect(stop?.error).toContain("180s");
+    expect(stop?.error).toContain("840s");
   });
 
   it("caps configured gateway timeouts with room before the 60s serverless function limit", async () => {
+    vi.stubEnv("NETLIFY", "true");
     vi.stubEnv("AGENT_NATIVE_BUILDER_GATEWAY_TIMEOUT_MS", "60000");
     vi.useFakeTimers();
     const fetchSpy = vi.fn(
@@ -773,6 +817,41 @@ describe("createBuilderEngine", () => {
     expect(stop?.reason).toBe("error");
     expect(stop?.errorCode).toBe("builder_gateway_timeout");
     expect(stop?.error).toContain("45s");
+  });
+
+  it("allows background function gateway timeouts above the foreground cap", async () => {
+    vi.stubEnv("NETLIFY", "true");
+    vi.stubEnv("AWS_LAMBDA_FUNCTION_NAME", "server-agent-background");
+    vi.stubEnv("AGENT_NATIVE_BUILDER_GATEWAY_TIMEOUT_MS", "60000");
+    vi.useFakeTimers();
+    const fetchSpy = vi.fn(
+      (_url: string, init?: RequestInit) =>
+        new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener("abort", () => {
+            reject(init.signal?.reason ?? new Error("aborted"));
+          });
+        }),
+    );
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const engine = createBuilderEngine();
+    const eventsPromise = collectEvents(engine.stream(BASE_OPTS));
+    await vi.advanceTimersByTimeAsync(45_000);
+
+    let settledEarly = false;
+    void eventsPromise.then(() => {
+      settledEarly = true;
+    });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(settledEarly).toBe(false);
+
+    await vi.advanceTimersByTimeAsync(15_000);
+    const events = await eventsPromise;
+
+    const stop = events.find((e) => e.type === "stop");
+    expect(stop?.reason).toBe("error");
+    expect(stop?.errorCode).toBe("builder_gateway_timeout");
+    expect(stop?.error).toContain("60s");
   });
 
   it("maps mid-stream rate_limited into a retryable error stop", async () => {
@@ -1015,7 +1094,7 @@ describe("createBuilderEngine", () => {
     await collectEvents(
       engine.stream({
         ...BASE_OPTS,
-        model: "claude-opus-4-7",
+        model: "claude-opus-4-8",
         reasoningEffort: "xhigh",
       }),
     );

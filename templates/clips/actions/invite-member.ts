@@ -20,14 +20,15 @@ import {
   renderEmail,
   emailStrong,
 } from "@agent-native/core/server";
+import { and, eq, sql } from "drizzle-orm";
 import { z } from "zod";
+
+import { getDb } from "../server/db/index.js";
 import {
   getCurrentOwnerEmail,
   nanoid,
   requireOrganizationAccess,
 } from "../server/lib/recordings.js";
-import { and, eq, sql } from "drizzle-orm";
-import { getDb } from "../server/db/index.js";
 
 function getAppName(): string {
   return process.env.APP_NAME || "Clips";
@@ -166,7 +167,7 @@ export default defineAction({
       status: "pending" as const,
       token,
       inviteUrl,
-      emailConfigured: isEmailConfigured(),
+      emailConfigured: await isEmailConfigured(),
     };
   },
 });

@@ -226,11 +226,19 @@ export function buildExtensionHtml(
   </style>
 	  <style>
 	    *, *::before, *::after { border-color: hsl(var(--border)); }
+	    html, body {
+	      /* Transparent so the iframe inherits the host surface (dashboard panel,
+	         sidebar, chat) instead of painting the browser's default white canvas.
+	         The dark class still flips the theme vars; content paints its own
+	         bg-background / bg-card surfaces. */
+	      background: transparent;
+	    }
 	    body {
 	      --agent-native-extension-padding: clamp(16px, 2vw, 24px);
 	      /* Legacy alias for pre-rename extension content (do not remove). */
 	      --agent-native-tool-padding: var(--agent-native-extension-padding);
 	      box-sizing: border-box;
+	      color: hsl(var(--foreground));
 	      font-family: 'Inter', sans-serif;
 	      margin: 0;
 	      min-height: 100vh;
@@ -403,8 +411,14 @@ export function buildExtensionHtml(
 	      }
 
 	      if (!res.ok) {
-	        var err = res.body || { error: res.statusText };
-	        throw new Error(err.error || 'Action failed: ' + res.status);
+	        var err = res.body || {};
+	        var rawError = typeof err === 'string' ? err : err.error;
+	        var message = (typeof rawError === 'string' && rawError.trim())
+	          ? rawError
+	          : (res.status === 404
+	            ? "Action '" + name + "' is not available over HTTP (404). It may be agent-only (http: false); expose it with an HTTP-mounted action to call it from an extension."
+	            : "Action '" + name + "' failed (" + (res.status || 'network error') + ")");
+	        throw new Error(message);
 	      }
 	      return res.body;
 	    }
@@ -423,6 +437,53 @@ export function buildExtensionHtml(
 	        throw new Error(err.error || 'Request failed: ' + res.status);
 	      }
 	      return res.body;
+	    }
+
+	    function sendToChat(message, options) {
+	      options = options || {};
+	      var text = typeof message === 'string' ? message : JSON.stringify(message);
+	      window.parent.postMessage({
+	        type: 'agent-native-send-to-chat',
+	        message: text,
+	        context: options.context,
+	        submit: options.submit !== false,
+	        openSidebar: options.openSidebar !== false,
+	      }, '*');
+	      return { ok: true };
+	    }
+
+	    function inlineUiOutputKey() {
+	      var safeId = String(_extensionId || 'unknown').replace(/[^A-Za-z0-9_:-]/g, '') || 'unknown';
+	      return 'inline-ui:' + safeId + ':output';
+	    }
+
+	    async function outputToUi(value, options) {
+	      options = options || {};
+	      var key = inlineUiOutputKey();
+	      var payload = {
+	        value: value,
+	        updatedAt: new Date().toISOString(),
+	        extensionId: _extensionId,
+	        source: 'inline-ui',
+	      };
+	      if (options.label !== undefined) payload.label = options.label;
+	      if (options.context !== undefined) payload.context = options.context;
+	      if (options.meta !== undefined) payload.meta = options.meta;
+	      var output = await appFetch('/_agent-native/application-state/' + key, {
+	        method: 'PUT',
+	        headers: { 'X-Request-Source': 'inline-ui' },
+	        body: JSON.stringify(payload),
+	      });
+	      try {
+	        window.parent.postMessage({
+	          type: 'agent-native-ui-output',
+	          extensionId: _extensionId,
+	          key: key,
+	          value: value,
+	          output: output,
+	        }, '*');
+	      } catch (_) {}
+	      return { ok: true, key: key, output: output };
 	    }
 
     async function dbQuery(sql, args) {
@@ -519,6 +580,25 @@ export function buildExtensionHtml(
 	    var toolFetch = extensionFetch;
 	    var toolData = extensionData;
 	    var _toolId = _extensionId;
+	    window.agentNative = Object.assign(window.agentNative || {}, {
+	      extensionId: _extensionId,
+	      extensionBinding: _extensionBinding,
+	      appAction: appAction,
+	      appFetch: appFetch,
+	      dbQuery: dbQuery,
+	      dbExec: dbExec,
+	      extensionFetch: extensionFetch,
+	      extensionData: extensionData,
+	      data: extensionData,
+	      sendToChat: sendToChat,
+	      chat: Object.assign({}, (window.agentNative && window.agentNative.chat) || {}, {
+	        send: sendToChat,
+	      }),
+	      ui: Object.assign({}, (window.agentNative && window.agentNative.ui) || {}, {
+	        output: outputToUi,
+	      }),
+	    });
+	    window.sendToAgentChat = sendToChat;
 	  </script>
 	  <style>
 	    #__extension-error-toast {
@@ -572,9 +652,10 @@ export function buildExtensionHtml(
 	      });
 	    });
 
-	    // Auto-resize the iframe to its content when running in slot mode. The
-	    // host listens for agent-native-extension-resize and adjusts the iframe height.
-	    if (new URLSearchParams(location.search).get('slot')) {
+	    // Auto-resize iframe renders. Persisted extension slots include ?slot=;
+	    // transient inline chat UI uses srcdoc, so detect that by parent frame.
+	    // The host listens for agent-native-extension-resize and adjusts height.
+	    if (new URLSearchParams(location.search).get('slot') || window.parent !== window) {
 	      var _lastH = 0;
 	      var _reportHeight = function() {
 	        var h = Math.max(
@@ -663,7 +744,7 @@ export function buildExtensionHtml(
 	    });
 	  </script>
 	</head>
-	<body${extensionId ? ` data-extension-id="${extensionIdAttr}" data-tool-id="${extensionIdAttr}"` : ""} class="bg-background text-foreground">
+	<body${extensionId ? ` data-extension-id="${extensionIdAttr}" data-tool-id="${extensionIdAttr}"` : ""} class="text-foreground">
 	${content}
 	<div id="__extension-error-toast">
 	  <div style="display:flex;align-items:flex-start;gap:8px;">

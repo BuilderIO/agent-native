@@ -1,3 +1,4 @@
+import fs from "fs";
 /**
  * Vite plugin that generates end-to-end type-safe action types AND a runtime
  * registry of static imports so bundlers (Nitro on Netlify/Vercel/AWS-Lambda,
@@ -15,7 +16,7 @@
  *     bundled serverless function and every action route 404s.
  */
 import path from "path";
-import fs from "fs";
+
 import type { Plugin } from "vite";
 
 /** Files to skip during discovery (matches action-discovery.ts). */
@@ -279,10 +280,14 @@ type ActionEntry<T> = T extends { default: { run: (...args: infer A) => infer R 
     }
   : { result: any; params: Record<string, any> };
 
-declare module "@agent-native/core/client" {
-  interface ActionRegistry {
+declare global {
+  interface AgentNativeActionRegistry {
 ${typeEntries.join("\n")}
   }
+}
+
+declare module "@agent-native/core/client" {
+  interface ActionRegistry extends AgentNativeActionRegistry {}
 }
 
 export {};

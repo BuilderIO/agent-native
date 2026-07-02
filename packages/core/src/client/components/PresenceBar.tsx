@@ -1,4 +1,5 @@
 import { useMemo } from "react";
+
 import {
   type CollabUser,
   dedupeCollabUsersByEmail,
@@ -112,7 +113,8 @@ function UserAvatar({
               : `0 0 0 2px #fff`,
           }}
           aria-label={`${name} (${user.email})${isFollowing ? " — following" : ""}`}
-          tabIndex={0}
+          tabIndex={onClick ? 0 : undefined}
+          role={onClick ? "button" : undefined}
           onClick={onClick}
           onKeyDown={(e) => {
             if (e.key === "Enter" || e.key === " ") onClick?.();
@@ -122,7 +124,11 @@ function UserAvatar({
         </div>
       </TooltipTrigger>
       <TooltipContent side="bottom">
-        {isFollowing ? `Following ${name} — click to stop` : user.email}
+        {isFollowing
+          ? `Following ${name} — click to stop`
+          : onClick
+            ? `${name} — click to follow`
+            : user.email}
       </TooltipContent>
     </Tooltip>
   );

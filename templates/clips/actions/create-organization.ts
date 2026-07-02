@@ -14,8 +14,9 @@ import { defineAction } from "@agent-native/core";
 import { writeAppState } from "@agent-native/core/application-state";
 import { createOrganization } from "@agent-native/core/org";
 import { z } from "zod";
-import { getCurrentOwnerEmail } from "../server/lib/recordings.js";
+
 import { getDb, schema } from "../server/db/index.js";
+import { getCurrentOwnerEmail } from "../server/lib/recordings.js";
 
 export default defineAction({
   description:

@@ -1,6 +1,15 @@
-import { useCallback, useMemo, useRef, useState, type ReactNode } from "react";
-import { useLocation, useNavigate } from "react-router";
-import { useQueryClient } from "@tanstack/react-query";
+import {
+  DevDatabaseLink,
+  FeedbackButton,
+  appPath,
+  useCodeMode,
+  useT,
+} from "@agent-native/core/client";
+import {
+  ExtensionSlot,
+  ExtensionsSidebarSection,
+} from "@agent-native/core/client/extensions";
+import { OrgSwitcher } from "@agent-native/core/client/org";
 import {
   closestCenter,
   DndContext,
@@ -18,32 +27,53 @@ import {
 } from "@dnd-kit/sortable";
 import type { Document, DocumentTreeNode } from "@shared/api";
 import {
+  IconDatabase,
+  IconFileText,
   IconPlus,
+  IconRestore,
   IconSearch,
   IconStar,
   IconSettings,
+  IconTrashX,
   IconLayoutSidebarLeftCollapse,
   IconLayoutSidebarLeftExpand,
   IconFolderOpen,
   IconChevronRight,
 } from "@tabler/icons-react";
+import { useQueryClient } from "@tanstack/react-query";
+import { useCallback, useMemo, useRef, useState, type ReactNode } from "react";
+import { useLocation, useNavigate } from "react-router";
 import { toast } from "sonner";
-import { ScrollArea } from "@/components/ui/scroll-area";
+
 import { ThemeToggle } from "@/components/ThemeToggle";
-import { OrgSwitcher } from "@agent-native/core/client/org";
 import {
-  DevDatabaseLink,
-  FeedbackButton,
-  appPath,
-  useCodeMode,
-  useT,
-} from "@agent-native/core/client";
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import {
-  ExtensionSlot,
-  ExtensionsSidebarSection,
-} from "@agent-native/core/client/extensions";
-import { NotionButton } from "./NotionButton";
-import { DocumentSidebarIcon, DocumentTreeItem } from "./DocumentTreeItem";
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import {
+  useCreateContentDatabase,
+  useRestoreContentDatabase,
+  useTrashedContentDatabases,
+} from "@/hooks/use-content-database";
 import {
   useDocuments,
   useCreateDocument,
@@ -54,11 +84,13 @@ import {
   filterDocumentTreeDocuments,
 } from "@/hooks/use-documents";
 import { cn } from "@/lib/utils";
+
 import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
+  getDocumentSidebarSections,
+  isDirectLocalDocument,
+} from "./document-sidebar-sections";
+import { DocumentSidebarIcon, DocumentTreeItem } from "./DocumentTreeItem";
+import { NotionButton } from "./NotionButton";
 
 function nanoid(size = 12): string {
   const chars =
@@ -112,27 +144,12 @@ function collectDocumentSubtreeIds(documents: Document[], rootId: string) {
   return deletedIds;
 }
 
-function isDirectLocalDocument(document: Pick<Document, "id" | "source">) {
-  return (
-    document.source?.mode === "local-files" &&
-    (document.id.startsWith("local-file:") ||
-      document.id.startsWith("local-folder:"))
-  );
-}
-
-function isImportedLocalSourceDocument(
-  document: Pick<Document, "id" | "source">,
-) {
-  return (
-    document.source?.mode === "local-files" && !isDirectLocalDocument(document)
-  );
-}
-
 type SidebarSectionId =
   | "local-files"
   | "shared-copies"
   | "private"
-  | "organization";
+  | "organization"
+  | "trash";
 
 export function DocumentSidebar({
   activeDocumentId,
@@ -148,8 +165,11 @@ export function DocumentSidebar({
   const t = useT();
   const { data: documents = [], isLoading } = useDocuments();
   const createDocument = useCreateDocument();
+  const createDatabase = useCreateContentDatabase(null);
   const deleteDocument = useDeleteDocument();
   const moveDocument = useMoveDocument();
+  const restoreContentDatabase = useRestoreContentDatabase();
+  const { data: trashedDatabases } = useTrashedContentDatabases();
   const { isCodeMode } = useCodeMode();
   const updateDocument = useUpdateDocument();
   const [searchQuery, setSearchQuery] = useState("");
@@ -166,6 +186,7 @@ export function DocumentSidebar({
     "shared-copies": false,
     private: false,
     organization: false,
+    trash: false,
   });
   const localFilesActive = location.pathname.startsWith("/local-files");
   const settingsActive = location.pathname.startsWith("/settings");
@@ -208,27 +229,27 @@ export function DocumentSidebar({
   );
 
   const treeDocuments = filterDocumentTreeDocuments(documents);
-  const localFileMode = documents.some(isDirectLocalDocument);
-  const localSourceDocuments = localFileMode
-    ? treeDocuments.filter(isDirectLocalDocument)
-    : treeDocuments.filter(isImportedLocalSourceDocument);
-  const databaseDocuments = localFileMode
-    ? treeDocuments.filter((document) => !isDirectLocalDocument(document))
-    : treeDocuments.filter(
-        (document) => !isImportedLocalSourceDocument(document),
-      );
+  const {
+    localFileMode,
+    localSourceDocuments,
+    databaseDocuments,
+    favorites,
+    showFavorites,
+  } = getDocumentSidebarSections(documents, treeDocuments);
   const localFileTree = buildDocumentTree(localSourceDocuments);
   const databaseTree = buildDocumentTree(databaseDocuments);
   const privateTree = databaseTree.filter((node) => node.visibility !== "org");
   const organizationTree = databaseTree.filter(
     (node) => node.visibility === "org",
   );
-  const favorites = documents.filter(
-    (d) => d.isFavorite && (localFileMode || !isImportedLocalSourceDocument(d)),
-  );
+  // Match the tree rows' right-side inset so favorite titles clip inside the
+  // visible sidebar instead of widening the scroll surface.
+  const favoriteRowWidth =
+    width === undefined ? undefined : Math.max(224, width - 8);
   const activeDocument = activeDocumentId
     ? documents.find((doc) => doc.id === activeDocumentId)
     : null;
+  const trashItems = trashedDatabases?.databases ?? [];
   const parentByDocumentId = useMemo(
     () => new Map(documents.map((doc) => [doc.id, doc.parentId])),
     [documents],
@@ -287,9 +308,9 @@ export function DocumentSidebar({
           navigateToDocument(created.id);
           onNavigate?.();
         } catch (err) {
-          toast.error("Failed to create page", {
+          toast.error(t("sidebar.failedCreatePage"), {
             description:
-              err instanceof Error ? err.message : "Something went wrong",
+              err instanceof Error ? err.message : t("empty.genericError"),
           });
         }
         return;
@@ -359,9 +380,9 @@ export function DocumentSidebar({
           queryKey: ["action", "get-document", { id }],
         });
         navigate("/");
-        toast.error("Failed to create page", {
+        toast.error(t("sidebar.failedCreatePage"), {
           description:
-            err instanceof Error ? err.message : "Something went wrong",
+            err instanceof Error ? err.message : t("empty.genericError"),
         });
       }
     },
@@ -373,6 +394,25 @@ export function DocumentSidebar({
       onNavigate,
       queryClient,
     ],
+  );
+
+  const handleCreateDatabase = useCallback(
+    async (parentId?: string | null) => {
+      try {
+        const result = await createDatabase.mutateAsync({
+          parentId: parentId ?? null,
+          title: t("editor.untitledDatabase"),
+        });
+        navigateToDocument(result.database.documentId);
+        onNavigate?.();
+      } catch (err) {
+        toast.error(t("sidebar.failedCreateDatabase"), {
+          description:
+            err instanceof Error ? err.message : t("empty.genericError"),
+        });
+      }
+    },
+    [createDatabase, navigateToDocument, onNavigate, t],
   );
 
   const handleDelete = useCallback(
@@ -429,9 +469,9 @@ export function DocumentSidebar({
             flushSync: true,
           });
         }
-        toast.error("Failed to delete page", {
+        toast.error(t("sidebar.failedDeletePage"), {
           description:
-            err instanceof Error ? err.message : "Something went wrong",
+            err instanceof Error ? err.message : t("empty.genericError"),
         });
       }
     },
@@ -473,8 +513,8 @@ export function DocumentSidebar({
       );
       if (changed.length === 0) return;
       if (changed.some((doc) => doc.canEdit === false)) {
-        toast.error("Cannot reorder pages", {
-          description: "One of the affected pages is read-only.",
+        toast.error(t("sidebar.cannotReorderPages"), {
+          description: t("sidebar.oneAffectedPageReadOnly"),
         });
         return;
       }
@@ -505,9 +545,9 @@ export function DocumentSidebar({
         queryClient.invalidateQueries({
           queryKey: ["action", "list-documents"],
         });
-        toast.error("Failed to move page", {
+        toast.error(t("sidebar.failedMovePage"), {
           description:
-            err instanceof Error ? err.message : "Something went wrong",
+            err instanceof Error ? err.message : t("empty.genericError"),
         });
       }
     },
@@ -535,6 +575,42 @@ export function DocumentSidebar({
     [updateDocument],
   );
 
+  const handleRestoreDatabase = useCallback(
+    async (databaseId: string) => {
+      try {
+        await restoreContentDatabase.mutateAsync({ databaseId });
+        toast.success(t("sidebar.databaseRestored"));
+      } catch (err) {
+        toast.error(t("sidebar.failedRestoreDatabase"), {
+          description:
+            err instanceof Error ? err.message : t("empty.genericError"),
+        });
+      }
+    },
+    [restoreContentDatabase, t],
+  );
+
+  const handlePermanentDeleteDatabase = useCallback(
+    async (documentId: string) => {
+      try {
+        await deleteDocument.mutateAsync({ id: documentId });
+        queryClient.invalidateQueries({
+          queryKey: ["action", "list-documents"],
+        });
+        queryClient.invalidateQueries({
+          queryKey: ["action", "list-trashed-content-databases"],
+        });
+        toast.success(t("sidebar.databasePermanentlyDeleted"));
+      } catch (err) {
+        toast.error(t("sidebar.failedPermanentDeleteDatabase"), {
+          description:
+            err instanceof Error ? err.message : t("empty.genericError"),
+        });
+      }
+    },
+    [deleteDocument, queryClient, t],
+  );
+
   const filteredDocuments = searchQuery
     ? documents.filter((d) =>
         d.title.toLowerCase().includes(searchQuery.toLowerCase()),
@@ -559,7 +635,8 @@ export function DocumentSidebar({
             navigateToDocument(id);
             onNavigate?.();
           }}
-          onCreateChild={(parentId) => handleCreatePage(parentId)}
+          onCreateChildPage={(parentId) => handleCreatePage(parentId)}
+          onCreateChildDatabase={(parentId) => handleCreateDatabase(parentId)}
           onDelete={handleDelete}
           onToggleFavorite={handleToggleFavorite}
         />
@@ -567,14 +644,70 @@ export function DocumentSidebar({
     </SortableContext>
   );
 
-  const renderNewPageButton = () => (
-    <button
-      className="flex w-full items-center gap-2 rounded-md px-3 py-[5px] text-sm text-muted-foreground hover:bg-accent/50 hover:text-foreground"
-      onClick={() => handleCreatePage()}
-    >
-      <IconPlus size={14} className="shrink-0" />
-      <span>New page</span>
-    </button>
+  const renderNewButton = () => (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button
+          type="button"
+          className="flex w-full items-center gap-2 rounded-md px-3 py-[5px] text-sm text-muted-foreground hover:bg-accent/50 hover:text-foreground"
+          disabled={createDocument.isPending || createDatabase.isPending}
+        >
+          <IconPlus size={14} className="shrink-0" />
+          <span>{t("sidebar.new")}</span>
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" className="w-44">
+        <DropdownMenuItem
+          disabled={createDocument.isPending}
+          onClick={() => void handleCreatePage()}
+        >
+          <IconFileText className="me-2 size-4" />
+          {t("sidebar.page")}
+        </DropdownMenuItem>
+        <DropdownMenuItem
+          disabled={createDatabase.isPending}
+          onClick={() => void handleCreateDatabase(null)}
+        >
+          <IconDatabase className="me-2 size-4" />
+          {t("sidebar.database")}
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+
+  const renderCollapsedNewButton = () => (
+    <DropdownMenu>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <DropdownMenuTrigger asChild>
+            <button
+              type="button"
+              className="w-10 h-10 flex items-center justify-center rounded-lg hover:bg-accent text-muted-foreground hover:text-foreground"
+              disabled={createDocument.isPending || createDatabase.isPending}
+            >
+              <IconPlus size={16} />
+            </button>
+          </DropdownMenuTrigger>
+        </TooltipTrigger>
+        <TooltipContent>{t("sidebar.new")}</TooltipContent>
+      </Tooltip>
+      <DropdownMenuContent align="start" className="w-44">
+        <DropdownMenuItem
+          disabled={createDocument.isPending}
+          onClick={() => void handleCreatePage()}
+        >
+          <IconFileText className="me-2 size-4" />
+          {t("sidebar.page")}
+        </DropdownMenuItem>
+        <DropdownMenuItem
+          disabled={createDatabase.isPending}
+          onClick={() => void handleCreateDatabase(null)}
+        >
+          <IconDatabase className="me-2 size-4" />
+          {t("sidebar.database")}
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 
   const renderLocalFilesNavButton = () => (
@@ -588,7 +721,9 @@ export function DocumentSidebar({
       onClick={() => navigate("/local-files")}
     >
       <IconFolderOpen size={15} className="shrink-0" />
-      <span className="min-w-0 flex-1 truncate text-start">Local files</span>
+      <span className="min-w-0 flex-1 truncate text-start">
+        {t("sidebar.localFiles")}
+      </span>
     </button>
   );
 
@@ -695,9 +830,106 @@ export function DocumentSidebar({
     );
   };
 
+  const renderTrashSection = () => {
+    if (trashItems.length === 0) return null;
+    const collapsed = collapsedSections.trash;
+
+    return (
+      <div className="mt-3 border-t border-border/60 pt-2">
+        {renderSectionHeader("trash", t("sidebar.trash"))}
+        {!collapsed && (
+          <div className="px-1 py-1">
+            {trashItems.map((database) => {
+              const title = database.title || t("editor.untitledDatabase");
+              return (
+                <div
+                  key={database.databaseId}
+                  className="group flex min-w-0 items-center gap-1 rounded-md px-2 py-1.5 text-sm text-muted-foreground hover:bg-accent/50 hover:text-foreground"
+                >
+                  <span className="min-w-0 flex-1 truncate">{title}</span>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button
+                        type="button"
+                        aria-label={t("sidebar.restoreDatabaseNamed", {
+                          title,
+                        })}
+                        className="flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-background hover:text-foreground disabled:opacity-50"
+                        disabled={restoreContentDatabase.isPending}
+                        onClick={() =>
+                          void handleRestoreDatabase(database.databaseId)
+                        }
+                      >
+                        <IconRestore size={14} />
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      {t("sidebar.restoreDatabase")}
+                    </TooltipContent>
+                  </Tooltip>
+                  {database.canPermanentlyDelete && (
+                    <AlertDialog>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <AlertDialogTrigger asChild>
+                            <button
+                              type="button"
+                              aria-label={t(
+                                "sidebar.deleteDatabaseNamedPermanently",
+                                { title },
+                              )}
+                              className="flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-destructive/10 hover:text-destructive disabled:opacity-50"
+                              disabled={deleteDocument.isPending}
+                            >
+                              <IconTrashX size={14} />
+                            </button>
+                          </AlertDialogTrigger>
+                        </TooltipTrigger>
+                        <TooltipContent>
+                          {t("sidebar.deletePermanently")}
+                        </TooltipContent>
+                      </Tooltip>
+                      <AlertDialogContent>
+                        <AlertDialogHeader>
+                          <AlertDialogTitle>
+                            {t("sidebar.deleteDatabasePermanentlyQuestion")}
+                          </AlertDialogTitle>
+                          <AlertDialogDescription>
+                            {t("sidebar.deleteDatabasePermanentlyDescription", {
+                              title,
+                            })}
+                          </AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <AlertDialogFooter>
+                          <AlertDialogCancel>
+                            {t("comments.cancel")}
+                          </AlertDialogCancel>
+                          <AlertDialogAction
+                            className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                            onClick={() =>
+                              void handlePermanentDeleteDatabase(
+                                database.documentId,
+                              )
+                            }
+                          >
+                            {t("sidebar.deletePermanently")}
+                          </AlertDialogAction>
+                        </AlertDialogFooter>
+                      </AlertDialogContent>
+                    </AlertDialog>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    );
+  };
+
   if (collapsed) {
     return (
-      <div className="flex flex-col h-full w-12 border-e border-border bg-muted/30 items-center py-3 gap-1">
+      <div className="flex h-full w-12 flex-col items-center gap-1 border-e border-border bg-muted/30 py-3 transition-[width] duration-200 ease-out">
         <Tooltip>
           <TooltipTrigger asChild>
             <button
@@ -707,19 +939,9 @@ export function DocumentSidebar({
               <IconLayoutSidebarLeftExpand size={18} />
             </button>
           </TooltipTrigger>
-          <TooltipContent>Expand sidebar</TooltipContent>
+          <TooltipContent>{t("sidebar.expand")}</TooltipContent>
         </Tooltip>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <button
-              className="w-10 h-10 flex items-center justify-center rounded-lg hover:bg-accent text-muted-foreground hover:text-foreground"
-              onClick={() => handleCreatePage()}
-            >
-              <IconPlus size={16} />
-            </button>
-          </TooltipTrigger>
-          <TooltipContent>New page</TooltipContent>
-        </Tooltip>
+        {renderCollapsedNewButton()}
         <Tooltip>
           <TooltipTrigger asChild>
             <button
@@ -734,7 +956,7 @@ export function DocumentSidebar({
               <IconFolderOpen size={16} />
             </button>
           </TooltipTrigger>
-          <TooltipContent>Local files</TooltipContent>
+          <TooltipContent>{t("sidebar.localFiles")}</TooltipContent>
         </Tooltip>
         <Tooltip>
           <TooltipTrigger asChild>
@@ -759,7 +981,7 @@ export function DocumentSidebar({
   return (
     <div
       className={cn(
-        "relative flex h-full min-h-0 flex-col border-e border-border bg-muted/30",
+        "agent-layout-left-drawer relative flex h-full min-h-0 flex-col border-e border-border bg-muted/30 transition-[width] duration-200 ease-out",
         width === undefined && "w-full",
       )}
       style={width === undefined ? undefined : { width, flexShrink: 0 }}
@@ -793,7 +1015,7 @@ export function DocumentSidebar({
                 <IconSearch size={16} />
               </button>
             </TooltipTrigger>
-            <TooltipContent>Search</TooltipContent>
+            <TooltipContent>{t("sidebar.search")}</TooltipContent>
           </Tooltip>
           <Tooltip>
             <TooltipTrigger asChild>
@@ -804,7 +1026,7 @@ export function DocumentSidebar({
                 <IconLayoutSidebarLeftCollapse size={16} />
               </button>
             </TooltipTrigger>
-            <TooltipContent>Collapse sidebar</TooltipContent>
+            <TooltipContent>{t("sidebar.collapse")}</TooltipContent>
           </Tooltip>
         </div>
       </div>
@@ -815,7 +1037,7 @@ export function DocumentSidebar({
           <input
             autoFocus
             type="text"
-            placeholder="Search pages..."
+            placeholder={t("sidebar.searchPages")}
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             onKeyDown={(e) => {
@@ -836,11 +1058,11 @@ export function DocumentSidebar({
             <>
               <div>
                 <div className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                  Results
+                  {t("sidebar.results")}
                 </div>
                 {filteredDocuments.length === 0 ? (
                   <div className="px-3 py-4 text-sm text-muted-foreground text-center">
-                    No pages found
+                    {t("sidebar.noPagesFound")}
                   </div>
                 ) : (
                   filteredDocuments.map((doc) => (
@@ -863,32 +1085,40 @@ export function DocumentSidebar({
                         <DocumentSidebarIcon document={doc} />
                       </span>
                       <span className="min-w-0 flex-1 truncate">
-                        {doc.title || "Untitled"}
+                        {doc.title || t("sidebar.untitled")}
                       </span>
                     </button>
                   ))
                 )}
               </div>
-              {renderNewPageButton()}
+              {renderNewButton()}
             </>
           ) : (
             <>
               {/* Favorites */}
-              {!localFileMode && favorites.length > 0 && (
-                <div className="mb-2">
-                  <div className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1">
+              {showFavorites && (
+                <div className="mb-2 min-w-0">
+                  <div className="flex min-w-0 items-center gap-1 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
                     <IconStar size={10} />
-                    Favorites
+                    <span className="min-w-0 flex-1 truncate">
+                      {t("sidebar.favorites")}
+                    </span>
                   </div>
                   {favorites.map((doc) => (
                     <button
                       key={doc.id}
                       className={cn(
-                        "w-full flex items-center gap-2 px-4 py-[5px] text-sm text-start rounded-md",
+                        "flex w-full min-w-0 items-center gap-2 rounded-md px-4 py-[5px] text-start text-sm",
                         doc.id === activeDocumentId
                           ? "bg-accent text-accent-foreground"
                           : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
                       )}
+                      style={{
+                        width:
+                          favoriteRowWidth === undefined
+                            ? undefined
+                            : `${favoriteRowWidth}px`,
+                      }}
                       onClick={() => {
                         navigateToDocument(doc.id);
                         onNavigate?.();
@@ -898,7 +1128,7 @@ export function DocumentSidebar({
                         <DocumentSidebarIcon document={doc} />
                       </span>
                       <span className="min-w-0 flex-1 truncate">
-                        {doc.title || "Untitled"}
+                        {doc.title || t("sidebar.untitled")}
                       </span>
                     </button>
                   ))}
@@ -909,48 +1139,50 @@ export function DocumentSidebar({
                 <>
                   {renderTreeSection({
                     id: "local-files",
-                    label: "Local files",
+                    label: t("sidebar.localFiles"),
                     nodes: localFileTree,
-                    emptyLabel: "No files yet",
-                    footer: renderNewPageButton(),
+                    emptyLabel: t("sidebar.noFilesYet"),
+                    footer: renderNewButton(),
                   })}
                   {databaseTree.length > 0
                     ? renderTreeSection({
                         id: "shared-copies",
-                        label: "Shared copies",
+                        label: t("sidebar.sharedCopies"),
                         nodes: databaseTree,
-                        emptyLabel: "No shared copies yet",
+                        emptyLabel: t("sidebar.noSharedCopiesYet"),
                         className: "mt-3",
                       })
                     : null}
+                  {renderTrashSection()}
                 </>
               ) : (
                 <>
                   {localFileTree.length > 0 &&
                     renderTreeSection({
                       id: "local-files",
-                      label: "Local files",
+                      label: t("sidebar.localFiles"),
                       nodes: localFileTree,
-                      emptyLabel: "No local files yet",
+                      emptyLabel: t("sidebar.noLocalFilesYet"),
                       className: "mb-2",
                     })}
 
                   {renderTreeSection({
                     id: "private",
-                    label: "Private",
+                    label: t("sidebar.private"),
                     nodes: privateTree,
-                    emptyLabel: "No private pages yet",
-                    footer: renderNewPageButton(),
+                    emptyLabel: t("sidebar.noPrivatePagesYet"),
+                    footer: renderNewButton(),
                   })}
 
                   {!isLoading &&
                     renderTreeSection({
                       id: "organization",
-                      label: "Organization",
+                      label: t("sidebar.organization"),
                       nodes: organizationTree,
-                      emptyLabel: "No organization pages yet",
+                      emptyLabel: t("sidebar.noOrganizationPagesYet"),
                       className: "mt-3",
                     })}
+                  {renderTrashSection()}
                 </>
               )}
             </>
@@ -958,14 +1190,14 @@ export function DocumentSidebar({
         </div>
       </ScrollArea>
 
-      <div className="shrink-0 border-t border-border px-3 py-2">
+      <div className="shrink-0 px-3 py-2">
         <div className="space-y-1">
           {renderLocalFilesNavButton()}
           {renderSettingsNavButton()}
         </div>
       </div>
 
-      <div className="shrink-0 border-t border-border">
+      <div className="shrink-0">
         <ExtensionSlot
           id="content.sidebar.bottom"
           context={{
@@ -981,7 +1213,7 @@ export function DocumentSidebar({
       </div>
 
       {/* Footer */}
-      <div className="shrink-0 space-y-2 border-t border-border px-3 py-2">
+      <div className="shrink-0 space-y-2 px-3 py-2">
         <OrgSwitcher />
         {isCodeMode ? <DevDatabaseLink /> : null}
         <div className="flex items-center gap-1">

@@ -5,20 +5,21 @@ import {
   getRequestUserName,
 } from "@agent-native/core/server/request-context";
 import { z } from "zod";
+
 import { getDb, schema } from "../server/db/index.js";
+import { assertGuestCreateWithinLimits } from "../server/lib/guest-abuse.js";
+import {
+  isLocalPlanRuntime,
+  resolvePlanOrgIdForWrite,
+  requirePlanOwnerEmailForWrite,
+} from "../server/lib/local-identity.js";
+import { writePlanLocalFiles } from "../server/lib/local-plan-files.js";
 import {
   createVisualQuestionsContent,
   normalizePlanContent,
   serializePlanContent,
   type VisualQuestionBuilderInput,
 } from "../server/plan-content.js";
-import {
-  isLocalPlanRuntime,
-  resolvePlanOrgIdForWrite,
-  requirePlanOwnerEmailForWrite,
-} from "../server/lib/local-identity.js";
-import { assertGuestCreateWithinLimits } from "../server/lib/guest-abuse.js";
-import { writePlanLocalFiles } from "../server/lib/local-plan-files.js";
 import {
   buildPlanHtml,
   commentInputSchema,
@@ -148,7 +149,7 @@ export default defineAction({
         "Open an interactive visual intake form with chips, mockup options, diagrams, freeform answers, and agent handoff.",
       iframeTitle: "Agent-Native Plan",
       openLabel: "Open Visual Questions",
-      height: 860,
+      height: 900,
     }),
   },
   run: async (args) => {

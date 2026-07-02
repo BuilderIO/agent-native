@@ -16,6 +16,8 @@ export interface ProviderEnvMeta {
   placeholder: string;
 }
 
+export { OPENAI_BASE_URL_ENV_VAR } from "./openai-compatible-endpoint.js";
+
 export const PROVIDER_ENV_META: Record<string, ProviderEnvMeta> = {
   anthropic: {
     envVar: "ANTHROPIC_API_KEY",

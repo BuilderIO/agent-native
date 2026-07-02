@@ -1,26 +1,33 @@
-import { describe, expect, it } from "vitest";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import {
-  loader,
-  meta as genericTemplateMeta,
-} from "../app/routes/templates.$slug";
+
 import { AGENT_NATIVE_SOCIAL_IMAGE_CACHE_BUSTER } from "@agent-native/core/shared";
-import { meta as docsIndexMeta } from "../app/routes/docs._index";
-import { meta as localizedDocsMeta } from "../app/routes/docs.$locale.$slug";
-import { meta as docsSlugMeta } from "../app/routes/docs.$slug";
-import { meta as designTemplateMeta } from "../app/routes/templates.design";
-import { meta as slidesTemplateMeta } from "../app/routes/templates.slides";
-import { featuredTemplates, templates } from "../app/components/TemplateCard";
-import { getTemplateDocsPath } from "../app/components/template-docs";
-import { NAV_SECTIONS, type NavItem } from "../app/components/docsNavItems";
-import { buildSitemapPaths } from "../app/vite-sitemap-plugin";
+import { describe, expect, it } from "vitest";
+
+import { loadDoc } from "../app/components/docs-content";
 import {
   canonicalPathForPath,
   docsAlternateLinksForPath,
 } from "../app/components/docs-seo";
-import { loadDoc } from "../app/components/docs-content";
+import { NAV_SECTIONS, type NavItem } from "../app/components/docsNavItems";
+import { getTemplateDocsPath } from "../app/components/template-docs";
+import { featuredTemplates, templates } from "../app/components/TemplateCard";
+import { meta as localizedDocsMeta } from "../app/routes/docs.$locale.$slug";
+import { meta as docsSlugMeta } from "../app/routes/docs.$slug";
+import { meta as docsIndexMeta } from "../app/routes/docs._index";
+import {
+  loader,
+  meta as genericTemplateMeta,
+} from "../app/routes/templates.$slug";
+import { meta as designTemplateMeta } from "../app/routes/templates.design";
+import { meta as slidesTemplateMeta } from "../app/routes/templates.slides";
+import { buildSitemapPaths } from "../app/vite-sitemap-plugin";
+import {
+  docSourceFilenamesForSlug,
+  docSourceSlugFromFilename,
+  preferMdxDocSourceFiles,
+} from "../lib/docs-source";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const docsRoot = path.resolve(__dirname, "..");
@@ -47,6 +54,18 @@ function ogImageAccentText(
   meta: Array<Record<string, unknown>>,
 ): string | null {
   return ogImageUrl(meta).searchParams.get("accentText");
+}
+
+function docsSourceExists(docsDir: string, slug: string): boolean {
+  return docSourceFilenamesForSlug(slug).some((filename) =>
+    fs.existsSync(path.join(docsDir, filename)),
+  );
+}
+
+function listDocSlugs(docsDir: string): string[] {
+  return preferMdxDocSourceFiles(fs.readdirSync(docsDir)).map((name) =>
+    docSourceSlugFromFilename(name),
+  );
 }
 
 describe("template routes", () => {
@@ -92,6 +111,12 @@ describe("template routes", () => {
     const localizedIndex = docsIndexMeta({ data: localizedIndexDoc });
     expect(ogImageTitle(localizedIndex)).toBe("开始使用");
     expect(ogImageAccentText(localizedIndex)).toBe("Agent-Native Docs");
+
+    const arabicIndexDoc = await loadDoc("getting-started", "ar-SA");
+    expect(arabicIndexDoc?.title).toBe("الخطوات الأولى");
+    const arabicIndex = docsIndexMeta({ data: arabicIndexDoc });
+    expect(ogImageTitle(arabicIndex)).toBe("الخطوات الأولى");
+    expect(ogImageAccentText(arabicIndex)).toBe("Agent-Native Docs");
 
     const docsPage = docsSlugMeta({
       params: { slug: "workspace-connections" },
@@ -149,9 +174,9 @@ describe("template routes", () => {
     expect(docsAlternateLinksForPath("/templates")).toEqual([]);
   });
 
-  it("keeps docs sidebar template links aligned with the featured catalog", () => {
+  it("keeps docs sidebar app links aligned with the featured catalog", () => {
     const navTemplateSection = NAV_SECTIONS.find(
-      (section) => section.title === "Templates",
+      (section) => section.title === "Apps",
     );
     expect(navTemplateSection).toBeDefined();
 
@@ -173,16 +198,16 @@ describe("template routes", () => {
       expect(sidebarDocPaths).toContain(catalogPath);
     }
 
-    // Every sidebar link in the Templates section must resolve to a real docs
-    // page (never a /templates/ marketing route). Group children may be plain
+    // Every sidebar link in the Apps section must resolve to a real docs
+    // page (never an /apps/ marketing route). Group children may be plain
     // docs pages (e.g. pr-visual-recap), so don't require the template- prefix.
     const docsDir = path.resolve(docsRoot, "../core/docs/content");
     for (const sidebarPath of sidebarDocPaths) {
       expect(sidebarPath).toMatch(/^\/docs\/[a-z0-9-]+$/);
-      expect(sidebarPath).not.toMatch(/^\/templates\//);
+      expect(sidebarPath).not.toMatch(/^\/apps\//);
 
       const slug = sidebarPath.replace("/docs/", "");
-      expect(fs.existsSync(path.join(docsDir, `${slug}.md`))).toBe(true);
+      expect(docsSourceExists(docsDir, slug)).toBe(true);
     }
   });
 
@@ -197,23 +222,19 @@ describe("template routes", () => {
       expect(docsPath).not.toMatch(/^\/templates\//);
 
       const slug = docsPath.replace("/docs/template-", "");
-      expect(fs.existsSync(path.join(docsDir, `template-${slug}.md`))).toBe(
-        true,
-      );
+      expect(docsSourceExists(docsDir, `template-${slug}`)).toBe(true);
     }
   });
 
-  it("includes every public docs page and template page in the sitemap", () => {
+  it("includes every public docs page and app page in the sitemap", () => {
     const paths = buildSitemapPaths(docsRoot);
     const docsDir = path.resolve(docsRoot, "../core/docs/content");
-    const docPaths = fs
-      .readdirSync(docsDir)
-      .filter((name) => name.endsWith(".md"))
-      .map((name) => name.replace(/\.md$/, ""))
-      .map((slug) => (slug === "getting-started" ? "/docs" : `/docs/${slug}`));
+    const docPaths = listDocSlugs(docsDir).map((slug) =>
+      slug === "getting-started" ? "/docs" : `/docs/${slug}`,
+    );
 
     expect(paths).toContain("/");
-    expect(paths).toContain("/templates");
+    expect(paths).toContain("/apps");
     expect(paths).toContain("/download");
     expect(paths).toContain("/privacy");
     expect(paths).toContain("/terms");
@@ -223,7 +244,7 @@ describe("template routes", () => {
     }
 
     for (const template of templates) {
-      expect(paths).toContain(`/templates/${template.slug}`);
+      expect(paths).toContain(`/apps/${template.slug}`);
     }
 
     expect(paths).toContain("/zh-CN/docs/internationalization");
@@ -231,7 +252,7 @@ describe("template routes", () => {
     expect(paths).not.toContain("/docs/zh-CN/internationalization");
 
     expect(paths).not.toContain("/docs/resources");
-    expect(paths).not.toContain("/templates/starter");
-    expect(paths).not.toContain("/templates/videos");
+    expect(paths).not.toContain("/apps/starter");
+    expect(paths).not.toContain("/apps/videos");
   }, 60000);
 });

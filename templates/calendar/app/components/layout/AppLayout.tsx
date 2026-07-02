@@ -1,4 +1,15 @@
 import {
+  AgentSidebar,
+  AgentToggleButton,
+  NotificationsBell,
+  useAppearanceSync,
+  useT,
+} from "@agent-native/core/client";
+import { InvitationBanner } from "@agent-native/core/client/org";
+import type { CalendarEvent, CalendarEventDraft } from "@shared/api";
+import { IconMenu } from "@tabler/icons-react";
+import { useQueryClient } from "@tanstack/react-query";
+import {
   createContext,
   useContext,
   useState,
@@ -6,29 +17,21 @@ import {
   type ReactNode,
 } from "react";
 import { useLocation } from "react-router";
-import { useQueryClient } from "@tanstack/react-query";
-import { IconMenu } from "@tabler/icons-react";
-import { Button } from "@/components/ui/button";
-import {
-  AgentSidebar,
-  AgentToggleButton,
-  LanguagePicker,
-  NotificationsBell,
-  useAppearanceSync,
-} from "@agent-native/core/client";
-import { InvitationBanner } from "@agent-native/core/client/org";
-import { Sidebar } from "./Sidebar";
+
 import { AddCalendarDialog } from "@/components/calendar/AddCalendarDialog";
 import { GoogleConnectBanner } from "@/components/calendar/GoogleConnectBanner";
 import { KeyboardShortcutsHelp } from "@/components/calendar/KeyboardShortcutsHelp";
+import { Button } from "@/components/ui/button";
 import { useGoogleAuthStatus } from "@/hooks/use-google-auth";
-import { useNavigationState } from "@/hooks/use-navigation-state";
 import { useHiddenCalendars } from "@/hooks/use-hidden-calendars";
 import { useIsMobile } from "@/hooks/use-mobile";
+import { useNavigationState } from "@/hooks/use-navigation-state";
 import { prefetchPeopleContacts } from "@/hooks/use-people";
-import type { CalendarEvent, CalendarEventDraft } from "@shared/api";
+
+import { Sidebar } from "./Sidebar";
 
 const EVENT_DETAIL_MODE_KEY = "calendar-event-detail-mode";
+const SIDEBAR_COLLAPSE_KEY = "calendar.sidebar.collapsed";
 
 /** Routes that render without the full AppLayout chrome (sidebar, agent panel). */
 const BARE_ROUTES = new Set(["/event"]);
@@ -43,6 +46,15 @@ function pageOwnsToolbar(pathname: string): boolean {
   if (pathname === "/extensions" || pathname.startsWith("/extensions/"))
     return true;
   return false;
+}
+
+function readSidebarCollapsed() {
+  if (typeof window === "undefined") return false;
+  try {
+    return window.localStorage.getItem(SIDEBAR_COLLAPSE_KEY) === "1";
+  } catch {
+    return false;
+  }
 }
 
 export type ViewMode = "month" | "week" | "day";
@@ -133,6 +145,7 @@ interface AppLayoutProps {
 }
 
 export function AppLayout({ children }: AppLayoutProps) {
+  const t = useT();
   const isMobile = useIsMobile();
   const location = useLocation();
   const queryClient = useQueryClient();
@@ -141,6 +154,8 @@ export function AppLayout({ children }: AppLayoutProps) {
   const isSettingsPage = location.pathname === "/settings";
   const isCalendarPage = location.pathname === "/";
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] =
+    useState(readSidebarCollapsed);
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [viewMode, setViewMode] = useState<ViewMode>(isMobile ? "day" : "week");
   const [peopleSearchOpen, setPeopleSearchOpen] = useState(false);
@@ -174,6 +189,17 @@ export function AppLayout({ children }: AppLayoutProps) {
     if (!hasAccounts) return;
     void prefetchPeopleContacts(queryClient);
   }, [hasAccounts, queryClient]);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(
+        SIDEBAR_COLLAPSE_KEY,
+        sidebarCollapsed ? "1" : "0",
+      );
+    } catch {
+      // Ignore storage failures; the in-memory preference still works.
+    }
+  }, [sidebarCollapsed]);
 
   // Global keyboard-shortcuts help: opens via `?` (or shift+/) or the sidebar
   // button on any page, not just the calendar view. Calendar-specific shortcuts
@@ -255,16 +281,21 @@ export function AppLayout({ children }: AppLayoutProps) {
         open={shortcutsHelpOpen}
         onClose={() => setShortcutsHelpOpen(false)}
       />
-      <div className="flex h-screen overflow-hidden bg-background">
-        <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
+      <div className="agent-layout-shell flex h-screen overflow-hidden bg-background">
+        <Sidebar
+          open={sidebarOpen}
+          onClose={() => setSidebarOpen(false)}
+          collapsed={!isMobile && sidebarCollapsed}
+          onCollapsedChange={setSidebarCollapsed}
+        />
         <AgentSidebar
           position="right"
           defaultOpen
-          emptyStateText="Ask me anything about your calendar"
+          emptyStateText={t("agentSidebar.emptyState")}
           suggestions={[
-            "What's on my calendar today?",
-            "Find a 30-min slot with Alice next week",
-            "Schedule a Zoom with the team Friday",
+            t("agentSidebar.suggestions.today"),
+            t("agentSidebar.suggestions.findSlot"),
+            t("agentSidebar.suggestions.scheduleZoom"),
           ]}
         >
           <div className="flex flex-1 flex-col overflow-hidden">
@@ -276,21 +307,24 @@ export function AppLayout({ children }: AppLayoutProps) {
                     size="icon"
                     className="h-10 w-10 shrink-0 lg:hidden"
                     onClick={() => setSidebarOpen(true)}
-                    aria-label="Open navigation"
+                    aria-label={t("calendarView.openNavigation")}
                   >
                     <IconMenu className="h-5 w-5" />
                   </Button>
                   {headerControls?.left ?? (
                     <span className="text-sm font-semibold lg:hidden">
-                      Calendar
+                      {t("navigation.calendar")}
                     </span>
                   )}
                 </div>
                 <div className="flex shrink-0 items-center gap-2">
                   {headerControls?.right}
-                  <LanguagePicker variant="icon" />
                   {!isMobile && (
-                    <NotificationsBell emptyDescription="Calendar can pop browser alerts while this app is open. Clips desktop handles fuller meeting prompts with one-click notes." />
+                    <NotificationsBell
+                      emptyDescription={t(
+                        "calendarView.notificationEmptyDescription",
+                      )}
+                    />
                   )}
                   <AgentToggleButton />
                 </div>
@@ -307,11 +341,13 @@ export function AppLayout({ children }: AppLayoutProps) {
               !eventDraft &&
               isCalendarPage &&
               !isSettingsPage ? (
-                <main className="flex-1 overflow-y-auto">
+                <main className="agent-native-app-main flex-1 overflow-y-auto">
                   <GoogleConnectBanner variant="hero" />
                 </main>
               ) : (
-                <main className="flex-1 overflow-y-auto">{children}</main>
+                <main className="agent-native-app-main flex-1 overflow-y-auto">
+                  {children}
+                </main>
               )}
             </HeaderControlsContext.Provider>
           </div>

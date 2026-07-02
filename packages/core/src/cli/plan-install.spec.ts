@@ -1,3 +1,7 @@
+import fs from "fs";
+import os from "os";
+import path from "path";
+
 /**
  * Adversarial INSTALL / CLI / FIRST-RUN coverage focused on the Plans
  * (`templates/plan`) app and its shipped skills.
@@ -19,9 +23,6 @@
  * templates-meta.ts as the user hits them on a fresh machine.
  */
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import fs from "fs";
-import os from "os";
-import path from "path";
 
 import {
   createApp,
@@ -34,8 +35,10 @@ import {
 import {
   addAgentNativeSkill,
   CANVAS_REFERENCE_MD,
+  CONNECTION_REFERENCE_MD,
   DOCUMENT_QUALITY_REFERENCE_MD,
   EXEMPLAR_REFERENCE_MD,
+  LOCAL_FILES_REFERENCE_MD,
   parseSkillsArgs,
   VISUAL_PLANS_SKILL_MD,
   VISUAL_RECAP_SKILL_MD,
@@ -57,10 +60,14 @@ const PLANS_INSTALL_REFERENCES: Record<string, Record<string, string>> = {
   "visual-plan": {
     "references/wireframe.md": WIREFRAME_REFERENCE_MD,
     "references/canvas.md": CANVAS_REFERENCE_MD,
+    "references/connection.md": CONNECTION_REFERENCE_MD,
     "references/document-quality.md": DOCUMENT_QUALITY_REFERENCE_MD,
     "references/exemplar.md": EXEMPLAR_REFERENCE_MD,
+    "references/local-files.md": LOCAL_FILES_REFERENCE_MD,
   },
   "visual-recap": {
+    "references/connection.md": CONNECTION_REFERENCE_MD,
+    "references/local-files.md": LOCAL_FILES_REFERENCE_MD,
     "references/wireframe.md": WIREFRAME_REFERENCE_MD,
   },
 };
@@ -74,6 +81,8 @@ const PLANS_INSTALL_ALIASES = [
   "plannotate",
   "html-plan",
 ];
+
+const PLAN_STANDALONE_SCAFFOLD_TIMEOUT_MS = 120_000;
 
 beforeEach(() => {
   tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "an-plan-install-"));
@@ -145,72 +154,96 @@ describe("Plans template — allow-list & metadata", () => {
 
 describe(
   "Plans standalone scaffold — bootable output",
-  { timeout: 60000 },
+  { timeout: PLAN_STANDALONE_SCAFFOLD_TIMEOUT_MS },
   () => {
-    it("scaffolds the plan app with its package name and key files", async () => {
-      await createApp("plan", { template: "plan" });
-      const root = path.join(tmpDir, "plan");
-      expect(fs.existsSync(root)).toBe(true);
-      expect(fs.existsSync(path.join(root, "package.json"))).toBe(true);
-      expect(fs.existsSync(path.join(root, "app", "root.tsx"))).toBe(true);
-      // _gitignore must be renamed to .gitignore so the scaffold is git-clean.
-      expect(fs.existsSync(path.join(root, ".gitignore"))).toBe(true);
-      expect(fs.existsSync(path.join(root, "_gitignore"))).toBe(false);
-    });
+    it(
+      "scaffolds the plan app with its package name and key files",
+      async () => {
+        await createApp("plan", { template: "plan" });
+        const root = path.join(tmpDir, "plan");
+        expect(fs.existsSync(root)).toBe(true);
+        expect(fs.existsSync(path.join(root, "package.json"))).toBe(true);
+        expect(fs.existsSync(path.join(root, "app", "root.tsx"))).toBe(true);
+        // _gitignore must be renamed to .gitignore so the scaffold is git-clean.
+        expect(fs.existsSync(path.join(root, ".gitignore"))).toBe(true);
+        expect(fs.existsSync(path.join(root, "_gitignore"))).toBe(false);
+      },
+      PLAN_STANDALONE_SCAFFOLD_TIMEOUT_MS,
+    );
 
-    it("resolves every dependency to a real version (no workspace:* or bare catalog: left)", async () => {
-      await createApp("plan", { template: "plan" });
-      const pkg = readPkg(path.join(tmpDir, "plan"));
-      const deps = allDeps(pkg);
-      for (const [key, val] of Object.entries(deps)) {
-        expect(val, `${key} must not be workspace:*`).not.toMatch(
-          /^workspace:/,
-        );
-        expect(val, `${key} must not be bare catalog:`).not.toBe("catalog:");
-      }
-      // @agent-native/core must resolve to the CLI's published range.
-      expect(deps["@agent-native/core"]).toBe(_getCoreDependencyVersion());
-    });
-
-    it("injects the Postgres runtime so a hosted DB install works", async () => {
-      await createApp("plan", { template: "plan" });
-      const pkg = readPkg(path.join(tmpDir, "plan"));
-      expect(pkg.dependencies?.postgres).toBeDefined();
-    });
-
-    it("resolves the catalog: tailwind/vite refs to semver strings", async () => {
-      await createApp("plan", { template: "plan" });
-      const pkg = readPkg(path.join(tmpDir, "plan"));
-      const deps = allDeps(pkg);
-      for (const key of ["tailwindcss", "@tailwindcss/vite", "vite"]) {
-        if (deps[key]) {
-          expect(deps[key], `${key} should be a version`).toMatch(/^\^?\d/);
+    it(
+      "resolves every dependency to a real version (no workspace:* or bare catalog: left)",
+      async () => {
+        await createApp("plan", { template: "plan" });
+        const pkg = readPkg(path.join(tmpDir, "plan"));
+        const deps = allDeps(pkg);
+        for (const [key, val] of Object.entries(deps)) {
+          expect(val, `${key} must not be workspace:*`).not.toMatch(
+            /^workspace:/,
+          );
+          expect(val, `${key} must not be bare catalog:`).not.toBe("catalog:");
         }
-      }
-    });
+        // @agent-native/core must resolve to the CLI's published range.
+        expect(deps["@agent-native/core"]).toBe(_getCoreDependencyVersion());
+      },
+      PLAN_STANDALONE_SCAFFOLD_TIMEOUT_MS,
+    );
 
-    it("ships the Plans skills inside the scaffold (.agents/skills)", async () => {
-      await createApp("plan", { template: "plan" });
-      const skillsDir = path.join(tmpDir, "plan", ".agents", "skills");
-      for (const name of ["visual-plan", "visual-recap"]) {
-        expect(
-          fs.existsSync(path.join(skillsDir, name, "SKILL.md")),
-          `expected scaffolded skill ${name}/SKILL.md`,
-        ).toBe(true);
-      }
-      // Guard against the circular `.agents/skills/skills` symlink that crashes
-      // Vite's watcher.
-      expect(fs.readdirSync(skillsDir)).not.toContain("skills");
-    });
+    it(
+      "injects the Postgres runtime so a hosted DB install works",
+      async () => {
+        await createApp("plan", { template: "plan" });
+        const pkg = readPkg(path.join(tmpDir, "plan"));
+        expect(pkg.dependencies?.postgres).toBeDefined();
+      },
+      PLAN_STANDALONE_SCAFFOLD_TIMEOUT_MS,
+    );
 
-    it("sets pnpm.onlyBuiltDependencies so native deps build without a prompt", async () => {
-      await createApp("plan", { template: "plan" });
-      const pkg = readPkg(path.join(tmpDir, "plan"));
-      const built: string[] = pkg.pnpm?.onlyBuiltDependencies ?? [];
-      expect(built).toEqual(
-        expect.arrayContaining(["better-sqlite3", "esbuild", "node-pty"]),
-      );
-    });
+    it(
+      "resolves the catalog: tailwind/vite refs to semver strings",
+      async () => {
+        await createApp("plan", { template: "plan" });
+        const pkg = readPkg(path.join(tmpDir, "plan"));
+        const deps = allDeps(pkg);
+        for (const key of ["tailwindcss", "@tailwindcss/vite", "vite"]) {
+          if (deps[key]) {
+            expect(deps[key], `${key} should be a version`).toMatch(/^\^?\d/);
+          }
+        }
+      },
+      PLAN_STANDALONE_SCAFFOLD_TIMEOUT_MS,
+    );
+
+    it(
+      "ships the Plans skills inside the scaffold (.agents/skills)",
+      async () => {
+        await createApp("plan", { template: "plan" });
+        const skillsDir = path.join(tmpDir, "plan", ".agents", "skills");
+        for (const name of ["visual-plan", "visual-recap"]) {
+          expect(
+            fs.existsSync(path.join(skillsDir, name, "SKILL.md")),
+            `expected scaffolded skill ${name}/SKILL.md`,
+          ).toBe(true);
+        }
+        // Guard against the circular `.agents/skills/skills` symlink that crashes
+        // Vite's watcher.
+        expect(fs.readdirSync(skillsDir)).not.toContain("skills");
+      },
+      PLAN_STANDALONE_SCAFFOLD_TIMEOUT_MS,
+    );
+
+    it(
+      "sets pnpm.onlyBuiltDependencies so native deps build without a prompt",
+      async () => {
+        await createApp("plan", { template: "plan" });
+        const pkg = readPkg(path.join(tmpDir, "plan"));
+        const built: string[] = pkg.pnpm?.onlyBuiltDependencies ?? [];
+        expect(built).toEqual(
+          expect.arrayContaining(["better-sqlite3", "esbuild", "node-pty"]),
+        );
+      },
+      PLAN_STANDALONE_SCAFFOLD_TIMEOUT_MS,
+    );
   },
 );
 

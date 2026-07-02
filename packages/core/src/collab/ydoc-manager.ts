@@ -16,14 +16,8 @@
  */
 
 import * as Y from "yjs";
-import {
-  loadYDocRecord,
-  loadYDocState,
-  saveYDocState,
-  trySaveYDocState,
-} from "./storage.js";
-import { applyTextToYDoc, initYDocWithText } from "./text-to-yjs.js";
-import { searchAndReplaceInYXml, extractTextFromYXml } from "./xml-ops.js";
+
+import { emitCollabUpdate } from "./emitter.js";
 import {
   applyJsonDiff,
   applyJsonPatch,
@@ -31,8 +25,15 @@ import {
   initYDocWithJson,
   type PatchOp,
 } from "./json-to-yjs.js";
-import { emitCollabUpdate } from "./emitter.js";
+import {
+  loadYDocRecord,
+  loadYDocState,
+  saveYDocState,
+  trySaveYDocState,
+} from "./storage.js";
 import { uint8ArrayToBase64 } from "./storage.js";
+import { applyTextToYDoc, initYDocWithText } from "./text-to-yjs.js";
+import { searchAndReplaceInYXml, extractTextFromYXml } from "./xml-ops.js";
 
 const DEFAULT_FIELD = "content";
 const MAX_CACHE = 50;

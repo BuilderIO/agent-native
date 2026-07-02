@@ -1,0 +1,147 @@
+---
+title: "Internationalisation"
+description: "Localisez les applications Agent Native avec des catalogues de paramètres régionaux partagés, un sélecteur de langue, une langue de secours du navigateur et un contenu de documents prenant en compte les paramètres régionaux."
+---
+
+# Internationalisation
+
+Les applications Agent Native peuvent localiser le framework et le modèle UI via le partage
+Exécution `@agent-native/core/client/i18n`. Le framework stocke les informations
+choix de la langue dans les paramètres SQL, l'expose sous le nom actions et revient à
+En anglais lorsqu'une application n'a pas encore traduit une chaîne.
+
+## Exécution
+
+Utilisez le fournisseur via `AppProviders` :
+
+```tsx
+import { AppProviders, getLocaleInitScript } from "@agent-native/core/client";
+import { i18nCatalog } from "./i18n";
+
+const LOCALE_INIT_SCRIPT = getLocaleInitScript();
+
+<script
+  data-agent-native-locale-init
+  dangerouslySetInnerHTML={{ __html: LOCALE_INIT_SCRIPT }}
+/>;
+
+<AppProviders queryClient={queryClient} i18n={{ catalog: i18nCatalog }}>
+  <Outlet />
+</AppProviders>;
+```
+
+`getLocaleInitScript()` définit les valeurs initiales `lang`, `dir` et
+`window.__AGENT_NATIVE_LOCALE__` avant que React ne s'hydrate. Les itinéraires publics SSR peuvent
+appelez `resolveLocaleFromRequest()` depuis `@agent-native/core/server` et passez le
+résolution des paramètres régionaux/catalogue dans ce script pour éviter les incompatibilités d'hydratation.
+
+## Catalogues
+
+Chaque modèle localisé conserve les catalogues sous `app/i18n/` :
+
+```ts
+// app/i18n/index.ts
+import enUS from "./en-US";
+import type { AgentNativeI18nCatalog } from "@agent-native/core/client";
+
+export const i18nCatalog = {
+  sourceLocale: "en-US",
+  messages: enUS,
+  loadMessages: async (locale) => {
+    switch (locale) {
+      case "zh-CN":
+        return (await import("./zh-CN")).default;
+      default:
+        return null;
+    }
+  },
+} satisfies AgentNativeI18nCatalog;
+```
+
+Toujours regrouper `en-US`. Importation dynamique de catalogues dans une langue autre que l'anglais pour les utilisateurs uniquement
+téléchargez les paramètres régionaux actifs. Les codes régionaux pris en charge sont `en-US`, `zh-CN`,
+`es-ES`, `fr-FR`, `de-DE`, `ja-JP`, `ko-KR`, `pt-BR`, `hi-IN` et `ar-SA`.
+
+## UI
+
+Utilisez `useT()` pour les chaînes d'interface et mettez `<LanguagePicker />` sur l'application
+Page `/settings`. Les applications de la barre latérale doivent afficher les **Paramètres** dans la barre latérale de l'application ;
+l'icône de langue d'en-tête n'est qu'un raccourci.
+
+```tsx
+import {
+  LanguagePicker,
+  openAgentSettings,
+  useT,
+} from "@agent-native/core/client";
+
+function SettingsPage() {
+  const t = useT();
+  return (
+    <>
+      <h2>{t("settings.languageTitle")}</h2>
+      <LanguagePicker label={t("settings.languageLabel")} />
+
+      <h2>{t("settings.agentTitle")}</h2>
+      <p>{t("settings.agentDescription")}</p>
+      <button type="button" onClick={() => openAgentSettings()}>
+        {t("settings.openAgentSettings")}
+      </button>
+    </>
+  );
+}
+```
+
+Le contrôle "Paramètres de l'agent" doit ouvrir l'onglet Paramètres de la barre latérale droite de l'agent
+pour le modèle, la clé API, l'automatisation, la voix et d'autres commandes au niveau du framework.
+Les applications peuvent dupliquer des paramètres de framework de grande valeur dans leur propre page de paramètres
+lorsque le paramètre est au centre de l'application, mais que l'onglet des paramètres de la barre latérale reste le
+source de vérité.
+
+Utilisez `useFormatters()` pour les dates, les nombres, l'heure relative et les listes. Ne mettez pas
+Formatage de date/nombre sensible aux paramètres régionaux dans les chaînes de traduction.
+
+## Contenu du site Docs {#docs-site-content}
+
+Les pages de documents publics utilisent le même fournisseur principal, mais avec
+`persistPreference={false}` afin que le trafic de documents anonymes utilise localStorage et
+langue du navigateur au lieu des paramètres SQL actions. La source anglaise reste en
+`packages/core/docs/content/*.md`. Les remplacements de page localisés sont affichés à côté sous
+`packages/core/docs/content/locales/<locale>/<slug>.md`.
+
+Utilisez les mêmes codes régionaux BCP-47 que les catalogues d'applications. Gardez le même slug que le
+Source anglaise, préserver les ancrages stables avec `{#anchor}` sur les titres traduits,
+et laissez les routes, les noms d'action, les champs de protocole, les variables d'environnement et les noms de fournisseur
+non traduit. Si un paramètre régional n'a pas de Markdown traduit pour une page, le site de documentation
+revient à l'anglais pour cette page tout en localisant la navigation et Chrome.
+
+Le Markdown des docs peut inclure des blocs visuels structurés `an-*`. Traduisez leurs champs de prose visibles quand cela a du sens, comme les titres file-tree et `entries[].note`, les corps de callout, les labels d'onglets et les labels/notes annotated-code. Gardez les identifiants stables inchangés : noms de fichiers, chemins, env vars, chaînes de route, noms d'actions, language tags, extraits de code, clés JSON et noms de protocole.
+
+## Actions et persistance
+
+Chaque application hérite :
+
+- `get-localization-preference` — lit le `{ locale }` de l'utilisateur actuel
+- `set-localization-preference` : définissez `"system"` ou un paramètre régional pris en charge
+
+La valeur durable réside dans les paramètres SQL définis par l'utilisateur sous `localization`.
+`localStorage` est utilisé uniquement pour la pré-hydratation et le repli anonyme. L'actif
+les paramètres régionaux sont reflétés dans l'état de l'application en tant que contexte ambiant afin que les agents puissent voir
+la langue actuelle de l'interface.
+
+## Garde
+
+Exécuter :
+
+```bash
+pnpm guard:i18n-catalogs
+```
+
+Le gardien vérifie les noms de fichiers de paramètres régionaux pris en charge, la parité des clés, la parité des espaces réservés,
+clés périmées et catégories plurielles CLDR via `Intl.PluralRules`. Il vérifie
+la structure, pas la qualité de la traduction ; les chaînes à haute visibilité ont toujours besoin d'humains
+révision.
+
+Ne traduisez pas les identifiants stables tels que les noms d'actions, les routes, les valeurs d'énumération,
+Clés d'état de l'application, valeurs de base de données, champs de protocole, noms de variables d'environnement ou fournisseur
+noms.

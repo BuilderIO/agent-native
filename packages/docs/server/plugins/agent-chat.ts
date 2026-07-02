@@ -5,6 +5,7 @@ import {
   createAgentChatPlugin,
   loadActionsFromStaticRegistry,
 } from "@agent-native/core/server";
+
 import actionsRegistry from "../../.generated/actions-registry.js";
 
 const SYSTEM_PROMPT = `You are the Agent-Native documentation assistant at agent-native.com.

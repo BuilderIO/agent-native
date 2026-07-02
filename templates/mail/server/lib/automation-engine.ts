@@ -1,18 +1,25 @@
-import { eq, and } from "drizzle-orm";
-import { getUserSetting, putUserSetting } from "@agent-native/core/settings";
 import {
   registerBuiltinEngines,
   resolveEngine,
 } from "@agent-native/core/agent/engine";
-import { runWithRequestContext } from "@agent-native/core/server";
+import { emit } from "@agent-native/core/event-bus";
 import {
   listOAuthAccounts,
   listOAuthAccountsByOwner,
   getOAuthTokens,
   saveOAuthTokens,
 } from "@agent-native/core/oauth-tokens";
-import { emit } from "@agent-native/core/event-bus";
+import { runWithRequestContext } from "@agent-native/core/server";
+import { getUserSetting, putUserSetting } from "@agent-native/core/settings";
+import type { AutomationAction } from "@shared/types.js";
+import { eq, and } from "drizzle-orm";
+
 import { db, schema } from "../db/index.js";
+import {
+  buildLabelCache,
+  executeActions,
+  type ActionContext,
+} from "./automation-actions.js";
 import {
   createOAuth2Client,
   gmailListMessages,
@@ -20,12 +27,7 @@ import {
   gmailListHistory,
   gmailGetProfile,
 } from "./google-api.js";
-import {
-  buildLabelCache,
-  executeActions,
-  type ActionContext,
-} from "./automation-actions.js";
-import type { AutomationAction } from "@shared/types.js";
+import { getOAuth2Credentials } from "./google-auth.js";
 
 const DEFAULT_MODEL = "claude-haiku-4-5-20251001";
 const MAX_EMAILS_PER_RUN = 50;
@@ -90,8 +92,8 @@ async function getAccessToken(accountEmail: string): Promise<string | null> {
     tokens.expiry_date < Date.now() + 5 * 60 * 1000
   ) {
     try {
-      const clientId = process.env.GOOGLE_CLIENT_ID!;
-      const clientSecret = process.env.GOOGLE_CLIENT_SECRET!;
+      const { clientId, clientSecret } =
+        await getOAuth2Credentials(accountEmail);
       const oauth = createOAuth2Client(
         clientId,
         clientSecret,

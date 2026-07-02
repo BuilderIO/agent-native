@@ -7,13 +7,13 @@
  * `ModelMessage` shapes.
  */
 
+import { backfillEngineMessagesToolResults } from "./translate-anthropic.js";
 import type {
   EngineTool,
   EngineMessage,
   EngineContentPart,
   EngineEvent,
 } from "./types.js";
-import { backfillEngineMessagesToolResults } from "./translate-anthropic.js";
 
 // ---------------------------------------------------------------------------
 // EngineTool → AI SDK tool definition

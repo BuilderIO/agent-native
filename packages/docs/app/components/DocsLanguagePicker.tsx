@@ -1,30 +1,27 @@
-import { useState } from "react";
-import * as PopoverPrimitive from "@radix-ui/react-popover";
-import { IconCheck, IconLanguage } from "@tabler/icons-react";
 import {
   LOCALE_STORAGE_KEY,
   normalizeLocalizationPreference,
   useLocale,
   useT,
 } from "@agent-native/core/client";
-import { useLocation } from "react-router";
+import * as PopoverPrimitive from "@radix-ui/react-popover";
+import { IconCheck, IconLanguage } from "@tabler/icons-react";
+import { useEffect, useState } from "react";
+import { Link, useLocation } from "react-router";
+
 import {
   DOCS_LOCALE_METADATA,
   DOCS_LOCALES,
+  DEFAULT_DOCS_LOCALE,
   browserDocsLocale,
+  docsLocaleOptionLabel,
   sitePathForLocale,
   type DocsLocale,
 } from "./docs-locale";
 
-function localeOptionLabel(locale: DocsLocale) {
-  const metadata = DOCS_LOCALE_METADATA[locale];
-  return `${metadata.nativeName} (${locale})`;
-}
-
 function preferenceLabel(preference: string) {
-  if (preference === "system") return "System";
   if (preference in DOCS_LOCALE_METADATA) {
-    return localeOptionLabel(preference as DocsLocale);
+    return docsLocaleOptionLabel(preference as DocsLocale);
   }
   return preference;
 }
@@ -34,18 +31,34 @@ export default function DocsLanguagePicker() {
   const t = useT();
   const location = useLocation();
   const [open, setOpen] = useState(false);
+  const [systemLocale, setSystemLocale] =
+    useState<DocsLocale>(DEFAULT_DOCS_LOCALE);
 
-  function handleChange(value: string) {
+  useEffect(() => {
+    setSystemLocale(browserDocsLocale());
+  }, []);
+
+  function localeForPreference(value: string) {
     const nextPreference = normalizeLocalizationPreference(value).locale;
-    const nextLocale =
-      nextPreference === "system" ? browserDocsLocale() : nextPreference;
+    return nextPreference === "system" ? systemLocale : nextPreference;
+  }
+
+  function hrefForPreference(value: string) {
+    const path = sitePathForLocale(
+      location.pathname,
+      localeForPreference(value),
+    );
+    return `${path}${location.search}${location.hash}`;
+  }
+
+  function handleOptionClick(value: string) {
+    const nextPreference = normalizeLocalizationPreference(value).locale;
     try {
       window.localStorage.setItem(LOCALE_STORAGE_KEY, nextPreference);
     } catch {
       // Locale selection still works through the URL when storage is blocked.
     }
-    const path = sitePathForLocale(location.pathname, nextLocale);
-    window.location.assign(`${path}${location.search}${location.hash}`);
+    setOpen(false);
   }
 
   const label = `${t("language.label")}: ${
@@ -61,7 +74,7 @@ export default function DocsLanguagePicker() {
       },
       ...DOCS_LOCALES.map((locale) => ({
         value: locale,
-        label: localeOptionLabel(locale),
+        label: docsLocaleOptionLabel(locale),
       })),
     ];
 
@@ -87,24 +100,26 @@ export default function DocsLanguagePicker() {
           {options.map((option) => {
             const selected = option.value === preference;
             return (
-              <PopoverPrimitive.Close asChild key={option.value}>
-                <button
-                  type="button"
-                  onClick={() => void handleChange(option.value)}
-                  title={option.description}
-                  className={`flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-start text-sm transition-colors hover:bg-[var(--bg-secondary)] ${
-                    selected ? "text-[var(--fg)]" : "text-[var(--fg-secondary)]"
-                  }`}
-                >
-                  <IconCheck
-                    size={14}
-                    stroke={2}
-                    className={selected ? "opacity-100" : "opacity-0"}
-                    aria-hidden="true"
-                  />
-                  <span className="truncate">{option.label}</span>
-                </button>
-              </PopoverPrimitive.Close>
+              <Link
+                key={option.value}
+                to={hrefForPreference(option.value)}
+                onClick={() => handleOptionClick(option.value)}
+                data-an-prefetch="render"
+                title={option.description}
+                className={`flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-start text-sm no-underline transition-colors hover:bg-[var(--docs-border)]/60 hover:text-[var(--fg)] hover:no-underline focus-visible:bg-[var(--docs-border)]/60 focus-visible:text-[var(--fg)] focus-visible:outline-none ${
+                  selected
+                    ? "bg-[var(--docs-border)]/35 text-[var(--fg)]"
+                    : "text-[var(--fg-secondary)]"
+                }`}
+              >
+                <IconCheck
+                  size={14}
+                  stroke={2}
+                  className={selected ? "opacity-100" : "opacity-0"}
+                  aria-hidden="true"
+                />
+                <span className="truncate">{option.label}</span>
+              </Link>
             );
           })}
         </PopoverPrimitive.Content>

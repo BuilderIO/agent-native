@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+
 import {
   DATA_CHART_WIDGET,
   DATA_INSIGHTS_WIDGET,
@@ -67,6 +68,26 @@ describe("data widget helpers", () => {
     expect(normalizeDataWidgetResult(result)).toMatchObject({
       widget: DATA_INSIGHTS_WIDGET,
       summary: { responses: 3 },
+    });
+  });
+
+  it("creates chart-only insights widget results", () => {
+    const result = createDataInsightsWidgetResult({
+      widgetId: "forms.responseInsights.chart.v1",
+      summary: { responses: 3 },
+      chartSeries: {
+        type: "bar",
+        xKey: "day",
+        series: [{ key: "responses", label: "Responses" }],
+        data: [{ day: "Mon", responses: 3 }],
+      },
+    });
+
+    expect(result.widget).toBe(DATA_INSIGHTS_WIDGET);
+    expect(result.table).toBeUndefined();
+    expect(normalizeDataWidgetResult(result)).toMatchObject({
+      widget: DATA_INSIGHTS_WIDGET,
+      chartSeries: { xKey: "day" },
     });
   });
 

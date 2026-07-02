@@ -1,4 +1,4 @@
-import { Link } from "react-router";
+import { VisibilityBadge, useT } from "@agent-native/core/client";
 import {
   IconDots,
   IconTrash,
@@ -7,10 +7,8 @@ import {
   IconPalette,
 } from "@tabler/icons-react";
 import { useState, useRef, useEffect } from "react";
-import type { Deck } from "@/context/DeckContext";
-import SlideRenderer from "./SlideRenderer";
-import type { DesignSystemData } from "../../../shared/api";
-import { VisibilityBadge } from "@agent-native/core/client";
+import { Link } from "react-router";
+
 import {
   DropdownMenu,
   DropdownMenuTrigger,
@@ -18,6 +16,10 @@ import {
   DropdownMenuItem,
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
+import type { Deck } from "@/context/DeckContext";
+
+import type { DesignSystemData } from "../../../shared/api";
+import SlideRenderer from "./SlideRenderer";
 
 interface DeckCardProps {
   deck: Deck;
@@ -38,6 +40,7 @@ export default function DeckCard({
   designSystemTitle,
   designSystem,
 }: DeckCardProps) {
+  const t = useT();
   const firstSlide = deck.slides?.[0];
   const [isRenaming, setIsRenaming] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -126,12 +129,12 @@ export default function DeckCard({
             )}
             <VisibilityBadge visibility={deck.visibility} />
           </div>
-          <div className="mt-1 flex items-center gap-2 text-xs text-muted-foreground">
-            <span>
+          <div className="mt-1 flex min-w-0 items-center gap-2 text-xs text-muted-foreground">
+            <span className="shrink-0 whitespace-nowrap">
               {deck.slides.length} slide{deck.slides.length !== 1 ? "s" : ""}
             </span>
             {deck.designSystemId && (
-              <span className="inline-flex min-w-0 items-center gap-1 rounded border border-border px-1.5 py-0.5 text-[10px] text-muted-foreground/80">
+              <span className="inline-flex min-w-0 max-w-full items-center gap-1 rounded border border-border px-1.5 py-0.5 text-[10px] text-muted-foreground/80">
                 <IconPalette className="h-3 w-3 shrink-0 text-[#609FF8]" />
                 <span className="max-w-28 truncate">
                   {designSystemTitle || "Design system"}
@@ -152,7 +155,7 @@ export default function DeckCard({
                 e.stopPropagation();
               }}
               className="p-2 sm:p-1.5 rounded-md bg-black/60 backdrop-blur-sm border border-border hover:bg-black/80"
-              aria-label="Deck options"
+              aria-label={t("raw.deckOptions")}
             >
               <IconDots className="w-3.5 h-3.5 text-foreground/70" />
             </button>

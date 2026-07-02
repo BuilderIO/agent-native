@@ -1,5 +1,4 @@
-import { type ReactNode } from "react";
-import { Link } from "react-router";
+import { appPath, useT } from "@agent-native/core/client";
 import {
   IconBrandApple,
   IconBrandChrome,
@@ -8,17 +7,19 @@ import {
   IconDeviceDesktop,
   IconExternalLink,
 } from "@tabler/icons-react";
+import { type ReactNode } from "react";
+
 import { Button, type ButtonProps } from "@/components/ui/button";
 import {
   Popover,
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
-import { cn } from "@/lib/utils";
 import {
   clipsChromeExtensionEnabled,
   clipsChromeExtensionUrl,
 } from "@/lib/capture-install-options";
+import { cn } from "@/lib/utils";
 
 type PopoverPlacement = {
   align?: "start" | "center" | "end";
@@ -51,21 +52,12 @@ function desktopOsIcon(): typeof IconDeviceDesktop {
 }
 
 function InstallOptionsContent({ desktopHref = "/download" }) {
+  const t = useT();
   const chromeAvailable = Boolean(clipsChromeExtensionUrl);
   const DesktopIcon = desktopOsIcon();
 
   return (
     <div className="grid gap-2">
-      <div className="px-1 pb-1">
-        <div className="text-sm font-medium text-popover-foreground">
-          Choose your recorder
-        </div>
-        <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-          Use Chrome when you need browser logs, or desktop for the smoothest
-          everyday capture.
-        </p>
-      </div>
-
       {chromeAvailable ? (
         <a
           href={clipsChromeExtensionUrl ?? undefined}
@@ -75,10 +67,11 @@ function InstallOptionsContent({ desktopHref = "/download" }) {
         >
           <IconBrandChrome className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
           <span className="min-w-0 flex-1">
-            <span className="block text-sm font-medium">Chrome extension</span>
+            <span className="block text-sm font-medium">
+              {t("captureInstall.chromeTitle")}
+            </span>
             <span className="mt-0.5 block text-xs leading-snug text-muted-foreground">
-              Best when you want redacted console and network diagnostics from
-              the browser tab.
+              {t("captureInstall.chromeDescription")}
             </span>
           </span>
           <IconExternalLink className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
@@ -87,27 +80,30 @@ function InstallOptionsContent({ desktopHref = "/download" }) {
         <div className="flex items-start gap-3 rounded-md border border-dashed border-border p-3 text-start opacity-70">
           <IconBrandChrome className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
           <span className="min-w-0 flex-1">
-            <span className="block text-sm font-medium">Chrome extension</span>
+            <span className="block text-sm font-medium">
+              {t("captureInstall.chromeTitle")}
+            </span>
             <span className="mt-0.5 block text-xs leading-snug text-muted-foreground">
-              Browser logs option is ready, pending the Chrome Web Store URL.
+              {t("captureInstall.chromePendingDescription")}
             </span>
           </span>
         </div>
       )}
 
-      <Link
-        to={desktopHref}
+      <a
+        href={appPath(desktopHref)}
         className="flex items-start gap-3 rounded-md border border-border p-3 text-start transition hover:bg-accent"
       >
         <DesktopIcon className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
         <span className="min-w-0 flex-1">
-          <span className="block text-sm font-medium">Desktop app</span>
+          <span className="block text-sm font-medium">
+            {t("captureInstall.desktopTitle")}
+          </span>
           <span className="mt-0.5 block text-xs leading-snug text-muted-foreground">
-            Most seamless for global shortcuts, menu-bar recording, meetings,
-            and repeat captures.
+            {t("captureInstall.desktopDescription")}
           </span>
         </span>
-      </Link>
+      </a>
     </div>
   );
 }
@@ -123,7 +119,7 @@ export function CaptureInstallButton({
   if (!clipsChromeExtensionEnabled) {
     return (
       <Button asChild className={className} {...buttonProps}>
-        <Link to={desktopHref}>{children}</Link>
+        <a href={appPath(desktopHref)}>{children}</a>
       </Button>
     );
   }
@@ -152,9 +148,9 @@ export function CaptureInstallInlineLink({
 }: CaptureInstallInlineLinkProps) {
   if (!clipsChromeExtensionEnabled) {
     return (
-      <Link to={desktopHref} className={className}>
+      <a href={appPath(desktopHref)} className={className}>
         {children}
-      </Link>
+      </a>
     );
   }
 

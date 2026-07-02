@@ -1,9 +1,10 @@
 // @vitest-environment happy-dom
 
+import { useEditor, type Editor } from "@tiptap/react";
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { useEditor, type Editor } from "@tiptap/react";
+
 import { createRichMarkdownExtensions } from "./RichMarkdownEditor.js";
 import { useCollabReconcile, getEditorMarkdown } from "./useCollabReconcile.js";
 

@@ -1,6 +1,6 @@
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { chromium, type Browser } from "playwright";
 import { createServer, type ViteDevServer } from "vite";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 interface ExtensionE2EResult {
   done: true;
@@ -88,9 +88,8 @@ describe("AgentNativeExtensionFrame browser bridge", () => {
   }, 60_000);
 
   afterAll(async () => {
-    await browser?.close();
-    await server?.close();
-  });
+    await Promise.allSettled([browser?.close(), server?.close()]);
+  }, 60_000);
 
   it("runs a sandboxed extension through real iframe postMessage boundaries", async () => {
     const page = await browser.newPage();

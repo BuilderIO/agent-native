@@ -5,9 +5,10 @@ import {
   deleteAppState,
   deleteAppStateByPrefix,
 } from "@agent-native/core/application-state";
-import { getUserSetting } from "@agent-native/core/settings";
 import { getRequestUserEmail, buildDeepLink } from "@agent-native/core/server";
+import { getUserSetting } from "@agent-native/core/settings";
 import { z } from "zod";
+
 import { appendSignatureToBody } from "../shared/signature.js";
 
 const COMPOSE_FULLSCREEN_PARAM = "composeFullscreen";

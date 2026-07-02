@@ -1,7 +1,8 @@
 import { defineAction } from "@agent-native/core";
-import { resolveAccess } from "@agent-native/core/sharing";
 import { buildDeepLink } from "@agent-native/core/server";
+import { resolveAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
+
 import { buildDocumentExport } from "../shared/document-export.js";
 import "../server/db/index.js";
 

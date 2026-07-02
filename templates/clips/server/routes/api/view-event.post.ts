@@ -24,14 +24,15 @@
  * 5s/75%/end-scrub rule, sets countedView=true.
  */
 
-import { defineEventHandler, readBody, setResponseStatus } from "h3";
-import { and, eq } from "drizzle-orm";
-import { getDb, schema } from "../../db/index.js";
-import { nanoid, shouldCountView } from "../../lib/recordings.js";
-import { getSession, runWithRequestContext } from "@agent-native/core/server";
 import { writeAppState } from "@agent-native/core/application-state";
 import { emit } from "@agent-native/core/event-bus";
+import { getSession, runWithRequestContext } from "@agent-native/core/server";
 import { resolveAccess } from "@agent-native/core/sharing";
+import { and, eq } from "drizzle-orm";
+import { defineEventHandler, readBody, setResponseStatus } from "h3";
+
+import { getDb, schema } from "../../db/index.js";
+import { nanoid, shouldCountView } from "../../lib/recordings.js";
 
 interface ViewEventBody {
   recordingId?: string;

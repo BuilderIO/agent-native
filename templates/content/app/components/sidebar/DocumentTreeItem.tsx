@@ -1,4 +1,11 @@
-import { useState } from "react";
+import { useT } from "@agent-native/core/client";
+import {
+  SortableContext,
+  useSortable,
+  verticalListSortingStrategy,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
+import type { DocumentTreeNode } from "@shared/api";
 import {
   IconChevronRight,
   IconDatabase,
@@ -9,21 +16,8 @@ import {
   IconTrash,
   IconDots,
 } from "@tabler/icons-react";
-import { CSS } from "@dnd-kit/utilities";
-import {
-  SortableContext,
-  useSortable,
-  verticalListSortingStrategy,
-} from "@dnd-kit/sortable";
-import { cn } from "@/lib/utils";
-import type { DocumentTreeNode } from "@shared/api";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
+import { useState } from "react";
+
 import {
   AlertDialog,
   AlertDialogAction,
@@ -35,10 +29,18 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { cn } from "@/lib/utils";
 
 interface DocumentTreeItemProps {
   node: DocumentTreeNode;
@@ -48,7 +50,8 @@ interface DocumentTreeItemProps {
   expandedIds: Set<string>;
   onToggleExpanded: (id: string) => void;
   onSelect: (id: string) => void;
-  onCreateChild: (parentId: string) => void;
+  onCreateChildPage: (parentId: string) => void;
+  onCreateChildDatabase: (parentId: string) => void;
   onDelete: (id: string) => void;
   onToggleFavorite: (id: string, isFavorite: boolean) => void;
 }
@@ -92,10 +95,12 @@ export function DocumentTreeItem({
   expandedIds,
   onToggleExpanded,
   onSelect,
-  onCreateChild,
+  onCreateChildPage,
+  onCreateChildDatabase,
   onDelete,
   onToggleFavorite,
 }: DocumentTreeItemProps) {
+  const t = useT();
   const expanded = expandedIds.has(node.id);
   const hasChildren = node.children.length > 0;
   const isActive = node.id === activeId;
@@ -145,7 +150,7 @@ export function DocumentTreeItem({
           isDragging && "bg-accent/70 text-accent-foreground shadow-sm",
           isActive
             ? "bg-accent text-accent-foreground"
-            : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
+            : "text-muted-foreground hover:bg-accent hover:text-foreground",
         )}
         style={{
           paddingInlineStart: `${indent}px`,
@@ -205,14 +210,20 @@ export function DocumentTreeItem({
         </span>
 
         <div
-          className="absolute end-1 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 flex items-center gap-0.5 flex-shrink-0 bg-inherit"
+          className={cn(
+            "pointer-events-none absolute right-1 top-1/2 flex flex-shrink-0 -translate-y-1/2 items-center gap-0.5 rounded-md pl-1 opacity-0 group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100",
+            "bg-accent text-foreground",
+            isActive && "text-accent-foreground",
+          )}
           onPointerDown={(e) => e.stopPropagation()}
         >
           {hasMenuActions && (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <button
-                  className="w-6 h-6 flex items-center justify-center rounded hover:bg-accent"
+                  type="button"
+                  className="flex h-6 w-6 items-center justify-center rounded text-current hover:bg-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  aria-label={`More actions for ${node.title || "Untitled"}`}
                   onClick={(e) => e.stopPropagation()}
                 >
                   <IconDots size={14} />
@@ -245,7 +256,7 @@ export function DocumentTreeItem({
                     }}
                   >
                     <IconTrash size={14} className="me-2" />
-                    Delete
+                    {t("database.delete")}
                   </DropdownMenuItem>
                 )}
               </DropdownMenuContent>
@@ -253,20 +264,45 @@ export function DocumentTreeItem({
           )}
 
           {canCreateChild && (
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <button
-                  className="w-7 h-7 flex items-center justify-center rounded hover:bg-accent"
+            <DropdownMenu>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <DropdownMenuTrigger asChild>
+                    <button
+                      type="button"
+                      className="flex h-7 w-7 items-center justify-center rounded text-current hover:bg-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      aria-label={t("sidebar.addChildTo", {
+                        title: node.title || t("sidebar.untitled"),
+                      })}
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <IconPlus size={14} />
+                    </button>
+                  </DropdownMenuTrigger>
+                </TooltipTrigger>
+                <TooltipContent>{t("sidebar.addChild")}</TooltipContent>
+              </Tooltip>
+              <DropdownMenuContent align="start" className="w-44">
+                <DropdownMenuItem
                   onClick={(e) => {
                     e.stopPropagation();
-                    onCreateChild(node.id);
+                    onCreateChildPage(node.id);
                   }}
                 >
-                  <IconPlus size={14} />
-                </button>
-              </TooltipTrigger>
-              <TooltipContent>Add sub-page</TooltipContent>
-            </Tooltip>
+                  <IconFileText className="me-2 size-4" />
+                  {t("sidebar.page")}
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onCreateChildDatabase(node.id);
+                  }}
+                >
+                  <IconDatabase className="me-2 size-4" />
+                  {t("sidebar.database")}
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           )}
         </div>
       </div>
@@ -286,7 +322,8 @@ export function DocumentTreeItem({
               expandedIds={expandedIds}
               onToggleExpanded={onToggleExpanded}
               onSelect={onSelect}
-              onCreateChild={onCreateChild}
+              onCreateChildPage={onCreateChildPage}
+              onCreateChildDatabase={onCreateChildDatabase}
               onDelete={onDelete}
               onToggleFavorite={onToggleFavorite}
             />
@@ -297,19 +334,22 @@ export function DocumentTreeItem({
       <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Delete page?</AlertDialogTitle>
+            <AlertDialogTitle>
+              {t("sidebar.deletePageQuestion")}
+            </AlertDialogTitle>
             <AlertDialogDescription>
-              &ldquo;{node.title || "Untitled"}&rdquo; and all its sub-pages
-              will be permanently deleted. This cannot be undone.
+              {t("sidebar.deletePageDescription", {
+                title: node.title || t("sidebar.untitled"),
+              })}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogCancel>{t("comments.cancel")}</AlertDialogCancel>
             <AlertDialogAction
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
               onClick={() => onDelete(node.id)}
             >
-              Delete
+              {t("database.delete")}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

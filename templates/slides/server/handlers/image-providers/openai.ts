@@ -1,3 +1,5 @@
+import { resolveSecret } from "@agent-native/core/server";
+
 import type {
   ImageProvider,
   ImageProviderConfig,
@@ -12,14 +14,18 @@ export class OpenAIProvider implements ImageProvider {
     return !!process.env.OPENAI_API_KEY;
   }
 
+  async isConfiguredForRequest(): Promise<boolean> {
+    return !!(await resolveSecret("OPENAI_API_KEY"));
+  }
+
   async generate(
     prompt: string,
     referenceImages: ReferenceImage[] = [],
     context?: { slideContent?: string; deckText?: string },
     config?: ImageProviderConfig,
   ): Promise<ImageGenerationResult> {
-    const apiKey = process.env.OPENAI_API_KEY;
-    if (!apiKey) throw new Error("OPENAI_API_KEY not set");
+    const apiKey = await resolveSecret("OPENAI_API_KEY");
+    if (!apiKey) throw new Error("OPENAI_API_KEY not configured");
 
     // OpenAI doesn't support reference images natively — fold style description into prompt
     const fullPrompt = buildOpenAIPrompt(prompt, referenceImages, context);
@@ -87,8 +93,8 @@ export class OpenAIProvider implements ImageProvider {
     prompt: string,
     config?: ImageProviderConfig,
   ): Promise<ImageGenerationResult> {
-    const apiKey = process.env.OPENAI_API_KEY;
-    if (!apiKey) throw new Error("OPENAI_API_KEY not set");
+    const apiKey = await resolveSecret("OPENAI_API_KEY");
+    if (!apiKey) throw new Error("OPENAI_API_KEY not configured");
 
     const size = mapSize(config?.aspectRatio, config?.size);
     const quality = mapQuality(config?.quality);

@@ -1,8 +1,10 @@
 import { defineEventHandler } from "h3";
+
 import {
   buildNotionAuthUrl,
   getDocumentOwnerEmail,
   getNotionConnectionForOwner,
+  hasNotionOAuthCredentials,
 } from "../../../lib/notion.js";
 
 export default defineEventHandler(async (event) => {
@@ -20,14 +22,13 @@ export default defineEventHandler(async (event) => {
   }
 
   // Not connected — check what's available
-  const hasOAuthCredentials =
-    !!process.env.NOTION_CLIENT_ID && !!process.env.NOTION_CLIENT_SECRET;
+  const hasOAuthCredentials = await hasNotionOAuthCredentials(event);
 
   return {
     connected: false,
     workspaceName: null,
     workspaceId: null,
-    authUrl: hasOAuthCredentials ? buildNotionAuthUrl(event) : null,
+    authUrl: hasOAuthCredentials ? await buildNotionAuthUrl(event) : null,
     error: "missing_credentials" as const,
     mode: null,
   };

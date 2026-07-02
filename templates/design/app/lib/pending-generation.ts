@@ -1,5 +1,6 @@
-import type { UploadedFile } from "@/components/editor/PromptDialog";
 import type { PromptComposerSubmitOptions } from "@agent-native/core/client";
+
+import type { UploadedFile } from "@/components/editor/PromptDialog";
 
 // Pending generation state is a UI recovery aid, not a generation deadline.
 // Keep it long enough for thorough designs while still clearing abandoned runs.
@@ -15,6 +16,7 @@ export interface PendingGeneration {
   engine?: PromptComposerSubmitOptions["engine"];
   effort?: PromptComposerSubmitOptions["effort"];
   autoGenerate?: boolean;
+  skipQuestions?: boolean;
   attempt?: number;
   createdAt?: number;
   startedAt?: number;

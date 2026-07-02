@@ -1,8 +1,8 @@
+import { runMigrations } from "../../db/migrations.js";
 import {
   awaitBootstrap,
   markDefaultPluginProvided,
 } from "../../server/framework-request-handler.js";
-import { runMigrations } from "../../db/migrations.js";
 import { CONTEXT_XRAY_MIGRATIONS } from "./migrations.js";
 
 type NitroPluginDef = (nitroApp: any) => void | Promise<void>;

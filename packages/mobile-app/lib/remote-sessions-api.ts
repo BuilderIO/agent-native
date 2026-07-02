@@ -1,5 +1,5 @@
-import AsyncStorage from "@react-native-async-storage/async-storage";
 import { TEMPLATE_APPS } from "@agent-native/shared-app-config";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 
 export const SESSION_TOKEN_KEY = "agent-native:session-token";
 export const REMOTE_AUTH_MESSAGE =

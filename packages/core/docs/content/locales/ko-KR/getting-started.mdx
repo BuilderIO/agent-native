@@ -1,0 +1,193 @@
+---
+title: "시작하기"
+description: "채팅 우선 agentic app을 만들고, action을 추가하고, 구조화된 결과를 인라인으로 렌더링한 뒤 agent가 열 수 있는 영구 페이지로 확장합니다."
+---
+
+# 시작하기
+
+Agent-Native는 agentic applications를 만들기 위한 프레임워크입니다. AI agent와 UI는 같은 [actions](/docs/actions), SQL 데이터, application state를 공유합니다. 기본 경로는 headless agent가 아니라 사용자가 즉시 대화할 수 있는 Chat app에서 시작한 뒤 필요한 앱 화면을 추가하는 것입니다.
+
+권장 흐름:
+
+1. Chat app을 만듭니다.
+2. action을 하나 추가합니다.
+3. action 결과를 채팅 안의 native inline UI로 렌더링합니다.
+4. 데이터를 SQL에 저장합니다.
+5. 시각적으로 확인해야 할 때 agent가 열 수 있는 페이지를 추가합니다.
+
+## 1. Chat app 만들기 {#create-your-app}
+
+[Node.js 22+](https://nodejs.org)와 [pnpm](https://pnpm.io)이 필요합니다.
+
+```bash
+npx @agent-native/core@latest create my-app --template chat
+cd my-app
+pnpm install
+pnpm dev
+```
+
+이 템플릿에는 durable chat threads, auth, live sync, `actions/` 디렉터리, 표준 `view-screen` 및 `navigate` actions, 확장 가능한 React app이 포함됩니다.
+
+## 2. action 추가하기 {#add-an-action}
+
+action은 agent와 UI가 함께 호출하는 typed operation입니다. 이 흐름에서는 `actions/analyze-responses.ts`를 만들고, 폼 응답을 분석해 custom chat chart를 위한 검증된 형태를 반환합니다.
+
+<!-- prettier-ignore -->
+```ts
+// actions/analyze-responses.ts
+import { defineAction } from "@agent-native/core/action";
+import { z } from "zod";
+
+const responseChartResultSchema = z.object({
+  title: z.string(),
+  points: z.array(z.object({ day: z.string(), responses: z.number() })),
+});
+
+export default defineAction({
+  description: "Analyze recent form responses and render a custom chart.",
+  schema: z.object({ 
+    formId: z.string().default("demo") 
+  }),
+  outputSchema: responseChartResultSchema,
+  chatUI: { 
+    renderer: "responses.response-chart", 
+    title: "응답 차트" 
+  },
+  readOnly: true,
+  run: async ({ formId }) => ({
+    title: `Responses for ${formId}`,
+    points: [{ day: "Mon", responses: 12 }, { day: "Tue", responses: 18 }, { day: "Wed", responses: 24 }, { day: "Thu", responses: 21 }],
+  }),
+});
+```
+
+직접 실행할 수 있습니다.
+
+```bash
+pnpm action analyze-responses --formId demo
+```
+
+또는 브라우저에서 agent에게 요청합니다.
+
+> 데모 양식의 최근 응답을 분석해 주세요.
+
+## 3. 채팅 안에 결과 렌더링하기 {#render-inline}
+
+action이 `outputSchema`와 제품별 `chatUI.renderer`를 선언하므로 transcript가 구조화된 데이터를 긴 텍스트로 바꾸지 않습니다. 그런 다음 app startup에서 정확히 같은 renderer id에 대한 React component를 등록합니다. 예를 들어 `app/root.tsx`에서 `app/chat-renderers.tsx`를 한 번 import합니다.
+
+<!-- prettier-ignore -->
+```tsx
+import { registerActionChatRenderer, type ToolRendererProps,} from "@agent-native/core/client/chat";
+
+type ResponseChartResult = {
+  title: string;
+  points: Array<{ day: string; responses: number }>;
+};
+
+function ResponseChart({ context }: ToolRendererProps) {
+  const result = context.resultJson as ResponseChartResult;
+  const max = Math.max(...result.points.map((point) => point.responses), 1);
+  return (
+    <section className="rounded-lg border bg-card p-4">
+      <h3 className="text-sm font-medium">{result.title}</h3>
+      <div className="mt-4 flex h-32 items-end gap-2">
+        {result.points.map((point) => (
+          <div key={point.day} className="flex flex-1 flex-col items-center gap-2">
+            <div className="w-full rounded-t bg-primary" style={{ height: `${(point.responses / max) * 100}%` }} />
+            <span className="text-xs text-muted-foreground">{point.day}</span>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+registerActionChatRenderer({
+  id: "responses.response-chart",
+  renderer: "responses.response-chart",
+  Component: ResponseChart,
+});
+```
+
+재사용 가능한 generic output에는 framework 내장 `data-chart`와 `data-table` renderer도 사용할 수 있고, `data-insights`는 summary/chart/table이 결합된 카드에 사용합니다. 자세한 내용은 [Native Chat UI](/docs/native-chat-ui)를 참조하세요.
+
+<WireframeBlock id="doc-block-inline-result-wireframe-ko">
+  <Screen
+    surface="desktop"
+    html={
+      "<div style='min-height:340px;box-sizing:border-box;padding:24px;display:flex;justify-content:center;align-items:center;background:var(--wf-bg)'><div style='width:min(530px,100%);display:flex;flex-direction:column;gap:14px'><div class='wf-card' data-rough style='align-self:flex-end;max-width:70%;padding:12px 14px'><strong>User</strong><p style='margin:6px 0 0'>데모 응답을 분석해 주세요.</p></div><div class='wf-card' data-rough style='align-self:flex-start;width:min(370px,100%);padding:14px'><strong>Agent</strong><p class='wf-muted' style='margin:6px 0 12px'>responses.response-chart로 렌더링됨.</p><section class='wf-card' data-rough style='padding:14px'><h3 style='margin:0 0 12px;font-size:14px'>응답 차트</h3><div data-rough='line:bottom' style='height:104px;display:flex;align-items:end;gap:8px;border-bottom:1.4px solid var(--wf-line);padding-bottom:4px'><div style='flex:1;display:flex;flex-direction:column;align-items:center;gap:6px'><div data-rough style='height:38px;width:100%;background:color-mix(in srgb, var(--wf-accent) 24%, transparent);border:1.4px solid var(--wf-accent);border-radius:8px 8px 3px 3px'></div><span class='wf-muted'>월</span></div><div style='flex:1;display:flex;flex-direction:column;align-items:center;gap:6px'><div data-rough style='height:62px;width:100%;background:color-mix(in srgb, var(--wf-accent) 30%, transparent);border:1.4px solid var(--wf-accent);border-radius:8px 8px 3px 3px'></div><span class='wf-muted'>화</span></div><div style='flex:1;display:flex;flex-direction:column;align-items:center;gap:6px'><div data-rough style='height:86px;width:100%;background:color-mix(in srgb, var(--wf-accent) 36%, transparent);border:1.4px solid var(--wf-accent);border-radius:8px 8px 3px 3px'></div><span class='wf-muted'>수</span></div><div style='flex:1;display:flex;flex-direction:column;align-items:center;gap:6px'><div data-rough style='height:54px;width:100%;background:color-mix(in srgb, var(--wf-accent) 42%, transparent);border:1.4px solid var(--wf-accent);border-radius:8px 8px 3px 3px'></div><span class='wf-muted'>목</span></div></div></section></div></div></div>"
+    }
+  />
+</WireframeBlock>
+
+## 4. SQL에 데이터 저장하기 {#persist-data}
+
+결과를 다시 보거나 비교하거나 업데이트해야 한다면 SQL에 저장하고 읽기/쓰기를 actions 뒤에 둡니다.
+
+테이블은 `drizzle-orm/sqlite-core` 또는 `drizzle-orm/pg-core`에서 가져오지 말고 framework의 portable helper로 정의합니다.
+
+```ts
+// server/db/schema.ts
+import { integer, now, table, text } from "@agent-native/core/db/schema";
+
+export const responseInsights = table("response_insights", {
+  id: text("id").primaryKey(),
+  formId: text("form_id").notNull(),
+  title: text("title").notNull(),
+  summary: text("summary").notNull(),
+  responseCount: integer("response_count").notNull(),
+  createdAt: text("created_at").notNull().default(now()),
+  updatedAt: text("updated_at").notNull().default(now()),
+});
+```
+
+이 helper들은 설정된 SQL backend를 선택하므로 같은 schema가 로컬 SQLite와 프로덕션의 Postgres, Turso/libSQL, D1 또는 다른 지원 SQL provider에서 실행될 수 있습니다.
+
+- `create-response-insight`는 새 insight를 씁니다.
+- `list-response-insights`는 페이지 데이터를 읽습니다.
+- `update-response-insight`는 레코드를 업데이트합니다.
+- `analyze-responses`는 계속 채팅용 native widget을 반환합니다.
+
+브라우저 전용 중복 REST route를 만들지 말고 UI와 agent가 actions를 공유하게 하세요.
+
+## 5. agent가 열 수 있는 페이지 추가하기 {#add-a-page}
+
+`/response-insights` route를 추가하고 `useActionQuery("list-response-insights")`, `useActionMutation("create-response-insight")`를 사용합니다. 이 페이지는 SQL state의 투영이며 데이터는 같은 actions로 계속 쓰입니다.
+
+<WireframeBlock id="doc-block-response-insights-page-wireframe-ko">
+  <Screen
+    surface="desktop"
+    html={
+      "<main style='min-height:440px;box-sizing:border-box;padding:28px;background:var(--wf-bg)'><section style='max-width:960px;margin:0 auto;display:grid;grid-template-columns:minmax(0,1fr) 260px;gap:16px;align-items:stretch'><section class='wf-card' data-rough style='display:flex;flex-direction:column;gap:16px'><header><h2 style='margin:0 0 4px;font-size:28px'>응답 인사이트</h2><p class='wf-muted' style='margin:0'>에이전트가 양식 응답에서 만든 인사이트입니다.</p></header><button class='primary' data-rough style='align-self:flex-start'>데모 양식 분석</button><section style='display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px'><article class='wf-box' data-rough style='padding:12px'><strong>가격 책정 주제</strong><p class='wf-muted' style='margin:8px 0 0'>사용자가 팀 요금제를 요청합니다.</p></article><article class='wf-box' data-rough style='padding:12px'><strong>온보딩 이탈</strong><p class='wf-muted' style='margin:8px 0 0'>세 단계에 더 명확한 문구가 필요합니다.</p></article></section><section class='wf-card' data-rough style='display:flex;flex-direction:column;gap:10px'><div class='wf-row wf-box' data-rough style='padding:10px 12px;gap:12px;justify-content:space-between'><strong>데모 양식</strong><span class='wf-muted'>42개 응답 분석됨</span></div><div class='wf-row wf-box' data-rough style='padding:10px 12px;gap:12px;justify-content:space-between'><strong>다음 단계</strong><span class='wf-muted'>인사이트 초안 두 개 검토</span></div></section></section><aside class='wf-card' data-rough style='height:100%;box-sizing:border-box;display:flex;flex-direction:column;gap:12px'><strong>채팅</strong><div class='wf-box' data-rough style='align-self:flex-end;max-width:210px;padding:10px 12px'><span class='wf-muted'>나</span><p style='margin:4px 0 0'>응답 인사이트 열기.</p></div><div class='wf-box' data-rough style='align-self:flex-start;max-width:210px;padding:10px 12px'><span class='wf-muted'>Agent</span><p style='margin:4px 0 0'>응답 인사이트를 열었습니다.</p></div></aside></section></main>"
+    }
+  />
+</WireframeBlock>
+
+`view-screen`과 `navigate`를 확장해 agent가 현재 route를 알고 `/response-insights`를 열 수 있게 합니다. 결과에 `href: "/response-insights"`를 넣으면 채팅에 "응답 인사이트 열기" 버튼을 표시할 수 있습니다.
+
+전체 페이지 chat에서 app 페이지를 열 때는 [Agent Surfaces](/docs/agent-surfaces#rich-chat)의 `AgentChatSurface`, `AgentSidebar`, `useAgentChatHomeHandoff`, `useAgentChatHomeHandoffLinks`, `chatViewTransition`을 사용해 같은 thread를 유지한 채 chat을 사이드바로 이동시킵니다.
+
+## 프로젝트 구조 {#project-structure}
+
+```text
+my-app/
+  actions/         # 에이전트와 UI에서 호출할 수 있는 작업
+  app/             # React 라우트, 페이지, 채팅 화면
+  server/          # Nitro 서버와 SQL 스키마
+  AGENTS.md        # 앱 에이전트를 위한 상시 지침
+  .agents/         # 필요할 때 에이전트가 불러오는 스킬
+  data/app.db      # DATABASE_URL이 설정되지 않았을 때의 로컬 SQLite 상태
+```
+
+## 완성도 높은 Analytics 시작점이 필요하다면 {#analytics-starting-point}
+
+위 응답 인사이트 예시는 framework 조각을 보여주기 위해 일부러 작게 만들었습니다. 실제 analytics product를 만들고 있다면 [Analytics](/docs/template-analytics)에서 시작하세요. providers를 연결하고, 기존 dashboards와 agent actions를 사용한 뒤, 거기서부터 커스터마이즈할 수 있는 강력한 시작점입니다.
+
+## 다음 단계 {#next}
+
+- **[Actions](/docs/actions)** — schemas, auth, approvals, hooks, transport.
+- **[Native Chat UI](/docs/native-chat-ui)** — action 결과를 테이블, 차트, typed cards로 렌더링.
+- **[Chat Template](/docs/template-chat)** — 최소 chat-first app.
+- **[Analytics Template](/docs/template-analytics)** — 강력한 analytics app 시작점. providers를 연결하고 커스터마이즈하세요.
+- **[Context Awareness](/docs/context-awareness)** — `view-screen`, `navigate`, route state, 선택된 객체.
+- **[Agent Surfaces](/docs/agent-surfaces)** — chat, inline UI, app pages, embedded sidecars, automation, 외부 agent.

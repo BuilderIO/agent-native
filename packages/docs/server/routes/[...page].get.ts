@@ -1,11 +1,11 @@
+import fs from "fs";
+import path from "path";
+import { fileURLToPath } from "url";
+
 import {
   createH3SSRHandler,
   DEFAULT_SSR_CACHE_HEADERS,
 } from "@agent-native/core/server/ssr-handler";
-import { buildMarkdownResponseHeaders } from "../../../core/src/agent-web/index";
-import fs from "fs";
-import path from "path";
-import { fileURLToPath } from "url";
 import {
   createError,
   getRequestHeader,
@@ -13,6 +13,8 @@ import {
   setHeader,
   type H3Event,
 } from "h3";
+
+import { buildMarkdownResponseHeaders } from "../../../core/src/agent-web/index";
 
 const SITE_URL = "https://www.agent-native.com";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));

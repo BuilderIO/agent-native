@@ -1,6 +1,6 @@
-import { defineEventHandler } from "h3";
-import { getSetting, getUserSetting } from "@agent-native/core/settings";
 import { getSession } from "@agent-native/core/server";
+import { getSetting, getUserSetting } from "@agent-native/core/settings";
+import { defineEventHandler } from "h3";
 
 export default defineEventHandler(async (event) => {
   const session = await getSession(event);

@@ -1,0 +1,302 @@
+---
+title: "App-übergreifend SSO"
+description: "Melden Sie sich bei jeder gehosteten agentennativen App einmal über einen Identitätsverbund mit Dispatch als Identitätsinstanz an – Opt-in pro App, umkehrbar mit einer einzigen Umgebungsvariable."
+---
+
+# App-übergreifend SSO
+
+Jede gehostete App bei `*.agent-native.com` führt ihre eigene Bereitstellung mit ihrem **eigenen separaten Benutzerspeicher** aus. `mail.agent-native.com` und `calendar.agent-native.com` nutzen keine gemeinsame Datenbank, Sitzungstabelle oder Cookie-Domäne. „Einmal anmelden, jede App verwenden“ kann also kein gemeinsam genutztes Cookie sein – es muss eine **Identitätsföderation** sein, wobei [Dispatch](/docs/dispatch) als Identitätsautorität für den Arbeitsbereich fungiert.
+
+Dies ist das gleiche Vertrauensprimitiv, das [A2A](/docs/a2a-protocol) und [External Agents](/docs/external-agents) bereits verwenden – ein `A2A_SECRET`-signiertes JWT, das an der Anforderungsgrenze überprüft wird – angewendet auf den menschlichen Anmeldepfad anstelle von Agent-zu-Agent-Aufrufen.
+
+> **Einheitliche Bereitstellung vs. Bereitstellung pro Domäne.** Wenn Sie alle Apps an einem Ursprung hosten (`your-agents.com/mail`, `your-agents.com/calendar`), erhalten Sie bereits eine gemeinsame Anmeldung über eine einzige Cookie-Domäne – kein Verbund erforderlich. Cross-App SSO ist nur erforderlich, wenn Apps auf separaten Domänen ausgeführt werden. Siehe [Multi-App Workspaces — Unified deploy](/docs/multi-app-workspace#deployment).
+
+## Was und warum {#what-why}
+
+Benutzerspezifische Stores pro App bedeuten, dass es keinen einzigen Ort gibt, an dem ein Browser-Cookie gespeichert werden kann, dem jede App vertraut. Das Föderationsmodell benennt stattdessen eine App – **Dispatch** – als Identitätsautorität. Jede andere App kann „Wer ist diese Person?“ delegieren. an Dispatch senden, erhalten Sie eine kurzlebige signierte Bestätigung der verifizierten E-Mail-Adresse des Benutzers zurück und **verknüpfen Sie diese dann per E-Mail mit seinem eigenen lokalen Konto**.
+
+Die Verlinkungsregel ist bewusst eng und additiv:
+
+- **Vorhandener Benutzer mit derselben E-Mail-Adresse → verknüpft.** Das lokale Konto wird mit der bestätigten E-Mail-Adresse abgeglichen und unverändert wiederverwendet. Es wird **niemals geändert, umbenannt oder gelöscht** – die Föderationsschicht liest es immer nur und erstellt eine Sitzung dafür.
+- **Neue E-Mail → erstellt.** Für diese bestätigte E-Mail wird ein neues lokales Konto erstellt, dann wird eine normale lokale Sitzung erstellt.
+
+Dies macht den Rollout sicher, auch wenn dabei Personen abgemeldet werden. **Abmeldung wird erwartet.** Wenn eine App dies aktiviert, werden bestehende Sitzungen beendet und Benutzer authentifizieren sich erneut über Dispatch. Aber sie melden sich immer wieder bei dem **gleichen E-Mail-Konto an, bei dem alle Daten intakt sind**, da Identitätszeilen immer nur _hinzugefügt_ werden – niemals zerstört, umbenannt oder neu zugewiesen.
+
+## Wie es funktioniert {#how-it-works}
+
+Der Ablauf ist eine standardmäßige Autorisierung → Signiertes Token → Rückrufumleitung, wobei E-Mail das einzige ist, was die Vertrauensgrenze überschreitet.
+
+<Diagram id="doc-block-yntn6c" title={"Ablauf der Identitätsföderation"} summary={"Dispatch authentifiziert den Benutzer und gibt eine kurzlebige signierte Bestätigung von etwas zurück – der verifizierten E-Mail. Die App wird per E-Mail verknüpft und erstellt eine eigene lokale Sitzung."}>
+
+```html
+<div class="diagram-sso">
+  <div class="diagram-card" data-rough>
+    <strong>Client-App</strong
+    ><small class="diagram-muted">own user store</small>
+  </div>
+  <div class="diagram-step">
+    <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+    <span class="diagram-pill">authorize</span>
+  </div>
+  <div class="diagram-card" data-rough>
+    <strong>Dispatch</strong
+    ><small class="diagram-muted">identity authority</small
+    ><span class="diagram-pill accent">authenticates human</span>
+  </div>
+  <div class="diagram-step">
+    <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+    <span class="diagram-pill accent">302 + signed JWT</span>
+  </div>
+  <div class="diagram-card" data-rough>
+    <strong>App-Callback</strong
+    ><small class="diagram-muted"
+      >verify signature · scope:identity · exp &le; 2 min</small
+    ><span class="diagram-pill ok">JIT-Verknüpfung per E-Mail</span
+    ><span class="diagram-pill ok">mint local session</span>
+  </div>
+</div>
+```
+
+```css
+.diagram-sso {
+  display: flex;
+  align-items: stretch;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-sso .diagram-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 14px 16px;
+  min-width: 150px;
+}
+.diagram-sso .diagram-step {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+.diagram-sso .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+```
+
+</Diagram>
+
+1. **App → Versenden (autorisieren).** Die App sendet den Benutzer an die Identitätsbehörde:
+
+   ```
+   GET https://dispatch.agent-native.com/_agent-native/identity/authorize
+       ?app=<requesting-app>
+       &redirect_uri=<app-callback-url>
+       &state=<csrf-state>
+   ```
+
+<Endpoint id="cross-app-sso-identity-authorize-de-de" title="Identity Authorize Endpoint" method="GET" path="/_agent-native/identity/authorize" summary={"Dispatch (Identitätsbehörde) authentifiziert den Menschen und leitet ihn mit einem signierten Identitätstoken zurück"} auth="Sitzung weiterleiten (interaktive Anmeldung, falls keine)" params={[
+  {
+    "name": "app",
+    "in": "query",
+    "type": "string",
+    "required": true,
+    "description": "Die anfordernde App-ID."
+  },
+  {
+    "name": "redirect_uri",
+    "in": "query",
+    "type": "string",
+    "required": true,
+    "description": "App-Rückruf URL. Validiert anhand einer strengen Zulassungsliste (standardmäßig `*.agent-native.com` oder localhost)."
+  },
+  {
+    "name": "state",
+    "in": "query",
+    "type": "string",
+    "required": true,
+    "description": "CSRF-Status wird bei der Umleitung zurückgegeben."
+  }
+]} responses={[
+  {
+    "status": "302",
+    "description": "Weiterleitung zu `redirect_uri` mit einer kurzlebigen `A2A_SECRET`-signierten Identität JWT (`scope: \"identity\"`, `exp` ≤ 2 Minuten) plus der ursprünglichen `state`."
+  },
+  {
+    "status": "400",
+    "description": "`redirect_uri` ist bei der Zulassungslistenvalidierung fehlgeschlagen (herkunftsübergreifend, schemarelatives `//host` oder nicht gelistetes Suffix)."
+  }
+]}>
+
+</Endpoint>
+
+2. **Dispatch authentifiziert den Menschen.** Wenn der Benutzer bereits eine Dispatch-Sitzung hat, ist dies transparent. Wenn nicht, zeigt Dispatch sein eigenes normales Login an (E-Mail/Passwort, Google usw. – siehe [Authentication](/docs/authentication)). Dispatch ist hier nur eine normale agentennative App; Es wird kein spezieller Authentifizierungsmodus ausgeführt.
+
+3. **Dispatch → App (signiertes Identitätstoken).** Dispatch validiert `redirect_uri` anhand einer strengen Zulassungsliste und leitet 302 zurück zum `redirect_uri` der App mit einer kurzlebigen **`A2A_SECRET`-signierten Identität JWT**. Die Ansprüche des Tokens sind bewusst minimal:
+
+   | Anspruch     | Bedeutung                                                                        |
+   | ------------ | -------------------------------------------------------------------------------- |
+   | `sub`        | Stabile Benutzer-ID bei der Identitätsbehörde                                    |
+   | `email`      | Die **bestätigte** E-Mail-Adresse des Benutzers – der einzige Beitrittsschlüssel |
+   | `name`       | Anzeigename (nicht autorisierend, nur für UI)                                    |
+   | `org_domain` | Workspace/org-Domäne, falls vorhanden                                            |
+   | `scope`      | Immer `"identity"` – dieses Token autorisiert nur die Anmeldung                  |
+   | `exp`        | **≤ 2 Minuten** ab Problem                                                       |
+
+4. **App verifiziert und JIT-Links per E-Mail.** Die App überprüft die Token-Signatur mit ihrem eigenen `A2A_SECRET`, überprüft `scope: "identity"` und `exp` und führt dann **Just-in-Time-Verknüpfung ausschließlich per verifizierter E-Mail** durch:
+   - Wenn ein lokaler Benutzer mit dieser E-Mail existiert → unverändert wiederverwenden.
+   - Wenn nicht → erstellen Sie einen lokalen Benutzer für diese E-Mail.
+
+5. **App erstellt eine normale lokale Sitzung.** Von hier aus verfügt der Benutzer über eine normale lokale Sitzung im eigenen Store dieser App – alle vorhandenen Zugriffsprüfungen, Organisationsbereiche und Aktionsschutzfunktionen funktionieren genau wie zuvor. Die Föderation geschah erst vor der Haustür.
+
+### Aktivieren {#opt-in}
+
+Eine App nimmt **nur** teil, wenn diese Umgebungsvariable bei ihrer Bereitstellung festgelegt ist:
+
+```bash
+AGENT_NATIVE_IDENTITY_HUB_URL=https://dispatch.agent-native.com
+```
+
+- **Set** → Die App zeigt die Option **„Mit Agent-Native anmelden“** an, die den obigen Ablauf ausführt. Daneben funktioniert weiterhin die direkte lokale Anmeldung (E-Mail/Passwort, Google).
+- **Deaktiviert (Standard)** → **Keine Verhaltensänderung.** Die App authentifiziert sich genau wie zuvor; Der Verbundcodepfad ist inaktiv. Es gibt keine Schemaänderung und es muss nichts migriert werden, sodass das Ein- oder Ausschalten der Variablen jederzeit vollständig rückgängig gemacht werden kann.
+
+## Sicherheit {#security}
+
+Das gesamte Modell basiert auf ein paar bewusst kleinen Garantien:
+
+- **Kurzlebiges signiertes Token.** Die Identitätszusicherung ist ein `A2A_SECRET`-signiertes JWT mit einem **≤ 2-Minuten** Ablaufdatum und `scope: "identity"`. Es autorisiert eine einmalige Anmeldung und kann nicht für längere Zeit wiedergegeben oder für den API/A2A-Zugriff umgewidmet werden.
+- **Strikte `redirect_uri`-Zulassungsliste.** Dispatch leitet standardmäßig immer nur zu `*.agent-native.com` oder localhost weiter. Beliebige, schemarelative (`//host`) und Cross-Origin-Redirect-Ziele werden abgelehnt, sodass die Autorität nicht in ein Open-Redirect- oder Token-Exfiltration-Orakel umgewandelt werden kann.
+- **Nur E-Mail-Beitritt von einem verifizierten Token aus.** Das Einzige, was die Vertrauensgrenze überschreitet, ist die verifizierte E-Mail in einem signierten Token. Die App akzeptiert keine Benutzer-ID, Rolle, Organisationsmitgliedschaft oder einen privilegierten Status aus der Verbindung – sie leitet alles lokal vom übereinstimmenden Konto ab.
+- **Nur additive Identitätsschreibvorgänge.** Beim Verknüpfen wird entweder ein vorhandenes Konto mit derselben E-Mail-Adresse unverändert wiederverwendet oder ein neues eingefügt. Auf diesem Pfad findet niemals eine Aktualisierung, Umbenennung, Neuzuweisung oder Löschung von Identitätszeilen statt.
+- **Standardmäßig deaktiviert.** Wenn `AGENT_NATIVE_IDENTITY_HUB_URL` deaktiviert ist, ist die gesamte Funktion inaktiv.
+
+<Callout id="doc-block-1j7k5xd" tone="success">
+
+**Sicher zu aktivieren, sicher wiederherzustellen.** Identitätsschreibvorgänge sind **nur additiv** – ein vorhandenes Konto mit derselben E-Mail-Adresse wird unverändert wiederverwendet und eine neue E-Mail fügt lediglich eine neue Zeile ein. Es gibt keine Schemaänderung und es muss nichts migriert werden, sodass das Ein- oder Ausschalten von `AGENT_NATIVE_IDENTITY_HUB_URL` jederzeit und pro App vollständig rückgängig gemacht werden kann.
+
+</Callout>
+
+Der Just-in-Time-Link ist eine einzelne Entscheidung, die vollständig auf der verifizierten E-Mail basiert:
+
+<Diagram id="doc-block-1u8o7kt" title="JIT-link Entscheidung" summary={"Die Verknüpfung basiert auf der verifizierten E-Mail und ist nur additiv – vorhandene Konten werden unverändert wiederverwendet, neue E-Mails erstellen einen neuen lokalen Benutzer."}>
+
+```html
+<div class="diagram-jit">
+  <div class="diagram-node" data-rough>
+    Verifizierte E-Mail<br /><small class="diagram-muted"
+      >aus signiertem Identitäts-JWT</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-branch">
+    <div class="diagram-box" data-rough>
+      Local user exists?<span class="diagram-pill ok"
+        >yes &rarr; reuse unchanged</span
+      ><span class="diagram-pill accent">no &rarr; create local user</span>
+    </div>
+    <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+    <div class="diagram-box" data-rough>Normale lokale Sitzung ausstellen</div>
+  </div>
+</div>
+```
+
+```css
+.diagram-jit {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-jit .diagram-node {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px 14px;
+}
+.diagram-jit .diagram-branch {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-jit .diagram-box {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 14px;
+}
+.diagram-jit .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+```
+
+</Diagram>
+
+## Selbsthosting {#self-hosting}
+
+Jede Dispatch-Bereitstellung kann als Identitäts-Hub dienen – Sie sind nicht auf `dispatch.agent-native.com` beschränkt. Legen Sie `AGENT_NATIVE_IDENTITY_HUB_URL` in jeder Client-App so fest, dass es auf Ihre Dispatch-Instanz verweist:
+
+```bash
+AGENT_NATIVE_IDENTITY_HUB_URL=https://dispatch.yourcompany.com
+```
+
+**Zulassungsliste für Weiterleitungen.** Der Hub (Dispatch) validiert `redirect_uri` auf dem Autorisierungsendpunkt, bevor er ein Token ausstellt. Die Zulassungsliste wird in `templates/dispatch/server/lib/identity-sso.ts`:
+
+- **Standard:** Nur `*.agent-native.com` und localhost (die `DEFAULT_ALLOWED_HOST_SUFFIXES`-Konstante).
+- **Erweitern:** Legen Sie die Umgebungsvariable `IDENTITY_SSO_ALLOWED_HOST_SUFFIXES` in der Dispatch-Bereitstellung mit einer durch Kommas getrennten Liste zusätzlicher Hostsuffixe fest:
+
+  ```bash
+  # Subdomains von yourcompany.com zusätzlich zu den Standardeinstellungen zulassen
+  IDENTITY_SSO_ALLOWED_HOST_SUFFIXES=".yourcompany.com,.staging.yourcompany.com"
+  ```
+
+  Jeder Eintrag ist auf ein Suffix mit vorangestelltem Punkt (`.yourcompany.com`) normalisiert, sodass eine Suffixprüfung sowohl ausreichend als auch am wenigsten anfällig für Fußwaffen ist – es gibt keine App-Liste, die synchron gehalten werden muss. Einträge, die zu allem passen würden (leer oder nur `.`), werden herausgefiltert.
+
+- **Localhost** ist unabhängig von `IDENTITY_SSO_ALLOWED_HOST_SUFFIXES` immer für die lokale Entwicklung clientseitiger Apps zulässig.
+
+Ohne `IDENTITY_SSO_ALLOWED_HOST_SUFFIXES` kann ein selbstgehosteter Dispatch nur Token für Apps auf `*.agent-native.com` ausgeben. Legen Sie die Umgebungsvariable in Ihrer Dispatch-Bereitstellung fest, um andere Domänen freizuschalten.
+
+## Canary-Rollout-Runbook {#canary-rollout}
+
+Cutover und Rollback sind **eine einzelne Umgebungsvariable pro App-Bereitstellung**. Führen Sie jeweils eine App aus, überprüfen Sie sie und erweitern Sie sie dann. Legen Sie die Variable nicht für jede App gleichzeitig fest.
+
+**1. Stellen Sie den Code bereit – keine Verhaltensänderung.**
+Versenden Sie die Veröffentlichung an jede App mit `AGENT_NATIVE_IDENTITY_HUB_URL` **überall deaktiviert**. Bestätigen Sie, dass normale Anmeldungen bei einigen Apps weiterhin funktionieren.
+
+**2. Aktivieren Sie jeweils den Canary in der ONE-App.**
+Eingestellt, nur für eine Bereitstellung:
+
+```bash
+AGENT_NATIVE_IDENTITY_HUB_URL=https://dispatch.agent-native.com
+```
+
+Lassen Sie die Umgebung aller anderen Apps deaktiviert. Erneut bereitstellen/neu starten, damit die Variable übernommen wird.
+
+**3. Überprüfen Sie den Kanarienvogel (Checkliste).**
+
+- Melden Sie sich von der App **ab** ab.
+- Der Anmeldebildschirm zeigt jetzt **„Mit Agent-Native anmelden“** an. Klicken Sie darauf.
+- Sie werden zu **Versand** weitergeleitet und vervollständigen die Anmeldung (oder gehen direkt durch, wenn Sie dort bereits angemeldet sind).
+- Sie werden **zurück zur App weitergeleitet, angemeldet** – und es ist dasselbe **bereits bestehende Konto** (dieselbe E-Mail-Adresse), das Sie zuvor hatten, kein neues.
+- **App-Daten sind intakt** – Ihre vorhandenen Datensätze, Einstellungen und Organisationsbereiche sind genau so, wie sie waren.
+- **Bestehende Direktanmeldungen funktionieren weiterhin** – E-Mail/Passwort und Google-Anmeldung funktionieren weiterhin neben SSO.
+
+Wenn eine Prüfung fehlschlägt, fahren Sie direkt mit Schritt 4 (Rollback) fort – es erfolgt sofort und ist datensicher.
+
+**4. Erweitern Sie App für App.**
+Sobald eine App verifiziert ist, wiederholen Sie die Schritte 2–3 für die nächste App und legen Sie `AGENT_NATIVE_IDENTITY_HUB_URL` jeweils für eine Bereitstellung fest. Niemals stapelweise aktivieren.
+
+**5. Rollback = Deaktivieren Sie die Umgebungsvariable bei der Bereitstellung dieser App.**
+Um eine App zurückzusetzen, **entfernen Sie `AGENT_NATIVE_IDENTITY_HUB_URL` aus der Umgebung dieser App und stellen Sie sie erneut bereit/starten Sie sie neu.** Die App kehrt sofort zu ihrem vorherigen Authentifizierungsverhalten zurück. Es gibt **keine Datenänderung, die rückgängig gemacht werden kann** – Identitätszeilen wurden immer nur hinzugefügt, und das Deaktivieren der Variablen macht den Verbundpfad einfach wieder in den Ruhezustand. Die Umstellung und das Rollback jeder App sind unabhängig und umkehrbar.
+
+> Beim Rollout werden Benutzer abgemeldet, wenn jede App aktiviert wird (sie authentifizieren sich erneut über Dispatch), aber sie melden sich immer wieder beim **gleichen E-Mail-abgeglichenen Konto mit intakten Daten** an, da Identitätszeilen nie zerstört oder umbenannt, sondern nur hinzugefügt werden.
+
+## Verwandt {#related}
+
+- [Authentication](/docs/authentication) – lokale Authentifizierungsmodi, Sitzungen, Organisationen, die `A2A_SECRET`-Umgebungsvariable.
+- [A2A Protocol](/docs/a2a-protocol) – das signierte JWT-Vertrauensmodell mit Überprüfung an der Grenze, das hier wiederverwendet wird.
+- [External Agents](/docs/external-agents) – das gleiche `A2A_SECRET`-signierte Identitätsmuster, das auf Agentenverbindungen und Deep Links angewendet wird.
+- [Dispatch](/docs/dispatch) – die Workspace-Identitätsbehörde und der Routing-Hub.
+- [Security & Data Scoping](/docs/security) – Nur additive Datenschreibvorgänge und Scoping pro Konto.
+- [Multi-App Workspaces](/docs/multi-app-workspace) – die einheitliche Single-Origin-Bereitstellung, die domänenübergreifendes SSO vollständig vermeidet.

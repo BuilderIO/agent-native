@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
+
 import type { Message } from "./types.js";
 
 // In-memory SQL mock

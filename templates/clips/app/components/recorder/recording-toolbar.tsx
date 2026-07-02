@@ -1,29 +1,29 @@
-import { useEffect, useRef, useState } from "react";
+import { useT } from "@agent-native/core/client";
 import {
-  IconConfetti,
   IconPlayerPause,
   IconPlayerPlay,
   IconPlayerStop,
   IconX,
 } from "@tabler/icons-react";
-import { clampRectToViewport, type BubblePosition } from "./camera-positioner";
+import { useEffect, useRef, useState } from "react";
+
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { isMacPlatform } from "@/lib/utils";
+
+import { clampRectToViewport, type BubblePosition } from "./camera-positioner";
 
 export interface RecordingToolbarProps {
   elapsedMs: number;
   isPaused: boolean;
   onTogglePause: () => void;
   onStop: () => void;
-  onConfetti: () => void;
   onCancel: () => void;
 }
 
-const TOOLBAR_WIDTH = 276;
+const TOOLBAR_WIDTH = 232;
 const TOOLBAR_HEIGHT = 56;
 // Drop the toolbar just below the centered "Recording your screen…" status
 // text (which sits at the viewport's vertical center) so the controls don't
@@ -42,9 +42,9 @@ export function RecordingToolbar({
   isPaused,
   onTogglePause,
   onStop,
-  onConfetti,
   onCancel,
 }: RecordingToolbarProps) {
+  const t = useT();
   const rootRef = useRef<HTMLDivElement>(null);
   const [pos, setPos] = useState<BubblePosition>(() =>
     typeof window === "undefined"
@@ -121,7 +121,7 @@ export function RecordingToolbar({
     <div
       ref={rootRef}
       role="toolbar"
-      aria-label="Recording controls"
+      aria-label={t("recordingToolbar.controls")}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
@@ -146,7 +146,11 @@ export function RecordingToolbar({
             type="button"
             onClick={onTogglePause}
             className="flex h-9 w-9 items-center justify-center rounded-full hover:bg-white/15"
-            aria-label={isPaused ? "Resume recording" : "Pause recording"}
+            aria-label={
+              isPaused
+                ? t("recordingToolbar.resumeRecording")
+                : t("recordingToolbar.pauseRecording")
+            }
           >
             {isPaused ? (
               <IconPlayerPlay className="h-4 w-4" />
@@ -156,7 +160,9 @@ export function RecordingToolbar({
           </button>
         </TooltipTrigger>
         <TooltipContent>
-          {isPaused ? "Resume (⌥⇧P)" : "Pause (⌥⇧P)"}
+          {isPaused
+            ? t("recordingToolbar.resumeShortcut")
+            : t("recordingToolbar.pauseShortcut")}
         </TooltipContent>
       </Tooltip>
 
@@ -167,17 +173,17 @@ export function RecordingToolbar({
             type="button"
             onClick={onStop}
             className="flex h-9 w-9 items-center justify-center rounded-full bg-white text-black hover:bg-white/85"
-            aria-label="Stop recording"
+            aria-label={t("recordingToolbar.stop")}
           >
             <IconPlayerStop className="h-4 w-4" />
           </button>
         </TooltipTrigger>
-        <TooltipContent>Stop recording</TooltipContent>
+        <TooltipContent>{t("recordingToolbar.stop")}</TooltipContent>
       </Tooltip>
 
       <div
         className="mx-2 flex h-9 items-center gap-2 rounded-full bg-white/10 px-3 text-sm font-mono tabular-nums"
-        aria-label="Elapsed time"
+        aria-label={t("recordingToolbar.elapsed")}
       >
         <span
           className="inline-block h-2 w-2 rounded-full bg-white"
@@ -196,31 +202,14 @@ export function RecordingToolbar({
           <button
             data-toolbar-btn
             type="button"
-            onClick={onConfetti}
-            className="flex h-9 w-9 items-center justify-center rounded-full hover:bg-white/15"
-            aria-label="Confetti"
-          >
-            <IconConfetti className="h-4 w-4" />
-          </button>
-        </TooltipTrigger>
-        <TooltipContent>
-          Confetti ({isMacPlatform() ? "Ctrl+\u2318+C" : "Ctrl+Alt+C"})
-        </TooltipContent>
-      </Tooltip>
-
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <button
-            data-toolbar-btn
-            type="button"
             onClick={onCancel}
             className="flex h-9 w-9 items-center justify-center rounded-full hover:bg-white/15"
-            aria-label="Cancel recording"
+            aria-label={t("recordingToolbar.cancel")}
           >
             <IconX className="h-4 w-4" />
           </button>
         </TooltipTrigger>
-        <TooltipContent>Cancel (⌥⇧C)</TooltipContent>
+        <TooltipContent>{t("recordingToolbar.cancelShortcut")}</TooltipContent>
       </Tooltip>
     </div>
   );

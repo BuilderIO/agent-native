@@ -3,6 +3,21 @@ import type {
   ContentDatabaseSourceFieldMapping,
   DocumentPropertyValue,
 } from "../shared/api.js";
+import {
+  builderBlocksHash,
+  builderEntryBlocks,
+  normalizeRemoteUpdatedAt,
+  type BuilderContentEntry,
+} from "../shared/builder-mdx.js";
+
+export const BUILDER_CMS_BODY_CONTENT_KEY = "__builder.body.content";
+export const BUILDER_CMS_BODY_BLOCKS_HASH_KEY = "__builder.body.blocksHash";
+export const BUILDER_CMS_BODY_SIDECARS_KEY = "__builder.body.sidecarsJson";
+export const BUILDER_CMS_BODY_LOSSLESS_CONTENT_KEY =
+  "__builder.body.losslessContent";
+export const BUILDER_CMS_BODY_READABLE_MAP_KEY =
+  "__builder.body.readableMapJson";
+export const BUILDER_CMS_BODY_BLOCK_COUNT_KEY = "__builder.body.blockCount";
 
 export interface BuilderCmsSourceEntry {
   id: string;
@@ -11,6 +26,7 @@ export interface BuilderCmsSourceEntry {
   urlPath: string;
   updatedAt: string;
   sourceValues: Record<string, DocumentPropertyValue>;
+  rawEntry?: BuilderContentEntry;
 }
 
 export interface ExistingBuilderSourceRowIdentity {
@@ -164,11 +180,13 @@ export function builderCmsSourceMetadata(sourceTable: string) {
     primaryKey: "id",
     titleField: "data.title",
     naturalKeyField: "/blog/[slug]",
-    pushMode: "autosave" as const,
-    pushModeLabel: "Save revision / autosave",
+    pushMode: "none" as const,
+    pushModeLabel: "No writes",
     pushModeDescription:
-      "Local-only Builder revision staging. No Builder API write runs in this slice.",
-    allowedWriteModes: ["autosave"],
+      "Read-only Builder source. Choose a write tier before any Builder API write can run.",
+    writeMode: "read_only" as const,
+    allowPublicationTransitions: false,
+    allowedWriteModes: [],
     allowDraftWrites: false,
     allowPublishWrites: false,
     notes:
@@ -189,6 +207,22 @@ function stringFromRecord(
 ): string | null {
   for (const key of keys) {
     const candidate = value[key];
+    if (typeof candidate === "string" && candidate.trim()) {
+      return candidate.trim();
+    }
+  }
+  return null;
+}
+
+function timestampStringFromRecord(
+  value: Record<string, unknown>,
+  keys: string[],
+): string | null {
+  for (const key of keys) {
+    const candidate = value[key];
+    if (typeof candidate === "number" && Number.isFinite(candidate)) {
+      return String(candidate);
+    }
     if (typeof candidate === "string" && candidate.trim()) {
       return candidate.trim();
     }
@@ -273,6 +307,7 @@ function builderSourceValuesFromRecord(args: {
   title: string;
   urlPath: string;
   updatedAt: string;
+  rawEntry: BuilderContentEntry;
 }) {
   const values: Record<string, DocumentPropertyValue> = {
     "data.title": args.title,
@@ -280,12 +315,18 @@ function builderSourceValuesFromRecord(args: {
     lastUpdated: args.updatedAt,
   };
   for (const [key, value] of Object.entries(args.data)) {
+    if (key === "blocks" || key === "blocksString") continue;
     values[`data.${key}`] = sourceValueFromUnknown(value);
   }
   for (const key of ["published", "createdDate", "updatedDate", "updatedAt"]) {
     if (key in args.record) {
       values[key] = sourceValueFromUnknown(args.record[key]);
     }
+  }
+  const blocks = builderEntryBlocks(args.rawEntry);
+  if (blocks.length > 0) {
+    values[BUILDER_CMS_BODY_BLOCKS_HASH_KEY] = builderBlocksHash(blocks);
+    values[BUILDER_CMS_BODY_BLOCK_COUNT_KEY] = blocks.length;
   }
   return values;
 }
@@ -317,9 +358,31 @@ export function normalizeBuilderCmsApiEntry(
     stringFromRecord(data, ["url", "urlPath", "path"]) ??
     (slug ? `/blog/${slug.replace(/^\/+/, "")}` : `/blog/${id}`);
   const updatedAt =
-    stringFromRecord(record, ["lastUpdated", "updatedDate", "updatedAt"]) ??
-    stringFromRecord(data, ["updatedAt"]) ??
+    timestampStringFromRecord(record, [
+      "lastUpdated",
+      "updatedDate",
+      "updatedAt",
+    ]) ??
+    timestampStringFromRecord(data, ["updatedAt"]) ??
     new Date().toISOString();
+  const rawEntry: BuilderContentEntry = {
+    ...record,
+    id,
+    model,
+    name:
+      typeof record.name === "string" && record.name.trim()
+        ? record.name.trim()
+        : title,
+    published:
+      typeof record.published === "string" ? record.published : undefined,
+    lastUpdated: normalizeRemoteUpdatedAt({
+      ...record,
+      id,
+      model,
+      data,
+    } as BuilderContentEntry),
+    data,
+  };
 
   return {
     id,
@@ -333,6 +396,8 @@ export function normalizeBuilderCmsApiEntry(
       title,
       urlPath,
       updatedAt,
+      rawEntry,
     }),
+    rawEntry,
   };
 }

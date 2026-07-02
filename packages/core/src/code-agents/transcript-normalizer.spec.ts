@@ -308,6 +308,40 @@ describe("normalizeCodeAgentTranscript", () => {
     });
   });
 
+  it("propagates chatUI metadata from completed tool events", () => {
+    const events = [
+      event("evt-start", "status", "Rendering inline UI.", {
+        type: "tool_start",
+        tool: "render-inline-extension",
+        input: { name: "Knobs" },
+      }),
+      event("evt-done", "status", "Rendered inline UI.", {
+        type: "tool_done",
+        tool: "render-inline-extension",
+        result: {
+          ok: true,
+          inlineExtension: {
+            mode: "transient",
+            id: "inline-1",
+            name: "Knobs",
+            content: "<div>Knobs</div>",
+          },
+        },
+        chatUI: { renderer: "core.inline-extension" },
+      }),
+    ];
+
+    const transcript = normalizeCodeAgentTranscript(events);
+
+    expect(transcript.items).toHaveLength(1);
+    expect(transcript.items[0]).toMatchObject({
+      type: "tool",
+      tool: "render-inline-extension",
+      state: "completed",
+      chatUI: { renderer: "core.inline-extension" },
+    });
+  });
+
   it("preserves structuredMeta from old events that lack it (backward compat)", () => {
     const events = [
       event("evt-start", "status", "Running bash.", {
@@ -332,6 +366,41 @@ describe("normalizeCodeAgentTranscript", () => {
     if (item.type === "tool") {
       expect(item.structuredMeta).toBeUndefined();
     }
+  });
+
+  it("clears rejected assistant text while preserving completed tool events", () => {
+    const events = [
+      event("evt-tool-start", "status", "Running query.", {
+        type: "tool_start",
+        tool: "query",
+        input: { sql: "select 1" },
+      }),
+      event("evt-tool-done", "status", "Finished query.", {
+        type: "tool_done",
+        tool: "query",
+        result: "1",
+      }),
+      event("evt-draft", "system", "Rejected draft", { role: "assistant" }),
+      event("evt-clear", "status", "", { agentChatEventType: "clear" }),
+      event("evt-final", "system", "Corrected answer", { role: "assistant" }),
+    ];
+
+    const transcript = normalizeCodeAgentTranscript(events);
+
+    expect(transcript.items).toEqual([
+      expect.objectContaining({
+        type: "tool",
+        state: "completed",
+        result: "1",
+      }),
+      expect.objectContaining({
+        type: "assistant",
+        text: "Corrected answer",
+      }),
+    ]);
+    expect(transcript.hiddenEvents.map((item) => item.id)).toContain(
+      "evt-clear",
+    );
   });
 
   it("retains note and artifact events in the normal output", () => {

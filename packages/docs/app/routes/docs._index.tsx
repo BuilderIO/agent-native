@@ -1,8 +1,14 @@
-import { useLoaderData, type LoaderFunctionArgs } from "react-router";
-import DocsLayout from "../components/DocsLayout";
+import {
+  useLoaderData,
+  useParams,
+  type LoaderFunctionArgs,
+} from "react-router";
+
 import DocContent from "../components/DocContent";
 import { getDoc, loadDoc, type DocEntry } from "../components/docs-content";
 import { DEFAULT_DOCS_LOCALE, isDocsLocale } from "../components/docs-locale";
+import { docsMarkdownPathForDoc } from "../components/docs-seo";
+import DocsLayout from "../components/DocsLayout";
 import { withDefaultSocialImage, withDocsSocialImage } from "../seo";
 
 const GETTING_STARTED_SLUG = "getting-started";
@@ -19,8 +25,11 @@ export async function loader({
   return doc;
 }
 
-export const meta = ({ data }: { data?: DocEntry } = {}) => {
-  const doc = data ?? getDoc(GETTING_STARTED_SLUG);
+export const meta = ({
+  data,
+  loaderData,
+}: { data?: DocEntry; loaderData?: DocEntry } = {}) => {
+  const doc = data ?? loaderData ?? getDoc(GETTING_STARTED_SLUG);
   if (!doc) {
     return withDefaultSocialImage([{ title: "Not Found — Agent-Native" }]);
   }
@@ -38,6 +47,8 @@ export const meta = ({ data }: { data?: DocEntry } = {}) => {
 
 export default function DocsIndex() {
   const currentDoc = useLoaderData<typeof loader>();
+  const params = useParams();
+  const locale = routeLocale(params);
 
   const toc = currentDoc.headings.map((h) => ({
     id: h.id,
@@ -46,7 +57,10 @@ export default function DocsIndex() {
   }));
 
   return (
-    <DocsLayout toc={toc}>
+    <DocsLayout
+      toc={toc}
+      markdownUrl={docsMarkdownPathForDoc(currentDoc.slug, locale) ?? undefined}
+    >
       <DocContent markdown={currentDoc.body} />
     </DocsLayout>
   );

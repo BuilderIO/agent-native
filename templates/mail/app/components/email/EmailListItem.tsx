@@ -1,5 +1,5 @@
-import { memo, useRef, useState, useCallback } from "react";
-import { cn, formatEmailDate, truncate } from "@/lib/utils";
+import { useT } from "@agent-native/core/client";
+import type { EmailMessage } from "@shared/types";
 import {
   IconArchive,
   IconStarFilled,
@@ -13,14 +13,16 @@ import {
   IconSend,
   IconX,
 } from "@tabler/icons-react";
-import type { EmailMessage } from "@shared/types";
-import type { ThreadSummary } from "@/lib/threads";
-import { useAccountFilter } from "@/hooks/use-account-filter";
+import { memo, useRef, useState, useCallback } from "react";
+
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { useAccountFilter } from "@/hooks/use-account-filter";
+import type { ThreadSummary } from "@/lib/threads";
+import { cn, formatEmailDate, truncate } from "@/lib/utils";
 
 interface EmailListItemProps {
   email: EmailMessage;
@@ -158,6 +160,7 @@ export const EmailListItem = memo(function EmailListItem({
   onSwipeSnooze,
   highlight,
 }: EmailListItemProps) {
+  const t = useT();
   const { allAccounts } = useAccountFilter();
   const isMultiAccount = allAccounts.length > 1;
 
@@ -597,7 +600,7 @@ export const EmailListItem = memo(function EmailListItem({
                     <IconSend className="h-3.5 w-3.5 rtl:-scale-x-100" />
                   </button>
                 </TooltipTrigger>
-                <TooltipContent>Send now</TooltipContent>
+                <TooltipContent>{t("mail.sendLater.sendNow")}</TooltipContent>
               </Tooltip>
             )}
             {onCancelSchedule && (
@@ -611,7 +614,9 @@ export const EmailListItem = memo(function EmailListItem({
                     <IconX className="h-3.5 w-3.5" />
                   </button>
                 </TooltipTrigger>
-                <TooltipContent>Cancel scheduled send</TooltipContent>
+                <TooltipContent>
+                  {t("mail.sendLater.cancelScheduledSend")}
+                </TooltipContent>
               </Tooltip>
             )}
             {onTrash && (
@@ -625,7 +630,7 @@ export const EmailListItem = memo(function EmailListItem({
                     <IconTrash className="h-3.5 w-3.5" />
                   </button>
                 </TooltipTrigger>
-                <TooltipContent>Move to Trash</TooltipContent>
+                <TooltipContent>{t("mail.actions.moveToTrash")}</TooltipContent>
               </Tooltip>
             )}
             <Tooltip>

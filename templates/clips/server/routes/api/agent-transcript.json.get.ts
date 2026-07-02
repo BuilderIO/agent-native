@@ -11,15 +11,17 @@ import {
   setResponseStatus,
   type H3Event,
 } from "h3";
+
 import { buildAgentApiUrls } from "../../../shared/agent-context.js";
+import { isLoomEmbedBackedRecording } from "../../../shared/loom.js";
 import {
   applyAgentJsonHeaders,
   getServerAppBasePath,
   loadAgentTranscript,
   loadPublicAgentAccess,
   queryString,
+  transcriptStatusInstructions,
 } from "../../lib/public-agent-context.js";
-import { isLoomEmbedBackedRecording } from "../../../shared/loom.js";
 
 export default defineEventHandler(async (event: H3Event) => {
   applyAgentJsonHeaders(event);
@@ -57,6 +59,7 @@ export default defineEventHandler(async (event: H3Event) => {
     },
     apis: {
       context: { method: "GET", url: api.contextUrl },
+      transcript: { method: "GET", url: api.transcriptUrl },
       ...(isLoomEmbedBacked
         ? {}
         : {
@@ -69,9 +72,12 @@ export default defineEventHandler(async (event: H3Event) => {
     transcript: {
       status: transcript?.status ?? "missing",
       language: transcript?.language ?? null,
+      failureReason: transcript?.failureReason ?? null,
+      retryAfterSeconds: transcript?.status === "pending" ? 15 : null,
       fullText: transcript?.fullText ?? "",
       segments: agentSegments,
       segmentCount: agentSegments.length,
     },
+    instructions: transcriptStatusInstructions(transcript),
   };
 });

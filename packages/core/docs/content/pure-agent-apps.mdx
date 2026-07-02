@@ -1,0 +1,101 @@
+---
+title: "Automation-First Apps"
+description: "No-browser Agent-Native apps for scheduled jobs, queues, scripts, integration workers, and external agents."
+---
+
+# Automation-First Apps
+
+Most Agent-Native products should start with chat and grow into inline results
+and durable app pages. Use this pattern when the primary surface is not a
+browser UI yet: scheduled reports, queues, integration workers, CLI loops, or
+another app or agent calling this app over MCP/A2A.
+
+Automation-first does **not** mean stateless. The app-agent loop still uses the
+same Agent-Native contract: actions, sessions, app state, history, settings,
+credentials, and share records live in SQL.
+
+<Diagram id="doc-block-automation-first" title="Automation-first still uses the app contract" summary={"Jobs, scripts, channels, and external agents reach one Agent-Native loop over SQL-backed actions and state."}>
+
+```html
+<div class="diagram-pure">
+  <div class="diagram-col">
+    <div class="diagram-pill">Scheduled job</div>
+    <div class="diagram-pill">Queue worker</div>
+    <div class="diagram-pill">CLI script</div>
+    <div class="diagram-pill">Slack · email</div>
+    <div class="diagram-pill">Another agent (A2A)</div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center" data-rough>
+    <span class="diagram-pill accent">App-agent loop</span
+    ><small class="diagram-muted">actions · sessions · app state in SQL</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box" data-rough>
+    Result returns<br /><small class="diagram-muted"
+      >to the channel that asked</small
+    >
+  </div>
+</div>
+```
+
+```css
+.diagram-pure {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.diagram-pure .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.diagram-pure .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+.diagram-pure .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+```
+
+</Diagram>
+
+Reach for this shape when the work runs in the background, the output leaves the
+app, the domain is one-shot, or you are building a callable workflow for another
+system. If users need to inspect, compare, correct, or share persistent objects,
+start with [Chat](/docs/template-chat) or add a small app page around the same
+actions.
+
+## Scaffold {#scaffold}
+
+Use the no-browser scaffold when you know you do not want a browser UI yet:
+
+```bash
+npx @agent-native/core@latest create my-agent --headless
+cd my-agent
+pnpm install
+```
+
+Then add actions and instructions exactly as you would in a chat app:
+
+```bash
+pnpm agent "Run the daily response-insights report and post the summary."
+```
+
+The `--headless` flag only chooses the initial scaffold. It does not choose a
+different architecture. You can later move the same `actions/`, instructions,
+skills, and SQL state into a chat app or full application surface.
+
+## What to add next {#whats-next}
+
+- [**Getting Started**](/docs/getting-started) — the chat-first tutorial from action to inline result to durable page
+- [**Agent Surfaces — Automation-first app**](/docs/agent-surfaces#headless) — the full decision guide and APIs
+- [**Actions**](/docs/actions) — the operations your automation calls
+- [**Messaging the agent**](/docs/messaging) — how users talk to the agent across web, Slack, Telegram, and email
+- [**Recurring Jobs**](/docs/recurring-jobs) — scheduled prompts the agent runs on its own
+- [**Dispatch**](/docs/template-dispatch) — the workspace control plane for shared secrets, scheduled jobs, and delegated work

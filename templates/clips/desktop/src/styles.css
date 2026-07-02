@@ -4,20 +4,20 @@
   color-scheme: light dark;
 
   /* Clips brand */
-  --brand: #18181b;
-  --brand-hover: #27272a;
-  --brand-ring: rgba(24, 24, 27, 0.28);
+  --brand: #1a1a1a;
+  --brand-hover: #2e2e2e;
+  --brand-ring: rgba(26, 26, 26, 0.28);
 
   /* Light palette */
   --bg: #ffffff;
-  --surface: #f5f6f9;
-  --surface-hover: #eef0f5;
-  --surface-strong: #e8ebf2;
-  --fg: #0f172a;
-  --fg-muted: #64748b;
-  --fg-subtle: #94a3b8;
-  --border: #e2e6ef;
-  --border-strong: #d4d9e4;
+  --surface: #f7f7f7;
+  --surface-hover: #f0f0f0;
+  --surface-strong: #ebebeb;
+  --fg: #171717;
+  --fg-muted: #737373;
+  --fg-subtle: #a3a3a3;
+  --border: #e5e5e5;
+  --border-strong: #d9d9d9;
 
   --status-ok: #22c55e;
   --status-warn: #f97316;
@@ -28,9 +28,9 @@
   --popover-shadow-gutter: 12px;
   --overlay-shadow-gutter: 18px;
 
-  --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.06);
+  --shadow-sm: 0 1px 2px rgba(23, 23, 23, 0.06);
   --shadow-md:
-    0 4px 16px rgba(15, 23, 42, 0.08), 0 2px 4px rgba(15, 23, 42, 0.04);
+    0 4px 16px rgba(23, 23, 23, 0.08), 0 2px 4px rgba(23, 23, 23, 0.04);
 
   font-family:
     -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", Roboto, sans-serif;
@@ -40,21 +40,21 @@
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg: #0f1115;
-    --surface: #181b23;
-    --surface-hover: #1e2230;
-    --surface-strong: #252938;
-    --fg: #f1f5f9;
-    --fg-muted: #94a3b8;
-    --fg-subtle: #64748b;
-    --border: #252938;
-    --border-strong: #323747;
+    --bg: #212121;
+    --surface: #262626;
+    --surface-hover: #2e2e2e;
+    --surface-strong: #3d3d3d;
+    --fg: #f5f5f5;
+    --fg-muted: #a3a3a3;
+    --fg-subtle: #737373;
+    --border: #3d3d3d;
+    --border-strong: #4d4d4d;
     --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
     --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.5), 0 2px 6px rgba(0, 0, 0, 0.3);
     /* Invert brand on dark bg: zinc-900 would disappear, use zinc-100. */
-    --brand: #f4f4f5;
-    --brand-hover: #e4e4e7;
-    --brand-ring: rgba(244, 244, 245, 0.28);
+    --brand: #f5f5f5;
+    --brand-hover: #e5e5e5;
+    --brand-ring: rgba(245, 245, 245, 0.28);
   }
 }
 
@@ -1314,6 +1314,17 @@ body[data-clips-route="recording-pill"] #root {
   gap: 6px;
 }
 
+.setup-section-heading {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--fg-muted);
+  padding-top: 6px;
+  border-top: 1px solid var(--border);
+  margin-top: 4px;
+}
+
 .setup-advanced {
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
@@ -1435,6 +1446,10 @@ body[data-clips-route="recording-pill"] #root {
   text-align: left;
   user-select: none;
   transform-origin: var(--radix-tooltip-content-transform-origin);
+}
+
+.tooltip-content-wide {
+  max-width: 320px;
 }
 
 .tooltip-content[data-state="delayed-open"],
@@ -1596,6 +1611,21 @@ body[data-clips-route="recording-pill"] #root {
   background-repeat: no-repeat;
 }
 
+.setup-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.setup-mini-field {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+  color: var(--fg-muted);
+  font-size: 11px;
+  font-weight: 600;
+}
+
 .setup-textarea {
   min-height: 86px;
   resize: vertical;
@@ -1610,7 +1640,7 @@ body[data-clips-route="recording-pill"] #root {
 
 .setup-button-row {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(94px, 1fr));
   gap: 8px;
 }
 
@@ -1638,6 +1668,11 @@ body[data-clips-route="recording-pill"] #root {
   font-size: 12px;
 }
 
+.setup-account--no-border {
+  border-top: none;
+  padding-top: 0;
+}
+
 .setup-account-email {
   color: var(--fg-muted);
   overflow: hidden;
@@ -1658,6 +1693,73 @@ body[data-clips-route="recording-pill"] #root {
 
 .link-button:hover {
   background: var(--surface-hover);
+}
+
+.storage-flow-banner {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
+  gap: 10px;
+  padding: 10px;
+  border: 1px solid #bfdbfe;
+  border-radius: var(--radius);
+  background: #eff6ff;
+  color: #1e3a8a;
+}
+
+.storage-flow-icon {
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  background: rgba(59, 130, 246, 0.12);
+  color: #1d4ed8;
+  flex-shrink: 0;
+}
+
+.storage-flow-copy {
+  min-width: 0;
+}
+
+.storage-flow-title {
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.25;
+}
+
+.storage-flow-sub {
+  margin-top: 3px;
+  color: #3b5f9a;
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.storage-flow-connect {
+  grid-column: 2;
+  justify-self: start;
+  height: 28px;
+  border: 1px solid #bfdbfe;
+  border-radius: var(--radius-sm);
+  background: white;
+  color: #1d4ed8;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  padding: 0 9px;
+  font-size: 11px;
+  font-weight: 700;
+  transition:
+    background 120ms,
+    border-color 120ms;
+}
+
+.storage-flow-connect:hover {
+  background: #dbeafe;
+  border-color: #93c5fd;
 }
 
 .pending-upload-banner {
@@ -1704,12 +1806,38 @@ body[data-clips-route="recording-pill"] #root {
   white-space: nowrap;
 }
 
+.pending-upload-sub-wrap {
+  overflow: visible;
+  white-space: normal;
+}
+
+.pending-upload-why {
+  margin-top: 3px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #737373;
+  cursor: help;
+  font-size: 11px;
+  line-height: 1.2;
+  text-decoration: underline;
+  text-decoration-style: dotted;
+  text-underline-offset: 3px;
+}
+
+.pending-upload-why:hover,
+.pending-upload-why:focus-visible {
+  color: #334155;
+  outline: none;
+}
+
 .pending-upload-actions {
   display: inline-flex;
   align-items: center;
   gap: 6px;
 }
 
+.pending-upload-connect,
 .pending-upload-retry {
   height: 28px;
   border: 1px solid #bfdbfe;
@@ -1728,6 +1856,10 @@ body[data-clips-route="recording-pill"] #root {
     background 120ms,
     border-color 120ms,
     opacity 120ms;
+}
+
+.pending-upload-connect {
+  padding: 0 8px;
 }
 
 .pending-upload-discard {
@@ -1773,6 +1905,11 @@ body[data-clips-route="recording-pill"] #root {
   border-color: #93c5fd;
 }
 
+.pending-upload-connect:hover {
+  background: #dbeafe;
+  border-color: #93c5fd;
+}
+
 .pending-upload-folder:hover {
   background: #dbeafe;
   border-color: #93c5fd;
@@ -1785,6 +1922,7 @@ body[data-clips-route="recording-pill"] #root {
 }
 
 .pending-upload-retry:disabled,
+.pending-upload-connect:disabled,
 .pending-upload-folder:disabled,
 .pending-upload-discard:disabled {
   cursor: default;
@@ -1956,25 +2094,40 @@ body[data-clips-route="recording-pill"] #root {
     color: #93c5fd;
   }
 
+  .pending-upload-why {
+    color: #a3a3a3;
+  }
+
+  .pending-upload-why:hover,
+  .pending-upload-why:focus-visible {
+    color: #cbd5e1;
+  }
+
+  .pending-upload-connect,
   .pending-upload-retry {
-    background: rgba(15, 23, 42, 0.7);
+    background: rgba(23, 23, 23, 0.7);
     border-color: rgba(96, 165, 250, 0.38);
     color: #dbeafe;
   }
 
   .pending-upload-discard {
-    background: rgba(15, 23, 42, 0.58);
+    background: rgba(23, 23, 23, 0.58);
     border-color: rgba(96, 165, 250, 0.38);
     color: #bfdbfe;
   }
 
   .pending-upload-folder {
-    background: rgba(15, 23, 42, 0.58);
+    background: rgba(23, 23, 23, 0.58);
     border-color: rgba(96, 165, 250, 0.38);
     color: #dbeafe;
   }
 
   .pending-upload-retry:hover {
+    background: rgba(30, 64, 175, 0.34);
+    border-color: rgba(147, 197, 253, 0.62);
+  }
+
+  .pending-upload-connect:hover {
     background: rgba(30, 64, 175, 0.34);
     border-color: rgba(147, 197, 253, 0.62);
   }
@@ -2083,7 +2236,7 @@ body[data-clips-route="recording-pill"] #root {
 
 .countdown-control-skip {
   /* center at +200px from row center: 200 - (64 / 2) = 168px */
-  right: -232px;
+  left: 168px;
 }
 
 .countdown-control:hover {
@@ -2099,6 +2252,20 @@ body[data-clips-route="recording-pill"] #root {
 .countdown-control:focus-visible {
   outline: 2px solid rgba(255, 255, 255, 0.9);
   outline-offset: 2px;
+}
+
+/*
+ * Absolutely centers the number without contributing width to .countdown-controls.
+ * This keeps the controls div at zero width so the cancel/skip button positions
+ * (left: -232px, left: 168px) line up exactly with the Rust cursor-poll hit-rects
+ * (CONTROL_OFFSET_X = 200.0) measured from the window center.
+ */
+.countdown-number-wrap {
+  position: absolute;
+  top: 50%;
+  left: 0;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
 }
 
 .countdown-number {
@@ -2646,11 +2813,46 @@ body[data-clips-route="recording-pill"] #root {
   cursor: not-allowed;
 }
 
+.toolbar-v-disk-indicator {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #f59e0b;
+  opacity: 0.9;
+  flex-shrink: 0;
+}
+
+.toolbar-v-disk-indicator-critical {
+  color: #ef4444;
+  animation: toolbar-v-disk-pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes toolbar-v-disk-pulse {
+  0%,
+  100% {
+    opacity: 0.7;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+.toolbar-v-disk-warning {
+  border-color: rgba(245, 158, 11, 0.45);
+}
+
+.toolbar-v-disk-critical {
+  border-color: rgba(239, 68, 68, 0.5);
+}
+
 @media (prefers-reduced-motion: reduce) {
   .toolbar-v,
   .toolbar-v-hover-actions,
   .toolbar-v-action {
     transition: none;
+  }
+  .toolbar-v-disk-indicator-critical {
+    animation: none;
   }
 }
 
@@ -3126,8 +3328,8 @@ body[data-clips-route="recording-pill"] #root {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: #0f1115;
-  color: #f1f5f9;
+  background: #212121;
+  color: #f5f5f5;
 }
 
 .onboarding-card {
@@ -3150,7 +3352,7 @@ body[data-clips-route="recording-pill"] #root {
 
 .onboarding-subtitle {
   font-size: 14px;
-  color: #94a3b8;
+  color: #a3a3a3;
   margin: -8px 0 0;
 }
 
@@ -3200,7 +3402,7 @@ body[data-clips-route="recording-pill"] #root {
 
 .onboarding-feature-desc {
   font-size: 12px;
-  color: #94a3b8;
+  color: #a3a3a3;
   line-height: 1.4;
 }
 
@@ -3209,8 +3411,8 @@ body[data-clips-route="recording-pill"] #root {
   border: none;
   border-radius: 12px;
   padding: 12px 16px;
-  background: #f4f4f5;
-  color: #0f1115;
+  background: #f5f5f5;
+  color: #212121;
   font-size: 14px;
   font-weight: 600;
   cursor: pointer;
@@ -3222,7 +3424,7 @@ body[data-clips-route="recording-pill"] #root {
 }
 
 .onboarding-cta:hover {
-  background: #e4e4e7;
+  background: #e5e5e5;
 }
 
 .onboarding-cta:active {
@@ -3282,7 +3484,7 @@ body[data-clips-route="recording-pill"] #root {
 
 .meeting-notification-bar-adhoc {
   background: transparent;
-  border-left: 3px dashed #94a3b8;
+  border-left: 3px dashed #a3a3a3;
   width: 3px;
 }
 
@@ -3461,55 +3663,16 @@ body[data-clips-route="recording-pill"] #root {
 
 /* Wispr Flow-style dictation pill: small capsule anchored to the bottom
    of its (transparent) overlay window. The window itself is positioned
-   bottom-center on the primary display by show_flow_bar in Rust. We
-   stack the live transcript above the pill in a column so the user sees
-   the words being recognized in real time. */
+   bottom-center on the primary display by show_flow_bar in Rust. */
 .flow-bar-root {
   position: fixed;
   inset: var(--overlay-shadow-gutter);
   display: flex;
-  flex-direction: column;
   align-items: center;
   justify-content: flex-end;
   padding-bottom: 8px;
-  gap: 6px;
   background: transparent;
   pointer-events: none;
-}
-
-/* Live partial-transcript chip floating above the pill. Same dark glass
-   look as the pill, smaller, only there when transcript is non-empty.
-   Caps width and clips from the left so the newest words stay visible
-   when a long sentence reaches the edge of the transparent window. */
-.flow-bar-transcript {
-  max-width: 360px;
-  padding: 4px 10px;
-  border-radius: 12px;
-  background: rgba(18, 18, 20, 0.92);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
-  border: 1px solid rgba(255, 255, 255, 0.06);
-  color: rgba(255, 255, 255, 0.92);
-  font-size: 12px;
-  line-height: 1.35;
-  text-align: left;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  /* RTL on the OUTER box so overflow clips from the visual left
-     (older text), keeping the newest characters pinned to the right.
-     `unicode-bidi: plaintext` on the inner <bdi> makes the actual
-     transcript text follow its own (LTR) direction — without it,
-     bidi reordering pushes the last few Latin characters past the
-     visible right edge and they get clipped a few chars short. */
-  direction: rtl;
-  pointer-events: none;
-  animation: flow-bar-in 100ms ease-out;
-}
-
-.flow-bar-transcript > bdi {
-  unicode-bidi: plaintext;
-  direction: ltr;
 }
 
 .flow-bar {
@@ -3527,17 +3690,13 @@ body[data-clips-route="recording-pill"] #root {
   /* Subtle fade-in so the pill doesn't hard-pop on appear. */
   animation: flow-bar-in 140ms ease-out;
   /* Fade out to opacity 0 when state goes idle (after Fn release).
-     Keeping the pill in the DOM means the transcript chip above
-     doesn't reflow when the pill "goes away" — important for the
-     linger UX where the chip stays put while the pill dissolves. */
+     Keeping the pill in the DOM lets the waveform fade instead of pop. */
   transition: opacity 220ms ease-out;
 }
 
-/* When the dictation engine reports idle (e.g. mid-linger after Fn
-   release on the browser path), fade the pill out without unmounting
-   it. The canvas keeps its last-frame so the user sees the waveform
-   smoothly fade rather than pop into nothing. Pointer-events go off
-   so the now-invisible chip can't catch clicks. */
+/* When the dictation engine reports idle, fade the pill out without
+   unmounting it. Pointer-events go off so the invisible pill cannot
+   catch clicks. */
 .flow-bar-idle {
   opacity: 0;
   pointer-events: none;
@@ -3668,7 +3827,7 @@ body[data-clips-route="recording-pill"] #root {
   outline: none;
   border-color: rgba(255, 255, 255, 0.98);
   box-shadow:
-    0 0 0 2px rgba(15, 23, 42, 0.5),
+    0 0 0 2px rgba(23, 23, 23, 0.5),
     0 0 150px 50px rgba(0, 0, 0, 0.12),
     inset 0 0 36px rgba(0, 0, 0, 0.08);
 }
@@ -3684,7 +3843,7 @@ body[data-clips-route="recording-pill"] #root {
   z-index: 2;
   width: 12px;
   height: 12px;
-  border: 1px solid rgba(15, 23, 42, 0.38);
+  border: 1px solid rgba(23, 23, 23, 0.38);
   border-radius: 4px;
   background: rgba(255, 255, 255, 0.96);
   box-shadow:
@@ -3932,7 +4091,7 @@ body[data-clips-route="recording-pill"] #root {
   height: 100%;
   width: 100%;
   border-radius: 16px;
-  background: rgba(24, 24, 27, 0.95);
+  background: rgba(26, 26, 26, 0.95);
   color: white;
   box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.1);
   backdrop-filter: blur(12px);
@@ -4168,7 +4327,7 @@ body[data-clips-route="recording-pill"] #root {
   align-items: center;
   justify-content: center;
   border-radius: 50%;
-  color: #e4e4e7;
+  color: #e5e5e5;
   border: none;
   background: transparent;
   transition: background 120ms;
@@ -4200,9 +4359,9 @@ body[data-clips-route="recording-pill"] #root {
 
 .whisper-status {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   flex-wrap: wrap;
-  gap: 6px;
+  gap: 4px 6px;
   margin-top: 6px;
   font-size: 11px;
   line-height: 1.4;
@@ -4237,8 +4396,7 @@ body[data-clips-route="recording-pill"] #root {
 }
 
 .whisper-status-path {
-  display: block;
-  margin-top: 2px;
+  flex-basis: 100%;
   font-size: 10px;
   color: var(--fg-subtle);
   word-break: break-all;
@@ -4352,7 +4510,7 @@ body[data-clips-route="recording-pill"] #root {
   font-weight: 600;
   letter-spacing: 0.06em;
   text-transform: uppercase;
-  color: rgba(244, 244, 245, 0.4);
+  color: rgba(245, 245, 245, 0.4);
 }
 
 .pill-pane-label-row {
@@ -4370,7 +4528,7 @@ body[data-clips-route="recording-pill"] #root {
   border: none;
   border-radius: 5px;
   background: transparent;
-  color: rgba(244, 244, 245, 0.5);
+  color: rgba(245, 245, 245, 0.5);
   cursor: pointer;
   transition:
     background 120ms,
@@ -4379,7 +4537,7 @@ body[data-clips-route="recording-pill"] #root {
 
 .pill-copy-btn:hover:not(:disabled) {
   background: rgba(255, 255, 255, 0.1);
-  color: #f4f4f5;
+  color: #f5f5f5;
 }
 
 .pill-copy-btn:disabled {
@@ -4407,7 +4565,7 @@ body[data-clips-route="recording-pill"] #root {
   border: none;
   outline: none;
   resize: none;
-  color: #f4f4f5;
+  color: #f5f5f5;
   font-size: 12px;
   line-height: 1.5;
   font-family: inherit;
@@ -4427,7 +4585,7 @@ body[data-clips-route="recording-pill"] #root {
   padding: 2px 12px 8px;
   font-size: 10px;
   font-variant-numeric: tabular-nums;
-  color: rgba(244, 244, 245, 0.4);
+  color: rgba(245, 245, 245, 0.4);
 }
 
 .pill-saved-status {
@@ -4442,7 +4600,7 @@ body[data-clips-route="recording-pill"] #root {
   border: none;
   border-radius: 6px;
   background: transparent;
-  color: rgba(244, 244, 245, 0.6);
+  color: rgba(245, 245, 245, 0.6);
   font-size: 10px;
   font-weight: 500;
   cursor: pointer;
@@ -4453,7 +4611,7 @@ body[data-clips-route="recording-pill"] #root {
 
 .pill-open-web-btn:hover {
   background: rgba(255, 255, 255, 0.1);
-  color: #f4f4f5;
+  color: #f5f5f5;
 }
 
 .lt-chat {
@@ -4467,7 +4625,7 @@ body[data-clips-route="recording-pill"] #root {
   padding: 8px 12px;
   font-size: 12px;
   line-height: 1.35;
-  color: #f4f4f5;
+  color: #f5f5f5;
 }
 
 .lt-empty {
@@ -4546,7 +4704,7 @@ body[data-clips-route="recording-pill"] #root {
   justify-content: center;
   border-radius: 50%;
   background: rgba(255, 255, 255, 0.1);
-  color: #e4e4e7;
+  color: #e5e5e5;
   border: none;
   transition: background 120ms;
 }

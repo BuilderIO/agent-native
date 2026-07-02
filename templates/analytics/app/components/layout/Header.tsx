@@ -1,23 +1,26 @@
-import { useLocation } from "react-router";
+import { AgentToggleButton } from "@agent-native/core/client";
+import { useT } from "@agent-native/core/client";
+import { RunsTray } from "@agent-native/core/client/progress";
 import type { ReactNode } from "react";
+import { useLocation } from "react-router";
+
 import { dashboards } from "@/pages/adhoc/registry";
+
 import {
   DashboardTitleSkeleton,
   useHeaderTitle,
   useHeaderActions,
 } from "./HeaderActions";
-import { AgentToggleButton, LanguagePicker } from "@agent-native/core/client";
-import { RunsTray } from "@agent-native/core/client/progress";
-import { useT } from "@agent-native/core/client";
 
 const pageTitleKeys: Record<string, string> = {
-  "/": "navigation.overview",
+  "/": "navigation.ask",
+  "/ask": "navigation.ask",
   "/data-sources": "navigation.dataSources",
   "/data-dictionary": "navigation.dataDictionary",
   "/catalog": "navigation.templateCatalog",
   "/analyses": "navigation.analyses",
+  "/sessions": "navigation.sessions",
   "/dashboards/explorer": "navigation.explorer",
-  "/team": "navigation.team",
   "/settings": "navigation.settings",
 };
 
@@ -32,6 +35,7 @@ function resolveTitle(pathname: string, t: (key: string) => string): ReactNode {
   }
 
   if (pathname.startsWith("/analyses/")) return t("navigation.analyses");
+  if (pathname.startsWith("/sessions/")) return t("navigation.sessions");
 
   return t("navigation.brand");
 }
@@ -57,7 +61,6 @@ export function Header() {
       </div>
       <div className="flex items-center gap-2 shrink-0">
         {actions}
-        <LanguagePicker variant="icon" />
         <RunsTray pollMs={1500} />
         <AgentToggleButton />
       </div>

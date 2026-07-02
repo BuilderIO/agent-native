@@ -1,10 +1,11 @@
 import { defineAction } from "@agent-native/core";
-import { z } from "zod";
-import { eq } from "drizzle-orm";
-import { nanoid } from "nanoid";
-import { getDb, schema } from "../server/db/index.js";
-import { assertAccess } from "@agent-native/core/sharing";
 import { seedFromText } from "@agent-native/core/collab";
+import { assertAccess } from "@agent-native/core/sharing";
+import { and, eq } from "drizzle-orm";
+import { nanoid } from "nanoid";
+import { z } from "zod";
+
+import { getDb, schema } from "../server/db/index.js";
 
 export default defineAction({
   description:
@@ -33,6 +34,25 @@ export default defineAction({
     await assertAccess("design", designId, "editor");
 
     const db = getDb();
+
+    // Guard against duplicate (designId, filename) — edit-design uses .limit(1)
+    // which is non-deterministic when multiple rows match the same key.
+    const [existing] = await db
+      .select({ id: schema.designFiles.id })
+      .from(schema.designFiles)
+      .where(
+        and(
+          eq(schema.designFiles.designId, designId),
+          eq(schema.designFiles.filename, filename),
+        ),
+      )
+      .limit(1);
+    if (existing) {
+      throw new Error(
+        `File "${filename}" already exists in design ${designId} — use edit-design to modify it`,
+      );
+    }
+
     const id = nanoid();
     const now = new Date().toISOString();
 

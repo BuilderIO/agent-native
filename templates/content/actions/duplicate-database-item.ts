@@ -2,15 +2,16 @@ import { defineAction } from "@agent-native/core";
 import { writeAppState } from "@agent-native/core/application-state";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { assertAccess } from "@agent-native/core/sharing";
-import { and, eq, gte, sql } from "drizzle-orm";
+import { and, eq, gte, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
+
 import { getDb, schema } from "../server/db/index.js";
 import { getContentDatabaseResponse } from "./_database-utils.js";
 import { nanoid } from "./_property-utils.js";
 
 export default defineAction({
   description:
-    "Duplicate a page row in a content database, including stored property values.",
+    "Duplicate exactly one page row in a content database, including stored property values. For two or more rows, use duplicate-database-items once instead of looping this action.",
   schema: z.object({
     itemId: z.string().optional().describe("Database item ID"),
     documentId: z.string().optional().describe("Database row document ID"),
@@ -38,9 +39,12 @@ export default defineAction({
         eq(schema.documents.id, schema.contentDatabaseItems.documentId),
       )
       .where(
-        itemId
-          ? eq(schema.contentDatabaseItems.id, itemId)
-          : eq(schema.contentDatabaseItems.documentId, documentId!),
+        and(
+          itemId
+            ? eq(schema.contentDatabaseItems.id, itemId)
+            : eq(schema.contentDatabaseItems.documentId, documentId!),
+          isNull(schema.contentDatabases.deletedAt),
+        ),
       );
 
     if (!row) throw new Error("Database row not found.");

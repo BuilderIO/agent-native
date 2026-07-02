@@ -1,19 +1,26 @@
-import { useLocation } from "react-router";
 import {
-  LanguagePicker,
+  requestAgentChatThreadOpen,
+  requestAgentTaskOpen,
   useActionQuery,
   useT,
 } from "@agent-native/core/client";
-import { useHeaderTitle, useHeaderActions } from "./HeaderActions";
 import { AgentToggleButton } from "@agent-native/core/client";
 import { RunsTray } from "@agent-native/core/client/progress";
+import { useCallback } from "react";
+import { useLocation } from "react-router";
+
+import { useHeaderTitle, useHeaderActions } from "./HeaderActions";
 
 const pageTitleKeys: Record<string, string> = {
   "/": "navigation.designs",
-  "/templates": "navigation.templates",
   "/design-systems": "navigation.designSystems",
   "/design-systems/setup": "navigation.setupDesignSystem",
   "/settings": "navigation.settings",
+};
+
+type HeaderAgentRun = {
+  title?: string;
+  metadata?: Record<string, unknown> | null;
 };
 
 function DesignTitle({ id }: { id: string }) {
@@ -46,6 +53,31 @@ function ResolvedTitle() {
 export function Header() {
   const title = useHeaderTitle();
   const actions = useHeaderActions();
+  const openRunThread = useCallback(
+    (threadId: string, run?: HeaderAgentRun) => {
+      const metadata = run?.metadata ?? {};
+      const parentThreadId =
+        typeof metadata.parentThreadId === "string"
+          ? metadata.parentThreadId.trim()
+          : "";
+      const isAgentTeam =
+        metadata.kind === "agent-team" || metadata.source === "agent-teams";
+      if (isAgentTeam && parentThreadId && parentThreadId !== threadId) {
+        requestAgentTaskOpen({
+          threadId,
+          parentThreadId,
+          description:
+            typeof metadata.description === "string"
+              ? metadata.description
+              : run?.title || "",
+          name: typeof metadata.name === "string" ? metadata.name : "",
+        });
+        return;
+      }
+      requestAgentChatThreadOpen({ threadId });
+    },
+    [],
+  );
 
   return (
     <header className="flex h-12 items-center gap-3 border-b border-border bg-background px-4 lg:px-6 shrink-0">
@@ -54,8 +86,7 @@ export function Header() {
       </div>
       <div className="flex items-center gap-2 shrink-0">
         {actions}
-        <LanguagePicker variant="icon" />
-        <RunsTray pollMs={1500} />
+        <RunsTray pollMs={1500} onOpenThread={openRunThread} />
         <AgentToggleButton />
       </div>
     </header>

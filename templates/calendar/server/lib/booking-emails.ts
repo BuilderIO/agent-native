@@ -5,6 +5,7 @@ import {
   renderEmail,
   sendEmail,
 } from "@agent-native/core/server";
+
 import type { Booking } from "../../shared/api.js";
 import {
   DEFAULT_BOOKING_TIMEZONE,
@@ -48,7 +49,7 @@ async function sendBestEffort(
   label: string,
   args: Parameters<typeof sendEmail>[0],
 ) {
-  if (!isEmailConfigured()) return;
+  if (!(await isEmailConfigured())) return;
   try {
     await sendEmail(args);
   } catch (error) {

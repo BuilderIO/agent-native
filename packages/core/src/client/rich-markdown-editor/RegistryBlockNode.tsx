@@ -1,3 +1,17 @@
+import { IconPencil } from "@tabler/icons-react";
+import {
+  NodeSelection,
+  Plugin,
+  PluginKey,
+  type EditorState,
+} from "@tiptap/pm/state";
+import {
+  Node,
+  NodeViewWrapper,
+  ReactNodeViewRenderer,
+  mergeAttributes,
+  type NodeViewProps,
+} from "@tiptap/react";
 import {
   createContext,
   useEffect,
@@ -7,20 +21,7 @@ import {
   type ReactNode,
   type MouseEvent as ReactMouseEvent,
 } from "react";
-import { IconPencil } from "@tabler/icons-react";
-import {
-  Node,
-  NodeViewWrapper,
-  ReactNodeViewRenderer,
-  mergeAttributes,
-  type NodeViewProps,
-} from "@tiptap/react";
-import {
-  NodeSelection,
-  Plugin,
-  PluginKey,
-  type EditorState,
-} from "@tiptap/pm/state";
+
 import {
   blockEditSurface,
   useOptionalBlockRegistry,
@@ -276,8 +277,9 @@ export function RegistryBlockNodeView(props: NodeViewProps) {
   // Choose how to render the block body:
   //  1. Registered spec → read view by default; direct-manipulation specs
   //     (`editSurface: "inline" | "container"`) render their editor in place,
-  //     while artifact/config specs (`"panel"`) keep the read view plus a
-  //     corner edit button.
+  //     read-only-in-edit-mode specs (`"none"`) keep their read view, while
+  //     artifact/config specs (`"panel"`) keep the read view plus a corner edit
+  //     button.
   //  2. No spec, but the side-map provides `renderLegacyBlock` → delegate to the
   //     host's dispatcher (decision, legacy visual-questions, image, and any
   //     other type rendered by a bespoke component rather than the registry), so
@@ -342,7 +344,7 @@ export function RegistryBlockNodeView(props: NodeViewProps) {
               data-plan-interactive
               aria-label={`Edit ${spec.label}`}
               onClick={() => setPanelOpen(true)}
-              className="an-block-edit-trigger flex size-7 items-center justify-center rounded-md border border-border bg-background/85 text-muted-foreground opacity-0 shadow-sm backdrop-blur transition-opacity hover:bg-muted hover:text-foreground focus-visible:opacity-100 data-[visible=true]:opacity-100"
+              className="an-block-edit-trigger flex size-7 items-center justify-center rounded-md border border-border bg-background text-muted-foreground opacity-0 shadow-sm transition-opacity hover:bg-muted hover:text-foreground focus-visible:opacity-100 data-[visible=true]:opacity-100"
               data-visible={panelOpen || shellHovered}
             >
               <IconPencil className="size-4" />
@@ -354,7 +356,7 @@ export function RegistryBlockNodeView(props: NodeViewProps) {
         editSurface = props.selected ? (
           <div className="mt-3">{editorNode}</div>
         ) : null;
-      } else {
+      } else if (surface !== "none") {
         body = editorNode;
       }
     }
@@ -483,7 +485,7 @@ export function LegacyJsonEditSurface({
       data-plan-interactive
       aria-label={`Edit ${block.title ?? "block"}`}
       onClick={() => onOpenChange(true)}
-      className="an-block-edit-trigger flex size-7 items-center justify-center rounded-md border border-border bg-background/85 text-muted-foreground opacity-0 shadow-sm backdrop-blur transition-opacity hover:bg-muted hover:text-foreground focus-visible:opacity-100 data-[visible=true]:opacity-100"
+      className="an-block-edit-trigger flex size-7 items-center justify-center rounded-md border border-border bg-background text-muted-foreground opacity-0 shadow-sm transition-opacity hover:bg-muted hover:text-foreground focus-visible:opacity-100 data-[visible=true]:opacity-100"
       data-visible={selected || open}
     >
       <IconPencil className="size-4" />

@@ -1,18 +1,15 @@
-import { useLocation } from "react-router";
-import { useDecks } from "@/context/DeckContext";
-import { useHeaderTitle, useHeaderActions } from "./HeaderActions";
-import {
-  AgentToggleButton,
-  LanguagePicker,
-  useT,
-} from "@agent-native/core/client";
+import { AgentToggleButton, useT } from "@agent-native/core/client";
 import { RunsTray } from "@agent-native/core/client/progress";
+import { useLocation } from "react-router";
+
+import { useDecks } from "@/context/DeckContext";
+
+import { useHeaderTitle, useHeaderActions } from "./HeaderActions";
 
 const pageTitleKeys: Record<string, string> = {
   "/": "header.decks",
   "/design-systems": "header.designSystems",
   "/settings": "header.settings",
-  "/team": "header.team",
   "/extensions": "header.extensions",
 };
 
@@ -67,7 +64,6 @@ export function Header() {
       </div>
       <div className="flex items-center gap-2 shrink-0">
         {actions}
-        <LanguagePicker variant="icon" />
         <RunsTray pollMs={1500} />
         <AgentToggleButton />
       </div>

@@ -1,4 +1,5 @@
 import { runMigrations } from "@agent-native/core/db";
+
 import { repairUnseededBlocksFields } from "../../actions/_property-utils.js";
 
 function scheduleBlocksRepairRetry(attempt = 1): void {
@@ -203,6 +204,8 @@ const runContentMigrations = runMigrations(
       owner_email TEXT NOT NULL DEFAULT 'local@localhost',
       org_id TEXT,
       document_id TEXT NOT NULL,
+      owner_document_id TEXT,
+      owner_block_id TEXT,
       title TEXT NOT NULL DEFAULT 'Untitled database',
       view_config_json TEXT NOT NULL DEFAULT '{}',
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
@@ -492,6 +495,78 @@ const runContentMigrations = runMigrations(
                 AND d.type = 'blocks'
                 AND d.options_json LIKE '%"primary":true%'
             )`,
+    },
+    // v53-v54: ownership metadata for inline databases. Nullable by design:
+    // full-page databases and non-owning references leave these empty.
+    {
+      version: 53,
+      sql: `ALTER TABLE content_databases ADD COLUMN IF NOT EXISTS owner_document_id TEXT`,
+    },
+    {
+      version: 54,
+      sql: `ALTER TABLE content_databases ADD COLUMN IF NOT EXISTS owner_block_id TEXT`,
+    },
+    // v55: soft-delete marker for inline database lifecycle. Nullable keeps
+    // existing databases active; cleanup remains a later explicit path.
+    {
+      version: 55,
+      sql: `ALTER TABLE content_databases ADD COLUMN IF NOT EXISTS deleted_at TEXT`,
+    },
+    // v56-v57: DB-backed Builder MDX documents keep their raw sidecar files in a
+    // document-scoped cache. Local-file Builder MDX still uses in-repo sidecars
+    // as the portable source of truth; these rows only make pulled SQL documents
+    // round-trip through the visual editor and push validator.
+    {
+      version: 56,
+      sql: `CREATE TABLE IF NOT EXISTS builder_doc_sidecars (
+      id TEXT PRIMARY KEY,
+      owner_email TEXT NOT NULL DEFAULT 'local@localhost',
+      org_id TEXT,
+      document_id TEXT NOT NULL,
+      path TEXT NOT NULL,
+      content TEXT NOT NULL,
+      content_hash TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )`,
+    },
+    {
+      version: 57,
+      sql: `CREATE INDEX IF NOT EXISTS builder_doc_sidecars_document_idx ON builder_doc_sidecars (document_id);
+        CREATE UNIQUE INDEX IF NOT EXISTS builder_doc_sidecars_doc_path_idx ON builder_doc_sidecars (document_id, path)`,
+    },
+    {
+      version: 58,
+      sql: `ALTER TABLE content_database_items ADD COLUMN IF NOT EXISTS body_hydration_status TEXT NOT NULL DEFAULT 'hydrated';
+        ALTER TABLE content_database_items ADD COLUMN IF NOT EXISTS body_hydration_attempted_at TEXT;
+        ALTER TABLE content_database_items ADD COLUMN IF NOT EXISTS body_hydration_error TEXT;
+        ALTER TABLE content_database_items ADD COLUMN IF NOT EXISTS body_hydration_version TEXT`,
+    },
+    {
+      version: 59,
+      sql: `CREATE TABLE IF NOT EXISTS content_database_body_hydration_queue (
+      id TEXT PRIMARY KEY,
+      owner_email TEXT NOT NULL DEFAULT 'local@localhost',
+      org_id TEXT,
+      source_id TEXT NOT NULL,
+      database_item_id TEXT NOT NULL,
+      document_id TEXT NOT NULL,
+      source_row_id TEXT NOT NULL,
+      source_table TEXT NOT NULL,
+      source_entry_json TEXT NOT NULL DEFAULT '{}',
+      priority INTEGER NOT NULL DEFAULT 10,
+      attempts INTEGER NOT NULL DEFAULT 0,
+      last_attempted_at TEXT,
+      last_error TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )`,
+    },
+    {
+      version: 60,
+      sql: `CREATE INDEX IF NOT EXISTS content_database_body_hydration_queue_source_idx ON content_database_body_hydration_queue (source_id, priority, created_at);
+        CREATE UNIQUE INDEX IF NOT EXISTS content_database_body_hydration_queue_item_idx ON content_database_body_hydration_queue (database_item_id);
+        CREATE INDEX IF NOT EXISTS content_database_items_body_hydration_idx ON content_database_items (database_id, body_hydration_status)`,
     },
   ],
   { table: "content_migrations" },

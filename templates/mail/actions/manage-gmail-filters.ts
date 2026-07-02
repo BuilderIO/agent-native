@@ -1,7 +1,7 @@
 import { defineAction } from "@agent-native/core";
 import { writeAppState } from "@agent-native/core/application-state";
 import { z } from "zod";
-import { getAccessTokens } from "./helpers.js";
+
 import {
   gmailCreateFilter,
   gmailCreateLabel,
@@ -13,6 +13,7 @@ import {
   type GmailFilterAction,
   type GmailFilterCriteria,
 } from "../server/lib/google-api.js";
+import { getAccessTokens } from "./helpers.js";
 
 const optionalBoolean = z.preprocess((value) => {
   if (value === undefined || value === null || value === "") return undefined;

@@ -32,6 +32,7 @@ vi.mock("./run-store.js", () => ({
   bumpRunProgress: vi.fn(),
   ensureTerminalRunEvent: vi.fn(),
   setRunError: vi.fn(),
+  setRunTerminalReason: vi.fn(),
 }));
 
 // Keep OM out of the way. It's gated on ownerEmail anyway, but mock it so the
@@ -50,8 +51,8 @@ vi.mock("./observational-memory/index.js", () => ({
 }));
 
 const { runAgentLoop } = await import("./production-agent.js");
-import type { ActionEntry } from "./production-agent.js";
 import type { AgentEngine, EngineEvent } from "./engine/types.js";
+import type { ActionEntry } from "./production-agent.js";
 
 // Helpers.
 
@@ -198,6 +199,41 @@ describe("tool-call journal hard-block", () => {
     });
 
     // No journal match (different recipient), so it executes.
+    expect(action.run).toHaveBeenCalledOnce();
+  });
+
+  it("executes normally when a matching prior tool_done was blocked or failed", async () => {
+    currentTurnEventsMock.mockResolvedValue([
+      {
+        type: "tool_start",
+        tool: "add-slide",
+        input: { deckId: "deck-1", layout: "content" },
+      },
+      {
+        type: "tool_done",
+        tool: "add-slide",
+        result:
+          "Plan mode blocked `add-slide`. Switch to Act mode after the user approves the plan, then retry the action.",
+      },
+    ]);
+
+    const action = makeWriteAction();
+
+    await runAgentLoop({
+      engine: singleToolEngine("add-slide", {
+        deckId: "deck-1",
+        layout: "content",
+      }),
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "add" }] }],
+      actions: { "add-slide": action },
+      send: () => {},
+      signal: new AbortController().signal,
+      threadId: "thread-blocked-prior",
+    });
+
     expect(action.run).toHaveBeenCalledOnce();
   });
 

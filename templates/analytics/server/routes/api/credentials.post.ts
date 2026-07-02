@@ -1,21 +1,22 @@
+import { readBody } from "@agent-native/core/server";
 import { defineEventHandler, setResponseStatus } from "h3";
-import {
-  saveCredential,
-  deleteCredential,
-  getCredentialContextFromEvent,
-} from "../../lib/credentials";
+
 import {
   credentialKeys,
   optionalCredentialKeys,
   partitionCredentialUpdate,
 } from "../../lib/credential-keys";
-import { readBody } from "@agent-native/core/server";
+import {
+  saveCredential,
+  deleteCredential,
+  getCredentialContextFromEvent,
+} from "../../lib/credentials";
+import { loadDashboardSeed } from "../../lib/dashboard-seeds";
 import {
   getScopedSettingRecord,
   putScopedSettingRecord,
   resolveSettingsScope,
 } from "../../lib/scoped-settings";
-import { loadDashboardSeed } from "../../lib/dashboard-seeds";
 
 const GA4_CREDENTIAL_KEYS = new Set([
   "GA4_PROPERTY_ID",

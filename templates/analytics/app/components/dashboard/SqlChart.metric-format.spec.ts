@@ -1,8 +1,14 @@
 import { describe, it, expect } from "vitest";
+
 import {
   formatMetricValue,
   safeDashboardLinkHref,
+  sessionReplayHref,
+  shouldSplitCurrentDayTimeSeries,
   sortTooltipPayloadItems,
+  splitCurrentDayTimeSeriesRows,
+  sqlChartLocalDateKey,
+  toSqlChartDateKey,
 } from "./SqlChart";
 
 // Postgres/Neon returns numeric & bigint columns as STRINGS (SQLite returns JS
@@ -65,6 +71,19 @@ describe("sortTooltipPayloadItems", () => {
       "forms",
     ]);
   });
+
+  it("de-dupes split partial-day overlay items by display name", () => {
+    const items = [
+      { name: "analytics", dataKey: "analytics_solid", value: 25 },
+      { name: "analytics", dataKey: "analytics_partial", value: 25 },
+      { name: "docs", dataKey: "docs_solid", value: 40 },
+    ];
+
+    expect(sortTooltipPayloadItems(items).map((item) => item.dataKey)).toEqual([
+      "docs_solid",
+      "analytics_solid",
+    ]);
+  });
 });
 
 describe("safeDashboardLinkHref", () => {
@@ -86,5 +105,105 @@ describe("safeDashboardLinkHref", () => {
     expect(safeDashboardLinkHref("//evil.example/path")).toBeNull();
     expect(safeDashboardLinkHref("example.com/path")).toBeNull();
     expect(safeDashboardLinkHref("")).toBeNull();
+  });
+});
+
+describe("sessionReplayHref", () => {
+  it("links recording ids directly to replay detail pages", () => {
+    expect(sessionReplayHref({ recording_id: "sr_123" })).toBe(
+      "/sessions/sr_123",
+    );
+  });
+
+  it("links bare session ids to the filtered sessions list", () => {
+    expect(sessionReplayHref({ session_id: "sess_123" })).toBe(
+      "/sessions?range=all&q=sess_123",
+    );
+  });
+
+  it("prefers recording ids when both ids are present", () => {
+    expect(
+      sessionReplayHref({ recording_id: "sr_123", session_id: "sess_123" }),
+    ).toBe("/sessions/sr_123");
+  });
+
+  it("encodes session ids in list filters", () => {
+    expect(sessionReplayHref({ session_id: "session with/slash" })).toBe(
+      "/sessions?range=all&q=session+with%2Fslash",
+    );
+  });
+});
+
+describe("partial-day time-series helpers", () => {
+  it("only enables the partial-day overlay for daily chart keys", () => {
+    expect(
+      shouldSplitCurrentDayTimeSeries({ source: "first-party" }, "date"),
+    ).toBe(true);
+    expect(
+      shouldSplitCurrentDayTimeSeries({ source: "prometheus" }, "timestamp"),
+    ).toBe(false);
+    expect(
+      shouldSplitCurrentDayTimeSeries({ source: "demo" }, "timestamp"),
+    ).toBe(false);
+  });
+
+  it("formats a date key in the dashboard reporting timezone", () => {
+    expect(
+      sqlChartLocalDateKey(
+        new Date("2026-06-25T06:30:00.000Z"),
+        "America/Los_Angeles",
+      ),
+    ).toBe("2026-06-24");
+  });
+
+  it("normalizes date strings without shifting date-only values through UTC", () => {
+    expect(toSqlChartDateKey("2026-06-24")).toBe("2026-06-24");
+    expect(toSqlChartDateKey("20260624")).toBe("2026-06-24");
+    expect(toSqlChartDateKey("2026-06-25T06:30:00.000Z")).toBe("2026-06-24");
+  });
+
+  it("splits the current day into a dashed overlay segment", () => {
+    const result = splitCurrentDayTimeSeriesRows(
+      [
+        { date: "2026-06-22", signups: 10 },
+        { date: "2026-06-23", signups: 12 },
+        { date: "2026-06-24", signups: 3 },
+      ],
+      "date",
+      ["signups"],
+      "2026-06-24",
+    );
+    const series = result.series[0];
+
+    expect(series.solidKey).not.toBe("signups");
+    expect(series.partialKey).toBeTruthy();
+    expect(result.rows.map((row) => row[series.solidKey])).toEqual([
+      10,
+      12,
+      null,
+    ]);
+    expect(result.rows.map((row) => row[series.partialKey!])).toEqual([
+      null,
+      12,
+      3,
+    ]);
+  });
+
+  it("leaves complete historical series untouched", () => {
+    const rows = [
+      { date: "2026-06-22", signups: 10 },
+      { date: "2026-06-23", signups: 12 },
+    ];
+    const result = splitCurrentDayTimeSeriesRows(
+      rows,
+      "date",
+      ["signups"],
+      "2026-06-24",
+    );
+
+    expect(result.rows).toBe(rows);
+    expect(result.series).toEqual([
+      { key: "signups", solidKey: "signups", partialKey: null },
+    ]);
   });
 });

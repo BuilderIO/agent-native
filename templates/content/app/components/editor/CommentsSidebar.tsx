@@ -1,3 +1,11 @@
+import { sendToAgentChat, emailToName, useT } from "@agent-native/core/client";
+import {
+  IconCheck,
+  IconMessageCircle,
+  IconArrowUp,
+  IconArrowBackUp,
+  IconChevronDown,
+} from "@tabler/icons-react";
 import {
   useState,
   useRef,
@@ -6,8 +14,13 @@ import {
   useCallback,
   type RefObject,
 } from "react";
+
 import {
-  useComments,
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import {
   useCreateComment,
   useResolveComment,
   type CommentThread,
@@ -17,21 +30,9 @@ import {
   useMentionMembers,
   type MentionMember,
 } from "@/hooks/use-mention-members";
-import { sendToAgentChat, emailToName } from "@agent-native/core/client";
-import {
-  IconCheck,
-  IconMessageCircle,
-  IconArrowUp,
-  IconArrowBackUp,
-  IconChevronDown,
-} from "@tabler/icons-react";
+
 import type { CommentTextAnchor } from "./comment-anchors";
 import { CommentComposer, type MentionEntry } from "./CommentComposer";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
 
 /**
  * Render a comment body, styling any `@mention` tokens that match the comment's
@@ -86,26 +87,35 @@ function formatDate(dateStr: string) {
   return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
 }
 
+function cssEscape(value: string) {
+  return globalThis.CSS?.escape
+    ? globalThis.CSS.escape(value)
+    : value.replace(/["\\]/g, "\\$&");
+}
+
 /**
- * Y offset (relative to the scroll container's content) of a thread's inline
+ * Y offset (relative to the scroll container's visible viewport) of a thread's inline
  * highlight. Prefers the real decoration element rendered by the
  * CommentHighlight plugin (`[data-comment-thread]`); falls back to a text search
  * by quoted text for legacy/unresolved anchors so older comments still line up.
  */
-function findThreadOffset(
+export function findThreadOffset(
   threadId: string,
   quotedText: string | null,
   scrollContainer: HTMLElement | null,
+  positionContainer: HTMLElement | null = scrollContainer,
 ): number | null {
   if (!scrollContainer) return null;
-  const containerRect = scrollContainer.getBoundingClientRect();
+  const containerRect = (
+    positionContainer ?? scrollContainer
+  ).getBoundingClientRect();
 
   const marked = scrollContainer.querySelector(
-    `[data-comment-thread="${CSS.escape(threadId)}"]`,
+    `[data-comment-thread="${cssEscape(threadId)}"]`,
   ) as HTMLElement | null;
   if (marked) {
     const rect = marked.getBoundingClientRect();
-    return rect.top - containerRect.top + scrollContainer.scrollTop;
+    return rect.top - containerRect.top;
   }
 
   if (!quotedText) return null;
@@ -123,14 +133,46 @@ function findThreadOffset(
       const range = window.document.createRange();
       range.selectNode(node);
       const rect = range.getBoundingClientRect();
-      return rect.top - containerRect.top + scrollContainer.scrollTop;
+      return rect.top - containerRect.top;
     }
   }
   return null;
 }
 
+export function findPendingCommentOffset(
+  scrollContainer: HTMLElement | null,
+  positionContainer: HTMLElement | null = scrollContainer,
+): number | null {
+  if (!scrollContainer) return null;
+  const pending = scrollContainer.querySelector(
+    ".comment-highlight--pending",
+  ) as HTMLElement | null;
+  if (!pending) return null;
+  const containerRect = (
+    positionContainer ?? scrollContainer
+  ).getBoundingClientRect();
+  const rect = pending.getBoundingClientRect();
+  return rect.top - containerRect.top;
+}
+
+export function shouldClearSelectedThreadOnScroll(
+  offset: number | null,
+  containerHeight: number,
+  margin = 40,
+) {
+  return (
+    offset == null || offset < -margin || offset > containerHeight + margin
+  );
+}
+
+export function estimateThreadCardHeight(thread: CommentThread) {
+  return 80 + Math.max(0, thread.comments.length - 1) * 44;
+}
+
 interface CommentsSidebarProps {
   documentId: string;
+  threads?: CommentThread[];
+  isLoading?: boolean;
   pendingComment?: {
     quotedText: string;
     offsetTop: number;
@@ -140,29 +182,36 @@ interface CommentsSidebarProps {
   onPendingDone?: () => void;
   scrollContainerRef?: RefObject<HTMLDivElement | null>;
   activeThreadId?: string | null;
-  onActiveThreadChange?: (id: string | null) => void;
+  selectedThreadId?: string | null;
+  onSelectedThreadChange?: (id: string | null) => void;
+  onHoveredThreadChange?: (id: string | null) => void;
   currentUserEmail?: string;
 }
 
 export function CommentsSidebar({
   documentId,
+  threads = [],
+  isLoading = false,
   pendingComment,
   onPendingDone,
   scrollContainerRef,
   activeThreadId,
-  onActiveThreadChange,
+  selectedThreadId,
+  onSelectedThreadChange,
+  onHoveredThreadChange,
   currentUserEmail,
 }: CommentsSidebarProps) {
-  const { data: threads, isLoading } = useComments(documentId);
+  const t = useT();
   const { data: members = [] } = useMentionMembers();
   const createComment = useCreateComment();
   const resolveComment = useResolveComment();
-  const [expandedThread, setExpandedThread] = useState<string | null>(null);
+  const [replyingThreadId, setReplyingThreadId] = useState<string | null>(null);
   const [replyText, setReplyText] = useState("");
   const [replyMentions, setReplyMentions] = useState<MentionEntry[]>([]);
   const [pendingText, setPendingText] = useState("");
   const [pendingMentions, setPendingMentions] = useState<MentionEntry[]>([]);
   const [showResolved, setShowResolved] = useState(false);
+  const sidebarRef = useRef<HTMLDivElement>(null);
   const pendingInputRef = useRef<HTMLTextAreaElement>(null);
 
   const openThreads = useMemo(
@@ -222,7 +271,7 @@ export function CommentsSidebar({
     });
     setReplyText("");
     setReplyMentions([]);
-    setExpandedThread(null);
+    setReplyingThreadId(null);
   };
 
   const handleSendToAI = (thread: CommentThread) => {
@@ -230,10 +279,10 @@ export function CommentsSidebar({
       .map((c) => `${c.author_name ?? c.author_email}: ${c.content}`)
       .join("\n");
     const context = thread.quotedText
-      ? `Regarding this text: "${thread.quotedText}"\n\n`
+      ? `${t("comments.agentRegardingText", { text: thread.quotedText })}\n\n`
       : "";
     sendToAgentChat({
-      message: `${context}Comment thread:\n${commentTexts}\n\nPlease help with this.`,
+      message: `${context}${t("comments.agentThreadHeader")}\n${commentTexts}\n\n${t("comments.agentHelp")}`,
     });
   };
 
@@ -243,25 +292,52 @@ export function CommentsSidebar({
   const [threadOffsets, setThreadOffsets] = useState<Map<string, number>>(
     new Map(),
   );
+  const [threadCardHeights, setThreadCardHeights] = useState<
+    Map<string, number>
+  >(new Map());
+  const [pendingOffset, setPendingOffset] = useState<number | null>(null);
   const openThreadKey = openThreads
     .map((t) => `${t.threadId}:${t.quotedText ?? ""}`)
     .join(",");
+
+  const handleThreadCardHeightChange = useCallback(
+    (threadId: string, height: number) => {
+      setThreadCardHeights((prev) => {
+        if (prev.get(threadId) === height) return prev;
+        const next = new Map(prev);
+        next.set(threadId, height);
+        return next;
+      });
+    },
+    [],
+  );
 
   const recomputeOffsets = useCallback(() => {
     const container = scrollContainerRef?.current ?? null;
     if (!container || openThreads.length === 0) {
       setThreadOffsets((prev) => (prev.size === 0 ? prev : new Map()));
+      setPendingOffset((prev) => {
+        const next = pendingComment
+          ? findPendingCommentOffset(container, sidebarRef.current ?? container)
+          : null;
+        return prev === next ? prev : next;
+      });
       return;
     }
+    const positionContainer = sidebarRef.current ?? container;
     const offsets = new Map<string, number>();
     for (const thread of openThreads) {
       const offset = findThreadOffset(
         thread.threadId,
         thread.quotedText,
         container,
+        positionContainer,
       );
       if (offset != null) offsets.set(thread.threadId, offset);
     }
+    const nextPendingOffset = pendingComment
+      ? findPendingCommentOffset(container, positionContainer)
+      : null;
     setThreadOffsets((prev) => {
       if (
         prev.size === offsets.size &&
@@ -271,7 +347,28 @@ export function CommentsSidebar({
       }
       return offsets;
     });
-  }, [openThreads, scrollContainerRef]);
+    setPendingOffset((prev) =>
+      prev === nextPendingOffset ? prev : nextPendingOffset,
+    );
+    if (
+      selectedThreadId &&
+      shouldClearSelectedThreadOnScroll(
+        offsets.get(selectedThreadId) ?? null,
+        container.clientHeight,
+      )
+    ) {
+      onSelectedThreadChange?.(null);
+      setReplyingThreadId(null);
+      setReplyText("");
+      setReplyMentions([]);
+    }
+  }, [
+    openThreads,
+    onSelectedThreadChange,
+    pendingComment,
+    scrollContainerRef,
+    selectedThreadId,
+  ]);
 
   useEffect(() => {
     const container = scrollContainerRef?.current ?? null;
@@ -291,34 +388,46 @@ export function CommentsSidebar({
       subtree: true,
       characterData: true,
     });
+    container.addEventListener("scroll", schedule, { passive: true });
     window.addEventListener("resize", schedule);
 
     return () => {
       cancelAnimationFrame(raf);
       observer.disconnect();
+      container.removeEventListener("scroll", schedule);
       window.removeEventListener("resize", schedule);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [openThreadKey, recomputeOffsets]);
+  }, [openThreadKey, pendingComment, recomputeOffsets]);
 
-  // When a thread is activated (e.g. its highlight was clicked), expand it and
-  // scroll its card into view.
   useEffect(() => {
-    if (!activeThreadId) return;
-    if (!openThreads.some((t) => t.threadId === activeThreadId)) return;
-    setExpandedThread(activeThreadId);
+    const openIds = new Set(openThreads.map((thread) => thread.threadId));
+    setThreadCardHeights((prev) => {
+      if ([...prev.keys()].every((threadId) => openIds.has(threadId))) {
+        return prev;
+      }
+      const next = new Map<string, number>();
+      for (const [threadId, height] of prev) {
+        if (openIds.has(threadId)) next.set(threadId, height);
+      }
+      return next;
+    });
+  }, [openThreads]);
+
+  useEffect(() => {
+    if (!selectedThreadId) return;
+    if (!openThreads.some((t) => t.threadId === selectedThreadId)) {
+      onSelectedThreadChange?.(null);
+      setReplyingThreadId(null);
+      setReplyText("");
+      setReplyMentions([]);
+      return;
+    }
     const card = window.document.querySelector(
-      `[data-thread-card="${CSS.escape(activeThreadId)}"]`,
+      `[data-thread-card="${cssEscape(selectedThreadId)}"]`,
     );
     card?.scrollIntoView({ block: "nearest", behavior: "smooth" });
-  }, [activeThreadId, openThreads]);
-
-  // Surface the resolved list automatically when there's nothing open to show.
-  useEffect(() => {
-    if (openThreads.length === 0 && !pendingComment && resolvedThreads.length) {
-      setShowResolved(true);
-    }
-  }, [openThreads.length, pendingComment, resolvedThreads.length]);
+  }, [onSelectedThreadChange, selectedThreadId, openThreads]);
 
   const hasContent =
     openThreads.length > 0 || !!pendingComment || resolvedThreads.length > 0;
@@ -343,7 +452,10 @@ export function CommentsSidebar({
           ? 0
           : 12;
     items.push({ thread, marginTop });
-    cursor += marginTop + 80 + (thread.comments.length - 1) * 44;
+    cursor +=
+      marginTop +
+      (threadCardHeights.get(thread.threadId) ??
+        estimateThreadCardHeight(thread));
   }
 
   const handleResolve = (thread: CommentThread) => {
@@ -352,7 +464,12 @@ export function CommentsSidebar({
       documentId,
       resolved: true,
     });
-    if (activeThreadId === thread.threadId) onActiveThreadChange?.(null);
+    if (selectedThreadId === thread.threadId) onSelectedThreadChange?.(null);
+    if (replyingThreadId === thread.threadId) {
+      setReplyingThreadId(null);
+      setReplyText("");
+      setReplyMentions([]);
+    }
   };
 
   const handleReopen = (thread: CommentThread) => {
@@ -364,12 +481,16 @@ export function CommentsSidebar({
   };
 
   return (
-    <div className="w-80 shrink-0 overflow-auto relative">
+    <div
+      ref={sidebarRef}
+      className="relative w-80 shrink-0 pb-16"
+      data-comments-sidebar
+    >
       {/* Pending new comment — positioned at the selection Y offset */}
       {pendingComment && (
         <div
           className="absolute left-2 right-4 rounded-lg bg-popover p-3 shadow-md ring-1 ring-border/50 z-10"
-          style={{ top: pendingComment.offsetTop }}
+          style={{ top: pendingOffset ?? pendingComment.offsetTop }}
         >
           <CommentComposer
             ref={pendingInputRef}
@@ -380,13 +501,8 @@ export function CommentsSidebar({
             onEscape={() => {
               if (!pendingText.trim()) handlePendingCancel();
             }}
-            onBlur={() => {
-              setTimeout(() => {
-                if (!pendingText.trim()) handlePendingCancel();
-              }, 200);
-            }}
             members={members}
-            placeholder="Add a comment…"
+            placeholder={t("comments.add")}
             autoFocus
           />
           <div className="flex justify-end gap-1 mt-1.5">
@@ -394,14 +510,14 @@ export function CommentsSidebar({
               onClick={handlePendingCancel}
               className="px-2.5 py-1 text-xs rounded-md text-muted-foreground hover:bg-accent"
             >
-              Cancel
+              {t("comments.cancel")}
             </button>
             <button
               onClick={handlePendingSubmit}
               disabled={!pendingText.trim()}
               className="px-2.5 py-1 text-xs font-medium rounded-md bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-40"
             >
-              Comment
+              {t("comments.submit")}
             </button>
           </div>
         </div>
@@ -414,29 +530,33 @@ export function CommentsSidebar({
           thread={thread}
           marginTop={marginTop}
           isActive={activeThreadId === thread.threadId}
-          isExpanded={expandedThread === thread.threadId}
-          replyText={expandedThread === thread.threadId ? replyText : ""}
+          isExpanded={replyingThreadId === thread.threadId}
+          replyText={replyingThreadId === thread.threadId ? replyText : ""}
           onHoverChange={(hovered) =>
-            onActiveThreadChange?.(hovered ? thread.threadId : null)
+            onHoveredThreadChange?.(hovered ? thread.threadId : null)
           }
           onExpand={() => {
-            setExpandedThread(
-              expandedThread === thread.threadId ? null : thread.threadId,
+            onSelectedThreadChange?.(thread.threadId);
+            setReplyingThreadId((current) =>
+              current === thread.threadId ? null : thread.threadId,
             );
             setReplyText("");
             setReplyMentions([]);
           }}
           onCollapse={() => {
-            setExpandedThread(null);
+            setReplyingThreadId(null);
+            onSelectedThreadChange?.(null);
             setReplyText("");
             setReplyMentions([]);
           }}
           onReplyChange={setReplyText}
           onReplyMentionAdd={(m) => setReplyMentions((prev) => [...prev, m])}
+          onHeightChange={handleThreadCardHeightChange}
           members={members}
           onSubmitReply={() => handleReply(thread.threadId)}
           onResolve={() => handleResolve(thread)}
           onSendToAI={() => handleSendToAI(thread)}
+          t={t}
         />
       ))}
 
@@ -451,7 +571,7 @@ export function CommentsSidebar({
               size={14}
               className={showResolved ? "" : "-rotate-90 transition-transform"}
             />
-            Resolved ({resolvedThreads.length})
+            {t("comments.resolved", { count: resolvedThreads.length })}
           </button>
           {showResolved && (
             <div className="mt-1.5 space-y-1.5">
@@ -460,6 +580,7 @@ export function CommentsSidebar({
                   key={thread.threadId}
                   thread={thread}
                   onReopen={() => handleReopen(thread)}
+                  t={t}
                 />
               ))}
             </div>
@@ -482,9 +603,11 @@ function ThreadView({
   onCollapse,
   onReplyChange,
   onReplyMentionAdd,
+  onHeightChange,
   onSubmitReply,
   onResolve,
   onSendToAI,
+  t,
 }: {
   thread: CommentThread;
   marginTop: number;
@@ -497,11 +620,14 @@ function ThreadView({
   onCollapse: () => void;
   onReplyChange: (text: string) => void;
   onReplyMentionAdd: (entry: MentionEntry) => void;
+  onHeightChange: (threadId: string, height: number) => void;
   onSubmitReply: () => void;
   onResolve: () => void;
   onSendToAI: () => void;
+  t: ReturnType<typeof useT>;
 }) {
   const replyInputRef = useRef<HTMLTextAreaElement>(null);
+  const cardRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (isExpanded) {
@@ -509,8 +635,22 @@ function ThreadView({
     }
   }, [isExpanded]);
 
+  useEffect(() => {
+    const element = cardRef.current;
+    if (!element) return;
+    const updateHeight = () => {
+      onHeightChange(thread.threadId, element.getBoundingClientRect().height);
+    };
+    updateHeight();
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(updateHeight);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [onHeightChange, thread.threadId]);
+
   return (
     <div
+      ref={cardRef}
       data-thread-card={thread.threadId}
       className={`group/thread mx-2 mr-4 rounded-lg bg-popover shadow-md cursor-pointer transition-shadow ${
         isActive
@@ -537,7 +677,7 @@ function ThreadView({
                 <IconMessageCircle size={14} />
               </button>
             </TooltipTrigger>
-            <TooltipContent>Ask AI</TooltipContent>
+            <TooltipContent>{t("comments.askAi")}</TooltipContent>
           </Tooltip>
           <Tooltip>
             <TooltipTrigger asChild>
@@ -551,7 +691,7 @@ function ThreadView({
                 <IconCheck size={14} />
               </button>
             </TooltipTrigger>
-            <TooltipContent>Resolve</TooltipContent>
+            <TooltipContent>{t("comments.resolve")}</TooltipContent>
           </Tooltip>
         </div>
 
@@ -579,7 +719,7 @@ function ThreadView({
         ))}
       </div>
 
-      {/* Expanded: Notion-style reply input — collapses on blur */}
+      {/* Expanded: Notion-style reply input */}
       {isExpanded && (
         <div
           className="flex items-center gap-2 px-3 pb-3 pt-1"
@@ -603,13 +743,8 @@ function ThreadView({
               onMentionAdd={onReplyMentionAdd}
               onSubmit={onSubmitReply}
               onEscape={onCollapse}
-              onBlur={() => {
-                setTimeout(() => {
-                  if (!replyText.trim()) onCollapse();
-                }, 200);
-              }}
               members={members}
-              placeholder="Reply…"
+              placeholder={t("comments.reply")}
               rows={1}
               className="w-full resize-none bg-transparent text-sm placeholder:text-muted-foreground/50 focus:outline-none pr-16"
             />
@@ -632,9 +767,11 @@ function ThreadView({
 function ResolvedThreadView({
   thread,
   onReopen,
+  t,
 }: {
   thread: CommentThread;
   onReopen: () => void;
+  t: ReturnType<typeof useT>;
 }) {
   const first = thread.comments[0];
   return (
@@ -663,7 +800,7 @@ function ResolvedThreadView({
               <IconArrowBackUp size={14} />
             </button>
           </TooltipTrigger>
-          <TooltipContent>Reopen</TooltipContent>
+          <TooltipContent>{t("comments.reopen")}</TooltipContent>
         </Tooltip>
       </div>
     </div>

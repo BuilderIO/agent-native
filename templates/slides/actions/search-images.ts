@@ -1,4 +1,5 @@
 import { defineAction } from "@agent-native/core";
+import { resolveSecret } from "@agent-native/core/server";
 import { z } from "zod";
 
 export default defineAction({
@@ -13,12 +14,14 @@ export default defineAction({
       throw new Error("Missing query parameter 'q'");
     }
 
-    const apiKey = process.env.GOOGLE_API_KEY;
-    const cx = process.env.GOOGLE_SEARCH_CX;
+    const [apiKey, cx] = await Promise.all([
+      resolveSecret("GOOGLE_API_KEY"),
+      resolveSecret("GOOGLE_SEARCH_CX"),
+    ]);
 
     if (!apiKey || !cx) {
       throw new Error(
-        "Google Search not configured. Set GOOGLE_API_KEY and GOOGLE_SEARCH_CX environment variables.",
+        "Google Search not configured. Save GOOGLE_API_KEY and GOOGLE_SEARCH_CX in settings.",
       );
     }
 

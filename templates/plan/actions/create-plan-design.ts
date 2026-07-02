@@ -5,19 +5,20 @@ import {
   getRequestUserName,
 } from "@agent-native/core/server/request-context";
 import { z } from "zod";
+
 import { getDb, schema } from "../server/db/index.js";
-import {
-  createPlanDesignContent,
-  normalizePlanDesignContent,
-  serializePlanContent,
-} from "../server/plan-content.js";
+import { assertGuestCreateWithinLimits } from "../server/lib/guest-abuse.js";
 import {
   isLocalPlanRuntime,
   resolvePlanOrgIdForWrite,
   requirePlanOwnerEmailForWrite,
 } from "../server/lib/local-identity.js";
-import { assertGuestCreateWithinLimits } from "../server/lib/guest-abuse.js";
 import { writePlanLocalFiles } from "../server/lib/local-plan-files.js";
+import {
+  createPlanDesignContent,
+  normalizePlanDesignContent,
+  serializePlanContent,
+} from "../server/plan-content.js";
 import {
   buildPlanHtml,
   commentInputSchema,
@@ -101,7 +102,7 @@ const designContextRecordSchema = z.record(z.string(), z.unknown()).refine(
 
 export default defineAction({
   description:
-    "Create a full-fidelity branded design plan with a Design tab (Figma-style canvas) and optional Prototype tab. For a document-first plan use create-visual-plan; for a wireframe-canvas plan use create-ui-plan; for a recap of an existing diff use create-visual-recap; for a functional prototype use create-prototype-plan. Use design.md, .fig brand kits, and codebase CSS/Tailwind/token evidence when available. Design screens are bounded HTML/CSS fragments with data-design-id targets. Publish via this tool; never deliver the plan as inline chat text.",
+    "Create a full-fidelity branded design plan with a Design tab (editable design canvas) and optional Prototype tab. For a document-first plan use create-visual-plan; for a wireframe-canvas plan use create-ui-plan; for a recap of an existing diff use create-visual-recap; for a functional prototype use create-prototype-plan. Use design.md, .fig brand kits, and codebase CSS/Tailwind/token evidence when available. Design screens are bounded HTML/CSS fragments with data-design-id targets. Publish via this tool; never deliver the plan as inline chat text.",
   schema: z
     .object({
       title: z.string().optional().describe("Short design plan title"),
@@ -199,7 +200,7 @@ export default defineAction({
         "Open the Agent-Native Plan design review surface for full-fidelity screens, prototype behavior, comments, and implementation notes.",
       iframeTitle: "Agent-Native Plan",
       openLabel: "Open Plan Design",
-      height: 860,
+      height: 900,
     }),
   },
   run: async (args) => {

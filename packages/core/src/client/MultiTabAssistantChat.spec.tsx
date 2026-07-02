@@ -3,14 +3,17 @@
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+import {
+  requestAgentChatThreadOpen,
+  requestAgentTaskOpen,
+  sendToAgentChat,
+  _resetAgentChatSubmitBufferForTests,
+} from "./agent-chat.js";
 import {
   MultiTabAssistantChat,
   type MultiTabAssistantChatHeaderProps,
 } from "./MultiTabAssistantChat.js";
-import {
-  sendToAgentChat,
-  _resetAgentChatSubmitBufferForTests,
-} from "./agent-chat.js";
 
 const chatHandleMocks = vi.hoisted(() => ({
   sendMessage: vi.fn(),
@@ -122,7 +125,10 @@ vi.mock("./AssistantChat.js", async () => {
       _props: unknown,
       ref,
     ) {
-      const props = _props as { composerSlot?: React.ReactNode };
+      const props = _props as {
+        composerSlot?: React.ReactNode;
+        emptyStateAddon?: React.ReactNode;
+      };
       React.useImperativeHandle(ref, () => ({
         sendMessage: chatHandleMocks.sendMessage,
         prefillMessage: chatHandleMocks.prefillMessage,
@@ -135,7 +141,12 @@ vi.mock("./AssistantChat.js", async () => {
         focusComposer: chatHandleMocks.focusComposer,
         exportThreadSnapshot: chatHandleMocks.exportThreadSnapshot,
       }));
-      return <div data-testid="assistant-chat">{props.composerSlot}</div>;
+      return (
+        <div data-testid="assistant-chat">
+          {props.emptyStateAddon}
+          {props.composerSlot}
+        </div>
+      );
     }),
   };
 });
@@ -289,6 +300,7 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
   });
 
   it("adds keyed context to the active composer without prefill or submit", () => {
+    const dispatchEventSpy = vi.spyOn(window, "dispatchEvent");
     act(() => {
       window.dispatchEvent(
         new MessageEvent("message", {
@@ -305,11 +317,93 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
       );
     });
 
-    expect(chatHandleMocks.setComposerContextItem).toHaveBeenCalledWith({
-      key: "selected-element",
-      title: "Selected Element",
-      context: "<button>Buy</button>",
+    expect(
+      dispatchEventSpy.mock.calls.some(
+        ([event]) => event.type === "agent-panel:open",
+      ),
+    ).toBe(true);
+    expect(chatHandleMocks.setComposerContextItem).toHaveBeenCalledWith(
+      {
+        key: "selected-element",
+        title: "Selected Element",
+        context: "<button>Buy</button>",
+      },
+      { focus: true },
+    );
+    expect(chatHandleMocks.sendMessage).not.toHaveBeenCalled();
+    expect(chatHandleMocks.prefillMessage).not.toHaveBeenCalled();
+    dispatchEventSpy.mockRestore();
+  });
+
+  it("stages keyed context quietly when openSidebar is false", () => {
+    const dispatchEventSpy = vi.spyOn(window, "dispatchEvent");
+    act(() => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          data: {
+            type: "agentNative.setChatContext",
+            data: {
+              key: "selected-element",
+              title: "Selected Element",
+              context: "<button>Buy</button>",
+              openSidebar: false,
+            },
+          },
+          origin: window.location.origin,
+        }),
+      );
     });
+
+    expect(
+      dispatchEventSpy.mock.calls.some(
+        ([event]) => event.type === "agent-panel:open",
+      ),
+    ).toBe(false);
+    // openSidebar:false keeps the sidebar closed, but focus is independent —
+    // by default staging still focuses the composer (unchanged behavior).
+    expect(chatHandleMocks.setComposerContextItem).toHaveBeenCalledWith(
+      {
+        key: "selected-element",
+        title: "Selected Element",
+        context: "<button>Buy</button>",
+      },
+      { focus: true },
+    );
+    expect(chatHandleMocks.sendMessage).not.toHaveBeenCalled();
+    expect(chatHandleMocks.prefillMessage).not.toHaveBeenCalled();
+    dispatchEventSpy.mockRestore();
+  });
+
+  it("stages keyed context without focus when focus is false", () => {
+    // Passive context mirroring (e.g. a canvas element selection) must stage
+    // the chip without stealing focus, so an in-progress inline text editor in
+    // the design canvas iframe is not blurred and torn down.
+    act(() => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          data: {
+            type: "agentNative.setChatContext",
+            data: {
+              key: "selected-element",
+              title: "Selected Element",
+              context: "<button>Buy</button>",
+              openSidebar: false,
+              focus: false,
+            },
+          },
+          origin: window.location.origin,
+        }),
+      );
+    });
+
+    expect(chatHandleMocks.setComposerContextItem).toHaveBeenCalledWith(
+      {
+        key: "selected-element",
+        title: "Selected Element",
+        context: "<button>Buy</button>",
+      },
+      { focus: false },
+    );
     expect(chatHandleMocks.sendMessage).not.toHaveBeenCalled();
     expect(chatHandleMocks.prefillMessage).not.toHaveBeenCalled();
   });
@@ -475,6 +569,75 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
     expect(badges).toHaveLength(1);
     expect(badges[0]?.textContent).toContain("Using this form");
     expect(composerChildren).toEqual([hostSlot, badges[0]]);
+  });
+
+  it("can hide the scoped context composer tab", async () => {
+    threadMocks.threads = [
+      {
+        ...threadMocks.threads[0],
+        scope: { type: "design", id: "design-1" },
+      },
+    ];
+
+    await act(async () => {
+      root.render(
+        <MultiTabAssistantChat
+          storageKey="bridge-test"
+          scope={{ type: "design", id: "design-1" }}
+          showScopeBadge={false}
+          composerSlot={<div data-testid="host-composer-slot">Host slot</div>}
+        />,
+      );
+    });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(
+      container.querySelectorAll(".agent-scope-badge-wrapper"),
+    ).toHaveLength(0);
+    expect(
+      container.querySelector("[data-testid='host-composer-slot']"),
+    ).not.toBeNull();
+  });
+
+  it("keeps previous scoped chats out of the empty chat state", async () => {
+    const now = Date.now();
+    threadMocks.threads = [
+      {
+        ...threadMocks.threads[0],
+        scope: { type: "form", id: "form-1" },
+        messageCount: 0,
+        updatedAt: now,
+      },
+      {
+        id: "thread-2",
+        title: "Older form chat",
+        preview: "",
+        messageCount: 1,
+        createdAt: now - 1000,
+        updatedAt: now - 1000,
+        scope: { type: "form", id: "form-1" },
+      },
+    ];
+
+    await act(async () => {
+      root.render(
+        <MultiTabAssistantChat
+          storageKey="bridge-test"
+          scope={{ type: "form", id: "form-1" }}
+        />,
+      );
+    });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(container.textContent).toContain("Using this form");
+    expect(container.textContent).toContain("Older form chat");
+    expect(container.textContent).not.toContain("Previous chats for this form");
   });
 
   it("syncs selected and new chat states to the URL when enabled", async () => {
@@ -774,6 +937,98 @@ describe("MultiTabAssistantChat cold-start delivery (Mode B)", () => {
     expect(chatHandleMocks.sendMessage).toHaveBeenCalledWith(
       "Once only",
       undefined,
+    );
+  });
+
+  it("replays an open-thread request sent before the lazy panel mounted", async () => {
+    threadMocks.threads = [
+      ...threadMocks.threads,
+      {
+        id: "thread-2",
+        title: "Run thread",
+        preview: "",
+        messageCount: 1,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+        scope: null,
+      },
+    ];
+
+    act(() => {
+      requestAgentChatThreadOpen({ threadId: "thread-2" });
+    });
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(threadMocks.switchThread).not.toHaveBeenCalled();
+
+    await act(async () => {
+      root.render(<MultiTabAssistantChat storageKey="mode-b" />);
+    });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(threadMocks.switchThread).toHaveBeenCalledWith("thread-2");
+  });
+
+  it("replays an agent-task open request sent before the lazy panel mounted", async () => {
+    let tabs: Array<{
+      id: string;
+      parentThreadId?: string;
+      subAgentName?: string;
+    }> = [];
+    threadMocks.threads = [
+      ...threadMocks.threads,
+      {
+        id: "thread-child",
+        title: "Research child",
+        preview: "",
+        messageCount: 1,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+        scope: null,
+      },
+    ];
+
+    act(() => {
+      requestAgentTaskOpen({
+        threadId: "thread-child",
+        parentThreadId: "thread-1",
+        name: "Research",
+      });
+    });
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(threadMocks.switchThread).not.toHaveBeenCalled();
+
+    await act(async () => {
+      root.render(
+        <MultiTabAssistantChat
+          storageKey="mode-b"
+          renderHeader={(props) => {
+            tabs = props.tabs;
+            return null;
+          }}
+        />,
+      );
+    });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(threadMocks.switchThread).toHaveBeenCalledWith("thread-child");
+    expect(tabs).toContainEqual(
+      expect.objectContaining({
+        id: "thread-child",
+        parentThreadId: "thread-1",
+        subAgentName: "Research",
+      }),
     );
   });
 });

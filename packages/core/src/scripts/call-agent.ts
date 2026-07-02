@@ -1,20 +1,26 @@
-import type { ActionTool } from "../agent/types.js";
-import type { ActionRunContext } from "../agent/production-agent.js";
 import { createHash } from "node:crypto";
-import { findAgent, discoverAgents } from "../server/agent-discovery.js";
-import { A2ATaskTimeoutError, callAgent, signA2AToken } from "../a2a/client.js";
-import { A2A_CONTINUATION_QUEUED_MARKER } from "../integrations/a2a-continuation-marker.js";
+
+import {
+  A2ATaskTimeoutError,
+  callAgent,
+  shouldPreferGlobalA2ASecret,
+  signA2AToken,
+} from "../a2a/client.js";
 import {
   formatLlmCredentialErrorMessage,
   isLlmCredentialError,
 } from "../agent/engine/credential-errors.js";
+import type { ActionRunContext } from "../agent/production-agent.js";
+import type { ActionTool } from "../agent/types.js";
+import { A2A_CONTINUATION_QUEUED_MARKER } from "../integrations/a2a-continuation-marker.js";
+import { getOrgDomain, getOrgA2ASecret } from "../org/context.js";
+import { findAgent, discoverAgents } from "../server/agent-discovery.js";
 import {
   getRequestUserEmail,
   getRequestOrgId,
   isIntegrationCallerRequest,
   getIntegrationRequestContext,
 } from "../server/request-context.js";
-import { getOrgDomain, getOrgA2ASecret } from "../org/context.js";
 
 const DEFAULT_SERVERLESS_INTEGRATION_A2A_TIMEOUT_MS = 18_000;
 const NETLIFY_INTEGRATION_A2A_TIMEOUT_MS = 2_000;
@@ -161,7 +167,7 @@ export async function run(
             callerOrgSecret,
             {
               expiresIn: INTEGRATION_A2A_TOKEN_TTL,
-              preferGlobalSecret: !callerOrgSecret,
+              preferGlobalSecret: shouldPreferGlobalA2ASecret(callerOrgSecret),
             },
           );
         } catch {}
@@ -433,7 +439,7 @@ export function expandRelativeUrls(text: string, agentUrl: string): string {
   // Path must start at boundary (start, whitespace, or punctuation that isn't
   // ':' — to avoid mangling `https://example.com/foo` or markdown link bodies).
   return text.replace(
-    /(^|[\s(\[<"'`])(\/[a-z0-9_-][a-z0-9_/?&=%#.,:-]*)/gi,
+    /(^|[\s([<"'`])(\/[a-z0-9_-][a-z0-9_/?&=%#.,:-]*)/gi,
     (_match, lead, path) => `${lead}${base}${path}`,
   );
 }

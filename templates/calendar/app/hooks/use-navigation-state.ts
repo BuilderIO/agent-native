@@ -1,11 +1,12 @@
-import { useRef } from "react";
 import { useAgentRouteState, callAction } from "@agent-native/core/client";
+import { agentNativePath } from "@agent-native/core/client";
+import type { CalendarEvent, CalendarEventDraft } from "@shared/api";
+import { useRef } from "react";
+
 import {
   useCalendarContext,
   type ViewMode,
 } from "@/components/layout/AppLayout";
-import type { CalendarEvent, CalendarEventDraft } from "@shared/api";
-import { agentNativePath } from "@agent-native/core/client";
 
 interface NavigationState {
   view: string;

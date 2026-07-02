@@ -1,4 +1,3 @@
-import { useMemo, useRef, useState, type ReactNode } from "react";
 import {
   IconBuilding,
   IconUserPlus,
@@ -20,6 +19,16 @@ import {
   IconPlus,
   IconAlertTriangle,
 } from "@tabler/icons-react";
+import { useMemo, useRef, useState, type ReactNode } from "react";
+
+import type { DomainMatchOrg } from "../../org/types.js";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "../components/ui/tooltip.js";
+import { useT } from "../i18n.js";
 import {
   useOrg,
   useOrgMembers,
@@ -38,14 +47,6 @@ import {
   type InviteRole,
   type SyncA2ASecretResult,
 } from "./hooks.js";
-import type { DomainMatchOrg } from "../../org/types.js";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "../components/ui/tooltip.js";
-import { useT } from "../i18n.js";
 
 export interface TeamPageProps {
   /**
@@ -57,6 +58,11 @@ export interface TeamPageProps {
    * Title shown at the top of the page. Defaults to "Team".
    */
   title?: string;
+  /**
+   * Hide the page title when this is rendered inside another titled surface,
+   * such as the Settings > Team tab.
+   */
+  showTitle?: boolean;
   /**
    * Description shown on the "Create an Organization" card. Defaults to
    * "Set up a team to collaborate with your colleagues."
@@ -1259,6 +1265,7 @@ function A2ASecretSection({ secret }: { secret: string | null | undefined }) {
 export function TeamPage({
   layout,
   title,
+  showTitle = true,
   createOrgDescription,
   className,
 }: TeamPageProps) {
@@ -1267,9 +1274,11 @@ export function TeamPage({
 
   const content = (
     <div className={`space-y-6 max-w-2xl ${className ?? ""}`}>
-      <h2 className="text-2xl font-bold tracking-tight">
-        {title ?? t("org.team")}
-      </h2>
+      {showTitle ? (
+        <h2 className="text-2xl font-bold tracking-tight">
+          {title ?? t("org.team")}
+        </h2>
+      ) : null}
 
       {isLoading && (
         <section className="rounded-lg border border-border bg-card p-6">

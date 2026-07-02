@@ -18,6 +18,61 @@
   const ALL_PARTS: OverlayPart[] = ["bubble", "countdown", "toolbar", "saving"];
   const flags = window as unknown as { __clipsOverlayHostReady?: boolean };
 
+  function errorPayload(error: unknown): {
+    name: string;
+    message: string;
+    stack?: string;
+  } {
+    if (error instanceof Error) {
+      return {
+        name: error.name || "Error",
+        message: error.message || "Unknown content-script error",
+        stack: error.stack,
+      };
+    }
+    return {
+      name: "Error",
+      message: String(error ?? "Unknown content-script error"),
+    };
+  }
+
+  function reportContentScriptError(
+    error: unknown,
+    context: Record<string, unknown> = {},
+  ): void {
+    try {
+      chrome.runtime.sendMessage(
+        {
+          type: "CLIPS_EXTENSION_ERROR",
+          surface: "content-script",
+          ...errorPayload(error),
+          context: {
+            ...context,
+            pageUrl: location.href,
+          },
+        },
+        () => void chrome.runtime.lastError,
+      );
+    } catch {
+      /* background unavailable */
+    }
+  }
+
+  window.addEventListener("error", (event) => {
+    reportContentScriptError(event.error || event.message, {
+      mechanism: "global-error",
+      filename: event.filename,
+      lineno: event.lineno,
+      colno: event.colno,
+    });
+  });
+
+  window.addEventListener("unhandledrejection", (event) => {
+    reportContentScriptError(event.reason, {
+      mechanism: "unhandled-rejection",
+    });
+  });
+
   // ----- Draggable, resizable camera bubble ---------------------------------
   // Size + position persist in storage so the bubble stays where the user put it
   // across pages and recordings (like the desktop app). The iframe can't move or
@@ -140,19 +195,31 @@
 
   window.addEventListener("resize", () => applyBubbleGeom());
 
-  function requestState(): void {
+  function readCurrentParts(
+    callback: (parts: OverlayPart[] | null) => void,
+  ): void {
     try {
       chrome.runtime.sendMessage(
         { type: "CLIPS_CONTENT_HELLO" },
         (response) => {
-          if (chrome.runtime.lastError) return;
+          if (chrome.runtime.lastError) {
+            callback(null);
+            return;
+          }
           const parts = (response as { parts?: unknown } | undefined)?.parts;
-          reconcile(Array.isArray(parts) ? (parts as OverlayPart[]) : []);
+          callback(Array.isArray(parts) ? (parts as OverlayPart[]) : []);
         },
       );
     } catch {
-      /* worker asleep; will resync on next message */
+      callback(null);
     }
+  }
+
+  function requestState(): void {
+    readCurrentParts((parts) => {
+      if (parts) reconcile(parts);
+      /* worker asleep; will resync on next message */
+    });
   }
 
   // Only wake the service worker (via requestState) when a recording is actually
@@ -341,14 +408,23 @@
   function mountDeferredCountdown(): void {
     countdownDeferred = false;
     clearTimeout(countdownFallbackTimer);
-    hideConnecting();
-    setBubbleHidden(false);
-    const container = document.getElementById(
-      CONTAINER_ID,
-    ) as HTMLDivElement | null;
-    if (container && !document.getElementById(partFrameId("countdown"))) {
-      mountPart(container, "countdown");
-    }
+    readCurrentParts((parts) => {
+      if (!parts?.includes("countdown")) {
+        hideConnecting();
+        setBubbleHidden(false);
+        if (parts) reconcile(parts);
+        return;
+      }
+
+      hideConnecting();
+      setBubbleHidden(false);
+      const container = document.getElementById(
+        CONTAINER_ID,
+      ) as HTMLDivElement | null;
+      if (container && !document.getElementById(partFrameId("countdown"))) {
+        mountPart(container, "countdown");
+      }
+    });
   }
 
   function reconcile(parts: OverlayPart[]): void {
@@ -436,6 +512,11 @@
     if (data.kind === "camera-ready") {
       cameraReady = true;
       if (countdownDeferred) mountDeferredCountdown();
+      return;
+    }
+    if (data.kind === "countdown-finished") {
+      document.getElementById(partFrameId("countdown"))?.remove();
+      hideConnecting();
       return;
     }
     if (data.kind === "bubble-drag-start") {

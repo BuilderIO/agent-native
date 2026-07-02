@@ -1,0 +1,271 @@
+---
+title: "MCP 앱"
+description: "실제 앱 경로, 포함 브리지 및 호스트 브리지 API를 사용하여 Claude, ChatGPT 및 기타 호환 호스트 내에 대화형 MCP 앱 UI를 작성하고 포함합니다."
+---
+
+# MCP 앱
+
+**이 페이지: Claude/ChatGPT의 인라인 UI.** 호환되는 호스트 채팅 내에서 실제 앱 경로를 렌더링하는 MCP 앱 리소스 및 포함 브리지를 작성합니다. 이 페이지는 **클라이언트 지원 매트릭스**([below](#client-support))의 단일 홈이기도 합니다.
+
+| 원한다면...                                             | 읽기                                     |
+| ------------------------------------------------------- | ---------------------------------------- |
+| 외부 에이전트/호스트를 앱에 연결                        | [External Agents](/docs/external-agents) |
+| 에이전트에게 더 많은 도구 제공(다른 MCP 서버 사용)      | [MCP Clients](/docs/mcp-clients)         |
+| Claude/ChatGPT에서 렌더링되는 인라인 UI 빌드            | **이 페이지** — MCP 앱                   |
+| 하위 수준 MCP 서버 참조(인증, 도구, 사용자 정의 마운트) | [MCP Protocol](/docs/mcp-protocol)       |
+
+MCP 앱은 호환 호스트(Claude, Claude Desktop, ChatGPT, VS Code GitHub Copilot, Goose, Postman, MCPJam 및 Cursor)가 채팅에서 대화형 UI를 인라인으로 렌더링할 수 있게 해주는 공식 `io.modelcontextprotocol/ui` 확장입니다. 에이전트 기반 앱에서 모든 MCP 앱은 별도의 일반 HTML 위젯이 아닌 **실제 React 경로**입니다.
+
+Agent-Native 앱의 자체 채팅 내에서 표, 차트, 입력된 결과 및 승인 어포던스와 같은 자사 위젯에 대해 [native chat renderers](/docs/native-chat-ui)를 선호합니다. Claude, ChatGPT, Copilot, Cursor 및 기타 호환 호스트의 외부/교차 호스트 인라인 UI용 MCP 앱을 범용 딥 링크 폴백으로 `link` 작업과 함께 사용하세요.
+
+## 작성: 선택적 MCP 앱 UI {#mcp-apps}
+
+MCP 앱 확장을 지원하는 호스트의 경우 작업은 `mcpApp`를 사용하여 인라인 UI 리소스를 광고할 수도 있습니다. 이는 외부 에이전트가 사용자에게 텍스트만 제공하는 대신 대화형 화면을 제공해야 하는 흐름에 대한 점진적인 개선 사항입니다. 예를 들어 이메일 초안 검토, 캘린더 초대 편집, 생성된 대시보드 변형 중에서 선택 등이 있습니다.
+
+사용자가 UI가 필요할 때마다 `embedRoute()` 또는 `embedApp()`와 함께 실제 React 앱을 사용하세요. 정신 모델은 간단합니다. 작업의 `link` 대상은 MCP 앱 삽입 대상이기도 합니다. 작업을 일반 작업/도구로 노출하고, `link`를 사용하여 집중된 딥 링크를 반환하고, `mcpApp.resource = embedApp(...)`를 추가하여 유능한 호스트가 새 탭을 여는 대신 동일한 경로를 인라인으로 로드하도록 합니다. 둘 다 동일한 경로에서 빌드해야 하는 경우 `embedRoute({ title, openLabel, path })`를 선호하세요. 이는 한 번의 호출에서 일치하는 `link` 및 `mcpApp` 필드를 반환하는 편리한 래퍼인 반면, `embedApp(...)`는 `mcpApp.resource`에 직접 할당하는 하위 수준 리소스입니다.
+
+이는 경로가 열리면 이메일 초안 검토 또는 편집, 필터링된 받은 편지함/검색 표시, 달력 이벤트 또는 이벤트 초안 열기, 확장 페이지 로드, 전체 분석 대시보드 또는 저장된 분석 검사, 슬라이드 편집기에서 데크 계속하기, 디자인 프로젝트/편집기 열기 등 경로가 열리면 할 수 있는 모든 작업을 전체 앱 삽입으로 수행할 수 있음을 의미합니다. MCP 앱을 위한 두 번째 상태 프로토콜을 개발하는 것보다 URL/딥 링크 매개변수와 기존 `/_agent-native/open` 탐색/앱 상태 브리지를 선호하세요.
+
+드물게 올바른 대상은 전체 앱 셸 대신 하나의 공유 React 구성 요소를 렌더링하는 집중된 앱 경로입니다. Analytics의 `/chart` 경로가 모델입니다. URL에서 컴팩트한 `SqlPanel` 페이로드를 가져와 대시보드에서 사용하는 것과 동일한 차트 구성 요소를 렌더링합니다. 이것은 여전히 ​​일반 HTML MCP 앱이 아닌 앱 삽입입니다. 일반 작업/`open_app({ path, embed: true })`를 통해 이를 노출하거나 호출하고, URL를 결정적으로 유지하고, `embedApp()`가 해당 경로를 인라인으로 렌더링하도록 합니다.
+
+제품 UI에 대한 일회성 일반 HTML MCP 앱을 직접 작성하지 마세요. 작업에 맞춤 표면이 필요한 경우 먼저 실제 앱 경로/구성요소를 추가하거나 재사용하고 해당 경로를 삽입하세요.
+
+<Diagram id="doc-block-9m5f26" title={"MCP 앱 삽입 왕복"} summary={"작업의 링크 대상도 포함 대상입니다. 가능한 호스트는 동일한 서명된 앱 경로를 인라인으로 로드합니다. 다른 모든 사람들은 딥 링크로 돌아갑니다."}>
+
+```html
+<div class="diagram-embed">
+  <div class="diagram-card" data-rough>
+    <strong>Action</strong
+    ><small class="diagram-muted">`link` target = MCP App embed target</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-card" data-rough>
+    <strong>embedApp()</strong
+    ><span class="diagram-pill accent">create_embed_session</span
+    ><small class="diagram-muted">mints short-lived embed session</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-card" data-rough>
+    <strong>/_agent-native/embed/start</strong
+    ><small class="diagram-muted">일회용 SQL ticket 교환</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-card" data-rough>
+    <strong>Signed app route</strong
+    ><span class="diagram-pill ok">실제 React 라우트</span
+    ><small class="diagram-muted">short-lived browser session</small>
+  </div>
+  <div class="diagram-fallback">
+    <span class="diagram-pill warn">MCP Apps 미지원</span>
+    <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
+    <div class="diagram-box" data-rough>
+      &quot;Open in … &rarr;&quot; deep link
+    </div>
+  </div>
+</div>
+```
+
+```css
+.diagram-embed {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-embed .diagram-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 14px 16px;
+  min-width: 140px;
+}
+.diagram-embed .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+.diagram-embed .diagram-fallback {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  margin-inline-start: 8px;
+}
+```
+
+</Diagram>
+
+```ts
+import { embedApp } from "@agent-native/core";
+
+export default defineAction({
+  // ...description, schema, run, link...
+  mcpApp: {
+    resource: embedApp({
+      title: "Review draft",
+      description: "Open the generated draft in the real Mail compose UI.",
+      iframeTitle: "Agent-Native Mail",
+      openLabel: "Open in Mail",
+    }),
+  },
+});
+```
+
+<AnnotatedCode
+  id="doc-block-1gmjpde"
+  title={"mcpApp 리소스 구성"}
+  filename="actions/review-draft.ts"
+  language="ts"
+  code={
+    'import { embedApp } from "@agent-native/core";\n\nexport default defineAction({\n  // ...description, schema, run, link...\n  mcpApp: {\n    resource: embedApp({\n      title: "Review draft",\n      description: "Open the generated draft in the real Mail compose UI.",\n      iframeTitle: "Agent-Native Mail",\n      openLabel: "Open in Mail",\n    }),\n  },\n});'
+  }
+  annotations={[
+    {
+      lines: "6",
+      label: "점진적인 향상",
+      note: "`mcpApp.resource`은 MCP 앱 확장을 지원하는 호스트에 대한 인라인 UI를 광고합니다. 작업의 `link` 빌더도 유지하세요. CLI만 있고 오래된 호스트는 UI 메타데이터를 무시하고 여전히 딥 링크가 필요합니다.",
+    },
+    {
+      lines: "7",
+      label: "Embed = the link target",
+      note: "`embedApp()` uses the action's `link` as its launch target: it calls `create_embed_session`, exchanges a one-time SQL ticket at `/_agent-native/embed/start`, and navigates the MCP App frame to the same signed app route.",
+    },
+    {
+      lines: "11",
+      label: "범용 대체 라벨",
+      note: '`openLabel`은 호스트가 인라인 iframe을 렌더링하지 않을 때 딥 링크 탈출구로 쓰이는 표시 텍스트 `"Open in … →"`입니다.',
+    },
+  ]}
+/>
+
+MCP 서버는 확장 `io.modelcontextprotocol/ui`를 광고하고, `_meta.ui.resourceUri`와 `_meta["ui/resourceUri"]`를 `tools/list`에 추가하고, ChatGPT 앱 SDK 호환성 메타데이터(`openai/outputTemplate`, 위젯 CSP/설명/접근성)도 내보냅니다. MIME `text/html;profile=mcp-app`를 사용하여 `resources/list`, `resources/templates/list` 및 `resources/read`를 통해 HTML를 노출합니다. stdio 프록시는 라이브 앱에서 해당 리소스 핸들러를 전달하므로 데스크톱 및 CLI 클라이언트는 HTTP 클라이언트와 동일한 리소스를 볼 수 있습니다.
+
+`mcpApp`를 추가하는 경우에도 기존 `link` 빌더를 유지합니다. CLI 전용 클라이언트, 이전 호스트 및 MCP 앱을 렌더링하지 않는 모든 호스트는 UI 메타데이터를 무시하고 여전히 `"Open in … →"` 링크가 필요합니다. `embedApp()`는 해당 링크를 실행 대상으로 사용하고, 앱 전용 `create_embed_session` 도우미를 호출하고, `/_agent-native/embed/start`에서 일회성 SQL 티켓을 교환하고, 단기 브라우저 세션과 동일 출처 가져오기에 대한 베어러 폴백을 통해 MCP 앱 프레임을 대상 경로로 이동합니다. `open_app({ app, path, embed: true })`는 전체 대시보드, 필터링된 받은 편지함, 일정 초안 보기, 분석 및 확장 페이지와 같은 경로를 위한 일반적인 탈출구이며 전체 앱이 가장 명확한 검토/편집 표면일 때 자유롭게 사용해야 합니다.
+
+`embedApp()`에는 리소스 CSP에 MCP 요청 원본이 포함되어 있으므로 런처가 명시적으로 요청하는 경우 서명된 자사 앱 경로를 가져오고 프레임화할 수 있습니다. Dispatch는 부여된 앱의 정확한 출처를 `open_app` 리소스에 추가하므로 단일 Dispatch 커넥터가 모든 HTTPS 출처를 허용하지 않고도 메일, 캘린더, 슬라이드 및 나머지 항목을 인라인할 수 있습니다. 실제로 타사 플레이어를 내장하거나 타사 자산을 로드하는 사용자 정의 MCP 앱에 대해서는 추가 프레임 또는 리소스 도메인만 전달하세요.
+
+`embedApp()` 경로 내에서 `sendToAgentChat()`는 내장을 인식합니다. 자동 제출된 프롬프트는 `ui/update-model-context` 및 `ui/message`로 MCP 호스트에 릴레이되므로 내장된 앱의 버튼은 의도적으로 선택한 앱 상태에서 Claude/ChatGPT 대화를 계속할 수 있습니다. 숨겨진 컨텍스트는 모델 컨텍스트로 전송됩니다. 표시되는 사용자 차례는 앱의 프롬프트만 유지하므로 내부 앱 상태 파일 경로에 대한 무서운 호스트 동의를 방지합니다. `submit: false`는 로컬 사전 채우기/검토 동작을 유지합니다.
+
+## 최고 수준의 MCP 앱 브리지 {#mcp-app-bridge}
+
+MCP 앱 임베드는 별도의 미니 제품이 아닌 경로 임베드입니다. `embedApp()`는 작업의 `link` 대상에서 시작하여 단기 포함 세션을 생성하고 서명된 앱 경로를 시작합니다. 표준 MCP 앱 호스트는 호스트가 경로를 직접 수화할 수 있는 경우 MCP 앱 프레임 자체를 탐색할 수 있습니다.
+
+<Diagram id="doc-block-1fvbryv" title={"호스트 브리지 경로 2개, 서명된 경로 1개"} summary={"Claude는 수화된 경로를 이식하고 직접 ui/_bridge을 사용합니다. ChatGPT은 window.openai를 통해 제어된 iframe을 가져오고 postMessage를 통해 호스트 작업을 중계합니다. 둘 다 동일한 서명된 앱 경로를 가리킵니다."}>
+
+```html
+<div class="diagram-bridge">
+  <div class="diagram-col">
+    <div class="diagram-card" data-rough>
+      <strong>Claude web</strong
+      ><span class="diagram-pill accent">single-frame transplant</span
+      ><small class="diagram-muted"
+        >Claude iframe에서 서명된 앱 HTML을 hydrate한 뒤 직접 `ui/_` 호스트
+        브리지</small
+      >
+    </div>
+    <div class="diagram-card" data-rough>
+      <strong>ChatGPT web</strong
+      ><span class="diagram-pill accent">controlled route iframe</span
+      ><small class="diagram-muted"
+        >`window.openai`host APIs ·`agentNative.mcpHost.*` postMessage
+        relay</small
+      >
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box" data-rough>
+    Same signed app route<br /><small class="diagram-muted"
+      >일반 라우트 + React 컴포넌트</small
+    >
+  </div>
+</div>
+```
+
+```css
+.diagram-bridge {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.diagram-bridge .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.diagram-bridge .diagram-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 14px 16px;
+  max-width: 300px;
+}
+.diagram-bridge .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+.diagram-bridge .diagram-box {
+  padding: 16px 18px;
+  text-align: center;
+}
+```
+
+</Diagram>
+
+Claude 웹은 단일 프레임 이식 경로를 사용합니다. 리소스 문서는 서명된 앱 HTML를 가져와 Claude의 MCP 앱 iframe 내에서 이를 수화합니다. 왜냐하면 Claude는 ​​앱 소유 하위 iframe 또는 외부 프레임 탐색을 안정적으로 허용하지 않기 때문입니다. ChatGPT 웹은 Apps 브리지가 안정적인 `window.openai` 호스트 API 및 제한된 높이 제어를 제공하기 때문에 제어된 경로 iframe을 얻습니다. 모든 경로는 동일한 서명된 앱 경로를 가리키며 일반 경로와 React 구성 요소를 렌더링합니다. 동일한 서명된 URL를 사용하여 다시 로드하면 동일한 뷰가 재구성되도록 포함된 경로를 설계합니다.
+
+동일 앱 `open_app({ embed: true })`의 경우 프레임워크는 원래 도구 호출 중에 포함 시작 티켓을 생성하고 서명된 시작 URL를 숨겨진 도구 메타데이터에 저장합니다. 사용자 정의 actions는 동일한 빠른 경로에 대해 `embedStartUrl`를 반환할 수 있습니다. MCP 레이어는 모델 표시 `structuredContent` 및 일반 오픈 링크 메타데이터에서 티켓 보유 URL를 제거합니다. 포함 시작 URL가 없으면 리소스는 앱 전용 `create_embed_session` 도우미로 대체됩니다. 이는 일회성 앱 세션 URL를 기록으로 유출하지 않고 직접 경로에서 iframe 시작 도구 호출을 제한하는 프로덕션 호스트를 유지합니다. 일회성 시작 티켓이 만료된 후 사용자가 이전 채팅을 다시 열면 시작 경로는 작은 새로 고침 페이지를 반환하고 `agentNative.embedSessionExpired`를 래퍼에 게시합니다. `embedApp()`는 오래된 시작 URL를 지우고 원래 앱 경로가 아직 남아 있으면 `create_embed_session`를 통해 새로운 티켓을 발행합니다.
+
+ChatGPT는 `window.openai`를 통해 전용 호환성 경로를 얻습니다. 시작 문서는 `toolInput`, `toolOutput` 및 `toolResponseMetadata`를 직접 읽은 다음 `window.openai.callTool(...)`를 통해 `create_embed_session`를 호출합니다. 표준 MCP 앱 호스트는 `ui/*` JSON-RPC 브리지를 사용합니다. 직접 수화된 경로는 호스트 브리지 헬퍼를 통해 `ui/update-model-context`, `ui/message`, `ui/open-link` 및 `ui/request-display-mode`를 호출할 수 있습니다. Claude의 이식된 경로는 수화 후 동일한 직접 `ui/*` 호스트 브리지를 사용합니다. ChatGPT 또는 명시적 진단 iframe 경로가 사용되는 경우 래퍼는 `agentNative.mcpHost.*` postMessage 요청을 통해 동일한 호스트 actions를 릴레이합니다. 두 경로 모두에 대해 결과 모양을 동일하게 유지합니다. 집중된 `link`와 간결하게 구조화된 콘텐츠를 반환합니다.
+
+표준 `_meta.ui.domain`를 앱 URL로 설정하지 마세요. MCP Apps는 해당 필드를 호스트별 필드로 처리합니다. Claude는 `{hash}.claudemcpcontent.com` 스타일 샌드박스 도메인의 유효성을 검사하는 반면, ChatGPT는 자체 `openai/widgetDomain` 메타데이터를 사용합니다. 의도적으로 호스트별 값을 내보내는 경우가 아니면 `ui.domain`를 생략하세요. 호스트는 기본 샌드박스 원본을 선택합니다.
+
+확장 페이지는 두 번째 경로 iframe을 탐색하지 않고 MCP 채팅 삽입에 샌드박스를 유지합니다. 일반적인 앱 사용은 `/_agent-native/extensions/:id/render`를 샌드박스 하위 iframe으로 렌더링합니다. MCP 채팅 브리지 모드에서 프레임워크는 iframe 경로 내에서 샌드박스 처리된 `srcDoc`와 동일한 확장 문서를 렌더링하여 `sandbox="allow-scripts allow-forms"`를 유지하면서 호스트 `frame-ancestors` / `X-Frame-Options` 오류를 방지합니다.
+
+리소스 셸은 외부 호스트 크기를 소유합니다. `embedApp({ height })`는 기본값이 `560px`이고 쉘을 `320-900px`로 고정하며 작은 도구 모음용으로 `44px`를 예약하므로 경로 뷰포트는 `height - 44px`입니다. 내장된 앱 경로를 내부적으로 스크롤 가능하게 유지하고 실행 프로그램이 전체 문서 높이가 아닌 제한된 고유 높이를 보고하도록 합니다. 그렇지 않으면 호스트 자동 크기 조정으로 인해 일반 앱 페이지가 매우 긴 채팅 아티팩트로 바뀔 수 있습니다. 변경된 셸은 새로운 MCP 앱 리소스와 새로운 도구 호출에만 영향을 미칩니다. 기존 ChatGPT/Claude 대화 프레임은 이전 리소스 동작을 유지할 수 있으므로 수정 사항을 판단하기 전에 새로운 인라인 렌더링으로 크기 조정을 확인하세요.
+
+### 삽입 모드 {#embed-modes}
+
+Claude는 기본적으로 단일 프레임 이식 경로를 사용합니다. 호스트 모듈 로딩 동작을 디버깅할 때 `embedMode: "transplant"` 또는 `frame: "transplant"`를 사용하여 다른 호스트에서 강제로 실행할 수도 있습니다. `embedMode: "iframe"`, `renderMode: "iframe"`, `nested: true` 또는 `frame: "iframe"`를 사용하여 중첩된 진단 iframe을 강제로 실행할 수 있습니다. iframe이 차단되면 `embedApp()`는 이를 오픈 앱 폴백으로 대체합니다. 사용자는 인라인으로 다시 시도하거나, 호스트를 통해 새로 생성된 포함 세션을 열거나, 표시되는 경로 URL를 사용할 수 있습니다. 여전히 범용 탈출 해치이기 때문에 액션의 `link` 타겟을 그 자체로 유용하게 유지하세요.
+
+ngrok를 통해 Claude를 테스트할 때 프로덕션 빌드(`npx @agent-native/core@latest build` 다음 `npx @agent-native/core@latest start`) 또는 배포된 미리 보기/프로덕션 URL를 사용하세요. Claude의 단일 프레임 이식 경로는 생산 자산 청크와 함께 작동합니다. `/app/root.tsx`와 같은 원시 Vite 개발 모듈은 앱 인증으로 보호될 수 있으며 Claude 리소스 원본에서 동적 가져오기가 실패합니다.
+
+## 호스트 브리지 API {#host-bridge}
+
+호스트 브리지는 의도적으로 작습니다:
+
+| 모드                  | 메시지 유형                           | 사용                                   |
+| --------------------- | ------------------------------------- | -------------------------------------- |
+| 직접 호스트 경로      | `ui/update-model-context`             | 호스트 모델의 숨겨진 컨텍스트          |
+| 직접 호스트 경로      | `ui/message`                          | 공개 사용자를 호스트로 게시            |
+| 직접 호스트 경로      | `ui/open-link`                        | 호스트를 통해 외부 또는 앱 URL 열기    |
+| 직접 호스트 경로      | `ui/request-display-mode`             | `inline`, `fullscreen` 또는 `pip` 요청 |
+| Claude 이식           | `ui/*`                                | 수화 후 동일한 직접 호스트 브리지      |
+| ChatGPT / iframe 경로 | `agentNative.mcpHostContext`          | 테마, 로캘, 호스트 플랫폼, 크기        |
+| ChatGPT / iframe 경로 | `agentNative.embeddedAppReady`        | 로드된 iframe 경로 확인                |
+| ChatGPT / iframe 경로 | `agentNative.mcpHost.*` / `.response` | 호스트 요청을 위한 래퍼 릴레이         |
+
+삽입된 경로는 `@agent-native/core/client`에서 `updateMcpAppModelContext()`, `openMcpAppHostLink()`, `requestMcpAppDisplayMode()`, `getMcpAppHostContext()` 및 `useMcpAppHostContext()`를 사용할 수 있습니다. `sendToAgentChat()`는 자동 제출 프롬프트에 대해 전체 앱 삽입과 동일한 경로를 사용합니다.
+
+디스플레이 모드는 최선입니다. 인앱 `McpAppRenderer`는 현재 인라인 웹 호스트 컨텍스트와 인라인 전용 디스플레이 모드를 보고합니다. 외부 호스트는 더 큰 디스플레이 요청을 수락하거나 무시하거나 지원되지 않는 모드 오류로 응답할 수 있습니다. 항상 인라인 경로를 사용할 수 있도록 유지하세요.
+
+## 클라이언트 지원 및 캐싱 {#client-support}
+
+현재 공식 MCP 앱 클라이언트 목록에는 Claude, Claude Desktop, VS Code GitHub Copilot, Goose, Postman, MCPJam, ChatGPT 및 Cursor가 포함됩니다. 호스트 지원은 여전히 ​​계획, 릴리스 채널 및 클라이언트 버전에 따라 다르므로 [MCP extension support matrix](https://modelcontextprotocol.io/extensions/client-matrix)를 확인하세요. ChatGPT 맞춤형 MCP 앱은 ChatGPT 웹의 Business 및 Enterprise/Edu 작업 공간용 개발자 모드를 통해 사용할 수 있습니다. OpenAI의 [developer mode and MCP apps](https://help.openai.com/en/articles/12584461-developer-mode-and-full-mcp-apps-in-chatgpt-beta) 노트를 참조하세요.
+
+Claude 코드, Codex 및 기타 CLI/코드 편집기 클라이언트는 MCP 앱을 지원할 때 여전히 동일한 리소스와 메타데이터를 수신하지만 정확한 표면에서 인라인 iframe 렌더링을 확인하지 않는 한 이를 링크아웃 호스트로 처리합니다. 호스트가 iframe을 렌더링하지 않기로 선택한 경우 딥 링크는 안정적인 대체 수단으로 남아 있습니다. 실제로 모든 에이전트 기반 앱은 가능한 호스트에서 인라인 검토/편집을 위한 MCP 앱과 전체 앱으로의 범용 왕복을 위한 `link`를 모두 사용하여 작성되어야 합니다.
+
+Claude 및 ChatGPT는 기존 사용자 정의 커넥터에 대한 도구 및 리소스 메타데이터를 캐시할 수 있습니다. MCP 앱 메타데이터를 변경한 후 새로운 도구 호출로 확인하세요. 호스트가 여전히 이전 설명자를 사용하는 경우 Claude 커넥터를 다시 연결하거나 ChatGPT 커넥터를 다시 검색/검토하여 카탈로그를 새로 고치십시오. Claude가 배포 후 도구 설명자에 있는 `_meta.ui.csp` 또는 `_meta.ui.permissions`에 대한 경고를 기록하는 경우 해당 커넥터는 오래된 메타데이터를 사용하고 있는 것입니다. Claude 커넥터를 삭제/다시 연결하고 새로운 채팅을 시작하세요.
+
+## 테스트 {#testing}
+
+`embedApp()` 및 `McpAppRenderer` 주변의 경량 픽스처로 MCP 앱을 테스트하세요. 실제 외부 호스트 없이도 CSP, 호스트 컨텍스트, 앱 실행 및 브리지 메시지 동작을 다룹니다. ChatGPT 또는 Claude 웹을 검증할 때 셸 변경 후 새로운 도구 호출을 트리거하고 표시되는 iframe을 측정하세요. 동일한 대화에서 이전에 렌더링된 프레임에는 여전히 캐시된 높이 또는 실행 동작이 표시될 수 있습니다.
+
+## 관련 {#related}
+
+- [External Agents](/docs/external-agents) — Claude, ChatGPT, Codex 및 커서를 호스팅된 앱에 연결합니다. MCP 앱 호환성 매트릭스; 카탈로그 계층; 딥 링크.
+- [MCP Protocol](/docs/mcp-protocol) — 자동 마운트된 MCP 서버, 인증, 도구 및 `ask-agent`.
+- [Actions](/docs/actions) — `defineAction`, `link` 빌더, `publicAgent`.
+
+```
+
+```

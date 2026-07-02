@@ -1,17 +1,18 @@
 import { IconCheck } from "@tabler/icons-react";
+
 import {
   APPEARANCE_PRESETS,
   applyAppearance,
   useAppearance,
   type AppearancePresetId,
 } from "./appearance.js";
-import { cn } from "./utils.js";
 import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
   TooltipTrigger,
 } from "./components/ui/tooltip.js";
+import { cn } from "./utils.js";
 
 export interface AppearancePickerProps {
   className?: string;

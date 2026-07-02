@@ -1,16 +1,17 @@
-import { useEffect, useState } from "react";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover";
-import { IconPlus } from "@tabler/icons-react";
-import { cn } from "@/lib/utils";
 import {
   PromptComposer,
   useSendToAgentChat,
   useT,
 } from "@agent-native/core/client";
+import { IconPlus } from "@tabler/icons-react";
+import { useEffect, useState } from "react";
+
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import { cn } from "@/lib/utils";
 
 type NewCompositionPopoverProps = {
   isNew: boolean;
@@ -39,7 +40,7 @@ export function NewCompositionPopover({
       sessionStorage.removeItem("videos:new-composition-generating");
       window.dispatchEvent(new CustomEvent("videos:new-composition-status"));
       setTimeout(() => {
-        const match = window.location.pathname.match(/\/c\/([^\/]+)/);
+        const match = window.location.pathname.match(/\/c\/([^/]+)/);
         if (match && match[1] !== "new") {
           try {
             window.dispatchEvent(

@@ -1,4 +1,9 @@
 import { describe, expect, it } from "vitest";
+
+import type {
+  WorkspaceConnectionCredentialsResolution,
+  WorkspaceConnectionForApp,
+} from "../workspace-connections/index.js";
 import {
   PROVIDER_READERS,
   ProviderReaderRuntimeError,
@@ -8,10 +13,6 @@ import {
   listProviderReaders,
   providerReaderSupports,
 } from "./reader.js";
-import type {
-  WorkspaceConnectionCredentialsResolution,
-  WorkspaceConnectionForApp,
-} from "../workspace-connections/index.js";
 
 describe("provider reader registry", () => {
   it("registers conservative reader definitions for the initial providers", () => {

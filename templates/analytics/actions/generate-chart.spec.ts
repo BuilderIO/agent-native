@@ -1,10 +1,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { renderStaticChartSvg } from "./generate-chart.js";
+
 import {
   mediaFilenameFromPath,
   readSignedSvgMediaPayload,
   signedSvgMediaUrl,
 } from "../server/lib/signed-media.js";
+import { renderStaticChartSvg } from "./generate-chart.js";
 
 const lightTheme = {
   background: "#ffffff",

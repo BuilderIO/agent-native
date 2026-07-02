@@ -2,12 +2,13 @@
 // Runs queries against an external Postgres database
 // Requires the `postgres` package: pnpm add postgres
 
+import { createHash } from "crypto";
+
 import { resolveCredential } from "./credentials";
 import {
   credentialCacheScope,
   requireRequestCredentialContext,
 } from "./credentials-context";
-import { createHash } from "crypto";
 
 const clients = new Map<string, any>();
 

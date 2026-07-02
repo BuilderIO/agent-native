@@ -1,4 +1,5 @@
-import { defineAction, embedApp } from "@agent-native/core";
+import { defineAction } from "@agent-native/core";
+import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import {
   ForbiddenError,
   assertAccess,
@@ -7,7 +8,7 @@ import {
 } from "@agent-native/core/sharing";
 import { and, eq, inArray, isNull } from "drizzle-orm";
 import { z } from "zod";
-import { getRequestUserEmail } from "@agent-native/core/server/request-context";
+
 import { getDb, schema } from "../server/db/index.js";
 import {
   isAnonymousPublicViewer,
@@ -71,14 +72,6 @@ export default defineAction({
   },
   mcpApp: {
     compactCatalog: true,
-    resource: embedApp({
-      title: "Delete Comment",
-      description:
-        "Open the Agent-Native Plan surface to manage reviewer comments.",
-      iframeTitle: "Agent-Native Plan",
-      openLabel: "Open Plan",
-      height: 860,
-    }),
   },
   run: async (args) => {
     const requesterEmail = getRequestUserEmail();

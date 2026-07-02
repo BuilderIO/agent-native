@@ -1,3 +1,8 @@
+import { mkdtemp, rm } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+
+import { createClient, type Client } from "@libsql/client";
 /**
  * End-to-end isolation test for the agent's raw-SQL tools against a REAL
  * (temp-file) SQLite database with two tenants. This is the regression proof
@@ -6,10 +11,6 @@
  * points — no mocks of the SQL layer — and asserts true row-level isolation.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { mkdtemp, rm } from "node:fs/promises";
-import os from "node:os";
-import path from "node:path";
-import { createClient, type Client } from "@libsql/client";
 
 describe("db tools cross-tenant isolation (e2e, real sqlite)", () => {
   let dir: string;

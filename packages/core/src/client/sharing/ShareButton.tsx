@@ -1,17 +1,4 @@
-import {
-  useCallback,
-  useEffect,
-  useId,
-  useMemo,
-  useRef,
-  useState,
-  type ReactNode,
-} from "react";
-import type {
-  KeyboardEvent as ReactKeyboardEvent,
-  UIEvent as ReactUIEvent,
-} from "react";
-import { useQueryClient } from "@tanstack/react-query";
+import * as Select from "@radix-ui/react-select";
 import {
   IconLock,
   IconBuilding,
@@ -25,17 +12,32 @@ import {
   IconSearchOff,
   IconShare3,
 } from "@tabler/icons-react";
-import * as Select from "@radix-ui/react-select";
+import { useQueryClient } from "@tanstack/react-query";
+import {
+  useCallback,
+  type ComponentPropsWithoutRef,
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
+import type {
+  KeyboardEvent as ReactKeyboardEvent,
+  UIEvent as ReactUIEvent,
+} from "react";
+
+import { agentNativePath } from "../api-path.js";
+import { writeClipboardText } from "../clipboard.js";
 import {
   Popover,
   PopoverAnchor,
   PopoverContent,
   PopoverTrigger,
 } from "../components/ui/popover.js";
-import { writeClipboardText } from "../clipboard.js";
 import { useActionQuery, useActionMutation } from "../use-action.js";
 import { cn } from "../utils.js";
-import { agentNativePath } from "../api-path.js";
 
 export interface ShareButtonProps {
   resourceType: string;
@@ -44,8 +46,12 @@ export interface ShareButtonProps {
   /** @deprecated No longer affects rendering — trigger always says
    *  "Share". Kept for callsite compatibility. */
   variant?: "compact" | "label";
-  /** Optional trigger style. Defaults to the Google-Docs-style "Share" label. */
-  trigger?: "label" | "icon";
+  /** Optional trigger style. Defaults to the Google-Docs-style "Share" label.
+   *  Use "label-icon" to render a leading share glyph alongside the label so
+   *  the trigger matches adjacent icon+label buttons; "icon" is icon-only. */
+  trigger?: "label" | "icon" | "label-icon";
+  /** @deprecated Label triggers no longer render a visibility/share glyph. */
+  hideTriggerIcon?: boolean;
   /** Optional className applied to the trigger button. */
   triggerClassName?: string;
   /** Notified when the share popover opens or closes. Hosts that render the
@@ -66,6 +72,10 @@ export interface ShareButtonProps {
   /** Where to render share links in the popover. Defaults to the bottom,
    *  matching the historical Google-Docs-style share dialog. */
   shareUrlPlacement?: "top" | "bottom";
+  /** Whether to render copyable share URL fields. Defaults to true. */
+  showShareLinks?: boolean;
+  /** Whether to render the bottom Done button. Defaults to true. */
+  showDoneButton?: boolean;
   /** Optional placeholder shown in the share-URL slot when `shareUrl` is
    *  undefined. Use this to explain *why* there's no link yet (e.g. "Publish
    *  this form to get a public response link") instead of leaving the slot
@@ -96,6 +106,8 @@ export interface ShareButtonProps {
   generalAccessLabel?: ReactNode;
   /** Optional note rendered between general access and the copyable link. */
   accessNote?: ReactNode;
+  /** Optional host-rendered footer for compact app-specific share actions. */
+  shareFooterContent?: ReactNode;
   /** Optional Notion-style organization access control. When present, the
    *  share panel exposes a "Hide in search" switch under Advanced for org
    *  visibility. */
@@ -106,6 +118,20 @@ export interface ShareButtonProps {
     description?: ReactNode;
     onCheckedChange: (checked: boolean) => void | Promise<void>;
   };
+  /** Optional extra tabs rendered beside the default sharing/access panel. */
+  shareTabs?: {
+    shareLabel?: ReactNode;
+    defaultValue?: string;
+    tabs: Array<{
+      value: string;
+      label: ReactNode;
+      content: ReactNode;
+      disabled?: boolean;
+    }>;
+    onValueChange?: (value: string) => void;
+  };
+  /** Optional className for the popover content, useful for wider custom tabs. */
+  popoverClassName?: string;
 }
 
 type Visibility = "private" | "org" | "public";
@@ -136,13 +162,13 @@ interface SharesResponse {
   policy?: SharesPolicy;
 }
 
-// Mirror shadcn's <Button size="sm" variant="outline"> class string so the
-// trigger sits flush next to other sm outline buttons in the template.
+// Match shadcn's <Button size="sm" variant="outline"> sizing so the trigger
+// sits flush next to other controls while staying transparent at rest.
 const BUTTON_BASE =
   "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0";
 const BUTTON_OUTLINE_SM = cn(
   BUTTON_BASE,
-  "h-9 px-3 border border-[hsl(var(--sidebar-border,var(--input)))] bg-[hsl(var(--sidebar-background,var(--background)))] text-foreground hover:bg-[hsl(var(--sidebar-accent,var(--accent)))] hover:text-[hsl(var(--sidebar-accent-foreground,var(--accent-foreground)))]",
+  "h-9 px-3 border border-[hsl(var(--sidebar-border,var(--input)))] bg-transparent text-foreground hover:bg-[hsl(var(--sidebar-accent,var(--accent)))] hover:text-[hsl(var(--sidebar-accent-foreground,var(--accent-foreground)))]",
 );
 const BUTTON_PRIMARY_SM = cn(
   BUTTON_BASE,
@@ -153,7 +179,9 @@ const BUTTON_GHOST_ICON = cn(
   "h-7 w-7 p-0 text-muted-foreground hover:bg-accent hover:text-accent-foreground",
 );
 const SHARE_POPOVER_SURFACE =
-  "border-[hsl(var(--sidebar-border,var(--border)))] bg-[hsl(var(--sidebar-background,var(--popover)))]";
+  "border border-border bg-popover text-popover-foreground";
+const SHARE_NESTED_OVERLAY_ATTR = "data-agent-native-share-overlay";
+const SHARE_NESTED_OVERLAY_Z = "z-[100020]";
 const MEMBER_SUGGESTION_LIMIT = 25;
 const MEMBER_SEARCH_DEBOUNCE_MS = 140;
 
@@ -202,6 +230,28 @@ const ROLE_OPTIONS: Array<{ value: Role; label: string; description: string }> =
     },
   ];
 
+type SharePopoverInteractOutsideEvent = Parameters<
+  NonNullable<
+    ComponentPropsWithoutRef<typeof PopoverContent>["onInteractOutside"]
+  >
+>[0];
+
+function isShareNestedOverlayTarget(target: EventTarget | null): boolean {
+  return (
+    target instanceof Element &&
+    target.closest(`[${SHARE_NESTED_OVERLAY_ATTR}]`) !== null
+  );
+}
+
+function handleSharePopoverInteractOutside(
+  event: SharePopoverInteractOutsideEvent,
+) {
+  const originalTarget = event.detail.originalEvent.target;
+  if (isShareNestedOverlayTarget(originalTarget)) {
+    event.preventDefault();
+  }
+}
+
 /**
  * Framework share control. Renders a shadcn-outline-styled trigger that
  * opens a Google-Docs-style popover anchored beneath it. Uses Tailwind
@@ -210,6 +260,8 @@ const ROLE_OPTIONS: Array<{ value: Role; label: string; description: string }> =
  */
 export function ShareButton(props: ShareButtonProps) {
   const [open, setOpen] = useState(false);
+  const shareTabDefaultValue = props.shareTabs?.defaultValue ?? "share";
+  const [activeShareTab, setActiveShareTab] = useState(shareTabDefaultValue);
   const [pendingVisibility, setPendingVisibility] = useState<Visibility | null>(
     null,
   );
@@ -235,7 +287,16 @@ export function ShareButton(props: ShareButtonProps) {
   const handleOpenChange = (v: boolean) => {
     setOpen(v);
     props.onOpenChange?.(v);
-    if (v && pendingVisibility === null) sharesQuery.refetch();
+    if (v) {
+      setActiveShareTab(shareTabDefaultValue);
+      props.shareTabs?.onValueChange?.(shareTabDefaultValue);
+      if (pendingVisibility === null) sharesQuery.refetch();
+    }
+  };
+
+  const handleShareTabChange = (value: string) => {
+    setActiveShareTab(value);
+    props.shareTabs?.onValueChange?.(value);
   };
 
   useEffect(() => {
@@ -295,22 +356,10 @@ export function ShareButton(props: ShareButtonProps) {
     });
   };
 
-  // The default trigger says "Share" — the icon reflects the resource's
-  // current visibility (lock / building / globe), matching Google Docs.
-  // While the query is loading and we don't know the visibility yet,
-  // render a skeleton placeholder in the icon slot instead of guessing.
+  // The default trigger stays text-only; the icon trigger keeps the share glyph.
+  // "label-icon" renders the glyph alongside the label for icon+label parity.
   const iconOnly = props.trigger === "icon";
-  const loaded = sharesQuery.data !== undefined;
-  const serverVisibility =
-    (sharesQuery.data?.visibility as Visibility | null) ?? "private";
-  const currentVisibility = pendingVisibility ?? serverVisibility;
-  const VisibilityIcon =
-    currentVisibility === "public"
-      ? IconWorld
-      : currentVisibility === "org"
-        ? IconBuilding
-        : IconLock;
-  const TriggerIcon = iconOnly ? IconShare3 : VisibilityIcon;
+  const showLabelIcon = props.trigger === "label-icon";
 
   return (
     <Popover open={open} onOpenChange={handleOpenChange}>
@@ -323,25 +372,23 @@ export function ShareButton(props: ShareButtonProps) {
           )}
           aria-label={iconOnly ? "Share" : undefined}
         >
-          {loaded || iconOnly ? (
-            <TriggerIcon size={16} strokeWidth={1.75} />
-          ) : (
-            <span
-              aria-hidden
-              className="inline-block h-4 w-4 rounded-sm bg-muted animate-pulse"
-            />
-          )}
+          {iconOnly || showLabelIcon ? (
+            <IconShare3 size={16} strokeWidth={1.75} />
+          ) : null}
           {!iconOnly && <span>Share</span>}
         </button>
       </PopoverTrigger>
       <PopoverContent
         align="end"
         sideOffset={6}
+        data-agent-native-share-overlay=""
         className={cn(
           "z-[2000] w-[min(460px,92vw)] rounded-lg p-4 shadow-lg",
           SHARE_POPOVER_SURFACE,
+          props.popoverClassName,
         )}
         onOpenAutoFocus={(e) => e.preventDefault()}
+        onInteractOutside={handleSharePopoverInteractOutside}
       >
         <SharePanel
           {...props}
@@ -349,6 +396,8 @@ export function ShareButton(props: ShareButtonProps) {
           visibilityOverride={pendingVisibility}
           onVisibilityChange={handleVisibilityChange}
           onClose={() => handleOpenChange(false)}
+          activeTab={activeShareTab}
+          onTabChange={handleShareTabChange}
         />
       </PopoverContent>
     </Popover>
@@ -523,6 +572,8 @@ function SharePanel(
     visibilityOverride: Visibility | null;
     onVisibilityChange: (visibility: Visibility) => Promise<void>;
     onClose: () => void;
+    activeTab: string;
+    onTabChange: (value: string) => void;
   },
 ) {
   const {
@@ -610,10 +661,15 @@ function SharePanel(
     </>
   );
   const showShareLinks =
-    Boolean(props.shareUrl) ||
-    Boolean(props.shareUrlPlaceholder) ||
-    Boolean(props.secondaryShareUrl);
+    (props.showShareLinks ?? true) &&
+    (Boolean(props.shareUrl) ||
+      Boolean(props.shareUrlPlaceholder) ||
+      Boolean(props.secondaryShareUrl));
+  const showDoneButton = props.showDoneButton ?? true;
   const shareUrlPlacement = props.shareUrlPlacement ?? "bottom";
+  const extraTabs = props.shareTabs?.tabs ?? [];
+  const hasTabs = extraTabs.length > 0;
+  const shareTabLabel = props.shareTabs?.shareLabel ?? "Share link";
 
   const serverShares = data?.shares ?? [];
   const shares: Share[] = [
@@ -637,6 +693,10 @@ function SharePanel(
 
   const handleVisibility = (next: Visibility) => {
     if (next === visibility) return;
+    if (!canManage) {
+      setShareError("Only owners and admins can change access.");
+      return;
+    }
     setShareError(null);
     void onVisibilityChange(next).catch((err) => {
       setShareError(extractShareErrorMessage(err));
@@ -791,34 +851,39 @@ function SharePanel(
     ? `Share "${resourceTitle}"`
     : `Share ${resourceType}`;
 
-  if (isLoading) {
-    return (
-      <div>
+  const sharePanel = isLoading ? (
+    <div>
+      {!hasTabs ? (
         <div
           className="mb-3 truncate text-base font-semibold"
           title={titleText}
         >
           {titleText}
         </div>
-        <div className="mb-4 h-9 rounded-md bg-muted animate-pulse" />
-        <div className="mb-2 text-sm font-semibold">{peopleAccessLabel}</div>
-        <div className="mb-4 h-7 rounded-md bg-muted animate-pulse" />
-        <div className="mb-2 text-sm font-semibold">{generalAccessLabel}</div>
-        <div className="mb-4 h-9 rounded-md bg-muted animate-pulse" />
+      ) : null}
+      <div className="mb-4 h-9 rounded-md bg-muted animate-pulse" />
+      <div className="mb-2 text-sm font-semibold">{peopleAccessLabel}</div>
+      <div className="mb-4 h-7 rounded-md bg-muted animate-pulse" />
+      <div className="mb-2 text-sm font-semibold">{generalAccessLabel}</div>
+      <div className="mb-4 h-9 rounded-md bg-muted animate-pulse" />
+      {showDoneButton ? (
         <div className="mt-2 flex justify-end">
           <button type="button" onClick={onClose} className={BUTTON_PRIMARY_SM}>
             Done
           </button>
         </div>
-      </div>
-    );
-  }
-
-  return (
+      ) : null}
+    </div>
+  ) : (
     <div>
-      <div className="mb-3 truncate text-base font-semibold" title={titleText}>
-        {titleText}
-      </div>
+      {!hasTabs ? (
+        <div
+          className="mb-3 truncate text-base font-semibold"
+          title={titleText}
+        >
+          {titleText}
+        </div>
+      ) : null}
 
       {showShareLinks && shareUrlPlacement === "top" ? shareLinks : null}
 
@@ -964,6 +1029,15 @@ function SharePanel(
         </div>
       </div>
 
+      {shareError && !canManage ? (
+        <div
+          role="alert"
+          className="mb-4 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive"
+        >
+          {shareError}
+        </div>
+      ) : null}
+
       {props.accessNote ? (
         <div className="mb-4 rounded-md border border-border bg-muted/35 p-3 text-xs text-muted-foreground">
           {props.accessNote}
@@ -972,14 +1046,67 @@ function SharePanel(
 
       {showShareLinks && shareUrlPlacement === "bottom" ? shareLinks : null}
 
-      <div className="mt-2 flex justify-end">
-        <button
-          type="button"
-          onClick={handleDone}
-          className={BUTTON_PRIMARY_SM}
-        >
-          Done
-        </button>
+      {props.shareFooterContent}
+
+      {showDoneButton ? (
+        <div className="mt-2 flex justify-end">
+          <button
+            type="button"
+            onClick={handleDone}
+            className={BUTTON_PRIMARY_SM}
+          >
+            Done
+          </button>
+        </div>
+      ) : null}
+    </div>
+  );
+
+  if (!hasTabs) return sharePanel;
+
+  const tabs = [
+    {
+      value: "share",
+      label: shareTabLabel,
+      content: sharePanel,
+      disabled: false,
+    },
+    ...extraTabs,
+  ];
+  const activeTab = tabs.some((tab) => tab.value === props.activeTab)
+    ? props.activeTab
+    : "share";
+
+  return (
+    <div className="flex flex-col gap-4">
+      <div
+        role="tablist"
+        aria-label="Share options"
+        className="flex gap-1 rounded-xl bg-muted/70 p-1"
+      >
+        {tabs.map((tab) => {
+          const active = tab.value === activeTab;
+          return (
+            <button
+              key={tab.value}
+              type="button"
+              role="tab"
+              aria-selected={active}
+              disabled={tab.disabled}
+              onClick={() => props.onTabChange(tab.value)}
+              className={cn(
+                "h-11 min-w-0 flex-1 rounded-lg px-3 text-sm font-medium text-muted-foreground transition-colors hover:bg-background/70 hover:text-foreground disabled:pointer-events-none disabled:opacity-50",
+                active &&
+                  "bg-background text-foreground shadow-sm ring-2 ring-primary",
+              )}
+            >
+              <span className="block truncate">{tab.label}</span>
+            </button>
+          );
+        })}
+      </div>
+      <div role="tabpanel">
+        {tabs.find((tab) => tab.value === activeTab)?.content}
       </div>
     </div>
   );
@@ -1009,8 +1136,13 @@ function AdvancedAccessPopover({
       <PopoverContent
         align="start"
         sideOffset={6}
+        data-agent-native-share-overlay=""
         onOpenAutoFocus={(event) => event.preventDefault()}
-        className={cn("z-[2300] w-72 p-3 shadow-lg", SHARE_POPOVER_SURFACE)}
+        className={cn(
+          SHARE_NESTED_OVERLAY_Z,
+          "w-72 p-3 shadow-lg",
+          SHARE_POPOVER_SURFACE,
+        )}
       >
         <div className="space-y-3">
           <div>
@@ -1028,7 +1160,7 @@ function AdvancedAccessPopover({
             disabled={!canManage || control.pending}
             onClick={onToggle}
             className={cn(
-              "flex w-full items-start gap-3 rounded-md border border-border/70 bg-background px-3 py-2.5 text-start transition-colors hover:bg-accent/45 disabled:cursor-not-allowed disabled:opacity-60",
+              "flex w-full items-start gap-3 rounded-md border border-border/70 bg-card px-3 py-2.5 text-start transition-colors hover:bg-accent/45 disabled:cursor-not-allowed disabled:opacity-60",
               control.checked && "border-border bg-accent/35 text-foreground",
             )}
           >
@@ -1041,7 +1173,7 @@ function AdvancedAccessPopover({
             >
               <span
                 className={cn(
-                  "ml-0.5 size-4 rounded-full bg-background shadow-sm transition-transform",
+                  "ml-0.5 size-4 rounded-full bg-popover shadow-sm transition-transform",
                   control.checked && "translate-x-4",
                 )}
               />
@@ -1209,7 +1341,7 @@ function MemberAutocomplete({
             }}
             onKeyDown={handleKeyDown}
             autoComplete="off"
-            className="h-9 w-full min-w-0 rounded-md border border-input bg-background ps-8 pe-8 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 focus:ring-offset-background"
+            className="h-9 w-full min-w-0 rounded-md border border-input bg-card ps-8 pe-8 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 focus:ring-offset-background"
           />
           {search.isLoading ? (
             <IconLoader2
@@ -1224,9 +1356,11 @@ function MemberAutocomplete({
       <PopoverContent
         align="start"
         sideOffset={4}
+        data-agent-native-share-overlay=""
         onOpenAutoFocus={(event) => event.preventDefault()}
         className={cn(
-          "z-[2200] w-[var(--radix-popper-anchor-width)] min-w-[18rem] rounded-md p-1 shadow-lg",
+          SHARE_NESTED_OVERLAY_Z,
+          "w-[var(--radix-popper-anchor-width)] min-w-[18rem] rounded-md p-1 shadow-lg",
           SHARE_POPOVER_SURFACE,
         )}
       >
@@ -1354,13 +1488,13 @@ function CopyLinkField({
         <input
           readOnly
           value={value}
-          className="h-9 min-w-0 flex-1 rounded-md border border-input bg-background px-3 text-sm text-muted-foreground outline-none"
+          className="h-9 min-w-0 flex-1 rounded-md border border-input bg-card px-3 text-sm text-muted-foreground outline-none"
           onFocus={(event) => event.currentTarget.select()}
         />
         <button
           type="button"
           onClick={handleCopy}
-          className="inline-flex h-9 shrink-0 items-center gap-2 rounded-md border border-input bg-background px-3 text-sm font-medium text-foreground hover:bg-accent"
+          className="inline-flex h-9 shrink-0 items-center gap-2 rounded-md border border-input bg-card px-3 text-sm font-medium text-foreground hover:bg-accent"
         >
           {copied ? <IconCheck size={15} /> : <IconCopy size={15} />}
           {copied ? "Copied" : "Copy"}
@@ -1374,8 +1508,7 @@ function CopyLinkField({
 // Radix Select wrappers styled like shadcn Select (no native <select> anywhere)
 // ---------------------------------------------------------------------------
 
-const selectContentClass =
-  "z-[2100] min-w-[12rem] overflow-hidden rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-md data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0";
+const selectContentClass = `${SHARE_NESTED_OVERLAY_Z} min-w-[12rem] overflow-hidden rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-md data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0`;
 const selectItemClass =
   "relative flex w-full cursor-pointer select-none items-start gap-2 rounded-sm py-2 ps-8 pe-3 text-sm outline-none focus:bg-accent focus:text-accent-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50";
 
@@ -1438,7 +1571,7 @@ function RoleSelect(props: {
               )
             : cn(
                 BUTTON_BASE,
-                "h-9 px-3 border border-input bg-background hover:bg-accent hover:text-accent-foreground",
+                "h-9 px-3 border border-input bg-card hover:bg-accent hover:text-accent-foreground",
               )
         }
         aria-label="Role"
@@ -1450,6 +1583,7 @@ function RoleSelect(props: {
       </Select.Trigger>
       <Select.Portal>
         <Select.Content
+          data-agent-native-share-overlay=""
           className={selectContentClass}
           position="popper"
           sideOffset={4}
@@ -1468,14 +1602,20 @@ function VisibilitySelect(props: {
   onChange: (v: Visibility) => void;
   disabled?: boolean;
   visibilityCopy?: ShareButtonProps["visibilityCopy"];
+  /** When false, the "Private" option is omitted unless currently selected. */
+  allowPrivate?: boolean;
   /** When false, the "Public" option is omitted. Default: true. */
   allowPublic?: boolean;
 }) {
+  const allowPrivate = props.allowPrivate !== false;
   const allowPublic = props.allowPublic !== false;
   const current = visibilityMeta(props.value, props.visibilityCopy);
-  const options = (Object.keys(VIS_META) as Visibility[]).filter(
-    (k) => allowPublic || k !== "public",
-  );
+  const options = (Object.keys(VIS_META) as Visibility[]).filter((k) => {
+    if (k === props.value) return true;
+    if (k === "private" && !allowPrivate) return false;
+    if (k === "public" && !allowPublic) return false;
+    return true;
+  });
   return (
     <Select.Root
       value={props.value}
@@ -1496,6 +1636,7 @@ function VisibilitySelect(props: {
       </Select.Trigger>
       <Select.Portal>
         <Select.Content
+          data-agent-native-share-overlay=""
           className={selectContentClass}
           position="popper"
           sideOffset={4}

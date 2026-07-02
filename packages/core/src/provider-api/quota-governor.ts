@@ -1,6 +1,8 @@
 import { createHash } from "node:crypto";
-import { getDbExec, intType } from "../db/client.js";
+
 import type { CredentialContext } from "../credentials/index.js";
+import { getDbExec, intType, isPostgres } from "../db/client.js";
+import { ensureTableExists, ensureIndexExists } from "../db/ddl-guard.js";
 
 export interface ProviderQuotaIdentityInput {
   appId: string;
@@ -397,7 +399,7 @@ async function ensureCooldownTable(): Promise<void> {
     state.initPromise = (async () => {
       const db = getDbExec();
       const integerType = intType();
-      await db.execute(`
+      const createSql = `
         CREATE TABLE IF NOT EXISTS provider_api_cooldowns (
           quota_key TEXT NOT NULL,
           provider_id TEXT NOT NULL,
@@ -408,7 +410,18 @@ async function ensureCooldownTable(): Promise<void> {
           updated_at ${integerType} NOT NULL,
           PRIMARY KEY (quota_key)
         )
-      `);
+      `;
+      if (isPostgres()) {
+        // PG guard: probe via information_schema, only issue DDL if missing, bounded lock_timeout
+        await ensureTableExists("provider_api_cooldowns", createSql);
+        await ensureIndexExists(
+          "provider_api_cooldowns_provider_idx",
+          `CREATE INDEX IF NOT EXISTS provider_api_cooldowns_provider_idx ON provider_api_cooldowns (provider_id, cooldown_until)`,
+        );
+        return;
+      }
+      // SQLite (local dev): keep existing behavior
+      await db.execute(createSql);
       try {
         await db.execute(
           `CREATE INDEX IF NOT EXISTS provider_api_cooldowns_provider_idx ON provider_api_cooldowns (provider_id, cooldown_until)`,

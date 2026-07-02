@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useState } from "react";
-import { useQueryClient } from "@tanstack/react-query";
 import type { Exercise, Meal, Weight } from "@shared/types";
+import { useQueryClient } from "@tanstack/react-query";
+import { useEffect, useMemo, useState } from "react";
 
 type LogKind = "meal" | "exercise" | "weight";
 

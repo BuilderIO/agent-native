@@ -1,9 +1,11 @@
-import { useLocation, useNavigate } from "react-router";
-import { useHeaderTitle, useHeaderActions } from "./HeaderActions";
 import { AgentToggleButton, LanguagePicker } from "@agent-native/core/client";
 import { RunsTray } from "@agent-native/core/client/progress";
-import { Button } from "@/components/ui/button";
 import { IconLayoutSidebar } from "@tabler/icons-react";
+import { useLocation, useNavigate } from "react-router";
+
+import { Button } from "@/components/ui/button";
+
+import { useHeaderTitle, useHeaderActions } from "./HeaderActions";
 
 const pageTitles: Record<string, string> = {
   "/": "Overview",
@@ -18,7 +20,6 @@ const pageTitles: Record<string, string> = {
   "/approvals": "Approvals",
   "/audit": "Audit",
   "/settings": "Settings",
-  "/team": "Team",
 };
 
 function resolveTitle(pathname: string): string {

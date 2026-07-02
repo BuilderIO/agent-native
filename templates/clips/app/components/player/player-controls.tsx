@@ -1,4 +1,4 @@
-import { useState, type FocusEvent } from "react";
+import { useT } from "@agent-native/core/client";
 import {
   IconPlayerPlay,
   IconPlayerPause,
@@ -9,8 +9,8 @@ import {
   IconSubtitles,
   IconRectangle,
 } from "@tabler/icons-react";
-import { cn } from "@/lib/utils";
-import { Scrubber, msToClock } from "./scrubber";
+import { useState, type FocusEvent } from "react";
+
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -20,16 +20,19 @@ import {
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
 import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
-import {
   Popover,
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { PLAYBACK_SPEED_OPTIONS } from "@/lib/playback-speed";
+import { cn } from "@/lib/utils";
+
+import { Scrubber, msToClock } from "./scrubber";
 
 export const SPEED_OPTIONS = PLAYBACK_SPEED_OPTIONS;
 
@@ -62,6 +65,7 @@ export interface PlayerControlsProps {
 }
 
 export function PlayerControls(props: PlayerControlsProps) {
+  const t = useT();
   const {
     isPlaying,
     durationMs,
@@ -197,7 +201,7 @@ export function PlayerControls(props: PlayerControlsProps) {
                 </button>
               </DropdownMenuTrigger>
             </TooltipTrigger>
-            <TooltipContent>Playback speed</TooltipContent>
+            <TooltipContent>{t("playerControls.playbackSpeed")}</TooltipContent>
           </Tooltip>
           <DropdownMenuContent
             align="end"

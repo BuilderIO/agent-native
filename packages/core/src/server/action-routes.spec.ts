@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+
 import type { ActionEntry } from "../agent/production-agent.js";
 
 const mockNotifyActionChange = vi.hoisted(() => vi.fn());
@@ -62,6 +63,29 @@ describe("mountActionRoutes", () => {
 
     expect(result).toEqual({ error: "Forbidden" });
     expect(event._status).toBe(403);
+  });
+
+  it("serializes plain string action results as JSON strings", async () => {
+    const { mountActionRoutes } = await import("./action-routes.js");
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const nitroApp = {
+      use: vi.fn((path: string, handler: any) =>
+        mounted.push({ path, handler }),
+      ),
+    };
+    const actions: Record<string, ActionEntry> = {
+      "archive-email": {
+        run: vi.fn(async () => "Archived 1 email(s) successfully"),
+      } as any,
+    };
+
+    mountActionRoutes(nitroApp, actions);
+
+    const event = { _method: "POST", req: { json: async () => ({}) } };
+    const result = await mounted[0].handler(event);
+
+    expect(event._responseHeaders["content-type"]).toBe("application/json");
+    expect(JSON.parse(result)).toBe("Archived 1 email(s) successfully");
   });
 
   it("isolates request context without mutating process.env", async () => {
@@ -623,6 +647,101 @@ describe("mountActionRoutes", () => {
 
     expect(actions["legacy-action"].run).toHaveBeenCalledTimes(1);
     expect(result).toEqual({ ok: true });
+  });
+
+  // ---------------------------------------------------------------------
+  // Per-action body-size guard (maxBodyBytes)
+  // ---------------------------------------------------------------------
+
+  it("rejects oversize POST bodies with 413 before parsing when maxBodyBytes is set", async () => {
+    const { mountActionRoutes } = await import("./action-routes.js");
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const nitroApp = {
+      use: vi.fn((path: string, handler: any) =>
+        mounted.push({ path, handler }),
+      ),
+    };
+    const json = vi.fn(async () => ({}));
+    const actions: Record<string, ActionEntry> = {
+      "validate-local-plan-source": {
+        maxBodyBytes: 1024,
+        requiresAuth: false,
+        run: vi.fn(async () => ({ ok: true })),
+      } as any,
+    };
+
+    mountActionRoutes(nitroApp, actions);
+
+    const event = {
+      _method: "POST",
+      _headers: { "content-length": String(2048) },
+      req: { json },
+    };
+    const result = await mounted[0].handler(event);
+
+    expect(event._status).toBe(413);
+    expect(result).toEqual({
+      error: "Request body too large (max 1024 bytes)",
+    });
+    // The body is never parsed and the action never runs.
+    expect(json).not.toHaveBeenCalled();
+    expect(actions["validate-local-plan-source"].run).not.toHaveBeenCalled();
+  });
+
+  it("allows POST bodies within maxBodyBytes", async () => {
+    const { mountActionRoutes } = await import("./action-routes.js");
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const nitroApp = {
+      use: vi.fn((path: string, handler: any) =>
+        mounted.push({ path, handler }),
+      ),
+    };
+    const actions: Record<string, ActionEntry> = {
+      "validate-local-plan-source": {
+        maxBodyBytes: 1024,
+        requiresAuth: false,
+        run: vi.fn(async () => ({ ok: true })),
+      } as any,
+    };
+
+    mountActionRoutes(nitroApp, actions);
+
+    const event = {
+      _method: "POST",
+      _headers: { "content-length": String(512) },
+      req: { json: async () => ({}) },
+    };
+    const result = await mounted[0].handler(event);
+
+    expect(result).toEqual({ ok: true });
+    expect(actions["validate-local-plan-source"].run).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not gate actions without maxBodyBytes on Content-Length", async () => {
+    const { mountActionRoutes } = await import("./action-routes.js");
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const nitroApp = {
+      use: vi.fn((path: string, handler: any) =>
+        mounted.push({ path, handler }),
+      ),
+    };
+    const actions: Record<string, ActionEntry> = {
+      "do-thing": {
+        run: vi.fn(async () => ({ ok: true })),
+      } as any,
+    };
+
+    mountActionRoutes(nitroApp, actions);
+
+    const event = {
+      _method: "POST",
+      _headers: { "content-length": String(50 * 1024 * 1024) },
+      req: { json: async () => ({}) },
+    };
+    const result = await mounted[0].handler(event);
+
+    expect(result).toEqual({ ok: true });
+    expect(actions["do-thing"].run).toHaveBeenCalledTimes(1);
   });
 
   it("does not gate non-bridge calls (header absent) on toolCallable", async () => {

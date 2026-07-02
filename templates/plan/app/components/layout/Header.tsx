@@ -1,18 +1,15 @@
-import { useLocation } from "react-router";
+import { AgentToggleButton, useT } from "@agent-native/core/client";
 import { IconMenu2 } from "@tabler/icons-react";
-import { useHeaderTitle, useHeaderActions } from "./HeaderActions";
-import {
-  AgentToggleButton,
-  LanguagePicker,
-  useT,
-} from "@agent-native/core/client";
+import { useLocation } from "react-router";
+
 import { APP_TITLE } from "@/lib/app-config";
+
+import { useHeaderTitle, useHeaderActions } from "./HeaderActions";
 
 const pageTitleKeys: Record<string, string> = {
   "/": "header.plan",
   "/plans": "header.plan",
   "/settings": "header.settings",
-  "/team": "header.team",
 };
 
 function resolveTitle(pathname: string): string {
@@ -54,7 +51,6 @@ export function Header({ onOpenMobileSidebar }: HeaderProps) {
       </div>
       <div className="flex items-center gap-2 shrink-0">
         {actions}
-        <LanguagePicker variant="icon" />
         <AgentToggleButton />
       </div>
     </header>

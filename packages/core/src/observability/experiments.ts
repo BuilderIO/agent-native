@@ -1,9 +1,4 @@
 import { getDbExec } from "../db/client.js";
-import type {
-  Experiment,
-  ExperimentVariant,
-  ExperimentMetricResult,
-} from "./types.js";
 import {
   insertExperiment,
   updateExperiment,
@@ -14,6 +9,11 @@ import {
   insertExperimentResult,
   ensureObservabilityTables,
 } from "./store.js";
+import type {
+  Experiment,
+  ExperimentVariant,
+  ExperimentMetricResult,
+} from "./types.js";
 
 // ─── Hashing ────────────────────────────────────────────────────────
 

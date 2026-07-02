@@ -44,6 +44,12 @@ details live in `.agents/skills/`.
   request action uses the shared `@agent-native/core/provider-api` runtime,
   injects configured credentials, blocks private/internal URLs, and redacts
   secrets.
+- For questions about tracking events or instrumentation in GitHub-hosted code,
+  use `github-repo-files` before raw provider requests: check
+  `data-source-status` for GitHub, `operation="search"` likely event names/calls
+  with `includeTextMatches=true`, then `operation="read"` the relevant files.
+  Report the repo, ref/default branch, queries used, files read, and any
+  truncation or GitHub incomplete-results flags so absence claims are auditable.
 - For named account/deal deep dives, call `account-deep-dive` first. It bundles
   HubSpot deal/account/contact activity with Gong call detail and compact
   transcript evidence so the final report can match Fusion-style depth.
@@ -65,6 +71,18 @@ details live in `.agents/skills/`.
 - For shipped dashboard templates, call `list-dashboard-templates` first, then
   `install-dashboard-template` with the selected `templateId`. Do not recreate a
   catalog template by hand unless the user asks for a custom variant.
+- For dashboard edits, default to `mutate-dashboard` with its typed
+  `dashboard.*` script API. It supports id-based panel moves, title/SQL/config
+  edits, inserts, duplication, removal, and dashboard field patches in one
+  atomic save. The main payload is a string, so it avoids native-array
+  serialization traps. The script is constrained: only documented dashboard
+  method calls with JSON-compatible arguments are parsed; variables, imports,
+  loops, functions, network, filesystem, and DB access are not available.
+- Do not count shifting `/panels/<index>` values for ordinary dashboard edit
+  requests. Use low-level JSON-pointer edits only when explicitly requested.
+- `get-sql-dashboard` is compact by default for agents. Use its `panels`
+  summaries and `layout.panelOrder` / `layout.firstPanelIds` for orientation and
+  proof. Pass `includeConfig: true` only when full panel SQL/config is needed.
 - Native dashboards and saved analyses are constrained artifacts. If a requested
   dashboard, analysis surface, visualization, interaction model, custom layout,
   or bespoke workflow cannot be done faithfully with the built-in dashboard JSON
@@ -72,14 +90,67 @@ details live in `.agents/skills/`.
   it as an extension instead and tell the user why.
 - Use framework sharing and access helpers for dashboards, analyses, and saved
   resources.
+- Dashboard email reports live in SQL via the
+  `dashboard-report-subscriptions` actions. They send daily snapshots scoped to
+  the exact user/org context that created the subscription with saved URL
+  filters; do not hand-wire custom email routes around that action surface.
+  Report PNGs are Playwright captures of the real dashboard route in
+  `reportScreenshot=1` mode, authenticated by a short-lived embed-session token
+  and embedded inline in email with a CID image. Netlify builds emit a scheduled
+  trigger plus a background worker from
+  `scripts/emit-netlify-dashboard-report-cron.ts`, using a per-deploy internal
+  token and disabling the in-process interval scheduler on Netlify to avoid
+  duplicate sends. External cron callers can still sweep due reports by POSTing
+  `/api/dashboard-reports/run` with
+  `Authorization: Bearer $DASHBOARD_REPORTS_CRON_SECRET`. PNG rendering uses
+  local Chrome in development and `playwright-core` plus
+  `@sparticuz/chromium-min` in serverless runtimes; set
+  `DASHBOARD_REPORT_CHROMIUM_PACK_URL` only when overriding the default
+  Chromium pack location.
+- Analytics alert rules live in SQL via the `analytics-alert-rules` actions.
+  Use `save-analytics-alert-rule`, `list-analytics-alert-rules`,
+  `delete-analytics-alert-rule`, and `run-analytics-alerts`; do not hardcode
+  one-off alert checks in product code. Rules are generic over first-party
+  analytics events: set `eventName` for an exact event name, then filter on
+  columns like `event_name`, `app`, `template`, `user_key`, `session_id`,
+  `path`, or nested JSON fields like `properties.stage` and
+  `context.referrer`. `thresholdMode: "event_count"` counts matching events;
+  `thresholdMode: "distinct_count"` counts unique values from `distinctBy`.
+  Alert notifications use the shared notification channel registry, so
+  `channels` can include `inbox`, `email`, `slack`, `webhook`, or any custom
+  registered channel. Configure Slack with `NOTIFICATIONS_SLACK_WEBHOOK_URL`
+  and optional `NOTIFICATIONS_SLACK_WEBHOOK_AUTH`; configure email with
+  `NOTIFICATIONS_EMAIL_CHANNEL=1`, existing `RESEND_API_KEY` or
+  `SENDGRID_API_KEY` plus `EMAIL_FROM`, and pass per-rule `emailRecipients` or
+  the fallback `NOTIFICATIONS_EMAIL_RECIPIENTS`.
+  Netlify builds emit an alert cron trigger plus background worker from
+  `scripts/emit-netlify-dashboard-report-cron.ts` every five minutes; long-lived
+  runtimes use the in-process scheduler unless `ANALYTICS_ALERT_JOBS=0` is set.
+  External cron callers can POST `/api/analytics-alerts/run` with
+  `Authorization: Bearer $ANALYTICS_ALERTS_CRON_SECRET`.
 
 ## Application State
 
 - `navigation` exposes current dashboard, analysis, source, chart, and selected
   context.
 - `navigate` moves the user to the relevant analytics view, including
-  `view="catalog"` for the template catalog.
+  `view="catalog"` for the template catalog and `view="sessions"` for session
+  replay.
 - Use `view-screen` when the active dashboard/chart context is unclear.
+
+## Session Replay
+
+- `/sessions` lists scoped, signed-in first-party session recordings with an
+  email-backed visitor identity and playable replay events. Filters live in the
+  URL (`range`, `app`, `q`) and are mirrored through application state so the
+  agent sees the same list the user sees.
+- `/sessions/:recordingId` loads summary/timeline data through
+  `get-session-replay-summary` and fetches rrweb payloads only through scoped
+  chunk routes. Do not expose storage/provider URLs, raw chunk table access, or
+  unscoped replay blobs in UI, actions, dashboards, docs, or prompts.
+- Dashboard rows that include `recording_id` should link to
+  `/sessions/:recordingId`; rows that only include `session_id` can link to a
+  filtered `/sessions` search.
 
 ## Dashboard Template Catalog
 
@@ -87,7 +158,7 @@ details live in `.agents/skills/`.
   name the metrics and the server generates the validated SQL/config for every
   panel in ONE fast call. Do NOT hand-author big `update-dashboard` configs
   panel-by-panel or loop `update-dashboard` — streaming a giant multi-panel
-  argument inside the ~40s budget fails and thrashes. Unknown metric keys are
+  argument across timeout boundaries fails and thrashes. Unknown metric keys are
   skipped and reported; per-panel SQL validates independently; existing
   dashboards append by default (`overwrite: true` replaces). Report the returned
   `panelCount` as proof-of-done.

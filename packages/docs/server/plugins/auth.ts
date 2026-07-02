@@ -1,10 +1,11 @@
+import { randomUUID } from "crypto";
+
 import {
   createAuthPlugin,
   getAppBasePath,
   type AuthOptions,
 } from "@agent-native/core/server";
 import { getCookie, getRequestURL, setCookie, type H3Event } from "h3";
-import { randomUUID } from "crypto";
 
 export function shouldCreateDocsSessionForPath(
   pathname: string,

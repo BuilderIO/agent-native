@@ -5,6 +5,7 @@ import {
   IconListDetails,
 } from "@tabler/icons-react";
 import { useMemo, useState } from "react";
+
 import type {
   ContextManifest,
   ContextManifestSegment,

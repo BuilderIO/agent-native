@@ -8,16 +8,18 @@
  * told about any tool call that started but whose outcome was never recorded.
  *
  * IMPORTANT — this is a pure read-over-the-ledger view. There is no new
- * recording hook anywhere in the hot path. The classification reuses the exact
- * positional `tool_start` → `tool_done` matching that `thread-data-builder.ts`
- * already relies on to rebuild durable turns:
+ * recording hook anywhere in the hot path. Classification uses input-aware
+ * `tool_start` → `tool_done` matching when a `tool_done` event carries its
+ * input, while preserving the legacy positional fallback that older ledger
+ * events and `thread-data-builder.ts` rely on:
  *
  *   - `tool_start` events carry `{ tool, input }` (no tool-call id at this
  *     layer; the ledger event stream omits it).
- *   - `tool_done` events carry `{ tool, result }`.
- *   - A `tool_done` is matched to the OLDEST still-open `tool_start` for the
- *     same tool name (FIFO per tool), mirroring how the dispatch loop emits a
- *     start immediately before its matching done.
+ *   - `tool_done` events carry `{ tool, input?, result }`.
+ *   - A `tool_done` with input is matched to the open start with the same tool
+ *     name and deep-canonicalized input.
+ *   - A legacy `tool_done` without input is matched to the OLDEST still-open
+ *     `tool_start` for the same tool name (FIFO per tool).
  *
  * A `tool_start` with no matching `tool_done` is the dangerous case: the call
  * began, its side effect may or may not have landed, and the interruption ate
@@ -32,7 +34,7 @@
  * effect again. Layer 2 is the stronger guarantee.
  */
 
-import type { AgentChatEvent } from "./types.js";
+import type { AgentChatEvent, AgentToolInput } from "./types.js";
 
 /** A single recorded tool-call ledger entry, classified by outcome. */
 export interface ToolCallJournalEntry {
@@ -46,7 +48,7 @@ export interface ToolCallJournalEntry {
   /** Tool / action name (from the `tool_start` event). */
   tool: string;
   /** Tool input captured at `tool_start`, if any. */
-  input?: Record<string, string>;
+  input?: AgentToolInput;
   /** 0-based position of the `tool_start` among all tool calls in the turn. */
   order: number;
   /** Result text from the matched `tool_done`, when the call completed. */
@@ -70,22 +72,53 @@ const INPUT_SIGNATURE_MAX_CHARS = 120;
 /** Max length of a per-tool-call result summary surfaced in the resume note. */
 const RESULT_SUMMARY_MAX_CHARS = 400;
 
-function inputSignature(input: Record<string, string> | undefined): string {
-  if (!input) return "";
-  let sig: string;
+function inputSignature(input: unknown): string {
+  if (input == null) return "";
   try {
-    // Stable key order so the same logical input produces the same signature
-    // regardless of how the engine serialized the object.
-    const sorted = Object.keys(input)
-      .sort()
-      .reduce<Record<string, string>>((acc, k) => {
-        acc[k] = input[k];
-        return acc;
-      }, {});
-    sig = JSON.stringify(sorted);
+    return JSON.stringify(canonicalizeForSignature(input));
   } catch {
-    sig = String(input);
+    return String(input);
   }
+}
+
+function canonicalizeForSignature(
+  input: unknown,
+  seen = new WeakSet(),
+): unknown {
+  if (input == null) return input;
+  if (typeof input === "bigint") return input.toString();
+  if (typeof input === "function" || typeof input === "symbol") {
+    return String(input);
+  }
+  if (typeof input !== "object") return input;
+
+  if (seen.has(input)) return "[Circular]";
+  seen.add(input);
+  if (Array.isArray(input)) {
+    const output = input.map((value) =>
+      value === undefined
+        ? "[Undefined]"
+        : canonicalizeForSignature(value, seen),
+    );
+    seen.delete(input);
+    return output;
+  }
+
+  const object = input as Record<string, unknown>;
+  const output: Record<string, unknown> = {};
+  for (const key of Object.keys(object).sort()) {
+    const value = object[key];
+    output[key] =
+      value === undefined
+        ? "[Undefined]"
+        : canonicalizeForSignature(value, seen);
+  }
+  seen.delete(input);
+  return output;
+}
+
+function displayInputSignature(input: unknown): string {
+  const sig = inputSignature(input);
   return sig.length > INPUT_SIGNATURE_MAX_CHARS
     ? sig.slice(0, INPUT_SIGNATURE_MAX_CHARS)
     : sig;
@@ -101,10 +134,9 @@ function inputSignature(input: Record<string, string> | undefined): string {
 export function classifyToolCallJournal(
   events: readonly AgentChatEvent[],
 ): ToolCallJournal {
-  // Open tool_start entries awaiting a matching tool_done, in FIFO order. We
-  // index by tool name so a tool_done matches the OLDEST open start for that
-  // same tool — the dispatch loop always emits start-then-done per call, so the
-  // first unmatched start of a given name is the one this done belongs to.
+  // Open tool_start entries awaiting a matching tool_done. We index by tool
+  // name first, then prefer matching input signatures when the done event
+  // carries input. Older ledger entries without done input fall back to FIFO.
   const openByTool = new Map<string, ToolCallJournalEntry[]>();
   const completed: ToolCallJournalEntry[] = [];
   let order = 0;
@@ -119,11 +151,9 @@ export function classifyToolCallJournal(
 
     if (event.type === "tool_start") {
       const tool = event.tool ?? "unknown";
-      const input = (event.input ?? undefined) as
-        | Record<string, string>
-        | undefined;
+      const input = event.input ?? undefined;
       const entry: ToolCallJournalEntry = {
-        key: `${tool}#${order}:${inputSignature(input)}`,
+        key: `${tool}#${order}:${displayInputSignature(input)}`,
         tool,
         ...(input ? { input } : {}),
         order,
@@ -138,8 +168,14 @@ export function classifyToolCallJournal(
     if (event.type === "tool_done") {
       const tool = event.tool ?? "unknown";
       const queue = openByTool.get(tool);
-      const entry = queue?.shift();
+      const entry = takeMatchingOpenEntry(queue, event);
       if (entry) {
+        if (isNonCompletedToolDone(event)) {
+          // Failed/blocked calls reached a terminal tool_done, but their side
+          // effect did not complete. Drop the matching start instead of
+          // classifying it as completed or interrupted.
+          continue;
+        }
         entry.result = event.result ?? "";
         completed.push(entry);
       }
@@ -157,6 +193,45 @@ export function classifyToolCallJournal(
   interrupted.sort((a, b) => a.order - b.order);
 
   return { completed, interrupted };
+}
+
+function takeMatchingOpenEntry(
+  queue: ToolCallJournalEntry[] | undefined,
+  event: Extract<AgentChatEvent, { type: "tool_done" }>,
+): ToolCallJournalEntry | undefined {
+  if (!queue || queue.length === 0) return undefined;
+  if (event.input !== undefined) {
+    const doneSig = inputSignature(event.input);
+    const index = queue.findIndex(
+      (entry) => inputSignature(entry.input) === doneSig,
+    );
+    if (index >= 0) return queue.splice(index, 1)[0];
+  }
+  return queue.shift();
+}
+
+function isNonCompletedToolDone(
+  event: Extract<AgentChatEvent, { type: "tool_done" }>,
+): boolean {
+  if (event.completedSideEffect === false) return true;
+  if (event.isError === true) return true;
+
+  const result = (event.result ?? "").trim();
+  if (!result) return false;
+
+  // Legacy run events did not persist isError. Keep known non-execution results
+  // from becoming durable "completed" write calls after deploy.
+  return (
+    result.startsWith("Error: Unknown tool") ||
+    result.startsWith("Error running ") ||
+    result.startsWith("Invalid action parameters for ") ||
+    result.startsWith("Plan mode blocked ") ||
+    result.startsWith("Skipped ") ||
+    result.startsWith("Stopped after ") ||
+    result.startsWith("The tool was not executed") ||
+    result.startsWith("Awaiting human approval") ||
+    result.includes(" did NOT execute")
+  );
 }
 
 /** True when the journal has nothing worth telling a resuming model about. */
@@ -184,7 +259,7 @@ export function findCompletedJournalEntry(
   input: unknown,
   consumedKeys?: Set<string>,
 ): ToolCallJournalEntry | undefined {
-  const wantSig = inputSignature(normalizeInputForSignature(input));
+  const wantSig = inputSignature(input);
   for (const entry of journal.completed) {
     if (entry.tool !== toolName) continue;
     if (inputSignature(entry.input) !== wantSig) continue;
@@ -193,20 +268,6 @@ export function findCompletedJournalEntry(
     return entry;
   }
   return undefined;
-}
-
-/**
- * Coerce an arbitrary tool input into the `Record<string, string>` shape the
- * journal recorded at `tool_start` so signatures compare apples-to-apples. The
- * ledger stores `tool_start.input` as a string map; the live call's `input` is
- * the parsed object — both pass through `inputSignature`, which sorts keys and
- * JSON-stringifies, so a plain object compares correctly.
- */
-function normalizeInputForSignature(
-  input: unknown,
-): Record<string, string> | undefined {
-  if (input == null || typeof input !== "object") return undefined;
-  return input as Record<string, string>;
 }
 
 function summarizeResult(result: string | undefined): string {
@@ -218,9 +279,9 @@ function summarizeResult(result: string | undefined): string {
     : oneLine;
 }
 
-function describeInput(input: Record<string, string> | undefined): string {
+function describeInput(input: unknown): string {
   if (!input) return "";
-  const sig = inputSignature(input);
+  const sig = displayInputSignature(input);
   return sig && sig !== "{}" ? ` input: ${sig}` : "";
 }
 

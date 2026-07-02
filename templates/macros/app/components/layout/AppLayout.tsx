@@ -1,11 +1,3 @@
-import { useState, useEffect } from "react";
-import { Link, useLocation, useNavigate } from "react-router";
-import {
-  useIsFetching,
-  useIsMutating,
-  useQuery,
-  useQueryClient,
-} from "@tanstack/react-query";
 import {
   AgentSidebar,
   DevDatabaseLink,
@@ -16,8 +8,6 @@ import {
 } from "@agent-native/core/client";
 import { ExtensionsSidebarSection } from "@agent-native/core/client/extensions";
 import { OrgSwitcher } from "@agent-native/core/client/org";
-import { apiFetch } from "@/lib/api";
-import { cn } from "@/lib/utils";
 import {
   IconFlame,
   IconLoader2,
@@ -26,6 +16,15 @@ import {
   IconLayoutSidebarLeftCollapse,
   IconLayoutSidebarLeftExpand,
 } from "@tabler/icons-react";
+import {
+  useIsFetching,
+  useIsMutating,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
+import { useState, useEffect } from "react";
+import { Link, useLocation, useNavigate } from "react-router";
+
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import {
@@ -33,6 +32,9 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { apiFetch } from "@/lib/api";
+import { cn } from "@/lib/utils";
+
 import { Header } from "./Header";
 import { HeaderActionsProvider } from "./HeaderActions";
 
@@ -131,11 +133,11 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
           t("agent.suggestionRun"),
         ]}
       >
-        <div className="flex flex-1 overflow-hidden">
+        <div className="agent-layout-shell flex flex-1 overflow-hidden">
           {/* Desktop sidebar */}
           <aside
             className={cn(
-              "hidden shrink-0 flex-col border-e border-border bg-sidebar text-sidebar-foreground transition-[width] duration-200 md:flex",
+              "agent-layout-left-drawer hidden shrink-0 flex-col border-e border-border bg-sidebar text-sidebar-foreground transition-[width] duration-200 md:flex",
               desktopSidebarCollapsed ? "w-14" : "w-56",
             )}
           >
@@ -159,9 +161,11 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
           </Sheet>
 
           {/* Page content */}
-          <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
+          <div className="agent-layout-main-surface flex min-w-0 flex-1 flex-col overflow-hidden">
             <Header onOpenSidebar={() => setSidebarOpen(true)} />
-            <main className="min-w-0 flex-1 overflow-y-auto">{children}</main>
+            <main className="agent-native-app-main min-w-0 flex-1 overflow-y-auto">
+              {children}
+            </main>
           </div>
           <SyncIndicator sidebarCollapsed={desktopSidebarCollapsed} />
         </div>
@@ -277,11 +281,11 @@ function SidebarContent({
 
       {!collapsed && (
         <>
-          <div className="border-t border-border px-2 py-2">
+          <div className="px-2 py-2">
             <ExtensionsSidebarSection />
           </div>
 
-          <div className="space-y-2 border-t border-border px-3 py-2">
+          <div className="space-y-2 px-3 py-2">
             <DevDatabaseLink />
             <FeedbackButton />
             <OrgSwitcher />
@@ -331,7 +335,7 @@ function SyncIndicator({ sidebarCollapsed }: { sidebarCollapsed: boolean }) {
   return (
     <div
       className={cn(
-        "pointer-events-none fixed bottom-10 start-4 z-50 flex h-8 items-center gap-2 rounded-full border border-white/[0.06] bg-muted/80 px-3 text-xs text-muted-foreground shadow-sm backdrop-blur-sm md:bottom-8",
+        "pointer-events-none fixed bottom-10 start-4 z-50 flex h-8 items-center gap-2 rounded-full border border-border bg-muted/80 px-3 text-xs text-muted-foreground shadow-sm backdrop-blur-sm md:bottom-8",
         sidebarCollapsed
           ? "md:start-[calc(3.5rem+1rem)]"
           : "md:start-[calc(14rem+1rem)]",

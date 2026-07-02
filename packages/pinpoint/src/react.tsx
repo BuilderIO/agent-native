@@ -6,6 +6,7 @@
 // Props are read on mount only ([] dependency).
 
 import { useEffect } from "react";
+
 import type { PinpointConfig } from "./types/index.js";
 import { mountPinpoint } from "./ui/mount.js";
 

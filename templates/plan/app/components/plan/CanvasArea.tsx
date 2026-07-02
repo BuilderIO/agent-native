@@ -1,18 +1,4 @@
-import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type CSSProperties,
-  type FormEvent,
-  type KeyboardEvent as ReactKeyboardEvent,
-  type PointerEvent as ReactPointerEvent,
-  type RefObject,
-} from "react";
-import { IconMinus, IconPlus } from "@tabler/icons-react";
-import { Button } from "@/components/ui/button";
-import { Textarea } from "@/components/ui/textarea";
+import { useT } from "@agent-native/core/client";
 import type {
   PlanAnnotation,
   PlanAnnotationPlacement,
@@ -24,7 +10,28 @@ import type {
   PlanContent,
   PlanWireframeSurface,
 } from "@shared/plan-content";
+import { IconMinus, IconPlus } from "@tabler/icons-react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+  type FormEvent,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type PointerEvent as ReactPointerEvent,
+  type RefObject,
+} from "react";
+
+import { Button } from "@/components/ui/button";
+import { Textarea } from "@/components/ui/textarea";
+
 import { Wireframe, type DesignElementSelection } from "./wireframe/Wireframe";
+
+const useIsomorphicLayoutEffect =
+  typeof window === "undefined" ? useEffect : useLayoutEffect;
 
 /* -------------------------------------------------------------------------- */
 /* Pan / zoom feel — recovered from the on-main hardcoded renderer            */
@@ -40,6 +47,8 @@ const WHEEL_ZOOM_STEP = 0.16;
 const PINCH_ZOOM_SENSITIVITY = 0.01;
 /** Base CSS grid cell, scaled by zoom. */
 const GRID_CELL = 28;
+/** Extra world-space pan range on each side of the board. */
+const CANVAS_OVERSCROLL_PADDING = 5000;
 
 type CanvasView = typeof DEFAULT_VIEW;
 export type CanvasViewport = CanvasView;
@@ -116,6 +125,7 @@ export function CanvasArea({
   selectedDesignElementKey?: string | null;
   onDesignElementSelect?: (selection: DesignElementSelection) => void;
 }) {
+  const t = useT();
   const viewportRef = useRef<HTMLDivElement | null>(null);
   const initialView = useMemo<CanvasView>(
     () => ({
@@ -152,6 +162,9 @@ export function CanvasArea({
   );
   const latestViewportChangeRef = useRef<CanvasViewport>(initialView);
   const viewportChangeFrameRef = useRef<number | null>(null);
+  // Kept current each render so the central pan clamp (in updateView) can read
+  // the live board size without widening updateView's dependencies.
+  const boardRef = useRef({ width: 0, height: 0 });
   const queueViewportChange = useCallback(
     (nextView: CanvasViewport) => {
       latestViewportChangeRef.current = nextView;
@@ -167,7 +180,11 @@ export function CanvasArea({
   const updateView = useCallback(
     (resolve: (current: CanvasView) => CanvasView) => {
       setView((current) => {
-        const next = resolve(current);
+        const next = clampPanToGrid(
+          resolve(current),
+          boardRef.current,
+          viewportRef.current?.getBoundingClientRect() ?? null,
+        );
         if (sameCanvasView(current, next)) return current;
         queueViewportChange(next);
         return next;
@@ -300,7 +317,7 @@ export function CanvasArea({
     canvas.viewport?.pan?.x ?? ""
   }:${canvas.viewport?.pan?.y ?? ""}`;
   const lastAppliedSavedViewportKeyRef = useRef<string | null>(null);
-  useEffect(() => {
+  useIsomorphicLayoutEffect(() => {
     if (!hasSavedViewport) return;
     if (lastAppliedSavedViewportKeyRef.current === savedViewportKey) return;
     lastAppliedSavedViewportKeyRef.current = savedViewportKey;
@@ -328,9 +345,10 @@ export function CanvasArea({
     );
     return { width: maxX + 360, height: maxY + 280 };
   }, [frames, annotations, legacyNotes]);
+  boardRef.current = board;
 
   const lastAutoFitKeyRef = useRef<string | null>(null);
-  useEffect(() => {
+  useIsomorphicLayoutEffect(() => {
     if (hasSavedViewport) return;
     if (lastAutoFitKeyRef.current === frameLayoutKey) return;
     const element = viewportRef.current;
@@ -381,6 +399,15 @@ export function CanvasArea({
   }, [frameLayoutKey, frames, hasSavedViewport, updateView]);
 
   const { zoom, pan } = view;
+  const worldTransform = `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`;
+  const scaledGridCell = GRID_CELL * zoom;
+  const gridStyle = useMemo<CSSProperties>(
+    () => ({
+      backgroundPosition: `${pan.x % scaledGridCell}px ${pan.y % scaledGridCell}px`,
+      backgroundSize: `${scaledGridCell}px ${scaledGridCell}px`,
+    }),
+    [pan.x, pan.y, scaledGridCell],
+  );
   useEffect(() => {
     queueViewportChange(view);
   }, [queueViewportChange, view]);
@@ -639,7 +666,7 @@ export function CanvasArea({
   return (
     <section
       className="plan-canvas relative h-[65vh] overflow-hidden border-b border-plan-line"
-      aria-label="Plan artboard canvas"
+      aria-label={t("raw.canvas.artboardCanvas")}
     >
       <div
         ref={viewportRef}
@@ -652,8 +679,6 @@ export function CanvasArea({
         tabIndex={0}
         style={
           {
-            backgroundPosition: `${pan.x}px ${pan.y}px`,
-            backgroundSize: `${GRID_CELL * zoom}px ${GRID_CELL * zoom}px`,
             overscrollBehavior: "contain",
             touchAction: "none",
           } as CSSProperties
@@ -715,14 +740,19 @@ export function CanvasArea({
         }}
       >
         <div
+          aria-hidden="true"
+          className="plan-canvas-grid absolute inset-0"
+          data-plan-canvas-grid
+          style={gridStyle}
+        />
+        <div
           data-plan-canvas-world
           className="plan-canvas-world relative origin-top-left"
           style={{
             width: board.width,
             height: board.height,
-            transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
+            transform: worldTransform,
             transformOrigin: "0 0",
-            willChange: "transform",
           }}
         >
           {/* Section containers sit BEHIND the frames (lowest layer) so each
@@ -827,7 +857,7 @@ export function CanvasArea({
           size="icon"
           className="size-6"
           onClick={() => zoomByFactor(1 / 1.2)}
-          aria-label="Zoom out"
+          aria-label={t("raw.canvas.zoomOut")}
         >
           <IconMinus className="size-3" />
         </Button>
@@ -840,7 +870,7 @@ export function CanvasArea({
           size="icon"
           className="size-6"
           onClick={() => zoomByFactor(1.2)}
-          aria-label="Zoom in"
+          aria-label={t("raw.canvas.zoomIn")}
         >
           <IconPlus className="size-3" />
         </Button>
@@ -1676,6 +1706,7 @@ function CanvasMarkupComposer({
   onCancel: () => void;
   onSubmit: (text: string) => Promise<void>;
 }) {
+  const t = useT();
   const [text, setText] = useState("");
   const [error, setError] = useState(false);
   const screenPoint = {
@@ -1736,7 +1767,7 @@ function CanvasMarkupComposer({
       </div>
       {error && (
         <p className="mt-2 px-1 text-xs text-destructive">
-          Couldn't save markup. Try again.
+          {t("raw.canvas.markupSaveFailed")}
         </p>
       )}
     </form>
@@ -2287,4 +2318,30 @@ function resolveMarkupComposerPosition(input: {
 
 function clamp(value: number, min: number, max: number) {
   return Math.max(min, Math.min(max, value));
+}
+
+/**
+ * Keep the visible viewport close to the board while still allowing generous
+ * overscroll. The grid is viewport-painted, so this is about keeping artboards
+ * discoverable rather than avoiding a finite grid edge.
+ */
+function clampPanToGrid(
+  view: CanvasView,
+  board: { width: number; height: number },
+  rect: DOMRect | null,
+): CanvasView {
+  if (!rect) return view;
+  const { zoom } = view;
+  const minPanX = rect.width - (board.width + CANVAS_OVERSCROLL_PADDING) * zoom;
+  const maxPanX = CANVAS_OVERSCROLL_PADDING * zoom;
+  const minPanY =
+    rect.height - (board.height + CANVAS_OVERSCROLL_PADDING) * zoom;
+  const maxPanY = CANVAS_OVERSCROLL_PADDING * zoom;
+  return {
+    zoom,
+    pan: {
+      x: minPanX <= maxPanX ? clamp(view.pan.x, minPanX, maxPanX) : view.pan.x,
+      y: minPanY <= maxPanY ? clamp(view.pan.y, minPanY, maxPanY) : view.pan.y,
+    },
+  };
 }

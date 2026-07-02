@@ -1,3 +1,22 @@
+import { createAnthropicEngine } from "../agent/engine/index.js";
+import type { EngineMessage } from "../agent/engine/types.js";
+import {
+  runAgentLoop,
+  actionsToEngineTools,
+  type ActionEntry,
+} from "../agent/production-agent.js";
+import { startRun, type ActiveRun } from "../agent/run-manager.js";
+import {
+  buildAssistantMessage,
+  extractThreadMeta,
+} from "../agent/thread-data-builder.js";
+import {
+  createThread,
+  getThread,
+  updateThreadData,
+} from "../chat-threads/store.js";
+import { resolveOrgIdForEmail } from "../org/context.js";
+import { runWithRequestContext } from "../server/request-context.js";
 import {
   getServiceAccountAccessToken,
   getServiceAccountEmail,
@@ -8,25 +27,6 @@ import {
 } from "./adapters/google-docs.js";
 import { getIntegrationConfig, saveIntegrationConfig } from "./config-store.js";
 import { getThreadMapping, saveThreadMapping } from "./thread-mapping-store.js";
-import {
-  createThread,
-  getThread,
-  updateThreadData,
-} from "../chat-threads/store.js";
-import {
-  runAgentLoop,
-  actionsToEngineTools,
-  type ActionEntry,
-} from "../agent/production-agent.js";
-import { runWithRequestContext } from "../server/request-context.js";
-import { resolveOrgIdForEmail } from "../org/context.js";
-import { createAnthropicEngine } from "../agent/engine/index.js";
-import type { EngineMessage } from "../agent/engine/types.js";
-import { startRun, type ActiveRun } from "../agent/run-manager.js";
-import {
-  buildAssistantMessage,
-  extractThreadMeta,
-} from "../agent/thread-data-builder.js";
 import type { IncomingMessage } from "./types.js";
 
 const PLATFORM = "google-docs";

@@ -2,6 +2,36 @@
   "version": "0.0.1",
   "configurations": [
     {
+      "name": "design-local",
+      "runtimeExecutable": "bash",
+      "runtimeArgs": [
+        "-c",
+        "NODE_ENV=development APP_NAME=design AGENT_USER_EMAIL=dev@local.test DESIGN_DATABASE_URL=file:/tmp/design-picker.db pnpm --filter design exec agent-native dev"
+      ],
+      "port": 8080,
+      "autoPort": true
+    },
+    {
+      "name": "design-review-verify",
+      "runtimeExecutable": "bash",
+      "runtimeArgs": [
+        "-c",
+        "NODE_ENV=development APP_NAME=design AGENT_USER_EMAIL=dev@local.test DESIGN_DATABASE_URL=file:/tmp/design-review-verify.db pnpm --filter design exec agent-native dev"
+      ],
+      "port": 8080,
+      "autoPort": true
+    },
+    {
+      "name": "design-review-verify-fixed",
+      "runtimeExecutable": "bash",
+      "runtimeArgs": [
+        "-c",
+        "NODE_ENV=development APP_NAME=design APP_URL=http://localhost:8093 AGENT_USER_EMAIL=dev@local.test DESIGN_DATABASE_URL=file:/tmp/design-review-verify.db PORT=8093 pnpm --filter design exec agent-native dev"
+      ],
+      "port": 8093,
+      "autoPort": false
+    },
+    {
       "name": "dev",
       "runtimeExecutable": "pnpm",
       "runtimeArgs": ["dev:lazy", "--", "--all"],

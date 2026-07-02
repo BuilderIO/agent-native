@@ -1,4 +1,7 @@
 import type React from "react";
+
+import type { AnimationTrack } from "@/types";
+
 import {
   BlankComposition,
   type BlankCompositionProps,
@@ -8,7 +11,6 @@ import {
   createCursorTrack,
   createStandardTracks,
 } from "./trackHelpers";
-import type { AnimationTrack } from "@/types";
 
 export type CompositionEntry = {
   id: string;

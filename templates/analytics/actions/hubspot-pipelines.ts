@@ -1,5 +1,6 @@
 import { defineAction } from "@agent-native/core";
 import { z } from "zod";
+
 import { getDealPipelines, getVisiblePipelines } from "../server/lib/hubspot";
 
 export default defineAction({

@@ -112,6 +112,10 @@ export interface StyleBrief {
   texture?: string;
   composition?: string;
   lighting?: string;
+  fontFamilies?: string[];
+  fontWeights?: string[];
+  letterforms?: string;
+  caseStyle?: string;
   typographyPolicy?: string;
   doNot?: string[];
 }
@@ -134,6 +138,7 @@ export interface ImageLibrarySummary {
   videoCount?: number;
   coverAsset?: ImageAssetPreview | null;
   previewAssets?: ImageAssetPreview[];
+  folders?: AssetFolderSummary[];
 }
 
 export interface ImageAssetPreview {
@@ -199,6 +204,8 @@ export interface AssetVariantState {
   collectionId?: string | null;
   presetId?: string | null;
   sessionId?: string | null;
+  threadId?: string | null;
+  variantScopeId?: string | null;
   prompt: string;
   slots: Array<{
     slotId: string;
@@ -225,11 +232,12 @@ export interface GenerationPresetSummary {
   category: ImageCategory;
   mediaType: AssetMediaType;
   promptTemplate?: string | null;
-  aspectRatio: AspectRatio;
-  imageSize: ImageSize;
-  model: ImageModel;
+  aspectRatio: AspectRatio | VideoAspectRatio;
+  imageSize: ImageSize | VideoResolution;
+  model: ImageModel | VideoModel;
   textPolicy: string;
   referencePolicy: GenerationPresetReferencePolicy;
+  includeLogo: boolean;
   settings: Record<string, unknown>;
   sortOrder: number;
   createdAt?: string;

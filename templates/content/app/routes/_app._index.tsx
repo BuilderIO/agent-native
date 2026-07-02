@@ -1,5 +1,7 @@
+import type { Document } from "@shared/api";
 import { useEffect } from "react";
 import { useNavigate } from "react-router";
+
 import { EmptyState } from "@/components/EmptyState";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useDocuments } from "@/hooks/use-documents";
@@ -45,7 +47,9 @@ function DocumentSkeleton() {
 
 export default function IndexRoute() {
   const navigate = useNavigate();
-  const { data: documents, isLoading } = useDocuments();
+  const documentsQuery = useDocuments();
+  const documents: Document[] = documentsQuery.data ?? [];
+  const isLoading = documentsQuery.isLoading;
 
   // Auto-select the first favorite, or the first document if no favorites
   useEffect(() => {

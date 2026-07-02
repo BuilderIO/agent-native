@@ -1,11 +1,17 @@
 import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type CSSProperties,
-} from "react";
+  AssistantChat,
+  PromptComposer,
+  buildRepositoryFromCodeAgentTranscript,
+  createCodeAgentChatAdapter,
+  isCodeAgentRunActive,
+  mergeCodeAgentTranscriptEvents,
+  readAgentPromptAttachment,
+  type CodeAgentChatController,
+  type PromptComposerFile,
+  type SlashCommand,
+  type TiptapComposerHandle,
+} from "@agent-native/core/client";
+import type { AppConfig } from "@agent-native/shared-app-config";
 import {
   IconAlertCircle,
   IconBan,
@@ -36,19 +42,15 @@ import {
 } from "@tabler/icons-react";
 import { QRCodeSVG } from "qrcode.react";
 import {
-  AssistantChat,
-  PromptComposer,
-  buildRepositoryFromCodeAgentTranscript,
-  createCodeAgentChatAdapter,
-  isCodeAgentRunActive,
-  mergeCodeAgentTranscriptEvents,
-  readAgentPromptAttachment,
-  type CodeAgentChatController,
-  type PromptComposerFile,
-  type SlashCommand,
-  type TiptapComposerHandle,
-} from "@agent-native/core/client";
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+} from "react";
 import { toast } from "sonner";
+
 import {
   CODE_AGENT_GOALS,
   DEFAULT_CODE_AGENT_PERMISSION_MODE,
@@ -60,21 +62,6 @@ import {
   type CodeAgentGoalId,
   type CodeAgentPermissionMode,
 } from "./code-agents.js";
-import type { AppConfig } from "@agent-native/shared-app-config";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "./ui/dropdown-menu.js";
-import {
-  Select,
-  SelectContent,
-  SelectGroup,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "./ui/select.js";
 import type {
   CodeAgentCodePack,
   CodeAgentCodePackResult,
@@ -116,6 +103,20 @@ import type {
   CodeAgentUpdateRunResult,
   CodeAgentsOpenRequest,
 } from "./types.js";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "./ui/dropdown-menu.js";
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "./ui/select.js";
 
 export interface CodeAgentsHost {
   listRuns(goalId?: string): Promise<CodeAgentRunListResult>;

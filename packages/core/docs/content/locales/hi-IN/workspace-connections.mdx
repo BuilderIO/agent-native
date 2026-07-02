@@ -1,0 +1,495 @@
+---
+title: "कार्यस्थान कनेक्शन"
+description: "कनेक्ट-वन्स-यूज़-एवरीव्हेयर इंटीग्रेशन के लिए साझा प्रदाता मेटाडेटा, अनुदान और क्रेडेंशियल संदर्भ।"
+---
+
+# कार्यस्थान कनेक्शन
+
+कार्यस्थान कनेक्शन पुन: प्रयोज्य एकीकरण मेटाडेटा के लिए रूपरेखा आदिम हैं। वे "एक बार कनेक्ट करें, ऐप्स प्रदान करें, क्रेडेंशियल्स का पुन: उपयोग करें" को संभव बनाते हैं, बिना यह दिखावा किए कि प्रत्येक प्रदाता पूरी तरह से सामान्य है।
+
+## त्वरित प्रारंभ {#quickstart}
+
+### चार अवधारणाएँ
+
+- **कनेक्शन** - एक नामित प्रदाता खाता (`team-slack`, `acme-hubspot`)। रिकॉर्ड प्रदाता आईडी, खाता लेबल, स्थिति, कार्यक्षेत्र और सुरक्षित कॉन्फ़िगरेशन। कभी भी गुप्त मूल्यों को संग्रहीत नहीं करता।
+- **अनुदान** - किसी विशिष्ट ऐप को कनेक्शन का उपयोग करने की अनुमति। बिना अनुदान वाला कोई ऐप कनेक्शन के क्रेडेंशियल नहीं देख सकता।
+- **credentialRef** — एक वॉल्ट रहस्य का सूचक (`{ key: "SLACK_BOT_TOKEN", scope: "org" }`)। कनेक्शन बताता है कि टोकन कहाँ रहता है; तिजोरी मूल्य रखती है।
+- **तत्परता** - संयुक्त स्थिति जो एक ऐप देखता है: `connected` (मौजूद + क्रेडेंशियल्स), `needs_grant`, `needs_credentials`, `needs_attention`, या `not_configured`।
+
+<Diagram id="doc-block-ue6gpm" title={"एक बार कनेक्ट करें, ऐप्स प्रदान करें, क्रेडेंशियल्स का पुन: उपयोग करें"} summary={"एक कनेक्शन प्रदाता मेटाडेटा (कभी रहस्य नहीं) और क्रेडेंशियलरेफ्स रखता है जो वॉल्ट पर इंगित करता है। प्रति-ऐप अनुदान इसे अनलॉक करता है। ऐप्स एकल तत्परता स्थिति पढ़ते हैं।"}>
+
+```html
+<div class="diagram-conn">
+  <div class="diagram-panel col" data-rough>
+    <span class="diagram-pill accent">Connection</span>
+    <div class="diagram-box" data-rough>
+      named provider account<br /><small class="diagram-muted"
+        >provider, label, स्थिति, स्कोप, कॉन्फिग &middot; never stores secret
+        values</small
+      >
+    </div>
+    <div class="diagram-muted">
+      credentialRef &rarr; pointer to a vault secret
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel col" data-rough>
+    <span class="diagram-pill">Grant</span>
+    <div class="diagram-box" data-rough>
+      per-app permission<br /><small class="diagram-muted"
+        >no grant = no credential access</small
+      >
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel col" data-rough>
+    <span class="diagram-pill ok">Readiness</span
+    ><small class="diagram-muted">what the app sees</small>
+    <div class="sev-row">
+      <span class="diagram-pill ok">connected</span
+      ><span class="diagram-pill warn">needs_grant</span>
+    </div>
+    <div class="sev-row">
+      <span class="diagram-pill warn">needs_credentials</span
+      ><span class="diagram-pill warn">needs_attention</span>
+    </div>
+    <div class="sev-row"><span class="diagram-pill">not_configured</span></div>
+  </div>
+</div>
+```
+
+```css
+.diagram-conn {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.diagram-conn .col {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px;
+  min-width: 220px;
+}
+.diagram-conn .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+.diagram-conn .sev-row {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+```
+
+</Diagram>
+
+### कार्यशील उदाहरण: Slack
+
+Slack को एक बार कनेक्ट करें और इसे ब्रेन और एनालिटिक्स को प्रदान करें:
+
+```ts
+import {
+  upsertWorkspaceConnection,
+  upsertWorkspaceConnectionGrant,
+} from "@agent-native/core/workspace-connections";
+
+await upsertWorkspaceConnection({
+  id: "acme-slack",
+  provider: "slack",
+  label: "Acme Slack",
+  accountId: "T012345",
+  accountLabel: "Acme",
+  status: "connected",
+  scopes: ["channels:history", "groups:history", "chat:write"],
+  config: {
+    teamDomain: "acme",
+    channelHints: ["product", "dev-fusion", "customer-success"],
+  },
+  credentialRefs: [{ key: "SLACK_BOT_TOKEN", scope: "org" }],
+});
+
+await upsertWorkspaceConnectionGrant({
+  connectionId: "acme-slack",
+  appId: "brain",
+});
+await upsertWorkspaceConnectionGrant({
+  connectionId: "acme-slack",
+  appId: "analytics",
+});
+```
+
+<DataModel
+  id="doc-block-inpw6j"
+  title={"कनेक्शन मॉडल"}
+  summary={
+    "A connection records safe provider metadata and credentialRefs (pointers, not secrets). Each grant unlocks one app — one connection, many grants."
+  }
+  entities={[
+    {
+      id: "conn",
+      name: "workspace_connections",
+      note: "नामांकित प्रदाता खाता। कभी भी गुप्त मूल्यों का भंडारण नहीं करता।",
+      fields: [
+        {
+          name: "id",
+          type: "string",
+          pk: true,
+          note: "e.g. acme-slack",
+        },
+        {
+          name: "provider",
+          type: "string",
+          note: "स्थिर प्रदाता आईडी, उदा. ढीला",
+        },
+        {
+          name: "label",
+          type: "string",
+        },
+        {
+          name: "accountId",
+          type: "string",
+          nullable: true,
+        },
+        {
+          name: "accountLabel",
+          type: "string",
+          nullable: true,
+        },
+        {
+          name: "status",
+          type: "string",
+          note: "e.g. connected",
+        },
+        {
+          name: "scopes",
+          type: "string[]",
+          nullable: true,
+        },
+        {
+          name: "config",
+          type: "json",
+          nullable: true,
+          note: "सुरक्षित, गैर-गुप्त कॉन्फ़िगरेशन",
+        },
+        {
+          name: "credentialRefs",
+          type: "json",
+          nullable: true,
+          note: "pointers to vault keys, e.g. { key, scope }",
+        },
+      ],
+    },
+    {
+      id: "grant",
+      name: "workspace_connection_grants",
+      note: "कनेक्शन का उपयोग करने के लिए प्रति-ऐप अनुमति।",
+      fields: [
+        {
+          name: "connectionId",
+          type: "string",
+          fk: "conn.id",
+        },
+        {
+          name: "appId",
+          type: "string",
+          note: "उदा. मस्तिष्क, विश्लेषण",
+        },
+      ],
+    },
+  ]}
+  relations={[
+    {
+      from: "conn",
+      to: "grant",
+      kind: "1-n",
+      label: "grants apps",
+    },
+  ]}
+/>
+
+### ऐप्स क्या कॉल करते हैं
+
+किसी उपयोगकर्ता से नई कुंजी चिपकाने के लिए कहने से पहले, पहले उसकी तैयारी जांच लें:
+
+```ts
+import { listWorkspaceConnectionProviderCatalogForApp } from "@agent-native/core/workspace-connections";
+
+const catalog = await listWorkspaceConnectionProviderCatalogForApp({
+  appId: "brain",
+  templateUse: "brain",
+  provider: "slack",
+  includeConnections: "all",
+});
+
+const slack = catalog.providers[0];
+if (slack.workspaceConnection.grantState === "needs_grant") {
+  // Show "Grant Brain access" instead of asking for a second Slack token.
+}
+if (slack.readiness.status === "needs_credentials") {
+  // Show the missing credential ref names, never a secret value.
+}
+```
+
+## संदर्भ {#reference}
+
+### प्रदाता कैटलॉग
+
+`@agent-native/core/connections` से कैटलॉग आयात करें:
+
+```ts
+import {
+  getWorkspaceConnectionProvider,
+  listWorkspaceConnectionProvidersForTemplate,
+  workspaceConnectionProviderSupports,
+} from "@agent-native/core/connections";
+
+const brainProviders = listWorkspaceConnectionProvidersForTemplate("brain");
+const slack = getWorkspaceConnectionProvider("slack");
+
+if (workspaceConnectionProviderSupports("slack", "messages")) {
+  // Offer a Slack source, sync check, or onboarding step.
+}
+```
+
+प्रारंभिक प्रदाता आईडी हैं:
+
+| प्रदाता        | क्षमताएं                     | सामान्य उपयोग                   |
+| -------------- | ---------------------------- | ------------------------------- |
+| `slack`        | खोज, आयात, संदेश             | मस्तिष्क, प्रेषण, विश्लेषण      |
+| `github`       | खोज, आयात, कोड, दस्तावेज़    | मस्तिष्क, विश्लेषण, प्रेषण      |
+| `notion`       | खोजें, आयात करें, दस्तावेज़  | मस्तिष्क, सामग्री, प्रेषण       |
+| `gmail`        | खोज, आयात, संदेश             | मेल, मस्तिष्क, प्रेषण           |
+| `google_drive` | खोजें, आयात करें, दस्तावेज़  | मस्तिष्क, सामग्री, स्लाइड       |
+| `hubspot`      | खोजें, आयात करें, सीआरएम     | एनालिटिक्स, मस्तिष्क, मेल       |
+| `granola`      | खोज, आयात, मीटिंग, दस्तावेज़ | मस्तिष्क, कैलेंडर, प्रेषण       |
+| `clips`        | खोज, आयात, मीटिंग्स          | मस्तिष्क, क्लिप, वीडियो         |
+| `generic`      | खोजें, आयात करें, दस्तावेज़  | कस्टम webhooks और फ़ाइल ड्रॉप्स |
+
+क्रेडेंशियल कुंजियाँ केवल नाम हैं, जैसे `SLACK_BOT_TOKEN` या `GITHUB_TOKEN`। प्रदाता मेटाडेटा में कभी भी वास्तविक क्रेडेंशियल मान शामिल नहीं होने चाहिए।
+
+### कनेक्शन स्टोर API
+
+```ts
+import {
+  listWorkspaceConnectionProviderCatalogForApp,
+  listWorkspaceConnectionGrants,
+  listWorkspaceConnections,
+  summarizeWorkspaceConnectionProviderForApp,
+  summarizeWorkspaceConnectionProviderReadiness,
+  upsertWorkspaceConnection,
+  upsertWorkspaceConnectionGrant,
+  revokeWorkspaceConnectionGrant,
+} from "@agent-native/core/workspace-connections";
+
+const connections = await listWorkspaceConnections({ includeDisabled: true });
+const grants = await listWorkspaceConnectionGrants({ appId: "brain" });
+
+const appGrant = summarizeWorkspaceConnectionProviderForApp({
+  providerId: "slack",
+  appId: "brain",
+  connections,
+  grants,
+});
+
+const readiness = summarizeWorkspaceConnectionProviderReadiness({
+  provider: slack!,
+  appId: "brain",
+  connections,
+  grants,
+});
+
+const brainCatalog = await listWorkspaceConnectionProviderCatalogForApp({
+  appId: "brain",
+  templateUse: "brain",
+});
+```
+
+`credentialRefs` सरणी वॉल्ट कुंजियों पर इंगित करती है; यह क्रेडेंशियल भंडारण नहीं है. उदाहरण के लिए, `{ key: "SLACK_BOT_TOKEN", scope: "org" }` एक स्वीकृत ऐप को `SLACK_BOT_TOKEN` नामक ऑर्ग-स्कोप्ड वॉल्ट रहस्य को देखने के लिए कहता है, जब उसे Slack पर कॉल करने की आवश्यकता होती है। कनेक्शन-स्तर रेफरी प्रदाता खाते का वर्णन करता है; अनुदान-स्तर के रेफरी किसी विशिष्ट ऐप द्वारा उपयोग की जाने वाली चीज़ों को सीमित या ओवरराइड कर सकते हैं।
+
+जब कोई मौजूद होता है तो कनेक्शन पंक्तियाँ सक्रिय संगठन के दायरे में आ जाती हैं। बिना किसी संगठन के, उनका दायरा प्रमाणित उपयोगकर्ता तक होता है। अनुदान पंक्तियाँ समान दायरे का उपयोग करती हैं।
+
+**विरासत `allowedApps` फ़ील्ड:** `allowedApps: []` का अर्थ है कि समान दायरे में प्रत्येक ऐप कनेक्शन का उपयोग कर सकता है; `allowedApps: ["dispatch"]` विरासत क्षेत्र के माध्यम से पहुंच प्रदान करता है। नए सेटअप के लिए स्पष्ट `workspace_connection_grants` पंक्तियों का उपयोग करें - वे निरस्तीकरण, ऑडिट और प्रति-ऐप तैयारी को आसान बनाते हैं। `revokeWorkspaceConnectionGrant(connectionId, appId)` एक स्पष्ट अनुदान को हटा देता है लेकिन विरासत `allowedApps` को नहीं बदलता है।
+
+हैंड-रोलिंग अनुदान जांच के बजाय ऐप-फेसिंग स्थिति के लिए `summarizeWorkspaceConnectionProviderForApp()` और `summarizeWorkspaceConnectionProviderReadiness()` का उपयोग करें। साझा सारांश `grantState`, `grantAvailability`, सुरक्षित क्रेडेंशियल रेफरी नाम, प्रति-ऐप कनेक्शन पंक्तियाँ और `readyConnectionCount` और `missingRequiredCredentialKeys` जैसे तैयारी फ़ील्ड लौटाते हैं।
+
+नए ऐप सेटअप स्क्रीन के लिए, उच्च-स्तरीय सीमा के रूप में `listWorkspaceConnectionProviderCatalogForApp()` को प्राथमिकता दें - यह प्रदाता कैटलॉग, स्कोप्ड कनेक्शन, स्पष्ट अनुदान, प्रति-ऐप एक्सेस सारांश और प्रदाता की तैयारी को एक सुरक्षित आकार में जोड़ता है।
+
+### यह कैसे तिजोरी का पूरक है
+
+क्रेडेंशियल वॉल्ट उत्तर देता है: "गुप्त रहस्य कहाँ संग्रहीत है, इसे कौन एक्सेस कर सकता है, और किन ऐप्स को इसकी अनुमति दी गई है?"
+
+वर्कस्पेस कनेक्शन प्रदाता मेटाडेटा उत्तर देता है: "यह कौन सा प्रदाता है, यह क्या कर सकता है, इसे किन क्रेडेंशियल कुंजियों की आवश्यकता हो सकती है, और इसे कौन से टेम्पलेट पेश करने चाहिए?"
+
+<Diagram id="doc-block-1bbbr8i" title={"कनेक्शन स्टोर बनाम वॉल्ट"} summary={"तिजोरी का गुप्त मूल्य होता है। कनेक्शन प्रदाता मेटाडेटा प्लस क्रेडेंशियलरेफ्स (पॉइंटर्स) का मालिक है। निष्पादन के समय ऐप दिए गए कनेक्शन के माध्यम से रेफरी का समाधान करता है और वॉल्ट से मूल्य पढ़ता है।"}>
+
+```html
+<div class="diagram-vault">
+  <div class="diagram-panel col" data-rough>
+    <span class="diagram-pill accent">कनेक्शन स्टोर</span>
+    <div class="diagram-box" data-rough>
+      provider account + metadata<br /><small class="diagram-muted"
+        >स्थिति, स्कोप, कॉन्फिग</small
+      >
+    </div>
+    <div class="diagram-box" data-rough>
+      credentialRef<br /><small class="diagram-muted"
+        >{ key: SLACK_BOT_TOKEN, scope: org }</small
+      >
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-card">
+    <span class="diagram-pill">ऐप action</span
+    ><small class="diagram-muted"
+      >resolves at execution time through a granted ref</small
+    >
+    <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel col" data-rough>
+    <span class="diagram-pill ok">Vault</span>
+    <div class="diagram-box" data-rough>
+      secret value<br /><small class="diagram-muted"
+        >एजेंट या UI को कभी वापस नहीं किया जाता</small
+      >
+    </div>
+  </div>
+</div>
+```
+
+```css
+.diagram-vault {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.diagram-vault .col {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px;
+  min-width: 220px;
+}
+.diagram-vault .diagram-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 14px;
+}
+.diagram-vault .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+```
+
+</Diagram>
+
+दोनों का एक साथ उपयोग करें:
+
+1. डिस्पैच (या अन्य कार्यक्षेत्र सेटअप प्रवाह) अंतर्निहित वॉल्ट रहस्य या OAuth क्रेडेंशियल संदर्भ बनाता है।
+2. कार्यस्थान कनेक्शन स्टोर प्रदाता खाते, सुरक्षित मेटाडेटा, क्रेडेंशियल रेफरी और ऐप अनुदान को रिकॉर्ड करता है।
+3. प्रत्येक ऐप कैटलॉग से प्रदाता मेटाडेटा और साझा स्टोर से कनेक्शन/अनुदान सारांश पढ़ता है।
+4. ऐप UI तत्परता दिखाता है: कनेक्टेड, स्वीकृत लेकिन अस्वस्थ, अनुदान की आवश्यकता, अनुपलब्ध क्रेडेंशियल, या केवल मेटाडेटा।
+5. ऐप-विशिष्ट SQL केवल ऐप-विशिष्ट स्रोत आईडी, कर्सर, फ़िल्टर, सिंक विंडो, मीट्रिक परिभाषाएँ, समीक्षा नियम और उपयोगकर्ता विकल्प संग्रहीत करता है।
+6. ऐप actions दिए गए कनेक्शन रेफरी और वॉल्ट के माध्यम से निष्पादन समय पर क्रेडेंशियल्स को हल करता है, और कभी भी गुप्त मान नहीं लौटाता है।
+
+### प्रदाता रीडर रनटाइम
+
+प्रदाता-रीडर परत पहले एक अनुबंध है, यह कोई वादा नहीं है कि प्रत्येक प्रदाता के पास एक साझा लाइव रीडर है। रीडर परिभाषाएँ समर्थित संचालन, क्रेडेंशियल आवश्यकताओं और कार्यान्वयन स्थिति का वर्णन करती हैं: `metadata-only`, `template-owned`, या `shared`। रनटाइम किसी ऐप के लिए दिए गए वर्कस्पेस कनेक्शन और क्रेडेंशियल रेफरी को हल करता है, एक पंजीकृत हैंडलर को कॉल करता है, और गुप्त मूल्यों को उजागर किए बिना सामान्यीकृत आइटम लौटाता है।
+
+अधिकांश लाइव हैंडलर आज भी टेम्प्लेट के स्वामित्व में हैं, जिसका अर्थ है कि ब्रेन अभी भी Slack/GitHub अंतर्ग्रहण व्यवहार का मालिक है और एनालिटिक्स अभी भी एनालिटिक्स व्याख्या का मालिक है। किसी रीडर को `shared` पर तभी प्रमोट करें जब प्रदाता-विशिष्ट API कॉल, पेजिनेशन, अनुमतियाँ और परिणाम शब्दार्थ वास्तव में सभी टेम्प्लेट में पुन: प्रयोज्य हों।
+
+### ऐप तैयारी पैटर्न
+
+ऐसे ऐप्स जो साझा प्रदाता क्रेडेंशियल्स का उपभोग करते हैं, उन्हें केवल-पढ़ने के लिए तत्परता कार्रवाई और एक छोटा सेटअप सतह कवर प्रदर्शित करना चाहिए:
+
+- **प्रदाता सूची:** प्रदाता आईडी, लेबल, क्षमताएं, अनुशंसित टेम्पलेट उपयोग, और `@agent-native/core/connections` से आवश्यक क्रेडेंशियल कुंजी नाम।
+- **कार्यक्षेत्र सारांश:** कनेक्शन गणना, सक्रिय/अनुदत्त गणना, अनुदान स्थिति, क्रेडेंशियल रेफरी नाम, और `@agent-native/core/workspace-connections` से गैर-गुप्त खाता लेबल।
+- **प्रदाता की तैयारी:** `ready`, `needs_credentials`, `needs_attention`, `checking`, `disabled`, या `summarizeWorkspaceConnectionProviderReadiness()` के माध्यम से `not_configured`।
+- **स्रोत स्थिति:** ऐप-स्थानीय कॉन्फ़िगर किए गए स्रोत, कर्सर, सिंक स्थिति और अगली कार्रवाई।
+
+ब्रेन का स्रोत पृष्ठ संदर्भ कार्यान्वयन है। यह ब्रेन सोर्स रिकॉर्ड के अलावा पुन: प्रयोज्य कार्यक्षेत्र कनेक्शन प्रदाताओं को दिखाता है, लेबल अनुदान स्थिति को `connected`, `granted`, `needs_grant`, या `not_connected` के रूप में दिखाता है, और प्रदाता स्वास्थ्य को तैयार, गुम चाबियाँ, अनुदान की आवश्यकता, मरम्मत की आवश्यकता, या केवल मेटाडेटा के रूप में दिखाता है।
+
+### एक पुन: प्रयोज्य कनेक्टर का निर्माण
+
+जब एक नए प्रदाता को एकाधिक टेम्पलेट्स पर काम करना चाहिए:
+
+1. **प्रदाता मेटाडेटा:** `@agent-native/core/connections` में एक प्रदाता जोड़ें या पुन: उपयोग करें। यह स्थिर आईडी, डिस्प्ले लेबल, क्षमता सूची, अनुशंसित टेम्पलेट उपयोग और क्रेडेंशियल कुंजी नाम हैं।
+2. **कार्यस्थान कनेक्शन:** डिस्पैच या अन्य कार्यक्षेत्र सेटअप सतह कनेक्टेड खाते के सुरक्षित मेटाडेटा, स्थिति, स्कोप, `credentialRefs` और ऐप अनुदान को `@agent-native/core/workspace-connections` के माध्यम से संग्रहीत करता है।
+3. **ऐप-स्थानीय स्रोत:** ब्रेन, एनालिटिक्स, मेल, या कोई अन्य ऐप केवल ऐप-विशिष्ट विकल्पों को संग्रहीत करता है, जैसे Slack चैनल, GitHub रिपॉजिटरी, HubSpot ऑब्जेक्ट फ़िल्टर, सिंक कर्सर, या पोलिंग ताल।
+
+प्रत्येक ऐप में OAuth/टोकन स्टोरेज की नकल न करें। कनेक्शन रिकॉर्ड कहता है "यह Acme Slack है और इसका टोकन `SLACK_BOT_TOKEN` पर रहता है"; ऐप-स्थानीय स्रोत का कहना है, "मस्तिष्क उस Slack कनेक्शन से `#product` और `#dev-fusion` को ग्रहण कर सकता है।"
+
+### डिस्पैच कंट्रोल-प्लेन सेटअप
+
+डिस्पैच नियंत्रण-प्लेन actions को उजागर करता है जो समान साझा स्टोर फ़ंक्शन लिखता है जिसे एक ऐप सीधे कॉल कर सकता है:
+
+```ts
+// templates/dispatch/actions/upsert-workspace-connection.ts delegates to this.
+await upsertWorkspaceConnection({
+  id: "team-slack",
+  provider: "slack",
+  label: "Acme Slack",
+  accountId: "T012345",
+  accountLabel: "acme",
+  status: "connected",
+  scopes: ["channels:history", "groups:history"],
+  config: { teamDomain: "acme", preferredChannels: ["product", "dev-fusion"] },
+  credentialRefs: [
+    {
+      key: "SLACK_BOT_TOKEN",
+      scope: "org",
+      provider: "slack",
+      label: "Slack bot token",
+    },
+  ],
+});
+
+// Then grant the apps that should reuse the provider.
+await upsertWorkspaceConnectionGrant({
+  connectionId: "team-slack",
+  appId: "brain",
+});
+await upsertWorkspaceConnectionGrant({
+  connectionId: "team-slack",
+  appId: "analytics",
+});
+```
+
+`allowedApps: []` का उपयोग केवल तभी करें जब एक ही दायरे में प्रत्येक ऐप के लिए कनेक्शन उपलब्ध हो। उत्पादन सेटअप के लिए स्पष्ट अनुदान पंक्तियों को प्राथमिकता दें।
+
+### क्रेडेंशियल रिज़ॉल्यूशन
+
+ऐप निष्पादन कोड सक्रिय अनुरोध दायरे में वॉल्ट के माध्यम से दिए गए `credentialRefs` से क्रेडेंशियल मानों का समाधान करता है। ब्रेन का `source-credentials.ts` वर्तमान संदर्भ कार्यान्वयन है: यह प्रदाता के लिए कार्यक्षेत्र कनेक्शन सूचीबद्ध करता है, `appId: "brain"` के लिए `getWorkspaceConnectionAppAccess` की जांच करता है, कनेक्शन-स्तर और अनुदान-स्तर क्रेडेंशियल रेफरी को मर्ज करता है, और पहले मिलान वाले स्कोप्ड वॉल्ट रहस्य को पढ़ता है। अन्य ऐप्स को `process.env` तक पहुंचने के बजाय उस आकार का अनुसरण करना चाहिए।
+
+## डिज़ाइन नोट्स {#design-notes}
+
+<details>
+<summary>Reader-प्रचार नीति और "एक बार कनेक्ट करें, हर जगह उपयोग करें" का पथ </summary>
+
+### ऐप-स्थानीय सीमा
+
+साझा कनेक्शन और ऐप-स्थानीय स्रोतों के बीच की सीमा जानबूझकर है। आज जो पुन: प्रयोज्य है वह है प्रदाता की पहचान, क्रेडेंशियल-संदर्भ समाधान, प्रति-ऐप अनुदान, प्रदाता की तैयारी, सुरक्षित खाता मेटाडेटा और सामान्यीकृत प्रदाता-रीडर अनुबंध। जो अभी तक सामान्य नहीं है वह अधिकांश लाइव प्रदाता API रीडिंग, OAuth प्रवाह स्वामित्व, अंतर्ग्रहण कर्सर, स्रोत फ़िल्टर, सिंक ताल और डोमेन व्याख्या है। जब तक पाठक कार्यान्वयन को स्पष्ट रूप से साझा करने के लिए प्रचारित नहीं किया जाता है, तब तक वे ऐप में बने रहते हैं जो वर्कफ़्लो का स्वामी होता है।
+
+ऐप स्रोत कनेक्टर्स को उपयोगकर्ता/संगठन स्रोत क्रेडेंशियल्स के फ़ॉलबैक के रूप में परिनियोजन-स्तरीय पर्यावरण चर को नहीं पढ़ना चाहिए। Env संस्करण परिनियोजन के लिए वैश्विक हैं और कार्यक्षेत्र अनुदान व्यक्त नहीं करते हैं।
+
+एजेंटों को एक सरल नियम का पालन करना चाहिए: यदि कोई उपयोगकर्ता Slack, GitHub, HubSpot, Gmail, Google Drive, ग्रेनोला, या किसी अन्य साझा प्रदाता को कनेक्ट करने के लिए कहता है, तो पहले कार्यक्षेत्र कनेक्शन कैटलॉग का निरीक्षण करें। यदि प्रदाता `connected` है, तो इसका उपयोग करें। यदि यह `needs_grant` है, तो ऐप अनुदान मांगें या निष्पादित करें। यदि यह `needs_credentials` है, तो गुम हुई वॉल्ट कुंजी के लिए पूछें। केवल तभी नई कच्ची कुंजी मांगें जब कोई पुन: प्रयोज्य कनेक्शन मौजूद न हो।
+
+### "एक बार कनेक्ट करें, हर जगह उपयोग करें" का पथ
+
+प्रदाता कैटलॉग और अनुदान भंडार एक व्यापक कार्यक्षेत्र परत की नींव हैं:
+
+- साझा प्रदाता आईडी और क्षमता नाम टेम्पलेट्स को संरेखित रखते हैं।
+- वर्कस्पेस-स्तरीय इन्वेंट्री दिखा सकती है कि कौन से प्रदाता ब्रेन, मेल, एनालिटिक्स, डिस्पैच और भविष्य के ऐप्स में कॉन्फ़िगर किए गए हैं।
+- कनेक्शन पंक्तियाँ टेम्प्लेट-फेसिंग प्रदाता आईडी को बदले बिना खाता लेबल, स्थिति, अनुमत ऐप्स, क्रेडेंशियल रेफरी और स्वास्थ्य जांच रिकॉर्ड करती हैं।
+- अनुदान पंक्तियाँ कार्यस्थान स्वामी को एक बार कनेक्ट होने देती हैं, फिर कार्यस्थान द्वारा उन्हें अपनाने पर अलग-अलग ऐप्स को सक्षम करें।
+- एजेंट यह जानकर सभी ऐप्स पर काम कर सकते हैं कि कौन से प्रदाता पहले से जुड़े हुए हैं और किन ऐप्स के पास अनुदान है।
+- फ़ेडरेटेड खोज प्रत्येक ऐप की कनेक्टर सूची को हार्डकोड करने के बजाय `search`, `docs`, `messages`, `meetings`, `crm`, या `code` क्षमताओं वाले प्रदाताओं की मांग कर सकती है।
+- प्रदाता-विशिष्ट पाठक, OAuth ताज़ा प्रवाह, अंतर्ग्रहण चौकियाँ और ऐप-स्वामित्व वाले डेटा मॉडल बाद में साझा किए जा सकते हैं, लेकिन वे आज कार्यक्षेत्र कनेक्शन द्वारा निहित नहीं हैं।
+
+सीमा को सख्त रखें: प्रदाता मेटाडेटा दिखाना सुरक्षित है; क्रेडेंशियल मान तिजोरी में रहते हैं।
+
+</details>

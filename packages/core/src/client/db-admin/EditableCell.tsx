@@ -1,15 +1,17 @@
-import { useEffect, useRef, useState } from "react";
 import {
   IconChevronDown,
   IconCircleX,
   IconMaximize,
 } from "@tabler/icons-react";
-import { cn } from "../utils.js";
+import { useEffect, useRef, useState } from "react";
+
+import type { DbAdminColumn } from "../../db-admin/types.js";
 import {
   Popover,
   PopoverContent,
   PopoverTrigger,
 } from "../components/ui/popover.js";
+import { cn } from "../utils.js";
 import {
   type EditorKind,
   formatCellValue,
@@ -20,7 +22,6 @@ import {
   cycleTriStateBoolean,
   formatJsonPretty,
 } from "./cell-format.js";
-import type { DbAdminColumn } from "../../db-admin/types.js";
 
 export interface EditableCellProps {
   column: DbAdminColumn;

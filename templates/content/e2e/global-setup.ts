@@ -1,5 +1,6 @@
-import { chromium, type FullConfig } from "@playwright/test";
 import { mkdirSync, writeFileSync } from "node:fs";
+
+import { chromium, type FullConfig } from "@playwright/test";
 
 /*
  * Establish a reusable authed session for the "authed" project.

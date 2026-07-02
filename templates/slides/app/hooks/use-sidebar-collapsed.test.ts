@@ -1,9 +1,10 @@
-// @vitest-environment happy-dom
-import { describe, it, expect, vi, beforeEach } from "vitest";
-import { renderHook, waitFor, act } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { renderHook, waitFor, act } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { createElement } from "react";
+// @vitest-environment happy-dom
+import { describe, it, expect, vi, beforeEach } from "vitest";
+
 import {
   SIDEBAR_COLLAPSED_STORAGE_KEY,
   useSidebarCollapsed,

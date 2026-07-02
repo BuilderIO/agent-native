@@ -5,6 +5,27 @@ import {
   setResponseStatus,
   readMultipartFormData,
 } from "h3";
+import { createError } from "h3";
+
+import { uploadFile } from "../file-upload/index.js";
+import { getOrgContext } from "../org/context.js";
+import { getSession } from "../server/auth.js";
+import {
+  readBody,
+  DEFAULT_UPLOAD_MAX_FILE_BYTES,
+  isAllowedUploadMimeType,
+} from "../server/h3-helpers.js";
+import { runWithRequestContext } from "../server/request-context.js";
+import {
+  getResourceKind,
+  isRemoteAgentPath,
+  parseCustomAgentProfile,
+  parseRemoteAgentManifest,
+  parseSkillMetadata,
+  type CustomAgentProfile,
+  type RemoteAgentManifest,
+  type SkillMetadata,
+} from "./metadata.js";
 import {
   resourceGet,
   resourceGetByPath,
@@ -21,26 +42,6 @@ import {
   WORKSPACE_OWNER,
   type ResourceMeta,
 } from "./store.js";
-import {
-  getResourceKind,
-  isRemoteAgentPath,
-  parseCustomAgentProfile,
-  parseRemoteAgentManifest,
-  parseSkillMetadata,
-  type CustomAgentProfile,
-  type RemoteAgentManifest,
-  type SkillMetadata,
-} from "./metadata.js";
-import { getSession } from "../server/auth.js";
-import {
-  readBody,
-  DEFAULT_UPLOAD_MAX_FILE_BYTES,
-  isAllowedUploadMimeType,
-} from "../server/h3-helpers.js";
-import { uploadFile } from "../file-upload/index.js";
-import { runWithRequestContext } from "../server/request-context.js";
-import { getOrgContext } from "../org/context.js";
-import { createError } from "h3";
 
 // ---------------------------------------------------------------------------
 // Owner resolution

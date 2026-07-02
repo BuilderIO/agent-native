@@ -1,5 +1,23 @@
+import {
+  getBrowserTabId,
+  setClientAppState,
+  useSession,
+  useT,
+} from "@agent-native/core/client";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
+
+import { ShareRecordingDialog } from "@/components/player/share-dialog";
+import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { isDefaultTitle } from "@/hooks/use-auto-title";
 import {
   useFolders,
   useRecordings,
@@ -11,29 +29,13 @@ import {
   type ListRecordingsArgs,
   type RecordingSummary,
 } from "@/hooks/use-library";
-import { isDefaultTitle } from "@/hooks/use-auto-title";
-import {
-  getBrowserTabId,
-  sendToAgentChat,
-  setClientAppState,
-  useSession,
-} from "@agent-native/core/client";
-import { RecordingCard } from "./recording-card";
-import { EmptyState } from "./empty-state";
-import { SortMenu, type SortKey } from "./sort-menu";
-import { FilterChips, type FilterChip } from "./filter-chips";
+
 import { BulkActionToolbar, type BulkMoveTarget } from "./bulk-action-toolbar";
+import { EmptyState } from "./empty-state";
+import { FilterChips, type FilterChip } from "./filter-chips";
 import { PageHeader } from "./page-header";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogFooter,
-} from "@/components/ui/dialog";
-import { ShareRecordingDialog } from "@/components/player/share-dialog";
+import { RecordingCard } from "./recording-card";
+import { SortMenu, type SortKey } from "./sort-menu";
 
 interface LibraryGridProps {
   view: "library" | "space" | "archive" | "trash" | "all";
@@ -103,6 +105,7 @@ export function LibraryGrid({
   onClearTag,
   extraActions,
 }: LibraryGridProps) {
+  const t = useT();
   const [sort, setSort] = useState<SortKey>("recent");
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const selectionMode = selected.size > 0;
@@ -156,10 +159,12 @@ export function LibraryGrid({
               }),
             ),
             folderId ?? null,
-            view === "space" ? "Space root" : "Library root",
+            view === "space"
+              ? t("libraryGrid.spaceRoot")
+              : t("libraryGrid.libraryRoot"),
           )
         : [],
-    [canMoveSelection, folderId, scopedFolders, view],
+    [canMoveSelection, folderId, scopedFolders, t, view],
   );
 
   useEffect(() => {
@@ -210,14 +215,27 @@ export function LibraryGrid({
         ids: selectedIds,
         folderId: targetFolderId,
       });
-      toast.success(
-        `${selectedIds.length} clip${selectedIds.length === 1 ? "" : "s"} moved`,
-      );
+      toast.success(t("libraryGrid.clipsMoved", { count: selectedIds.length }));
       clearSelection();
     } catch (err: any) {
-      toast.error(err?.message ?? "Failed to move clips");
+      toast.error(err?.message ?? t("libraryGrid.moveFailed"));
     } finally {
       setIsBulkPending(false);
+    }
+  };
+
+  const moveSingle = async (
+    rec: RecordingSummary,
+    targetFolderId: string | null,
+  ) => {
+    try {
+      await moveRecording.mutateAsync({
+        id: rec.id,
+        folderId: targetFolderId,
+      });
+      toast.success(t("libraryGrid.clipsMoved", { count: 1 }));
+    } catch (err: any) {
+      toast.error(err?.message ?? t("libraryGrid.moveFailed"));
     }
   };
 
@@ -232,17 +250,17 @@ export function LibraryGrid({
     if (!renamingRec) return;
     const trimmed = renameValue.trim();
     if (!trimmed) {
-      toast.error("Title cannot be empty");
+      toast.error(t("libraryGrid.titleRequired"));
       return;
     }
     renameRecording.mutate(
       { id: renamingRec.id, title: trimmed },
       {
         onSuccess: () => {
-          toast.success("Clip renamed");
+          toast.success(t("libraryGrid.clipRenamed"));
           setRenamingRec(null);
         },
-        onError: () => toast.error("Failed to rename clip"),
+        onError: () => toast.error(t("libraryGrid.renameFailed")),
       },
     );
   };
@@ -292,7 +310,7 @@ export function LibraryGrid({
       >
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>Rename clip</DialogTitle>
+            <DialogTitle>{t("libraryGrid.renameClip")}</DialogTitle>
           </DialogHeader>
           <Input
             ref={renameInputRef}
@@ -301,7 +319,7 @@ export function LibraryGrid({
             onKeyDown={(e) => {
               if (e.key === "Enter") submitRename();
             }}
-            placeholder="Clip title"
+            placeholder={t("libraryGrid.clipTitle")}
             className="mt-1"
             autoFocus
           />
@@ -311,13 +329,15 @@ export function LibraryGrid({
               onClick={() => setRenamingRec(null)}
               disabled={renameRecording.isPending}
             >
-              Cancel
+              {t("common.cancel")}
             </Button>
             <Button
               onClick={submitRename}
               disabled={renameRecording.isPending || !renameValue.trim()}
             >
-              {renameRecording.isPending ? "Saving…" : "Save"}
+              {renameRecording.isPending
+                ? t("common.saving")
+                : t("common.save")}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -379,17 +399,15 @@ export function LibraryGrid({
                       ? openRenameDialog
                       : undefined
                   }
-                  onMove={(rec) => {
-                    sendToAgentChat({
-                      message: `Move the clip "${rec.title}" (id: ${rec.id}) to a folder. Ask me which folder to move it to, or list available folders.`,
-                      background: false,
-                    });
-                  }}
+                  moveTargets={moveTargets}
+                  onMove={canMoveSelection ? moveSingle : undefined}
+                  isMovePending={moveRecording.isPending}
                   onTrash={(rec) => {
                     trashRecording.mutate(
                       { id: rec.id },
                       {
-                        onSuccess: () => toast.success("Moved to trash"),
+                        onSuccess: () =>
+                          toast.success(t("libraryGrid.movedToTrash")),
                       },
                     );
                   }}
@@ -399,14 +417,15 @@ export function LibraryGrid({
                         { id: rec.id },
                         {
                           onSuccess: () =>
-                            toast.success("Restored from archive"),
+                            toast.success(t("libraryGrid.restoredFromArchive")),
                         },
                       );
                     } else {
                       archiveRecording.mutate(
                         { id: rec.id },
                         {
-                          onSuccess: () => toast.success("Archived"),
+                          onSuccess: () =>
+                            toast.success(t("libraryGrid.archived")),
                         },
                       );
                     }
@@ -437,7 +456,9 @@ export function LibraryGrid({
                     const failed = ids.length - succeededIds.length;
                     if (succeededIds.length > 0) {
                       toast.success(
-                        `${succeededIds.length} clip${succeededIds.length === 1 ? "" : "s"} archived`,
+                        t("libraryGrid.clipsArchived", {
+                          count: succeededIds.length,
+                        }),
                       );
                       setSelected((prev) => {
                         const next = new Set(prev);
@@ -447,7 +468,7 @@ export function LibraryGrid({
                     }
                     if (failed > 0) {
                       toast.error(
-                        `${failed} clip${failed === 1 ? "" : "s"} could not be archived`,
+                        t("libraryGrid.clipsArchiveFailed", { count: failed }),
                       );
                     }
                   } finally {
@@ -467,7 +488,9 @@ export function LibraryGrid({
                     const failed = ids.length - succeededIds.length;
                     if (succeededIds.length > 0) {
                       toast.success(
-                        `${succeededIds.length} clip${succeededIds.length === 1 ? "" : "s"} moved to trash`,
+                        t("libraryGrid.clipsMovedToTrash", {
+                          count: succeededIds.length,
+                        }),
                       );
                       setSelected((prev) => {
                         const next = new Set(prev);
@@ -477,7 +500,7 @@ export function LibraryGrid({
                     }
                     if (failed > 0) {
                       toast.error(
-                        `${failed} clip${failed === 1 ? "" : "s"} could not be moved to trash`,
+                        t("libraryGrid.clipsTrashFailed", { count: failed }),
                       );
                     }
                   } finally {

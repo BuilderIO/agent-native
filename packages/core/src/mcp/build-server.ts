@@ -18,8 +18,6 @@
  * — it can be bundled into the serverless function alongside `mountMCP`.
  */
 
-import type { ActionEntry } from "../agent/production-agent.js";
-import { isMcpActionResult } from "../mcp-client/app-result.js";
 import {
   MCP_APP_EXTENSION_ID,
   MCP_APP_MIME_TYPE,
@@ -27,19 +25,21 @@ import {
   type ActionMcpAppCsp,
   type ActionMcpAppResourceConfig,
 } from "../action.js";
-import { MCP_APP_REQUEST_ORIGIN_CSP_SOURCE } from "./embed-app.js";
-import {
-  getRequestContext,
-  getRequestOrgId,
-  getRequestUserEmail,
-  runWithRequestContext,
-} from "../server/request-context.js";
+import type { ActionEntry } from "../agent/production-agent.js";
+import { isMcpActionResult } from "../mcp-client/app-result.js";
+import { getConfiguredAppBasePath } from "../server/app-base-path.js";
 import {
   buildDeepLink,
   toAbsoluteOpenUrl,
   toDesktopOpenUrl,
   toVsCodeOpenUrl,
 } from "../server/deep-link.js";
+import {
+  getRequestContext,
+  getRequestOrgId,
+  getRequestUserEmail,
+  runWithRequestContext,
+} from "../server/request-context.js";
 import {
   isAgentNativeOpenDeepLink,
   withCollapsedAgentSidebarParam,
@@ -50,7 +50,7 @@ import {
   MCP_CONNECT_OAUTH_CLIENT_ID,
   MCP_CONNECT_SCOPE,
 } from "./connect-store.js";
-import { getConfiguredAppBasePath } from "../server/app-base-path.js";
+import { MCP_APP_REQUEST_ORIGIN_CSP_SOURCE } from "./embed-app.js";
 import {
   MCP_OAUTH_SCOPES,
   hasMcpOAuthScope,
@@ -448,6 +448,18 @@ function purgeEmbedStartUrls(value: unknown, depth = 0): unknown {
   return value;
 }
 
+// True when a tool result carries SOME content. An errored/no-plan result comes
+// back empty (`{}` / null) and would render an empty embed box. We gate on "has
+// content", not "has a URL" — valid embeds often carry data but no URL (the
+// shell mints the embed-start itself).
+function mcpResultHasContent(result: unknown): boolean {
+  if (result == null) return false;
+  if (typeof result === "string") return result.trim().length > 0;
+  if (Array.isArray(result)) return result.length > 0;
+  if (typeof result === "object") return Object.keys(result).length > 0;
+  return Boolean(result);
+}
+
 function mcpAppEmbedOpenLinkMeta(
   result: unknown,
   resource: ResolvedMcpAppResource,
@@ -750,7 +762,7 @@ function safeUiSegment(value: string | undefined, fallback: string): string {
 
 // ChatGPT and Claude cache MCP App resource HTML by `ui://` URI. Bump this
 // when the shared shell changes in a way that must invalidate host caches.
-const MCP_APP_RESOURCE_SHELL_VERSION = "shell-v51";
+const MCP_APP_RESOURCE_SHELL_VERSION = "shell-v64";
 
 function legacyDefaultMcpAppUri(config: MCPConfig, actionName: string): string {
   const app = safeUiSegment(config.appId ?? config.name, "agent-native");
@@ -1340,9 +1352,7 @@ export async function createMCPServerForRequest(
   // in that case we run with no userEmail/orgId, which makes downstream
   // tools that require per-user scope return empty results rather than
   // cross-tenant data (the safe default).
-  const orgIdPromise = effectiveIdentity?.orgId
-    ? Promise.resolve(effectiveIdentity.orgId)
-    : resolveOrgIdFromDomain(effectiveIdentity?.orgDomain);
+  const orgIdPromise = resolveMcpIdentityOrgId(effectiveIdentity);
 
   /**
    * Wrap a callback in
@@ -1548,12 +1558,24 @@ export async function createMCPServerForRequest(
         // branch below degrades to the plain deep-link artifacts the tool would
         // otherwise return — no `openai/outputTemplate`, no minted embed-start,
         // no embed structuredContent — so the host shows a link, not an iframe.
-        const mcpAppResource = requestMeta?.inlineMcpApps
+        const mcpAppResourceCandidate = requestMeta?.inlineMcpApps
           ? await resolveMcpAppResourceSafely(config, name, entry, requestMeta)
           : null;
-        const rawResultForClient = mcpAppResource
+        const rawResultForClient = mcpAppResourceCandidate
           ? await withServerMintedMcpAppEmbedStart(rawResult, requestMeta)
           : rawResult;
+        // Only attach the embed widget for a non-error result that has content.
+        const embedHasContent = mcpResultHasContent(rawResultForClient);
+        const mcpAppResource =
+          mcpAppResourceCandidate && !mcpResultIsError && embedHasContent
+            ? mcpAppResourceCandidate
+            : null;
+        // `openai/outputTemplate` is declared at the tool level, so the host
+        // renders a widget for every call regardless of result _meta. The only
+        // per-result signal it honors is `isError` (shows error text, no widget),
+        // so treat an embed tool that produced nothing as an error.
+        const embedProducedNothing =
+          !!mcpAppResourceCandidate && !mcpResultIsError && !embedHasContent;
         const { block, _meta } = buildLinkArtifacts(
           entry,
           (args as Record<string, any>) ?? {},
@@ -1592,7 +1614,9 @@ export async function createMCPServerForRequest(
         if (block) content.push(block);
         return {
           content,
-          ...(mcpResultIsError ? { isError: true } : {}),
+          ...(mcpResultIsError || embedProducedNothing
+            ? { isError: true }
+            : {}),
           ...(structuredContent ? { structuredContent } : {}),
           ...(Object.keys(responseMeta).length > 0
             ? { _meta: responseMeta }
@@ -1891,7 +1915,7 @@ async function isConnectTokenAllowed(
  */
 export async function verifyAuth(
   authHeader: string | undefined,
-  ownerEmailHeader?: string | undefined,
+  ownerEmailHeader?: string,
   options: { allowDevOpen?: boolean; resourceUrl?: string | string[] } = {},
 ): Promise<{
   authed: boolean;
@@ -2062,6 +2086,24 @@ export async function resolveOrgIdFromDomain(
     const { resolveOrgByDomain } = await import("../org/context.js");
     const org = await resolveOrgByDomain(orgDomain);
     return org?.orgId ?? undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+export async function resolveMcpIdentityOrgId(
+  identity: MCPCallerIdentity | undefined,
+): Promise<string | undefined> {
+  if (identity?.orgId) return identity.orgId;
+
+  const orgIdFromDomain = await resolveOrgIdFromDomain(identity?.orgDomain);
+  if (orgIdFromDomain) return orgIdFromDomain;
+
+  const userEmail = identity?.userEmail?.trim();
+  if (!userEmail) return undefined;
+  try {
+    const { resolveOrgIdForEmail } = await import("../org/context.js");
+    return (await resolveOrgIdForEmail(userEmail)) ?? undefined;
   } catch {
     return undefined;
   }

@@ -1,9 +1,10 @@
-import { describe, expect, it } from "vitest";
+import { AgentNativeI18nProvider } from "@agent-native/core/client";
 import { renderToStaticMarkup } from "react-dom/server";
 import { MemoryRouter } from "react-router";
-import { AgentNativeI18nProvider } from "@agent-native/core/client";
-import DocsSidebar from "./DocsSidebar";
+import { describe, expect, it } from "vitest";
+
 import { docsI18nCatalog } from "../i18n";
+import DocsSidebar from "./DocsSidebar";
 
 function renderSidebar(path: string) {
   return renderToStaticMarkup(
@@ -71,10 +72,10 @@ describe("DocsSidebar", () => {
     expect(html).toContain('href="/docs/plan-plugin"');
   });
 
-  it("expands the Templates section and the Plans group on a plan sub-doc", () => {
+  it("expands the Apps section and the Plans group on a plan sub-doc", () => {
     const html = renderSidebar("/docs/template-plan");
 
-    expect(html).toContain("Templates");
+    expect(html).toContain("Apps");
     expect(html).toContain('aria-expanded="true"');
 
     // The active child link is highlighted and the group is open.

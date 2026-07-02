@@ -5,19 +5,20 @@ import {
   getRequestUserName,
 } from "@agent-native/core/server/request-context";
 import { z } from "zod";
+
 import { getDb, schema } from "../server/db/index.js";
-import {
-  createUiPlanContent,
-  normalizePlanContent,
-  serializePlanContent,
-} from "../server/plan-content.js";
+import { assertGuestCreateWithinLimits } from "../server/lib/guest-abuse.js";
 import {
   isLocalPlanRuntime,
   resolvePlanOrgIdForWrite,
   requirePlanOwnerEmailForWrite,
 } from "../server/lib/local-identity.js";
-import { assertGuestCreateWithinLimits } from "../server/lib/guest-abuse.js";
 import { writePlanLocalFiles } from "../server/lib/local-plan-files.js";
+import {
+  createUiPlanContent,
+  normalizePlanContent,
+  serializePlanContent,
+} from "../server/plan-content.js";
 import {
   buildPlanHtml,
   commentInputSchema,
@@ -126,7 +127,7 @@ export default defineAction({
         "Open the Agent-Native Plan UI review surface for sketch mockups, state annotations, implementation maps, snippets, and validation notes.",
       iframeTitle: "Agent-Native Plan",
       openLabel: "Open UI Plan",
-      height: 860,
+      height: 900,
     }),
   },
   run: async (args) => {

@@ -1,3 +1,5 @@
+import nodePath from "node:path";
+
 /**
  * Auto-discover actions from a template's actions/ directory.
  *
@@ -27,7 +29,6 @@
  */
 import type { ActionEntry } from "../agent/production-agent.js";
 import type { ActionTool } from "../agent/types.js";
-import nodePath from "node:path";
 import { captureCliOutput } from "./cli-capture.js";
 
 // Lazy fs — loaded via dynamic import() on first use.
@@ -214,6 +215,10 @@ function preserveActionFlags(entry: Record<string, any>): Partial<ActionEntry> {
     !Array.isArray(entry.chatUI)
   ) {
     out.chatUI = entry.chatUI;
+  }
+  if (typeof entry.timeoutMs === "number") out.timeoutMs = entry.timeoutMs;
+  if (typeof entry.maxResultChars === "number") {
+    out.maxResultChars = entry.maxResultChars;
   }
   if (
     typeof entry.needsApproval === "boolean" ||

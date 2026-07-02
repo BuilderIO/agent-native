@@ -1,6 +1,8 @@
-import { describe, expect, it } from "vitest";
 import path from "path";
 import { fileURLToPath } from "url";
+
+import { describe, expect, it } from "vitest";
+
 import { createSkeletonProjectIR } from "./agent-introspection.js";
 import {
   selectSourceAdapter,

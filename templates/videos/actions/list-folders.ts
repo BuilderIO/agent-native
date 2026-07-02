@@ -1,8 +1,9 @@
 import { defineAction } from "@agent-native/core";
-import { and, desc, eq, inArray } from "drizzle-orm";
 import { accessFilter } from "@agent-native/core/sharing";
-import { getDb, schema } from "../server/db/index.js";
+import { and, desc, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
+
+import { getDb, schema } from "../server/db/index.js";
 
 export default defineAction({
   description:

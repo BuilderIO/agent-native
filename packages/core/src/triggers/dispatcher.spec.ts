@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+
 import { initTriggerDispatcher } from "./dispatcher.js";
 
 const resourceListAllOwnersMock = vi.hoisted(() => vi.fn());

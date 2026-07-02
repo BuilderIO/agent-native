@@ -1,9 +1,11 @@
-import Team from "@/pages/Team";
+import { Navigate } from "react-router";
+
+import { messagesByLocale } from "@/i18n-data";
 
 export function meta() {
-  return [{ title: "Team — Analytics" }];
+  return [{ title: messagesByLocale["en-US"].routeTitles.team }];
 }
 
 export default function TeamRoute() {
-  return <Team />;
+  return <Navigate to="/settings#team" replace />;
 }

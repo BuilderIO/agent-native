@@ -1,0 +1,270 @@
+---
+title: "Dispatch"
+description: "The workspace control plane: secrets vault, integration hub, cross-app delegate, and central inbox for Slack, email, Telegram, WhatsApp."
+---
+
+# Dispatch
+
+Dispatch is the central app that sits in front of every other app in your workspace and handles secrets, integrations, messaging, and cross-app delegation. It is the **workspace control plane** — the single agent your team talks to, the single place credentials live, and the single router that decides which specialist app should handle a given request.
+
+> **Dispatch the template vs. `@agent-native/dispatch` the package.** This page covers the Dispatch app/template concept — what it does and why you'd want it. The `@agent-native/dispatch` npm package is the separately published runtime that bundles the Dispatch template's server logic (vault, integrations, destinations, scheduled jobs, and cross-app delegation) as a drop-in package for workspaces that extend it. For the scaffolded app itself (routes, screens, agent guide), see the [Dispatch template](/docs/template-dispatch).
+
+Without Dispatch, every app in a multi-app workspace ends up re-implementing the same plumbing: its own Slack bot, its own secret store, its own scheduled jobs, its own copy of the workspace's instructions. Rotating one API key turns into ten redeployments. Adding a new policy turns into ten copy-pastes. Dispatch centralizes all of that in one app so the others stay focused on their domain.
+
+<Diagram id="doc-block-1j2xxx8" title="Dispatch as the workspace control plane" summary="One inbox, one vault, one MCP gateway, and shared resources sit in front of the domain apps, which Dispatch reaches as A2A peers.">
+
+```html
+<div class="dsp-hub">
+  <div class="diagram-node">
+    Users &amp; external agents<br /><small class="diagram-muted"
+      >Slack · email · Telegram · WhatsApp · MCP</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
+  <div class="diagram-panel dsp-control" data-rough>
+    <span class="diagram-pill accent">Dispatch &mdash; control plane</span>
+    <div class="dsp-caps">
+      <span class="diagram-pill">Central inbox</span
+      ><span class="diagram-pill">Secret vault</span
+      ><span class="diagram-pill">Cross-app delegation</span
+      ><span class="diagram-pill">MCP gateway</span
+      ><span class="diagram-pill">Workspace resources</span>
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
+  <div class="dsp-peers">
+    <div class="diagram-box" data-rough>Mail</div>
+    <div class="diagram-box" data-rough>Calendar</div>
+    <div class="diagram-box" data-rough>Analytics</div>
+  </div>
+  <small class="diagram-muted">domain apps &mdash; A2A peers</small>
+</div>
+```
+
+```css
+.dsp-hub {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+}
+.dsp-hub .dsp-control {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+}
+.dsp-hub .dsp-caps {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+.dsp-hub .dsp-peers {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+```
+
+</Diagram>
+
+## When you want Dispatch {#when}
+
+Reach for Dispatch when any of these are true:
+
+- You're running a [multi-app workspace](/docs/multi-app-workspace) — mail, calendar, analytics, content — and you don't want one Slack bot per app.
+- You want **one inbox for "the agent"** so users DM a single bot and the right specialist app picks up the work behind the scenes.
+- You have **workspace-wide secrets** (Stripe key, OpenAI key, third-party API tokens) that several apps need and you want one vault instead of copying values into every `.env`.
+- You want a **runtime approval flow** in front of sensitive changes (saved destinations, policy edits) so non-admins can request and admins can sign off without a code deploy.
+- You want **shared skills, instructions, agent profiles, and MCP servers** that apps in the workspace inherit — change once, reach all.
+
+If you're running a single template standalone, you don't need Dispatch — each template can wire its own messaging integrations directly. See [Messaging](/docs/messaging) for the standalone setup.
+
+## What Dispatch does {#what-it-does}
+
+Seven capabilities, all sitting on top of the same workspace database the other apps use:
+
+| Capability               | What it gives you                                                               | Set it up                                                     |
+| ------------------------ | ------------------------------------------------------------------------------- | ------------------------------------------------------------- |
+| **Central inbox**        | Slack, email, Telegram, WhatsApp all reach one agent with shared memory + tools | **Settings → Messaging** ([Messaging](/docs/messaging))       |
+| **Secret vault**         | Store each credential once; rotate in one place across every app                | **Vault** + access mode (all-apps or manual)                  |
+| **Cross-app delegation** | Routes a request to the right specialist app over A2A and replies in-thread     | Automatic ([A2A](/docs/a2a-protocol))                         |
+| **Unified MCP gateway**  | One MCP connector for external agents reaches every granted workspace app       | [External Agents](/docs/external-agents)                      |
+| **Workspace resources**  | Author skills/instructions/profiles once; apps inherit them at runtime          | **Resources** ([Workspace](/docs/workspace#global-resources)) |
+| **Dreams**               | Reviews past runs/feedback and proposes durable improvements for you to approve | **Dreams** tab                                                |
+| **Approval flow**        | Gate sensitive runtime changes behind inline admin review                       | **dispatch approval policy**                                  |
+
+Each is detailed below.
+
+### Central inbox
+
+Slack, email, Telegram, and WhatsApp all flow into Dispatch's agent loop. Connect each platform once in **Settings → Messaging** and every channel reaches the same agent with the same memory and tools. A Slack DM and an email to `agent@yourcompany.com` end up as two surfaces on one conversation history, not two disconnected bots. See [Messaging](/docs/messaging) for the credentials and webhook URLs.
+
+### Secret vault
+
+Store credentials once in Dispatch's vault. By default, vault access is **all apps**: every saved key is available to every workspace app, and `sync-vault-to-app` pushes the full vault to the target app. Workspaces that need stricter separation can switch the vault to **manual** mode, where explicit per-app grants are required before sync. Non-admins can **request** a secret for an app; admins **approve**, which creates the secret and, in manual workflows, the grant. Every read, grant, sync, and rotation is captured in an audit log. This is what makes "rotate the OpenAI key" a one-click operation across ten apps instead of ten PRs.
+
+### Cross-app delegation
+
+Dispatch auto-discovers the other apps in your workspace as A2A peers — no manual registration, no per-app config. When a user asks "summarize last week's signups" in Slack, Dispatch recognizes that as an analytics request and calls the analytics app over [A2A](/docs/a2a-protocol). When they ask "draft a reply to Alice", it routes to the mail app. Dispatch posts the final answer back in the originating thread. The behavioral rule lives in the dispatch agent's instructions: domain work belongs to the domain app. Dispatch is the orchestrator, not the specialist.
+
+### Unified MCP gateway
+
+Dispatch can be the single MCP connector for external agents: add `https://dispatch.agent-native.com/_agent-native/mcp` once in Claude, ChatGPT, Codex, or Cursor, and one authorization reaches every granted workspace app instead of one connector per app. See [External Agents](/docs/external-agents) for the full connect flow, app grants, OAuth, and inline MCP App previews.
+
+<Endpoint id="doc-block-7jvtfw" method="POST" path="/_agent-native/mcp" summary="Unified MCP gateway endpoint" auth="Standard remote MCP OAuth, handled by the framework. The granted-app set scopes which workspace apps the connector can reach." responses={[
+  {
+    "status": "200",
+    "description": "MCP JSON-RPC response — tools, resources, and MCP App UI resources aggregated across granted workspace apps."
+  }
+]}>
+
+The single MCP connector URL external agents add (e.g. `https://dispatch.agent-native.com/_agent-native/mcp`). One authorization here reaches every **granted** workspace app instead of wiring one connector per app. App grants, OAuth, and inline MCP App previews are covered in [External Agents](/docs/external-agents).
+
+</Endpoint>
+
+### Workspace resources
+
+Skills, guardrail instructions, agent profiles, and reference resources can be authored once in Dispatch and inherited by the rest of the workspace. Resources with **All apps** scope are global: Dispatch stores them once at workspace scope, and every app agent reads them at runtime. They are not copied into each app, and there is no manual workspace-resource sync step. App shared resources and personal resources can override or narrow the workspace defaults locally.
+
+See [Workspace — Global resources](/docs/workspace#global-resources) for the canonical path table, starter pack, and override model.
+
+MCP server resources use JSON and are intentionally HTTP-only. Store tokens in
+Dispatch Vault, grant or sync those keys to the target apps, and reference them
+from headers with `${keys.NAME}` so the raw credential never lives in the
+resource body.
+
+The **Resources** page highlights the recommended starter pack so admins can quickly see which files exist, restore missing starter files without overwriting existing ones, and edit their contents. Expand any resource to preview its effective runtime stack for a selected app/user. Each app card also has a **Context** view that shows exactly what that app receives.
+
+### Dreams
+
+Dispatch Dreams review prior agent runs, feedback, evals, and repeated failures to propose durable improvements. A dream report is a review surface, not a silent rewrite: it can suggest personal memory updates, stale-memory cleanup, shared `LEARNINGS.md` edits, workspace instruction/skill/knowledge/agent resources, or recurring jobs, and each proposal links back to the runs that justify it. Shared instructions and team-wide resources require review before they are applied, especially when the evidence came from inbound Slack, email, Telegram, WhatsApp, or web content.
+
+Before proposing a write, Dreams compare the evidence against the personal memory index, existing `memory/*.md` notes, and shared `LEARNINGS.md`. If a lesson is already captured, the report records that it was skipped; if a related personal memory looks stale, the proposal targets that existing note instead of creating a duplicate.
+
+Start from the **Dreams** tab in Dispatch. Run a manual pass first, open a proposal review sheet to compare the current target with the proposed content and source evidence, then apply only the changes you want to keep. Once the reports are consistently useful, Dispatch can create a recurring dream job that keeps producing proposals without auto-applying shared or instruction-level changes.
+
+### Approval flow
+
+Dispatch can gate sensitive runtime changes behind admin review. Today this covers **saved destinations** (the Slack channels and email addresses the agent can proactively send to), shared/team **dream proposals**, All-app **workspace resource** creates/updates/deletes, and **dispatch approval policy** itself. When the policy is enabled, the change is queued and the agent surfaces an inline approval preview directly in chat — admins approve or reject without leaving the conversation.
+
+## How a Slack message flows through Dispatch {#flow}
+
+Walk through one example end-to-end. A user DMs the bot: _"summarize last week's signups."_
+
+1. **Slack → webhook.** Slack `POST`s to `/_agent-native/integrations/slack/webhook` on the Dispatch app. The handler verifies the signature and **inserts a row into `integration_pending_tasks`**, then fires a self-targeted `POST` to its own processor and returns `200` immediately so Slack doesn't retry.
+2. **Fresh processor execution.** The processor endpoint runs in a brand-new function execution with its own full timeout. It atomically claims the task and starts the agent loop.
+3. **Dispatch agent decides.** The agent reads the message, recognizes "signups" as an analytics intent, and invokes `call-agent` against the analytics app's [A2A endpoint](/docs/a2a-protocol). The actual SQL work runs over there.
+4. **Reply posted in thread.** The analytics agent returns a result. Dispatch formats it and posts back into the same Slack thread the user wrote in, using the linked identity if there is one (so the agent acts with the requester's permissions, not the workspace owner's).
+5. **Recovery if anything dies.** If the processor crashes mid-flight — A2A timeout, downstream agent error, function freeze — a retry job sweeps stuck tasks every 60 seconds and re-fires the processor. Up to three attempts before the task is marked `failed`.
+
+<Diagram id="doc-block-1ddkhy8" title="A Slack message through Dispatch" summary={"Slack enqueues into SQL, a fresh execution drains it, the Dispatch agent delegates the domain work over A2A, and the reply lands back in the originating thread. A 60s retry job recovers anything that dies mid-flight."}>
+
+```html
+<div class="dsp-flow">
+  <div class="dsp-row">
+    <div class="diagram-node">
+      Slack DM<br /><small class="diagram-muted"
+        >"summarize last week's signups"</small
+      >
+    </div>
+    <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+    <div class="diagram-box" data-rough>
+      <strong>/slack/webhook</strong><br /><small class="diagram-muted"
+        >verify + INSERT pending task</small
+      >
+    </div>
+    <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+    <div class="diagram-pill ok">200</div>
+  </div>
+  <div class="dsp-row">
+    <div class="diagram-box" data-rough>
+      <strong>fresh processor</strong><br /><small class="diagram-muted"
+        >claim task · start agent loop</small
+      >
+    </div>
+    <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+    <div class="diagram-panel center" data-rough>
+      <span class="diagram-pill accent">Dispatch agent decides</span
+      ><small class="diagram-muted">analytics intent &rarr; call-agent</small>
+    </div>
+  </div>
+  <div class="dsp-row">
+    <div class="diagram-box" data-rough>
+      Analytics app<br /><small class="diagram-muted"
+        >A2A peer · runs the SQL work</small
+      >
+    </div>
+    <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+    <div class="diagram-pill ok">reply posted in thread</div>
+  </div>
+  <div class="diagram-panel dsp-retry" data-rough>
+    <span class="diagram-pill warn">recovery</span>
+    <span class="diagram-muted"
+      >if the processor crashes &mdash; A2A timeout, downstream error, freeze
+      &mdash; the 60s retry job re-fires it (&le;3 attempts) so the Slack reply
+      still arrives</span
+    >
+    <span class="diagram-arrow diagram-muted" aria-hidden="true">&#8635;</span>
+  </div>
+</div>
+```
+
+```css
+.dsp-flow {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.dsp-flow .dsp-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.dsp-flow .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+.dsp-flow .dsp-retry {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+```
+
+</Diagram>
+
+The same flow applies for email, Telegram, and WhatsApp — only the adapter changes.
+
+## Reliability story {#reliability}
+
+The whole pipeline is built to survive on every serverless host (Netlify, Vercel, Cloudflare Workers) without leaning on platform-specific background-execution APIs.
+
+- **Webhook → SQL queue → fresh-execution processor.** The agent loop never runs inside the webhook handler. The handler's only job is to verify, enqueue, and return 200. A separate fresh execution drains the queue, so a slow agent run can never tie up the inbound webhook or cause the platform to retry.
+- **A2A continuation polling.** When Dispatch delegates to another app, it polls the downstream task with a bounded timeout. If the downstream agent takes too long or crashes, Dispatch records the continuation and the retry job picks it up — the user's Slack reply still arrives.
+- **Auto-signed cross-app A2A.** Hosted multi-app workspaces auto-generate per-app A2A credentials at deploy time, so apps in the same workspace can call each other without you ever pasting a JWT secret. Dispatch's agent-discovery layer reads those creds from the workspace database so newly added apps appear as callable peers automatically.
+
+## Setup {#setup}
+
+Three short steps:
+
+1. **Scaffold a workspace that includes Dispatch.** Run `npx @agent-native/core@latest create my-company-platform` and pick `dispatch` alongside whatever domain templates you want. Dispatch lives at `apps/dispatch` and the rest of the apps sit beside it. See [Multi-App Workspace](/docs/multi-app-workspace).
+2. **Connect messaging.** Open **Settings → Messaging** in Dispatch and click connect for Slack, Email, Telegram, or WhatsApp. The form fields match the env vars in the [Messaging](/docs/messaging) doc — refer there for what each platform needs.
+3. **Add other apps.** Run `npx @agent-native/core@latest add-app` from the workspace root for each domain app. They auto-appear as A2A peers in Dispatch's `list-workspace-apps` — no manual registration, no agent-card editing. Dispatch will start delegating to them as soon as their agent cards are reachable.
+
+Then add credentials to the vault and (optionally) author global workspace resources under **Resources**. Vault keys can still be synced or granted depending on access mode; All-app workspace resources are inherited automatically. If you need per-app secret isolation, switch the vault access setting to manual before granting individual apps.
+
+## See also {#see-also}
+
+- [Dispatch template](/docs/template-dispatch) — the actual scaffolded app, with its full action catalog and agent guide
+- [Messaging](/docs/messaging) — connecting Slack, email, Telegram, WhatsApp
+- [A2A Protocol](/docs/a2a-protocol) — how cross-app delegation works under the hood
+- [Multi-App Workspace](/docs/multi-app-workspace) — the deployment shape Dispatch is built for
+- [Workspace Governance](/docs/workspace-management) — git/GitHub governance that pairs with Dispatch's runtime governance

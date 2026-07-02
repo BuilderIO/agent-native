@@ -7,16 +7,13 @@ import {
 } from "@agent-native/core/server";
 import { asc, eq } from "drizzle-orm";
 import { getRequestURL, setResponseHeader, type H3Event } from "h3";
+
 import {
   buildAgentApiUrls,
   buildRecommendedFrames,
   CLIP_AGENT_CONTEXT_VERSION,
   toAgentTranscriptSegments,
 } from "../../shared/agent-context.js";
-import {
-  normalizeTranscriptSegments,
-  parseTranscriptSegments,
-} from "../../shared/transcript-segments.js";
 import {
   parseBrowserDiagnosticsRow,
   type BrowserDiagnosticsData,
@@ -25,12 +22,19 @@ import {
   isLoomEmbedBackedRecording,
   isLoomRecordingSource,
 } from "../../shared/loom.js";
+import {
+  normalizeTranscriptSegments,
+  parseTranscriptSegments,
+} from "../../shared/transcript-segments.js";
 import { getDb, schema } from "../db/index.js";
 import { verifySharePassword } from "./share-password.js";
 
 export type PublicAgentRecording = typeof schema.recordings._.inferSelect;
 export type PublicAgentTranscript =
   | typeof schema.recordingTranscripts._.inferSelect
+  | null;
+export type PublicAgentBugReport =
+  | typeof schema.recordingBugReports._.inferSelect
   | null;
 
 export interface PublicAgentAccess {
@@ -49,6 +53,13 @@ export type PublicAgentAccessResult =
   | { ok: false; failure: PublicAgentFailure };
 
 const DEFAULT_MAX_AGENT_FRAME_MEDIA_BYTES = 200 * 1024 * 1024;
+
+function sameOwnerEmail(
+  a: string | null | undefined,
+  b: string | null | undefined,
+): boolean {
+  return !!a && !!b && a.trim().toLowerCase() === b.trim().toLowerCase();
+}
 
 export class RecordingMediaFetchError extends Error {
   constructor(
@@ -194,7 +205,7 @@ export async function loadPublicAgentAccess(
 
   const session = await getSession(event).catch(() => null);
   const viewerIsOwner = Boolean(
-    session?.email && session.email === recording.ownerEmail,
+    session?.email && sameOwnerEmail(session.email, recording.ownerEmail),
   );
 
   if (recording.visibility !== "public" && !viewerIsOwner) {
@@ -329,6 +340,17 @@ export async function loadAgentBrowserDiagnostics(recordingId: string) {
   return parseBrowserDiagnosticsRow(row);
 }
 
+export async function loadAgentBugReport(
+  recordingId: string,
+): Promise<PublicAgentBugReport> {
+  const [row] = await getDb()
+    .select()
+    .from(schema.recordingBugReports)
+    .where(eq(schema.recordingBugReports.recordingId, recordingId))
+    .limit(1);
+  return row ?? null;
+}
+
 // Most-recent console logs / network requests surfaced in the public agent
 // context. Bounded to keep the agent payload small; the summary still reports
 // the true total counts.
@@ -404,6 +426,63 @@ function compactBrowserDiagnostics(diagnostics: BrowserDiagnosticsData | null) {
   };
 }
 
+function safeMetadataObject(raw: string | null | undefined) {
+  if (!raw) return {};
+  try {
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? parsed
+      : {};
+  } catch {
+    return {};
+  }
+}
+
+function compactBugReport(report: PublicAgentBugReport) {
+  if (!report) return null;
+  return {
+    projectId: report.projectId,
+    title: report.title,
+    description: report.description,
+    severity: report.severity,
+    sourceUrl: report.sourceUrl,
+    pageTitle: report.pageTitle,
+    appVersion: report.appVersion,
+    environment: report.environment,
+    metadata: safeMetadataObject(report.metadataJson),
+    submittedAt: report.submittedAt,
+    note: "Reporter identity fields are omitted from public agent context. Host metadata is redacted and bounded at capture time.",
+  };
+}
+
+export function transcriptStatusInstructions(
+  transcript: PublicAgentTranscript,
+) {
+  const status = transcript?.status ?? "missing";
+  const failureReason = transcript?.failureReason ?? "";
+  const lowerReason = failureReason.toLowerCase();
+
+  if (status === "pending") {
+    return [
+      "The transcript is still pending. For long recordings this can take several minutes; wait 15-30 seconds and fetch apis.context.url or apis.transcript.url again a few times before falling back to frames or telling the user no transcript exists.",
+    ];
+  }
+
+  if (status === "failed" && lowerReason.includes("credits exhausted")) {
+    return [
+      "Transcription failed because Builder transcription credits are exhausted. Tell the user to upgrade or connect Builder.io credits, or configure a Groq key for backup speech-to-text. Generic OpenAI or Anthropic chat keys do not transcribe Clips recordings.",
+    ];
+  }
+
+  if (status === "failed" && failureReason) {
+    return [
+      `Transcription failed with reason: ${failureReason}. Explain this to the user and suggest retrying transcription or configuring the supported Builder.io/Groq transcription fallback.`,
+    ];
+  }
+
+  return [];
+}
+
 export function buildPublicAgentContext({
   event,
   access,
@@ -412,6 +491,7 @@ export function buildPublicAgentContext({
   chapters,
   ctas,
   browserDiagnostics,
+  bugReport,
 }: {
   event: H3Event;
   access: PublicAgentAccess;
@@ -420,6 +500,7 @@ export function buildPublicAgentContext({
   chapters: ReturnType<typeof parseAgentChapters>;
   ctas: Awaited<ReturnType<typeof loadAgentCtas>>;
   browserDiagnostics?: BrowserDiagnosticsData | null;
+  bugReport?: PublicAgentBugReport;
 }) {
   const recording = access.recording;
   const requestUrl = getRequestURL(event);
@@ -443,6 +524,12 @@ export function buildPublicAgentContext({
       }));
   const instructions = [
     "Use transcript.segments for timestamped spoken context.",
+    ...transcriptStatusInstructions(transcript),
+    ...(bugReport
+      ? [
+          "Use bugReport for the submitted product context: source URL, page title, app version, environment, severity, and redacted host metadata.",
+        ]
+      : []),
     ...(browserDiagnostics
       ? [
           "Use browserDiagnostics.consoleLogs for the redacted console stream (all levels: debug/log/info/warn/error) and browserDiagnostics.networkRequests for the fetch/XHR requests (method, sanitized URL, status, duration) captured during the recording. browserDiagnostics.consoleIssues highlights just the warnings/errors, and browserDiagnostics.failedNetworkRequests highlights failed requests.",
@@ -501,12 +588,15 @@ export function buildPublicAgentContext({
     transcript: {
       status: transcript?.status ?? "missing",
       language: transcript?.language ?? null,
+      failureReason: transcript?.failureReason ?? null,
+      retryAfterSeconds: transcript?.status === "pending" ? 15 : null,
       fullText: transcript?.fullText ?? "",
       segments: agentSegments,
       segmentCount: agentSegments.length,
     },
     chapters,
     recommendedFrames: suggestedFrames,
+    bugReport: compactBugReport(bugReport ?? null),
     browserDiagnostics: compactBrowserDiagnostics(browserDiagnostics ?? null),
     ctas: ctas.map((cta) => ({
       label: cta.label,

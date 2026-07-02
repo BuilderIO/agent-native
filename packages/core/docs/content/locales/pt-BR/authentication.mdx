@@ -1,0 +1,445 @@
+---
+title: "Autenticação"
+description: "Melhor integração do Auth com e-mail/senha, provedores sociais, organizações e credenciais de portador MCP."
+---
+
+# Autenticação
+
+Os aplicativos nativos do agente usam [Better Auth](https://better-auth.com) para autenticação com um design que prioriza a conta. Os usuários criam uma conta na primeira visita e obtêm uma identidade real desde o primeiro dia.
+
+## Visão geral {#overview}
+
+A autenticação é configurada automaticamente via `autoMountAuth(app)` no plugin do servidor de autenticação. Existem três modos:
+
+- **Padrão:** Melhor autenticação com e-mail/senha + provedores sociais. Página de integração exibida na primeira visita.
+- **MCP remoto OAuth:** OAuth 2.1 padrão para hosts MCP, como código Claude e conectores ChatGPT.
+- **Personalizado:** Traga sua própria autenticação por meio do retorno de chamada `getSession`.
+
+<Diagram id="doc-block-1rujd8s" title={"Três entradas, uma sessão"} summary={"Visitantes do navegador, clientes MCP programáticos e provedores personalizados resolvem para a mesma AuthSession que o escopo downstream lê."}>
+
+```html
+<div class="auth-modes">
+  <div class="diagram-col">
+    <div class="diagram-card">
+      <span class="diagram-pill accent">Default</span
+      ><strong>Better Auth</strong
+      ><small class="diagram-muted"
+        >email/password &middot; Google &middot; GitHub</small
+      >
+    </div>
+    <div class="diagram-card">
+      <span class="diagram-pill">Remote MCP OAuth</span
+      ><strong>OAuth 2.1 + PKCE</strong
+      ><small class="diagram-muted">conectores Claude Code e ChatGPT</small>
+    </div>
+    <div class="diagram-card">
+      <span class="diagram-pill">Custom</span
+      ><strong>getSession callback</strong
+      ><small class="diagram-muted"
+        >Clerk &middot; Auth0 &middot; Firebase</small
+      >
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center">
+    <span class="diagram-pill ok">AuthSession</span
+    ><small class="diagram-muted">email &middot; orgId &middot; orgRole</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box">Request context &amp; data scoping</div>
+</div>
+```
+
+```css
+.auth-modes {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.auth-modes .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.auth-modes .diagram-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 12px;
+}
+.auth-modes .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+.auth-modes .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+```
+
+</Diagram>
+
+O fluxo do navegador é o mesmo fluxo do Better Auth em todos os lugares — não há **nenhum desvio de autenticação do desenvolvedor** e o `getSession()` nunca volta para um sentinela `local@localhost`. O que muda entre os ambientes é o atrito na inscrição, não o mural de login:
+
+| Ambiente                               | Comportamento no primeiro carregamento                                                               | Verificação de e-mail                                       |
+| -------------------------------------- | ---------------------------------------------------------------------------------------------------- | ----------------------------------------------------------- |
+| **Desenvolvimento local**              | Cria automaticamente uma conta de desenvolvedor descartável e faz login (sem parede de login)        | Ignorado por padrão (e quando não há provedor de e-mail)    |
+| **Controle de qualidade/visualização** | Inscrição normal, mas a verificação pode ser ignorada para que os testadores não esperem pelo e-mail | Pular com `AUTH_SKIP_EMAIL_VERIFICATION=1`                  |
+| **Produção**                           | Inscrição/login normal do Better Auth                                                                | Obrigatório (quando um provedor de e-mail está configurado) |
+
+Algumas bandeiras ajustam isso; detalhes completos estão na tabela [Environment Variables](#environment-variables):
+
+- `AGENT_NATIVE_DISABLE_AUTO_DEV_ACCOUNT=1` — use a página de inscrição normal no desenvolvedor local em vez da conta de desenvolvedor automático.
+- `AUTH_DISABLED=true` — ignore totalmente o login/inscrição e execute todas as solicitações como um usuário compartilhado (apenas desenvolvimento/visualizações/demos locais, nunca produção com usuários reais).
+- `AUTH_MODE=local` — afeta apenas CLI/identidade do agente (como o usuário desenvolvedor `pnpm action` é executado); **não** é um desvio de login do navegador.
+
+<Callout id="doc-block-18jli2j" tone="warning">
+
+`AUTH_DISABLED=true` runs **every request as one shared user**. Use it only for local dev, previews, or demos — never in production with real users, where it would expose all data to anyone.
+
+</Callout>
+
+## Melhor autenticação (padrão) {#better-auth}
+
+Por padrão, o Better Auth possibilita a autenticação. Ele fornece:
+
+- Registro e login de e-mail/senha
+- Provedores sociais (Google, GitHub e mais de 35 outros)
+- Organizações com funções e convites
+- Tokens JWT para acesso API e A2A
+- Suporte de token ao portador para clientes programáticos
+
+Rotas Better Auth são montadas em `/_agent-native/auth/ba/*`. A estrutura também fornece endpoints compatíveis com versões anteriores:
+
+- `GET /_agent-native/auth/session` — obtém a sessão atual
+- `POST /_agent-native/auth/login` — login por e-mail/senha
+- `POST /_agent-native/auth/register` — criar conta
+- `POST /_agent-native/auth/logout` — sair
+
+## Reinos de Cookies {#cookie-realms}
+
+O domínio do cookie de sessão segue o formato de implantação, portanto, os aplicativos que compartilham um
+login e aplicativos de compartilhamento de banco de dados/origem que não ficam isolados:
+
+| Forma de implantação                                    | Reino de cookies                                                                                                                                   |
+| ------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Aplicativo independente                                 | Isolado por aplicativo por slug (`APP_NAME` ou nome do pacote no desenvolvedor local); prefixo `an` estável em produção                            |
+| Modo de espaço de trabalho (`AGENT_NATIVE_WORKSPACE=1`) | Um domínio compartilhado: os aplicativos de espaço de trabalho compartilham uma origem e um banco de dados                                         |
+| Subdomínios personalizados do mesmo banco de dados      | Ative cookies compartilhados com `COOKIE_DOMAIN`                                                                                                   |
+| Hospedado próprio (`*.agent-native.com`)                | Namespace isolado por aplicativo (cada um tem seu próprio banco de dados de autenticação); `COOKIE_DOMAIN=.agent-native.com` é ignorado por padrão |
+
+Cada um dos aplicativos hospedados próprios tem seu próprio banco de dados de autenticação, portanto, login entre aplicativos
+passa por [Cross-App SSO](/docs/cross-app-sso) em vez de por um cookie compartilhado.
+Essas implantações devem fornecer `APP_NAME` ou um aplicativo derivável URL (`APP_URL`, `URL`,
+`DEPLOY_PRIME_URL` ou `DEPLOY_URL`); caso contrário, a inicialização falhará em vez de cair
+de volta ao nome `an_session` compartilhado. Para compartilhar intencionalmente um banco de dados de autenticação
+em todos os subdomínios, defina `AGENT_NATIVE_SHARE_COOKIE_DOMAIN=1` ao lado
+`COOKIE_DOMAIN`.
+
+## Contas de controle de qualidade {#qa-accounts}
+
+O desenvolvimento local e os testes ignoram a verificação de e-mail de inscrição por padrão, então você
+pode criar contas de e-mail/senha reais sem esperar pela caixa de entrada. Para forçar
+verifique localmente ao testar esse fluxo, defina `AUTH_SKIP_EMAIL_VERIFICATION=0`.
+
+Para ambientes de controle de qualidade hospedados onde os testadores precisam de contas reais, mas não devem esperar
+na entrega de e-mail, defina:
+
+```bash
+AUTH_SKIP_EMAIL_VERIFICATION=1
+```
+
+Quando esse sinalizador é definido, a inscrição por e-mail/senha não exige e-mail
+verificação e o e-mail de verificação de inscrição não são enviados. Use-o apenas para controle de qualidade
+ou visualize ambientes e nomeie contas de teste com um endereço `+qa`
+(`name+qa@example.com`) para que sejam fáceis de identificar.
+
+## Provedores Sociais {#social-providers}
+
+Defina variáveis de ambiente para ativar o login social. O Better Auth os detecta automaticamente:
+
+```bash
+# Google OAuth
+GOOGLE_SIGN_IN_CLIENT_ID=your-low-scope-sign-in-client-id
+GOOGLE_SIGN_IN_CLIENT_SECRET=your-low-scope-sign-in-client-secret
+
+# Fallback compatível com versões anteriores e credenciais do provedor OAuth para modelos
+# que se conectam a APIs Google, como Gmail ou Calendar.
+GOOGLE_CLIENT_ID=your-client-id
+GOOGLE_CLIENT_SECRET=your-client-secret
+
+# GitHub OAuth
+GITHUB_CLIENT_ID=your-client-id
+GITHUB_CLIENT_SECRET=your-client-secret
+```
+
+Os modelos que usam `createGoogleAuthPlugin()` mostram uma página "Fazer login com o Google". O retorno de chamada OAuth do Google processa automaticamente links diretos para dispositivos móveis para aplicativos nativos.
+
+Prefira `GOOGLE_SIGN_IN_CLIENT_ID` / `GOOGLE_SIGN_IN_CLIENT_SECRET` para normal
+login do aplicativo. Esse cliente deve solicitar apenas escopos de identidade. Manter
+`GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` para integrações de produtos que precisam
+Escopos API do Google ou como substituto legado quando uma implantação não foi dividida
+ainda. Os aplicativos estilo e-mail e calendário devem usar clientes OAuth de seu próprio provedor, portanto
+Telas de consentimento de alto escopo não afetam o login genérico em apps.
+
+### Assinatura de estado OAuth {#oauth-state-secret}
+
+Defina `OAUTH_STATE_SECRET` com um valor aleatório de 32+ caracteres na produção para que os envelopes de estado OAuth (Google, Atlassian, Zoom) sejam assinados por HMAC com uma chave dedicada independente de qualquer segredo de terceiros. Consulte [Security — OAuth State Signing](/docs/security#oauth-state) para ver os requisitos completos e o modelo de ameaça.
+
+## Organizações {#organizations}
+
+A estrutura fornece um sistema de organização integrado. Este é o módulo `org/` da própria estrutura - apoiado pelas tabelas `organizations` e `org_members` - e não o plugin de organização do Better Auth, que não foi registrado intencionalmente. Cada aplicativo suporta:
+
+- Criando organizações
+- Convidando membros com funções (`owner`, `admin`, `member`)
+- Mudar de organização ativa
+- Escopo de dados por organização por meio de colunas `org_id`
+
+A organização ativa é rastreada na sessão como `session.orgId`, e a troca de organização altera os dados que o usuário e o agente veem. O escopo dos dados em si acontece mais abaixo na pilha - consulte [Security & Data Scoping](/docs/security#data-scoping) para obter o pipeline `session.orgId → AGENT_ORG_ID → SQL` completo e as proteções de acesso. Os documentos [Multi-Tenancy](/docs/multi-tenancy) cobrem a superfície de gerenciamento organizacional.
+
+## Tokens de portador MCP estáticos {#access-tokens}
+
+`ACCESS_TOKEN` e `ACCESS_TOKENS` não são autenticados pelo navegador e não tornam um aplicativo privado. Eles permanecem apenas como credenciais de portador estático para clientes MCP/connect que não podem usar o fluxo OAuth.
+
+```bash
+# Token único
+ACCESS_TOKEN=my-secret-token
+
+# Vários tokens
+ACCESS_TOKENS=token1,token2,token3
+```
+
+A configuração dessas variáveis ​​nunca renderiza uma página de login de token para visitantes. O login na Web permanece no Better Auth ou no seu provedor `getSession` personalizado.
+
+## MCP OAuth remoto {#remote-mcp-oauth}
+
+O endpoint MCP de cada aplicativo pode atuar como um recurso MCP protegido padrão. Clientes compatíveis com OAuth podem ser configurados apenas com o MCP remoto URL:
+
+```text
+https://mail.agent-native.com/_agent-native/mcp
+```
+
+Solicitações MCP não autenticadas retornam um desafio `WWW-Authenticate` apontando para `/.well-known/oauth-protected-resource`. O cliente então descobre os metadados OAuth do aplicativo, registra dinamicamente um cliente público, abre a página de autorização do aplicativo e troca um código de autorização com PKCE para tokens de acesso e atualização.
+
+<Diagram id="doc-block-1485xrl" title={"Aperto de mão remoto MCP OAuth"} summary={"Um cliente compatível com OAuth inicializa apenas MCP URL - desafio, descoberta, registro dinâmico e, em seguida, uma troca de código PKCE."}>
+
+```html
+<div class="mcp-flow">
+  <div class="diagram-node">
+    1 &middot; MCP request<br /><small class="diagram-muted">no token</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-node warn">
+    2 &middot; 401 challenge<br /><small class="diagram-muted"
+      >WWW-Authenticate</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-node">
+    3 &middot; Discover metadata<br /><small class="diagram-muted"
+      >.well-known</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-node">
+    4 &middot; Register client<br /><small class="diagram-muted"
+      >dinâmico, público</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-node">
+    5 &middot; Authorize + PKCE<br /><small class="diagram-muted"
+      >code exchange</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-node ok">
+    6 &middot; Access + refresh<br /><small class="diagram-muted"
+      >audience-bound</small
+    >
+  </div>
+</div>
+```
+
+```css
+.mcp-flow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.mcp-flow .diagram-node {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 12px;
+}
+.mcp-flow .diagram-arrow {
+  font-size: 20px;
+  line-height: 1;
+}
+```
+
+</Diagram>
+
+Os tokens de acesso são assinados com `A2A_SECRET` quando definidos, caso contrário, `BETTER_AUTH_SECRET`. Eles carregam a identidade assinada do usuário/organização e os escopos `mcp:read`, `mcp:write` e/ou `mcp:apps` e estão vinculados ao público ao recurso MCP exato URL. Os tokens de atualização são armazenados apenas como hashes e são alternados a cada atualização. Chamadas de ferramentas e leituras de recursos de aplicativos MCP são executadas dentro do mesmo contexto de solicitação que o usuário conectado; o iframe do aplicativo MCP incorporado nunca recebe tokens OAuth brutos.
+
+`npx @agent-native/core@latest connect <url> --client claude-code` grava a entrada MCP somente URL para este fluxo padrão. Para clientes que não podem executar MCP OAuth remoto, use a página Conectar ou o substituto `npx @agent-native/core@latest connect --token <token>` para gravar uma entrada explícita de token de portador.
+
+## Traga sua própria autenticação {#byoa}
+
+Passe um retorno de chamada `getSession` personalizado para usar qualquer provedor de autenticação (Clerk, Auth0, Firebase etc.):
+
+```ts
+// server/plugins/auth.ts
+import { createAuthPlugin } from "@agent-native/core/server";
+
+export default createAuthPlugin({
+  getSession: async (event) => {
+    // Your custom auth logic here
+    const session = await myAuthProvider.verify(event);
+    if (!session) return null;
+    return { email: session.email };
+  },
+  publicPaths: ["/api/webhooks"],
+});
+```
+
+## Aplicativos de espaço de trabalho público {#public-workspace-apps}
+
+Os aplicativos do Workspace são internos por padrão. Para permitir que visitantes anônimos carreguem um arquivo público
+site, mantendo as páginas de gerenciamento sob autenticação, declare o acesso à rota em
+`apps/<id>/package.json`:
+
+```json
+{
+  "agent-native": {
+    "workspaceApp": {
+      "audience": "public",
+      "protectedPaths": ["/admin"]
+    }
+  }
+}
+```
+
+Para a forma inversa, mantenha o público interno padrão e exponha apenas
+páginas públicas específicas:
+
+```json
+{
+  "agent-native": {
+    "workspaceApp": {
+      "publicPaths": ["/", "/share"]
+    }
+  }
+}
+```
+
+`publicPaths` e `protectedPaths` usam correspondência de prefixo, então `"/admin"` também
+abrange `"/admin/users"`. Essas configurações abrem apenas a navegação de página. Estrutura
+rotas (`/_agent-native/*`) e rotas API personalizadas (`/api/*`) ainda exigem autenticação
+a menos que o aplicativo adicione explicitamente esses prefixos a
+`createAuthPlugin({ publicPaths: [...] })`.
+
+## Sessão API {#session-api}
+
+O objeto de sessão retornado por `getSession(event)` tem este formato:
+
+```ts
+interface AuthSession {
+  email: string; // User's email (primary identifier)
+  userId?: string; // Better Auth user ID
+  token?: string; // Session token
+  name?: string; // Display name from the auth provider, when available
+  image?: string; // Profile image from the auth provider, when available
+  orgId?: string; // Active organization ID
+  orgRole?: string; // Role in active org (owner/admin/member)
+}
+```
+
+No cliente, use o gancho `useSession()`:
+
+```ts
+import { useSession } from "@agent-native/core/client";
+
+function MyComponent() {
+  const { session, isLoading } = useSession();
+  if (isLoading) return <p>Loading...</p>;
+  if (!session) return <p>Not signed in</p>;
+  return <p>Hello, {session.email}</p>;
+}
+```
+
+## Login com retorno URL {#sign-in-return-url}
+
+Modelos com **páginas públicas** (compartilhar links, incorporações, páginas de marketing) geralmente precisam de um CTA na página que peça aos visualizadores anônimos que façam login e os traga de volta à página em que estavam. A estrutura fornece um único ponto de entrada para isso:
+
+```
+/_agent-native/sign-in?return=<same-origin-path>
+```
+
+Quando um visualizador anônimo acessa este URL, a página de login do framework é exibida. Após um login bem-sucedido (qualquer fluxo – token, e-mail/senha ou Google OAuth), o visualizador é direcionado para 302 para `return`.
+
+O parâmetro `return` é validado como um **caminho de mesma origem**. Referências de caminho de rede (`//evil.com/...`), URLs absolutos, esquemas `data:`/`javascript:` e caracteres de controle incorporados retornam para `/`. O caminho validado é reconstruído a partir do analisador URL, e não retornado da entrada.
+
+**De um componente React:**
+
+```tsx
+import { Button } from "@/components/ui/button";
+
+function SignInCta() {
+  const onClick = () => {
+    const ret = window.location.pathname + window.location.search;
+    window.location.href =
+      "/_agent-native/sign-in?return=" + encodeURIComponent(ret);
+  };
+  return <Button onClick={onClick}>Sign in</Button>;
+}
+```
+
+### Caminhos privados marcados
+
+Quando um usuário anônimo navega diretamente para um caminho privado como `/dashboard`, a estrutura já serve a página de login nesse URL — após o login bem-sucedido, a página é recarregada e o usuário chega ao `/dashboard`. Não é necessário nenhum tratamento especial; isso funciona para token, e-mail/senha **e** Google OAuth.
+
+### Nos bastidores: Google OAuth
+
+Ambos os fluxos (o ponto de entrada `/_agent-native/sign-in` explícito e o caso do caminho marcado) encadeiam o retorno URL através do estado OAuth. O estado é assinado por HMAC, portanto não pode ser falsificado em trânsito. No retorno de chamada, o retorno URL é revalidado como de mesma origem antes do redirecionamento. Portanto, uma chave de assinatura vazada ainda não pode ser transformada em um oráculo de redirecionamento aberto.
+
+Se o seu modelo agrupa `/_agent-native/google/auth-url` diretamente (por exemplo, modelos de e-mail e calendário fazem isso para ampliar os escopos), aceite uma consulta `?return=<path>` e encaminhe-a por meio do formato de objeto de opções de `encodeOAuthState`:
+
+```ts
+const returnUrl = getQuery(event).return;
+const state = encodeOAuthState({
+  redirectUri,
+  desktop,
+  returnUrl: typeof returnUrl === "string" ? returnUrl : undefined,
+});
+```
+
+A rota `/_agent-native/google/auth-url` padrão faz isso automaticamente – substitua apenas se o seu modelo precisar de tratamento OAuth personalizado.
+
+## Variáveis de ambiente {#environment-variables}
+
+| Variável                                | Propósito                                                                                                                                                                                                        |
+| --------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `BETTER_AUTH_SECRET`                    | Chave de assinatura para Better Auth (gerada automaticamente se não for definida)                                                                                                                                |
+| `AUTH_SKIP_EMAIL_VERIFICATION`          | Defina como `1` em ambientes de controle de qualidade/visualização para permitir que inscrições de e-mail/senha continuem sem verificação; desenvolvimento/teste local ignora por padrão                         |
+| `AUTH_DISABLED`                         | Defina como `true` ou `1` para ignorar o login/inscrição; todas as solicitações são executadas como um usuário compartilhado (somente desenvolvimento/visualização local — não para produção com usuários reais) |
+| `AGENT_NATIVE_DISABLE_AUTO_DEV_ACCOUNT` | Defina como `1` para desativar o login automático do host local em um novo banco de dados de desenvolvimento                                                                                                     |
+| `AUTH_MODE`                             | `local` resolve apenas a identidade CLI/agente (como o usuário desenvolvedor `pnpm action` é executado); nunca um desvio de login do navegador                                                                   |
+| `COOKIE_DOMAIN`                         | Ative cookies de sessão compartilhada em subdomínios do mesmo banco de dados (consulte [Cookie Realms](#cookie-realms))                                                                                          |
+| `AGENT_NATIVE_WORKSPACE`                | `1` é executado no modo de espaço de trabalho — um domínio de sessão compartilhado entre aplicativos de espaço de trabalho                                                                                       |
+| `AGENT_NATIVE_SHARE_COOKIE_DOMAIN`      | Definir com `COOKIE_DOMAIN` para compartilhar um banco de dados de autenticação entre subdomínios primários                                                                                                      |
+| `OAUTH_STATE_SECRET`                    | Chave HMAC dedicada para envelopes de estado OAuth (consulte [Security — OAuth State Signing](/docs/security#oauth-state))                                                                                       |
+| `GOOGLE_SIGN_IN_CLIENT_ID`              | ID de cliente preferencial do Google OAuth de baixo escopo para login no aplicativo                                                                                                                              |
+| `GOOGLE_SIGN_IN_CLIENT_SECRET`          | Segredo preferido do Google OAuth de baixo escopo para login no aplicativo                                                                                                                                       |
+| `GOOGLE_CLIENT_ID`                      | Backup de login legado do Google e ID do cliente do provedor OAuth para integrações do Google API                                                                                                                |
+| `GOOGLE_CLIENT_SECRET`                  | Backup de login legado do Google e segredo do provedor OAuth para integrações do Google API                                                                                                                      |
+| `GITHUB_CLIENT_ID`                      | Ativar GitHub OAuth                                                                                                                                                                                              |
+| `GITHUB_CLIENT_SECRET`                  | Segredo GitHub OAuth                                                                                                                                                                                             |
+| `ACCESS_TOKEN`                          | Fallback de portador estático para clientes MCP/connect; não é autenticação do navegador                                                                                                                         |
+| `ACCESS_TOKENS`                         | Fallbacks de portador estático separados por vírgula para clientes MCP/connect; não é autenticação do navegador                                                                                                  |
+| `A2A_SECRET`                            | Segredo compartilhado para verificação de identidade entre aplicativos A2A assinada por JWT e, quando presente, assinatura de token de acesso MCP OAuth                                                          |

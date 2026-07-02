@@ -1,4 +1,4 @@
-import * as SelectPrimitive from "@radix-ui/react-select";
+import * as PopoverPrimitive from "@radix-ui/react-popover";
 import { IconCheck, IconChevronDown, IconLanguage } from "@tabler/icons-react";
 import i18next, { type i18n as I18nInstance } from "i18next";
 import React, {
@@ -15,8 +15,8 @@ import {
   initReactI18next,
   useTranslation,
 } from "react-i18next";
-import { callAction } from "./use-action.js";
-import { setClientAppState } from "./application-state.js";
+
+import defaultEnglishMessages from "../localization/default-messages.js";
 import {
   DEFAULT_LOCALE,
   LOCALE_HYDRATION_GLOBAL,
@@ -32,6 +32,9 @@ import {
   type LocalePreference,
   type LocalizationPreference,
 } from "../localization/shared.js";
+import { setClientAppState } from "./application-state.js";
+import { callAction } from "./use-action.js";
+import { cn } from "./utils.js";
 
 export {
   DEFAULT_LOCALE,
@@ -79,6 +82,7 @@ export interface AgentNativeI18nProviderProps {
 
 interface LocaleContextValue {
   locale: LocaleCode;
+  sourceLocale: LocaleCode;
   preference: LocalePreference;
   dir: "ltr" | "rtl";
   metadata: LocaleMetadata;
@@ -107,6 +111,11 @@ const LANGUAGE_PICKER_COPY: Record<
     label: "语言",
     system: "系统",
     systemDescription: "使用浏览器语言",
+  },
+  "zh-TW": {
+    label: "語言",
+    system: "系統",
+    systemDescription: "使用瀏覽器語言",
   },
   "es-ES": {
     label: "Idioma",
@@ -437,13 +446,14 @@ export function AgentNativeI18nProvider({
   const context = useMemo<LocaleContextValue>(
     () => ({
       locale,
+      sourceLocale,
       preference,
       dir: localeDirection(locale),
       metadata: LOCALE_METADATA[locale],
       setPreference,
       loading,
     }),
-    [loading, locale, preference, setPreference],
+    [loading, locale, preference, setPreference, sourceLocale],
   );
 
   return (
@@ -459,6 +469,10 @@ export function useLocale(): LocaleContextValue {
     throw new Error("useLocale must be used within AgentNativeI18nProvider");
   }
   return value;
+}
+
+export function useOptionalLocale(): LocaleContextValue | null {
+  return useContext(LocaleContext);
 }
 
 const CORE_FALLBACK_MESSAGES: Record<string, string> = {
@@ -517,7 +531,55 @@ const CORE_FALLBACK_MESSAGES: Record<string, string> = {
   "codeRequired.setupRequired": "Setup required",
   "codeRequired.branchCreated": "Branch created",
   "codeRequired.close": "Close",
+  "agentPanel.useBuilder": "Use Builder",
+  "agentPanel.openDesktopToEditCode": "Open Desktop to edit code",
+  "agentPanel.codeUnavailableDescription":
+    "Source-code changes and CLI access are available in the Agent Native Desktop app.",
+  "agentPanel.downloadDesktop": "Download Desktop",
+  "agentPanel.chatMode": "Chat mode",
+  "agentPanel.chat": "Chat",
+  "agentPanel.cliTerminalMode": "CLI terminal mode",
+  "agentPanel.cli": "CLI",
+  "agentPanel.workspaceMode": "Workspace files, agents, skills, and tasks",
+  "agentPanel.workspace": "Workspace",
+  "agentPanel.newChat": "New chat",
+  "agentPanel.newTerminal": "New terminal",
+  "agentPanel.panelOptions": "Agent panel options",
+  "agentPanel.collapseSidebar": "Collapse sidebar",
+  "agentPanel.hideChats": "Hide chats",
+  "agentPanel.allChats": "All chats",
+  "agentPanel.settings": "Settings",
+  "agentPanel.feedback": "Feedback",
+  "agentPanel.exitFullscreen": "Exit fullscreen",
+  "agentPanel.fullscreen": "Fullscreen",
+  "agentPanel.closeTab": "Close tab",
+  "agentPanel.closeOtherTabs": "Close other tabs",
+  "agentPanel.closeAllTabs": "Close all tabs",
+  "agentPanel.clearChat": "Clear chat",
+  "agentPanel.cliRequiresDevMode": "CLI requires dev mode",
+  "agentPanel.cliRequiresDevModeDescription":
+    "Run this app locally with pnpm dev or use Builder.io to access the CLI terminal.",
+  "agentPanel.toggleAgent": "Toggle agent",
 };
+
+function flattenMessages(
+  value: unknown,
+  prefix = "",
+  out: Record<string, string> = {},
+) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return out;
+  for (const [key, child] of Object.entries(value)) {
+    const nextKey = prefix ? `${prefix}.${key}` : key;
+    if (typeof child === "string") {
+      out[nextKey] = child;
+    } else {
+      flattenMessages(child, nextKey, out);
+    }
+  }
+  return out;
+}
+
+const DEFAULT_ENGLISH_MESSAGES = flattenMessages(defaultEnglishMessages);
 
 function interpolateFallbackMessage(
   template: string,
@@ -529,23 +591,46 @@ function interpolateFallbackMessage(
   });
 }
 
+function humanizeFallbackKey(key: string) {
+  const lastSegment = key.split(".").filter(Boolean).pop() ?? key;
+  const words = lastSegment
+    .replace(/[_-]+/g, " ")
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+    .trim()
+    .toLowerCase();
+  return words ? words.charAt(0).toUpperCase() + words.slice(1) : key;
+}
+
 function fallbackMessage(key: string, options?: Record<string, unknown>) {
   const count = Number(options?.count);
   const pluralKey =
     Number.isFinite(count) && count === 1 ? `${key}_one` : `${key}_other`;
   const template =
-    CORE_FALLBACK_MESSAGES[pluralKey] ?? CORE_FALLBACK_MESSAGES[key];
-  return template ? interpolateFallbackMessage(template, options) : key;
+    DEFAULT_ENGLISH_MESSAGES[pluralKey] ??
+    DEFAULT_ENGLISH_MESSAGES[key] ??
+    CORE_FALLBACK_MESSAGES[pluralKey] ??
+    CORE_FALLBACK_MESSAGES[key];
+  return template
+    ? interpolateFallbackMessage(template, options)
+    : humanizeFallbackKey(key);
 }
 
 export function useT() {
-  const { t } = useTranslation();
+  const { i18n, t } = useTranslation();
+  const context = useContext(LocaleContext);
+  const sourceLocale = context?.sourceLocale ?? DEFAULT_LOCALE;
   return useCallback(
     (key: string, options?: Record<string, unknown>) => {
       const translated = t(key, options);
-      return translated === key ? fallbackMessage(key, options) : translated;
+      if (translated !== key) return translated;
+      const getFixedT = (
+        i18n as { getFixedT?: (locale: LocaleCode) => typeof t }
+      ).getFixedT;
+      const sourceFallback = getFixedT?.(sourceLocale)(key, options);
+      if (sourceFallback && sourceFallback !== key) return sourceFallback;
+      return fallbackMessage(key, options);
     },
-    [t],
+    [i18n, sourceLocale, t],
   );
 }
 
@@ -589,9 +674,10 @@ export function LanguagePicker({
   className?: string;
   includeSystem?: boolean;
   label?: string;
-  variant?: "select" | "icon";
+  variant?: "select" | "icon" | "ghost-icon";
 }) {
   const { locale, preference, setPreference } = useLocale();
+  const [open, setOpen] = useState(false);
   const copy =
     LANGUAGE_PICKER_COPY[locale] ?? LANGUAGE_PICKER_COPY[DEFAULT_LOCALE];
   const resolvedLabel = label ?? copy.label;
@@ -607,84 +693,99 @@ export function LanguagePicker({
       : []),
     ...SUPPORTED_LOCALES.map((code) => ({
       value: code,
-      label:
-        LOCALE_METADATA[code].nativeName === LOCALE_METADATA[code].englishName
-          ? LOCALE_METADATA[code].nativeName
-          : `${LOCALE_METADATA[code].nativeName} (${LOCALE_METADATA[code].englishName})`,
+      label: `${LOCALE_METADATA[code].nativeName} (${code})`,
       description: code,
     })),
   ];
   const selected = options.find((option) => option.value === preference);
+  const selectedLabel = selected?.label ?? preference;
+  const triggerLabel = `${resolvedLabel}: ${selectedLabel}`;
+
+  function handleOptionClick(value: LocalePreference) {
+    setOpen(false);
+    void setPreference(normalizeLocalizationPreference(value).locale);
+  }
 
   return (
     <div className={className}>
-      <SelectPrimitive.Root
-        value={preference}
-        onValueChange={(value) =>
-          void setPreference(normalizeLocalizationPreference(value).locale)
-        }
-      >
-        <SelectPrimitive.Trigger
-          className={
-            variant === "icon"
-              ? "flex h-8 w-8 items-center justify-center rounded-md border border-border bg-background text-foreground outline-none transition-colors hover:bg-accent/40 data-[placeholder]:text-muted-foreground"
-              : "flex h-9 w-full items-center justify-between rounded-md border border-border bg-background px-3 text-start text-[12px] text-foreground outline-none transition-colors hover:bg-accent/40 data-[placeholder]:text-muted-foreground"
-          }
-          aria-label={resolvedLabel}
-          title={selected?.label ?? resolvedLabel}
-        >
-          <span className="flex min-w-0 items-center gap-2">
-            <IconLanguage className="h-4 w-4 shrink-0 text-muted-foreground" />
-            {variant === "select" ? (
-              <SelectPrimitive.Value>
-                <span className="truncate">
-                  {selected?.label ?? preference}
-                </span>
-              </SelectPrimitive.Value>
-            ) : null}
-          </span>
-          {variant === "select" ? (
-            <SelectPrimitive.Icon asChild>
-              <IconChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
-            </SelectPrimitive.Icon>
-          ) : null}
-        </SelectPrimitive.Trigger>
-        <SelectPrimitive.Portal>
-          <SelectPrimitive.Content
-            position="popper"
-            sideOffset={6}
-            className={
+      <PopoverPrimitive.Root open={open} onOpenChange={setOpen}>
+        <PopoverPrimitive.Trigger asChild>
+          <button
+            type="button"
+            aria-label={triggerLabel}
+            title={triggerLabel}
+            data-language-picker-trigger
+            className={cn(
+              "shrink-0 rounded-md outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
+              variant === "ghost-icon"
+                ? "flex h-9 w-9 items-center justify-center text-muted-foreground hover:bg-accent hover:text-foreground data-[state=open]:bg-accent data-[state=open]:text-foreground"
+                : "border border-border bg-background text-foreground hover:border-foreground/30 hover:bg-accent/40 hover:text-foreground data-[state=open]:border-foreground/30 data-[state=open]:bg-accent/40",
               variant === "icon"
-                ? "z-[9999] min-w-56 overflow-hidden rounded-lg border border-border bg-popover shadow-lg"
-                : "z-[9999] w-[var(--radix-select-trigger-width)] overflow-hidden rounded-lg border border-border bg-popover shadow-lg"
-            }
+                ? "flex h-8 w-8 items-center justify-center"
+                : variant === "select"
+                  ? "flex h-9 w-full items-center justify-between gap-2 px-3 text-start text-sm"
+                  : null,
+            )}
           >
-            <SelectPrimitive.Viewport className="p-1">
-              {options.map((option) => (
-                <SelectPrimitive.Item
+            <span className="flex min-w-0 items-center gap-2">
+              <IconLanguage className="h-4 w-4 shrink-0 text-muted-foreground" />
+              {variant === "select" ? (
+                <span className="truncate">{selectedLabel}</span>
+              ) : (
+                <span className="sr-only">{triggerLabel}</span>
+              )}
+            </span>
+            {variant === "select" ? (
+              <IconChevronDown
+                className="h-3.5 w-3.5 shrink-0 text-muted-foreground"
+                aria-hidden="true"
+              />
+            ) : null}
+          </button>
+        </PopoverPrimitive.Trigger>
+        <PopoverPrimitive.Portal>
+          <PopoverPrimitive.Content
+            align={variant === "select" ? "start" : "end"}
+            sideOffset={6}
+            role="menu"
+            className={cn(
+              "z-[9999] max-h-[min(20rem,var(--radix-popover-content-available-height))] overflow-y-auto rounded-lg border border-border bg-popover p-1 text-popover-foreground shadow-lg outline-none will-change-[transform,opacity] data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[state=closed]:duration-100 data-[state=open]:duration-150 data-[state=closed]:ease-in data-[state=open]:ease-out data-[side=bottom]:slide-in-from-top-1 data-[side=left]:slide-in-from-right-1 data-[side=right]:slide-in-from-left-1 data-[side=top]:slide-in-from-bottom-1",
+              variant === "icon" || variant === "ghost-icon"
+                ? "min-w-56"
+                : "w-[min(20rem,calc(100vw-2rem))] min-w-[var(--radix-popover-trigger-width)]",
+            )}
+          >
+            {options.map((option) => {
+              const optionSelected = option.value === preference;
+              return (
+                <button
                   key={option.value}
-                  value={option.value}
-                  className="relative flex w-full cursor-pointer select-none items-start gap-2 rounded-md px-8 py-2.5 text-[12px] outline-none data-[highlighted]:bg-accent/60 data-[state=checked]:bg-accent/40"
+                  type="button"
+                  role="menuitemradio"
+                  aria-checked={optionSelected}
+                  title={option.description}
+                  onClick={() => handleOptionClick(option.value)}
+                  className={cn(
+                    "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-start text-sm outline-none transition-colors hover:bg-accent/60 hover:text-foreground focus-visible:bg-accent/60 focus-visible:text-foreground",
+                    optionSelected
+                      ? "bg-accent/40 text-foreground"
+                      : "text-muted-foreground",
+                  )}
                 >
-                  <span className="absolute start-2 top-2.5 flex h-4 w-4 items-center justify-center text-muted-foreground">
-                    <SelectPrimitive.ItemIndicator>
-                      <IconCheck className="h-3.5 w-3.5" />
-                    </SelectPrimitive.ItemIndicator>
-                  </span>
-                  <div className="flex min-w-0 flex-col">
-                    <SelectPrimitive.ItemText>
-                      <span className="text-foreground">{option.label}</span>
-                    </SelectPrimitive.ItemText>
-                    <span className="mt-0.5 text-[11px] leading-relaxed text-muted-foreground">
-                      {option.description}
-                    </span>
-                  </div>
-                </SelectPrimitive.Item>
-              ))}
-            </SelectPrimitive.Viewport>
-          </SelectPrimitive.Content>
-        </SelectPrimitive.Portal>
-      </SelectPrimitive.Root>
+                  <IconCheck
+                    className={cn(
+                      "h-3.5 w-3.5 shrink-0",
+                      optionSelected ? "opacity-100" : "opacity-0",
+                    )}
+                    aria-hidden="true"
+                  />
+                  <span className="truncate">{option.label}</span>
+                </button>
+              );
+            })}
+          </PopoverPrimitive.Content>
+        </PopoverPrimitive.Portal>
+      </PopoverPrimitive.Root>
     </div>
   );
 }

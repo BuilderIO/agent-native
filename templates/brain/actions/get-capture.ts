@@ -1,6 +1,7 @@
 import { defineAction } from "@agent-native/core";
 import { assertAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
+
 import { getAccessibleCapture, serializeCapture } from "../server/lib/brain.js";
 import {
   redactSensitiveText,

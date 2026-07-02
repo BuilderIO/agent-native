@@ -1,10 +1,11 @@
+import { mountMCP } from "@agent-native/core/mcp";
 import {
   loadActionsFromStaticRegistry,
   type ActionEntry,
 } from "@agent-native/core/server";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
-import { mountMCP } from "@agent-native/core/mcp";
 import { createAutomationToolEntries } from "@agent-native/core/triggers";
+
 import actionsRegistry from "../../.generated/actions-registry.js";
 import { PLAN_CONNECTOR_CATALOG } from "../lib/plan-connector-catalog.js";
 

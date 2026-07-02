@@ -16,6 +16,7 @@ export {
   AGENT_CHAT_VIEW_TRANSITION_NAME,
   consumeAgentChatHomeHandoff,
   getAgentChatViewTransitionStyle,
+  isAgentChatHomeHandoffActive,
   markAgentChatHomeHandoff,
   navigateWithAgentChatViewTransition,
   startAgentChatViewTransition,
@@ -91,6 +92,7 @@ export {
   ACTION_CHAT_UI_DATA_INSIGHTS_RENDERER,
   ACTION_CHAT_UI_DATA_TABLE_RENDERER,
   ACTION_CHAT_UI_DATA_WIDGET_RENDERER,
+  ACTION_CHAT_UI_INLINE_EXTENSION_RENDERER,
   type ActionChatUIConfig,
 } from "../../action-ui.js";
 export {

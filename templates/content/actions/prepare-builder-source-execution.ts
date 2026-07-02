@@ -2,14 +2,15 @@ import { defineAction } from "@agent-native/core";
 import { assertAccess } from "@agent-native/core/sharing";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
+
+import { getDb, schema } from "../server/db/index.js";
 import type {
   ContentDatabaseResponse,
   PrepareBuilderSourceExecutionRequest,
 } from "../shared/api.js";
-import { getDb, schema } from "../server/db/index.js";
 import { buildBuilderCmsExecutionPlan } from "./_builder-cms-write-adapter.js";
 import {
-  getContentDatabaseSourceSnapshot,
+  getContentDatabaseSourceSnapshotForWrite,
   resolveDatabaseForSourceMutation,
 } from "./_database-source-utils.js";
 import { getContentDatabaseResponse } from "./_database-utils.js";
@@ -20,11 +21,23 @@ export default defineAction({
   schema: z.object({
     databaseId: z.string().optional().describe("Database ID"),
     documentId: z.string().optional().describe("Database document/page ID"),
+    sourceId: z
+      .string()
+      .optional()
+      .describe("Target source ID (defaults to the primary source)"),
     changeSetId: z.string().describe("Approved source change-set ID"),
     pushModeConfirmation: z
       .enum(["autosave", "draft", "publish"])
       .optional()
       .describe("Explicit push mode confirmation for the planned write"),
+    publicationTransition: z
+      .enum(["publish", "unpublish"])
+      .optional()
+      .describe("Explicit publication transition to validate at write time"),
+    confirmUnpublish: z
+      .boolean()
+      .optional()
+      .describe("Required explicit confirmation for unpublish transitions"),
   }),
   run: async (
     args: PrepareBuilderSourceExecutionRequest,
@@ -33,7 +46,10 @@ export default defineAction({
     if (!database) throw new Error("Database not found.");
     await assertAccess("document", database.documentId, "editor");
 
-    const source = await getContentDatabaseSourceSnapshot(database);
+    const source = await getContentDatabaseSourceSnapshotForWrite(
+      database,
+      args.sourceId,
+    );
     if (!source || source.sourceType !== "builder-cms") {
       throw new Error(
         "Attach a Builder CMS source before preparing execution.",
@@ -49,6 +65,8 @@ export default defineAction({
       source,
       changeSet,
       pushModeConfirmation: args.pushModeConfirmation,
+      publicationTransition: args.publicationTransition,
+      confirmUnpublish: args.confirmUnpublish,
     });
     const now = new Date().toISOString();
     const db = getDb();

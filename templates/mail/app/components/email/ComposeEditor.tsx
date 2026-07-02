@@ -1,11 +1,10 @@
+import { useT } from "@agent-native/core/client";
+import CodeBlockLowlight from "@tiptap/extension-code-block-lowlight";
+import Link from "@tiptap/extension-link";
+import Placeholder from "@tiptap/extension-placeholder";
 import { useEditor, EditorContent, type Editor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
-import Placeholder from "@tiptap/extension-placeholder";
-import Link from "@tiptap/extension-link";
-import CodeBlockLowlight from "@tiptap/extension-code-block-lowlight";
-import { ComposeImageNode } from "./extensions/ComposeImageNode";
 import { common, createLowlight } from "lowlight";
-import { Markdown } from "tiptap-markdown";
 import {
   useEffect,
   useRef,
@@ -13,13 +12,9 @@ import {
   useImperativeHandle,
   forwardRef,
 } from "react";
-import { ComposeSlashMenu } from "./ComposeSlashMenu";
-import { ComposeBubbleToolbar } from "./ComposeBubbleToolbar";
-import { CodeBlockLangPicker } from "./CodeBlockLangPicker";
-import {
-  shouldApplyComposeContent,
-  COMPOSE_TYPING_GRACE_MS,
-} from "./compose-draft-context";
+import { Markdown } from "tiptap-markdown";
+
+import { Button } from "@/components/ui/button";
 import {
   Dialog,
   DialogContent,
@@ -28,8 +23,16 @@ import {
   DialogDescription,
   DialogFooter,
 } from "@/components/ui/dialog";
-import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+
+import { CodeBlockLangPicker } from "./CodeBlockLangPicker";
+import {
+  shouldApplyComposeContent,
+  COMPOSE_TYPING_GRACE_MS,
+} from "./compose-draft-context";
+import { ComposeBubbleToolbar } from "./ComposeBubbleToolbar";
+import { ComposeSlashMenu } from "./ComposeSlashMenu";
+import { ComposeImageNode } from "./extensions/ComposeImageNode";
 
 const lowlight = createLowlight(common);
 
@@ -76,6 +79,7 @@ export const ComposeEditor = forwardRef<
   },
   ref,
 ) {
+  const t = useT();
   const isSettingContent = useRef(false);
   // Last time the user actually typed (not merely had focus). Used to let an
   // external/agent edit reconcile in even while the editor is focused but idle,
@@ -105,7 +109,7 @@ export const ComposeEditor = forwardRef<
         allowBase64: true,
       }),
       Placeholder.configure({
-        placeholder: "Write your message...",
+        placeholder: t("mail.compose.writeMessagePlaceholder"),
         showOnlyWhenEditable: true,
         showOnlyCurrent: true,
       }),
@@ -267,8 +271,10 @@ export const ComposeEditor = forwardRef<
       <Dialog open={showLinkDialog} onOpenChange={setShowLinkDialog}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Insert link</DialogTitle>
-            <DialogDescription>Enter the URL for the link.</DialogDescription>
+            <DialogTitle>{t("mail.compose.insertLink")}</DialogTitle>
+            <DialogDescription>
+              {t("mail.compose.enterLinkUrl")}
+            </DialogDescription>
           </DialogHeader>
           <Input
             autoFocus
@@ -284,10 +290,10 @@ export const ComposeEditor = forwardRef<
           />
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowLinkDialog(false)}>
-              Cancel
+              {t("mail.compose.cancel")}
             </Button>
             <Button onClick={applyLink} disabled={!linkUrl.trim()}>
-              Apply
+              {t("mail.compose.apply")}
             </Button>
           </DialogFooter>
         </DialogContent>

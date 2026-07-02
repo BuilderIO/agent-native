@@ -1,6 +1,6 @@
+import { appBasePath } from "@agent-native/core/client";
 import { hydrateRoot } from "react-dom/client";
 import { HydratedRouter } from "react-router/dom";
-import { appBasePath } from "@agent-native/core/client";
 
 const basePath = appBasePath();
 if (basePath) {

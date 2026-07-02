@@ -1,4 +1,8 @@
-import { defineAction, embedApp } from "@agent-native/core";
+import { defineAction } from "@agent-native/core";
+import {
+  getRequestUserEmail,
+  getRequestUserName,
+} from "@agent-native/core/server/request-context";
 import {
   ForbiddenError,
   currentAccess,
@@ -6,18 +10,15 @@ import {
 } from "@agent-native/core/sharing";
 import { and, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
+
 import { getDb, schema } from "../server/db/index.js";
+import { notifyPlanCommentRecipients } from "../server/lib/comment-notifications.js";
 import {
   isAnonymousPublicViewer,
   isGuestAuthorIdentity,
   resolvePlanAccessContext,
   resolvePlanOwnerEmailForWrite,
 } from "../server/lib/local-identity.js";
-import { notifyPlanCommentRecipients } from "../server/lib/comment-notifications.js";
-import {
-  getRequestUserEmail,
-  getRequestUserName,
-} from "@agent-native/core/server/request-context";
 import {
   buildUpdatedPlanCommentRows,
   commentResolutionFields,
@@ -100,14 +101,6 @@ export default defineAction({
   },
   mcpApp: {
     compactCatalog: true,
-    resource: embedApp({
-      title: "Resolve Comment",
-      description:
-        "Open the Agent-Native Plan surface to manage comment thread statuses.",
-      iframeTitle: "Agent-Native Plan",
-      openLabel: "Open Plan",
-      height: 860,
-    }),
   },
   run: async (args) => {
     const requesterEmail = getRequestUserEmail();

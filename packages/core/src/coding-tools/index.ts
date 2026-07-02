@@ -481,7 +481,7 @@ export async function runCodingCommand(
   else child.stdin?.end();
   const code = await new Promise<number | null>((resolve, reject) => {
     child.once("error", reject);
-    child.once("exit", resolve);
+    child.once("close", resolve);
   });
   clearTimeout(timer);
   return { code, stdout, stderr, timedOut, durationMs: Date.now() - startMs };

@@ -1,12 +1,46 @@
-import { useQueryClient } from "@tanstack/react-query";
 import { useActionQuery, useActionMutation } from "@agent-native/core/client";
 import type {
   Document,
   DocumentCreateRequest,
   DocumentUpdateRequest,
+  DocumentUpdateResponse,
   DocumentMoveRequest,
   DocumentTreeNode,
 } from "@shared/api";
+import { useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
+
+import { useRestoreContentDatabase } from "./use-content-database";
+
+const LIST_DOCUMENTS_QUERY_KEY = ["action", "list-documents", undefined];
+
+export function mergeDocumentIntoDocumentCache(
+  old: unknown,
+  document: Document,
+) {
+  return old && typeof old === "object" ? { ...old, ...document } : document;
+}
+
+export function mergeDocumentIntoListDocumentsCache(
+  old: unknown,
+  document: Document,
+) {
+  if (Array.isArray(old)) {
+    return old.map((item: Document) =>
+      item.id === document.id ? { ...item, ...document } : item,
+    );
+  }
+
+  if (!old || typeof old !== "object") return old;
+  const cached = old as { documents?: unknown };
+  if (!Array.isArray(cached.documents)) return old;
+
+  const nextDocuments = cached.documents.map((item: Document) =>
+    item.id === document.id ? { ...item, ...document } : item,
+  );
+
+  return { ...(old as object), documents: nextDocuments };
+}
 
 export function useDocuments() {
   return useActionQuery<Document[]>("list-documents", undefined, {
@@ -32,23 +66,68 @@ export function useCreateDocument() {
 
 export function useUpdateDocument() {
   const queryClient = useQueryClient();
-  return useActionMutation<Document, DocumentUpdateRequest & { id: string }>(
-    "update-document",
-    {
-      onSuccess: (_data, variables) => {
-        queryClient.invalidateQueries({
-          queryKey: ["action", "get-document", { id: variables.id }],
+  const restoreContentDatabase = useRestoreContentDatabase();
+  return useActionMutation<
+    DocumentUpdateResponse,
+    DocumentUpdateRequest & { id: string }
+  >("update-document", {
+    onSuccess: (data, variables) => {
+      queryClient.setQueryData(
+        ["action", "get-document", { id: variables.id }],
+        (old: unknown) => mergeDocumentIntoDocumentCache(old, data),
+      );
+      queryClient.setQueryData(LIST_DOCUMENTS_QUERY_KEY, (old: unknown) =>
+        mergeDocumentIntoListDocumentsCache(old, data),
+      );
+      queryClient.invalidateQueries({
+        queryKey: ["action", "get-document", { id: variables.id }],
+      });
+      queryClient.invalidateQueries({
+        queryKey: ["action", "list-documents"],
+      });
+
+      if (data.softDeletedDatabaseIds.length > 0) {
+        const databaseIds = data.softDeletedDatabaseIds;
+        toast("Database deleted", {
+          action: {
+            label: "Undo",
+            onClick: () => {
+              void Promise.all(
+                databaseIds.map((databaseId) =>
+                  restoreContentDatabase.mutateAsync({ databaseId }),
+                ),
+              ).catch((err) => {
+                toast.error("Failed to restore database", {
+                  description:
+                    err instanceof Error ? err.message : "Something went wrong",
+                });
+              });
+            },
+          },
         });
-      },
+      }
     },
-  );
+  });
 }
 
 export function useDeleteDocument() {
+  const queryClient = useQueryClient();
   return useActionMutation<
     { success: boolean; deleted: number },
     { id: string }
-  >("delete-document");
+  >("delete-document", {
+    onSuccess: (_data, variables) => {
+      queryClient.invalidateQueries({
+        queryKey: ["action", "list-documents"],
+      });
+      queryClient.invalidateQueries({
+        queryKey: ["action", "get-document", { id: variables.id }],
+      });
+      queryClient.invalidateQueries({
+        queryKey: ["action", "list-trashed-content-databases"],
+      });
+    },
+  });
 }
 
 export function useMoveDocument() {

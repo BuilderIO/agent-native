@@ -1,14 +1,22 @@
 import { useEffect, useRef, useState } from "react";
-import { agentNativePath } from "./api-path.js";
-import { bumpChangeVersion } from "./use-change-version.js";
+
 import { ensureDemoModeFetchInterceptor } from "../demo/fetch-interceptor.js";
+import { agentNativePath } from "./api-path.js";
 import {
   ensureEmbedAuthFetchInterceptor,
   isEmbedAuthActive,
 } from "./embed-auth.js";
+import { bumpChangeVersion } from "./use-change-version.js";
+
+interface Query {
+  queryKey: readonly unknown[];
+}
 
 interface QueryClient {
-  invalidateQueries(opts?: { queryKey?: string[] }): void;
+  invalidateQueries(opts?: {
+    queryKey?: string[];
+    predicate?: (query: Query) => boolean;
+  }): void;
 }
 
 const POLL_ABORT_MIN_MS = 10_000;
@@ -474,6 +482,10 @@ export function _resetSyncTransportRegistryForTests(): void {
  * @param options.ignoreSource - Skip events whose `requestSource` matches this
  *   value. Use a per-tab ID so the UI ignores its own writes while still
  *   picking up changes from other tabs, agents, and scripts.
+ * @param options.actionInvalidatePredicate - Optional filter for the broad
+ *   compatibility invalidate triggered by `action` events. Use this to keep
+ *   expensive active queries on explicit-refresh semantics while still letting
+ *   normal source-versioned queries react through `useChangeVersion`.
  */
 export function useDbSync(
   options: {
@@ -488,6 +500,7 @@ export function useDbSync(
     fallbackInterval?: number;
     pauseWhenHidden?: boolean;
     ignoreSource?: string;
+    actionInvalidatePredicate?: (query: Query) => boolean;
   } = {},
 ): void {
   const {
@@ -507,6 +520,10 @@ export function useDbSync(
 
   const ignoreSourceRef = useRef(options.ignoreSource);
   ignoreSourceRef.current = options.ignoreSource;
+  const actionInvalidatePredicateRef = useRef(
+    options.actionInvalidatePredicate,
+  );
+  actionInvalidatePredicateRef.current = options.actionInvalidatePredicate;
 
   useEffect(() => {
     const id = Symbol("useDbSync");
@@ -549,7 +566,8 @@ export function useDbSync(
           // signal, so refresh active queries broadly as a compatibility
           // safety net. Other event sources stay targeted to avoid request
           // storms from noisy domain-specific writes.
-          queryClient.invalidateQueries();
+          const predicate = actionInvalidatePredicateRef.current;
+          queryClient.invalidateQueries(predicate ? { predicate } : undefined);
         }
 
         // Framework-level invalidate: a small, fixed list of query-key

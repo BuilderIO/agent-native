@@ -1,7 +1,7 @@
-import { coreDbScripts } from "./db/index.js";
-import { coreResourceScripts } from "./resources/index.js";
 import { coreChatScripts } from "./chat/index.js";
+import { coreDbScripts } from "./db/index.js";
 import { coreDocsScripts } from "./docs/index.js";
+import { coreResourceScripts } from "./resources/index.js";
 
 /**
  * Registry of all core scripts provided by @agent-native/core.

@@ -1,3 +1,4 @@
+// i18n-raw-literal-disable-file
 // Navigation context state helpers exposed to the agent.
 // Pure logic — no React, no icons.
 import type {
@@ -10,14 +11,15 @@ import type {
   DocumentPropertyValue,
 } from "@shared/api";
 import { isComputedPropertyType } from "@shared/properties";
+
+import { databaseCalculationSummaries } from "./calculations";
+import { propertyValueText } from "./filter-sort";
+import { databaseCalendarDateProperty } from "./grouping";
 import type {
   DatabaseSort,
   DatabaseFilter,
   DatabaseDateViewRange,
 } from "./types";
-import { databaseCalendarDateProperty } from "./grouping";
-import { databaseCalculationSummaries } from "./calculations";
-import { propertyValueText } from "./filter-sort";
 
 export function databaseItemPreviewTitle(
   item: Pick<ContentDatabaseItem, "document"> | null | undefined,
@@ -248,11 +250,17 @@ export function databaseBulkScalarInputState(
 
 export function databaseDuplicatedItemFromResponse(
   response: Pick<ContentDatabaseResponse, "items"> &
-    Pick<Partial<ContentDatabaseResponse>, "duplicatedItemId">,
+    Pick<
+      Partial<ContentDatabaseResponse>,
+      "duplicatedItemId" | "duplicatedItemIds"
+    >,
 ) {
-  return (
-    response.items.find((item) => item.id === response.duplicatedItemId) ?? null
-  );
+  const duplicatedItemIds = response.duplicatedItemIds ?? [];
+  const duplicatedItemId =
+    duplicatedItemIds.length > 0
+      ? duplicatedItemIds[duplicatedItemIds.length - 1]
+      : response.duplicatedItemId;
+  return response.items.find((item) => item.id === duplicatedItemId) ?? null;
 }
 
 export function toggleDatabaseRowSelection(

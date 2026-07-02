@@ -2,7 +2,6 @@
 // AssistantMessage, MessageBranchPicker, CheckpointContext, MessageActionsContext,
 // RunningActivityStatus, ThinkingIndicator, and displayableUserMessageText.
 
-import React, { useState, useEffect, useCallback, useRef, useId } from "react";
 import {
   useThread,
   useMessageRuntime,
@@ -13,34 +12,6 @@ import {
   ComposerPrimitive,
 } from "@assistant-ui/react";
 import type { Attachment } from "@assistant-ui/react";
-import type { ContentPart } from "../sse-event-processor.js";
-import { getActiveRun } from "../active-run-state.js";
-import { cn } from "../utils.js";
-import { writeClipboardText } from "../clipboard.js";
-import { agentNativePath } from "../api-path.js";
-import { isPastedTextAttachmentName } from "../composer/pasted-text.js";
-import { PastedTextChip } from "../composer/PastedTextChip.js";
-import { ThumbsFeedback } from "../observability/ThumbsFeedback.js";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "../components/ui/tooltip.js";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "../components/ui/dropdown-menu.js";
-import { MarkdownText } from "./markdown-renderer.js";
-import {
-  ToolCallFallback,
-  FilesChangedSummary,
-  ChatRunningContext,
-} from "./tool-call-display.js";
 import {
   IconX,
   IconCheck,
@@ -66,6 +37,36 @@ import {
   IconPencil,
   IconLoader2,
 } from "@tabler/icons-react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
+
+import { getActiveRun } from "../active-run-state.js";
+import { agentNativePath } from "../api-path.js";
+import { writeClipboardText } from "../clipboard.js";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "../components/ui/dropdown-menu.js";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "../components/ui/tooltip.js";
+import { isPastedTextAttachmentName } from "../composer/pasted-text.js";
+import { PastedTextChip } from "../composer/PastedTextChip.js";
+import { ThumbsFeedback } from "../observability/ThumbsFeedback.js";
+import type { ContentPart } from "../sse-event-processor.js";
+import { cn } from "../utils.js";
+import { MarkdownText } from "./markdown-renderer.js";
+import {
+  ToolCallFallback,
+  FilesChangedSummary,
+  ChatRunningContext,
+} from "./tool-call-display.js";
 
 // ─── Pending selection context key ───────────────────────────────────────────
 // Mirrored from AssistantChat to avoid a cross-import on a private constant.
@@ -759,6 +760,59 @@ export function UserMessage() {
 
 // ─── AssistantMessage ─────────────────────────────────────────────────────────
 
+function assistantMessageHasRenderableContent(message: {
+  content?: unknown;
+}): boolean {
+  const content = message.content;
+  if (typeof content === "string") return content.trim().length > 0;
+  if (!Array.isArray(content)) return false;
+  return content.some((part) => {
+    if (!part || typeof part !== "object") return false;
+    const type = (part as { type?: unknown }).type;
+    if (type === "text") {
+      const text = (part as { text?: unknown }).text;
+      return typeof text === "string" && text.trim().length > 0;
+    }
+    return true;
+  });
+}
+
+function assistantMessageStatusIsTerminal(message: {
+  status?: { type?: unknown };
+}): boolean {
+  const statusType = message.status?.type;
+  return statusType === "complete" || statusType === "incomplete";
+}
+
+export function assistantMessageHasUnresolvedTool(content: unknown): boolean {
+  if (!Array.isArray(content)) return false;
+  return content.some((part): boolean => {
+    if (!part || typeof part !== "object") return false;
+    const record = part as { type?: unknown; result?: unknown };
+    return record.type === "tool-call" && record.result === undefined;
+  });
+}
+
+export function shouldShowAssistantMessageFooter({
+  isLast,
+  chatRunning,
+  hasRenderableContent,
+  statusIsTerminal,
+  hasUnresolvedTool,
+}: {
+  isLast: boolean;
+  chatRunning: boolean;
+  hasRenderableContent: boolean;
+  statusIsTerminal: boolean;
+  hasUnresolvedTool?: boolean;
+}): boolean {
+  if (!hasRenderableContent) return false;
+  if (chatRunning) return false;
+  if (!isLast) return true;
+  if (hasUnresolvedTool) return false;
+  return !chatRunning && statusIsTerminal;
+}
+
 export function AssistantMessage() {
   const [restoreState, setRestoreState] = useState<
     "idle" | "confirming" | "restoring"
@@ -771,7 +825,15 @@ export function AssistantMessage() {
   const isLast =
     thread.messages.length > 0 &&
     thread.messages[thread.messages.length - 1].id === msg.id;
-  const isComplete = !isLast || !chatRunning;
+  const hasRenderableContent = assistantMessageHasRenderableContent(msg);
+  const hasUnresolvedTool = assistantMessageHasUnresolvedTool(msg.content);
+  const isComplete = shouldShowAssistantMessageFooter({
+    isLast,
+    chatRunning,
+    hasRenderableContent,
+    statusIsTerminal: assistantMessageStatusIsTerminal(msg),
+    hasUnresolvedTool,
+  });
   const cpCtx = React.useContext(CheckpointContext);
 
   const handleRestore = useCallback(async () => {
@@ -841,12 +903,14 @@ export function AssistantMessage() {
           p.structuredMeta.toolKind === "write"),
     );
 
+  if (!hasRenderableContent) return null;
+
   return (
     <div
       className="group relative"
       style={{ contentVisibility: isComplete ? "auto" : "visible" }}
     >
-      <div className="max-w-[95%] text-sm leading-relaxed text-foreground">
+      <div className="w-full max-w-[95%] text-sm leading-relaxed text-foreground">
         <MessagePrimitive.Parts
           components={{
             Text: MarkdownText,
@@ -857,6 +921,9 @@ export function AssistantMessage() {
         />
         {isComplete && hasCodeAgentTools && msgContent && (
           <FilesChangedSummary parts={msgContent} />
+        )}
+        {isLast && hasUnresolvedTool && !chatRunning && (
+          <RunningActivityStatus label="Thinking" />
         )}
       </div>
       {isComplete && (
@@ -951,14 +1018,6 @@ export function RunningActivityStatus({ label }: { label: string }) {
 export function ThinkingIndicator({
   label = "Thinking",
 }: { label?: string } = {}) {
-  const reactId = useId().replace(/:/g, "");
-  const maskId = `agent-thinking-mask-${reactId}`;
-  const gradientId = `agent-thinking-gradient-${reactId}`;
-  const textX = 27;
-  const textWidth = Math.max(44, Math.min(96, label.length * 6.35));
-  const ellipsisX = textX + textWidth - 0.8;
-  const viewBoxWidth = ellipsisX + 13;
-  const shimmerWidth = viewBoxWidth * 0.68;
   return (
     <div
       className="agent-thinking-indicator"
@@ -966,95 +1025,7 @@ export function ThinkingIndicator({
       aria-live="polite"
       aria-label={label}
     >
-      <svg
-        className="agent-thinking-indicator__glyph"
-        viewBox={`0 0 ${viewBoxWidth} 18`}
-        style={
-          {
-            "--agent-thinking-width": `${viewBoxWidth / 16}rem`,
-          } as React.CSSProperties
-        }
-        aria-hidden="true"
-        focusable="false"
-      >
-        <defs>
-          <linearGradient id={gradientId} x1="0" x2="1" y1="0" y2="0">
-            <stop
-              className="agent-thinking-indicator__sheen-edge"
-              offset="0%"
-            />
-            <stop
-              className="agent-thinking-indicator__sheen-mid"
-              offset="50%"
-            />
-            <stop
-              className="agent-thinking-indicator__sheen-edge"
-              offset="100%"
-            />
-          </linearGradient>
-          <mask id={maskId} maskUnits="userSpaceOnUse">
-            <g fill="white">
-              <g
-                className="agent-thinking-indicator__logo"
-                transform="translate(0 2.7) scale(0.9)"
-              >
-                <path d="M5.1 14H0L3.1 8.4 7.8 0 12.5 8.4H8.2L5.1 14Z" />
-                <path d="M19.5 0H24L16.6 14H12.1L19.5 0Z" />
-              </g>
-              <text
-                x={textX}
-                y="13"
-                fontFamily='Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif'
-                fontSize="13"
-                fontWeight="500"
-                letterSpacing="0"
-              >
-                {label}
-              </text>
-              <g
-                fontFamily='Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif'
-                fontSize="13"
-                fontWeight="500"
-              >
-                <text
-                  className="agent-thinking-indicator__ellipsis-dot agent-thinking-indicator__ellipsis-dot--1"
-                  x={ellipsisX}
-                  y="13"
-                >
-                  .
-                </text>
-                <text
-                  className="agent-thinking-indicator__ellipsis-dot agent-thinking-indicator__ellipsis-dot--2"
-                  x={ellipsisX + 3.7}
-                  y="13"
-                >
-                  .
-                </text>
-                <text
-                  className="agent-thinking-indicator__ellipsis-dot agent-thinking-indicator__ellipsis-dot--3"
-                  x={ellipsisX + 7.4}
-                  y="13"
-                >
-                  .
-                </text>
-              </g>
-            </g>
-          </mask>
-        </defs>
-        <g mask={`url(#${maskId})`}>
-          <rect
-            className="agent-thinking-indicator__base"
-            width={viewBoxWidth}
-            height="18"
-          />
-          <rect
-            className="agent-thinking-indicator__shimmer"
-            width={shimmerWidth}
-            height="18"
-            fill={`url(#${gradientId})`}
-          />
-        </g>
-      </svg>
+      <span className="agent-thinking-indicator__text">{label}</span>
     </div>
   );
 }

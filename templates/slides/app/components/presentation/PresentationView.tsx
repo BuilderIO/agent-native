@@ -1,17 +1,19 @@
-import { useState, useEffect, useCallback, useMemo, useRef } from "react";
-import { useNavigate } from "react-router";
+import { useT } from "@agent-native/core/client";
 import {
   IconChevronLeft,
   IconChevronRight,
   IconMaximize,
   IconX,
 } from "@tabler/icons-react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import { useNavigate } from "react-router";
+
+import SlideRenderer from "@/components/deck/SlideRenderer";
 import type {
   Slide,
   SlideAnimation,
   AnimationType,
 } from "@/context/DeckContext";
-import SlideRenderer from "@/components/deck/SlideRenderer";
 import type { AspectRatio } from "@/lib/aspect-ratios";
 import type { DesignSystemData } from "../../../shared/api";
 import {
@@ -155,6 +157,7 @@ export default function PresentationView({
   aspectRatio,
   designSystem,
 }: PresentationViewProps) {
+  const t = useT();
   const safeSlides = useMemo(
     () =>
       (Array.isArray(slides) ? slides : [])
@@ -238,7 +241,7 @@ export default function PresentationView({
   const goNext = useCallback(() => {
     if (animating) return;
     // Reveal next paragraph step if enabled
-    if (maxSteps > 0 && currentStep < maxSteps) {
+    if (maxSteps > 0 && currentStep < maxSteps /* i18n-ignore */) {
       setCurrentStep((prev) => prev + 1);
       return;
     }
@@ -406,7 +409,7 @@ export default function PresentationView({
           onClick={exit}
           className="rounded-lg bg-white/10 px-4 py-3 text-sm text-white transition-colors hover:bg-white/20"
         >
-          No slides to present
+          {t("presentation.noSlides")}
         </button>
       </div>
     );
@@ -485,7 +488,7 @@ export default function PresentationView({
               onClick={goPrev}
               disabled={currentIndex === 0}
               className="p-3 sm:p-2 rounded-lg bg-white/10 hover:bg-white/20 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-              aria-label="Previous slide"
+              aria-label={t("presentation.previousSlide")}
             >
               <IconChevronLeft className="w-5 h-5 sm:w-4 sm:h-4 text-white" />
             </button>
@@ -493,10 +496,11 @@ export default function PresentationView({
               onClick={goNext}
               disabled={
                 currentIndex === safeSlides.length - 1 &&
-                (maxSteps === 0 || currentStep >= maxSteps)
+                (maxSteps === 0 || // i18n-ignore: boolean expression, not visible copy.
+                  currentStep >= maxSteps)
               }
               className="p-3 sm:p-2 rounded-lg bg-white/10 hover:bg-white/20 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-              aria-label="Next slide"
+              aria-label={t("presentation.nextSlide")}
             >
               <IconChevronRight className="w-5 h-5 sm:w-4 sm:h-4 text-white" />
             </button>
@@ -505,7 +509,7 @@ export default function PresentationView({
           <button
             onClick={exit}
             className="p-3 sm:p-2 rounded-lg bg-white/10 hover:bg-white/20 transition-colors"
-            aria-label="Exit presentation"
+            aria-label={t("presentation.exitPresentation")}
           >
             <IconX className="w-5 h-5 sm:w-4 sm:h-4 text-white" />
           </button>
@@ -533,10 +537,10 @@ export default function PresentationView({
             enterFullscreen();
           }}
           className="fixed top-4 right-4 z-[102] flex items-center gap-2 rounded-lg bg-white/10 px-4 py-3 text-sm text-white hover:bg-white/20 transition-colors"
-          aria-label="Enter fullscreen"
+          aria-label={t("presentation.enterFullscreen")}
         >
           <IconMaximize className="w-4 h-4" />
-          Click to enter fullscreen
+          {t("presentation.clickToEnterFullscreen")}
         </button>
       )}
     </div>

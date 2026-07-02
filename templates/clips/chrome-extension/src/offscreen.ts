@@ -16,8 +16,56 @@
 // MIME selection and the chunk-upload URL/param protocol are shared with the web
 // app recorder via @shared/recording-core so the server contract can't drift.
 
-import { chunkUploadUrl, pickMimeType } from "@shared/recording-core";
 import { scheduleReadyChime } from "@shared/recording-audio";
+import {
+  chunkUploadUrl,
+  pickMimeType,
+  type UploadMode,
+} from "@shared/recording-core";
+import { MAX_UPLOAD_BYTES } from "@shared/upload-limits";
+
+import { waitForReadyRecordingAfterFinalizeError } from "./finalize-recovery";
+import { captureExtensionError, initExtensionSentry } from "./sentry";
+
+initExtensionSentry("offscreen");
+
+const STORAGE_SETUP_REQUIRED_MESSAGE =
+  "Connect storage to finish saving this clip: Builder.io (free tier storage + AI) or S3-compatible storage.";
+const STORAGE_SETUP_FAILURE_RE =
+  /video storage is not connected|no video storage configured|file upload provider|storage provider|connect builder|s3-compatible/i;
+const CHUNK_UPLOAD_MAX_ATTEMPTS = 3;
+const RETRYABLE_CHUNK_UPLOAD_STATUSES = new Set([
+  408, 425, 429, 500, 502, 503, 504,
+]);
+
+function isStorageSetupFailureMessage(message: string | null | undefined) {
+  return STORAGE_SETUP_FAILURE_RE.test(message ?? "");
+}
+
+function isRetryableChunkUploadStatus(status: number): boolean {
+  return RETRYABLE_CHUNK_UPLOAD_STATUSES.has(status);
+}
+
+function retryDelayMs(attempt: number): number {
+  return attempt === 1 ? 500 : 1500;
+}
+
+function waitForRetry(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function isFinalUploadRecoveryCandidate(error: Error): boolean {
+  const tagged = error as {
+    finalUploadRecoveryAttempted?: boolean;
+    finalUpload?: boolean;
+    status?: number;
+    storageSetupRequired?: boolean;
+  };
+  if (!tagged.finalUpload || tagged.storageSetupRequired) return false;
+  if (tagged.finalUploadRecoveryAttempted) return false;
+  if (tagged.status === 413) return false;
+  return !/too large|exceeds.*limit|chunk too large/i.test(error.message);
+}
 
 type CaptureMode = "screen" | "camera";
 
@@ -37,6 +85,7 @@ type BeginMessage = {
   sessionId: string;
   recordingId: string;
   uploadUrl: string;
+  uploadMode?: UploadMode;
   hasCamera?: boolean;
   // Pre-roll countdown delay, owned here in the offscreen document (a reliable
   // context) rather than the service worker (which can suspend and drop timers).
@@ -65,6 +114,8 @@ type UploadResult = {
   recordingId?: string;
   videoUrl?: string;
   status?: string;
+  finalized?: boolean;
+  recoveredAfterFinalizeError?: boolean;
   waitingForStorage?: boolean;
   storageSetupRequired?: boolean;
   error?: string;
@@ -86,6 +137,7 @@ type ActiveRecording = {
   sessionId: string;
   recordingId: string;
   uploadUrl: string;
+  uploadMode: UploadMode;
   authToken: string | null;
   mode: CaptureMode;
   startedAtMs: number;
@@ -95,8 +147,20 @@ type ActiveRecording = {
   sourceStreams: MediaStream[];
   audioContext: AudioContext | null;
   chunkIndex: number;
+  uploadChain: Promise<void>;
   uploadPromises: Promise<unknown>[];
   uploadFailure: Error | null;
+  // Local safety buffer: every recorded blob is kept here (browser-managed,
+  // disk-backed Blob refs — not raw heap) so that if the upload fails (storage
+  // not connected, network drop, size cap) we can still save the finished
+  // recording to disk instead of losing it. Mirrors the web/desktop recorders.
+  recordedBlobs: Blob[];
+  recordedBytes: number;
+  // Set if the recording grew past the buffer ceiling and we stopped retaining
+  // — at that point a local save can't be guaranteed, so we don't promise one.
+  localBufferOverflow: boolean;
+  pendingStreamBlobs: Blob[];
+  pendingStreamBytes: number;
   cancelled: boolean;
   // Set when the recorder is being torn down to start over on the same source
   // streams, so the stop handler skips the usual track cleanup.
@@ -118,8 +182,28 @@ type ActiveRecording = {
   rejectStopped: (error: Error) => void;
 };
 
+const GCS_CHUNK_ALIGN_BYTES = 256 * 1024;
+const STREAM_CHUNK_BYTES = 15 * GCS_CHUNK_ALIGN_BYTES; // 3.75 MiB
+const UPLOAD_SLICE_BYTES = 3 * 1024 * 1024;
+
+// Don't retain more than the upload ceiling — past it the server rejects the
+// recording anyway, so there is nothing a local save could recover.
+const MAX_LOCAL_BUFFER_BYTES = MAX_UPLOAD_BYTES;
+// Below this, a failed recording is too short to be worth dumping a file into
+// the user's Downloads (e.g. the storage gate was bypassed and the very first
+// chunk was rejected ~2s in). The connect-storage message is enough there.
+const MIN_LOCAL_SAVE_BYTES = 2 * 1024 * 1024;
+
 let prepared: PreparedStreams | null = null;
 let activeRecording: ActiveRecording | null = null;
+// Blob URLs handed to the background for save-to-disk recovery downloads. Kept
+// alive until the next recording starts so the download can finish reading.
+const pendingSaveUrls = new Set<string>();
+
+function releasePendingSaveUrls(): void {
+  for (const url of pendingSaveUrls) URL.revokeObjectURL(url);
+  pendingSaveUrls.clear();
+}
 
 function reportStatus(
   sessionId: string,
@@ -383,14 +467,59 @@ async function uploadChunk(
   if (recording.authToken) {
     headers.Authorization = `Bearer ${recording.authToken}`;
   }
-  const res = await fetch(url, {
-    method: "POST",
-    headers,
-    credentials: "include",
-    body,
-  });
+  let res: Response | null = null;
+  let triedFinalUploadRecovery = false;
+  for (let attempt = 1; attempt <= CHUNK_UPLOAD_MAX_ATTEMPTS; attempt++) {
+    try {
+      res = await fetch(url, {
+        method: "POST",
+        headers,
+        credentials: "include",
+        body,
+      });
+    } catch (err) {
+      if (attempt >= CHUNK_UPLOAD_MAX_ATTEMPTS) throw err;
+      await waitForRetry(retryDelayMs(attempt));
+      continue;
+    }
+
+    if (
+      !res.ok &&
+      attempt < CHUNK_UPLOAD_MAX_ATTEMPTS &&
+      isRetryableChunkUploadStatus(res.status)
+    ) {
+      if (extra.isFinal && res.status === 504) {
+        triedFinalUploadRecovery = true;
+        await res.text().catch(() => "");
+        const recovered = await waitForReadyRecordingAfterFinalizeError({
+          uploadUrl: recording.uploadUrl,
+          recordingId: recording.recordingId,
+          authToken: recording.authToken,
+        });
+        if (recovered) return recovered;
+        break;
+      }
+      await res.text().catch(() => "");
+      await waitForRetry(retryDelayMs(attempt));
+      continue;
+    }
+
+    break;
+  }
+
+  if (!res) {
+    throw new Error("Upload failed: no response");
+  }
+
   const text = await res.text().catch(() => "");
-  const data = text ? (JSON.parse(text) as UploadResult) : {};
+  let data: UploadResult = {};
+  if (text) {
+    try {
+      data = JSON.parse(text) as UploadResult;
+    } catch {
+      data = {};
+    }
+  }
   if (!res.ok) {
     console.error(
       "[clips-offscreen] chunk upload failed",
@@ -399,11 +528,149 @@ async function uploadChunk(
       Boolean(recording.authToken),
       text.slice(0, 200),
     );
-    throw new Error(
-      data?.error || `Upload failed (${res.status}): ${text || res.statusText}`,
+    const storageSetupRequired =
+      data?.storageSetupRequired === true ||
+      isStorageSetupFailureMessage(data?.error || text);
+    const error = new Error(
+      storageSetupRequired
+        ? STORAGE_SETUP_REQUIRED_MESSAGE
+        : data?.error ||
+            `Upload failed (${res.status}): ${text || res.statusText}`,
     );
+    const uploadError = error as {
+      finalUploadRecoveryAttempted?: boolean;
+      status?: number;
+      storageSetupRequired?: boolean;
+    };
+    uploadError.finalUploadRecoveryAttempted = triedFinalUploadRecovery;
+    uploadError.status = res.status;
+    uploadError.storageSetupRequired = storageSetupRequired;
+    captureExtensionError(error, {
+      tags: {
+        surface: "offscreen",
+        recordingStep: "chunk-upload",
+        httpStatus: String(res.status),
+        isFinal: extra.isFinal ? "true" : "false",
+      },
+      extra: {
+        recordingId: recording.recordingId,
+        chunkIndex: index,
+        chunkBytes: blob.size,
+        total: extra.total,
+        mimeType: blob.type || recording.mimeType,
+        responseBodyTail: text.slice(0, 2000),
+        hadAuth: Boolean(recording.authToken),
+      },
+    });
+    throw error;
   }
   return data;
+}
+
+function uploadAbortUrl(uploadUrl: string): string | null {
+  try {
+    const url = new URL(uploadUrl);
+    url.pathname = url.pathname.replace(/\/chunk$/, "/abort");
+    url.search = "";
+    return url.toString();
+  } catch {
+    return null;
+  }
+}
+
+async function abortServerUpload(
+  recording: ActiveRecording,
+  reason: string,
+): Promise<void> {
+  const url = uploadAbortUrl(recording.uploadUrl);
+  if (!url) return;
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    "X-Agent-Native-Frontend": "1",
+  };
+  if (recording.authToken) {
+    headers.Authorization = `Bearer ${recording.authToken}`;
+  }
+  const controller =
+    typeof AbortController === "undefined" ? null : new AbortController();
+  const timer = controller
+    ? window.setTimeout(() => controller.abort(), 4_000)
+    : undefined;
+  try {
+    const response = await fetch(url, {
+      method: "POST",
+      headers,
+      credentials: "include",
+      body: JSON.stringify({ reason }),
+      signal: controller?.signal,
+    });
+    if (!response.ok) {
+      console.warn(
+        "[clips-offscreen] abort upload returned",
+        response.status,
+        await response.text().catch(() => ""),
+      );
+    }
+  } catch (err) {
+    console.warn("[clips-offscreen] abort upload failed", err);
+  } finally {
+    if (timer) window.clearTimeout(timer);
+  }
+}
+
+// Keep a local copy of every recorded blob so a failed upload can still be
+// saved to disk. Blob references are browser-managed (often disk-backed), so
+// this is far cheaper than holding ArrayBuffers. We stop retaining past the
+// upload ceiling (a larger recording can't be uploaded anyway).
+function retainRecordedBlob(recording: ActiveRecording, blob: Blob): void {
+  if (recording.localBufferOverflow) return;
+  if (recording.recordedBytes + blob.size > MAX_LOCAL_BUFFER_BYTES) {
+    recording.localBufferOverflow = true;
+    return;
+  }
+  recording.recordedBlobs.push(blob);
+  recording.recordedBytes += blob.size;
+}
+
+async function uploadBlobInSlices(
+  recording: ActiveRecording,
+  blob: Blob,
+): Promise<void> {
+  const totalSlices = Math.max(1, Math.ceil(blob.size / UPLOAD_SLICE_BYTES));
+  for (let sliceIndex = 0; sliceIndex < totalSlices; sliceIndex += 1) {
+    if (recording.cancelled || recording.uploadFailure) return;
+    const start = sliceIndex * UPLOAD_SLICE_BYTES;
+    const end = Math.min(start + UPLOAD_SLICE_BYTES, blob.size);
+    const slice = blob.slice(start, end, blob.type || recording.mimeType);
+    const index = recording.chunkIndex++;
+    await uploadChunk(recording, slice, index);
+  }
+}
+
+async function uploadStreamingBlob(
+  recording: ActiveRecording,
+  blob: Blob,
+): Promise<void> {
+  if (blob.size === 0) return;
+  recording.pendingStreamBlobs.push(blob);
+  recording.pendingStreamBytes += blob.size;
+
+  while (recording.pendingStreamBytes >= STREAM_CHUNK_BYTES) {
+    if (recording.cancelled || recording.uploadFailure) return;
+    const combined = new Blob(recording.pendingStreamBlobs, {
+      type: recording.mimeType,
+    });
+    const head = combined.slice(0, STREAM_CHUNK_BYTES, recording.mimeType);
+    const tail = combined.slice(
+      STREAM_CHUNK_BYTES,
+      undefined,
+      recording.mimeType,
+    );
+    recording.pendingStreamBlobs = tail.size > 0 ? [tail] : [];
+    recording.pendingStreamBytes = tail.size;
+    const index = recording.chunkIndex++;
+    await uploadChunk(recording, head, index);
+  }
 }
 
 function stopStreams(streams: (MediaStream | null)[]): void {
@@ -438,6 +705,8 @@ async function acquire(message: AcquireMessage): Promise<{
   // Discard any half-prepared capture from a cancelled attempt.
   stopPreparedStreams();
   disposePrepared();
+  // A prior recording's recovery download has finished by now; free its URL.
+  releasePendingSaveUrls();
 
   let displayStream: MediaStream | null = null;
   let micStream: MediaStream | null = null;
@@ -570,6 +839,7 @@ async function begin(message: BeginMessage): Promise<{
     sessionId: ready.sessionId,
     recordingId: message.recordingId,
     uploadUrl: message.uploadUrl,
+    uploadMode: message.uploadMode ?? "buffered",
     authToken: message.authToken ?? null,
     mode: ready.mode,
     startedAtMs: 0,
@@ -584,8 +854,14 @@ async function begin(message: BeginMessage): Promise<{
     ],
     audioContext: mixedAudio.audioContext,
     chunkIndex: 0,
+    uploadChain: Promise.resolve(),
     uploadPromises: [],
     uploadFailure: null,
+    recordedBlobs: [],
+    recordedBytes: 0,
+    localBufferOverflow: false,
+    pendingStreamBlobs: [],
+    pendingStreamBytes: 0,
     cancelled: false,
     restarting: false,
     startTimer: null,
@@ -608,27 +884,48 @@ async function begin(message: BeginMessage): Promise<{
   activeRecording = recording;
 
   recorder.addEventListener("dataavailable", (event) => {
-    if (
-      recording.cancelled ||
-      !event.data ||
-      event.data.size === 0 ||
-      recording.uploadFailure
-    ) {
+    if (recording.cancelled || !event.data || event.data.size === 0) {
       return;
     }
-    const index = recording.chunkIndex++;
+    // Always keep a local copy first — even after an upload failure — so the
+    // saved-to-disk fallback can assemble the COMPLETE recording. Without this,
+    // a recording whose upload is rejected (storage disconnected, network drop,
+    // size cap) would be lost; the extension has no other on-disk copy.
+    retainRecordedBlob(recording, event.data);
+    if (recording.uploadFailure) return;
     // Record the failure and stop, but do NOT re-throw: re-throwing leaves a
     // rejected promise that surfaces as an "Uncaught (in promise)" error (bad
     // look in a Chrome Web Store review). finalizeStop reads recording.upload-
     // Failure and surfaces it through the normal error path instead.
-    const upload = uploadChunk(recording, event.data, index).catch((err) => {
-      recording.uploadFailure =
-        err instanceof Error ? err : new Error(String(err));
-      reportStatus(recording.sessionId, "error", {
-        error: recording.uploadFailure.message,
+    const upload = recording.uploadChain
+      .then(() =>
+        recording.cancelled || recording.uploadFailure
+          ? undefined
+          : recording.uploadMode === "streaming"
+            ? uploadStreamingBlob(recording, event.data)
+            : uploadBlobInSlices(recording, event.data),
+      )
+      .catch((err) => {
+        recording.uploadFailure =
+          err instanceof Error ? err : new Error(String(err));
+        captureExtensionError(recording.uploadFailure, {
+          tags: {
+            surface: "offscreen",
+            recordingStep: "dataavailable-upload",
+          },
+          extra: {
+            recordingId: recording.recordingId,
+            blobBytes: event.data.size,
+            chunkIndex: recording.chunkIndex,
+            mimeType: event.data.type || recording.mimeType,
+          },
+        });
+        reportStatus(recording.sessionId, "error", {
+          error: recording.uploadFailure.message,
+        });
+        if (recorder.state !== "inactive") recorder.stop();
       });
-      if (recorder.state !== "inactive") recorder.stop();
-    });
+    recording.uploadChain = upload.then(() => undefined);
     recording.uploadPromises.push(upload);
   });
 
@@ -687,10 +984,79 @@ function startRecorderNow(recording: ActiveRecording): void {
       hasCamera: recording.hasCamera,
     });
   } catch (err) {
+    captureExtensionError(err, {
+      tags: {
+        surface: "offscreen",
+        recordingStep: "recorder-start",
+      },
+      extra: {
+        recordingId: recording.recordingId,
+        mimeType: recording.mimeType,
+        width: recording.dimensions.width,
+        height: recording.dimensions.height,
+        hasAudio: recording.hasAudio,
+        hasCamera: recording.hasCamera,
+      },
+    });
     reportStatus(recording.sessionId, "error", {
       recordingId: recording.recordingId,
       error: err instanceof Error ? err.message : "Could not start recording.",
     });
+  }
+}
+
+function recordingDownloadFilename(recording: ActiveRecording): string {
+  const ext = /mp4/i.test(recording.mimeType) ? "mp4" : "webm";
+  const stamp = new Date(recording.startedAtMs || Date.now())
+    .toISOString()
+    .replace(/[:.]/g, "-")
+    .replace("T", "_")
+    .slice(0, 19);
+  return `clip-${stamp}.${ext}`;
+}
+
+// Last-resort recovery: if a finished recording can't be uploaded, save the
+// locally-buffered bytes to the user's Downloads so the recording is never
+// lost. The offscreen document can't call chrome.downloads, so it hands the
+// background a blob URL to download. The URL is revoked on the next acquire().
+async function saveRecordingToDisk(
+  recording: ActiveRecording,
+): Promise<{ savedToDisk: boolean; savedFilename?: string }> {
+  if (
+    recording.cancelled ||
+    recording.localBufferOverflow ||
+    recording.recordedBlobs.length === 0 ||
+    recording.recordedBytes < MIN_LOCAL_SAVE_BYTES
+  ) {
+    return { savedToDisk: false };
+  }
+  try {
+    const blob = new Blob(recording.recordedBlobs, {
+      type: recording.mimeType,
+    });
+    const objectUrl = URL.createObjectURL(blob);
+    pendingSaveUrls.add(objectUrl);
+    const filename = recordingDownloadFilename(recording);
+    const response = (await chrome.runtime.sendMessage({
+      type: "CLIPS_SAVE_RECORDING_TO_DISK",
+      sessionId: recording.sessionId,
+      url: objectUrl,
+      filename,
+    })) as { ok?: boolean } | undefined;
+    if (response?.ok) return { savedToDisk: true, savedFilename: filename };
+    // The download was not accepted — drop the URL we just created.
+    pendingSaveUrls.delete(objectUrl);
+    URL.revokeObjectURL(objectUrl);
+    return { savedToDisk: false };
+  } catch (err) {
+    captureExtensionError(err, {
+      tags: { surface: "offscreen", recordingStep: "save-to-disk" },
+      extra: {
+        recordingId: recording.recordingId,
+        bytes: recording.recordedBytes,
+      },
+    });
+    return { savedToDisk: false };
   }
 }
 
@@ -741,20 +1107,29 @@ async function finalizeStop(recording: ActiveRecording): Promise<void> {
         durationMs,
       );
     }
-    const result = await uploadChunk(
-      recording,
-      new Blob([], { type: recording.mimeType }),
-      recording.chunkIndex,
-      {
+    let result: UploadResult;
+    try {
+      const finalBlob =
+        recording.uploadMode === "streaming"
+          ? new Blob(recording.pendingStreamBlobs, { type: recording.mimeType })
+          : new Blob([], { type: recording.mimeType });
+      recording.pendingStreamBlobs = [];
+      recording.pendingStreamBytes = 0;
+      const finalIndex = recording.chunkIndex;
+      result = await uploadChunk(recording, finalBlob, finalIndex, {
         isFinal: true,
-        total: recording.chunkIndex,
+        total: finalIndex + (finalBlob.size > 0 ? 1 : 0),
         durationMs,
         width: recording.dimensions.width,
         height: recording.dimensions.height,
         hasAudio: recording.hasAudio,
         hasCamera: recording.hasCamera,
-      },
-    );
+      });
+    } catch (err) {
+      const error = err instanceof Error ? err : new Error(String(err));
+      (error as { finalUpload?: boolean }).finalUpload = true;
+      throw error;
+    }
     cleanup(recording);
     if (activeRecording === recording) activeRecording = null;
     reportStatus(recording.sessionId, "complete", {
@@ -766,9 +1141,54 @@ async function finalizeStop(recording: ActiveRecording): Promise<void> {
     cleanup(recording);
     if (activeRecording === recording) activeRecording = null;
     const error = err instanceof Error ? err : new Error(String(err));
+
+    if (isFinalUploadRecoveryCandidate(error)) {
+      const recovered = await waitForReadyRecordingAfterFinalizeError({
+        uploadUrl: recording.uploadUrl,
+        recordingId: recording.recordingId,
+        authToken: recording.authToken,
+      });
+      if (recovered) {
+        console.warn(
+          "[clips-offscreen] final upload looked failed, but the recording is ready; treating as saved.",
+          {
+            recordingId: recording.recordingId,
+            originalError: error.message,
+          },
+        );
+        reportStatus(recording.sessionId, "complete", {
+          recordingId: recording.recordingId,
+          result: recovered,
+        });
+        recording.resolveStopped(recovered);
+        return;
+      }
+    }
+
+    captureExtensionError(error, {
+      tags: {
+        surface: "offscreen",
+        recordingStep: "finalize-stop",
+      },
+      extra: {
+        recordingId: recording.recordingId,
+        chunkCount: recording.chunkIndex,
+        mimeType: recording.mimeType,
+        durationMs: Math.max(0, Date.now() - recording.startedAtMs),
+      },
+    });
+    // The upload failed — save the buffered recording to disk so it isn't lost.
+    const saved = await saveRecordingToDisk(recording);
+    if (!(error as { storageSetupRequired?: boolean }).storageSetupRequired) {
+      await abortServerUpload(recording, error.message);
+    }
     reportStatus(recording.sessionId, "error", {
       recordingId: recording.recordingId,
       error: error.message,
+      storageSetupRequired: (error as { storageSetupRequired?: boolean })
+        .storageSetupRequired,
+      savedToDisk: saved.savedToDisk,
+      savedFilename: saved.savedFilename,
     });
     recording.rejectStopped(error);
   }

@@ -1,10 +1,11 @@
-import { useEffect, useMemo, useRef } from "react";
 import {
   agentNativePath,
   callAction,
   sendToAgentChat,
   useActionQuery,
 } from "@agent-native/core/client";
+import { useEffect, useMemo, useRef } from "react";
+
 import type { BrainCaptureReviewItem, CapturesResponse } from "@/lib/brain";
 
 const POLL_INTERVAL_MS = 5000;
@@ -82,12 +83,14 @@ export function useDistillationBridge(): void {
     },
   );
 
-  const dispatchableCaptures = useMemo(
+  const dispatchableCaptures = useMemo<BrainCaptureReviewItem[]>(
     () =>
-      (capturesQuery.data?.captures ?? []).filter((capture) => {
-        const queue = capture.distillationQueue;
-        return queue?.status === "queued";
-      }),
+      ((capturesQuery.data?.captures ?? []) as BrainCaptureReviewItem[]).filter(
+        (capture) => {
+          const queue = capture.distillationQueue;
+          return queue?.status === "queued";
+        },
+      ),
     [capturesQuery.data?.captures],
   );
   const capturesKey = dispatchableCaptures

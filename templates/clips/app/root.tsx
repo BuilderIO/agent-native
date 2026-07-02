@@ -1,16 +1,3 @@
-import {
-  Links,
-  Meta,
-  Outlet,
-  Scripts,
-  ScrollRestoration,
-  useLoaderData,
-  useLocation,
-  useRouteLoaderData,
-} from "react-router";
-import { useCallback, useEffect, useState } from "react";
-import { useNavigationState } from "@/hooks/use-navigation-state";
-import { useQueryClient } from "@tanstack/react-query";
 import { getBrowserTabId, useDbSync } from "@agent-native/core/client";
 import {
   AppProviders,
@@ -26,11 +13,24 @@ import {
   useCommandMenuShortcut,
   useT,
 } from "@agent-native/core/client";
+import { configureTracking } from "@agent-native/core/client";
 import { resolveLocaleFromRequest } from "@agent-native/core/server";
 import { IconCheck, IconSun, IconMoon } from "@tabler/icons-react";
+import { useQueryClient } from "@tanstack/react-query";
 import { useTheme } from "next-themes";
-import changelog from "../CHANGELOG.md?raw";
-import { Toaster } from "@/components/ui/sonner";
+import { useCallback, useEffect, useState } from "react";
+import {
+  Links,
+  Meta,
+  Outlet,
+  Scripts,
+  ScrollRestoration,
+  useLoaderData,
+  useLocation,
+  useRouteLoaderData,
+} from "react-router";
+import type { LinksFunction, LoaderFunctionArgs } from "react-router";
+
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -40,10 +40,12 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import type { LinksFunction, LoaderFunctionArgs } from "react-router";
-import stylesheet from "./global.css?url";
-import { configureTracking } from "@agent-native/core/client";
+import { Toaster } from "@/components/ui/sonner";
+import { useNavigationState } from "@/hooks/use-navigation-state";
+
 import { i18nCatalog, loadI18nMessages } from "./i18n";
+
+import stylesheet from "./global.css?url";
 
 configureTracking({
   getDefaultProps: (_name, properties) => ({
@@ -346,7 +348,8 @@ function AppContent() {
         <CommandMenu
           open={cmdkOpen}
           onOpenChange={setCmdkOpen}
-          changelog={changelog}
+          changelog={t("settings.changelogMarkdown")}
+          changelogLabel={t("settings.whatsNew")}
           changelogKey="clips"
         >
           <CommandMenu.Group heading={t("root.commandActions")}>

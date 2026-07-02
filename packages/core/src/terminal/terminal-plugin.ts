@@ -1,11 +1,13 @@
+import * as fs from "node:fs";
+import { createRequire } from "node:module";
+import * as path from "node:path";
+
+import { defineEventHandler } from "h3";
+
 import {
   getH3App,
   markDefaultPluginProvided,
 } from "../server/framework-request-handler.js";
-import { isNodeRuntime } from "../shared/runtime.js";
-import * as fs from "node:fs";
-import * as path from "node:path";
-import { createRequire } from "node:module";
 /**
  * Nitro Plugin — Agent Terminal
  *
@@ -15,8 +17,7 @@ import { createRequire } from "node:module";
  *
  * Skips activation when running inside a frame (FRAME_PORT is set).
  */
-
-import { defineEventHandler } from "h3";
+import { isNodeRuntime } from "../shared/runtime.js";
 
 // ─── module-load self-heal: chmod node-pty's spawn-helper ─────────────────
 // pnpm can extract node-pty's prebuilds tarball without running the

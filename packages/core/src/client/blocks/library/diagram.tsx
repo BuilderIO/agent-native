@@ -1,17 +1,19 @@
-import { useEffect, useId, useMemo, useRef, useState } from "react";
 import {
   IconArrowsMaximize,
   IconScribble,
   IconShape2,
   IconX,
 } from "@tabler/icons-react";
-import { cn } from "../../utils.js";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
+
 import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
   TooltipTrigger,
 } from "../../components/ui/tooltip.js";
+import { cn } from "../../utils.js";
+import { AiEditableFieldLabel } from "../AiEditableField.js";
 import { ltrCodeBlockProps } from "../code-block-direction.js";
 import { defineBlock } from "../types.js";
 import type {
@@ -19,18 +21,7 @@ import type {
   BlockEditProps,
   BlockRenderContext,
 } from "../types.js";
-import { AiEditableFieldLabel } from "../AiEditableField.js";
-import {
-  RoughOverlay,
-  toggleWireframeStyle,
-  useIsDark,
-  useWireframeStyle,
-} from "./wireframe-kit.js";
-import {
-  sanitizeDiagramHtml,
-  sanitizeWireframeCss,
-  scopeDesignCss,
-} from "./sanitize-html.js";
+import { useBlockCopy } from "./block-copy.js";
 import {
   diagramMdx,
   diagramSchema,
@@ -38,6 +29,17 @@ import {
   type DiagramEdge,
   type DiagramNode,
 } from "./diagram.config.js";
+import {
+  sanitizeDiagramHtml,
+  sanitizeWireframeCss,
+  scopeDesignCss,
+} from "./sanitize-html.js";
+import {
+  RoughOverlay,
+  toggleWireframeStyle,
+  useIsDark,
+  useWireframeStyle,
+} from "./wireframe-kit.js";
 
 /**
  * Read + Edit renderers for the shared `diagram` block — a flexible inline
@@ -289,7 +291,7 @@ function PositionedDiagram({
               return (
                 <span
                   key={`${edge.from}-${edge.to}-${index}-label`}
-                  className="absolute z-10 max-w-[130px] -translate-x-1/2 -translate-y-1/2 rounded-full border border-border bg-background px-2 py-0.5 text-center text-[11px] font-semibold text-muted-foreground shadow-sm"
+                  className="absolute z-10 max-w-[130px] -translate-x-1/2 -translate-y-1/2 break-words rounded-full border border-border bg-background px-2 py-0.5 text-center text-[11px] font-semibold text-muted-foreground shadow-sm [overflow-wrap:anywhere]"
                   style={{
                     left: `${(from.displayX + to.displayX) / 2}%`,
                     top: `${(from.displayY + to.displayY) / 2}%`,
@@ -303,7 +305,7 @@ function PositionedDiagram({
           {displayNodesForDirection.map((node, index) => (
             <article
               key={node.id}
-              className="absolute z-20 -translate-x-1/2 -translate-y-1/2 rounded-xl border-2 border-border bg-background p-3 text-foreground shadow-sm"
+              className="absolute z-20 -translate-x-1/2 -translate-y-1/2 break-words rounded-xl border-2 border-border bg-background p-3 text-foreground shadow-sm [overflow-wrap:anywhere]"
               style={{
                 left: `${node.displayX}%`,
                 top: `${node.displayY}%`,
@@ -483,7 +485,7 @@ function SequenceDiagram({
               {next && (
                 <div className="grid min-w-[72px] justify-items-center gap-1 text-muted-foreground">
                   {edge?.label && (
-                    <span className="max-w-[96px] truncate rounded-full border border-border px-2 py-0.5 text-[11px] font-semibold">
+                    <span className="max-w-[96px] whitespace-normal break-words rounded-full border border-border px-2 py-0.5 text-center text-[11px] font-semibold [overflow-wrap:anywhere]">
                       {edge.label}
                     </span>
                   )}
@@ -626,13 +628,14 @@ function ExpandableDiagramBody({
   const [expanded, setExpanded] = useState(false);
   const supportsStyleToggle = Boolean(data.html);
   const style = useWireframeStyle();
+  const copy = useBlockCopy();
   const sketchy = style === "sketchy";
   const styleLabel = sketchy
-    ? "Switch to clean diagrams"
-    : "Switch to hand-drawn diagrams";
+    ? copy.switchToCleanDiagrams
+    : copy.switchToHandDrawnDiagrams;
   const styleTooltip = sketchy
-    ? "Hand-drawn diagrams - switch to clean"
-    : "Clean diagrams - switch to hand-drawn";
+    ? copy.handDrawnDiagramsSwitch
+    : copy.cleanDiagramsSwitch;
   return (
     <div className="group/diagram relative">
       <DiagramBody data={data} ctx={ctx} compact={compact} />
@@ -647,7 +650,7 @@ function ExpandableDiagramBody({
                   onClick={() => toggleWireframeStyle()}
                   aria-label={styleLabel}
                   aria-pressed={sketchy}
-                  className="an-diagram-style-trigger flex size-7 items-center justify-center rounded-md border border-border/60 bg-background/90 text-muted-foreground opacity-0 shadow-sm backdrop-blur transition-[color,opacity] hover:text-foreground focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring group-hover/diagram:opacity-100"
+                  className="an-diagram-style-trigger flex size-7 items-center justify-center rounded-md border border-border/60 bg-background text-muted-foreground opacity-0 shadow-sm transition-[color,opacity] hover:text-foreground focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring group-hover/diagram:opacity-100"
                 >
                   {sketchy ? (
                     <IconScribble className="size-4" />
@@ -665,13 +668,13 @@ function ExpandableDiagramBody({
                 type="button"
                 data-plan-interactive
                 onClick={() => setExpanded(true)}
-                aria-label="Expand diagram"
-                className="an-diagram-expand-trigger flex size-7 items-center justify-center rounded-md border border-border/60 bg-background/90 text-muted-foreground opacity-0 shadow-sm backdrop-blur transition-[color,opacity] hover:text-foreground focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring group-hover/diagram:opacity-100"
+                aria-label={copy.expandDiagram}
+                className="an-diagram-expand-trigger flex size-7 items-center justify-center rounded-md border border-border/60 bg-background text-muted-foreground opacity-0 shadow-sm transition-[color,opacity] hover:text-foreground focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring group-hover/diagram:opacity-100"
               >
                 <IconArrowsMaximize className="size-4" />
               </button>
             </TooltipTrigger>
-            <TooltipContent side="left">Expand diagram</TooltipContent>
+            <TooltipContent side="left">{copy.expandDiagram}</TooltipContent>
           </Tooltip>
         </div>
       </TooltipProvider>

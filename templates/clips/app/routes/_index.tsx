@@ -1,5 +1,5 @@
-import { redirect, type LoaderFunctionArgs } from "react-router";
 import { DefaultSpinner } from "@agent-native/core/client";
+import { redirect, type LoaderFunctionArgs } from "react-router";
 
 const SEO_TITLE =
   "Agent-Native Clips - Open Source, agent-friendly Loom alternative";
@@ -34,17 +34,16 @@ export function meta() {
  * completes before the app hydrates; `clientLoader` covers SPA-style
  * navigations to `/`.
  */
-function buildTarget(request: Request): string {
-  const url = new URL(request.url);
+function buildTarget(url: URL): string {
   return `/library${url.search}${url.hash}`;
 }
 
-export function loader({ request }: LoaderFunctionArgs) {
-  throw redirect(buildTarget(request));
+export function loader({ url }: LoaderFunctionArgs) {
+  throw redirect(buildTarget(url));
 }
 
-export function clientLoader({ request }: LoaderFunctionArgs) {
-  throw redirect(buildTarget(request));
+export function clientLoader({ url }: LoaderFunctionArgs) {
+  throw redirect(buildTarget(url));
 }
 
 export function HydrateFallback() {

@@ -1,3 +1,6 @@
+import { AgentSidebar, getBrowserTabId, useT } from "@agent-native/core/client";
+import { InvitationBanner } from "@agent-native/core/client/org";
+import { IconMenu2 } from "@tabler/icons-react";
 import {
   type CSSProperties,
   ReactNode,
@@ -7,13 +10,12 @@ import {
   useState,
 } from "react";
 import { useLocation } from "react-router";
+
 import { DocumentSidebar } from "@/components/sidebar/DocumentSidebar";
-import { useCreatePage } from "@/hooks/use-create-page";
-import { AgentSidebar, getBrowserTabId, useT } from "@agent-native/core/client";
-import { InvitationBanner } from "@agent-native/core/client/org";
-import { useIsMobile } from "@/hooks/use-mobile";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
-import { IconMenu2 } from "@tabler/icons-react";
+import { useCreatePage } from "@/hooks/use-create-page";
+import { useIsMobile } from "@/hooks/use-mobile";
+
 import { Header } from "./Header";
 import { HeaderActionsProvider } from "./HeaderActions";
 
@@ -108,7 +110,7 @@ export function Layout({ children }: LayoutProps) {
 
   return (
     <HeaderActionsProvider>
-      <div className="flex h-screen overflow-hidden bg-background">
+      <div className="agent-layout-shell flex h-screen overflow-hidden bg-background">
         {isMobile ? (
           <>
             <Sheet open={mobileSidebarOpen} onOpenChange={setMobileSidebarOpen}>
@@ -137,13 +139,15 @@ export function Layout({ children }: LayoutProps) {
             )}
           </>
         ) : (
-          <DocumentSidebar
-            activeDocumentId={activeDocumentId}
-            collapsed={sidebarCollapsed}
-            onToggleCollapsed={() => setSidebarCollapsed((c) => !c)}
-            width={sidebarWidth}
-            onResize={handleSidebarResize}
-          />
+          <div className="agent-layout-left-drawer flex shrink-0">
+            <DocumentSidebar
+              activeDocumentId={activeDocumentId}
+              collapsed={sidebarCollapsed}
+              onToggleCollapsed={() => setSidebarCollapsed((c) => !c)}
+              width={sidebarWidth}
+              onResize={handleSidebarResize}
+            />
+          </div>
         )}
         <AgentSidebar
           position="right"
@@ -158,7 +162,7 @@ export function Layout({ children }: LayoutProps) {
           browserTabId={getBrowserTabId()}
         >
           <main
-            className="relative flex min-w-0 min-h-0 flex-1 flex-col overflow-x-hidden"
+            className="agent-native-app-main relative flex min-w-0 min-h-0 flex-1 flex-col overflow-x-hidden"
             style={
               {
                 "--content-sidebar-width": `${contentSidebarWidth}px`,

@@ -1,5 +1,6 @@
-import enUS from "./en-US";
 import type { AgentNativeI18nCatalog } from "@agent-native/core/client";
+
+import enUS from "./en-US";
 
 export const i18nCatalog = {
   sourceLocale: "en-US",
@@ -8,6 +9,8 @@ export const i18nCatalog = {
     switch (locale) {
       case "zh-CN":
         return (await import("./zh-CN")).default;
+      case "zh-TW":
+        return (await import("./zh-TW")).default;
       case "es-ES":
         return (await import("./es-ES")).default;
       case "fr-FR":

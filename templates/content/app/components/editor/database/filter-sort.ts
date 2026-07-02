@@ -1,3 +1,4 @@
+// i18n-raw-literal-disable-file -- unused pure helper copy; live database editor owns localized UI.
 // Filter/sort logic: apply, upsert, move, match, property value helpers.
 // Pure logic — no React, no icons.
 import type {
@@ -6,6 +7,9 @@ import type {
   DocumentPropertyType,
   DocumentPropertyValue,
 } from "@shared/api";
+import { formulaValueText, isComputedPropertyType } from "@shared/properties";
+
+import { calendarDateKey, propertyDateValue } from "./calendar-timeline";
 import {
   type ColumnKey,
   type DatabaseConditionMoveDirection,
@@ -17,8 +21,6 @@ import {
   type SortDirection,
   type DatabaseSort,
 } from "./types";
-import { formulaValueText, isComputedPropertyType } from "@shared/properties";
-import { calendarDateKey, propertyDateValue } from "./calendar-timeline";
 export {
   normalizeClientDatabaseFilterMode,
   normalizeClientDatabaseRowDensity,

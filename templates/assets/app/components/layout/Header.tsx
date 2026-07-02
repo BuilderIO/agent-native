@@ -1,10 +1,10 @@
-import { useLocation } from "react-router";
 import {
   AgentToggleButton,
-  LanguagePicker,
   useActionQuery,
   useT,
 } from "@agent-native/core/client";
+import { useLocation } from "react-router";
+
 import { useHeaderTitle, useHeaderActions } from "./HeaderActions";
 
 const pageTitleKeys: Record<string, string> = {
@@ -35,7 +35,9 @@ function StaticTitle({ pathname }: { pathname: string }) {
 
 function ResolvedTitle() {
   const location = useLocation();
-  const libraryMatch = location.pathname.match(/^\/brand-kits\/([^/]+)/);
+  const libraryMatch = location.pathname.match(
+    /^\/(?:library|brand-kits)\/([^/]+)/,
+  );
   if (libraryMatch) {
     return <LibraryTitle id={libraryMatch[1]} />;
   }
@@ -55,7 +57,6 @@ export function Header() {
       </div>
       <div className="flex items-center gap-2 shrink-0">
         {actions}
-        <LanguagePicker variant="icon" />
         {showAgentToggle ? <AgentToggleButton /> : null}
       </div>
     </header>

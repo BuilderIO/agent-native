@@ -1,10 +1,12 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { getOnboardingHtml } from "./onboarding-html.js";
-import { BUILT_IN_AUTH_MARKETING } from "./auth-marketing.js";
+
+import { LOCALE_STORAGE_KEY } from "../localization/shared.js";
 import {
   AGENT_NATIVE_SOCIAL_IMAGE_CACHE_BUSTER,
   AGENT_NATIVE_SOCIAL_IMAGE_PATH,
 } from "../shared/social-meta.js";
+import { BUILT_IN_AUTH_MARKETING } from "./auth-marketing.js";
+import { getOnboardingHtml } from "./onboarding-html.js";
 
 describe("getOnboardingHtml", () => {
   afterEach(() => {
@@ -131,6 +133,17 @@ describe("getOnboardingHtml", () => {
     expect(html).toContain("password: document.getElementById('l-pass').value");
   });
 
+  it("captures first-touch attribution on the standalone auth page", () => {
+    const html = getOnboardingHtml();
+
+    expect(html).toContain("function __anCaptureSignupAttribution()");
+    expect(html).toContain("localStorage.getItem('an_attribution')");
+    expect(html).toContain("document.cookie = 'an_ft='");
+    expect(html).toContain("'utm_source'");
+    expect(html).toContain("var returnPath = __anNormalizeReturnPath");
+    expect(html).toContain("__anExternalReferrerHost(document.referrer || '')");
+  });
+
   it("omits hosted terms and privacy links on unhosted email signup", () => {
     const html = getOnboardingHtml();
 
@@ -144,13 +157,46 @@ describe("getOnboardingHtml", () => {
       requestHost: "calendar.agent-native.com",
     });
 
+    expect(html).toContain('data-i18n="legalPrefix"');
+    expect(html).toContain('href="https://www.agent-native.com/terms"');
+    expect(html).toContain('data-i18n="legalTerms">Terms</a>');
     expect(html).toContain(
-      'By signing up, you accept our <a href="https://www.agent-native.com/terms"',
+      'href="https://www.agent-native.com/privacy" target="_blank" rel="noreferrer"',
     );
-    expect(html).toContain(
-      '<a href="https://www.agent-native.com/privacy" target="_blank" rel="noreferrer">Privacy Policy</a>',
-    );
+    expect(html).toContain('data-i18n="legalPrivacy">Privacy Policy</a>');
     expect(html).toContain(".legal-note");
+  });
+
+  it("renders a locale picker that shares the app locale preference", () => {
+    const html = getOnboardingHtml({
+      requestHost: "forms.agent-native.com",
+    });
+
+    expect(html).toContain('id="auth-locale-trigger"');
+    expect(html).toContain('id="auth-locale-menu"');
+    expect(html).toContain(
+      `var __AN_AUTH_LOCALE_STORAGE_KEY = "${LOCALE_STORAGE_KEY}"`,
+    );
+    expect(html).toContain('data-locale-value="es-ES"');
+    expect(html).toContain("Español (Spanish)");
+    expect(html).toContain('data-i18n="createAccount"');
+    expect(html).toContain("Crear cuenta");
+    expect(html).toContain("function __anApplyAuthLocale");
+    expect(html).toContain("function __anSetAuthLocaleMenuOpen");
+    expect(html).toContain("root.setAttribute('dir', meta.dir || 'ltr')");
+  });
+
+  it("localizes built-in Forms auth marketing copy from the locale picker", () => {
+    const html = getOnboardingHtml({
+      requestHost: "forms.agent-native.com",
+    });
+
+    expect(html).toContain('data-marketing-field="tagline"');
+    expect(html).toContain('data-marketing-feature-index="0"');
+    expect(html).toContain("你的 AI 代理与你一起构建、发布和分析表单。");
+    expect(html).toContain("用一句话创建完整表单");
+    expect(html).toContain("function __anApplyAuthMarketingCopy");
+    expect(html).toContain('var __AN_AUTH_MARKETING_SLUG = "forms"');
   });
 
   it("shows configured terms and privacy links on custom email signup", () => {
@@ -169,6 +215,31 @@ describe("getOnboardingHtml", () => {
     expect(html).toContain(
       '<a href="https://example.com/legal/privacy" target="_blank" rel="noreferrer">Privacy Notice</a>',
     );
+  });
+
+  it("shows a quiet local-files escape hatch on hosted Plan signup", () => {
+    const html = getOnboardingHtml({
+      requestHost: "plan.agent-native.com",
+    });
+
+    expect(html).toContain('class="signup-local-mode-note"');
+    expect(html).toContain(
+      "Prefer no account or self-hosting? Switch /visual-plan to local files only:",
+    );
+    expect(html).toContain(
+      "npx @agent-native/core@latest skills add visual-plan --mode local-files --scope user",
+    );
+    expect(html).toContain('id="copy-signup-local-mode"');
+    expect(html).toContain("function __anCopySignupLocalModeCommand()");
+  });
+
+  it("keeps the local-files escape hatch off other hosted signup pages", () => {
+    const html = getOnboardingHtml({
+      requestHost: "calendar.agent-native.com",
+    });
+
+    expect(html).not.toContain('id="signup-local-mode-note"');
+    expect(html).not.toContain("skills add visual-plan --mode local-files");
   });
 
   it("normalizes sign-in return targets before redirect and preserves hashes", () => {

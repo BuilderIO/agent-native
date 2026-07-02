@@ -1,3 +1,5 @@
+import { useT } from "@agent-native/core/client";
+import { IconX } from "@tabler/icons-react";
 import {
   useState,
   useRef,
@@ -7,14 +9,14 @@ import {
   type KeyboardEvent,
 } from "react";
 import { useNavigate } from "react-router";
-import { IconX } from "@tabler/icons-react";
-import { cn } from "@/lib/utils";
-import { useContacts, type Contact } from "@/hooks/use-emails";
+
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { useContacts, type Contact } from "@/hooks/use-emails";
+import { cn } from "@/lib/utils";
 
 interface SearchBarProps {
   onClose: () => void;
@@ -29,6 +31,7 @@ export function SearchBar({
   autoFocus = true,
   hasActiveSearch = false,
 }: SearchBarProps) {
+  const t = useT();
   const navigate = useNavigate();
   const [query, setQuery] = useState(initialQuery);
   const [selectedIndex, setSelectedIndex] = useState(-1);
@@ -192,7 +195,7 @@ export function SearchBar({
             if (hasActiveSearch || query.trim()) return;
             setTimeout(onClose, 100);
           }}
-          placeholder="Search..."
+          placeholder={t("mail.search.placeholder")}
           className={cn(
             "h-8 sm:h-7 flex-1 min-w-0 bg-transparent border-none px-2.5 text-[13px] text-foreground placeholder:text-muted-foreground/60 outline-none",
             hasActiveSearch && "font-medium",
@@ -212,7 +215,7 @@ export function SearchBar({
                 <IconX className="h-3.5 w-3.5" />
               </button>
             </TooltipTrigger>
-            <TooltipContent>Clear search (Esc)</TooltipContent>
+            <TooltipContent>{t("mail.search.clear")}</TooltipContent>
           </Tooltip>
         )}
       </div>

@@ -25,21 +25,26 @@
  */
 
 import {
+  writeAppState,
+  deleteAppStateByPrefix,
+} from "@agent-native/core/application-state";
+import { runWithRequestContext } from "@agent-native/core/server";
+import { MAX_UPLOAD_BYTES as MAX_RECORDING_UPLOAD_BYTES } from "@shared/upload-limits.js";
+import { and, eq } from "drizzle-orm";
+import {
   defineEventHandler,
   getRouterParam,
   readBody,
   setResponseStatus,
   type H3Event,
 } from "h3";
-import { and, eq } from "drizzle-orm";
+
 import { getDb, schema } from "../../../../db/index.js";
-import { getEventOwnerContext } from "../../../../lib/recordings.js";
-import { runWithRequestContext } from "@agent-native/core/server";
 import {
-  writeAppState,
-  deleteAppStateByPrefix,
-} from "@agent-native/core/application-state";
-import { MAX_UPLOAD_BYTES as MAX_RECORDING_UPLOAD_BYTES } from "@shared/upload-limits.js";
+  getEventOwnerContext,
+  ownerEmailMatches,
+} from "../../../../lib/recordings.js";
+import { deleteResumableSession } from "../../../../lib/resumable-session.js";
 
 interface CompressionMeta {
   originalBytes?: number;
@@ -96,7 +101,7 @@ export default defineEventHandler(async (event: H3Event) => {
       .where(
         and(
           eq(schema.recordings.id, recordingId),
-          eq(schema.recordings.ownerEmail, ownerEmail),
+          ownerEmailMatches(schema.recordings.ownerEmail, ownerEmail),
         ),
       );
 
@@ -108,6 +113,9 @@ export default defineEventHandler(async (event: H3Event) => {
     const cleared = await deleteAppStateByPrefix(
       `recording-chunks-${recordingId}-`,
     );
+    // Clear any stale resumable session so a buffered retry does not
+    // accidentally route through handleResumableChunk with stale offsets.
+    await deleteResumableSession(recordingId).catch(() => {});
 
     // Reset the per-recording upload progress so the UI poller sees the
     // re-upload restart from 0 and doesn't briefly show "100% then

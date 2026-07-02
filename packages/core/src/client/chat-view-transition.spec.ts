@@ -1,18 +1,20 @@
 // @vitest-environment happy-dom
 
 import { afterEach, describe, expect, it, vi } from "vitest";
+
+import { SIDEBAR_OPEN_KEY } from "./agent-sidebar-state.js";
 import {
   AGENT_CHAT_HOME_HANDOFF_TTL_MS,
   AGENT_CHAT_VIEW_TRANSITION_PREPARE_EVENT,
   AGENT_CHAT_VIEW_TRANSITION_NAME,
   consumeAgentChatHomeHandoff,
   getAgentChatViewTransitionStyle,
+  isAgentChatHomeHandoffActive,
   markAgentChatHomeHandoff,
   startAgentChatViewTransition,
   supportsAgentChatViewTransition,
   type AgentChatViewTransition,
 } from "./chat-view-transition.js";
-import { SIDEBAR_OPEN_KEY } from "./agent-sidebar-state.js";
 
 function fakeTransition(): AgentChatViewTransition {
   return {
@@ -136,9 +138,18 @@ describe("chat view-transition helpers", () => {
   it("marks and consumes a namespaced chat-home handoff once", () => {
     markAgentChatHomeHandoff("forms");
 
-    expect(window.localStorage.getItem(SIDEBAR_OPEN_KEY)).toBe("true");
+    expect(window.localStorage.getItem(SIDEBAR_OPEN_KEY)).toBeNull();
+    expect(isAgentChatHomeHandoffActive("forms")).toBe(true);
     expect(consumeAgentChatHomeHandoff("forms")).toBe(true);
     expect(consumeAgentChatHomeHandoff("forms")).toBe(false);
+  });
+
+  it("checks a chat-home handoff without consuming it", () => {
+    markAgentChatHomeHandoff("forms");
+
+    expect(isAgentChatHomeHandoffActive("forms")).toBe(true);
+    expect(isAgentChatHomeHandoffActive("forms")).toBe(true);
+    expect(consumeAgentChatHomeHandoff("forms")).toBe(true);
   });
 
   it("ignores expired chat-home handoffs", () => {
@@ -148,6 +159,18 @@ describe("chat view-transition helpers", () => {
 
     vi.setSystemTime(1_000 + AGENT_CHAT_HOME_HANDOFF_TTL_MS + 1);
 
+    expect(isAgentChatHomeHandoffActive("forms")).toBe(false);
     expect(consumeAgentChatHomeHandoff("forms")).toBe(false);
+  });
+
+  it("honors custom chat-home handoff TTLs", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(1_000);
+    markAgentChatHomeHandoff("forms");
+
+    vi.setSystemTime(1_000 + 5_001);
+
+    expect(isAgentChatHomeHandoffActive("forms", { ttlMs: 5_000 })).toBe(false);
+    expect(consumeAgentChatHomeHandoff("forms", { ttlMs: 5_000 })).toBe(false);
   });
 });

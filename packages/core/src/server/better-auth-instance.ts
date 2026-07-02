@@ -9,33 +9,10 @@
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
+
 import { betterAuth, type BetterAuthOptions } from "better-auth";
-import { jwt } from "better-auth/plugins/jwt";
 import { bearer } from "better-auth/plugins/bearer";
-import { sendEmail, isEmailConfigured } from "./email.js";
-import {
-  renderResetPasswordEmail,
-  renderVerifySignupEmail,
-} from "./email-templates.js";
-import { getAppProductionUrl } from "./app-url.js";
-import { getDbExec, isPostgres } from "../db/client.js";
-import { acceptPendingInvitationsForEmail } from "../org/accept-pending.js";
-import { autoJoinDomainMatchingOrgs } from "../org/auto-join-domain.js";
-import { saveOAuthTokens } from "../oauth-tokens/store.js";
-import { flushTracking, identify, track } from "../tracking/index.js";
-import { signupAttributionFromCookieHeader } from "./attribution.js";
-import { TEMPLATES } from "../cli/templates-meta.js";
-import { resolveAuthCookieNamespace } from "./cookie-namespace.js";
-import { getWorkspaceA2ADerivedSecret } from "./derived-secret.js";
-import { resolveGoogleSignInCredentials } from "./google-oauth-credentials.js";
-import {
-  getDialect,
-  getDatabaseUrl,
-  getDatabaseAuthToken,
-  pgPoolOptions,
-  neonPoolMax,
-  attachNeonPoolErrorLogger,
-} from "../db/client.js";
+import { jwt } from "better-auth/plugins/jwt";
 import {
   pgTable,
   text as pgText,
@@ -47,6 +24,36 @@ import {
   text as sqliteText,
   integer as sqliteInteger,
 } from "drizzle-orm/sqlite-core";
+
+import { TEMPLATES } from "../cli/templates-meta.js";
+import { getDbExec, isPostgres } from "../db/client.js";
+import {
+  getDialect,
+  getDatabaseUrl,
+  getDatabaseAuthToken,
+  closePgliteClients,
+  getPgliteClient,
+  isPgliteUrl,
+  loadPgliteDrizzle,
+  pgPoolOptions,
+  neonPoolMax,
+  attachNeonPoolErrorLogger,
+} from "../db/client.js";
+import { ensureTableExists } from "../db/ddl-guard.js";
+import { saveOAuthTokens } from "../oauth-tokens/store.js";
+import { acceptPendingInvitationsForEmail } from "../org/accept-pending.js";
+import { autoJoinDomainMatchingOrgs } from "../org/auto-join-domain.js";
+import { flushTracking, identify, track } from "../tracking/index.js";
+import { getAppProductionUrl } from "./app-url.js";
+import { signupAttributionFromCookieHeader } from "./attribution.js";
+import { resolveAuthCookieNamespace } from "./cookie-namespace.js";
+import { getWorkspaceA2ADerivedSecret } from "./derived-secret.js";
+import {
+  renderResetPasswordEmail,
+  renderVerifySignupEmail,
+} from "./email-templates.js";
+import { sendEmail, isEmailConfigured } from "./email.js";
+import { resolveGoogleSignInCredentials } from "./google-oauth-credentials.js";
 
 async function flushSignupTracking(): Promise<void> {
   try {
@@ -118,6 +125,8 @@ export async function trackSignupEvent({
 // Persistent auth secret
 // ---------------------------------------------------------------------------
 
+let inMemoryDevAuthSecret: string | undefined;
+
 /**
  * Resolve the Better Auth signing secret.
  *
@@ -126,13 +135,9 @@ export async function trackSignupEvent({
  *   2. Hosted workspace deploys can derive a per-purpose secret from the
  *      already-required `A2A_SECRET` root. This keeps fresh workspace branches
  *      bootable without reusing the raw A2A key as a cookie-signing key.
- *   3. `.env.local` in the template cwd — a per-workspace persistent secret
- *      that the framework writes once on first boot when no secret is set.
- *      Gitignored by convention (`.env*` in template .gitignore files), so
- *      it's safe to persist credentials here.
- *   4. Generate a new random 32-byte hex, write it to `.env.local`, and use
- *      it. Subsequent restarts re-read the same file — so session cookies
- *      signed by a previous boot remain valid across dev-server restarts.
+ *   3. Existing `.env.local` values in the template cwd — read-only
+ *      compatibility for projects that already configured this secret.
+ *   4. Generate a per-process in-memory random 32-byte hex in development.
  *
  * Why this matters: before this helper existed, missing `BETTER_AUTH_SECRET`
  * fell through to `GOOGLE_CLIENT_SECRET` / `ACCESS_TOKEN` / a hardcoded
@@ -140,8 +145,8 @@ export async function trackSignupEvent({
  * boot would re-fall back to the hardcoded value (still stable) — but
  * rotating Google credentials, toggling `ACCESS_TOKEN`, or churning the
  * fallback chain would invalidate every signed cookie and force everyone
- * to sign in again. Pinning the secret to `.env.local` on first boot
- * removes that footgun.
+ * to sign in again. We still read explicit env configuration, but never
+ * auto-write a generated secret into env files.
  */
 function resolveAuthSecret(): string {
   if (process.env.BETTER_AUTH_SECRET) return process.env.BETTER_AUTH_SECRET;
@@ -170,47 +175,26 @@ function resolveAuthSecret(): string {
     );
   }
 
-  // Dev: persist a generated secret to .env.local so sessions survive
-  // dev-server restarts. Falls back to an in-memory random secret only if
-  // the filesystem isn't writable (rare in dev, e.g. read-only mounts) —
-  // sessions reset on every dev-process restart in that case, which is
-  // fine.
-  //
   // SECURITY (audit 09 LOW-2): the previous fallback chain
   // (`GOOGLE_CLIENT_SECRET || ACCESS_TOKEN || hardcoded`) reused
   // cross-purpose secrets and a public hardcoded literal as the cookie
   // HMAC. Dropped entirely — better to mint an ephemeral secret than to
   // re-use a Google client secret or a known string.
-  try {
-    const envLocalPath = path.resolve(process.cwd(), ".env.local");
-    const existing = readEnvLocalSecret(envLocalPath);
-    if (existing) {
-      process.env.BETTER_AUTH_SECRET = existing; // guard:allow-env-mutation — boot-time secret resolution from .env.local, runs once at module init
-      return existing;
-    }
+  const existing = readEnvLocalSecret(
+    path.resolve(process.cwd(), ".env.local"),
+  );
+  if (existing) return existing;
 
-    const generated = crypto.randomBytes(32).toString("hex");
-    appendEnvLocalSecret(envLocalPath, generated);
-    process.env.BETTER_AUTH_SECRET = generated; // guard:allow-env-mutation — boot-time secret generation, runs once at module init before any request
-    console.log(
-      "[agent-native] Generated a persistent BETTER_AUTH_SECRET in .env.local. " +
-        "Sessions will now survive dev-server restarts. " +
-        "(Delete .env.local to rotate; set BETTER_AUTH_SECRET in .env to override.)",
-    );
-    return generated;
-  } catch {
-    // Filesystem unwritable (read-only mount, sandboxed test env, etc.).
-    // Mint a per-process random secret so cookies stay unique per boot.
-    // Sessions reset when the dev process restarts — acceptable for dev.
-    const ephemeral = crypto.randomBytes(32).toString("hex");
+  if (!inMemoryDevAuthSecret) {
+    inMemoryDevAuthSecret = crypto.randomBytes(32).toString("hex");
     console.warn(
-      "[agent-native] Could not persist BETTER_AUTH_SECRET to .env.local " +
-        "(filesystem unwritable). Using an ephemeral in-memory secret. " +
-        "Sessions will reset every time this process restarts. " +
-        "Set BETTER_AUTH_SECRET in your environment to keep sessions valid across restarts.",
+      "[agent-native] BETTER_AUTH_SECRET is not configured. Using an ephemeral " +
+        "in-memory development secret. Sessions will reset every time this " +
+        "process restarts. Set BETTER_AUTH_SECRET in your environment to keep " +
+        "sessions valid across restarts.",
     );
-    return ephemeral;
   }
+  return inMemoryDevAuthSecret;
 }
 
 function readEnvLocalSecret(envLocalPath: string): string | undefined {
@@ -224,26 +208,6 @@ function readEnvLocalSecret(envLocalPath: string): string | undefined {
     return m?.[1]?.trim() || undefined;
   } catch {
     return undefined;
-  }
-}
-
-function appendEnvLocalSecret(envLocalPath: string, secret: string): void {
-  const header =
-    "# Auto-generated by agent-native on first boot. Gitignored.\n" +
-    "# Keeps signed session cookies valid across dev-server restarts.\n" +
-    "# Delete this file (or this line) to rotate the secret.\n";
-  const line = `BETTER_AUTH_SECRET=${secret}\n`;
-
-  // If the file already exists, just append; otherwise create with header.
-  if (fs.existsSync(envLocalPath)) {
-    const existing = fs.readFileSync(envLocalPath, "utf8");
-    const needsLeadingNewline = existing.length > 0 && !existing.endsWith("\n");
-    fs.appendFileSync(
-      envLocalPath,
-      (needsLeadingNewline ? "\n" : "") + "\n" + header + line,
-    );
-  } else {
-    fs.writeFileSync(envLocalPath, header + line, { mode: 0o600 });
   }
 }
 
@@ -392,6 +356,7 @@ export interface BetterAuthInstance {
         name: string;
         callbackURL?: string;
       };
+      headers?: Headers;
     }) => Promise<any>;
     signOut: (opts: { headers: Headers }) => Promise<any>;
   };
@@ -686,29 +651,62 @@ async function mirrorGoogleAccountToOAuthTokens(account: {
 
 async function ensureBetterAuthTables(): Promise<void> {
   const db = getDbExec();
-  const statements = isPostgres()
-    ? [
-        `CREATE TABLE IF NOT EXISTS "user" (id TEXT PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL UNIQUE, email_verified BOOLEAN NOT NULL DEFAULT FALSE, image TEXT, created_at TIMESTAMPTZ NOT NULL, updated_at TIMESTAMPTZ NOT NULL)`,
-        `CREATE TABLE IF NOT EXISTS "session" (id TEXT PRIMARY KEY, expires_at TIMESTAMPTZ NOT NULL, token TEXT NOT NULL UNIQUE, created_at TIMESTAMPTZ NOT NULL, updated_at TIMESTAMPTZ NOT NULL, ip_address TEXT, user_agent TEXT, user_id TEXT NOT NULL, active_organization_id TEXT)`,
-        `CREATE TABLE IF NOT EXISTS "account" (id TEXT PRIMARY KEY, account_id TEXT NOT NULL, provider_id TEXT NOT NULL, user_id TEXT NOT NULL, access_token TEXT, refresh_token TEXT, id_token TEXT, access_token_expires_at TIMESTAMPTZ, refresh_token_expires_at TIMESTAMPTZ, scope TEXT, password TEXT, created_at TIMESTAMPTZ NOT NULL, updated_at TIMESTAMPTZ NOT NULL)`,
-        `CREATE TABLE IF NOT EXISTS "verification" (id TEXT PRIMARY KEY, identifier TEXT NOT NULL, value TEXT NOT NULL, expires_at TIMESTAMPTZ NOT NULL, created_at TIMESTAMPTZ NOT NULL, updated_at TIMESTAMPTZ NOT NULL)`,
-        `CREATE TABLE IF NOT EXISTS "organization" (id TEXT PRIMARY KEY, name TEXT NOT NULL, slug TEXT NOT NULL UNIQUE, logo TEXT, metadata TEXT, created_at TIMESTAMPTZ NOT NULL, updated_at TIMESTAMPTZ NOT NULL)`,
-        `CREATE TABLE IF NOT EXISTS "member" (id TEXT PRIMARY KEY, organization_id TEXT NOT NULL, user_id TEXT NOT NULL, role TEXT NOT NULL DEFAULT 'member', created_at TIMESTAMPTZ NOT NULL, updated_at TIMESTAMPTZ NOT NULL)`,
-        `CREATE TABLE IF NOT EXISTS "invitation" (id TEXT PRIMARY KEY, organization_id TEXT NOT NULL, email TEXT NOT NULL, role TEXT, status TEXT NOT NULL DEFAULT 'pending', expires_at TIMESTAMPTZ NOT NULL, inviter_id TEXT NOT NULL, created_at TIMESTAMPTZ NOT NULL, updated_at TIMESTAMPTZ NOT NULL)`,
-        `CREATE TABLE IF NOT EXISTS "jwks" (id TEXT PRIMARY KEY, public_key TEXT NOT NULL, private_key TEXT NOT NULL, created_at TIMESTAMPTZ NOT NULL, expires_at TIMESTAMPTZ)`,
-      ]
-    : [
-        `CREATE TABLE IF NOT EXISTS user (id TEXT PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL UNIQUE, email_verified INTEGER NOT NULL DEFAULT 0, image TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL)`,
-        `CREATE TABLE IF NOT EXISTS session (id TEXT PRIMARY KEY, expires_at INTEGER NOT NULL, token TEXT NOT NULL UNIQUE, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, ip_address TEXT, user_agent TEXT, user_id TEXT NOT NULL, active_organization_id TEXT)`,
-        `CREATE TABLE IF NOT EXISTS account (id TEXT PRIMARY KEY, account_id TEXT NOT NULL, provider_id TEXT NOT NULL, user_id TEXT NOT NULL, access_token TEXT, refresh_token TEXT, id_token TEXT, access_token_expires_at INTEGER, refresh_token_expires_at INTEGER, scope TEXT, password TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL)`,
-        `CREATE TABLE IF NOT EXISTS verification (id TEXT PRIMARY KEY, identifier TEXT NOT NULL, value TEXT NOT NULL, expires_at INTEGER NOT NULL, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL)`,
-        `CREATE TABLE IF NOT EXISTS organization (id TEXT PRIMARY KEY, name TEXT NOT NULL, slug TEXT NOT NULL UNIQUE, logo TEXT, metadata TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL)`,
-        `CREATE TABLE IF NOT EXISTS member (id TEXT PRIMARY KEY, organization_id TEXT NOT NULL, user_id TEXT NOT NULL, role TEXT NOT NULL DEFAULT 'member', created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL)`,
-        `CREATE TABLE IF NOT EXISTS invitation (id TEXT PRIMARY KEY, organization_id TEXT NOT NULL, email TEXT NOT NULL, role TEXT, status TEXT NOT NULL DEFAULT 'pending', expires_at INTEGER NOT NULL, inviter_id TEXT NOT NULL, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL)`,
-        `CREATE TABLE IF NOT EXISTS jwks (id TEXT PRIMARY KEY, public_key TEXT NOT NULL, private_key TEXT NOT NULL, created_at INTEGER NOT NULL, expires_at INTEGER)`,
-      ];
 
-  for (const sql of statements) await db.execute(sql);
+  // PG guard: probe information_schema first (no lock) for each table; run
+  // DDL only when missing, bounded by a transaction-scoped lock_timeout.
+  // Probe names are UNQUOTED (what information_schema.tables.table_name stores);
+  // createSql keeps the QUOTED "user"/"session"/… form required by Postgres.
+  if (isPostgres()) {
+    const pgTables: Array<[name: string, createSql: string]> = [
+      [
+        "user",
+        `CREATE TABLE IF NOT EXISTS "user" (id TEXT PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL UNIQUE, email_verified BOOLEAN NOT NULL DEFAULT FALSE, image TEXT, created_at TIMESTAMPTZ NOT NULL, updated_at TIMESTAMPTZ NOT NULL)`,
+      ],
+      [
+        "session",
+        `CREATE TABLE IF NOT EXISTS "session" (id TEXT PRIMARY KEY, expires_at TIMESTAMPTZ NOT NULL, token TEXT NOT NULL UNIQUE, created_at TIMESTAMPTZ NOT NULL, updated_at TIMESTAMPTZ NOT NULL, ip_address TEXT, user_agent TEXT, user_id TEXT NOT NULL, active_organization_id TEXT)`,
+      ],
+      [
+        "account",
+        `CREATE TABLE IF NOT EXISTS "account" (id TEXT PRIMARY KEY, account_id TEXT NOT NULL, provider_id TEXT NOT NULL, user_id TEXT NOT NULL, access_token TEXT, refresh_token TEXT, id_token TEXT, access_token_expires_at TIMESTAMPTZ, refresh_token_expires_at TIMESTAMPTZ, scope TEXT, password TEXT, created_at TIMESTAMPTZ NOT NULL, updated_at TIMESTAMPTZ NOT NULL)`,
+      ],
+      [
+        "verification",
+        `CREATE TABLE IF NOT EXISTS "verification" (id TEXT PRIMARY KEY, identifier TEXT NOT NULL, value TEXT NOT NULL, expires_at TIMESTAMPTZ NOT NULL, created_at TIMESTAMPTZ NOT NULL, updated_at TIMESTAMPTZ NOT NULL)`,
+      ],
+      [
+        "organization",
+        `CREATE TABLE IF NOT EXISTS "organization" (id TEXT PRIMARY KEY, name TEXT NOT NULL, slug TEXT NOT NULL UNIQUE, logo TEXT, metadata TEXT, created_at TIMESTAMPTZ NOT NULL, updated_at TIMESTAMPTZ NOT NULL)`,
+      ],
+      [
+        "member",
+        `CREATE TABLE IF NOT EXISTS "member" (id TEXT PRIMARY KEY, organization_id TEXT NOT NULL, user_id TEXT NOT NULL, role TEXT NOT NULL DEFAULT 'member', created_at TIMESTAMPTZ NOT NULL, updated_at TIMESTAMPTZ NOT NULL)`,
+      ],
+      [
+        "invitation",
+        `CREATE TABLE IF NOT EXISTS "invitation" (id TEXT PRIMARY KEY, organization_id TEXT NOT NULL, email TEXT NOT NULL, role TEXT, status TEXT NOT NULL DEFAULT 'pending', expires_at TIMESTAMPTZ NOT NULL, inviter_id TEXT NOT NULL, created_at TIMESTAMPTZ NOT NULL, updated_at TIMESTAMPTZ NOT NULL)`,
+      ],
+      [
+        "jwks",
+        `CREATE TABLE IF NOT EXISTS "jwks" (id TEXT PRIMARY KEY, public_key TEXT NOT NULL, private_key TEXT NOT NULL, created_at TIMESTAMPTZ NOT NULL, expires_at TIMESTAMPTZ)`,
+      ],
+    ];
+    for (const [name, sql] of pgTables) await ensureTableExists(name, sql);
+    return;
+  }
+
+  // SQLite (local dev): no lock problem — keep the original behaviour.
+  const sqliteStatements = [
+    `CREATE TABLE IF NOT EXISTS user (id TEXT PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL UNIQUE, email_verified INTEGER NOT NULL DEFAULT 0, image TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL)`,
+    `CREATE TABLE IF NOT EXISTS session (id TEXT PRIMARY KEY, expires_at INTEGER NOT NULL, token TEXT NOT NULL UNIQUE, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, ip_address TEXT, user_agent TEXT, user_id TEXT NOT NULL, active_organization_id TEXT)`,
+    `CREATE TABLE IF NOT EXISTS account (id TEXT PRIMARY KEY, account_id TEXT NOT NULL, provider_id TEXT NOT NULL, user_id TEXT NOT NULL, access_token TEXT, refresh_token TEXT, id_token TEXT, access_token_expires_at INTEGER, refresh_token_expires_at INTEGER, scope TEXT, password TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL)`,
+    `CREATE TABLE IF NOT EXISTS verification (id TEXT PRIMARY KEY, identifier TEXT NOT NULL, value TEXT NOT NULL, expires_at INTEGER NOT NULL, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL)`,
+    `CREATE TABLE IF NOT EXISTS organization (id TEXT PRIMARY KEY, name TEXT NOT NULL, slug TEXT NOT NULL UNIQUE, logo TEXT, metadata TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL)`,
+    `CREATE TABLE IF NOT EXISTS member (id TEXT PRIMARY KEY, organization_id TEXT NOT NULL, user_id TEXT NOT NULL, role TEXT NOT NULL DEFAULT 'member', created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL)`,
+    `CREATE TABLE IF NOT EXISTS invitation (id TEXT PRIMARY KEY, organization_id TEXT NOT NULL, email TEXT NOT NULL, role TEXT, status TEXT NOT NULL DEFAULT 'pending', expires_at INTEGER NOT NULL, inviter_id TEXT NOT NULL, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL)`,
+    `CREATE TABLE IF NOT EXISTS jwks (id TEXT PRIMARY KEY, public_key TEXT NOT NULL, private_key TEXT NOT NULL, created_at INTEGER NOT NULL, expires_at INTEGER)`,
+  ];
+  for (const sql of sqliteStatements) await db.execute(sql);
 }
 
 /**
@@ -804,6 +802,7 @@ export async function resetBetterAuth(): Promise<void> {
     }
     _neonAuthPool = undefined;
   }
+  await closePgliteClients();
 }
 
 // ---------------------------------------------------------------------------
@@ -870,7 +869,7 @@ async function createBetterAuthInstance(
   const appUrl = getAppProductionUrl();
   const cookieNamespace = resolveAuthCookieNamespace();
   const requireEmailVerification =
-    isEmailConfigured() && !shouldSkipEmailVerification();
+    (await isEmailConfigured()) && !shouldSkipEmailVerification();
 
   const shouldMirrorGoogleAccountTokens =
     (config?.googleScopes?.length ?? 0) > 0;
@@ -1107,6 +1106,17 @@ async function buildDatabaseConfig(
   if (dialect === "postgres") {
     const url = getDatabaseUrl();
     const { isNeonUrl } = await import("../db/create-get-db.js");
+
+    if (isPgliteUrl(url)) {
+      const { drizzle } = await loadPgliteDrizzle();
+      const client = await getPgliteClient(url);
+      const db = drizzle({ client, schema: pgAuthSchema });
+      const { drizzleAdapter } = await import("better-auth/adapters/drizzle");
+      return drizzleAdapter(db, {
+        provider: "pg",
+        schema: pgAuthSchema,
+      });
+    }
 
     // Neon via @neondatabase/serverless (WebSockets over HTTPS). postgres-js
     // opens a raw TCP connection on port 5432 which frequently times out on

@@ -5,6 +5,7 @@ import {
   useAgentRouteState,
 } from "@agent-native/core/client";
 import { useLocation } from "react-router";
+
 import { pathFromView, viewFromPath, type BrainView } from "@/lib/brain";
 import { TAB_ID } from "@/lib/tab-id";
 

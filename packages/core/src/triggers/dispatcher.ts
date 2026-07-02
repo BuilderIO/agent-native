@@ -6,23 +6,23 @@
  * loop) when matching events fire.
  */
 
-import { subscribe, unsubscribe } from "../event-bus/index.js";
-import type { EventMeta } from "../event-bus/types.js";
-import { resourceListAllOwners, resourcePut } from "../resources/store.js";
-import { runWithRequestContext } from "../server/request-context.js";
+import {
+  getStoredModelForEngine,
+  normalizeModelForEngine,
+  resolveEngine,
+} from "../agent/engine/index.js";
 import {
   runAgentLoop,
   actionsToEngineTools,
   getOwnerActiveApiKey,
   type ActionEntry,
 } from "../agent/production-agent.js";
-import {
-  getStoredModelForEngine,
-  normalizeModelForEngine,
-  resolveEngine,
-} from "../agent/engine/index.js";
-import { createThread } from "../chat-threads/store.js";
 import type { AgentChatEvent } from "../agent/types.js";
+import { createThread } from "../chat-threads/store.js";
+import { subscribe, unsubscribe } from "../event-bus/index.js";
+import type { EventMeta } from "../event-bus/types.js";
+import { resourceListAllOwners, resourcePut } from "../resources/store.js";
+import { runWithRequestContext } from "../server/request-context.js";
 import { evaluateCondition } from "./condition-evaluator.js";
 import type { TriggerFrontmatter } from "./types.js";
 
@@ -257,8 +257,7 @@ async function handleEvent(
       // Resolve API key for condition evaluation
       const owner = meta.createdBy || resource.owner;
       const userApiKey = await getOwnerActiveApiKey(owner);
-      const apiKey =
-        userApiKey || _deps.apiKey || process.env.ANTHROPIC_API_KEY;
+      const apiKey = userApiKey || _deps.apiKey;
       if (!apiKey) {
         console.warn(
           `[triggers] No API key for trigger "${resource.path}" — skipping`,

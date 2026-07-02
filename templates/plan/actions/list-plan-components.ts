@@ -5,6 +5,7 @@ import {
 } from "@agent-native/core";
 import { createDataInsightsWidgetResult } from "@agent-native/core/data-widgets";
 import { z } from "zod";
+
 import { describePlanBlocksForAgent } from "../shared/plan-block-registry.js";
 
 function normalizeTerms(query: string | undefined): string[] {

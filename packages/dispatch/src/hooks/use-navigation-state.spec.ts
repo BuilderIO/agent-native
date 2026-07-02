@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+
 import { buildDispatchNavigationState } from "./use-navigation-state.js";
 
 describe("buildDispatchNavigationState", () => {

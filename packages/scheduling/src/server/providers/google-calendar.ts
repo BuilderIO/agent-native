@@ -1,3 +1,4 @@
+import type { BusyInterval } from "../../shared/index.js";
 /**
  * Google Calendar provider.
  *
@@ -10,7 +11,6 @@
  * via the `getAccessToken` callback.
  */
 import type { CalendarProvider } from "./types.js";
-import type { BusyInterval } from "../../shared/index.js";
 
 export interface GoogleCalendarProviderConfig {
   clientId: string;

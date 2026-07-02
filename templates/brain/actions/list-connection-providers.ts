@@ -1,18 +1,19 @@
 import { defineAction } from "@agent-native/core";
-import { getCredentialContext } from "@agent-native/core/server";
 import {
   isProviderApiId,
   listProviderApiCatalog,
 } from "@agent-native/core/provider-api";
+import { getCredentialContext } from "@agent-native/core/server";
+import { accessFilter } from "@agent-native/core/sharing";
 import {
   listWorkspaceConnectionProviderCatalogForApp,
   type WorkspaceConnectionProviderCatalogForApp,
   type WorkspaceConnectionProviderCatalogForAppItem,
   type WorkspaceConnectionProviderAppSummary,
 } from "@agent-native/core/workspace-connections";
-import { accessFilter } from "@agent-native/core/sharing";
 import { and, ne } from "drizzle-orm";
 import { z } from "zod";
+
 import { getDb, schema } from "../server/db/index.js";
 import {
   inspectSourceCredentialAvailability,

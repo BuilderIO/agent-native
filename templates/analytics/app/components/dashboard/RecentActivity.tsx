@@ -1,3 +1,5 @@
+import { useT } from "@agent-native/core/client";
+
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
   Card,
@@ -9,35 +11,35 @@ import {
 
 const activities = [
   {
-    name: "Olivia Martin",
+    name: "Olivia Martin", // i18n-ignore stable sample person name
     email: "olivia.martin@email.com",
     amount: "+$1,999.00",
     avatar: "/avatars/01.png",
     initials: "OM",
   },
   {
-    name: "Jackson Lee",
+    name: "Jackson Lee", // i18n-ignore stable sample person name
     email: "jackson.lee@email.com",
     amount: "+$39.00",
     avatar: "/avatars/02.png",
     initials: "JL",
   },
   {
-    name: "Isabella Nguyen",
+    name: "Isabella Nguyen", // i18n-ignore stable sample person name
     email: "isabella.nguyen@email.com",
     amount: "+$299.00",
     avatar: "/avatars/03.png",
     initials: "IN",
   },
   {
-    name: "William Kim",
+    name: "William Kim", // i18n-ignore stable sample person name
     email: "will@email.com",
     amount: "+$99.00",
     avatar: "/avatars/04.png",
     initials: "WK",
   },
   {
-    name: "Sofia Davis",
+    name: "Sofia Davis", // i18n-ignore stable sample person name
     email: "sofia.davis@email.com",
     amount: "+$39.00",
     avatar: "/avatars/05.png",
@@ -46,11 +48,15 @@ const activities = [
 ];
 
 export function RecentActivity() {
+  const t = useT();
+
   return (
     <Card className="col-span-full lg:col-span-3 bg-card border-border/50">
       <CardHeader>
-        <CardTitle>Recent Sales</CardTitle>
-        <CardDescription>You made 265 sales this month.</CardDescription>
+        <CardTitle>{t("dashboard.recentSales")}</CardTitle>
+        <CardDescription>
+          {t("dashboard.recentSalesDescription")}
+        </CardDescription>
       </CardHeader>
       <CardContent>
         <div className="space-y-8">

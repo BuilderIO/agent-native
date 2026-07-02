@@ -3,6 +3,8 @@ import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { assertAccess } from "@agent-native/core/sharing";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
+
+import { getDb, schema } from "../server/db/index.js";
 import type {
   ContentDatabaseSource,
   ContentDatabaseSourceChangeSet,
@@ -13,15 +15,14 @@ import type {
   PrepareBuilderSourceReviewRequest,
   PrepareBuilderSourceReviewResponse,
 } from "../shared/api.js";
-import { getDb, schema } from "../server/db/index.js";
 import {
   buildBuilderCmsExecutionPlan,
+  resolveBuilderCmsWriteEffect,
   validateBuilderCmsExecutionDryRun,
 } from "./_builder-cms-write-adapter.js";
 import {
   findOpenSourceChangeSet,
-  getContentDatabaseSourceSnapshot,
-  getExistingSource,
+  getContentDatabaseSourceSnapshotForWrite,
   resolveDatabaseForSourceMutation,
   sourceChangeSetKey,
 } from "./_database-source-utils.js";
@@ -102,6 +103,10 @@ export function buildBuilderSourceReviewPayload(args: {
       riskLevel: changeSet.riskLevel,
       riskReasons: changeSet.riskReasons,
       conflictState: changeSet.conflictState,
+      effect: resolveBuilderCmsWriteEffect({
+        source: args.source,
+        changeSet,
+      }),
       execution: latestExecution,
     };
   });
@@ -269,6 +274,8 @@ async function upsertExecutionGate(args: {
   source: ContentDatabaseSource;
   changeSet: ContentDatabaseSourceChangeSet;
   pushModeConfirmation?: ContentDatabaseSourcePushMode;
+  publicationTransition?: PrepareBuilderSourceReviewRequest["publicationTransition"];
+  confirmUnpublish?: boolean;
   ownerEmail: string;
   now: string;
 }) {
@@ -276,6 +283,8 @@ async function upsertExecutionGate(args: {
     source: args.source,
     changeSet: args.changeSet,
     pushModeConfirmation: args.pushModeConfirmation,
+    publicationTransition: args.publicationTransition,
+    confirmUnpublish: args.confirmUnpublish,
   });
   const db = getDb();
   const [existing] = await db
@@ -359,10 +368,22 @@ export default defineAction({
   schema: z.object({
     databaseId: z.string().optional().describe("Database ID"),
     documentId: z.string().optional().describe("Database document/page ID"),
+    sourceId: z
+      .string()
+      .optional()
+      .describe("Target source ID (defaults to the primary source)"),
     pushModeConfirmation: z
       .enum(["autosave", "draft", "publish"])
       .optional()
       .describe("Explicit push mode confirmation for the planned write"),
+    publicationTransition: z
+      .enum(["publish", "unpublish"])
+      .optional()
+      .describe("Explicit publication transition to validate at write time"),
+    confirmUnpublish: z
+      .boolean()
+      .optional()
+      .describe("Required explicit confirmation for unpublish transitions"),
   }),
   run: async (
     args: PrepareBuilderSourceReviewRequest,
@@ -371,13 +392,13 @@ export default defineAction({
     if (!database) throw new Error("Database not found.");
     await assertAccess("document", database.documentId, "editor");
 
-    const sourceRecord = await getExistingSource(database.id);
-    if (!sourceRecord || sourceRecord.sourceType !== "builder-cms") {
+    const snapshot = await getContentDatabaseSourceSnapshotForWrite(
+      database,
+      args.sourceId,
+    );
+    if (!snapshot || snapshot.sourceType !== "builder-cms") {
       throw new Error("Attach a Builder CMS source before reviewing updates.");
     }
-
-    const snapshot = await getContentDatabaseSourceSnapshot(database);
-    if (!snapshot) throw new Error("Attach a source before reviewing updates.");
     const reviewableChanges = snapshot.changeSets.filter(
       (changeSet) =>
         changeSet.direction === "outbound" &&
@@ -396,7 +417,7 @@ export default defineAction({
     for (const changeSet of reviewableChanges) {
       approvedIds.push(
         await approveChangeSetForReview({
-          sourceId: sourceRecord.id,
+          sourceId: snapshot.id,
           ownerEmail: database.ownerEmail,
           changeSet,
           reviewerEmail,
@@ -405,7 +426,10 @@ export default defineAction({
       );
     }
 
-    const approvedSnapshot = await getContentDatabaseSourceSnapshot(database);
+    const approvedSnapshot = await getContentDatabaseSourceSnapshotForWrite(
+      database,
+      args.sourceId,
+    );
     if (!approvedSnapshot) throw new Error("Builder source disappeared.");
     const approvedChangeSets = approvedSnapshot.changeSets.filter(
       (changeSet) =>
@@ -416,6 +440,8 @@ export default defineAction({
         source: approvedSnapshot,
         changeSet,
         pushModeConfirmation: args.pushModeConfirmation,
+        publicationTransition: args.publicationTransition,
+        confirmUnpublish: args.confirmUnpublish,
         ownerEmail: database.ownerEmail,
         now,
       });
@@ -424,19 +450,26 @@ export default defineAction({
     await getDb()
       .update(schema.contentDatabaseSources)
       .set({ updatedAt: now })
-      .where(eq(schema.contentDatabaseSources.id, sourceRecord.id));
+      .where(eq(schema.contentDatabaseSources.id, snapshot.id));
 
-    const response = await getContentDatabaseResponse(database.id);
-    const source = response.source;
-    if (!source) throw new Error("Builder source disappeared.");
-    const reviewedChangeSets = source.changeSets.filter((changeSet) =>
+    const reviewedSnapshot = await getContentDatabaseSourceSnapshotForWrite(
+      database,
+      args.sourceId,
+    );
+    if (!reviewedSnapshot) throw new Error("Builder source disappeared.");
+    // Build the review payload from the TARGET source snapshot, not
+    // response.source (which is always the primary). Re-read after the gate
+    // upsert so newly validated/blocked/stale execution rows are visible to
+    // the returned review payload.
+    const reviewedChangeSets = reviewedSnapshot.changeSets.filter((changeSet) =>
       approvedIds.includes(changeSet.id),
     );
+    const response = await getContentDatabaseResponse(database.id);
 
     return {
       ...response,
       review: buildBuilderSourceReviewPayload({
-        source,
+        source: reviewedSnapshot,
         changeSets: reviewedChangeSets,
       }),
     };

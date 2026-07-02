@@ -1,18 +1,15 @@
-import { useLocation } from "react-router";
+import { AgentToggleButton, useT } from "@agent-native/core/client";
 import { IconMenu2 } from "@tabler/icons-react";
-import { useHeaderTitle, useHeaderActions } from "./HeaderActions";
-import {
-  AgentToggleButton,
-  LanguagePicker,
-  useT,
-} from "@agent-native/core/client";
+import { useLocation } from "react-router";
+
 import { compositions } from "@/remotion/registry";
+
+import { useHeaderTitle, useHeaderActions } from "./HeaderActions";
 
 const pageTitleKeys: Record<string, string> = {
   "/": "header.videos",
   "/components": "header.components",
   "/design-systems": "header.designSystems",
-  "/team": "header.team",
   "/settings": "header.settings",
 };
 
@@ -60,7 +57,6 @@ export function Header({ onOpenMobileSidebar }: HeaderProps) {
       </div>
       <div className="flex items-center gap-2 shrink-0">
         {actions}
-        <LanguagePicker variant="icon" />
         <AgentToggleButton />
       </div>
     </header>

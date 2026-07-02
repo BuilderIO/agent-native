@@ -333,11 +333,12 @@
   display: flex;
   align-items: center;
   border-radius: 6px;
-  background: hsl(0 0% 15%);
+  background: hsl(var(--popover));
+  color: hsl(var(--popover-foreground));
   padding: 3px;
   box-shadow:
     0 4px 16px rgb(0 0 0 / 0.25),
-    0 0 0 1px rgb(255 255 255 / 0.06);
+    0 0 0 1px hsl(var(--border));
 }
 
 .an-rich-md-bubble-items,
@@ -351,7 +352,7 @@
   padding: 3px 6px;
   border-radius: 4px;
   font-size: 12px;
-  color: rgb(255 255 255 / 0.76);
+  color: hsl(var(--popover-foreground) / 0.76);
   background: none;
   border: none;
   cursor: pointer;
@@ -359,20 +360,20 @@
 }
 
 .an-rich-md-bubble-button:hover {
-  background: rgb(255 255 255 / 0.12);
-  color: white;
+  background: hsl(var(--accent));
+  color: hsl(var(--accent-foreground));
 }
 
 .an-rich-md-bubble-button--active {
-  background: rgb(255 255 255 / 0.18);
-  color: white;
+  background: hsl(var(--accent));
+  color: hsl(var(--accent-foreground));
 }
 
 .an-rich-md-bubble-divider {
   width: 1px;
   height: 16px;
   margin: 0 2px;
-  background: rgb(255 255 255 / 0.2);
+  background: hsl(var(--border));
 }
 
 .an-rich-md-link-editor {
@@ -384,7 +385,7 @@
   border: none;
   outline: none;
   background: transparent;
-  color: white;
+  color: hsl(var(--popover-foreground));
   font-size: 12px;
   padding: 2px 4px;
 }
@@ -392,7 +393,7 @@
 .an-rich-md-link-editor button {
   border: none;
   background: none;
-  color: #60a5fa;
+  color: hsl(var(--primary));
   cursor: pointer;
   font-size: 11px;
   font-weight: 500;

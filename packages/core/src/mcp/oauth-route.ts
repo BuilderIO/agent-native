@@ -8,13 +8,15 @@
  * `verifyAuth` before any MCP tool/resource request runs.
  */
 
+import { createHash, createHmac, timingSafeEqual } from "node:crypto";
+
 import type { H3Event } from "h3";
 import { getHeader, getMethod, getQuery, setResponseStatus } from "h3";
-import { createHash, createHmac, timingSafeEqual } from "node:crypto";
-import { readBody } from "../server/h3-helpers.js";
+
+import { getOrgDomain } from "../org/context.js";
 import { getConfiguredLoginHtml, getSession } from "../server/auth.js";
 import { getAuthSecret } from "../server/better-auth-instance.js";
-import { getOrgDomain } from "../org/context.js";
+import { readBody } from "../server/h3-helpers.js";
 import {
   createOAuthCode,
   createOAuthRefreshToken,

@@ -1,8 +1,4 @@
 import { defineAction } from "@agent-native/core";
-import { z } from "zod";
-import { and, eq } from "drizzle-orm";
-import { getDb, schema } from "../server/db/index.js";
-import { accessFilter, assertAccess } from "@agent-native/core/sharing";
 import {
   hasCollabState,
   getText,
@@ -12,62 +8,235 @@ import {
   agentLeaveDocument,
   agentUpdateSelection,
 } from "@agent-native/core/collab";
-import { applyEdits } from "../shared/apply-edits.js";
+import { accessFilter, assertAccess } from "@agent-native/core/sharing";
+import { and, eq } from "drizzle-orm";
+import { z } from "zod";
+
+import { getDb, schema } from "../server/db/index.js";
+import {
+  applyOneEdit,
+  type ApplyEditsResult,
+  type DesignEdit,
+} from "../shared/apply-edits.js";
+
+const editBlocksSchema = z.preprocess(
+  (v) => {
+    if (typeof v !== "string") return v;
+    // Don't let malformed JSON throw an uncaught SyntaxError — return the
+    // raw value so Zod produces a clean validation error instead.
+    try {
+      return JSON.parse(v);
+    } catch {
+      return v;
+    }
+  },
+  z
+    .array(
+      z.object({
+        search: z
+          .string()
+          .min(1)
+          .describe(
+            "Exact text to find, with enough surrounding context to be unique",
+          ),
+        replace: z.string().describe("Replacement text"),
+      }),
+    )
+    .min(1),
+);
+
+function stripStableNodeIdAttributes(value: string): {
+  content: string;
+  indexMap: number[];
+} {
+  const stableIdPattern =
+    /\sdata-agent-native-node-id\s*=\s*(?:"[^"]*"|'[^']*'|[^\s/>]+)/gi;
+  let content = "";
+  const indexMap: number[] = [];
+  let cursor = 0;
+  let match: RegExpExecArray | null;
+  while ((match = stableIdPattern.exec(value))) {
+    const chunk = value.slice(cursor, match.index);
+    for (let i = 0; i < chunk.length; i += 1) {
+      content += chunk[i];
+      indexMap.push(cursor + i);
+    }
+    cursor = match.index + match[0].length;
+  }
+  const tail = value.slice(cursor);
+  for (let i = 0; i < tail.length; i += 1) {
+    content += tail[i];
+    indexMap.push(cursor + i);
+  }
+  indexMap.push(value.length);
+  return { content, indexMap };
+}
+
+function findUniqueStableIdAgnosticSpan(
+  content: string,
+  search: string,
+): { start: number; end: number } | null {
+  const strippedContent = stripStableNodeIdAttributes(content);
+  const strippedSearch = stripStableNodeIdAttributes(search).content;
+  if (!strippedSearch) return null;
+
+  let count = 0;
+  let onlyIndex = -1;
+  let index = strippedContent.content.indexOf(strippedSearch);
+  while (index !== -1) {
+    count += 1;
+    onlyIndex = index;
+    if (count > 1) return null;
+    index = strippedContent.content.indexOf(strippedSearch, index + 1);
+  }
+  if (count !== 1) return null;
+
+  // Anchor `end` to one byte past the LAST matched stripped character rather than
+  // the mapped index of the NEXT character. Mapping the next index can land before
+  // a stripped node-id attribute that sits right after the match, so the splice
+  // would cross it and corrupt the file (e.g. duplicate/mangled tags).
+  const lastMatched = onlyIndex + strippedSearch.length - 1;
+  return {
+    start: strippedContent.indexMap[onlyIndex] ?? 0,
+    end: (strippedContent.indexMap[lastMatched] ?? content.length - 1) + 1,
+  };
+}
+
+function applyOneEditWithStableIdFallback(
+  content: string,
+  edit: DesignEdit,
+  index: number,
+): string {
+  try {
+    return applyOneEdit(content, edit, index);
+  } catch (error) {
+    const span = findUniqueStableIdAgnosticSpan(content, edit.search);
+    if (!span) throw error;
+    return `${content.slice(0, span.start)}${edit.replace}${content.slice(span.end)}`;
+  }
+}
+
+export function applySearchReplaceEdits(
+  content: string,
+  edits: DesignEdit[],
+): ApplyEditsResult {
+  let next = content;
+  edits.forEach((edit, index) => {
+    next = applyOneEditWithStableIdFallback(next, edit, index);
+  });
+  return { content: next, applied: edits.length };
+}
 
 export default defineAction({
   description:
-    "Apply small, surgical search/replace edits to ONE file in a design — the " +
+    "Edit ONE file in a design after reading it with get-design-snapshot. " +
+    "For small localized refinements, apply surgical search/replace edits — the " +
     "preferred way to refine an existing design without regenerating the whole " +
     "file (cheaper, faster, and it preserves everything you don't touch). Each " +
     "edit's `search` must match the current file exactly and uniquely, so " +
     "include enough surrounding context. Read the file first with " +
     "`get-design-snapshot`. Wrapping an element is just a search/replace whose " +
-    "`replace` adds the wrapper around the original text. Use `generate-design` " +
-    "instead only for brand-new files or large structural rewrites.",
-  schema: z.object({
-    designId: z.string().describe("Design project ID"),
-    filename: z
-      .string()
-      .default("index.html")
-      .describe("File to edit (e.g. 'index.html')"),
-    edits: z
-      .preprocess(
-        (v) => {
-          if (typeof v !== "string") return v;
-          // Don't let malformed JSON throw an uncaught SyntaxError — return the
-          // raw value so Zod produces a clean validation error instead.
-          try {
-            return JSON.parse(v);
-          } catch {
-            return v;
-          }
-        },
-        z
-          .array(
-            z.object({
-              search: z
-                .string()
-                .min(1)
-                .describe(
-                  "Exact text to find, with enough surrounding context to be unique",
-                ),
-              replace: z.string().describe("Replacement text"),
-            }),
-          )
-          .min(1),
-      )
-      .describe("Search/replace blocks, applied in order"),
-  }),
-  run: async ({ designId, filename, edits }) => {
+    "`replace` adds the wrapper around the original text. For broad copy-only " +
+    'changes such as translating all visible text, use `mode: "replace-file"` ' +
+    "with `replacementContent`: the complete updated file content copied from " +
+    "the snapshot with only the requested copy changed. After a variant pick " +
+    "or any other selected-screen follow-up, pass the exact `fileId` from " +
+    '`get-design-snapshot` and use `mode: "replace-file"` when replacing ' +
+    "the representative placeholder with the full chosen direction. Use " +
+    "`generate-design` instead only for brand-new files.",
+  schema: z
+    .object({
+      designId: z.string().describe("Design project ID"),
+      fileId: z
+        .string()
+        .optional()
+        .describe(
+          "Optional exact design file ID to edit. Use this after a variant pick or selected-screen snapshot; when provided, it wins over filename.",
+        ),
+      filename: z
+        .string()
+        .optional()
+        .describe(
+          "File to edit (e.g. 'index.html'). Defaults to index.html only when fileId is omitted.",
+        ),
+      mode: z
+        .enum(["search-replace", "replace-file"])
+        .optional()
+        .describe(
+          "Defaults to search-replace. Use replace-file for selected variant expansion or broad copy-only edits after reading get-design-snapshot.",
+        ),
+      edits: editBlocksSchema
+        .optional()
+        .describe(
+          "Search/replace blocks, applied in order. Use for small localized edits.",
+        ),
+      replacementContent: z
+        .string()
+        .min(1)
+        .optional()
+        .describe(
+          "Complete updated file content. Use only with mode=replace-file for selected variant expansion or broad copy-only changes; preserve all HTML structure, CSS, scripts, and tweaks from get-design-snapshot.",
+        ),
+    })
+    .superRefine((value, ctx) => {
+      const mode =
+        value.mode ??
+        (value.replacementContent !== undefined
+          ? "replace-file"
+          : "search-replace");
+
+      if (value.edits && value.replacementContent !== undefined) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message:
+            "Use either edits or replacementContent in one edit-design call, not both.",
+          path: ["replacementContent"],
+        });
+      }
+
+      if (mode === "search-replace" && !value.edits) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message:
+            "search-replace mode requires at least one edit block in edits.",
+          path: ["edits"],
+        });
+      }
+
+      if (mode === "replace-file" && value.replacementContent === undefined) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message:
+            "replace-file mode requires replacementContent with the complete updated file.",
+          path: ["replacementContent"],
+        });
+      }
+    }),
+  run: async ({
+    designId,
+    fileId,
+    filename,
+    edits,
+    mode,
+    replacementContent,
+  }) => {
     await assertAccess("design", designId, "editor");
 
     const db = getDb();
     const now = new Date().toISOString();
+    const requestedFileId = fileId?.trim();
+    const targetFilename = requestedFileId
+      ? undefined
+      : filename?.trim() || "index.html";
+    const targetCondition = requestedFileId
+      ? eq(schema.designFiles.id, requestedFileId)
+      : eq(schema.designFiles.filename, targetFilename!);
 
-    // Resolve the target file (access-scoped) by design + filename.
+    // Resolve the target file (access-scoped) by design + fileId or filename.
     const [file] = await db
       .select({
         id: schema.designFiles.id,
+        filename: schema.designFiles.filename,
         content: schema.designFiles.content,
       })
       .from(schema.designFiles)
@@ -78,14 +247,18 @@ export default defineAction({
       .where(
         and(
           eq(schema.designFiles.designId, designId),
-          eq(schema.designFiles.filename, filename),
+          targetCondition,
           accessFilter(schema.designs, schema.designShares),
         ),
       )
       .limit(1);
 
     if (!file) {
-      throw new Error(`File "${filename}" not found in design ${designId}`);
+      throw new Error(
+        requestedFileId
+          ? `File id "${requestedFileId}" not found in design ${designId}`
+          : `File "${targetFilename}" not found in design ${designId}`,
+      );
     }
 
     // Prefer live collab content so we edit in-flight changes, not a stale
@@ -103,19 +276,32 @@ export default defineAction({
       // Collab read is best-effort; fall back to stored content.
     }
 
-    const { content: nextContent, applied } = applyEdits(base, edits);
+    const resolvedMode =
+      mode ??
+      (replacementContent !== undefined ? "replace-file" : "search-replace");
+    const { content: nextContent, applied } =
+      resolvedMode === "replace-file"
+        ? { content: replacementContent ?? "", applied: 0 }
+        : applySearchReplaceEdits(base, edits ?? []);
     const changed = nextContent !== base;
 
     if (changed) {
       // Mark agent presence + selection so live viewers can see where the
       // agent is working before the update arrives via collab.
       agentEnterDocument(file.id);
-      if (applied > 0) {
+      if (resolvedMode === "search-replace" && applied > 0) {
+        const firstSearch = edits?.[0]?.search;
         agentUpdateSelection(file.id, {
-          selection: edits[0]?.search
-            ? `[data-edit-target="${edits[0].search.slice(0, 40)}"]`
+          selection: firstSearch
+            ? `[data-edit-target="${firstSearch.slice(0, 40)}"]`
             : null,
-          editingFile: filename,
+          editingFile: file.filename,
+          designId,
+        });
+      } else {
+        agentUpdateSelection(file.id, {
+          selection: null,
+          editingFile: file.filename,
           designId,
         });
       }
@@ -145,8 +331,9 @@ export default defineAction({
 
     return {
       designId,
-      filename,
+      filename: file.filename,
       fileId: file.id,
+      mode: resolvedMode,
       editsApplied: applied,
       changed,
       bytesBefore: base.length,

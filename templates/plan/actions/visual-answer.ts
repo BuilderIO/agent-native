@@ -15,19 +15,20 @@ import {
 import setResourceVisibilityAction from "@agent-native/core/sharing/actions/set-resource-visibility";
 import { and, desc, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
-import importVisualPlanSourceAction from "./import-visual-plan-source.js";
-import { planMdxFileSchema } from "../server/plan-mdx.js";
-import {
-  planDeepLink,
-  planSourceSchema,
-  planStatusSchema,
-} from "../server/plans.js";
+
 import { getDb, schema } from "../server/db/index.js";
 import {
   requirePlanOwnerEmailForWrite,
   resolvePlanAccessContext,
   resolvePlanOrgIdForWrite,
 } from "../server/lib/local-identity.js";
+import { planMdxFileSchema } from "../server/plan-mdx.js";
+import {
+  planDeepLink,
+  planSourceSchema,
+  planStatusSchema,
+} from "../server/plans.js";
+import importVisualPlanSourceAction from "./import-visual-plan-source.js";
 
 const sourceUrlSchema = z
   .string()
@@ -181,7 +182,7 @@ export default defineAction({
       description: "Open the Agent-Native Plan visual answer surface.",
       iframeTitle: "Agent-Native Plan",
       openLabel: "Open Visual Answer",
-      height: 860,
+      height: 900,
     }),
   },
   // Render the answer's diagram/wireframe/api-spec/data-model blocks INLINE in

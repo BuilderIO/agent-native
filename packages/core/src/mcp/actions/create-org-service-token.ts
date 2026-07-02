@@ -16,9 +16,10 @@
  *     personal-token revocation path uses.
  */
 import { z } from "zod";
+
 import { defineAction } from "../../action.js";
-import { getRequestContext } from "../../server/request-context.js";
 import { getAppProductionUrl } from "../../server/app-url.js";
+import { getRequestContext } from "../../server/request-context.js";
 import { mintOrgServiceToken } from "../connect-route.js";
 import {
   requireServiceTokenCaller,

@@ -1,25 +1,26 @@
-import { useState, useCallback, useEffect, useRef } from "react";
-import { useParams, Navigate } from "react-router";
 import { AgentSidebar, useT } from "@agent-native/core/client";
 import { InvitationBanner } from "@agent-native/core/client/org";
-import { compositions } from "@/remotion/registry";
-import { Spinner } from "@/components/ui/spinner";
+import { useState, useCallback, useEffect, useRef } from "react";
+import { useParams, Navigate } from "react-router";
+
+import { QuestionFlow } from "@/components/QuestionFlow";
 import { Sidebar } from "@/components/Sidebar";
 import { StudioHeader } from "@/components/StudioHeader";
-import { QuestionFlow } from "@/components/QuestionFlow";
-import CompositionView from "@/pages/CompositionView";
-import NewComposition from "@/pages/NewComposition";
-import { CurrentElementProvider } from "@/contexts/CurrentElementContext";
+import { Spinner } from "@/components/ui/spinner";
 import {
   CompositionProvider,
   useComposition,
 } from "@/contexts/CompositionContext";
-import { TimelineProvider } from "@/contexts/TimelineContext";
+import { CurrentElementProvider } from "@/contexts/CurrentElementContext";
 import { PlaybackProvider } from "@/contexts/PlaybackContext";
-import { useIsMobile } from "@/hooks/use-mobile";
-import { useQuestionFlow } from "@/hooks/use-question-flow";
+import { TimelineProvider } from "@/contexts/TimelineContext";
 import { useCompositionCollab } from "@/hooks/use-composition-collab";
 import { useDatabaseCompositions } from "@/hooks/use-database-compositions";
+import { useIsMobile } from "@/hooks/use-mobile";
+import { useQuestionFlow } from "@/hooks/use-question-flow";
+import CompositionView from "@/pages/CompositionView";
+import NewComposition from "@/pages/NewComposition";
+import { compositions } from "@/remotion/registry";
 
 function StudioContent({
   collab,

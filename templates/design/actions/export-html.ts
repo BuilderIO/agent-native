@@ -1,13 +1,15 @@
 import { defineAction } from "@agent-native/core";
-import { z } from "zod";
-import { eq } from "drizzle-orm";
-import { getDb, schema } from "../server/db/index.js";
 import { resolveAccess } from "@agent-native/core/sharing";
+import { eq } from "drizzle-orm";
+import { z } from "zod";
+
+import { getDb, schema } from "../server/db/index.js";
 import {
   buildStandaloneHtml,
   exportFilename,
   trySaveExportFile,
 } from "../server/lib/design-export.js";
+import { isBoardFile } from "../shared/board-file.js";
 import "../server/db/index.js"; // ensure registerShareableResource runs
 
 export default defineAction({
@@ -30,12 +32,13 @@ export default defineAction({
       .select()
       .from(schema.designFiles)
       .where(eq(schema.designFiles.designId, id));
+    const exportFiles = files.filter((file) => !isBoardFile(file.filename));
 
-    const html = buildStandaloneHtml({ title: row.title, files });
+    const html = buildStandaloneHtml({ title: row.title, files: exportFiles });
 
     const filename = exportFilename(row.title, "html");
     const saveResult = await trySaveExportFile(filename, html);
 
-    return { html, filename, ...saveResult, fileCount: files.length };
+    return { html, filename, ...saveResult, fileCount: exportFiles.length };
   },
 });

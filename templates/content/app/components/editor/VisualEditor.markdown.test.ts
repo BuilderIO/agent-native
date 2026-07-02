@@ -1,17 +1,20 @@
 // @vitest-environment happy-dom
 
-import { Editor, getSchema } from "@tiptap/core";
-import StarterKit from "@tiptap/starter-kit";
-import { Markdown } from "tiptap-markdown";
-import { afterEach, describe, expect, it, vi } from "vitest";
-import * as Y from "yjs";
-import { Awareness } from "y-protocols/awareness";
+import { docToNfm } from "@shared/nfm";
 import {
   VISUAL_INDENT,
   parseNfmForEditor,
   serializeEditorToNfm,
 } from "@shared/notion-markdown";
-import { docToNfm } from "@shared/nfm";
+import { Editor, getSchema } from "@tiptap/core";
+import StarterKit from "@tiptap/starter-kit";
+import { Markdown } from "tiptap-markdown";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { Awareness } from "y-protocols/awareness";
+import * as Y from "yjs";
+
+import { CodeBlock } from "./extensions/CodeBlockNode";
+import { NotionToggle } from "./extensions/NotionExtensions";
 import {
   createVisualEditorExtensions,
   EmptyLineParagraph,
@@ -22,8 +25,6 @@ import {
   shouldPersistLocalFileEditorUpdate,
   shouldSeedCollaborativeContent,
 } from "./VisualEditor";
-import { CodeBlock } from "./extensions/CodeBlockNode";
-import { NotionToggle } from "./extensions/NotionExtensions";
 
 function createMarkdownEditor(content: string) {
   return new Editor({

@@ -1,5 +1,3 @@
-import { agentNativePath } from "../api-path.js";
-import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   IconAlertCircle,
   IconCheck,
@@ -10,26 +8,29 @@ import {
   IconSubtask,
   IconX,
 } from "@tabler/icons-react";
-import { usePausingInterval } from "../use-pausing-interval.js";
-import { useFormatters, useT } from "../i18n.js";
+import { useCallback, useEffect, useMemo, useState } from "react";
+
 import type { AgentRun, ProgressStatus } from "../../progress/types.js";
-import { cn } from "../utils.js";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "../components/ui/popover.js";
+import { agentNativePath } from "../api-path.js";
 import {
   DropdownMenuSub,
   DropdownMenuSubContent,
   DropdownMenuSubTrigger,
 } from "../components/ui/dropdown-menu.js";
 import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "../components/ui/popover.js";
+import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
   TooltipTrigger,
 } from "../components/ui/tooltip.js";
+import { useFormatters, useT } from "../i18n.js";
+import { usePausingInterval } from "../use-pausing-interval.js";
+import { cn } from "../utils.js";
 
 type AgentRunDto = AgentRun;
 type RunsTrayTriggerVariant = "icon" | "pill";

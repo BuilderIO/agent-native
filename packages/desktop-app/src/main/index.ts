@@ -1,19 +1,4 @@
-import {
-  app,
-  BrowserWindow,
-  clipboard,
-  dialog,
-  globalShortcut,
-  ipcMain,
-  Menu,
-  Notification,
-  session,
-  shell,
-  webContents,
-  type IpcMainEvent,
-  type IpcMainInvokeEvent,
-  type WebContents,
-} from "electron";
+import fs from "fs";
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import {
@@ -23,11 +8,34 @@ import {
   type ServerResponse,
 } from "node:http";
 import type { AddressInfo } from "node:net";
-import fs from "fs";
 import os from "os";
 import path from "path";
 import { fileURLToPath } from "url";
-import { autoUpdater } from "electron-updater";
+
+import {
+  FRAME_PORT,
+  getDesktopTemplateGatewayAppUrl,
+  getTemplate,
+  isDefaultDesktopTemplateDevTarget,
+} from "@shared/app-registry";
+import type { AppConfig } from "@shared/app-registry";
+import {
+  CODE_AGENTS_SURFACE_ID,
+  CODE_AGENT_GOALS,
+  DEFAULT_CODE_AGENT_PERMISSION_MODE,
+  getCodeAgentAppConfig,
+  getCodeAgentGoal,
+  getCodeAgentPermissionMode,
+  MIGRATION_APP_ID,
+  type CodeAgentPermissionMode,
+} from "@shared/code-agents";
+import {
+  formatDesktopShortcutAccelerator,
+  normalizeDesktopShortcutAccelerator,
+  shortcutOpenPathForBinding,
+  type DesktopShortcutBinding,
+  type DesktopShortcutRegistration,
+} from "@shared/desktop-shortcuts";
 import {
   IPC,
   type ActiveWebviewTarget,
@@ -90,19 +98,28 @@ import {
   type UpdateStatus,
 } from "@shared/ipc-channels";
 import {
-  formatDesktopShortcutAccelerator,
-  normalizeDesktopShortcutAccelerator,
-  shortcutOpenPathForBinding,
-  type DesktopShortcutBinding,
-  type DesktopShortcutRegistration,
-} from "@shared/desktop-shortcuts";
+  app,
+  BrowserWindow,
+  clipboard,
+  dialog,
+  globalShortcut,
+  ipcMain,
+  Menu,
+  Notification,
+  session,
+  shell,
+  webContents,
+  type IpcMainEvent,
+  type IpcMainInvokeEvent,
+  type WebContents,
+} from "electron";
+import { autoUpdater } from "electron-updater";
+
 import {
-  FRAME_PORT,
-  getDesktopTemplateGatewayAppUrl,
-  getTemplate,
-  isDefaultDesktopTemplateDevTarget,
-} from "@shared/app-registry";
-import type { AppConfig } from "@shared/app-registry";
+  AI_SDK_MODEL_CONFIG,
+  ANTHROPIC_MODEL_CONFIG,
+  BUILDER_MODEL_CONFIG,
+} from "../../../core/src/agent/model-config.js";
 import {
   getBackgroundAgentRun,
   listBackgroundAgentRuns,
@@ -110,22 +127,14 @@ import {
   type BackgroundAgentRun,
   type BackgroundAgentTranscriptEvent,
 } from "../../../core/src/code-agents/background-run.js";
-import {
-  AI_SDK_MODEL_CONFIG,
-  ANTHROPIC_MODEL_CONFIG,
-  BUILDER_MODEL_CONFIG,
-} from "../../../core/src/agent/model-config.js";
-import {
-  CODE_AGENTS_SURFACE_ID,
-  CODE_AGENT_GOALS,
-  DEFAULT_CODE_AGENT_PERMISSION_MODE,
-  getCodeAgentAppConfig,
-  getCodeAgentGoal,
-  getCodeAgentPermissionMode,
-  MIGRATION_APP_ID,
-  type CodeAgentPermissionMode,
-} from "@shared/code-agents";
 import * as AppStore from "./app-store";
+import {
+  initializeDesktopSentry,
+  installSentryWebContentsInstrumentation,
+  setSentryWebContentsMetadata,
+} from "./sentry";
+
+initializeDesktopSentry();
 
 // ---------- stdout/stderr pipe resilience ----------
 // The main process logs spawned dev-server / code-agent child output via
@@ -287,7 +296,7 @@ function handleSecondInstance(_event: Electron.Event, argv: string[]): void {
 
 if (IS_DEV) {
   // electron-vite kills the main process and relaunches it on every rebuild
-  // (e.g. when the concurrent `@agent-native/core` tsc --watch under
+  // (e.g. when the concurrent `@agent-native/core` tsgo --watch under
   // dev:lazy:desktop rewrites bundled output). A single-instance lock would
   // make the relaunched instance race the still-dying one for the lock, lose,
   // and app.quit() — leaving the killed instance's dead Dock tile behind.
@@ -1092,6 +1101,9 @@ function createWindow(): BrowserWindow {
       webSecurity: true,
     },
   });
+  installSentryWebContentsInstrumentation(win.webContents, {
+    role: "shell-renderer",
+  });
 
   // Avoid white flash — show window once content is ready
   win.once("ready-to-show", () => win.show());
@@ -1294,6 +1306,10 @@ ipcMain.on(
   (_event: IpcMainEvent, target: ActiveWebviewTarget) => {
     activeAppId = target.appId;
     activeWebviewContentsId = target.webContentsId;
+    setSentryWebContentsMetadata(target.webContentsId, {
+      role: "app-webview",
+      appId: target.appId,
+    });
   },
 );
 
@@ -1873,7 +1889,7 @@ function startRemoteCodeAgentConnector(): CodeAgentRemoteConnectorStatus {
       detached: false,
       stdio: ["ignore", "pipe", "pipe"],
       env: {
-        ...process.env,
+        ...AppStore.getCodeAgentProviderProcessEnv(process.env),
         ...invocation.env,
         AGENT_NATIVE_CODE_AGENTS_HOME: codeAgentStoreRoot(),
       },
@@ -3243,7 +3259,7 @@ function spawnCodeAgentRunner(
       detached: true,
       stdio: ["ignore", "pipe", "pipe"],
       env: {
-        ...process.env,
+        ...AppStore.getCodeAgentProviderProcessEnv(process.env),
         AGENT_NATIVE_CODE_AGENTS_HOME: codeAgentStoreRoot(),
         AGENT_NATIVE_CODE_AGENT_PERMISSION_MODE: normalizedPermissionMode,
       },
@@ -3393,7 +3409,7 @@ function spawnCodeAgentApprovalRunner(
       detached: true,
       stdio: ["ignore", "pipe", "pipe"],
       env: {
-        ...process.env,
+        ...AppStore.getCodeAgentProviderProcessEnv(process.env),
         AGENT_NATIVE_CODE_AGENTS_HOME: codeAgentStoreRoot(),
         AGENT_NATIVE_CODE_AGENT_PERMISSION_MODE: normalizedPermissionMode,
       },
@@ -3861,7 +3877,9 @@ async function generateAndPatchRunTitle(
   runId: string,
   prompt: string,
 ): Promise<string | null> {
-  const apiKey = process.env.ANTHROPIC_API_KEY;
+  const apiKey =
+    process.env.ANTHROPIC_API_KEY ||
+    AppStore.loadCodeAgentProviderCredentials().ANTHROPIC_API_KEY;
 
   if (!apiKey) return null;
 
@@ -6456,6 +6474,7 @@ function getCodeAgentLlmProviderStatus(): NonNullable<
   }
 
   const settings = AppStore.getCodeAgentProviderSettingsStatus();
+  const storedCredentials = AppStore.loadCodeAgentProviderCredentials();
   const codex = getLocalCodexCliStatus();
   const configuredProviders = [
     ...(process.env.AGENT_ENGINE ? ["Custom"] : []),
@@ -6468,7 +6487,7 @@ function getCodeAgentLlmProviderStatus(): NonNullable<
     label: configuredProviders[0],
     configuredProviders,
     missingEnvVars: CODE_AGENT_PROVIDER_SETTING_KEYS.filter(
-      (key) => !process.env[key],
+      (key) => !process.env[key] && !storedCredentials[key],
     ),
   };
 }
@@ -6488,7 +6507,8 @@ function hasRuntimeNonCodexCodeAgentLlmProvider(): boolean {
   if (process.env.OPENAI_API_KEY) return true;
   if (process.env.GOOGLE_GENERATIVE_AI_API_KEY) return true;
   return Boolean(
-    process.env.BUILDER_PRIVATE_KEY && process.env.BUILDER_PUBLIC_KEY,
+    (process.env.BUILDER_PRIVATE_KEY && process.env.BUILDER_PUBLIC_KEY) ||
+    AppStore.getCodeAgentProviderSettingsStatus().configured,
   );
 }
 
@@ -6515,8 +6535,8 @@ function ensureCodeAgentLlmProvider(): {
   }
   if (hasRuntimeCodeAgentLlmProvider()) return { ok: true };
 
-  const applyResult = AppStore.applyCodeAgentProviderCredentialsToEnv();
   if (hasRuntimeCodeAgentLlmProvider()) return { ok: true };
+  const applyResult = AppStore.applyCodeAgentProviderCredentialsToEnv();
   if (applyResult.failedKeys.length > 0) {
     return {
       ok: false,
@@ -8588,6 +8608,9 @@ function installWebviewOAuthNavigationHandler(contents: Electron.WebContents) {
 
 app.on("web-contents-created", (_event, contents) => {
   installContextMenu(contents);
+  installSentryWebContentsInstrumentation(contents, {
+    role: contents.getType() === "webview" ? "app-webview" : "web-contents",
+  });
 
   if (contents.getType() !== "webview") {
     contents.setWindowOpenHandler(({ url }) =>
@@ -8597,6 +8620,9 @@ app.on("web-contents-created", (_event, contents) => {
       "did-attach-webview",
       (_event, webviewContents: WebContents) => {
         installContextMenu(webviewContents);
+        installSentryWebContentsInstrumentation(webviewContents, {
+          role: "app-webview",
+        });
         installWebviewReloadGuard(webviewContents);
         installWebviewOAuthNavigationHandler(webviewContents);
 

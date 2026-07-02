@@ -1,5 +1,6 @@
-import { useMemo, useRef, useState } from "react";
 import { IconCode, IconPlus, IconTrash } from "@tabler/icons-react";
+import { useMemo, useRef, useState } from "react";
+
 import { cn } from "../../utils.js";
 import { ltrCodeBlockProps } from "../code-block-direction.js";
 import type { BlockEditProps, BlockReadProps } from "../types.js";
@@ -7,11 +8,6 @@ import type {
   AnnotatedCodeAnnotation,
   AnnotatedCodeData,
 } from "./annotated-code.config.js";
-import {
-  highlightCode,
-  inferLanguageFromFilename,
-  normalizeCodeLanguage,
-} from "./code-highlight.js";
 import {
   AnnotationHiddenStack,
   AnnotationHoverCard,
@@ -25,7 +21,13 @@ import {
   useAnnotationHover,
   type ResolvedAnnotation,
 } from "./annotation-rail.js";
+import { useBlockCopy } from "./block-copy.js";
 import { CodeFilenameLabel } from "./code-filename-label.js";
+import {
+  highlightCode,
+  inferLanguageFromFilename,
+  normalizeCodeLanguage,
+} from "./code-highlight.js";
 import { DevInput, DevLabel, DevTextarea } from "./dev-doc-ui.js";
 
 /**
@@ -158,6 +160,7 @@ function AnnotatedCodeRead({
   summary,
   ctx,
 }: BlockReadProps<AnnotatedCodeData>) {
+  const copy = useBlockCopy();
   // On-hover popover (anchored to the right of the code) replaces the old
   // persistent rail: nothing is visible when idle. `codeRef` measures the code
   // block's right edge; `hover` carries the active index + captured geometry.
@@ -312,7 +315,11 @@ function AnnotatedCodeRead({
         tabIndex={isAnnotated ? 0 : undefined}
         role={isAnnotated ? "button" : undefined}
         aria-expanded={isAnnotated ? isActive : undefined}
-        aria-label={isAnnotated ? `Line ${lineNo} annotation` : undefined}
+        aria-label={
+          isAnnotated
+            ? copy.lineAnnotation.replace("{{line}}", String(lineNo))
+            : undefined
+        }
         className={cn(
           "relative flex w-full",
           isAnnotated && "cursor-pointer",
@@ -494,7 +501,10 @@ function AnnotatedCodeRead({
                   ···
                 </span>
                 <span className="flex-1 text-[11px] text-plan-muted/70">
-                  {hiddenCount} lines — click to expand
+                  {copy.hiddenLinesExpand.replace(
+                    "{{count}}",
+                    String(hiddenCount),
+                  )}
                 </span>
               </button>
             );

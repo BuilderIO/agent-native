@@ -29,13 +29,14 @@ import type { Dirent } from "node:fs";
 import * as fsSync from "node:fs";
 import fs from "node:fs/promises";
 import path from "node:path";
+
+import type { PlanContent } from "../../shared/plan-content.js";
+import type { PlanComment } from "../../shared/types.js";
 import {
   exportPlanContentToMdxFolder,
   parsePlanMdxFolder,
   type PlanMdxFolder,
 } from "../plan-mdx.js";
-import type { PlanContent } from "../../shared/plan-content.js";
-import type { PlanComment } from "../../shared/types.js";
 
 const PLAN_FOLDER_TITLE_LIMIT = 64;
 const LOCAL_COMMENTS_FILE = "comments.json";
@@ -48,6 +49,7 @@ export interface LocalPlanWriteInput {
   brief?: string | null;
   content: PlanContent | null | undefined;
   url?: string;
+  referencedBlockIds?: Iterable<string>;
 }
 
 export interface LocalPlanFolderWriteInput extends LocalPlanWriteInput {
@@ -511,6 +513,7 @@ export async function writePlanLocalFiles(
       brief: input.brief,
       planId: input.planId,
       url: input.url ?? `/plans/${encodeURIComponent(input.planId)}`,
+      referencedBlockIds: input.referencedBlockIds,
     });
 
     return await writePlanMdxFolderToDisk(
@@ -540,6 +543,7 @@ export async function writePlanLocalFolder(
     brief: input.brief,
     planId: input.planId,
     url: input.url ?? localPlanRoutePath(location.slug, location.repoPath),
+    referencedBlockIds: input.referencedBlockIds,
   });
 
   return await writePlanMdxFolderToDisk(location.folder, mdx);

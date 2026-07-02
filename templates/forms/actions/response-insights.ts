@@ -12,7 +12,9 @@ import { buildDeepLink } from "@agent-native/core/server";
 import { accessFilter, assertAccess } from "@agent-native/core/sharing";
 import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
+
 import { getDb, schema } from "../server/db/index.js";
+import { publicSubmitterEmail } from "../shared/submitter-email.js";
 import type {
   FormField,
   ResponseInsightsChartSeries,
@@ -160,7 +162,9 @@ function buildSpecificFormTable(
   totalRows: number,
 ): ResponseInsightsTable {
   const fields = safeJson<FormField[]>(form.fields, []).slice(0, 7);
-  const hasSubmitter = responses.some((row) => row.submitterEmail);
+  const hasSubmitter = responses.some((row) =>
+    publicSubmitterEmail(row.submitterEmail),
+  );
   const columns = [
     { key: "submittedAt", label: "Submitted" },
     ...(hasSubmitter ? [{ key: "submitterEmail", label: "Email" }] : []),
@@ -172,7 +176,9 @@ function buildSpecificFormTable(
       id: response.id,
       submittedAt: response.submittedAt,
       ...(hasSubmitter
-        ? { submitterEmail: response.submitterEmail ?? "" }
+        ? {
+            submitterEmail: publicSubmitterEmail(response.submitterEmail) ?? "",
+          }
         : {}),
       ...Object.fromEntries(
         fields.map((field) => [field.id, cleanText(data[field.id])]),
@@ -197,7 +203,9 @@ function buildAllFormsTable(
   tableLimit: number,
   totalRows: number,
 ): ResponseInsightsTable {
-  const hasSubmitter = responses.some((row) => row.submitterEmail);
+  const hasSubmitter = responses.some((row) =>
+    publicSubmitterEmail(row.submitterEmail),
+  );
   const columns = [
     { key: "submittedAt", label: "Submitted" },
     { key: "form", label: "Form" },
@@ -209,7 +217,9 @@ function buildAllFormsTable(
     formId: response.formId,
     submittedAt: response.submittedAt,
     form: formsById.get(response.formId)?.title ?? response.formId,
-    ...(hasSubmitter ? { submitterEmail: response.submitterEmail ?? "" } : {}),
+    ...(hasSubmitter
+      ? { submitterEmail: publicSubmitterEmail(response.submitterEmail) ?? "" }
+      : {}),
     summary: responseSummary(response, fieldsByForm),
   }));
 

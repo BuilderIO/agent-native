@@ -6,9 +6,10 @@ import {
   sendEmail,
 } from "@agent-native/core/server";
 import { eq } from "drizzle-orm";
-import { getDb, schema } from "../db/index.js";
+
 import { extractCommentMentions } from "../../shared/comment-context.js";
 import type { PlanBundle, PlanComment } from "../../shared/types.js";
+import { getDb, schema } from "../db/index.js";
 
 type CommentNotificationInput = {
   bundle: PlanBundle;
@@ -229,7 +230,7 @@ export async function notifyPlanCommentRecipients({
   insertedCommentIds,
   priorComments,
 }: CommentNotificationInput): Promise<void> {
-  if (insertedCommentIds.length === 0 || !isEmailConfigured()) return;
+  if (insertedCommentIds.length === 0 || !(await isEmailConfigured())) return;
 
   const db = getDb();
   const [planRow] = await db

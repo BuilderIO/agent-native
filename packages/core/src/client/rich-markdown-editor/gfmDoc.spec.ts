@@ -1,7 +1,8 @@
 // @vitest-environment happy-dom
 
-import { describe, expect, it } from "vitest";
 import type { JSONContent } from "@tiptap/core";
+import { describe, expect, it } from "vitest";
+
 import { gfmToProseJSON, proseJSONToGfm } from "./gfmDoc.js";
 
 /**

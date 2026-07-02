@@ -1,10 +1,11 @@
 import { describe, expect, it } from "vitest";
+
+import type { PlanContent } from "./plan-content.js";
 import {
   diffPlanVersions,
   formatVersionDiffSummary,
   type PlanVersionDiff,
 } from "./plan-version-diff.js";
-import type { PlanContent } from "./plan-content.js";
 
 /* -------------------------------------------------------------------------- */
 /* Helpers                                                                     */

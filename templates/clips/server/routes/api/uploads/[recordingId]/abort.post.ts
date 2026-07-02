@@ -6,20 +6,25 @@
  */
 
 import {
+  writeAppState,
+  deleteAppStateByPrefix,
+} from "@agent-native/core/application-state";
+import { runWithRequestContext } from "@agent-native/core/server";
+import { and, eq } from "drizzle-orm";
+import {
   defineEventHandler,
   getRouterParam,
   readBody,
   setResponseStatus,
   type H3Event,
 } from "h3";
-import { and, eq } from "drizzle-orm";
+
 import { getDb, schema } from "../../../../db/index.js";
-import { getEventOwnerContext } from "../../../../lib/recordings.js";
-import { runWithRequestContext } from "@agent-native/core/server";
 import {
-  writeAppState,
-  deleteAppStateByPrefix,
-} from "@agent-native/core/application-state";
+  getEventOwnerContext,
+  ownerEmailMatches,
+} from "../../../../lib/recordings.js";
+import { deleteResumableSession } from "../../../../lib/resumable-session.js";
 
 export default defineEventHandler(async (event: H3Event) => {
   const recordingId = getRouterParam(event, "recordingId");
@@ -41,12 +46,16 @@ export default defineEventHandler(async (event: H3Event) => {
     const db = getDb();
 
     const [existing] = await db
-      .select({ id: schema.recordings.id })
+      .select({
+        id: schema.recordings.id,
+        status: schema.recordings.status,
+        videoUrl: schema.recordings.videoUrl,
+      })
       .from(schema.recordings)
       .where(
         and(
           eq(schema.recordings.id, recordingId),
-          eq(schema.recordings.ownerEmail, ownerEmail),
+          ownerEmailMatches(schema.recordings.ownerEmail, ownerEmail),
         ),
       );
 
@@ -55,9 +64,14 @@ export default defineEventHandler(async (event: H3Event) => {
       return { error: "Recording not found" };
     }
 
+    if (existing.status === "ready" && existing.videoUrl) {
+      return { ok: true, recordingId, alreadyReady: true, chunksCleared: 0 };
+    }
+
     const cleared = await deleteAppStateByPrefix(
       `recording-chunks-${recordingId}-`,
     );
+    await deleteResumableSession(recordingId).catch(() => {});
 
     const now = new Date().toISOString();
     await db

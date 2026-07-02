@@ -2,17 +2,20 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
+
 import { afterEach, describe, expect, it, vi } from "vitest";
+
+import { signEmbedSessionToken } from "../server/embed-session.js";
 import {
   _findCorePackageRoot,
   _getClientDedupe,
   _getDefaultOptimizeDeps,
   _getReactRouterAliases,
+  agentNative,
   defineConfig,
   isFrameworkDevPath,
   stripMountedDevApiPath,
 } from "./client.js";
-import { signEmbedSessionToken } from "../server/embed-session.js";
 
 function findPlugin(name: string) {
   const plugins = (defineConfig().plugins ?? [])
@@ -21,6 +24,10 @@ function findPlugin(name: string) {
   const plugin = plugins.find((p) => p?.name === name);
   expect(plugin).toBeDefined();
   return plugin;
+}
+
+function flatPlugins(plugins: any[] | undefined): any[] {
+  return (plugins ?? []).flat().filter(Boolean) as any[];
 }
 
 describe("dev server mounted path helpers", () => {
@@ -308,6 +315,164 @@ describe("route warmup config", () => {
     );
 
     expect(routeWarmup.strategy).toBe("viewport");
+  });
+
+  it("exposes the build-time GA measurement id for SSR bundles", () => {
+    const previous = process.env.GA_MEASUREMENT_ID;
+    process.env.GA_MEASUREMENT_ID = "  G-UNITTEST123  ";
+
+    try {
+      const config = defineConfig();
+
+      expect(config.define?.__AGENT_NATIVE_BUILD_GA_MEASUREMENT_ID__).toBe(
+        JSON.stringify("G-UNITTEST123"),
+      );
+      expect(
+        config.define?.["process.env.AGENT_NATIVE_BUILD_GA_MEASUREMENT_ID"],
+      ).toBe(JSON.stringify("G-UNITTEST123"));
+    } finally {
+      if (previous === undefined) {
+        delete process.env.GA_MEASUREMENT_ID;
+      } else {
+        process.env.GA_MEASUREMENT_ID = previous;
+      }
+    }
+  });
+});
+
+describe("MCP integrations config", () => {
+  it("exposes default MCP integration catalog settings", () => {
+    const config = defineConfig();
+    const mcpIntegrations = JSON.parse(
+      String(config.define?.__AGENT_NATIVE_MCP_INTEGRATIONS_CONFIG__),
+    );
+
+    expect(mcpIntegrations).toEqual({
+      enabled: true,
+      custom: true,
+      defaults: { enabled: true, exclude: [] },
+    });
+  });
+
+  it("lets products disable or filter default MCP integration presets", () => {
+    const config = defineConfig({
+      mcpIntegrations: {
+        defaults: { include: ["context7", "sentry"], exclude: ["sentry"] },
+        custom: false,
+      },
+    });
+    const mcpIntegrations = JSON.parse(
+      String(config.define?.__AGENT_NATIVE_MCP_INTEGRATIONS_CONFIG__),
+    );
+
+    expect(mcpIntegrations).toEqual({
+      enabled: true,
+      custom: false,
+      defaults: {
+        enabled: true,
+        include: ["context7", "sentry"],
+        exclude: ["sentry"],
+      },
+    });
+  });
+
+  it("lets products hide the whole MCP integrations entry", () => {
+    const config = defineConfig({ mcpIntegrations: false });
+    const mcpIntegrations = JSON.parse(
+      String(config.define?.__AGENT_NATIVE_MCP_INTEGRATIONS_CONFIG__),
+    );
+
+    expect(mcpIntegrations.enabled).toBe(false);
+    expect(mcpIntegrations.custom).toBe(false);
+    expect(mcpIntegrations.defaults.enabled).toBe(false);
+  });
+});
+
+describe("agentNative Vite plugin preset", () => {
+  it("returns a Vite preset with framework plugins and a config hook", () => {
+    const plugins = flatPlugins(agentNative({ ssrStubs: ["yjs"] }));
+    const pluginNames = plugins.map((p) => p?.name);
+
+    expect(pluginNames[0]).toBe("agent-native-config");
+    expect(pluginNames).toContain("agent-native-ssr-stub-heavy-libs");
+    expect(pluginNames).toContain("agent-native-action-types");
+    expect(pluginNames).toContain("agent-native-agents-bundle");
+    expect(pluginNames).toContain("agent-native-auto-reload-optimize-dep");
+    expect(pluginNames).toContain("agent-native-port-exposer");
+  });
+
+  it("applies framework defaults without clobbering ordinary Vite config", async () => {
+    const plugins = flatPlugins(
+      agentNative({ routeWarmup: { strategy: "render" } }),
+    );
+    const configPlugin = plugins.find((p) => p?.name === "agent-native-config");
+
+    const config = (await configPlugin.config(
+      {
+        define: {
+          __APP_DEFINE__: JSON.stringify("ok"),
+          __AGENT_NATIVE_ROUTE_WARMUP_CONFIG__: JSON.stringify({
+            strategy: "off",
+          }),
+        },
+        server: {
+          port: 4242,
+          fs: {
+            allow: ["/tmp/app-assets"],
+            deny: ["secret.txt"],
+          },
+        },
+        build: {
+          outDir: "build/client",
+        },
+        optimizeDeps: {
+          include: ["date-fns"],
+          exclude: ["lodash"],
+        },
+        resolve: {
+          dedupe: ["zustand"],
+          alias: { "~": "/tmp/app" },
+        },
+      },
+      { command: "serve", mode: "development" },
+    )) as any;
+
+    const routeWarmup = JSON.parse(
+      String(config.define.__AGENT_NATIVE_ROUTE_WARMUP_CONFIG__),
+    );
+
+    expect(config.plugins).toBeUndefined();
+    expect(routeWarmup.strategy).toBe("render");
+    expect(config.define.__APP_DEFINE__).toBe(JSON.stringify("ok"));
+    expect(config.define.__AGENT_NATIVE_BUILD_GA_MEASUREMENT_ID__).toBe(
+      JSON.stringify(process.env.GA_MEASUREMENT_ID?.trim() || ""),
+    );
+    expect(
+      config.define["process.env.AGENT_NATIVE_BUILD_GA_MEASUREMENT_ID"],
+    ).toBe(JSON.stringify(process.env.GA_MEASUREMENT_ID?.trim() || ""));
+    expect(config.server.port).toBe(4242);
+    expect(config.server.fs.allow).toContain("/tmp/app-assets");
+    expect(config.server.fs.deny).toContain("secret.txt");
+    expect(config.build.outDir).toBe("build/client");
+    expect(config.build.cssMinify).toBe("esbuild");
+    expect(config.optimizeDeps.include).toContain("date-fns");
+    expect(config.optimizeDeps.exclude).toContain("lodash");
+    expect(config.resolve.dedupe).toContain("zustand");
+    expect(config.resolve.alias).toContainEqual({
+      find: "~",
+      replacement: "/tmp/app",
+    });
+  });
+
+  it("keeps legacy defineConfig caller plugins before framework plugins", () => {
+    const callerPlugin = { name: "react-router" };
+    const config = defineConfig({ plugins: [callerPlugin] });
+    const pluginNames = flatPlugins(config.plugins as any[]).map((p) => p.name);
+
+    expect(pluginNames.indexOf("react-router")).toBeLessThan(
+      pluginNames.indexOf("agent-native-action-types"),
+    );
+    expect(pluginNames).not.toContain("@vitejs/plugin-react-swc");
   });
 });
 
@@ -664,7 +829,7 @@ describe("local-core dev aliases and router dedupe", () => {
     fs.writeFileSync(
       path.join(tmpDir, "package.json"),
       JSON.stringify({
-        dependencies: { "react-router": "^7.16.0" },
+        dependencies: { "react-router": "^8.0.1" },
       }),
     );
 
@@ -683,7 +848,7 @@ describe("local-core dev aliases and router dedupe", () => {
       JSON.stringify({
         dependencies: {
           "@agent-native/core": pathToFileURL(coreRoot).href,
-          "react-router": "^7.16.0",
+          "react-router": "^8.0.1",
         },
       }),
     );
@@ -742,8 +907,7 @@ describe("local-core dev aliases and router dedupe", () => {
       path.join(tmpDir, "package.json"),
       JSON.stringify({
         dependencies: {
-          "react-router": "^7.16.0",
-          "react-router-dom": "^7.16.0",
+          "react-router": "^8.0.1",
         },
       }),
     );
@@ -761,14 +925,12 @@ describe("local-core dev aliases and router dedupe", () => {
           entry instanceof RegExp &&
           entry.test("react-router") &&
           entry.test("react-router/dom") &&
-          !entry.test("react-router-dom"),
+          !entry.test("react-router-extra"),
       );
 
       expect(routerNoExternal).toBeDefined();
-      expect(noExternal).toContain("react-router-dom");
       expect(external).not.toContain("react-router");
       expect(external).not.toContain("react-router/dom");
-      expect(external).not.toContain("react-router-dom");
     } finally {
       process.chdir(previousCwd);
       fs.rmSync(tmpDir, { recursive: true, force: true });

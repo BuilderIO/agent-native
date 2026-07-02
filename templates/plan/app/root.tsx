@@ -1,14 +1,3 @@
-import {
-  Links,
-  Meta,
-  Outlet,
-  Scripts,
-  ScrollRestoration,
-  useNavigate,
-} from "react-router";
-import { useCallback, useState } from "react";
-import { useNavigationState } from "@/hooks/use-navigation-state";
-import { useQueryClient } from "@tanstack/react-query";
 import { useDbSync } from "@agent-native/core/client";
 import {
   AppProviders,
@@ -22,20 +11,43 @@ import {
   useCommandMenuShortcut,
   useT,
 } from "@agent-native/core/client";
-import { IconSun, IconMoon } from "@tabler/icons-react";
+import { configureTracking } from "@agent-native/core/client";
+import {
+  IconMoon,
+  IconScribble,
+  IconShape2,
+  IconSun,
+} from "@tabler/icons-react";
+import { useQueryClient } from "@tanstack/react-query";
 import { useTheme } from "next-themes";
-import changelog from "../CHANGELOG.md?raw";
-import { Toaster } from "@/components/ui/sonner";
+import { useCallback, useState } from "react";
+import {
+  Links,
+  Meta,
+  Outlet,
+  Scripts,
+  ScrollRestoration,
+  useNavigate,
+} from "react-router";
+import type { LinksFunction } from "react-router";
+
 import { Layout as AppLayout } from "@/components/layout/Layout";
-import { TAB_ID } from "@/lib/tab-id";
+import {
+  toggleWireframeStyle,
+  useWireframeStyle,
+} from "@/components/plan/wireframe/use-wireframe-style";
+import { Toaster } from "@/components/ui/sonner";
+import { useNavigationState } from "@/hooks/use-navigation-state";
 import { APP_TITLE } from "@/lib/app-config";
 // Side effect: register Plan's native chat renderers so visual answers render
 // their diagram/wireframe/api-spec blocks inline in the agent chat.
 import "@/lib/register-chat-renderers";
-import type { LinksFunction } from "react-router";
-import stylesheet from "./global.css?url";
-import { configureTracking } from "@agent-native/core/client";
+import { TAB_ID } from "@/lib/tab-id";
+
+import changelog from "../CHANGELOG.md?raw";
 import { i18nCatalog } from "./i18n";
+
+import stylesheet from "./global.css?url";
 configureTracking({
   getDefaultProps: (_name, properties) => ({
     ...properties,
@@ -129,6 +141,7 @@ function AppContent() {
   const navigate = useNavigate();
   const { resolvedTheme, setTheme } = useTheme();
   const isDark = resolvedTheme === "dark";
+  const wireframeStyle = useWireframeStyle();
   const t = useT();
   useCommandMenuShortcut(useCallback(() => setCmdkOpen(true), []));
   const go = useCallback(
@@ -165,6 +178,26 @@ function AppContent() {
           >
             {isDark ? <IconSun size={16} /> : <IconMoon size={16} />}
             {t("root.toggleTheme")}
+          </CommandMenu.Item>
+          <CommandMenu.Item
+            onSelect={() => toggleWireframeStyle()}
+            keywords={[
+              "wireframe",
+              "wireframes",
+              "sketchy",
+              "sketch",
+              "clean",
+              "style",
+            ]}
+          >
+            {wireframeStyle === "sketchy" ? (
+              <IconShape2 size={16} />
+            ) : (
+              <IconScribble size={16} />
+            )}
+            {wireframeStyle === "sketchy"
+              ? t("plansPage.reader.cleanWireframes")
+              : t("plansPage.reader.sketchyWireframes")}
           </CommandMenu.Item>
         </CommandMenu.Group>
       </CommandMenu>

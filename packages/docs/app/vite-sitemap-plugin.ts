@@ -1,8 +1,10 @@
+import { execSync } from "child_process";
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
-import { execSync } from "child_process";
+
 import type { Plugin } from "vite";
+
 import {
   buildSitemapXml as buildAgentWebSitemapXml,
   type AgentWebPage,
@@ -12,6 +14,12 @@ import {
   isLocaleCode,
 } from "../../core/src/localization/shared";
 import { createAgentWebVitePlugin } from "../../core/src/vite/agent-web-plugin";
+import { docsBodyToMarkdownMirror } from "../lib/docs-markdown-export";
+import {
+  docSourceSlugFromFilename,
+  preferMdxDocSourceFiles,
+} from "../lib/docs-source";
+import enUS from "./i18n/en-US";
 
 export const SITE_URL = "https://www.agent-native.com";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -70,23 +78,24 @@ export function buildAgentWebPages(rootDir: string): AgentWebPage[] {
   );
   const docsLastmod = gitLastmod(docsDir);
 
-  const docsPages = fs
-    .readdirSync(docsDir)
-    .filter((name) => name.endsWith(".md"))
-    .map((name) => {
-      const slug = name.replace(/\.md$/, "");
-      const filePath = path.join(docsDir, name);
-      const raw = fs.readFileSync(filePath, "utf8");
-      const { data, body } = parseFrontmatter(raw);
-      return {
-        path: slug === "getting-started" ? "/docs" : `/docs/${slug}`,
-        title: data.title || titleFromSlug(slug),
-        description: data.description,
-        markdown: body.trim() + "\n",
-        markdownPath: `/docs/${slug}.md`,
-        lastmod: docsLastmod,
-      } satisfies AgentWebPage;
-    });
+  const docsPages = preferMdxDocSourceFiles(
+    fs
+      .readdirSync(docsDir)
+      .filter((name) => fs.statSync(path.join(docsDir, name)).isFile()),
+  ).map((name) => {
+    const slug = docSourceSlugFromFilename(name);
+    const filePath = path.join(docsDir, name);
+    const raw = fs.readFileSync(filePath, "utf8");
+    const { data, body } = parseFrontmatter(raw);
+    return {
+      path: slug === "getting-started" ? "/docs" : `/docs/${slug}`,
+      title: data.title || titleFromSlug(slug),
+      description: data.description,
+      markdown: docsBodyToMarkdownMirror(body),
+      markdownPath: `/docs/${slug}.md`,
+      lastmod: docsLastmod,
+    } satisfies AgentWebPage;
+  });
 
   const localizedDocsRoot = path.join(docsDir, "locales");
   const localizedDocsPages = fs.existsSync(localizedDocsRoot)
@@ -95,51 +104,57 @@ export function buildAgentWebPages(rootDir: string): AgentWebPage[] {
         .filter((locale) => isLocaleCode(locale) && locale !== DEFAULT_LOCALE)
         .flatMap((locale) => {
           const localeDir = path.join(localizedDocsRoot, locale);
-          return fs
-            .readdirSync(localeDir)
-            .filter((name) => name.endsWith(".md"))
-            .map((name) => {
-              const slug = name.replace(/\.md$/, "");
-              const filePath = path.join(localeDir, name);
-              const raw = fs.readFileSync(filePath, "utf8");
-              const { data, body } = parseFrontmatter(raw);
-              return {
-                path:
-                  slug === "getting-started"
-                    ? `/${locale}/docs`
-                    : `/${locale}/docs/${slug}`,
-                title: data.title || titleFromSlug(slug),
-                description: data.description,
-                markdown: body.trim() + "\n",
-                markdownPath: `/${locale}/docs/${slug}.md`,
-                lastmod: docsLastmod,
-              } satisfies AgentWebPage;
-            });
+          return preferMdxDocSourceFiles(
+            fs
+              .readdirSync(localeDir)
+              .filter((name) =>
+                fs.statSync(path.join(localeDir, name)).isFile(),
+              ),
+          ).map((name) => {
+            const slug = docSourceSlugFromFilename(name);
+            const filePath = path.join(localeDir, name);
+            const raw = fs.readFileSync(filePath, "utf8");
+            const { data, body } = parseFrontmatter(raw);
+            return {
+              path:
+                slug === "getting-started"
+                  ? `/${locale}/docs`
+                  : `/${locale}/docs/${slug}`,
+              title: data.title || titleFromSlug(slug),
+              description: data.description,
+              markdown: docsBodyToMarkdownMirror(body),
+              markdownPath: `/${locale}/docs/${slug}.md`,
+              lastmod: docsLastmod,
+            } satisfies AgentWebPage;
+          });
         })
     : [];
 
   const templateSource = fs.readFileSync(templateCardPath, "utf8");
-  const templatePages = parseTemplatePages(templateSource).map((template) => ({
-    path: `/templates/${template.slug}`,
-    title: `${template.name} template`,
-    description: template.description,
-    markdown: [
-      `# ${template.name} template`,
-      "",
-      template.description,
-      "",
-      `- Replaces or augments: ${template.replaces}`,
-      `- CLI: \`${template.cliCommand}\``,
-      template.demoUrl ? `- Demo: ${template.demoUrl}` : undefined,
-      `- Source: https://github.com/BuilderIO/agent-native/tree/main/templates/${
-        template.slug === "video" ? "videos" : template.slug
-      }`,
-      "",
-    ]
-      .filter((line): line is string => typeof line === "string")
-      .join("\n"),
-    lastmod: gitLastmod(templateCardPath),
-  }));
+  const templatePages = parseTemplatePages(templateSource).map((template) => {
+    const copy = enUS.templates[template.slug];
+    return {
+      path: `/apps/${template.slug}`,
+      title: `${template.name} app`,
+      description: copy.description,
+      markdown: [
+        `# ${template.name} app`,
+        "",
+        copy.description,
+        "",
+        `- Replaces or augments: ${copy.replaces}`,
+        `- CLI: \`${template.cliCommand}\``,
+        template.demoUrl ? `- Demo: ${template.demoUrl}` : undefined,
+        `- Source: https://github.com/BuilderIO/agent-native/tree/main/templates/${
+          template.slug === "video" ? "videos" : template.slug
+        }`,
+        "",
+      ]
+        .filter((line): line is string => typeof line === "string")
+        .join("\n"),
+      lastmod: gitLastmod(templateCardPath),
+    };
+  });
 
   return sortPages([
     {
@@ -165,26 +180,26 @@ Agent-Native is an open source framework for building apps where AI agents and U
       path: "/privacy",
       title: "Agent-Native Privacy Policy",
       description:
-        "Privacy policy for Agent-Native hosted applications, templates, and browser extensions.",
+        "Privacy policy for Agent-Native hosted applications, apps, and browser extensions.",
       markdown:
-        "# Agent-Native Privacy Policy\n\nPrivacy policy for Agent-Native hosted applications, templates, and browser extensions. Chrome extension disclosures are included at `/privacy#clips-chrome-extension`.\n",
+        "# Agent-Native Privacy Policy\n\nPrivacy policy for Agent-Native hosted applications, apps, and browser extensions. Chrome extension disclosures are included at `/privacy#clips-chrome-extension`.\n",
       lastmod: gitLastmod(path.resolve(rootDir, "app/routes/privacy.tsx")),
     },
     {
       path: "/terms",
       title: "Agent-Native Terms of Service",
       description:
-        "Terms of Service for Agent-Native hosted applications, templates, demos, and official hosted services.",
+        "Terms of Service for Agent-Native hosted applications, apps, demos, and official hosted services.",
       markdown:
-        "# Agent-Native Terms of Service\n\nTerms of Service for Agent-Native hosted applications, templates, demos, and official hosted services.\n",
+        "# Agent-Native Terms of Service\n\nTerms of Service for Agent-Native hosted applications, apps, demos, and official hosted services.\n",
       lastmod: gitLastmod(path.resolve(rootDir, "app/routes/terms.tsx")),
     },
     {
-      path: "/templates",
-      title: "Agent-Native Templates",
-      description: "Ready-to-fork app templates built with Agent-Native.",
+      path: "/apps",
+      title: "Agent-Native Apps",
+      description: "Ready-to-fork apps built with Agent-Native.",
       markdown:
-        "# Agent-Native Templates\n\nReady-to-fork app templates built with Agent-Native.\n",
+        "# Agent-Native Apps\n\nReady-to-fork apps built with Agent-Native.\n",
       lastmod: gitLastmod(path.resolve(rootDir, "app/routes/templates.tsx")),
     },
     {
@@ -229,39 +244,35 @@ function parseFrontmatter(raw: string): {
 
 function parseTemplatePages(source: string): {
   name: string;
-  slug: string;
-  replaces: string;
+  slug: keyof typeof enUS.templates;
   cliCommand: string;
   demoUrl?: string;
-  description: string;
 }[] {
   const pages: {
     name: string;
-    slug: string;
-    replaces: string;
+    slug: keyof typeof enUS.templates;
     cliCommand: string;
     demoUrl?: string;
-    description: string;
   }[] = [];
   const objectPattern = /\{\s*name:\s*"([^"]+)"([\s\S]*?)\n\s*\}/g;
   let match: RegExpExecArray | null;
   while ((match = objectPattern.exec(source)) !== null) {
     const block = `name: "${match[1]}"${match[2]}`;
     const slug = readStringField(block, "slug");
-    const replaces = readStringField(block, "replaces");
     const cliCommand = readStringField(block, "cliCommand");
-    const description = readStringField(block, "description");
-    if (!slug || !replaces || !cliCommand || !description) continue;
+    if (!slug || !isTemplateSlug(slug) || !cliCommand) continue;
     pages.push({
       name: match[1],
       slug,
-      replaces,
       cliCommand,
-      description,
       demoUrl: readStringField(block, "demoUrl"),
     });
   }
   return pages;
+}
+
+function isTemplateSlug(slug: string): slug is keyof typeof enUS.templates {
+  return slug in enUS.templates;
 }
 
 function readStringField(source: string, field: string): string | undefined {

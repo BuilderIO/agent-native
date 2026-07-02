@@ -17,7 +17,13 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 
+import { runScreenMemoryMCPStdio } from "../mcp/screen-memory-stdio.js";
 import { runMCPStdio } from "../mcp/stdio.js";
+import {
+  findWorkspaceRoot,
+  resolveLocalAppOrigin,
+  resolveWorkspace,
+} from "../mcp/workspace-resolve.js";
 import {
   CLIENTS,
   type ClientId,
@@ -33,11 +39,6 @@ import {
   writeFileAtomic,
   writeJsonMcpEntryForClient,
 } from "./mcp-config-writers.js";
-import {
-  findWorkspaceRoot,
-  resolveLocalAppOrigin,
-  resolveWorkspace,
-} from "../mcp/workspace-resolve.js";
 
 const SERVER_NAME_PREFIX = "agent-native";
 
@@ -46,6 +47,7 @@ interface ParsedArgs {
   client?: string;
   app?: string;
   port?: number;
+  screenMemoryDir?: string;
   scope?: string;
   standalone: boolean;
   rotate: boolean;
@@ -64,6 +66,7 @@ function parseArgs(argv: string[]): ParsedArgs {
     if ((v = eat("--client")) !== undefined) out.client = v;
     else if ((v = eat("--app")) !== undefined) out.app = v;
     else if ((v = eat("--port")) !== undefined) out.port = Number(v);
+    else if ((v = eat("--dir")) !== undefined) out.screenMemoryDir = v;
     else if ((v = eat("--scope")) !== undefined) out.scope = v;
     else if (a === "--standalone") out.standalone = true;
     else if (a === "--rotate") out.rotate = true;
@@ -205,21 +208,26 @@ async function mintHostedJwt(cwd: string): Promise<string | undefined> {
     process.env.AGENT_NATIVE_OWNER_EMAIL ||
     process.env.OWNER_EMAIL ||
     "owner@localhost";
+  let fileA2ASecret: string | undefined;
   if (!process.env.A2A_SECRET) {
     const baseDir = envBaseDir(cwd);
     const content =
       readEnvFile(path.join(baseDir, ".env.local")) +
       "\n" +
       readEnvFile(path.join(baseDir, ".env"));
-    const secret = getEnvValue(content, "A2A_SECRET");
-    if (secret) process.env.A2A_SECRET = secret;
+    fileA2ASecret = getEnvValue(content, "A2A_SECRET");
   }
   try {
     const { signA2AToken } = await import("../a2a/client.js");
-    return await signA2AToken(owner, undefined, undefined, {
-      preferGlobalSecret: true,
-      expiresIn: "30d",
-    });
+    return await signA2AToken(
+      owner,
+      undefined,
+      process.env.A2A_SECRET || fileA2ASecret,
+      {
+        preferGlobalSecret: true,
+        expiresIn: "30d",
+      },
+    );
   } catch (err: any) {
     logErr(
       `  Could not mint a hosted JWT (${err?.message ?? err}). ` +
@@ -532,6 +540,10 @@ Usage:
       Run the MCP stdio transport (what client configs spawn).
       Default: proxy to the running local app; --standalone builds from disk.
 
+  npx @agent-native/core@latest mcp screen-memory [--dir <path>]
+      Run the local Clips Screen Memory stdio server.
+      Defaults to the Clips app-data screen-memory folder.
+
   npx @agent-native/core@latest mcp install --client <c> [--app <id>] [--scope user|project]
       Provision a token and write the client's MCP config (idempotent).
       Clients: claude-code, codex, cowork, cursor, opencode, github-copilot
@@ -552,6 +564,9 @@ export async function runMcp(args: string[]): Promise<void> {
   switch (sub) {
     case "serve":
       await cmdServe(p);
+      return;
+    case "screen-memory":
+      await runScreenMemoryMCPStdio({ storeDir: p.screenMemoryDir });
       return;
     case "install":
       await cmdInstall(p);

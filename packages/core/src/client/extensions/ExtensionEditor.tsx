@@ -1,7 +1,3 @@
-import { agentNativePath } from "../api-path.js";
-import { useState, useEffect } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link, useNavigate } from "react-router";
 import {
   IconArrowLeft,
   IconDeviceFloppy,
@@ -9,12 +5,17 @@ import {
   IconTrash,
   IconX,
 } from "@tabler/icons-react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useState, useEffect } from "react";
+import { Link, useNavigate } from "react-router";
+
+import { extensionPath } from "../../extensions/path.js";
+import { agentNativePath } from "../api-path.js";
 import {
   Popover,
   PopoverContent,
   PopoverTrigger,
 } from "../components/ui/popover.js";
-import { cn } from "../utils.js";
 import {
   Tooltip,
   TooltipContent,
@@ -22,11 +23,11 @@ import {
   TooltipTrigger,
 } from "../components/ui/tooltip.js";
 import { useT } from "../i18n.js";
+import { cn } from "../utils.js";
 import {
   deleteOrHideExtension,
   invalidateExtensionRemoval,
 } from "./delete-extension.js";
-import { extensionPath } from "../../extensions/path.js";
 
 interface SlotDeclaration {
   id: string;

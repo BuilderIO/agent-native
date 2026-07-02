@@ -1,16 +1,18 @@
-import { useEffect, useMemo, useState } from "react";
-import { useLocation } from "react-router";
-import { Sidebar } from "./Sidebar";
-import { Header } from "./Header";
-import { HeaderActionsProvider } from "./HeaderActions";
 import { AgentSidebar, useT } from "@agent-native/core/client";
 import { InvitationBanner } from "@agent-native/core/client/org";
 import { IconMenu2 } from "@tabler/icons-react";
-import { cn } from "@/lib/utils";
-import { useSidebarCollapsed } from "@/hooks/use-sidebar-collapsed";
+import { useEffect, useMemo, useState } from "react";
+import { useLocation } from "react-router";
+
 import { useDecks } from "@/context/DeckContext";
-import { AgentWorkIndicator } from "./AgentWorkIndicator";
+import { useSidebarCollapsed } from "@/hooks/use-sidebar-collapsed";
 import { TAB_ID } from "@/lib/tab-id";
+import { cn } from "@/lib/utils";
+
+import { AgentWorkIndicator } from "./AgentWorkIndicator";
+import { Header } from "./Header";
+import { HeaderActionsProvider } from "./HeaderActions";
+import { Sidebar } from "./Sidebar";
 
 interface LayoutProps {
   children: React.ReactNode;
@@ -76,7 +78,7 @@ export function Layout({ children }: LayoutProps) {
         scope={deckScope}
         browserTabId={TAB_ID}
       >
-        <div className="flex h-screen w-full overflow-hidden bg-background text-foreground">
+        <div className="agent-layout-shell flex h-screen w-full overflow-hidden bg-background text-foreground">
           {sidebarOpen && (
             <div
               className="fixed inset-0 z-40 bg-black/50 md:hidden"
@@ -85,7 +87,7 @@ export function Layout({ children }: LayoutProps) {
           )}
           <div
             className={cn(
-              "fixed inset-y-0 start-0 z-50 md:static md:z-auto",
+              "agent-layout-left-drawer fixed inset-y-0 start-0 z-50 transition-transform duration-200 ease-out md:static md:z-auto md:transition-none",
               sidebarOpen
                 ? "translate-x-0"
                 : "-translate-x-full rtl:translate-x-full md:translate-x-0 md:rtl:translate-x-0",
@@ -104,7 +106,7 @@ export function Layout({ children }: LayoutProps) {
               }
             />
           </div>
-          <div className="flex h-full flex-1 flex-col overflow-hidden">
+          <div className="agent-layout-main-surface flex h-full flex-1 flex-col overflow-hidden">
             {/* Mobile-only nav strip with hamburger — only when there's no page toolbar */}
             {!ownToolbar && (
               <div className="flex h-12 items-center border-b border-border px-4 md:hidden shrink-0">
@@ -119,7 +121,9 @@ export function Layout({ children }: LayoutProps) {
             )}
             {!ownToolbar && <Header />}
             <InvitationBanner />
-            {children}
+            <main className="agent-native-app-main min-h-0 flex-1 overflow-y-auto">
+              {children}
+            </main>
           </div>
           <AgentWorkIndicator />
         </div>

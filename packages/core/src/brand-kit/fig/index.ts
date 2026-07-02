@@ -1,10 +1,4 @@
 import type { BrandKitData, BrandKitDefaults } from "../types.js";
-import { decodeFig } from "./decode.js";
-import { extractDesignSystemFromFig } from "./extract-design-system.js";
-
-export * from "./decode.js";
-export * from "./extract-design-system.js";
-export * from "./fig-to-html.js";
 
 export interface FigBrandKitPreview {
   gradients: string[];
@@ -25,6 +19,12 @@ export interface FigBrandKitExtraction {
 
 export const MAX_FIG_THUMBNAIL_BYTES = 512 * 1024;
 
+function unsupportedFigImport(): never {
+  throw new Error(
+    "Local .fig design-system extraction has moved to Builder indexing. Connect Builder and use the design system indexing flow instead.",
+  );
+}
+
 export function looksLikeFigFile(data: Uint8Array): boolean {
   const isZip =
     data[0] === 0x50 &&
@@ -42,39 +42,19 @@ export function figThumbnailDataUrl(thumbnail: Buffer | null): string | null {
 }
 
 export function extractFigBrandKit(
-  input: Buffer | Uint8Array,
+  _input: Buffer | Uint8Array,
 ): FigBrandKitExtraction {
-  const decoded = decodeFig(Buffer.from(input));
-  if (!decoded.document) {
-    throw new Error(
-      "Decoded the file but found no document. It may be a partial or corrupt export.",
-    );
-  }
+  return unsupportedFigImport();
+}
 
-  const extracted = extractDesignSystemFromFig(decoded.document);
-  const {
-    customInstructions,
-    gradients,
-    palette,
-    namedColors,
-    nodeCount,
-    ...data
-  } = extracted;
+export function decodeFig(_input: Buffer | Uint8Array): never {
+  return unsupportedFigImport();
+}
 
-  const thumbnailDataUrl = figThumbnailDataUrl(decoded.thumbnail);
+export function extractDesignSystemFromFig(_document: unknown): never {
+  return unsupportedFigImport();
+}
 
-  return {
-    format: decoded.format,
-    version: decoded.version ?? null,
-    data,
-    customInstructions: customInstructions ?? "",
-    preview: {
-      gradients: gradients ?? [],
-      palette: palette ?? [],
-      namedColors: namedColors ?? {},
-      thumbnailDataUrl,
-      nodeCount: nodeCount ?? 0,
-      imageCount: decoded.images.length,
-    },
-  };
+export function figToHtml(_node: unknown): never {
+  return unsupportedFigImport();
 }

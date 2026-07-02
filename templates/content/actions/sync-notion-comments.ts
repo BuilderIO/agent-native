@@ -1,8 +1,9 @@
 import { defineAction } from "@agent-native/core";
-import { getCurrentOwnerEmail } from "../server/lib/documents.js";
-import { z } from "zod";
 import { and, eq, isNull } from "drizzle-orm";
+import { z } from "zod";
+
 import { getDb, schema } from "../server/db/index.js";
+import { getCurrentOwnerEmail } from "../server/lib/documents.js";
 
 export default defineAction({
   description:

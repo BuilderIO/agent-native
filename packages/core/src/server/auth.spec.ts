@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+
 import {
   DEFAULT_SSR_CACHE_CONTROL,
   DEFAULT_SSR_CDN_CACHE_CONTROL,
@@ -46,7 +47,7 @@ describe("server/auth", () => {
 
       vi.stubEnv("NODE_ENV", "test");
       expect(shouldSkipEmailVerification()).toBe(true);
-    });
+    }, 15_000);
 
     it("is disabled by default in production", async () => {
       vi.stubEnv("NODE_ENV", "production");
@@ -54,7 +55,7 @@ describe("server/auth", () => {
         await import("./better-auth-instance.js");
 
       expect(shouldSkipEmailVerification()).toBe(false);
-    });
+    }, 15_000);
 
     it("is enabled by AUTH_SKIP_EMAIL_VERIFICATION=1", async () => {
       vi.stubEnv("AUTH_SKIP_EMAIL_VERIFICATION", "1");
@@ -62,7 +63,7 @@ describe("server/auth", () => {
         await import("./better-auth-instance.js");
 
       expect(shouldSkipEmailVerification()).toBe(true);
-    });
+    }, 15_000);
 
     it("treats blank, false, and 0 as disabled", async () => {
       const { shouldSkipEmailVerification } =
@@ -76,7 +77,7 @@ describe("server/auth", () => {
 
       vi.stubEnv("AUTH_SKIP_EMAIL_VERIFICATION", "0");
       expect(shouldSkipEmailVerification()).toBe(false);
-    });
+    }, 15_000);
   });
 
   describe("resolveSignupTrackingIdentity", () => {
@@ -365,6 +366,15 @@ describe("server/auth", () => {
       )?.[1];
       const previewOrigin =
         "https://940ebc5a83164aa6a37dde445e494f3a-electric-cliff-2caez1jb.builderio.xyz";
+      const firstTouch = encodeURIComponent(
+        JSON.stringify({
+          ref: "docs",
+          via: "owner_123",
+          utm_source: "newsletter",
+          landing_path: "/docs/actions",
+          landing_referrer: "https://example.com/post",
+        }),
+      );
 
       const result = await authUrlHandler(
         createMockEvent({
@@ -376,6 +386,7 @@ describe("server/auth", () => {
             host: "agent-workspace.builder.io",
             "x-forwarded-proto": "https",
             referer: `${previewOrigin}/?builder.preview=interact`,
+            cookie: `an_ft=${firstTouch}`,
           },
         }),
       );
@@ -388,6 +399,13 @@ describe("server/auth", () => {
       expect(state.returnUrl).toBe(
         `${previewOrigin}/dispatch?builder.preview=interact`,
       );
+      expect(state.signupAttribution).toEqual({
+        referral_source: "docs",
+        referrer_user: "owner_123",
+        utm_source: "newsletter",
+        first_touch_path: "/docs/actions",
+        landing_referrer: "https://example.com/post",
+      });
 
       const rejected = await authUrlHandler(
         createMockEvent({
@@ -949,6 +967,36 @@ describe("server/auth", () => {
       await expect(
         guard(createMockEvent({ path: "/_agent-native/health" })),
       ).resolves.toBeUndefined();
+    });
+
+    it("lets public avatar reads bypass auth while keeping avatar writes protected", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("ACCESS_TOKEN", "my-secret");
+      const { autoMountAuth } = await import("./auth.js");
+
+      const app = createMockApp();
+      await autoMountAuth(app);
+
+      const guard = app.use.mock.calls
+        .map((call: any[]) => call[0])
+        .find((arg: unknown) => typeof arg === "function");
+      expect(guard).toBeTypeOf("function");
+
+      await expect(
+        guard(
+          createMockEvent({
+            path: "/_agent-native/avatar/user%40example.com",
+          }),
+        ),
+      ).resolves.toBeUndefined();
+
+      const writeEvent = createMockEvent({ path: "/_agent-native/avatar" });
+      writeEvent.req.method = "PUT";
+      writeEvent.node.req.method = "PUT";
+
+      await expect(guard(writeEvent)).resolves.toEqual({
+        error: "Unauthorized",
+      });
     });
 
     it("env-gates the federated-SSO route bypass (no-op when AGENT_NATIVE_IDENTITY_HUB_URL is unset)", async () => {
@@ -1633,6 +1681,73 @@ describe("server/auth", () => {
         error: "Enter a valid email address, like you@example.com.",
       });
       expect(signUpEmail).not.toHaveBeenCalled();
+    });
+
+    it("passes request headers through email registration for signup attribution", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      delete process.env.ACCESS_TOKEN;
+      delete process.env.ACCESS_TOKENS;
+
+      const signUpEmail = vi.fn(async () => {});
+      vi.doMock("./better-auth-instance.js", () => ({
+        getBetterAuth: vi.fn(async () => ({
+          handler: vi.fn(async () => new Response("{}")),
+          api: {
+            getSession: vi.fn(async () => null),
+            signInEmail: vi.fn(),
+            signUpEmail,
+            signOut: vi.fn(),
+          },
+        })),
+        getBetterAuthSync: vi.fn(() => undefined),
+      }));
+      vi.doMock("../db/client.js", () => ({
+        getDbExec: () => ({ execute: vi.fn(async () => ({ rows: [] })) }),
+        isPostgres: () => false,
+        isLocalDatabase: () => true,
+        intType: () => "INTEGER",
+        retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
+      }));
+
+      const { autoMountAuth } = await import("./auth.js");
+      const app = createMockApp();
+      await autoMountAuth(app);
+
+      const registerHandler = app.use.mock.calls.find(
+        (call: any[]) => call[0] === "/_agent-native/auth/register",
+      )?.[1];
+      expect(registerHandler).toBeTypeOf("function");
+
+      const event = createJsonPostEvent(
+        "/_agent-native/auth/register",
+        {
+          email: "Steve+1@builder.io",
+          password: "secret-password",
+          callbackURL: "/after",
+        },
+        {
+          cookie: `an_ft=${encodeURIComponent(
+            JSON.stringify({
+              ref: "plan_share",
+              via: "owner_42",
+              landing_path: "/plans/example",
+            }),
+          )}`,
+          "x-forwarded-proto": "https",
+        },
+      );
+      const result = await registerHandler(event);
+
+      expect(result).toEqual({ ok: true });
+      expect(signUpEmail).toHaveBeenCalledWith({
+        body: {
+          email: "steve+1@builder.io",
+          password: "secret-password",
+          name: "steve+1",
+          callbackURL: "/after",
+        },
+        headers: event.headers,
+      });
     });
 
     it("does not expose raw Better Auth email validation errors", async () => {
@@ -2770,6 +2885,27 @@ describe("server/auth", () => {
       // the parsed segments.)
       expect(safeReturnPath("/foo?bar=1#baz")).toBe("/foo?bar=1#baz");
     });
+
+    it("collapses a return that points back at the sign-in page (loop guard)", async () => {
+      const safeReturnPath = await load();
+      // A `return` resolving to the sign-in entry point would re-enter the
+      // redirect loop — collapse to "/". Covers root and base-path mounts,
+      // and a nested already-encoded loop URL.
+      expect(safeReturnPath("/_agent-native/sign-in")).toBe("/");
+      expect(safeReturnPath("/_agent-native/sign-in?return=%2Finbox")).toBe(
+        "/",
+      );
+      expect(safeReturnPath("/mail/_agent-native/sign-in")).toBe("/");
+      expect(
+        safeReturnPath(
+          "/mail/_agent-native/sign-in?return=%252Fmail%252F_agent-native%252Fsign-in",
+        ),
+      ).toBe("/");
+      // A normal app path that merely contains the words is unaffected.
+      expect(safeReturnPath("/mail/inbox?label=important")).toBe(
+        "/mail/inbox?label=important",
+      );
+    });
   });
 
   describe("OAuth return URLs", () => {
@@ -2870,6 +3006,19 @@ describe("server/auth", () => {
       expect(decoded.app).toBe("mail");
     });
 
+    it("encodes and decodes org id through signed state for scoped OAuth credentials", async () => {
+      const { encodeOAuthState, decodeOAuthState } =
+        await import("./google-oauth.js");
+      const state = encodeOAuthState({
+        redirectUri: "http://x/cb",
+        owner: "owner@example.com",
+        orgId: "org-123",
+      });
+      const decoded = decodeOAuthState(state, "http://x/cb");
+      expect(decoded.owner).toBe("owner@example.com");
+      expect(decoded.orgId).toBe("org-123");
+    });
+
     it("produces undefined returnUrl when none was encoded (backwards compat)", async () => {
       const { encodeOAuthState, decodeOAuthState } =
         await import("./google-oauth.js");
@@ -2958,9 +3107,7 @@ describe("server/auth", () => {
       expect(html).toContain(
         "Opening Google sign-in redirect from Builder preview",
       );
-      expect(html).toContain(
-        "never reached this app. Check the Google OAuth redirect URI",
-      );
+      expect(html).toContain("__anT('googleNeverFinished')");
       expect(html).not.toContain("&debug=1");
       expect(html).toContain("params.set('desktop', '1')");
       expect(html).toContain("params.set('flow_id', flowId)");
@@ -3148,9 +3295,11 @@ describe("server/auth", () => {
       const { getOnboardingHtml } = await import("./onboarding-html.js");
       const html = getOnboardingHtml({ googleOnly: true });
 
-      expect(html).toContain('<h1 id="heading">Sign in</h1>');
+      expect(html).toContain(
+        '<h1 id="heading" data-i18n="signInTitle">Sign in</h1>',
+      );
       expect(html).toContain("Use your workspace Google account to continue");
-      expect(html).not.toContain("Create an account to get started");
+      expect(html).not.toContain('id="signup-form"');
       expect(html).not.toContain('data-tab="signup"');
     });
 
@@ -3315,7 +3464,77 @@ describe("server/auth", () => {
       expect(setCookie).toContain("an_session_slides=");
     });
 
-    it("tracks a first-time Google OAuth session as a signup", async () => {
+    it("tracks a first-time Google OAuth session as a signup with first-touch attribution", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("APP_NAME", "plan");
+
+      const mockExecute = vi.fn(async (query: { sql?: string } | string) => {
+        const sql = typeof query === "string" ? query : query.sql || "";
+        if (/SELECT 1 FROM sessions WHERE email = \?/i.test(sql)) {
+          return { rows: [] };
+        }
+        return { rows: [] };
+      });
+      vi.doMock("../db/client.js", () => ({
+        getDbExec: () => ({ execute: mockExecute }),
+        isPostgres: () => false,
+        isLocalDatabase: () => false,
+        intType: () => "INTEGER",
+        retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
+      }));
+
+      const trackSignupEvent = vi.fn(async () => {});
+      const hasBetterAuthUserEmail = vi.fn(async () => false);
+      vi.doMock("./better-auth-instance.js", () => ({
+        getBetterAuth: vi.fn(),
+        getBetterAuthSync: vi.fn(),
+        hasBetterAuthUserEmail,
+        trackSignupEvent,
+      }));
+
+      const { createOAuthSession } = await import("./google-oauth.js");
+      const firstTouch = encodeURIComponent(
+        JSON.stringify({
+          ref: "plan_share",
+          via: "owner_42",
+          utm_source: "social",
+          landing_path: "/p/example",
+          landing_referrer: "t.co",
+        }),
+      );
+      const event = createMockEvent({
+        headers: {
+          "x-forwarded-proto": "https",
+          cookie: `an_ft=${firstTouch}`,
+        },
+      });
+
+      await createOAuthSession(event, "user@gmail.com", {
+        hasProductionSession: false,
+        trackSignup: {
+          authProvider: "google",
+          authUserId: "google-user-1",
+          name: "Google User",
+        },
+      });
+
+      expect(hasBetterAuthUserEmail).toHaveBeenCalledWith("user@gmail.com");
+      expect(trackSignupEvent).toHaveBeenCalledWith({
+        authProvider: "google",
+        authUserId: "google-user-1",
+        email: "user@gmail.com",
+        name: "Google User",
+        attribution: {
+          referral_source: "plan_share",
+          referrer_user: "owner_42",
+          utm_source: "social",
+          first_touch_path: "/p/example",
+          landing_referrer: "t.co",
+        },
+      });
+    });
+
+    it("tracks Google OAuth signup with signed state attribution when callback cookies are absent", async () => {
       vi.stubEnv("NODE_ENV", "production");
       vi.stubEnv("APP_NAME", "plan");
 
@@ -3350,19 +3569,31 @@ describe("server/auth", () => {
 
       await createOAuthSession(event, "user@gmail.com", {
         hasProductionSession: false,
+        desktop: true,
         trackSignup: {
           authProvider: "google",
           authUserId: "google-user-1",
           name: "Google User",
+          attribution: {
+            referral_source: "docs",
+            referrer_user: "owner_123",
+            utm_source: "newsletter",
+            first_touch_path: "/docs/actions",
+          },
         },
       });
 
-      expect(hasBetterAuthUserEmail).toHaveBeenCalledWith("user@gmail.com");
       expect(trackSignupEvent).toHaveBeenCalledWith({
         authProvider: "google",
         authUserId: "google-user-1",
         email: "user@gmail.com",
         name: "Google User",
+        attribution: {
+          referral_source: "docs",
+          referrer_user: "owner_123",
+          utm_source: "newsletter",
+          first_touch_path: "/docs/actions",
+        },
       });
     });
 

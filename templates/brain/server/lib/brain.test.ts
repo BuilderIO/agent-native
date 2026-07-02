@@ -433,6 +433,8 @@ vi.mock("@agent-native/core/sharing", () => ({
 import getCaptureAction from "../../actions/get-capture.js";
 import { buildPilotTrustLane } from "../../actions/get-pilot-report.js";
 import listCapturesAction from "../../actions/list-captures.js";
+import { processBrainIngestQueueOnce } from "../../jobs/process-ingest-queue.js";
+import ingestHandler from "../routes/api/_agent-native/brain/ingest.post.js";
 import {
   applyRedactions,
   buildBrainAgentGuidance,
@@ -454,8 +456,6 @@ import {
   testSlackConnection,
 } from "./connectors.js";
 import { runBrainDemoEval, runBrainRetrievalEval } from "./demo.js";
-import { processBrainIngestQueueOnce } from "../../jobs/process-ingest-queue.js";
-import ingestHandler from "../routes/api/_agent-native/brain/ingest.post.js";
 
 function resetMocks() {
   vi.clearAllMocks();

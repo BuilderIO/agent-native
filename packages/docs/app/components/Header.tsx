@@ -1,10 +1,12 @@
-import { Link, NavLink, useLocation } from "react-router";
-import ThemeToggle from "./ThemeToggle";
-import { useState, useEffect, lazy, Suspense } from "react";
-import { IconMessage } from "@tabler/icons-react";
 import { FeedbackButton, useLocale, useT } from "@agent-native/core/client";
-import DocsLanguagePicker from "./DocsLanguagePicker";
+import { IconMessage } from "@tabler/icons-react";
+import { useState, useEffect, lazy, Suspense } from "react";
+import { Link, NavLink, useLocation } from "react-router";
+
 import { DEFAULT_DOCS_LOCALE, sitePathForLocale } from "./docs-locale";
+import DocsLanguagePicker from "./DocsLanguagePicker";
+import DocsLanguageSuggestion from "./DocsLanguageSuggestion";
+import ThemeToggle from "./ThemeToggle";
 
 const SearchModal = lazy(() =>
   import("./SearchModal").then((m) => ({ default: m.SearchModal })),
@@ -197,7 +199,7 @@ export default function Header() {
             </NavLink>
             <NavLink
               data-an-prefetch="render"
-              to={localizedPath("/templates")}
+              to={localizedPath("/apps")}
               className={({ isActive }) =>
                 isActive ? "header-link is-active" : "header-link"
               }
@@ -240,6 +242,8 @@ export default function Header() {
           <div className="ms-auto flex min-w-0 items-center gap-2 sm:gap-3">
             <FeedbackButton
               variant="outlined"
+              label={t("feedback.label")}
+              placeholder={t("feedback.placeholder")}
               className="hidden lg:flex border-[var(--docs-border)] text-[var(--fg-secondary)] hover:border-[var(--fg-secondary)] hover:text-[var(--fg)]"
               align="end"
               side="bottom"
@@ -249,7 +253,10 @@ export default function Header() {
               label={t("header.searchAria")}
               placeholder={t("header.searchPlaceholder")}
             />
-            <DocsLanguagePicker />
+            <div className="flex shrink-0 items-center">
+              <DocsLanguagePicker />
+              <DocsLanguageSuggestion />
+            </div>
             <ThemeToggle />
             <button
               onClick={() =>
@@ -289,7 +296,7 @@ export default function Header() {
             </NavLink>
             <NavLink
               data-an-prefetch="render"
-              to={localizedPath("/templates")}
+              to={localizedPath("/apps")}
               className={({ isActive }) =>
                 isActive ? "header-link is-active" : "header-link"
               }
@@ -331,6 +338,8 @@ export default function Header() {
             </a>
             <FeedbackButton
               variant="outlined"
+              label={t("feedback.label")}
+              placeholder={t("feedback.placeholder")}
               className="self-start border-[var(--docs-border)] text-[var(--fg-secondary)] hover:border-[var(--fg-secondary)] hover:text-[var(--fg)]"
               align="start"
               side="bottom"

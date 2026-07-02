@@ -8,11 +8,12 @@
  * route handlers (which read from the same in-memory Map).
  */
 
+import { registerFileUploadProvider } from "@agent-native/core/file-upload";
 import {
   createOnboardingPlugin,
   registerOnboardingStep,
 } from "@agent-native/core/onboarding";
-import { registerFileUploadProvider } from "@agent-native/core/file-upload";
+
 import { s3FileUploadProvider } from "../lib/s3-upload-provider.js";
 import { hasRequestVideoStorage } from "../lib/video-storage.js";
 
@@ -52,6 +53,8 @@ export default async (nitroApp: any): Promise<void> => {
           "AWS S3, Cloudflare R2, DigitalOcean Spaces, MinIO, or any S3-compatible service.",
         payload: {
           writeScope: "workspace",
+          saveTo: "scoped-secrets",
+          secretDescription: "Clips S3-compatible storage",
           fields: [
             {
               key: "S3_ENDPOINT",

@@ -1,6 +1,3 @@
-import React from "react";
-import ReactMarkdown, { defaultUrlTransform } from "react-markdown";
-import remarkGfm from "remark-gfm";
 import {
   IconAlertTriangle,
   IconArrowDown,
@@ -12,11 +9,19 @@ import {
   IconLoader2,
   IconTool,
 } from "@tabler/icons-react";
-import { cn } from "../utils.js";
+import React from "react";
+import ReactMarkdown, { defaultUrlTransform } from "react-markdown";
+import remarkGfm from "remark-gfm";
+
+import { resolveToolRenderer } from "../chat/tool-render-registry.js";
+import {
+  resolveBuiltinActionChatRenderer,
+  resolveBuiltinFallbackToolRenderer,
+} from "../chat/widgets/builtin-tool-renderers.js";
+import { HighlightedCodeBlock as SharedHighlightedCodeBlock } from "../HighlightedCodeBlock.js";
 import { McpAppRenderer } from "../mcp-apps/McpAppRenderer.js";
 import { humanizeToolName } from "../tool-display.js";
-import { useNearBottomAutoscroll } from "./use-near-bottom-autoscroll.js";
-import { HighlightedCodeBlock as SharedHighlightedCodeBlock } from "../HighlightedCodeBlock.js";
+import { cn } from "../utils.js";
 import type {
   AgentConversationAttachment,
   AgentConversationArtifact,
@@ -25,6 +30,7 @@ import type {
   AgentConversationNotice,
   AgentConversationToolCall,
 } from "./types.js";
+import { useNearBottomAutoscroll } from "./use-near-bottom-autoscroll.js";
 
 export interface AgentConversationProps {
   messages: AgentConversationMessage[];
@@ -355,7 +361,40 @@ function openMarkdownLink(
   window.open(url.href, "_blank", "noopener,noreferrer");
 }
 
+function parseJsonText(value: string | undefined): unknown {
+  if (!value) return null;
+  try {
+    return JSON.parse(value);
+  } catch {
+    return null;
+  }
+}
+
+function parseJsonObject(value: string | undefined): Record<string, unknown> {
+  const parsed = parseJsonText(value);
+  return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+    ? (parsed as Record<string, unknown>)
+    : {};
+}
+
 function ConversationToolCall({ tool }: { tool: AgentConversationToolCall }) {
+  const resultJson = parseJsonText(tool.result);
+  const nativeToolContext = {
+    toolName: tool.name,
+    args: tool.args ?? parseJsonObject(tool.input),
+    resultText: tool.result,
+    resultJson: tool.resultJson ?? resultJson,
+    isRunning: tool.state === "running" || tool.state === "activity",
+    chatUI: tool.chatUI,
+  };
+  const NativeToolRenderer =
+    resolveBuiltinActionChatRenderer(nativeToolContext) ??
+    resolveToolRenderer(nativeToolContext) ??
+    resolveBuiltinFallbackToolRenderer(nativeToolContext);
+  if (NativeToolRenderer) {
+    return <NativeToolRenderer context={nativeToolContext} />;
+  }
+
   const hasDetails = Boolean(tool.input || tool.result || tool.mcpApp);
   const icon =
     tool.state === "running" || tool.state === "activity" ? (

@@ -1,4 +1,5 @@
 import { Extension } from "@tiptap/core";
+import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import {
   Plugin,
   PluginKey,
@@ -6,7 +7,6 @@ import {
   TextSelection,
   type Transaction,
 } from "@tiptap/pm/state";
-import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import { type EditorView } from "@tiptap/pm/view";
 
 /**

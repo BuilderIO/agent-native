@@ -12,10 +12,21 @@ const calendarListEventsMock = vi.hoisted(() => vi.fn());
 const calendarFreeBusyMock = vi.hoisted(() => vi.fn());
 const calendarPatchEventMock = vi.hoisted(() => vi.fn());
 const dbExecuteMock = vi.hoisted(() => vi.fn());
+const resolveSecretMock = vi.hoisted(() => vi.fn());
+const runWithRequestContextMock = vi.hoisted(() => vi.fn());
+const resolveGoogleProviderCredentialsMock = vi.hoisted(() => vi.fn());
+const resolveGoogleLegacyProviderCredentialsMock = vi.hoisted(() => vi.fn());
+const getRequestOrgIdMock = vi.hoisted(() => vi.fn());
 
 vi.mock("@agent-native/core/server", () => ({
   getOAuthAccounts: getOAuthAccountsMock,
+  getRequestOrgId: getRequestOrgIdMock,
   isOAuthConnected: vi.fn(),
+  resolveSecret: resolveSecretMock,
+  runWithRequestContext: runWithRequestContextMock,
+  resolveGoogleProviderCredentials: resolveGoogleProviderCredentialsMock,
+  resolveGoogleLegacyProviderCredentials:
+    resolveGoogleLegacyProviderCredentialsMock,
 }));
 
 vi.mock("@agent-native/core/oauth-tokens", () => ({
@@ -44,6 +55,7 @@ vi.mock("./google-api.js", () => ({
 
 import {
   exchangeCode,
+  getAuthUrl,
   getAuthStatus,
   getFreeBusy,
   getPrimaryAccountPhotoUrl,
@@ -56,10 +68,35 @@ import {
 describe("calendar Google auth status", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    getRequestOrgIdMock.mockReturnValue(undefined);
     process.env.GOOGLE_CLIENT_ID = "client-id";
     process.env.GOOGLE_CLIENT_SECRET = "client-secret";
     delete process.env.GOOGLE_LEGACY_CLIENT_ID;
     delete process.env.GOOGLE_LEGACY_CLIENT_SECRET;
+    resolveSecretMock.mockImplementation(async (key: string) => {
+      const value = process.env[key];
+      return typeof value === "string" && value.length > 0 ? value : null;
+    });
+    resolveGoogleProviderCredentialsMock.mockImplementation(() =>
+      process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET
+        ? {
+            clientId: process.env.GOOGLE_CLIENT_ID,
+            clientSecret: process.env.GOOGLE_CLIENT_SECRET,
+          }
+        : null,
+    );
+    resolveGoogleLegacyProviderCredentialsMock.mockImplementation(() =>
+      process.env.GOOGLE_LEGACY_CLIENT_ID &&
+      process.env.GOOGLE_LEGACY_CLIENT_SECRET
+        ? {
+            clientId: process.env.GOOGLE_LEGACY_CLIENT_ID,
+            clientSecret: process.env.GOOGLE_LEGACY_CLIENT_SECRET,
+          }
+        : null,
+    );
+    runWithRequestContextMock.mockImplementation(
+      (_context: unknown, callback: () => unknown) => callback(),
+    );
     getOAuthAccountsMock.mockResolvedValue([
       {
         accountId: "steve@example.com",
@@ -504,8 +541,16 @@ describe("calendar free/busy", () => {
 describe("calendar Google OAuth exchange", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    getRequestOrgIdMock.mockReturnValue(undefined);
     process.env.GOOGLE_CLIENT_ID = "client-id";
     process.env.GOOGLE_CLIENT_SECRET = "client-secret";
+    resolveSecretMock.mockImplementation(async (key: string) => {
+      const value = process.env[key];
+      return typeof value === "string" && value.length > 0 ? value : null;
+    });
+    runWithRequestContextMock.mockImplementation(
+      (_context: unknown, callback: () => unknown) => callback(),
+    );
   });
 
   it("stores the Google profile picture captured during OAuth", async () => {
@@ -538,6 +583,31 @@ describe("calendar Google OAuth exchange", () => {
         photoUrl: "https://lh3.googleusercontent.com/a/photo",
       }),
       "owner@example.com",
+    );
+  });
+
+  it("resolves Google credentials with the owner org when creating auth URLs", async () => {
+    const generateAuthUrl = vi.fn().mockReturnValue("auth-url");
+    createOAuth2ClientMock.mockReturnValue({ generateAuthUrl });
+
+    await expect(
+      getAuthUrl(
+        undefined,
+        "https://app.example.com/_agent-native/google/callback",
+        "signed-state",
+        "owner@example.com",
+        "org-123",
+      ),
+    ).resolves.toBe("auth-url");
+
+    expect(runWithRequestContextMock).toHaveBeenCalledWith(
+      { userEmail: "owner@example.com", orgId: "org-123" },
+      expect.any(Function),
+    );
+    expect(createOAuth2ClientMock).toHaveBeenCalledWith(
+      "client-id",
+      "client-secret",
+      "https://app.example.com/_agent-native/google/callback",
     );
   });
 });

@@ -1,28 +1,4 @@
 import {
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type FormEvent,
-  type MouseEvent,
-} from "react";
-import { Link, useLocation, useNavigate } from "react-router";
-import {
-  IconArchive,
-  IconClipboardCheck,
-  IconDots,
-  IconEdit,
-  IconLayoutSidebarLeftCollapse,
-  IconLayoutSidebarLeftExpand,
-  IconMessageCircle,
-  IconPin,
-  IconPlus,
-  IconSettings,
-} from "@tabler/icons-react";
-import { toast } from "sonner";
-import { cn } from "@/lib/utils";
-import { ExtensionsSidebarSection } from "@agent-native/core/client/extensions";
-import {
   agentNativePath,
   DevDatabaseLink,
   FeedbackButton,
@@ -38,9 +14,31 @@ import {
   useT,
   type ChatThreadSummary,
 } from "@agent-native/core/client";
+import { ExtensionsSidebarSection } from "@agent-native/core/client/extensions";
 import { OrgSwitcher } from "@agent-native/core/client/org";
-import { APP_TITLE } from "@/lib/app-config";
-import { usePlans } from "@/hooks/use-plans";
+import {
+  IconArchive,
+  IconClipboardCheck,
+  IconDots,
+  IconEdit,
+  IconLayoutSidebarLeftCollapse,
+  IconLayoutSidebarLeftExpand,
+  IconMessageCircle,
+  IconPin,
+  IconPlus,
+  IconSettings,
+} from "@tabler/icons-react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type FormEvent,
+  type MouseEvent,
+} from "react";
+import { Link, useLocation, useNavigate } from "react-router";
+import { toast } from "sonner";
+
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -61,6 +59,9 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { usePlans } from "@/hooks/use-plans";
+import { APP_TITLE } from "@/lib/app-config";
+import { cn } from "@/lib/utils";
 
 const PLAN_CHAT_STORAGE_KEY = "plans";
 
@@ -235,7 +236,7 @@ function PlanChatsSection({ collapsed }: { collapsed: boolean }) {
       threadId === activeThreadId || threadId === persistedActiveThreadId();
     const archived = await archiveThread(threadId);
     if (!archived) {
-      toast.error("Could not archive chat.");
+      toast.error(t("raw.sidebar.archiveChatFailed"));
       return;
     }
     if (wasActive) {
@@ -265,7 +266,7 @@ function PlanChatsSection({ collapsed }: { collapsed: boolean }) {
     setRenameDraft("");
     if (title) {
       const renamed = await renameThread(threadId, title);
-      if (!renamed) toast.error("Could not rename chat.");
+      if (!renamed) toast.error(t("raw.sidebar.renameChatFailed"));
     }
     committingRenameRef.current = false;
   }
@@ -665,7 +666,7 @@ export function Sidebar({
     <aside
       data-collapsed={collapsed ? "true" : "false"}
       className={cn(
-        "flex h-full min-w-0 shrink-0 flex-col overflow-hidden border-e border-border bg-sidebar text-sidebar-foreground transition-[width] duration-150",
+        "flex h-full min-w-0 shrink-0 flex-col overflow-hidden border-e border-border bg-sidebar text-sidebar-foreground transition-[width] duration-200 ease-out",
         collapsed ? "w-14" : "w-60",
       )}
     >
@@ -751,11 +752,11 @@ export function Sidebar({
 
       {!collapsed && session && (
         <>
-          <div className="border-t border-border px-2 py-2">
+          <div className="px-2 py-2">
             <ExtensionsSidebarSection />
           </div>
 
-          <div className="space-y-2 border-t border-border px-3 py-2">
+          <div className="space-y-2 px-3 py-2">
             <DevDatabaseLink />
             <FeedbackButton />
             <OrgSwitcher />
@@ -764,7 +765,7 @@ export function Sidebar({
       )}
 
       {!collapsed && !sessionLoading && !session && (
-        <div className="space-y-2 border-t border-border px-3 py-2">
+        <div className="space-y-2 px-3 py-2">
           <DevDatabaseLink />
           <FeedbackButton />
           <div className="flex items-center justify-between gap-2">
@@ -785,7 +786,7 @@ export function Sidebar({
       {collapsed && collapsible ? (
         <div
           className={cn(
-            "border-t border-border px-2 py-2",
+            "px-2 py-2",
             collapsed ? "flex justify-center" : "flex justify-end",
           )}
         >
@@ -794,9 +795,7 @@ export function Sidebar({
       ) : null}
 
       {!collapsed && (session || sessionLoading) && collapsible ? (
-        <div className="flex justify-end border-t border-border px-2 py-2">
-          {collapseButton}
-        </div>
+        <div className="flex justify-end px-2 py-2">{collapseButton}</div>
       ) : null}
     </aside>
   );

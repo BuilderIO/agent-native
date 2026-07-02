@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { tabsBlock } from "./tabs.js";
+
 import type { TabsData } from "./tabs.config.js";
+import { tabsBlock } from "./tabs.js";
 
 const sample: TabsData = {
   tabs: [

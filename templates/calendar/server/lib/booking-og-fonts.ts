@@ -15,20 +15,34 @@ export interface BookingOgAssetStorage {
   getItemRaw?(id: string): Promise<unknown>;
 }
 
+function resolveSourceFontPath(relativePath: string): string {
+  try {
+    const metaUrl = import.meta.url;
+    if (!metaUrl.startsWith("file:")) return "";
+    return fileURLToPath(new URL(relativePath, metaUrl));
+  } catch {
+    return "";
+  }
+}
+
 export const BOOKING_OG_FONT_ASSETS: BookingOgFontAsset[] = [
   {
     asset: "server/fonts/LiberationSans-Regular.ttf",
     filename: "LiberationSans-Regular.ttf",
-    sourcePath: fileURLToPath(
-      new URL("../../assets/fonts/LiberationSans-Regular.ttf", import.meta.url),
-    ),
+    get sourcePath() {
+      return resolveSourceFontPath(
+        "../../assets/fonts/LiberationSans-Regular.ttf",
+      );
+    },
   },
   {
     asset: "server/fonts/LiberationSans-Bold.ttf",
     filename: "LiberationSans-Bold.ttf",
-    sourcePath: fileURLToPath(
-      new URL("../../assets/fonts/LiberationSans-Bold.ttf", import.meta.url),
-    ),
+    get sourcePath() {
+      return resolveSourceFontPath(
+        "../../assets/fonts/LiberationSans-Bold.ttf",
+      );
+    },
   },
 ];
 

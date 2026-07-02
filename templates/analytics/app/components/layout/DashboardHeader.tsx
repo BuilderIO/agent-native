@@ -1,6 +1,8 @@
+import { useFormatters, useT } from "@agent-native/core/client";
 import { IconUser, IconCalendar } from "@tabler/icons-react";
 import { useMemo } from "react";
 import { useParams } from "react-router";
+
 import { dashboards } from "@/pages/adhoc/registry";
 
 interface DashboardHeaderProps {
@@ -15,12 +17,26 @@ export function DashboardHeader({
   actions,
 }: DashboardHeaderProps) {
   const { id } = useParams<{ id: string }>();
+  const t = useT();
+  const { formatDate } = useFormatters();
 
   const metadata = useMemo(() => {
     return dashboards.find((d) => d.id === id);
   }, [id]);
 
-  const displayTitle = title || metadata?.name || "Dashboard";
+  const displayTitle = title || metadata?.name || t("navigation.dashboard");
+  const dateFormat: Intl.DateTimeFormatOptions = {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+  };
+  function formatMetadataDate(value: string): string {
+    try {
+      return formatDate(value, dateFormat);
+    } catch {
+      return value;
+    }
+  }
 
   return (
     <div className="mb-6 space-y-3">
@@ -51,30 +67,25 @@ export function DashboardHeader({
           {metadata.lastUpdated && (
             <div className="flex items-center gap-1.5">
               <IconCalendar className="h-3.5 w-3.5" />
-              <span>Updated {formatDate(metadata.lastUpdated)}</span>
+              <span>
+                {t("dashboardHeader.updated", {
+                  date: formatMetadataDate(metadata.lastUpdated),
+                })}
+              </span>
             </div>
           )}
           {metadata.dateCreated && (
             <div className="flex items-center gap-1.5">
               <IconCalendar className="h-3.5 w-3.5" />
-              <span>Created {formatDate(metadata.dateCreated)}</span>
+              <span>
+                {t("dashboardHeader.created", {
+                  date: formatMetadataDate(metadata.dateCreated),
+                })}
+              </span>
             </div>
           )}
         </div>
       )}
     </div>
   );
-}
-
-function formatDate(dateStr: string): string {
-  try {
-    const date = new Date(dateStr);
-    return date.toLocaleDateString("en-US", {
-      year: "numeric",
-      month: "short",
-      day: "numeric",
-    });
-  } catch {
-    return dateStr;
-  }
 }

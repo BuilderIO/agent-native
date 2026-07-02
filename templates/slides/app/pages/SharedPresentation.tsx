@@ -1,10 +1,11 @@
+import { appBasePath, useT } from "@agent-native/core/client";
+import type { SharedDeckResponse } from "@shared/api";
+import { IconAlertCircle } from "@tabler/icons-react";
 import { useState, useEffect } from "react";
 import { useParams } from "react-router";
-import { IconAlertCircle } from "@tabler/icons-react";
-import type { SharedDeckResponse } from "@shared/api";
-import type { Slide } from "@/context/DeckContext";
+
 import PresentationView from "@/components/presentation/PresentationView";
-import { appBasePath } from "@agent-native/core/client";
+import type { Slide } from "@/context/DeckContext";
 import { useDeckDesignSystem } from "@/hooks/use-deck-design-system";
 
 interface SharedPresentationProps {
@@ -16,6 +17,7 @@ export default function SharedPresentation({
   initialDeck = null,
   initialError = "",
 }: SharedPresentationProps) {
+  const t = useT();
   const { token } = useParams<{ token: string }>();
   const [deck, setDeck] = useState<SharedDeckResponse | null>(initialDeck);
   const [error, setError] = useState(initialError);
@@ -66,10 +68,10 @@ export default function SharedPresentation({
             <IconAlertCircle className="w-6 h-6 text-red-400" />
           </div>
           <h1 className="text-lg font-semibold text-white/90">
-            Presentation Not Found
+            {t("raw.presentationNotFound")}
           </h1>
           <p className="text-sm text-white/50">
-            {error || "This shared presentation doesn't exist or has expired."}
+            {error || t("raw.sharedPresentationExpired")}
           </p>
         </div>
       </div>

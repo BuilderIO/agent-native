@@ -1,4 +1,20 @@
 import {
+  saveOAuthTokens,
+  deleteOAuthTokens,
+  listOAuthAccounts,
+  listOAuthAccountsByOwner,
+  setOAuthDisplayName,
+} from "@agent-native/core/oauth-tokens";
+import {
+  isOAuthConnected,
+  getOAuthAccounts,
+  resolveSecret,
+  runWithRequestContext,
+} from "@agent-native/core/server";
+import { getUserSetting, putUserSetting } from "@agent-native/core/settings";
+import { decodeCommonHtmlEntities } from "@shared/markdown.js";
+
+import {
   createOAuth2Client,
   gmailGetProfile,
   gmailGetMessage,
@@ -13,16 +29,6 @@ import {
   gmailStopWatch,
   peopleGetProfile,
 } from "./google-api.js";
-import {
-  saveOAuthTokens,
-  deleteOAuthTokens,
-  listOAuthAccounts,
-  listOAuthAccountsByOwner,
-  setOAuthDisplayName,
-} from "@agent-native/core/oauth-tokens";
-import { isOAuthConnected, getOAuthAccounts } from "@agent-native/core/server";
-import { getUserSetting, putUserSetting } from "@agent-native/core/settings";
-import { decodeCommonHtmlEntities } from "@shared/markdown.js";
 import { resolveGoogleSenderIdentity } from "./sender-identity.js";
 
 const SCOPES = [
@@ -45,15 +51,26 @@ interface GoogleTokens {
   scope?: string;
 }
 
-function getOAuth2Credentials(): {
+export async function getOAuth2Credentials(owner?: string): Promise<{
   clientId: string;
   clientSecret: string;
-} {
-  const clientId = process.env.GOOGLE_CLIENT_ID;
-  const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
+}> {
+  const resolve = async () => {
+    const [clientId, clientSecret] = await Promise.all([
+      resolveSecret("GOOGLE_CLIENT_ID"),
+      resolveSecret("GOOGLE_CLIENT_SECRET"),
+    ]);
+    if (!clientId || !clientSecret) return null;
+    return { clientId, clientSecret };
+  };
+  const credentials = owner
+    ? await runWithRequestContext({ userEmail: owner }, resolve)
+    : await resolve();
+  const clientId = credentials?.clientId;
+  const clientSecret = credentials?.clientSecret;
   if (!clientId || !clientSecret) {
     throw new Error(
-      "GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET must be set in environment",
+      "GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET must be saved in settings",
     );
   }
   return { clientId, clientSecret };
@@ -111,7 +128,7 @@ async function getValidAccessToken(
     );
   }
 
-  const { clientId, clientSecret } = getOAuth2Credentials();
+  const { clientId, clientSecret } = await getOAuth2Credentials(owner);
   const redirectUri = "http://localhost:8080/_agent-native/google/callback";
   const oauth2 = createOAuth2Client(clientId, clientSecret, redirectUri);
   let refreshed;
@@ -156,12 +173,13 @@ async function getValidAccessToken(
   return refreshed.access_token;
 }
 
-export function getAuthUrl(
+export async function getAuthUrl(
   origin?: string,
   redirectUri?: string,
   state?: string,
-): string {
-  const { clientId, clientSecret } = getOAuth2Credentials();
+  owner?: string,
+): Promise<string> {
+  const { clientId, clientSecret } = await getOAuth2Credentials(owner);
   const uri =
     redirectUri ||
     (origin
@@ -214,7 +232,7 @@ export async function exchangeCode(
   redirectUri?: string,
   owner?: string,
 ): Promise<string> {
-  const { clientId, clientSecret } = getOAuth2Credentials();
+  const { clientId, clientSecret } = await getOAuth2Credentials(owner);
   const uri =
     redirectUri ||
     (origin

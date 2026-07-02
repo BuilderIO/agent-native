@@ -1,7 +1,8 @@
 import { defineAction } from "@agent-native/core";
 import type { ImageGenResponse } from "@shared/api";
-import { DEFAULT_STYLE_REFERENCE_URLS } from "../shared/api.js";
 import { z } from "zod";
+
+import { DEFAULT_STYLE_REFERENCE_URLS } from "../shared/api.js";
 
 interface ReferenceImage {
   data: string; // base64
@@ -42,7 +43,7 @@ export default defineAction({
     // Get the appropriate provider
     const { getProvider } =
       await import("../server/handlers/image-providers/index.js");
-    const provider = getProvider(args.model || "auto");
+    const provider = await getProvider(args.model || "auto");
 
     const refImages: ReferenceImage[] = [];
 

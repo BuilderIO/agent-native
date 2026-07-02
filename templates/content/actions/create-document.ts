@@ -1,18 +1,19 @@
 import { defineAction, embedApp } from "@agent-native/core";
+import { writeAppState } from "@agent-native/core/application-state";
+import { buildDeepLink } from "@agent-native/core/server";
+import {
+  getRequestUserEmail,
+  getRequestOrgId,
+} from "@agent-native/core/server/request-context";
+import { assertAccess, type ShareRole } from "@agent-native/core/sharing";
 import { and, eq, sql } from "drizzle-orm";
+import { z } from "zod";
+
 import { getDb, schema } from "../server/db/index.js";
 import {
   parseDocumentFavorite,
   parseDocumentHideFromSearch,
 } from "../server/lib/documents.js";
-import {
-  getRequestUserEmail,
-  getRequestOrgId,
-} from "@agent-native/core/server/request-context";
-import { buildDeepLink } from "@agent-native/core/server";
-import { writeAppState } from "@agent-native/core/application-state";
-import { assertAccess, type ShareRole } from "@agent-native/core/sharing";
-import { z } from "zod";
 import {
   createLocalFileDocument,
   isContentLocalFileMode,
@@ -25,6 +26,13 @@ function nanoid(size = 12): string {
   const bytes = crypto.getRandomValues(new Uint8Array(size));
   for (const byte of bytes) id += chars[byte % chars.length];
   return id;
+}
+
+function assertCanWriteAppState() {
+  if (getRequestUserEmail() || process.env.AGENT_USER_EMAIL) return;
+  throw new Error(
+    "Application state access requires an authenticated request context or AGENT_USER_EMAIL env var",
+  );
 }
 
 export default defineAction({
@@ -52,6 +60,7 @@ export default defineAction({
   },
   run: async (args) => {
     if (await isContentLocalFileMode()) {
+      assertCanWriteAppState();
       const doc = await createLocalFileDocument(args);
       await writeAppState("refresh-signal", { ts: Date.now() });
       return {

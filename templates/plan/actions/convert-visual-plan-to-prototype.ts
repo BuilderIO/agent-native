@@ -1,14 +1,15 @@
 import { defineAction, embedApp } from "@agent-native/core";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
+
 import { getDb, schema } from "../server/db/index.js";
+import { isLocalPlanRuntime } from "../server/lib/local-identity.js";
+import { writePlanLocalFiles } from "../server/lib/local-plan-files.js";
+import { createPlanVersionSnapshot } from "../server/lib/plan-versions.js";
 import {
   createPrototypeFromPlanContent,
   serializePlanContent,
 } from "../server/plan-content.js";
-import { isLocalPlanRuntime } from "../server/lib/local-identity.js";
-import { writePlanLocalFiles } from "../server/lib/local-plan-files.js";
-import { createPlanVersionSnapshot } from "../server/lib/plan-versions.js";
 import {
   assertPlanEditor,
   buildPlanHtml,
@@ -57,7 +58,7 @@ export default defineAction({
         "Open the converted Agent-Native Plan prototype review surface.",
       iframeTitle: "Agent-Native Plan",
       openLabel: "Open Visual Plan",
-      height: 860,
+      height: 900,
     }),
   },
   run: async (args) => {

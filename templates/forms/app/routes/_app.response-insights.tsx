@@ -1,11 +1,12 @@
+import messages from "@/i18n/en-US";
 import { ResponseInsightsPage } from "@/pages/ResponseInsightsPage";
 
 export function meta() {
   return [
-    { title: "Response insights - Forms" },
+    { title: messages.routeTitles.responseInsightsForms },
     {
       name: "description",
-      content: "Analyze form submissions with native tables and charts.",
+      content: messages.routeDescriptions.responseInsights,
     },
   ];
 }

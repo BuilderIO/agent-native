@@ -51,14 +51,15 @@ vi.mock("../server/auth.js", () => ({
   getSession: (...args: unknown[]) => mockGetSession(...args),
 }));
 
+import { createNotificationToolEntries } from "./actions.js";
 import {
   notify,
+  notifyWithDelivery,
   registerNotificationChannel,
   unregisterNotificationChannel,
   listNotificationChannels,
   __resetNotificationChannels,
 } from "./registry.js";
-import { createNotificationToolEntries } from "./actions.js";
 import { createNotificationsHandler } from "./routes.js";
 
 function createEvent(path: string, method = "GET") {
@@ -218,6 +219,28 @@ describe("notifications registry", () => {
       expect(deliverSlack).toHaveBeenCalled();
       expect(deliverPager).not.toHaveBeenCalled();
       expect(mockInsertNotification).not.toHaveBeenCalled();
+    });
+
+    it("exposes custom-channel delivery even when there is no inbox row", async () => {
+      const deliverSlack = vi.fn();
+      registerNotificationChannel({ name: "slack", deliver: deliverSlack });
+
+      const delivery = await notifyWithDelivery(
+        { severity: "critical", title: "Test", channels: ["slack"] },
+        { owner: "boni@local" },
+      );
+
+      expect(delivery.notification).toBeUndefined();
+      expect(delivery.deliveredChannels).toEqual(["slack"]);
+      expect(mockInsertNotification).not.toHaveBeenCalled();
+      expect(mockEmit).toHaveBeenCalledWith(
+        "notification.sent",
+        expect.objectContaining({
+          notificationId: undefined,
+          deliveredChannels: ["slack"],
+        }),
+        { owner: "boni@local" },
+      );
     });
 
     it("channels=['inbox'] persists but skips custom channels", async () => {

@@ -1,5 +1,5 @@
-import { MessagingSetupPanel } from "@/components/messaging-setup-panel";
 import { DispatchShell } from "@/components/dispatch-shell";
+import { MessagingSetupPanel } from "@/components/messaging-setup-panel";
 
 export function meta() {
   return [{ title: "Messaging — Dispatch" }];

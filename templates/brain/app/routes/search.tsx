@@ -1,5 +1,3 @@
-import { useMemo } from "react";
-import { Link, useSearchParams } from "react-router";
 import { useActionQuery, useT } from "@agent-native/core/client";
 import {
   IconBook2,
@@ -13,18 +11,19 @@ import {
   IconRefresh,
   IconSearch,
 } from "@tabler/icons-react";
+import { useMemo } from "react";
+import { Link, useSearchParams } from "react-router";
+
 import {
-  type KnowledgeRow,
-  type SearchEverythingResponse,
-  type SearchEverythingResult,
-  formatPercent,
-  statusLabel,
-} from "@/lib/brain";
+  EmptyActionState,
+  LoadingRows,
+  PageHeader,
+  StatusBadge,
+} from "@/components/brain/Surface";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { Separator } from "@/components/ui/separator";
 import {
   Select,
   SelectContent,
@@ -32,6 +31,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Separator } from "@/components/ui/separator";
 import {
   Sheet,
   SheetContent,
@@ -41,11 +41,12 @@ import {
   SheetTrigger,
 } from "@/components/ui/sheet";
 import {
-  EmptyActionState,
-  LoadingRows,
-  PageHeader,
-  StatusBadge,
-} from "@/components/brain/Surface";
+  type KnowledgeRow,
+  type SearchEverythingResponse,
+  type SearchEverythingResult,
+  formatPercent,
+  statusLabel,
+} from "@/lib/brain";
 
 const typeOptions = ["all", "knowledge", "capture", "source"];
 const providerOptions = [
@@ -165,7 +166,7 @@ export default function SearchRoute() {
               />
             </div>
 
-            <div className="grid gap-2 md:grid-cols-[1fr_1fr_1fr_120px_auto]">
+            <div className="brain-search-filter-grid grid gap-2">
               <Select
                 value={type}
                 onValueChange={(value) => updateParam("type", value)}

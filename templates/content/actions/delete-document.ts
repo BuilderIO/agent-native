@@ -1,9 +1,10 @@
 import { defineAction } from "@agent-native/core";
-import { and, eq } from "drizzle-orm";
-import { getDb, schema } from "../server/db/index.js";
 import { writeAppState } from "@agent-native/core/application-state";
 import { assertAccess } from "@agent-native/core/sharing";
+import { and, eq } from "drizzle-orm";
 import { z } from "zod";
+
+import { getDb, schema } from "../server/db/index.js";
 import { deleteDatabaseDataForDocument } from "./_database-utils.js";
 import {
   deleteLocalFileDocument,
@@ -11,7 +12,7 @@ import {
   isContentLocalFileMode,
 } from "./_local-file-documents.js";
 
-async function deleteRecursive(
+export async function deleteDocumentRecursive(
   db: ReturnType<typeof getDb>,
   id: string,
   ownerEmail: string,
@@ -28,11 +29,11 @@ async function deleteRecursive(
 
   const deleted: string[] = [];
   for (const child of children) {
-    deleted.push(...(await deleteRecursive(db, child.id, ownerEmail)));
+    deleted.push(...(await deleteDocumentRecursive(db, child.id, ownerEmail)));
   }
 
   // Delete database membership/schema, sync links, versions, shares, then document.
-  await deleteDatabaseDataForDocument(id, ownerEmail);
+  await deleteDatabaseDataForDocument(id, ownerEmail, db);
   await db
     .delete(schema.documentSyncLinks)
     .where(
@@ -47,6 +48,14 @@ async function deleteRecursive(
       and(
         eq(schema.documentVersions.documentId, id),
         eq(schema.documentVersions.ownerEmail, ownerEmail),
+      ),
+    );
+  await db
+    .delete(schema.builderDocSidecars)
+    .where(
+      and(
+        eq(schema.builderDocSidecars.documentId, id),
+        eq(schema.builderDocSidecars.ownerEmail, ownerEmail),
       ),
     );
   await db
@@ -77,7 +86,7 @@ export default defineAction({
     const existing = access.resource;
 
     const db = getDb();
-    const deleted = await deleteRecursive(
+    const deleted = await deleteDocumentRecursive(
       db,
       id,
       existing.ownerEmail as string,

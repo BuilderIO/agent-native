@@ -1,3 +1,7 @@
+import { captureExtensionError, initExtensionSentry } from "./sentry";
+
+initExtensionSentry("popup");
+
 type CaptureSurface = "browser" | "window" | "monitor" | "camera";
 type RecordingModeChoice = "screen-camera" | "screen" | "camera";
 
@@ -41,6 +45,8 @@ type NativeRecording = {
   status: NativeRecordingStatus;
   recordingUrl: string;
   error: string | null;
+  savedToDisk?: boolean;
+  savedFilename?: string;
 };
 
 type PopupStatusResponse = {
@@ -89,8 +95,16 @@ const FEEDBACK_URL =
 const FEEDBACK_PLACEHOLDER = "Tell us what's on your mind...";
 const FEEDBACK_SUBMIT_TEXT = "Send feedback";
 const FEEDBACK_SUCCESS_MESSAGE = "Thanks for the feedback!";
+const STORAGE_SETUP_REQUIRED_MESSAGE =
+  "Connect storage to finish saving this clip: Builder.io (free tier storage + AI) or S3-compatible storage.";
+const STORAGE_SETUP_FAILURE_RE =
+  /video storage is not connected|no video storage configured|file upload provider|storage provider|connect builder|s3-compatible/i;
 const feedbackTarget = parseFeedbackTarget(FEEDBACK_URL);
 const feedbackSchemaCache = new Map<string, Promise<FeedbackFormSchema>>();
+
+function isStorageSetupFailureMessage(message: string | null | undefined) {
+  return STORAGE_SETUP_FAILURE_RE.test(message ?? "");
+}
 
 function screenSurface(
   value: CaptureSurface,
@@ -503,6 +517,14 @@ function setStatus(message: string, kind: "info" | "error" = "info"): void {
   status.dataset.kind = kind;
 }
 
+function setStorageHelp(visible: boolean): void {
+  byId<HTMLDivElement>("storage-help").hidden = !visible;
+}
+
+function storageSetupUrl(settings: ExtensionSettings): string {
+  return `${settings.clipsBaseUrl.replace(/\/+$/, "")}/record`;
+}
+
 function renderMode(settings: ExtensionSettings): void {
   const mode = recordingMode(settings);
   for (const button of document.querySelectorAll<HTMLButtonElement>(
@@ -686,7 +708,10 @@ function renderActiveRecording(recording: NativeRecording | null): void {
   start.hidden = active;
   signIn.hidden = true;
   if (recordingActions) recordingActions.hidden = !active;
-  if (!recording) return;
+  if (!recording) {
+    setStorageHelp(false);
+    return;
+  }
 
   recordingTitle.textContent = recording.targetTitle || "Current recording";
   const host = hostnameLabel(recording.targetUrl);
@@ -696,16 +721,31 @@ function renderActiveRecording(recording: NativeRecording | null): void {
     titleKey && hostKey && (titleKey === hostKey || hostKey.includes(titleKey));
   recordingUrl.textContent = duplicate ? "" : host;
   recordingUrl.hidden = !host || Boolean(duplicate);
+  const storageFailure = isStorageSetupFailureMessage(recording.error);
+  let errorText = storageFailure
+    ? STORAGE_SETUP_REQUIRED_MESSAGE
+    : recording.error || "Recording needs attention";
+  // If the upload failed but we saved the recording to disk, lead with the
+  // reassurance (it's not lost) and the re-upload action.
+  if (recording.status === "error" && recording.savedToDisk) {
+    const named = recording.savedFilename
+      ? ` (${recording.savedFilename})`
+      : "";
+    errorText = storageFailure
+      ? `Couldn't upload — storage isn't connected. Your clip is saved to your downloads${named}. Connect storage, then re-upload it with "Upload video".`
+      : `Couldn't upload your clip. It's saved to your downloads${named} — try re-uploading it with "Upload video".`;
+  }
   recordingStatus.textContent =
     recording.status === "uploading"
       ? "Saving..."
       : recording.status === "stopping"
         ? "Stopping..."
         : recording.status === "error"
-          ? recording.error || "Recording needs attention"
+          ? errorText
           : `Recording ${formatDuration(recording.startedAtMs)}`;
   recordingStatus.dataset.kind =
     recording.status === "error" ? "error" : "info";
+  setStorageHelp(recording.status === "error" && storageFailure);
 }
 
 async function init(): Promise<void> {
@@ -747,6 +787,7 @@ async function init(): Promise<void> {
   const openSettings = byId<HTMLButtonElement>("open-settings");
   const openRecent = byId<HTMLButtonElement>("open-recent");
   const signIn = byId<HTMLButtonElement>("sign-in");
+  const storageHelpOpen = byId<HTMLButtonElement>("storage-help-open");
   let activeRecording: NativeRecording | null = null;
   let authStatus: AuthStatus = "checking";
   let feedbackOpenedAt = 0;
@@ -1032,6 +1073,9 @@ async function init(): Promise<void> {
         1400,
       );
     } catch (err) {
+      captureExtensionError(err, {
+        tags: { surface: "popup", action: "submit-feedback" },
+      });
       feedbackSubmit.disabled = !feedbackTextarea.value.trim();
       feedbackSubmit.textContent = FEEDBACK_SUBMIT_TEXT;
       feedbackHint.textContent =
@@ -1064,52 +1108,88 @@ async function init(): Promise<void> {
   start.addEventListener("click", async () => {
     start.disabled = true;
     signIn.hidden = true;
+    setStorageHelp(false);
     setStatus(""); // no chatty "Checking…/Starting…" text — the disabled button is enough
-    authStatus = await readAuthStatus(settings);
-    if (authStatus === "signed-out") {
+    try {
+      authStatus = await readAuthStatus(settings);
+      if (authStatus === "signed-out") {
+        start.disabled = false;
+        start.hidden = true;
+        signIn.hidden = false;
+        setStatus("");
+        return;
+      }
+      const storageConfigured = await readVideoStorageConfigured(settings);
+      if (!storageConfigured) {
+        start.disabled = false;
+        setStatus(
+          "Connect storage in Clips first: Builder.io (free tier storage + AI) or S3-compatible storage.",
+          "error",
+        );
+        setStorageHelp(true);
+        await createTab(storageSetupUrl(settings));
+        window.close();
+        return;
+      }
+      // Gate at record time: if the user wants camera/mic but hasn't granted the
+      // extension access yet, send them to the onboarding page first. Requesting
+      // there (a real extension page) is the only place Chrome reliably shows the
+      // permission dialog and persists the grant for the offscreen recorder + bubble.
+      if (!(await ensureMediaPermission(settings))) {
+        start.disabled = false;
+        setStatus("Allow camera & microphone, then start recording.", "error");
+        await createTab(chrome.runtime.getURL("src/permission.html"));
+        window.close();
+        return;
+      }
+      await saveSettings(settings);
+      const response = await sendStartMessage(settings);
+      if (response.ok) {
+        window.close();
+        return;
+      }
       start.disabled = false;
-      start.hidden = true;
-      signIn.hidden = false;
-      setStatus("");
-      return;
-    }
-    const storageConfigured = await readVideoStorageConfigured(settings);
-    if (!storageConfigured) {
-      start.disabled = false;
+      const message = response.error || "Could not start Clips.";
+      if (isSignInError(message)) {
+        start.hidden = true;
+        signIn.hidden = false;
+        setStatus("");
+        return;
+      }
+      const storageSetupFailure = isStorageSetupFailureMessage(message);
+      setStorageHelp(storageSetupFailure);
       setStatus(
-        "Connect Builder.io or S3 storage in Clips, then start recording.",
+        storageSetupFailure
+          ? "Connect storage in Clips first: Builder.io (free tier storage + AI) or S3-compatible storage."
+          : message,
         "error",
       );
-      await createTab(`${settings.clipsBaseUrl.replace(/\/+$/, "")}/record`);
-      window.close();
-      return;
-    }
-    // Gate at record time: if the user wants camera/mic but hasn't granted the
-    // extension access yet, send them to the onboarding page first. Requesting
-    // there (a real extension page) is the only place Chrome reliably shows the
-    // permission dialog and persists the grant for the offscreen recorder + bubble.
-    if (!(await ensureMediaPermission(settings))) {
+    } catch (err) {
+      captureExtensionError(err, {
+        tags: { surface: "popup", action: "start-recording" },
+        extra: {
+          captureSurface: settings.captureSurface,
+          includeCamera: settings.includeCamera,
+          includeMicrophone: settings.includeMicrophone,
+        },
+      });
       start.disabled = false;
-      setStatus("Allow camera & microphone, then start recording.", "error");
-      await createTab(chrome.runtime.getURL("src/permission.html"));
-      window.close();
-      return;
+      const message =
+        err instanceof Error ? err.message : "Could not start Clips.";
+      const storageSetupFailure = isStorageSetupFailureMessage(message);
+      setStorageHelp(storageSetupFailure);
+      setStatus(
+        storageSetupFailure
+          ? "Connect storage in Clips first: Builder.io (free tier storage + AI) or S3-compatible storage."
+          : message,
+        "error",
+      );
     }
-    await saveSettings(settings);
-    const response = await sendStartMessage(settings);
-    if (response.ok) {
-      window.close();
-      return;
-    }
-    start.disabled = false;
-    const message = response.error || "Could not start Clips.";
-    if (isSignInError(message)) {
-      start.hidden = true;
-      signIn.hidden = false;
-      setStatus("");
-      return;
-    }
-    setStatus(message, "error");
+  });
+
+  storageHelpOpen.addEventListener("click", async () => {
+    await createTab(storageSetupUrl(settings));
+    window.close();
   });
 
   signIn.addEventListener("click", async () => {
@@ -1138,7 +1218,13 @@ async function init(): Promise<void> {
     }
     stop.disabled = false;
     discard.disabled = false;
-    setStatus(response.error || "Could not stop recording.", "error");
+    const message = response.error || "Could not stop recording.";
+    const storageSetupFailure = isStorageSetupFailureMessage(message);
+    setStorageHelp(storageSetupFailure);
+    setStatus(
+      storageSetupFailure ? STORAGE_SETUP_REQUIRED_MESSAGE : message,
+      "error",
+    );
   });
 
   discard.addEventListener("click", async () => {
@@ -1173,6 +1259,9 @@ async function init(): Promise<void> {
 }
 
 void init().catch((err) => {
+  captureExtensionError(err, {
+    tags: { surface: "popup", action: "init" },
+  });
   setStatus(
     err instanceof Error ? err.message : "Could not load popup.",
     "error",

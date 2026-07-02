@@ -7,7 +7,6 @@
  *   pnpm action resource-write --path <path> --content <content> [--scope personal|shared] [--mime <mime-type>] [--visibility workspace|agent_scratch]
  */
 
-import { parseArgs, fail } from "../utils.js";
 import {
   canWriteLocalWorkspaceResourcePath,
   resourcePut,
@@ -17,6 +16,7 @@ import {
   type ResourceVisibility,
 } from "../../resources/store.js";
 import { getRequestUserEmail } from "../../server/request-context.js";
+import { parseArgs, fail } from "../utils.js";
 
 const EXTENSION_MIME_MAP: Record<string, string> = {
   ".md": "text/markdown",

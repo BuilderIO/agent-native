@@ -5,14 +5,14 @@ import {
   getRequestURL,
   type H3Event,
 } from "h3";
+
+import { runMigrations } from "../db/migrations.js";
 import {
   awaitBootstrap,
   getH3App,
   FRAMEWORK_PREFIX,
   markDefaultPluginProvided,
 } from "../server/framework-request-handler.js";
-import { runMigrations } from "../db/migrations.js";
-import { ORG_MIGRATIONS } from "./migrations.js";
 import {
   getMyOrgHandler,
   createOrgHandler,
@@ -30,6 +30,7 @@ import {
   syncA2ASecretHandler,
   receiveA2ASecretHandler,
 } from "./handlers.js";
+import { ORG_MIGRATIONS } from "./migrations.js";
 
 type NitroPluginDef = (nitroApp: any) => void | Promise<void>;
 
@@ -99,7 +100,7 @@ export function createOrgPlugin(): NitroPluginDef {
           return listMembersHandler(event);
         }
         // Tail is /:email/role
-        if (/^\/[^\/]+\/role\/?$/.test(tail)) {
+        if (/^\/[^/]+\/role\/?$/.test(tail)) {
           if (method !== "PUT") {
             setResponseStatus(event, 405);
             return { error: "Method not allowed" };
@@ -128,7 +129,7 @@ export function createOrgPlugin(): NitroPluginDef {
           return { error: "Method not allowed" };
         }
         // Tail is /:id/accept
-        if (/^\/[^\/]+\/accept\/?$/.test(tail)) {
+        if (/^\/[^/]+\/accept\/?$/.test(tail)) {
           if (method !== "POST") {
             setResponseStatus(event, 405);
             return { error: "Method not allowed" };

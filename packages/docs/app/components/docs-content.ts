@@ -4,6 +4,12 @@
  * Provides parsed frontmatter, raw markdown, and heading extraction for TOC + search.
  */
 
+import { docsBodyToMarkdownMirror } from "../../lib/docs-markdown-export";
+import {
+  docSourceFilenamesForSlug,
+  docSourceSlugFromFilename,
+  preferMdxDocSourceFiles,
+} from "../../lib/docs-source";
 import {
   DEFAULT_DOCS_LOCALE,
   docsPathForSlug,
@@ -11,23 +17,34 @@ import {
   type DocsLocale,
 } from "./docs-locale";
 
-// Import all .md files from core's docs as raw strings
-const mdModules = import.meta.glob("../../../core/docs/content/*.md", {
-  query: "?raw",
-  import: "default",
-  eager: true,
-}) as Record<string, string>;
+// Import all default-locale docs from core as raw strings. During the migration
+// `.mdx` wins when both source files exist for a slug; `.md` remains a fallback.
+const docSourceModules = {
+  ...import.meta.glob("../../../core/docs/content/*.md", {
+    query: "?raw",
+    import: "default",
+    eager: true,
+  }),
+  ...import.meta.glob("../../../core/docs/content/*.mdx", {
+    query: "?raw",
+    import: "default",
+    eager: true,
+  }),
+} as Record<string, string>;
 
 // Optional locale-specific docs live under packages/core/docs/content/locales/.
 // Keep these lazy. Translated Markdown should load per locale + route, not all
 // at startup, so non-English docs do not bloat the initial docs bundle.
-const localizedMdLoaders = import.meta.glob(
-  "../../../core/docs/content/locales/*/*.md",
-  {
+const localizedDocLoaders = {
+  ...import.meta.glob("../../../core/docs/content/locales/*/*.md", {
     query: "?raw",
     import: "default",
-  },
-) as Record<string, () => Promise<string>>;
+  }),
+  ...import.meta.glob("../../../core/docs/content/locales/*/*.mdx", {
+    query: "?raw",
+    import: "default",
+  }),
+} as Record<string, () => Promise<string>>;
 
 export interface DocEntry {
   slug: string;
@@ -35,6 +52,7 @@ export interface DocEntry {
   description: string;
   search: string;
   body: string; // markdown body (without frontmatter)
+  searchBody: string; // portable markdown body used for search snippets/indexing
   headings: { id: string; label: string; level: number }[];
 }
 
@@ -45,6 +63,11 @@ export interface SearchEntry {
   sectionId: string;
   text: string;
   keywords: string;
+}
+
+interface MarkdownLine {
+  lineNumber: number;
+  text: string;
 }
 
 function parseFrontmatter(raw: string): {
@@ -62,13 +85,33 @@ function parseFrontmatter(raw: string): {
   return { data, body: match[2] };
 }
 
+function nonFencedMarkdownLines(body: string): MarkdownLine[] {
+  const lines = body.split("\n");
+  const result: MarkdownLine[] = [];
+  let inFence = false;
+
+  for (let index = 0; index < lines.length; index += 1) {
+    const text = lines[index];
+    if (/^\s*(?:```|~~~)/.test(text)) {
+      inFence = !inFence;
+      continue;
+    }
+    if (!inFence) {
+      result.push({ lineNumber: index + 1, text });
+    }
+  }
+
+  return result;
+}
+
 function extractHeadings(
   body: string,
 ): { id: string; label: string; level: number }[] {
   const headings: { id: string; label: string; level: number }[] = [];
-  const pattern = /^(#{2,4})\s+(.+?)(?:\s+\{#([\w-]+)\})?\s*$/gm;
-  let match;
-  while ((match = pattern.exec(body)) !== null) {
+  const pattern = /^(#{2,4})\s+(.+?)(?:\s+\{#([\w-]+)\})?\s*$/;
+  for (const line of nonFencedMarkdownLines(body)) {
+    const match = line.text.match(pattern);
+    if (!match) continue;
     const level = match[1].length; // 2, 3, or 4
     const label = match[2].replace(/`([^`]+)`/g, "$1").trim();
     const id =
@@ -88,7 +131,7 @@ const localizedDocPromises = new Map<string, Promise<DocEntry | undefined>>();
 
 function docEntryFromPath(path: string, raw: string): DocEntry {
   const filename = path.split("/").pop()!;
-  const slug = filename.replace(/\.md$/, "");
+  const slug = docSourceSlugFromFilename(filename);
   const { data, body } = parseFrontmatter(raw);
   const headings = extractHeadings(body);
   return {
@@ -97,12 +140,14 @@ function docEntryFromPath(path: string, raw: string): DocEntry {
     description: data.description || "",
     search: data.search || "",
     body,
+    searchBody: docsBodyToMarkdownMirror(body),
     headings,
   };
 }
 
 // Build the docs maps once.
-for (const [path, raw] of Object.entries(mdModules)) {
+for (const path of preferMdxDocSourceFiles(Object.keys(docSourceModules))) {
+  const raw = docSourceModules[path];
   const entry = docEntryFromPath(path, raw);
   docs.set(entry.slug, entry);
 }
@@ -111,8 +156,12 @@ function normalizeDocsLocale(locale: unknown): DocsLocale {
   return isDocsLocale(locale) ? locale : DEFAULT_DOCS_LOCALE;
 }
 
-function localizedDocKey(locale: DocsLocale, slug: string) {
-  return `../../../core/docs/content/locales/${locale}/${slug}.md`;
+function localizedDocKey(locale: DocsLocale, slug: string): string | undefined {
+  for (const filename of docSourceFilenamesForSlug(slug)) {
+    const key = `../../../core/docs/content/locales/${locale}/${filename}`;
+    if (localizedDocLoaders[key]) return key;
+  }
+  return undefined;
 }
 
 function cacheLocalizedDoc(locale: DocsLocale, entry: DocEntry) {
@@ -144,8 +193,8 @@ export async function loadDoc(
   if (cached) return cached;
 
   const key = localizedDocKey(docsLocale, slug);
-  const loader = localizedMdLoaders[key];
-  if (!loader) return docs.get(slug);
+  if (!key) return docs.get(slug);
+  const loader = localizedDocLoaders[key];
 
   const existingPromise = localizedDocPromises.get(key);
   if (existingPromise) return existingPromise;
@@ -169,7 +218,7 @@ export function hasLocalizedDoc(locale: unknown, slug: string): boolean {
   if (docsLocale === DEFAULT_DOCS_LOCALE) return docs.has(slug);
   return Boolean(
     localizedDocs.get(docsLocale)?.has(slug) ||
-    localizedMdLoaders[localizedDocKey(docsLocale, slug)],
+    localizedDocKey(docsLocale, slug),
   );
 }
 
@@ -191,12 +240,12 @@ export async function loadAllDocs(
 
   const prefix = `../../../core/docs/content/locales/${docsLocale}/`;
   await Promise.all(
-    Object.keys(localizedMdLoaders)
-      .filter((key) => key.startsWith(prefix))
-      .map((key) => {
-        const slug = key.split("/").pop()!.replace(/\.md$/, "");
-        return loadDoc(slug, docsLocale);
-      }),
+    preferMdxDocSourceFiles(
+      Object.keys(localizedDocLoaders).filter((key) => key.startsWith(prefix)),
+    ).map((key) => {
+      const slug = docSourceSlugFromFilename(key);
+      return loadDoc(slug, docsLocale);
+    }),
   );
   return getAllDocs(docsLocale);
 }
@@ -211,12 +260,13 @@ function buildSearchIndexFromDocs(
 
   for (const doc of docsList) {
     const path = docsPathForSlug(doc.slug, docsLocale);
-    const lines = doc.body.split("\n");
+    const lines = nonFencedMarkdownLines(doc.searchBody);
+    const lastLineNumber = lines.at(-1)?.lineNumber ?? 0;
     const sections: { id: string; label: string; startLine: number }[] = [];
 
     // Find all h2/h3 headings
-    for (let i = 0; i < lines.length; i++) {
-      const m = lines[i].match(/^(#{2,3})\s+(.+?)(?:\s+\{#([\w-]+)\})?\s*$/);
+    for (const line of lines) {
+      const m = line.text.match(/^(#{2,3})\s+(.+?)(?:\s+\{#([\w-]+)\})?\s*$/);
       if (m) {
         const label = m[2].replace(/`([^`]+)`/g, "$1").trim();
         const id =
@@ -225,18 +275,21 @@ function buildSearchIndexFromDocs(
             .toLowerCase()
             .replace(/[^a-z0-9]+/g, "-")
             .replace(/^-|-$/g, "");
-        sections.push({ id, label, startLine: i + 1 });
+        sections.push({ id, label, startLine: line.lineNumber });
       }
     }
 
     // Add a page-level entry for the title + intro text (before first h2/h3)
     const introEndLine =
-      sections.length > 0 ? sections[0].startLine - 1 : lines.length;
+      sections.length > 0 ? sections[0].startLine - 1 : lastLineNumber;
     const introText = lines
-      .slice(0, introEndLine)
-      .filter((l) => !l.startsWith("```") && !l.startsWith("#"))
+      .filter(
+        (line) => line.lineNumber <= introEndLine, // i18n-ignore -- source-index field, not visible copy.
+      )
+      .map((line) => line.text)
+      .filter((l) => !l.startsWith("#"))
       .join(" ")
-      .replace(/[`*_\[\](){}]/g, "")
+      .replace(/[`*_[\](){}]/g, "")
       .replace(/\s+/g, " ")
       .trim();
 
@@ -258,12 +311,18 @@ function buildSearchIndexFromDocs(
     for (let i = 0; i < sections.length; i++) {
       const section = sections[i];
       const endLine =
-        i + 1 < sections.length ? sections[i + 1].startLine - 1 : lines.length;
+        i + 1 < sections.length
+          ? sections[i + 1].startLine - 1
+          : lastLineNumber;
       const text = lines
-        .slice(section.startLine, endLine)
-        .filter((l) => !l.startsWith("```") && !l.startsWith("#"))
+        .filter(
+          (line) =>
+            line.lineNumber >= section.startLine && line.lineNumber <= endLine,
+        )
+        .map((line) => line.text)
+        .filter((l) => !l.startsWith("#"))
         .join(" ")
-        .replace(/[`*_\[\](){}]/g, "")
+        .replace(/[`*_[\](){}]/g, "")
         .replace(/\s+/g, " ")
         .trim();
 

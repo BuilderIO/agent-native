@@ -5,8 +5,8 @@
  * pattern).
  */
 
-import registerPollCalendarsJob from "../jobs/poll-calendars.js";
 import registerMeetingRemindersJob from "../jobs/meeting-reminders.js";
+import registerPollCalendarsJob from "../jobs/poll-calendars.js";
 
 export default () => {
   // The reminder job registers the `meeting-reminder` event on every

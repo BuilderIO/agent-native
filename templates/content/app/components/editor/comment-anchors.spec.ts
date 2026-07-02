@@ -1,5 +1,6 @@
-import { describe, it, expect } from "vitest";
 import { Schema, type Node as PMNode } from "@tiptap/pm/model";
+import { describe, it, expect } from "vitest";
+
 import { captureAnchor, resolveAnchor, buildDocText } from "./comment-anchors";
 
 // Minimal doc/paragraph/text schema — enough to exercise the text-space anchor

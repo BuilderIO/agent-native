@@ -4,6 +4,7 @@ import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, vi } from "vitest";
 import { describe, expect, it } from "vitest";
+
 import {
   AGENT_NATIVE_EMBED_MESSAGE_TYPES,
   AGENT_NATIVE_EMBED_PROTOCOL,
@@ -211,7 +212,7 @@ function mcpAppPayload({
     serverId: "plan",
     toolName: "open_app",
     originalToolName: "open_app",
-    resourceUri: "ui://plan/open_app/shell-v46",
+    resourceUri: "ui://plan/open_app/shell-v53",
     toolInput: { embed: true },
     toolResult: {
       structuredContent: {
@@ -219,7 +220,7 @@ function mcpAppPayload({
       },
     },
     resource: {
-      uri: "ui://plan/open_app/shell-v46",
+      uri: "ui://plan/open_app/shell-v53",
       mimeType: "text/html;profile=mcp-app",
       text: resourceHtml,
     },

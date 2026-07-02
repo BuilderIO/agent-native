@@ -1,6 +1,3 @@
-import { useEffect } from "react";
-import { useLocation, useNavigate } from "react-router";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   agentNativePath,
   appBasePath,
@@ -8,6 +5,10 @@ import {
   markAgentChatHomeHandoff,
 } from "@agent-native/core/client";
 import { extensionIdFromPathname } from "@agent-native/core/client/extensions";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useEffect } from "react";
+import { useLocation, useNavigate } from "react-router";
+
 import type {
   DispatchExtensionConfig,
   DispatchNavItem,
@@ -218,7 +219,7 @@ function resolveView(
   if (pathname.startsWith("/audit")) return "audit";
   if (pathname.startsWith("/dreams")) return "dreams";
   if (pathname.startsWith("/thread-debug")) return "thread-debug";
-  if (pathname.startsWith("/team")) return "team";
+  if (pathname.startsWith("/team")) return "settings";
   return "overview";
 }
 
@@ -270,7 +271,7 @@ function resolvePath(
     case "threads":
       return "/thread-debug";
     case "team":
-      return "/team";
+      return "/settings#team";
     case "extensions":
       return command?.extensionId
         ? `/extensions/${encodeURIComponent(command.extensionId)}`

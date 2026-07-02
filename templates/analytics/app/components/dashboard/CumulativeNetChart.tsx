@@ -1,3 +1,4 @@
+import { useT } from "@agent-native/core/client";
 import {
   Area,
   AreaChart,
@@ -8,8 +9,14 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
+
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
+import {
+  chartAxisStroke,
+  chartGridStroke,
+  chartTooltipContentStyle,
+} from "@/lib/chart-theme";
 
 interface CumulativeNetChartProps {
   title: string;
@@ -39,6 +46,7 @@ export function CumulativeNetChart({
   isLoading,
   error,
 }: CumulativeNetChartProps) {
+  const t = useT();
   const lastValue = data.length > 0 ? data[data.length - 1].cumulative_net : 0;
   const isPositive = lastValue >= 0;
   const color = isPositive ? "#10b981" : "#ef4444";
@@ -55,7 +63,7 @@ export function CumulativeNetChart({
           <p className="text-sm text-red-400 py-8 text-center">{error}</p>
         ) : data.length === 0 ? (
           <p className="text-sm text-muted-foreground py-8 text-center">
-            No data available
+            {t("common.noDataAvailable")}
           </p>
         ) : (
           <div className="h-[300px] w-full">
@@ -75,14 +83,14 @@ export function CumulativeNetChart({
                 </defs>
                 <XAxis
                   dataKey="day"
-                  stroke="#52525b"
+                  stroke={chartAxisStroke}
                   fontSize={12}
                   tickLine={false}
                   axisLine={false}
                   tickFormatter={formatDate}
                 />
                 <YAxis
-                  stroke="#52525b"
+                  stroke={chartAxisStroke}
                   fontSize={12}
                   tickLine={false}
                   axisLine={false}
@@ -90,17 +98,12 @@ export function CumulativeNetChart({
                 />
                 <CartesianGrid
                   strokeDasharray="3 3"
-                  stroke="#27272a"
+                  stroke={chartGridStroke}
                   vertical={false}
                 />
-                <ReferenceLine y={0} stroke="#52525b" strokeWidth={1} />
+                <ReferenceLine y={0} stroke={chartAxisStroke} strokeWidth={1} />
                 <Tooltip
-                  contentStyle={{
-                    backgroundColor: "#09090b",
-                    border: "1px solid #27272a",
-                    borderRadius: "8px",
-                    color: "#fafafa",
-                  }}
+                  contentStyle={chartTooltipContentStyle}
                   labelFormatter={formatDate}
                   formatter={(value: any) => [
                     `$${Number(value).toLocaleString(undefined, { maximumFractionDigits: 0 })}`,

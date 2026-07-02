@@ -1,3 +1,16 @@
+import { useT } from "@agent-native/core/client";
+import { EmbeddedExtension } from "@agent-native/core/client/extensions";
+import {
+  IconArrowsSort,
+  IconSortAscending,
+  IconSortDescending,
+  IconChevronLeft,
+  IconChevronRight,
+  IconAlertTriangle,
+  IconInfoCircle,
+  IconTrendingUp,
+  IconTrendingDown,
+} from "@tabler/icons-react";
 import {
   createContext,
   useCallback,
@@ -28,20 +41,9 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Skeleton } from "@/components/ui/skeleton";
+
 import { Button } from "@/components/ui/button";
-import {
-  IconArrowsSort,
-  IconSortAscending,
-  IconSortDescending,
-  IconChevronLeft,
-  IconChevronRight,
-  IconAlertTriangle,
-  IconInfoCircle,
-  IconTrendingUp,
-  IconTrendingDown,
-} from "@tabler/icons-react";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Select,
   SelectContent,
@@ -49,17 +51,18 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Skeleton } from "@/components/ui/skeleton";
 
 const PAGE_SIZE_OPTIONS = [10, 25, 50, 100];
 import { useSqlQuery } from "@/lib/sql-query";
+import { serializePanelSql } from "@/pages/adhoc/sql-dashboard/panel-sql";
+import { pivotRows } from "@/pages/adhoc/sql-dashboard/pivot";
 import type {
   SqlPanel,
   ChartType,
   TableColumnConfig,
   ColumnFormat,
 } from "@/pages/adhoc/sql-dashboard/types";
-import { pivotRows } from "@/pages/adhoc/sql-dashboard/pivot";
-import { serializePanelSql } from "@/pages/adhoc/sql-dashboard/panel-sql";
 
 const DEFAULT_COLORS = [
   "var(--brand-blue)",
@@ -87,6 +90,16 @@ const CHART_TOOLTIP_PROPS = {
   wrapperStyle: CHART_TOOLTIP_WRAPPER_STYLE,
 } as const;
 
+const BAR_TOOLTIP_CURSOR_PROPS = {
+  fill: "hsl(var(--muted))",
+  fillOpacity: 0.32,
+  stroke: "hsl(var(--border))",
+  strokeOpacity: 0.5,
+  strokeWidth: 1,
+  rx: 4,
+  ry: 4,
+} as const;
+
 const CHART_LEGEND_WRAPPER_STYLE: CSSProperties = {
   fontSize: 11,
   paddingTop: 8,
@@ -96,6 +109,10 @@ const CHART_LEGEND_PROPS = {
   iconSize: 8,
   wrapperStyle: CHART_LEGEND_WRAPPER_STYLE,
 } as const;
+
+const PARTIAL_DAY_TIME_ZONE = "America/Los_Angeles";
+const PARTIAL_DAY_DASH = "3 5";
+const PARTIAL_DAY_KEY_PREFIX = "__sql_chart_partial_day";
 
 function formatYValue(
   value: number,
@@ -167,6 +184,122 @@ function truncateLabel(value: string, max = 48): string {
   return `${value.slice(0, max - 3)}...`;
 }
 
+function parseCalendarDate(value: string): Date | null {
+  const normalized = /^\d{8}$/.test(value)
+    ? `${value.slice(0, 4)}-${value.slice(4, 6)}-${value.slice(6, 8)}`
+    : value;
+  const dateOnly = /^(\d{4})-(\d{2})-(\d{2})$/.exec(normalized);
+  if (dateOnly) {
+    return new Date(
+      Number(dateOnly[1]),
+      Number(dateOnly[2]) - 1,
+      Number(dateOnly[3]),
+    );
+  }
+  const parsed = new Date(normalized);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+export function toSqlChartDateKey(value: unknown): string | null {
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    const ymd = /^(\d{4})-(\d{2})-(\d{2})$/.exec(trimmed);
+    if (ymd) return `${ymd[1]}-${ymd[2]}-${ymd[3]}`;
+    const compact = /^(\d{4})(\d{2})(\d{2})$/.exec(trimmed);
+    if (compact) return `${compact[1]}-${compact[2]}-${compact[3]}`;
+  }
+
+  const parsed = new Date(String(value ?? ""));
+  return Number.isNaN(parsed.getTime()) ? null : sqlChartLocalDateKey(parsed);
+}
+
+export function sqlChartLocalDateKey(
+  date = new Date(),
+  timeZone = PARTIAL_DAY_TIME_ZONE,
+): string {
+  try {
+    const parts = new Intl.DateTimeFormat("en-US", {
+      timeZone,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).formatToParts(date);
+    const get = (type: string) =>
+      parts.find((part) => part.type === type)?.value ?? "";
+    const year = get("year");
+    const month = get("month");
+    const day = get("day");
+    if (year && month && day) return `${year}-${month}-${day}`;
+  } catch {}
+  return date.toISOString().slice(0, 10);
+}
+
+export interface SplitTimeSeries {
+  key: string;
+  solidKey: string;
+  partialKey: string | null;
+}
+
+export function splitCurrentDayTimeSeriesRows(
+  rows: Record<string, unknown>[],
+  xKey: string,
+  yKeys: string[],
+  todayKey = sqlChartLocalDateKey(),
+): { rows: Record<string, unknown>[]; series: SplitTimeSeries[] } {
+  const todayIndexes = rows
+    .map((row, index) => ({ index, dateKey: toSqlChartDateKey(row[xKey]) }))
+    .filter((entry) => entry.dateKey === todayKey)
+    .map((entry) => entry.index);
+  const firstTodayIndex = todayIndexes[0] ?? -1;
+
+  if (firstTodayIndex <= 0 || yKeys.length === 0) {
+    return {
+      rows,
+      series: yKeys.map((key) => ({ key, solidKey: key, partialKey: null })),
+    };
+  }
+
+  const todaySet = new Set(todayIndexes);
+  const previousIndex = firstTodayIndex - 1;
+  const series = yKeys.map((key, index) => ({
+    key,
+    solidKey: `${PARTIAL_DAY_KEY_PREFIX}_${index}_solid`,
+    partialKey: `${PARTIAL_DAY_KEY_PREFIX}_${index}_partial`,
+  }));
+  const splitRows = rows.map((row, index) => {
+    const next = { ...row };
+    const isToday = todaySet.has(index);
+    const isPartialSegmentStart = index === previousIndex;
+    for (const item of series) {
+      next[item.solidKey] = isToday ? null : row[item.key];
+      next[item.partialKey] =
+        isToday || isPartialSegmentStart ? row[item.key] : null;
+    }
+    return next;
+  });
+
+  return { rows: splitRows, series };
+}
+
+export function shouldSplitCurrentDayTimeSeries(
+  panel: Pick<SqlPanel, "source">,
+  xKey: string,
+): boolean {
+  if (panel.source === "prometheus") return false;
+
+  const normalizedKey = xKey.trim().toLowerCase();
+  if (normalizedKey === "timestamp" || normalizedKey.endsWith("_timestamp")) {
+    return false;
+  }
+
+  return (
+    normalizedKey === "date" ||
+    normalizedKey === "day" ||
+    normalizedKey.endsWith("_date") ||
+    normalizedKey.endsWith("_day")
+  );
+}
+
 function formatSeriesLabel(value: string): string {
   const { metric, labels } = parsePrometheusSeriesLabel(value);
   const target =
@@ -232,11 +365,8 @@ function formatSeriesLabelForPanel(panel: SqlPanel, value: string): string {
 function formatXLabel(value: string, panel: SqlPanel): string {
   try {
     const s = String(value);
-    const normalized = /^\d{8}$/.test(s)
-      ? `${s.slice(0, 4)}-${s.slice(4, 6)}-${s.slice(6, 8)}`
-      : s;
-    const d = new Date(normalized);
-    if (!isNaN(d.getTime()) && s.length >= 8) {
+    const d = parseCalendarDate(s);
+    if (d && s.length >= 8) {
       return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
     }
   } catch {}
@@ -252,12 +382,21 @@ function numericTooltipValue(value: unknown): number {
   return Number.isFinite(numeric) ? numeric : Number.NEGATIVE_INFINITY;
 }
 
+function tooltipItemName(item: {
+  dataKey?: string | number;
+  name?: string | number;
+}): string {
+  return String(item.name ?? item.dataKey ?? "");
+}
+
 export function sortTooltipPayloadItems<
   T extends {
+    dataKey?: string | number;
+    name?: string | number;
     value?: unknown;
   },
 >(items: T[]): T[] {
-  return items
+  const sorted = items
     .map((item, index) => ({ item, index }))
     .sort((a, b) => {
       const diff =
@@ -265,6 +404,13 @@ export function sortTooltipPayloadItems<
       return diff !== 0 ? diff : a.index - b.index;
     })
     .map(({ item }) => item);
+  const seen = new Set<string>();
+  return sorted.filter((item) => {
+    const name = tooltipItemName(item);
+    if (seen.has(name)) return false;
+    seen.add(name);
+    return true;
+  });
 }
 
 function useSeriesVisibility(keys: string[]): {
@@ -448,8 +594,18 @@ function ChartTooltip({
     left: number;
     top: number;
   } | null>(null);
-  const items = sortTooltipPayloadItems(
-    payload?.filter((item) => item.value != null && item.value !== "") ?? [],
+  const items = useMemo(
+    () =>
+      sortTooltipPayloadItems(
+        payload?.filter((item) => item.value != null && item.value !== "") ??
+          [],
+      ),
+    [payload],
+  );
+  const portalVisible = portalPosition !== null;
+  const clearPortalPosition = useCallback(
+    () => setPortalPosition((prev) => (prev === null ? prev : null)),
+    [],
   );
 
   const labelText =
@@ -461,7 +617,7 @@ function ChartTooltip({
 
   useBrowserLayoutEffect(() => {
     if (!active || items.length === 0 || typeof window === "undefined") {
-      setPortalPosition(null);
+      clearPortalPosition();
       return;
     }
 
@@ -543,7 +699,7 @@ function ChartTooltip({
       window.removeEventListener("resize", schedule);
       window.removeEventListener("scroll", schedule, true);
     };
-  });
+  }, [active, clearPortalPosition, items.length, portalVisible]);
 
   if (!active || items.length === 0) return null;
 
@@ -710,11 +866,19 @@ export function SqlChart({
   loadData = true,
   onExportCsvChange,
 }: SqlChartProps) {
+  const t = useT();
   // Hooks must be called unconditionally before any early return.
   const isSection = panel.chartType === "section";
-  const shouldQuery = !isSection && loadData;
+  const isExtension = panel.chartType === "extension";
+  // Sections are pure layout and extensions render their own iframe — neither
+  // runs the SQL pipeline.
+  const shouldQuery = !isSection && !isExtension && loadData;
   const sql = serializePanelSql(resolvedSql ?? panel.sql);
-  const { data: result, isLoading } = useSqlQuery(
+  const {
+    data: result,
+    isLoading,
+    error: queryError,
+  } = useSqlQuery(
     ["sql-chart", panel.id, sql, panel.source],
     sql,
     panel.source,
@@ -723,7 +887,14 @@ export function SqlChart({
   );
 
   const rawRows = result?.rows ?? [];
-  const error = result?.error;
+  const queryErrorMessage =
+    queryError instanceof Error
+      ? queryError.message
+      : queryError
+        ? String(queryError)
+        : undefined;
+  const error =
+    rawRows.length === 0 ? (result?.error ?? queryErrorMessage) : undefined;
 
   const { rows, forcedYKeys } = useMemo(() => {
     if (panel.config?.pivot && rawRows.length) {
@@ -751,6 +922,24 @@ export function SqlChart({
       </div>
     );
   }
+
+  // Extension panels render a sandboxed extension iframe instead of querying a
+  // data source. The extension id lives in config.extensionId.
+  if (isExtension) {
+    const extensionId = panel.config?.extensionId;
+    if (!extensionId) {
+      return (
+        <div className="flex flex-1 items-center justify-center px-4 py-8 min-h-[120px]">
+          <p className="text-sm text-muted-foreground text-center">
+            {t("sqlDashboard.extensionMissingId")}
+          </p>
+        </div>
+      );
+    }
+    return (
+      <DashboardExtensionPanel extensionId={extensionId} panelId={panel.id} />
+    );
+  }
   const colors = panel.config?.colors || DEFAULT_COLORS;
   const yFormatter = panel.config?.yFormatter;
 
@@ -759,7 +948,12 @@ export function SqlChart({
   const placeholderPadY = isMetric ? "py-2" : "py-8";
 
   if (!loadData || isLoading) {
-    return <Skeleton className={`w-full flex-1 ${placeholderMinH}`} />;
+    return (
+      <Skeleton
+        data-dashboard-report-loading="true"
+        className={`w-full flex-1 ${placeholderMinH}`}
+      />
+    );
   }
 
   if (error) {
@@ -777,7 +971,9 @@ export function SqlChart({
       <div
         className={`flex flex-1 items-center justify-center ${placeholderPadY} ${placeholderMinH}`}
       >
-        <p className="text-sm text-muted-foreground text-center">No data</p>
+        <p className="text-sm text-muted-foreground text-center">
+          {t("common.noData")}
+        </p>
       </div>
     );
   }
@@ -864,6 +1060,55 @@ export function SqlChart({
       stacked={panel.config?.stacked === true}
       panel={panel}
     />,
+  );
+}
+
+function DashboardExtensionPanel({
+  extensionId,
+  panelId,
+}: {
+  extensionId: string;
+  panelId: string;
+}) {
+  const t = useT();
+  // Hold the report-readiness marker until the extension iframe paints so
+  // dashboard report screenshots don't capture a blank extension panel.
+  const [ready, setReady] = useState(false);
+  const [unavailable, setUnavailable] = useState(false);
+
+  // Embedding never grants access to the extension itself (same model as
+  // ExtensionSlots). A viewer with dashboard-only access who can't see the
+  // referenced extension gets a clear message instead of a blank panel.
+  if (unavailable) {
+    return (
+      <div className="flex flex-1 items-center justify-center px-4 py-8 min-h-[120px]">
+        <p className="text-sm text-muted-foreground text-center">
+          {t("sqlDashboard.extensionUnavailable")}
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div
+      className="w-full"
+      data-dashboard-report-loading={ready ? undefined : "true"}
+    >
+      <EmbeddedExtension
+        extensionId={extensionId}
+        slotId={`dashboard-panel-${panelId}`}
+        className="w-full"
+        // Intentional for v1: extension panels are standalone widgets and do not
+        // receive the dashboard's filters/variables/date range as `context`.
+        initialHeight={180}
+        onReady={() => setReady(true)}
+        onUnavailable={() => {
+          // Clear the report-loading gate so report capture doesn't hang.
+          setReady(true);
+          setUnavailable(true);
+        }}
+      />
+    </div>
   );
 }
 
@@ -982,6 +1227,35 @@ function renderDeltaCell(value: unknown): ReactNode {
   );
 }
 
+function rowString(
+  row: Record<string, unknown>,
+  keys: string[],
+): string | null {
+  for (const key of keys) {
+    const value = row[key];
+    if (typeof value === "string" && value.trim()) return value.trim();
+  }
+  return null;
+}
+
+export function sessionReplayHref(row: Record<string, unknown>): string | null {
+  const recordingId = rowString(row, [
+    "recording_id",
+    "session_recording_id",
+    "sessionRecordingId",
+  ]);
+  if (recordingId) return `/sessions/${encodeURIComponent(recordingId)}`;
+
+  const sessionId = rowString(row, ["session_id", "sessionId"]);
+  if (!sessionId) return null;
+  const params = new URLSearchParams({ range: "all", q: sessionId });
+  return `/sessions?${params.toString()}`;
+}
+
+function isSessionColumn(key: string): boolean {
+  return key === "session_id" || key === "sessionId";
+}
+
 function TableRenderer({
   rows,
   panel,
@@ -991,6 +1265,7 @@ function TableRenderer({
   panel: SqlPanel;
   onExportCsvChange?: (handler: (() => void) | null) => void;
 }) {
+  const t = useT();
   const config = panel.config;
   const sortable = config?.sortable !== false; // default on
 
@@ -1153,6 +1428,9 @@ function TableRenderer({
                     col.format === "delta"
                       ? renderDeltaCell(raw)
                       : formatCell(raw, col.format);
+                  const replayHref = isSessionColumn(col.key)
+                    ? sessionReplayHref(row)
+                    : null;
                   return (
                     <td
                       key={col.key}
@@ -1160,7 +1438,19 @@ function TableRenderer({
                         numeric ? "text-right tabular-nums" : ""
                       }`}
                     >
-                      {content}
+                      {replayHref ? (
+                        <span className="inline-flex flex-col gap-0.5">
+                          <span>{content}</span>
+                          <a
+                            href={replayHref}
+                            className="text-xs font-medium text-primary hover:underline"
+                          >
+                            {t("sessions.watchReplay")}
+                          </a>
+                        </span>
+                      ) : (
+                        content
+                      )}
                     </td>
                   );
                 })}
@@ -1172,7 +1462,7 @@ function TableRenderer({
       {sortedRows.length > PAGE_SIZE_OPTIONS[0] && (
         <div className="flex items-center justify-between px-1 pt-1 border-t border-border text-xs text-muted-foreground">
           <div className="flex items-center gap-2">
-            <span>Rows per page:</span>
+            <span>{t("common.rowsPerPage")}</span>
             <Select
               value={String(pageSize)}
               onValueChange={(value) => {
@@ -1337,6 +1627,7 @@ function BarRenderer({
           />
           <Tooltip
             {...CHART_TOOLTIP_PROPS}
+            cursor={BAR_TOOLTIP_CURSOR_PROPS}
             labelFormatter={xLabelFormatter}
             content={
               <ChartTooltip
@@ -1390,6 +1681,21 @@ function TimeSeriesRenderer({
   const seriesNameFormatter = (name: string) =>
     formatSeriesLabelForPanel(panel, name);
   const { hiddenKeys, visibleKeys, toggleSeries } = useSeriesVisibility(yKeys);
+  const splitPartialDay = shouldSplitCurrentDayTimeSeries(panel, xKey);
+  const { rows: chartRows, series } = useMemo(
+    () =>
+      splitPartialDay
+        ? splitCurrentDayTimeSeriesRows(rows, xKey, yKeys)
+        : {
+            rows,
+            series: yKeys.map((key) => ({
+              key,
+              solidKey: key,
+              partialKey: null,
+            })),
+          },
+    [rows, xKey, yKeys, splitPartialDay],
+  );
 
   if (chartType === "line") {
     return (
@@ -1402,7 +1708,7 @@ function TimeSeriesRenderer({
         showCustomLegend
       >
         <ResponsiveContainer width="100%" height="100%">
-          <LineChart data={rows}>
+          <LineChart data={chartRows}>
             <XAxis
               dataKey={xKey}
               stroke="hsl(var(--muted-foreground))"
@@ -1435,18 +1741,33 @@ function TimeSeriesRenderer({
               }
               itemSorter={(item) => -(Number(item.value) || 0)}
             />
-            {yKeys.map((key, i) => (
+            {series.map((item, i) => (
               <Line
-                key={key}
+                key={item.solidKey}
                 type="monotone"
-                dataKey={key}
-                name={seriesNameFormatter(key)}
+                dataKey={item.solidKey}
+                name={seriesNameFormatter(item.key)}
                 stroke={colors[i % colors.length]}
                 strokeWidth={2}
                 dot={false}
-                hide={hiddenKeys.has(key)}
+                hide={hiddenKeys.has(item.key)}
               />
             ))}
+            {series.map((item, i) =>
+              item.partialKey ? (
+                <Line
+                  key={item.partialKey}
+                  type="monotone"
+                  dataKey={item.partialKey}
+                  name={seriesNameFormatter(item.key)}
+                  stroke={colors[i % colors.length]}
+                  strokeWidth={2}
+                  strokeDasharray={PARTIAL_DAY_DASH}
+                  dot={false}
+                  hide={hiddenKeys.has(item.key)}
+                />
+              ) : null,
+            )}
           </LineChart>
         </ResponsiveContainer>
       </ChartFrame>
@@ -1468,7 +1789,7 @@ function TimeSeriesRenderer({
       showCustomLegend
     >
       <ResponsiveContainer width="100%" height="100%">
-        <AreaChart data={rows}>
+        <AreaChart data={chartRows}>
           {showFill && (
             <defs>
               {yKeys.map((key, i) => (
@@ -1526,20 +1847,37 @@ function TimeSeriesRenderer({
             }
             itemSorter={(item) => -(Number(item.value) || 0)}
           />
-          {yKeys.map((key, i) => (
+          {series.map((item, i) => (
             <Area
-              key={key}
+              key={item.solidKey}
               type="monotone"
-              dataKey={key}
-              name={seriesNameFormatter(key)}
+              dataKey={item.solidKey}
+              name={seriesNameFormatter(item.key)}
               stroke={colors[i % colors.length]}
               strokeWidth={2}
               fillOpacity={showFill ? 1 : 0}
-              fill={showFill ? `url(#sql-gradient-${key})` : "none"}
+              fill={showFill ? `url(#sql-gradient-${item.key})` : "none"}
               stackId={stacked ? "stack" : undefined}
-              hide={hiddenKeys.has(key)}
+              hide={hiddenKeys.has(item.key)}
             />
           ))}
+          {series.map((item, i) =>
+            item.partialKey ? (
+              <Area
+                key={item.partialKey}
+                type="monotone"
+                dataKey={item.partialKey}
+                name={seriesNameFormatter(item.key)}
+                stroke={colors[i % colors.length]}
+                strokeWidth={2}
+                strokeDasharray={PARTIAL_DAY_DASH}
+                fill="none"
+                fillOpacity={0}
+                stackId={stacked ? "partial-stack" : undefined}
+                hide={hiddenKeys.has(item.key)}
+              />
+            ) : null,
+          )}
         </AreaChart>
       </ResponsiveContainer>
     </ChartFrame>
@@ -1556,6 +1894,7 @@ function HeatmapRenderer({
   rows: Record<string, unknown>[];
   panel: SqlPanel;
 }) {
+  const t = useT();
   const cfg = panel.config;
   const yFormatter = cfg?.yFormatter;
 
@@ -1637,7 +1976,9 @@ function HeatmapRenderer({
   if (rows.length === 0 || !valueKey) {
     return (
       <div className="flex min-h-[250px] items-center justify-center py-8">
-        <p className="text-sm text-muted-foreground text-center">No data</p>
+        <p className="text-sm text-muted-foreground text-center">
+          {t("common.noData")}
+        </p>
       </div>
     );
   }

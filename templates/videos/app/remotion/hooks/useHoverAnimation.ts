@@ -1,5 +1,7 @@
 import { useCurrentFrame, useVideoConfig } from "remotion";
+
 import type { AnimationTrack } from "@/types";
+
 import { getPropValueKeyframed } from "../trackAnimation";
 
 /**

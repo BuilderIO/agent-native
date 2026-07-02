@@ -2,6 +2,7 @@ import { useLocale, useT } from "@agent-native/core/client";
 import { IconChevronRight } from "@tabler/icons-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation } from "react-router";
+
 import { comparableDocsPath } from "./docs-locale";
 import {
   getDocsNavSections,

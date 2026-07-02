@@ -1,5 +1,5 @@
 /**
- * Presence kit — Liveblocks/Figma-grade presence primitives.
+ * Presence kit — Liveblocks/collaboration-grade presence primitives.
  *
  * usePresence(awareness) returns:
  *   - others: reactive array of remote participants (human + agent)
@@ -11,6 +11,7 @@
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import type { Awareness } from "y-protocols/awareness";
+
 import { AGENT_CLIENT_ID } from "./agent-identity.js";
 import type { CollabUser } from "./client.js";
 

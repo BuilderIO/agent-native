@@ -1,10 +1,3 @@
-import React, {
-  useState,
-  useRef,
-  useEffect,
-  useCallback,
-  useMemo,
-} from "react";
 import {
   IconX,
   IconPlus,
@@ -14,33 +7,14 @@ import {
   IconLinkOff,
   IconCheck,
 } from "@tabler/icons-react";
-import {
-  AssistantChat,
-  type AssistantChatProps,
-  type AssistantChatHandle,
-} from "./AssistantChat.js";
-import { isTrustedFrameMessage } from "./frame.js";
-import { cn } from "./utils.js";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "./components/ui/tooltip.js";
-import {
-  Popover,
-  PopoverAnchor,
-  PopoverContent,
-  PopoverTrigger,
-} from "./components/ui/popover.js";
-import {
-  useChatThreads,
-  type ChatThreadScope,
-  type ChatThreadSummary,
-} from "./use-chat-threads.js";
-import { agentNativePath, appPath } from "./api-path.js";
-import { callAction } from "./use-action.js";
-import { RunStuckBanner } from "./RunStuckBanner.js";
+import React, {
+  useState,
+  useRef,
+  useEffect,
+  useCallback,
+  useMemo,
+} from "react";
+
 import { DEFAULT_MODEL } from "../agent/default-model.js";
 import {
   getReasoningEffortOptionsForModel,
@@ -52,19 +26,45 @@ import {
   AGENT_CHAT_REMOVE_CONTEXT_MESSAGE_TYPE,
   AGENT_CHAT_SET_CONTEXT_MESSAGE_TYPE,
   appendAgentChatContextToMessage,
+  claimAgentChatOpenRequest,
   claimAgentChatSubmit,
+  drainBufferedAgentChatOpenRequests,
   drainBufferedAgentChatSubmits,
   normalizeAgentChatContextItem,
   parseSubmitChatMessage,
   type AgentChatContextItem,
 } from "./agent-chat.js";
-
-interface EngineModelGroup {
-  engine: string;
-  label: string;
-  models: string[];
-  configured: boolean;
-}
+import { agentNativePath, appPath } from "./api-path.js";
+import {
+  AssistantChat,
+  type AssistantChatProps,
+  type AssistantChatHandle,
+} from "./AssistantChat.js";
+import {
+  buildChatModelGroups,
+  type EngineModelGroup,
+} from "./chat-model-groups.js";
+import {
+  Popover,
+  PopoverAnchor,
+  PopoverContent,
+  PopoverTrigger,
+} from "./components/ui/popover.js";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "./components/ui/tooltip.js";
+import { isTrustedFrameMessage } from "./frame.js";
+import { RunStuckBanner } from "./RunStuckBanner.js";
+import { callAction } from "./use-action.js";
+import {
+  useChatThreads,
+  type ChatThreadScope,
+  type ChatThreadSummary,
+} from "./use-chat-threads.js";
+import { cn } from "./utils.js";
 
 interface ModelSelection {
   model: string;
@@ -343,57 +343,6 @@ function ScopeBadge({
 }
 
 /**
- * Empty-state addon shown when the user starts a fresh chat inside a
- * scoped surface that already has other threads. Surfaces those threads
- * inline so chats don't feel "lost" after the user navigates away and
- * back — the chip popover lists them too, but this nudge is visible
- * without any extra clicks.
- */
-function PreviousScopedChatsHint({
-  scope,
-  threads,
-  onSelectThread,
-}: {
-  scope: ChatThreadScope;
-  threads: ChatThreadSummary[];
-  onSelectThread: (id: string) => void;
-}) {
-  const MAX_INLINE = 3;
-  const shown = threads.slice(0, MAX_INLINE);
-  const remaining = threads.length - shown.length;
-  const scopeLabel = scope.label || `this ${formatScopeType(scope.type)}`;
-  return (
-    <div className="flex w-full max-w-[280px] flex-col gap-1.5">
-      <div className="text-[10px] uppercase tracking-wider text-muted-foreground/70 text-center">
-        Previous chats for {scopeLabel}
-      </div>
-      <div className="flex flex-col gap-1">
-        {shown.map((thread) => (
-          <button
-            key={thread.id}
-            type="button"
-            onClick={() => onSelectThread(thread.id)}
-            className="flex items-baseline justify-between gap-2 rounded-md border border-border px-2.5 py-1.5 text-start hover:bg-accent cursor-pointer"
-          >
-            <span className="truncate text-[12px] text-foreground">
-              {thread.title || thread.preview || "Chat"}
-            </span>
-            <span className="shrink-0 text-[10px] text-muted-foreground">
-              {formatThreadTime(thread.updatedAt)}
-            </span>
-          </button>
-        ))}
-      </div>
-      {remaining > 0 && (
-        <div className="text-[10px] text-muted-foreground/70 text-center">
-          +{remaining} more
-        </div>
-      )}
-    </div>
-  );
-}
-
-/**
  * Thin confirmation banner shown briefly after detach. The chip itself
  * unmounts the moment scope clears on the active thread, so this banner
  * holds the visual feedback long enough for the user to register what
@@ -478,16 +427,24 @@ function HistoryPopover({
   openTabIds,
   activeThreadId,
   currentScope,
+  hasMoreThreads = false,
+  isLoadingMoreThreads = false,
+  loadError,
   onSelect,
   onClose,
+  onLoadMore,
   onSearch,
 }: {
   threads: ChatThreadSummary[];
   openTabIds: Set<string>;
   activeThreadId: string | null;
   currentScope?: ChatThreadScope | null;
+  hasMoreThreads?: boolean;
+  isLoadingMoreThreads?: boolean;
+  loadError?: string | null;
   onSelect: (id: string) => void;
   onClose: () => void;
+  onLoadMore?: () => void;
   onSearch?: (query: string) => Promise<ChatThreadSummary[]>;
 }) {
   const [search, setSearch] = useState("");
@@ -592,7 +549,11 @@ function HistoryPopover({
           />
         </div>
         <div className="max-h-64 overflow-y-auto py-1">
-          {isSearching ? (
+          {loadError && !search.trim() ? (
+            <div className="px-3 py-4 text-xs text-amber-500 text-center">
+              {loadError}
+            </div>
+          ) : isSearching ? (
             <div className="px-3 py-4 text-xs text-muted-foreground text-center">
               Searching...
             </div>
@@ -648,6 +609,16 @@ function HistoryPopover({
                 onClose,
               ),
             )
+          )}
+          {!search.trim() && hasMoreThreads && (
+            <button
+              type="button"
+              onClick={() => onLoadMore?.()}
+              disabled={isLoadingMoreThreads}
+              className="mx-1 mt-1 flex w-[calc(100%-0.5rem)] items-center justify-center rounded-md px-3 py-2 text-xs text-muted-foreground hover:bg-accent hover:text-foreground disabled:cursor-default disabled:opacity-60"
+            >
+              {isLoadingMoreThreads ? "Loading..." : "Load older chats"}
+            </button>
           )}
         </div>
       </PopoverContent>
@@ -960,6 +931,8 @@ export type MultiTabAssistantChatProps = Omit<
    * the composer.
    */
   scope?: ChatThreadScope | null;
+  /** Show the compact scope chip above the composer. Default: true. */
+  showScopeBadge?: boolean;
 };
 
 export function MultiTabAssistantChat({
@@ -973,6 +946,7 @@ export function MultiTabAssistantChat({
   browserTabId,
   threadUrlSync = false,
   scope = null,
+  showScopeBadge = true,
   ...props
 }: MultiTabAssistantChatProps) {
   const {
@@ -1084,7 +1058,11 @@ export function MultiTabAssistantChat({
     saveThreadData,
     generateTitle,
     searchThreads,
+    loadMoreThreads,
     refreshThreads,
+    hasMoreThreads,
+    isLoadingMoreThreads,
+    threadsLoadError,
     isNewThread,
   } = useChatThreads(apiUrl, storageKey, scope, {
     restoreActiveThread,
@@ -1142,10 +1120,14 @@ export function MultiTabAssistantChat({
   const postMessageSubmissionsDisabled = props.composerDisabled === true;
 
   const setContextInTab = useCallback(
-    (threadId: string, item: AgentChatContextItem) => {
+    (
+      threadId: string,
+      item: AgentChatContextItem,
+      options?: { focus?: boolean },
+    ) => {
       const ref = chatRefs.current.get(threadId);
       if (ref) {
-        ref.setComposerContextItem(item);
+        ref.setComposerContextItem(item, options);
         return;
       }
       const existing = pendingContextItems.current.get(threadId) ?? [];
@@ -1271,92 +1253,13 @@ export function MultiTabAssistantChat({
           enginesData.current?.engine;
         const currentModel: string | undefined = enginesData.current?.model;
 
-        let groups: EngineModelGroup[];
-
-        if (builderConnected) {
-          // When Builder.io is connected, show all Builder-supported
-          // models grouped by provider — all route through the builder
-          // engine so no individual API keys are needed.
-          const builderEngine = enginesData.engines.find(
-            (e: any) => e.name === "builder",
-          );
-          const builderModels: string[] = builderEngine?.supportedModels ?? [];
-          const claude = builderModels.filter((m: string) =>
-            m.startsWith("claude-"),
-          );
-          const openai = builderModels.filter((m: string) =>
-            m.startsWith("gpt-"),
-          );
-          const gemini = builderModels.filter((m: string) =>
-            m.startsWith("gemini-"),
-          );
-
-          groups = [
-            ...(claude.length
-              ? [
-                  {
-                    engine: "builder",
-                    label: "Claude",
-                    models: claude,
-                    configured: true,
-                  },
-                ]
-              : []),
-            ...(openai.length
-              ? [
-                  {
-                    engine: "builder",
-                    label: "OpenAI",
-                    models: openai,
-                    configured: true,
-                  },
-                ]
-              : []),
-            ...(gemini.length
-              ? [
-                  {
-                    engine: "builder",
-                    label: "Gemini",
-                    models: gemini,
-                    configured: true,
-                  },
-                ]
-              : []),
-          ];
-        } else {
-          // No Builder connection — show SDK engines this app can run.
-          const allowedEngines = new Set([
-            "anthropic",
-            "ai-sdk:openai",
-            "ai-sdk:google",
-          ]);
-          groups = enginesData.engines
-            .filter(
-              (e: any) =>
-                allowedEngines.has(e.name) && e.packageInstalled !== false,
-            )
-            .map((e: any) => {
-              const models = [...e.supportedModels];
-              if (
-                e.name === currentEngineName &&
-                currentModel &&
-                !models.includes(currentModel)
-              ) {
-                models.unshift(currentModel);
-              }
-              return {
-                engine: e.name,
-                label: e.label,
-                models,
-                configured:
-                  e.requiredEnvVars.length === 0 ||
-                  e.requiredEnvVars.some((v: string) =>
-                    configuredKeys.has(v),
-                  ) ||
-                  e.name === currentEngineName,
-              };
-            });
-        }
+        const groups = buildChatModelGroups({
+          engines: enginesData.engines,
+          configuredKeys,
+          builderConnected,
+          currentEngineName,
+          currentModel,
+        });
         setAvailableModels(groups);
         setDefaultModel(currentModel ?? DEFAULT_MODEL);
       })
@@ -1731,7 +1634,7 @@ export function MultiTabAssistantChat({
               return next;
             });
             if (shouldRefreshThreads) {
-              void refreshThreads();
+              refreshThreads();
             }
           }
         }
@@ -1815,7 +1718,11 @@ export function MultiTabAssistantChat({
         if (postMessageSubmissionsDisabled) return;
         const currentTabId = activeThreadIdRef.current;
         if (!currentTabId) return;
-        setContextInTab(currentTabId, item);
+        // Focus defaults to true; a caller opts out with `focus: false` for
+        // passive context (e.g. a canvas selection) so staging never steals
+        // focus from an in-progress inline editor.
+        const focus = (event.data.data?.focus as boolean | undefined) !== false;
+        setContextInTab(currentTabId, item, { focus });
         return;
       }
       if (event.data?.type === AGENT_CHAT_REMOVE_CONTEXT_MESSAGE_TYPE) {
@@ -2182,11 +2089,12 @@ export function MultiTabAssistantChat({
   useEffect(() => {
     const handleOpenThread = (event: Event) => {
       const detail = (event as CustomEvent).detail as
-        | { threadId?: unknown; newThread?: unknown }
+        | { threadId?: unknown; newThread?: unknown; openRequestId?: unknown }
         | undefined;
       const threadId =
         typeof detail?.threadId === "string" ? detail.threadId : "";
-      if (!threadId) return;
+      if (!detail || !threadId) return;
+      if (!claimAgentChatOpenRequest(detail.openRequestId)) return;
 
       if (detail?.newThread === true) {
         newThreadIds.current.add(threadId);
@@ -2238,6 +2146,7 @@ export function MultiTabAssistantChat({
       const detail = (e as CustomEvent).detail;
       const threadId = detail?.threadId;
       if (!threadId) return;
+      if (!claimAgentChatOpenRequest(detail.openRequestId)) return;
       dismissedSubAgentTabsRef.current.delete(threadId);
       // Prefer an explicit parent (RunsTray/background hydration knows it);
       // inline task cards fall back to the active orchestrator thread.
@@ -2290,6 +2199,17 @@ export function MultiTabAssistantChat({
     window.addEventListener("agent-task-open", handleOpenTask);
     return () => window.removeEventListener("agent-task-open", handleOpenTask);
   }, [openTabIds, switchThread, refreshThreads, parentMap]);
+
+  // Replay thread/task opens requested before this lazy panel's listeners
+  // attached. Live events claim their id; replay drains only unclaimed requests.
+  useEffect(() => {
+    const buffered = drainBufferedAgentChatOpenRequests();
+    for (const request of buffered) {
+      window.dispatchEvent(
+        new CustomEvent(request.eventType, { detail: request.detail }),
+      );
+    }
+  }, []);
 
   // Watch for agent-issued chat-command in application-state
   const lastChatCommandRef = useRef(0);
@@ -2699,8 +2619,12 @@ export function MultiTabAssistantChat({
             openTabIds={new Set(openTabIds)}
             activeThreadId={activeThreadId}
             currentScope={scope}
+            hasMoreThreads={hasMoreThreads}
+            isLoadingMoreThreads={isLoadingMoreThreads}
+            loadError={threadsLoadError}
             onSelect={openFromHistory}
             onClose={() => setShowHistory(false)}
+            onLoadMore={loadMoreThreads}
             onSearch={searchThreads}
           />
         )}
@@ -2727,7 +2651,7 @@ export function MultiTabAssistantChat({
                 ? props.dynamicSuggestions
                 : false;
             const scopeComposerSlot =
-              tabId === activeThreadId && !contentHidden ? (
+              showScopeBadge && tabId === activeThreadId && !contentHidden ? (
                 tabScope && activeThreadId ? (
                   <ScopeBadge
                     scope={tabScope}
@@ -2761,6 +2685,8 @@ export function MultiTabAssistantChat({
                 <RunStuckBanner
                   threadId={tabId}
                   apiUrl={apiUrl}
+                  autoRetry
+                  autoRetryOwnerId={browserTabId}
                   onRetry={() => {
                     const handle = chatRefs.current.get(tabId);
                     handle?.sendRecoveryMessage(
@@ -2776,17 +2702,6 @@ export function MultiTabAssistantChat({
                     tabScope?.label && tabId === activeThreadId
                       ? `Ask about ${tabScope.label}`
                       : props.emptyStateText
-                  }
-                  emptyStateAddon={
-                    tabId === activeThreadId &&
-                    tabScope &&
-                    otherScopedThreads.length > 0 ? (
-                      <PreviousScopedChatsHint
-                        scope={tabScope}
-                        threads={otherScopedThreads}
-                        onSelectThread={openFromHistory}
-                      />
-                    ) : undefined
                   }
                   ref={(handle) => {
                     if (handle) {

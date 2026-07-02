@@ -1,21 +1,23 @@
-import { useState, useEffect } from "react";
-import { useLocation } from "react-router";
-import { IconMenu2 } from "@tabler/icons-react";
-import { Sidebar } from "./Sidebar";
-import { Header } from "./Header";
-import { HeaderActionsProvider } from "./HeaderActions";
 import {
   AgentSidebar,
   useAgentChatHomeHandoff,
   useAgentChatHomeHandoffLinks,
   useT,
 } from "@agent-native/core/client";
+import { IconMenu2 } from "@tabler/icons-react";
+import { useState, useEffect } from "react";
+import { useLocation } from "react-router";
+
 import {
   Sheet,
   SheetContent,
   SheetDescription,
   SheetTitle,
 } from "@/components/ui/sheet";
+
+import { Header } from "./Header";
+import { HeaderActionsProvider } from "./HeaderActions";
+import { Sidebar } from "./Sidebar";
 
 const PLAN_READER_VIEW_EVENT = "plans-reader-view-change";
 
@@ -130,6 +132,21 @@ export function Layout({ children }: LayoutProps) {
       window.removeEventListener(PLAN_READER_VIEW_EVENT, onPlanReaderView);
   }, [planDetailRoute]);
 
+  // Embed mode: render just the reader, flowing — no Sidebar, no AgentSidebar,
+  // no h-screen shell. Those (some in shared core) lock the embed to the iframe
+  // height; bypassing them lets the document flow so the shell sizes to content
+  // (see global.css `html[data-embed]` + frame.ts content-height reporting).
+  const embedded = new URLSearchParams(location.search).get("embedded") === "1";
+  if (embedded) {
+    return (
+      <HeaderActionsProvider>
+        <div className="agent-embed-root flex w-full flex-col bg-background text-foreground">
+          {children}
+        </div>
+      </HeaderActionsProvider>
+    );
+  }
+
   const pageContent = (
     <div className="flex h-full flex-1 flex-col overflow-hidden">
       {ownsToolbar ? (
@@ -148,15 +165,17 @@ export function Layout({ children }: LayoutProps) {
       ) : (
         <Header onOpenMobileSidebar={() => setMobileSidebarOpen(true)} />
       )}
-      <main className="flex-1 overflow-y-auto">{children}</main>
+      <main className="agent-native-app-main flex-1 overflow-y-auto">
+        {children}
+      </main>
     </div>
   );
 
   return (
     <HeaderActionsProvider>
-      <div className="flex h-screen w-full overflow-hidden bg-background text-foreground">
+      <div className="agent-layout-shell flex h-screen w-full overflow-hidden bg-background text-foreground">
         {!hideAppNavigation && (
-          <div className="hidden md:block">
+          <div className="agent-layout-left-drawer hidden md:block">
             <Sidebar
               collapsed={effectiveSidebarCollapsed}
               onCollapsedChange={setEffectiveSidebarCollapsed}
@@ -175,7 +194,9 @@ export function Layout({ children }: LayoutProps) {
           </SheetContent>
         </Sheet>
         {chatRoute ? (
-          pageContent
+          <div className="agent-layout-main-surface flex min-w-0 flex-1 overflow-hidden">
+            {pageContent}
+          </div>
         ) : (
           <AgentSidebar
             position="right"

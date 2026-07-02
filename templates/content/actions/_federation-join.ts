@@ -11,7 +11,6 @@
  * sub-step, because it reaches into the editor read path.
  */
 
-import { evaluateNormalizationFormula } from "../shared/properties.js";
 import type {
   ContentDatabaseItem,
   ContentDatabaseSource,
@@ -19,6 +18,7 @@ import type {
   ContentDatabaseSourceRow,
   DocumentPropertyValue,
 } from "../shared/api.js";
+import { evaluateNormalizationFormula } from "../shared/properties.js";
 
 // Map a source row's own values into the canonical key space. Returns null for
 // an un-joinable row (empty/broken formula result) — null never matches, not
@@ -53,6 +53,13 @@ export function federateSources(args: {
   const primaryRowByDocumentId = new Map(
     (primary?.rows ?? []).map((row) => [row.documentId, row]),
   );
+  const rowByDocumentId = new Map<string, ContentDatabaseSourceRow>();
+  for (const source of sources) {
+    for (const row of source.rows) {
+      if (!row.documentId || rowByDocumentId.has(row.documentId)) continue;
+      rowByDocumentId.set(row.documentId, row);
+    }
+  }
 
   // Secondary sources carrying an identity-join config.
   const secondaries = sources
@@ -82,7 +89,9 @@ export function federateSources(args: {
     return items.map((item) => ({
       ...item,
       sourceRecord:
-        primaryRowByDocumentId.get(item.document.id) ?? item.sourceRecord,
+        primaryRowByDocumentId.get(item.document.id) ??
+        rowByDocumentId.get(item.document.id) ??
+        item.sourceRecord,
     }));
   }
 
@@ -112,7 +121,10 @@ export function federateSources(args: {
 
     return {
       ...item,
-      sourceRecord: primaryRow ?? item.sourceRecord,
+      sourceRecord:
+        primaryRow ??
+        rowByDocumentId.get(item.document.id) ??
+        item.sourceRecord,
       canonicalKey,
       sourceOverlays: overlays.length > 0 ? overlays : undefined,
     };

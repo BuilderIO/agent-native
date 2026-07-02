@@ -12,8 +12,8 @@
     "skipLibCheck": true,
     "outDir": "dist",
     "rootDir": ".",
-    "baseUrl": ".",
     "paths": {
+      "*": ["./*"],
       "@shared/app-registry": ["../shared-app-config/index.ts"]
     }
   },

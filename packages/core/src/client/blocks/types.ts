@@ -76,10 +76,11 @@ export interface BlockMdxConfig<TData> {
    */
   childrenField?: keyof TData & string;
   /**
-   * Opt-in custom children serializer for blocks whose internals are nested MDX
-   * components rather than a single markdown string (e.g. wireframe → Screen/kit
-   * primitives). When present it overrides `childrenField`. `serializeChildren`
-   * returns the raw inner MDX; `parseChildren` receives the child MDX AST nodes.
+   * Opt-in custom children serializer/parser for blocks whose internals are
+   * nested MDX components or named child code fences rather than a single
+   * markdown string. When `serializeChildren` is present it overrides
+   * `childrenField`. `parseChildren` may also be used as a parse-only adapter
+   * for backward-compatible child forms.
    */
   serializeChildren?: (data: TData) => string;
   parseChildren?: (childNodes: unknown[], idContext: string) => Partial<TData>;
@@ -368,12 +369,15 @@ export interface BlockSpec<TData = unknown> {
    * - `"container"` — the block renders its `Edit` in place, and that editor
    *   may call `ctx.renderBlocksEditor` for nested block regions with normal
    *   slash commands and nested structured blocks.
+   * - `"none"` — the block renders its `Read` view in edit mode and exposes no
+   *   block data form. Use for blocks whose whole-block operations live in the
+   *   editor chrome/menu rather than a custom or schema-generated editor.
    * Defaults to `"inline"` when a custom `Edit` is supplied, else `"panel"`
    * (auto-form blocks are property forms, ideal for a panel). The app must wire
    * `ctx.renderEditSurface` for `"panel"` to take effect; otherwise it falls
    * back to inline.
    */
-  editSurface?: "inline" | "panel" | "container";
+  editSurface?: "inline" | "panel" | "container" | "none";
   /**
    * Optional generic contract for content-bearing container blocks. Keep this
    * runtime-oriented: it describes editable regions over normalized block arrays;

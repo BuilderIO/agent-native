@@ -1,19 +1,16 @@
-import {
-  defineEventHandler,
-  getQuery,
-  setResponseStatus,
-  type H3Event,
-} from "h3";
+import { OAuthAccountOwnedByOtherUserError } from "@agent-native/core/oauth-tokens";
 import {
   readBody,
   getSession,
   isElectron,
   getAppUrl,
   resolveGoogleSignInCredentials,
+  resolveGoogleProviderCredentials,
   resolveOAuthRedirectUri,
   encodeOAuthState,
   decodeOAuthState,
   resolveOAuthOwner,
+  resolveSecret,
   createOAuthSession,
   oauthCallbackResponse,
   oauthDesktopExchangePage,
@@ -21,14 +18,21 @@ import {
   setDesktopExchange,
   setDesktopExchangeError,
   safeReturnPath,
+  runWithRequestContext,
 } from "@agent-native/core/server";
+import {
+  defineEventHandler,
+  getQuery,
+  setResponseStatus,
+  type H3Event,
+} from "h3";
+
 import {
   getAuthUrl,
   exchangeCode,
   getAuthStatus,
   disconnect,
 } from "../lib/google-calendar.js";
-import { OAuthAccountOwnedByOtherUserError } from "@agent-native/core/oauth-tokens";
 
 const OAUTH_STATE_APP_ID = process.env.APP_NAME || "calendar";
 const GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth";
@@ -40,11 +44,39 @@ const GOOGLE_IDENTITY_SCOPES = [
   "https://www.googleapis.com/auth/userinfo.profile",
 ];
 
-function resolveCalendarOAuthCredentials() {
-  const clientId = process.env.GOOGLE_CLIENT_ID;
-  const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
-  if (!clientId || !clientSecret) return null;
-  return { clientId, clientSecret };
+type CalendarOAuthStateOptions = {
+  redirectUri: string;
+  owner?: string;
+  orgId?: string;
+  desktop?: boolean;
+  addAccount?: boolean;
+  app?: string;
+  returnUrl?: string;
+  flowId?: string;
+};
+
+function encodeCalendarOAuthState(options: CalendarOAuthStateOptions): string {
+  return encodeOAuthState(options as any);
+}
+
+function getCalendarOAuthStateOrgId(
+  state: ReturnType<typeof decodeOAuthState>,
+): string | undefined {
+  return (state as ReturnType<typeof decodeOAuthState> & { orgId?: string })
+    .orgId;
+}
+
+async function resolveCalendarOAuthCredentials(event: H3Event) {
+  const session = await getSession(event).catch(() => null);
+  const { clientId, clientSecret } = await runWithRequestContext(
+    { userEmail: session?.email, orgId: session?.orgId },
+    async () => ({
+      clientId: await resolveSecret("GOOGLE_CLIENT_ID"),
+      clientSecret: await resolveSecret("GOOGLE_CLIENT_SECRET"),
+    }),
+  );
+  if (clientId && clientSecret) return { clientId, clientSecret };
+  return resolveGoogleProviderCredentials();
 }
 
 function isCalendarConnectRequest(
@@ -173,6 +205,28 @@ function googleOAuthErrorResponse(
   return oauthErrorPage(payload.message);
 }
 
+function missingCredentialsResponse(
+  event: H3Event,
+  message: string,
+  opts: { desktop?: boolean; flowId?: string; redirect?: boolean } = {},
+) {
+  if (opts.desktop && opts.flowId) {
+    setDesktopExchangeError(opts.flowId, {
+      message,
+      code: "missing_credentials",
+    });
+    return oauthDesktopExchangePage("Returning to Calendar...");
+  }
+  if (opts.redirect) {
+    return oauthErrorPage(message);
+  }
+  setResponseStatus(event, 422);
+  return {
+    error: "missing_credentials",
+    message,
+  };
+}
+
 export const getGoogleAuthUrl = defineEventHandler(async (event: H3Event) => {
   try {
     const q = getQuery(event);
@@ -186,22 +240,23 @@ export const getGoogleAuthUrl = defineEventHandler(async (event: H3Event) => {
     }
     const session = await getSession(event);
     const owner = session?.email;
+    const orgId = session?.orgId;
     const desktop =
       isElectron(event) || q.desktop === "1" || q.desktop === "true";
     const flowId = desktop ? (q.flow_id as string) || undefined : undefined;
     const calendarConnect = isCalendarConnectRequest(q, owner);
     const credentials = calendarConnect
-      ? resolveCalendarOAuthCredentials()
+      ? await resolveCalendarOAuthCredentials(event)
       : resolveGoogleSignInCredentials();
 
     if (!credentials) {
-      setResponseStatus(event, 422);
-      return {
-        error: "missing_credentials",
-        message: calendarConnect
-          ? "Google Calendar OAuth credentials are not configured. Set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET."
+      return missingCredentialsResponse(
+        event,
+        calendarConnect
+          ? "Google Calendar OAuth credentials are not configured. Save GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET in settings."
           : "Google sign-in credentials are not configured. Set GOOGLE_SIGN_IN_CLIENT_ID and GOOGLE_SIGN_IN_CLIENT_SECRET.",
-      };
+        { desktop, flowId, redirect: q.redirect === "1" },
+      );
     }
 
     if (calendarConnect && !owner) {
@@ -217,9 +272,10 @@ export const getGoogleAuthUrl = defineEventHandler(async (event: H3Event) => {
     const returnUrl = requestedReturn !== "/" ? requestedReturn : undefined;
     // Use the named-arg overload — the positional form previously passed
     // `flowId` in the `returnUrl` slot, breaking desktop completion.
-    const state = encodeOAuthState({
+    const state = encodeCalendarOAuthState({
       redirectUri,
       owner,
+      orgId,
       desktop,
       addAccount: calendarConnect,
       app: OAUTH_STATE_APP_ID,
@@ -228,7 +284,7 @@ export const getGoogleAuthUrl = defineEventHandler(async (event: H3Event) => {
     });
 
     const url = calendarConnect
-      ? getAuthUrl(undefined, redirectUri, state)
+      ? await getAuthUrl(undefined, redirectUri, state, owner, orgId)
       : `${GOOGLE_AUTH_URL}?${new URLSearchParams({
           client_id: credentials.clientId,
           redirect_uri: redirectUri,
@@ -284,6 +340,7 @@ export const handleGoogleCallback = defineEventHandler(
       }
 
       const { redirectUri, owner: stateOwner, addAccount, returnUrl } = state;
+      const stateOrgId = getCalendarOAuthStateOrgId(state);
 
       // 1. Resolve owner (needs session context, before exchangeCode)
       const { owner, hasProductionSession } = await resolveOAuthOwner(
@@ -321,7 +378,13 @@ export const handleGoogleCallback = defineEventHandler(
       }
 
       // 2. Exchange code with Google (template-specific Calendar connect)
-      const email = await exchangeCode(code, undefined, redirectUri, owner);
+      const email = await exchangeCode(
+        code,
+        undefined,
+        redirectUri,
+        owner,
+        stateOrgId,
+      );
 
       // 3. Create session token (after we have the email)
       // Skip for add-account flows — adding a second account must not switch
@@ -363,16 +426,18 @@ export const getGoogleAddAccountUrl = defineEventHandler(
       setResponseStatus(event, 401);
       return { error: "Must be logged in to add an account" };
     }
-    if (!process.env.GOOGLE_CLIENT_ID || !process.env.GOOGLE_CLIENT_SECRET) {
-      setResponseStatus(event, 422);
-      return {
-        error: "missing_credentials",
-        message:
-          "Google OAuth credentials are not configured. Set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET.",
-      };
+    const q = getQuery(event);
+    const desktop =
+      isElectron(event) || q.desktop === "1" || q.desktop === "true";
+    const flowId = desktop ? (q.flow_id as string) || undefined : undefined;
+    if (!(await resolveCalendarOAuthCredentials(event))) {
+      return missingCredentialsResponse(
+        event,
+        "Google OAuth credentials are not configured. Save GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET in settings.",
+        { desktop, flowId, redirect: q.redirect === "1" },
+      );
     }
     try {
-      const q = getQuery(event);
       const redirectUri = resolveOAuthRedirectUri(event);
       if (!redirectUri) {
         setResponseStatus(event, 400);
@@ -381,18 +446,22 @@ export const getGoogleAddAccountUrl = defineEventHandler(
           message: "redirect_uri must stay on this app's _agent-native routes.",
         };
       }
-      const desktop =
-        isElectron(event) || q.desktop === "1" || q.desktop === "true";
-      const flowId = desktop ? (q.flow_id as string) || undefined : undefined;
-      const state = encodeOAuthState({
+      const state = encodeCalendarOAuthState({
         redirectUri,
         owner: session.email,
+        orgId: session.orgId,
         desktop,
         addAccount: true,
         app: OAUTH_STATE_APP_ID,
         flowId,
       });
-      const url = getAuthUrl(undefined, redirectUri, state);
+      const url = await getAuthUrl(
+        undefined,
+        redirectUri,
+        state,
+        session.email,
+        session.orgId,
+      );
       if (q.redirect === "1") {
         return oauthRedirectResponse(url);
       }
@@ -435,6 +504,7 @@ export const handleGoogleAddAccountCallback = defineEventHandler(
       }
 
       const { redirectUri, owner: stateOwner } = state;
+      const stateOrgId = getCalendarOAuthStateOrgId(state);
 
       const ownerEmail = session?.email || stateOwner;
       if (!ownerEmail) {
@@ -452,6 +522,7 @@ export const handleGoogleAddAccountCallback = defineEventHandler(
         undefined,
         redirectUri,
         ownerEmail,
+        session?.orgId ?? stateOrgId,
       );
 
       return oauthCallbackResponse(event, addedEmail, {
@@ -472,7 +543,7 @@ export const handleGoogleAddAccountCallback = defineEventHandler(
 export const getGoogleStatus = defineEventHandler(async (event: H3Event) => {
   try {
     const session = await getSession(event);
-    return await getAuthStatus(session?.email);
+    return await getAuthStatus(session?.email, session?.orgId);
   } catch (error: any) {
     setResponseStatus(event, 500);
     return { error: error.message };
@@ -492,7 +563,7 @@ export const disconnectGoogle = defineEventHandler(async (event: H3Event) => {
       setResponseStatus(event, 400);
       return { error: "email is required" };
     }
-    const owned = await getAuthStatus(session.email);
+    const owned = await getAuthStatus(session.email, session.orgId);
     const isOwned = owned.accounts.some((a) => a.email === targetEmail);
     if (!isOwned) {
       setResponseStatus(event, 403);

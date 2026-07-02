@@ -1,3 +1,6 @@
+import Database from "better-sqlite3";
+import { eq } from "drizzle-orm";
+import { integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
 /**
  * Regression spec for async db.transaction() on the better-sqlite3 driver.
  *
@@ -8,9 +11,6 @@
  * SAVEPOINT for nested calls.
  */
 import { describe, it, expect, afterEach } from "vitest";
-import Database from "better-sqlite3";
-import { integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
-import { eq } from "drizzle-orm";
 
 // ---------------------------------------------------------------------------
 // Schema used by every test

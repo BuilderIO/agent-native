@@ -1,6 +1,7 @@
-import type { ReactNode } from "react";
-import { withDefaultSocialImage } from "../seo";
 import { useT } from "@agent-native/core/client";
+import type { ReactNode } from "react";
+
+import { withDefaultSocialImage } from "../seo";
 
 const UPDATED_AT = "June 23, 2026";
 
@@ -21,7 +22,7 @@ export const meta = () =>
     {
       name: "description",
       content:
-        "Privacy policy for Agent-Native hosted applications, templates, and browser extensions.",
+        "Privacy policy for Agent-Native hosted applications, apps, and browser extensions.",
     },
     {
       property: "og:title",

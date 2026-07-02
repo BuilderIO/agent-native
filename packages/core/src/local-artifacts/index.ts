@@ -1,8 +1,9 @@
 import crypto from "node:crypto";
-import fs from "node:fs/promises";
 import fsSync from "node:fs";
+import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+
 import { minimatch } from "minimatch";
 
 export type AgentNativeDataMode = "database" | "local-files";
@@ -11,6 +12,7 @@ export interface AgentNativeManifestRoot {
   name?: string;
   path: string;
   kind?: string;
+  profile?: string;
   extensions?: string[];
   include?: string[];
   hide?: string[];
@@ -18,6 +20,7 @@ export interface AgentNativeManifestRoot {
 
 export interface AgentNativeManifestApp {
   mode?: AgentNativeDataMode;
+  profile?: string;
   roots?: AgentNativeManifestRoot[];
   components?: string | string[];
   extensions?: string | string[];
@@ -38,6 +41,7 @@ export interface LoadedAgentNativeManifest {
 
 export interface LocalArtifactAppDefaults {
   mode?: AgentNativeDataMode;
+  profile?: string;
   roots: AgentNativeManifestRoot[];
   hide?: string[];
   components?: string | string[];
@@ -65,6 +69,7 @@ export interface LoadedLocalArtifactRoot {
   path: string;
   absolutePath: string;
   kind?: string;
+  profile?: string;
   extensions: string[];
   hide: string[];
   include: string[];
@@ -73,6 +78,7 @@ export interface LoadedLocalArtifactRoot {
 export interface LoadedLocalArtifactApp {
   appId: string;
   mode: AgentNativeDataMode;
+  profile?: string;
   manifestPath: string | null;
   workspaceRoot: string;
   roots: LoadedLocalArtifactRoot[];
@@ -87,6 +93,7 @@ export interface LocalArtifactFileMeta {
   rootName: string;
   rootPath: string;
   kind?: string;
+  profile?: string;
   extension: string;
   contentType: string;
   sizeBytes: number;
@@ -199,6 +206,12 @@ function normalizeMode(value: unknown): AgentNativeDataMode | undefined {
   return undefined;
 }
 
+function normalizeProfile(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.trim();
+  return trimmed || undefined;
+}
+
 function normalizeSlash(filePath: string): string {
   return filePath.replace(/\\/g, "/");
 }
@@ -258,6 +271,7 @@ function normalizeManifestRoot(value: unknown): AgentNativeManifestRoot | null {
     name: typeof value.name === "string" ? value.name : undefined,
     path: value.path,
     kind: typeof value.kind === "string" ? value.kind : undefined,
+    profile: normalizeProfile(value.profile),
     extensions: normalizeExtensions(value.extensions),
     include: asStringArray(value.include),
     hide: asStringArray(value.hide),
@@ -280,6 +294,7 @@ function normalizeManifestApp(value: unknown): AgentNativeManifestApp {
     : [];
   return {
     mode: normalizeMode(value.mode),
+    profile: normalizeProfile(value.profile),
     roots,
     components:
       typeof value.components === "string" || Array.isArray(value.components)
@@ -414,6 +429,7 @@ function mergeAppConfig(
 ): AgentNativeManifestApp {
   return {
     mode: manifestApp?.mode ?? defaults?.mode,
+    profile: manifestApp?.profile ?? defaults?.profile,
     roots:
       manifestApp?.roots && manifestApp.roots.length > 0
         ? manifestApp.roots
@@ -463,6 +479,7 @@ export async function getLocalArtifactApp(
       path: safePath,
       absolutePath,
       kind: root.kind,
+      profile: root.profile ?? app.profile,
       extensions,
       hide: [...DEFAULT_HIDE_PATTERNS, ...asStringArray(root.hide)],
       include: asStringArray(root.include),
@@ -472,6 +489,7 @@ export async function getLocalArtifactApp(
   return {
     appId: options.appId,
     mode,
+    profile: app.profile,
     manifestPath: loaded?.path ?? null,
     workspaceRoot,
     roots,
@@ -596,6 +614,7 @@ async function fileMetaForPath(
     rootName: root.name,
     rootPath: root.path,
     kind: root.kind,
+    profile: root.profile,
     extension,
     contentType: contentTypeForExtension(extension),
     sizeBytes: Buffer.byteLength(content, "utf8"),

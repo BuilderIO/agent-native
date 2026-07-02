@@ -1,0 +1,466 @@
+---
+title: "Extensiones"
+description: "Miniaplicaciones que sus usuarios crean dentro de su plantilla: un mosaico KPI personalizado en Analytics, una lista de verificación de preparación de reuniones en Calendario, un widget de contacto CRM en Mail. Sin implementaciones, sin ediciones de código, sin cambios de esquema."
+---
+
+# Extensiones
+
+Las extensiones son **miniaplicaciones que tus usuarios crean dentro de tu plantilla**.
+
+Si ha utilizado QuickBooks Online, habrá visto el modelo: QBO incluye un producto de contabilidad central y los usuarios utilizan pequeños widgets personalizados (un informe personalizado, una calculadora de nómina, un verificador de reglas impositivas) que se encuentran dentro de la misma aplicación y usan los mismos datos. Las extensiones son la versión nativa del agente de esa idea, excepto que sus usuarios no escriben ningún código. Describen lo que quieren y el agente lo construye.
+
+El marco importa: una extensión no es un entorno limitado genérico de "haz lo que quieras". Es una **miniaplicación que amplía una plantilla específica** (correo, análisis, calendario, clips, diseño) y utiliza el actions y los datos de esa plantilla. Una extensión de correo lee correos electrónicos. Una extensión de Analytics lee las métricas de un panel. Una extensión de Calendario actúa sobre el evento abierto. Se sienten parte del producto anfitrión porque _son_ parte del producto anfitrión.
+
+Tres cosas hacen que las extensiones funcionen:
+
+- **Sin código, sin implementación.** El agente los escribe y están activos en segundos. Almacenado en la base de datos, no en el repositorio.
+- **Acceso completo a los datos de la plantilla.** Las extensiones pueden llamar al mismo actions al que llama el agente (`list-emails` en Mail, `list-decks` en Presentaciones, `list-recordings` en Clips) para tener todo lo que tiene la aplicación host.
+- **Almacenamiento integrado.** Cada extensión tiene su propio almacén de clave-valor por usuario/por organización, por lo que puede guardar el estado sin que usted agregue una nueva tabla SQL.
+
+Si una plantilla no debe exponer extensiones creadas por el usuario, configúrela
+`extensionTools: false` en `createAgentChatPlugin()`. Eso elimina el
+Extensión orientada al agente actions y orientación rápida mientras se deja el resto del
+agente de aplicación intacto.
+
+<Diagram id="doc-block-916xvd" title="El puente de la caja de arena" summary={"La extensión HTML se ejecuta en un iframe aislado y llega al host solo a través de un conjunto fijo de ayudas de puente: cada llamada tiene un alcance y un acceso verificado."}>
+
+```html
+<div class="ext-bridge">
+  <div class="diagram-card sandbox" data-rough>
+    <span class="diagram-pill warn">Sandboxed iframe</span
+    ><small class="diagram-muted"
+      >Alpine.js HTML &middot; no host cookies, session, or DOM</small
+    >
+    <div class="ext-helpers">
+      <span class="diagram-pill">appAction</span
+      ><span class="diagram-pill">appFetch</span
+      ><span class="diagram-pill">dbQuery / dbExec</span
+      ><span class="diagram-pill">extensionData</span
+      ><span class="diagram-pill">extensionFetch</span>
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-accent" aria-hidden="true">&harr;</div>
+  <div class="diagram-col">
+    <div class="diagram-box">
+      Plantilla host<br /><small class="diagram-muted"
+        >acciones, SQL con alcance automático</small
+      >
+    </div>
+    <div class="diagram-box">
+      Secret proxy<br /><small class="diagram-muted"
+        ><code>${keys.NAME}</code>, bloqueado al dominio</small
+      >
+    </div>
+    <div class="diagram-box">
+      APIs externas<br /><small class="diagram-muted"
+        >solo mediante extensionFetch</small
+      >
+    </div>
+  </div>
+</div>
+```
+
+```css
+.ext-bridge {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.ext-bridge .sandbox {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 16px 18px;
+  flex: 1;
+  min-width: 240px;
+}
+.ext-bridge .ext-helpers {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 4px;
+}
+.ext-bridge .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.ext-bridge .diagram-arrow {
+  font-size: 24px;
+}
+```
+
+</Diagram>
+
+Las extensiones también se pueden **respaldar en el repositorio en modo de archivo local**. En ese flujo de trabajo,
+`agent-native.json` declara una carpeta `extensions`, cada extensión tiene una
+Manifiesto `extension.json` más un archivo de entrada HTML, y la aplicación los representa
+archivos a través del mismo entorno limitado. Las extensiones respaldadas por archivos se editan cambiando
+los archivos del repositorio; las extensiones respaldadas por bases de datos mantienen el tiempo de ejecución crear/editar/compartir
+experiencia descrita a continuación.
+
+## Una galería rápida {#gallery}
+
+Extensiones reales que la gente realmente crearía, agrupadas según la plantilla en la que viven. Cada una es una cosa enfocada, no una navaja suiza.
+
+### Correo
+
+Un usuario está leyendo un correo electrónico de `priya@acme.com`. ¿Qué tipo de widget ayudaría en ese caso?
+
+- **Notas de contacto**: un bloc de notas adhesivas fijado a la persona a la que el usuario envía el correo electrónico. Carga notas para ese contacto y permite al usuario anotar más.
+- **Conversaciones recientes con esta persona**: una pequeña lista de las últimas cinco conversaciones con el contacto abierto, separada de la vista de la bandeja de entrada.
+- **Enriquecimiento CRM**: extrae el tamaño de la empresa del contacto, la fecha de la última reunión o los acuerdos abiertos de su CRM.
+- **Atajo al programador de reuniones**: convierte "buscar un horario la próxima semana" en un widget de un solo clic para "enviar estos espacios".
+
+Sketch: notas de contacto (guarda una nota vinculada a la persona a la que envías el correo electrónico):
+
+```html
+<div
+  class="p-4"
+  x-data="{
+    contactEmail: window.slotContext?.contactEmail,
+    note: '',
+    async init() {
+      if (!this.contactEmail) return;
+      const saved = await extensionData.get('notes', this.contactEmail);
+      if (saved) this.note = JSON.parse(saved.data).text;
+    },
+    async save() {
+      await extensionData.set('notes', this.contactEmail, { text: this.note });
+    }
+  }"
+>
+  <p class="text-xs text-muted-foreground mb-2" x-text="contactEmail"></p>
+  <textarea
+    x-model="note"
+    @blur="save()"
+    class="w-full rounded-md border bg-background p-2 text-sm"
+    rows="4"
+    placeholder="Notes about this contact..."
+  ></textarea>
+</div>
+```
+
+### Análisis
+
+Un usuario está mirando un panel. ¿Cuál es el mosaico que falta?
+
+- **Cuadro KPI personalizado**: un único número grande para una métrica que no es un panel integrado. "Las pruebas comenzaron esta semana", "Delta MRR frente al mes pasado".
+- **Rastreador de objetivos**: extrae una métrica que el usuario elige y muestra el progreso en comparación con un objetivo que el usuario escribió.
+- **Tabla de clasificación de clientes principales**: combina una métrica con una tabla de clientes y se ubica entre los 10 primeros.
+
+Boceto: cuadro KPI personalizado (llama a una de las consultas `appAction` de la plantilla de análisis):
+
+```html
+<div
+  class="p-4"
+  x-data="{
+  value: null,
+  async init() {
+    const result = await appAction('query-agent-native-analytics', {
+      metric: 'trials_started',
+      range: '7d'
+    });
+    this.value = result?.total ?? 0;
+  }
+}"
+>
+  <p class="text-xs uppercase tracking-wider text-muted-foreground">
+    Trials this week
+  </p>
+  <p class="text-3xl font-bold mt-1" x-text="value ?? '—'"></p>
+</div>
+```
+
+### Calendario
+
+El usuario tiene un evento abierto. ¿Qué ayudaría en ese momento?
+
+- **Lista de verificación de preparación de reuniones**: carga automáticamente los elementos de la agenda, los asistentes y los resúmenes de hilos anteriores para el evento abierto.
+- **Tiempo de viaje**: "tienes 35 minutos hasta tu próxima reunión en la ubicación de la Misión".
+- **Ayudante de zona horaria**: muestra la hora de la reunión en la hora local de cada asistente de un vistazo.
+
+### Clips
+
+Un usuario está revisando una grabación de pantalla. ¿Qué realza esa visión?
+
+- **Extractor de elementos de acción**: lee la transcripción del clip (el agente la recupera a través de `appAction`) y enumera las tareas pendientes.
+- **Compartir automáticamente**: un clic en "publicar el enlace de este clip en mi canal #recordings Slack".
+- **Carrete destacado**: extrae los capítulos que generó el agente y los convierte en un menú de navegación rápida.
+
+### Diseño
+
+Un usuario tiene abierto un borrador de página Alpine/Tailwind. ¿Qué suavizaría el ciclo de creación de prototipos?
+
+- **Muestra de color de marca**: paleta extraída de la configuración de marca del usuario; haga clic para copiar un color en el editor.
+- **Selector de recursos**: enumera las imágenes que el usuario ha subido y suelta el URL al hacer clic.
+- **Inspector de espaciado**: muestra los tokens de espacio/relleno/margen que utiliza la página activa, para que el usuario pueda mantener la coherencia.
+
+Patrón en todos estos: las extensiones son aproximadamente **el momento** en el que el usuario se encuentra dentro de la plantilla de host. El agente ya sabe qué contacto, qué panel, qué evento, qué clip: la extensión usa ese contexto.
+
+## Cómo un usuario crea uno {#building}
+
+El camino sencillo:
+
+1. **Haga clic en "Nueva extensión"** en la barra lateral (o simplemente pregunte en el chat).
+2. **Describe lo que quieres en una oración.** "Un bloc de notas adhesivas para el contacto al que le envío un correo electrónico". "Esta semana comenzó una caja KPI para pruebas."
+3. **El agente lo escribe y aparece en tu lista de Extensiones, listo para usar.**
+
+No hay archivos para editar ni implementar. El agente elige los ayudantes adecuados (`appAction`, `extensionData`, `extensionFetch`) y escribe el archivo Alpine.js HTML.
+
+Si la extensión necesita una clave API (un token CRM, un API meteorológico), el agente le indica qué agregar y dónde agregarlo. Las claves se almacenan cifradas y bloqueadas en dominios específicos.
+
+Si desea cambiar algo más tarde, simplemente dígalo: "Agregar un cuadro de búsqueda a mis notas de contacto". El agente edita el HTML en el lugar; no se regenera todo.
+
+Cada cambio tiene una versión. Abra el control Historial del visor de extensiones para ver
+versiones guardadas, inspeccionar la diferencia de la versión anterior y restaurar una
+nombre/descripción/icono/instantánea de contenido anterior sin cambiar de propietario o
+compartir.
+
+## Qué puede hacer una extensión {#capabilities}
+
+Dentro del entorno limitado de iframe, cada extensión tiene estos ayudantes en `window`:
+
+| Ayudante                                         | Propósito                                                              | Ejemplo                                                   |
+| ------------------------------------------------ | ---------------------------------------------------------------------- | --------------------------------------------------------- |
+| `appAction(name, params)`                        | Llame a cualquiera de los actions de la plantilla de host              | `appAction('list-emails', { view: 'inbox' })`             |
+| `appFetch(path, options)`                        | Llamar a los puntos finales del marco permitidos en `/_agent-native/*` | `appFetch('/_agent-native/application-state/navigation')` |
+| `dbQuery(sql, args)`                             | Leer desde SQL (con alcance automático para el usuario)                | `dbQuery('SELECT id, name FROM tools')`                   |
+| `dbExec(sql, args)`                              | Escribir en SQL                                                        | `dbExec('INSERT INTO ...')`                               |
+| `extensionFetch(url, options)`                   | Accede a API externos a través de un proxy seguro con secretos         | `extensionFetch('https://api.github.com/user')`           |
+| `extensionData.set(collection, id, data, opts?)` | Persistir datos por extensión (alcance usuario/organización)           | `extensionData.set('notes', id, { text: '...' })`         |
+| `extensionData.list(collection, opts?)`          | Listar elementos persistentes                                          | `extensionData.list('notes', { scope: 'all' })`           |
+| `extensionData.get(collection, id, opts?)`       | Obtén un solo artículo                                                 | `extensionData.get('notes', 'note-1')`                    |
+| `extensionData.remove(collection, id, opts?)`    | Eliminar un elemento persistente                                       | `extensionData.remove('notes', 'note-1')`                 |
+
+Tres reglas generales:
+
+- **Prefiera `appAction` a `dbQuery`.** Actions es la superficie oficial de la plantilla: manejan el control de acceso, el alcance y la validación por usted. Busque SQL sin formato solo cuando no haya ninguna acción adecuada.
+- **Utilice `appAction` para datos de plantilla.** La extensión `appFetch` se limita a los puntos finales del marco `/_agent-native/*`; Las rutas de la plantilla `/api/*` están bloqueadas por el puente iframe.
+- **Prefiera `extensionData` a crear nuevas tablas.** Cada extensión tiene su propio almacén de clave-valor aislado. Sin esquema, sin migración. Configure `{ scope: 'org' }` para compartir con la organización del usuario, `'user'` (predeterminado) para privado.
+
+```html
+<script>
+  // Private to me
+  await extensionData.set('notes', 'note-1', { title: 'My note' });
+
+  // Shared with my org
+  await extensionData.set('notes', 'team-note', { title: 'Team note' }, { scope: 'org' });
+
+  // List everything visible to me (mine + org)
+  const all = await extensionData.list('notes', { scope: 'all' });
+</script>
+```
+
+Los API externos pasan por `extensionFetch`, que representa la llamada del lado del servidor y sustituye los secretos a través de la plantilla `${keys.NAME}`:
+
+```html
+<script>
+  const res = await extensionFetch('https://api.github.com/user', {
+    headers: { Authorization: 'Bearer ${keys.GITHUB_TOKEN}' },
+  });
+</script>
+```
+
+La clave real nunca llega al navegador. Cada clave está bloqueada en una lista de dominios permitidos, por lo que una extensión filtrada no puede filtrarla a otra parte.
+
+## Ranuras: colocar una extensión dentro del host UI {#slots}
+
+La galería de arriba describe _qué_ hace una extensión. Las ranuras describen _dónde_ aparece.
+
+De forma predeterminada, una extensión se encuentra en su propia página en la lista de Extensiones; ábrala como una aplicación pequeña. Esto está bien para paneles, calculadoras y widgets independientes.
+
+Pero el caso de uso más parecido a QBO es diferente: el usuario quiere que su widget se fije _dentro_ del UI de la plantilla, debajo de la información de contacto en la barra lateral de Mail, en la esquina de un panel de Analytics, en el lado derecho de un evento de Calendario. Para eso están las **tragamonedas**.
+
+Una ranura es un widget con nombre en el área que incluye una plantilla:
+
+| Plantilla      | Ejemplo de ranura              | Dónde aparece                                                           |
+| -------------- | ------------------------------ | ----------------------------------------------------------------------- |
+| **Correo**     | `mail.contact-sidebar.bottom`  | Debajo de la información de contacto en cada hilo de correo electrónico |
+| **Análisis**   | `analytics.dashboard.tiles`    | Junto a los paneles integrados del tablero                              |
+| **Calendario** | `calendar.event-detail.bottom` | Debajo del evento abierto                                               |
+| **Clips**      | `clips.right-panel.tabs`       | Una nueva pestaña en el panel de revisión de clips                      |
+
+Cuando una extensión se **instala en una ranura**, el anfitrión inserta el contexto relevante (el correo electrónico del contacto, la identificación del panel, la identificación del evento) en el iframe. La extensión dice `window.slotContext` para saber qué está mirando el usuario.
+
+<Diagram id="doc-block-1uwb6po" title="Las ranuras introducen contexto en el widget" summary={"La plantilla de host posee espacios con nombre; instalar una extensión en uno le proporciona window.slotContext para lo que el usuario esté viendo actualmente."}>
+
+```html
+<div class="slot">
+  <div class="diagram-card">
+    <span class="diagram-pill">Hilo de correo</span
+    ><small class="diagram-muted"
+      >slot <code>mail.contact-sidebar.bottom</code></small
+    >
+  </div>
+  <div class="diagram-arrow diagram-accent" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box accent">
+    <code>window.slotContext</code><br /><small class="diagram-muted"
+      >{ contactEmail }</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-accent" aria-hidden="true">&rarr;</div>
+  <div class="diagram-card">
+    <span class="diagram-pill">Notas de contacto</span
+    ><small class="diagram-muted"
+      >loads notes for that contact &mdash; same widget, different
+      context</small
+    >
+  </div>
+</div>
+```
+
+```css
+.slot {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.slot .diagram-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 14px 16px;
+  min-width: 180px;
+}
+.slot .diagram-arrow {
+  font-size: 22px;
+}
+```
+
+</Diagram>
+
+### Un ejemplo concreto
+
+Imagine la extensión de notas de contacto de la galería. Por sí solo, es un widget independiente. Para que aparezca dentro de la barra lateral de contacto de Mail:
+
+1. Construya la extensión una vez. Utilice `window.slotContext.contactEmail` para saber en qué contacto se encuentra el usuario.
+2. Dígale el espacio que puede ocupar: `add-extension-slot-target { extensionId, slotId: "mail.contact-sidebar.bottom" }`.
+3. Instálalo: `install-extension { extensionId, slotId: "mail.contact-sidebar.bottom" }`.
+
+La próxima vez que abras un hilo de correo electrónico, tu bloc de notas adhesivas estará justo debajo de la información de contacto, lleno de notas para la persona a la que estás enviando el correo electrónico. Cambie a un hilo diferente, las notas para _ese_ contacto se cargan. Misma extensión, contexto diferente, sin reescrituras.
+
+En la práctica, no ejecutas esos tres comandos manualmente. Simplemente diga "fijar este widget a la barra lateral de mi contacto" y el agente se encargará del destino y la instalación por usted.
+
+> **Las ranuras son una capacidad _añadida_, no un requisito previo.** Muchas extensiones útiles nunca se instalan en una ranura: viven felices en su propia página. Busque espacios cuando el widget deba estar _al lado_ de lo que el usuario está mirando en la plantilla de host.
+
+Para obtener detalles más detallados sobre las ranuras (cómo declararlas en su plantilla, cómo funciona el contrato de contexto, cómo se limitan las instalaciones), consulte la habilidad `extension-points`. Skills se envía dentro de cada plantilla de andamio bajo `.agents/skills/`; consulte [Skills Guide](/docs/skills-guide) para saber cómo funcionan.
+
+## Extensiones de archivos locales {#local-file-extensions}
+
+El modo de archivo local permite que un espacio de trabajo mantenga extensiones en el repositorio:
+
+```text
+extensions/
+  doc-status/
+    extension.json
+    index.html
+```
+
+```json
+{
+  "id": "doc-status",
+  "name": "Doc Status",
+  "description": "Shows metadata for the selected Content file.",
+  "entry": "index.html",
+  "slots": ["content.sidebar.bottom"],
+  "permissions": {
+    "appActions": ["list-documents"],
+    "extensionData": true
+  }
+}
+```
+
+Agregue la carpeta a la aplicación correspondiente en `agent-native.json`:
+
+```json
+{
+  "apps": {
+    "content": {
+      "mode": "local-files",
+      "roots": [{ "name": "Docs", "path": "docs", "extensions": [".mdx"] }],
+      "components": "components",
+      "extensions": "extensions"
+    }
+  }
+}
+```
+
+La aplicación enumera extensiones respaldadas por archivos junto con extensiones y renderizados respaldados por bases de datos
+a través del iframe normal del sandbox. Declaraciones de slots en `extension.json`
+montar automáticamente la extensión en `ExtensionSlot` coincidentes; no hay por usuario
+Fila de instalación SQL para extensiones locales.
+
+Las extensiones locales tienen un modelo de permisos v1 más estricto:
+
+- `extensionData` está disponible para estados de tiempo de ejecución pequeños a menos que esté deshabilitado.
+- Las llamadas `appAction` deben aparecer explícitamente en `permissions.appActions`.
+- `dbQuery`, `dbExec` y `extensionFetch` están bloqueados por ahora.
+- La actualización, eliminación, uso compartido y el historial respaldados por SQL actions devuelven un mensaje que
+  apunta al archivo de entrada local.
+
+Utilice extensiones respaldadas por bases de datos cuando los usuarios deban crear/compartir/editar widgets en
+tiempo de ejecución. Utilice extensiones de archivo locales cuando la extensión sea parte de un repositorio primero
+espacio de trabajo y debe ser revisable, parcheable y versionado con el resto de
+los archivos.
+
+## Compartir {#sharing}
+
+Las extensiones son privadas para el usuario que las creó de forma predeterminada. Para compartir:
+
+- **Org-visible**: todos los miembros de la organización pueden verlo y usarlo.
+- **Subvenciones por usuario**: invita a personas específicas como espectador/editor/administrador.
+
+Las extensiones compartidas tienen sus propios URL y se conectan al mismo cuadro de diálogo para compartir que documentos, presentaciones y paneles. Las instalaciones de tragamonedas son siempre personales: compartir una extensión significa que otros _pueden_ instalarla; no lo fija automáticamente a su UI.
+
+## Extensiones versus edición del código de la aplicación {#vs-app-code}
+
+El marco permite al agente editar el código fuente de la aplicación directamente: componentes, rutas, estilos. Entonces, ¿cuándo debería optar por una extensión?
+
+|                                 | Extensión                                                     | Edición del código de la aplicación                       |
+| ------------------------------- | ------------------------------------------------------------- | --------------------------------------------------------- |
+| **Creado por**                  | Agente (o usuario) en tiempo de ejecución                     | Agente editando archivos fuente                           |
+| **Almacenado en**               | La base de datos                                              | El repositorio de git                                     |
+| **Requiere una compilación**    | No                                                            | Sí                                                        |
+| **Requiere una implementación** | No                                                            | Sí                                                        |
+| **Alcance**                     | Un usuario (o compartido con la organización)                 | El producto completo, cada usuario                        |
+| **Mejor para**                  | Widgets personales, KPI personalizados, utilidades por equipo | Funciones principales disponibles para todos los usuarios |
+
+Regla general: **si es para un usuario o un equipo, es una extensión.** Si todos los usuarios de la plantilla deben obtenerla, envíela como una característica real.
+
+## Seguridad {#security}
+
+<Callout id="doc-block-frp4nq" tone="success">
+
+**The raw secret never reaches the browser.** `extensionFetch` substitutes `${keys.NAME}` server-side and each key is locked to a URL allowlist, so even a leaked extension can't exfiltrate it elsewhere.
+
+</Callout>
+
+Extensiones ejecutadas en un iframe de espacio aislado:
+
+- **Aislado** de las cookies, la sesión y DOM de la aplicación principal.
+- **Inyección de secretos del lado del servidor** a través de la plantilla `${keys.NAME}`: el valor de la clave real nunca llega al navegador.
+- **Secretos bloqueados por dominio**: cada clave está vinculada a una lista de permitidos URL; el proxy rechaza solicitudes a otros hosts.
+- **Protección de red privada**: las extensiones no pueden acceder a direcciones internas.
+- **Se requiere autenticación**: las extensiones solo se ejecutan para usuarios que han iniciado sesión y las llamadas `dbQuery`/`dbExec` tienen un alcance automático.
+
+## Algunas cosas que debes saber sobre los nombres {#naming-back-compat}
+
+Si estás husmeando en el SQL o en la fuente, verás una combinación de nombres de "extensión" y "herramienta". Decodificador rápido:
+
+- La primitiva orientada al usuario solía llamarse "Herramientas". Ahora son **Extensiones**.
+- Las tablas físicas SQL (`tools`, `tool_data`, `tool_shares`, `tool_slots`, `tool_slot_installs`) mantienen sus nombres originales; cambiar el nombre de una tabla es una migración destructiva y el marco no incluye migraciones destructivas.
+- Las exportaciones Drizzle / TypeScript utilizan los nuevos nombres: `extensions`, `extensionData`, `extensionShares`, `extensionSlots`, `extensionSlotInstalls`.
+- Dentro del iframe de una extensión, los ayudantes canónicos son `extensionFetch` y `extensionData`. Los nombres heredados `toolFetch` y `toolData` aún se resuelven, por lo que la extensión anterior HTML sigue funcionando.
+
+Tampoco verá esto en el uso normal, pero el agente tiene un tercer concepto relacionado llamado "herramientas LLM": el área de superficie de llamada de función en un giro de modelo (definido a través de `defineAction`, MCP, etc.). Esas son las primitivas de llamada de funciones, no los widgets orientados al usuario. Cuando esta página dice "extensión", se refiere al widget orientado al usuario; cuando otros documentos dicen "herramienta" junto a `defineAction`, ese es el concepto de LLM.
+
+## ¿Qué sigue?
+
+- [**Templates**](/docs/cloneable-saas): las extensiones de las aplicaciones de host se extienden
+- [**Actions**](/docs/actions): las operaciones que llama una extensión a través de `appAction`
+- [**Sharing & Privacy**](/docs/sharing): cómo funcionan la visibilidad de la extensión, el uso compartido de organizaciones y las subvenciones por usuario
+- [**Onboarding & API Keys**](/docs/onboarding) — cómo surgen los secretos en la configuración UI
+- [**Security**](/docs/security): el modelo de acceso y alcance de datos del marco

@@ -1,6 +1,7 @@
-import { Link, useLocation } from "react-router";
-import { useMemo } from "react";
 import { useLocale, useT } from "@agent-native/core/client";
+import { useMemo } from "react";
+import { Link, useLocation } from "react-router";
+
 import { comparableDocsPath } from "./docs-locale";
 import { getDocsNavItems } from "./docsNavItems";
 

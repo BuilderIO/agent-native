@@ -1,5 +1,7 @@
 import crypto from "node:crypto";
+
 import { describe, expect, it, vi } from "vitest";
+
 import {
   buildChatUnfurlPayload,
   buildSlackVideoBlock,
@@ -84,6 +86,19 @@ describe("Clips Slack unfurls", () => {
     expect(
       extractShareLink("https://apps.example.com/clips/share/rec-2"),
     ).toEqual({
+      id: "rec-2",
+      origin: "https://apps.example.com",
+      basePath: "/clips",
+    });
+  });
+
+  it("parses recording dashboard links pasted into Slack", () => {
+    expect(extractShareLink("https://clips.example.com/r/rec-1")).toEqual({
+      id: "rec-1",
+      origin: "https://clips.example.com",
+      basePath: "",
+    });
+    expect(extractShareLink("https://apps.example.com/clips/r/rec-2")).toEqual({
       id: "rec-2",
       origin: "https://apps.example.com",
       basePath: "/clips",

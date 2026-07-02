@@ -1,11 +1,13 @@
 import { mkdtempSync, rmSync } from "node:fs";
-import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { join } from "node:path";
+
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+
 import type { ActionEntry } from "../agent/production-agent.js";
 import { closeDbExec, getDbExec } from "../db/client.js";
-import { getRequestOrgId, getRequestUserEmail } from "./request-context.js";
 import { createAgentNativeEmbeddedPlugin } from "./embedded.js";
+import { getRequestOrgId, getRequestUserEmail } from "./request-context.js";
 
 vi.mock("../deploy/route-discovery.js", () => ({
   getMissingDefaultPlugins: vi.fn(async () => []),
@@ -237,6 +239,89 @@ describe("embedded Agent-Native host fixture", () => {
       orgId: "host-org-1",
     });
     const extensionId = (created.body as { id: string }).id;
+
+    currentUser = {
+      ...currentUser,
+      email: "ALICE@HOST.TEST",
+    };
+
+    await expect(
+      dispatch(
+        nitroApp,
+        `/_agent-native/extensions/data/${extensionId}/notes`,
+        {
+          method: "POST",
+          headers: { "X-Agent-Native-CSRF": "1" },
+          body: {
+            id: "case-progress",
+            data: { text: "Case-safe private note" },
+          },
+        },
+      ),
+    ).resolves.toMatchObject({
+      status: 200,
+      body: {
+        id: "case-progress",
+        extensionId,
+        ownerEmail: "alice@host.test",
+        scope: "user",
+      },
+    });
+
+    currentUser = {
+      ...currentUser,
+      email: "alice@host.test",
+    };
+
+    await expect(
+      dispatch(
+        nitroApp,
+        `/_agent-native/extensions/data/${extensionId}/notes?scope=user`,
+      ),
+    ).resolves.toMatchObject({
+      status: 200,
+      body: [
+        expect.objectContaining({
+          id: "case-progress",
+          owner_email: "alice@host.test",
+          data: JSON.stringify({ text: "Case-safe private note" }),
+        }),
+      ],
+    });
+
+    currentUser = {
+      ...currentUser,
+      email: "ALICE@HOST.TEST",
+    };
+
+    await expect(
+      dispatch(
+        nitroApp,
+        `/_agent-native/extensions/data/${extensionId}/notes/case-progress?scope=user`,
+        {
+          method: "DELETE",
+          headers: { "X-Agent-Native-CSRF": "1" },
+        },
+      ),
+    ).resolves.toMatchObject({
+      status: 200,
+      body: { ok: true },
+    });
+
+    currentUser = {
+      ...currentUser,
+      email: "alice@host.test",
+    };
+
+    await expect(
+      dispatch(
+        nitroApp,
+        `/_agent-native/extensions/data/${extensionId}/notes?scope=user`,
+      ),
+    ).resolves.toMatchObject({
+      status: 200,
+      body: [],
+    });
 
     await expect(
       dispatch(nitroApp, `/_agent-native/extensions/${extensionId}`, {

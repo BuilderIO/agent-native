@@ -1,5 +1,13 @@
 import crypto from "node:crypto";
-import { and, desc, eq, inArray, isNull, or } from "drizzle-orm";
+
+import {
+  and,
+  desc,
+  eq,
+  inArray,
+  isNull,
+  or,
+} from "@agent-native/core/db/schema";
 import {
   resourceGetByPath,
   resourceList,
@@ -12,6 +20,7 @@ import {
   putOrgSetting,
   putUserSetting,
 } from "@agent-native/core/settings";
+
 import { getDb, schema } from "../../db/index.js";
 import {
   createApprovalRequest,
@@ -3052,7 +3061,7 @@ export async function rejectDreamProposal(
 function cronLooksValid(schedule: string): boolean {
   const parts = schedule.trim().split(/\s+/);
   if (parts.length !== 5) return false;
-  return parts.every((part) => /^[\d*/,\-]+$/.test(part));
+  return parts.every((part) => /^[\d*/,-]+$/.test(part));
 }
 
 function dreamJobBody(settings: Omit<DreamSettings, "scope" | "scopeId">) {

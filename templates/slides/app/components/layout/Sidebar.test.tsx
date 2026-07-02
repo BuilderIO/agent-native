@@ -1,10 +1,11 @@
+import { render, screen, cleanup } from "@testing-library/react";
 // @vitest-environment happy-dom
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { render, screen, cleanup } from "@testing-library/react";
 
 afterEach(() => cleanup());
-import { MemoryRouter } from "react-router";
 import type { ReactNode } from "react";
+import { MemoryRouter } from "react-router";
+
 import { TooltipProvider } from "@/components/ui/tooltip";
 
 vi.mock("@agent-native/core", () => ({
@@ -33,7 +34,7 @@ vi.mock("@agent-native/core/client", () => ({
       "navigation.brand": "Slides",
       "navigation.decks": "Decks",
       "navigation.designSystems": "Design Systems",
-      "navigation.team": "Team",
+      "navigation.settings": "Settings",
       "sidebar.expandSidebar": "Expand sidebar",
       "sidebar.collapseSidebar": "Collapse sidebar",
     })[key] ?? key,
@@ -73,11 +74,11 @@ describe("<Sidebar collapsed>", () => {
     renderAt("/", <Sidebar collapsed={true} onToggleCollapsed={() => {}} />);
     expect(screen.queryByText("Decks")).toBeNull();
     expect(screen.queryByText("Design Systems")).toBeNull();
-    expect(screen.queryByText("Team")).toBeNull();
+    expect(screen.queryByText("Settings")).toBeNull();
 
     expect(screen.getByLabelText("Decks")).toBeDefined();
     expect(screen.getByLabelText("Design Systems")).toBeDefined();
-    expect(screen.getByLabelText("Team")).toBeDefined();
+    expect(screen.getByLabelText("Settings")).toBeDefined();
   });
 });
 
@@ -92,7 +93,7 @@ describe("<Sidebar expanded>", () => {
     expect(screen.getByText("Slides")).toBeDefined();
     expect(screen.getByText("Decks")).toBeDefined();
     expect(screen.getByText("Design Systems")).toBeDefined();
-    expect(screen.getByText("Team")).toBeDefined();
+    expect(screen.getByText("Settings")).toBeDefined();
 
     const collapseBtn = screen.getByLabelText("Collapse sidebar");
     collapseBtn.dispatchEvent(new MouseEvent("click", { bubbles: true }));
@@ -137,7 +138,7 @@ describe("<Sidebar> accessibility", () => {
     expect(screen.getByLabelText("Expand sidebar")).toBeDefined();
     expect(screen.getByLabelText("Decks")).toBeDefined();
     expect(screen.getByLabelText("Design Systems")).toBeDefined();
-    expect(screen.getByLabelText("Team")).toBeDefined();
+    expect(screen.getByLabelText("Settings")).toBeDefined();
   });
 
   it("labels the Collapse button in the expanded layout", () => {

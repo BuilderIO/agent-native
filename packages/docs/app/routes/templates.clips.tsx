@@ -1,15 +1,17 @@
-import { Link } from "react-router";
-import { useT } from "@agent-native/core/client";
+import { useLocale, useT } from "@agent-native/core/client";
 import { useState } from "react";
-import { templates, trackEvent } from "../components/TemplateCard";
+import { Link } from "react-router";
+
+import { sitePathForLocale } from "../components/docs-locale";
 import { TemplateDocsLink } from "../components/template-docs";
+import { templates, trackEvent } from "../components/TemplateCard";
 import { withTemplateSocialImage } from "../seo";
 
 export const meta = () =>
   withTemplateSocialImage(
     [
       {
-        title: "Agent-Native Clips — Open-Source Loom + Jam",
+        title: "Agent-Native Clips — Open-Source Loom Alternative",
       },
       {
         name: "description",
@@ -18,7 +20,7 @@ export const meta = () =>
       },
       {
         property: "og:title",
-        content: "Agent-Native Clips — Open-Source Loom + Jam",
+        content: "Agent-Native Clips — Open-Source Loom Alternative",
       },
       {
         property: "og:description",
@@ -96,32 +98,11 @@ function CliCopy() {
 
 export default function ClipsTemplate() {
   const t = useT();
+  const { locale } = useLocale();
   return (
     <main className="template-detail-page mx-auto w-full max-w-[1200px] overflow-x-clip px-4 sm:px-6">
       {/* Hero */}
       <section className="py-12 sm:py-16 lg:py-20">
-        <div className="mb-4">
-          <Link
-            data-an-prefetch="render"
-            to="/templates"
-            className="inline-flex items-center gap-1 text-sm text-[var(--fg-secondary)] no-underline hover:text-[var(--fg)]"
-          >
-            <svg
-              width="16"
-              height="16"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <polyline points="15 18 9 12 15 6" />
-            </svg>
-            {t("templateLanding.clips.s006")}
-          </Link>
-        </div>
-
         <div className="grid min-w-0 gap-10 lg:grid-cols-2 lg:items-start lg:gap-12">
           <div>
             <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-[var(--docs-border)] bg-[var(--bg-secondary)] px-3 py-1 text-xs text-[var(--fg-secondary)]">
@@ -709,7 +690,7 @@ export default function ClipsTemplate() {
           </TemplateDocsLink>
           <Link
             data-an-prefetch="render"
-            to="/templates"
+            to={sitePathForLocale("/apps", locale)}
             className="inline-flex items-center gap-2 rounded-full border border-[var(--docs-border)] px-6 py-3 text-sm font-medium text-[var(--fg)] no-underline transition hover:border-[var(--fg-secondary)] hover:no-underline"
           >
             {t("templateLanding.clips.s062")}

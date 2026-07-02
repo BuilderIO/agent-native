@@ -1,6 +1,7 @@
-import { agentNativePath } from "../api-path.js";
-import { useEffect, useState } from "react";
 import { IconLoader2, IconRefresh } from "@tabler/icons-react";
+import { useEffect, useState } from "react";
+
+import { agentNativePath } from "../api-path.js";
 
 interface UsageBucket {
   key: string;

@@ -1,7 +1,9 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+
 import { afterEach, describe, expect, it } from "vitest";
+
 import {
   autoDiscoverActions,
   loadActionsFromStaticRegistry,
@@ -18,31 +20,35 @@ afterEach(() => {
 });
 
 describe("action discovery", () => {
-  it("loads TypeScript action files from plain source directories", async () => {
-    const actionsDir = fs.mkdtempSync(
-      path.join(os.tmpdir(), "agent-native-actions-"),
-    );
-    tmpDirs.push(actionsDir);
-    fs.writeFileSync(
-      path.join(actionsDir, "hello.ts"),
-      [
-        "export default {",
-        '  tool: { description: "Greet", parameters: { type: "object", properties: {} } },',
-        "  readOnly: true,",
-        '  run: async () => ({ message: "Hello from TS" }),',
-        "};",
-        "",
-      ].join("\n"),
-    );
+  it(
+    "loads TypeScript action files from plain source directories",
+    async () => {
+      const actionsDir = fs.mkdtempSync(
+        path.join(os.tmpdir(), "agent-native-actions-"),
+      );
+      tmpDirs.push(actionsDir);
+      fs.writeFileSync(
+        path.join(actionsDir, "hello.ts"),
+        [
+          "export default {",
+          '  tool: { description: "Greet", parameters: { type: "object", properties: {} } },',
+          "  readOnly: true,",
+          '  run: async () => ({ message: "Hello from TS" }),',
+          "};",
+          "",
+        ].join("\n"),
+      );
 
-    const registry = await autoDiscoverActions(actionsDir);
+      const registry = await autoDiscoverActions(actionsDir);
 
-    expect(registry.hello).toBeDefined();
-    expect(registry.hello.readOnly).toBe(true);
-    await expect(registry.hello.run({})).resolves.toEqual({
-      message: "Hello from TS",
-    });
-  });
+      expect(registry.hello).toBeDefined();
+      expect(registry.hello.readOnly).toBe(true);
+      await expect(registry.hello.run({})).resolves.toEqual({
+        message: "Hello from TS",
+      });
+    },
+    CORE_ACTION_DISCOVERY_TIMEOUT_MS,
+  );
 
   it("preserves explicit readOnly false from static defineAction entries", () => {
     const registry = loadActionsFromStaticRegistry({
@@ -84,6 +90,22 @@ describe("action discovery", () => {
     });
 
     expect(registry["safe-write"].parallelSafe).toBe(true);
+  });
+
+  it("preserves per-tool timeout and result limits", () => {
+    const registry = loadActionsFromStaticRegistry({
+      "slow-provider": {
+        default: {
+          tool: { description: "Slow provider", parameters: {} },
+          timeoutMs: 120_000,
+          maxResultChars: 10_000,
+          run: async () => ({ ok: true }),
+        },
+      },
+    });
+
+    expect(registry["slow-provider"].timeoutMs).toBe(120_000);
+    expect(registry["slow-provider"].maxResultChars).toBe(10_000);
   });
 
   it("preserves agentTool:false so discovery keeps it hidden from the agent", () => {

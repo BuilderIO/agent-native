@@ -1,14 +1,13 @@
-import { useState, useEffect, useCallback, useRef } from "react";
-import { createPortal } from "react-dom";
+import {
+  appBasePath,
+  PromptComposer,
+  useT,
+  type PromptComposerSubmitOptions,
+} from "@agent-native/core/client";
 import {
   EmbeddedApp,
   type EmbeddedAppRef,
 } from "@agent-native/core/embedding/react";
-import {
-  appBasePath,
-  PromptComposer,
-  type PromptComposerSubmitOptions,
-} from "@agent-native/core/client";
 import {
   IconPalette,
   IconPhoto,
@@ -16,11 +15,14 @@ import {
   IconUpload,
   IconX,
 } from "@tabler/icons-react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { toast } from "sonner";
+
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import {
   Popover,
+  PopoverAnchor,
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
@@ -45,7 +47,9 @@ export interface UploadedFile {
 }
 
 const DEFAULT_ASSETS_PICKER_URL = "https://assets.agent-native.com/picker";
-const MAX_CHAT_IMAGE_ATTACHMENT_BYTES = 4 * 1024 * 1024;
+const RAW_CHAT_IMAGE_ATTACHMENT_BYTES = 512 * 1024;
+const MAX_TOTAL_CHAT_IMAGE_DATA_URL_BYTES = 3_000_000;
+const DEFAULT_MAX_CHAT_IMAGE_DATA_URL_BYTES = 1_250_000;
 const CHAT_IMAGE_ATTACHMENT_TYPES = new Set([
   "image/gif",
   "image/jpeg",
@@ -53,6 +57,11 @@ const CHAT_IMAGE_ATTACHMENT_TYPES = new Set([
   "image/png",
   "image/webp",
 ]);
+const IMAGE_COMPRESSION_PASSES = [
+  { maxDimension: 1400, jpegQuality: 0.76 },
+  { maxDimension: 1024, jpegQuality: 0.7 },
+  { maxDimension: 768, jpegQuality: 0.65 },
+];
 
 interface PickedAssetImagePayload {
   url?: unknown;
@@ -111,14 +120,11 @@ function pickedAssetContext(payload: unknown, url: string) {
   return lines.join("\n");
 }
 
-function readChatImageAttachment(file: File): Promise<string | null> {
-  if (
-    file.size > MAX_CHAT_IMAGE_ATTACHMENT_BYTES ||
-    !CHAT_IMAGE_ATTACHMENT_TYPES.has(file.type.toLowerCase())
-  ) {
-    return Promise.resolve(null);
-  }
+function dataUrlBytes(dataUrl: string): number {
+  return new TextEncoder().encode(dataUrl).byteLength;
+}
 
+function readFileDataUrl(file: File): Promise<string | null> {
   return new Promise((resolve) => {
     const reader = new FileReader();
     reader.onload = () =>
@@ -126,6 +132,77 @@ function readChatImageAttachment(file: File): Promise<string | null> {
     reader.onerror = () => resolve(null);
     reader.readAsDataURL(file);
   });
+}
+
+function loadImage(url: string): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = () => reject(new Error("Failed to decode image"));
+    img.src = url;
+  });
+}
+
+async function compressImageAttachment(
+  file: File,
+  maxDimension: number,
+  jpegQuality: number,
+): Promise<string | null> {
+  if (typeof document === "undefined" || typeof Image === "undefined") {
+    return null;
+  }
+
+  const objectUrl = URL.createObjectURL(file);
+  try {
+    const image = await loadImage(objectUrl);
+    const ratio = Math.min(
+      maxDimension / image.naturalWidth,
+      maxDimension / image.naturalHeight,
+      1,
+    );
+    const width = Math.max(1, Math.round(image.naturalWidth * ratio));
+    const height = Math.max(1, Math.round(image.naturalHeight * ratio));
+    const canvas = document.createElement("canvas");
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return null;
+    ctx.drawImage(image, 0, 0, width, height);
+    return canvas.toDataURL("image/jpeg", jpegQuality);
+  } catch {
+    return null;
+  } finally {
+    URL.revokeObjectURL(objectUrl);
+  }
+}
+
+async function readChatImageAttachment(
+  file: File,
+  maxDataUrlBytes = DEFAULT_MAX_CHAT_IMAGE_DATA_URL_BYTES,
+): Promise<string | null> {
+  if (!CHAT_IMAGE_ATTACHMENT_TYPES.has(file.type.toLowerCase())) return null;
+
+  if (file.size <= RAW_CHAT_IMAGE_ATTACHMENT_BYTES) {
+    const raw = await readFileDataUrl(file);
+    if (raw && dataUrlBytes(raw) <= maxDataUrlBytes) return raw;
+  }
+
+  let fallback: string | null = null;
+  for (const pass of IMAGE_COMPRESSION_PASSES) {
+    const compressed = await compressImageAttachment(
+      file,
+      pass.maxDimension,
+      pass.jpegQuality,
+    );
+    if (!compressed) continue;
+    fallback = compressed;
+    if (dataUrlBytes(compressed) <= maxDataUrlBytes) {
+      return compressed;
+    }
+  }
+  return fallback && dataUrlBytes(fallback) <= maxDataUrlBytes
+    ? fallback
+    : null;
 }
 
 interface AssetsPickerDialogProps {
@@ -143,6 +220,7 @@ function AssetsPickerDialog({
   onReady,
   onMessage,
 }: AssetsPickerDialogProps) {
+  const t = useT();
   const [pickerReady, setPickerReady] = useState(false);
 
   useEffect(() => {
@@ -164,13 +242,15 @@ function AssetsPickerDialog({
         className="flex h-[min(86vh,760px)] w-[min(96vw,1040px)] max-w-none flex-col gap-0 overflow-hidden p-0"
       >
         <div className="flex h-12 shrink-0 items-center border-b px-4">
-          <DialogTitle className="text-base">Assets</DialogTitle>
+          <DialogTitle className="text-base">
+            {t("promptDialog.assetsTitle")}
+          </DialogTitle>
         </div>
         <div className="relative min-h-0 flex-1 overflow-hidden bg-background">
           {!pickerReady && <AssetsPickerSkeleton />}
           <EmbeddedApp
             url={url}
-            title="Assets image picker"
+            title={t("promptDialog.assetsImagePicker")}
             className={`absolute inset-0 h-full w-full border-0 bg-background transition-opacity duration-150 ${
               pickerReady ? "opacity-100" : "pointer-events-none opacity-0"
             }`}
@@ -184,11 +264,12 @@ function AssetsPickerDialog({
 }
 
 function AssetsPickerSkeleton() {
+  const t = useT();
   return (
     <div
       className="absolute inset-0 flex flex-col gap-5 p-5"
       role="status"
-      aria-label="Loading Assets picker"
+      aria-label={t("promptDialog.loadingAssetsPicker")}
     >
       <div className="flex items-center gap-3">
         <Skeleton className="h-9 flex-1 rounded-md" />
@@ -236,11 +317,22 @@ export interface PromptDesignSystemOption {
   isDefault?: boolean;
 }
 
+function isNestedPromptPopoverTarget(target: EventTarget | null) {
+  return (
+    target instanceof Element &&
+    Boolean(
+      target.closest(
+        "[data-agent-native-composer-popover],[data-assets-picker-dialog],[data-agent-native-prompt-select]",
+      ),
+    )
+  );
+}
+
 export default function PromptPopover({
   open,
   onOpenChange,
   title,
-  placeholder = "Describe what you want...",
+  placeholder,
   onSkip,
   skipLabel = "Skip prompt",
   onSubmit,
@@ -253,11 +345,11 @@ export default function PromptPopover({
   onDesignSystemChange,
   onCreateDesignSystem,
 }: PromptPopoverProps) {
+  const t = useT();
   const [uploading, setUploading] = useState(false);
   const [pickedAssets, setPickedAssets] = useState<UploadedFile[]>([]);
   const [selectedUploadFiles, setSelectedUploadFiles] = useState<File[]>([]);
   const [assetsPickerOpen, setAssetsPickerOpen] = useState(false);
-  const panelRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (open) return;
@@ -265,68 +357,6 @@ export default function PromptPopover({
     setPickedAssets([]);
     setSelectedUploadFiles([]);
   }, [open]);
-
-  // Position the popover after render so we can measure its actual size
-  useEffect(() => {
-    if (!open || !panelRef.current) return;
-    const panel = panelRef.current;
-    const MARGIN = 12;
-
-    if (centered || !anchorRef?.current) {
-      panel.style.top = "50%";
-      panel.style.left = "50%";
-      panel.style.transform = "translate(-50%, -50%)";
-      return;
-    }
-
-    const anchor = anchorRef.current.getBoundingClientRect();
-    const panelRect = panel.getBoundingClientRect();
-    const vw = window.innerWidth;
-    const vh = window.innerHeight;
-
-    let top = anchor.bottom + MARGIN;
-    if (top + panelRect.height > vh - MARGIN) {
-      top = Math.max(MARGIN, anchor.top - panelRect.height - MARGIN);
-    }
-
-    const anchorCenterX = anchor.left + anchor.width / 2;
-    let left = anchorCenterX - panelRect.width / 2;
-    if (left + panelRect.width > vw - MARGIN) {
-      left = vw - panelRect.width - MARGIN;
-    }
-    if (left < MARGIN) left = MARGIN;
-
-    panel.style.top = top + "px";
-    panel.style.left = left + "px";
-    panel.style.right = "auto";
-    panel.style.transform = "none";
-  });
-
-  // Close on outside click / escape
-  useEffect(() => {
-    if (!open) return;
-    const handleClick = (e: MouseEvent) => {
-      const target = e.target as Element | null;
-      if (target?.closest("[data-agent-native-composer-popover]")) return;
-      if (target?.closest("[data-assets-picker-dialog]")) return;
-      if (
-        panelRef.current &&
-        !panelRef.current.contains(e.target as Node) &&
-        (!anchorRef?.current || !anchorRef.current.contains(e.target as Node))
-      ) {
-        onOpenChange(false);
-      }
-    };
-    const handleKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && !assetsPickerOpen) onOpenChange(false);
-    };
-    document.addEventListener("mousedown", handleClick);
-    document.addEventListener("keydown", handleKey);
-    return () => {
-      document.removeEventListener("mousedown", handleClick);
-      document.removeEventListener("keydown", handleKey);
-    };
-  }, [assetsPickerOpen, open, onOpenChange, anchorRef]);
 
   const uploadFiles = useCallback(
     async (files: File[]): Promise<UploadedFile[]> => {
@@ -348,8 +378,18 @@ export default function PromptPopover({
           );
         }
         const uploaded = (await res.json()) as UploadedFile[];
+        const imageFileCount =
+          files.filter((file) =>
+            CHAT_IMAGE_ATTACHMENT_TYPES.has(file.type.toLowerCase()),
+          ).length || 1;
+        const maxImageDataUrlBytes = Math.min(
+          DEFAULT_MAX_CHAT_IMAGE_DATA_URL_BYTES,
+          Math.floor(MAX_TOTAL_CHAT_IMAGE_DATA_URL_BYTES / imageFileCount),
+        );
         const visualAttachments = await Promise.all(
-          files.map((file) => readChatImageAttachment(file)),
+          files.map((file) =>
+            readChatImageAttachment(file, maxImageDataUrlBytes),
+          ),
         );
         return uploaded.map((file, index) =>
           visualAttachments[index]
@@ -377,7 +417,9 @@ export default function PromptPopover({
         setSelectedUploadFiles([]);
       } catch (error) {
         toast.error(
-          error instanceof Error ? error.message : "Failed to upload file",
+          error instanceof Error
+            ? error.message
+            : t("promptDialog.failedToUploadFile"),
         );
       }
     },
@@ -401,7 +443,7 @@ export default function PromptPopover({
       if (name !== "chooseImage" && name !== "chooseAsset") return;
       const url = pickedAssetImageSource(payload);
       if (!url) {
-        toast.error("Assets did not return an image URL.");
+        toast.error(t("promptDialog.assetsNoImageUrl"));
         return;
       }
 
@@ -422,9 +464,9 @@ export default function PromptPopover({
         },
       ]);
       setAssetsPickerOpen(false);
-      toast.success("Asset added");
+      toast.success(t("promptDialog.assetAdded"));
     },
-    [],
+    [t],
   );
 
   const removePickedAsset = useCallback((path: string) => {
@@ -439,20 +481,57 @@ export default function PromptPopover({
     );
   }, []);
 
-  if (!open) return null;
+  const handlePopoverOpenChange = useCallback(
+    (nextOpen: boolean) => {
+      if (!nextOpen && assetsPickerOpen) return;
+      onOpenChange(nextOpen);
+    },
+    [assetsPickerOpen, onOpenChange],
+  );
 
-  const popover = (
-    <>
-      {centered && (
+  const hasVirtualAnchor = !centered && Boolean(anchorRef?.current);
+  const virtualAnchorRef = anchorRef as React.RefObject<{
+    getBoundingClientRect: () => DOMRect;
+  }>;
+
+  return (
+    <Popover open={open} onOpenChange={handlePopoverOpenChange}>
+      {open && centered && (
         <div
-          className="fixed inset-0 bg-black/40 z-[199]"
+          className="fixed inset-0 z-[199] bg-black/40"
           onClick={() => onOpenChange(false)}
         />
       )}
-      <div
-        ref={panelRef}
-        className="fixed z-[200] w-[min(420px,calc(100vw-24px))] rounded-xl border border-border bg-popover shadow-2xl shadow-black/60"
-        style={{ top: 0, left: 0, visibility: "visible" }}
+      {hasVirtualAnchor ? (
+        <PopoverAnchor virtualRef={virtualAnchorRef} />
+      ) : (
+        <PopoverAnchor asChild>
+          <span
+            aria-hidden="true"
+            className={
+              centered
+                ? "fixed left-1/2 top-1/2 size-px"
+                : "fixed left-3 top-3 size-px"
+            }
+          />
+        </PopoverAnchor>
+      )}
+      <PopoverContent
+        side="bottom"
+        align="center"
+        sideOffset={12}
+        collisionPadding={12}
+        onCloseAutoFocus={(event) => event.preventDefault()}
+        onEscapeKeyDown={(event) => {
+          if (assetsPickerOpen) event.preventDefault();
+        }}
+        onInteractOutside={(event) => {
+          if (isNestedPromptPopoverTarget(event.target)) {
+            event.preventDefault();
+          }
+        }}
+        data-agent-native-prompt-popover
+        className="z-[200] w-[min(420px,calc(100vw-24px))] rounded-xl border-border p-0 shadow-2xl shadow-black/60"
       >
         <div className="px-3.5 pt-3 pb-2">
           <span className="text-sm font-medium text-foreground/90">
@@ -465,7 +544,7 @@ export default function PromptPopover({
             autoFocus
             attachmentsEnabled
             disabled={loading || uploading}
-            placeholder={placeholder}
+            placeholder={placeholder ?? t("home.describeBuild")}
             onSubmit={handleSubmit}
             attachButton={
               <PromptAttachmentMenu
@@ -492,11 +571,11 @@ export default function PromptPopover({
                   disabled={designSystemsLoading}
                 >
                   <SelectTrigger className="h-8 min-w-0 flex-1 text-xs">
-                    <SelectValue placeholder="Design system" />
+                    <SelectValue placeholder={t("promptDialog.designSystem")} />
                   </SelectTrigger>
-                  <SelectContent>
+                  <SelectContent data-agent-native-prompt-select>
                     <SelectItem value="none" className="text-xs">
-                      No design system
+                      {t("promptDialog.noDesignSystem")}
                     </SelectItem>
                     {designSystems.map((system) => (
                       <SelectItem
@@ -512,7 +591,7 @@ export default function PromptPopover({
                 </Select>
               ) : (
                 <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
-                  No design system
+                  {t("promptDialog.noDesignSystem")}
                 </span>
               )}
             </div>
@@ -525,7 +604,7 @@ export default function PromptPopover({
                 onClick={onCreateDesignSystem}
               >
                 <IconPlus className="h-3.5 w-3.5" />
-                New
+                {t("promptDialog.newDesignSystem")}
               </Button>
             )}
           </div>
@@ -542,7 +621,9 @@ export default function PromptPopover({
                 <button
                   type="button"
                   className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-sm text-muted-foreground hover:bg-background hover:text-foreground"
-                  aria-label={`Remove ${file.name}`}
+                  aria-label={t("promptDialog.removeAttachment", {
+                    name: file.name,
+                  })}
                   onClick={() => removeSelectedUploadFile(index)}
                 >
                   <IconX className="h-3.5 w-3.5" />
@@ -558,7 +639,9 @@ export default function PromptPopover({
                 <button
                   type="button"
                   className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-sm text-muted-foreground hover:bg-background hover:text-foreground"
-                  aria-label={`Remove ${asset.originalName}`}
+                  aria-label={t("promptDialog.removeAttachment", {
+                    name: asset.originalName,
+                  })}
                   onClick={() => removePickedAsset(asset.path)}
                 >
                   <IconX className="h-3.5 w-3.5" />
@@ -590,11 +673,9 @@ export default function PromptPopover({
           onReady={handleAssetsPickerReady}
           onMessage={handleAssetsPickerMessage}
         />
-      </div>
-    </>
+      </PopoverContent>
+    </Popover>
   );
-
-  return createPortal(popover, document.body);
 }
 
 function PromptAttachmentMenu({
@@ -606,6 +687,7 @@ function PromptAttachmentMenu({
   onUploadFiles: (files: File[]) => void;
   onPickAsset: () => void;
 }) {
+  const t = useT();
   const [open, setOpen] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   return (
@@ -626,7 +708,7 @@ function PromptAttachmentMenu({
           type="button"
           disabled={disabled}
           className="flex h-7 w-7 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground hover:bg-accent/50 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-30"
-          aria-label="Add"
+          aria-label={t("promptDialog.addAttachment")}
         >
           <IconPlus className="h-4 w-4" />
         </button>
@@ -646,10 +728,10 @@ function PromptAttachmentMenu({
           <IconUpload className="h-3.5 w-3.5 text-muted-foreground" />
           <span>
             <span className="block font-medium text-foreground">
-              Upload file
+              {t("promptDialog.uploadFile")}
             </span>
             <span className="block text-[10px] text-muted-foreground">
-              Images, PDFs, text/code
+              {t("promptDialog.uploadFileDescription")}
             </span>
           </span>
         </button>
@@ -664,10 +746,10 @@ function PromptAttachmentMenu({
           <IconPhoto className="h-3.5 w-3.5 text-muted-foreground" />
           <span>
             <span className="block font-medium text-foreground">
-              Pick asset
+              {t("promptDialog.pickAsset")}
             </span>
             <span className="block text-[10px] text-muted-foreground">
-              Browse or generate images
+              {t("promptDialog.pickAssetDescription")}
             </span>
           </span>
         </button>

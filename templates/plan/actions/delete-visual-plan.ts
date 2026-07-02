@@ -1,14 +1,15 @@
-import { defineAction, embedApp } from "@agent-native/core";
-import { getDbExec } from "@agent-native/core/db";
+import { defineAction } from "@agent-native/core";
 import { deleteCollabState } from "@agent-native/core/collab";
+import { getDbExec } from "@agent-native/core/db";
+import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import {
   ForbiddenError,
   assertAccess,
   currentAccess,
 } from "@agent-native/core/sharing";
-import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { and, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
+
 import { getDb, schema } from "../server/db/index.js";
 import {
   isAnonymousPublicViewer,
@@ -59,7 +60,7 @@ async function assertPlanOwner(planId: string) {
 }
 
 function collabPrefixPattern(planId: string) {
-  return `${`plan:${planId}:`.replace(/[\\%_]/g, (value) => `\\${value}`)}%`;
+  return `${`plan:${planId}:`.replace(/[!%_]/g, (value) => `!${value}`)}%`;
 }
 
 function isMissingCollabTableError(error: unknown) {
@@ -70,7 +71,7 @@ async function deletePlanCollabState(planId: string) {
   await deleteCollabState(`plan:${planId}`);
   try {
     await getDbExec().execute({
-      sql: `DELETE FROM _collab_docs WHERE doc_id LIKE ? ESCAPE '\\'`,
+      sql: `DELETE FROM _collab_docs WHERE doc_id LIKE ? ESCAPE '!'`,
       args: [collabPrefixPattern(planId)],
     });
   } catch (error) {
@@ -205,14 +206,6 @@ export default defineAction({
   needsApproval: (args) => args.mode === "hard",
   mcpApp: {
     compactCatalog: true,
-    resource: embedApp({
-      title: "Delete Plan Data",
-      description:
-        "Open the Agent-Native Plan surface to manage hosted plan deletion.",
-      iframeTitle: "Agent-Native Plan",
-      openLabel: "Open Plan",
-      height: 860,
-    }),
   },
   run: async (args) => {
     const deleteOwnerEmail = requireDeleteOwnerEmail();

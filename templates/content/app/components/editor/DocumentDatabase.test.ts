@@ -1,6 +1,5 @@
 // @vitest-environment happy-dom
 
-import { describe, expect, it } from "vitest";
 import type {
   ContentDatabaseItem,
   ContentDatabaseSource,
@@ -12,6 +11,8 @@ import type {
   DocumentPropertyType,
   DocumentPropertyValue,
 } from "@shared/api";
+import { describe, expect, it } from "vitest";
+
 import {
   addDatabaseView,
   appendDatabaseFilter,
@@ -252,8 +253,10 @@ function builderSource(
       primaryKey: "id",
       titleField: "data.title",
       naturalKeyField: "/blog/[slug]",
-      pushMode: "autosave",
-      allowedWriteModes: ["autosave"],
+      pushMode: "none",
+      writeMode: "read_only",
+      allowedWriteModes: [],
+      allowPublicationTransitions: false,
       allowDraftWrites: false,
       allowPublishWrites: false,
     },
@@ -1220,6 +1223,7 @@ describe("database item preview", () => {
       databaseCalculationResults: undefined,
       databaseWrapCells: undefined,
       databaseRowDensity: undefined,
+      databaseOpenPagesIn: undefined,
       databaseVisibleItemCount: undefined,
       databaseTotalItemCount: undefined,
       databaseVisibleItems: [],
@@ -1618,10 +1622,19 @@ describe("database item preview", () => {
       databaseGroupByPropertyId: undefined,
       databaseGroupByPropertyName: undefined,
       databaseCollapsedGroupIds: undefined,
+      databaseHideEmptyGroups: undefined,
+      databaseDatePropertyId: undefined,
+      databaseDatePropertyName: undefined,
+      databaseEndDatePropertyId: undefined,
+      databaseEndDatePropertyName: undefined,
+      databaseDateRangeStart: undefined,
+      databaseDateRangeEnd: undefined,
+      databaseDateRangeLabel: undefined,
       databaseCalculations: undefined,
       databaseCalculationResults: undefined,
       databaseWrapCells: undefined,
       databaseRowDensity: undefined,
+      databaseOpenPagesIn: undefined,
       databaseVisibleItemCount: undefined,
       databaseTotalItemCount: undefined,
       databaseVisibleItems: [],

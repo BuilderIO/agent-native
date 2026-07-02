@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useActionMutation, useT } from "@agent-native/core/client";
 import {
   IconArrowBackUp,
   IconChevronDown,
@@ -16,9 +16,20 @@ import {
   IconLoader2,
   IconTrash,
 } from "@tabler/icons-react";
+import { useState } from "react";
+import { toast } from "sonner";
+
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
-import { Separator } from "@/components/ui/separator";
-import { cn } from "@/lib/utils";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -31,18 +42,12 @@ import {
   DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { Separator } from "@/components/ui/separator";
 import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
-import { useActionMutation } from "@agent-native/core/client";
-import { toast } from "sonner";
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import {
   exportMp4,
   LONG_EXPORT_THRESHOLD_MS,
@@ -54,11 +59,7 @@ import {
   formatMs,
   type EditsJson,
 } from "@/lib/timestamp-mapping";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
+import { cn } from "@/lib/utils";
 
 export interface EditorToolbarProps {
   recordingId: string;
@@ -102,6 +103,7 @@ export function EditorToolbar({
   onOpenStitch,
   chaptersOpen,
 }: EditorToolbarProps) {
+  const t = useT();
   const undo = useActionMutation("undo-edit");
   const clear = useActionMutation("clear-edits");
   const trim = useActionMutation("trim-recording");
@@ -119,24 +121,24 @@ export function EditorToolbar({
   const handleUndo = async () => {
     try {
       const r = await undo.mutateAsync({ recordingId });
-      if (!r?.undone) toast.info("Nothing to undo");
+      if (!r?.undone) toast.info(t("editorToolbar.nothingToUndo"));
     } catch (err: any) {
-      toast.error(err?.message ?? "Undo failed");
+      toast.error(err?.message ?? t("editorToolbar.undoFailed"));
     }
   };
 
   const handleClear = async () => {
     try {
       await clear.mutateAsync({ recordingId });
-      toast.success("Edits cleared");
+      toast.success(t("editorToolbar.editsCleared"));
     } catch (err: any) {
-      toast.error(err?.message ?? "Clear failed");
+      toast.error(err?.message ?? t("editorToolbar.clearFailed"));
     }
   };
 
   const handleTrimSelection = async () => {
     if (!selectionRange) {
-      toast.info("Select a range on the waveform or transcript first");
+      toast.info(t("editorToolbar.selectRangeFirst"));
       return;
     }
     try {
@@ -145,16 +147,16 @@ export function EditorToolbar({
         startMs: Math.round(selectionRange.startMs),
         endMs: Math.round(selectionRange.endMs),
       });
-      toast.success("Selection cut");
+      toast.success(t("editorToolbar.selectionCut"));
     } catch (err: any) {
-      toast.error(err?.message ?? "Trim failed");
+      toast.error(err?.message ?? t("editorToolbar.trimFailed"));
     }
   };
 
   const handleTrimStart = async () => {
     const endMs = Math.round(playheadMs);
     if (endMs < 500) {
-      toast.info("Move the playhead past the intro you want to cut");
+      toast.info(t("editorToolbar.movePlayheadPastIntro"));
       return;
     }
     try {
@@ -163,16 +165,16 @@ export function EditorToolbar({
         startMs: 0,
         endMs,
       });
-      toast.success("Start cut");
+      toast.success(t("editorToolbar.startCut"));
     } catch (err: any) {
-      toast.error(err?.message ?? "Trim failed");
+      toast.error(err?.message ?? t("editorToolbar.trimFailed"));
     }
   };
 
   const handleTrimEnd = async () => {
     const startMs = Math.round(playheadMs);
     if (durationMs - startMs < 500) {
-      toast.info("Move the playhead before the ending you want to cut");
+      toast.info(t("editorToolbar.movePlayheadBeforeEnding"));
       return;
     }
     try {
@@ -181,9 +183,9 @@ export function EditorToolbar({
         startMs,
         endMs: Math.round(durationMs),
       });
-      toast.success("End cut");
+      toast.success(t("editorToolbar.endCut"));
     } catch (err: any) {
-      toast.error(err?.message ?? "Trim failed");
+      toast.error(err?.message ?? t("editorToolbar.trimFailed"));
     }
   };
 
@@ -193,15 +195,15 @@ export function EditorToolbar({
         recordingId,
         atMs: Math.round(playheadMs),
       });
-      toast.success("Split added");
+      toast.success(t("editorToolbar.splitAdded"));
     } catch (err: any) {
-      toast.error(err?.message ?? "Split failed");
+      toast.error(err?.message ?? t("editorToolbar.splitFailed"));
     }
   };
 
   const runExport = async () => {
     if (!video.videoUrl) {
-      toast.error("Video not ready yet");
+      toast.error(t("editorToolbar.videoNotReady"));
       return;
     }
     setExporting(true);
@@ -224,12 +226,10 @@ export function EditorToolbar({
       a.download = result.filename;
       a.click();
       setTimeout(() => URL.revokeObjectURL(url), 5000);
-      toast.success("Exported MP4");
+      toast.success(t("editorToolbar.exportedMp4"));
     } catch (err: any) {
       console.error(err);
-      toast.error(
-        "Export failed — ffmpeg.wasm can't always handle long videos. Try shorter edits or use the original file.",
-      );
+      toast.error(t("editorToolbar.exportFailed"));
     } finally {
       setExporting(false);
       setExportProgress(null);
@@ -265,7 +265,7 @@ export function EditorToolbar({
             <IconArrowBackUp className="w-4 h-4" />
           </Button>
         </TooltipTrigger>
-        <TooltipContent>Undo (Cmd/Ctrl+Z)</TooltipContent>
+        <TooltipContent>{t("editorToolbar.undoTooltip")}</TooltipContent>
       </Tooltip>
       <Separator orientation="vertical" className="mx-1 h-6" />
 
@@ -284,7 +284,7 @@ export function EditorToolbar({
             )}
           </Button>
         </TooltipTrigger>
-        <TooltipContent>Play / Pause (Space)</TooltipContent>
+        <TooltipContent>{t("editorToolbar.playPauseTooltip")}</TooltipContent>
       </Tooltip>
 
       <div className="min-w-fit px-2 font-mono text-xs text-muted-foreground">
@@ -292,7 +292,9 @@ export function EditorToolbar({
         {durationMs !== effectiveMs && (
           <span className="hidden opacity-60 lg:inline">
             {" "}
-            ({formatMs(durationMs)} src)
+            {t("editorToolbar.sourceDuration", {
+              duration: formatMs(durationMs),
+            })}
           </span>
         )}
       </div>
@@ -305,17 +307,21 @@ export function EditorToolbar({
                 size="sm"
                 variant="ghost"
                 className="h-8 shrink-0 gap-1.5 px-2 font-mono text-xs tabular-nums"
-                aria-label="Preview speed"
+                aria-label={t("editorToolbar.previewSpeed")}
               >
                 <IconGauge className="h-4 w-4" />
                 {formatSpeedLabel(playbackSpeed)}
               </Button>
             </DropdownMenuTrigger>
           </TooltipTrigger>
-          <TooltipContent>Preview speed while trimming</TooltipContent>
+          <TooltipContent>
+            {t("editorToolbar.previewSpeedTooltip")}
+          </TooltipContent>
         </Tooltip>
         <DropdownMenuContent align="start" className="min-w-[120px]">
-          <DropdownMenuLabel>Preview speed</DropdownMenuLabel>
+          <DropdownMenuLabel>
+            {t("editorToolbar.previewSpeed")}
+          </DropdownMenuLabel>
           <DropdownMenuSeparator />
           {PLAYBACK_SPEED_OPTIONS.map((rate) => (
             <DropdownMenuItem
@@ -344,10 +350,12 @@ export function EditorToolbar({
                 disabled={trim.isPending}
               >
                 <IconScissors className="mr-1 h-4 w-4" />
-                Cut selection
+                {t("editorToolbar.cutSelection")}
               </Button>
             </TooltipTrigger>
-            <TooltipContent>Cut selected range</TooltipContent>
+            <TooltipContent>
+              {t("editorToolbar.cutSelectedRange")}
+            </TooltipContent>
           </Tooltip>
         </>
       ) : null}
@@ -360,16 +368,18 @@ export function EditorToolbar({
             className="gap-1.5"
           >
             <IconScissors className="h-4 w-4" />
-            Edit
+            {t("editorToolbar.edit")}
             <IconChevronDown className="h-3.5 w-3.5 opacity-70" />
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="start" className="w-64">
-          <DropdownMenuLabel>Playhead edits</DropdownMenuLabel>
+          <DropdownMenuLabel>
+            {t("editorToolbar.playheadEdits")}
+          </DropdownMenuLabel>
           <DropdownMenuSeparator />
           <DropdownMenuItem disabled={split.isPending} onSelect={handleSplit}>
             <IconCut className="mr-2 h-4 w-4" />
-            Split at playhead
+            {t("editorToolbar.splitAtPlayhead")}
             <DropdownMenuShortcut>S</DropdownMenuShortcut>
           </DropdownMenuItem>
           <DropdownMenuItem
@@ -377,34 +387,36 @@ export function EditorToolbar({
             onSelect={handleTrimStart}
           >
             <IconScissors className="mr-2 h-4 w-4" />
-            Cut before playhead
+            {t("editorToolbar.cutBeforePlayhead")}
           </DropdownMenuItem>
           <DropdownMenuItem
             disabled={trim.isPending || durationMs - playheadMs < 500}
             onSelect={handleTrimEnd}
           >
             <IconScissors className="mr-2 h-4 w-4" />
-            Cut after playhead
+            {t("editorToolbar.cutAfterPlayhead")}
           </DropdownMenuItem>
           <DropdownMenuSeparator />
-          <DropdownMenuLabel>Panels</DropdownMenuLabel>
+          <DropdownMenuLabel>{t("editorToolbar.panels")}</DropdownMenuLabel>
           <DropdownMenuItem onSelect={onOpenChapters}>
             <IconBookmarks className="mr-2 h-4 w-4" />
-            {chaptersOpen ? "Hide chapters" : "Show chapters"}
+            {chaptersOpen
+              ? t("editorToolbar.hideChapters")
+              : t("editorToolbar.showChapters")}
           </DropdownMenuItem>
           <DropdownMenuItem onSelect={onOpenThumbnailPicker}>
             <IconPhotoEdit className="mr-2 h-4 w-4" />
-            Thumbnail
+            {t("editorToolbar.thumbnail")}
           </DropdownMenuItem>
           <DropdownMenuItem onSelect={onOpenStitch}>
             <IconPuzzle className="mr-2 h-4 w-4" />
-            Stitch clips
+            {t("editorToolbar.stitchClips")}
           </DropdownMenuItem>
           <DropdownMenuSeparator />
           <DropdownMenuSub>
             <DropdownMenuSubTrigger>
               <IconZoomIn className="mr-2 h-4 w-4" />
-              Zoom
+              {t("editorToolbar.zoom")}
               <span className="ml-auto text-xs text-muted-foreground">
                 {zoom}x
               </span>
@@ -415,24 +427,24 @@ export function EditorToolbar({
                 onSelect={() => onZoomChange(Math.max(1, zoom - 5))}
               >
                 <IconZoomOut className="mr-2 h-4 w-4" />
-                Zoom out
+                {t("editorToolbar.zoomOut")}
               </DropdownMenuItem>
               <DropdownMenuItem onSelect={() => onZoomChange(1)}>
-                Fit to width
+                {t("editorToolbar.fitToWidth")}
               </DropdownMenuItem>
               <DropdownMenuItem
                 disabled={zoom >= 50}
                 onSelect={() => onZoomChange(Math.min(50, zoom + 5))}
               >
                 <IconZoomIn className="mr-2 h-4 w-4" />
-                Zoom in
+                {t("editorToolbar.zoomIn")}
               </DropdownMenuItem>
             </DropdownMenuSubContent>
           </DropdownMenuSub>
           <DropdownMenuSeparator />
           <DropdownMenuItem onSelect={() => setClearOpen(true)}>
             <IconTrash className="mr-2 h-4 w-4" />
-            Clear all edits
+            {t("editorToolbar.clearAllEdits")}
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
@@ -454,23 +466,25 @@ export function EditorToolbar({
         )}
         {exporting
           ? exportProgress?.stage === "loading-ffmpeg"
-            ? "Loading ffmpeg…"
+            ? t("editorToolbar.loadingFfmpeg")
             : `${Math.round((exportProgress?.progress ?? 0) * 100)}%`
-          : "Export MP4"}
+          : t("editorToolbar.exportMp4")}
       </Button>
 
       <AlertDialog open={longWarnOpen} onOpenChange={setLongWarnOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>This export is long</AlertDialogTitle>
+            <AlertDialogTitle>
+              {t("editorToolbar.longExportTitle")}
+            </AlertDialogTitle>
             <AlertDialogDescription>
-              The edited video is {formatMs(effectiveMs)}. ffmpeg.wasm runs in
-              your browser and may run out of memory for very long exports. You
-              can try anyway or download the original file instead.
+              {t("editorToolbar.longExportDescription", {
+                duration: formatMs(effectiveMs),
+              })}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
             <Button
               variant="secondary"
               onClick={() => {
@@ -478,7 +492,7 @@ export function EditorToolbar({
                 handleDownloadOriginal();
               }}
             >
-              Download original
+              {t("editorToolbar.downloadOriginal")}
             </Button>
             <AlertDialogAction
               onClick={() => {
@@ -486,7 +500,7 @@ export function EditorToolbar({
                 runExport();
               }}
             >
-              Export anyway
+              {t("editorToolbar.exportAnyway")}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -495,21 +509,22 @@ export function EditorToolbar({
       <AlertDialog open={clearOpen} onOpenChange={setClearOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Clear all edits?</AlertDialogTitle>
+            <AlertDialogTitle>
+              {t("editorToolbar.clearAllEditsTitle")}
+            </AlertDialogTitle>
             <AlertDialogDescription>
-              This removes every trim, blur, and the custom thumbnail from this
-              recording. The original video is never modified.
+              {t("editorToolbar.clearAllEditsDescription")}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
             <AlertDialogAction
               onClick={() => {
                 setClearOpen(false);
                 handleClear();
               }}
             >
-              Clear edits
+              {t("editorToolbar.clearEdits")}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

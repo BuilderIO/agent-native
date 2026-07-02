@@ -1,3 +1,5 @@
+import { useT } from "@agent-native/core/client";
+import { IconCode } from "@tabler/icons-react";
 import { useMemo } from "react";
 import {
   AreaChart,
@@ -13,16 +15,24 @@ import {
   YAxis,
   ReferenceLine,
 } from "recharts";
+
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Button } from "@/components/ui/button";
-import { IconCode } from "@tabler/icons-react";
-import { formatDate } from "./format";
 import {
   Tooltip as ShadcnTooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import {
+  chartAxisStroke,
+  chartGridStroke,
+  chartTooltipContentStyle,
+  chartTooltipCursorFill,
+  chartTooltipCursorStroke,
+} from "@/lib/chart-theme";
+
+import { formatDate } from "./format";
 
 interface KpiChartProps {
   title: string;
@@ -53,6 +63,7 @@ export function KpiChart({
   referenceLine,
   onEditSql,
 }: KpiChartProps) {
+  const t = useT();
   const data = useMemo(() => {
     return rows.map((r) => ({
       period: String(r.period ?? ""),
@@ -96,7 +107,7 @@ export function KpiChart({
                     <IconCode className="h-3.5 w-3.5" />
                   </Button>
                 </TooltipTrigger>
-                <TooltipContent>Edit SQL Query</TooltipContent>
+                <TooltipContent>{t("common.editSqlQuery")}</TooltipContent>
               </ShadcnTooltip>
             )}
           </div>
@@ -109,7 +120,7 @@ export function KpiChart({
           <p className="text-sm text-red-400 py-4 text-center">{error}</p>
         ) : data.length === 0 ? (
           <p className="text-sm text-muted-foreground py-4 text-center">
-            No data
+            {t("common.noData")}
           </p>
         ) : (
           <div className="h-[220px] w-full">
@@ -118,31 +129,28 @@ export function KpiChart({
                 <BarChart data={data}>
                   <CartesianGrid
                     strokeDasharray="3 3"
-                    stroke="#27272a"
+                    stroke={chartGridStroke}
                     vertical={false}
                   />
                   <XAxis
                     dataKey="period"
-                    stroke="#52525b"
+                    stroke={chartAxisStroke}
                     fontSize={11}
                     tickLine={false}
                     axisLine={false}
                     tickFormatter={formatDate}
                   />
                   <YAxis
-                    stroke="#52525b"
+                    stroke={chartAxisStroke}
                     fontSize={11}
                     tickLine={false}
                     axisLine={false}
                     tickFormatter={formatY}
                   />
                   <Tooltip
-                    cursor={{ fill: "rgba(255,255,255,0.06)" }}
+                    cursor={{ fill: chartTooltipCursorFill }}
                     contentStyle={{
-                      backgroundColor: "#09090b",
-                      border: "1px solid #27272a",
-                      borderRadius: "8px",
-                      color: "#fafafa",
+                      ...chartTooltipContentStyle,
                       fontSize: "12px",
                     }}
                     labelFormatter={formatDate}
@@ -168,31 +176,28 @@ export function KpiChart({
                 <LineChart data={data}>
                   <CartesianGrid
                     strokeDasharray="3 3"
-                    stroke="#27272a"
+                    stroke={chartGridStroke}
                     vertical={false}
                   />
                   <XAxis
                     dataKey="period"
-                    stroke="#52525b"
+                    stroke={chartAxisStroke}
                     fontSize={11}
                     tickLine={false}
                     axisLine={false}
                     tickFormatter={formatDate}
                   />
                   <YAxis
-                    stroke="#52525b"
+                    stroke={chartAxisStroke}
                     fontSize={11}
                     tickLine={false}
                     axisLine={false}
                     tickFormatter={formatY}
                   />
                   <Tooltip
-                    cursor={{ stroke: "rgba(255,255,255,0.15)" }}
+                    cursor={{ stroke: chartTooltipCursorStroke }}
                     contentStyle={{
-                      backgroundColor: "#09090b",
-                      border: "1px solid #27272a",
-                      borderRadius: "8px",
-                      color: "#fafafa",
+                      ...chartTooltipContentStyle,
                       fontSize: "12px",
                     }}
                     labelFormatter={formatDate}
@@ -236,31 +241,28 @@ export function KpiChart({
                   </defs>
                   <CartesianGrid
                     strokeDasharray="3 3"
-                    stroke="#27272a"
+                    stroke={chartGridStroke}
                     vertical={false}
                   />
                   <XAxis
                     dataKey="period"
-                    stroke="#52525b"
+                    stroke={chartAxisStroke}
                     fontSize={11}
                     tickLine={false}
                     axisLine={false}
                     tickFormatter={formatDate}
                   />
                   <YAxis
-                    stroke="#52525b"
+                    stroke={chartAxisStroke}
                     fontSize={11}
                     tickLine={false}
                     axisLine={false}
                     tickFormatter={formatY}
                   />
                   <Tooltip
-                    cursor={{ stroke: "rgba(255,255,255,0.15)" }}
+                    cursor={{ stroke: chartTooltipCursorStroke }}
                     contentStyle={{
-                      backgroundColor: "#09090b",
-                      border: "1px solid #27272a",
-                      borderRadius: "8px",
-                      color: "#fafafa",
+                      ...chartTooltipContentStyle,
                       fontSize: "12px",
                     }}
                     labelFormatter={formatDate}

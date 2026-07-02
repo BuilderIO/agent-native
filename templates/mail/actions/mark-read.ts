@@ -1,8 +1,9 @@
 import { defineAction } from "@agent-native/core";
-import { getRequestUserEmail } from "@agent-native/core/server";
 import { writeAppState } from "@agent-native/core/application-state";
-import { markRead } from "../server/lib/email-state.js";
+import { getRequestUserEmail } from "@agent-native/core/server";
 import { z } from "zod";
+
+import { markRead } from "../server/lib/email-state.js";
 
 export default defineAction({
   description: "Mark one or more emails as read or unread.",

@@ -14,6 +14,7 @@
  */
 
 import { getDbExec, intType, isPostgres, type DbExec } from "../db/client.js";
+import { ensureTableExists, ensureIndexExists } from "../db/ddl-guard.js";
 
 // ---------------------------------------------------------------------------
 // Caps
@@ -32,7 +33,7 @@ async function ensureTables(): Promise<void> {
     _initPromise = (async () => {
       const db = getDbExec();
       const integerType = intType();
-      await db.execute(`
+      const createDatasetsSql = `
         CREATE TABLE IF NOT EXISTS staged_datasets (
           id TEXT NOT NULL,
           app_id TEXT NOT NULL,
@@ -45,18 +46,34 @@ async function ensureTables(): Promise<void> {
           updated_at ${integerType} NOT NULL,
           PRIMARY KEY (id)
         )
-      `);
-      await db.execute(`
+      `;
+      const createRowsSql = `
         CREATE TABLE IF NOT EXISTS staged_dataset_rows (
           dataset_id TEXT NOT NULL,
           row_index ${integerType} NOT NULL,
           row_data TEXT NOT NULL,
           PRIMARY KEY (dataset_id, row_index)
         )
-      `);
+      `;
       if (isPostgres()) {
-        await widenPostgresIntegerColumns(db);
+        // PG guard: probe via information_schema, only issue DDL if missing, bounded lock_timeout
+        await ensureTableExists("staged_datasets", createDatasetsSql);
+        await ensureTableExists("staged_dataset_rows", createRowsSql);
+        await widenPostgresIntegerColumns(db); // best-effort type widening — unchanged
+        await ensureIndexExists(
+          "staged_datasets_scope_idx",
+          `CREATE INDEX IF NOT EXISTS staged_datasets_scope_idx ON staged_datasets (app_id, owner_email)`,
+        );
+        await ensureIndexExists(
+          "staged_dataset_rows_dataset_idx",
+          `CREATE INDEX IF NOT EXISTS staged_dataset_rows_dataset_idx ON staged_dataset_rows (dataset_id)`,
+        );
+        return;
       }
+      // SQLite (local dev): keep existing behavior
+      await db.execute(createDatasetsSql);
+      await db.execute(createRowsSql);
+      // Note: widenPostgresIntegerColumns is Postgres-only, skip on SQLite
       for (const ddl of [
         `CREATE INDEX IF NOT EXISTS staged_datasets_scope_idx ON staged_datasets (app_id, owner_email)`,
         `CREATE INDEX IF NOT EXISTS staged_dataset_rows_dataset_idx ON staged_dataset_rows (dataset_id)`,

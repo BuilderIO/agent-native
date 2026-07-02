@@ -26,6 +26,7 @@ import type {
   UseQueryOptions,
   UseMutationOptions,
 } from "@tanstack/react-query";
+
 import { agentNativePath } from "./api-path.js";
 import { ensureEmbedAuthFetchInterceptor } from "./embed-auth.js";
 
@@ -59,7 +60,11 @@ function defaultActionQueryRetry(
  * it maps action names to their parameter and return types, enabling
  * end-to-end type safety for `useActionQuery` and `useActionMutation`.
  */
-export interface ActionRegistry {}
+declare global {
+  interface AgentNativeActionRegistry {}
+}
+
+export interface ActionRegistry extends AgentNativeActionRegistry {}
 
 /** Resolves to the union of registered action names, or `string` if no registry exists. */
 type ActionName = keyof ActionRegistry extends never

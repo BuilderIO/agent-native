@@ -1,10 +1,13 @@
-import { Link, useSearchParams } from "react-router";
+import { useT } from "@agent-native/core/client";
+import type { ResponseInsightsWidgetResult } from "@shared/types";
 import {
   IconArrowLeft,
   IconChartBar,
   IconExternalLink,
   IconRefresh,
 } from "@tabler/icons-react";
+import { Link, useSearchParams } from "react-router";
+
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -16,9 +19,8 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { cn } from "@/lib/utils";
 import { useResponseInsights } from "@/hooks/use-responses";
-import type { ResponseInsightsWidgetResult } from "@shared/types";
+import { cn } from "@/lib/utils";
 
 function formatNumber(value: number): string {
   return new Intl.NumberFormat().format(value);
@@ -117,7 +119,7 @@ function LoadingState() {
   return (
     <div className="space-y-4 p-4">
       <Skeleton className="h-10 w-72" />
-      <div className="grid gap-3 sm:grid-cols-4">
+      <div className="forms-response-metrics-grid grid gap-3">
         {Array.from({ length: 4 }).map((_, index) => (
           <Skeleton key={index} className="h-20 rounded-md" />
         ))}
@@ -129,6 +131,7 @@ function LoadingState() {
 }
 
 export function ResponseInsightsPage() {
+  const t = useT();
   const [params] = useSearchParams();
   const formId = params.get("formId") ?? undefined;
   const { data, isLoading, error, refetch } = useResponseInsights(formId);
@@ -146,9 +149,11 @@ export function ResponseInsightsPage() {
       <div className="flex h-full flex-col items-center justify-center gap-3 p-6 text-center">
         <IconChartBar className="size-8 text-muted-foreground" />
         <div className="space-y-1">
-          <h1 className="text-base font-semibold">Insights unavailable</h1>
+          <h1 className="text-base font-semibold">
+            {t("responseInsights.unavailable")}
+          </h1>
           <p className="max-w-sm text-sm text-muted-foreground">
-            Response insights could not be loaded for this view.
+            {t("responseInsights.unavailableDescription")}
           </p>
         </div>
         <Button
@@ -159,7 +164,7 @@ export function ResponseInsightsPage() {
           onClick={() => refetch()}
         >
           <IconRefresh className="size-3.5" />
-          Retry
+          {t("common.retry")}
         </Button>
       </div>
     );
@@ -199,9 +204,9 @@ export function ResponseInsightsPage() {
         </Button>
       </header>
 
-      <main className="grid gap-4 p-4 lg:grid-cols-[minmax(0,1fr)_minmax(360px,0.9fr)]">
+      <main className="forms-response-insights-grid grid gap-4 p-4">
         <section className="space-y-4">
-          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          <div className="forms-response-metrics-grid grid gap-3">
             <Metric
               label="Responses"
               value={formatNumber(summary.responses)}
@@ -258,7 +263,7 @@ export function ResponseInsightsPage() {
           </div>
           {table.rows.length === 0 ? (
             <div className="flex min-h-64 items-center justify-center p-6 text-center text-sm text-muted-foreground">
-              No responses yet.
+              {t("responseInsights.noResponsesYet")}
             </div>
           ) : (
             <div className="max-h-[calc(100vh-15rem)] overflow-auto">

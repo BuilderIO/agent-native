@@ -2,6 +2,8 @@ import {
   isBlockedToolUrl,
   ssrfSafeToolFetch,
 } from "@agent-native/core/tools/url-safety";
+
+import { publicSubmitterEmail } from "../../shared/submitter-email.js";
 import type {
   FormIntegration,
   FormField,
@@ -154,6 +156,7 @@ function formatDebugContext(submission: SubmissionPayload): string[] {
 
 /** Slack Block Kit message */
 export function buildSlackPayload(submission: SubmissionPayload) {
+  const submitterEmail = publicSubmitterEmail(submission.submitterEmail);
   const fieldLines = submission.fields
     .filter((f) => submission.data[f.id] !== undefined)
     .map((f) => {
@@ -163,8 +166,8 @@ export function buildSlackPayload(submission: SubmissionPayload) {
     });
 
   const tsContext = `Submitted <!date^${Math.floor(new Date(submission.submittedAt).getTime() / 1000)}^{date_short_pretty} at {time}|${submission.submittedAt}>`;
-  const contextText = submission.submitterEmail
-    ? `${tsContext} by *${submission.submitterEmail}*`
+  const contextText = submitterEmail
+    ? `${tsContext} by *${submitterEmail}*`
     : tsContext;
   const debugContext = formatDebugContext(submission);
 
@@ -200,6 +203,7 @@ export function buildSlackPayload(submission: SubmissionPayload) {
 
 /** Discord webhook embed */
 function buildDiscordPayload(submission: SubmissionPayload) {
+  const submitterEmail = publicSubmitterEmail(submission.submitterEmail);
   const discordFields = submission.fields
     .filter((f) => submission.data[f.id] !== undefined)
     .map((f) => {
@@ -207,10 +211,10 @@ function buildDiscordPayload(submission: SubmissionPayload) {
       const display = Array.isArray(val) ? val.join(", ") : String(val);
       return { name: f.label, value: display, inline: true };
     });
-  if (submission.submitterEmail) {
+  if (submitterEmail) {
     discordFields.push({
       name: "Submitted by",
-      value: submission.submitterEmail,
+      value: submitterEmail,
       inline: true,
     });
   }
@@ -260,7 +264,7 @@ function buildGoogleSheetsPayload(submission: SubmissionPayload) {
   return {
     formTitle: submission.formTitle,
     submittedAt: submission.submittedAt,
-    submitterEmail: submission.submitterEmail ?? "",
+    submitterEmail: publicSubmitterEmail(submission.submitterEmail) ?? "",
     chatSessionIds: (submission.chatSessionIds ?? []).join(", "),
     activeRunId: submission.activeRunId ?? "",
     pageUrl: submission.pageUrl ?? "",
@@ -277,7 +281,7 @@ function buildWebhookPayload(submission: SubmissionPayload) {
     formTitle: submission.formTitle,
     responseId: submission.responseId,
     submittedAt: submission.submittedAt,
-    submitterEmail: submission.submitterEmail ?? null,
+    submitterEmail: publicSubmitterEmail(submission.submitterEmail),
     chatSessionIds: submission.chatSessionIds ?? [],
     activeRunId: submission.activeRunId ?? null,
     pageUrl: submission.pageUrl ?? null,

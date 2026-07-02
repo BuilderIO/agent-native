@@ -1,16 +1,25 @@
+import { getDbExec } from "@agent-native/core/db";
+import {
+  saveOAuthTokens,
+  deleteOAuthTokens,
+  listOAuthAccountsByOwner,
+} from "@agent-native/core/oauth-tokens";
+import {
+  isOAuthConnected,
+  getOAuthAccounts,
+  getRequestOrgId,
+  resolveSecret,
+  runWithRequestContext,
+  resolveGoogleProviderCredentials,
+  resolveGoogleLegacyProviderCredentials,
+} from "@agent-native/core/server";
+
 import type {
   CalendarEvent,
   GoogleAuthStatus,
   UpdateEventScope,
 } from "../../shared/api.js";
 import { getGoogleEventColorHex } from "../../shared/google-event-colors.js";
-import {
-  saveOAuthTokens,
-  deleteOAuthTokens,
-  listOAuthAccountsByOwner,
-} from "@agent-native/core/oauth-tokens";
-import { isOAuthConnected, getOAuthAccounts } from "@agent-native/core/server";
-import { getDbExec } from "@agent-native/core/db";
 import {
   createOAuth2Client,
   oauth2GetUserInfo,
@@ -55,48 +64,76 @@ function optionalString(value: unknown): string | undefined {
   return typeof value === "string" && value.length > 0 ? value : undefined;
 }
 
-function getOAuth2Credentials() {
-  const credentials = resolveGoogleProviderCredentialCandidates()[0];
+async function getOAuth2Credentials(owner?: string, orgId?: string) {
+  const credentials = (
+    await resolveGoogleProviderCredentialCandidates(owner, orgId)
+  )[0];
   if (!credentials) {
     throw new Error(
-      "GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET must be set in environment",
+      "GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET must be saved in settings",
     );
   }
   return credentials;
 }
 
-function getOAuth2RefreshCredentials() {
-  const candidates = resolveGoogleProviderCredentialCandidates();
+async function getOAuth2RefreshCredentials(owner?: string, orgId?: string) {
+  const candidates = await resolveGoogleProviderCredentialCandidates(
+    owner,
+    orgId,
+  );
   if (!candidates.length) {
     throw new Error(
-      "GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET must be set in environment",
+      "GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET must be saved in settings",
     );
   }
   return candidates;
 }
 
-function readCredentialPair(
+async function readCredentialPair(
   clientIdKey: string,
   clientSecretKey: string,
-): GoogleOAuthCredentials | null {
-  const clientId = process.env[clientIdKey];
-  const clientSecret = process.env[clientSecretKey];
-  if (!clientId || !clientSecret) return null;
-  return { clientId, clientSecret };
+): Promise<GoogleOAuthCredentials | null> {
+  const [clientId, clientSecret] = await Promise.all([
+    resolveSecret(clientIdKey),
+    resolveSecret(clientSecretKey),
+  ]);
+  if (clientId && clientSecret) return { clientId, clientSecret };
+  if (
+    clientIdKey === "GOOGLE_CLIENT_ID" &&
+    clientSecretKey === "GOOGLE_CLIENT_SECRET"
+  ) {
+    return resolveGoogleProviderCredentials();
+  }
+  if (
+    clientIdKey === "GOOGLE_LEGACY_CLIENT_ID" &&
+    clientSecretKey === "GOOGLE_LEGACY_CLIENT_SECRET"
+  ) {
+    return resolveGoogleLegacyProviderCredentials();
+  }
+  return null;
 }
 
-function resolveGoogleProviderCredentialCandidates(): GoogleOAuthCredentials[] {
-  const primary = readCredentialPair(
-    "GOOGLE_CLIENT_ID",
-    "GOOGLE_CLIENT_SECRET",
-  );
-  const legacy = readCredentialPair(
-    "GOOGLE_LEGACY_CLIENT_ID",
-    "GOOGLE_LEGACY_CLIENT_SECRET",
-  );
-  if (!primary) return legacy ? [legacy] : [];
-  if (!legacy || legacy.clientId === primary.clientId) return [primary];
-  return [primary, legacy];
+async function resolveGoogleProviderCredentialCandidates(
+  owner?: string,
+  orgId?: string,
+): Promise<GoogleOAuthCredentials[]> {
+  const resolve = async () => {
+    const primary = await readCredentialPair(
+      "GOOGLE_CLIENT_ID",
+      "GOOGLE_CLIENT_SECRET",
+    );
+    const legacy = await readCredentialPair(
+      "GOOGLE_LEGACY_CLIENT_ID",
+      "GOOGLE_LEGACY_CLIENT_SECRET",
+    );
+    if (!primary) return legacy ? [legacy] : [];
+    if (!legacy || legacy.clientId === primary.clientId) return [primary];
+    return [primary, legacy];
+  };
+  const resolvedOrgId = orgId ?? getRequestOrgId();
+  return owner
+    ? runWithRequestContext({ userEmail: owner, orgId: resolvedOrgId }, resolve)
+    : await resolve();
 }
 
 /**
@@ -342,6 +379,7 @@ async function getValidAccessToken(
   accountId: string,
   tokens: GoogleTokens,
   owner?: string,
+  orgId?: string,
 ): Promise<string> {
   // Check if token is expired (with 5-minute buffer)
   if (tokens.expiry_date && tokens.expiry_date < Date.now() + 5 * 60 * 1000) {
@@ -355,7 +393,10 @@ async function getValidAccessToken(
     }
     try {
       let lastRefreshError: any;
-      for (const { clientId, clientSecret } of getOAuth2RefreshCredentials()) {
+      for (const {
+        clientId,
+        clientSecret,
+      } of await getOAuth2RefreshCredentials(owner, orgId)) {
         try {
           const oauth2 = createOAuth2Client(clientId, clientSecret, "");
           const newTokens = await oauth2.refreshToken(tokens.refresh_token);
@@ -395,12 +436,14 @@ async function getValidAccessToken(
   return tokens.access_token;
 }
 
-export function getAuthUrl(
+export async function getAuthUrl(
   origin?: string,
   redirectUri?: string,
   state?: string,
-): string {
-  const { clientId, clientSecret } = getOAuth2Credentials();
+  owner?: string,
+  orgId?: string,
+): Promise<string> {
+  const { clientId, clientSecret } = await getOAuth2Credentials(owner, orgId);
   const uri =
     redirectUri ||
     (origin ? `${origin}/_agent-native/google/callback` : undefined);
@@ -418,8 +461,9 @@ export async function exchangeCode(
   origin?: string,
   redirectUri?: string,
   owner?: string,
+  orgId?: string,
 ): Promise<string> {
-  const { clientId, clientSecret } = getOAuth2Credentials();
+  const { clientId, clientSecret } = await getOAuth2Credentials(owner, orgId);
   const uri =
     redirectUri ||
     (origin ? `${origin}/_agent-native/google/callback` : undefined);
@@ -600,6 +644,7 @@ export async function getPrimaryAccountPhotoUrl(
 
 export async function getAuthStatus(
   forEmail?: string,
+  orgId?: string,
 ): Promise<GoogleAuthStatus> {
   const oauthAccounts = await getOAuthAccounts("google", forEmail);
 
@@ -621,6 +666,7 @@ export async function getAuthStatus(
         account.accountId,
         tokens,
         forEmail,
+        orgId,
       );
       tokenValid = true;
       photoUrl = await resolveAccountPhotoUrl(accessToken, photoUrl);

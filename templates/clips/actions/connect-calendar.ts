@@ -13,12 +13,13 @@
  */
 
 import { defineAction } from "@agent-native/core";
+import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { z } from "zod";
+
 import {
   GOOGLE_AUTH_URL,
   GOOGLE_CALENDAR_SCOPES,
 } from "../server/lib/google-calendar-client.js";
-import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 
 export default defineAction({
   description:

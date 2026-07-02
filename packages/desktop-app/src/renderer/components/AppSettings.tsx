@@ -1,11 +1,19 @@
+import type { AppConfig, FrameSettings } from "@shared/app-registry";
 import {
-  useState,
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  type KeyboardEvent as ReactKeyboardEvent,
-} from "react";
+  generateAppId,
+  getDesktopTemplateGatewayAppUrl,
+  isDefaultDesktopTemplateDevTarget,
+} from "@shared/app-registry";
+import {
+  formatDesktopShortcutAccelerator,
+  normalizeDesktopShortcutAccelerator,
+  type DesktopShortcutBehavior,
+  type DesktopShortcutBinding,
+  type DesktopShortcutRegistration,
+  type DesktopShortcutSettings,
+  type DesktopShortcutUpsertRequest,
+} from "@shared/desktop-shortcuts";
+import type { UpdateStatus } from "@shared/ipc-channels";
 import {
   IconX,
   IconPlus,
@@ -25,22 +33,15 @@ import {
   IconAlertCircle,
   IconKeyboard,
 } from "@tabler/icons-react";
-import type { AppConfig, FrameSettings } from "@shared/app-registry";
-import type { UpdateStatus } from "@shared/ipc-channels";
 import {
-  generateAppId,
-  getDesktopTemplateGatewayAppUrl,
-  isDefaultDesktopTemplateDevTarget,
-} from "@shared/app-registry";
-import {
-  formatDesktopShortcutAccelerator,
-  normalizeDesktopShortcutAccelerator,
-  type DesktopShortcutBehavior,
-  type DesktopShortcutBinding,
-  type DesktopShortcutRegistration,
-  type DesktopShortcutSettings,
-  type DesktopShortcutUpsertRequest,
-} from "@shared/desktop-shortcuts";
+  useState,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  type KeyboardEvent as ReactKeyboardEvent,
+} from "react";
+
 import { CodeProviderSettings } from "./CodeProviderSettings";
 import { useUpdateStatus } from "./UpdateIndicator.js";
 

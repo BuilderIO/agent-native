@@ -1,11 +1,22 @@
-import { describe, expect, it, vi } from "vitest";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { attachToolSearch } from "./tool-search.js";
+
+import { describe, expect, it, vi } from "vitest";
+
+import { AgentActionStopError } from "../action.js";
+import { MCP_ACTION_RESULT_MARKER } from "../mcp-client/app-result.js";
+import { __resetAgentsBundleCache } from "../server/agents-bundle.js";
+import {
+  getRequestRunContext,
+  runWithRequestContext,
+} from "../server/request-context.js";
+import type { AgentEngine, EngineEvent } from "./engine/types.js";
+import { EngineError } from "./engine/types.js";
 import {
   AGENT_INTERNAL_CONTINUE_PROMPT,
   buildUserContentWithAttachments,
+  claimBackgroundWorkerRunEarly,
   createPlanModeActionRegistry,
   isPlanModeToolCallAllowed,
   isContextTooLongError,
@@ -24,16 +35,8 @@ import {
   type AgentLoopFinalResponseGuardContext,
 } from "./production-agent.js";
 import type { ActiveRun } from "./run-manager.js";
+import { attachToolSearch } from "./tool-search.js";
 import type { AgentChatEvent, RunEvent } from "./types.js";
-import { AgentActionStopError } from "../action.js";
-import {
-  getRequestRunContext,
-  runWithRequestContext,
-} from "../server/request-context.js";
-import { __resetAgentsBundleCache } from "../server/agents-bundle.js";
-import type { AgentEngine, EngineEvent } from "./engine/types.js";
-import { EngineError } from "./engine/types.js";
-import { MCP_ACTION_RESULT_MARKER } from "../mcp-client/app-result.js";
 
 function actionEntry(opts: {
   description?: string;
@@ -827,6 +830,8 @@ describe("runAgentLoop", () => {
 
   it("emits activity while a tool input is being assembled", async () => {
     let streamCalls = 0;
+    let now = 1_000_000;
+    const dateNow = vi.spyOn(Date, "now").mockImplementation(() => now);
     const engine: AgentEngine = {
       name: "test",
       label: "Test",
@@ -847,6 +852,7 @@ describe("runAgentLoop", () => {
             id: "tool-create",
             name: "create-document",
           };
+          now += 2_000;
           yield {
             type: "tool-input-delta",
             id: "tool-create",
@@ -876,23 +882,35 @@ describe("runAgentLoop", () => {
     };
     const events: any[] = [];
 
-    await runAgentLoop({
-      engine,
-      model: "test-model",
-      systemPrompt: "system",
-      tools: [],
-      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
-      actions: {
-        "create-document": actionEntry({ readOnly: false }),
-      },
-      send: (event) => events.push(event),
-      signal: new AbortController().signal,
-    });
+    try {
+      await runAgentLoop({
+        engine,
+        model: "test-model",
+        systemPrompt: "system",
+        tools: [],
+        messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+        actions: {
+          "create-document": actionEntry({ readOnly: false }),
+        },
+        send: (event) => events.push(event),
+        signal: new AbortController().signal,
+      });
+    } finally {
+      dateNow.mockRestore();
+    }
 
     expect(events).toContainEqual({
       type: "activity",
       label: "Preparing create-document action",
       tool: "create-document",
+      id: "tool-create",
+    });
+    expect(events).toContainEqual({
+      type: "activity",
+      label: "Preparing create-document action",
+      tool: "create-document",
+      id: "tool-create",
+      progressBytes: 8,
     });
     expect(events).toContainEqual(
       expect.objectContaining({
@@ -2838,10 +2856,13 @@ describe("runAgentLoop", () => {
       {
         type: "tool_done",
         tool: "bigquery",
+        input: { sql: "select nope" },
         result: JSON.stringify({
           error: "bigquery_query_failed",
           message: "nope",
         }),
+        isError: true,
+        completedSideEffect: false,
       },
       { type: "text", text: "BigQuery returned: nope" },
       { type: "done" },
@@ -3034,7 +3055,10 @@ describe("runAgentLoop", () => {
     expect(events).toContainEqual({
       type: "tool_done",
       tool: "mcp__x__fail",
+      input: {},
       result: "Error calling MCP tool mcp__x__fail: boom",
+      isError: true,
+      completedSideEffect: false,
     });
     expect(seenMessages[1].at(-1)).toMatchObject({
       role: "user",
@@ -3133,10 +3157,13 @@ describe("runAgentLoop", () => {
       "act",
       "act",
     ]);
-    expect(events).not.toContainEqual({
-      type: "text",
-      text: "Looks up and to the right.",
-    });
+    expect(events.slice(0, 2)).toEqual([
+      {
+        type: "text",
+        text: "Looks up and to the right.",
+      },
+      { type: "clear" },
+    ]);
     expect(events).toContainEqual({
       type: "tool_start",
       tool: "query-data",
@@ -3193,7 +3220,7 @@ describe("runAgentLoop", () => {
     expect(guard.mock.calls[0]?.[0].executionMode).toBe("plan");
   });
 
-  it("flushes guarded final-answer text after the guard accepts it", async () => {
+  it("streams guarded final-answer text before the guard accepts it", async () => {
     const engine: AgentEngine = {
       name: "test",
       label: "Test",
@@ -3216,6 +3243,7 @@ describe("runAgentLoop", () => {
       },
     };
     const events: any[] = [];
+    let eventsAtGuard: any[] = [];
 
     await runAgentLoop({
       engine,
@@ -3226,14 +3254,67 @@ describe("runAgentLoop", () => {
       actions: {},
       send: (event) => events.push(event),
       signal: new AbortController().signal,
-      finalResponseGuard: () => null,
+      finalResponseGuard: () => {
+        eventsAtGuard = [...events];
+        return null;
+      },
     });
 
+    expect(eventsAtGuard).toContainEqual({
+      type: "text",
+      text: "Grounded answer.",
+    });
     expect(events).toContainEqual({
       type: "text",
       text: "Grounded answer.",
     });
     expect(events.at(-1)).toEqual({ type: "done" });
+  });
+
+  it("clears streamed final-answer text when the guard throws", async () => {
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(): AsyncIterable<EngineEvent> {
+        yield { type: "text-delta", text: "Unverified answer." };
+        yield {
+          type: "assistant-content",
+          parts: [{ type: "text" as const, text: "Unverified answer." }],
+        };
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+    const events: any[] = [];
+
+    await expect(
+      runAgentLoop({
+        engine,
+        model: "test-model",
+        systemPrompt: "system",
+        tools: [],
+        messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+        actions: {},
+        send: (event) => events.push(event),
+        signal: new AbortController().signal,
+        finalResponseGuard: () => {
+          throw new Error("guard unavailable");
+        },
+      }),
+    ).rejects.toThrow("guard unavailable");
+
+    expect(events.slice(0, 2)).toEqual([
+      { type: "text", text: "Unverified answer." },
+      { type: "clear" },
+    ]);
   });
 
   it("uses the final-response guard fallback after one failed corrective retry", async () => {
@@ -3279,12 +3360,17 @@ describe("runAgentLoop", () => {
     });
 
     expect(streamCalls).toBe(2);
-    expect(events).not.toContainEqual({ type: "text", text: "fake answer" });
-    expect(events).not.toContainEqual({ type: "text", text: "still fake" });
-    expect(events).toContainEqual({
-      type: "text",
-      text: "I stopped because no real data-source query ran.",
-    });
+    expect(events).toEqual([
+      { type: "text", text: "fake answer" },
+      { type: "clear" },
+      { type: "text", text: "still fake" },
+      { type: "clear" },
+      {
+        type: "text",
+        text: "I stopped because no real data-source query ran.",
+      },
+      { type: "done" },
+    ]);
     expect(events.at(-1)).toEqual({ type: "done" });
   });
 
@@ -4067,6 +4153,138 @@ describe("shouldChainBackgroundContinuation (server-driven background chain)", (
   });
 });
 
+describe("claimBackgroundWorkerRunEarly", () => {
+  function deps(claimResult = true) {
+    const calls: string[] = [];
+    return {
+      calls,
+      recordRunDiagnostic: vi.fn(async (_runId: string, stage: string) => {
+        calls.push(`record:${stage}`);
+      }),
+      insertRun: vi.fn(
+        async (
+          _runId: string,
+          _threadId: string,
+          _turnId: string,
+          _options?: { dispatchMode?: "foreground" | "background" },
+        ) => {
+          calls.push("insert");
+        },
+      ),
+      claimBackgroundRun: vi.fn(async (_runId: string) => {
+        calls.push("claim");
+        return claimResult;
+      }),
+      updateRunHeartbeat: vi.fn(async (_runId: string) => {
+        calls.push("heartbeat");
+      }),
+    };
+  }
+
+  it("claims the first background chunk before expensive setup can race foreground fallback", async () => {
+    const d = deps();
+
+    await expect(
+      claimBackgroundWorkerRunEarly({
+        runId: "run-bg",
+        threadId: "thread-bg",
+        markerTurnId: "turn-bg",
+        continuationCount: 0,
+        runsInBackgroundFunction: true,
+        deps: d,
+      }),
+    ).resolves.toEqual({ claimed: true });
+
+    expect(d.insertRun).not.toHaveBeenCalled();
+    expect(d.calls).toEqual([
+      "record:worker_entered",
+      "claim",
+      "record:worker_claimed",
+      "heartbeat",
+    ]);
+    expect(d.recordRunDiagnostic).toHaveBeenNthCalledWith(
+      1,
+      "run-bg",
+      "worker_entered",
+      "runsInBackgroundFunction=true continuationCount=0",
+    );
+  });
+
+  it("records background runtime marker diagnostics on worker entry", async () => {
+    const d = deps();
+
+    await expect(
+      claimBackgroundWorkerRunEarly({
+        runId: "run-bg-marker",
+        threadId: "thread-bg-marker",
+        markerTurnId: "turn-bg-marker",
+        continuationCount: 0,
+        runsInBackgroundFunction: true,
+        backgroundRuntimeDetail:
+          "markerExpected=true runtimeDetected=false globalMarker=false",
+        deps: d,
+      }),
+    ).resolves.toEqual({ claimed: true });
+
+    expect(d.recordRunDiagnostic).toHaveBeenNthCalledWith(
+      1,
+      "run-bg-marker",
+      "worker_entered",
+      expect.stringContaining("markerExpected=true"),
+    );
+  });
+
+  it("inserts a chained background continuation row before claiming it", async () => {
+    const d = deps();
+
+    await expect(
+      claimBackgroundWorkerRunEarly({
+        runId: "run-next",
+        threadId: "thread-next",
+        markerTurnId: "turn-next",
+        continuationCount: 2,
+        runsInBackgroundFunction: true,
+        deps: d,
+      }),
+    ).resolves.toEqual({ claimed: true });
+
+    expect(d.insertRun).toHaveBeenCalledWith(
+      "run-next",
+      "thread-next",
+      "turn-next",
+      { dispatchMode: "background" },
+    );
+    expect(d.calls).toEqual([
+      "record:worker_entered",
+      "insert",
+      "claim",
+      "record:worker_claimed",
+      "heartbeat",
+    ]);
+  });
+
+  it("records duplicate deliveries and does not heartbeat or execute the turn", async () => {
+    const d = deps(false);
+
+    await expect(
+      claimBackgroundWorkerRunEarly({
+        runId: "run-dupe",
+        threadId: "thread-dupe",
+        continuationCount: 0,
+        runsInBackgroundFunction: true,
+        deps: d,
+      }),
+    ).resolves.toEqual({ claimed: false, skipped: "already-claimed" });
+
+    expect(d.updateRunHeartbeat).not.toHaveBeenCalled();
+    expect(d.calls).toEqual([
+      "record:worker_entered",
+      "claim",
+      "record:worker_claim_lost",
+    ]);
+  });
+});
+
 describe("resolveBackgroundDispatchOutcome (durable circuit-breaker)", () => {
   // Deterministic clock so the grace loop terminates without real time: each
   // now() call advances 10ms; with graceMs=25 the loop polls ~3 times.
@@ -4080,6 +4298,9 @@ describe("resolveBackgroundDispatchOutcome (durable circuit-breaker)", () => {
     pollIntervalMs: 5,
     sleep: async () => {},
   };
+  // diag_stage is persisted as JSON ({stage, detail?, at}) by recordRunDiagnostic,
+  // so model that here — exercises the parser the circuit-breaker relies on.
+  const diag = (stage: string) => JSON.stringify({ stage, at: 1 });
 
   it("202 + worker claims within grace -> stream, no inline claim", async () => {
     const claim = vi.fn();
@@ -4151,5 +4372,123 @@ describe("resolveBackgroundDispatchOutcome (durable circuit-breaker)", () => {
     });
     expect(outcome).toEqual({ action: "inline", reason: "dispatch-failed" });
     expect(readClaim).not.toHaveBeenCalled();
+  });
+
+  it("alive worker still in setup past the base grace -> extend, then stream when it claims", async () => {
+    // auth_passed proves the worker is alive and grinding through setup. Without
+    // the extension the base grace (25) elapses (~iter3) and recovers inline;
+    // the reaper-anchored extension keeps polling so the late claim is honored.
+    const claim = vi.fn();
+    const alive = {
+      dispatchMode: "background",
+      status: "running",
+      diagStage: diag("auth_passed"),
+      lastLivenessAt: 0,
+    };
+    const readClaim = vi
+      .fn()
+      .mockResolvedValueOnce(alive)
+      .mockResolvedValueOnce(alive)
+      .mockResolvedValueOnce(alive)
+      .mockResolvedValueOnce(alive)
+      .mockResolvedValue({
+        dispatchMode: "background-processing",
+        status: "running",
+        diagStage: diag("worker_claimed"),
+        lastLivenessAt: 0,
+      });
+    const outcome = await resolveBackgroundDispatchOutcome({
+      ...base,
+      reaperGraceMs: 100_000, // far away, so the claim wins before the reaper cap
+      dispatched: true,
+      backgroundRowInserted: true,
+      readClaim,
+      claim,
+      now: makeClock(),
+    });
+    expect(outcome).toEqual({ action: "stream" });
+    expect(claim).not.toHaveBeenCalled();
+  });
+
+  it("dead handoff (never recorded auth_passed) is NOT extended -> inline at the base grace", async () => {
+    // No diag stage = the generated wrapper never reached the route, so the
+    // extension must not apply and it recovers inline at the base grace.
+    const readClaim = vi.fn().mockResolvedValue({
+      dispatchMode: "background",
+      status: "running",
+      diagStage: null,
+      lastLivenessAt: 0,
+    });
+    const claim = vi.fn().mockResolvedValue(true);
+    const outcome = await resolveBackgroundDispatchOutcome({
+      ...base,
+      reaperGraceMs: 100_000,
+      dispatched: true,
+      backgroundRowInserted: true,
+      readClaim,
+      claim,
+      now: makeClock(),
+    });
+    expect(outcome).toEqual({
+      action: "inline",
+      reason: "worker-never-claimed",
+    });
+    expect(claim).toHaveBeenCalledWith("run-x");
+  });
+
+  it("worker that threw during setup (route_threw) recovers inline immediately, not after the grace", async () => {
+    const readClaim = vi.fn().mockResolvedValue({
+      dispatchMode: "background",
+      status: "running",
+      diagStage: diag("route_threw"),
+      lastLivenessAt: 0,
+    });
+    const claim = vi.fn().mockResolvedValue(true);
+    const outcome = await resolveBackgroundDispatchOutcome({
+      ...base,
+      reaperGraceMs: 100_000,
+      dispatched: true,
+      backgroundRowInserted: true,
+      readClaim,
+      claim,
+      now: makeClock(),
+    });
+    expect(outcome).toEqual({
+      action: "inline",
+      reason: "worker-never-claimed",
+    });
+    // Broke on the FIRST poll via the death check — did not wait out the grace.
+    expect(readClaim).toHaveBeenCalledTimes(1);
+  });
+
+  it("alive worker that never claims recovers inline BEFORE the reaper, anchored to row liveness", async () => {
+    // The worker stays alive in setup (auth_passed) but never claims. The
+    // extension is bounded by the reaper window measured from the row's OWN
+    // liveness (lastLivenessAt), NOT poll-start — so the foreground claims inline
+    // just before reapUnclaimedBackgroundRun would fire. With reaperGraceMs=60
+    // and margin=10 the cap is liveness+50; the stepping clock hits 50 at iter4.
+    const readClaim = vi.fn().mockResolvedValue({
+      dispatchMode: "background",
+      status: "running",
+      diagStage: diag("auth_passed"),
+      lastLivenessAt: 0,
+    });
+    const claim = vi.fn().mockResolvedValue(true);
+    const outcome = await resolveBackgroundDispatchOutcome({
+      ...base,
+      reaperGraceMs: 60,
+      reaperSafetyMarginMs: 10,
+      dispatched: true,
+      backgroundRowInserted: true,
+      readClaim,
+      claim,
+      now: makeClock(),
+    });
+    expect(outcome).toEqual({
+      action: "inline",
+      reason: "worker-never-claimed",
+    });
+    // Bounded by the reaper-anchored cap (liveness+50 → iter4), not unbounded.
+    expect(readClaim).toHaveBeenCalledTimes(4);
   });
 });

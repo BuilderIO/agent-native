@@ -1,15 +1,16 @@
+import type { StandardSchemaV1 } from "@standard-schema/spec";
+
+import {
+  normalizeActionChatUIConfig,
+  type ActionChatUIConfig,
+} from "./action-ui.js";
 import type {
   ActionTool,
   AgentChatAttachment,
   AgentChatEvent,
 } from "./agent/types.js";
-import {
-  normalizeActionChatUIConfig,
-  type ActionChatUIConfig,
-} from "./action-ui.js";
-import type { ActionAuditConfig } from "./audit/types.js";
 import { normalizeAuditConfig, resolveAuditAttach } from "./audit/config.js";
-import type { StandardSchemaV1 } from "@standard-schema/spec";
+import type { ActionAuditConfig } from "./audit/types.js";
 
 /**
  * How an action's `run` was invoked. Tagged at each dispatch site so the action
@@ -325,6 +326,10 @@ interface DefineActionWithSchema<
    *  Defaults to true. Set to false only for metadata/read actions that safely
    *  handle `ctx.userEmail` / `getRequestUserEmail()` being undefined. */
   requiresAuth?: boolean;
+  /** Max HTTP request body in bytes. When set, the route 413s on the declared
+   *  `Content-Length` before parsing. Use for public, no-auth POST actions;
+   *  unset = no route-level cap. */
+  maxBodyBytes?: number;
   /** Whether this action is exposed to the agent — the in-app assistant and the
    *  app's MCP/A2A tool surfaces — as a callable tool. **Default-allow opt-out**:
    *  `undefined` / `true` expose it; only an explicit `false` hides it from every
@@ -333,7 +338,7 @@ interface DefineActionWithSchema<
    *  this for UI-only or purely programmatic actions you want behind the
    *  framework's auth + action surface WITHOUT spending a slot in the model's
    *  tool list. Distinct from `toolCallable`, which only governs the sandboxed
-   *  extension ("tools") iframe bridge. See `packages/core/docs/content/actions.md`. */
+   *  extension ("tools") iframe bridge. See `packages/core/docs/content/actions.mdx`. */
   agentTool?: boolean;
   /** If true, the framework will NOT emit a screen-refresh change event after a
    *  successful call. Auto-inferred as `true` when `http.method === "GET"`.
@@ -346,7 +351,7 @@ interface DefineActionWithSchema<
    *  and order-independent for same-turn execution. */
   parallelSafe?: boolean;
   /** Whether this action may be invoked from the tools (Alpine iframe) bridge
-   *  via `appAction(name, params)` — see `packages/core/docs/content/actions.md`
+   *  via `appAction(name, params)` — see `packages/core/docs/content/actions.mdx`
    *  ("Tools Callability"). **Default-allow opt-out**: undefined / `true` both
    *  allow tool-iframe calls; only an explicit `false` returns 403. Set to
    *  `false` for high-blast-radius admin operations (account deletion, org
@@ -373,6 +378,13 @@ interface DefineActionWithSchema<
   /** Optional native Agent-Native chat renderer for this action's structured
    *  result. This is first-party React UI, not arbitrary HTML/JS. */
   chatUI?: ActionChatUIConfig;
+  /**
+   * Per-tool timeout override in milliseconds for agent-loop tool calls. Use
+   * sparingly for actions that legitimately wait on slow provider work.
+   */
+  timeoutMs?: number;
+  /** Per-tool result truncation override for agent-loop tool calls. */
+  maxResultChars?: number;
   /**
    * Opt-in human-in-the-loop approval gate. **Default off** — the framework
    * intentionally keeps HITL approvals rare; almost every action should run
@@ -438,6 +450,9 @@ interface DefineActionWithParams<
   /** Whether the HTTP/frontend action route must have an authenticated owner.
    *  Defaults to true. See the schema overload above. */
   requiresAuth?: boolean;
+  /** Max HTTP request body in bytes; 413s on `Content-Length` before parsing.
+   *  See the schema overload above. */
+  maxBodyBytes?: number;
   /** Whether this action is exposed to the agent as a callable tool. Only an
    *  explicit `false` hides it from every agent tool list while keeping it
    *  frontend/HTTP-callable. See the schema overload above and actions.md. */
@@ -460,6 +475,10 @@ interface DefineActionWithParams<
   mcpApp?: ActionMcpAppConfig;
   /** Optional native Agent-Native chat renderer. See schema overload above. */
   chatUI?: ActionChatUIConfig;
+  /** Per-tool timeout override in milliseconds. See schema overload above. */
+  timeoutMs?: number;
+  /** Per-tool result truncation override. See schema overload above. */
+  maxResultChars?: number;
   /** Opt-in human-in-the-loop approval gate (default off). See the schema
    *  overload above for full semantics. */
   needsApproval?:
@@ -503,6 +522,7 @@ export interface ActionDefinition<TInput, TReturn> {
   readonly tool: import("./agent/types.js").ActionTool;
   readonly http?: ActionHttpConfig | false;
   readonly requiresAuth?: boolean;
+  readonly maxBodyBytes?: number;
   readonly agentTool?: boolean;
   readonly readOnly?: boolean;
   readonly parallelSafe?: boolean;
@@ -511,6 +531,10 @@ export interface ActionDefinition<TInput, TReturn> {
   readonly link?: ActionLinkBuilder;
   readonly mcpApp?: ActionMcpAppConfig;
   readonly chatUI?: ActionChatUIConfig;
+  /** Per-tool timeout override in milliseconds for agent-loop tool calls. */
+  readonly timeoutMs?: number;
+  /** Per-tool result truncation override for agent-loop tool calls. */
+  readonly maxResultChars?: number;
   /** Standard Schema the action's RETURN value is validated against after
    *  `run()` resolves. Present only when the caller passed `outputSchema`. */
   readonly outputSchema?: StandardSchemaV1;
@@ -723,6 +747,9 @@ export function defineAction(options: any) {
     ...(typeof options.requiresAuth === "boolean"
       ? { requiresAuth: options.requiresAuth }
       : {}),
+    ...(typeof options.maxBodyBytes === "number"
+      ? { maxBodyBytes: options.maxBodyBytes }
+      : {}),
     ...(typeof agentTool === "boolean" ? { agentTool } : {}),
     ...(typeof readOnly === "boolean" ? { readOnly } : {}),
     ...(typeof parallelSafe === "boolean" ? { parallelSafe } : {}),
@@ -731,6 +758,12 @@ export function defineAction(options: any) {
     ...(link ? { link } : {}),
     ...(mcpApp ? { mcpApp } : {}),
     ...(chatUI ? { chatUI } : {}),
+    ...(typeof options.timeoutMs === "number"
+      ? { timeoutMs: options.timeoutMs }
+      : {}),
+    ...(typeof options.maxResultChars === "number"
+      ? { maxResultChars: options.maxResultChars }
+      : {}),
     ...(hasOutputSchema
       ? {
           outputSchema: options.outputSchema,

@@ -2,14 +2,15 @@
  * set-agent-engine — validates and writes agent engine selection to settings.
  */
 
-import type { ActionTool } from "../../agent/types.js";
 import {
   listAgentEngines,
   getAgentEngineEntry,
   isAgentEnginePackageInstalled,
+  isStoredEngineUsableForRequest,
   normalizeModelForEngine,
   registerBuiltinEngines,
 } from "../../agent/engine/index.js";
+import type { ActionTool } from "../../agent/types.js";
 import { putSetting } from "../../settings/index.js";
 
 export const tool: ActionTool = {
@@ -26,7 +27,7 @@ export const tool: ActionTool = {
       model: {
         type: "string",
         description:
-          "Model ID to use with this engine (e.g. 'gpt-5.5', 'claude-sonnet-4-6'). Defaults to the engine's default model if omitted.",
+          "Model ID to use with this engine (e.g. 'gpt-5.5', 'claude-sonnet-5'). Defaults to the engine's default model if omitted.",
       },
     },
     required: ["engine"],
@@ -67,9 +68,13 @@ export async function run(args: Record<string, string>): Promise<string> {
     entry.supportedModels.length === 0 ||
     entry.supportedModels.includes(resolvedModel);
 
-  const missingEnvVars = entry.requiredEnvVars.filter((v) => !process.env[v]);
-  if (missingEnvVars.length > 0) {
-    return `Warning: Engine "${engineName}" requires the following environment variables which are not set: ${missingEnvVars.join(", ")}. The engine will fail at runtime without them.`;
+  const usable = await isStoredEngineUsableForRequest(
+    { engine: engineName },
+    entry,
+  );
+  if (!usable) {
+    const missingEnvVars = entry.requiredEnvVars.join(", ");
+    return `Warning: Engine "${engineName}" requires the following credentials which are not configured for this request: ${missingEnvVars}. The engine will fail at runtime without them.`;
   }
 
   await putSetting("agent-engine", {

@@ -8,9 +8,9 @@
  *   pnpm action open-chat --id <thread-id>
  */
 
-import { parseArgs, fail } from "../utils.js";
-import { getThread } from "../../chat-threads/store.js";
 import { writeAppState } from "../../application-state/script-helpers.js";
+import { getThread } from "../../chat-threads/store.js";
+import { parseArgs, fail } from "../utils.js";
 
 export default async function openChat(args: string[]): Promise<void> {
   const parsed = parseArgs(args);

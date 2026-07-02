@@ -1,6 +1,6 @@
-import { useEffect, useState } from "react";
 import { emit, listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { useEffect, useState } from "react";
 
 /**
  * Floating pill indicator visible on the right screen edge during an active

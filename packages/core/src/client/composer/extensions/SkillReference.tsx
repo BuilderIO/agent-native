@@ -1,6 +1,6 @@
+import { IconStack2 } from "@tabler/icons-react";
 import { mergeAttributes, Node } from "@tiptap/core";
 import { NodeViewWrapper, ReactNodeViewRenderer } from "@tiptap/react";
-import { IconStack2 } from "@tabler/icons-react";
 
 const SkillReferenceComponent = ({ node }: { node: any }) => {
   const displayName =

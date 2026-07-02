@@ -1,7 +1,21 @@
 import type { H3Event } from "h3";
-import type { PlatformAdapter, IncomingMessage } from "./types.js";
-import { getThreadMapping, saveThreadMapping } from "./thread-mapping-store.js";
-import { createThread, getThread } from "../chat-threads/store.js";
+
+import {
+  appendA2AArtifactLinks,
+  type A2AToolResultSummary,
+} from "../a2a/artifact-response.js";
+import { collectFinalResponseTextFromAgentEvents } from "../a2a/response-text.js";
+import {
+  formatLlmCredentialErrorMessage,
+  isLlmCredentialError,
+} from "../agent/engine/credential-errors.js";
+import {
+  getStoredModelForEngine,
+  normalizeModelForEngine,
+  resolveEngine,
+} from "../agent/engine/index.js";
+import { PROVIDER_TO_ENV } from "../agent/engine/provider-env-vars.js";
+import type { AgentEngine, EngineMessage } from "../agent/engine/types.js";
 import {
   runAgentLoop,
   actionsToEngineTools,
@@ -10,42 +24,29 @@ import {
   engineToProvider,
   type ActionEntry,
 } from "../agent/production-agent.js";
-import { PROVIDER_TO_ENV } from "../agent/engine/provider-env-vars.js";
-import { isLocalDatabase } from "../db/client.js";
-import { readDeployCredentialEnv } from "../server/credential-provider.js";
-import {
-  getStoredModelForEngine,
-  normalizeModelForEngine,
-  resolveEngine,
-} from "../agent/engine/index.js";
-import {
-  formatLlmCredentialErrorMessage,
-  isLlmCredentialError,
-} from "../agent/engine/credential-errors.js";
-import type { AgentEngine, EngineMessage } from "../agent/engine/types.js";
 import { startRun, type ActiveRun } from "../agent/run-manager.js";
+import { buildRuntimeContextPrompt } from "../agent/runtime-context.js";
 import {
   buildAssistantMessage,
   extractThreadMeta,
 } from "../agent/thread-data-builder.js";
+import { createThread, getThread } from "../chat-threads/store.js";
 import { updateThreadData } from "../chat-threads/store.js";
-import { runWithRequestContext } from "../server/request-context.js";
+import { isLocalDatabase } from "../db/client.js";
 import { resolveOrgIdForEmail } from "../org/context.js";
+import { withConfiguredAppBasePath } from "../server/app-base-path.js";
+import { FRAMEWORK_ROUTE_PREFIX } from "../server/core-routes-plugin.js";
+import { readDeployCredentialEnv } from "../server/credential-provider.js";
+import { runWithRequestContext } from "../server/request-context.js";
+import { A2A_CONTINUATION_QUEUED_MARKER } from "./a2a-continuation-marker.js";
+import { signInternalToken } from "./internal-token.js";
 import {
   insertPendingTask,
   isDuplicateEventError,
   type PendingTask,
 } from "./pending-tasks-store.js";
-import { signInternalToken } from "./internal-token.js";
-import { FRAMEWORK_ROUTE_PREFIX } from "../server/core-routes-plugin.js";
-import { withConfiguredAppBasePath } from "../server/app-base-path.js";
-import { A2A_CONTINUATION_QUEUED_MARKER } from "./a2a-continuation-marker.js";
-import { collectFinalResponseTextFromAgentEvents } from "../a2a/response-text.js";
-import {
-  appendA2AArtifactLinks,
-  type A2AToolResultSummary,
-} from "../a2a/artifact-response.js";
-import { buildRuntimeContextPrompt } from "../agent/runtime-context.js";
+import { getThreadMapping, saveThreadMapping } from "./thread-mapping-store.js";
+import type { PlatformAdapter, IncomingMessage } from "./types.js";
 
 const PROCESSOR_DISPATCH_SETTLE_WAIT_MS = 1_500;
 

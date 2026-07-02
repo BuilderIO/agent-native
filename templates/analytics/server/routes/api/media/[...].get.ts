@@ -1,6 +1,8 @@
-import path from "path";
 import { createReadStream } from "fs";
 import { stat } from "fs/promises";
+import path from "path";
+
+import { streamFile } from "@agent-native/core/server";
 import {
   defineEventHandler,
   getQuery,
@@ -8,7 +10,7 @@ import {
   setResponseHeader,
   setResponseStatus,
 } from "h3";
-import { streamFile } from "@agent-native/core/server";
+
 import { getAnalyticsMediaDir } from "../../../lib/media-dir.js";
 import {
   mediaFilenameFromPath,

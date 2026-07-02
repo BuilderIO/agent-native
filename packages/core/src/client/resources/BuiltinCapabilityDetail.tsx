@@ -1,4 +1,3 @@
-import React from "react";
 import {
   IconAlertTriangle,
   IconBrowser,
@@ -7,13 +6,15 @@ import {
   IconLoader2,
   IconPlugConnected,
 } from "@tabler/icons-react";
+import React from "react";
+
 import { cn } from "../utils.js";
-import type { McpServerScope } from "./use-mcp-servers.js";
 import {
   useToggleBuiltinCapability,
   type BuiltinCapability,
   type BuiltinCapabilityStatus,
 } from "./use-builtin-capabilities.js";
+import type { McpServerScope } from "./use-mcp-servers.js";
 
 interface BuiltinCapabilityDetailProps {
   capability: BuiltinCapability;
@@ -148,6 +149,14 @@ export function BuiltinCapabilityDetail({
             Chrome DevTools attaches to your live Chrome profile when remote
             debugging is available, so it can verify pages that rely on your
             existing login.
+          </p>
+        )}
+
+        {capability.id === "screen-memory" && (
+          <p className="mt-6 rounded-md border border-border bg-muted/40 p-2.5 text-[11px] leading-relaxed text-muted-foreground">
+            Screen Memory only reads local Clips desktop context on this
+            machine. Turn it on from Clips desktop Settings before expecting
+            recent context results.
           </p>
         )}
       </div>

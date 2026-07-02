@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
+
 import {
   EMBED_TARGET_HEADER,
   EMBED_TOKEN_QUERY_PARAM,

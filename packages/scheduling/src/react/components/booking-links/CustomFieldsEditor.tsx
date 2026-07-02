@@ -1,3 +1,13 @@
+import {
+  IconChevronDown,
+  IconChevronLeft,
+  IconChevronRight,
+  IconGripVertical,
+  IconListCheck,
+  IconPlus,
+  IconTrash,
+} from "@tabler/icons-react";
+import { nanoid } from "nanoid";
 /**
  * CustomFieldsEditor — add, remove, reorder, and configure custom form
  * fields shown on a booking page.
@@ -13,20 +23,12 @@
  * textarea, switch. Icons from `@tabler/icons-react`.
  */
 import { useState } from "react";
-import { nanoid } from "nanoid";
-import {
-  IconChevronDown,
-  IconChevronLeft,
-  IconChevronRight,
-  IconGripVertical,
-  IconListCheck,
-  IconPlus,
-  IconTrash,
-} from "@tabler/icons-react";
+
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
+import { Textarea } from "@/components/ui/textarea";
+
 import { useSchedulingT } from "../../i18n.js";
 
 export type CustomFieldType =
@@ -355,7 +357,7 @@ export function CustomFieldsEditor(props: CustomFieldsEditorProps) {
                             .filter((o) => o.trim());
                           updateField(field.id, { options });
                         }}
-                        placeholder={"Option 1\nOption 2\nOption 3"}
+                        placeholder={t("optionListPlaceholder")}
                         rows={3}
                         className="text-sm"
                       />
@@ -377,7 +379,7 @@ export function CustomFieldsEditor(props: CustomFieldsEditorProps) {
                             pattern: e.target.value || undefined,
                           })
                         }
-                        placeholder="e.g. ^https?://(www\.)?linkedin\.com/in/.+"
+                        placeholder={t("validationPatternPlaceholder")}
                         className="h-8 font-mono text-sm"
                       />
                       {field.pattern && (
@@ -395,7 +397,7 @@ export function CustomFieldsEditor(props: CustomFieldsEditorProps) {
                                 patternError: e.target.value || undefined,
                               })
                             }
-                            placeholder="e.g. Please enter a valid LinkedIn URL"
+                            placeholder={t("validationErrorPlaceholder")}
                             className="h-8 text-sm"
                           />
                         </div>

@@ -1,10 +1,11 @@
 import { defineAction } from "@agent-native/core";
 import { assertAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
+
 import type { ContentDatabaseSourceStatusResponse } from "../shared/api.js";
 import {
-  getContentDatabaseSourceSnapshot,
-  getExistingSource,
+  getContentDatabaseSourceSnapshotForWrite,
+  getExistingSourceForWrite,
   resyncBuilderCmsSourceSnapshot,
   resyncMockSourceSnapshot,
   resolveDatabaseForSourceMutation,
@@ -17,13 +18,17 @@ export default defineAction({
   schema: z.object({
     databaseId: z.string().optional().describe("Database ID"),
     documentId: z.string().optional().describe("Database document/page ID"),
+    sourceId: z
+      .string()
+      .optional()
+      .describe("Target source ID (defaults to the primary source)"),
   }),
   run: async (args): Promise<ContentDatabaseSourceStatusResponse> => {
     const database = await resolveDatabaseForSourceMutation(args);
     if (!database) throw new Error("Database not found.");
     await assertAccess("document", database.documentId, "editor");
 
-    const source = await getExistingSource(database.id);
+    const source = await getExistingSourceForWrite(database.id, args.sourceId);
     if (!source) {
       return {
         database: serializeDatabase(database),
@@ -44,7 +49,10 @@ export default defineAction({
     } else {
       throw new Error(`Unsupported source type "${source.sourceType}".`);
     }
-    const snapshot = await getContentDatabaseSourceSnapshot(database);
+    const snapshot = await getContentDatabaseSourceSnapshotForWrite(
+      database,
+      args.sourceId,
+    );
 
     return {
       database: serializeDatabase(database),

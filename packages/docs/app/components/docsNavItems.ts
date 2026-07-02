@@ -146,6 +146,11 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
         slug: "native-chat-ui",
       },
       {
+        id: "generative-ui",
+        labelKey: "generativeUi",
+        slug: "generative-ui",
+      },
+      {
         id: "real-time-collaboration",
         labelKey: "realTimeCollaboration",
         slug: "real-time-collaboration",
@@ -267,6 +272,11 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
         id: "durable-resume",
         labelKey: "durableResume",
         slug: "durable-resume",
+      },
+      {
+        id: "durable-background-runs",
+        labelKey: "durableBackgroundRuns",
+        slug: "durable-background-runs",
       },
       {
         id: "blueprint-installer",

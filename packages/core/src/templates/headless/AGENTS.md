@@ -2,7 +2,7 @@
 
 This is a headless Agent Native app. It starts with actions instead of a browser UI, so the first useful primitive is callable from the agent, CLI, and action runtime.
 
-This app is not stateless. The Agent Native runtime uses SQL-backed stores for app state, settings, auth/session data, resources, and other framework capabilities when those surfaces are used. Local development can use SQLite at `data/app.db`; hosted or long-lived deployments should set `DATABASE_URL` to a persistent database.
+This app is not stateless. The Agent Native runtime uses SQL-backed stores for app state, settings, auth/session data, resources, and other framework capabilities when those surfaces are used. Local development can use SQLite at `data/app.db`, or PGlite with `DATABASE_URL=pglite:./data/pglite` after installing `@electric-sql/pglite`. Hosted or long-lived deployments should set `DATABASE_URL` to a persistent database.
 
 ## Working In This App
 

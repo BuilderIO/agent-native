@@ -23,6 +23,7 @@ const mockDb = {
 vi.mock("../db/client.js", () => ({
   getDbExec: () => mockDb,
   intType: () => "INTEGER",
+  isPostgres: () => false,
   isUniqueViolation: () => false,
   retryOnDdlRace: (fn: () => unknown) => fn(),
   safeJsonParse: (value: string, fallback: unknown) => {

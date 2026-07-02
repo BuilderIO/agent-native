@@ -1,6 +1,6 @@
-import type { EmailMessage } from "@shared/types";
 import { mailLabelsInclude, mailLabelsIncludeAny } from "@shared/gmail-labels";
 import { isSelfAddressedThread } from "@shared/self-notes";
+import type { EmailMessage } from "@shared/types";
 
 /**
  * Single source of truth for partitioning the loaded inbox into the top-bar

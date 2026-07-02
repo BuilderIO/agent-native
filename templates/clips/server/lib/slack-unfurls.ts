@@ -1,11 +1,13 @@
 import crypto from "node:crypto";
-import { eq } from "drizzle-orm";
+
 import { AGENT_NATIVE_DEFAULT_SOCIAL_IMAGE } from "@agent-native/core/shared";
-import { getDb, schema } from "../db/index.js";
+import { eq } from "drizzle-orm";
+
 import {
   clipsShareDescription,
   displayRecordingTitle,
 } from "../../shared/share-meta.js";
+import { getDb, schema } from "../db/index.js";
 
 const SLACK_API_URL = "https://slack.com/api/chat.unfurl";
 const MAX_UNFURL_LINKS = 5;
@@ -170,13 +172,16 @@ export function extractShareLink(urlValue: string): {
 
   const parts = url.pathname.split("/").filter(Boolean);
   const shareIndex = parts.indexOf("share");
-  const id = shareIndex >= 0 ? parts[shareIndex + 1] : undefined;
+  const recordingIndex = parts.indexOf("r");
+  const resourceIndex = shareIndex >= 0 ? shareIndex : recordingIndex;
+  const id = resourceIndex >= 0 ? parts[resourceIndex + 1] : undefined;
   if (!id) return null;
 
   return {
     id: decodeURIComponent(id),
     origin: url.origin,
-    basePath: shareIndex > 0 ? `/${parts.slice(0, shareIndex).join("/")}` : "",
+    basePath:
+      resourceIndex > 0 ? `/${parts.slice(0, resourceIndex).join("/")}` : "",
   };
 }
 

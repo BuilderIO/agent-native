@@ -13,6 +13,14 @@ describe("db/client dialect detection", () => {
 
   afterEach(() => {
     process.env = originalEnv;
+    Reflect.deleteProperty(
+      globalThis as Record<string, unknown>,
+      "__AGENT_NATIVE_BACKGROUND_RUNTIME__",
+    );
+    Reflect.deleteProperty(
+      globalThis as Record<string, unknown>,
+      "__AGENT_NATIVE_BACKGROUND_RUNTIME_EXPECTED__",
+    );
     vi.resetModules();
   });
 
@@ -30,6 +38,16 @@ describe("db/client dialect detection", () => {
     expect(getDialect()).toBe("postgres");
     expect(isPostgres()).toBe(true);
     expect(intType()).toBe("BIGINT");
+  });
+
+  it("detects postgres dialect from opt-in pglite: URL", async () => {
+    vi.stubEnv("DATABASE_URL", "pglite:./data/pglite");
+    const { getDialect, isPostgres, intType, isLocalDatabase } =
+      await import("./client.js");
+    expect(getDialect()).toBe("postgres");
+    expect(isPostgres()).toBe(true);
+    expect(intType()).toBe("BIGINT");
+    expect(isLocalDatabase()).toBe(true);
   });
 
   it("detects sqlite dialect from file: URL", async () => {
@@ -69,6 +87,81 @@ describe("db/client dialect detection", () => {
     vi.stubEnv("NETLIFY_DATABASE_URL", "postgres://netlify.example/db");
     const { getDatabaseUrl } = await import("./client.js");
     expect(getDatabaseUrl()).toBe("postgres://plan.example/db");
+  });
+
+  it("keeps the Neon foreground pool small on serverless", async () => {
+    vi.stubEnv("NETLIFY", "true");
+    const { neonPoolMax, isBackgroundFunctionPoolContext } =
+      await import("./client.js");
+
+    expect(isBackgroundFunctionPoolContext()).toBe(false);
+    expect(neonPoolMax()).toBe(2);
+  });
+
+  it("uses the background Neon pool when the verified process-run marker expects a background function", async () => {
+    vi.stubEnv("NETLIFY", "true");
+    (
+      globalThis as Record<string, unknown>
+    ).__AGENT_NATIVE_BACKGROUND_RUNTIME_EXPECTED__ = true;
+
+    const { neonPoolMax, isBackgroundFunctionPoolContext } =
+      await import("./client.js");
+
+    expect(isBackgroundFunctionPoolContext()).toBe(true);
+    expect(neonPoolMax()).toBe(8);
+  });
+});
+
+describe("pgliteDataDirFromUrl", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.resetModules();
+  });
+
+  it("maps pglite URLs to PGlite dataDir values", async () => {
+    const { pgliteDataDirFromUrl } = await import("./client.js");
+
+    expect(pgliteDataDirFromUrl("pglite:./data/pglite")).toBe("./data/pglite");
+    expect(pgliteDataDirFromUrl("pglite:///tmp/pglite")).toBe("/tmp/pglite");
+    expect(pgliteDataDirFromUrl("pglite:memory")).toBe("memory://");
+    expect(pgliteDataDirFromUrl("pglite:")).toBe("./data/pglite");
+  });
+
+  it("redirects relative PGlite data dirs to writable /tmp on serverless", async () => {
+    vi.stubEnv("NETLIFY", "1");
+    const { pgliteDataDirFromUrl, pgliteRuntimeDataDir } =
+      await import("./client.js");
+
+    expect(
+      pgliteRuntimeDataDir(pgliteDataDirFromUrl("pglite:./data/pglite")),
+    ).toBe("/tmp/data/pglite");
+    expect(pgliteRuntimeDataDir(pgliteDataDirFromUrl("pglite:memory"))).toBe(
+      "memory://",
+    );
+    expect(
+      pgliteRuntimeDataDir(pgliteDataDirFromUrl("pglite:///tmp/pglite")),
+    ).toBe("/tmp/pglite");
+  });
+});
+
+describe("PGlite optional dependency", () => {
+  afterEach(() => {
+    vi.resetModules();
+  });
+
+  it("reports setup instructions when pglite: is selected without the package", async () => {
+    const pglitePackage = "@electric-sql/pglite";
+    try {
+      await import(pglitePackage);
+      return;
+    } catch {
+      // Continue only when the optional package is absent in this install.
+    }
+
+    const { createDbExec } = await import("./client.js");
+    await expect(createDbExec({ url: "pglite:memory" })).rejects.toThrow(
+      "PGlite database support requires the optional @electric-sql/pglite package.",
+    );
   });
 });
 
@@ -135,6 +228,44 @@ describe("getDbExec", () => {
   });
 });
 
+describe("sqliteToPostgresParams", () => {
+  it("converts placeholders while preserving question marks inside SQL literals", async () => {
+    const { sqliteToPostgresParams } = await import("./client.js");
+
+    expect(
+      sqliteToPostgresParams(
+        "SELECT substring(referrer from 'https?://([^/?#]+)') AS domain FROM analytics_events WHERE owner_email = ? AND path LIKE ?",
+      ),
+    ).toBe(
+      "SELECT substring(referrer from 'https?://([^/?#]+)') AS domain FROM analytics_events WHERE owner_email = $1 AND path LIKE $2",
+    );
+  });
+
+  it("ignores question marks in identifiers, comments, and dollar-quoted strings", async () => {
+    const { sqliteToPostgresParams } = await import("./client.js");
+
+    expect(
+      sqliteToPostgresParams(
+        'SELECT "weird?column", $$literal ? value$$ FROM analytics_events -- comment ?\nWHERE owner_email = ? /* block ? */ AND org_id = ?',
+      ),
+    ).toBe(
+      'SELECT "weird?column", $$literal ? value$$ FROM analytics_events -- comment ?\nWHERE owner_email = $1 /* block ? */ AND org_id = $2',
+    );
+  });
+
+  it("converts placeholders after a backslash SQL string literal", async () => {
+    const { sqliteToPostgresParams } = await import("./client.js");
+
+    expect(
+      sqliteToPostgresParams(
+        "SELECT * FROM org_members WHERE email LIKE ? ESCAPE '\\' AND role = ? LIMIT ? OFFSET ?",
+      ),
+    ).toBe(
+      "SELECT * FROM org_members WHERE email LIKE $1 ESCAPE '\\' AND role = $2 LIMIT $3 OFFSET $4",
+    );
+  });
+});
+
 describe("retryOnDdlRace", () => {
   afterEach(() => {
     vi.resetModules();
@@ -176,6 +307,14 @@ describe("dbOpTimeoutMs", () => {
     vi.resetModules();
   });
 
+  function stubNonServerlessEnv() {
+    vi.stubEnv("NETLIFY", "");
+    vi.stubEnv("VERCEL", "");
+    vi.stubEnv("AWS_LAMBDA_FUNCTION_NAME", "");
+    vi.stubEnv("LAMBDA_TASK_ROOT", "");
+    vi.stubEnv("CF_PAGES", "");
+  }
+
   it("honors a positive DB_OP_TIMEOUT_MS override", async () => {
     vi.stubEnv("DB_OP_TIMEOUT_MS", "1234");
     const { dbOpTimeoutMs } = await import("./client.js");
@@ -183,10 +322,12 @@ describe("dbOpTimeoutMs", () => {
   });
 
   it("ignores a non-positive / non-numeric override", async () => {
+    stubNonServerlessEnv();
     vi.stubEnv("DB_OP_TIMEOUT_MS", "0");
     const mod1 = await import("./client.js");
     expect(mod1.dbOpTimeoutMs()).toBe(30_000);
     vi.resetModules();
+    stubNonServerlessEnv();
     vi.stubEnv("DB_OP_TIMEOUT_MS", "not-a-number");
     const mod2 = await import("./client.js");
     expect(mod2.dbOpTimeoutMs()).toBe(30_000);

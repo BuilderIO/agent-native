@@ -17,6 +17,8 @@ const mocks = vi.hoisted(() => ({
   readBody: vi.fn(),
   resolveOAuthOwner: vi.fn(),
   resolveOAuthRedirectUri: vi.fn(),
+  resolveSecret: vi.fn(),
+  runWithRequestContext: vi.fn(),
   safeReturnPath: vi.fn(),
   setDesktopExchange: vi.fn(),
   setDesktopExchangeError: vi.fn(),
@@ -52,6 +54,8 @@ vi.mock("@agent-native/core/server", () => ({
   },
   resolveOAuthOwner: mocks.resolveOAuthOwner,
   resolveOAuthRedirectUri: mocks.resolveOAuthRedirectUri,
+  resolveSecret: mocks.resolveSecret,
+  runWithRequestContext: mocks.runWithRequestContext,
   safeReturnPath: mocks.safeReturnPath,
   setDesktopExchange: mocks.setDesktopExchange,
   setDesktopExchangeError: mocks.setDesktopExchangeError,
@@ -92,6 +96,14 @@ describe("Calendar Google auth-url handler", () => {
     mocks.resolveOAuthRedirectUri.mockReturnValue(
       "https://calendar.agent-native.com/_agent-native/google/callback",
     );
+    mocks.resolveSecret.mockImplementation(async (key: string) => {
+      if (key === "GOOGLE_CLIENT_ID") return "calendar-client-id";
+      if (key === "GOOGLE_CLIENT_SECRET") return "calendar-client-secret";
+      return null;
+    });
+    mocks.runWithRequestContext.mockImplementation(
+      (_context: unknown, callback: () => unknown) => callback(),
+    );
     mocks.encodeOAuthState.mockReturnValue("encoded-state");
     mocks.safeReturnPath.mockImplementation((value: string) => value);
   });
@@ -127,7 +139,10 @@ describe("Calendar Google auth-url handler", () => {
   });
 
   it("uses Calendar API credentials when a signed-in user connects Google Calendar", async () => {
-    mocks.getSession.mockResolvedValue({ email: "owner@example.com" });
+    mocks.getSession.mockResolvedValue({
+      email: "owner@example.com",
+      orgId: "org-123",
+    });
 
     const result = await getGoogleAuthUrl(createEvent() as any);
 
@@ -135,12 +150,15 @@ describe("Calendar Google auth-url handler", () => {
       expect.objectContaining({
         addAccount: true,
         owner: "owner@example.com",
+        orgId: "org-123",
       }),
     );
     expect(mocks.getAuthUrl).toHaveBeenCalledWith(
       undefined,
       "https://calendar.agent-native.com/_agent-native/google/callback",
       "encoded-state",
+      "owner@example.com",
+      "org-123",
     );
     expect(result).toEqual({
       url: "https://accounts.google.com/o/oauth2/v2/auth?scope=calendar&state=encoded-state",

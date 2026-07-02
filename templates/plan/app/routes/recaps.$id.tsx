@@ -1,10 +1,11 @@
 import { Spinner } from "@/components/ui/spinner";
-import { PlansPage } from "@/pages/PlansPage";
 import { APP_TITLE } from "@/lib/app-config";
 import { planDocumentTitle } from "@/lib/plan-document-title";
-import type { Route } from ".react-router/types/app/routes/+types/recaps.$id";
+import { PlansPage } from "@/pages/PlansPage";
+
 import { fetchPublicPlanMeta } from "../../server/lib/plan-meta.server";
 import { buildPlanMetaDescription } from "../../shared/plan-meta-format";
+import type { Route } from ".react-router/types/app/routes/+types/recaps.$id";
 
 export async function loader({ params }: Route.LoaderArgs) {
   const id = params.id;
@@ -13,8 +14,8 @@ export async function loader({ params }: Route.LoaderArgs) {
   return { planMeta };
 }
 
-export const meta: Route.MetaFunction = ({ data }) => {
-  const planMeta = data?.planMeta;
+export const meta: Route.MetaFunction = ({ loaderData }) => {
+  const planMeta = loaderData?.planMeta;
   if (!planMeta) {
     return [
       { title: APP_TITLE },

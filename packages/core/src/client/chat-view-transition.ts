@@ -1,5 +1,4 @@
 import type { NavigateFunction, NavigateOptions } from "react-router";
-import { setAgentSidebarOpenPreference } from "./agent-sidebar-state.js";
 
 export const AGENT_CHAT_VIEW_TRANSITION_NAME = "agent-native-chat";
 export const AGENT_CHAT_VIEW_TRANSITION_CLASS =
@@ -131,7 +130,31 @@ export function markAgentChatHomeHandoff(storageKey?: string | null): void {
       String(Date.now()),
     );
   } catch {}
-  setAgentSidebarOpenPreference(true);
+}
+
+/**
+ * Check whether a full-page-chat handoff marker is still recent without
+ * consuming it. Use this when a chat route should only restore or animate a
+ * conversation if the user actually chatted a moment ago.
+ */
+export function isAgentChatHomeHandoffActive(
+  storageKey?: string | null,
+  options: AgentChatHomeHandoffOptions = {},
+): boolean {
+  if (typeof window === "undefined") return false;
+
+  let startedAt = 0;
+  try {
+    const raw = window.sessionStorage.getItem(
+      agentChatHomeHandoffKey(storageKey),
+    );
+    startedAt = raw ? Number.parseInt(raw, 10) : 0;
+  } catch {
+    startedAt = 0;
+  }
+
+  const ttlMs = options.ttlMs ?? AGENT_CHAT_HOME_HANDOFF_TTL_MS;
+  return Number.isFinite(startedAt) && Date.now() - startedAt <= ttlMs;
 }
 
 /**
@@ -155,10 +178,15 @@ export function consumeAgentChatHomeHandoff(
     startedAt = 0;
   }
 
+  return isAgentChatHomeHandoffActiveFromTimestamp(startedAt, options);
+}
+
+function isAgentChatHomeHandoffActiveFromTimestamp(
+  startedAt: number,
+  options: AgentChatHomeHandoffOptions,
+): boolean {
   const ttlMs = options.ttlMs ?? AGENT_CHAT_HOME_HANDOFF_TTL_MS;
-  const active = Number.isFinite(startedAt) && Date.now() - startedAt <= ttlMs;
-  if (active) setAgentSidebarOpenPreference(true);
-  return active;
+  return Number.isFinite(startedAt) && Date.now() - startedAt <= ttlMs;
 }
 
 /**

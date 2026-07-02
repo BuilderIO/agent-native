@@ -14,12 +14,13 @@ import {
   IconLoader2,
   IconX,
 } from "@tabler/icons-react";
-import type { VoiceDictationApi } from "./useVoiceDictation.js";
+
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "../components/ui/tooltip.js";
+import type { VoiceDictationApi } from "./useVoiceDictation.js";
 
 export interface VoiceButtonProps {
   voice: VoiceDictationApi;

@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useT } from "@agent-native/core/client";
 import { IconPlayerSkipForward, IconX } from "@tabler/icons-react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 export interface CountdownOverlayProps {
   /** Total seconds to count down from. Default 3. */
@@ -18,6 +19,7 @@ export function CountdownOverlay({
   onComplete,
   onCancel,
 }: CountdownOverlayProps) {
+  const t = useT();
   const [remaining, setRemaining] = useState(seconds);
   // Ensure each callback fires exactly once for the lifetime of the countdown,
   // even if identities change or the user skips while the timer is mid-flight.
@@ -79,13 +81,13 @@ export function CountdownOverlay({
     <div
       className="fixed inset-0 z-[100] flex flex-col items-center justify-center bg-black/70 backdrop-blur-sm"
       aria-live="polite"
-      aria-label={`Recording starts in ${remaining}`}
+      aria-label={t("countdownOverlay.startsIn", { count: remaining })}
     >
       <div className="flex items-center gap-10 sm:gap-14">
         <button
           type="button"
           onClick={onCancel}
-          aria-label="Cancel recording"
+          aria-label={t("countdownOverlay.cancel")}
           className={controlClasses}
         >
           <IconX className="h-7 w-7" stroke={1.75} />
@@ -93,10 +95,11 @@ export function CountdownOverlay({
 
         <div
           key={remaining}
-          className="flex h-44 w-44 items-center justify-center rounded-full text-[112px] font-bold leading-none text-white shadow-2xl duration-200 animate-in zoom-in-75 fade-in"
+          className="flex min-w-32 items-center justify-center text-[clamp(96px,22vmin,240px)] font-extrabold leading-none text-white duration-200 animate-in zoom-in-75 fade-in"
           style={{
-            background:
-              "radial-gradient(circle at 30% 30%, rgba(255,255,255,0.18), transparent 60%), hsl(var(--primary))",
+            fontVariantNumeric: "tabular-nums",
+            textShadow:
+              "1px 0 1px rgba(17,24,39,0.22), -1px 0 1px rgba(17,24,39,0.22), 0 1px 1px rgba(17,24,39,0.22), 0 -1px 1px rgba(17,24,39,0.22), 0 2px 4px rgba(0,0,0,0.48), 0 12px 34px rgba(0,0,0,0.36), 0 0 2px rgba(0,0,0,0.72)",
           }}
         >
           {remaining > 0 ? remaining : "Go"}
@@ -105,7 +108,7 @@ export function CountdownOverlay({
         <button
           type="button"
           onClick={handleSkip}
-          aria-label="Skip countdown and start recording now"
+          aria-label={t("countdownOverlay.skip")}
           className={controlClasses}
         >
           <IconPlayerSkipForward className="h-7 w-7" stroke={1.75} />
@@ -113,7 +116,7 @@ export function CountdownOverlay({
       </div>
 
       <p className="absolute bottom-16 left-1/2 -translate-x-1/2 rounded-full bg-black/50 px-3 py-1 text-xs font-medium text-white/70 backdrop-blur">
-        Esc to cancel · Enter to start now
+        {t("countdownOverlay.hint")}
       </p>
     </div>
   );

@@ -1,20 +1,24 @@
 import { type ReactNode } from "react";
-import DocsSidebar from "./DocsSidebar";
-import TableOfContents from "./TableOfContents";
-import MobileDocsNav from "./MobileDocsNav";
+
 import DocsPrevNext from "./DocsPrevNext";
+import DocsSidebar from "./DocsSidebar";
+import MobileDocsNav from "./MobileDocsNav";
+import TableOfContents from "./TableOfContents";
 
 interface TocItem {
   id: string;
   label: string;
+  level?: number;
   indent?: boolean;
 }
 
 export default function DocsLayout({
   children,
+  markdownUrl,
   toc,
 }: {
   children: ReactNode;
+  markdownUrl?: string;
   toc?: TocItem[];
 }) {
   return (
@@ -30,7 +34,7 @@ export default function DocsLayout({
         </div>
       </main>
       {toc && toc.length > 0 ? (
-        <TableOfContents items={toc} />
+        <TableOfContents items={toc} markdownUrl={markdownUrl} />
       ) : (
         <div className="hidden w-[200px] shrink-0 xl:block" />
       )}

@@ -1,5 +1,7 @@
 import { useActionQuery, useT } from "@agent-native/core/client";
+import { IconCalendar } from "@tabler/icons-react";
 import { subDays } from "date-fns";
+import { useState } from "react";
 import {
   LineChart,
   Line,
@@ -10,9 +12,9 @@ import {
   ResponsiveContainer,
   ReferenceLine,
 } from "recharts";
+
+import { useSetHeaderActions } from "@/components/layout/HeaderActions";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Skeleton } from "@/components/ui/skeleton";
 import {
   Select,
   SelectContent,
@@ -20,20 +22,19 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { formatLocalDate } from "@/lib/utils";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { WeeklyCaloriesChart } from "@/components/WeeklyCaloriesChart";
-import { IconCalendar } from "@tabler/icons-react";
-import { useState } from "react";
-import { useSetHeaderActions } from "@/components/layout/HeaderActions";
+import messages from "@/i18n/en-US";
+import { formatLocalDate } from "@/lib/utils";
 
 const GOAL_CALORIES = 2000;
 
 export function meta() {
-  const description =
-    "Open Source AI macro tracker for reviewing calorie, macro, exercise, and weight trends.";
+  const description = messages.seo.analyticsDescription;
 
   return [
-    { title: "Macro analytics - Open Source Agent-Native Macros" },
+    { title: messages.routeTitles.analytics },
     {
       name: "description",
       content: description,
@@ -53,7 +54,7 @@ export default function AnalyticsPage() {
         <IconCalendar className="w-3.5 h-3.5 me-1.5 sm:me-2 opacity-50" />
         <SelectValue placeholder={t("analytics.selectRange")} />
       </SelectTrigger>
-      <SelectContent className="bg-zinc-900 border-white/10">
+      <SelectContent className="bg-popover border-border text-popover-foreground">
         <SelectItem value="7">
           {t("analytics.lastDays", { count: 7 })}
         </SelectItem>

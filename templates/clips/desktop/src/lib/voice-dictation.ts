@@ -1,3 +1,4 @@
+import type { VoiceContextPack } from "@agent-native/core/voice";
 import { invoke } from "@tauri-apps/api/core";
 import { emit, listen } from "@tauri-apps/api/event";
 
@@ -5,6 +6,7 @@ import { applyBacktrack } from "./backtrack";
 import {
   configureVocabularyClient,
   loadVocabulary,
+  loadVocabularyEntries,
   recordPasteForLearn,
 } from "./personal-vocabulary";
 import {
@@ -32,6 +34,7 @@ export type VoiceProvider =
   | "auto"
   | "browser"
   | "macos-native"
+  | "whisper"
   | "builder-gemini"
   | "builder"
   | "gemini"
@@ -82,8 +85,10 @@ interface VoiceSession {
   // webkitSpeechRecognition (works in Safari and Chromium WebViews,
   // broken in Tauri WKWebView). "native" sessions drive Apple's
   // SFSpeechRecognizer + AVAudioEngine through Tauri commands —
-  // on-device, real-time partials, free, macOS-only.
-  kind: "server" | "browser" | "native";
+  // on-device, real-time partials, free, macOS-only. "whisper" sessions
+  // drive the local whisper.cpp engine via audio_transcription_* commands,
+  // mic-only (captureSystem: false), no API key required.
+  kind: "server" | "browser" | "native" | "whisper";
   // server-only fields
   stream: MediaStream | null;
   recorder: MediaRecorder | null;
@@ -97,6 +102,11 @@ interface VoiceSession {
   // Accumulated final transcript from interim webkit results, in case
   // the recognition session ends before we ask it to stop.
   browserTranscript: string;
+  // Native / Whisper engines can emit one final segment per pause. Keep
+  // committed segments separate from the current partial so long dictations
+  // survive natural pauses.
+  finalTranscriptParts: string[];
+  interimTranscript: string;
   // browser-only: monotonic timestamp of the most recent
   // recognition.onresult event. stop() reads this to decide whether
   // the user was actively speaking up to Fn release (worth a tail-
@@ -224,6 +234,73 @@ function setFlowState(state: FlowState): void {
   emit("voice:state-change", { state }).catch(() => {});
 }
 
+let lastStartPingAt = 0;
+
+function playStartPing(): void {
+  const now = Date.now();
+  if (now - lastStartPingAt < 250) return;
+  lastStartPingAt = now;
+  try {
+    const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+    if (!AudioCtx) return;
+    const ctx = new AudioCtx();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    const start = ctx.currentTime;
+    osc.type = "sine";
+    osc.frequency.setValueAtTime(880, start);
+    osc.frequency.exponentialRampToValueAtTime(1174.66, start + 0.08);
+    gain.gain.setValueAtTime(0.0001, start);
+    gain.gain.exponentialRampToValueAtTime(0.08, start + 0.015);
+    gain.gain.exponentialRampToValueAtTime(0.0001, start + 0.13);
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start(start);
+    osc.stop(start + 0.14);
+    window.setTimeout(() => {
+      ctx.close().catch(() => {});
+    }, 250);
+  } catch {
+    // Sound feedback is best-effort; the moving bars remain the visual cue.
+  }
+}
+
+function enterRecordingState(): void {
+  setFlowState("recording");
+  playStartPing();
+}
+
+function joinedTranscript(parts: string[], interim: string): string {
+  return [...parts, interim].filter(Boolean).join(" ").trim();
+}
+
+function appendFinalTranscript(session: VoiceSession, text: string): void {
+  const clean = text.trim();
+  if (!clean) return;
+  const committed = joinedTranscript(session.finalTranscriptParts, "");
+  if (!committed) {
+    session.finalTranscriptParts = [clean];
+  } else if (clean === committed || clean.startsWith(`${committed} `)) {
+    // Some recognizers send the whole dictation as their final result.
+    session.finalTranscriptParts = [clean];
+  } else if (session.finalTranscriptParts.at(-1) !== clean) {
+    session.finalTranscriptParts.push(clean);
+  }
+  session.interimTranscript = "";
+  session.browserTranscript = joinedTranscript(
+    session.finalTranscriptParts,
+    "",
+  );
+}
+
+function setInterimTranscript(session: VoiceSession, text: string): void {
+  session.interimTranscript = text.trim();
+  session.browserTranscript = joinedTranscript(
+    session.finalTranscriptParts,
+    session.interimTranscript,
+  );
+}
+
 function stopMeter(session: VoiceSession): void {
   if (session.raf != null) {
     cancelAnimationFrame(session.raf);
@@ -309,6 +386,7 @@ async function transcribe(
   providerPref: ServerVoiceProvider,
   controller: AbortController,
   instructions?: string,
+  contextPack?: VoiceContextPack,
 ): Promise<string> {
   const audioBlob = new Blob(chunks, { type: mimeType });
   const form = new FormData();
@@ -326,6 +404,7 @@ async function transcribe(
   if (trimmedInstructions) {
     form.append("instructions", trimmedInstructions);
   }
+  appendVoiceContext(form, contextPack);
   // Aggressive timeout — short clips should transcribe in well under
   // 2 seconds with Gemini Flash Lite or Whisper. If the server hasn't
   // come back in 8s it's hanging; abort and let the bar dismiss with an
@@ -364,6 +443,7 @@ async function cleanupTranscript(
   providerPref: ServerVoiceProvider,
   controller: AbortController,
   instructions?: string,
+  contextPack?: VoiceContextPack,
 ): Promise<string> {
   const form = new FormData();
   form.append("text", text);
@@ -372,6 +452,7 @@ async function cleanupTranscript(
   if (trimmedInstructions) {
     form.append("instructions", trimmedInstructions);
   }
+  appendVoiceContext(form, contextPack);
 
   const timeout = window.setTimeout(() => controller.abort(), 8_000);
   try {
@@ -394,6 +475,18 @@ async function cleanupTranscript(
     return (data.text ?? "").trim();
   } finally {
     window.clearTimeout(timeout);
+  }
+}
+
+function appendVoiceContext(
+  form: FormData,
+  contextPack: VoiceContextPack | undefined,
+): void {
+  if (!contextPack) return;
+  try {
+    form.append("voiceContext", JSON.stringify(contextPack));
+  } catch {
+    /* best effort */
   }
 }
 
@@ -496,6 +589,7 @@ export function installDesktopVoiceDictation(
   const resolveProvider = async (): Promise<
     | { kind: "browser"; cleanupProvider?: ServerVoiceProvider }
     | { kind: "native"; cleanupProvider?: ServerVoiceProvider }
+    | { kind: "whisper"; cleanupProvider?: ServerVoiceProvider }
     | {
         kind: "server";
         providerPref: ServerVoiceProvider;
@@ -515,6 +609,7 @@ export function installDesktopVoiceDictation(
       return { kind: "browser" };
     }
     if (provider === "macos-native") return { kind: "native" };
+    if (provider === "whisper") return { kind: "whisper" };
     if (provider !== "auto") {
       const cleanupProvider =
         provider === "builder" ? "builder-gemini" : provider;
@@ -605,6 +700,8 @@ export function installDesktopVoiceDictation(
         await startBrowser(resolved.cleanupProvider);
       } else if (resolved.kind === "native") {
         await startNative(resolved.cleanupProvider);
+      } else if (resolved.kind === "whisper") {
+        await startWhisper(resolved.cleanupProvider);
       } else {
         await startServer(resolved.providerPref);
       }
@@ -633,6 +730,7 @@ export function installDesktopVoiceDictation(
       const controller = new AbortController();
       target.transcribeAbort = controller;
       try {
+        const contextPack = await buildDesktopVoiceContextPack();
         text =
           (await cleanupTranscript(
             serverUrl,
@@ -640,6 +738,7 @@ export function installDesktopVoiceDictation(
             target.cleanupProvider,
             controller,
             instructions,
+            contextPack,
           )) || original;
       } catch (err) {
         if ((err as { name?: string })?.name !== "AbortError") {
@@ -671,7 +770,6 @@ export function installDesktopVoiceDictation(
     } catch (err) {
       console.warn("[voice-dictation] vocab learn-monitor failed:", err);
     }
-    emit("voice:partial-transcript", { text }).catch(() => {});
     if (target.cleanupProvider) setFlowState("idle");
     return text;
   };
@@ -701,6 +799,42 @@ export function installDesktopVoiceDictation(
     micDeviceId: concreteMediaDeviceId(micDeviceId) || null,
     micDeviceLabel: micDeviceLabel || null,
   });
+
+  const buildDesktopVoiceContextPack = async (): Promise<
+    VoiceContextPack | undefined
+  > => {
+    const vocabulary = await loadVocabularyEntries().catch(() => []);
+    const terms = vocabulary.map((entry) => ({
+      term: entry.term,
+      replacement: entry.replacement,
+      confidence: entry.confidence,
+      source: "learned-correction",
+      scope: "user",
+    }));
+    const snippets: NonNullable<VoiceContextPack["snippets"]> = [
+      { label: "Target surface", value: "Desktop dictation paste" },
+    ];
+    if (micDeviceLabel) {
+      snippets.push({ label: "Microphone", value: micDeviceLabel });
+    }
+    if (instructions.trim()) {
+      snippets.push({
+        label: "Saved voice instructions",
+        value: instructions.trim().slice(0, 1200),
+      });
+    }
+    return {
+      surface: "clips-desktop",
+      mode: "dictation",
+      snippets,
+      terms,
+      metadata: {
+        provider,
+        locale: navigator.language || "en-US",
+        micDeviceLabel: micDeviceLabel || null,
+      },
+    };
+  };
 
   /**
    * Server-path: capture audio with MediaRecorder, POST it to the
@@ -745,7 +879,7 @@ export function installDesktopVoiceDictation(
         abortPendingStart();
         return;
       }
-      setFlowState("recording");
+      enterRecordingState();
       const mimeType = pickMimeType();
       const recorder = new MediaRecorder(stream, { mimeType });
       const next: VoiceSession = {
@@ -759,6 +893,8 @@ export function installDesktopVoiceDictation(
         mimeType: recorder.mimeType || mimeType,
         recognition: null,
         browserTranscript: "",
+        finalTranscriptParts: [],
+        interimTranscript: "",
         lastResultAt: 0,
         startedAt: Date.now(),
         stopping: false,
@@ -783,6 +919,7 @@ export function installDesktopVoiceDictation(
         const controller = new AbortController();
         next.transcribeAbort = controller;
         try {
+          const contextPack = await buildDesktopVoiceContextPack();
           const text = await transcribe(
             serverUrl,
             next.chunks,
@@ -790,6 +927,7 @@ export function installDesktopVoiceDictation(
             providerPref,
             controller,
             instructions,
+            contextPack,
           );
           if (next.cancelled) {
             cleanup(next);
@@ -883,7 +1021,7 @@ export function installDesktopVoiceDictation(
         abortPendingStart();
         return;
       }
-      setFlowState("recording");
+      enterRecordingState();
       // Reset any prior partial transcript display in the flow-bar.
       emit("voice:partial-transcript", { text: "" }).catch(() => {});
       const next: VoiceSession = {
@@ -897,6 +1035,8 @@ export function installDesktopVoiceDictation(
         mimeType: "",
         recognition: null,
         browserTranscript: "",
+        finalTranscriptParts: [],
+        interimTranscript: "",
         lastResultAt: 0,
         startedAt: Date.now(),
         stopping: false,
@@ -913,7 +1053,8 @@ export function installDesktopVoiceDictation(
         // metadata to `native_speech_start` without also carrying vocabulary.
         // Best-effort — if the load failed we just stage an empty list and
         // the recognizer behaves as before.
-        const contextualStrings = await loadVocabulary().catch(() => []);
+        const vocabularyEntries = await loadVocabularyEntries().catch(() => []);
+        const contextualStrings = vocabularyEntries.map((v) => v.replacement);
         await invoke("native_speech_set_vocabulary", {
           strings: contextualStrings,
         }).catch(() => {});
@@ -931,6 +1072,82 @@ export function installDesktopVoiceDictation(
       }
     } catch (err) {
       console.error("[voice-dictation] startNative failed", err);
+      startInFlight = false;
+      stopRequestedBeforeReady = false;
+      session = null;
+      setFlowState("error");
+      window.setTimeout(() => {
+        if (disposed || session) return;
+        setFlowState("idle");
+        invoke("hide_flow_bar").catch(() => {});
+      }, 800);
+    }
+  };
+
+  /**
+   * Whisper path: local whisper.cpp engine via audio_transcription_* Tauri
+   * commands. Mic-only (captureSystem: false) — same linger/finalize flow
+   * as the native path, same voice:*-transcript events from Rust.
+   */
+  const startWhisper = async (cleanupProvider?: ServerVoiceProvider) => {
+    console.log(
+      "[voice-dictation] startWhisper: invoke audio_transcription_start",
+    );
+    try {
+      // Open the mic BEFORE showing the bar so audio is capturing by the time
+      // the user sees the recording state and starts speaking. The inverse order
+      // (bar first, then start) causes the mic to open ~100-300ms late and the
+      // first spoken words are lost inside audio_transcription_start's
+      // ensure_model + create_state + start_raw_mic_capture sequence.
+      await invoke("audio_transcription_start", {
+        meetingId: null,
+        locale: navigator.language || "en-US",
+        micDeviceId: concreteMediaDeviceId(micDeviceId) || null,
+        micDeviceLabel: micDeviceLabel || null,
+        captureSystem: false,
+      });
+      console.log("[voice-dictation] audio_transcription_start ok");
+      if (disposed || stopRequestedBeforeReady) {
+        invoke("audio_transcription_stop").catch(() => {});
+        abortPendingStart();
+        return;
+      }
+      await invoke("show_flow_bar");
+      if (disposed || stopRequestedBeforeReady) {
+        invoke("audio_transcription_stop").catch(() => {});
+        abortPendingStart();
+        return;
+      }
+      enterRecordingState();
+      emit("voice:partial-transcript", { text: "" }).catch(() => {});
+      const next: VoiceSession = {
+        kind: "whisper",
+        stream: null,
+        recorder: null,
+        chunks: [],
+        audioContext: null,
+        analyser: null,
+        raf: null,
+        mimeType: "",
+        recognition: null,
+        browserTranscript: "",
+        finalTranscriptParts: [],
+        interimTranscript: "",
+        lastResultAt: 0,
+        startedAt: Date.now(),
+        stopping: false,
+        transcribeAbort: null,
+        cancelled: false,
+        cleanupProvider: cleanupProvider ?? null,
+      };
+      session = next;
+      startInFlight = false;
+      startSyntheticMeter(next);
+      if (stopRequestedBeforeReady) {
+        stop();
+      }
+    } catch (err) {
+      console.error("[voice-dictation] startWhisper failed", err);
       startInFlight = false;
       stopRequestedBeforeReady = false;
       session = null;
@@ -972,7 +1189,7 @@ export function installDesktopVoiceDictation(
         abortPendingStart();
         return;
       }
-      setFlowState("recording");
+      enterRecordingState();
       // Reset any prior partial transcript display in the flow-bar.
       emit("voice:partial-transcript", { text: "" }).catch(() => {});
       const recognition = new Ctor();
@@ -991,6 +1208,8 @@ export function installDesktopVoiceDictation(
         mimeType: "",
         recognition,
         browserTranscript: "",
+        finalTranscriptParts: [],
+        interimTranscript: "",
         lastResultAt: 0,
         startedAt: Date.now(),
         stopping: false,
@@ -1063,10 +1282,6 @@ export function installDesktopVoiceDictation(
         // the tail because Web Speech only marks a segment as `isFinal`
         // after a confidence-threshold pass.
         next.browserTranscript = (finalSoFar + interim).trim();
-        // Stream the live transcript to the flow-bar.
-        emit("voice:partial-transcript", {
-          text: next.browserTranscript,
-        }).catch(() => {});
       };
       recognition.onerror = (ev) => {
         if (ev.error !== "no-speech" && ev.error !== "aborted") {
@@ -1172,6 +1387,13 @@ export function installDesktopVoiceDictation(
         invoke("native_speech_cancel").catch((err) => {
           console.warn("[voice-dictation] native_speech_cancel failed:", err);
         });
+      } else if (current.kind === "whisper") {
+        invoke("audio_transcription_stop").catch((err) => {
+          console.warn(
+            "[voice-dictation] audio_transcription_stop (cancel) failed:",
+            err,
+          );
+        });
       } else {
         try {
           current.recognition?.abort();
@@ -1225,6 +1447,8 @@ export function installDesktopVoiceDictation(
         }
       } else if (current.kind === "native") {
         invoke("native_speech_cancel").catch(() => {});
+      } else if (current.kind === "whisper") {
+        invoke("audio_transcription_stop").catch(() => {});
       }
       cleanup(current);
       return;
@@ -1232,15 +1456,19 @@ export function installDesktopVoiceDictation(
     try {
       if (current.kind === "server") {
         current.recorder?.stop();
-      } else if (current.kind === "native") {
-        // NATIVE PATH: dismiss the pill *immediately* (snappy UX) but
-        // leave the transcript chip lingering. Tell Rust to `endAudio()`
-        // so SFSpeechRecognizer can deliver its final hypothesis. When
+      } else if (current.kind === "native" || current.kind === "whisper") {
+        // NATIVE / WHISPER PATH: dismiss the pill *immediately* (snappy UX)
+        // but leave the transcript chip lingering. Tell Rust to end the
+        // engine so it can deliver its final hypothesis. When
         // `voice:final-transcript` lands (or after a safety timeout),
         // paste the text and let the chip sit for ~1s with the final
         // word visible — like a notification fading — then dismiss.
-        invoke("native_speech_stop").catch((err) => {
-          console.warn("[voice-dictation] native_speech_stop failed:", err);
+        const stopCmd =
+          current.kind === "whisper"
+            ? "audio_transcription_stop"
+            : "native_speech_stop";
+        invoke(stopCmd).catch((err) => {
+          console.warn(`[voice-dictation] ${stopCmd} failed:`, err);
         });
         // Pill goes RIGHT NOW. The flow-bar window stays open (we'll
         // hide it after the linger) but renders only the transcript
@@ -1576,38 +1804,39 @@ export function installDesktopVoiceDictation(
   // don't re-emit it here.
   onPartialTranscript(({ text }) => {
     const current = session;
-    if (!current || current.kind !== "native") return;
+    if (!current || (current.kind !== "native" && current.kind !== "whisper"))
+      return;
     if (current.cancelled || current.stopping) return;
-    current.browserTranscript = text.trim();
+    setInterimTranscript(current, text);
   })
     .then((u) => unlistens.push(u))
     .catch(() => {});
   onFinalTranscript(({ text }) => {
-    // Final transcripts are ONLY emitted by Rust after `endAudio()`,
-    // which we call in stop(). At that point the session has been
-    // moved from `session` to `lingeringSession`, so route there
-    // exclusively. Do NOT fall back to the active `session`: a
-    // late-arriving final from the previous session would otherwise
-    // overwrite the new session's transcript with stale text.
-    const current =
-      lingeringSession && lingeringSession.kind === "native"
-        ? lingeringSession
+    // Whisper emits final segments throughout a long dictation whenever the
+    // speaker pauses. Native speech emits its final after stop, when the
+    // stopped session is parked in lingeringSession. Native final events do not
+    // carry a session id, so never fall back to an active native session here:
+    // a late final from the previous stop could otherwise be appended to a new
+    // dictation.
+    const current = lingeringSession
+      ? lingeringSession
+      : session && session.kind === "whisper" && !session.stopping
+        ? session
         : null;
     if (!current) return;
     if (current.cancelled) return;
-    // Final beats partial — overwrite so a `complete_voice_dictation`
-    // from a late stop() picks up the better text.
-    current.browserTranscript = text.trim();
-    // If stop() is waiting on this event before lingering, trigger the
-    // finalize sequence now (paste → 1s linger → dismiss).
-    current.onNativeFinalize?.();
+    appendFinalTranscript(current, text);
+    if (current === lingeringSession) {
+      current.onNativeFinalize?.();
+    }
   })
     .then((u) => unlistens.push(u))
     .catch(() => {});
   onSpeechError(({ error }) => {
     const current = session;
     console.error("[voice-dictation] native speech error:", error);
-    if (!current || current.kind !== "native") return;
+    if (!current || (current.kind !== "native" && current.kind !== "whisper"))
+      return;
     setFlowState("error");
     window.setTimeout(() => {
       if (!disposed && session === current) cleanup(current);

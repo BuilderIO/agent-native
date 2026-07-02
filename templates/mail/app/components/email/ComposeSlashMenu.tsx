@@ -1,11 +1,4 @@
-import {
-  useState,
-  useEffect,
-  useLayoutEffect,
-  useCallback,
-  useRef,
-} from "react";
-import type { Editor } from "@tiptap/react";
+import { useT } from "@agent-native/core/client";
 import {
   IconTypography,
   IconH1,
@@ -19,6 +12,15 @@ import {
   IconPencil,
   IconPhoto,
 } from "@tabler/icons-react";
+import type { Editor } from "@tiptap/react";
+import {
+  useState,
+  useEffect,
+  useLayoutEffect,
+  useCallback,
+  useRef,
+} from "react";
+
 import { cn } from "@/lib/utils";
 interface ComposeSlashMenuProps {
   editor: Editor;
@@ -26,8 +28,8 @@ interface ComposeSlashMenuProps {
 }
 
 interface CommandItem {
-  title: string;
-  description: string;
+  titleKey: string;
+  descriptionKey: string;
   icon: React.ElementType;
   action: (editor: Editor) => void;
   category?: string;
@@ -36,79 +38,79 @@ interface CommandItem {
 function createCommands(onGenerate: () => void): CommandItem[] {
   return [
     {
-      title: "Text",
-      description: "Plain text block",
+      titleKey: "mail.composeSlash.text",
+      descriptionKey: "mail.composeSlash.plainTextBlock",
       icon: IconTypography,
       category: "basic",
       action: (editor) => (editor.chain().focus() as any).setParagraph().run(),
     },
     {
-      title: "Heading 1",
-      description: "Large heading",
+      titleKey: "mail.composeSlash.heading1",
+      descriptionKey: "mail.composeSlash.largeHeading",
       icon: IconH1,
       category: "basic",
       action: (editor) =>
         (editor.chain().focus() as any).toggleHeading({ level: 1 }).run(),
     },
     {
-      title: "Heading 2",
-      description: "Medium heading",
+      titleKey: "mail.composeSlash.heading2",
+      descriptionKey: "mail.composeSlash.mediumHeading",
       icon: IconH2,
       category: "basic",
       action: (editor) =>
         (editor.chain().focus() as any).toggleHeading({ level: 2 }).run(),
     },
     {
-      title: "Heading 3",
-      description: "Small heading",
+      titleKey: "mail.composeSlash.heading3",
+      descriptionKey: "mail.composeSlash.smallHeading",
       icon: IconH3,
       category: "basic",
       action: (editor) =>
         (editor.chain().focus() as any).toggleHeading({ level: 3 }).run(),
     },
     {
-      title: "Bullet List",
-      description: "Unordered list",
+      titleKey: "mail.composeSlash.bulletList",
+      descriptionKey: "mail.composeSlash.unorderedList",
       icon: IconList,
       category: "basic",
       action: (editor) =>
         (editor.chain().focus() as any).toggleBulletList().run(),
     },
     {
-      title: "Numbered List",
-      description: "Ordered list",
+      titleKey: "mail.composeSlash.numberedList",
+      descriptionKey: "mail.composeSlash.orderedList",
       icon: IconListNumbers,
       category: "basic",
       action: (editor) =>
         (editor.chain().focus() as any).toggleOrderedList().run(),
     },
     {
-      title: "Quote",
-      description: "Block quote",
+      titleKey: "mail.composeSlash.quote",
+      descriptionKey: "mail.composeSlash.blockQuote",
       icon: IconQuote,
       category: "basic",
       action: (editor) =>
         (editor.chain().focus() as any).toggleBlockquote().run(),
     },
     {
-      title: "Code Block",
-      description: "Code snippet",
+      titleKey: "mail.composeSlash.codeBlock",
+      descriptionKey: "mail.composeSlash.codeSnippet",
       icon: IconCode,
       category: "basic",
       action: (editor) =>
         (editor.chain().focus() as any).toggleCodeBlock().run(),
     },
     {
-      title: "Divider",
-      description: "Horizontal rule",
+      titleKey: "mail.composeSlash.divider",
+      descriptionKey: "mail.composeSlash.horizontalRule",
       icon: IconMinus,
       category: "basic",
       action: (editor) =>
         (editor.chain().focus() as any).setHorizontalRule().run(),
     },
     {
-      title: "Image",
-      description: "Upload an image",
+      titleKey: "mail.composeSlash.image",
+      descriptionKey: "mail.composeSlash.uploadImage",
       icon: IconPhoto,
       category: "media",
       action: (editor) => {
@@ -116,8 +118,8 @@ function createCommands(onGenerate: () => void): CommandItem[] {
       },
     },
     {
-      title: "Generate",
-      description: "AI-assisted writing",
+      titleKey: "mail.composeSlash.generate",
+      descriptionKey: "mail.composeSlash.aiAssistedWriting",
       icon: IconPencil,
       category: "ai",
       action: (_editor) => {
@@ -147,13 +149,14 @@ export function ComposeSlashMenu({
   } | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const slashPosRef = useRef<number | null>(null);
+  const t = useT();
 
   const commands = createCommands(onGenerate);
 
   const filteredCommands = commands.filter(
     (cmd) =>
-      cmd.title.toLowerCase().includes(query.toLowerCase()) ||
-      cmd.description.toLowerCase().includes(query.toLowerCase()),
+      t(cmd.titleKey).toLowerCase().includes(query.toLowerCase()) ||
+      t(cmd.descriptionKey).toLowerCase().includes(query.toLowerCase()),
   );
 
   const executeCommand = useCallback(
@@ -293,14 +296,15 @@ export function ComposeSlashMenu({
         {basicCommands.length > 0 && (
           <>
             <div className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-              Blocks
+              {t("mail.composeSlash.blocks")}
             </div>
             {basicCommands.map((cmd) => {
               const globalIndex = filteredCommands.indexOf(cmd);
               return (
                 <CommandButton
-                  key={cmd.title}
+                  key={cmd.titleKey}
                   cmd={cmd}
+                  t={t}
                   isSelected={globalIndex === selectedIndex}
                   onExecute={() => executeCommand(cmd)}
                   onHover={() => setSelectedIndex(globalIndex)}
@@ -312,14 +316,15 @@ export function ComposeSlashMenu({
         {mediaCommands.length > 0 && (
           <>
             <div className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-              Media
+              {t("mail.composeSlash.media")}
             </div>
             {mediaCommands.map((cmd) => {
               const globalIndex = filteredCommands.indexOf(cmd);
               return (
                 <CommandButton
-                  key={cmd.title}
+                  key={cmd.titleKey}
                   cmd={cmd}
+                  t={t}
                   isSelected={globalIndex === selectedIndex}
                   onExecute={() => executeCommand(cmd)}
                   onHover={() => setSelectedIndex(globalIndex)}
@@ -331,14 +336,15 @@ export function ComposeSlashMenu({
         {aiCommands.length > 0 && (
           <>
             <div className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-              AI
+              {t("mail.composeSlash.ai")}
             </div>
             {aiCommands.map((cmd) => {
               const globalIndex = filteredCommands.indexOf(cmd);
               return (
                 <CommandButton
-                  key={cmd.title}
+                  key={cmd.titleKey}
                   cmd={cmd}
+                  t={t}
                   isSelected={globalIndex === selectedIndex}
                   onExecute={() => executeCommand(cmd)}
                   onHover={() => setSelectedIndex(globalIndex)}
@@ -354,11 +360,13 @@ export function ComposeSlashMenu({
 
 function CommandButton({
   cmd,
+  t,
   isSelected,
   onExecute,
   onHover,
 }: {
   cmd: CommandItem;
+  t: ReturnType<typeof useT>;
   isSelected: boolean;
   onExecute: () => void;
   onHover: () => void;
@@ -376,8 +384,12 @@ function CommandButton({
         <cmd.icon size={16} />
       </div>
       <div>
-        <div className="text-sm font-medium text-foreground">{cmd.title}</div>
-        <div className="text-xs text-muted-foreground">{cmd.description}</div>
+        <div className="text-sm font-medium text-foreground">
+          {t(cmd.titleKey)}
+        </div>
+        <div className="text-xs text-muted-foreground">
+          {t(cmd.descriptionKey)}
+        </div>
       </div>
     </button>
   );

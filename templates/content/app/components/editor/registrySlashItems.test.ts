@@ -1,16 +1,19 @@
 // @vitest-environment happy-dom
 
 import { describe, expect, it } from "vitest";
+
 import { contentBlockRegistry } from "@/blocks/contentBlockRegistry";
+
 import {
   buildRegistrySlashItems,
   seedRegistryBlockRaw,
 } from "./registrySlashItems";
 
 // The block types Content offers in its slash menu, in registry order. Excludes
-// the registered-but-not-offered blocks: `columns` (needs nested editing) and
-// `question-form` / `visual-questions` (agent-intake forms, a plan workflow).
-const STANDARD_LIBRARY_BLOCK_TYPES = [
+// the registered-but-not-offered blocks: `columns` (needs nested editing),
+// `question-form` / `visual-questions` (agent-intake forms, a plan workflow),
+// and provider/runtime markers such as `source-component`.
+const AUTHORABLE_LIBRARY_BLOCK_TYPES = [
   "checklist",
   "table-block",
   "code",
@@ -28,10 +31,20 @@ const STANDARD_LIBRARY_BLOCK_TYPES = [
   "file-tree",
   "json-explorer",
   "annotated-code",
+  "builder-text",
+  "builder-code-block",
+  "builder-code-snippets-v2",
+  "builder-tabbed-content",
+  "builder-symbol",
+  "builder-raw-block",
 ] as const;
 
 /** Blocks registered in Content but intentionally hidden from the slash menu. */
 const HIDDEN_FROM_SLASH_MENU = ["columns", "question-form", "visual-questions"];
+const PHASED_BLOCKS_HIDDEN_FROM_SLASH_MENU = [
+  "inline-database",
+  "source-component",
+];
 
 /**
  * T7 — registry-derived slash items + Notion gating for content's slash menu.
@@ -65,7 +78,13 @@ describe("buildRegistrySlashItems", () => {
     const items = buildRegistrySlashItems(contentBlockRegistry);
     const authorableBlockSpecs = contentBlockRegistry
       .list("block")
-      .filter((spec) => !HIDDEN_FROM_SLASH_MENU.includes(spec.type));
+      .filter(
+        (spec) =>
+          ![
+            ...HIDDEN_FROM_SLASH_MENU,
+            ...PHASED_BLOCKS_HIDDEN_FROM_SLASH_MENU,
+          ].includes(spec.type),
+      );
     expect(items.length).toBe(authorableBlockSpecs.length);
     // Includes the shared dev-doc / structured library labels.
     const titles = items.map((i) => i.title);
@@ -73,9 +92,13 @@ describe("buildRegistrySlashItems", () => {
     expect(titles).toContain("API endpoint");
     expect(titles).toContain("Data model");
     const offeredTypes = items.map((i) => i.searchText?.split(" ").pop());
-    expect(offeredTypes).toEqual([...STANDARD_LIBRARY_BLOCK_TYPES]);
+    expect(offeredTypes).toEqual([...AUTHORABLE_LIBRARY_BLOCK_TYPES]);
     expect(contentBlockRegistry.get("columns")).toBeDefined();
     expect(offeredTypes).not.toContain("columns");
+    expect(contentBlockRegistry.get("inline-database")).toBeDefined();
+    expect(offeredTypes).not.toContain("inline-database");
+    expect(contentBlockRegistry.get("source-component")).toBeDefined();
+    expect(offeredTypes).not.toContain("source-component");
   });
 
   it("keeps API and schema aliases searchable in normal mode", () => {
@@ -102,16 +125,19 @@ describe("buildRegistrySlashItems", () => {
     // checklist + table-block carry notionCompatible: true → kept.
     expect(titles).toContain("Checklist");
     expect(titles).toContain("Table");
-    // Dev-doc blocks have no NFM analog → dropped from the gated set.
+    // Dev-doc and Builder docs blocks have no NFM analog → dropped from the
+    // gated set.
     expect(titles).not.toContain("API endpoint");
     expect(titles).not.toContain("Data model");
     expect(titles).not.toContain("Diff");
+    expect(titles).not.toContain("Builder text");
+    expect(titles).not.toContain("Builder raw block");
     // Every gated spec is genuinely notion-compatible.
     const compatible = contentBlockRegistry.notionCompatibleTypes();
     expect(gated.length).toBe(compatible.size);
   });
 
-  // The 8 registry blocks added for dev-docs have NO Notion/NFM analog, so a
+  // The registry blocks added for dev-docs and Builder docs have NO Notion/NFM analog, so a
   // Notion-connected document MUST NOT offer any of them in the slash menu (they
   // would silently drop on push). This asserts the gating by block `type` so it
   // can't rot if a label is renamed.
@@ -125,6 +151,12 @@ describe("buildRegistrySlashItems", () => {
       "json-explorer",
       "annotated-code",
       "openapi-spec",
+      "builder-text",
+      "builder-code-block",
+      "builder-code-snippets-v2",
+      "builder-tabbed-content",
+      "builder-symbol",
+      "builder-raw-block",
     ];
 
     // Sanity: each block is registered, block-placed, and NOT flagged compatible.
@@ -137,7 +169,7 @@ describe("buildRegistrySlashItems", () => {
       expect(compatible.has(type)).toBe(false);
     }
 
-    // None of the 8 surface in the gated slash menu. The menu rides the raw
+    // None of these surface in the gated slash menu. The menu rides the raw
     // `type` keyword in each item's hidden search text, so match on that.
     const gated = buildRegistrySlashItems(contentBlockRegistry, {
       notionCompatibleOnly: true,

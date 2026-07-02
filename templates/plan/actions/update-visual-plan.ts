@@ -1,18 +1,18 @@
 import { defineAction, embedApp } from "@agent-native/core";
 import {
+  getRequestUserEmail,
+  getRequestUserName,
+} from "@agent-native/core/server/request-context";
+import {
   ForbiddenError,
   currentAccess,
   resolveAccess,
 } from "@agent-native/core/sharing";
 import { and, eq, inArray, isNull } from "drizzle-orm";
 import { z } from "zod";
+
 import { getDb, schema } from "../server/db/index.js";
-import {
-  normalizePlanContent,
-  sanitizeStoredPlanHtml,
-  serializePlanContent,
-} from "../server/plan-content.js";
-import { exportPlanContentToMdxFolder } from "../server/plan-mdx.js";
+import { notifyPlanCommentRecipients } from "../server/lib/comment-notifications.js";
 import {
   isAnonymousPublicViewer,
   isGuestAuthorIdentity,
@@ -22,11 +22,15 @@ import {
 } from "../server/lib/local-identity.js";
 import { writePlanLocalFiles } from "../server/lib/local-plan-files.js";
 import { createPlanVersionSnapshot } from "../server/lib/plan-versions.js";
-import { notifyPlanCommentRecipients } from "../server/lib/comment-notifications.js";
 import {
-  getRequestUserEmail,
-  getRequestUserName,
-} from "@agent-native/core/server/request-context";
+  normalizePlanContent,
+  sanitizeStoredPlanHtml,
+  serializePlanContent,
+} from "../server/plan-content.js";
+import {
+  exportPlanContentToMdxFolder,
+  referencedBlockIdsForPlanComments,
+} from "../server/plan-mdx.js";
 import {
   assertPlanEditor,
   buildPlanHtml,
@@ -452,7 +456,7 @@ export default defineAction({
         "Open the Agent-Native Plan editor for structured content, comments, and status changes.",
       iframeTitle: "Agent-Native Plan",
       openLabel: "Open Plan",
-      height: 860,
+      height: 900,
     }),
   },
   run: async (args) => {
@@ -563,6 +567,9 @@ export default defineAction({
                 sourceBundleForMarkdown.plan.brief,
               planId: args.planId,
               url: planPath(args.planId, sourceBundleForMarkdown.plan.kind),
+              referencedBlockIds: referencedBlockIdsForPlanComments(
+                sourceBundleForMarkdown.comments,
+              ),
             })
           )["plan.mdx"]
         : null;
@@ -968,6 +975,9 @@ export default defineAction({
           brief: bundle.plan.brief,
           content: bundle.plan.content,
           url: planPath(bundle.plan.id, bundle.plan.kind),
+          referencedBlockIds: referencedBlockIdsForPlanComments(
+            bundle.comments,
+          ),
         })
       : null;
     return {

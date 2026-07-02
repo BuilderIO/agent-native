@@ -1,19 +1,26 @@
-import { reactRouter } from "@react-router/dev/vite";
 import fs from "node:fs";
 import path from "node:path";
-import { defineConfig } from "@agent-native/core/vite";
+
 import {
   findAgentNativeManifest,
   getLocalArtifactApp,
   type LocalArtifactOptions,
 } from "@agent-native/core/local-artifacts";
-import type { Plugin } from "vite";
+import { agentNative } from "@agent-native/core/vite";
+import { reactRouter } from "@react-router/dev/vite";
+import { defineConfig, type Plugin } from "vite";
+
 import {
   isLocalComponentWorkspaceStoreFile,
   localComponentWorkspaceStoreDir,
   localComponentWorkspaceStorePath,
   registeredLocalComponentRootsSync,
 } from "./shared/local-component-workspaces";
+
+const reactRouterPlugins = reactRouter as unknown as () => any[];
+const agentNativePlugins = agentNative as unknown as (
+  options?: Parameters<typeof agentNative>[0],
+) => any[];
 
 const CONTENT_APP_ID = "content";
 const LOCAL_COMPONENTS_MODULE_ID =
@@ -24,6 +31,17 @@ const LOCAL_COMPONENTS_STUB_IMPORTS = new Set([
   "./local-components.generated.ts",
 ]);
 const COMPONENT_EXTENSIONS = new Set([".tsx", ".jsx", ".ts", ".js"]);
+const LOCAL_COMPONENT_SKIP_DIRS = new Set([
+  "__tests__",
+  "build",
+  "coverage",
+  "dist",
+  "node_modules",
+]);
+const LOCAL_COMPONENT_SKIP_FILE_RE =
+  /(?:^|[.-])(?:test|spec|stories|story)\.[cm]?[jt]sx?$/;
+const ALLOW_PRODUCTION_LOCAL_FILES_ENV =
+  "AGENT_NATIVE_ALLOW_LOCAL_FILES_IN_PRODUCTION";
 const CONTENT_LOCAL_DEFAULTS: LocalArtifactOptions["defaults"] = {
   roots: [
     { name: "Docs", path: "docs", kind: "docs", extensions: [".md", ".mdx"] },
@@ -55,6 +73,14 @@ function envManifestPath() {
     process.env.AGENT_NATIVE_MANIFEST_PATH?.trim() ||
     ""
   );
+}
+
+function localFilesAllowedForBuild() {
+  if (process.env.NODE_ENV !== "production") return true;
+  const value = process.env[ALLOW_PRODUCTION_LOCAL_FILES_ENV]
+    ?.trim()
+    .toLowerCase();
+  return value === "1" || value === "true" || value === "yes" || value === "on";
 }
 
 function localWorkspaceRootSync() {
@@ -128,18 +154,16 @@ async function walkComponentFiles(directory: string): Promise<string[]> {
     if (entry.isSymbolicLink()) continue;
     const absolutePath = path.join(directory, entry.name);
     if (entry.isDirectory()) {
-      if (
-        entry.name === "node_modules" ||
-        entry.name === "dist" ||
-        entry.name === "build"
-      ) {
-        continue;
-      }
+      if (LOCAL_COMPONENT_SKIP_DIRS.has(entry.name)) continue;
       files.push(...(await walkComponentFiles(absolutePath)));
       continue;
     }
     if (
       !entry.isFile() ||
+      entry.name.endsWith(".generated.ts") ||
+      entry.name.endsWith(".generated.tsx") ||
+      entry.name.endsWith(".d.ts") ||
+      LOCAL_COMPONENT_SKIP_FILE_RE.test(entry.name) ||
       !COMPONENT_EXTENSIONS.has(path.extname(entry.name).toLowerCase())
     ) {
       continue;
@@ -332,6 +356,9 @@ function contentLocalComponentsPlugin(): Plugin {
     },
     async load(id) {
       if (id !== RESOLVED_LOCAL_COMPONENTS_MODULE_ID) return null;
+      if (!localFilesAllowedForBuild()) {
+        return renderLocalComponentsModule([]);
+      }
       return renderLocalComponentsModule(await loadLocalComponentFiles());
     },
   };
@@ -383,14 +410,19 @@ const cloudflareSsrStubs =
     : [];
 
 export default defineConfig({
-  plugins: [contentLocalComponentsPlugin(), reactRouter()],
-  fsAllow: [
-    ...(localWorkspaceRoot ? [localWorkspaceRoot] : []),
-    ...dynamicLocalComponentDirs,
+  plugins: [
+    contentLocalComponentsPlugin(),
+    ...reactRouterPlugins(),
+    ...agentNativePlugins({
+      fsAllow: [
+        ...(localWorkspaceRoot ? [localWorkspaceRoot] : []),
+        ...dynamicLocalComponentDirs,
+      ],
+      // shiki only runs in AssistantChat's useEffect — keep it out of the
+      // CF Pages Functions bundle (25 MiB limit).
+      ssrStubs: ["shiki", ...cloudflareSsrStubs],
+    }),
   ],
-  // shiki only runs in AssistantChat's useEffect — keep it out of the
-  // CF Pages Functions bundle (25 MiB limit).
-  ssrStubs: ["shiki", ...cloudflareSsrStubs],
   optimizeDeps: {
     include: [
       "yjs",

@@ -3,8 +3,9 @@ import {
   getRequestUserEmail,
   todayInTimezone,
 } from "@agent-native/core/server";
-import { db, schema } from "../server/db/index.js";
 import { z } from "zod";
+
+import { db, schema } from "../server/db/index.js";
 
 export default defineAction({
   description:

@@ -1,6 +1,3 @@
-import { defineEventHandler, getRouterParam, setResponseStatus } from "h3";
-import { eq, desc } from "drizzle-orm";
-import { getDb, schema } from "../db";
 import { readBody } from "@agent-native/core/server";
 import {
   accessFilter,
@@ -8,6 +5,10 @@ import {
   assertAccess,
   ForbiddenError,
 } from "@agent-native/core/sharing";
+import { eq, desc } from "drizzle-orm";
+import { defineEventHandler, getRouterParam, setResponseStatus } from "h3";
+
+import { getDb, schema } from "../db";
 import { withSlidesRequestContext } from "./request-auth-context.js";
 
 /**

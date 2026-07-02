@@ -1,7 +1,8 @@
 import { defineAction } from "@agent-native/core";
 import { z } from "zod";
-import { resolveOwnerEmail } from "./helpers.js";
+
 import { getTrackingStats } from "../server/lib/email-tracking.js";
+import { resolveOwnerEmail } from "./helpers.js";
 
 export default defineAction({
   description:

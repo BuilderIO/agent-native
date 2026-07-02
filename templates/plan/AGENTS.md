@@ -172,6 +172,9 @@ sync-guarded skills (not just one stored plan) so the improvement sticks.
 - Use `promote-local-plan-folder` when a temporary local plan should be saved
   into the repo. Its default target is `apps.plan.roots[0].path/<slug>` from
   `agent-native.json`, falling back to `plans/<slug>`.
+- Commit `.plan-state.json` with repo-backed plan folders when present. It is
+  source metadata for stable bare-Markdown block IDs, not a disposable preview
+  cache.
 - Use `import-visual-plan-source` to create or replace a plan from an MDX folder.
 - Use `patch-visual-plan-source` for small source edits by stable semantic IDs.
   It patches the MDX AST, runs formatting, parses back to normalized JSON, and
@@ -222,7 +225,7 @@ elementId, styles }]`. Elements must have `data-design-id` or
   `data-plan-design-id`; use `patch-wireframe-html` / `patch-prototype-html` for
   structural or text changes.
 - Plan comments include reviewer identity, @mentions, resolver intent
-  (`agent` or `human`), exact anchors, and Figma-style threads. When adding
+  (`agent` or `human`), exact anchors, and design-review threads. When adding
   human feedback through `update-visual-plan`, preserve `authorEmail` and
   `authorName` when known; pass `parentCommentId` to reply inline to an
   existing comment thread. Text feedback should anchor to the nearest prose

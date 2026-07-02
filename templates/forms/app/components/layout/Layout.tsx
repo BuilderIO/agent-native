@@ -1,17 +1,20 @@
-import { useMemo } from "react";
-import { useLocation, useNavigate } from "react-router";
-import { Sidebar } from "./Sidebar";
-import { Header } from "./Header";
-import { HeaderActionsProvider } from "./HeaderActions";
 import {
   AgentSidebar,
   focusAgentChat,
   navigateWithAgentChatViewTransition,
   useAgentChatHomeHandoff,
+  useAgentChatHomeHandoffLinks,
   useT,
 } from "@agent-native/core/client";
 import { InvitationBanner } from "@agent-native/core/client/org";
+import { useMemo } from "react";
+import { useLocation, useNavigate } from "react-router";
+
 import { TAB_ID } from "@/lib/tab-id";
+
+import { Header } from "./Header";
+import { HeaderActionsProvider } from "./HeaderActions";
+import { Sidebar } from "./Sidebar";
 
 const BARE_ROUTES = new Set(["/form-preview"]);
 
@@ -28,9 +31,15 @@ export function Layout({ children }: LayoutProps) {
   const location = useLocation();
   const navigate = useNavigate();
   const t = useT();
+  const isAskRoute = location.pathname === "/ask";
   const chatHomeHandoffActive = useAgentChatHomeHandoff({
     storageKey: "forms",
     activePath: location.pathname,
+    enabled: !isAskRoute,
+  });
+  useAgentChatHomeHandoffLinks({
+    storageKey: "forms",
+    chatPath: "/ask",
   });
 
   // Bind chat to the currently-open form. The `/forms/:id` URL covers
@@ -51,41 +60,57 @@ export function Layout({ children }: LayoutProps) {
   // Editor routes (/forms/:id, /forms/:id/responses) render their own
   // toolbar with AgentToggleButton — skip the global Header to avoid
   // a double-header.
-  const showHeader = !NO_HEADER_PREFIXES.some((prefix) =>
-    location.pathname.startsWith(prefix),
-  );
+  const showHeader =
+    !NO_HEADER_PREFIXES.some((prefix) =>
+      location.pathname.startsWith(prefix),
+    ) && !isAskRoute;
 
   function openAskAgentFullscreen() {
     focusAgentChat();
-    navigateWithAgentChatViewTransition(navigate, "/");
+    navigateWithAgentChatViewTransition(navigate, "/ask");
   }
 
   return (
     <HeaderActionsProvider>
-      <div className="flex h-screen overflow-hidden">
-        <Sidebar />
-        <AgentSidebar
-          position="right"
-          defaultOpen
-          chatViewTransition
-          storageKey="forms"
-          browserTabId={TAB_ID}
-          openOnChatRunning={chatHomeHandoffActive}
-          onFullscreenRequest={openAskAgentFullscreen}
-          emptyStateText={t("agent.emptyState")}
-          suggestions={[
-            t("agent.suggestionSurvey"),
-            t("agent.suggestionSubmissions"),
-            t("agent.suggestionExport"),
-          ]}
-          scope={sidebarScope}
-        >
-          <div className="flex h-full flex-1 flex-col overflow-hidden">
-            {showHeader ? <Header /> : null}
-            <InvitationBanner />
-            <main className="flex-1 overflow-auto">{children}</main>
+      <div className="agent-layout-shell flex h-screen overflow-hidden">
+        <div className="agent-layout-left-drawer flex shrink-0">
+          <Sidebar />
+        </div>
+        {isAskRoute ? (
+          <div className="agent-layout-main-surface flex min-w-0 flex-1 overflow-hidden">
+            <div className="flex h-full flex-1 flex-col overflow-hidden">
+              <InvitationBanner />
+              <main className="agent-native-app-main flex-1 overflow-hidden">
+                {children}
+              </main>
+            </div>
           </div>
-        </AgentSidebar>
+        ) : (
+          <AgentSidebar
+            position="right"
+            defaultOpen
+            chatViewTransition
+            storageKey="forms"
+            browserTabId={TAB_ID}
+            openOnChatRunning={chatHomeHandoffActive}
+            onFullscreenRequest={openAskAgentFullscreen}
+            emptyStateText={t("agent.emptyState")}
+            suggestions={[
+              t("agent.suggestionSurvey"),
+              t("agent.suggestionSubmissions"),
+              t("agent.suggestionExport"),
+            ]}
+            scope={sidebarScope}
+          >
+            <div className="flex h-full flex-1 flex-col overflow-hidden">
+              {showHeader ? <Header /> : null}
+              <InvitationBanner />
+              <main className="agent-native-app-main flex-1 overflow-auto">
+                {children}
+              </main>
+            </div>
+          </AgentSidebar>
+        )}
       </div>
     </HeaderActionsProvider>
   );

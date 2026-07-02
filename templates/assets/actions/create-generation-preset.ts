@@ -1,11 +1,11 @@
 import { defineAction } from "@agent-native/core";
-import { z } from "zod";
-import { nanoid } from "nanoid";
-import { eq } from "drizzle-orm";
 import { assertAccess } from "@agent-native/core/sharing";
+import { eq } from "drizzle-orm";
+import { nanoid } from "nanoid";
+import { z } from "zod";
+
 import { getDb, schema } from "../server/db/index.js";
 import { nowIso, stringifyJson } from "../server/lib/json.js";
-import { serializeGenerationPreset } from "./_helpers.js";
 import {
   ASPECT_RATIOS,
   GENERATION_PRESET_REFERENCE_POLICIES,
@@ -13,6 +13,7 @@ import {
   IMAGE_MODELS,
   IMAGE_SIZES,
 } from "../shared/api.js";
+import { serializeGenerationPreset } from "./_helpers.js";
 
 export default defineAction({
   description:
@@ -31,6 +32,12 @@ export default defineAction({
     referencePolicy: z
       .enum(GENERATION_PRESET_REFERENCE_POLICIES)
       .default("auto"),
+    includeLogo: z.coerce
+      .boolean()
+      .optional()
+      .describe(
+        "When true, images generated with this preset composite the library's canonical logo (no-op if the library has no canonical logo).",
+      ),
     settings: z.record(z.string(), z.unknown()).optional(),
     sortOrder: z.coerce.number().optional(),
   }),
@@ -61,7 +68,12 @@ export default defineAction({
       model: args.model,
       textPolicy: args.textPolicy,
       referencePolicy: args.referencePolicy,
-      settings: stringifyJson(args.settings ?? {}),
+      settings: stringifyJson({
+        ...(args.settings ?? {}),
+        ...(args.includeLogo !== undefined
+          ? { includeLogo: args.includeLogo }
+          : {}),
+      }),
       sortOrder: args.sortOrder ?? 100,
       createdAt: now,
       updatedAt: now,

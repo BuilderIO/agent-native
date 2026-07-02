@@ -6,13 +6,14 @@
  */
 
 import { IconChecklist } from "@tabler/icons-react";
-import { useOnboarding } from "./use-onboarding.js";
-import { useDevMode } from "../use-dev-mode.js";
+
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "../components/ui/tooltip.js";
+import { useDevMode } from "../use-dev-mode.js";
+import { useOnboarding } from "./use-onboarding.js";
 
 const DEV_ONLY_STEP_IDS = new Set(["database", "auth"]);
 

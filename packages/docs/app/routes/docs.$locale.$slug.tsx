@@ -4,7 +4,7 @@ import {
   useParams,
   type LoaderFunctionArgs,
 } from "react-router";
-import DocsLayout from "../components/DocsLayout";
+
 import DocContent from "../components/DocContent";
 import { getDoc, loadDoc, type DocEntry } from "../components/docs-content";
 import {
@@ -13,6 +13,8 @@ import {
   isDocsLocale,
   type DocsLocale,
 } from "../components/docs-locale";
+import { docsMarkdownPathForDoc } from "../components/docs-seo";
+import DocsLayout from "../components/DocsLayout";
 import { withDefaultSocialImage, withDocsSocialImage } from "../seo";
 
 /** Legacy slug -> current slug. Keep in sync with docs.$slug.tsx. */
@@ -29,9 +31,10 @@ function requireLocale(value: unknown): DocsLocale {
   throw new Response("Not Found", { status: 404 });
 }
 
-export async function loader({ params, request }: LoaderFunctionArgs) {
+export async function loader({ params, request, url }: LoaderFunctionArgs) {
   const locale = requireLocale(params.locale);
   const slug = params.slug!;
+  const requestUrl = url ?? new URL(request.url);
 
   if (locale === DEFAULT_DOCS_LOCALE) {
     throw redirect(docsPathForSlug(slug, DEFAULT_DOCS_LOCALE), 301);
@@ -42,8 +45,7 @@ export async function loader({ params, request }: LoaderFunctionArgs) {
     throw redirect(docsPathForSlug(target, locale), 301);
   }
 
-  const requestPathname = new URL(request.url).pathname;
-  if (requestPathname.startsWith("/docs/")) {
+  if (requestUrl.pathname.startsWith("/docs/")) {
     throw redirect(docsPathForSlug(slug, locale), 301);
   }
 
@@ -56,15 +58,20 @@ export async function loader({ params, request }: LoaderFunctionArgs) {
 
 export const meta = ({
   data,
+  loaderData,
   params,
 }: {
   data?: DocEntry;
+  loaderData?: DocEntry;
   params: { locale?: string; slug?: string };
 }) => {
   const locale = isDocsLocale(params.locale)
     ? params.locale
     : DEFAULT_DOCS_LOCALE;
-  const doc = data ?? (params.slug ? getDoc(params.slug, locale) : undefined);
+  const doc =
+    data ??
+    loaderData ??
+    (params.slug ? getDoc(params.slug, locale) : undefined);
   if (!doc)
     return withDefaultSocialImage([{ title: "Not Found — Agent-Native" }]);
   return withDocsSocialImage(
@@ -84,7 +91,7 @@ export default function LocalizedDocPage() {
   const { locale: localeParam } = useParams<{
     locale: string;
   }>();
-  requireLocale(localeParam);
+  const locale = requireLocale(localeParam);
 
   if (!doc) return null;
 
@@ -95,7 +102,10 @@ export default function LocalizedDocPage() {
   }));
 
   return (
-    <DocsLayout toc={toc}>
+    <DocsLayout
+      toc={toc}
+      markdownUrl={docsMarkdownPathForDoc(doc.slug, locale) ?? undefined}
+    >
       <DocContent markdown={doc.body} />
     </DocsLayout>
   );

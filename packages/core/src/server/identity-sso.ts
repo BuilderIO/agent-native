@@ -42,17 +42,19 @@
  * its prior auth with no residue.
  */
 
+import { createHash } from "node:crypto";
+
 import type { H3Event } from "h3";
 import { getMethod } from "h3";
 import * as jose from "jose";
-import { createHash } from "node:crypto";
+
+import { getAppName } from "./app-name.js";
+import { getSession, safeReturnPath, isExpectedAuthFailure } from "./auth.js";
 import {
   getBetterAuth,
   getBetterAuthInternalAdapter,
 } from "./better-auth-instance.js";
-import { getSession, safeReturnPath, isExpectedAuthFailure } from "./auth.js";
 import { createOAuthSession, getOrigin } from "./google-oauth.js";
-import { getAppName } from "./app-name.js";
 import {
   createSsoState,
   consumeSsoState,

@@ -1,9 +1,10 @@
-import { agentNativePath } from "../api-path.js";
 import { useEffect } from "react";
 import { useParams } from "react-router";
-import { ExtensionViewer } from "./ExtensionViewer.js";
-import { ExtensionsListPage } from "./ExtensionsListPage.js";
+
+import { agentNativePath } from "../api-path.js";
 import { incrementExtensionView } from "./extension-popularity.js";
+import { ExtensionsListPage } from "./ExtensionsListPage.js";
+import { ExtensionViewer } from "./ExtensionViewer.js";
 
 export function ExtensionViewerPage() {
   const { id } = useParams<{ id: string }>();

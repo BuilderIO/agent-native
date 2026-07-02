@@ -1,5 +1,6 @@
 import fs from "fs/promises";
 import path from "path";
+
 import type { MigrationContext, Verifier, VerifierResult } from "../types.js";
 
 export interface BrowserVerifierOptions {

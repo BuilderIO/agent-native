@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 /**
  * Plan asset round-trip and access tests.
  *
@@ -15,7 +16,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { randomUUID } from "node:crypto";
+
 import { createClient, type Client } from "@libsql/client";
 import { drizzle, type LibSQLDatabase } from "drizzle-orm/libsql";
 import {
@@ -27,11 +28,9 @@ import {
   it,
   vi,
 } from "vitest";
+
+import type { PlanContent } from "../shared/plan-content.js";
 import * as planSchema from "./db/schema.js";
-import {
-  exportPlanContentToMdxFolder,
-  parsePlanMdxFolder,
-} from "./plan-mdx.js";
 import {
   upsertPlanAsset,
   importPlanAssets,
@@ -40,7 +39,10 @@ import {
   PLAN_ASSET_MAX_SINGLE_BYTES,
   PLAN_ASSET_MAX_TOTAL_BYTES,
 } from "./lib/plan-assets.js";
-import type { PlanContent } from "../shared/plan-content.js";
+import {
+  exportPlanContentToMdxFolder,
+  parsePlanMdxFolder,
+} from "./plan-mdx.js";
 
 // ---------------------------------------------------------------------------
 // In-memory test DB

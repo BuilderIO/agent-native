@@ -1,17 +1,19 @@
 import { defineAction } from "@agent-native/core";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
+
 import { getDb, schema } from "../server/db/index.js";
+import { isLocalPlanRuntime } from "../server/lib/local-identity.js";
+import { writePlanLocalFiles } from "../server/lib/local-plan-files.js";
+import { createPlanVersionSnapshot } from "../server/lib/plan-versions.js";
+import { serializePlanContent } from "../server/plan-content.js";
 import {
   applyPlanMdxSourcePatches,
   exportPlanContentToMdxFolder,
   parsePlanMdxFolder,
   planMdxSourcePatchesSchema,
+  referencedBlockIdsForPlanComments,
 } from "../server/plan-mdx.js";
-import { serializePlanContent } from "../server/plan-content.js";
-import { isLocalPlanRuntime } from "../server/lib/local-identity.js";
-import { writePlanLocalFiles } from "../server/lib/local-plan-files.js";
-import { createPlanVersionSnapshot } from "../server/lib/plan-versions.js";
 import {
   assertPlanEditor,
   buildPlanHtml,
@@ -45,12 +47,21 @@ export default defineAction({
     await assertPlanEditor(args.planId);
     const bundle = await loadPlanBundle(args.planId);
     const versionAtLoad = bundle.plan.updatedAt;
+    const referencedBlockIds = referencedBlockIdsForPlanComments(
+      bundle.comments,
+    );
+    for (const patch of args.patches) {
+      if (patch.op === "update-component-prop") {
+        referencedBlockIds.add(patch.componentId);
+      }
+    }
     const currentMdx = await exportPlanContentToMdxFolder({
       content: bundle.plan.content,
       title: bundle.plan.title,
       brief: bundle.plan.brief,
       planId: bundle.plan.id,
       url: planPath(bundle.plan.id, bundle.plan.kind),
+      referencedBlockIds,
     });
     const nextMdx = await applyPlanMdxSourcePatches(currentMdx, args.patches);
     const nextContent = await parsePlanMdxFolder(nextMdx);
@@ -104,6 +115,9 @@ export default defineAction({
           brief: updated.plan.brief,
           content: updated.plan.content,
           url: planPath(updated.plan.id, updated.plan.kind),
+          referencedBlockIds: referencedBlockIdsForPlanComments(
+            updated.comments,
+          ),
         })
       : null;
     return {

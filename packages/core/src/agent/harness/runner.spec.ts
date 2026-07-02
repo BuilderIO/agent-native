@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+
 import type { AgentChatEvent } from "../types.js";
 import type { AgentHarnessAdapter, AgentHarnessEvent } from "./types.js";
 

@@ -1,25 +1,23 @@
-import { agentNativePath } from "../api-path.js";
-import { useEffect, useMemo, useRef, useState } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useNavigate } from "react-router";
 import {
   IconDots,
   IconExternalLink,
   IconLayoutSidebarRightCollapse,
   IconTrash,
 } from "@tabler/icons-react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useNavigate } from "react-router";
+
+import { extensionPath } from "../../extensions/path.js";
+import { THEME_VAR_NAMES } from "../../extensions/theme.js";
+import { sendToAgentChat } from "../agent-chat.js";
+import { agentNativePath } from "../api-path.js";
+import { useAppearance } from "../appearance.js";
 import {
   Popover,
   PopoverContent,
   PopoverTrigger,
 } from "../components/ui/popover.js";
-import {
-  isAllowedExtensionPath,
-  sanitizeExtensionRequestOptions,
-  checkBridgePolicy,
-  type BridgePolicyContext,
-  type ExtensionBridgeRole,
-} from "./iframe-bridge.js";
 import {
   Tooltip,
   TooltipContent,
@@ -33,9 +31,16 @@ import {
 } from "./delete-extension.js";
 import {
   extensionLoadError,
+  extensionLoadErrorStatus,
   shouldRetryExtensionLoad,
 } from "./extension-load-error.js";
-import { extensionPath } from "../../extensions/path.js";
+import {
+  isAllowedExtensionPath,
+  sanitizeExtensionRequestOptions,
+  checkBridgePolicy,
+  type BridgePolicyContext,
+  type ExtensionBridgeRole,
+} from "./iframe-bridge.js";
 
 interface Extension {
   id: string;
@@ -50,6 +55,32 @@ interface Extension {
   };
 }
 
+// Read the host app's *actual* computed theme values for the shared token set
+// (THEME_VAR_NAMES). The iframe ships with a generic baked palette
+// (getThemeVars); syncing the live values keeps embedded extensions visually
+// identical to the surrounding app even when a template overrides the default
+// palette (e.g. analytics uses a neutral-gray dark theme, not near-black).
+function readHostThemeVars(): Record<string, string> {
+  if (typeof document === "undefined") return {};
+  const computed = getComputedStyle(document.documentElement);
+  const vars: Record<string, string> = {};
+  for (const name of THEME_VAR_NAMES) {
+    const value = computed.getPropertyValue(name).trim();
+    if (value) vars[name] = value;
+  }
+  return vars;
+}
+
+function serializeChatValue(value: unknown): string | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (typeof value === "string") return value;
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
+}
+
 export interface EmbeddedExtensionProps {
   extensionId: string;
   /** Slot identifier passed via the iframe URL so the extension runtime knows it's
@@ -62,6 +93,15 @@ export interface EmbeddedExtensionProps {
   className?: string;
   /** Initial iframe height before content reports a real height. */
   initialHeight?: number;
+  /** Fires once when the embedded iframe first signals content readiness — its
+   * first height report, or iframe load as a fallback. Hosts that gate on
+   * content paint (e.g. dashboard report screenshots) use this. */
+  onReady?: () => void;
+  /** Fires when the extension can't be loaded for this viewer (e.g. 403/404 —
+   * the extension isn't shared with them or no longer exists). Hosts can use
+   * this to render an explanatory fallback instead of a blank panel. By default
+   * the component renders nothing on failure (slot-style silent skip). */
+  onUnavailable?: (status?: number) => void;
 }
 
 /**
@@ -75,10 +115,26 @@ export function EmbeddedExtension({
   context,
   className,
   initialHeight = 80,
+  onReady,
+  onUnavailable,
 }: EmbeddedExtensionProps) {
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
+  // Latch the readiness signal so onReady fires at most once per iframe
+  // instance. Reset when the iframe is recreated (extensionId/updatedAt change).
+  const onReadyRef = useRef(onReady);
+  onReadyRef.current = onReady;
+  const readyFiredRef = useRef(false);
+  const fireReady = () => {
+    if (readyFiredRef.current) return;
+    readyFiredRef.current = true;
+    onReadyRef.current?.();
+  };
   const [height, setHeight] = useState<number>(initialHeight);
-  const [isDark, setIsDark] = useState(false);
+  const [isDark, setIsDark] = useState(
+    () =>
+      typeof document !== "undefined" &&
+      document.documentElement.classList.contains("dark"),
+  );
   // (audit H4) Mirror ExtensionViewer's role-aware gating; deny-by-default until
   // the iframe's render binding announcement arrives.
   const bridgeContextRef = useRef<BridgePolicyContext>({
@@ -108,6 +164,8 @@ export function EmbeddedExtension({
     data: extension,
     isFetching,
     isLoading,
+    isError,
+    error,
   } = useQuery<Extension>({
     queryKey: ["extension", extensionId],
     queryFn: async () => {
@@ -129,6 +187,21 @@ export function EmbeddedExtension({
     retryDelay: (attempt) => Math.min(1000 * 2 ** attempt, 4000),
   });
 
+  // Notify the host once when the extension can't be loaded for this viewer so
+  // it can show a fallback instead of a blank panel.
+  const onUnavailableRef = useRef(onUnavailable);
+  onUnavailableRef.current = onUnavailable;
+  const unavailableFiredRef = useRef(false);
+  useEffect(() => {
+    unavailableFiredRef.current = false;
+  }, [extensionId]);
+  useEffect(() => {
+    if (isError && !isFetching && !unavailableFiredRef.current) {
+      unavailableFiredRef.current = true;
+      onUnavailableRef.current?.(extensionLoadErrorStatus(error));
+    }
+  }, [isError, isFetching, error]);
+
   // Initial dark state is baked into the URL on first load only; subsequent
   // theme toggles update the iframe's <html class="dark"> via postMessage so
   // the user's interaction state inside the extension survives the toggle.
@@ -146,13 +219,19 @@ export function EmbeddedExtension({
   useEffect(() => {
     bridgeContextRef.current = { role: "viewer", isAuthor: false };
     bindingLatchedRef.current = false;
+    readyFiredRef.current = false;
   }, [extensionId, extension?.updatedAt]);
+
+  const appearance = useAppearance();
 
   useEffect(() => {
     const win = iframeRef.current?.contentWindow;
     if (!win) return;
-    win.postMessage({ type: "agent-native-theme-update", isDark }, "*");
-  }, [isDark]);
+    win.postMessage(
+      { type: "agent-native-theme-update", isDark, vars: readHostThemeVars() },
+      "*",
+    );
+  }, [isDark, appearance]);
 
   // Forward slot context whenever it changes. The iframe's own load handler
   // posts the initial value once it's ready; this effect handles updates.
@@ -203,7 +282,21 @@ export function EmbeddedExtension({
         const h = Number(message.height);
         if (Number.isFinite(h) && h > 0) {
           setHeight(Math.ceil(h));
+          // First laid-out height means the content has painted.
+          fireReady();
         }
+        return;
+      }
+
+      if (message.type === "agent-native-send-to-chat") {
+        const text = serializeChatValue((message as any).message);
+        if (!text?.trim()) return;
+        sendToAgentChat({
+          message: text,
+          context: serializeChatValue((message as any).context),
+          submit: (message as any).submit !== false,
+          openSidebar: (message as any).openSidebar !== false,
+        });
         return;
       }
 
@@ -228,11 +321,10 @@ export function EmbeddedExtension({
         // (audit H4) Role-aware gating: viewer-shared extensions can read but not
         // write. The bridge policy is decided here in the parent before the
         // request leaves; the server enforces a second layer.
-        const policy = checkBridgePolicy(
-          path,
-          options.method ?? "GET",
-          bridgeContextRef.current,
-        );
+        const policy = checkBridgePolicy(path, options.method ?? "GET", {
+          ...bridgeContextRef.current,
+          extensionId,
+        });
         if (!policy.ok) {
           respond({
             response: {
@@ -307,6 +399,20 @@ export function EmbeddedExtension({
             { type: "agent-native-slot-context", context: context ?? {} },
             "*",
           );
+          // Re-assert theme once the iframe document is live. The src bakes in
+          // the initial dark state, but this covers the race where isDark
+          // settled before the iframe's message listener existed.
+          iframeRef.current?.contentWindow?.postMessage(
+            {
+              type: "agent-native-theme-update",
+              isDark,
+              vars: readHostThemeVars(),
+            },
+            "*",
+          );
+          // Fallback readiness signal in case the extension never reports a
+          // height (e.g. fixed-height content that skips auto-resize).
+          fireReady();
         }}
       />
       <EmbeddedToolMenu

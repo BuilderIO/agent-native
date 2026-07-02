@@ -1,9 +1,10 @@
 import { defineAction } from "@agent-native/core";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
-import createVisualPlan from "./create-visual-plan.js";
+
 import { getDb, schema } from "../server/db/index.js";
 import type { PlanContent } from "../shared/plan-content.js";
+import createVisualPlan from "./create-visual-plan.js";
 
 /**
  * DEV-ONLY one-off seed: creates a real, persisted plan packed with `tabs`

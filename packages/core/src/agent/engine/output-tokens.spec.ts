@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+
 import {
   DEFAULT_AI_SDK_MAX_OUTPUT_TOKENS,
   DEFAULT_ANTHROPIC_MAX_OUTPUT_TOKENS,
@@ -48,7 +49,7 @@ describe("agent output-token policy", () => {
   });
 
   it("clamp allows values up to 64000", () => {
-    // The global clamp was raised from 32768 to 64000 to support Sonnet 4.6
+    // The global clamp was raised from 32768 to 64000 to support Sonnet 5
     // and GPT-5.x which support 64K+ output tokens.
     expect(normalizeMaxOutputTokens(64_000)).toBe(64_000);
     // Stays clamped at 64000 for values above it.

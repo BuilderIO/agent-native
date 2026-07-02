@@ -1,5 +1,8 @@
 import type { H3Event } from "h3";
 import { createError, getHeader, readRawBody } from "h3";
+
+import type { EnvKeyConfig } from "../../server/create-server.js";
+import { resolveSecret } from "../../server/credential-provider.js";
 import type {
   PlatformAdapter,
   IncomingMessage,
@@ -7,7 +10,6 @@ import type {
   IntegrationStatus,
   OutboundTarget,
 } from "../types.js";
-import type { EnvKeyConfig } from "../../server/create-server.js";
 
 /** Slack's max message length */
 const SLACK_MAX_LENGTH = 4000;
@@ -79,7 +81,7 @@ export function slackAdapter(): PlatformAdapter {
     },
 
     async verifyWebhook(event: H3Event): Promise<boolean> {
-      const signingSecret = process.env.SLACK_SIGNING_SECRET;
+      const signingSecret = await resolveSecret("SLACK_SIGNING_SECRET");
       if (!signingSecret) return false;
 
       const signature = getHeader(event, "x-slack-signature");
@@ -184,7 +186,7 @@ export function slackAdapter(): PlatformAdapter {
       // redundant and added an extra chunk that we then had to overwrite.
       // We just set the native status and return null so sendResponse posts
       // the final reply as a fresh message.
-      const token = process.env.SLACK_BOT_TOKEN;
+      const token = await resolveSecret("SLACK_BOT_TOKEN");
       if (!token) return null;
 
       const channelId = incoming.platformContext.channelId as string;
@@ -203,7 +205,7 @@ export function slackAdapter(): PlatformAdapter {
       context: IncomingMessage,
       opts?: { placeholderRef?: string },
     ): Promise<void> {
-      const token = process.env.SLACK_BOT_TOKEN;
+      const token = await resolveSecret("SLACK_BOT_TOKEN");
       if (!token) {
         console.error("[slack] SLACK_BOT_TOKEN not configured");
         return;
@@ -296,7 +298,7 @@ export function slackAdapter(): PlatformAdapter {
       message: OutgoingMessage,
       target: OutboundTarget,
     ): Promise<void> {
-      const token = process.env.SLACK_BOT_TOKEN;
+      const token = await resolveSecret("SLACK_BOT_TOKEN");
       if (!token) {
         console.error("[slack] SLACK_BOT_TOKEN not configured");
         return;
@@ -347,8 +349,8 @@ export function slackAdapter(): PlatformAdapter {
     },
 
     async getStatus(_baseUrl?: string): Promise<IntegrationStatus> {
-      const hasToken = !!process.env.SLACK_BOT_TOKEN;
-      const hasSecret = !!process.env.SLACK_SIGNING_SECRET;
+      const hasToken = !!(await resolveSecret("SLACK_BOT_TOKEN"));
+      const hasSecret = !!(await resolveSecret("SLACK_SIGNING_SECRET"));
       const configured = hasToken && hasSecret;
 
       return {
@@ -361,7 +363,7 @@ export function slackAdapter(): PlatformAdapter {
           hasSecret,
         },
         error: !configured
-          ? "Set SLACK_BOT_TOKEN and SLACK_SIGNING_SECRET in your environment"
+          ? "Save SLACK_BOT_TOKEN and SLACK_SIGNING_SECRET in settings"
           : undefined,
       };
     },

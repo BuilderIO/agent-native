@@ -1,3 +1,13 @@
+import { useT } from "@agent-native/core/client";
+import type { DocumentProperty } from "@shared/api";
+import {
+  blocksRenderMode,
+  blocksStorageTarget,
+  isBlocksPropertyType,
+  isPrimaryBlocksField,
+  type BlocksStorageTarget,
+} from "@shared/properties";
+import { IconChevronRight, IconGripVertical } from "@tabler/icons-react";
 import {
   useEffect,
   useMemo,
@@ -6,20 +16,12 @@ import {
   type ReactNode,
   type PointerEvent as ReactPointerEvent,
 } from "react";
-import { IconChevronRight, IconGripVertical } from "@tabler/icons-react";
-import { cn } from "@/lib/utils";
+
 import { useDocumentProperties } from "@/hooks/use-document-properties";
 import { useReorderDocumentProperty } from "@/hooks/use-document-properties";
 import { useSetDocumentProperty } from "@/hooks/use-document-properties";
-import {
-  blocksRenderMode,
-  blocksStorageTarget,
-  isBlocksPropertyType,
-  isPrimaryBlocksField,
-  type BlocksStorageTarget,
-} from "@shared/properties";
-import type { DocumentProperty } from "@shared/api";
-import { VisualEditor } from "./VisualEditor";
+import { cn } from "@/lib/utils";
+
 import {
   createBlockFieldSaveController,
   type BlockFieldSaveController,
@@ -30,6 +32,7 @@ import {
   peekBlockFieldSaveController,
   releaseBlockFieldSaveController,
 } from "./blockFieldSaveRegistry";
+import { VisualEditor } from "./VisualEditor";
 
 const BLOCK_FIELD_DRAG_THRESHOLD = 6;
 
@@ -72,7 +75,7 @@ export function computeFieldReorderTarget(
   if (
     draggedIndex === -1 ||
     dropGapIndex < 0 ||
-    dropGapIndex > blockFields.length ||
+    dropGapIndex > blockFields.length || // i18n-ignore numeric guard
     blockFields.length < 2
   ) {
     return null;
@@ -238,6 +241,7 @@ export function DocumentBlockFields({
   canEdit,
   primaryEditor,
 }: DocumentBlockFieldsProps) {
+  const t = useT();
   const query = useDocumentProperties(documentId);
   const properties = query.data?.properties ?? [];
   const blockFields = useMemo(
@@ -279,7 +283,7 @@ export function DocumentBlockFields({
         <div className="grid gap-1" data-block-fields-state="empty">
           {canEdit ? (
             <p className="px-1 py-2 text-sm text-muted-foreground">
-              No Blocks fields. Add one from the property menu.
+              {t("editor.noBlocksFields")}
             </p>
           ) : null}
         </div>
@@ -317,6 +321,7 @@ export function DocumentBlockFields({
           canEdit={canEdit}
           blockFields={state.fields}
           primaryEditor={primaryEditor}
+          t={t}
         />
       );
   }
@@ -327,11 +332,13 @@ function MultiBlockFields({
   canEdit,
   blockFields,
   primaryEditor,
+  t,
 }: {
   documentId: string;
   canEdit: boolean;
   blockFields: DocumentProperty[];
   primaryEditor: ReactNode;
+  t: ReturnType<typeof useT>;
 }) {
   const reorder = useReorderDocumentProperty(documentId);
   const [dragId, setDragId] = useState<string | null>(null);
@@ -486,6 +493,7 @@ function MultiBlockFields({
               canEdit={canEdit}
               isDragging={dragId === property.definition.id}
               onPointerDown={(event) => startFieldPointerDrag(property, event)}
+              t={t}
             >
               {primary ? (
                 primaryEditor
@@ -548,12 +556,14 @@ function BlockFieldShell({
   children,
   isDragging,
   onPointerDown,
+  t,
 }: {
   property: DocumentProperty;
   canEdit: boolean;
   children: ReactNode;
   isDragging: boolean;
   onPointerDown: (event: ReactPointerEvent<HTMLElement>) => void;
+  t: ReturnType<typeof useT>;
 }) {
   const [open, setOpen] = useState(true);
 
@@ -578,7 +588,9 @@ function BlockFieldShell({
         {canEdit ? (
           <span
             role="button"
-            aria-label={`Reorder ${property.definition.name}`}
+            aria-label={t("editor.reorderField", {
+              name: property.definition.name,
+            })}
             className="flex w-6 shrink-0 justify-center cursor-grab text-muted-foreground/40 transition-colors hover:text-foreground active:cursor-grabbing"
             onPointerDown={onPointerDown}
           >
@@ -592,7 +604,9 @@ function BlockFieldShell({
         <button
           type="button"
           aria-expanded={open}
-          aria-label={`Toggle ${property.definition.name}`}
+          aria-label={t("editor.toggleField", {
+            name: property.definition.name,
+          })}
           className="flex min-w-0 flex-1 items-center gap-1 rounded py-0.5 text-left text-sm font-medium text-foreground hover:bg-muted/50"
           onClick={() => setOpen((value) => !value)}
         >

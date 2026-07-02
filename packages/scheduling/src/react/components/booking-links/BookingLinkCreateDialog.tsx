@@ -10,6 +10,8 @@
  * label, textarea.
  */
 import { useEffect, useState } from "react";
+
+import { Button } from "@/components/ui/button";
 import {
   Dialog,
   DialogContent,
@@ -18,10 +20,10 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+
 import { useSchedulingT } from "../../i18n.js";
 
 export interface BookingLinkCreateDraft {
@@ -110,7 +112,7 @@ export function BookingLinkCreateDialog(props: BookingLinkCreateDialogProps) {
             <Label htmlFor="blc-title">{t("title")}</Label>
             <Input
               id="blc-title"
-              placeholder="Quick chat"
+              placeholder={t("quickChatPlaceholder")}
               value={form.title}
               onChange={(e) => {
                 const title = e.currentTarget.value;
@@ -131,7 +133,7 @@ export function BookingLinkCreateDialog(props: BookingLinkCreateDialogProps) {
               </span>
               <Input
                 id="blc-slug"
-                placeholder="quick-chat"
+                placeholder={t("quickChatSlugPlaceholder")}
                 className="rounded-l-none border-0 focus-visible:ring-0 focus-visible:ring-offset-0"
                 value={form.slug}
                 onChange={(e) => {

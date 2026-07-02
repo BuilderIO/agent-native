@@ -1,10 +1,11 @@
-import React, { useCallback, useEffect, useRef, useState } from "react";
 import { IconExternalLink, IconLoader2 } from "@tabler/icons-react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
+
+import { agentNativePath } from "./api-path.js";
+import { BuilderBMark } from "./builder-mark.js";
 import { getCallbackOrigin } from "./frame.js";
 import { useBuilderConnectFlow } from "./settings/useBuilderStatus.js";
-import { BuilderBMark } from "./builder-mark.js";
 import { cn } from "./utils.js";
-import { agentNativePath } from "./api-path.js";
 
 const DESKTOP_DOWNLOAD_URL = "https://www.agent-native.com/download";
 const CODE_CHANGE_FALLBACK_DETAIL =
@@ -153,6 +154,7 @@ export function ConnectBuilderCard({
             orgName,
             pageUrl: window.location.href,
             source: "connect_builder_card",
+            useCase: "builder_agent_background_coding",
           }),
         },
       );

@@ -1,4 +1,5 @@
 import { execFile } from "node:child_process";
+
 import type { CliAdapter, CliResult } from "./types.js";
 
 export interface ShellCliAdapterOptions {

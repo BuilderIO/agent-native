@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+
 import { CONTEXT_XRAY_MODEL_LIMIT, resolveContextWindow } from "./format.js";
 
 describe("resolveContextWindow", () => {
@@ -8,8 +9,8 @@ describe("resolveContextWindow", () => {
     expect(resolveContextWindow("")).toBe(CONTEXT_XRAY_MODEL_LIMIT);
   });
 
-  it("returns 1M for claude-sonnet-4-6 (1M context model)", () => {
-    expect(resolveContextWindow("claude-sonnet-4-6")).toBe(1_000_000);
+  it("returns 1M for claude-sonnet-5 (1M context model)", () => {
+    expect(resolveContextWindow("claude-sonnet-5")).toBe(1_000_000);
   });
 
   it("returns 200K for claude-haiku-4-5 (standard context model)", () => {

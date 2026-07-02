@@ -1,7 +1,16 @@
-import { useMemo, useState } from "react";
+import { callAction, useT } from "@agent-native/core/client";
+import { useSortable } from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
+import {
+  IconGripVertical,
+  IconTrash,
+  IconArrowsMaximize,
+  IconArrowsMinimize,
+  IconExternalLink,
+} from "@tabler/icons-react";
 import { useQuery } from "@tanstack/react-query";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Skeleton } from "@/components/ui/skeleton";
+import { useMemo, useState } from "react";
+
 import {
   AlertDialog,
   AlertDialogAction,
@@ -12,26 +21,19 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import {
-  IconGripVertical,
-  IconTrash,
-  IconArrowsMaximize,
-  IconArrowsMinimize,
-  IconExternalLink,
-} from "@tabler/icons-react";
-import { useSortable } from "@dnd-kit/sortable";
-import { CSS } from "@dnd-kit/utilities";
-import { useMetricsQuery } from "@/lib/query-metrics";
-import { ExplorerChart } from "../explorer/components/ExplorerChart";
-import { buildSql } from "../explorer/sql-builder";
-import type { ExplorerConfig } from "../explorer/types";
-import type { DashboardChart } from "./index";
-import { callAction } from "@agent-native/core/client";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { useMetricsQuery } from "@/lib/query-metrics";
+
+import { ExplorerChart } from "../explorer/components/ExplorerChart";
+import { buildSql } from "../explorer/sql-builder";
+import type { ExplorerConfig } from "../explorer/types";
+import type { DashboardChart } from "./index";
 
 interface ChartCardProps {
   chart: DashboardChart;
@@ -65,6 +67,7 @@ export function DashboardChartCard({
   onEdit,
   editable = true,
 }: ChartCardProps) {
+  const t = useT();
   const [confirmOpen, setConfirmOpen] = useState(false);
 
   const {
@@ -77,10 +80,9 @@ export function DashboardChartCard({
   } = useSortable({ id: chart.id, disabled: !editable });
 
   const style = {
-    transform: CSS.Transform.toString(transform),
+    transform: isDragging ? undefined : CSS.Transform.toString(transform),
     transition,
     zIndex: isDragging ? 50 : undefined,
-    opacity: isDragging ? 0.7 : 1,
   };
 
   const { data: config } = useQuery({
@@ -103,7 +105,8 @@ export function DashboardChartCard({
     <div
       ref={setNodeRef}
       style={style}
-      className={`group relative ${chart.width === 2 ? "md:col-span-2" : ""}`}
+      data-dragging={isDragging ? "true" : undefined}
+      className={`explorer-dashboard-card group relative ${chart.width === 2 ? "explorer-dashboard-card-wide" : ""}`}
     >
       <Card className="h-full">
         <CardHeader className="pb-2 flex flex-row items-center gap-2">
@@ -135,7 +138,9 @@ export function DashboardChartCard({
                   </button>
                 </TooltipTrigger>
                 <TooltipContent>
-                  {chart.width === 2 ? "Half width" : "Full width"}
+                  {chart.width === 2
+                    ? t("explorerDashboard.halfWidth")
+                    : t("explorerDashboard.fullWidth")}
                 </TooltipContent>
               </Tooltip>
               <Tooltip>
@@ -147,7 +152,9 @@ export function DashboardChartCard({
                     <IconExternalLink className="h-3.5 w-3.5" />
                   </button>
                 </TooltipTrigger>
-                <TooltipContent>Edit in Explorer</TooltipContent>
+                <TooltipContent>
+                  {t("explorerDashboard.editInExplorer")}
+                </TooltipContent>
               </Tooltip>
               <Tooltip>
                 <TooltipTrigger asChild>
@@ -158,12 +165,14 @@ export function DashboardChartCard({
                     <IconTrash className="h-3.5 w-3.5" />
                   </button>
                 </TooltipTrigger>
-                <TooltipContent>Remove chart</TooltipContent>
+                <TooltipContent>
+                  {t("explorerDashboard.removeChart")}
+                </TooltipContent>
               </Tooltip>
             </div>
           ) : null}
         </CardHeader>
-        <CardContent className="pt-0">
+        <CardContent className="explorer-dashboard-chart-content pt-0">
           {isLoading ? (
             <Skeleton className="h-48 w-full" />
           ) : config ? (
@@ -175,7 +184,7 @@ export function DashboardChartCard({
             />
           ) : (
             <div className="flex items-center justify-center h-48 text-muted-foreground text-sm">
-              Config not found
+              {t("explorerDashboard.configNotFound")}
             </div>
           )}
         </CardContent>
@@ -185,21 +194,24 @@ export function DashboardChartCard({
         <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
           <AlertDialogContent>
             <AlertDialogHeader>
-              <AlertDialogTitle>Remove chart?</AlertDialogTitle>
+              <AlertDialogTitle>
+                {t("explorerDashboard.removeChartTitle")}
+              </AlertDialogTitle>
               <AlertDialogDescription>
-                Remove &ldquo;{config?.name ?? configName}&rdquo; from this
-                dashboard? This cannot be undone.
+                {t("explorerDashboard.removeChartDescription", {
+                  name: config?.name ?? configName,
+                })}
               </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>
-              <AlertDialogCancel>Cancel</AlertDialogCancel>
+              <AlertDialogCancel>{t("sidebar.cancel")}</AlertDialogCancel>
               <AlertDialogAction
                 onClick={() => {
                   setConfirmOpen(false);
                   onRemove();
                 }}
               >
-                Remove
+                {t("explorerDashboard.removeChart")}
               </AlertDialogAction>
             </AlertDialogFooter>
           </AlertDialogContent>

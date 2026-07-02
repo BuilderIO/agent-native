@@ -8,21 +8,24 @@ packages:
 minimumReleaseAge: 1440
 minimumReleaseAgeExclude:
   - "@agent-native/core"
+  - "dom-to-pptx"
 
 catalog:
   "@tabler/icons-react": ^3.41.1
   "@tailwindcss/vite": ^4.2.4
+  "@typescript/native-preview": 7.0.0-dev.20260624.1
   "@types/react": ^19.2.14
   "@types/react-dom": ^19.2.3
-  "@vitejs/plugin-react": ^6.0.1
+  "@vitejs/plugin-react": ^6.0.3
   h3: ^2.0.1-rc.20
   listhen: ^1.9.1
+  oxfmt: 0.56.0
   react: ^19.2.7
   react-dom: ^19.2.7
   tailwindcss: ^4.2.4
   tsx: ^4.20.3
   typescript: ^6.0.3
-  vite: 8.0.3
+  vite: 8.1.0
   vitest: ^4.1.5
 
 onlyBuiltDependencies:
@@ -42,3 +45,20 @@ onlyBuiltDependencies:
   - protobufjs
   - sharp
   - workerd
+
+allowBuilds:
+  "@google/genai": set this to true or false
+  "@parcel/watcher": set this to true or false
+  "@swc/core": set this to true or false
+  better-sqlite3: set this to true or false
+  canvas: set this to true or false
+  core-js: set this to true or false
+  electron: set this to true or false
+  electron-winstaller: set this to true or false
+  esbuild: set this to true or false
+  ffmpeg-static: set this to true or false
+  node-pty: set this to true or false
+  protobufjs: set this to true or false
+  puppeteer: set this to true or false
+  sharp: set this to true or false
+  workerd: set this to true or false

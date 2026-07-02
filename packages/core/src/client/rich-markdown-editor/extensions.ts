@@ -1,16 +1,16 @@
 import type { Extension, Node, Mark } from "@tiptap/core";
-import StarterKit from "@tiptap/starter-kit";
-import type { StarterKitOptions } from "@tiptap/starter-kit";
-import Placeholder from "@tiptap/extension-placeholder";
+import Collaboration from "@tiptap/extension-collaboration";
+import CollaborationCaret from "@tiptap/extension-collaboration-caret";
 import Link from "@tiptap/extension-link";
-import TaskList from "@tiptap/extension-task-list";
-import TaskItem from "@tiptap/extension-task-item";
+import Placeholder from "@tiptap/extension-placeholder";
 import { Table } from "@tiptap/extension-table";
-import { TableRow } from "@tiptap/extension-table-row";
 import { TableCell } from "@tiptap/extension-table-cell";
 import { TableHeader } from "@tiptap/extension-table-header";
-import { Markdown } from "tiptap-markdown";
-import { createLowlight } from "lowlight";
+import { TableRow } from "@tiptap/extension-table-row";
+import TaskItem from "@tiptap/extension-task-item";
+import TaskList from "@tiptap/extension-task-list";
+import StarterKit from "@tiptap/starter-kit";
+import type { StarterKitOptions } from "@tiptap/starter-kit";
 import bash from "highlight.js/lib/languages/bash";
 import css from "highlight.js/lib/languages/css";
 import javascript from "highlight.js/lib/languages/javascript";
@@ -21,8 +21,8 @@ import sql from "highlight.js/lib/languages/sql";
 import typescript from "highlight.js/lib/languages/typescript";
 import xml from "highlight.js/lib/languages/xml";
 import yaml from "highlight.js/lib/languages/yaml";
-import Collaboration from "@tiptap/extension-collaboration";
-import CollaborationCaret from "@tiptap/extension-collaboration-caret";
+import { createLowlight } from "lowlight";
+import { Markdown } from "tiptap-markdown";
 
 /**
  * Shared lowlight instance for the editor's syntax-highlighted code blocks. A
@@ -44,10 +44,11 @@ const codeLowlight = createLowlight({
   xml,
   yaml,
 });
-import type { Doc as YDoc } from "yjs";
 import type { Awareness } from "y-protocols/awareness";
-import { createImageExtension, type ImageUploadFn } from "./ImageExtension.js";
+import type { Doc as YDoc } from "yjs";
+
 import { createCodeBlockNode } from "./CodeBlockNode.js";
+import { createImageExtension, type ImageUploadFn } from "./ImageExtension.js";
 
 /**
  * Markdown dialect the editor parses/serializes.

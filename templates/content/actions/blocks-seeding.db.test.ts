@@ -3,12 +3,14 @@
 // in-memory, runs the actual versioned migrations, then drives the store-layer
 // functions directly — the seam where review findings 1, 4, 5, and 7 live.
 
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { runWithRequestContext } from "@agent-native/core/server";
-import { and, eq } from "drizzle-orm";
+import { rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { rmSync } from "node:fs";
+
+import { runWithRequestContext } from "@agent-native/core/server";
+import { and, eq } from "drizzle-orm";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
+
 import {
   countWords,
   formatWordCount,
@@ -22,22 +24,26 @@ const TEST_DB_PATH = join(
   tmpdir(),
   `blocks-seeding-test-${process.pid}-${Date.now()}.sqlite`,
 );
-process.env.DATABASE_URL = `file:${TEST_DB_PATH}`;
 
 type Schema = typeof import("../server/db/schema.js");
 let getDb: () => any;
 let schema: Schema;
 let propertyUtils: typeof import("./_property-utils.js");
 let databaseUtils: typeof import("./_database-utils.js");
+let createInlineContentDatabaseAction: typeof import("./create-inline-content-database.js").default;
 
 const OWNER = "owner@example.com";
 
 beforeAll(async () => {
+  process.env.DATABASE_URL = `file:${TEST_DB_PATH}`;
   const dbModule = await import("../server/db/index.js");
   getDb = dbModule.getDb;
   schema = dbModule.schema;
   propertyUtils = await import("./_property-utils.js");
   databaseUtils = await import("./_database-utils.js");
+  createInlineContentDatabaseAction = (
+    await import("./create-inline-content-database.js")
+  ).default;
   const plugin = (await import("../server/plugins/db.js")).default;
   await plugin(undefined as any);
 }, 60000); // cold-import of the db module + migrations exceeds the default 10s hook timeout
@@ -138,6 +144,47 @@ describe("seedDefaultBlocksField — single-primary invariant (findings 1, 2)", 
     const defs = await blocksDefinitions(databaseId);
     expect(defs).toHaveLength(1);
     expect(propertyUtils).toBeDefined();
+  });
+});
+
+describe("create-inline-content-database", () => {
+  it("creates a child database and stamps inline ownership metadata", async () => {
+    const db = getDb();
+    const now = new Date().toISOString();
+    const hostDocumentId = `host_inline_${++counter}`;
+    await db.insert(schema.documents).values({
+      id: hostDocumentId,
+      ownerEmail: OWNER,
+      title: "Host page",
+      content: "",
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    const result = await runWithRequestContext({ userEmail: OWNER }, () =>
+      createInlineContentDatabaseAction.run({
+        hostDocumentId,
+        title: "Inline tasks",
+      }),
+    );
+
+    expect(result.database.title).toBe("Inline tasks");
+    expect(result.block.databaseId).toBe(result.database.id);
+    expect(result.block.databaseDocumentId).toBe(result.database.documentId);
+    expect(result.block.ownerBlockId).toMatch(/^inline-database-/);
+
+    const [database] = await db
+      .select()
+      .from(schema.contentDatabases)
+      .where(eq(schema.contentDatabases.id, result.database.id));
+    expect(database.ownerDocumentId).toBe(hostDocumentId);
+    expect(database.ownerBlockId).toBe(result.block.ownerBlockId);
+
+    const [databaseDocument] = await db
+      .select()
+      .from(schema.documents)
+      .where(eq(schema.documents.id, result.database.documentId));
+    expect(databaseDocument.parentId).toBe(hostDocumentId);
   });
 });
 

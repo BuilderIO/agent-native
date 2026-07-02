@@ -4,6 +4,7 @@ import {
   renderEmail,
   sendEmail,
 } from "@agent-native/core/server";
+
 import type { CalendarEvent, DeleteEventScope } from "../../shared/api.js";
 
 export interface GuestNotificationResult {
@@ -128,7 +129,7 @@ export async function sendEventGuestNotificationNote({
     };
   }
 
-  if (!isEmailConfigured()) {
+  if (!(await isEmailConfigured())) {
     return {
       requested: true,
       recipientCount: recipients.length,

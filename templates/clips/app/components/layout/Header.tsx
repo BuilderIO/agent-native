@@ -1,10 +1,7 @@
+import { AgentToggleButton, useT } from "@agent-native/core/client";
 import { useLocation } from "react-router";
+
 import { useHeaderTitle, useHeaderActions } from "./HeaderActions";
-import {
-  AgentToggleButton,
-  LanguagePicker,
-  useT,
-} from "@agent-native/core/client";
 
 const pageTitleKeys: Record<string, string> = {
   "/": "navigation.library",
@@ -44,7 +41,6 @@ export function Header() {
       </div>
       <div className="flex items-center gap-2 shrink-0">
         {actions}
-        <LanguagePicker variant="icon" />
         <AgentToggleButton />
       </div>
     </header>

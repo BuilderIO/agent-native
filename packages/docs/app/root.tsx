@@ -1,4 +1,13 @@
 import {
+  AgentNativeI18nProvider,
+  AgentSidebar,
+  configureTracking,
+  getLocaleInitScript,
+  useT,
+} from "@agent-native/core/client";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { useState, useEffect, useRef } from "react";
+import {
   Links,
   Meta,
   Outlet,
@@ -11,17 +20,7 @@ import {
   useLocation,
   type LoaderFunctionArgs,
 } from "react-router";
-import { useState, useEffect, useRef } from "react";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import {
-  AgentNativeI18nProvider,
-  AgentSidebar,
-  configureTracking,
-  getLocaleInitScript,
-  useT,
-} from "@agent-native/core/client";
-import Header from "./components/Header";
-import Footer from "./components/Footer";
+
 import {
   DEFAULT_DOCS_LOCALE,
   localeDirection,
@@ -32,7 +31,10 @@ import {
 import {
   canonicalPathForPath,
   docsAlternateLinksForPath,
+  docsMarkdownPathForPath,
 } from "./components/docs-seo";
+import Footer from "./components/Footer";
+import Header from "./components/Header";
 import { docsI18nCatalog, loadDocsMessages } from "./i18n";
 import { defaultSocialImageMeta } from "./seo";
 
@@ -42,6 +44,7 @@ const SITE_URL = "https://www.agent-native.com";
 const LOCALE_INIT_SCRIPT_SELECTOR = "script[data-agent-native-locale-init]";
 
 configureTracking({
+  sessionReplay: false,
   getDefaultProps: (_name, properties) => ({
     ...properties,
     app: "agent-native-docs",
@@ -97,8 +100,9 @@ async function initialMessagesForLocale(locale: DocsLocale) {
   return loadDocsMessages(locale);
 }
 
-export async function loader({ request }: LoaderFunctionArgs) {
-  const locale = resolveLayoutLocale(new URL(request.url).pathname);
+export async function loader({ request, url }: LoaderFunctionArgs) {
+  const requestUrl = url ?? new URL(request.url);
+  const locale = resolveLayoutLocale(requestUrl.pathname);
   return {
     locale,
     preference: { locale },
@@ -125,10 +129,10 @@ function fallbackRootLocaleData(pathname: string): RootLocaleData {
 
 function useRootLocaleData() {
   const location = useLocation();
-  const matches = useMatches();
-  const rootMatch = matches.find((match) => isRootLocaleData(match.data));
-  return isRootLocaleData(rootMatch?.data)
-    ? rootMatch.data
+  const matches = useMatches() as unknown as Array<{ loaderData: unknown }>;
+  const rootMatch = matches.find((match) => isRootLocaleData(match.loaderData));
+  return isRootLocaleData(rootMatch?.loaderData)
+    ? rootMatch.loaderData
     : fallbackRootLocaleData(location.pathname);
 }
 
@@ -143,7 +147,7 @@ export const meta = () => [
   {
     name: "description",
     content:
-      "Build agentic apps where AI agents and UI share the same database and state. Open source framework with ready-to-fork templates.",
+      "Build agentic apps where AI agents and UI share the same database and state. Open source framework with ready-to-fork apps.",
   },
   ...defaultSocialImageMeta(),
   {
@@ -153,7 +157,7 @@ export const meta = () => [
   {
     property: "og:description",
     content:
-      "Build agentic apps where AI agents and UI share the same database and state. Open source framework with ready-to-fork templates.",
+      "Build agentic apps where AI agents and UI share the same database and state. Open source framework with ready-to-fork apps.",
   },
   { property: "og:type", content: "website" },
   { property: "og:url", content: SITE_URL },
@@ -195,9 +199,17 @@ function SeoLinks() {
   const canonicalPath = canonicalPathForPath(location.pathname);
   const canonical = `${SITE_URL}${canonicalPath}`;
   const alternates = docsAlternateLinksForPath(location.pathname);
+  const markdownPath = docsMarkdownPathForPath(location.pathname);
   return (
     <>
       <link rel="canonical" href={canonical} />
+      {markdownPath ? (
+        <link
+          rel="alternate"
+          type="text/markdown"
+          href={`${SITE_URL}${markdownPath}`}
+        />
+      ) : null}
       {alternates.map((alternate) => (
         <link
           key={alternate.hrefLang}

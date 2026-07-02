@@ -1,4 +1,5 @@
 import { useParams } from "react-router";
+
 import BookingLinksPage from "@/pages/BookingLinksPage";
 
 export default function BookingLinkDetailRoute() {

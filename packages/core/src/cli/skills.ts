@@ -4,14 +4,13 @@
  * command handles the common "install Assets for my agent" path in one step.
  */
 
+import { spawn } from "node:child_process";
+import { createHash } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { spawn } from "node:child_process";
-import { createHash } from "node:crypto";
 import { fileURLToPath } from "node:url";
 
-import { createCliTelemetry, type CliTelemetry } from "./telemetry.js";
 import {
   buildAppSkillPack,
   ensureAppSkill,
@@ -32,20 +31,22 @@ import {
 import { CLIENTS, type ClientId } from "./mcp-config-writers.js";
 import { PR_VISUAL_RECAP_SETUP, writePrVisualRecapWorkflow } from "./recap.js";
 import { setupAgentSymlinks } from "./setup-agents.js";
+import { createCliTelemetry, type CliTelemetry } from "./telemetry.js";
 
 const HELP = `npx @agent-native/core@latest skills
 
 Usage:
   npx @agent-native/core@latest skills list
-  npx @agent-native/core@latest skills status [assets|content|design-exploration|visual-plan|visual-recap|context-xray|scaffold] [--client codex|claude-code|pi|all] [--scope user|project] [--json]
-  npx @agent-native/core@latest skills update [assets|content|design-exploration|visual-plan|visual-recap|context-xray|scaffold] [--client codex|claude-code|pi|all] [--scope user|project] [--dry-run] [--json]
-  npx @agent-native/core@latest skills add assets|content|design-exploration|visual-plan|visual-recap|context-xray [--client codex|claude-code|cowork|cursor|opencode|github-copilot|all] [--scope user|project] [--mode hosted|local-files|self-hosted] [--mcp-url <url>] [--no-connect] [--with-github-action] [--yes] [--dry-run] [--json]
+  npx @agent-native/core@latest skills status [assets|content|design-exploration|visual-edit|visual-plan|visual-recap|context-xray|scaffold] [--client codex|claude-code|pi|all] [--scope user|project] [--json]
+  npx @agent-native/core@latest skills update [assets|content|design-exploration|visual-edit|visual-plan|visual-recap|context-xray|scaffold] [--client codex|claude-code|pi|all] [--scope user|project] [--dry-run] [--json]
+  npx @agent-native/core@latest skills add assets|content|design-exploration|visual-edit|visual-plan|visual-recap|context-xray [--client codex|claude-code|cowork|cursor|opencode|github-copilot|all] [--scope user|project] [--mode hosted|local-files|self-hosted] [--mcp-url <url>] [--no-connect] [--with-github-action] [--yes] [--dry-run] [--json]
   npx @agent-native/core@latest skills add <manifest-or-app-dir|skill-repo> [--skill <name>] [--client ...] [--yes]
 
 Examples:
   npx @agent-native/core@latest skills add assets
   npx @agent-native/core@latest skills add content --mode local-files
   npx @agent-native/core@latest skills add design-exploration
+  npx @agent-native/core@latest skills add visual-edit
   npx @agent-native/core@latest skills add visual-plan
   npx @agent-native/core@latest skills add visual-recap
   npx @agent-native/core@latest skills add visual-recap --with-github-action
@@ -321,18 +322,25 @@ iteration, or a human-in-the-loop choice among design directions.
 
 - Use \`create-design\` first to create a project shell. Do not report the
   design as ready until it has renderable HTML.
-- For open-ended UX exploration, generate distinct, complete HTML directions
-  (2-5, three by default) and call \`present-design-variants\`. The inline
-  Design MCP app shows the options, lets the user pick one, and persists the
-  selected variant.
-- If the Design app opens as a browser link instead of inline (CLI hosts like
-  Codex / Claude Code, where the deep link carries \`handoff=chat\`), the user
-  picks a direction there and the editor shows a copyable summary — ask them to
-  paste it back into chat so you can continue from the chosen direction. The
-  \`present-design-variants\` result's \`fallbackInstructions\` describe this.
+- For open-ended UX exploration, generate distinct, compact, complete HTML
+  directions (2-5, three by default) and call \`present-design-variants\`. Each
+  direction should be one representative screen or directional snapshot, not a
+  full app per variant. Design saves every option as a normal screen on the
+  overview board and renders an inline chat choice with one button per screen
+  name. After the user picks, delete the unchosen variant screens and continue
+  from the kept screen by first calling \`get-design-snapshot\` with that
+  screen's \`fileId\`, then calling \`edit-design\` on that same \`fileId\` in a
+  bounded single-file pass. Use \`mode: "replace-file"\` when expanding the
+  representative placeholder into the full chosen direction. Do not call
+  \`generate-design\` after a variant pick.
+- If the chat choice buttons are not available in the host, ask the user to
+  tell you the screen name they prefer. The variants are already real screens
+  on the board, so do not ask them to paste HTML or copy a generated handoff
+  summary.
 - For direct refinements to an already chosen direction, call
-  \`get-design-snapshot\`, edit from the current tuned HTML, then call
-  \`generate-design\`.
+  \`get-design-snapshot\`, edit from the current tuned HTML, and use
+  \`edit-design\` for surgical changes or \`mode: "replace-file"\` for a bounded
+  selected-file replacement. Use \`generate-design\` for new files only.
 - Use \`export-coding-handoff\` when the user wants to implement the chosen
   design in a codebase.
 
@@ -341,13 +349,51 @@ iteration, or a human-in-the-loop choice among design directions.
 1. Default to three variants unless the user asks for a different count
    (\`present-design-variants\` accepts 2-5; three is the sweet spot).
 2. Make variants structurally and stylistically distinct, not just color swaps.
-3. Each variant must be a complete standalone HTML document that renders
-   without a build step.
+3. Each variant must be a compact, complete standalone HTML document that
+   renders without a build step.
 4. For product UI redesigns, prefer cleaner hierarchy, progressive disclosure,
    and realistic controls over decorative mockups.
 5. After \`present-design-variants\`, wait for the user's pick before
-   generating the next version. If they say "I like #2 but...", snapshot the
-   chosen design and refine that direction with \`generate-design\`.
+   generating the next version. Keep the chosen screen, delete the other
+   variant screens, call \`get-design-snapshot\` with \`fileId\` for the kept
+   screen, then call \`edit-design\` on that same \`fileId\` in a bounded pass.
+   Use \`mode: "replace-file"\` when expanding the representative placeholder
+   into the full chosen direction. Do not call \`generate-design\` after a
+   variant pick. Stop after the first successful \`edit-design\` save.
+
+## Design Quality Bar
+
+Generic "AI slop" comes from letting one prompt set taste, explore, and emit code
+at once — so the model returns the training-average (Inter, an indigo/violet
+gradient, a centered hero, three rounded cards). The variant flow above exists to
+separate those jobs; use it, and hold this bar:
+
+- Before generating, name the concrete audience, the screen's primary job, and
+  the visual thesis. If the brief is vague, make a reasonable choice and state
+  it instead of producing a generic dashboard/landing-page default.
+- Refuse the defaults, and pair every "don't" with a "do" (banning Inter alone
+  just makes you reach for Roboto). Avoid Inter/Roboto/system fonts, the
+  indigo/violet slop palette (\`#6366F1\`/\`#8B5CF6\`/\`#A855F7\`) and purple-on-white
+  gradients, and centered-hero + three-icon-card layouts; instead pick a
+  distinctive font pairing, one non-default palette family with a single decisive
+  accent, and an asymmetric layout with a clear focal point.
+- Make each direction distinct in structure and behavior, not just palette.
+  Give every variant one memorable signature choice, then keep the surrounding
+  chrome disciplined. Even your creative picks converge (Space Grotesk
+  everywhere) — vary deliberately so two directions never share a fingerprint.
+- For existing products, inspect the current screen, design system, tokens, and
+  component language before inventing a new direction. Treat any drift back to a
+  default as a missing token to pin, and vary layout per screen so on-brand does
+  not become same-in-your-colors.
+- Treat copy, data, and imagery as design material. Use realistic domain
+  content and first-party/generated assets when images matter; avoid lorem
+  ipsum, vague SaaS filler, and decorative placeholder boxes.
+- Build to a quiet quality floor: responsive desktop/mobile layout, visible
+  keyboard focus, useful loading/empty/error states for app UI, and reduced
+  motion support when custom motion is present.
+- After broad generation or refinement, inspect the rendered Design surface or
+  a screenshot-capable host before calling it ready. Fix obvious hierarchy,
+  overflow, contrast, broken interaction, and placeholder-content issues first.
 
 ## Cross-App Use
 
@@ -374,6 +420,185 @@ iteration, or a human-in-the-loop choice among design directions.
   browser/deep-link fallback.
 - If you inspect local MCP config, redact \`Authorization\`, \`http_headers\`,
   and token values. Never paste bearer tokens into chat or logs.
+`;
+
+const DESIGN_VISUAL_EDIT_SKILL_MD = `---
+name: visual-edit
+description: >-
+  Open a running local app in Design overview mode as URL-backed iframe screens
+  for visual editing, flow review, duplication, and route-state exploration.
+  Use when the user asks to inspect, compare, or edit a real local app visually
+  in Design.
+metadata:
+  visibility: exported
+---
+
+# Visual Edit
+
+Use \`/visual-edit\` when the user wants to inspect or edit a real local app
+visually instead of generating standalone Alpine HTML. The source of truth is
+the running localhost app plus its route URLs. Design shows those routes as
+iframe-backed screens on the infinite canvas.
+
+## Core Model
+
+- Each screen is a URL-backed iframe, not copied HTML.
+- Each screen keeps URL metadata: \`connectionId\`, \`routeId\`, \`path\`,
+  \`url\`, \`bridgeUrl\`, title, and viewport size.
+- Start in Design's screen overview mode. In overview, screens are static
+  design frames; full-screen focus is for scrolling and app interaction.
+- Alt-drag duplicates a screen. For localhost screens, duplication copies the
+  iframe frame and URL metadata; change the copy's path/query for a new state.
+- Flow visualization is multiple URL states: \`/checkout?step=shipping\`,
+  \`/checkout?step=payment\`, \`/checkout?step=done\`, etc.
+- When the user gives a named flow or numbered screen list, preserve that order
+  and create one screen per URL/path. Shorthand like
+  \`localhost:1234/onboarding/1\` means
+  \`http://localhost:1234/onboarding/1\`.
+
+## Review Quality
+
+- Treat the running app as the truth. Preserve its component language, tokens,
+  route state, and real content unless the user explicitly asks for a new visual
+  direction.
+- Use multiple URL states to reveal meaningful UX moments: empty/loading/error
+  states, focused panels, modals, responsive breakpoints, and completed flow
+  steps when those matter to the review.
+- For visual edits, compare before/after at the relevant viewport sizes and
+  check key hover/focus/scroll states when the app exposes them.
+
+## Account And Sharing Model
+
+- The \`/visual-edit\` entry route can open before the viewer signs in. Public
+  \`/design/:id\` editor links can also render read-only public designs without a
+  session.
+- Prefer links returned by Design actions or \`/_agent-native/open\` deep links.
+  Do not surface URLs with \`_session=\` tokens. Query sessions are only a
+  fallback after normal cookie resolution, so an existing browser session can
+  still open the design as a different user and show "Design not found".
+- Do not attempt anonymous write actions. Bridge registration, design creation,
+  screen placement, generation, saving, and sharing are account-backed. If a
+  signed-out visitor wants to save or share, send them through the framework
+  sign-in return flow, then save or copy the design into that account before
+  opening the share dialog.
+
+## Required Local Bridge
+
+From the target app repo, make sure its dev server is running, then run:
+
+\`\`\`bash
+npx @agent-native/core@latest design connect --url http://localhost:5173 --root . --daemon
+\`\`\`
+
+Use the app's real port. The command starts a detached local bridge on
+\`http://127.0.0.1:7331\` by default, waits for \`/health\`, prints the
+manifest JSON, and keeps the bridge alive after the agent command exits.
+
+For a manual health/manifest check:
+
+\`\`\`bash
+curl http://127.0.0.1:7331/manifest.json
+\`\`\`
+
+Do not use \`--json\` for an editable session. \`--json\`, \`--once\`, and
+\`--dry-run\` print the manifest and exit, so Design will fall back to a
+non-editable live iframe as soon as it tries to refresh the snapshot.
+
+## Action Flow
+
+Prefer the single authenticated \`open-visual-edit\` action. It registers or
+refreshes the localhost bridge, creates or reuses a Design project, places
+URL-backed screens, stores the active visual-edit context, and navigates to
+overview mode in one call. This avoids creating a private design under a
+synthetic CLI user and then handing the browser a tokenized URL that may be
+shadowed by an existing session.
+
+\`\`\`bash
+pnpm action open-visual-edit '{
+  "title": "Docs homepage visual edit",
+  "devServerUrl": "http://localhost:5173",
+  "bridgeUrl": "http://127.0.0.1:7331",
+  "rootPath": "/absolute/path/to/app",
+  "routeManifest": { "...": "from /manifest.json" },
+  "paths": ["/", "/pricing", "/checkout?step=payment"]
+}'
+\`\`\`
+
+The action returns \`designId\`, \`connectionId\`, \`screens\`, \`urlPath\`, and
+\`openUrl\`. Keep those IDs in the chat context for follow-ups.
+
+For a numbered flow the user describes in chat, keep the labels and order:
+
+\`\`\`bash
+pnpm action open-visual-edit '{
+  "designId": "<existing-design-id>",
+  "connectionId": "<existing-connection-id>",
+  "devServerUrl": "http://localhost:1234",
+  "routes": [
+    { "url": "localhost:1234/onboarding/1", "title": "Screen 1" },
+    { "url": "localhost:1234/onboarding/2", "title": "Screen 2" },
+    { "url": "localhost:1234/onboarding/3", "title": "Screen 3" }
+  ]
+}'
+\`\`\`
+
+For responsive follow-ups, call \`open-visual-edit\` again with the same
+\`designId\` and \`connectionId\`, plus explicit viewport dimensions:
+
+\`\`\`bash
+pnpm action open-visual-edit '{
+  "designId": "<existing-design-id>",
+  "connectionId": "<existing-connection-id>",
+  "devServerUrl": "http://localhost:5173",
+  "paths": ["/"],
+  "defaultWidth": 390,
+  "defaultHeight": 844,
+  "startX": 1600,
+  "startY": 0
+}'
+\`\`\`
+
+If no \`routes\` or \`paths\` are supplied, \`open-visual-edit\` uses every route
+from the localhost manifest.
+
+Fallback, only when \`open-visual-edit\` is unavailable:
+
+1. Register or refresh the bridge with \`connect-localhost\`, passing the
+   \`/manifest.json\` result as \`routeManifest\` and \`capabilities\`.
+2. Create or reuse a Design project with \`create-design\`.
+3. Place URL-backed screens with \`add-localhost-screens\`.
+4. Navigate to overview mode with \`navigate\`.
+
+## Open The Design Surface
+
+- Use the \`link\`, \`deepLink\`, or MCP App embed returned by Design actions so
+  the user sees the canvas. In Codex Desktop or VS Code, prefer opening that
+  Design URL in the available preview/webview panel; otherwise surface the
+  "Open design" link.
+- Return or open the \`openUrl\` / action link, not a hand-built
+  \`/design/:id?_session=...\` URL.
+- If the user is working in VS Code, the Agent Native extension can open the
+  same URL via
+  \`vscode://builder.agent-native/open?url=<encoded-design-url>\`. Its
+  \`Agent Native: Open Design Canvas\` command also starts the local bridge and
+  opens hosted Design in the VS Code side panel.
+- After \`add-localhost-screens\`, confirm the Design editor is in overview mode
+  with the requested URL-backed frames visible. Do not stop at "screens added"
+  when the user asked to inspect or edit visually.
+
+## Editing URLs
+
+Keep localhost screens as URL files plus \`screenMetadata[fileId]\`. Do not
+replace them with copied \`srcdoc\` HTML unless the user explicitly asks for a
+frozen snapshot. To change a state, rerun \`add-localhost-screens\` with the new
+path/query or duplicate the screen and update the copy's URL metadata.
+
+## Verification
+
+- \`list-localhost-connections\` returns the expected connection and routes.
+- The Design editor opens in overview mode.
+- Every requested screen renders the intended localhost URL.
+- Alt-dragging a screen copies the URL-backed frame, not an inline HTML clone.
 `;
 
 /**
@@ -525,6 +750,25 @@ themes. For any inline border, background, or text color, reference a token:
 \`--wf-accent-fg\` / \`--wf-accent-soft\` (brand action), \`--wf-warn\`, \`--wf-ok\`,
 and \`--wf-radius\`. Never hard-code a hex color and never set \`font-family\` — the
 renderer owns the sketch/clean font.
+
+**Never use host/Tailwind theme classes in wireframe HTML.** Classes such as
+\`bg-white\`, \`bg-zinc-50\`, \`bg-slate-950\`, \`text-zinc-950\`,
+\`text-slate-400\`, \`border-zinc-200\`, \`hover:bg-slate-800\`, \`shadow-xl\`,
+or arbitrary color utilities like \`bg-[#fff]\` leak the host app's CSS into the
+mockup and can make dark-mode canvas frames unreadable. Use bare semantic
+elements, \`.wf-*\` helper classes, and \`--wf-*\` color tokens instead. Before
+publishing, scan every wireframe \`class\` and \`style\` attribute: if a class sets
+background, text, border, ring, fill, stroke, gradient, placeholder, decoration,
+or shadow color, rewrite it to renderer tokens or remove it. Layout-only classes
+are still discouraged; inline flex/grid styles are safer and easier to review.
+
+**Keep Rough.js sparse.** The renderer sketches the outer frame, standard
+\`.wf-*\` primitives, controls, and inline border dividers by default. Do not add
+\`data-rough\` to broad root wrappers, dialog shells, page panels, grid cells, or
+nested containers unless that single container is the visual point. Use
+\`data-rough\` only for a deliberate one-off shape. If a mockup starts looking
+like stacked/overlapping sketch lines, remove rough targets from parent
+containers and let backgrounds plus spacing separate the surfaces.
 
 **Use literal CSS lengths for spacing.** The \`--wf-*\` tokens are for colors and
 renderer-owned visual styling, not layout spacing. Do not use guessed spacing
@@ -795,8 +1039,16 @@ or cross either artboard, remove the label and explain the transition with a
 nearby annotation instead. Before handoff, inspect the top canvas at default zoom
 and move any frame whose label, connector, or annotation crosses another frame.
 
+**Board-unit spacing defaults.** The canvas coordinate system uses approximately 2 board units per screen pixel. \`browser\` frames occupy roughly 700 × 600 board units; \`desktop\` frames roughly 900 × 700 board units. Apply these minimum x/y gaps when placing frames explicitly — any less and frames will touch or overlap:
+
+- x-gap between \`browser\` frames: **≥ 1100** (700-unit frame + 400-unit gutter)
+- x-gap between \`desktop\` frames: **≥ 1300** (900-unit frame + 400-unit gutter)
+- y-gap between rows of any surface: **≥ 1400** (includes frame height + section header + buffer)
+
+When in doubt, use larger values — the canvas auto-zooms to fit everything.
+
 **Canvas annotations are designer notes on the artboard.** When a top canvas is
-present, sprinkle Figma-style notes near the frames they explain: a short
+present, sprinkle design-review notes near the frames they explain: a short
 heading, supporting text, and bullets — plain text layers, never bordered or
 shadowed cards, and never a box around a frame. The renderer spaces notes away
 from frames, so place each note by the frame it describes. Use an arrow only to
@@ -1056,7 +1308,11 @@ must read in dark mode without a plan-specific patch.
 
 **Before handoff, open the plan and check it.** Fix overlap, excessive
 whitespace, clipped fragments, misleading inactive controls, poor contrast, and
-unreadable diagrams before asking for approval.
+unreadable diagrams before asking for approval. Check the top canvas in the
+current Plan theme, especially dark mode: white mockup panels, low-contrast
+muted text, or invisible controls are defects. If a frame only works in one
+theme, rewrite the HTML with \`--wf-*\` tokens and semantic helper classes before
+surfacing the plan.
 
 <!-- SHARED-CORE:document-quality END -->`;
 
@@ -1176,6 +1432,155 @@ Do not write the document from memory.`;
 const EXEMPLAR_REFERENCE_POINTER = `For a worked example of the bar — a great UI-first plan and \`/visual-plan\`, plus
 the anti-patterns to avoid — READ \`references/exemplar.md\` in this skill
 directory before authoring a plan.`;
+
+export const CONNECTION_REFERENCE_MD = `# Connecting & publishing — single source of truth
+
+This file is the canonical rule for the never-inline deliverable, finding the
+Plan MCP connector, and restoring it when its tools are missing. It is shared
+word for word by \`/visual-plan\` and \`/visual-recap\`. Read it when you are about
+to publish, or whenever a connector or auth error appears; do not improvise an
+inline fallback from memory.
+
+<!-- SHARED-CORE:connection START -->
+
+**The deliverable is ALWAYS a published Agent-Native Plan, never inline chat
+content.** Do not hand the plan or recap to the user as Markdown prose, an ASCII
+sketch, a table, a fenced "wireframe", or a "here's the summary" paragraph. The
+entire value is the hosted, interactive, annotatable Plan; an inline summary is
+the thing a Plan replaces, not a degraded version of one. The only supported
+output is to publish through the Plan MCP connector and return its absolute URL.
+Local-files privacy mode (\`references/local-files.md\`) is the one exception.
+
+**The connector is usually the \`plan\` server**, but older installed agents may
+expose the same hosted connector as \`agent-native-plans\` — both names are valid,
+so never report the connector as missing just because it is named
+\`agent-native-plans\` instead of \`plan\`. Some clients also lazy-load connector
+tools through a deferred tool registry instead of showing the namespace upfront.
+Before declaring the connector missing, search/load tools with the host's
+discovery surface (\`tool_search\` when available) for \`create_visual_plan\`,
+\`create_visual_recap\`, or \`get_plan_blocks\`, then use the tools it exposes.
+
+**If the tools are still missing after discovery, do NOT fall back to inline
+output.** The usual cause is a connector that did not finish connecting this
+session (it registers zero tools), NOT necessarily an auth problem — so do not
+assume the user must re-authenticate. Stop and give the user the exact restore
+step for their current client:
+
+- **Codex / Codex Desktop:** run
+  \`npx -y @agent-native/core@latest reconnect https://plan.agent-native.com --client codex\`
+  and start a new Codex session.
+- **Claude Code:** run \`/mcp\` and choose Authenticate/Reconnect, or run the same
+  reconnect command with \`--client claude-code\` and restart Claude.
+
+The same applies when a Plan tool returns \`needs auth\`, \`Unauthorized\`, or
+\`Session terminated\`: stop retrying the tool and give the reconnect step instead.
+
+Auth is stored per client config/session, so one client's reconnect does not make
+another running client load tools. \`--client all\` refreshes every local client
+config that already has the Plan entry, but each running client still has to
+reload its MCP tools afterward. Reconnect re-authenticates WITHOUT reinstalling
+and finds the entry by URL regardless of connector name — never reinstall from
+scratch just to fix auth. Publish once the tool is reachable. Falling back to
+inline content is a defect, not a degraded mode.
+
+<!-- SHARED-CORE:connection END -->
+`;
+
+export const LOCAL_FILES_REFERENCE_MD = `# Local-files privacy mode — single source of truth
+
+This file is the canonical contract for fully local, no-database planning and
+recaps. It is shared word for word by \`/visual-plan\` and \`/visual-recap\`. Read it
+in full before using local-files mode; do not call any hosted Plan tool for a
+local plan/recap except the schema-only block-catalog lookup described below.
+
+<!-- SHARED-CORE:local-files START -->
+
+**When to use it.** Use local-files privacy mode when the user explicitly asks
+for no DB writes, no hosted Plan database writes, no Plan MCP publish, fully local
+files, offline/private work, or repo-owned/source-controlled artifacts, or when
+\`AGENT_NATIVE_PLANS_MODE=local-files\` is set. Also use it when a user or repo
+policy says the work must stay under their own brand, domain, source control, or
+infrastructure. In this mode the plan/recap data must never be sent to the Plan
+MCP server or the Plan app action surface. This is the only exception to the
+always-publish rule in \`references/connection.md\`.
+
+The local-files contract:
+
+- **Read context locally.** Read source, diff, and stat context from local files
+  and shell commands only. For recaps, the
+  \`npx @agent-native/core@latest recap collect-diff\`, \`scan\`, and
+  \`build-prompt --local-files\` helpers are safe — they operate on local files and
+  do not write to the Plan database.
+- **Fetch the block catalog first** (it sends no plan content). Use the MCP
+  \`get-plan-blocks\` tool if it is already available, or run
+  \`npx @agent-native/core@latest plan blocks --out plan-blocks.md\` and read that
+  file before authoring MDX; it calls the public no-auth \`get-plan-blocks\` route.
+  Use \`--format schema\` when you need exact nested fields. If network access is
+  unavailable, use the bundled \`references/*.md\` and rely on \`plan local check\` to
+  catch invalid tags. Copy the catalog examples verbatim for the fields the
+  registry table cannot encode: \`checklist\` items need \`id\` and \`label\`;
+  \`question-form\` questions need \`id\`, \`title\`, and \`mode\`, and each option needs
+  \`id\` and \`label\`; and \`Code\` / \`AnnotatedCode\` / \`Diff\` are whitespace-sensitive
+  — encode multiline code as JSON string attributes such as \`code={"const x =\\n  y"}\`
+  (a static template literal is accepted only when it has no \`\${...}\`
+  interpolation). \`plan local check\` is a quick OFFLINE lint (a subset of the
+  renderer schema), so a green \`check\` does not guarantee the plan renders;
+  \`plan local verify\` is the authoritative validation against the real renderer
+  schema.
+- **Write a local MDX folder.** Use \`plans/<slug>/\` to check the artifact into the
+  repo, or a repo-ignored/temporary folder such as \`.agent-native/plans/<slug>/\`
+  or \`/tmp/agent-native-plans/<slug>/\` when it should not be checked in. The
+  folder holds \`plan.mdx\`, optional \`canvas.mdx\`, optional \`prototype.mdx\`, and
+  optional \`.plan-state.json\`. For a recap, set \`kind: "recap"\` and
+  \`localOnly: true\` in the frontmatter/state. Use that exact folder as
+  \`<plan-dir>\` in every command below.
+- **Check, then serve.** Run
+  \`npx @agent-native/core@latest plan local check --dir <plan-dir>\` before any
+  preview, then
+  \`npx @agent-native/core@latest plan local serve --dir <plan-dir> --kind <plan|recap> --open\`
+  (use \`--kind plan\` for plans, \`--kind recap\` for recaps). Report the local
+  bridge URL from stdout or \`<plan-dir>/.plan-url\`; treat \`.plan-url\` as a local
+  token file and do not commit it. The URL opens the hosted Plan UI but reads from
+  the localhost bridge on this machine, so it is not shareable across machines. On
+  macOS \`--open\` prefers Chromium browsers; if Safari opens, switch to
+  Chrome/Chromium because Safari can block the hosted HTTPS page from fetching the
+  HTTP localhost bridge. If the Plan app itself is running locally with the same
+  \`PLAN_LOCAL_DIR\`, the \`/local-plans/<slug>\` route is also valid. In a truly
+  offline environment, hand off the \`<plan-dir>\` path after \`plan local check\` and
+  note that interactive preview requires network access to the hosted Plan UI or a
+  running local Plan app.
+- **Headless verify.** Run
+  \`npx @agent-native/core@latest plan local verify --dir <plan-dir> --kind <plan|recap>\`.
+  It starts the bridge, checks the private-network preflight and JSON payload, AND
+  validates the content against the real renderer schema via the Plan app's
+  \`validate-local-plan-source\` action. A non-\`ok\` result with
+  \`validation.valid: false\` lists the renderer's exact schema-path issues (e.g.
+  \`blocks[1].data.tabs[0]...\`); fix those before handing off. If \`validation.ran\`
+  is \`false\`, the Plan app did not expose the validate endpoint (older/unreachable
+  deploy) — point \`--app-url\` at a current Plan app (e.g. a local
+  \`http://localhost:8096\`) for the authoritative check. If the browser hangs on
+  "Loading plan", fetch the \`bridgeUrl\` from the verify/serve JSON to read the
+  concrete validation error.
+- **Never call hosted tools for that plan/recap.** Do not call
+  \`create-visual-plan\`, \`create-ui-plan\`, \`create-prototype-plan\`,
+  \`create-plan-design\`, \`create-visual-recap\`, \`create-visual-questions\`,
+  \`import-visual-plan-source\`, \`update-visual-plan\`, \`patch-visual-plan-source\`,
+  \`get-plan-feedback\`, \`export-visual-plan\`, \`set-resource-visibility\`, or any
+  other hosted Plan tool — except the schema-only block-catalog lookup above.
+- **Feedback is file/chat feedback.** Update the MDX files directly, rerun
+  \`plan local check\`, and rerun \`serve\` or \`verify\` when that preview path is
+  available. Summarize the new local URL when one exists; otherwise summarize the
+  checked \`<plan-dir>\` path. Hosted comments, sharing, screenshots, history, usage
+  attachment, and publish/export receipts are unavailable until the user
+  explicitly opts into publishing.
+
+Local-files mode only prevents plan/recap content from reaching the Agent-Native
+Plan database. It does not by itself make the coding agent's language model local;
+for that stronger boundary the host agent/model must also be local or otherwise
+approved by the user.
+
+<!-- SHARED-CORE:local-files END -->
+`;
 
 export const VISUAL_PLANS_SKILL_MD = `---
 name: visual-plan
@@ -1298,24 +1703,15 @@ skill's review discipline. Do not advise the user to skip \`/visual-plan\` becau
 the default surface is hosted; choose the right Plan mode for the user's
 ownership, privacy, sharing, and branding needs.
 
-By default, create the plan via the Plan MCP connector. NEVER hand the plan over
-as inline chat content — no Markdown prose, ASCII sketch, table, or fenced
-wireframe. Some clients lazy-load connector tools through a deferred tool
-registry instead of showing the \`plan\` namespace upfront; before declaring the
-connector missing, search/load tools with the host's discovery surface
-(\`tool_search\` when available) for \`create_visual_plan\`, \`create_ui_plan\`, or
-\`get_plan_blocks\`, then use the Plan MCP tools it exposes. If the connector's
-tools are still missing after discovery, do NOT fall back to inline output: the
-usual cause is a connector that did not finish connecting this session (it
-registers zero tools), not auth. Stop and give the user the exact restore step
-for their current client: in Codex/Codex Desktop run
-\`npx -y @agent-native/core@latest reconnect https://plan.agent-native.com --client codex\`
-and start a new Codex session; in Claude Code run \`/mcp\` and choose
-Authenticate/Reconnect (or run the same reconnect command with
-\`--client claude-code\` and restart Claude). Auth is stored per client
-config/session, so one client's reconnect does not make another running client
-load tools. Never reinstall from scratch just to fix auth. Publish once the tool
-is reachable. Local-files privacy mode (after Tool Guidance) is the exception.
+By default, create the plan via the Plan MCP connector and NEVER hand it over as
+inline chat content — no Markdown prose, ASCII sketch, table, or fenced
+wireframe. If the \`plan\` (or legacy \`agent-native-plans\`) tools are not visible,
+discover them through the host's \`tool_search\` first; if they are still missing,
+STOP and give the user the client-specific reconnect step rather than improvising
+an inline plan. Before publishing, or whenever a connector or auth error appears,
+READ \`references/connection.md\` in this skill directory — it is the single source
+of truth for the never-inline rule, connector discovery, and the per-client
+reconnect steps. Local-files privacy mode (after Tool Guidance) is the exception.
 
 ## Core Workflow
 
@@ -1551,69 +1947,19 @@ directory before authoring a plan.
 When the user critiques a plan's look or structure, fix the renderer or this
 skill — never hand-edit one stored plan. Turn feedback into better guidance.
 
-## Local-Files Privacy Mode
+## Local-Files Privacy Mode — read \`references/local-files.md\`
 
-Use local-files privacy mode when the user explicitly asks for no DB writes,
-no hosted Plan database writes, no Plan MCP publish, fully local files, offline/private
-planning, repo-owned/source-controlled planning artifacts, or when
-\`AGENT_NATIVE_PLANS_MODE=local-files\` is set. Also use it when a user or repo
-policy says a plan must stay under their own brand, domain, source control, or
-infrastructure. In this mode the plan data must never be sent to the Plan MCP
-server or Plan app action surface. Schema-only block catalog lookup is allowed
-because it sends no plan content: use the MCP \`get-plan-blocks\` tool if it is
-already available, or run
-\`npx @agent-native/core@latest plan blocks --out plan-blocks.md\` and read that
-file before authoring MDX.
-
-The local-files contract is:
-
-- Read source context from local files and shell commands only.
-- Fetch/read the block catalog before writing structured MDX. The
-  \`plan blocks\` command calls the public no-auth \`get-plan-blocks\` route and
-  writes only registry metadata to disk; use \`--format schema\` if exact nested
-  fields are needed. If network access is unavailable, use the bundled
-  references and rely on \`plan local check\` / \`plan local serve\` to catch
-  invalid tags. For \`checklist\` and \`question-form\`, copy the catalog examples
-  verbatim: checklist items need \`id\` and \`label\`; question-form questions need
-  \`id\`, \`title\`, and \`mode\`; and each option needs \`id\` and \`label\`. \`plan local
-  check\` validates these required fields against the renderer schema.
-- Write the plan as a local MDX folder: use \`plans/<slug>/\` when the user
-  wants the artifact checked into the repo, or use a repo-ignored/temporary
-  folder such as \`.agent-native/plans/<slug>/\` or \`/tmp/agent-native-plans/<slug>/\`
-  when it should not be checked in. The folder contains \`plan.mdx\`, optional
-  \`canvas.mdx\`, optional \`prototype.mdx\`, and optional \`.plan-state.json\`. Use
-  that exact chosen folder as \`<plan-dir>\` in every local CLI command below.
-- Run \`npx @agent-native/core@latest plan local check --dir <plan-dir>\` before
-  serving, then run
-  \`npx @agent-native/core@latest plan local serve --dir <plan-dir> --kind plan --open\`.
-  Report the returned local bridge URL from stdout or \`<plan-dir>/.plan-url\`.
-  Treat \`.plan-url\` as a local token file and do not commit it. The URL opens
-  the hosted Plan UI but reads from the localhost bridge on this machine, so it
-  is not shareable across machines. On macOS, \`--open\` prefers Chromium browsers;
-  if Safari opens, switch to Chrome/Chromium because Safari can block the hosted
-  HTTPS page from fetching the HTTP localhost bridge. If the Plan app itself is
-  running locally with the same \`PLAN_LOCAL_DIR\`, the \`/local-plans/<slug>\` route
-  is also valid.
-- For headless verification, run
-  \`npx @agent-native/core@latest plan local verify --dir <plan-dir> --kind plan\`.
-  It starts the bridge, checks the private-network preflight and JSON payload,
-  prints diagnostics, and exits. If the browser hangs on "Loading plan", fetch
-  the \`bridgeUrl\` from the verify/serve JSON to read the concrete validation
-  error.
-- Do **not** call \`create-visual-plan\`, \`create-ui-plan\`,
-  \`create-prototype-plan\`, \`create-plan-design\`, \`import-visual-plan-source\`,
-  \`update-visual-plan\`, \`patch-visual-plan-source\`, \`get-plan-feedback\`,
-  \`export-visual-plan\`, or any hosted Plan tool for that plan except the
-  schema-only block catalog lookup above.
-- Treat feedback as file or chat feedback: update the MDX files directly, rerun
-  the local bridge command, and summarize the new local bridge URL. Hosted
-  comments, sharing, history, and publish/export receipts are unavailable until
-  the user explicitly opts into publishing.
-
-Local-files mode prevents plan content from going to the Agent-Native Plan
-database. It does not by itself make the coding agent's language model local;
-for that stronger privacy boundary, the host agent/model must also be local or
-otherwise approved by the user.
+When the user wants no hosted Plan database writes — no DB writes, no Plan MCP
+publish, fully local/offline/private planning, repo-owned source-controlled
+artifacts, or \`AGENT_NATIVE_PLANS_MODE=local-files\` — do not call any hosted Plan
+tool except the schema-only \`get-plan-blocks\` catalog lookup. Author a local MDX
+folder and
+preview it with \`plan local check\` / \`plan local serve\` / \`plan local verify\`.
+Before using local-files mode, READ \`references/local-files.md\` in this skill
+directory — it is the single source of truth for the full contract (catalog
+lookup, MDX folder layout, the local bridge commands, and the hosted tools you
+must not call). Carry forward only the code-research and plan-composition
+guidance from Core Workflow; everything hosted is replaced by the local bridge.
 
 ## Interpreting comment anchors
 
@@ -1693,17 +2039,9 @@ For fully offline, no-account use, run the Plans app locally and sync plans to
 your repo as MDX. This local mode is a separate advanced path, not the default
 hosted flow.
 
-If a Plans tool returns \`needs auth\`, \`Unauthorized\`, or \`Session terminated\`,
-do not keep retrying the tool. Stop and give the user the reconnect step for the
-client they are using: Codex/Codex Desktop should run
-\`npx -y @agent-native/core@latest reconnect https://plan.agent-native.com --client codex\`
-and start a new Codex session; Claude Code should run \`/mcp\` and choose
-Authenticate/Reconnect for the plan connector, or run the reconnect command with
-\`--client claude-code\` and restart Claude. To refresh every local client config
-that already has the Plan entry, use \`--client all\`, then restart/reload each
-client. Reconnect re-authenticates WITHOUT reinstalling and finds the entry by
-URL regardless of connector name. Never reinstall from scratch just to fix auth.
-Continue once the connector is available.
+If a Plans tool returns \`needs auth\`, \`Unauthorized\`, or \`Session terminated\`, do
+not keep retrying it — stop and give the user the per-client reconnect step from
+\`references/connection.md\`, then continue once the connector is available.
 
 Hosted default: connect \`https://plan.agent-native.com/_agent-native/mcp\`. Do
 not put shared secrets in skill files.
@@ -1730,110 +2068,33 @@ schema, API, file, and architecture changes become the same \`data-model\`,
 now they summarize work that exists. A reviewer scans the shape of the change
 before spending attention on the literal lines.
 
-## Local-Files Privacy Mode Exception
+## Publish As An Agent-Native Plan — Never Inline
 
-Use local-files privacy mode when the user explicitly asks for no DB writes,
-no hosted Plan database writes, no Plan MCP publish, fully local files, offline/private
-recaps, or when \`AGENT_NATIVE_PLANS_MODE=local-files\` is set. This is the only
-exception to the hosted publish rule below.
+The deliverable is ALWAYS a published Agent-Native Plan, created with
+\`create-visual-recap\` on the Plan MCP connector — NEVER inline chat content (not
+Markdown prose, an ASCII sketch, a table, a fenced "wireframe", or a "here's the
+recap" summary). A recap's entire value is the hosted, interactive, annotatable
+plan; an inline summary is not a degraded recap, it is the thing a recap
+replaces. If the \`plan\` (or legacy \`agent-native-plans\`) tools are not visible,
+discover them through the host's \`tool_search\` first; if they are still missing,
+STOP and give the user the client-specific reconnect step rather than improvising
+an inline recap. Before publishing, or whenever a connector or auth error
+appears, READ \`references/connection.md\` in this skill directory — it is the
+single source of truth for the never-inline rule, connector discovery, and the
+per-client reconnect steps. Local-files privacy mode (below) is the one
+exception.
 
-In local-files mode:
+## Local-Files Privacy Mode — read \`references/local-files.md\`
 
-- Read the diff/stat/source context from local files and shell commands only.
-  The existing \`npx @agent-native/core@latest recap collect-diff\`, \`scan\`, and
-  \`build-prompt --local-files\` helpers are safe to use because they operate on
-  local files and do not write to the Plan database.
-- Fetch/read the block catalog before writing structured MDX. Use
-  \`npx @agent-native/core@latest plan blocks --out plan-blocks.md\` when the Plan
-  MCP connector is not registered; it calls the public no-auth
-  \`get-plan-blocks\` route and sends no recap content. If network access is
-  unavailable, use the bundled references and validate the MDX with
-  \`plan local check\`; do not run \`plan local serve\` unless the hosted Plan UI is
-  reachable or a local Plan app is already running. For \`checklist\` and \`question-form\`,
-  copy the catalog examples verbatim: checklist items need \`id\` and \`label\`;
-  question-form questions need \`id\`, \`title\`, and \`mode\`; and each option needs
-  \`id\` and \`label\`. \`plan local check\` validates these required fields against
-  the renderer schema.
-- Write the recap as a local MDX folder: use \`plans/<slug>/\` when the user
-  wants the artifact checked into the repo, or use a repo-ignored/temporary
-  folder such as \`.agent-native/plans/<slug>/\` or \`/tmp/agent-native-plans/<slug>/\`
-  when it should not be checked in. The folder contains \`plan.mdx\`, optional
-  \`canvas.mdx\`, optional \`prototype.mdx\`, and optional \`.plan-state.json\`. Set
-  \`kind: "recap"\` and \`localOnly: true\` in frontmatter/state when authoring the
-  source. Use that exact chosen folder as \`<plan-dir>\` in every local CLI command
-  below.
-- Run \`npx @agent-native/core@latest plan local check --dir <plan-dir>\` before
-  any preview. When the hosted Plan UI is reachable, run
-  \`npx @agent-native/core@latest plan local serve --dir <plan-dir> --kind recap --open\`.
-  Report the returned local bridge URL from stdout or \`<plan-dir>/.plan-url\`.
-  Treat \`.plan-url\` as a local token file and do not commit it. The URL opens
-  the hosted Plan UI but reads from the localhost bridge on this machine, so it
-  is not shareable across machines. On macOS, \`--open\` prefers Chromium browsers;
-  if Safari opens, switch to Chrome/Chromium because Safari can block the hosted
-  HTTPS page from fetching the HTTP localhost bridge. If the Plan app itself is
-  running locally with the same \`PLAN_LOCAL_DIR\`, the \`/local-plans/<slug>\` route
-  is also valid. In a truly offline environment, hand off the local \`<plan-dir>\`
-  path after \`plan local check\` and note that interactive preview requires either
-  network access to the hosted Plan UI or a running local Plan app.
-- For headless verification, run
-  \`npx @agent-native/core@latest plan local verify --dir <plan-dir> --kind recap\`.
-  It starts the bridge, checks the private-network preflight and JSON payload,
-  prints diagnostics, and exits. If the browser hangs on "Loading plan", fetch
-  the \`bridgeUrl\` from the verify/serve JSON to read the concrete validation
-  error.
-- Do **not** call \`create-visual-recap\`, \`create-visual-plan\`,
-  \`import-visual-plan-source\`, \`update-visual-plan\`,
-  \`patch-visual-plan-source\`, \`get-plan-feedback\`, \`export-visual-plan\`,
-  \`set-resource-visibility\`, or any hosted Plan tool for that recap except the
-  schema-only block catalog lookup above.
-- Treat review feedback as file or chat feedback: update the MDX files directly,
-  rerun \`plan local check\`, and rerun \`serve\` or \`verify\` only when that preview
-  path is available. Summarize the new local URL when one exists; otherwise
-  summarize the checked local folder path.
-  Hosted comments, sharing, screenshots, usage attachment, and PR sticky comment
-  publishing are unavailable until the user explicitly opts into publishing.
-
-Local-files mode prevents recap content from going to the Agent-Native Plan
-database. It does not by itself make the coding agent's language model local;
-for that stronger privacy boundary, the host agent/model must also be local or
-otherwise approved by the user.
-
-## Always Publish As An Agent-Native Plan — Never Inline
-
-The deliverable is ALWAYS a published Agent-Native Plan, created with the
-\`create-visual-recap\` tool on the Plan MCP connector. The connector is usually
-exposed as the \`plan\` server, but older installed agents may expose the same
-hosted connector as \`agent-native-plans\`; both names are valid. NEVER hand the
-recap to the user as inline chat content — not Markdown prose, not an ASCII
-sketch, not a table, not a fenced "wireframe", not a "here's the recap" summary.
-A recap's entire value is the hosted, interactive, annotatable plan; an inline
-summary is not a recap, it is the thing a recap replaces. The only supported
-output is to publish the plan and return its absolute URL.
-
-Some clients lazy-load connector tools through a deferred tool registry instead
-of showing the \`plan\` namespace upfront. Before declaring the Plan connector
-missing, search/load tools with the host's discovery surface (\`tool_search\` when
-available) for \`create_visual_recap\`, \`create_visual_plan\`, or
-\`get_plan_blocks\`, then use the Plan MCP tools it exposes.
-
-Except for the explicit local-files privacy mode above, if neither the \`plan\`
-nor legacy \`agent-native-plans\` Plan MCP tools are available after deferred tool
-discovery, do NOT improvise an inline recap as a fallback. Do not report the
-connector as disconnected just because it is named \`agent-native-plans\` instead
-of \`plan\`, or because the tools were not visible before discovery. The usual
-cause is a connector that did not finish connecting this session (it registers
-zero tools), NOT necessarily an auth problem — so do not assume the user must
-authenticate. Stop and tell the user how to restore it for their current client: in
-Codex/Codex Desktop, run
-\`npx -y @agent-native/core@latest reconnect https://plan.agent-native.com --client codex\`
-and start a new Codex session; in Claude Code, run \`/mcp\` and choose
-Authenticate/Reconnect, or run the reconnect command with \`--client claude-code\`
-and restart Claude. Auth is stored per client config/session; \`--client all\`
-refreshes every local client config that already has the Plan entry, but each
-running client still has to reload its MCP tools. Reconnect re-authenticates
-WITHOUT reinstalling and finds the entry by URL regardless of connector name.
-Never reinstall from scratch just to fix auth. Then publish once the tool is
-reachable. Falling back to inline content is a defect, not a degraded mode.
+When the user wants no hosted Plan database writes — no DB writes, no Plan MCP
+publish, fully local/offline/private recaps, or \`AGENT_NATIVE_PLANS_MODE=local-files\`
+— do not call any hosted Plan tool except the schema-only \`get-plan-blocks\`
+catalog lookup. Read the diff with the local \`recap collect-diff\` / \`scan\` /
+\`build-prompt --local-files\` helpers, author a local MDX folder (set
+\`kind: "recap"\` and \`localOnly: true\`), and preview it with \`plan local check\`,
+\`plan local serve --kind recap\`, and \`plan local verify --kind recap\`. Before
+using local-files mode, READ \`references/local-files.md\` in this skill directory
+— it is the single source of truth for the full contract.
 
 ## When To Use
 
@@ -2213,14 +2474,19 @@ fine — only capitalized component-style block tags are validated.
 
 A few recap-specific authoring rules the registry table cannot encode:
 
-- Every block takes a REQUIRED \`id\` (unique across the whole plan) plus the
-  shared optional \`summary\` / \`editable\` envelope; give a block a heading by
-  placing a \`rich-text\` block with a Markdown \`###\` heading directly above it
-  (blocks no longer take a \`title\`).
-- Every capitalized block component must be self-closing (\`<RichText ... />\`) or
+- Every structured block takes a REQUIRED \`id\` (unique across the whole plan)
+  plus the shared optional \`summary\` / \`editable\` envelope. Ordinary top-level
+  Markdown prose imports as rich-text automatically; use \`<RichText id="...">\`
+  only when prose needs explicit metadata or a preserved referenced block id.
+- Every capitalized block component must be self-closing (\`<Diagram ... />\`) or
   explicitly closed around children (\`<RichText ...>...</RichText>\`). Never
   leave a bare opening tag like \`<RichText ...>\` in a paragraph; MDX treats it
   as unclosed JSX and import fails before the recap can render.
+- Code-bearing blocks (\`Code\`, \`AnnotatedCode\`, and \`Diff\`) are
+  whitespace-sensitive. Prefer the exact MDX form from the \`get-plan-blocks\`
+  examples / source exporter, where multiline code is encoded as JSON string
+  attributes such as \`code={"const x =\\n  y"}\`. Static template literals are
+  accepted only when they are static strings with no \`\${...}\` interpolation.
 - \`Endpoint\`: prose \`description\` is the MDX **children** (body between the
   tags), not an attribute; for a WebSocket upgrade use \`method="GET"\`. Each
   request/response \`example\` is a JSON **string** (the renderer parses it into
@@ -2424,6 +2690,9 @@ export const BUILT_IN_APP_SKILLS = {
   },
   design: {
     skillName: "design-exploration",
+    extraSkills: {
+      "visual-edit": DESIGN_VISUAL_EDIT_SKILL_MD,
+    },
     manifest: normalizeAppSkillManifest({
       schemaVersion: 1,
       id: "design",
@@ -2446,12 +2715,22 @@ export const BUILT_IN_APP_SKILLS = {
           action: "present-design-variants",
           path: "/design",
         },
+        {
+          id: "visual-edit",
+          action: "add-localhost-screens",
+          path: "/design",
+        },
       ],
       skills: [
         {
           path: "skills/design-exploration",
           visibility: "exported",
           exportAs: "design-exploration",
+        },
+        {
+          path: "skills/visual-edit",
+          visibility: "exported",
+          exportAs: "visual-edit",
         },
       ],
       hostAdapters: [
@@ -2481,8 +2760,14 @@ export const BUILT_IN_APP_SKILLS = {
         "references/canvas.md": CANVAS_REFERENCE_MD,
         "references/document-quality.md": DOCUMENT_QUALITY_REFERENCE_MD,
         "references/exemplar.md": EXEMPLAR_REFERENCE_MD,
+        "references/connection.md": CONNECTION_REFERENCE_MD,
+        "references/local-files.md": LOCAL_FILES_REFERENCE_MD,
       },
-      "visual-recap": { "references/wireframe.md": WIREFRAME_REFERENCE_MD },
+      "visual-recap": {
+        "references/wireframe.md": WIREFRAME_REFERENCE_MD,
+        "references/connection.md": CONNECTION_REFERENCE_MD,
+        "references/local-files.md": LOCAL_FILES_REFERENCE_MD,
+      },
     },
     manifest: normalizeAppSkillManifest({
       schemaVersion: 1,
@@ -2613,6 +2898,9 @@ const BUILT_IN_APP_SKILL_ALIASES = {
   "ui-design": "design",
   "ux-design": "design",
   "design-exploration": "design",
+  "visual-edit": "design",
+  "local-visual-edit": "design",
+  "design-visual-edit": "design",
   "ux-exploration": "design",
   "agent-native-design": "design",
   "agent-native-design-exploration": "design",
@@ -2646,6 +2934,8 @@ const BUILT_IN_APP_SKILL_DISPLAY_ALIASES = {
   ],
   design: [
     "design-exploration",
+    "visual-edit",
+    "local-visual-edit",
     "ux-exploration",
     "agent-native-design-exploration",
   ],
@@ -2840,6 +3130,7 @@ interface SkillInstallMetadata {
   contentHash: string;
   mcpUrl: string;
   installedAt: string;
+  installCommand: string;
   updateCommand: string;
   planMode?: PlanInstallMode;
 }
@@ -3077,6 +3368,19 @@ function builtInOnlySkillNames(target: string): string[] | undefined {
   if (normalized === "visual-recap" || normalized === "visual-recaps") {
     return ["visual-recap"];
   }
+  if (
+    normalized === "design-exploration" ||
+    normalized === "agent-native-design-exploration"
+  ) {
+    return ["design-exploration"];
+  }
+  if (
+    normalized === "visual-edit" ||
+    normalized === "local-visual-edit" ||
+    normalized === "design-visual-edit"
+  ) {
+    return ["visual-edit"];
+  }
   return undefined;
 }
 
@@ -3243,30 +3547,48 @@ function writeSkillFolder(
   bundle: SkillFolderBundle,
   installedAt = new Date().toISOString(),
 ): void {
-  fs.rmSync(dir, { recursive: true, force: true });
-  fs.mkdirSync(dir, { recursive: true });
-  for (const [rel, content] of Object.entries(bundle.files)) {
-    const target = path.join(dir, rel);
-    fs.mkdirSync(path.dirname(target), { recursive: true });
-    fs.writeFileSync(target, content, "utf-8");
-  }
-  const metadata: SkillInstallMetadata = {
-    schemaVersion: 1,
-    source: "agent-native",
-    appSkillId: bundle.appSkillId,
-    displayName: bundle.displayName,
-    skillName: bundle.skillName,
-    contentHash: bundle.contentHash,
-    mcpUrl: bundle.mcpUrl,
-    installedAt,
-    updateCommand: `npx @agent-native/core@latest skills update ${bundle.skillName}`,
-    ...(bundle.planMode ? { planMode: bundle.planMode } : {}),
-  };
-  fs.writeFileSync(
-    path.join(dir, AGENT_NATIVE_SKILL_METADATA_FILE),
-    `${JSON.stringify(metadata, null, 2)}\n`,
-    "utf-8",
+  const parent = path.dirname(dir);
+  const tempDir = path.join(
+    parent,
+    `.${path.basename(dir)}.${process.pid}.${Date.now()}.tmp`,
   );
+  try {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+    fs.mkdirSync(tempDir, { recursive: true });
+    for (const [rel, content] of Object.entries(bundle.files)) {
+      const target = path.join(tempDir, rel);
+      fs.mkdirSync(path.dirname(target), { recursive: true });
+      fs.writeFileSync(target, content, "utf-8");
+    }
+    const metadata: SkillInstallMetadata = {
+      schemaVersion: 1,
+      source: "agent-native",
+      appSkillId: bundle.appSkillId,
+      displayName: bundle.displayName,
+      skillName: bundle.skillName,
+      contentHash: bundle.contentHash,
+      mcpUrl: bundle.mcpUrl,
+      installedAt,
+      installCommand: `npx @agent-native/core@latest skills add ${bundle.skillName}`,
+      updateCommand: `npx @agent-native/core@latest skills update ${bundle.skillName}`,
+      ...(bundle.planMode ? { planMode: bundle.planMode } : {}),
+    };
+    fs.writeFileSync(
+      path.join(tempDir, AGENT_NATIVE_SKILL_METADATA_FILE),
+      `${JSON.stringify(metadata, null, 2)}\n`,
+      "utf-8",
+    );
+    fs.rmSync(dir, { recursive: true, force: true });
+    fs.renameSync(tempDir, dir);
+  } catch (error: any) {
+    try {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    } catch {}
+    throw new Error(
+      `Cannot write Agent Native skill folder ${dir}: ${error?.message ?? error}`,
+      { cause: error },
+    );
+  }
 }
 
 function isJsonRecord(value: unknown): value is Record<string, unknown> {
@@ -4237,6 +4559,11 @@ const BUILT_IN_SKILL_PROMPT_OPTIONS: SkillsTargetPromptContext["options"] = [
     value: "design-exploration",
     label: "design-exploration",
     hint: BUILT_IN_APP_SKILLS.design.manifest.description,
+  },
+  {
+    value: "visual-edit",
+    label: "visual-edit",
+    hint: "Open a running local app in Design overview mode as URL-backed iframe screens.",
   },
   {
     value: "context-xray",
@@ -5977,7 +6304,9 @@ function runSkillsStatusOrUpdate(
     const target = parsed.target ? ` for ${parsed.target}` : "";
     const hint = isScaffoldGuidanceTarget(parsed.target)
       ? `Run this from a generated Agent Native app or workspace root.\n`
-      : `Run "npx @agent-native/core@latest skills add ${parsed.target ?? "visual-plan"}" to install one.\n`;
+      : update
+        ? `The update command only refreshes skill folders that already exist; it does not do first-time install, MCP registration, or auth. Run "npx @agent-native/core@latest skills add ${parsed.target ?? "visual-plan"}" for one-step setup.\n`
+        : `Run "npx @agent-native/core@latest skills add ${parsed.target ?? "visual-plan"}" to install one.\n`;
     process.stdout.write(
       `No installed Agent Native skill copies found${target}.\n${hint}`,
     );

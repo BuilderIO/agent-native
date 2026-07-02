@@ -995,7 +995,7 @@
   min-height: 100%;
   overflow: hidden;
   box-sizing: border-box;
-  background: var(--wf-paper);
+  background: transparent;
   color: var(--wf-ink);
   font-family: var(--wf-font);
   font-size: 14px;
@@ -1177,6 +1177,20 @@
   border-radius: var(--wf-radius);
   padding: 12px;
 }
+.plan-html-frame:not([data-render-mode="design"]) .wf-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.plan-html-frame:not([data-render-mode="design"]) .wf-row > :last-child {
+  margin-inline-start: auto;
+  text-align: end;
+}
+.plan-html-frame[data-style="sketchy"]:not([data-render-mode="design"])
+  :is(.wf-card, .wf-box) {
+  border-color: color-mix(in srgb, var(--wf-line) 72%, transparent);
+}
 .plan-html-frame:not([data-render-mode="design"]) .wf-pill,
 .plan-html-frame:not([data-render-mode="design"]) .wf-chip {
   display: inline-flex;
@@ -1193,10 +1207,29 @@
   background: var(--wf-accent-soft);
 }
 
-/* Once rough has drawn, hide the crisp borders so there's no doubling. Pills
-   keep their rounded crisp border (the rough overlay rounds them too). */
+/* Once rough has drawn, hide crisp borders on the standard wireframe primitives
+   that rough.js redraws. Fills and text stay in CSS; only outlines switch to
+   the hand-drawn overlay. */
 .plan-html-frame[data-rough-ready]
-  :is(button, input, textarea, select, .wf-card, .wf-box, hr, [data-rough]) {
+  :is(
+    button,
+    input,
+    textarea,
+    select,
+    hr,
+    .wf-btn,
+    .wf-card,
+    .wf-box,
+    .wf-pill,
+    .wf-chip,
+    .wf-icon-fallback,
+    [style*="border:"],
+    [style*="border-top:"],
+    [style*="border-right:"],
+    [style*="border-bottom:"],
+    [style*="border-left:"],
+    [data-rough]
+  ):not([data-rough="none"]) {
   border-color: transparent !important;
 }
 
@@ -1231,6 +1264,7 @@
   --wf-muted: var(--plan-muted, hsl(var(--muted-foreground)));
   --wf-line: var(--plan-line, hsl(var(--border)));
   --wf-sketch: var(--plan-muted-line, hsl(var(--border)));
+  --wf-diagram-line: var(--wf-line);
   --wf-paper: var(--plan-document, hsl(var(--background)));
   --wf-card: var(--plan-block, hsl(var(--card)));
   --wf-accent: hsl(var(--ring));
@@ -1256,6 +1290,10 @@
   line-height: 1.4;
 }
 
+.plan-diagram-frame[data-theme="dark"] {
+  --wf-diagram-line: color-mix(in srgb, var(--wf-sketch) 72%, var(--wf-line));
+}
+
 .plan-diagram-frame[data-style="sketchy"] {
   --wf-font: var(--wf-font-hand);
   line-height: 1.32;
@@ -1275,9 +1313,7 @@
 }
 
 .plan-diagram-frame-content
-  > :is(.diagram-panel, .diagram-card, .diagram-box):not([data-rough]):not(
-    [data-diagram-frame]
-  ) {
+  > .diagram-panel:not([data-rough]):not([data-diagram-frame]) {
   --rough-skip: 1;
   background: transparent;
   border-color: transparent;
@@ -1318,7 +1354,8 @@
 
 .plan-diagram-frame
   :is(.diagram-panel, .diagram-card, .diagram-node, .diagram-box) {
-  border: 1.25px solid var(--wf-line);
+  --rough-stroke: var(--wf-diagram-line);
+  border: 1.25px solid var(--wf-diagram-line);
   border-radius: var(--wf-radius);
   background: var(--wf-card);
 }
@@ -1333,13 +1370,43 @@
     [class*="panel"],
     [class*="box"]
   ) {
-  border-color: var(--wf-line) !important;
+  --rough-stroke: var(--wf-diagram-line);
+  border-color: var(--wf-diagram-line) !important;
   background: var(--wf-card) !important;
   color: var(--wf-ink) !important;
 }
 
-.plan-diagram-frame :is(.diagram-node, .diagram-box, .diagram-card) {
+.plan-diagram-frame
+  :is(
+    .diagram-panel,
+    .diagram-card,
+    .diagram-node,
+    .diagram-box,
+    [class*="card"],
+    [class*="panel"],
+    [class*="box"]
+  ) {
   max-width: 100%;
+  overflow-wrap: anywhere !important;
+  word-break: break-word;
+  white-space: normal !important;
+}
+
+.plan-diagram-frame
+  :is(
+    .diagram-panel,
+    .diagram-card,
+    .diagram-node,
+    .diagram-box,
+    [class*="card"],
+    [class*="panel"],
+    [class*="box"]
+  )
+  :is(h1, h2, h3, p, small, strong, span, li) {
+  max-width: 100%;
+  overflow-wrap: anywhere !important;
+  word-break: break-word;
+  white-space: normal !important;
 }
 
 /* Base padding so primitive text never touches the box edge, even when an author
@@ -1366,7 +1433,8 @@
 
 .plan-diagram-frame
   :is(.diagram-pill, [class*="pill"], [class*="badge"], [class*="chip"]) {
-  border-color: var(--wf-line) !important;
+  --rough-stroke: var(--wf-diagram-line);
+  border-color: var(--wf-diagram-line) !important;
   background: var(--wf-paper) !important;
   color: var(--wf-ink) !important;
 }
@@ -1404,6 +1472,7 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  flex-wrap: wrap;
   /* A pill hugs its label. `fit-content` is a definite cross size, so a flex
    * column with the default `align-items: stretch` no longer blows the pill out
    * to full width (the number chips and short status labels stay pill-shaped).
@@ -1411,11 +1480,24 @@
    * variant used across the docs diagrams stays pill-shaped, not a full bar. */
   width: fit-content;
   max-width: 100%;
-  border: 1px solid var(--wf-line);
+  border: 1px solid var(--wf-diagram-line);
   border-radius: 999px;
   padding: 3px 11px;
   color: var(--wf-ink);
   background: var(--wf-paper);
+  overflow-wrap: anywhere !important;
+  text-align: center;
+  white-space: normal !important;
+  word-break: break-word;
+}
+
+.plan-diagram-frame
+  :is(.diagram-pill, [class*="pill"], [class*="badge"], [class*="chip"])
+  > * {
+  min-width: 0;
+  max-width: 100%;
+  overflow-wrap: anywhere !important;
+  white-space: normal !important;
 }
 
 .plan-diagram-frame :is(.diagram-accent, .diagram-pill.accent) {
@@ -1453,6 +1535,16 @@
     [data-rough],
     hr
   ) {
+  border-color: color-mix(
+    in srgb,
+    var(--wf-diagram-line) 54%,
+    transparent
+  ) !important;
+}
+
+.plan-diagram-frame[data-rough-ready]
+  .plan-diagram-frame-content
+  > .diagram-panel:not([data-rough]):not([data-diagram-frame]) {
   border-color: transparent !important;
 }
 

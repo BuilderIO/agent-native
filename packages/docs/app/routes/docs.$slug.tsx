@@ -1,5 +1,5 @@
 import { redirect, useLoaderData, type LoaderFunctionArgs } from "react-router";
-import DocsLayout from "../components/DocsLayout";
+
 import DocContent from "../components/DocContent";
 import { getDoc, type DocEntry } from "../components/docs-content";
 import {
@@ -7,6 +7,8 @@ import {
   docsPathForSlug,
   isDocsLocale,
 } from "../components/docs-locale";
+import { docsMarkdownPathForDoc } from "../components/docs-seo";
+import DocsLayout from "../components/DocsLayout";
 import { withDefaultSocialImage, withDocsSocialImage } from "../seo";
 
 /** Legacy slug → current slug. Keep in sync with any renames in content/. */
@@ -38,12 +40,14 @@ export async function loader({ params }: LoaderFunctionArgs) {
 
 export const meta = ({
   data,
+  loaderData,
   params,
 }: {
   data?: DocEntry;
+  loaderData?: DocEntry;
   params: { slug: string };
 }) => {
-  const doc = data ?? getDoc(params.slug);
+  const doc = data ?? loaderData ?? getDoc(params.slug);
   if (!doc)
     return withDefaultSocialImage([{ title: "Not Found — Agent-Native" }]);
   return withDocsSocialImage(
@@ -68,7 +72,12 @@ export default function DocPage() {
   }));
 
   return (
-    <DocsLayout toc={toc}>
+    <DocsLayout
+      toc={toc}
+      markdownUrl={
+        docsMarkdownPathForDoc(doc.slug, DEFAULT_DOCS_LOCALE) ?? undefined
+      }
+    >
       <DocContent markdown={doc.body} />
     </DocsLayout>
   );

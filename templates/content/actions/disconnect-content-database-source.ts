@@ -2,6 +2,7 @@ import { defineAction } from "@agent-native/core";
 import { assertAccess } from "@agent-native/core/sharing";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
+
 import { getDb, schema } from "../server/db/index.js";
 import type {
   ContentDatabaseResponse,
@@ -15,6 +16,9 @@ import { getContentDatabaseResponse } from "./_database-utils.js";
 
 async function deleteSourceRecords(sourceId: string) {
   const db = getDb();
+  await db
+    .delete(schema.contentDatabaseBodyHydrationQueue)
+    .where(eq(schema.contentDatabaseBodyHydrationQueue.sourceId, sourceId));
   await db
     .delete(schema.contentDatabaseSourceExecutions)
     .where(eq(schema.contentDatabaseSourceExecutions.sourceId, sourceId));

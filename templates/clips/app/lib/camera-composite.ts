@@ -244,7 +244,12 @@ export function createCameraCompositeStream(
     } catch {
       // The display video can be momentarily unavailable while metadata loads.
     }
-    drawCameraBubble(ctx, camera.video, canvas, drawOptions);
+    // Hide the bubble once the camera ends (unplugged, or the blur pipeline
+    // stopped its captureStream) — the <video> freezes on its last frame rather
+    // than zeroing its dimensions, so check the track instead.
+    if (cameraTrack.readyState !== "ended") {
+      drawCameraBubble(ctx, camera.video, canvas, drawOptions);
+    }
   };
 
   // Use a Worker-based timer so the draw loop keeps running at the target

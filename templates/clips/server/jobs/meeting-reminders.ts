@@ -19,10 +19,11 @@
  *     they should query `list-meetings` on a poll instead.
  */
 
-import { and, eq, gte, isNull, lte } from "drizzle-orm";
-import { z } from "zod";
 import { emit, registerEvent } from "@agent-native/core/event-bus";
 import { runWithRequestContext } from "@agent-native/core/server/request-context";
+import { and, eq, gte, isNull, lte } from "drizzle-orm";
+import { z } from "zod";
+
 import { getDb, schema } from "../db/index.js";
 
 const REMINDER_INTERVAL_MS = 60 * 1000;

@@ -1,6 +1,3 @@
-import fs from "fs";
-import path from "path";
-
 function parseArgs(args: string[]): Record<string, string> {
   const result: Record<string, string> = {};
   for (let i = 0; i < args.length; i++) {
@@ -19,24 +16,6 @@ function parseArgs(args: string[]): Record<string, string> {
   return result;
 }
 
-function upsertEnvLine(lines: string[], key: string, value: string): string[] {
-  // Reject values with newlines, carriage returns, or null bytes
-  if (/[\r\n\0]/.test(value)) {
-    throw new Error(
-      `Invalid value for ${key}: must not contain newlines or null bytes`,
-    );
-  }
-
-  const idx = lines.findIndex((l) => l.startsWith(`${key}=`));
-  const line = `${key}=${value}`;
-  if (idx >= 0) {
-    lines[idx] = line;
-  } else {
-    lines.push(line);
-  }
-  return lines;
-}
-
 export default async function main(args: string[]) {
   const { url, token, help } = parseArgs(args);
 
@@ -44,7 +23,9 @@ export default async function main(args: string[]) {
     console.log(
       "Usage: pnpm action db-connect --url <DATABASE_URL> [--token <DATABASE_AUTH_TOKEN>]",
     );
-    console.log("\nWrites DATABASE_URL and DATABASE_AUTH_TOKEN to .env");
+    console.log(
+      "\nDATABASE_URL and DATABASE_AUTH_TOKEN are deployment-level settings.",
+    );
     return;
   }
 
@@ -53,31 +34,12 @@ export default async function main(args: string[]) {
     throw new Error("Script failed");
   }
 
-  const envPath = path.join(process.cwd(), ".env");
-  let lines: string[] = [];
-
-  if (fs.existsSync(envPath)) {
-    lines = fs.readFileSync(envPath, "utf8").split("\n");
-  }
-
-  try {
-    upsertEnvLine(lines, "DATABASE_URL", url);
-    if (token) {
-      upsertEnvLine(lines, "DATABASE_AUTH_TOKEN", token);
-    }
-  } catch (err) {
-    console.error(
-      `Error: ${err instanceof Error ? err.message : "Invalid value"}`,
-    );
-    throw new Error("Script failed");
-  }
-
-  fs.writeFileSync(envPath, lines.join("\n"));
-
-  console.log(`\nDatabase connection saved to .env`);
+  console.log(`\nDatabase connection not written locally`);
   console.log(
     `  DATABASE_URL=${url.startsWith("file:") ? url : url.replace(/\/\/.*@/, "//***@")}`,
   );
   if (token) console.log(`  DATABASE_AUTH_TOKEN=***`);
-  console.log(`\nRestart the dev server for changes to take effect.`);
+  console.log(
+    `\nConfigure these as deployment environment variables with your host, then redeploy.`,
+  );
 }

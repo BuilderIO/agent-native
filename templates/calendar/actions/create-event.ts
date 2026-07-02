@@ -1,10 +1,15 @@
 import { defineAction } from "@agent-native/core";
-import { getRequestUserEmail, buildDeepLink } from "@agent-native/core/server";
 import { emit } from "@agent-native/core/event-bus";
+import {
+  buildDeepLink,
+  getRequestOrgId,
+  getRequestUserEmail,
+} from "@agent-native/core/server";
 import { z } from "zod";
-import type { CalendarEvent } from "../shared/api.js";
-import * as googleCalendar from "../server/lib/google-calendar.js";
+
 import { prepareZoomMeetingPatch } from "../server/lib/event-video-conferencing.js";
+import * as googleCalendar from "../server/lib/google-calendar.js";
+import type { CalendarEvent } from "../shared/api.js";
 import {
   availabilityInput,
   attachmentsInput,
@@ -150,7 +155,10 @@ export default defineAction({
     // Resolve account email
     let acctEmail = email;
     if (args.accountEmail && args.accountEmail !== email) {
-      const status = await googleCalendar.getAuthStatus(email);
+      const status = await googleCalendar.getAuthStatus(
+        email,
+        getRequestOrgId(),
+      );
       const isOwned = status.accounts.some(
         (a) => a.email === args.accountEmail,
       );

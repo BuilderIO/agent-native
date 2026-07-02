@@ -1,5 +1,5 @@
-import { useState, useEffect, useCallback } from "react";
-import { format, parseISO } from "date-fns";
+import { useT } from "@agent-native/core/client";
+import type { CalendarEvent } from "@shared/api";
 import {
   IconMapPin,
   IconClock,
@@ -7,11 +7,12 @@ import {
   IconTrash,
   IconX,
 } from "@tabler/icons-react";
-import {
-  sanitizeHtml,
-  stripGcalInviteHtml,
-  isHtml,
-} from "@/lib/sanitize-description";
+import { format, parseISO } from "date-fns";
+import { useState, useEffect, useCallback } from "react";
+import { toast } from "sonner";
+
+import { useGuestNotificationPrompt } from "@/components/calendar/GuestNotificationDialog";
+import { Button } from "@/components/ui/button";
 import {
   Dialog,
   DialogContent,
@@ -19,18 +20,18 @@ import {
   DialogTitle,
   DialogFooter,
 } from "@/components/ui/dialog";
-import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
-import { useT } from "@agent-native/core/client";
+import { Textarea } from "@/components/ui/textarea";
 import { useUpdateEvent, useDeleteEvent } from "@/hooks/use-events";
-import { getEventDisplayColor } from "@/lib/event-colors";
-import { shortcutModifierLabel } from "@/lib/utils";
 import { useViewPreferences } from "@/hooks/use-view-preferences";
-import { toast } from "sonner";
-import type { CalendarEvent } from "@shared/api";
-import { useGuestNotificationPrompt } from "@/components/calendar/GuestNotificationDialog";
+import { getEventDisplayColor } from "@/lib/event-colors";
+import {
+  sanitizeHtml,
+  stripGcalInviteHtml,
+  isHtml,
+} from "@/lib/sanitize-description";
+import { shortcutModifierLabel } from "@/lib/utils";
 
 interface EventDialogProps {
   event: CalendarEvent | null;

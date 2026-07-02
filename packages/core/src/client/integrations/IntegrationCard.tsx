@@ -1,4 +1,3 @@
-import React, { useState, useCallback } from "react";
 import {
   IconBrandSlack,
   IconBrandTelegram,
@@ -9,7 +8,8 @@ import {
   IconCopy,
   IconCheck,
 } from "@tabler/icons-react";
-import type { IntegrationStatus } from "./useIntegrationStatus.js";
+import React, { useState, useCallback } from "react";
+
 import { agentNativePath } from "../api-path.js";
 import {
   Tooltip,
@@ -17,6 +17,7 @@ import {
   TooltipTrigger,
 } from "../components/ui/tooltip.js";
 import { useT } from "../i18n.js";
+import type { IntegrationStatus } from "./useIntegrationStatus.js";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const platformIcons: Record<string, React.ComponentType<any>> = {
@@ -37,7 +38,7 @@ function StatusDot({
       ? "bg-green-500"
       : configured
         ? "bg-yellow-500"
-        : "bg-gray-400";
+        : "bg-muted-foreground/55";
   return <span className={`inline-block h-2 w-2 rounded-full ${color}`} />;
 }
 

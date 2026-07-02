@@ -1,4 +1,12 @@
 import {
+  getSession,
+  readBody,
+  runWithRequestContext,
+  verifyCaptcha,
+} from "@agent-native/core/server";
+import { assertAccess } from "@agent-native/core/sharing";
+import { and, eq, desc, isNull, sql } from "drizzle-orm";
+import {
   defineEventHandler,
   getRouterParam,
   getQuery,
@@ -7,23 +15,19 @@ import {
   getRequestIP,
   type H3Event,
 } from "h3";
-import { and, eq, desc, isNull, sql } from "drizzle-orm";
 import { nanoid } from "nanoid";
 
 import {
-  getSession,
-  readBody,
-  runWithRequestContext,
-  verifyCaptcha,
-} from "@agent-native/core/server";
-import { assertAccess } from "@agent-native/core/sharing";
-import { getDb, schema } from "../db/index.js";
+  cleanSubmitterEmail,
+  publicSubmitterEmail,
+} from "../../shared/submitter-email.js";
 import type {
   FormField,
   FormIntegration,
   FormResponse,
   FormSettings,
 } from "../../shared/types.js";
+import { getDb, schema } from "../db/index.js";
 import { fireIntegrations } from "../lib/integrations.js";
 import {
   isEmptySubmissionValue,
@@ -40,13 +44,6 @@ function cleanMetaText(value: unknown): string | null {
   const trimmed = value.trim();
   if (!trimmed) return null;
   return trimmed.slice(0, MAX_META_TEXT_LENGTH);
-}
-
-function cleanSubmitterEmail(value: unknown): string | null {
-  if (typeof value !== "string") return null;
-  const trimmed = value.trim();
-  if (!trimmed || trimmed.length > 320 || !trimmed.includes("@")) return null;
-  return trimmed;
 }
 
 // Allowlist the client-surface hint so only known values are stored. Anything
@@ -340,7 +337,7 @@ export const listResponses = defineEventHandler(async (event: H3Event) => {
           formId: r.formId,
           data: JSON.parse(r.data),
           submittedAt: r.submittedAt,
-          submitterEmail: r.submitterEmail,
+          submitterEmail: publicSubmitterEmail(r.submitterEmail),
           pageUrl: r.pageUrl ?? null,
           clientSurface: r.clientSurface ?? null,
         })) as FormResponse[],

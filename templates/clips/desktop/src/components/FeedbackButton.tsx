@@ -1,3 +1,5 @@
+import * as PopoverPrimitive from "@radix-ui/react-popover";
+import { IconCheck } from "@tabler/icons-react";
 import {
   useCallback,
   useEffect,
@@ -5,8 +7,6 @@ import {
   useState,
   type FormEvent,
 } from "react";
-import * as PopoverPrimitive from "@radix-ui/react-popover";
-import { IconCheck } from "@tabler/icons-react";
 
 const DEFAULT_FEEDBACK_URL =
   "https://forms.agent-native.com/f/agent-native-feedback/_16ewV";

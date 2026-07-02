@@ -3,14 +3,7 @@ import type {
   ChatModelRunOptions,
   ChatModelRunResult,
 } from "@assistant-ui/react";
-import { unwrapAttachmentEnvelope } from "./composer/pasted-text.js";
-import type { AgentPromptAttachment } from "./composer/prompt-attachments.js";
-import type { ReasoningEffort } from "../shared/reasoning-effort.js";
-import {
-  compareCodeAgentTranscriptEvents,
-  isCodeAgentRunActive,
-  type CodeAgentRunStateLike,
-} from "../code-agents/transcript-order.js";
+
 import {
   normalizeCodeAgentTranscript,
   type CodeAgentTranscriptEvent as CoreCodeAgentTranscriptEvent,
@@ -19,6 +12,14 @@ import {
   type NormalizedCodeAgentToolEvent,
   type NormalizedCodeAgentTranscriptItem,
 } from "../code-agents/transcript-normalizer.js";
+import {
+  compareCodeAgentTranscriptEvents,
+  isCodeAgentRunActive,
+  type CodeAgentRunStateLike,
+} from "../code-agents/transcript-order.js";
+import type { ReasoningEffort } from "../shared/reasoning-effort.js";
+import { unwrapAttachmentEnvelope } from "./composer/pasted-text.js";
+import type { AgentPromptAttachment } from "./composer/prompt-attachments.js";
 import type { ContentPart } from "./sse-event-processor.js";
 
 export type CodeAgentChatFollowUpMode = "immediate" | "queued";
@@ -179,7 +180,8 @@ export function createCodeAgentChatAdapter(
           }
 
           const content = codeAgentTranscriptEventsToContent(tailedEvents);
-          if (content.length > 0 && nextEvents.length > 0) {
+          const sawClear = nextEvents.some(isAgentChatClearTranscriptEvent);
+          if ((content.length > 0 || sawClear) && nextEvents.length > 0) {
             yieldedContent = true;
             yield withRunMetadata({ content: [...content] }, runId);
           }
@@ -246,6 +248,12 @@ export function codeAgentTranscriptEventsToContent(
   }
 
   return content;
+}
+
+function isAgentChatClearTranscriptEvent(
+  event: CodeAgentChatTranscriptEvent | undefined,
+): boolean {
+  return event?.metadata?.agentChatEventType === "clear";
 }
 
 function latestUserMessage(

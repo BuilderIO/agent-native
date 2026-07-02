@@ -1,4 +1,6 @@
 import { createHash } from "node:crypto";
+
+import type { WorkspaceConnectionTemplateUse } from "../connections/catalog.js";
 import {
   resolveCredential,
   type CredentialContext,
@@ -18,10 +20,9 @@ import {
   listOAuthAccountsByOwner,
   saveOAuthTokens,
 } from "../oauth-tokens/index.js";
-import { getCredentialContext } from "../server/request-context.js";
 import { resolveGoogleProviderCredentialCandidates } from "../server/google-oauth-credentials.js";
+import { getCredentialContext } from "../server/request-context.js";
 import { resolveWorkspaceConnectionCredentialForApp } from "../workspace-connections/credentials.js";
-import type { WorkspaceConnectionTemplateUse } from "../connections/catalog.js";
 import type {
   CustomProviderConfig,
   CustomProviderAuthKind,
@@ -57,6 +58,7 @@ export const PROVIDER_API_IDS = [
   "ga4",
   "gcloud",
   "github",
+  "figma",
   "gmail",
   "gong",
   "google_calendar",
@@ -373,6 +375,7 @@ export interface ProviderApiExample {
   label: string;
   method: ProviderApiMethod;
   path: string;
+  query?: unknown;
   body?: unknown;
 }
 
@@ -774,6 +777,33 @@ const PROVIDER_CONFIGS: Record<ProviderApiId, ProviderApiConfig> = {
     examples: [
       { label: "Authenticated user", method: "GET", path: "/user" },
       { label: "Search issues", method: "GET", path: "/search/issues" },
+    ],
+  },
+  figma: {
+    id: "figma",
+    label: "Figma REST API",
+    defaultBaseUrl: "https://api.figma.com/v1",
+    auth: {
+      type: "api-key-header",
+      key: "FIGMA_ACCESS_TOKEN",
+      header: "X-Figma-Token",
+    },
+    credentialKeys: ["FIGMA_ACCESS_TOKEN"],
+    docsUrls: ["https://www.figma.com/developers/api"],
+    allowedHostSuffixes: ["figma.com"],
+    templateUses: ["design"],
+    examples: [
+      {
+        label: "List file components",
+        method: "GET",
+        path: "/files/{fileKey}/components",
+      },
+      {
+        label: "Render file nodes",
+        method: "GET",
+        path: "/images/{fileKey}",
+        query: { ids: "1:2", format: "svg" },
+      },
     ],
   },
   gmail: {

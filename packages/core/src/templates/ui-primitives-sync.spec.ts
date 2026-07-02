@@ -1,6 +1,7 @@
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
+
 import { describe, expect, it } from "vitest";
 
 // Guard: all templates/<name>/app/components/ui/*.tsx files that share the

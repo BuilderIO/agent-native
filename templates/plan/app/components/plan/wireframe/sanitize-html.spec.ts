@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 import { describe, it, expect } from "vitest";
+
 import {
   sanitizeDiagramHtml,
   sanitizeWireframeCss,
@@ -74,6 +75,33 @@ describe("sanitizeWireframeHtml", () => {
     expect(out).toContain("https://example.com");
     expect(out).toContain("hello");
     expect(out).toContain('class="wf-card"');
+  });
+
+  it("strips theme-breaking Tailwind color and shadow classes from wireframes", () => {
+    const out = sanitizeWireframeHtml(
+      '<section class="bg-white text-zinc-950 shadow-xl flex gap-3 wf-card hover:bg-slate-800"><p class="text-sm text-slate-400">copy</p></section>',
+    );
+
+    expect(out).not.toContain("bg-white");
+    expect(out).not.toContain("text-zinc-950");
+    expect(out).not.toContain("shadow-xl");
+    expect(out).not.toContain("hover:bg-slate-800");
+    expect(out).not.toContain("text-slate-400");
+    expect(out).toContain("flex");
+    expect(out).toContain("gap-3");
+    expect(out).toContain("wf-card");
+    expect(out).toContain("text-sm");
+  });
+
+  it("preserves Tailwind theme classes when a design surface opts in", () => {
+    const out = sanitizeWireframeHtml(
+      '<section class="bg-white text-zinc-950 shadow-xl">Design</section>',
+      { preserveThemeClasses: true },
+    );
+
+    expect(out).toContain("bg-white");
+    expect(out).toContain("text-zinc-950");
+    expect(out).toContain("shadow-xl");
   });
 
   it("preserves safe prototype runtime directives", () => {

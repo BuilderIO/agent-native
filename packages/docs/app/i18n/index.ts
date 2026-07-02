@@ -2,12 +2,14 @@ import type {
   AgentNativeI18nCatalog,
   LocaleCode,
 } from "@agent-native/core/client";
+
 import enUS from "./en-US";
 
 const localeLoaders: Partial<
   Record<LocaleCode, () => Promise<Record<string, unknown>>>
 > = {
   "zh-CN": async () => (await import("./zh-CN")).default,
+  "zh-TW": async () => (await import("./zh-TW")).default,
   "es-ES": async () => (await import("./es-ES")).default,
   "fr-FR": async () => (await import("./fr-FR")).default,
   "de-DE": async () => (await import("./de-DE")).default,

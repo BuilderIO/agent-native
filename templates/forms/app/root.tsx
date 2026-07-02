@@ -1,19 +1,4 @@
 import {
-  Links,
-  Meta,
-  Outlet,
-  Scripts,
-  ScrollRestoration,
-  useLocation,
-  useNavigate,
-} from "react-router";
-import { useCallback, useEffect, useState } from "react";
-import { useNavigationState } from "@/hooks/use-navigation-state";
-import { formsRoutePath } from "@/lib/form-builder-tabs";
-import { useQueryClient } from "@tanstack/react-query";
-import { useTheme } from "next-themes";
-import { IconSun, IconMoon } from "@tabler/icons-react";
-import {
   useDbSync,
   AppProviders,
   CommandMenu,
@@ -28,11 +13,29 @@ import {
   setClientAppState,
   useT,
 } from "@agent-native/core/client";
+import { IconSun, IconMoon } from "@tabler/icons-react";
+import { useQueryClient } from "@tanstack/react-query";
+import { useTheme } from "next-themes";
+import { useCallback, useEffect, useState } from "react";
+import {
+  Links,
+  Meta,
+  Outlet,
+  Scripts,
+  ScrollRestoration,
+  useLocation,
+  useNavigate,
+} from "react-router";
 import type { LinksFunction } from "react-router";
-import changelog from "../CHANGELOG.md?raw";
-import stylesheet from "./global.css?url";
+
+import { useNavigationState } from "@/hooks/use-navigation-state";
+import { formsRoutePath } from "@/lib/form-builder-tabs";
 import { TAB_ID } from "@/lib/tab-id";
+
+import changelog from "../CHANGELOG.md?raw";
 import { i18nCatalog } from "./i18n";
+
+import stylesheet from "./global.css?url";
 
 configureTracking({
   getDefaultProps: (_name, properties) => ({
@@ -195,7 +198,7 @@ function OpenLinkInterceptor() {
       if (!path) return;
 
       event.preventDefault();
-      if (location.pathname === "/" && path !== "/") {
+      if (location.pathname === "/ask" && path !== "/ask") {
         markAgentChatHomeHandoff("forms");
       }
       navigateWithAgentChatViewTransition(navigate, path);

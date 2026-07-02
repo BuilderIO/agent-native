@@ -1,14 +1,4 @@
 import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type CSSProperties,
-  type Ref,
-  type ReactNode,
-} from "react";
-import {
   AssistantRuntimeProvider,
   ThreadPrimitive,
   useAui,
@@ -27,8 +17,36 @@ import {
   SimpleImageAttachmentAdapter,
 } from "@assistant-ui/react";
 import { IconX } from "@tabler/icons-react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+  type Ref,
+  type ReactNode,
+} from "react";
+
+import type { ReasoningEffort } from "../../shared/reasoning-effort.js";
+import { AssistantUiStaleIndexErrorBoundary } from "../assistant-ui-recovery.js";
+import { BuilderConnectCta, BuilderSetupCard } from "../chat/run-recovery.js";
+import { TooltipProvider } from "../components/ui/tooltip.js";
+import {
+  fetchAgentEngineConfiguredState,
+  useAgentEngineConfigured,
+} from "../use-agent-engine-configured.js";
+import { useChatModels, type EngineModelGroup } from "../use-chat-models.js";
 import { cn } from "../utils.js";
 import { AgentComposerFrame } from "./AgentComposerFrame.js";
+import { IMAGE_ATTACHMENT_ACCEPT } from "./attachment-accept.js";
+import {
+  PROMPT_DOCUMENT_ATTACHMENT_ACCEPT,
+  TextAttachmentAdapter,
+} from "./attachment-accept.js";
+import { isPastedTextAttachmentName } from "./pasted-text.js";
+import { PastedTextChip } from "./PastedTextChip.js";
+import { escapePromptAttachmentAttribute } from "./prompt-attachments.js";
 import {
   DEFAULT_VOICE_DICTATION_ENABLED,
   TiptapComposer,
@@ -36,26 +54,15 @@ import {
   type TiptapComposerHandle,
   type TiptapComposerSubmitOptions,
 } from "./TiptapComposer.js";
-import { IMAGE_ATTACHMENT_ACCEPT } from "./attachment-accept.js";
 import type {
   AgentComposerLayoutVariant,
   Reference,
   SkillResult,
   SlashCommand,
 } from "./types.js";
-import { useChatModels, type EngineModelGroup } from "../use-chat-models.js";
-import { TooltipProvider } from "../components/ui/tooltip.js";
-import { AssistantUiStaleIndexErrorBoundary } from "../assistant-ui-recovery.js";
-import type { ReasoningEffort } from "../../shared/reasoning-effort.js";
-import { isPastedTextAttachmentName } from "./pasted-text.js";
-import { PastedTextChip } from "./PastedTextChip.js";
-import {
-  PROMPT_DOCUMENT_ATTACHMENT_ACCEPT,
-  TextAttachmentAdapter,
-} from "./attachment-accept.js";
-import { escapePromptAttachmentAttribute } from "./prompt-attachments.js";
 
 const MAX_INLINE_TEXT_FILE_CHARS = 60_000;
+const SUBMIT_ENGINE_STATUS_TIMEOUT_MS = 1000;
 
 /**
  * Files the user attached via the "+" button in PromptComposer. The host owns
@@ -497,6 +504,41 @@ function PromptComposerInner({
   const handleEffortChange = showModelSelector
     ? (onEffortChange ?? models.onEffortChange)
     : undefined;
+  const agentEngineConfigured = useAgentEngineConfigured(
+    resolvedModelStatusChecksEnabled,
+  );
+  const missingApiKey = agentEngineConfigured.missing;
+  const [missingKeyBouncePulse, setMissingKeyBouncePulse] = useState(0);
+  const bounceMissingKeySetup = useCallback(() => {
+    setMissingKeyBouncePulse((pulse) => pulse + 1);
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new Event("agent-chat:missing-api-key"));
+    }
+  }, []);
+  const handleBuilderConnected = useCallback(() => {
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new Event("agent-engine:configured-changed"));
+    }
+  }, []);
+  const ensureAgentEngineReadyForSubmit = useCallback(async () => {
+    if (!resolvedModelStatusChecksEnabled) return true;
+    const state =
+      agentEngineConfigured.state === "missing"
+        ? "missing"
+        : await fetchAgentEngineConfiguredState(
+            resolvedModelStatusChecksEnabled,
+            {
+              timeoutMs: SUBMIT_ENGINE_STATUS_TIMEOUT_MS,
+            },
+          );
+    if (state !== "missing") return true;
+    bounceMissingKeySetup();
+    return false;
+  }, [
+    agentEngineConfigured.state,
+    bounceMissingKeySetup,
+    resolvedModelStatusChecksEnabled,
+  ]);
 
   useEffect(() => {
     if (!autoFocus) return;
@@ -536,50 +578,87 @@ function PromptComposerInner({
     },
     [composerEffort, composerEngine, composerModel, onSubmit],
   );
+  const useInlineMissingKeySetup = layoutVariant === "compact";
 
   return (
-    <AgentComposerFrame
-      className={cn("text-start", className)}
-      rootClassName={rootClassName}
-      style={style}
-      rootStyle={rootStyle}
-      layoutVariant={layoutVariant}
-    >
-      <PromptAttachmentStrip />
-      <TiptapComposer
-        focusRef={handleRef}
-        disabled={disabled}
-        placeholder={placeholder}
-        initialText={initialText}
-        initialTextKey={initialTextKey}
-        onSubmit={handleSubmit}
-        clearOnSubmit={!preserveDraftOnSubmit}
-        plusMenuMode={
-          plusMenuMode ?? (attachmentsEnabled ? "upload-only" : "hidden")
-        }
-        attachButton={attachButton}
-        modeControl={modeControl}
-        toolbarSlot={toolbarSlot}
-        actionButton={actionButton}
-        extraActionButton={extraActionButton}
+    <>
+      {missingApiKey && !useInlineMissingKeySetup ? (
+        <BuilderSetupCard
+          onConnected={handleBuilderConnected}
+          bouncePulse={missingKeyBouncePulse}
+          fullWidth
+          layout="sidebar"
+        />
+      ) : null}
+      {missingApiKey && useInlineMissingKeySetup ? (
+        <div className="mb-2 rounded-md border border-border/80 bg-background/80 p-2.5 text-start shadow-sm">
+          <div className="flex flex-col gap-2">
+            <div className="min-w-0">
+              <p className="text-[12px] font-medium text-foreground">
+                Connect AI
+              </p>
+              <p className="mt-0.5 text-[11px] leading-4 text-muted-foreground">
+                Connect Builder.io before sending.
+              </p>
+            </div>
+            <BuilderConnectCta
+              variant="compact"
+              onConnected={handleBuilderConnected}
+            />
+          </div>
+        </div>
+      ) : null}
+      <AgentComposerFrame
+        className={cn(
+          "text-start",
+          missingApiKey && "cursor-pointer",
+          className,
+        )}
+        rootClassName={rootClassName}
+        style={style}
+        rootStyle={rootStyle}
         layoutVariant={layoutVariant}
-        slashCommands={slashCommands}
-        slashSkills={slashSkills}
-        includeDefaultSlashCommands={includeDefaultSlashCommands}
-        includeDefaultSlashSkills={includeDefaultSlashSkills}
-        onSlashCommand={onSlashCommand}
-        voiceEnabled={voiceEnabled}
-        onTextChange={onTextChange}
-        draftScope={draftScope}
-        selectedModel={composerModel}
-        selectedEffort={composerEffort}
-        availableModels={composerModelGroups}
-        onModelChange={handleModelChange}
-        onEffortChange={handleEffortChange}
-        providerConnectStatusEnabled={resolvedModelStatusChecksEnabled}
-        onConnectProvider={onConnectProvider}
-      />
-    </AgentComposerFrame>
+        onClick={missingApiKey ? bounceMissingKeySetup : undefined}
+      >
+        <PromptAttachmentStrip />
+        <TiptapComposer
+          focusRef={handleRef}
+          disabled={disabled || missingApiKey}
+          placeholder={
+            missingApiKey ? "Connect AI above to continue..." : placeholder
+          }
+          initialText={initialText}
+          initialTextKey={initialTextKey}
+          onSubmit={handleSubmit}
+          onBeforeSubmit={ensureAgentEngineReadyForSubmit}
+          clearOnSubmit={!preserveDraftOnSubmit}
+          plusMenuMode={
+            plusMenuMode ?? (attachmentsEnabled ? "upload-only" : "hidden")
+          }
+          attachButton={attachButton}
+          modeControl={modeControl}
+          toolbarSlot={toolbarSlot}
+          actionButton={actionButton}
+          extraActionButton={extraActionButton}
+          layoutVariant={layoutVariant}
+          slashCommands={slashCommands}
+          slashSkills={slashSkills}
+          includeDefaultSlashCommands={includeDefaultSlashCommands}
+          includeDefaultSlashSkills={includeDefaultSlashSkills}
+          onSlashCommand={onSlashCommand}
+          voiceEnabled={voiceEnabled}
+          onTextChange={onTextChange}
+          draftScope={draftScope}
+          selectedModel={composerModel}
+          selectedEffort={composerEffort}
+          availableModels={composerModelGroups}
+          onModelChange={handleModelChange}
+          onEffortChange={handleEffortChange}
+          providerConnectStatusEnabled={resolvedModelStatusChecksEnabled}
+          onConnectProvider={onConnectProvider}
+        />
+      </AgentComposerFrame>
+    </>
   );
 }
 

@@ -18,9 +18,11 @@
  * GUARDRAIL: when `isAgentChatDurableBackgroundEnabled()` returns false, the
  * agent-chat handler must behave byte-for-byte like the current synchronous
  * path. The gate is true only when ALL of these hold:
- *   1. `AGENT_CHAT_DURABLE_BACKGROUND` env is explicitly enabled. It is
- *      DEFAULT-OFF (opt-in): unset/empty/unknown counts as disabled; set it to a
- *      truthy value (`true`/`1`/`yes`/`on`) to opt a specific app in.
+ *   1. `AGENT_CHAT_DURABLE_BACKGROUND` env is explicitly enabled, or a
+ *      workspace app's agent-chat plugin opts in with `durableBackgroundRuns`
+ *      where the workspace deploy emits a per-app background function by
+ *      default. Single-template Netlify deploys must set the env flag because
+ *      that same flag controls whether `server-agent-background` is emitted.
  *   2. The runtime is hosted/serverless (local dev keeps the inline path so SSE
  *      stays a single live stream and no second function is needed).
  *   3. `A2A_SECRET` is configured (the HMAC handoff is required to authenticate
@@ -95,6 +97,17 @@ function resolveWorkspaceBackgroundFunctionUrlPath(): string | null {
   return `/.netlify/functions/${candidate}-agent-background`;
 }
 
+function isNetlifyHostedRuntimeForDispatch(): boolean {
+  if (process.env.NETLIFY_LOCAL === "true") return false;
+  if (process.env.NETLIFY === "false") return false;
+  if (process.env.NETLIFY && process.env.NETLIFY !== "false") return true;
+  // Netlify sets AWS Lambda runtime env on deployed Functions, but the build-time
+  // NETLIFY flag is not always present in the runtime isolate. Treat Lambda as
+  // Netlify here unless Netlify was explicitly disabled above; non-Netlify AWS
+  // falls back inline if the /.netlify/functions dispatch fast-fails.
+  return Boolean(process.env.AWS_LAMBDA_FUNCTION_NAME);
+}
+
 /**
  * Resolve the path the foreground POST should self-dispatch the chat background
  * worker to.
@@ -127,17 +140,19 @@ function resolveWorkspaceBackgroundFunctionUrlPath(): string | null {
  * to shadow because `/.netlify/*` is already excluded from the `server` catch-all.
  */
 export function resolveAgentChatProcessRunDispatchPath(): string {
-  if (
-    process.env.NETLIFY &&
-    process.env.NETLIFY !== "false" &&
-    process.env.NETLIFY_LOCAL !== "true"
-  ) {
+  if (isNetlifyHostedRuntimeForDispatch()) {
     return (
       resolveWorkspaceBackgroundFunctionUrlPath() ??
       AGENT_BACKGROUND_FUNCTION_URL_PATH
     );
   }
   return AGENT_CHAT_PROCESS_RUN_PATH;
+}
+
+export function dispatchPathTargetsNetlifyBackgroundFunction(
+  dispatchPath: string,
+): boolean {
+  return dispatchPath.startsWith("/.netlify/functions/");
 }
 
 /**
@@ -233,6 +248,36 @@ export function isInBackgroundFunctionRuntime(): boolean {
   return false;
 }
 
+export function backgroundRunMarkerExpectsBackgroundRuntime(
+  marker: unknown,
+): boolean {
+  return (
+    typeof marker === "object" &&
+    marker !== null &&
+    (marker as { backgroundFunctionRuntimeExpected?: unknown })
+      .backgroundFunctionRuntimeExpected === true
+  );
+}
+
+export function shouldUseBackgroundFunctionTimeoutForWorker(
+  marker: unknown,
+): boolean {
+  return (
+    isInBackgroundFunctionRuntime() ||
+    backgroundRunMarkerExpectsBackgroundRuntime(marker)
+  );
+}
+
+export function backgroundRuntimeDiagnosticDetail(marker: unknown): string {
+  return [
+    `markerExpected=${backgroundRunMarkerExpectsBackgroundRuntime(marker)}`,
+    `runtimeDetected=${isInBackgroundFunctionRuntime()}`,
+    `globalMarker=${(globalThis as Record<string, unknown>).__AGENT_NATIVE_BACKGROUND_RUNTIME__ === true}`,
+    `lambdaNameEndsBackground=${typeof process.env.AWS_LAMBDA_FUNCTION_NAME === "string" && process.env.AWS_LAMBDA_FUNCTION_NAME.toLowerCase().endsWith("-background")}`,
+    `forceEnv=${typeof process.env.AGENT_CHAT_FORCE_BACKGROUND_RUNTIME === "string" && process.env.AGENT_CHAT_FORCE_BACKGROUND_RUNTIME.trim().length > 0}`,
+  ].join(" ");
+}
+
 function isFlagEnabled(): boolean {
   // Read the literal key (not `process.env[CONST]`) so guard:no-env-credentials
   // can statically verify it against the allowlisted `AGENT_*` prefix. Keep this
@@ -259,17 +304,36 @@ function isFlagEnabled(): boolean {
   );
 }
 
-/**
- * The single gate. True when the flag is explicitly enabled (opt-in/default-off)
- * AND the runtime is hosted AND A2A_SECRET is configured. False otherwise — and
- * false means the current synchronous behavior is used, unchanged. So a local /
- * non-hosted / unconfigured app stays synchronous, and an app that has not opted
- * in stays synchronous; durable only engages where it is explicitly enabled and
- * the runtime actually supports it.
- */
-export function isAgentChatDurableBackgroundEnabled(): boolean {
+function isFlagExplicitlyDisabled(): boolean {
+  const raw = process.env.AGENT_CHAT_DURABLE_BACKGROUND;
+  if (raw == null) return false;
+  const normalized = raw.trim().toLowerCase();
   return (
-    isFlagEnabled() &&
+    normalized === "0" ||
+    normalized === "false" ||
+    normalized === "no" ||
+    normalized === "off"
+  );
+}
+
+/**
+ * The single gate. True when the env flag is explicitly enabled, or a workspace
+ * app opted in and has a per-app background-function target, AND the runtime is
+ * hosted AND A2A_SECRET is configured. False otherwise — and false means the
+ * current synchronous behavior is used unchanged. Single-template Netlify app
+ * opt-ins deliberately require the env flag too because that flag controls
+ * whether the `server-agent-background` function exists in the deploy output.
+ */
+export function isAgentChatDurableBackgroundEnabled(options?: {
+  appOptIn?: boolean;
+}): boolean {
+  const envOptIn = isFlagEnabled();
+  const workspaceAppOptIn =
+    options?.appOptIn === true &&
+    !isFlagExplicitlyDisabled() &&
+    resolveWorkspaceBackgroundFunctionUrlPath() !== null;
+  return (
+    (envOptIn || workspaceAppOptIn) &&
     isHostedRuntimeForDurableBackground() &&
     hasConfiguredA2ASecret()
   );

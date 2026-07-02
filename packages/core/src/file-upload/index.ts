@@ -2,12 +2,15 @@ export type {
   FileUploadInput,
   FileUploadProvider,
   FileUploadResult,
+  ResumableUploadSession,
+  ResumableChunkResult,
 } from "./types.js";
 export {
   registerFileUploadProvider,
   unregisterFileUploadProvider,
   listFileUploadProviders,
   getActiveFileUploadProvider,
+  getActiveFileUploadProviderForRequest,
   uploadFile,
 } from "./registry.js";
 export { builderFileUploadProvider } from "./builder.js";

@@ -1,7 +1,3 @@
-import { useCallback, useEffect, useRef, useState } from "react";
-import { invoke } from "@tauri-apps/api/core";
-import { emit, listen } from "@tauri-apps/api/event";
-import { getCurrentWindow } from "@tauri-apps/api/window";
 import {
   IconCheck,
   IconChevronDown,
@@ -14,10 +10,14 @@ import {
   IconPlayerPlayFilled,
   IconPlayerStopFilled,
 } from "@tabler/icons-react";
+import { invoke } from "@tauri-apps/api/core";
+import { emit, listen } from "@tauri-apps/api/event";
+import { getCurrentWindow } from "@tauri-apps/api/window";
+import { useCallback, useEffect, useRef, useState } from "react";
 
+import { speakerFor } from "../lib/transcription-engine";
 import { LiveTranscript, type FinalLine } from "./live-transcript";
 import { PillLogo } from "./pill-logo";
-import { speakerFor } from "../lib/transcription-engine";
 
 type PillMode = "meeting" | "clip";
 

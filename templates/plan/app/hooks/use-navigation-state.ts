@@ -1,11 +1,12 @@
-import { useEffect, useRef } from "react";
-import { useLocation, useNavigate } from "react-router";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   agentNativePath,
   appBasePath,
   markAgentChatHomeHandoff,
 } from "@agent-native/core/client";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useEffect, useRef } from "react";
+import { useLocation, useNavigate } from "react-router";
+
 import { prewarmPlanRoutePath } from "@/lib/route-prewarm";
 import { TAB_ID } from "@/lib/tab-id";
 
@@ -131,7 +132,7 @@ function viewForPath(pathname: string): string {
     return "plans";
   }
   if (pathname.startsWith("/extensions")) return "extensions";
-  if (pathname.startsWith("/team")) return "team";
+  if (pathname.startsWith("/team")) return "settings";
   return "plans";
 }
 
@@ -182,8 +183,10 @@ function pathForView(view?: string): string {
       return "/plans";
     case "extensions":
       return "/extensions";
+    case "settings":
+      return "/settings";
     case "team":
-      return "/team";
+      return "/settings#team";
     default:
       return "/";
   }

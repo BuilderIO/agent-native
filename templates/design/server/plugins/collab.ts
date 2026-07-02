@@ -1,6 +1,7 @@
 import { createCollabPlugin } from "@agent-native/core/server";
-import { getDb, schema } from "../db/index.js";
 import { eq } from "drizzle-orm";
+
+import { getDb, schema } from "../db/index.js";
 
 export default createCollabPlugin({
   table: "design_files",

@@ -1,8 +1,21 @@
-import { createInterface } from "node:readline";
 import fs from "node:fs";
 import path from "node:path";
+import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
 
+import { runAuditAgentWeb } from "./audit-agent-web.js";
+import {
+  findProjectSlashCommand,
+  listProjectSlashCommands,
+  renderProjectSlashCommandPrompt,
+} from "./code-agent-commands.js";
+import {
+  executeApproveAlwaysCodeAgentApproval,
+  executeCodeAgentRun,
+  executeDenyCodeAgentApproval,
+  executeExistingCodeAgentRun,
+  executePendingCodeAgentApproval,
+} from "./code-agent-executor.js";
 import {
   CODE_AGENT_PERMISSION_MODES,
   appendCodeAgentTranscriptEvent,
@@ -20,19 +33,6 @@ import {
   type CodeAgentRunRecord,
   type CodeAgentTranscriptEvent,
 } from "./code-agent-runs.js";
-import {
-  findProjectSlashCommand,
-  listProjectSlashCommands,
-  renderProjectSlashCommandPrompt,
-} from "./code-agent-commands.js";
-import {
-  executeApproveAlwaysCodeAgentApproval,
-  executeCodeAgentRun,
-  executeDenyCodeAgentApproval,
-  executeExistingCodeAgentRun,
-  executePendingCodeAgentApproval,
-} from "./code-agent-executor.js";
-import { runAuditAgentWeb } from "./audit-agent-web.js";
 import { runMigrate } from "./migrate.js";
 
 export type CodeAgentGoalId = "task" | "migrate" | "audit";

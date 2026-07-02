@@ -1,5 +1,5 @@
-import { useEffect, useRef } from "react";
 import type { CalendarEvent } from "@shared/api";
+import { useEffect, useRef } from "react";
 
 const STORAGE_KEY = "calendar:meeting-start-notifications:sent";
 const LOOKAHEAD_MS = 2 * 60 * 1000;

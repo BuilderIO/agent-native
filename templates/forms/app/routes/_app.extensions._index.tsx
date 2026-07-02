@@ -1,7 +1,9 @@
 import { ExtensionsListPage } from "@agent-native/core/client/extensions";
 
+import messages from "@/i18n/en-US";
+
 export function meta() {
-  return [{ title: "Extensions — Forms" }];
+  return [{ title: messages.routeTitles.extensionsForms }];
 }
 
 export default function ExtensionsRoute() {

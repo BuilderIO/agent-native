@@ -1,5 +1,9 @@
-import { useEffect, useMemo, useState } from "react";
-import { useNavigate } from "react-router";
+import {
+  VisibilityBadge,
+  callAction,
+  useFormatters,
+  useT,
+} from "@agent-native/core/client";
 import {
   IconPlus,
   IconDots,
@@ -13,30 +17,15 @@ import {
   IconChecks,
   IconX,
 } from "@tabler/icons-react";
-import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-import { Checkbox } from "@/components/ui/checkbox";
-import { Skeleton } from "@/components/ui/skeleton";
+import { useEffect, useMemo, useState } from "react";
+import { useNavigate } from "react-router";
+import { toast } from "sonner";
+
+import { CloudUpgrade } from "@/components/CloudUpgrade";
 import {
-  VisibilityBadge,
-  callAction,
-  useFormatters,
-  useT,
-} from "@agent-native/core/client";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import {
-  useForms,
-  useCreateForm,
-  useDeleteForm,
-  useRestoreForm,
-  useUpdateForm,
-} from "@/hooks/use-forms";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+  useSetHeaderActions,
+  useSetPageTitle,
+} from "@/components/layout/HeaderActions";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -47,13 +36,25 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { useDbStatus } from "@/hooks/use-db-status";
-import { CloudUpgrade } from "@/components/CloudUpgrade";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
-  useSetHeaderActions,
-  useSetPageTitle,
-} from "@/components/layout/HeaderActions";
-import { toast } from "sonner";
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { useDbStatus } from "@/hooks/use-db-status";
+import {
+  useForms,
+  useCreateForm,
+  useDeleteForm,
+  useRestoreForm,
+  useUpdateForm,
+} from "@/hooks/use-forms";
 import { cn } from "@/lib/utils";
 
 const statusColors: Record<string, string> = {
@@ -268,26 +269,19 @@ export function FormsListPage() {
   if (isLoading) {
     return (
       <div className="p-3 sm:p-6 max-w-5xl mx-auto">
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        <div className="overflow-hidden rounded-lg border border-border bg-card">
           {Array.from({ length: 6 }).map((_, i) => (
             <div
               key={i}
-              className="border border-border rounded-xl p-4 sm:p-5 bg-card"
+              className="forms-list-skeleton-row grid gap-3 border-b border-border px-3 py-3 last:border-b-0"
             >
-              <div className="flex items-start justify-between mb-3 gap-2">
-                <div className="flex-1 min-w-0 space-y-2">
-                  <Skeleton className="h-4 w-3/4" />
-                  <Skeleton className="h-3 w-1/2" />
-                </div>
-                <Skeleton className="h-8 w-8 rounded-md shrink-0" />
+              <div className="min-w-0 space-y-2">
+                <Skeleton className="h-4 w-3/4" />
+                <Skeleton className="h-3 w-1/2" />
               </div>
-              <div className="flex items-center justify-between gap-2">
-                <Skeleton className="h-4 w-14 rounded-full" />
-                <div className="flex items-center gap-3">
-                  <Skeleton className="h-3 w-16" />
-                  <Skeleton className="h-3 w-10" />
-                </div>
-              </div>
+              <Skeleton className="h-5 w-20 rounded-full" />
+              <Skeleton className="h-4 w-24" />
+              <Skeleton className="h-8 w-8 rounded-md md:ms-auto" />
             </div>
           ))}
         </div>
@@ -445,20 +439,32 @@ export function FormsListPage() {
           )}
         </div>
       ) : (
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        <div className="overflow-hidden rounded-lg border border-border bg-card">
           {forms.map((form: any) => {
             const selected = selectedIds.has(form.id);
+            const dateLabel =
+              isArchive && (form as any).deletedAt
+                ? t("forms.deletedDate", {
+                    date: formatDate((form as any).deletedAt, {
+                      month: "short",
+                      day: "numeric",
+                    }),
+                  })
+                : formatDate(form.createdAt, {
+                    month: "short",
+                    day: "numeric",
+                  });
 
             return (
               <div
                 key={form.id}
                 className={cn(
-                  "group relative border border-border rounded-xl p-4 sm:p-5 cursor-pointer bg-card",
+                  "forms-list-row group grid cursor-pointer gap-3 border-b border-border px-3 py-3 last:border-b-0",
                   isArchive
-                    ? "opacity-80 hover:opacity-100 hover:border-border"
-                    : "hover:border-primary/30",
-                  selectionMode && "hover:border-primary/40 hover:bg-accent/20",
-                  selected && "border-primary/60 ring-1 ring-primary/20",
+                    ? "opacity-80 hover:opacity-100 hover:bg-accent/25"
+                    : "hover:bg-accent/25",
+                  selectionMode && "hover:bg-accent/30",
+                  selected && "bg-accent/35 ring-1 ring-inset ring-primary/20",
                 )}
                 role="button"
                 tabIndex={0}
@@ -492,36 +498,57 @@ export function FormsListPage() {
                   }
                 }}
               >
-                <div className="flex items-start justify-between gap-2 mb-3 min-w-0">
-                  <div className="flex flex-1 items-start gap-2 min-w-0">
-                    {selectionMode && (
-                      <Checkbox
-                        checked={selected}
-                        onCheckedChange={() => toggleSelection(form.id)}
-                        onClick={(e) => e.stopPropagation()}
-                        aria-label={t("forms.selectForm", {
-                          title: form.title,
-                        })}
-                        className="mt-0.5 shrink-0"
+                <div className="flex min-w-0 items-start gap-2.5">
+                  {selectionMode && (
+                    <Checkbox
+                      checked={selected}
+                      onCheckedChange={() => toggleSelection(form.id)}
+                      onClick={(e) => e.stopPropagation()}
+                      aria-label={t("forms.selectForm", {
+                        title: form.title,
+                      })}
+                      className="mt-0.5 shrink-0"
+                    />
+                  )}
+                  <div className="min-w-0 flex-1">
+                    <div className="flex min-w-0 items-center gap-2">
+                      <h3 className="min-w-0 flex-1 truncate text-sm font-medium">
+                        {form.title}
+                      </h3>
+                      <VisibilityBadge
+                        visibility={(form as any).visibility}
+                        className="shrink-0"
                       />
-                    )}
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 min-w-0">
-                        <h3 className="font-medium truncate flex-1 min-w-0">
-                          {form.title}
-                        </h3>
-                        <VisibilityBadge
-                          visibility={(form as any).visibility}
-                          className="shrink-0"
-                        />
-                      </div>
-                      {form.description && (
-                        <p className="text-xs text-muted-foreground mt-0.5 truncate">
-                          {form.description}
-                        </p>
-                      )}
                     </div>
+                    {form.description && (
+                      <p className="mt-0.5 truncate text-xs text-muted-foreground">
+                        {form.description}
+                      </p>
+                    )}
                   </div>
+                </div>
+
+                <div className="flex items-center md:justify-start">
+                  <Badge
+                    variant="outline"
+                    className={cn("text-[10px]", statusColors[form.status])}
+                  >
+                    {form.status}
+                  </Badge>
+                </div>
+
+                <div className="min-w-0 text-xs text-muted-foreground">
+                  {t("responses.totalCount", {
+                    count: form.responseCount ?? 0,
+                    formattedCount: formatNumber(form.responseCount ?? 0),
+                  })}
+                </div>
+
+                <div className="min-w-0 text-xs text-muted-foreground">
+                  {dateLabel}
+                </div>
+
+                <div className="flex justify-end">
                   {!selectionMode && (
                     <DropdownMenu>
                       <DropdownMenuTrigger
@@ -647,39 +674,6 @@ export function FormsListPage() {
                       </DropdownMenuContent>
                     </DropdownMenu>
                   )}
-                </div>
-
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <Badge
-                    variant="outline"
-                    className={cn(
-                      "text-[10px] shrink-0",
-                      statusColors[form.status],
-                    )}
-                  >
-                    {form.status}
-                  </Badge>
-                  <div className="flex min-w-0 flex-wrap items-center justify-end gap-x-3 gap-y-1 text-xs text-muted-foreground">
-                    <span className="block min-w-0 max-w-full truncate">
-                      {t("responses.totalCount", {
-                        count: form.responseCount ?? 0,
-                        formattedCount: formatNumber(form.responseCount ?? 0),
-                      })}
-                    </span>
-                    <span className="block min-w-0 max-w-full truncate">
-                      {isArchive && (form as any).deletedAt
-                        ? t("forms.deletedDate", {
-                            date: formatDate((form as any).deletedAt, {
-                              month: "short",
-                              day: "numeric",
-                            }),
-                          })
-                        : formatDate(form.createdAt, {
-                            month: "short",
-                            day: "numeric",
-                          })}
-                    </span>
-                  </div>
                 </div>
               </div>
             );

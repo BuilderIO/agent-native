@@ -1,6 +1,5 @@
-import { TeamPage } from "@agent-native/core/client/org";
-import { useT } from "@agent-native/core/client";
-import { useSetPageTitle } from "@/components/layout/HeaderActions";
+import { Navigate } from "react-router";
+
 import { APP_TITLE } from "@/lib/app-config";
 
 export function meta() {
@@ -8,11 +7,5 @@ export function meta() {
 }
 
 export default function TeamRoute() {
-  const t = useT();
-  useSetPageTitle(t("pages.teamTitle"));
-  return (
-    <main className="mx-auto w-full max-w-3xl px-4 py-6 sm:px-6 sm:py-10">
-      <TeamPage createOrgDescription={t("pages.teamCreateOrgDescription")} />
-    </main>
-  );
+  return <Navigate to="/settings#team" replace />;
 }

@@ -1,15 +1,28 @@
-import { useState, useEffect } from "react";
-import { useLocation } from "react-router";
-import { IconMenu2 } from "@tabler/icons-react";
-import { NavSidebar } from "./NavSidebar";
-import { Header } from "./Header";
-import { HeaderActionsProvider } from "./HeaderActions";
 import { AgentSidebar, useT } from "@agent-native/core/client";
 import { InvitationBanner } from "@agent-native/core/client/org";
+import { IconMenu2 } from "@tabler/icons-react";
+import { useState, useEffect } from "react";
+import { useLocation } from "react-router";
+
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
+
+import { Header } from "./Header";
+import { HeaderActionsProvider } from "./HeaderActions";
+import { NavSidebar } from "./NavSidebar";
 
 interface LayoutProps {
   children: React.ReactNode;
+}
+
+const SIDEBAR_COLLAPSE_KEY = "videos.sidebar.collapsed";
+
+function readSidebarCollapsed() {
+  if (typeof window === "undefined") return false;
+  try {
+    return window.localStorage.getItem(SIDEBAR_COLLAPSE_KEY) === "1";
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -37,10 +50,23 @@ export function Layout({ children }: LayoutProps) {
   const location = useLocation();
   const t = useT();
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] =
+    useState(readSidebarCollapsed);
 
   useEffect(() => {
     setMobileSidebarOpen(false);
   }, [location.pathname]);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(
+        SIDEBAR_COLLAPSE_KEY,
+        sidebarCollapsed ? "1" : "0",
+      );
+    } catch {
+      // Ignore storage failures; the in-memory preference still works.
+    }
+  }, [sidebarCollapsed]);
 
   const isStudio = studioRoute(location.pathname);
   const ownsToolbar = routeOwnsToolbar(location.pathname);
@@ -54,16 +80,19 @@ export function Layout({ children }: LayoutProps) {
 
   return (
     <HeaderActionsProvider>
-      <div className="flex h-screen w-full overflow-hidden bg-background text-foreground">
-        <div className="hidden md:block">
-          <NavSidebar />
+      <div className="agent-layout-shell flex h-screen w-full overflow-hidden bg-background text-foreground">
+        <div className="agent-layout-left-drawer hidden md:block">
+          <NavSidebar
+            collapsed={sidebarCollapsed}
+            onCollapsedChange={setSidebarCollapsed}
+          />
         </div>
         <Sheet open={mobileSidebarOpen} onOpenChange={setMobileSidebarOpen}>
           <SheetContent side="left" className="p-0 w-[260px]">
             <SheetTitle className="sr-only">
               {t("sidebar.navigation")}
             </SheetTitle>
-            <NavSidebar />
+            <NavSidebar collapsed={false} collapsible={false} />
           </SheetContent>
         </Sheet>
         <AgentSidebar
@@ -92,7 +121,9 @@ export function Layout({ children }: LayoutProps) {
               <Header onOpenMobileSidebar={() => setMobileSidebarOpen(true)} />
             )}
             <InvitationBanner />
-            <main className="flex-1 overflow-y-auto">{children}</main>
+            <main className="agent-native-app-main flex-1 overflow-y-auto">
+              {children}
+            </main>
           </div>
         </AgentSidebar>
       </div>

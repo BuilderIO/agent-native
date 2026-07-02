@@ -5,6 +5,7 @@ import {
   useAgentRouteState,
 } from "@agent-native/core/client";
 import { useLocation } from "react-router";
+
 import { TAB_ID } from "@/lib/tab-id";
 
 export interface NavigationState {
@@ -59,7 +60,7 @@ function viewForPath(pathname: string): string {
   if (pathname.startsWith("/database")) return "database";
   if (pathname.startsWith("/extensions")) return "extensions";
   if (pathname.startsWith("/observability")) return "observability";
-  if (pathname.startsWith("/team")) return "team";
+  if (pathname.startsWith("/team")) return "settings";
   return "chat";
 }
 
@@ -75,8 +76,10 @@ function pathForView(view?: string): string {
       return "/extensions";
     case "observability":
       return "/observability";
+    case "settings":
+      return "/settings";
     case "team":
-      return "/team";
+      return "/settings#team";
     default:
       return "/";
   }

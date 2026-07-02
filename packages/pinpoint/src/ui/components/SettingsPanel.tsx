@@ -2,6 +2,7 @@
 // MIT License
 
 import { type Component } from "solid-js";
+
 import type { OutputFormat } from "../../types/index.js";
 import { icons } from "../icons/index.js";
 

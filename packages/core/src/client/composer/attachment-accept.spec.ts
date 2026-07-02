@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+
 import {
   CHAT_DOCUMENT_ATTACHMENT_ACCEPT,
   PROMPT_DOCUMENT_ATTACHMENT_ACCEPT,

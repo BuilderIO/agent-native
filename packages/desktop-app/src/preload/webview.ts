@@ -1,4 +1,3 @@
-import { contextBridge, ipcRenderer } from "electron";
 import {
   IPC,
   type DesktopContentFilesClearFolderRequest,
@@ -15,6 +14,7 @@ import {
   type DesktopPlanFilesResult,
   type DesktopPlanFilesWriteRequest,
 } from "@shared/ipc-channels";
+import { contextBridge, ipcRenderer } from "electron";
 
 const agentNativeDesktop = {
   planFiles: {

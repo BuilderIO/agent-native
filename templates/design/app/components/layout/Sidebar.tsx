@@ -1,32 +1,31 @@
-import { useEffect, useState } from "react";
-import { Link, useLocation } from "react-router";
-import {
-  IconPencil,
-  IconPalette,
-  IconSettings,
-  IconLayoutSidebarLeftCollapse,
-  IconLayoutSidebarLeftExpand,
-  IconTemplate,
-} from "@tabler/icons-react";
-import { cn } from "@/lib/utils";
-import { ExtensionsSidebarSection } from "@agent-native/core/client/extensions";
 import {
   DevDatabaseLink,
   FeedbackButton,
   appPath,
   useT,
 } from "@agent-native/core/client";
+import { ExtensionsSidebarSection } from "@agent-native/core/client/extensions";
 import { OrgSwitcher } from "@agent-native/core/client/org";
+import {
+  IconPencil,
+  IconPalette,
+  IconSettings,
+  IconLayoutSidebarLeftCollapse,
+  IconLayoutSidebarLeftExpand,
+} from "@tabler/icons-react";
+import { useEffect, useState } from "react";
+import { Link, useLocation } from "react-router";
+
 import { ThemeToggle } from "@/components/ThemeToggle";
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { cn } from "@/lib/utils";
 
 const navItems = [
   { icon: IconPencil, labelKey: "navigation.designs", href: "/" },
-  { icon: IconTemplate, labelKey: "navigation.templates", href: "/templates" },
   {
     icon: IconPalette,
     labelKey: "navigation.designSystems",
@@ -61,7 +60,7 @@ export function Sidebar() {
   return (
     <aside
       className={cn(
-        "flex h-full min-w-0 shrink-0 flex-col overflow-hidden border-e border-border bg-sidebar text-sidebar-foreground",
+        "flex h-full min-w-0 shrink-0 flex-col overflow-hidden bg-sidebar text-sidebar-foreground transition-[width] duration-200 ease-out",
         collapsed ? "w-14" : "w-56",
       )}
     >
@@ -157,15 +156,15 @@ export function Sidebar() {
 
         {!collapsed && (
           <div className="mt-auto shrink-0">
-            <div className="border-t border-border px-2 py-1">
+            <div className="px-2 py-1">
               <ExtensionsSidebarSection />
             </div>
 
-            <div className="border-t border-border px-3 py-2">
-              <OrgSwitcher />
+            <div className="px-3 py-2">
+              <OrgSwitcher reserveSpace />
             </div>
 
-            <div className="border-t border-border px-3 py-2">
+            <div className="px-3 py-2">
               <DevDatabaseLink />
               <div className="flex items-center gap-1">
                 <FeedbackButton className="min-w-0 flex-1" />

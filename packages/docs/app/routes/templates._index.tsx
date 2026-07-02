@@ -1,11 +1,12 @@
-import { Link } from "react-router";
 import { useLocale, useT } from "@agent-native/core/client";
+import { Link } from "react-router";
+
+import { sitePathForLocale } from "../components/docs-locale";
 import {
   featuredTemplates,
   TemplateCard,
   trackEvent,
 } from "../components/TemplateCard";
-import { sitePathForLocale } from "../components/docs-locale";
 
 export default function TemplatesPage() {
   const { locale } = useLocale();
@@ -17,11 +18,12 @@ export default function TemplatesPage() {
         <h1 className="mb-3 text-3xl font-bold tracking-tight md:text-4xl">
           {t("templatesPage.title")}
         </h1>
-        <p className="mb-3 text-sm font-semibold text-[var(--docs-accent)]">
-          {t("templatesPage.eyebrow")}
-        </p>
         <p className="mx-auto max-w-2xl text-base leading-relaxed text-[var(--fg-secondary)]">
-          {t("templatesPage.body")}
+          {t("templatesPage.eyebrow")}
+          <span className="font-semibold text-[var(--docs-accent)]">
+            {" "}
+            {t("templatesPage.body")}
+          </span>
         </p>
       </div>
 
@@ -36,9 +38,10 @@ export default function TemplatesPage() {
           {t("templatesPage.community")}
         </p>
         <Link
-          to={sitePathForLocale("/docs", locale)}
+          data-an-prefetch="render"
+          to={sitePathForLocale("/docs/getting-started", locale)}
           onClick={() =>
-            trackEvent("create your own", { location: "templates_index" })
+            trackEvent("start from scratch", { location: "templates_index" })
           }
           className="inline-flex items-center gap-2 rounded-full border border-[var(--docs-border)] px-6 py-3 text-sm font-medium text-[var(--fg)] no-underline transition hover:border-[var(--fg-secondary)] hover:no-underline"
         >

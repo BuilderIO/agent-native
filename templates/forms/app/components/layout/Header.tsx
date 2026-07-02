@@ -1,16 +1,12 @@
+import { AgentToggleButton, useT } from "@agent-native/core/client";
 import { useLocation } from "react-router";
+
 import { useHeaderTitle, useHeaderActions } from "./HeaderActions";
-import {
-  AgentToggleButton,
-  LanguagePicker,
-  useT,
-} from "@agent-native/core/client";
 
 const pageTitles: Record<string, string> = {
   "/": "header.forms",
   "/forms": "header.forms",
   "/settings": "header.settings",
-  "/team": "header.team",
 };
 
 function resolveTitle(pathname: string): string {
@@ -42,7 +38,6 @@ export function Header() {
       </div>
       <div className="flex items-center gap-2 shrink-0">
         {actions}
-        <LanguagePicker variant="icon" />
         <AgentToggleButton />
       </div>
     </header>

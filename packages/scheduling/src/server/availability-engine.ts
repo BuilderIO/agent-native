@@ -7,18 +7,19 @@
  * calendars + existing bookings, and applies booking limits.
  */
 import { eq, gte, lt, and } from "drizzle-orm";
+
+import type { BookingCounts } from "../core/limits.js";
+import { bucketKeysForSlot } from "../core/limits.js";
+import { computeAvailableSlots } from "../core/slots.js";
 import type {
   EventType,
   Schedule,
   BusyInterval,
   Slot,
 } from "../shared/index.js";
-import type { BookingCounts } from "../core/limits.js";
-import { computeAvailableSlots } from "../core/slots.js";
-import { bucketKeysForSlot } from "../core/limits.js";
-import { getScheduleById } from "./schedules-repo.js";
 import { getSchedulingContext } from "./context.js";
 import { getCalendarProvider } from "./providers/registry.js";
+import { getScheduleById } from "./schedules-repo.js";
 
 export interface GetSlotsInput {
   eventType: EventType;

@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+
 import {
   applyPlanContentPatches,
   planContentSchema,
@@ -113,7 +114,7 @@ describe("prototype.mdx round-trip (no data loss/drift)", () => {
     expect(proto?.screens[1]?.html).toContain("Detail");
   });
 
-  it("round-trips prototype HTML byte-exact across MDX-significant payloads", async () => {
+  it("round-trips normalized prototype HTML byte-exact across MDX-significant payloads", async () => {
     const payloads: Record<string, string> = {
       multilineAlpine:
         '<div x-data="{ q: \'\' }">\n  <input x-model="q" placeholder="Search">\n  <p x-text="q"></p>\n</div>',
@@ -126,13 +127,17 @@ describe("prototype.mdx round-trip (no data loss/drift)", () => {
       entities: "<div>A &amp; B &lt; C &gt; D &quot;E&quot;</div>",
     };
     for (const [label, html] of Object.entries(payloads)) {
-      const result = await roundTrip({
+      const content: PlanContent = {
         version: 2,
         title: "T",
         prototype: { initialScreenId: "s1", screens: [{ id: "s1", html }] },
         blocks: [],
-      });
-      expect(result.prototype?.screens[0]?.html, label).toBe(html);
+      };
+      const normalized = normalizePlanContent(content);
+      const result = await roundTrip(content);
+      expect(result.prototype?.screens[0]?.html, label).toBe(
+        normalized?.prototype?.screens[0]?.html,
+      );
     }
   });
 

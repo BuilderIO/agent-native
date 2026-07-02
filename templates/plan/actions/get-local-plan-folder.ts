@@ -1,11 +1,12 @@
 import { defineAction } from "@agent-native/core";
 import { z } from "zod";
+
 import { isLocalPlanRuntime } from "../server/lib/local-identity.js";
+import { buildLocalPlanBundleResult } from "../server/lib/local-plan-bundle.js";
 import {
   readLocalPlanComments,
   readPlanLocalFolder,
 } from "../server/lib/local-plan-files.js";
-import { buildLocalPlanBundleResult } from "../server/lib/local-plan-bundle.js";
 import type { PlanKind } from "../shared/types.js";
 
 const localPlanKindSchema = z.enum(["plan", "recap"]);

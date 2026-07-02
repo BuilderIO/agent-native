@@ -1,6 +1,7 @@
+import { useActionQuery, useT } from "@agent-native/core/client";
 import { useState, useEffect, useCallback } from "react";
 import { useParams, useNavigate } from "react-router";
-import { useActionQuery, useT } from "@agent-native/core/client";
+
 import { Skeleton } from "@/components/ui/skeleton";
 
 interface DesignFile {
@@ -26,7 +27,7 @@ export default function Present() {
     id: id!,
   });
 
-  const files = design?.files ?? [];
+  const files: DesignFile[] = design?.files ?? [];
 
   // Keyboard navigation
   const handleKeyDown = useCallback(
@@ -108,7 +109,7 @@ export default function Present() {
 
       {/* Exit hint */}
       <div className="fixed top-4 right-4 text-xs text-white/20">
-        Press Esc to exit
+        {t("pages.presentExitHint")}
       </div>
     </div>
   );

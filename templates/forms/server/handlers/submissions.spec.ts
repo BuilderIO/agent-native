@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const state = vi.hoisted(() => ({
   body: null as unknown,
   inserted: [] as Array<Record<string, unknown>>,
+  session: null as null | { email?: string; orgId?: string },
 }));
 
 const publishedForm = {
@@ -29,7 +30,7 @@ vi.mock("h3", () => ({
 }));
 
 vi.mock("@agent-native/core/server", () => ({
-  getSession: async () => null,
+  getSession: async () => state.session,
   readBody: async () => state.body,
   runWithRequestContext: (_ctx: unknown, fn: () => unknown) => fn(),
   verifyCaptcha: async () => ({ success: true }),
@@ -68,6 +69,7 @@ async function submit(body: unknown) {
 describe("submitForm pageUrl pass-through", () => {
   beforeEach(() => {
     state.inserted.length = 0;
+    state.session = null;
   });
 
   it("persists the page URL and client surface forwarded in _meta", async () => {
@@ -107,5 +109,46 @@ describe("submitForm pageUrl pass-through", () => {
     expect(res).toMatchObject({ success: true });
     expect(state.inserted).toHaveLength(1);
     expect(state.inserted[0]!.clientSurface).toBeNull();
+  });
+
+  it("drops synthetic anonymous submitter emails forwarded in _meta", async () => {
+    const res = await submit({
+      data: { msg: "anonymous feedback" },
+      _meta: {
+        submitterEmail:
+          "anon-ee79aaee-98e2-452a-9476-5205713803c0@agent-native.com",
+      },
+    });
+
+    expect(res).toMatchObject({ success: true });
+    expect(state.inserted).toHaveLength(1);
+    expect(state.inserted[0]!.submitterEmail).toBeNull();
+  });
+
+  it("drops synthetic anonymous submitter emails from the Forms session", async () => {
+    state.session = {
+      email: "anon-ee79aaee-98e2-452a-9476-5205713803c0@agent-native.com",
+    };
+
+    const res = await submit({ data: { msg: "host session is anonymous" } });
+
+    expect(res).toMatchObject({ success: true });
+    expect(state.inserted).toHaveLength(1);
+    expect(state.inserted[0]!.submitterEmail).toBeNull();
+  });
+
+  it("falls back to a real metadata email when the Forms session is anonymous", async () => {
+    state.session = {
+      email: "anon-ee79aaee-98e2-452a-9476-5205713803c0@agent-native.com",
+    };
+
+    const res = await submit({
+      data: { msg: "cross-app feedback" },
+      _meta: { submitterEmail: "real-user@example.com" },
+    });
+
+    expect(res).toMatchObject({ success: true });
+    expect(state.inserted).toHaveLength(1);
+    expect(state.inserted[0]!.submitterEmail).toBe("real-user@example.com");
   });
 });

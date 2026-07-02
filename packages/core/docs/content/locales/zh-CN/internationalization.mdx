@@ -1,0 +1,147 @@
+---
+title: "国际化"
+description: "使用共享区域设置目录、语言选择器、浏览器语言回退和区域设置感知文档内容本地化 Agent Native 应用。"
+---
+
+# 国际化
+
+Agent Native应用程序可以通过共享本地化框架和模板UI
+`@agent-native/core/client/i18n` 运行时。框架存储用户的
+SQL 设置中的语言选择，将其公开为 actions，并回退到
+当应用尚未翻译字符串时为英语。
+
+## 运行时
+
+通过`AppProviders`使用提供者：
+
+```tsx
+import { AppProviders, getLocaleInitScript } from "@agent-native/core/client";
+import { i18nCatalog } from "./i18n";
+
+const LOCALE_INIT_SCRIPT = getLocaleInitScript();
+
+<script
+  data-agent-native-locale-init
+  dangerouslySetInnerHTML={{ __html: LOCALE_INIT_SCRIPT }}
+/>;
+
+<AppProviders queryClient={queryClient} i18n={{ catalog: i18nCatalog }}>
+  <Outlet />
+</AppProviders>;
+```
+
+`getLocaleInitScript()` 设置初始 `lang`、`dir` 和
+`window.__AGENT_NATIVE_LOCALE__` 在 React 水合之前。公共SSR路线可以
+从`@agent-native/core/server`调用`resolveLocaleFromRequest()`并传递
+将区域设置/目录解析到该脚本中以避免水合不匹配。
+
+## 目录
+
+每个本地化模板都将目录保存在 `app/i18n/` 下：
+
+```ts
+// app/i18n/index.ts
+import enUS from "./en-US";
+import type { AgentNativeI18nCatalog } from "@agent-native/core/client";
+
+export const i18nCatalog = {
+  sourceLocale: "en-US",
+  messages: enUS,
+  loadMessages: async (locale) => {
+    switch (locale) {
+      case "zh-CN":
+        return (await import("./zh-CN")).default;
+      default:
+        return null;
+    }
+  },
+} satisfies AgentNativeI18nCatalog;
+```
+
+始终捆绑 `en-US`。动态导入非英语目录，仅限用户
+下载活动区域设置。支持的区域设置代码为 `en-US`、`zh-CN`、
+`es-ES`、`fr-FR`、`de-DE`、`ja-JP`、`ko-KR`、`pt-BR`、`hi-IN` 和 `ar-SA`。
+
+## UI
+
+使用 `useT()` 作为接口字符串，并将 `<LanguagePicker />` 放在应用程序的
+`/settings` 页面。侧边栏应用程序应在应用程序侧边栏中公开**设置**；
+标题语言图标只是一个快捷方式。
+
+```tsx
+import {
+  LanguagePicker,
+  openAgentSettings,
+  useT,
+} from "@agent-native/core/client";
+
+function SettingsPage() {
+  const t = useT();
+  return (
+    <>
+      <h2>{t("settings.languageTitle")}</h2>
+      <LanguagePicker label={t("settings.languageLabel")} />
+
+      <h2>{t("settings.agentTitle")}</h2>
+      <p>{t("settings.agentDescription")}</p>
+      <button type="button" onClick={() => openAgentSettings()}>
+        {t("settings.openAgentSettings")}
+      </button>
+    </>
+  );
+}
+```
+
+“代理设置”控件应打开右侧代理侧边栏的“设置”选项卡
+用于模型、API 按键、自动化、语音和其他框架级控件。
+应用可能会在自己的设置页面中复制高价值的框架设置
+当设置是应用程序的核心，但侧边栏设置选项卡仍然是
+事实来源。
+
+使用 `useFormatters()` 表示日期、数字、相对时间和列表。不要放
+翻译字符串中区域设置敏感的日期/数字格式。
+
+## 文档网站内容 {#docs-site-content}
+
+公共文档页面使用相同的核心提供程序，但具有
+`persistPreference={false}` 因此匿名文档流量使用 localStorage 和
+浏览器语言而不是 SQL 设置 actions。英文源代码保留在
+`packages/core/docs/content/*.md`。本地化页面覆盖其旁边的实时页面
+`packages/core/docs/content/locales/<locale>/<slug>.md`.
+
+使用与应用程序目录相同的 BCP-47 区域设置代码。保留与
+英文来源，在翻译的标题上使用 `{#anchor}` 保留稳定的锚点，
+并留下路由、操作名称、协议字段、环境变量和提供程序名称
+未翻译。如果某个语言环境没有为页面翻译 Markdown，则文档站点
+该页面恢复为英语，同时仍本地化导航和 Chrome。
+
+Docs Markdown 可能包含结构化的 `an-*` 可视块。请在合理时翻译其中面向用户的文本字段，例如 file-tree 标题和 `entries[].note`、callout 正文、tab 标签以及 annotated-code 的 labels/notes。保持稳定标识符不变：文件名、路径、env vars、路由字符串、action 名称、language tags、代码片段、JSON keys 和协议名称。
+
+## Actions和坚持
+
+每个应用程序都会继承：
+
+- `get-localization-preference` — 读取当前用户的`{ locale }`
+- `set-localization-preference` — 设置 `"system"` 或支持的区域设置
+
+持久值存在于 `localization` 下的用户范围 SQL 设置中。
+`localStorage` 仅用于预水合和匿名回退。主动
+区域设置作为环境上下文镜像到应用程序状态中，以便代理可以看到
+当前界面语言。
+
+## 守卫
+
+运行：
+
+```bash
+pnpm guard:i18n-catalogs
+```
+
+守卫验证支持的区域设置文件名、密钥奇偶校验、占位符奇偶校验，
+过时的密钥，以及 CLDR 复数类别到 `Intl.PluralRules`。它检查
+结构，而不是翻译质量；高可见度字符串仍然需要人类
+审查。
+
+不要翻译稳定的标识符，例如操作名称、路由、枚举值，
+应用程序状态键、数据库值、协议字段、环境变量名称或提供程序
+名字。

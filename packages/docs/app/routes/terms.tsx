@@ -1,8 +1,9 @@
-import type { ReactNode } from "react";
 import { useLocale } from "@agent-native/core/client";
+import { useT } from "@agent-native/core/client";
+import type { ReactNode } from "react";
+
 import { sitePathForLocale } from "../components/docs-locale";
 import { withDefaultSocialImage } from "../seo";
-import { useT } from "@agent-native/core/client";
 
 const UPDATED_AT = "June 24, 2026";
 
@@ -29,7 +30,7 @@ export const meta = () =>
     {
       name: "description",
       content:
-        "Terms of Service for Agent-Native hosted applications, templates, demos, and official hosted services.",
+        "Terms of Service for Agent-Native hosted applications, apps, demos, and official hosted services.",
     },
     {
       property: "og:title",
@@ -38,7 +39,7 @@ export const meta = () =>
     {
       property: "og:description",
       content:
-        "The terms that apply when Builder.io operates Agent-Native hosted applications and template services.",
+        "The terms that apply when Builder.io operates Agent-Native hosted applications and app services.",
     },
   ]);
 

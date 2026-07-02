@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+
 import {
   getReasoningEffortOptionsForModel,
   normalizeReasoningEffortForModel,
@@ -20,7 +21,12 @@ describe("supportsClaudeXHigh (via getReasoningEffortOptionsForModel)", () => {
     expect(opts).toContain("xhigh");
   });
 
-  it("does NOT include xhigh for claude-sonnet-4-6 (only opus/fable-5 tier)", () => {
+  it("includes xhigh for claude-sonnet-5", () => {
+    const opts = getReasoningEffortOptionsForModel("claude-sonnet-5");
+    expect(opts).toContain("xhigh");
+  });
+
+  it("does NOT include xhigh for claude-sonnet-4-6 (legacy Sonnet 4 tier)", () => {
     const opts = getReasoningEffortOptionsForModel("claude-sonnet-4-6");
     expect(opts).not.toContain("xhigh");
   });
@@ -46,6 +52,12 @@ describe("normalizeReasoningEffortForModel", () => {
 
   it("keeps xhigh for claude-fable-5", () => {
     expect(normalizeReasoningEffortForModel("claude-fable-5", "xhigh")).toBe(
+      "xhigh",
+    );
+  });
+
+  it("keeps xhigh for claude-sonnet-5", () => {
+    expect(normalizeReasoningEffortForModel("claude-sonnet-5", "xhigh")).toBe(
       "xhigh",
     );
   });

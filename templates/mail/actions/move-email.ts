@@ -1,15 +1,16 @@
 import { defineAction } from "@agent-native/core";
-import { getAccessTokens } from "./helpers.js";
+import { writeAppState } from "@agent-native/core/application-state";
 import { getRequestUserEmail } from "@agent-native/core/server";
 import { getUserSetting, putUserSetting } from "@agent-native/core/settings";
-import { writeAppState } from "@agent-native/core/application-state";
+import { z } from "zod";
+
 import {
   gmailGetMessage,
   gmailListLabels,
   gmailModifyThread,
 } from "../server/lib/google-api.js";
 import { isConnected } from "../server/lib/google-auth.js";
-import { z } from "zod";
+import { getAccessTokens } from "./helpers.js";
 
 type GmailLabel = { id?: string; name?: string };
 

@@ -1,5 +1,9 @@
-export { default } from "../pages/Templates";
+import { redirect } from "react-router";
 
-export function meta() {
-  return [{ title: "Design Templates" }];
+export function loader() {
+  return redirect("/", 302);
+}
+
+export default function TemplatesRedirect() {
+  return null;
 }

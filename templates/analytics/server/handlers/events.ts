@@ -1,9 +1,10 @@
+import { readBody } from "@agent-native/core/server";
 import { defineEventHandler, setResponseStatus } from "h3";
-import { getAccessToken } from "../lib/gcloud";
+
+import { getAppEventsTable } from "../lib/bigquery";
 import { resolveCredential } from "../lib/credentials";
 import { withRequestContextFromEvent } from "../lib/credentials";
-import { getAppEventsTable } from "../lib/bigquery";
-import { readBody } from "@agent-native/core/server";
+import { getAccessToken } from "../lib/gcloud";
 
 /**
  * POST /api/events/track

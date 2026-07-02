@@ -1,5 +1,3 @@
-// @vitest-environment happy-dom
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   cleanup,
   fireEvent,
@@ -7,6 +5,8 @@ import {
   screen,
   waitFor,
 } from "@testing-library/react";
+// @vitest-environment happy-dom
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const { toastMock } = vi.hoisted(() => ({
   toastMock: vi.fn(),
@@ -30,6 +30,28 @@ vi.mock("@agent-native/core/client", () => ({
       .join(" "),
   agentNativePath: (path: string) => `/agent${path}`,
   appBasePath: () => "/slides",
+  useT: () => (key: string) =>
+    (
+      ({
+        "editorExport.downloadGoogleSlides": "Download for Google Slides",
+        "editorExport.downloadHtml": "Download as HTML",
+        "editorExport.duplicateDeck": "Duplicate deck",
+        "editorExport.export": "Export",
+        "editorExport.exportAndDuplicate": "Export and duplicate",
+        "editorExport.exportPdf": "Export PDF",
+        "editorExport.exportPptx": "Export as PPTX",
+        "editorExport.googleSlidesDownloaded": "Downloaded for Google Slides",
+        "editorExport.googleSlidesImportHint":
+          "Import the downloaded PPTX into Google Slides.",
+        "editorExport.pptxFailed": "PPTX export failed",
+        "editorExport.htmlFailed": "HTML export failed",
+        "editorExport.exportFailed": "Export failed",
+        "editorExport.exportPptxError": "Could not export PPTX.",
+        "editorExport.exportGoogleSlidesError":
+          "Could not export Google Slides.",
+        "editorExport.exportHtmlError": "Could not export HTML.",
+      }) as Record<string, string>
+    )[key] ?? key,
 }));
 
 vi.mock("@/hooks/use-toast", () => ({
@@ -38,30 +60,22 @@ vi.mock("@/hooks/use-toast", () => ({
 
 import { ExportMenu } from "./ExportMenu";
 
-const PPTX_CONTENT_TYPE =
-  "application/vnd.openxmlformats-officedocument.presentationml.presentation";
-
-function renderMenu() {
+function renderMenu(overrides: Partial<Parameters<typeof ExportMenu>[0]> = {}) {
   return render(
     <ExportMenu
       deckId="deck-1"
       deckTitle="Quarterly Review"
       onDuplicate={vi.fn()}
       onExportPdf={vi.fn()}
+      onExportPptx={vi.fn()}
+      {...overrides}
     />,
   );
 }
 
 beforeEach(() => {
   vi.clearAllMocks();
-  globalThis.fetch = vi.fn(async () => {
-    return new Response(new Blob(["pptx"], { type: PPTX_CONTENT_TYPE }), {
-      status: 200,
-      headers: {
-        "content-disposition": 'attachment; filename="quarterly.pptx"',
-      },
-    });
-  }) as typeof fetch;
+  globalThis.fetch = vi.fn(async () => new Response()) as typeof fetch;
   vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:pptx");
   vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => undefined);
   const realSetTimeout = window.setTimeout.bind(window);
@@ -85,56 +99,29 @@ afterEach(() => {
 });
 
 describe("<ExportMenu>", () => {
-  it("downloads PPTX through the streamed endpoint", async () => {
-    renderMenu();
+  it("exports PPTX from the rendered slide canvas", async () => {
+    const onExportPptx = vi.fn().mockResolvedValue(undefined);
+    renderMenu({ onExportPptx });
 
     const trigger = screen.getByRole("button", { name: /export/i });
     fireEvent.pointerDown(trigger, { button: 0, ctrlKey: false });
     fireEvent.click(await screen.findByText("Export as PPTX"));
 
-    await waitFor(() => {
-      expect(fetch).toHaveBeenCalledTimes(1);
-    });
-
-    expect(fetch).toHaveBeenCalledWith(
-      "/slides/api/exports/pptx",
-      expect.objectContaining({
-        method: "POST",
-        body: JSON.stringify({ deckId: "deck-1" }),
-      }),
-    );
-    expect(URL.createObjectURL).toHaveBeenCalled();
-    expect(HTMLAnchorElement.prototype.click).toHaveBeenCalled();
+    await waitFor(() => expect(onExportPptx).toHaveBeenCalledTimes(1));
+    expect(fetch).not.toHaveBeenCalled();
     expect(window.open).not.toHaveBeenCalled();
   });
 
   it("downloads Google Slides exports as PPTX without navigating away first", async () => {
-    renderMenu();
+    const onExportPptx = vi.fn().mockResolvedValue(undefined);
+    renderMenu({ onExportPptx });
 
     const trigger = screen.getByRole("button", { name: /export/i });
     fireEvent.pointerDown(trigger, { button: 0, ctrlKey: false });
     fireEvent.click(await screen.findByText("Download for Google Slides"));
 
-    await waitFor(() => {
-      expect(fetch).toHaveBeenCalledTimes(1);
-    });
-
-    expect(fetch).toHaveBeenCalledWith(
-      "/slides/api/exports/pptx",
-      expect.objectContaining({
-        method: "POST",
-        body: JSON.stringify({ deckId: "deck-1" }),
-      }),
-    );
-    expect(String(vi.mocked(fetch).mock.calls[0][0])).not.toContain(
-      "export-google-slides",
-    );
-    expect(URL.createObjectURL).toHaveBeenCalled();
-    expect(window.setTimeout).toHaveBeenCalledWith(
-      expect.any(Function),
-      60_000,
-    );
-    expect(URL.revokeObjectURL).not.toHaveBeenCalled();
+    await waitFor(() => expect(onExportPptx).toHaveBeenCalledTimes(1));
+    expect(fetch).not.toHaveBeenCalled();
     expect(window.open).not.toHaveBeenCalled();
     expect(toastMock).toHaveBeenCalledWith(
       expect.objectContaining({ title: "Downloaded for Google Slides" }),
@@ -142,33 +129,20 @@ describe("<ExportMenu>", () => {
   });
 
   it("does not open Google Slides when Google export fails", async () => {
-    let resolveFetch!: (value: Response) => void;
-    globalThis.fetch = vi.fn(
-      () =>
-        new Promise<Response>((resolve) => {
-          resolveFetch = resolve;
-        }),
-    ) as typeof fetch;
-
-    renderMenu();
+    renderMenu({
+      onExportPptx: vi.fn().mockRejectedValue(new Error("Could not render")),
+    });
     const trigger = screen.getByRole("button", { name: /export/i });
     fireEvent.pointerDown(trigger, { button: 0, ctrlKey: false });
     fireEvent.click(await screen.findByText("Download for Google Slides"));
 
     expect(window.open).not.toHaveBeenCalled();
-    expect(fetch).toHaveBeenCalledTimes(1);
 
-    resolveFetch(
-      new Response(JSON.stringify({ error: "Could not generate PPTX file." }), {
-        status: 500,
-        headers: { "content-type": "application/json" },
-      }),
-    );
     await waitFor(() => {
       expect(toastMock).toHaveBeenCalledWith(
         expect.objectContaining({
           title: "Export failed",
-          description: "Could not generate PPTX file.",
+          description: "Could not render",
           variant: "destructive",
         }),
       );

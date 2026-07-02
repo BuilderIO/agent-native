@@ -1,19 +1,23 @@
 import { defineAction } from "@agent-native/core";
+import { writeAppState } from "@agent-native/core/application-state";
+import { assertAccess } from "@agent-native/core/sharing";
 import { and, eq, desc } from "drizzle-orm";
+import { z } from "zod";
+
 import { getDb, schema } from "../server/db/index.js";
 import {
   parseDocumentFavorite,
   parseDocumentHideFromSearch,
 } from "../server/lib/documents.js";
-import { assertAccess } from "@agent-native/core/sharing";
-import { writeAppState } from "@agent-native/core/application-state";
-import { z } from "zod";
+import type { DocumentUpdateResponse } from "../shared/api.js";
+import { BUILDER_CMS_BODY_CONTENT_KEY } from "./_builder-cms-source-adapter.js";
+import { reconcileInlineDatabasesForDocument } from "./_content-database-lifecycle.js";
+import { serializeDocumentSource } from "./_document-source.js";
 import {
   isLocalDocumentId,
   isContentLocalFileMode,
   updateLocalFileDocument,
 } from "./_local-file-documents.js";
-import { serializeDocumentSource } from "./_document-source.js";
 
 function nanoid(size = 12): string {
   const chars =
@@ -30,6 +34,60 @@ function canManageRole(role: string) {
   return role === "owner" || role === "admin";
 }
 
+function builderBodyWithoutImageSourceComponentMarkers(
+  content: string | null | undefined,
+) {
+  return (content ?? "")
+    .replace(/(?:^|\n)<SourceComponent\b[\s\S]*?\/>[ \t]*(?=\n|$)/g, (marker) =>
+      marker.includes('componentName="Image"') ? "\n" : marker,
+    )
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+function builderBodyWithoutMarkdownImages(content: string | null | undefined) {
+  return (content ?? "")
+    .replace(
+      /(?:^|\n)!\[(?:\\.|[^\]\\])*\]\(\S+?(?:\s+"[^"]*")?\)[ \t]*(?=\n|$)/g,
+      "\n",
+    )
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+function normalizedBuilderBodyProse(content: string | null | undefined) {
+  return (content ?? "")
+    .normalize("NFKC")
+    .replace(/\u00a0/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+export function isStaleBuilderImageSourceComponentSave(args: {
+  incomingContent: string;
+  currentContent: string;
+  sourceContent: string | null | undefined;
+}) {
+  const sourceContent = args.sourceContent ?? "";
+  const currentMatchesSource =
+    normalizedBuilderBodyProse(args.currentContent) ===
+    normalizedBuilderBodyProse(sourceContent);
+  if (
+    !args.incomingContent.includes('componentName="Image"') ||
+    !sourceContent.includes("![") ||
+    sourceContent.includes('componentName="Image"') ||
+    !currentMatchesSource
+  ) {
+    return false;
+  }
+  return (
+    normalizedBuilderBodyProse(
+      builderBodyWithoutImageSourceComponentMarkers(args.incomingContent),
+    ) ===
+    normalizedBuilderBodyProse(builderBodyWithoutMarkdownImages(sourceContent))
+  );
+}
+
 export default defineAction({
   description:
     "Update an existing document's title, content, icon, or favorite status.",
@@ -43,7 +101,7 @@ export default defineAction({
       .optional()
       .describe("Favorite status (true/false)"),
   }),
-  run: async (args) => {
+  run: async (args): Promise<DocumentUpdateResponse> => {
     const id = args.id;
     if (!id) throw new Error("--id is required");
 
@@ -53,6 +111,7 @@ export default defineAction({
       return {
         ...doc,
         urlPath: `/page/${doc.id}`,
+        softDeletedDatabaseIds: [],
       };
     }
 
@@ -73,6 +132,44 @@ export default defineAction({
           h1Match[1].trim().toLowerCase() === titleToCheck.trim().toLowerCase()
         ) {
           content = content.slice(h1Match[0].length).trimStart();
+        }
+      }
+      if (
+        content.includes('componentName="Image"') &&
+        existing.content.includes("![")
+      ) {
+        const [builderBody] = await db
+          .select({
+            sourceValuesJson: schema.contentDatabaseSourceRows.sourceValuesJson,
+          })
+          .from(schema.contentDatabaseSourceRows)
+          .innerJoin(
+            schema.contentDatabaseSources,
+            eq(
+              schema.contentDatabaseSources.id,
+              schema.contentDatabaseSourceRows.sourceId,
+            ),
+          )
+          .where(
+            and(
+              eq(schema.contentDatabaseSourceRows.documentId, id),
+              eq(schema.contentDatabaseSources.sourceType, "builder-cms"),
+            ),
+          )
+          .limit(1);
+        const sourceValues = JSON.parse(
+          builderBody?.sourceValuesJson ?? "{}",
+        ) as Record<string, unknown>;
+        const sourceContent = sourceValues[BUILDER_CMS_BODY_CONTENT_KEY];
+        if (
+          typeof sourceContent === "string" &&
+          isStaleBuilderImageSourceComponentSave({
+            incomingContent: content,
+            currentContent: existing.content,
+            sourceContent,
+          })
+        ) {
+          content = existing.content;
         }
       }
     }
@@ -125,6 +222,8 @@ export default defineAction({
       }
     }
 
+    let softDeletedDatabaseIds: string[] = [];
+
     if (anyChange) {
       const updates: Record<string, unknown> = {
         updatedAt: new Date().toISOString(),
@@ -145,6 +244,13 @@ export default defineAction({
           .update(schema.contentDatabases)
           .set({ title: args.title, updatedAt: updates.updatedAt as string })
           .where(eq(schema.contentDatabases.documentId, id));
+      }
+
+      if (contentChanged) {
+        softDeletedDatabaseIds = await reconcileInlineDatabasesForDocument(
+          id,
+          content ?? "",
+        );
       }
     }
 
@@ -172,6 +278,7 @@ export default defineAction({
       createdAt: doc.createdAt,
       updatedAt: doc.updatedAt,
       source: serializeDocumentSource(doc),
+      softDeletedDatabaseIds,
     };
   },
 });

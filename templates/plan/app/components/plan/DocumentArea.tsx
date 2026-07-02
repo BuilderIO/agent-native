@@ -1,12 +1,15 @@
 import {
-  Component,
-  lazy,
-  Suspense,
-  useEffect,
-  useRef,
-  useState,
-  type ReactNode,
-} from "react";
+  BlockView,
+  SchemaBlockEditor,
+  blockEditSurface,
+  useOptionalBlockRegistry,
+} from "@agent-native/core/blocks";
+import {
+  uploadEditorImage,
+  useT,
+  type RichMarkdownCollabUser,
+} from "@agent-native/core/client";
+import { imageDataSchema, type PlanBlock } from "@shared/plan-content";
 import {
   IconAlertTriangle,
   IconCheck,
@@ -15,24 +18,24 @@ import {
   IconPhoto,
   IconX,
 } from "@tabler/icons-react";
+import {
+  Component,
+  lazy,
+  Suspense,
+  useEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import { toast } from "sonner";
+
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import {
-  uploadEditorImage,
-  type RichMarkdownCollabUser,
-} from "@agent-native/core/client";
-import {
-  BlockView,
-  SchemaBlockEditor,
-  blockEditSurface,
-  useOptionalBlockRegistry,
-} from "@agent-native/core/blocks";
 import { cn } from "@/lib/utils";
-import { imageDataSchema, type PlanBlock } from "@shared/plan-content";
-import { Wireframe } from "./wireframe/Wireframe";
-import { PlanMarkdownReader } from "./PlanMarkdownReader";
+
 import { PlanImageViewer } from "./PlanImageViewer";
+import { PlanMarkdownReader } from "./PlanMarkdownReader";
+import { Wireframe } from "./wireframe/Wireframe";
 
 const LazyPlanMarkdownEditor = lazy(() =>
   import("./PlanMarkdownEditor").then((mod) => ({
@@ -97,6 +100,7 @@ function UnknownBlockPlaceholder({
   originalType: string;
   errorSummary: string;
 }) {
+  const t = useT();
   return (
     <section
       className="plan-block"
@@ -110,13 +114,12 @@ function UnknownBlockPlaceholder({
             Invalid {originalType} block
           </div>
           <p className="mt-1 leading-5">
-            This generated block did not match the Plan schema, so it was left
-            out while the rest of the recap stayed visible.
+            {t("raw.document.invalidBlockDescription")}
           </p>
           {errorSummary && (
             <details className="mt-2">
               <summary className="cursor-pointer text-xs opacity-70 hover:opacity-90">
-                Validation details
+                {t("raw.document.validationDetails")}
               </summary>
               <pre className="mt-1 max-h-40 overflow-auto whitespace-pre-wrap break-words rounded border border-plan-line bg-plan-bg/60 p-2 font-mono text-xs opacity-80">
                 {errorSummary}
@@ -180,6 +183,7 @@ function PlanBlockViewInner({
   planId,
   collabUser,
 }: PlanBlockViewProps) {
+  const t = useT();
   const unknownBlock = parseUnknownBlockMarker(block);
   if (unknownBlock) {
     return (
@@ -528,8 +532,8 @@ function CodeTabsBlock({
   return (
     <section className="plan-block" data-block-id={block.id}>
       {block.title && <div className="plan-block-label">{block.title}</div>}
-      <div className="grid overflow-hidden border-y border-plan-line md:grid-cols-[300px_minmax(0,1fr)]">
-        <div className="border-plan-line md:border-r">
+      <div className="plan-code-tabs-layout grid overflow-hidden border-y border-plan-line">
+        <div className="plan-code-tabs-nav border-plan-line">
           {block.data.tabs.map((tab) => (
             <button
               key={tab.id}
@@ -605,8 +609,8 @@ function ImplementationMapBlock({
   return (
     <section className="plan-block" data-block-id={block.id}>
       {block.title && <div className="plan-block-label">{block.title}</div>}
-      <div className="grid overflow-hidden lg:grid-cols-[360px_minmax(0,1fr)]">
-        <div className="border-plan-line lg:border-r">
+      <div className="plan-implementation-map-layout grid overflow-hidden">
+        <div className="plan-implementation-map-nav border-plan-line">
           {block.data.files.map((file, index) => (
             <button
               key={index}
@@ -694,14 +698,13 @@ function TabsBlock({
       {block.title && <div className="plan-block-label">{block.title}</div>}
       <div
         className={cn(
-          vertical &&
-            "grid min-w-0 gap-5 md:grid-cols-[minmax(10rem,14rem)_minmax(0,1fr)] md:items-start",
+          vertical && "plan-vertical-tabs-layout grid min-w-0 gap-5",
         )}
       >
         <div
           className={cn(
             vertical
-              ? "mb-5 flex w-full min-w-0 max-w-full flex-nowrap gap-1 overflow-x-auto md:mb-0 md:max-h-[62vh] md:flex-col md:overflow-x-hidden md:overflow-y-auto md:pr-2"
+              ? "plan-vertical-tabs-list mb-5 flex w-full min-w-0 max-w-full flex-nowrap gap-1 overflow-x-auto"
               : "mb-8 inline-flex max-w-full gap-1 overflow-x-auto",
           )}
           role="tablist"
@@ -809,6 +812,7 @@ function CustomHtmlBlock({
   block: Extract<PlanBlock, { type: "custom-html" }>;
   onChange?: (block: PlanBlock) => Promise<void> | void;
 }) {
+  const t = useT();
   const [editing, setEditing] = useState(false);
   const [html, setHtml] = useState(block.data.html);
   const [css, setCss] = useState(block.data.css ?? "");
@@ -865,13 +869,13 @@ function CustomHtmlBlock({
             value={html}
             onChange={(event) => setHtml(event.target.value)}
             className="min-h-48 font-mono text-sm"
-            placeholder="HTML fragment"
+            placeholder={t("raw.document.htmlFragment")}
           />
           <Textarea
             value={css}
             onChange={(event) => setCss(event.target.value)}
             className="min-h-32 font-mono text-sm"
-            placeholder="Optional CSS"
+            placeholder={t("raw.document.optionalCss")}
           />
           <div className="flex justify-end gap-2">
             <Button
@@ -1044,6 +1048,7 @@ function ImageBlock({
   editingDisabled?: boolean;
   planId?: string | null;
 }) {
+  const t = useT();
   const blockRegistry = useOptionalBlockRegistry();
   const ctx = blockRegistry?.ctx;
   const src = block.data.url ?? imageSrcForAsset(block.data.assetId);
@@ -1068,17 +1073,17 @@ function ImageBlock({
     setEditOpen(open);
   };
 
-  // Auto-focus the "Describe a change…" prompt once the edit popover mounts. The
+  // Auto-focus the block edit prompt once the edit popover mounts. The
   // popover portals out and the deferred/guarded open can race Radix's own
   // auto-focus, so focus it explicitly (a few retries to win the open animation).
   useEffect(() => {
     if (!editOpen) return;
-    const focusPrompt = () =>
-      document
-        .querySelector<HTMLTextAreaElement>(
-          ".an-block-edit-popover textarea[placeholder^='Describe a change']",
-        )
-        ?.focus();
+    const focusPrompt = () => {
+      const prompt = document.querySelector<HTMLTextAreaElement>( // i18n-ignore DOM selector, not UI copy
+        ".an-block-edit-popover textarea[data-plan-block-edit-prompt]",
+      );
+      prompt?.focus();
+    };
     const timers = [40, 140, 280].map((ms) =>
       window.setTimeout(focusPrompt, ms),
     );
@@ -1091,7 +1096,7 @@ function ImageBlock({
     const file = event.currentTarget.files?.[0];
     event.currentTarget.value = "";
     if (!file) return;
-    const toastId = toast.loading("Replacing image…");
+    const toastId = toast.loading(t("raw.document.replacingImage"));
     try {
       const { src: nextSrc, alt: nextAlt } = await uploadEditorImage(file);
       commitData({
@@ -1099,10 +1104,10 @@ function ImageBlock({
         url: nextSrc,
         alt: block.data.alt || nextAlt || "image",
       });
-      toast.success("Image replaced.", { id: toastId });
+      toast.success(t("raw.document.imageReplaced"), { id: toastId });
     } catch (error) {
       console.error("Image replace failed:", error);
-      toast.error("Could not replace the image.", { id: toastId });
+      toast.error(t("raw.document.replaceImageFailed"), { id: toastId });
     }
   }
 

@@ -1,3 +1,11 @@
+import {
+  IconBrandGoogle,
+  IconBrandZoom,
+  IconCheck,
+  IconLink,
+  IconVideo,
+  IconVideoOff,
+} from "@tabler/icons-react";
 /**
  * ConferencingSelector — choose how a booking's video meeting is set up.
  *
@@ -23,24 +31,18 @@
  *   - `onConnectGoogle` — optional, same shape as onConnectZoom
  */
 import { useId, type ComponentType } from "react";
-import {
-  IconBrandGoogle,
-  IconBrandZoom,
-  IconCheck,
-  IconLink,
-  IconVideo,
-  IconVideoOff,
-} from "@tabler/icons-react";
+
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Badge } from "@/components/ui/badge";
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
 } from "@/components/ui/select";
+
 import { useSchedulingT } from "../../i18n.js";
 
 export type ConferencingType = "none" | "google_meet" | "zoom" | "custom";
@@ -275,7 +277,7 @@ export function ConferencingSelector(props: ConferencingSelectorProps) {
             onChange={(e) =>
               onChange({ type: "custom", url: e.currentTarget.value })
             }
-            placeholder="https://meet.example.com/room"
+            placeholder={t("customMeetingUrlPlaceholder")}
             className="h-8 text-sm"
           />
         </div>

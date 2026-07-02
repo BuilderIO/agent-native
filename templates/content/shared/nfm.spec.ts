@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { canonicalizeNfm, docToNfm, nfmToDoc } from "./nfm";
+
+import {
+  canonicalizeNfm,
+  collapseExactRepeatedNfm,
+  docToNfm,
+  nfmToDoc,
+} from "./nfm";
 
 /**
  * Every fixture below is a byte-exact sample of what Notion's
@@ -10,6 +16,42 @@ import { canonicalizeNfm, docToNfm, nfmToDoc } from "./nfm";
  * bug this module exists to prevent.
  */
 const L = (...lines: string[]) => lines.join("\n");
+
+describe("collapseExactRepeatedNfm", () => {
+  it("collapses an exact repeated document emitted by a transient collab duplicate", () => {
+    const once = L(
+      "Alpha",
+      "Beta",
+      '<page id="abc">Untitled</page>',
+      "<empty-block/>",
+      "Gamma",
+    );
+
+    expect(
+      collapseExactRepeatedNfm(`${once}\n${once}`, {
+        requiredText: 'id="abc"',
+      }),
+    ).toBe(once);
+    expect(
+      collapseExactRepeatedNfm(`${once}\n${once}`, {
+        requiredText: 'id="missing"',
+      }),
+    ).toBe(`${once}\n${once}`);
+    expect(
+      collapseExactRepeatedNfm(`${once}\nDifferent`, {
+        requiredText: 'id="abc"',
+      }),
+    ).toBe(`${once}\nDifferent`);
+  });
+
+  it("does not collapse ordinary repeated content without a caller marker", () => {
+    expect(
+      collapseExactRepeatedNfm(L("A", "B", "A", "B"), {
+        requiredText: 'id="new-page"',
+      }),
+    ).toBe(L("A", "B", "A", "B"));
+  });
+});
 
 const FIXTURES: Array<{ name: string; nfm: string }> = [
   { name: "plain paragraph", nfm: "Just a paragraph." },
@@ -239,6 +281,18 @@ describe("nfm converter — structural parsing", () => {
     expect(doc.content[0].attrs?.children).toBe(
       "Rendered child content from MDX.",
     );
+    expect(docToNfm(doc)).toBe(source);
+  });
+
+  it("models content references as source-preserving atoms", () => {
+    const source =
+      '<ContentReference sourcePath="../symbols/docs-tip.builder.mdx" title="Docs Tip" />';
+    const doc = nfmToDoc(source);
+    expect(doc.content[0].type).toBe("contentReference");
+    expect(doc.content[0].attrs?.sourcePath).toBe(
+      "../symbols/docs-tip.builder.mdx",
+    );
+    expect(doc.content[0].attrs?.title).toBe("Docs Tip");
     expect(docToNfm(doc)).toBe(source);
   });
 

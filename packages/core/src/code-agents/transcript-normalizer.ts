@@ -1,3 +1,7 @@
+import {
+  normalizeActionChatUIConfig,
+  type ActionChatUIConfig,
+} from "../action-ui.js";
 import type { CodeAgentTranscriptEvent } from "../cli/code-agent-runs.js";
 import type { AgentMcpAppPayload } from "../mcp-client/app-result.js";
 
@@ -47,6 +51,7 @@ export interface NormalizedCodeAgentToolEvent extends NormalizedCodeAgentTranscr
   input?: unknown;
   result?: unknown;
   mcpApp?: AgentMcpAppPayload;
+  chatUI?: ActionChatUIConfig;
   activities: string[];
   startedAt?: string;
   completedAt?: string;
@@ -87,6 +92,12 @@ export function normalizeCodeAgentTranscript(
 
   for (const event of events) {
     const currentTurnIndex = Math.max(turnIndex, 0);
+    if (isAgentChatClearEvent(event)) {
+      clearNormalizedAgentDraftItems(items, currentTurnIndex);
+      hiddenEvents.push(event);
+      continue;
+    }
+
     if (event.kind === "user") {
       turnIndex = turnIndex < 0 ? (items.length === 0 ? 0 : 1) : turnIndex + 1;
       items.push(createUserTurn(event, turnIndex));
@@ -297,6 +308,8 @@ function appendToolEvent(
   }
   const mcpApp = mcpAppMetadata(event.metadata);
   if (mcpApp) item.mcpApp = mcpApp;
+  const chatUI = chatUIMetadata(event.metadata);
+  if (chatUI) item.chatUI = chatUI;
   const doneMeta = structuredMetadata(event.metadata);
   if (doneMeta) item.structuredMeta = doneMeta;
 }
@@ -322,6 +335,7 @@ function createToolEvent(
     input: hasMetadataKey(metadata, "input") ? metadata?.input : undefined,
     result: hasMetadataKey(metadata, "result") ? metadata?.result : undefined,
     mcpApp: mcpAppMetadata(metadata),
+    chatUI: chatUIMetadata(metadata),
     activities: toolType === "activity" ? [event.message] : [],
     startedAt: toolType === "tool_start" ? event.createdAt : undefined,
     completedAt: toolType === "tool_done" ? event.createdAt : undefined,
@@ -349,6 +363,31 @@ function findOpenToolEvent(
     return item;
   }
   return null;
+}
+
+function isAgentChatClearEvent(event: CodeAgentTranscriptEvent): boolean {
+  return stringMetadata(event.metadata, "agentChatEventType") === "clear";
+}
+
+function clearNormalizedAgentDraftItems(
+  items: NormalizedCodeAgentTranscriptItem[],
+  turnIndex: number,
+): void {
+  for (let index = items.length - 1; index >= 0; index--) {
+    const item = items[index];
+    if (!item || item.turnIndex !== turnIndex) continue;
+    if (
+      item.type === "assistant" ||
+      item.type === "thinking" ||
+      item.type === "status"
+    ) {
+      items.splice(index, 1);
+      continue;
+    }
+    if (item.type === "tool" && item.state !== "completed") {
+      items.splice(index, 1);
+    }
+  }
 }
 
 function suppressDuplicateFinalAssistantText(
@@ -568,7 +607,7 @@ function joinAssistantChunks(previous: string, next: string): string {
   if (!next) return previous;
   if (/\s$/.test(previous) || /^\s/.test(next)) return `${previous}${next}`;
   if (/^[.,!?;:)\]}'"`]/.test(next)) return `${previous}${next}`;
-  if (/[(\[{'"`]$/.test(previous)) return `${previous}${next}`;
+  if (/[([{'"`]$/.test(previous)) return `${previous}${next}`;
   return `${previous} ${next}`;
 }
 
@@ -626,4 +665,10 @@ function mcpAppMetadata(
     return undefined;
   }
   return candidate as AgentMcpAppPayload;
+}
+
+function chatUIMetadata(
+  metadata: Record<string, unknown> | undefined,
+): ActionChatUIConfig | undefined {
+  return normalizeActionChatUIConfig(metadata?.chatUI);
 }

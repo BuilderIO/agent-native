@@ -1,4 +1,10 @@
 import {
+  appBasePath,
+  callAction,
+  isEmbedAuthActive,
+} from "@agent-native/core/client";
+import { nanoid } from "nanoid";
+import {
   createContext,
   useContext,
   useState,
@@ -8,12 +14,7 @@ import {
   useSyncExternalStore,
   ReactNode,
 } from "react";
-import { nanoid } from "nanoid";
-import {
-  appBasePath,
-  callAction,
-  isEmbedAuthActive,
-} from "@agent-native/core/client";
+
 import type { AspectRatio } from "@/lib/aspect-ratios";
 
 // ---------------------------------------------------------------------------
@@ -1090,7 +1091,7 @@ export function DeckProvider({ children }: { children: ReactNode }) {
         ...updates,
       };
       void _slides;
-      void _ca;
+      _ca;
       if (Object.keys(persistableUpdates).length > 0) {
         enqueueDeckOp(id, {
           op: "patch-deck-fields",

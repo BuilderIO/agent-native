@@ -1,4 +1,10 @@
 import { z } from "zod";
+
+import { emit as emitBusEvent } from "../event-bus/bus.js";
+import { registerEvent } from "../event-bus/registry.js";
+import type { EventDefinition } from "../event-bus/types.js";
+import { truncate } from "../shared/truncate.js";
+import { insertNotification, updateDeliveredChannels } from "./store.js";
 import {
   NOTIFICATION_SEVERITIES,
   type NotificationChannel,
@@ -6,11 +12,11 @@ import {
   type NotificationMeta,
   type Notification,
 } from "./types.js";
-import { insertNotification, updateDeliveredChannels } from "./store.js";
-import { emit as emitBusEvent } from "../event-bus/bus.js";
-import { registerEvent } from "../event-bus/registry.js";
-import type { EventDefinition } from "../event-bus/types.js";
-import { truncate } from "../shared/truncate.js";
+
+export interface NotificationDeliveryResult {
+  notification?: Notification;
+  deliveredChannels: string[];
+}
 
 registerEvent({
   name: "notification.sent",
@@ -83,6 +89,13 @@ export async function notify(
   input: NotificationInput,
   meta: NotificationMeta,
 ): Promise<Notification | undefined> {
+  return (await notifyWithDelivery(input, meta)).notification;
+}
+
+export async function notifyWithDelivery(
+  input: NotificationInput,
+  meta: NotificationMeta,
+): Promise<NotificationDeliveryResult> {
   if (!meta?.owner) {
     throw new Error("notify: meta.owner is required");
   }
@@ -165,7 +178,7 @@ export async function notify(
     }
   }
 
-  return stored;
+  return { notification: stored, deliveredChannels: delivered };
 }
 
 function selectChannels(allowlist?: string[]): NotificationChannel[] {

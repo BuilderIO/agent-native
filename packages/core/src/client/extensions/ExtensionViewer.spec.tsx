@@ -1,9 +1,10 @@
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 // @vitest-environment happy-dom
 import React, { act } from "react";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { createRoot, type Root } from "react-dom/client";
 import { MemoryRouter } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
 import { ExtensionViewer } from "./ExtensionViewer.js";
 
 const embedState = vi.hoisted(() => ({ active: false }));
@@ -14,28 +15,24 @@ vi.mock("../embed-auth.js", () => ({
 }));
 
 vi.mock("../sharing/ShareButton.js", () => ({
-  ShareButton: () => <button type="button">Share</button>,
-}));
-
-vi.mock("../AgentPanel.js", () => ({
-  AgentToggleButton: () => <button type="button">Agent</button>,
-}));
-
-vi.mock("../notifications/NotificationsBell.js", () => ({
-  NotificationsBell: ({
+  ShareButton: ({
     onOpenChange,
   }: {
     onOpenChange?: (open: boolean) => void;
   }) => (
     <>
       <button type="button" onClick={() => onOpenChange?.(true)}>
-        Notifications
+        Share
       </button>
       <button type="button" onClick={() => onOpenChange?.(false)}>
-        Close notifications
+        Close share
       </button>
     </>
   ),
+}));
+
+vi.mock("../AgentPanel.js", () => ({
+  AgentToggleButton: () => <button type="button">Agent</button>,
 }));
 
 vi.mock("../composer/PromptComposer.js", () => ({
@@ -176,7 +173,24 @@ describe("ExtensionViewer MCP embeds", () => {
     });
   });
 
-  it("lets the notifications popover take outside clicks over the extension iframe", async () => {
+  it("places the more menu before Share and omits the notifications bell", async () => {
+    await renderViewer();
+
+    const buttons = Array.from(container.querySelectorAll("button"));
+    const moreIndex = buttons.findIndex(
+      (button) => button.getAttribute("aria-label") === "More options",
+    );
+    const shareIndex = buttons.findIndex(
+      (button) => button.textContent === "Share",
+    );
+
+    expect(moreIndex).toBeGreaterThan(-1);
+    expect(shareIndex).toBeGreaterThan(-1);
+    expect(moreIndex).toBeLessThan(shareIndex);
+    expect(container.textContent).not.toContain("Notifications");
+  });
+
+  it("lets toolbar popovers take outside clicks over the extension iframe", async () => {
     const iframe = await renderViewer();
     const buttonNamed = (label: string) =>
       Array.from(container.querySelectorAll("button")).find(
@@ -186,13 +200,13 @@ describe("ExtensionViewer MCP embeds", () => {
     expect(iframe.style.pointerEvents).toBe("auto");
 
     await act(async () => {
-      buttonNamed("Notifications")?.click();
+      buttonNamed("Share")?.click();
     });
 
     expect(iframe.style.pointerEvents).toBe("none");
 
     await act(async () => {
-      buttonNamed("Close notifications")?.click();
+      buttonNamed("Close share")?.click();
     });
 
     expect(iframe.style.pointerEvents).toBe("auto");

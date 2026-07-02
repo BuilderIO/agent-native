@@ -1,3 +1,7 @@
+import Link from "@tiptap/extension-link";
+import Placeholder from "@tiptap/extension-placeholder";
+import { useEditor, EditorContent } from "@tiptap/react";
+import StarterKit from "@tiptap/starter-kit";
 import React, {
   useState,
   useRef,
@@ -5,14 +9,12 @@ import React, {
   useCallback,
   useMemo,
 } from "react";
-import { useEditor, EditorContent } from "@tiptap/react";
-import StarterKit from "@tiptap/starter-kit";
-import Placeholder from "@tiptap/extension-placeholder";
-import Link from "@tiptap/extension-link";
 import { Markdown } from "tiptap-markdown";
-import { cn } from "../utils.js";
-import { agentNativePath } from "../api-path.js";
-import type { Resource } from "./use-resources.js";
+
+import {
+  CLAUDE_SONNET_MODEL_ID,
+  CLAUDE_SONNET_MODEL_LABEL,
+} from "../../agent/model-config.js";
 import {
   type ParsedFrontmatter,
   getRemoteAgentIdFromPath,
@@ -23,11 +25,14 @@ import {
   parseFrontmatter,
   serializeFrontmatter,
 } from "../../resources/metadata.js";
+import { agentNativePath } from "../api-path.js";
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "../components/ui/tooltip.js";
+import { cn } from "../utils.js";
+import type { Resource } from "./use-resources.js";
 
 export interface ResourceEditorProps {
   resource: Resource;
@@ -188,7 +193,9 @@ function FrontmatterBar({
             <option value="inherit">Default model</option>
             <option value="claude-fable-5">Claude Fable 5</option>
             <option value="claude-opus-4-8">Claude Opus 4.8</option>
-            <option value="claude-sonnet-4-6">Claude Sonnet 4.6</option>
+            <option value={CLAUDE_SONNET_MODEL_ID}>
+              {CLAUDE_SONNET_MODEL_LABEL}
+            </option>
             <option value="claude-haiku-4-5-20251001">Claude Haiku 4.5</option>
           </select>
         ) : null}
@@ -664,7 +671,7 @@ function InlineBubbleToolbar({ editor }: { editor: any }) {
             onClick={handleSetLink}
             style={{
               fontSize: 11,
-              color: "#60a5fa",
+              color: "hsl(var(--primary))",
               padding: "2px 6px",
               fontWeight: 500,
               background: "none",
@@ -688,7 +695,7 @@ function InlineBubbleToolbar({ editor }: { editor: any }) {
                   style={{
                     width: 1,
                     height: 16,
-                    background: "rgba(255,255,255,0.2)",
+                    background: "hsl(var(--border))",
                     margin: "0 2px",
                   }}
                 />
@@ -1436,28 +1443,30 @@ const editorStyles = `
 .re-bubble-toolbar {
   display: flex;
   align-items: center;
-  background: hsl(0 0% 15%);
+  background: hsl(var(--popover));
+  color: hsl(var(--popover-foreground));
+  border: 1px solid hsl(var(--border));
   border-radius: 6px;
   padding: 3px;
-  box-shadow: 0 4px 16px rgb(0 0 0 / 0.25), 0 0 0 1px rgb(255 255 255 / 0.06);
+  box-shadow: 0 4px 16px rgb(0 0 0 / 0.12);
 }
 .re-bubble-btn {
   padding: 3px 6px;
   border-radius: 4px;
   font-size: 12px;
-  color: rgba(255,255,255,0.75);
+  color: hsl(var(--muted-foreground));
   background: none;
   border: none;
   cursor: pointer;
   line-height: 1;
 }
 .re-bubble-btn:hover {
-  background: rgba(255,255,255,0.12);
-  color: white;
+  background: hsl(var(--accent));
+  color: hsl(var(--accent-foreground));
 }
 .re-bubble-btn--active {
-  background: rgba(255,255,255,0.18);
-  color: white;
+  background: hsl(var(--accent));
+  color: hsl(var(--accent-foreground));
 }
 
 /* Slash command menu */

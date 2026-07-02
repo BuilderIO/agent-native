@@ -1,6 +1,7 @@
-import { describe, expect, it } from "vitest";
-import { createPlanUndoStack } from "./usePlanUndoStack";
 import type { PlanBlock } from "@shared/plan-content";
+import { describe, expect, it } from "vitest";
+
+import { createPlanUndoStack } from "./usePlanUndoStack";
 
 /**
  * Unit contract for the unified plan-editor undo/redo engine.

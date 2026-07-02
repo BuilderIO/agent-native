@@ -6,19 +6,23 @@
  */
 
 import { defineAction } from "@agent-native/core";
-import { z } from "zod";
-import { and, eq } from "drizzle-orm";
-import { getDb, schema } from "../server/db/index.js";
-import { getCurrentOwnerEmail } from "../server/lib/recordings.js";
 import {
   writeAppState,
   deleteAppState,
   deleteAppStateByPrefix,
 } from "@agent-native/core/application-state";
+import { and, eq } from "drizzle-orm";
+import { z } from "zod";
+
+import { getDb, schema } from "../server/db/index.js";
+import {
+  getCurrentOwnerEmail,
+  ownerEmailMatches,
+} from "../server/lib/recordings.js";
 
 export default defineAction({
   description:
-    "Permanently delete a recording and every related row (comments, reactions, viewers, events, transcript, tags, CTAs, shares). This cannot be undone.",
+    "Permanently delete a recording and every related row (comments, reactions, viewers, events, transcript, tags, CTAs, shares, diagnostics, bug reports). This cannot be undone.",
   schema: z.object({
     id: z.string().describe("Recording ID"),
   }),
@@ -32,7 +36,7 @@ export default defineAction({
       .where(
         and(
           eq(schema.recordings.id, args.id),
-          eq(schema.recordings.ownerEmail, ownerEmail),
+          ownerEmailMatches(schema.recordings.ownerEmail, ownerEmail),
         ),
       );
     if (!existing) throw new Error(`Recording not found: ${args.id}`);
@@ -53,6 +57,12 @@ export default defineAction({
     await db
       .delete(schema.recordingTranscripts)
       .where(eq(schema.recordingTranscripts.recordingId, args.id));
+    await db
+      .delete(schema.recordingBrowserDiagnostics)
+      .where(eq(schema.recordingBrowserDiagnostics.recordingId, args.id));
+    await db
+      .delete(schema.recordingBugReports)
+      .where(eq(schema.recordingBugReports.recordingId, args.id));
     await db
       .delete(schema.recordingTags)
       .where(eq(schema.recordingTags.recordingId, args.id));

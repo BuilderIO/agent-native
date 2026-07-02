@@ -1,10 +1,4 @@
-import { useState } from "react";
-import {
-  Link,
-  redirect,
-  useParams,
-  type LoaderFunctionArgs,
-} from "react-router";
+import { useLocale, useT } from "@agent-native/core/client";
 import {
   IconArrowLeft,
   IconBrandGithub,
@@ -12,14 +6,23 @@ import {
   IconExternalLink,
   IconTerminal2,
 } from "@tabler/icons-react";
+import { useState } from "react";
+import {
+  Link,
+  redirect,
+  useParams,
+  type LoaderFunctionArgs,
+} from "react-router";
+
+import { isDocsLocale, sitePathForLocale } from "../components/docs-locale";
+import { TemplateDocsLink } from "../components/template-docs";
 import {
   templates,
   trackEvent,
   type Template,
 } from "../components/TemplateCard";
-import { TemplateDocsLink } from "../components/template-docs";
+import enUS from "../i18n/en-US";
 import { withDefaultSocialImage, withTemplateSocialImage } from "../seo";
-import { useT } from "@agent-native/core/client";
 
 function findTemplate(slug: string | undefined) {
   if (slug === "videos") slug = "video";
@@ -28,7 +31,8 @@ function findTemplate(slug: string | undefined) {
 
 export function loader({ params }: LoaderFunctionArgs) {
   if (params.slug === "videos") {
-    throw redirect("/templates/video", 301);
+    const locale = isDocsLocale(params.locale) ? params.locale : undefined;
+    throw redirect(sitePathForLocale("/apps/video", locale), 301);
   }
   if (!findTemplate(params.slug)) {
     throw new Response("Not Found", { status: 404 });
@@ -40,13 +44,18 @@ export const meta = ({ params }: { params: { slug?: string } }) => {
   const template = findTemplate(params.slug);
   if (!template) {
     return withDefaultSocialImage([
-      { title: "Template Not Found — Agent-Native" },
+      { title: enUS.templateDetail.notFoundMetaTitle },
     ]);
   }
+  const templateCopy =
+    enUS.templates[template.slug as keyof typeof enUS.templates];
   return withTemplateSocialImage(
     [
-      { title: `Agent-Native ${template.name} Template` },
-      { name: "description", content: template.description },
+      { title: `Agent-Native ${template.name} App` },
+      {
+        name: "description",
+        content: templateCopy.description,
+      },
     ],
     template.name,
   );
@@ -123,13 +132,14 @@ export default function GenericTemplatePage() {
   const { slug } = useParams();
   const template = findTemplate(slug);
   const t = useT();
+  const { locale } = useLocale();
 
   if (!template) {
     return (
       <main className="mx-auto max-w-[900px] px-6 py-20">
         <Link
           data-an-prefetch="render"
-          to="/templates"
+          to={sitePathForLocale("/apps", locale)}
           className="inline-flex items-center gap-2 text-sm text-[var(--fg-secondary)] no-underline hover:text-[var(--fg)]"
         >
           <IconArrowLeft size={16} />
@@ -153,16 +163,7 @@ export default function GenericTemplatePage() {
   return (
     <main className="template-detail-page mx-auto w-full max-w-[1200px] overflow-x-clip px-4 sm:px-6">
       <section className="py-12 sm:py-16 lg:py-20">
-        <Link
-          data-an-prefetch="render"
-          to="/templates"
-          className="inline-flex items-center gap-2 text-sm text-[var(--fg-secondary)] no-underline hover:text-[var(--fg)]"
-        >
-          <IconArrowLeft size={16} />
-          {t("templateDetail.allTemplates")}
-        </Link>
-
-        <div className="mt-8 grid min-w-0 gap-10 lg:grid-cols-2 lg:items-start lg:gap-12">
+        <div className="grid min-w-0 gap-10 lg:grid-cols-2 lg:items-start lg:gap-12">
           <div>
             <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-[var(--docs-border)] bg-[var(--bg-secondary)] px-3 py-1 text-xs text-[var(--fg-secondary)]">
               <span

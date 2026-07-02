@@ -7,6 +7,10 @@
     {
       "name": "agent-native-visual-plans",
       "source": { "source": "local", "path": "./agent-native-visual-plans" }
+    },
+    {
+      "name": "agent-native-design",
+      "source": { "source": "local", "path": "./agent-native-design" }
     }
   ]
 }

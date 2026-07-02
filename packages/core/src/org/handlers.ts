@@ -17,8 +17,8 @@ function extractInvitationId(event: H3Event): string | undefined {
   if (fromRouter) return fromRouter;
   const path = getRequestURL(event).pathname;
   const match =
-    path.match(/^\/([^\/]+)\/accept\/?$/) ??
-    path.match(/\/org\/invitations\/([^\/]+)\/accept\/?$/);
+    path.match(/^\/([^/]+)\/accept\/?$/) ??
+    path.match(/\/org\/invitations\/([^/]+)\/accept\/?$/);
   return match?.[1] ? decodeURIComponent(match[1]) : undefined;
 }
 
@@ -28,22 +28,22 @@ function extractMemberEmail(event: H3Event): string | undefined {
   if (fromRouter) return fromRouter;
   const path = getRequestURL(event).pathname;
   const match =
-    path.match(/^\/([^\/]+)\/role\/?$/) ??
-    path.match(/^\/([^\/]+)\/?$/) ??
-    path.match(/\/org\/members\/([^\/]+)(?:\/role)?\/?$/);
+    path.match(/^\/([^/]+)\/role\/?$/) ??
+    path.match(/^\/([^/]+)\/?$/) ??
+    path.match(/\/org\/members\/([^/]+)(?:\/role)?\/?$/);
   return match?.[1] ? decodeURIComponent(match[1]) : undefined;
 }
 const nanoid = (): string =>
   globalThis.crypto?.randomUUID?.().replace(/-/g, "") ??
   Math.random().toString(36).slice(2) + Date.now().toString(36);
-import { readBody } from "../server/h3-helpers.js";
-import { getSession } from "../server/auth.js";
-import { putUserSetting } from "../settings/user-settings.js";
 import { getDbExec } from "../db/client.js";
-import { sendEmail, isEmailConfigured } from "../server/email.js";
-import { renderInviteEmail } from "../server/email-templates.js";
-import { getAppProductionUrl } from "../server/app-url.js";
 import { ssrfSafeFetch } from "../extensions/url-safety.js";
+import { getAppProductionUrl } from "../server/app-url.js";
+import { getSession } from "../server/auth.js";
+import { renderInviteEmail } from "../server/email-templates.js";
+import { sendEmail, isEmailConfigured } from "../server/email.js";
+import { readBody } from "../server/h3-helpers.js";
+import { putUserSetting } from "../settings/user-settings.js";
 import { getOrgContext, createOrganization } from "./context.js";
 import { isFreeEmailProvider } from "./free-email-providers.js";
 import type { OrgRole } from "./types.js";
@@ -203,7 +203,7 @@ export const listMembersHandler = defineEventHandler(async (event: H3Event) => {
   const args: unknown[] = [ctx.orgId];
   let sql = `SELECT email, role, joined_at AS "joinedAt" FROM org_members WHERE org_id = ?`;
   if (search) {
-    sql += ` AND LOWER(email) LIKE ? ESCAPE '\\'`;
+    sql += ` AND LOWER(email) LIKE ? ESCAPE '!'`;
     args.push(`%${escapeLike(search)}%`);
   }
   sql += ` ORDER BY LOWER(email) ASC`;
@@ -242,7 +242,7 @@ function clampInteger(
 }
 
 function escapeLike(value: string): string {
-  return value.replace(/[\\%_]/g, (match) => `\\${match}`);
+  return value.replace(/[!%_]/g, (match) => `!${match}`);
 }
 
 function normalizeInviteRole(input: unknown): "member" | "admin" {
@@ -312,7 +312,7 @@ async function inviteOne(
 
   let emailSent = false;
   let emailError: string | undefined;
-  if (isEmailConfigured()) {
+  if (await isEmailConfigured()) {
     try {
       const { subject, html, text } = renderInviteEmail({
         invitee: email,

@@ -11,8 +11,8 @@
  * The open fetch also keeps the worker alive while you iterate.
  */
 import { spawn } from "node:child_process";
-import http from "node:http";
 import { watch } from "node:fs";
+import http from "node:http";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 

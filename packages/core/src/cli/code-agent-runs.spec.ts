@@ -1,16 +1,9 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import {
-  appendCodeAgentTranscriptEvent,
-  codeAgentRunArtifactsDir,
-  codeAgentRunTranscriptPath,
-  createCodeAgentRunRecord,
-  getCodeAgentRunRecord,
-  listCodeAgentTranscriptEvents,
-} from "./code-agent-runs.js";
 import {
   createLocalCodeBackgroundAgentController,
   getBackgroundAgentRun,
@@ -19,6 +12,14 @@ import {
   toBackgroundAgentRun,
   toBackgroundAgentTranscriptEvent,
 } from "../code-agents/index.js";
+import {
+  appendCodeAgentTranscriptEvent,
+  codeAgentRunArtifactsDir,
+  codeAgentRunTranscriptPath,
+  createCodeAgentRunRecord,
+  getCodeAgentRunRecord,
+  listCodeAgentTranscriptEvents,
+} from "./code-agent-runs.js";
 
 const tmpRoots: string[] = [];
 

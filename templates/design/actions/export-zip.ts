@@ -1,13 +1,26 @@
 import { defineAction } from "@agent-native/core";
-import { z } from "zod";
-import { eq } from "drizzle-orm";
-import { getDb, schema } from "../server/db/index.js";
 import { resolveAccess } from "@agent-native/core/sharing";
+import { eq } from "drizzle-orm";
+import { z } from "zod";
+
+import { getDb, schema } from "../server/db/index.js";
 import {
   exportFilename,
   trySaveExportFile,
 } from "../server/lib/design-export.js";
+import { isBoardFile } from "../shared/board-file.js";
 import "../server/db/index.js"; // ensure registerShareableResource runs
+
+const METADATA_ARCHIVE_DIR = "agent-native-metadata";
+
+function safeArchivePath(filename: string, fallback: string): string {
+  const normalized = filename
+    .replace(/\\/g, "/")
+    .split("/")
+    .filter((part) => part && part !== "." && part !== "..")
+    .join("/");
+  return normalized || fallback;
+}
 
 export default defineAction({
   description:
@@ -28,12 +41,14 @@ export default defineAction({
       .select()
       .from(schema.designFiles)
       .where(eq(schema.designFiles.designId, id));
+    const exportFiles = files.filter((file) => !isBoardFile(file.filename));
 
     // Dynamic import JSZip
     const JSZip = (await import("jszip")).default;
     const zip = new JSZip();
 
-    // Add README
+    // Add generated metadata under a reserved folder so valid design files named
+    // README.md or design-data.json can still export at the project root.
     const readme = [
       `# ${row.title}`,
       "",
@@ -44,21 +59,24 @@ export default defineAction({
       "",
       "## Files",
       "",
-      ...files.map((f) => `- ${f.filename} (${f.fileType})`),
+      ...exportFiles.map((f) => `- ${f.filename} (${f.fileType})`),
     ].join("\n");
 
-    zip.file("README.md", readme);
+    zip.file(`${METADATA_ARCHIVE_DIR}/README.md`, readme);
 
-    // Add all design files organized by type
-    for (const file of files) {
-      const folder =
-        file.fileType === "asset" ? "assets" : (file.fileType ?? "html");
-      zip.file(`${folder}/${file.filename}`, file.content ?? "");
+    // Preserve design-relative paths so exported HTML keeps working with
+    // sibling CSS/assets. Strip traversal segments defensively for legacy rows.
+    for (const [index, file] of exportFiles.entries()) {
+      const filename = safeArchivePath(
+        file.filename,
+        `design-file-${index + 1}.txt`,
+      );
+      zip.file(filename, file.content ?? "");
     }
 
     // Add design data if present
     if (row.data) {
-      zip.file("design-data.json", row.data);
+      zip.file(`${METADATA_ARCHIVE_DIR}/design-data.json`, row.data);
     }
 
     // Generate ZIP
@@ -68,6 +86,11 @@ export default defineAction({
     const filename = exportFilename(row.title, "zip");
     const saveResult = await trySaveExportFile(filename, zipBuffer);
 
-    return { zipBase64, filename, ...saveResult, fileCount: files.length };
+    return {
+      zipBase64,
+      filename,
+      ...saveResult,
+      fileCount: exportFiles.length,
+    };
   },
 });

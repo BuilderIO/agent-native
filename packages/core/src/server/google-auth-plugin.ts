@@ -1,10 +1,10 @@
 import { createAuthPlugin } from "./auth-plugin.js";
-import { getPublicOAuthOrigin } from "./oauth-public-origin.js";
-import { getWorkspaceGatewayReturnOrigin } from "./oauth-return-url.js";
 import {
   resolveGoogleAuthMode,
   type GoogleAuthMode,
 } from "./google-auth-mode.js";
+import { getPublicOAuthOrigin } from "./oauth-public-origin.js";
+import { getWorkspaceGatewayReturnOrigin } from "./oauth-return-url.js";
 
 type NitroPluginDef = (nitroApp: any) => void | Promise<void>;
 

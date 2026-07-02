@@ -1,14 +1,4 @@
 import {
-  getH3App,
-  awaitBootstrap,
-  markDefaultPluginProvided,
-  trackPluginInit,
-} from "./framework-request-handler.js";
-import {
-  getAllowedCorsOrigin,
-  readCorsAllowedOrigins,
-} from "./cors-origins.js";
-import {
   defineEventHandler,
   setResponseStatus,
   setResponseHeader,
@@ -20,35 +10,89 @@ import {
   getRequestURL,
 } from "h3";
 import type { H3Event } from "h3";
-import path from "node:path";
-import { createPollHandler } from "./poll.js";
-import { createPollEventsHandler } from "./poll-events.js";
-import { createOpenRouteHandler } from "./open-route.js";
-import { createEmbedStartRouteHandler } from "./embed-route.js";
-import { EMBED_TARGET_HEADER } from "../shared/embed-auth.js";
+import { readMultipartFormData } from "h3";
+
+import { DEFAULT_MODEL } from "../agent/default-model.js";
+import { registerBuiltinEngines } from "../agent/engine/builtin.js";
 import {
-  EMBED_TRANSPLANT_HEADER,
-  isMcpEmbedCorsOrigin,
-  MCP_EMBED_CORS_ALLOW_HEADERS,
-  shouldAllowMcpEmbedCredentials,
-} from "../shared/mcp-embed-headers.js";
-import { captureError } from "./capture-error.js";
+  OPENAI_BASE_URL_ENV_VAR,
+  PROVIDER_ENV_META,
+} from "../agent/engine/provider-env-vars.js";
+import {
+  isAgentEngineSettingConfigured,
+  getAgentEngineEntry,
+  detectEngineFromEnv,
+  detectEngineFromUserSecrets,
+  isStoredEngineUsableForRequest,
+} from "../agent/engine/registry.js";
+import {
+  canUpdateAgentLoopSettings,
+  readAgentLoopSettings,
+  resetAgentLoopSettings,
+  validateMaxIterationsInput,
+  writeAgentLoopSettings,
+} from "../agent/loop-settings.js";
+import {
+  getState,
+  putState,
+  deleteState,
+  listComposeDrafts,
+  getComposeDraft,
+  putComposeDraft,
+  deleteComposeDraft,
+  deleteAllComposeDrafts,
+} from "../application-state/handlers.js";
+import { mountBrowserSessionRoutes } from "../browser-sessions/routes.js";
+import { mountDbAdminRoutes } from "../db-admin/routes.js";
+import { getDbExec } from "../db/client.js";
+import {
+  uploadFile,
+  getActiveFileUploadProviderForRequest,
+  listFileUploadProviders,
+} from "../file-upload/index.js";
 import { handleMcpConnect } from "../mcp/connect-route.js";
 import {
   handleMcpOAuth,
   handleMcpOAuthAuthorizationServerMetadata,
   handleMcpOAuthProtectedResourceMetadata,
 } from "../mcp/oauth-route.js";
-import { handleIdentitySso } from "./identity-sso.js";
-import { isIdentitySsoEnabled } from "./identity-sso-store.js";
-import { getAppName } from "./app-name.js";
-import { upsertEnvFile } from "./create-server.js";
-import type { EnvKeyConfig } from "./create-server.js";
+import { registerBuiltinNotificationChannels } from "../notifications/channels.js";
+import { createNotificationsHandler } from "../notifications/routes.js";
+import { getOrgContext } from "../org/context.js";
+import { createProgressHandler } from "../progress/routes.js";
+import { registerFrameworkSecrets } from "../secrets/register-framework-secrets.js";
 import {
-  readBody,
-  DEFAULT_UPLOAD_MAX_FILE_BYTES,
-  isAllowedUploadMimeType,
-} from "./h3-helpers.js";
+  createListSecretsHandler,
+  createWriteSecretHandler,
+  createTestSecretHandler,
+  createAdHocSecretHandler,
+} from "../secrets/routes.js";
+import { getSetting, putSetting, deleteSetting } from "../settings/store.js";
+import {
+  getUserSetting,
+  putUserSetting,
+  deleteUserSetting,
+} from "../settings/user-settings.js";
+import {
+  DEFAULT_SSR_CACHE_HEADERS,
+  EMPTY_SPECULATION_RULES,
+} from "../shared/cache-control.js";
+import { EMBED_TARGET_HEADER } from "../shared/embed-auth.js";
+import { llmConnectionTrackingProperties } from "../shared/llm-connection.js";
+import {
+  EMBED_TRANSPLANT_HEADER,
+  isMcpEmbedCorsOrigin,
+  MCP_EMBED_CORS_ALLOW_HEADERS,
+  shouldAllowMcpEmbedCredentials,
+} from "../shared/mcp-embed-headers.js";
+import { track } from "../tracking/index.js";
+import { registerBuiltinProviders } from "../tracking/providers.js";
+import { validateTrackPayload } from "../tracking/route.js";
+import { createAutomationsHandler } from "../triggers/routes.js";
+import { createAgentEngineApiKeyHandler } from "./agent-engine-api-key-route.js";
+import { getConfiguredAppBasePath, stripAppBasePath } from "./app-base-path.js";
+import { getAppName } from "./app-name.js";
+import { getSession, type AuthSession } from "./auth.js";
 import {
   BUILDER_CONNECT_PARAM,
   BUILDER_CONNECT_OWNER_COOKIE,
@@ -74,83 +118,45 @@ import {
   signBuilderConnectToken,
   type BuilderConnectTrackingParams,
 } from "./builder-browser.js";
+import { captureError } from "./capture-error.js";
 import {
-  getState,
-  putState,
-  deleteState,
-  listComposeDrafts,
-  getComposeDraft,
-  putComposeDraft,
-  deleteComposeDraft,
-  deleteAllComposeDrafts,
-} from "../application-state/handlers.js";
-import { getSetting, putSetting, deleteSetting } from "../settings/store.js";
-import {
-  getUserSetting,
-  putUserSetting,
-  deleteUserSetting,
-} from "../settings/user-settings.js";
-import { getSession, type AuthSession } from "./auth.js";
-import { getAppBasePath, getOrigin } from "./google-oauth.js";
-import { getConfiguredAppBasePath, stripAppBasePath } from "./app-base-path.js";
-import { findWorkspaceRoot } from "../scripts/utils.js";
-import { listOnboardingSteps } from "../onboarding/registry.js";
-import {
-  uploadFile,
-  getActiveFileUploadProvider,
-  listFileUploadProviders,
-} from "../file-upload/index.js";
-import { readMultipartFormData } from "h3";
-import {
-  createListSecretsHandler,
-  createWriteSecretHandler,
-  createTestSecretHandler,
-  createAdHocSecretHandler,
-} from "../secrets/routes.js";
-import { registerFrameworkSecrets } from "../secrets/register-framework-secrets.js";
-import { registerBuiltinProviders } from "../tracking/providers.js";
-import { track } from "../tracking/index.js";
-import { validateTrackPayload } from "../tracking/route.js";
-import { registerBuiltinNotificationChannels } from "../notifications/channels.js";
-import { createNotificationsHandler } from "../notifications/routes.js";
-import { createProgressHandler } from "../progress/routes.js";
-import { createAutomationsHandler } from "../triggers/routes.js";
-import { createGoogleRealtimeSessionHandler } from "./google-realtime-session.js";
-import { createTranscribeVoiceHandler } from "./transcribe-voice.js";
-import { runWithRequestContext } from "./request-context.js";
-import { createVoiceProvidersStatusHandler } from "./voice-providers-status.js";
-import { PROVIDER_ENV_META } from "../agent/engine/provider-env-vars.js";
-import { DEFAULT_MODEL } from "../agent/default-model.js";
+  getAllowedCorsOrigin,
+  readCorsAllowedOrigins,
+} from "./cors-origins.js";
+import type { EnvKeyConfig } from "./create-server.js";
 import {
   canUseDeployCredentialFallbackForRequest,
+  readDeployCredentialEnv,
   resolveSecret,
 } from "./credential-provider.js";
-import { createAgentEngineApiKeyHandler } from "./agent-engine-api-key-route.js";
+import { createEmbedStartRouteHandler } from "./embed-route.js";
 import {
-  canUpdateAgentLoopSettings,
-  readAgentLoopSettings,
-  resetAgentLoopSettings,
-  validateMaxIterationsInput,
-  writeAgentLoopSettings,
-} from "../agent/loop-settings.js";
+  getH3App,
+  awaitBootstrap,
+  markDefaultPluginProvided,
+  trackPluginInit,
+} from "./framework-request-handler.js";
+import { getAppBasePath, getOrigin } from "./google-oauth.js";
+import { createGoogleRealtimeSessionHandler } from "./google-realtime-session.js";
 import {
-  isAgentEngineSettingConfigured,
-  getAgentEngineEntry,
-  detectEngineFromEnv,
-  detectEngineFromUserSecrets,
-  isStoredEngineUsableForRequest,
-} from "../agent/engine/registry.js";
-import { registerBuiltinEngines } from "../agent/engine/builtin.js";
-import { getOrgContext } from "../org/context.js";
-import { isEnvVarWriteAllowed } from "./env-var-writes.js";
-import { llmConnectionTrackingProperties } from "../shared/llm-connection.js";
-import { mountBrowserSessionRoutes } from "../browser-sessions/routes.js";
-import { mountDbAdminRoutes } from "../db-admin/routes.js";
-import { getDbExec } from "../db/client.js";
+  readBody,
+  DEFAULT_UPLOAD_MAX_FILE_BYTES,
+  isAllowedUploadMimeType,
+} from "./h3-helpers.js";
+import { isIdentitySsoEnabled } from "./identity-sso-store.js";
+import { handleIdentitySso } from "./identity-sso.js";
+import { createOpenRouteHandler } from "./open-route.js";
+import { createPollEventsHandler } from "./poll-events.js";
+import { createPollHandler } from "./poll.js";
+import { runWithRequestContext } from "./request-context.js";
 import {
-  DEFAULT_SSR_CACHE_HEADERS,
-  EMPTY_SPECULATION_RULES,
-} from "../shared/cache-control.js";
+  findUnsupportedScopedKeyNames,
+  saveKeyValuesToScopedSecrets,
+  ScopedKeyStorageError,
+  type ScopedKeySaveRequestScope,
+} from "./scoped-key-storage.js";
+import { createTranscribeVoiceHandler } from "./transcribe-voice.js";
+import { createVoiceProvidersStatusHandler } from "./voice-providers-status.js";
 
 /**
  * The base path prefix for all framework-level routes.
@@ -160,6 +166,39 @@ import {
 export const FRAMEWORK_ROUTE_PREFIX = "/_agent-native";
 export const FRAMEWORK_EVENTS_ROUTE = `${FRAMEWORK_ROUTE_PREFIX}/events`;
 export const LEGACY_FRAMEWORK_EVENTS_ROUTE = `${FRAMEWORK_ROUTE_PREFIX}/poll-events`;
+
+export function getFrameworkEnvKeys(): EnvKeyConfig[] {
+  return [
+    { key: "ENABLE_BUILDER", label: "Enable Builder.io features" },
+    {
+      key: "AGENT_ENGINE_PREFER_BYO_KEY",
+      label:
+        "Prefer BYO LLM key over Builder gateway (default: false — gateway wins)",
+    },
+    {
+      key: "RESEND_API_KEY",
+      label: "Resend API key",
+      helpText:
+        "Enables transactional email, including password resets, invitations, share notifications, and dashboard reports.",
+    },
+    {
+      key: "SENDGRID_API_KEY",
+      label: "SendGrid API key",
+      helpText:
+        "Enables transactional email, including password resets, invitations, share notifications, and dashboard reports.",
+    },
+    {
+      key: "EMAIL_FROM",
+      label: "Email from address",
+      helpText:
+        "Sender address for transactional email. Required when using SendGrid.",
+    },
+    ...Object.values(PROVIDER_ENV_META).map(({ envVar, label }) => ({
+      key: envVar,
+      label,
+    })),
+  ];
+}
 
 /** Result of the `/_agent-native/health` liveness + DB-warmup probe. */
 export interface DbHealthProbeResult {
@@ -197,6 +236,11 @@ export async function runDbHealthProbe(
 const DEFAULT_BUILDER_WAITLIST_FORM_ID = "DYTHuM0jlV";
 const DEFAULT_BUILDER_WAITLIST_FORMS_ORIGIN = "https://forms.agent-native.com";
 const BUILDER_WAITLIST_FORM_SOURCE = "connect_builder_card";
+const BUILDER_WAITLIST_DEFAULT_USE_CASE = "builder_agent_background_coding";
+const BUILDER_WAITLIST_USE_CASES = new Set([
+  BUILDER_WAITLIST_DEFAULT_USE_CASE,
+  "design_publish_app",
+]);
 const BUILDER_WAITLIST_FORM_TIMEOUT_MS = 8000;
 const BUILDER_WAITLIST_TEXT_LIMIT = 4000;
 
@@ -205,12 +249,13 @@ interface BuilderWaitlistFormTarget {
   formsOrigin: string;
 }
 
-interface BuilderWaitlistBody {
+export interface BuilderWaitlistBody {
   prompt?: unknown;
   orgName?: unknown;
   appUrl?: unknown;
   pageUrl?: unknown;
   source?: unknown;
+  useCase?: unknown;
 }
 
 export function resolveFrameworkSseRoutes(sseRoute?: string): string[] {
@@ -233,6 +278,13 @@ function cleanBuilderWaitlistText(
   const trimmed = value.trim();
   if (!trimmed) return undefined;
   return trimmed.slice(0, maxLength);
+}
+
+function normalizeBuilderWaitlistUseCase(value: unknown): string {
+  const useCase = cleanBuilderWaitlistText(value, 100);
+  return useCase && BUILDER_WAITLIST_USE_CASES.has(useCase)
+    ? useCase
+    : BUILDER_WAITLIST_DEFAULT_USE_CASE;
 }
 
 function normalizeHttpOrigin(value: string): string | null {
@@ -278,6 +330,38 @@ export function resolveBuilderWaitlistFormTargetForRequest(
   return { formId, formsOrigin };
 }
 
+export function buildBuilderWaitlistFormPayload(
+  event: H3Event,
+  sessionEmail: string,
+  body: BuilderWaitlistBody,
+) {
+  const appUrl =
+    cleanBuilderWaitlistText(body.pageUrl ?? body.appUrl, 2000) ??
+    cleanBuilderWaitlistText(getHeader(event, "referer"), 2000) ??
+    getOrigin(event);
+  const source =
+    cleanBuilderWaitlistText(body.source, 100) ?? BUILDER_WAITLIST_FORM_SOURCE;
+  const useCase = normalizeBuilderWaitlistUseCase(body.useCase);
+
+  return {
+    data: {
+      email: sessionEmail,
+      orgName: cleanBuilderWaitlistText(body.orgName, 500),
+      appUrl,
+      prompt: cleanBuilderWaitlistText(body.prompt),
+      source,
+      useCase,
+    },
+    _hp: "",
+    _meta: {
+      submitterEmail: sessionEmail,
+      pageUrl: appUrl,
+      source,
+      useCase,
+    },
+  };
+}
+
 async function submitBuilderWaitlistForm(
   event: H3Event,
   sessionEmail: string,
@@ -285,13 +369,6 @@ async function submitBuilderWaitlistForm(
 ): Promise<{ submitted: boolean; formId?: string }> {
   const target = resolveBuilderWaitlistFormTargetForRequest(event);
   if (!target) return { submitted: false };
-
-  const appUrl =
-    cleanBuilderWaitlistText(body.pageUrl ?? body.appUrl, 2000) ??
-    cleanBuilderWaitlistText(getHeader(event, "referer"), 2000) ??
-    getOrigin(event);
-  const source =
-    cleanBuilderWaitlistText(body.source, 100) ?? BUILDER_WAITLIST_FORM_SOURCE;
 
   const controller = new AbortController();
   const timeout = setTimeout(
@@ -305,20 +382,9 @@ async function submitBuilderWaitlistForm(
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          data: {
-            email: sessionEmail,
-            orgName: cleanBuilderWaitlistText(body.orgName, 500),
-            appUrl,
-            prompt: cleanBuilderWaitlistText(body.prompt),
-            source,
-          },
-          _hp: "",
-          _meta: {
-            submitterEmail: sessionEmail,
-            pageUrl: appUrl,
-          },
-        }),
+        body: JSON.stringify(
+          buildBuilderWaitlistFormPayload(event, sessionEmail, body),
+        ),
         signal: controller.signal,
       },
     );
@@ -338,15 +404,36 @@ function parseBuilderCallbackBoolean(
   return /^(1|true)$/i.test(value);
 }
 
-const PROVIDER_ENV_VAR_KEYS = new Set(
-  Object.values(PROVIDER_ENV_META).map(({ envVar }) => envVar),
-);
-
 // Raster-only data-URI allowlist for avatar writes. SVG is deliberately absent:
 // data:image/svg+xml payloads can carry inline <script> and event-handler
 // attributes that execute when the browser renders them as an <img> src or
 // inlines them in the DOM. Mirrors SAFE_DATA_IMAGE in sanitize-html.ts.
 export const AVATAR_RASTER_MIME = /^data:image\/(png|jpe?g|gif|webp);/i;
+
+export function resolveAvatarEmailParam(
+  pathname: string,
+  appBasePath = "",
+): string {
+  const base = appBasePath.replace(/\/+$/, "");
+  const avatarPaths = Array.from(
+    new Set([`${base}/_agent-native/avatar/`, "/_agent-native/avatar/"]),
+  );
+
+  for (const avatarPath of avatarPaths) {
+    const avatarIndex = pathname.indexOf(avatarPath);
+    if (avatarIndex >= 0) {
+      return pathname
+        .slice(avatarIndex + avatarPath.length)
+        .replace(/^\/+/, "")
+        .split("/")[0];
+    }
+  }
+
+  const firstSegment = pathname.replace(/^\/+/, "").split("/")[0] ?? "";
+  if (!firstSegment || firstSegment === "_agent-native") return "";
+  if (base && firstSegment === base.replace(/^\/+/, "")) return "";
+  return firstSegment;
+}
 
 async function detectUsageEngineName(
   event: H3Event,
@@ -569,6 +656,22 @@ export function resolveLegacyToolsRedirect(
   return `${basePath}/extensions${suffix}${search}`;
 }
 
+export function getFrameworkRouteRequestUrl(event: H3Event): URL {
+  const url = getRequestURL(event);
+  if (url.search) return url;
+
+  // In some mounted Nitro/H3 paths, `event.url` is normalized while the raw
+  // Node request URL still has the query string. Builder callbacks carry the
+  // signed `_an_state` there, so preserve it before validating the flow.
+  const rawUrl =
+    event.node?.req?.url ??
+    (typeof event.path === "string" ? event.path : undefined);
+  const queryStart = rawUrl?.indexOf("?") ?? -1;
+  if (queryStart < 0) return url;
+  url.search = rawUrl!.slice(queryStart);
+  return url;
+}
+
 function redactValues(text: string, values: Array<string | null | undefined>) {
   let out = text;
   for (const value of values) {
@@ -612,6 +715,9 @@ export interface CoreRoutesPluginOptions {
   /** Per-template override mapping deep-link params → client SPA path.
    *  See `createOpenRouteHandler`. */
   resolveOpenPath?: import("./open-route.js").OpenRouteOptions["resolveOpenPath"];
+  /** Per-template allowlist for open-route targets that may redirect without
+   *  a browser session. See `createOpenRouteHandler`. */
+  allowUnauthenticatedOpen?: import("./open-route.js").OpenRouteOptions["allowUnauthenticatedOpen"];
   /** Env key configuration. Enables env-status and env-vars routes. */
   envKeys?: EnvKeyConfig[];
   /**
@@ -634,7 +740,7 @@ export interface CoreRoutesPluginOptions {
  *   GET    /_agent-native/ping                          — health check
  *   GET    /_agent-native/health                        — DB liveness probe + scale-to-zero warmup
  *   GET    /_agent-native/env-status                    — env key configuration status (when envKeys provided)
- *   POST   /_agent-native/env-vars                      — save env vars to .env (when envKeys provided)
+ *   POST   /_agent-native/env-vars                      — compatibility route that saves keys to scoped DB secrets
  *   GET    /_agent-native/application-state/:key        — read application state
  *   PUT    /_agent-native/application-state/:key        — write application state
  *   DELETE /_agent-native/application-state/:key        — delete application state
@@ -663,20 +769,9 @@ export function createCoreRoutesPlugin(
     try {
       await awaitBootstrap(nitroApp);
 
-      // Restore env vars from the settings table. On serverless, .env
-      // writes don't persist across invocations — the DB is the durable
-      // store. Only set keys that are currently empty so explicit env
-      // vars (Netlify dashboard, process-level) always win.
-      //
-      // GATED: only rehydrate into `process.env` on local-dev SQLite (or
-      // with the explicit single-tenant opt-in). On a shared-DB hosted
-      // multi-tenant deploy the `persisted-env-vars` row is deployment-wide
-      // global state — pushing user-supplied values into `process.env` from
-      // it would let any one tenant's writes (or a stale dev seed) leak
-      // into every other tenant's process. The opt-out scrub of legacy
-      // BUILDER_* values still runs unconditionally so existing rows on
-      // multi-tenant deploys self-heal, but new env-var writes never land
-      // in `process.env` outside the allowed contexts.
+      // Legacy cleanup: key saves now go to scoped app_secrets rows. Do not
+      // rehydrate the old deployment-global `persisted-env-vars` row into
+      // process.env; keep only the Builder scrub so stale leaked keys self-heal.
       try {
         const persisted = (await getSetting("persisted-env-vars")) as Record<
           string,
@@ -684,15 +779,10 @@ export function createCoreRoutesPlugin(
         > | null;
         if (persisted) {
           const builderKeys = new Set<string>(BUILDER_ENV_KEYS);
-          const writesAllowed = isEnvVarWriteAllowed();
           let scrubbed = 0;
-          for (const [k, v] of Object.entries(persisted)) {
+          for (const k of Object.keys(persisted)) {
             if (builderKeys.has(k)) {
               scrubbed++;
-              continue;
-            }
-            if (writesAllowed && typeof v === "string" && !process.env[k]) {
-              process.env[k] = v;
             }
           }
           if (scrubbed > 0) {
@@ -1372,10 +1462,7 @@ export function createCoreRoutesPlugin(
             return { error: "Authentication required" };
           }
 
-          const requestUrl = new URL(
-            `${event.url?.pathname || "/"}${event.url?.search || ""}`,
-            getBuilderBrowserOriginForEvent(event),
-          );
+          const requestUrl = getFrameworkRouteRequestUrl(event);
           const connectToken = requestUrl.searchParams.get(
             BUILDER_CONNECT_PARAM,
           );
@@ -1614,6 +1701,13 @@ export function createCoreRoutesPlugin(
           }
           const body = ((await readBody(event).catch(() => ({}))) ??
             {}) as BuilderWaitlistBody;
+          const waitlistPayload = buildBuilderWaitlistFormPayload(
+            event,
+            session.email,
+            body,
+          );
+          const waitlistSource = waitlistPayload.data.source;
+          const waitlistUseCase = waitlistPayload.data.useCase;
           let formSubmission: { submitted: boolean; formId?: string };
           try {
             formSubmission = await submitBuilderWaitlistForm(
@@ -1629,7 +1723,9 @@ export function createCoreRoutesPlugin(
               {
                 reason:
                   err instanceof Error ? err.message : "unknown_waitlist_error",
+                source: waitlistSource,
                 stage: "waitlist",
+                useCase: waitlistUseCase,
               },
             );
             setResponseStatus(event, 502);
@@ -1645,7 +1741,9 @@ export function createCoreRoutesPlugin(
             {
               formId: formSubmission.formId ?? null,
               formSubmitted: formSubmission.submitted,
+              source: waitlistSource,
               stage: "waitlist",
+              useCase: waitlistUseCase,
             },
           );
           return { ok: true, formSubmitted: formSubmission.submitted };
@@ -1673,9 +1771,7 @@ export function createCoreRoutesPlugin(
           // mismatches and missing/forged _an_state without leaking the
           // signed token itself.
           try {
-            const debugSearch = new URLSearchParams(
-              (event.url?.search || "").replace(/^\?/, ""),
-            );
+            const debugSearch = getFrameworkRouteRequestUrl(event).searchParams;
             const stateRaw = debugSearch.get(BUILDER_STATE_PARAM);
             const stateOwnerProbe =
               verifyBuilderCallbackStateAndGetOwner(stateRaw);
@@ -1692,10 +1788,7 @@ export function createCoreRoutesPlugin(
           }
           clearBuilderConnectOwnerCookie(event);
 
-          const requestUrl = new URL(
-            `${event.url?.pathname || "/"}${event.url?.search || ""}`,
-            getOrigin(event),
-          );
+          const requestUrl = getFrameworkRouteRequestUrl(event);
           let connectTracking = getBuilderConnectTrackingParams(
             requestUrl.searchParams,
           );
@@ -2205,38 +2298,10 @@ export function createCoreRoutesPlugin(
       );
 
       // Env key management — framework keys are always included
-      const frameworkEnvKeys: EnvKeyConfig[] = [
-        { key: "ENABLE_BUILDER", label: "Enable Builder.io features" },
-        {
-          key: "AGENT_ENGINE_PREFER_BYO_KEY",
-          label:
-            "Prefer BYO LLM key over Builder gateway (default: false — gateway wins)",
-        },
-        ...Object.values(PROVIDER_ENV_META).map(({ envVar, label }) => ({
-          key: envVar,
-          label,
-        })),
-      ];
+      const frameworkEnvKeys = getFrameworkEnvKeys();
       {
         const envKeys = [...frameworkEnvKeys, ...(options.envKeys ?? [])];
-
-        // Onboarding form fields are resolved per-request so late-registered
-        // steps (and template overrides) are picked up without a restart.
-        // Builder CLI auth writes scoped Builder credentials through the
-        // credential provider, never through the deploy-global env sink.
-        const collectOnboardingKeys = (): Set<string> => {
-          const keys = new Set<string>();
-          for (const step of listOnboardingSteps()) {
-            for (const method of step.methods) {
-              if (method.kind === "form") {
-                for (const field of method.payload.fields) {
-                  if (field?.key) keys.add(field.key);
-                }
-              }
-            }
-          }
-          return keys;
-        };
+        const allowedEnvKeyNames = envKeys.map(({ key }) => key);
 
         getH3App(nitroApp).use(
           `${P}/env-status`,
@@ -2254,12 +2319,10 @@ export function createCoreRoutesPlugin(
             }
             return Promise.all(
               envKeys.map(async (cfg) => {
-                const isProviderKey = PROVIDER_ENV_VAR_KEYS.has(cfg.key);
-                const configured = isProviderKey
-                  ? await runWithRequestContext({ userEmail, orgId }, () =>
-                      resolveSecret(cfg.key).then(Boolean),
-                    )
-                  : !!process.env[cfg.key];
+                const configured = await runWithRequestContext(
+                  { userEmail, orgId },
+                  () => resolveSecret(cfg.key).then(Boolean),
+                );
                 return {
                   key: cfg.key,
                   label: cfg.label,
@@ -2280,101 +2343,37 @@ export function createCoreRoutesPlugin(
               return { error: "Method not allowed" };
             }
 
-            // Env vars are deployment-wide globals, not per-tenant. On any
-            // shared-DB multi-tenant deploy, allowing authenticated users to
-            // write here lets one tenant overwrite Stripe / OpenAI / Sentry
-            // keys for every other tenant. Disable the endpoint outside of
-            // local-dev SQLite or an explicit single-tenant opt-in, and
-            // direct callers to scoped secret/credential stores instead.
-            if (!isEnvVarWriteAllowed()) {
-              setResponseStatus(event, 403);
-              return {
-                error:
-                  "env-vars endpoint disabled on multi-tenant deployments. Use scoped secrets or credentials for user/org API keys.",
-              };
-            }
-
             const body = await readBody(event);
-            const { vars } = body as {
+            const { vars, scope } = body as {
               vars?: Array<{ key: string; value: string }>;
+              scope?: ScopedKeySaveRequestScope;
             };
-
-            if (!Array.isArray(vars) || vars.length === 0) {
-              setResponseStatus(event, 400);
-              return { error: "vars array required" };
-            }
-
-            const allowedKeys = new Set<string>([
-              ...envKeys.map((k) => k.key),
-              ...collectOnboardingKeys(),
-            ]);
-            const blockedEnvVarWriteKeys = new Set<string>(BUILDER_ENV_KEYS);
-            const isWritableEnvKey = (key: string) =>
-              allowedKeys.has(key) && !blockedEnvVarWriteKeys.has(key);
-
-            const filtered = vars.filter(
-              (v) =>
-                typeof v.key === "string" &&
-                isWritableEnvKey(v.key) &&
-                typeof v.value === "string" &&
-                v.value.trim().length > 0,
+            const unsupportedKeys = findUnsupportedScopedKeyNames(
+              vars,
+              allowedEnvKeyNames,
             );
-            if (filtered.length === 0) {
+            if (unsupportedKeys.length > 0) {
               setResponseStatus(event, 400);
-              const rejectedEmpty = vars.some(
-                (v) =>
-                  typeof v.key === "string" &&
-                  isWritableEnvKey(v.key) &&
-                  (typeof v.value !== "string" || v.value.trim().length === 0),
-              );
               return {
-                error: rejectedEmpty
-                  ? "Env values must be non-empty — refusing to clear a saved key"
-                  : "No recognized env keys in request",
+                error: `Unsupported env key${unsupportedKeys.length === 1 ? "" : "s"}: ${unsupportedKeys.join(", ")}`,
               };
             }
 
-            // Write to .env file. When inside a workspace, write to the
-            // workspace root .env so keys are shared across every app. The
-            // per-app .env still wins at load time if it also defines a key.
             try {
-              const scope =
-                (body as { scope?: "workspace" | "app" })?.scope ?? "auto";
-              const workspaceRoot = findWorkspaceRoot(process.cwd());
-              const envPath =
-                scope === "app"
-                  ? path.join(process.cwd(), ".env")
-                  : workspaceRoot
-                    ? path.join(workspaceRoot, ".env")
-                    : path.join(process.cwd(), ".env");
-              await upsertEnvFile(envPath, filtered);
-            } catch {
-              // Edge runtime — skip file write
+              const result = await saveKeyValuesToScopedSecrets(
+                event,
+                vars,
+                scope,
+              );
+              return { saved: result.saved, storage: "scoped-secrets" };
+            } catch (err) {
+              if (err instanceof ScopedKeyStorageError) {
+                setResponseStatus(event, err.statusCode);
+                return { error: err.message };
+              }
+              setResponseStatus(event, 500);
+              return { error: "Failed to save keys" };
             }
-
-            // Update process.env immediately
-            for (const { key, value } of filtered) {
-              process.env[key] = value;
-            }
-
-            // Persist to settings table for serverless cold-start recovery.
-            try {
-              const envMap: Record<string, string> = {};
-              for (const { key, value } of filtered) envMap[key] = value;
-              const existing =
-                ((await getSetting("persisted-env-vars")) as Record<
-                  string,
-                  string
-                > | null) ?? {};
-              await putSetting("persisted-env-vars", {
-                ...existing,
-                ...envMap,
-              });
-            } catch {
-              // DB not ready yet — skip
-            }
-
-            return { saved: filtered.map((v) => v.key) };
           }),
         );
       }
@@ -2403,6 +2402,20 @@ export function createCoreRoutesPlugin(
                 /* org module not present in this template */
               }
             }
+            const openAiBaseUrlConfigured = await runWithRequestContext(
+              { userEmail, orgId },
+              async () => {
+                try {
+                  if (await resolveSecret(OPENAI_BASE_URL_ENV_VAR)) return true;
+                } catch {
+                  /* fall through to deployment env when allowed */
+                }
+                return (
+                  canUseDeployCredentialFallbackForRequest() &&
+                  !!readDeployCredentialEnv(OPENAI_BASE_URL_ENV_VAR)
+                );
+              },
+            );
             const stored = (await getSetting("agent-engine")) as {
               engine?: string;
               model?: string;
@@ -2415,6 +2428,7 @@ export function createCoreRoutesPlugin(
                 engine,
                 model: stored?.model ?? entry?.defaultModel ?? DEFAULT_MODEL,
                 source: "settings" as const,
+                openAiBaseUrlConfigured,
               };
             }
             const envEntry = process.env.AGENT_ENGINE
@@ -2430,7 +2444,7 @@ export function createCoreRoutesPlugin(
                   ),
               );
               if (!envUsable) {
-                return { configured: false };
+                return { configured: false, openAiBaseUrlConfigured };
               }
               return {
                 configured: true,
@@ -2438,6 +2452,7 @@ export function createCoreRoutesPlugin(
                 model: envEntry.defaultModel ?? DEFAULT_MODEL,
                 source: "env" as const,
                 envVar: "AGENT_ENGINE",
+                openAiBaseUrlConfigured,
               };
             }
             // Per-user app_secrets — a user who connected Builder (or pasted
@@ -2455,6 +2470,7 @@ export function createCoreRoutesPlugin(
                 model: detectedFromUser.defaultModel ?? DEFAULT_MODEL,
                 source: "app_secrets" as const,
                 envVar: detectedFromUser.requiredEnvVars[0],
+                openAiBaseUrlConfigured,
               };
             }
             if (stored && typeof stored.engine === "string") {
@@ -2471,6 +2487,7 @@ export function createCoreRoutesPlugin(
                   model: stored.model ?? entry.defaultModel ?? DEFAULT_MODEL,
                   source: "env" as const,
                   envVar: entry.requiredEnvVars[0],
+                  openAiBaseUrlConfigured,
                 };
               }
             }
@@ -2481,6 +2498,7 @@ export function createCoreRoutesPlugin(
                 model: detectedFromUser.defaultModel ?? DEFAULT_MODEL,
                 source: "app_secrets" as const,
                 envVar: detectedFromUser.requiredEnvVars[0],
+                openAiBaseUrlConfigured,
               };
             }
             const canUseDeployEnv = await runWithRequestContext(
@@ -2495,6 +2513,7 @@ export function createCoreRoutesPlugin(
                 model: detected.defaultModel ?? DEFAULT_MODEL,
                 source: "env" as const,
                 envVar: detected.requiredEnvVars[0],
+                openAiBaseUrlConfigured,
               };
             }
           } catch {}
@@ -2719,54 +2738,69 @@ export function createCoreRoutesPlugin(
       getH3App(nitroApp).use(
         `${P}/file-upload/status`,
         defineEventHandler(async (event) => {
-          const active = getActiveFileUploadProvider();
           // resolveBuilderPrivateKey() reads per-user credentials from app_secrets
           // (DB), which requires request context (AsyncLocalStorage) to know which
           // user to scope by. Without runWithRequestContext() the ALS store is empty
           // and it falls back to process.env only — missing OAuth-connected users.
           const session = await getSession(event).catch(() => null);
           const userEmail = session?.email;
-          let builderConfigured = !!process.env.BUILDER_PRIVATE_KEY;
-          try {
-            const { resolveBuilderPrivateKey } =
-              await import("./credential-provider.js");
-            const resolve = () => resolveBuilderPrivateKey().then((k) => !!k);
-            builderConfigured = userEmail
-              ? await runWithRequestContext(
-                  { userEmail, orgId: session?.orgId },
-                  resolve,
-                )
-              : await resolve();
-          } catch {
-            // fall back to env check above
-          }
-          // When the builder builtin is selected via env var, its sync
-          // isConfigured() doesn't reflect per-user OAuth credentials. Use the
-          // async builderConfigured check so the status accurately represents
-          // whether this specific user can actually upload (thread 7 fix).
-          const isBuilderEnvActive = active?.id === "builder";
-          const configured = isBuilderEnvActive
-            ? builderConfigured
-            : !!active || builderConfigured;
-          const activeProvider = isBuilderEnvActive
-            ? builderConfigured
-              ? { id: "builder", name: "Builder.io" }
-              : null
-            : active
-              ? { id: active.id, name: active.name }
-              : builderConfigured
+          const resolveStatus = async () => {
+            const active = await getActiveFileUploadProviderForRequest();
+            let builderConfigured = !!process.env.BUILDER_PRIVATE_KEY;
+            try {
+              const { resolveBuilderPrivateKey } =
+                await import("./credential-provider.js");
+              builderConfigured = await resolveBuilderPrivateKey().then(
+                (k) => !!k,
+              );
+            } catch {
+              // fall back to env check above
+            }
+
+            const providers = await Promise.all(
+              listFileUploadProviders().map(async (p) => {
+                const scopedConfigured = p.isConfiguredForRequest
+                  ? await p.isConfiguredForRequest().catch(() => false)
+                  : false;
+                return {
+                  id: p.id,
+                  name: p.name,
+                  configured: p.isConfigured() || scopedConfigured,
+                };
+              }),
+            );
+
+            // When the builder builtin is selected via env var, its sync
+            // isConfigured() doesn't reflect per-user OAuth credentials. Use
+            // builderConfigured so status reflects this specific request.
+            const isBuilderEnvActive = active?.id === "builder";
+            const configured = isBuilderEnvActive
+              ? builderConfigured
+              : !!active || builderConfigured;
+            const activeProvider = isBuilderEnvActive
+              ? builderConfigured
                 ? { id: "builder", name: "Builder.io" }
-                : null;
-          return {
-            configured,
-            activeProvider,
-            providers: listFileUploadProviders().map((p) => ({
-              id: p.id,
-              name: p.name,
-              configured: p.isConfigured(),
-            })),
-            builderConfigured,
+                : null
+              : active
+                ? { id: active.id, name: active.name }
+                : builderConfigured
+                  ? { id: "builder", name: "Builder.io" }
+                  : null;
+
+            return {
+              configured,
+              activeProvider,
+              providers,
+              builderConfigured,
+            };
           };
+
+          return userEmail
+            ? runWithRequestContext(
+                { userEmail, orgId: session?.orgId },
+                resolveStatus,
+              )
+            : resolveStatus();
         }),
       );
 
@@ -3041,9 +3075,10 @@ export function createCoreRoutesPlugin(
         `${P}/avatar`,
         defineEventHandler(async (event: H3Event) => {
           const method = getMethod(event);
-          const emailParam = (event.url?.pathname || "")
-            .replace(/^\/+/, "")
-            .split("/")[0];
+          const emailParam = resolveAvatarEmailParam(
+            event.url?.pathname || "",
+            getConfiguredAppBasePath(),
+          );
 
           if (method === "GET") {
             if (!emailParam) {
@@ -3164,7 +3199,10 @@ export function createCoreRoutesPlugin(
         // guard bypasses this exact path so it can serve its own login form.
         getH3App(nitroApp).use(
           `${P}/open`,
-          createOpenRouteHandler({ resolveOpenPath: options.resolveOpenPath }),
+          createOpenRouteHandler({
+            resolveOpenPath: options.resolveOpenPath,
+            allowUnauthenticatedOpen: options.allowUnauthenticatedOpen,
+          }),
         );
       }
 

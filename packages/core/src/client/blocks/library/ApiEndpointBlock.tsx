@@ -1,4 +1,3 @@
-import { useState } from "react";
 import {
   IconArrowNarrowRight,
   IconChevronRight,
@@ -6,6 +5,8 @@ import {
   IconPlus,
   IconTrash,
 } from "@tabler/icons-react";
+import { useState } from "react";
+
 import { cn } from "../../utils.js";
 import { ltrCodeBlockProps } from "../code-block-direction.js";
 import type { BlockEditProps, BlockReadProps } from "../types.js";
@@ -22,7 +23,7 @@ import {
   API_ENDPOINT_METHODS,
   API_PARAM_LOCATIONS,
 } from "./api-endpoint.config.js";
-import { JsonExplorerSurface } from "./JsonExplorerBlock.js";
+import { useBlockCopy } from "./block-copy.js";
 import {
   DevBadge,
   DevInput,
@@ -30,6 +31,7 @@ import {
   DevTextarea,
   DevSelect,
 } from "./dev-doc-ui.js";
+import { JsonExplorerSurface } from "./JsonExplorerBlock.js";
 
 /**
  * Read + Edit renderers for an `api-endpoint` block — a Swagger / Stripe-style
@@ -127,31 +129,33 @@ const CHANGE_INK: Record<ApiEndpointChange, string> = {
  */
 function ChangeChip({
   change,
+  label = CHANGE_LABEL[change],
   variant = "glyph",
   className,
 }: {
   change: ApiEndpointChange;
+  label?: string;
   variant?: "glyph" | "label";
   className?: string;
 }) {
   if (variant === "label") {
     return (
       <span
-        title={CHANGE_LABEL[change]}
+        title={label}
         className={cn(
           "shrink-0 rounded px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide",
           CHANGE_BADGE[change],
           className,
         )}
       >
-        {CHANGE_LABEL[change]}
+        {label}
       </span>
     );
   }
   return (
     <span
-      title={CHANGE_LABEL[change]}
-      aria-label={CHANGE_LABEL[change]}
+      title={label}
+      aria-label={label}
       className={cn(
         "flex size-4 shrink-0 items-center justify-center rounded text-[10px] font-bold leading-none",
         CHANGE_BADGE[change],
@@ -402,6 +406,13 @@ export function ApiEndpointRead({
   ctx,
 }: BlockReadProps<ApiEndpointData>) {
   const [open, setOpen] = useState(false);
+  const copy = useBlockCopy();
+  const changeLabel: Record<ApiEndpointChange, string> = {
+    added: copy.added,
+    modified: copy.modified,
+    removed: copy.removed,
+    renamed: copy.renamed,
+  };
 
   const params = data.params ?? [];
   const responses = data.responses ?? [];
@@ -467,10 +478,16 @@ export function ApiEndpointRead({
           >
             {data.path}
           </span>
-          {data.change && <ChangeChip change={data.change} variant="label" />}
+          {data.change && (
+            <ChangeChip
+              change={data.change}
+              label={changeLabel[data.change]}
+              variant="label"
+            />
+          )}
           {data.deprecated && (
             <DevBadge className="shrink-0 border-amber-500/40 text-amber-600 dark:text-amber-300">
-              Deprecated
+              {copy.deprecated}
             </DevBadge>
           )}
           {(data.summary || summary) && (
@@ -481,7 +498,7 @@ export function ApiEndpointRead({
           {data.auth && (
             <IconLock
               className="size-3.5 shrink-0 text-plan-muted"
-              aria-label="Requires authentication"
+              aria-label={copy.requiresAuthentication}
             />
           )}
         </button>
@@ -495,7 +512,9 @@ export function ApiEndpointRead({
               <div className="mb-4 flex items-center gap-2 text-xs text-plan-muted">
                 <IconLock className="size-3.5 shrink-0" />
                 <span>
-                  <span className="font-medium text-plan-text">Auth:</span>{" "}
+                  <span className="font-medium text-plan-text">
+                    {copy.auth}:
+                  </span>{" "}
                   {data.auth}
                 </span>
               </div>
@@ -510,17 +529,21 @@ export function ApiEndpointRead({
             {params.length > 0 && (
               <div className="mt-5">
                 <div className="text-xs font-semibold uppercase tracking-wide text-plan-muted">
-                  Parameters
+                  {copy.parameters}
                 </div>
                 <div className="mt-2 overflow-hidden rounded-lg border border-plan-line">
                   <table className="w-full border-collapse text-sm">
                     <thead>
                       <tr className="bg-accent/30 text-left text-xs uppercase tracking-wide text-plan-muted">
-                        <th className="px-3 py-2 font-medium">Name</th>
-                        <th className="px-3 py-2 font-medium">In</th>
-                        <th className="px-3 py-2 font-medium">Type</th>
-                        <th className="px-3 py-2 font-medium">Required</th>
-                        <th className="px-3 py-2 font-medium">Description</th>
+                        <th className="px-3 py-2 font-medium">{copy.name}</th>
+                        <th className="px-3 py-2 font-medium">{copy.in}</th>
+                        <th className="px-3 py-2 font-medium">{copy.type}</th>
+                        <th className="px-3 py-2 font-medium">
+                          {copy.requiredColumn}
+                        </th>
+                        <th className="px-3 py-2 font-medium">
+                          {copy.description}
+                        </th>
                       </tr>
                     </thead>
                     <tbody>
@@ -556,7 +579,12 @@ export function ApiEndpointRead({
                                 >
                                   {param.name}
                                 </span>
-                                {change && <ChangeChip change={change} />}
+                                {change && (
+                                  <ChangeChip
+                                    change={change}
+                                    label={changeLabel[change]}
+                                  />
+                                )}
                               </span>
                             </td>
                             <td className="px-3 py-2">
@@ -589,11 +617,11 @@ export function ApiEndpointRead({
                                 current={
                                   param.required ? (
                                     <span className="font-medium text-red-600 dark:text-red-300">
-                                      required
+                                      {copy.required}
                                     </span>
                                   ) : (
                                     <span className="text-plan-muted">
-                                      optional
+                                      {copy.optional}
                                     </span>
                                   )
                                 }
@@ -615,7 +643,7 @@ export function ApiEndpointRead({
               <div className="mt-5">
                 <div className="flex items-center gap-2">
                   <span className="text-xs font-semibold uppercase tracking-wide text-plan-muted">
-                    Request body
+                    {copy.requestBody}
                   </span>
                   {data.request?.contentType && (
                     <span className="rounded bg-accent/40 px-1.5 py-0.5 font-mono text-[11px] text-plan-muted">
@@ -636,7 +664,7 @@ export function ApiEndpointRead({
             {responses.length > 0 && (
               <div className="mt-5">
                 <div className="text-xs font-semibold uppercase tracking-wide text-plan-muted">
-                  Responses
+                  {copy.responses}
                 </div>
                 <div className="mt-2 flex flex-col gap-3">
                   {responses.map((response, index) => (

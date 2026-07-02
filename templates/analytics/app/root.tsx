@@ -1,8 +1,3 @@
-import { Links, Meta, Outlet, Scripts, ScrollRestoration } from "react-router";
-import { useState } from "react";
-import { useQueryClient } from "@tanstack/react-query";
-import { Toaster } from "@/components/ui/toaster";
-import { Toaster as Sonner } from "@/components/ui/sonner";
 import {
   AppProviders,
   appPath,
@@ -11,15 +6,23 @@ import {
   getThemeInitScript,
   useDbSync,
 } from "@agent-native/core/client";
+import { configureTracking } from "@agent-native/core/client";
+import { useQueryClient } from "@tanstack/react-query";
+import { useCallback, useState } from "react";
+import { Links, Meta, Outlet, Scripts, ScrollRestoration } from "react-router";
+import type { LinksFunction } from "react-router";
+
 import { AuthProvider } from "@/components/auth/AuthProvider";
 import { ProviderCorpusJobNotifier } from "@/components/ProviderCorpusJobNotifier";
+import { Toaster as Sonner } from "@/components/ui/sonner";
+import { Toaster } from "@/components/ui/toaster";
+import { TAB_ID } from "@/lib/tab-id";
+
 import { CommandPalette } from "./components/layout/CommandPalette";
 import { Layout as AppLayout } from "./components/layout/Layout";
-import type { LinksFunction } from "react-router";
-import stylesheet from "./global.css?url";
-import { TAB_ID } from "@/lib/tab-id";
-import { configureTracking } from "@agent-native/core/client";
 import { i18nCatalog } from "./i18n";
+
+import stylesheet from "./global.css?url";
 configureTracking({
   getDefaultProps: (_name, properties) => ({
     ...properties,
@@ -76,12 +79,21 @@ export function Layout({ children }: { children: React.ReactNode }) {
 
 function DbSyncBridge() {
   // Invalidate react-query caches on DB changes (agent edits, other tabs,
-  // cron jobs). The hook invalidates every active query on any non-own
-  // change event, so we no longer need to enumerate dashboard / analysis
-  // / explorer keys here. Screen-refresh is handled automatically inside
-  // AgentSidebar.
+  // cron jobs). SQL chart queries can be expensive, so they stay on explicit
+  // refresh/filter semantics instead of joining the broad action fallback.
+  // Screen-refresh is handled automatically inside AgentSidebar.
   const queryClient = useQueryClient();
-  useDbSync({ queryClient, ignoreSource: TAB_ID });
+  const shouldInvalidateForAction = useCallback(
+    (query: { queryKey: readonly unknown[] }) => {
+      return query.queryKey[0] !== "sql-chart";
+    },
+    [],
+  );
+  useDbSync({
+    queryClient,
+    ignoreSource: TAB_ID,
+    actionInvalidatePredicate: shouldInvalidateForAction,
+  });
   return null;
 }
 

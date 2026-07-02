@@ -15,14 +15,19 @@
  * serverless cold starts and works across multiple processes.
  */
 
-import type { AgentChatEvent } from "../agent/types.js";
+import { AsyncLocalStorage } from "node:async_hooks";
+
+import { applyAgentTextEventToBuffer } from "../a2a/response-text.js";
+import type { AgentEngine, EngineMessage } from "../agent/engine/types.js";
 import type {
   ActionEntry,
   AgentLoopFinalResponseGuard,
 } from "../agent/production-agent.js";
 import { actionsToEngineTools } from "../agent/production-agent.js";
-import type { AgentEngine, EngineMessage } from "../agent/engine/types.js";
-import { createThread } from "../chat-threads/store.js";
+import {
+  runAgentLoop,
+  appendAgentLoopContinuation,
+} from "../agent/production-agent.js";
 import {
   abortRun,
   getActiveRunForThreadAsync,
@@ -32,16 +37,35 @@ import {
   type ActiveRun,
 } from "../agent/run-manager.js";
 import { getRunEventsSince } from "../agent/run-store.js";
-import {
-  runAgentLoop,
-  appendAgentLoopContinuation,
-} from "../agent/production-agent.js";
+import { resolveMaxSubagentDelegationDepth } from "../agent/runtime-context.js";
 import {
   buildAssistantMessage,
   foldAssistantTurn,
   threadDataToEngineMessages,
 } from "../agent/thread-data-builder.js";
+import type { AgentChatEvent } from "../agent/types.js";
 import type { RunEvent } from "../agent/types.js";
+import {
+  readAppState,
+  writeAppState,
+  listAppState,
+  deleteAppState,
+} from "../application-state/script-helpers.js";
+import { createThread } from "../chat-threads/store.js";
+import type {
+  BackgroundAgentRun,
+  BackgroundAgentRunStatus,
+  BackgroundAgentTranscriptEvent,
+} from "../code-agents/background-run.js";
+import type {
+  BackgroundAgentController,
+  BackgroundAgentControlInput,
+  BackgroundAgentControlResult,
+  BackgroundAgentFollowUpInput,
+  ListBackgroundAgentRunsOptions,
+} from "../code-agents/index.js";
+import { describeDbError } from "../db/client.js";
+import { resolveOrgIdForEmail } from "../org/context.js";
 import {
   completeRun as completeProgressRun,
   startRun as startProgressRun,
@@ -61,33 +85,11 @@ import {
   RUN_PROCESSING_STUCK_AFTER_MS,
   type AgentTeamRunPayload,
 } from "./agent-teams-run-queue.js";
-import { describeDbError } from "../db/client.js";
-import { fireInternalDispatch } from "./self-dispatch.js";
-import { resolveOrgIdForEmail } from "../org/context.js";
-import type {
-  BackgroundAgentRun,
-  BackgroundAgentRunStatus,
-  BackgroundAgentTranscriptEvent,
-} from "../code-agents/background-run.js";
-import type {
-  BackgroundAgentController,
-  BackgroundAgentControlInput,
-  BackgroundAgentControlResult,
-  BackgroundAgentFollowUpInput,
-  ListBackgroundAgentRunsOptions,
-} from "../code-agents/index.js";
-import {
-  readAppState,
-  writeAppState,
-  listAppState,
-  deleteAppState,
-} from "../application-state/script-helpers.js";
 import {
   getRequestUserEmail,
   runWithRequestContext,
 } from "./request-context.js";
-import { AsyncLocalStorage } from "node:async_hooks";
-import { resolveMaxSubagentDelegationDepth } from "../agent/runtime-context.js";
+import { fireInternalDispatch } from "./self-dispatch.js";
 
 /**
  * Ambient delegation depth for the agent whose run is currently executing.
@@ -1157,7 +1159,11 @@ function summarizeAgentChatEvent(event: RunEvent): {
         metadata: { reason: payload.reason },
       };
     case "clear":
-      return null;
+      return {
+        kind: "status",
+        message: "",
+        metadata: { agentChatEventType: "clear" },
+      };
     case "agent_call":
       return {
         kind: "status",
@@ -1758,7 +1764,10 @@ export async function processAgentTeamRun(
             const wrappedSend = (event: AgentChatEvent) => {
               send(event);
               if (event.type === "text") {
-                accumulatedText += event.text;
+                accumulatedText = applyAgentTextEventToBuffer(
+                  accumulatedText,
+                  event,
+                );
                 task.preview = accumulatedText.slice(-800);
                 const now = Date.now();
                 if (now - lastProgressSent >= PROGRESS_INTERVAL_MS) {
@@ -1771,6 +1780,20 @@ export async function processAgentTeamRun(
                   });
                   if (ownerEmail) void updateTaskProgressRun(task, ownerEmail);
                 }
+              } else if (event.type === "clear") {
+                accumulatedText = applyAgentTextEventToBuffer(
+                  accumulatedText,
+                  event,
+                );
+                task.preview = "";
+                lastProgressSent = Date.now();
+                saveTask(task).catch((err) => {
+                  console.warn(
+                    `[agent-teams] clear save failed for task ${task.taskId}:`,
+                    describeDbError(err),
+                  );
+                });
+                if (ownerEmail) void updateTaskProgressRun(task, ownerEmail);
               } else if (event.type === "tool_start") {
                 task.currentStep = `Running ${event.tool}...`;
               } else if (event.type === "tool_done") {

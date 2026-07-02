@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+
 import firstPartyTemplateTrafficSeed from "../../seeds/dashboards/agent-native-templates-first-party.json" with { type: "json" };
 import googleAnalyticsSeed from "../../seeds/dashboards/google-analytics.json" with { type: "json" };
 import nodeExporterFullSeed from "../../seeds/dashboards/node-exporter-full.json" with { type: "json" };

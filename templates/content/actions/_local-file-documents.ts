@@ -10,6 +10,7 @@ import {
   type LocalArtifactFileMeta,
   type LocalArtifactOptions,
 } from "@agent-native/core/local-artifacts";
+
 import type {
   Document,
   DocumentCreateRequest,
@@ -19,6 +20,7 @@ import type {
 import { parseContentSourceFile } from "../shared/content-source.js";
 
 const CONTENT_APP_ID = "content";
+const CONTENT_PROFILE_DOCS_NO_BOOKKEEPING = "docs/no-bookkeeping";
 const LOCAL_FILE_ID_PREFIX = "local-file:";
 const LOCAL_FOLDER_ID_PREFIX = "local-folder:";
 const FRONTMATTER_RE =
@@ -201,6 +203,7 @@ function documentFromLocalFile(
       absolutePath,
       rootName: file.rootName,
       rootPath: file.rootPath,
+      profile: file.profile,
       hash: file.hash,
       contentType: file.contentType,
       sizeBytes: file.sizeBytes,
@@ -222,8 +225,71 @@ function folderDocumentsForFiles(files: LocalArtifactFileMeta[]) {
     .map((folderPath, index) => documentFromFolder(folderPath, index));
 }
 
+let localFileDocumentsCache: {
+  scope: string;
+  signature: string;
+  documents: Document[];
+  cachedAt: number;
+} | null = null;
+const LOCAL_FILE_DOCUMENTS_CACHE_TTL_MS = 5_000;
+
+function localFileDocumentsCacheScope() {
+  return JSON.stringify({
+    manifest: process.env.AGENT_NATIVE_MANIFEST,
+    manifestPath: process.env.AGENT_NATIVE_MANIFEST_PATH,
+    mode: process.env.AGENT_NATIVE_MODE,
+    dataMode: process.env.AGENT_NATIVE_DATA_MODE,
+  });
+}
+
+function localFileDocumentsSignature(files: LocalArtifactFileMeta[]) {
+  return JSON.stringify(
+    files.map((file) => ({
+      absolutePath: file.absolutePath,
+      contentType: file.contentType,
+      hash: file.hash,
+      path: file.path,
+      profile: file.profile,
+      rootName: file.rootName,
+      rootPath: file.rootPath,
+      sizeBytes: file.sizeBytes,
+      updatedAt: file.updatedAt,
+    })),
+  );
+}
+
+function cloneLocalDocument(document: Document): Document {
+  return {
+    ...document,
+    source: document.source ? { ...document.source } : undefined,
+  };
+}
+
+function invalidateLocalFileDocumentsCache() {
+  localFileDocumentsCache = null;
+}
+
 export async function listLocalFileDocuments(): Promise<Document[]> {
+  const scope = localFileDocumentsCacheScope();
+  if (
+    localFileDocumentsCache &&
+    localFileDocumentsCache.scope === scope &&
+    Date.now() - localFileDocumentsCache.cachedAt <
+      LOCAL_FILE_DOCUMENTS_CACHE_TTL_MS
+  ) {
+    return localFileDocumentsCache.documents.map(cloneLocalDocument);
+  }
+
   const files = await listLocalArtifactFiles(localOptions());
+  const signature = localFileDocumentsSignature(files);
+  if (
+    localFileDocumentsCache?.scope === scope &&
+    localFileDocumentsCache.signature === signature
+  ) {
+    localFileDocumentsCache.cachedAt = Date.now();
+    return localFileDocumentsCache.documents.map(cloneLocalDocument);
+  }
+
   const folderDocuments = folderDocumentsForFiles(files);
   const fileDocuments = await Promise.all(
     files.map(async (meta, index) => {
@@ -234,7 +300,14 @@ export async function listLocalFileDocuments(): Promise<Document[]> {
       return documentFromLocalFile(file ?? meta, file?.content ?? "", index);
     }),
   );
-  return [...folderDocuments, ...fileDocuments];
+  const documents = [...folderDocuments, ...fileDocuments];
+  localFileDocumentsCache = {
+    scope,
+    signature,
+    documents,
+    cachedAt: Date.now(),
+  };
+  return documents.map(cloneLocalDocument);
 }
 
 export async function getLocalFileDocument(id: string): Promise<Document> {
@@ -266,10 +339,23 @@ function frontmatterLine(key: string, value: unknown) {
   return `${key}: ${JSON.stringify(String(value))}`;
 }
 
+function shouldAddMissingFrontmatterKey(
+  key: string,
+  addMissingKeys: UpsertFrontmatterOptions["addMissingKeys"],
+) {
+  if (typeof addMissingKeys === "function") return addMissingKeys(key);
+  return addMissingKeys ?? true;
+}
+
+interface UpsertFrontmatterOptions {
+  addMissingKeys?: boolean | ((key: string) => boolean);
+}
+
 function upsertFrontmatter(
   original: string,
   fields: Record<string, unknown>,
   body: string,
+  options: UpsertFrontmatterOptions = {},
 ) {
   const { frontmatter } = splitFrontmatter(original);
   const lines = frontmatter ? frontmatter.split(/\r?\n/) : [];
@@ -285,10 +371,16 @@ function upsertFrontmatter(
 
   for (const [key, value] of Object.entries(fields)) {
     if (usedKeys.has(key) || value === undefined) continue;
+    if (!shouldAddMissingFrontmatterKey(key, options.addMissingKeys)) continue;
     nextLines.push(frontmatterLine(key, value));
   }
 
-  return `---\n${nextLines.filter(Boolean).join("\n")}\n---\n\n${body}`;
+  if (!frontmatter && nextLines.filter(Boolean).length === 0) {
+    return body;
+  }
+
+  const frontmatterBlock = `---\n${nextLines.filter(Boolean).join("\n")}\n---\n`;
+  return body ? `${frontmatterBlock}\n${body}` : frontmatterBlock;
 }
 
 function stripDuplicateTitleHeading(content: string, title: string) {
@@ -301,6 +393,77 @@ function stripDuplicateTitleHeading(content: string, title: string) {
     return content.slice(h1Match[0].length).trimStart();
   }
   return content;
+}
+
+function nextContentForLocalUpdate(
+  file: LocalArtifactFile,
+  args: DocumentUpdateRequest,
+  current: Document,
+  nextTitle: string,
+) {
+  if (args.content === undefined) return current.content;
+  if (usesDocsNoBookkeepingProfile(file.profile)) return args.content;
+  return stripDuplicateTitleHeading(args.content, nextTitle);
+}
+
+function contentForLocalCreate(
+  profile: string | undefined,
+  args: DocumentCreateRequest,
+  title: string,
+) {
+  const content = args.content ?? "";
+  if (usesDocsNoBookkeepingProfile(profile)) return content;
+  return stripDuplicateTitleHeading(content, title);
+}
+
+function usesDocsNoBookkeepingProfile(profile?: string) {
+  return profile === CONTENT_PROFILE_DOCS_NO_BOOKKEEPING;
+}
+
+function updateFrontmatterFields(
+  file: LocalArtifactFile,
+  current: Document,
+  args: DocumentUpdateRequest,
+  nextTitle: string,
+  titleChanged: boolean,
+  iconChanged: boolean,
+  favoriteChanged: boolean,
+) {
+  if (usesDocsNoBookkeepingProfile(file.profile)) {
+    return {
+      ...(titleChanged ? { title: nextTitle || "Untitled" } : {}),
+      ...(iconChanged ? { icon: args.icon ?? null } : {}),
+      ...(favoriteChanged ? { isFavorite: args.isFavorite ?? false } : {}),
+    };
+  }
+
+  return {
+    title: nextTitle || "Untitled",
+    icon: args.icon !== undefined ? args.icon : current.icon,
+    isFavorite:
+      args.isFavorite !== undefined ? args.isFavorite : current.isFavorite,
+    updatedAt: new Date().toISOString(),
+  };
+}
+
+function createFrontmatterFields(
+  profile: string | undefined,
+  args: DocumentCreateRequest,
+  title: string,
+) {
+  if (usesDocsNoBookkeepingProfile(profile)) {
+    return {
+      title,
+      ...(args.icon !== undefined ? { icon: args.icon || null } : {}),
+    };
+  }
+
+  return {
+    title,
+    icon: args.icon || null,
+    isFavorite: false,
+    updatedAt: new Date().toISOString(),
+  };
 }
 
 export async function updateLocalFileDocument(
@@ -317,10 +480,7 @@ export async function updateLocalFileDocument(
 
   const current = documentFromLocalFile(file, file.content, 0);
   const nextTitle = args.title ?? current.title;
-  const nextContent =
-    args.content === undefined
-      ? current.content
-      : stripDuplicateTitleHeading(args.content, nextTitle);
+  const nextContent = nextContentForLocalUpdate(file, args, current, nextTitle);
   const titleChanged = args.title !== undefined && args.title !== current.title;
   const contentChanged =
     args.content !== undefined && nextContent !== current.content;
@@ -334,13 +494,15 @@ export async function updateLocalFileDocument(
 
   const nextSource = upsertFrontmatter(
     file.content,
-    {
-      title: nextTitle || "Untitled",
-      icon: args.icon !== undefined ? args.icon : current.icon,
-      isFavorite:
-        args.isFavorite !== undefined ? args.isFavorite : current.isFavorite,
-      updatedAt: new Date().toISOString(),
-    },
+    updateFrontmatterFields(
+      file,
+      current,
+      args,
+      nextTitle,
+      titleChanged,
+      iconChanged,
+      favoriteChanged,
+    ),
     nextContent,
   );
 
@@ -350,6 +512,7 @@ export async function updateLocalFileDocument(
     content: nextSource,
     expectedHash: file.hash,
   });
+  invalidateLocalFileDocumentsCache();
   return getLocalFileDocument(id);
 }
 
@@ -361,6 +524,16 @@ async function chooseCreateDirectory(parentId?: string | null) {
     return dirname(localDocumentPathFromId(parentId));
   }
   return (await ensureLocalArtifactRoot(localOptions())).path;
+}
+
+async function profileForDirectory(directory: string) {
+  const app = await getLocalArtifactApp(localOptions());
+  const root = app.roots.find(
+    (candidate) =>
+      directory === candidate.path ||
+      directory.startsWith(`${candidate.path}/`),
+  );
+  return root?.profile ?? app.profile;
 }
 
 async function uniqueFilePath(directory: string, title: string) {
@@ -386,15 +559,11 @@ export async function createLocalFileDocument(
 ): Promise<Document> {
   const title = args.title || "Untitled";
   const directory = await chooseCreateDirectory(args.parentId ?? null);
-  const content = stripDuplicateTitleHeading(args.content ?? "", title);
+  const profile = await profileForDirectory(directory);
+  const content = contentForLocalCreate(profile, args, title);
   const source = upsertFrontmatter(
     "",
-    {
-      title,
-      icon: args.icon || null,
-      isFavorite: false,
-      updatedAt: new Date().toISOString(),
-    },
+    createFrontmatterFields(profile, args, title),
     content,
   );
 
@@ -407,6 +576,7 @@ export async function createLocalFileDocument(
         content: source,
         ifNotExists: true,
       });
+      invalidateLocalFileDocumentsCache();
       return getLocalFileDocument(localFileDocumentId(path));
     } catch (error) {
       if (isAlreadyExistsError(error)) continue;
@@ -423,6 +593,7 @@ export async function deleteLocalFileDocument(id: string) {
   }
   const path = localDocumentPathFromId(id);
   await deleteLocalArtifactFile({ ...localOptions(), path });
+  invalidateLocalFileDocumentsCache();
   return { success: true, deleted: 1 };
 }
 
@@ -445,6 +616,7 @@ export async function localContentViewScreenSummary() {
       name: root.name,
       path: root.path,
       kind: root.kind,
+      profile: root.profile,
       extensions: root.extensions,
     })),
     documents: documents.map((document) => ({

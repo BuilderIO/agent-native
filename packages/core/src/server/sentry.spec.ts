@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+
 import type { AuthSession } from "./auth.js";
 
 // Mock @sentry/node BEFORE we import the module under test so the spied

@@ -1,8 +1,9 @@
 import { defineAction } from "@agent-native/core";
-import { z } from "zod";
-import { eq } from "drizzle-orm";
-import { getDb, schema } from "../server/db/index.js";
 import { assertAccess, resolveAccess } from "@agent-native/core/sharing";
+import { eq } from "drizzle-orm";
+import { z } from "zod";
+
+import { getDb, schema } from "../server/db/index.js";
 import "../server/db/index.js"; // ensure registerShareableResource runs
 
 export default defineAction({
@@ -11,15 +12,28 @@ export default defineAction({
     "has good styling (CSS custom properties, fonts, colors), this extracts those " +
     "into reusable design tokens. Alternatively, import from an existing design system " +
     "for cloning/forking. Returns extracted tokens plus raw CSS for agent refinement.",
-  schema: z.object({
-    designId: z.string().describe("Design project ID to extract tokens from"),
-    designSystemId: z
-      .string()
-      .optional()
-      .describe(
-        "If provided, import from this existing design system instead of extracting from the design project",
-      ),
-  }),
+  schema: z
+    .object({
+      designId: z
+        .string()
+        .optional()
+        .describe("Design project ID to extract tokens from"),
+      designSystemId: z
+        .string()
+        .optional()
+        .describe(
+          "If provided, import from this existing design system instead of extracting from the design project",
+        ),
+    })
+    .superRefine((args, ctx) => {
+      if (!args.designId && !args.designSystemId) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["designId"],
+          message: "designId or designSystemId is required",
+        });
+      }
+    }),
   readOnly: true,
   http: { method: "GET" },
   run: async ({ designId, designSystemId }) => {
@@ -52,6 +66,12 @@ export default defineAction({
           assets: row.assets ? JSON.parse(row.assets) : null,
         },
       };
+    }
+
+    if (!designId) {
+      throw new Error(
+        "designId is required when designSystemId is not provided",
+      );
     }
 
     // Extract tokens from the design project

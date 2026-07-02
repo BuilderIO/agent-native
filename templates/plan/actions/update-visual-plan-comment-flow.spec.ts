@@ -89,6 +89,7 @@ vi.mock("../server/plan-content.js", () => ({
 vi.mock("../server/plan-mdx.js", () => ({
   exportPlanContentToMdxFolder: (...args: unknown[]) =>
     exportPlanContentToMdxFolderMock(...args),
+  referencedBlockIdsForPlanComments: () => new Set<string>(),
 }));
 
 vi.mock("../server/lib/local-plan-files.js", () => ({

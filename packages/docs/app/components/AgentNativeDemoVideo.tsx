@@ -1,3 +1,4 @@
+import { useT } from "@agent-native/core/client";
 import { useState } from "react";
 
 const DEMO_VIDEO_URL =
@@ -9,6 +10,7 @@ export function AgentNativeDemoVideo({
   className?: string;
 }) {
   const [isPlaying, setIsPlaying] = useState(false);
+  const t = useT();
 
   return (
     <div
@@ -16,7 +18,7 @@ export function AgentNativeDemoVideo({
     >
       <video
         src={DEMO_VIDEO_URL}
-        aria-label="Agent-Native visual planning demo"
+        aria-label={t("demoVideo.visualPlanningAria")}
         autoPlay
         muted
         loop

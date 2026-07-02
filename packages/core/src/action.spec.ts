@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { z } from "zod";
+
 import {
   defineAction,
   AgentActionStopError,
@@ -80,6 +81,18 @@ describe("defineAction", () => {
       run: async () => "ok",
     });
     expect(action.parallelSafe).toBe(true);
+  });
+
+  it("preserves per-tool timeout and result limits", () => {
+    const action = defineAction({
+      description: "slow provider call",
+      parameters: { x: { type: "string" } },
+      timeoutMs: 120_000,
+      maxResultChars: 10_000,
+      run: async () => "ok",
+    });
+    expect(action.timeoutMs).toBe(120_000);
+    expect(action.maxResultChars).toBe(10_000);
   });
 
   it("threads through agentTool:false (frontend/HTTP-only, hidden from the agent)", () => {

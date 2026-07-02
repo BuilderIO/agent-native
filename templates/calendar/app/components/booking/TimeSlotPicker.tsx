@@ -1,4 +1,6 @@
+import { useT } from "@agent-native/core/client";
 import { format, parseISO } from "date-fns";
+
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 
@@ -7,6 +9,7 @@ interface TimeSlotPickerProps {
   selectedSlot: string | null;
   onSelect: (start: string) => void;
   loading?: boolean;
+  errorMessage?: string;
 }
 
 export function TimeSlotPicker({
@@ -14,7 +17,10 @@ export function TimeSlotPicker({
   selectedSlot,
   onSelect,
   loading,
+  errorMessage,
 }: TimeSlotPickerProps) {
+  const t = useT();
+
   if (loading) {
     return (
       <div className="grid grid-cols-3 gap-2">
@@ -25,10 +31,18 @@ export function TimeSlotPicker({
     );
   }
 
+  if (errorMessage) {
+    return (
+      <p className="rounded-lg border border-destructive/30 bg-destructive/[0.06] px-3 py-3 text-sm text-destructive">
+        {errorMessage}
+      </p>
+    );
+  }
+
   if (slots.length === 0) {
     return (
       <p className="text-sm text-muted-foreground text-center py-4">
-        No available slots for this date.
+        {t("bookingLinks.noAvailableSlotsForDate")}
       </p>
     );
   }

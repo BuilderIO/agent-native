@@ -1,5 +1,5 @@
-import { AGENT_NATIVE_HOST_MESSAGE_TYPES } from "../host-bridge.js";
 import { EXTENSION_IFRAME_META_CSP } from "../../extensions/html-shell.js";
+import { AGENT_NATIVE_HOST_MESSAGE_TYPES } from "../host-bridge.js";
 
 export const AGENT_NATIVE_EXTENSION_MESSAGE_TYPES = {
   STORAGE_REQUEST: "agentNative.extension.storage",
@@ -47,7 +47,7 @@ export interface AgentNativeExtensionStorageOptions {
 export interface AgentNativeExtensionStorageContext {
   extensionId: string;
   slotId?: string;
-  scope?: Exclude<AgentNativeExtensionStorageScope, "all"> | string;
+  scope?: Exclude<AgentNativeExtensionStorageScope, "all">;
   userId?: string;
   organizationId?: string;
   [key: string]: unknown;

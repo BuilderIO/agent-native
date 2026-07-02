@@ -1,4 +1,3 @@
-import { useState } from "react";
 import {
   IconActivity,
   IconMessages,
@@ -16,8 +15,10 @@ import {
   IconLoader2,
   IconAlertTriangle,
 } from "@tabler/icons-react";
-import { cn } from "../utils.js";
+import { useState } from "react";
+
 import { useT } from "../i18n.js";
+import { cn } from "../utils.js";
 import {
   useObservabilityOverview,
   useTraces,

@@ -1,9 +1,10 @@
-import { useEffect } from "react";
 import {
   AgentChatHome,
   markAgentChatHomeHandoff,
   useT,
 } from "@agent-native/core/client";
+import { useEffect } from "react";
+
 import { LocalCodebasePicker } from "@/components/plan/LocalCodebasePicker";
 import { schedulePlanRoutePrewarm } from "@/lib/route-prewarm";
 

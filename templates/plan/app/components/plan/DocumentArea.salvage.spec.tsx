@@ -1,10 +1,11 @@
 // @vitest-environment happy-dom
 
+import { BlockRegistryProvider } from "@agent-native/core/blocks";
+import type { PlanBlock } from "@shared/plan-content";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { BlockRegistryProvider } from "@agent-native/core/blocks";
-import type { PlanBlock } from "@shared/plan-content";
+
 import { PlanBlockView } from "./DocumentArea";
 import { createPlanBlockRenderContext, planBlockRegistry } from "./planBlocks";
 

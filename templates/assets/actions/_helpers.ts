@@ -1,6 +1,7 @@
-import { eq } from "drizzle-orm";
-import { getDb, schema } from "../server/db/index.js";
 import { resolveAccess } from "@agent-native/core/sharing";
+import { eq } from "drizzle-orm";
+
+import { getDb, schema } from "../server/db/index.js";
 import { absoluteUrl, parseJson } from "../server/lib/json.js";
 import type {
   AssetLineageSummary,
@@ -11,8 +12,21 @@ import type {
   StyleBrief,
 } from "../shared/api.js";
 
-export async function requireLibrary(id: string) {
-  const access = await resolveAccess("asset-library", id);
+type AccessCtx = {
+  userEmail?: string;
+  orgId?: string | null;
+};
+
+function accessContext(ctx?: AccessCtx) {
+  if (!ctx) return undefined;
+  return {
+    userEmail: ctx.userEmail,
+    orgId: ctx.orgId ?? undefined,
+  };
+}
+
+export async function requireLibrary(id: string, ctx?: AccessCtx) {
+  const access = await resolveAccess("asset-library", id, accessContext(ctx));
   if (!access) throw new Error("Asset library not found or not accessible.");
   return access.resource;
 }
@@ -141,6 +155,7 @@ export function serializeGenerationRun(row: any) {
 }
 
 export function serializeGenerationPreset(row: any): GenerationPresetSummary {
+  const settings = parseJson<Record<string, unknown>>(row.settings, {});
   return {
     id: row.id,
     libraryId: row.libraryId,
@@ -155,7 +170,8 @@ export function serializeGenerationPreset(row: any): GenerationPresetSummary {
     model: row.model,
     textPolicy: row.textPolicy ?? "",
     referencePolicy: row.referencePolicy ?? "auto",
-    settings: parseJson<Record<string, unknown>>(row.settings, {}),
+    includeLogo: settings.includeLogo === true,
+    settings,
     sortOrder: Number(row.sortOrder ?? 0),
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
