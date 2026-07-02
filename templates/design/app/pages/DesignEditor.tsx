@@ -4832,6 +4832,7 @@ export default function DesignEditor() {
   const [motionDockOpen, setMotionDockOpen] = useState(false);
   const [motionDockMounted, setMotionDockMounted] = useState(false);
   const motionDockUnmountTimerRef = useRef<number | null>(null);
+  const motionDockOpenAnimationFrameRef = useRef<number | null>(null);
   const [motionTimelineId, setMotionTimelineId] = useState<string | null>(null);
   const [motionTracks, setMotionTracks] = useState<MotionDockTrack[]>([]);
   const [motionDurationMs, setMotionDurationMs] = useState(1000);
@@ -4853,6 +4854,16 @@ export default function DesignEditor() {
     window.clearTimeout(motionDockUnmountTimerRef.current);
     motionDockUnmountTimerRef.current = null;
   }, []);
+  const clearMotionDockOpenAnimationFrame = useCallback(() => {
+    if (
+      typeof window === "undefined" ||
+      motionDockOpenAnimationFrameRef.current === null
+    ) {
+      return;
+    }
+    window.cancelAnimationFrame(motionDockOpenAnimationFrameRef.current);
+    motionDockOpenAnimationFrameRef.current = null;
+  }, []);
   const clearMotionAutosaveTimer = useCallback(() => {
     if (motionAutosaveTimerRef.current === null) return;
     window.clearTimeout(motionAutosaveTimerRef.current);
@@ -4861,13 +4872,22 @@ export default function DesignEditor() {
   const setMotionDockOpenAnimated = useCallback(
     (open: boolean) => {
       clearMotionDockUnmountTimer();
+      clearMotionDockOpenAnimationFrame();
       if (open) {
         setMotionDockMounted(true);
         if (typeof window === "undefined") {
           setMotionDockOpen(true);
           return;
         }
-        window.requestAnimationFrame(() => setMotionDockOpen(true));
+        motionDockOpenAnimationFrameRef.current = window.requestAnimationFrame(
+          () => {
+            motionDockOpenAnimationFrameRef.current =
+              window.requestAnimationFrame(() => {
+                setMotionDockOpen(true);
+                motionDockOpenAnimationFrameRef.current = null;
+              });
+          },
+        );
         return;
       }
 
@@ -4881,7 +4901,7 @@ export default function DesignEditor() {
         motionDockUnmountTimerRef.current = null;
       }, MOTION_DOCK_EXIT_FALLBACK_MS);
     },
-    [clearMotionDockUnmountTimer],
+    [clearMotionDockOpenAnimationFrame, clearMotionDockUnmountTimer],
   );
   const handleMotionDockExitComplete = useCallback(() => {
     if (motionDockOpen) return;
@@ -4896,8 +4916,11 @@ export default function DesignEditor() {
     }, MOTION_DOCK_EXIT_SETTLE_MS);
   }, [clearMotionDockUnmountTimer, motionDockOpen]);
   useEffect(
-    () => () => clearMotionDockUnmountTimer(),
-    [clearMotionDockUnmountTimer],
+    () => () => {
+      clearMotionDockUnmountTimer();
+      clearMotionDockOpenAnimationFrame();
+    },
+    [clearMotionDockOpenAnimationFrame, clearMotionDockUnmountTimer],
   );
   useEffect(() => () => clearMotionAutosaveTimer(), [clearMotionAutosaveTimer]);
   const [shaderFillPreview, setShaderFillPreview] = useState<{
