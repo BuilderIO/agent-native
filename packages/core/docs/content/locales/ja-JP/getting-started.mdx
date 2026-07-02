@@ -32,7 +32,7 @@ pnpm dev
 
 action は agent と UI が共有する typed operation です。この流れでは `actions/analyze-responses.ts` を作成し、フォーム回答を分析してカスタムチャットグラフ用の検証済み形状を返します。
 
-{/* prettier-ignore */}
+<!-- prettier-ignore -->
 ```ts
 // actions/analyze-responses.ts
 import { defineAction } from "@agent-native/core/action";
@@ -75,7 +75,7 @@ pnpm action analyze-responses --formId demo
 
 action が `outputSchema` とプロダクト固有の `chatUI.renderer` を宣言しているため、チャットは構造化データを長い文章に潰しません。次に、app の起動時にその正確な renderer id に対応する React コンポーネントを登録します。たとえば `app/root.tsx` から `app/chat-renderers.tsx` を一度 import します。
 
-{/* prettier-ignore */}
+<!-- prettier-ignore -->
 ```tsx
 import { registerActionChatRenderer, type ToolRendererProps,} from "@agent-native/core/client/chat";
 

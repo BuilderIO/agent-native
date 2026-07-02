@@ -32,7 +32,7 @@ O template inclui durable chat threads, auth, live sync, diretório `actions/`, 
 
 Uma action é uma operação tipada que o agent e a UI chamam juntos. Para este fluxo, crie `actions/analyze-responses.ts`: ela analisa respostas de formulários e retorna um formato validado para um gráfico de chat customizado.
 
-{/* prettier-ignore */}
+<!-- prettier-ignore -->
 ```ts
 // actions/analyze-responses.ts
 import { defineAction } from "@agent-native/core/action";
@@ -75,7 +75,7 @@ Ou peça ao agent no navegador:
 
 Como a action declara `outputSchema` e uma `chatUI.renderer` específica do produto, o transcript não transforma dados estruturados em texto corrido. Registre um componente React para esse id exato no startup da app, por exemplo importando `app/chat-renderers.tsx` uma vez a partir de `app/root.tsx`:
 
-{/* prettier-ignore */}
+<!-- prettier-ignore -->
 ```tsx
 import { registerActionChatRenderer, type ToolRendererProps,} from "@agent-native/core/client/chat";
 
