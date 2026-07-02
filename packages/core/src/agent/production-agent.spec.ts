@@ -1359,6 +1359,414 @@ describe("runAgentLoop", () => {
     );
   });
 
+  it("checkpoints repeated zero-byte action input deltas with fresh ids", async () => {
+    let now = 1_000_000;
+    const dateNow = vi.spyOn(Date, "now").mockImplementation(() => now);
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: true,
+      },
+      async *stream(): AsyncIterable<EngineEvent> {
+        yield {
+          type: "tool-input-delta",
+          id: "tool-edit-a",
+          name: "edit-design",
+          text: "",
+        };
+        yield { type: "gateway-heartbeat" };
+        now += 45_000;
+        yield {
+          type: "tool-input-delta",
+          id: "tool-edit-b",
+          name: "edit-design",
+          text: "",
+        };
+        yield { type: "gateway-heartbeat" };
+        now += 46_000;
+        yield {
+          type: "tool-input-delta",
+          id: "tool-edit-c",
+          name: "edit-design",
+          text: "",
+        };
+        yield { type: "text-delta", text: "should not continue" };
+      },
+    };
+    const events: AgentChatEvent[] = [];
+
+    try {
+      await runAgentLoop({
+        engine,
+        model: "test-model",
+        systemPrompt: "system",
+        tools: [],
+        messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+        actions: {
+          "edit-design": actionEntry({ readOnly: false }),
+        },
+        send: (event) => events.push(event),
+        signal: new AbortController().signal,
+      });
+    } finally {
+      dateNow.mockRestore();
+    }
+
+    expect(
+      events.filter(
+        (event) =>
+          event.type === "activity" &&
+          event.tool === "edit-design" &&
+          event.progressBytes === 0,
+      ).length,
+    ).toBeGreaterThanOrEqual(2);
+    expect(events.at(-1)).toEqual({
+      type: "auto_continue",
+      reason: "no_progress",
+    });
+    expect(events).not.toContainEqual(
+      expect.objectContaining({ type: "text", text: "should not continue" }),
+    );
+    expect(events).not.toContainEqual(
+      expect.objectContaining({ type: "tool_start" }),
+    );
+  });
+
+  it("keeps a fresh action-input id streaming after an abandoned zero-byte id", async () => {
+    let now = 1_000_000;
+    const dateNow = vi.spyOn(Date, "now").mockImplementation(() => now);
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: true,
+      },
+      async *stream(): AsyncIterable<EngineEvent> {
+        yield {
+          type: "tool-input-delta",
+          id: "tool-edit-abandoned",
+          name: "edit-design",
+          text: "",
+        };
+        now += 45_000;
+        yield {
+          type: "tool-input-delta",
+          id: "tool-edit-replacement",
+          name: "edit-design",
+          text: '{"replacementContent":"first bytes',
+        };
+        now += 46_000;
+        yield {
+          type: "tool-input-delta",
+          id: "tool-edit-replacement",
+          name: "edit-design",
+          text: ' and still streaming"}',
+        };
+        yield {
+          type: "assistant-content",
+          parts: [{ type: "text" as const, text: "done" }],
+        };
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+    const events: AgentChatEvent[] = [];
+
+    try {
+      await runAgentLoop({
+        engine,
+        model: "test-model",
+        systemPrompt: "system",
+        tools: [],
+        messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+        actions: {
+          "edit-design": actionEntry({ readOnly: false }),
+        },
+        send: (event) => events.push(event),
+        signal: new AbortController().signal,
+      });
+    } finally {
+      dateNow.mockRestore();
+    }
+
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "activity",
+        tool: "edit-design",
+        id: "tool-edit-replacement",
+        progressBytes: 56,
+      }),
+    );
+    expect(events).not.toContainEqual({
+      type: "auto_continue",
+      reason: "no_progress",
+    });
+    expect(events.at(-1)).toEqual({ type: "done" });
+  });
+
+  it("keeps a fresh read-only input id streaming after an abandoned zero-byte id", async () => {
+    let now = 1_000_000;
+    const dateNow = vi.spyOn(Date, "now").mockImplementation(() => now);
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: true,
+      },
+      async *stream(): AsyncIterable<EngineEvent> {
+        yield {
+          type: "tool-input-delta",
+          id: "search-abandoned",
+          name: "search",
+          text: "",
+        };
+        now += 45_000;
+        yield {
+          type: "tool-input-delta",
+          id: "search-replacement",
+          name: "search",
+          text: '{"query":"first bytes',
+        };
+        now += 46_000;
+        yield {
+          type: "tool-input-delta",
+          id: "search-replacement",
+          name: "search",
+          text: ' and still streaming"}',
+        };
+        yield {
+          type: "assistant-content",
+          parts: [{ type: "text" as const, text: "done" }],
+        };
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+    const events: AgentChatEvent[] = [];
+
+    try {
+      await runAgentLoop({
+        engine,
+        model: "test-model",
+        systemPrompt: "system",
+        tools: [],
+        messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+        actions: {
+          search: actionEntry({ readOnly: true }),
+        },
+        send: (event) => events.push(event),
+        signal: new AbortController().signal,
+      });
+    } finally {
+      dateNow.mockRestore();
+    }
+
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "activity",
+        tool: "search",
+        id: "search-replacement",
+        progressBytes: 43,
+      }),
+    );
+    expect(events).not.toContainEqual({
+      type: "auto_continue",
+      reason: "no_progress",
+    });
+    expect(events.at(-1)).toEqual({ type: "done" });
+  });
+
+  it("keeps parallel-safe same-action input stalls tracked while a sibling streams", async () => {
+    let now = 1_000_000;
+    const dateNow = vi.spyOn(Date, "now").mockImplementation(() => now);
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: true,
+      },
+      async *stream(): AsyncIterable<EngineEvent> {
+        yield {
+          type: "tool-input-start",
+          id: "parallel-search-a",
+          name: "search",
+        };
+        now += 45_000;
+        yield {
+          type: "tool-input-start",
+          id: "parallel-search-b",
+          name: "search",
+        };
+        now += 2_000;
+        yield {
+          type: "tool-input-delta",
+          id: "parallel-search-b",
+          name: "search",
+          text: '{"query":"healthy sibling',
+        };
+        now += 44_000;
+        yield {
+          type: "tool-input-delta",
+          id: "parallel-search-b",
+          name: "search",
+          text: ' still streaming"}',
+        };
+        yield { type: "text-delta", text: "still preparing" };
+        now += 91_000;
+        yield { type: "gateway-heartbeat" };
+        yield { type: "text-delta", text: "should not continue" };
+      },
+    };
+    const events: AgentChatEvent[] = [];
+
+    try {
+      await runAgentLoop({
+        engine,
+        model: "test-model",
+        systemPrompt: "system",
+        tools: [],
+        messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+        actions: {
+          search: actionEntry({ readOnly: false, parallelSafe: true }),
+        },
+        send: (event) => events.push(event),
+        signal: new AbortController().signal,
+      });
+    } finally {
+      dateNow.mockRestore();
+    }
+
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "activity",
+        tool: "search",
+        id: "parallel-search-b",
+        progressBytes: 25,
+      }),
+    );
+    expect(events).toContainEqual(
+      expect.objectContaining({ type: "text", text: "still preparing" }),
+    );
+    expect(events.at(-1)).toEqual({
+      type: "auto_continue",
+      reason: "no_progress",
+    });
+    expect(events).not.toContainEqual(
+      expect.objectContaining({ type: "text", text: "should not continue" }),
+    );
+  });
+
+  it("keeps delta-only same-action input progress alive while a sibling is silent", async () => {
+    let now = 1_000_000;
+    const dateNow = vi.spyOn(Date, "now").mockImplementation(() => now);
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: true,
+      },
+      async *stream(): AsyncIterable<EngineEvent> {
+        yield {
+          type: "tool-input-delta",
+          id: "delta-search-a",
+          name: "search",
+          text: "",
+        };
+        now += 45_000;
+        yield {
+          type: "tool-input-delta",
+          id: "delta-search-b",
+          name: "search",
+          text: "",
+        };
+        now += 2_000;
+        yield {
+          type: "tool-input-delta",
+          id: "delta-search-c",
+          name: "search",
+          text: '{"query":"healthy sibling',
+        };
+        now += 44_000;
+        yield {
+          type: "tool-input-delta",
+          id: "delta-search-c",
+          name: "search",
+          text: ' still streaming"}',
+        };
+        yield { type: "text-delta", text: "still preparing" };
+        now += 91_000;
+        yield { type: "gateway-heartbeat" };
+        yield { type: "text-delta", text: "should not continue" };
+      },
+    };
+    const events: AgentChatEvent[] = [];
+
+    try {
+      await runAgentLoop({
+        engine,
+        model: "test-model",
+        systemPrompt: "system",
+        tools: [],
+        messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+        actions: {
+          search: actionEntry({ readOnly: true }),
+        },
+        send: (event) => events.push(event),
+        signal: new AbortController().signal,
+      });
+    } finally {
+      dateNow.mockRestore();
+    }
+
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "activity",
+        tool: "search",
+        id: "delta-search-c",
+        progressBytes: 25,
+      }),
+    );
+    expect(events).toContainEqual(
+      expect.objectContaining({ type: "text", text: "still preparing" }),
+    );
+    expect(events.at(-1)).toEqual({
+      type: "auto_continue",
+      reason: "no_progress",
+    });
+    expect(events).not.toContainEqual(
+      expect.objectContaining({ type: "text", text: "should not continue" }),
+    );
+  });
+
   it("tracks action-preparation stalls for multiple in-flight tool inputs", async () => {
     let now = 1_000_000;
     const dateNow = vi.spyOn(Date, "now").mockImplementation(() => now);
@@ -1398,9 +1806,12 @@ describe("runAgentLoop", () => {
           id: "tool-b",
           text: "still healthy",
         };
+        yield { type: "text-delta", text: "still preparing" };
+        now += 91_000;
+        yield { type: "gateway-heartbeat" };
         yield {
-          type: "assistant-content",
-          parts: [{ type: "text" as const, text: "should not finish" }],
+          type: "text-delta",
+          text: "should not continue",
         };
       },
     };
@@ -1436,12 +1847,15 @@ describe("runAgentLoop", () => {
       tool: "generate-design",
       id: "tool-b",
     });
+    expect(events).toContainEqual(
+      expect.objectContaining({ type: "text", text: "still preparing" }),
+    );
     expect(events.at(-1)).toEqual({
       type: "auto_continue",
       reason: "no_progress",
     });
     expect(events).not.toContainEqual(
-      expect.objectContaining({ type: "text", text: "should not finish" }),
+      expect.objectContaining({ type: "text", text: "should not continue" }),
     );
   });
 

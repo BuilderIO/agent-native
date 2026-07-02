@@ -2857,15 +2857,15 @@ export async function runAgentLoop(opts: {
         const hasActionPreparationStalled = () => {
           if (activeToolInputs.size === 0) return false;
           const now = Date.now();
+          let latestProgressAt = 0;
           for (const active of activeToolInputs.values()) {
-            if (
-              now - active.lastProgressAt >=
-              ACTION_PREPARATION_NO_PROGRESS_TIMEOUT_MS
-            ) {
-              return true;
+            if (active.lastProgressAt > latestProgressAt) {
+              latestProgressAt = active.lastProgressAt;
             }
           }
-          return false;
+          return (
+            now - latestProgressAt >= ACTION_PREPARATION_NO_PROGRESS_TIMEOUT_MS
+          );
         };
         const trackActiveToolInput = (
           key: string,
@@ -2874,11 +2874,10 @@ export async function runAgentLoop(opts: {
         ) => {
           const now = Date.now();
           const previous = activeToolInputs.get(key);
+          const resolvedToolName = toolName ?? previous?.toolName;
           activeToolInputs.set(key, {
             id: key,
-            ...((toolName ?? previous?.toolName)
-              ? { toolName: toolName ?? previous?.toolName }
-              : {}),
+            ...(resolvedToolName ? { toolName: resolvedToolName } : {}),
             startedAt: previous?.startedAt ?? now,
             lastProgressAt: now,
             bytes,
@@ -2970,6 +2969,7 @@ export async function runAgentLoop(opts: {
               event.name ??
               (event.id ? toolInputNames.get(event.id) : undefined);
             let progressBytes: number | undefined;
+            let startedZeroByteInput = false;
             if (key) {
               const hadByteRecord = toolInputBytes.has(key);
               const previous = hadByteRecord
@@ -2983,10 +2983,24 @@ export async function runAgentLoop(opts: {
                 trackActiveToolInput(key, toolName, progressBytes);
                 if (progressBytes > 0) {
                   resetZeroByteToolInputRestart(toolName);
+                } else if (!hadByteRecord) {
+                  startedZeroByteInput = true;
                 }
               }
             }
             sendToolInputActivity(toolName, key, progressBytes);
+            if (
+              startedZeroByteInput &&
+              toolName &&
+              noteZeroByteToolInputStart(toolName)
+            ) {
+              send({
+                type: "auto_continue",
+                reason: "no_progress",
+              });
+              endedForActionPreparationNoProgress = true;
+              break;
+            }
           } else if (event.type === "gateway-heartbeat") {
             send({ type: "stream_keepalive" });
           } else if (event.type === "tool-call") {
