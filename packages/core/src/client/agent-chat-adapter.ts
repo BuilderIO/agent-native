@@ -1526,6 +1526,18 @@ export function createAgentChatAdapter(
         );
       };
 
+      const dispatchMissingApiKey = () => {
+        if (typeof window === "undefined") return;
+        window.dispatchEvent(
+          new CustomEvent("agent-chat:missing-api-key", {
+            detail: {
+              ...(tabId ? { tabId } : {}),
+              ...(threadId ? { threadId } : {}),
+            },
+          }),
+        );
+      };
+
       const tryRecoverAuthOnce = async (): Promise<boolean> => {
         if (authRecoveryAttempted || abortSignal.aborted) return false;
         authRecoveryAttempted = true;
@@ -2418,9 +2430,7 @@ export function createAgentChatAdapter(
                 if (isMissingCredentialMessage(body)) {
                   const failure = missingCredentialFailure(body);
                   if (typeof window !== "undefined") {
-                    window.dispatchEvent(
-                      new Event("agent-chat:missing-api-key"),
-                    );
+                    dispatchMissingApiKey();
                     window.dispatchEvent(
                       new CustomEvent("agent-chat:run-error", {
                         detail: { ...failure.runError, tabId },
@@ -2633,7 +2643,7 @@ export function createAgentChatAdapter(
             if (isMissingCredentialMessage(errMsg)) {
               const failure = missingCredentialFailure(errMsg);
               if (typeof window !== "undefined") {
-                window.dispatchEvent(new Event("agent-chat:missing-api-key"));
+                dispatchMissingApiKey();
                 window.dispatchEvent(
                   new CustomEvent("agent-chat:run-error", {
                     detail: { ...failure.runError, tabId },

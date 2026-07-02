@@ -1465,7 +1465,10 @@ describe("SSE event processor error classification", () => {
     );
 
     expect(dispatchEvent).toHaveBeenCalledWith(
-      expect.objectContaining({ type: "agent-chat:missing-api-key" }),
+      expect.objectContaining({
+        type: "agent-chat:missing-api-key",
+        detail: { tabId: "tab-missing" },
+      }),
     );
     expect(dispatchEvent).toHaveBeenCalledWith(
       expect.objectContaining({ type: "agent-chat:run-error" }),
@@ -1551,7 +1554,10 @@ describe("SSE event processor error classification", () => {
     );
 
     expect(dispatchEvent).toHaveBeenCalledWith(
-      expect.objectContaining({ type: "agent-chat:missing-api-key" }),
+      expect.objectContaining({
+        type: "agent-chat:missing-api-key",
+        detail: { tabId: "tab-missing-legacy" },
+      }),
     );
     expect(dispatchEvent).toHaveBeenCalledWith(
       expect.objectContaining({ type: "agent-chat:run-error" }),

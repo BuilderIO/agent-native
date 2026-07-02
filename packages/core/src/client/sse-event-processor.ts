@@ -601,6 +601,15 @@ function dispatchActivityClear(tabId: string | undefined) {
   );
 }
 
+function dispatchMissingApiKey(tabId: string | undefined) {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(
+    new CustomEvent("agent-chat:missing-api-key", {
+      detail: { tabId },
+    }),
+  );
+}
+
 function pendingToolNames(content: ContentPart[]): {
   activity: string[];
   running: string[];
@@ -1056,7 +1065,7 @@ export function processEvent(
       errorCode,
     };
     if (typeof window !== "undefined") {
-      window.dispatchEvent(new Event("agent-chat:missing-api-key"));
+      dispatchMissingApiKey(tabId);
       window.dispatchEvent(
         new CustomEvent("agent-chat:run-error", {
           detail: { ...runError, tabId },
@@ -1156,9 +1165,7 @@ export function processEvent(
     }
     const normalized = normalizeChatError(errMsg, ev.errorCode);
     if (isMissingCredentialText(errMsg, ev.errorCode)) {
-      if (typeof window !== "undefined") {
-        window.dispatchEvent(new Event("agent-chat:missing-api-key"));
-      }
+      dispatchMissingApiKey(tabId);
     }
     const runError = {
       message: normalized.message,

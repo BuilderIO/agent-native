@@ -7124,11 +7124,15 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             setResponseStatus(event, 400);
             return { error: "message is required" };
           }
-          // Strip mention markup: @[Name|type] → @Name
-          const cleanMessage = message.replace(
-            /@\[([^\]|]+)\|[^\]]*\]/g,
-            "@$1",
-          );
+          // Strip hidden context and mention markup before title generation.
+          // Fallback titles are often direct truncations, so never let injected
+          // prompt context become a visible tab label.
+          const cleanMessage = message
+            .replace(/<context\b[^>]*>[\s\S]*?<\/context>\n?/gi, "")
+            .replace(/<context\b[^>]*>[\s\S]*$/gi, "")
+            .replace(/<\/context>/gi, "")
+            .replace(/@\[([^\]|]+)\|[^\]]*\]/g, "@$1")
+            .trim();
           // Mirror the chat-run resolution so BYO-key users have title
           // generation billed to their own key instead of the platform key.
           const { getOwnerActiveApiKey } =

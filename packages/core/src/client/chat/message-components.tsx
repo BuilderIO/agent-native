@@ -75,7 +75,11 @@ const PENDING_SELECTION_KEY = "pending-selection-context";
 // ─── displayableUserMessageText ───────────────────────────────────────────────
 
 export function displayableUserMessageText(text: string): string {
-  return text.replace(/<context>[\s\S]*?<\/context>\n?/g, "").trim();
+  return text
+    .replace(/<context\b[^>]*>[\s\S]*?<\/context>\n?/gi, "")
+    .replace(/<context\b[^>]*>[\s\S]*$/gi, "")
+    .replace(/<\/context>/gi, "")
+    .trim();
 }
 
 // ─── Message timestamp helpers ────────────────────────────────────────────────

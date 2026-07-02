@@ -41,6 +41,20 @@ describe("displayableUserMessageText", () => {
       ),
     ).toBe("");
   });
+
+  it("preserves visible text while stripping hidden context blocks", () => {
+    expect(
+      displayableUserMessageText(
+        "hi\n\n<context>\n## Fusion recap\nHidden selection\n</context>",
+      ),
+    ).toBe("hi");
+  });
+
+  it("strips unfinished context payloads from generated labels", () => {
+    expect(
+      displayableUserMessageText("hi <context> ## Fusion recap hidden payload"),
+    ).toBe("hi");
+  });
 });
 
 describe("latestNonRecoveryUserMessageText", () => {
