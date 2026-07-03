@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.84.64
+
+### Patch Changes
+
+- 70e18ac: Recover agent runs when a model stream stays open with keepalives but stops producing text, tool input, or tool calls.
+
 ## 0.84.63
 
 ### Patch Changes
