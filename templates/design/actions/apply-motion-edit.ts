@@ -168,7 +168,10 @@ export default defineAction({
       .number()
       .int()
       .positive()
-      .default(300)
+      // Keep in sync with the MotionDock default (DesignEditor
+      // motionDurationMs) and get-motion-timeline's CSS-recovery fallback so
+      // an omitted duration means the same thing on every surface.
+      .default(1000)
       .describe("Total animation duration in milliseconds."),
     defaultEase: z
       .string()
@@ -254,9 +257,21 @@ export default defineAction({
 
     // Reject CSS-injection vectors in caller-supplied track properties,
     // keyframe values, and easing strings before they are compiled into the
-    // managed <style> block.
+    // managed <style> block. Also reject duplicate (targetNodeId, property)
+    // pairs: the compiler derives the animation name from that pair, so a
+    // duplicate would silently overwrite the earlier track's keyframes.
+    const seenTrackKeys = new Set<string>();
     for (const track of typedTracks) {
       assertSafeMotionCssProperty(track.property, "track.property");
+      const trackKey = `${track.targetNodeId} ${track.property}`;
+      if (seenTrackKeys.has(trackKey)) {
+        throw new Error(
+          `Duplicate motion track for targetNodeId "${track.targetNodeId}" ` +
+            `and property "${track.property}". Each (targetNodeId, property) ` +
+            "pair may appear at most once — merge the keyframes into a single track.",
+        );
+      }
+      seenTrackKeys.add(trackKey);
       for (const kf of track.keyframes) {
         assertSafeMotionCssToken(kf.value, "keyframe value");
         if (kf.ease !== undefined) {

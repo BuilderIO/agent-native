@@ -55,11 +55,44 @@ export function usePinchZoom({
 
     const clamp = (n: number) => Math.max(min, Math.min(max, n));
 
+    // rAF coalescing: multiple wheel/pointermove events can fire per frame
+    // (trackpad pinch and touch pinch both deliver many events between
+    // paints). Instead of calling setZoom() synchronously per event — which
+    // schedules a React re-render per event — stash the latest pending zoom
+    // (and its cursor-anchored scroll delta) in a ref and flush once per
+    // animation frame with the last-wins value. This preserves the exact
+    // zoom-to-cursor math; it just applies it at most once per frame.
+    let pendingZoom: number | null = null;
+    let pendingScrollDelta: { dx: number; dy: number } | null = null;
+    let rafId: number | null = null;
+
+    const flush = () => {
+      rafId = null;
+      if (pendingZoom === null) return;
+      const nextZoom = pendingZoom;
+      const scrollDelta = pendingScrollDelta;
+      pendingZoom = null;
+      pendingScrollDelta = null;
+      setZoomRef.current(nextZoom);
+      if (scrollDelta) {
+        container.scrollLeft += scrollDelta.dx;
+        container.scrollTop += scrollDelta.dy;
+      }
+    };
+
+    const scheduleFlush = () => {
+      if (rafId !== null) return;
+      rafId = requestAnimationFrame(flush);
+    };
+
     const handleWheel = (e: WheelEvent) => {
       if (!(e.ctrlKey || e.metaKey)) return;
       e.preventDefault();
 
-      const currentZoom = zoomRef.current;
+      // Use the latest not-yet-applied zoom (if a flush is pending) so rapid
+      // wheel events within the same frame compound correctly instead of
+      // each computing off the last-committed React state.
+      const currentZoom = pendingZoom ?? zoomRef.current;
       const clampedDelta = Math.max(-50, Math.min(50, e.deltaY));
       const factor = Math.exp(-clampedDelta * 0.01);
       const nextZoom = clamp(currentZoom * factor);
@@ -73,14 +106,16 @@ export function usePinchZoom({
         const ratio = nextZoom / currentZoom;
         const dx = cx * (ratio - 1);
         const dy = cy * (ratio - 1);
-        setZoomRef.current(nextZoom);
-        requestAnimationFrame(() => {
-          container.scrollLeft += dx;
-          container.scrollTop += dy;
-        });
+        pendingZoom = nextZoom;
+        const prevDelta = pendingScrollDelta;
+        pendingScrollDelta = {
+          dx: (prevDelta?.dx ?? 0) + dx,
+          dy: (prevDelta?.dy ?? 0) + dy,
+        };
       } else {
-        setZoomRef.current(nextZoom);
+        pendingZoom = nextZoom;
       }
+      scheduleFlush();
     };
 
     const activePointers = new Map<number, { x: number; y: number }>();
@@ -105,8 +140,11 @@ export function usePinchZoom({
         const [p1, p2] = Array.from(activePointers.values());
         const distance = Math.hypot(p2.x - p1.x, p2.y - p1.y);
         const nextZoom = clamp(initialZoom * (distance / initialDistance));
-        if (nextZoom !== zoomRef.current) {
-          setZoomRef.current(nextZoom);
+        if (nextZoom !== (pendingZoom ?? zoomRef.current)) {
+          // Touch pinch has no cursor-anchoring math, so last-wins is simply
+          // the newest zoom value — no scroll delta to accumulate.
+          pendingZoom = nextZoom;
+          scheduleFlush();
         }
         e.preventDefault();
       }
@@ -132,6 +170,9 @@ export function usePinchZoom({
       container.removeEventListener("pointermove", handlePointerMove);
       container.removeEventListener("pointerup", handlePointerEnd);
       container.removeEventListener("pointercancel", handlePointerEnd);
+      if (rafId !== null) cancelAnimationFrame(rafId);
+      pendingZoom = null;
+      pendingScrollDelta = null;
     };
   }, [containerRef, enabled, min, max, zoomToCursor]);
 }

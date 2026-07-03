@@ -27,10 +27,27 @@ export function createCornerNode(point: PenPoint): PenNode {
   return { point: { ...point } };
 }
 
-export function createSmoothNode(anchor: PenPoint, handleOut: PenPoint) {
+/**
+ * Creates a smooth (symmetric-handle) anchor by default: `handleIn` mirrors
+ * `handleOut` across `anchor`, giving the anchor a continuous tangent on
+ * both sides — this is what dragging a fresh pen anchor normally produces.
+ *
+ * Pass `{ breakSymmetry: true }` (Figma: hold Alt/Option while dragging a
+ * newly placed anchor) to break that symmetry into a cusp: `handleOut`
+ * still follows the drag, but no mirrored `handleIn` is created, so the
+ * incoming segment stays a plain corner while the outgoing segment curves
+ * independently.
+ */
+export function createSmoothNode(
+  anchor: PenPoint,
+  handleOut: PenPoint,
+  options?: { breakSymmetry?: boolean },
+): PenNode {
   return {
     point: { ...anchor },
-    handleIn: mirrorPoint(anchor, handleOut),
+    handleIn: options?.breakSymmetry
+      ? undefined
+      : mirrorPoint(anchor, handleOut),
     handleOut: { ...handleOut },
   };
 }
@@ -62,15 +79,56 @@ export function constrainPointTo45Degrees(
 ): PenPoint {
   const dx = point.x - origin.x;
   const dy = point.y - origin.y;
-  const distance = Math.hypot(dx, dy);
-  if (distance === 0) return { ...point };
+  if (dx === 0 && dy === 0) return { ...point };
 
   const angle = Math.atan2(dy, dx);
   const snappedAngle = Math.round(angle / (Math.PI / 4)) * (Math.PI / 4);
+  const axisX = Math.cos(snappedAngle);
+  const axisY = Math.sin(snappedAngle);
+
+  // Project the drag vector onto the snapped axis component-wise (like
+  // Figma), rather than preserving the raw radial distance. For an
+  // axis-aligned snap (0/90/180/270) this reduces to keeping the dominant
+  // component and zeroing the other; for diagonal snaps it reduces to the
+  // usual equal-magnitude diagonal.
+  const projection = dx * axisX + dy * axisY;
   return {
-    x: origin.x + Math.cos(snappedAngle) * distance,
-    y: origin.y + Math.sin(snappedAngle) * distance,
+    x: origin.x + axisX * projection,
+    y: origin.y + axisY * projection,
   };
+}
+
+/**
+ * Light pen-anchor snapping (P15): snap a candidate new-anchor point to any
+ * existing anchor point of the path currently being drawn (Figma snaps new
+ * anchors onto other anchors of the same path so you can precisely re-hit a
+ * prior point), and otherwise round to the nearest integer canvas px once
+ * the user is zoomed in to 100% or more (where sub-pixel placement is
+ * rarely intentional and hairline anti-aliasing becomes visible).
+ *
+ * This intentionally does not snap to *other* shapes/frames on the canvas —
+ * that's the existing computeMoveSnap/grid machinery's job for whole-object
+ * moves, not a per-anchor pen concern.
+ */
+export function snapPenAnchorPoint(
+  point: PenPoint,
+  path: PenPath | null,
+  options: { hitRadius: number; zoom: number },
+): PenPoint {
+  const existingAnchor = path?.nodes.find(
+    (node) =>
+      Math.hypot(node.point.x - point.x, node.point.y - point.y) <=
+      options.hitRadius,
+  );
+  if (existingAnchor) {
+    return { ...existingAnchor.point };
+  }
+
+  if (options.zoom >= 100) {
+    return { x: Math.round(point.x), y: Math.round(point.y) };
+  }
+
+  return point;
 }
 
 export function isPenCloseTarget(
@@ -84,23 +142,149 @@ export function isPenCloseTarget(
 }
 
 export function getPenPathGeometry(path: PenPath): PenGeometry {
-  const points = path.nodes.flatMap((node) =>
-    [node.point, node.handleIn, node.handleOut].filter(isPenPoint),
-  );
-  if (points.length === 0) {
+  if (path.nodes.length === 0) {
     return { x: 0, y: 0, width: MIN_PATH_SIZE, height: MIN_PATH_SIZE };
   }
 
-  const left = Math.min(...points.map((point) => point.x));
-  const top = Math.min(...points.map((point) => point.y));
-  const right = Math.max(...points.map((point) => point.x));
-  const bottom = Math.max(...points.map((point) => point.y));
+  // Tight bounds: rather than bounding all anchors *and* control handles
+  // (which over-counts — a handle that pulls a curve's tangent can sit well
+  // outside the curve's actual extent), walk each rendered segment and
+  // bound the real curve geometry: anchor endpoints plus any local extrema
+  // found by solving the cubic Bezier derivative per axis. This matches
+  // what `serializePenPath` actually draws (an `L` segment when handles
+  // coincide with their anchors, otherwise a `C` segment).
+  let left = Infinity;
+  let top = Infinity;
+  let right = -Infinity;
+  let bottom = -Infinity;
+
+  const include = (point: PenPoint) => {
+    if (point.x < left) left = point.x;
+    if (point.x > right) right = point.x;
+    if (point.y < top) top = point.y;
+    if (point.y > bottom) bottom = point.y;
+  };
+
+  const { nodes, closed } = path;
+  include(nodes[0].point);
+
+  for (let i = 1; i < nodes.length; i++) {
+    includeSegmentBounds(nodes[i - 1], nodes[i], include);
+  }
+  if (closed && nodes.length > 1) {
+    includeSegmentBounds(nodes[nodes.length - 1], nodes[0], include);
+  }
+
+  if (!Number.isFinite(left)) {
+    return { x: 0, y: 0, width: MIN_PATH_SIZE, height: MIN_PATH_SIZE };
+  }
+
+  const width = right - left;
+  const height = bottom - top;
+  // Degenerate (zero-area) paths — e.g. a single anchor, or a perfectly
+  // straight horizontal/vertical two-point path — still need a visible
+  // selection box, so floor to a minimum size in that case only.
+  if (width <= 0 && height <= 0) {
+    return { x: left, y: top, width: MIN_PATH_SIZE, height: MIN_PATH_SIZE };
+  }
   return {
     x: left,
     y: top,
-    width: Math.max(MIN_PATH_SIZE, right - left),
-    height: Math.max(MIN_PATH_SIZE, bottom - top),
+    width: width > 0 ? width : MIN_PATH_SIZE,
+    height: height > 0 ? height : MIN_PATH_SIZE,
   };
+}
+
+function includeSegmentBounds(
+  from: PenNode,
+  to: PenNode,
+  include: (point: PenPoint) => void,
+) {
+  const c1 = from.handleOut ?? from.point;
+  const c2 = to.handleIn ?? to.point;
+  include(to.point);
+
+  // Straight segment (serializePenPath emits `L` in this case) — the two
+  // anchors already bound it, no interior extrema to solve for.
+  if (samePoint(c1, from.point) && samePoint(c2, to.point)) {
+    return;
+  }
+
+  include(c1);
+  include(c2);
+  for (const t of cubicBezierExtremaTs(from.point.x, c1.x, c2.x, to.point.x)) {
+    include({
+      x: cubicBezierValue(from.point.x, c1.x, c2.x, to.point.x, t),
+      y: cubicBezierValue(from.point.y, c1.y, c2.y, to.point.y, t),
+    });
+  }
+  for (const t of cubicBezierExtremaTs(from.point.y, c1.y, c2.y, to.point.y)) {
+    include({
+      x: cubicBezierValue(from.point.x, c1.x, c2.x, to.point.x, t),
+      y: cubicBezierValue(from.point.y, c1.y, c2.y, to.point.y, t),
+    });
+  }
+}
+
+/**
+ * Roots of B'(t) = 0 for a single-axis cubic Bezier with control points
+ * p0..p3, restricted to t in (0, 1) (endpoints are already included by the
+ * caller via the anchor points).
+ *
+ * B(t) = (1-t)^3 p0 + 3(1-t)^2 t p1 + 3(1-t) t^2 p2 + t^3 p3
+ * B'(t) = 3(1-t)^2 (p1-p0) + 6(1-t)t (p2-p1) + 3t^2 (p3-p2)
+ *       = a t^2 + b t + c, with:
+ *   a = 3 * (-p0 + 3p1 - 3p2 + p3)
+ *   b = 6 * (p0 - 2p1 + p2)
+ *   c = 3 * (p1 - p0)
+ */
+function cubicBezierExtremaTs(
+  p0: number,
+  p1: number,
+  p2: number,
+  p3: number,
+): number[] {
+  const a = 3 * (-p0 + 3 * p1 - 3 * p2 + p3);
+  const b = 6 * (p0 - 2 * p1 + p2);
+  const c = 3 * (p1 - p0);
+
+  const roots: number[] = [];
+  const EPS = 1e-9;
+
+  if (Math.abs(a) < EPS) {
+    // Linear derivative: at most one root.
+    if (Math.abs(b) >= EPS) {
+      const t = -c / b;
+      if (t > 0 && t < 1) roots.push(t);
+    }
+    return roots;
+  }
+
+  const discriminant = b * b - 4 * a * c;
+  if (discriminant < 0) return roots;
+
+  const sqrtDisc = Math.sqrt(discriminant);
+  const t1 = (-b + sqrtDisc) / (2 * a);
+  const t2 = (-b - sqrtDisc) / (2 * a);
+  if (t1 > 0 && t1 < 1) roots.push(t1);
+  if (t2 > 0 && t2 < 1) roots.push(t2);
+  return roots;
+}
+
+function cubicBezierValue(
+  p0: number,
+  p1: number,
+  p2: number,
+  p3: number,
+  t: number,
+): number {
+  const mt = 1 - t;
+  return (
+    mt * mt * mt * p0 +
+    3 * mt * mt * t * p1 +
+    3 * mt * t * t * p2 +
+    t * t * t * p3
+  );
 }
 
 export function serializePenPath(path: PenPath): string {
@@ -119,13 +303,6 @@ export function serializePenPath(path: PenPath): string {
   }
 
   return commands.join(" ");
-}
-
-export function offsetPenPath(path: PenPath, offset: PenPoint): PenPath {
-  return transformPenPath(path, (point) => ({
-    x: point.x - offset.x,
-    y: point.y - offset.y,
-  }));
 }
 
 export function translatePenPath(

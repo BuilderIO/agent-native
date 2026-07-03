@@ -208,6 +208,33 @@ describe("apply-visual-edit breakpoint-aware class edits", () => {
     expect(result.patchedContent).toContain("text-sm");
   });
 
+  it("reports conflict for a breakpoint-scoped 'replace' when 'from' does not match the current utility (VE1 regression)", async () => {
+    // Stale selection: caller believes the md: font-size utility is
+    // "text-lg", but the node's md: override is actually "text-base" (or
+    // absent). scopeClassIntentToBreakpoint must thread `from` through to the
+    // responsive-class conversion so the mismatch is rejected instead of
+    // silently overwriting the wrong utility.
+    const htmlWithOverride = `<div id="card" class="text-sm md:text-base p-4">Hello</div>`;
+
+    const result = await action.run({
+      source: { kind: "inline-html", html: htmlWithOverride },
+      intent: {
+        kind: "class",
+        target: { selector: "#card" },
+        operation: "replace",
+        from: "text-lg", // does NOT match the current md: utility (text-base)
+        to: "text-xl",
+      },
+      includeContent: true,
+      activeBreakpoint: "md",
+    });
+
+    expect(result.result.status).toBe("conflict");
+    expect(result.result.changed).toBe(false);
+    // Content must be untouched — no silent overwrite of the wrong utility.
+    expect(result.patchedContent).toBe(htmlWithOverride);
+  });
+
   it("scopes a 'remove' class edit to the active breakpoint prefix", async () => {
     const htmlWithOverride = `<div id="card" class="text-sm md:text-base p-4">Hello</div>`;
 

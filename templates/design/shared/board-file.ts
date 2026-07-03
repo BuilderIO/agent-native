@@ -104,13 +104,18 @@ export function boardObjectEntryToHtmlFragment(
   const nodeId = id;
   const layerName = name ?? kindToLayerName(kind);
 
+  // Auto-sized text grows to fit its content (matches the creation path in
+  // DesignEditor.tsx canvasPrimitiveHtmlDocument, which omits width/height for
+  // `kind === "text" && primitive.autoSize`). Persisting a fixed width/height
+  // for these would fight the auto-size behavior on reload.
+  const isAutoSizeText = kind === "text" && entry.autoSize === true;
+
   // Base inline style — negative left/top are kept as-is.
   const baseStyle = [
     "position:absolute",
     `left:${x}px`,
     `top:${y}px`,
-    `width:${width}px`,
-    `height:${height}px`,
+    ...(isAutoSizeText ? [] : [`width:${width}px`, `height:${height}px`]),
     ...(geometry.rotation ? [`transform:rotate(${geometry.rotation}deg)`] : []),
     ...(typeof geometry.z === "number" ? [`z-index:${geometry.z}`] : []),
   ].join(";");
@@ -152,7 +157,19 @@ export function boardObjectEntryToHtmlFragment(
       markerEnd = ` marker-end="url(#${escapeAttr(markerId)})"`;
     }
 
-    return `<svg style="${baseStyle}" xmlns="http://www.w3.org/2000/svg" overflow="visible" ${dataAttrs}>${markerDefs}<path d="${escapeAttr(d)}" fill="none" stroke="${escapeAttr(strokeColor)}" stroke-width="${sw}" stroke-linecap="round" stroke-linejoin="round"${markerEnd}/></svg>`;
+    // Pen-authored paths (pathData present) serialize anchors in absolute
+    // canvas/geometry space, not relative to the fragment's own 0,0 origin
+    // like the synthesized `pts`-based `d` above. Without a matching viewBox,
+    // the SVG paints those absolute coordinates directly inside its own
+    // top-left-at-0,0 box while the box itself is *also* offset to
+    // geometry.x/y via baseStyle's left/top — doubling the displacement.
+    // Give the SVG a viewBox anchored at the geometry origin so pathData
+    // coordinates land exactly where they were authored.
+    const viewBoxAttr = pathData
+      ? ` viewBox="${x} ${y} ${width} ${height}"`
+      : "";
+
+    return `<svg style="${baseStyle}" xmlns="http://www.w3.org/2000/svg" overflow="visible"${viewBoxAttr} ${dataAttrs}>${markerDefs}<path d="${escapeAttr(d)}" fill="none" stroke="${escapeAttr(strokeColor)}" stroke-width="${sw}" stroke-linecap="round" stroke-linejoin="round"${markerEnd}/></svg>`;
   }
 
   // Ellipse kind uses a <div> with border-radius.
@@ -165,10 +182,13 @@ export function boardObjectEntryToHtmlFragment(
     return `<div style="${style}" ${dataAttrs}></div>`;
   }
 
-  // Text kind uses a <div> with text content.
+  // Text kind uses a <div> with text content. font-size/line-height defaults
+  // match the creation path (DesignEditor.tsx canvasPrimitiveHtmlDocument:
+  // element.style.fontSize = "16px"; element.style.lineHeight = "1.2";) so a
+  // freshly persisted board text object looks identical to its draft preview.
   if (kind === "text") {
     const color = fill ?? "inherit";
-    const style = `${baseStyle};color:${color};white-space:pre-wrap;`;
+    const style = `${baseStyle};color:${color};white-space:pre-wrap;font-size:16px;line-height:1.2;`;
     return `<div style="${style}" ${dataAttrs}>${text ? escapeHtml(text) : ""}</div>`;
   }
 

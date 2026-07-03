@@ -7,6 +7,9 @@ export type DesignHotkeyTool =
   | "move"
   | "frame"
   | "rectangle"
+  | "line"
+  | "arrow"
+  | "ellipse"
   | "text"
   | "pen"
   | "hand"
@@ -33,6 +36,11 @@ export interface DesignHotkeyTabDetails extends DesignHotkeyDetails {
   backwards: boolean;
 }
 
+export interface DesignHotkeyOpacityDetails extends DesignHotkeyDetails {
+  /** 1-100. Digit "1".."9" (no modifier) map to 10-90; "0" maps to 100. */
+  opacity: number;
+}
+
 export type DesignHotkeyTarget = Window | Document | HTMLElement;
 export type DesignHotkeyHandler = (details: DesignHotkeyDetails) => void;
 export type DesignHotkeyToolHandler = (
@@ -43,6 +51,9 @@ export type DesignHotkeyNudgeHandler = (
   details: DesignHotkeyNudgeDetails,
 ) => void;
 export type DesignHotkeyTabHandler = (details: DesignHotkeyTabDetails) => void;
+export type DesignHotkeyOpacityHandler = (
+  details: DesignHotkeyOpacityDetails,
+) => void;
 
 export interface UseDesignHotkeysProps {
   enabled?: boolean;
@@ -55,6 +66,9 @@ export interface UseDesignHotkeysProps {
   onMoveTool?: DesignHotkeyHandler;
   onFrameTool?: DesignHotkeyHandler;
   onRectangleTool?: DesignHotkeyHandler;
+  onLineTool?: DesignHotkeyHandler;
+  onArrowTool?: DesignHotkeyHandler;
+  onEllipseTool?: DesignHotkeyHandler;
   onTextTool?: DesignHotkeyHandler;
   onPenTool?: DesignHotkeyHandler;
   onHandTool?: DesignHotkeyHandler;
@@ -88,6 +102,17 @@ export interface UseDesignHotkeysProps {
   onZoomReset?: DesignHotkeyHandler;
   onZoomToFit?: DesignHotkeyHandler;
   onZoomToSelection?: DesignHotkeyHandler;
+  /** Figma's Shift+0 — zoom to 100%. Distinct from onZoomReset (Cmd+0). */
+  onZoomTo100?: DesignHotkeyHandler;
+  /** Figma's Cmd+Alt+K — create component from the current selection. */
+  onCreateComponent?: DesignHotkeyHandler;
+  /**
+   * Figma's plain digit 1-9 / 0 — set selection opacity (10-90%, 0 = 100%).
+   * Only fires when a layer is selected (caller decides via presence of the
+   * handler / its own guard) and the event isn't a modifier combo or an
+   * editable-target keystroke (already filtered by ignoreEditableTargets).
+   */
+  onOpacityChange?: DesignHotkeyOpacityHandler;
 }
 
 const TOOL_SHORTCUTS: Record<
@@ -97,11 +122,24 @@ const TOOL_SHORTCUTS: Record<
   v: { tool: "move", handler: "onMoveTool" },
   f: { tool: "frame", handler: "onFrameTool" },
   r: { tool: "rectangle", handler: "onRectangleTool" },
+  o: { tool: "ellipse", handler: "onEllipseTool" },
+  l: { tool: "line", handler: "onLineTool" },
   t: { tool: "text", handler: "onTextTool" },
   p: { tool: "pen", handler: "onPenTool" },
   h: { tool: "hand", handler: "onHandTool" },
   c: { tool: "comment", handler: "onCommentTool" },
   k: { tool: "scale", handler: "onScaleTool" },
+};
+
+// H1: shift+key variants of a base tool shortcut (Figma muscle-memory), e.g.
+// Shift+L selects the arrow tool while plain L selects the line tool. Keyed
+// by the same lowercased key as TOOL_SHORTCUTS; only consulted when
+// event.shiftKey is true so it never shadows the unshifted binding.
+const SHIFT_TOOL_SHORTCUTS: Record<
+  string,
+  { tool: DesignHotkeyTool; handler: keyof UseDesignHotkeysProps }
+> = {
+  l: { tool: "arrow", handler: "onArrowTool" },
 };
 
 const ARROW_DIRECTIONS: Record<string, DesignHotkeyDirection> = {
@@ -255,6 +293,18 @@ function handleDesignHotkey(
     return true;
   };
 
+  if (!primary && !event.altKey && event.shiftKey) {
+    // H1: shift+key variant (e.g. Shift+L → arrow tool) takes priority over
+    // the base binding for the same key while shift is held.
+    const shiftToolShortcut = SHIFT_TOOL_SHORTCUTS[key];
+    if (shiftToolShortcut) {
+      return runTool(
+        shiftToolShortcut.tool,
+        props[shiftToolShortcut.handler] as DesignHotkeyHandler | undefined,
+      );
+    }
+  }
+
   if (!primary && !event.altKey && !event.shiftKey) {
     const toolShortcut = TOOL_SHORTCUTS[key];
     if (toolShortcut) {
@@ -319,12 +369,39 @@ function handleDesignHotkey(
   if (primary && key === "-") return run(props.onZoomOut);
   if (primary && key === "0") return run(props.onZoomReset);
 
+  // H2: Cmd+Alt+K — create component from the current selection.
+  if (primary && event.altKey && key === "k") {
+    return run(props.onCreateComponent);
+  }
+
   const digit = digitFromEvent(event);
   if (event.shiftKey && !primary && digit === "1") {
     return run(props.onZoomToFit);
   }
   if (event.shiftKey && !primary && digit === "2") {
     return run(props.onZoomToSelection);
+  }
+  // H2: Shift+0 — zoom to 100%. Distinct from Cmd+0 (onZoomReset above).
+  if (event.shiftKey && !primary && !event.altKey && digit === "0") {
+    return run(props.onZoomTo100);
+  }
+
+  // H2: plain digit 1-9/0 (no modifier) — set selection opacity. Figma maps
+  // 1-9 to 10%-90% and 0 to 100%. Only handled when nothing else claimed the
+  // digit (e.g. Shift+1/Shift+2 zoom above) and no modifier is held; the
+  // caller supplies onOpacityChange only when a layer is selected and canvas
+  // has focus, so an absent handler naturally no-ops here.
+  if (
+    !primary &&
+    !event.altKey &&
+    !event.shiftKey &&
+    digit &&
+    props.onOpacityChange
+  ) {
+    const opacity = digit === "0" ? 100 : Number(digit) * 10;
+    prevent();
+    props.onOpacityChange({ ...details, opacity });
+    return true;
   }
 
   if (primary && key === "]") {

@@ -13,8 +13,10 @@
  * - `classReplace` — replaces one Tailwind class with another on the root node.
  *
  * **Tier B (real-app, localhost / fusion):**  prop writes require the
- * `applyEdit` source capability (bridge write hardening).  Until that lands the
- * action returns a `ctaRequired: true` response and does not modify any source.
+ * `applyEdit` source capability.  Localhost sources have it (design bridge +
+ * user write consent); fusion sources gain it after bridge hardening.  For
+ * sources without it the action returns a `ctaRequired: true` response and
+ * does not modify any source.
  *
  * See DESIGN-STUDIO-PLAN.md §6.1, §7 (preview/apply contract), §11 phase 2.
  */
@@ -43,11 +45,7 @@ import {
   applyVisualEdit,
   buildCodeLayerProjection,
 } from "../shared/code-layer.js";
-import type {
-  CodeLayerSource,
-  ClassEditIntent,
-  StyleEditIntent,
-} from "../shared/code-layer.js";
+import type { CodeLayerSource, ClassEditIntent } from "../shared/code-layer.js";
 import {
   componentNameFor,
   componentNodeIdMatches,
@@ -342,70 +340,12 @@ export default defineAction({
       );
     }
 
-    // ── Build edit intent ────────────────────────────────────────────────────
-    // Map the component prop edit kind to an EditIntent that apply-visual-edit
-    // understands.  We use the same deterministic patch path for all kinds.
-
-    const target = { nodeId };
-
-    let intent: ClassEditIntent | StyleEditIntent;
-
-    if (edit.kind === "alpineData") {
-      // x-data is not a standard CSS property or Tailwind class — we write it
-      // as a style-like "attribute" edit by embedding it in the class edit path
-      // via the `set` operation on a synthetic class string.  Because the HTML
-      // patcher writes raw attribute values we use the attribute-set approach
-      // that `apply-visual-edit` already supports through the `style` path
-      // (targeting `x-data` as a custom property in an inline `style`
-      // attribute would corrupt the DOM, so instead we encode the value in a
-      // `data-agent-native-alpine-data` attribute and let the bridge pick it
-      // up).  For maximum compatibility with the existing apply-visual-edit
-      // path we use a class operation to manipulate the x-data value through a
-      // well-known pattern the bridge understands.
-      //
-      // The cleanest path is to write `data-agent-native-alpine-data` as an
-      // attribute so the iframe bridge can relay it to Alpine as the effective
-      // x-data — but since the bridge postMessage layer handles x-data edits
-      // on preview, for the persist path we do a direct HTML attribute patch.
-      // We accomplish this by treating it as a `style` edit on a sentinel
-      // property that the patcher will place as an attribute.  However the
-      // current patcher only handles CSS properties, so we write the x-data
-      // value through the attribute approach: stamp `data-agent-native-prop-x-data`.
-      intent = {
-        kind: "class",
-        target,
-        // Use the `set` operation with a minimal token list to mark the node's
-        // Alpine data without touching real layout classes.  The actual x-data
-        // attribute is written below via a direct HTML splice.
-        operation: "add",
-        className: `data-[x-data=${JSON.stringify(edit.value)}]:hidden`, // sentinel (will not apply visually)
-      } as ClassEditIntent;
-      // Fall through to the direct HTML splice below.
-    } else if (edit.kind === "classReplace") {
-      intent = {
-        kind: "class",
-        target,
-        operation: "replace",
-        from: edit.from,
-        to: edit.to,
-      } as ClassEditIntent;
-    } else {
-      // attribute kind — write as a class add of a data-attribute sentinel so
-      // the existing patcher path handles it, then fall through to the direct
-      // splice for the actual attribute patch.
-      intent = {
-        kind: "class",
-        target,
-        operation: "add",
-        className: `data-[prop-${edit.attribute}]:hidden`, // sentinel
-      } as ClassEditIntent;
-    }
-
-    // ── Direct HTML splice for attribute edits (alpineData + attribute) ──────
-    // The existing apply-visual-edit patcher is class/style/text focused.  For
-    // attribute mutations on the component root we splice the raw HTML directly
-    // using the node's source span (the same technique the patcher uses for
-    // attribute stamping).
+    // ── Apply the edit ───────────────────────────────────────────────────────
+    // - alpineData / attribute: attribute mutations on the component root are
+    //   applied with a direct HTML splice using the node's source span — the
+    //   deterministic patcher is class/style/text focused.
+    // - classReplace: routed through the deterministic apply-visual-edit
+    //   patcher (same seam as all other class edits).
 
     let patchedContent = html;
     let changed = false;
@@ -420,8 +360,15 @@ export default defineAction({
       );
       patchedContent = result.content;
       changed = result.changed;
-    } else if (edit.kind === "classReplace") {
-      // Use the deterministic patcher for class edits.
+    } else {
+      // classReplace — use the deterministic patcher for class edits.
+      const intent: ClassEditIntent = {
+        kind: "class",
+        target: { nodeId },
+        operation: "replace",
+        from: edit.from,
+        to: edit.to,
+      };
       const patch = applyVisualEdit(html, intent, { source: codeLayerSource });
       if (patch.result.status === "applied" && patch.result.changed) {
         patchedContent = patch.content;

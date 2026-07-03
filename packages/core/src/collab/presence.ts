@@ -63,6 +63,40 @@ export function usePresence(
       return;
     }
 
+    // Keep the last derived snapshot so genuinely no-op change events (e.g. a
+    // local-only awareness field flip that doesn't affect any remote entry)
+    // can bail out without triggering a subscriber re-render.
+    let lastOthers: OtherPresence[] = [];
+
+    function shallowEqualOthers(
+      a: readonly OtherPresence[],
+      b: readonly OtherPresence[],
+    ): boolean {
+      if (a === b) return true;
+      if (a.length !== b.length) return false;
+      for (let i = 0; i < a.length; i += 1) {
+        const left = a[i]!;
+        const right = b[i]!;
+        if (left === right) continue;
+        if (
+          left.clientId !== right.clientId ||
+          left.isAgent !== right.isAgent ||
+          left.user.name !== right.user.name ||
+          left.user.email !== right.user.email ||
+          left.user.color !== right.user.color
+        ) {
+          return false;
+        }
+        // Compare presence payloads with a stable JSON.stringify — presence
+        // fields (cursor/selection/viewport) are small JSON-safe records, so
+        // this is cheap and avoids a re-render when nothing actually changed.
+        if (JSON.stringify(left.presence) !== JSON.stringify(right.presence)) {
+          return false;
+        }
+      }
+      return true;
+    }
+
     function derive(): OtherPresence[] {
       const result: OtherPresence[] = [];
       awareness!.getStates().forEach((state, clientId) => {
@@ -100,12 +134,38 @@ export function usePresence(
       return result;
     }
 
-    function onAwarenessChange() {
-      setOthers(derive());
+    function onAwarenessChange(changes?: {
+      added: number[];
+      updated: number[];
+      removed: number[];
+    }) {
+      // The awareness "change" event fires for local-only state edits too
+      // (e.g. this hook's own setPresence() calls, or the doc's
+      // activeFileId/visible fields). When every changed client id is the
+      // local client, the derived `others` array (which excludes the local
+      // client) cannot have changed, so skip the re-render entirely.
+      if (changes) {
+        const changedIds = [
+          ...changes.added,
+          ...changes.updated,
+          ...changes.removed,
+        ];
+        if (
+          changedIds.length > 0 &&
+          changedIds.every((id) => id === localClientId)
+        ) {
+          return;
+        }
+      }
+      const next = derive();
+      if (shallowEqualOthers(lastOthers, next)) return;
+      lastOthers = next;
+      setOthers(next);
     }
 
     // Derive immediately.
-    setOthers(derive());
+    lastOthers = derive();
+    setOthers(lastOthers);
     awareness.on("change", onAwarenessChange);
     return () => {
       awareness.off("change", onAwarenessChange);

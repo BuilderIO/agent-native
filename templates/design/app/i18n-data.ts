@@ -511,6 +511,8 @@ const enUS = {
       propsPasted: "Properties pasted",
       primitiveInsertFailed: "Could not add that layer to the screen",
       layerMoveFailed: "Could not move that layer",
+      layerRenameSelectLayer:
+        "Double-click the layer in the panel to rename it",
       duplicateElementFailed: "Could not duplicate that element",
       saveCopyError: "Could not save a copy of this design",
       auditRunFailed: "Unable to run design audit",
