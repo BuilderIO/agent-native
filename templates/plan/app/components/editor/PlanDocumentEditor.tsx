@@ -1478,7 +1478,9 @@ export function PlanDocumentEditor({
           disableHistory={!collabEnabled}
           getMarkdown={getMarkdown}
           setContent={setContent}
+          parseValue={false}
           normalizeValue={normalizeValue}
+          initialAppliedUpdatedAt={null}
           wrapperClassName={WRAPPER_CLASS}
           className="plan-document-editor-surface"
           onEditorReady={handleEditorReady}
@@ -1806,7 +1808,9 @@ export function NestedPlanBlocksEditor({
           slashItems={slashItems}
           getMarkdown={getMarkdown}
           setContent={setContent}
+          parseValue={false}
           normalizeValue={normalizeValue}
+          initialAppliedUpdatedAt={null}
           wrapperClassName={NESTED_WRAPPER_CLASS}
           className="plan-nested-document-editor-surface"
           editorClassName="plan-nested-document-editor-prose"

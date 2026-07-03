@@ -303,20 +303,32 @@ export function useCollabReconcile({
     // Seed only when the shared doc is genuinely empty — either the fragment has
     // no nodes yet, or it holds no semantic markdown (an empty paragraph, or an
     // app's sentinel-empty filler via a custom `shouldSeed`).
+    seededRef.current = true;
     if (
-      shouldSeed({ value, currentMarkdown, fragmentLength: fragment.length })
+      !shouldSeed({ value, currentMarkdown, fragmentLength: fragment.length })
     ) {
+      return;
+    }
+
+    let cancelled = false;
+    queueMicrotask(() => {
+      if (cancelled || editor.isDestroyed) return;
       isSettingContentRef.current = true;
-      setContent(editor, value, {});
-      isSettingContentRef.current = false;
+      try {
+        setContent(editor, value, {});
+      } finally {
+        isSettingContentRef.current = false;
+      }
       const serialized = getMarkdown(editor);
       lastEmittedRef.current = serialized;
       pushEmittedRing(recentEmittedRef.current, serialized);
       lastAppliedValueRef.current = value;
       lastAppliedSerializedRef.current = serialized;
       if (contentUpdatedAt) lastAppliedUpdatedAtRef.current = contentUpdatedAt;
-    }
-    seededRef.current = true;
+    });
+    return () => {
+      cancelled = true;
+    };
   }, [
     collab,
     editor,

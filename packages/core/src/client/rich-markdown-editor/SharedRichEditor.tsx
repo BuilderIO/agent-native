@@ -19,6 +19,7 @@ import {
   useCollabReconcile,
   getEditorMarkdown,
   type UseCollabReconcileResult,
+  type UseCollabReconcileOptions,
 } from "./useCollabReconcile.js";
 
 export interface SharedRichEditorProps {
@@ -86,6 +87,12 @@ export interface SharedRichEditorProps {
     value: string,
     options: { emitUpdate?: boolean; addToHistory?: boolean },
   ) => void;
+  /**
+   * Optional parser for surgical reconcile. Custom value formats that already
+   * handle surgical writes inside `setContent` can pass `false` so the default
+   * markdown parser never treats their source bytes as literal markdown.
+   */
+  parseValue?: UseCollabReconcileOptions["parseValue"];
   /** Canonicalize `value` for the echo / already-in-sync equality checks. */
   normalizeValue?: (value: string) => string;
   /** Override the empty-doc seed predicate (see {@link useCollabReconcile}). */
@@ -142,6 +149,7 @@ export function SharedRichEditor({
   buildBubbleItems,
   getMarkdown,
   setContent,
+  parseValue,
   normalizeValue,
   shouldSeed,
   initialAppliedUpdatedAt,
@@ -248,6 +256,7 @@ export function SharedRichEditor({
     editable,
     getMarkdown: readMarkdown,
     setContent,
+    parseValue,
     normalizeValue,
     shouldSeed,
     initialAppliedUpdatedAt,
