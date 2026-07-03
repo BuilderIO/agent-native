@@ -5,6 +5,7 @@ import {
   buildAncestorIdMap,
   dropDescendantsOfSelectedAncestors,
   dropPlacementForEvent,
+  findNodeWithAncestors,
   flattenRows,
   getDraggedLayerIdsForRows,
   getLayerSelectionAnchorFromExternalSelection,
@@ -295,5 +296,57 @@ describe("LayersPanel drop placement zones (L10)", () => {
     expect(dropPlacementForEvent(fakeDragOverEvent(16, 32), true, false)).toBe(
       "inside",
     );
+  });
+});
+
+describe("LayersPanel external rename trigger (L12: findNodeWithAncestors)", () => {
+  // This is the pure lookup beginRename uses to validate an externally
+  // requested rename target and compute which ancestors must be expanded for
+  // the row to become visible — see beginRename in LayersPanel.tsx.
+  const tree: LayersPanelNode[] = [
+    {
+      id: "frame-1",
+      name: "Frame 1",
+      type: "frame",
+      children: [
+        {
+          id: "group-1",
+          name: "Group 1",
+          type: "group",
+          children: [{ id: "text-1", name: "Text 1", type: "text" }],
+        },
+        {
+          id: "locked-name",
+          name: "Locked Name",
+          type: "text",
+          renamable: false,
+        },
+      ],
+    },
+  ];
+
+  it("finds a deeply nested layer and reports its ancestor chain for expansion", () => {
+    expect(findNodeWithAncestors(tree, "text-1")).toEqual({
+      node: { id: "text-1", name: "Text 1", type: "text" },
+      ancestorIds: ["frame-1", "group-1"],
+    });
+  });
+
+  it("finds a top-level layer with an empty ancestor chain", () => {
+    expect(findNodeWithAncestors(tree, "frame-1")).toEqual({
+      node: tree[0],
+      ancestorIds: [],
+    });
+  });
+
+  it("returns null for an id that isn't in the tree, so beginRename can report false", () => {
+    expect(findNodeWithAncestors(tree, "does-not-exist")).toBeNull();
+  });
+
+  it("still finds a renamable:false node — beginRename itself gates on that flag", () => {
+    // findNodeWithAncestors is a plain lookup; it's beginRename's job to
+    // check node.renamable and return false without starting the rename.
+    const found = findNodeWithAncestors(tree, "locked-name");
+    expect(found?.node.renamable).toBe(false);
   });
 });

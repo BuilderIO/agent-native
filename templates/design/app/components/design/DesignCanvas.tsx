@@ -1,4 +1,5 @@
 import { usePinchZoom, useT } from "@agent-native/core/client";
+import { getDraftGeometryFromPoints } from "@shared/canvas-math";
 import { ensureCodeLayerNodeIdsInHtml } from "@shared/code-layer";
 import { useRef, useEffect, useCallback, useMemo, useState } from "react";
 
@@ -12,6 +13,7 @@ import {
   type CanvasPin,
 } from "@/components/visual-editor";
 import { sendToDesignAgentChat } from "@/lib/agent-chat";
+import { cn } from "@/lib/utils";
 
 import { editorChromeBridgeScript } from "../../../.generated/bridge/editor-chrome.generated";
 import { embeddedWheelBridgeScript } from "../../../.generated/bridge/embedded-wheel.generated";
@@ -493,6 +495,88 @@ interface DesignCanvasProps {
     nodeId: string;
     componentName: string;
   }) => void;
+  /**
+   * Figma-style click-to-place primitive creation while focused on a single
+   * screen. When set to a non-null tool, DesignCanvas mounts a transparent
+   * capture overlay above the iframe so pointer gestures draw a new
+   * primitive instead of reaching the iframe's own content/editor-chrome
+   * bridge. `null`/`undefined` fully restores prior (pre-creation-tool)
+   * behavior — the overlay never mounts.
+   */
+  activeCreationTool?: CreationTool | null;
+  /**
+   * Fired once per completed click or drag gesture while `activeCreationTool`
+   * is set. Geometry is in SCREEN-CONTENT coordinates — the screen's own
+   * pixel coordinate system, matching what `getDraftGeometryFromPoints` and
+   * `draftPrimitiveToInsert` already use in MultiScreenCanvas — NOT viewport
+   * pixels. The parent (DesignEditor) is responsible for turning this into a
+   * persisted primitive (see `appendCanvasPrimitiveToHtml` /
+   * `draftPrimitiveToInsert` on the overview side).
+   */
+  onCreatePrimitive?: (spec: CreatePrimitiveSpec) => void;
+}
+
+/** Creation tools supported by the single-screen click-to-place overlay. */
+export type CreationTool =
+  | "rectangle"
+  | "ellipse"
+  | "line"
+  | "arrow"
+  | "text"
+  | "pen";
+
+/**
+ * Geometry payload emitted by the single-screen creation overlay. Coordinates
+ * are always in screen-content space (see `activeCreationTool` doc above).
+ *
+ * - `rect` is present for rectangle/ellipse/text (a click uses a sensible
+ *   default size; a drag uses the dragged bounds via
+ *   `getDraftGeometryFromPoints`, matching MultiScreenCanvas).
+ * - `points` is present for line/arrow (always exactly 2 points) and for a
+ *   pen click (a single start point — see the deferred multi-click pen note
+ *   on the overlay component itself).
+ * - `fromClick` distinguishes a negligible-movement click (true) from a
+ *   drag past the movement threshold (false), mirroring MultiScreenCanvas's
+ *   own click-vs-drag draft creation semantics.
+ */
+export interface CreatePrimitiveSpec {
+  tool: CreationTool;
+  rect?: { x: number; y: number; width: number; height: number };
+  points?: Array<{ x: number; y: number }>;
+  fromClick: boolean;
+}
+
+/**
+ * Converts a pointer position in viewport (client) coordinates into
+ * screen-content coordinates — the screen's own pixel coordinate system, as
+ * used by `getDraftGeometryFromPoints` / `draftPrimitiveToInsert` in
+ * MultiScreenCanvas.
+ *
+ * The iframe's rendered rect (`getBoundingClientRect()`) already reflects any
+ * outer zoom `transform: scale(...)` wrapper, while `iframe.clientWidth` /
+ * `iframe.clientHeight` are the raw (unscaled) layout size that equals the
+ * screen's own content pixel dimensions. Dividing out that ratio undoes the
+ * zoom scale, matching the scaleX/scaleY convention already used by the
+ * `element-contextmenu` bridge handler below.
+ */
+export function getScreenContentPointFromClient(
+  clientX: number,
+  clientY: number,
+  iframeRect: { left: number; top: number; width: number; height: number },
+  iframeContentSize: { width: number; height: number },
+): { x: number; y: number } {
+  const scaleX =
+    iframeContentSize.width > 0
+      ? iframeRect.width / iframeContentSize.width
+      : 1;
+  const scaleY =
+    iframeContentSize.height > 0
+      ? iframeRect.height / iframeContentSize.height
+      : 1;
+  return {
+    x: (clientX - iframeRect.left) / (scaleX || 1),
+    y: (clientY - iframeRect.top) / (scaleY || 1),
+  };
 }
 
 function getExternalPreviewUrl(content: string): string | null {
@@ -695,6 +779,8 @@ export function DesignCanvas({
   previewWidthPx,
   onComponentSourceJump,
   shaderFillPreview,
+  activeCreationTool = null,
+  onCreatePrimitive,
 }: DesignCanvasProps) {
   const t = useT();
   const iframeRef = useRef<HTMLIFrameElement>(null);
@@ -2000,6 +2086,18 @@ export function DesignCanvas({
         }}
         title={t("designEditor.designPreview")}
       />
+      {/* Single-screen click-to-place creation overlay — sits over the
+          iframe, NOT inside it, mirroring the SharedDrawOverlay pattern
+          below. Only mounts while a creation tool is active so it never
+          changes existing behavior otherwise (T14: single-screen mode
+          previously had no creation capability at all). */}
+      {activeCreationTool ? (
+        <SingleScreenCreationOverlay
+          tool={activeCreationTool}
+          iframeRef={iframeRef}
+          onCreatePrimitive={onCreatePrimitive}
+        />
+      ) : null}
       {waitingForEditableExternalSnapshot ? (
         <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center bg-background/85 px-4 text-center text-sm text-muted-foreground">
           <div className="max-w-[28rem] rounded-md border bg-card px-4 py-3 shadow-sm">
@@ -2172,6 +2270,287 @@ export function DesignCanvas({
           commentContextLabel || designTitle || commentContextId || designId
         }
       />
+    </div>
+  );
+}
+
+/** Minimum pointer movement (in viewport/client px) before a pointerdown→up
+ *  gesture counts as a drag instead of a click. Matches the small-threshold
+ *  click-vs-drag convention used elsewhere in the editor (e.g. marquee-vs-
+ *  click hit-testing) rather than MultiScreenCanvas's own canvas-space
+ *  threshold, since this overlay only ever sees viewport-space pointer
+ *  events. */
+const CREATION_CLICK_MOVE_THRESHOLD_PX = 4;
+
+/** Default click-to-place sizes, in screen-content px, for tools that need a
+ *  sensible size when the user clicks instead of drags. Mirrors
+ *  MultiScreenCanvas's own DRAFT_*_WIDTH/HEIGHT defaults closely enough for
+ *  single-screen placement (kept local — those constants aren't exported). */
+const CREATION_DEFAULT_SIZE: Record<
+  Exclude<CreationTool, "line" | "arrow" | "pen">,
+  { width: number; height: number }
+> = {
+  rectangle: { width: 160, height: 100 },
+  ellipse: { width: 120, height: 120 },
+  text: { width: 160, height: 32 },
+};
+
+/** Default line/arrow length (screen-content px) for a click (no drag). */
+const CREATION_DEFAULT_LINE_LENGTH = 120;
+
+interface CreationDragState {
+  tool: CreationTool;
+  /** Screen-content coordinates of the initial pointerdown. */
+  startContent: { x: number; y: number };
+  /** Screen-content coordinates of the latest pointer position. */
+  currentContent: { x: number; y: number };
+  /** Viewport (client) coordinates of the initial pointerdown — kept
+   *  alongside startContent so the click-vs-drag movement threshold can be
+   *  measured in client space (a constant visual distance regardless of
+   *  zoom) without re-deriving it from content-space coordinates. */
+  startClient: { x: number; y: number };
+  pointerId: number;
+  moved: boolean;
+}
+
+interface SingleScreenCreationOverlayProps {
+  tool: CreationTool;
+  iframeRef: React.RefObject<HTMLIFrameElement | null>;
+  onCreatePrimitive?: (spec: CreatePrimitiveSpec) => void;
+}
+
+/**
+ * Figma-style click-to-place creation overlay for single-screen mode.
+ *
+ * Mounts a transparent, `pointer-events: auto` surface above the iframe
+ * (matching the `SharedDrawOverlay` mount pattern) that intercepts pointer
+ * gestures instead of letting them reach the iframe's own content/editor-
+ * chrome bridge. A pointerdown→move→up past `CREATION_CLICK_MOVE_THRESHOLD_PX`
+ * is treated as a drag (draws a rect/line via `getDraftGeometryFromPoints`,
+ * the same helper MultiScreenCanvas uses for overview drafts); a
+ * pointerdown→up with negligible movement is treated as a click (places a
+ * default-sized primitive, or for pen, starts a path at that point).
+ *
+ * Deferred: multi-click pen path authoring. In single-screen mode a single
+ * click emits `points: [point], fromClick: true` so the parent can start a
+ * pen path (matching MultiScreenCanvas's click-to-start behavior), but there
+ * is no in-overlay support yet for adding further anchor points before
+ * committing — that's a follow-up once the parent's pen-path commit flow is
+ * wired for single-screen. This intentionally never force-switches to
+ * overview to get full pen authoring.
+ */
+function SingleScreenCreationOverlay({
+  tool,
+  iframeRef,
+  onCreatePrimitive,
+}: SingleScreenCreationOverlayProps) {
+  const [drag, setDrag] = useState<CreationDragState | null>(null);
+  const dragRef = useRef<CreationDragState | null>(null);
+
+  const toContentPoint = useCallback(
+    (clientX: number, clientY: number) => {
+      const iframe = iframeRef.current;
+      const rect = iframe?.getBoundingClientRect();
+      if (!iframe || !rect) return { x: clientX, y: clientY };
+      return getScreenContentPointFromClient(clientX, clientY, rect, {
+        width: iframe.clientWidth,
+        height: iframe.clientHeight,
+      });
+    },
+    [iframeRef],
+  );
+
+  const emit = useCallback(
+    (state: CreationDragState) => {
+      if (!onCreatePrimitive) return;
+      const { tool: activeTool, startContent, currentContent, moved } = state;
+
+      if (activeTool === "line" || activeTool === "arrow") {
+        const end = moved
+          ? currentContent
+          : {
+              x: startContent.x + CREATION_DEFAULT_LINE_LENGTH,
+              y: startContent.y,
+            };
+        onCreatePrimitive({
+          tool: activeTool,
+          points: [startContent, end],
+          fromClick: !moved,
+        });
+        return;
+      }
+
+      if (activeTool === "pen") {
+        // Deferred: multi-click pen authoring (see component doc comment).
+        // A click starts a path; a drag is treated the same as a click for
+        // now — only the start point is emitted.
+        onCreatePrimitive({
+          tool: "pen",
+          points: [startContent],
+          fromClick: true,
+        });
+        return;
+      }
+
+      if (!moved) {
+        const size = CREATION_DEFAULT_SIZE[activeTool];
+        onCreatePrimitive({
+          tool: activeTool,
+          rect: {
+            x: startContent.x,
+            y: startContent.y,
+            width: size.width,
+            height: size.height,
+          },
+          fromClick: true,
+        });
+        return;
+      }
+
+      const geometry = getDraftGeometryFromPoints(
+        startContent,
+        currentContent,
+        {
+          minWidth: activeTool === "text" ? 24 : 8,
+          minHeight: activeTool === "text" ? 18 : 8,
+          defaultWidth: CREATION_DEFAULT_SIZE[activeTool].width,
+          defaultHeight: CREATION_DEFAULT_SIZE[activeTool].height,
+        },
+      );
+      onCreatePrimitive({
+        tool: activeTool,
+        rect: geometry,
+        fromClick: false,
+      });
+    },
+    [onCreatePrimitive],
+  );
+
+  const handlePointerDown = useCallback(
+    (e: React.PointerEvent<HTMLDivElement>) => {
+      if (e.button !== 0) return;
+      const point = toContentPoint(e.clientX, e.clientY);
+      const next: CreationDragState = {
+        tool,
+        startContent: point,
+        currentContent: point,
+        startClient: { x: e.clientX, y: e.clientY },
+        pointerId: e.pointerId,
+        moved: false,
+      };
+      dragRef.current = next;
+      setDrag(next);
+      (e.target as HTMLElement).setPointerCapture(e.pointerId);
+    },
+    [tool, toContentPoint],
+  );
+
+  const handlePointerMove = useCallback(
+    (e: React.PointerEvent<HTMLDivElement>) => {
+      const current = dragRef.current;
+      if (!current || current.pointerId !== e.pointerId) return;
+      // Movement threshold measured in client (viewport) space — a constant
+      // visual distance regardless of zoom — rather than screen-content
+      // space, which would need dividing by scale to mean the same thing at
+      // every zoom level.
+      const movedPastThreshold =
+        Math.hypot(
+          e.clientX - current.startClient.x,
+          e.clientY - current.startClient.y,
+        ) > CREATION_CLICK_MOVE_THRESHOLD_PX;
+      const point = toContentPoint(e.clientX, e.clientY);
+      const next: CreationDragState = {
+        ...current,
+        currentContent: point,
+        moved: current.moved || movedPastThreshold,
+      };
+      dragRef.current = next;
+      setDrag(next);
+    },
+    [toContentPoint],
+  );
+
+  const handlePointerUp = useCallback(
+    (e: React.PointerEvent<HTMLDivElement>) => {
+      const current = dragRef.current;
+      if (!current || current.pointerId !== e.pointerId) return;
+      dragRef.current = null;
+      setDrag(null);
+      emit(current);
+    },
+    [emit],
+  );
+
+  const handlePointerCancel = useCallback(
+    (e: React.PointerEvent<HTMLDivElement>) => {
+      const current = dragRef.current;
+      if (!current || current.pointerId !== e.pointerId) return;
+      dragRef.current = null;
+      setDrag(null);
+    },
+    [],
+  );
+
+  const cursorClass = tool === "text" ? "cursor-text" : "cursor-crosshair";
+  const isLineTool = tool === "line" || tool === "arrow";
+
+  // Live drag preview, converted back from screen-content space to the
+  // overlay's own (unscaled, layout-space) coordinates. The overlay div is
+  // sized to the iframe's layout box (via inset-0 on a wrapper that already
+  // matches iframe.clientWidth/Height 1:1 before the outer zoom transform),
+  // so screen-content coordinates ARE this overlay's local coordinates —
+  // no extra scale conversion is needed for the preview's own CSS position.
+  const previewRect =
+    drag && drag.moved && !isLineTool && tool !== "pen"
+      ? getDraftGeometryFromPoints(drag.startContent, drag.currentContent, {
+          minWidth: tool === "text" ? 24 : 8,
+          minHeight: tool === "text" ? 18 : 8,
+        })
+      : null;
+  const previewLine =
+    drag && drag.moved && isLineTool
+      ? { start: drag.startContent, end: drag.currentContent }
+      : null;
+
+  return (
+    <div
+      data-design-canvas-creation-overlay
+      data-creation-tool={tool}
+      className={cn("absolute inset-0 z-20 pointer-events-auto", cursorClass)}
+      onPointerDown={handlePointerDown}
+      onPointerMove={handlePointerMove}
+      onPointerUp={handlePointerUp}
+      onPointerCancel={handlePointerCancel}
+    >
+      {previewRect ? (
+        <div
+          data-creation-preview-rect
+          className="pointer-events-none absolute rounded-[2px] border-[1.5px] border-[var(--design-editor-accent-color)] bg-[var(--design-editor-accent-color)]/10"
+          style={{
+            left: previewRect.x,
+            top: previewRect.y,
+            width: Math.max(1, previewRect.width),
+            height: Math.max(1, previewRect.height),
+            borderRadius: tool === "ellipse" ? "9999px" : undefined,
+          }}
+        />
+      ) : null}
+      {previewLine ? (
+        <svg
+          data-creation-preview-line
+          className="pointer-events-none absolute inset-0 h-full w-full overflow-visible"
+        >
+          <line
+            x1={previewLine.start.x}
+            y1={previewLine.start.y}
+            x2={previewLine.end.x}
+            y2={previewLine.end.y}
+            stroke="var(--design-editor-accent-color)"
+            strokeWidth={2}
+            strokeDasharray="4 3"
+          />
+        </svg>
+      ) : null}
     </div>
   );
 }

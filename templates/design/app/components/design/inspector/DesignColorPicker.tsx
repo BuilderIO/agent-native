@@ -138,6 +138,17 @@ export interface DesignColorPickerLabels {
 export interface DesignColorPickerProps {
   value: string;
   onChange: (value: string) => void;
+  /**
+   * Optional gesture-lifecycle signal, complementary to `onChange`. The SV
+   * field, hue slider, and alpha slider call `onChange` on every pointermove
+   * tick for live preview (cheap/throttleable), but only call
+   * `onChangeComplete` once per gesture — on pointerup/drag-end — with the
+   * final color. Discrete, already-final commits (hex entry, RGB/HSL/HSB
+   * field commits, keyboard nudges, document-color swatch clicks, paint-type
+   * switches) also fire it once, immediately. Omit this prop to keep the
+   * existing every-tick `onChange`-only behavior.
+   */
+  onChangeComplete?: (value: string) => void;
   onPaintValueChange?: (value: string) => void;
   onImageFillChange?: (value: ImageFillValue) => void;
   backgroundImage?: string;
@@ -611,6 +622,7 @@ const BLEND_MODE_OPTIONS = [
 export function DesignColorPicker({
   value,
   onChange,
+  onChangeComplete,
   onPaintValueChange,
   onImageFillChange,
   backgroundImage,
@@ -773,11 +785,24 @@ export function DesignColorPicker({
 
   // ── Emit helpers ────────────────────────────────────────────────────────────
 
+  // Tracks the last CSS value handed to onChange/onPaintValueChange, so a
+  // gesture-end (pointerup on the SV field / hue / alpha tracks) can re-emit
+  // that exact value once via onChangeComplete without recomputing it from
+  // pointer coordinates after the drag has already ended.
+  const lastEmittedValueRef = useRef(value);
+
+  const notifyChangeComplete = () => {
+    onChangeComplete?.(lastEmittedValueRef.current);
+  };
+
   const emitColor = (nextColor: RgbaColor, nextOpacity = effectiveOpacity) => {
-    onChange(rgbaToCss(withColorOpacity(nextColor, nextOpacity)));
+    const next = rgbaToCss(withColorOpacity(nextColor, nextOpacity));
+    lastEmittedValueRef.current = next;
+    onChange(next);
   };
 
   const emitPaintValue = (nextValue: string) => {
+    lastEmittedValueRef.current = nextValue;
     if (onPaintValueChange) onPaintValueChange(nextValue);
     else onChange(nextValue);
   };
@@ -809,6 +834,7 @@ export function DesignColorPicker({
     if (activeGradient) {
       const hexIncludesAlpha = hasHexAlpha(currentDraft);
       emitStopColor(hexIncludesAlpha ? parsed : { ...parsed, a: fieldColor.a });
+      notifyChangeComplete();
       return;
     }
     const hexIncludesAlpha = hasHexAlpha(currentDraft);
@@ -817,11 +843,19 @@ export function DesignColorPicker({
       : effectiveOpacity;
     if (hexIncludesAlpha && onOpacityChange) onOpacityChange(nextOpacity);
     emitColor(parsed, nextOpacity);
+    notifyChangeComplete();
   };
 
   const setOpacity = (nextOpacity: number) => {
+    // Track the resulting CSS value even when the opacity itself is reported
+    // through the separate onOpacityChange prop, so a subsequent
+    // notifyChangeComplete() call still reports the current color+opacity —
+    // not a stale value from before this opacity edit.
+    lastEmittedValueRef.current = rgbaToCss(
+      withColorOpacity(color, nextOpacity),
+    );
     if (onOpacityChange) onOpacityChange(nextOpacity);
-    else onChange(rgbaToCss(withColorOpacity(color, nextOpacity)));
+    else onChange(lastEmittedValueRef.current);
   };
 
   // ── Gradient editing ─────────────────────────────────────────────────────────
@@ -935,12 +969,18 @@ export function DesignColorPicker({
 
     setLocalPaintType(nextType);
 
+    // Every branch below is a discrete, one-shot commit (a paint-type click),
+    // never a live drag tick — so each one notifies onChangeComplete once,
+    // immediately, right after the matching onChange/onPaintValueChange call.
     if (nextType === "none") {
+      lastEmittedValueRef.current = "transparent";
       onChange("transparent");
+      notifyChangeComplete();
       return;
     }
     if (nextType === "solid") {
       emitColor(color, effectiveOpacity > 0 ? effectiveOpacity : 100);
+      notifyChangeComplete();
       return;
     }
     if (GRADIENT_TYPES.has(nextType)) {
@@ -953,6 +993,7 @@ export function DesignColorPicker({
       const next: GradientValue = { ...base, kind: nextType as GradientKind };
       setSelectedStopId(next.stops[0]?.id ?? "");
       emitGradient(next);
+      notifyChangeComplete();
       return;
     }
     if (nextType === "image") {
@@ -964,20 +1005,24 @@ export function DesignColorPicker({
       emitPaintValue(
         nextImageFill.url ? imageFillToCss(nextImageFill) : "transparent",
       );
+      notifyChangeComplete();
       return;
     }
     if (nextType === "video") {
       // No standalone CSS for video; mark the fill type and keep a checker fill
       // until a source is wired. The agent can replace it with a <video> layer.
       emitPaintValue("transparent");
+      notifyChangeComplete();
       return;
     }
     if (nextType === "noise") {
       emitPaintValue(NOISE_FALLBACK_CSS);
+      notifyChangeComplete();
       return;
     }
     if (nextType === "pattern") {
       emitPaintValue(PATTERN_FALLBACK_CSS);
+      notifyChangeComplete();
       return;
     }
   };
@@ -1000,8 +1045,11 @@ export function DesignColorPicker({
           const parsed = parseCssColor(result.sRGBHex);
           if (parsed) emitStopColor({ ...parsed, a: fieldColor.a });
         } else {
+          lastEmittedValueRef.current = result.sRGBHex;
           onChange(result.sRGBHex);
         }
+        // The eyedropper pick is a single discrete commit, not a drag tick.
+        notifyChangeComplete();
       }
     } catch {
       // Browser cancels are expected; keep the current color.
@@ -1355,6 +1403,7 @@ export function DesignColorPicker({
                           emitColorFromHsv(nextHsv);
                         }
                       }}
+                      onCommit={notifyChangeComplete}
                     />
                   </div>
                 )}
@@ -1429,6 +1478,7 @@ export function DesignColorPicker({
                             emitColorFromHsv({ ...hsv, h });
                           }
                         }}
+                        onCommit={notifyChangeComplete}
                       />
 
                       {/* Current-color swatch left of alpha (matches the design editor's layout) */}
@@ -1462,6 +1512,7 @@ export function DesignColorPicker({
                                 setOpacity(next);
                               }
                             }}
+                            onCommit={notifyChangeComplete}
                           />
                         </div>
                       </div>
@@ -1593,6 +1644,9 @@ export function DesignColorPicker({
                                   parseCssColorExtended(docColor) ?? color;
                                 if (activeGradient) emitStopColor(parsed);
                                 else emitColor(parsed);
+                                // A swatch click is a discrete, one-shot
+                                // commit, not a drag tick.
+                                notifyChangeComplete();
                               }}
                             />
                           </TooltipTrigger>
@@ -1716,14 +1770,22 @@ function SaturationBrightnessField({
   label,
   disabled,
   onChange,
+  onCommit,
 }: {
   hsv: HsvaColor;
   label: string;
   disabled: boolean;
   onChange: (color: HsvaColor) => void;
+  /**
+   * Fired once per gesture with the final value already applied — on
+   * pointerup/pointercancel that ends a drag, and after every keyboard step
+   * (each arrow press is its own discrete, complete edit). Never fired per
+   * pointermove tick.
+   */
+  onCommit?: () => void;
 }) {
   const fieldRef = useRef<HTMLDivElement>(null);
-  const draggingRef = useRef(false);
+  const draggingRef = useRef<PointerGestureState>(POINTER_GESTURE_IDLE);
   const hueColor = rgbaToCss(hsvToRgba({ h: hsv.h, s: 100, v: 100, a: 1 }));
 
   const updateFromPointer = (event: PointerEvent<HTMLDivElement>) => {
@@ -1745,18 +1807,22 @@ function SaturationBrightnessField({
     if (event.key === "ArrowRight") {
       event.preventDefault();
       onChange({ ...hsv, s: clamp(hsv.s + step, 0, 100) });
+      onCommit?.();
     }
     if (event.key === "ArrowLeft") {
       event.preventDefault();
       onChange({ ...hsv, s: clamp(hsv.s - step, 0, 100) });
+      onCommit?.();
     }
     if (event.key === "ArrowUp") {
       event.preventDefault();
       onChange({ ...hsv, v: clamp(hsv.v + step, 0, 100) });
+      onCommit?.();
     }
     if (event.key === "ArrowDown") {
       event.preventDefault();
       onChange({ ...hsv, v: clamp(hsv.v - step, 0, 100) });
+      onCommit?.();
     }
   };
 
@@ -1768,7 +1834,7 @@ function SaturationBrightnessField({
       aria-disabled={disabled}
       onPointerDown={(event) => {
         if (disabled) return;
-        draggingRef.current = true;
+        draggingRef.current = startPointerGesture();
         event.currentTarget.setPointerCapture(event.pointerId);
         updateFromPointer(event);
       }}
@@ -1777,13 +1843,17 @@ function SaturationBrightnessField({
         updateFromPointer(event);
       }}
       onPointerUp={(event) => {
-        draggingRef.current = false;
+        const ended = endPointerGesture(draggingRef.current);
+        draggingRef.current = ended.state;
         if (event.currentTarget.hasPointerCapture(event.pointerId)) {
           event.currentTarget.releasePointerCapture(event.pointerId);
         }
+        if (ended.shouldCommit) onCommit?.();
       }}
       onPointerCancel={() => {
-        draggingRef.current = false;
+        const ended = endPointerGesture(draggingRef.current);
+        draggingRef.current = ended.state;
+        if (ended.shouldCommit) onCommit?.();
       }}
       onKeyDown={stepWithKeyboard}
       className={cn(
@@ -1818,6 +1888,7 @@ function ColorTrack({
   backgroundSize,
   backgroundPosition,
   onChange,
+  onCommit,
 }: {
   label: string;
   value: number;
@@ -1828,9 +1899,16 @@ function ColorTrack({
   backgroundSize?: string;
   backgroundPosition?: string;
   onChange: (value: number) => void;
+  /**
+   * Fired once per gesture with the final value already applied — on
+   * pointerup/pointercancel that ends a drag, and after every keyboard step
+   * (each arrow/Home/End press is its own discrete, complete edit). Never
+   * fired per pointermove tick.
+   */
+  onCommit?: () => void;
 }) {
   const trackRef = useRef<HTMLDivElement>(null);
-  const draggingRef = useRef(false);
+  const draggingRef = useRef<PointerGestureState>(POINTER_GESTURE_IDLE);
   const percent = ((value - min) / (max - min)) * 100;
 
   const updateFromPointer = (event: PointerEvent<HTMLDivElement>) => {
@@ -1846,18 +1924,22 @@ function ColorTrack({
     if (event.key === "ArrowRight" || event.key === "ArrowUp") {
       event.preventDefault();
       onChange(clamp(value + step, min, max));
+      onCommit?.();
     }
     if (event.key === "ArrowLeft" || event.key === "ArrowDown") {
       event.preventDefault();
       onChange(clamp(value - step, min, max));
+      onCommit?.();
     }
     if (event.key === "Home") {
       event.preventDefault();
       onChange(min);
+      onCommit?.();
     }
     if (event.key === "End") {
       event.preventDefault();
       onChange(max);
+      onCommit?.();
     }
   };
 
@@ -1874,7 +1956,7 @@ function ColorTrack({
       onKeyDown={stepWithKeyboard}
       onPointerDown={(event) => {
         if (disabled) return;
-        draggingRef.current = true;
+        draggingRef.current = startPointerGesture();
         event.currentTarget.setPointerCapture(event.pointerId);
         updateFromPointer(event);
       }}
@@ -1883,13 +1965,17 @@ function ColorTrack({
         updateFromPointer(event);
       }}
       onPointerUp={(event) => {
-        draggingRef.current = false;
+        const ended = endPointerGesture(draggingRef.current);
+        draggingRef.current = ended.state;
         if (event.currentTarget.hasPointerCapture(event.pointerId)) {
           event.currentTarget.releasePointerCapture(event.pointerId);
         }
+        if (ended.shouldCommit) onCommit?.();
       }}
       onPointerCancel={() => {
-        draggingRef.current = false;
+        const ended = endPointerGesture(draggingRef.current);
+        draggingRef.current = ended.state;
+        if (ended.shouldCommit) onCommit?.();
       }}
       className={cn(
         "relative h-3.5 cursor-pointer rounded-full border border-border/60 outline-none",
@@ -2009,6 +2095,37 @@ function ScrubbyNumberInput({
       }}
     />
   );
+}
+
+// ─── Pointer-drag gesture-commit tracking ──────────────────────────────────────
+//
+// Pure helper shared by SaturationBrightnessField and ColorTrack: both fields
+// call onChange on every pointermove tick for live preview, and must call
+// onCommit exactly once when the gesture ends (pointerup/pointercancel),
+// covering both an actual drag and a single tap-no-move click. Extracted so
+// the "exactly once per gesture" contract is unit-testable without simulating
+// real DOM pointer events (this template has no jsdom/testing-library dep).
+
+/** True once a pointerdown has started a gesture that hasn't yet ended. */
+export type PointerGestureState = boolean;
+
+export const POINTER_GESTURE_IDLE: PointerGestureState = false;
+
+/** Call on pointerdown: starts tracking a new gesture. */
+export function startPointerGesture(): PointerGestureState {
+  return true;
+}
+
+/**
+ * Call on pointerup/pointercancel. Returns the next (idle) state and whether
+ * onCommit should fire — true iff a gesture was actually in progress, so a
+ * stray pointerup with no matching pointerdown is a no-op.
+ */
+export function endPointerGesture(state: PointerGestureState): {
+  state: PointerGestureState;
+  shouldCommit: boolean;
+} {
+  return { state: POINTER_GESTURE_IDLE, shouldCommit: state };
 }
 
 // ─── Utilities ─────────────────────────────────────────────────────────────────

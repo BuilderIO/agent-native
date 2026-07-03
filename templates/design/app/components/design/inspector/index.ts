@@ -39,6 +39,9 @@ export {
 } from "./ExportSettingsPanel";
 export {
   DesignColorPicker,
+  endPointerGesture,
+  POINTER_GESTURE_IDLE,
+  startPointerGesture,
   type DesignColorMode,
   type DesignColorPickerLabels,
   type DesignColorPickerProps,
@@ -49,6 +52,7 @@ export {
   type DesignGradientStopPatch,
   type DesignGradientType,
   type DesignPaintType,
+  type PointerGestureState,
 } from "./DesignColorPicker";
 export {
   GradientEditor,
@@ -85,6 +89,11 @@ export {
   getScrubStepFromEvent,
   normalizeScrubNumber,
   parseScrubExpression,
+  SCRUB_DRAG_THRESHOLD_PX,
+  startScrubDrag,
+  updateScrubDrag,
   type ParsedScrubExpression,
+  type ScrubDragState,
+  type ScrubDragTick,
   type ScrubExpressionOptions,
 } from "./scrub-input-utils";
