@@ -349,8 +349,6 @@ function loomEmbedResponse(embedUrl: string): Response {
       "Cache-Control": "private, max-age=0, no-store",
       "Referrer-Policy": "no-referrer",
       "X-Content-Type-Options": "nosniff",
-      "Content-Security-Policy":
-        "default-src 'none'; frame-src https://www.loom.com; style-src 'unsafe-inline'",
     },
   });
 }
