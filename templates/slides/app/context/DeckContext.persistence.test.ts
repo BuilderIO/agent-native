@@ -50,6 +50,12 @@ function setupFetch() {
       return Promise.resolve(new Response("", { status: 404 }));
     }
 
+    if (href.includes("/_agent-native/actions/patch-deck")) {
+      return Promise.resolve(
+        new Response(JSON.stringify({ ok: true }), { status: 200 }),
+      );
+    }
+
     if (href.endsWith("/api/decks")) {
       return Promise.resolve(new Response("[]", { status: 200 }));
     }
@@ -89,6 +95,7 @@ describe("DeckContext deck creation persistence", () => {
   });
 
   afterEach(() => {
+    vi.useRealTimers();
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
   });
@@ -445,6 +452,66 @@ describe("DeckContext deck creation persistence", () => {
       result.current.undo();
     });
     expect(result.current.getDeck(deckId)?.slides).toEqual([]);
+  });
+
+  it("persists immediate edits queued after a generated slide replacement", async () => {
+    window.history.pushState({}, "", "/");
+    const { fetchMock, resolveCreate } = setupFetch();
+    const { result } = renderHook(() => useDecks(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    let deckId = "";
+    act(() => {
+      deckId = result.current.createDeck("Generated", {
+        noDefaultSlides: true,
+      }).id;
+    });
+    resolveCreate(new Response("", { status: 200 }));
+
+    vi.useFakeTimers();
+    act(() => {
+      result.current.setDeckSlides(deckId, [
+        {
+          id: "generated-slide",
+          content: "<div>Generated</div>",
+          notes: "",
+          layout: "content",
+        },
+      ]);
+    });
+    act(() => {
+      result.current.updateSlide(deckId, "generated-slide", {
+        content: "<div>Edited immediately</div>",
+      });
+    });
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(500);
+    });
+
+    const putCall = fetchMock.mock.calls.find(
+      ([url, init]) =>
+        String(url).includes(`/api/decks/${deckId}`) && init?.method === "PUT",
+    );
+    expect(putCall).toBeTruthy();
+    expect(JSON.parse(String(putCall?.[1]?.body)).slides[0].content).toBe(
+      "<div>Generated</div>",
+    );
+
+    const patchCall = fetchMock.mock.calls.find(([url]) =>
+      String(url).includes("/_agent-native/actions/patch-deck"),
+    );
+    expect(patchCall).toBeTruthy();
+    expect(JSON.parse(String(patchCall?.[1]?.body))).toMatchObject({
+      deckId,
+      operations: [
+        {
+          op: "patch-slide",
+          slideId: "generated-slide",
+          fields: { content: "<div>Edited immediately</div>" },
+        },
+      ],
+    });
   });
 
   it("ignores stale reload responses after the route changes", async () => {

@@ -274,12 +274,15 @@ export function getSaveSnapshot(): { saving: boolean } {
  *
  * When a `full-replace` op is enqueued, all previously-queued ops for that
  * deck are discarded because the full replace already captures the authoritative
- * state (used by undo/redo and bulk generation which produce a known good
- * snapshot).
+ * state at that moment (used by undo/redo and bulk generation which produce a
+ * known good snapshot). Later granular edits inside the same debounce window
+ * must still be appended after that snapshot so quick follow-up user edits are
+ * not dropped on reload.
  *
  * The debounce fires after 500 ms of quiet, draining the queue via the
- * granular `patch-deck` action. If the queue contains a `full-replace` op,
- * a direct PUT to `/api/decks/:id` is used instead (backwards-compatible).
+ * granular `patch-deck` action. If the queue starts with a `full-replace` op,
+ * a direct PUT to `/api/decks/:id` is used first, then any trailing granular
+ * ops are sent through `patch-deck`.
  */
 function enqueueDeckOp(deckId: string, op: GranularOp) {
   // Clear any pending save timer — we're about to reset it
@@ -291,17 +294,8 @@ function enqueueDeckOp(deckId: string, op: GranularOp) {
     pendingOpsQueue.set(deckId, [op]);
   } else {
     const queue = pendingOpsQueue.get(deckId) ?? [];
-    // If there's already a full-replace queued, leave it alone — it dominates
-    if (queue.length > 0 && queue[0].op === "full-replace") {
-      // Replace the stored deck snapshot with the latest state by replacing
-      // the full-replace op rather than appending more granular ops on top.
-      // (The op already carries the full deck; newer state comes via the
-      // dirty-deck save effect which will enqueue a fresh full-replace when
-      // it runs.)
-    } else {
-      queue.push(op);
-      pendingOpsQueue.set(deckId, queue);
-    }
+    queue.push(op);
+    pendingOpsQueue.set(deckId, queue);
   }
 
   // Arm the debounce
@@ -324,6 +318,13 @@ function enqueueDeckOp(deckId: string, op: GranularOp) {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(deck),
         });
+        const trailingOps = ops.slice(1) as PatchDeckOp[];
+        if (trailingOps.length > 0) {
+          await callAction("patch-deck", {
+            deckId,
+            operations: trailingOps,
+          });
+        }
       } else {
         // Granular patch — concurrent-safe
         await callAction("patch-deck", {
@@ -377,6 +378,20 @@ function flushPendingSaves() {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(deck),
+          keepalive: true,
+        });
+        const trailingOps = ops.slice(1) as PatchDeckOp[];
+        if (trailingOps.length === 0) continue;
+        void fetch(actionUrl, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "X-Agent-Native-Frontend": "1",
+          },
+          body: JSON.stringify({
+            deckId,
+            operations: trailingOps,
+          }),
           keepalive: true,
         });
       } else {

@@ -2,6 +2,7 @@ import { eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { defineAction } from "../../action.js";
+import { invalidateCollabAccessCache } from "../../server/poll.js";
 import {
   assertAccess,
   currentAccess,
@@ -79,6 +80,7 @@ export default defineAction({
       .update(reg.resourceTable)
       .set(update)
       .where(eq(reg.resourceTable.id, args.resourceId));
+    invalidateCollabAccessCache(args.resourceType, args.resourceId);
     await notifyExtensionShareChanged(
       args.resourceType,
       args.resourceId,

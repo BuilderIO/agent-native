@@ -36,6 +36,10 @@ vi.mock("../sharing/access.js", () => ({
 import { canSeeAwarenessChangeForUser } from "../server/poll-events.js";
 import {
   canSeeChangeForUser,
+  getChangesSinceForUser,
+  getVersion,
+  invalidateCollabAccessCache,
+  recordChange,
   __resetCollabAccessCacheForTests,
 } from "../server/poll.js";
 
@@ -316,7 +320,38 @@ describe("access-aware sharee delivery (SYNC-CACHE variant)", () => {
     ).toBe(false);
   });
 
-  it("revocation stops delivery after the allowed entry's TTL expires", async () => {
+  it("poll retries a cache-miss event instead of advancing past it", async () => {
+    resolveAccessMock.mockResolvedValue({ role: "viewer", resource: {} });
+    const before = getVersion();
+    recordChange(resourceEvent);
+    const eventVersion = getVersion();
+
+    const first = getChangesSinceForUser(
+      before,
+      "sharee@example.com",
+      "org-bob",
+    );
+    expect(first.events).toEqual([]);
+    expect(first.version).toBeGreaterThanOrEqual(before);
+    expect(first.version).toBeLessThan(eventVersion);
+
+    await flushAsync();
+
+    const second = getChangesSinceForUser(
+      first.version,
+      "sharee@example.com",
+      "org-bob",
+    );
+    expect(second.events).toHaveLength(1);
+    expect(second.events[0]).toMatchObject({
+      source: "collab",
+      resourceType: "document",
+      resourceId: "doc-res-1",
+    });
+    expect(second.version).toBeGreaterThan(first.version);
+  });
+
+  it("revocation invalidates allowed cache entries immediately", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-01-01T00:00:00Z"));
 
@@ -332,15 +367,10 @@ describe("access-aware sharee delivery (SYNC-CACHE variant)", () => {
 
     // Access revoked upstream.
     resolveAccessMock.mockResolvedValue(null);
+    invalidateCollabAccessCache("document", "doc-res-1");
 
-    // Still within the 30s allowed TTL → cached true is served (stale-but-bounded).
+    // Still within the old 30s TTL, but explicit invalidation drops stale allow.
     vi.setSystemTime(new Date("2026-01-01T00:00:20Z"));
-    expect(
-      canSeeChangeForUser(resourceEvent, "sharee@example.com", "org-bob"),
-    ).toBe(true);
-
-    // Past the 30s TTL → cache miss → re-check → deny.
-    vi.setSystemTime(new Date("2026-01-01T00:00:31Z"));
     expect(
       canSeeChangeForUser(resourceEvent, "sharee@example.com", "org-bob"),
     ).toBe(false);

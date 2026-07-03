@@ -225,6 +225,8 @@ export function getPollEmitter(): EventEmitter {
 const _accessCache = new Map<string, { allowed: boolean; checkedAt: number }>();
 /** In-flight background access checks, keyed identically, to dedupe bursts. */
 const _accessInFlight = new Set<string>();
+/** Per-resource generation bumped when shares/visibility change. */
+const _accessInvalidationEpoch = new Map<string, number>();
 /** TTL for an allowed (true) cache entry. */
 const ACCESS_CACHE_TTL_MS = 30_000;
 /**
@@ -244,8 +246,30 @@ function accessCacheKey(
   return `${userEmail}|${resourceType}|${resourceId}`;
 }
 
+function accessResourceKey(resourceType: string, resourceId: string): string {
+  return `${resourceType}|${resourceId}`;
+}
+
 function accessCacheTtl(allowed: boolean): number {
   return allowed ? ACCESS_CACHE_TTL_MS : ACCESS_CACHE_DENY_TTL_MS;
+}
+
+export function invalidateCollabAccessCache(
+  resourceType: string,
+  resourceId: string,
+): void {
+  const resourceKey = accessResourceKey(resourceType, resourceId);
+  _accessInvalidationEpoch.set(
+    resourceKey,
+    (_accessInvalidationEpoch.get(resourceKey) ?? 0) + 1,
+  );
+  const suffix = `|${resourceKey}`;
+  for (const key of Array.from(_accessCache.keys())) {
+    if (key.endsWith(suffix)) _accessCache.delete(key);
+  }
+  for (const key of Array.from(_accessInFlight)) {
+    if (key.endsWith(suffix)) _accessInFlight.delete(key);
+  }
 }
 
 function setAccessCache(key: string, allowed: boolean, now: number): void {
@@ -278,6 +302,8 @@ function scheduleAccessCheck(
 ): void {
   if (_accessInFlight.has(key)) return;
   _accessInFlight.add(key);
+  const resourceKey = accessResourceKey(resourceType, resourceId);
+  const epoch = _accessInvalidationEpoch.get(resourceKey) ?? 0;
   void (async () => {
     try {
       // Dynamic import to avoid a load-order/circular-import hazard: poll.ts is
@@ -289,10 +315,12 @@ function scheduleAccessCheck(
         userEmail,
         orgId,
       });
+      if ((_accessInvalidationEpoch.get(resourceKey) ?? 0) !== epoch) return;
       setAccessCache(key, access != null, Date.now());
     } catch {
       // Fail closed on any error (DB not ready, missing registration, etc.),
       // but with the short deny TTL so a transient failure self-heals quickly.
+      if ((_accessInvalidationEpoch.get(resourceKey) ?? 0) !== epoch) return;
       setAccessCache(key, false, Date.now());
     } finally {
       _accessInFlight.delete(key);
@@ -308,15 +336,18 @@ function scheduleAccessCheck(
 export function __resetCollabAccessCacheForTests(): void {
   _accessCache.clear();
   _accessInFlight.clear();
+  _accessInvalidationEpoch.clear();
 }
+
+type ChangeVisibility = "visible" | "hidden" | "pending";
 
 /**
  * Decide whether a poll/SSE change event should be delivered to a user.
  *
  * SYNC-CACHE VARIANT — WHY THIS IS SYNCHRONOUS:
  * This function is called on hot, synchronous paths: the SSE emitter callback
- * `push(change)` in poll-events.ts (fires per event) and inside the
- * `getChangesSinceForUser` `.filter()` in this file. Making it async would be
+ * `push(change)` in poll-events.ts (fires per event) and the
+ * `getChangesSinceForUser` loop in this file. Making it async would be
  * invasive (it would ripple through both call sites and their emitters).
  * Instead, for the access-aware branch we consult an in-memory cache and, on a
  * miss, fire a NON-BLOCKING background access check and return `false` for the
@@ -336,12 +367,20 @@ export function canSeeChangeForUser(
   userEmail: string,
   orgId: string | undefined,
 ): boolean {
+  return getChangeVisibilityForUser(event, userEmail, orgId) === "visible";
+}
+
+function getChangeVisibilityForUser(
+  event: Pick<ChangeEvent, "owner" | "orgId" | "resourceType" | "resourceId">,
+  userEmail: string,
+  orgId: string | undefined,
+): ChangeVisibility {
   // Global / unowned events: every authenticated user gets them. Events that
   // predate resource tagging (owner/org only, no resourceType) keep the exact
   // conservative contract they had before.
-  if (!event.owner && !event.orgId && !event.resourceType) return true;
-  if (event.owner && event.owner === userEmail) return true;
-  if (event.orgId && orgId && event.orgId === orgId) return true;
+  if (!event.owner && !event.orgId && !event.resourceType) return "visible";
+  if (event.owner && event.owner === userEmail) return "visible";
+  if (event.orgId && orgId && event.orgId === orgId) return "visible";
 
   // Access-aware branch: only when the event carries BOTH resourceType and
   // resourceId and the owner/org fast paths above did not already grant.
@@ -351,7 +390,7 @@ export function canSeeChangeForUser(
     const now = Date.now();
     if (cached && now - cached.checkedAt < accessCacheTtl(cached.allowed)) {
       // Fresh, non-expired cache hit → trust the cached decision.
-      return cached.allowed;
+      return cached.allowed ? "visible" : "hidden";
     }
     // Miss or expired: do NOT deliver this event, but schedule the async check
     // so the user's next event (or poll cycle) resolves correctly.
@@ -362,10 +401,10 @@ export function canSeeChangeForUser(
       userEmail,
       orgId,
     );
-    return false;
+    return "pending";
   }
 
-  return false;
+  return "hidden";
 }
 
 /** Record a change event. Called by emitter listeners. */
@@ -530,10 +569,21 @@ export function getChangesSinceForUser(
   if (since >= _version) {
     return { version: _version, events: [] };
   }
-  const events = _buffer.filter(
-    (e) => e.version > since && canSeeChangeForUser(e, userEmail, orgId),
-  );
-  return { version: _version, events };
+  const events: ChangeEvent[] = [];
+  let version = _version;
+  for (const event of _buffer) {
+    if (event.version <= since) continue;
+    const visibility = getChangeVisibilityForUser(event, userEmail, orgId);
+    if (visibility === "visible") {
+      events.push(event);
+      continue;
+    }
+    if (visibility === "pending") {
+      version = Math.max(since, event.version - 1);
+      break;
+    }
+  }
+  return { version, events };
 }
 
 /**

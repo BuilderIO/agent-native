@@ -263,6 +263,25 @@ describe("session replay agent diagnostics route", () => {
       expect(new Set(union).size).toBe(25);
     });
 
+    it("reads enough replay events to reach later diagnostics pages", async () => {
+      mockReplayEvents(manyConsoleEvents(25));
+
+      await (handler as any)(
+        makeEvent({
+          id: "sr_1",
+          agent_access: "tok",
+          kind: "console",
+          limit: "10",
+          offset: "12000",
+        }),
+      );
+
+      expect(mockGetSessionReplayTokenizedEvents).toHaveBeenLastCalledWith(
+        "sr_1",
+        { limit: 12010 },
+      );
+    });
+
     it("echoes fromMs/toMs and windows the response, with totals reflecting the window", async () => {
       mockReplayEvents(manyConsoleEvents(10));
       // offsetMs values: 0,10,20,...,90 (startedAt = 1000)
@@ -284,6 +303,10 @@ describe("session replay agent diagnostics route", () => {
       );
       expect(result.console.total).toBe(4);
       expect(result.console.hasMore).toBe(false);
+      expect(mockGetSessionReplayTokenizedEvents).toHaveBeenLastCalledWith(
+        "sr_1",
+        { limit: 100_000 },
+      );
     });
 
     it("rejects fromMs greater than toMs with 400", async () => {

@@ -15,6 +15,8 @@ import { getSessionReplayTokenizedEvents } from "../../../lib/session-replay.js"
 
 const DEFAULT_DIAGNOSTICS_LIMIT = 200;
 const MAX_DIAGNOSTICS_LIMIT = 500;
+const DEFAULT_REPLAY_EVENT_READ_LIMIT = 10_000;
+const MAX_REPLAY_EVENT_READ_LIMIT = 100_000;
 const CONSOLE_LEVELS = new Set(["log", "info", "warn", "error", "debug"]);
 
 function queryString(value: unknown): string {
@@ -96,8 +98,18 @@ export default defineEventHandler(async (event) => {
   }
 
   try {
+    const timeWindowed = fromMs !== undefined || toMs !== undefined;
+    const replayEventReadLimit = Math.min(
+      MAX_REPLAY_EVENT_READ_LIMIT,
+      Math.max(
+        DEFAULT_REPLAY_EVENT_READ_LIMIT,
+        timeWindowed
+          ? MAX_REPLAY_EVENT_READ_LIMIT
+          : (rawOffset ? offset : 0) + limit,
+      ),
+    );
     const eventsResponse = await getSessionReplayTokenizedEvents(id, {
-      limit: 10_000,
+      limit: replayEventReadLimit,
     });
     const events = eventsResponse.chunks.flatMap((chunk) =>
       chunk.events.filter(
