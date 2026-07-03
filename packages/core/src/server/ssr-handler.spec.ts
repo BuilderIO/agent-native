@@ -747,6 +747,38 @@ describe("createH3SSRHandler", () => {
       }
     });
 
+    it("removes route-provided CSP headers from production HEAD HTML responses", async () => {
+      const previousNodeEnv = process.env.NODE_ENV;
+      process.env.NODE_ENV = "production";
+      try {
+        mocks.requestHandler.mockResolvedValueOnce(
+          new Response("<html><head></head><body>ok</body></html>", {
+            headers: {
+              "content-type": "text/html; charset=utf-8",
+              "content-security-policy": "script-src 'self'",
+              "content-security-policy-report-only":
+                "script-src https://www.googletagmanager.com",
+            },
+          }),
+        );
+        const handler = createH3SSRHandler(() => ({})) as any;
+
+        const response = await handler(createEvent("/", "HEAD"));
+
+        expect(response.body).toBeNull();
+        expect(response.headers.get("content-security-policy")).toBeNull();
+        expect(
+          response.headers.get("content-security-policy-report-only"),
+        ).toBeNull();
+      } finally {
+        if (previousNodeEnv === undefined) {
+          delete process.env.NODE_ENV;
+        } else {
+          process.env.NODE_ENV = previousNodeEnv;
+        }
+      }
+    });
+
     it("leaves CSP headers on non-HTML responses", async () => {
       const previousNodeEnv = process.env.NODE_ENV;
       process.env.NODE_ENV = "production";

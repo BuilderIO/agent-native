@@ -299,7 +299,15 @@ async function rewriteMountedResponse(
   }
 
   const contentType = headers.get("content-type") ?? "";
-  if (!contentType.toLowerCase().includes("text/html") || !response.body) {
+  if (!contentType.toLowerCase().includes("text/html")) {
+    return new Response(response.body, {
+      status: response.status,
+      statusText: response.statusText,
+      headers,
+    });
+  }
+  removeDocumentCsp(headers);
+  if (!response.body) {
     return new Response(response.body, {
       status: response.status,
       statusText: response.statusText,
@@ -309,7 +317,6 @@ async function rewriteMountedResponse(
 
   const html = await response.text();
   headers.delete("content-length");
-  removeDocumentCsp(headers);
   return new Response(
     injectHeadScript(
       injectDefaultSocialImageMeta(
