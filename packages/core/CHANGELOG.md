@@ -1,5 +1,19 @@
 # @agent-native/core
 
+## 0.85.0
+
+### Minor Changes
+
+- b68e4f7: Session replay now captures browser console logs and network request metadata while recording, emitted as tagged rrweb custom events (`agent-native.console` / `agent-native.network`). Capture is on by default when session replay is enabled and configurable via new `console` / `network` options (boolean or object) on the session replay config. Request/response bodies and headers are never captured, URLs are scrubbed, messages are truncated, recorder self-traffic is excluded, and per-session budgets (1000 console / 2000 network events) add a truncation notice.
+
+### Patch Changes
+
+- b68e4f7: Show a clearer chat recovery message when a model provider returns a bare 401 response.
+- b68e4f7: Retry internal chat continuations when the server briefly reports the same completed run as active.
+- b68e4f7: Make durable background chat runs reliable end-to-end: continuation handoffs are now transactional (the successor run row is inserted before dispatch, the dispatch response is fully awaited with retries instead of racing a 250ms settle timer from a finishing Lambda, and a lost handoff is reaped into a loud error by a new unclaimed-run sweep instead of hanging silently); background dispatch bodies stay under Netlify's 256KB background-function cap by persisting the chat payload on the run row and rehydrating it in the worker; a run-manager-level no-progress backstop covers stall segments the in-loop watchdogs never see; and a durable SQL per-turn run budget bounds pathological continuation loops across every recovery path.
+- b68e4f7: Keep the Extensions sidebar create button hidden until the section is hovered or focused.
+- b68e4f7: Add hosted runtime diagnostics, schema health probes, and server response status telemetry.
+
 ## 0.84.67
 
 ### Patch Changes
