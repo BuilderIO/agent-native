@@ -3116,11 +3116,12 @@ const AssistantChatInner = forwardRef<
       recoveryAction?: AgentRecoveryAction,
       includeComposerContext = false,
       trackInRunsTray = false,
+      preserveReconnectAutoRecoveryBudget = false,
     ) => {
       if (!(await ensureAgentEngineReadyForSubmit())) {
         return;
       }
-      if (recoveryAction !== "continue") {
+      if (!preserveReconnectAutoRecoveryBudget) {
         reconnectAutoRecoveryCountRef.current = 0;
       }
       materializeFrozenReconnectContent();
@@ -3360,6 +3361,9 @@ const AssistantChatInner = forwardRef<
         undefined,
         "queued",
         "continue",
+        false,
+        false,
+        true,
       );
     }, 0);
     return () => window.clearTimeout(timer);

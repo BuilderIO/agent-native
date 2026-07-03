@@ -560,6 +560,7 @@ export function startRun(
       ) {
         preparingActivityTools.set(activityKey, toolKey);
         preparingActivityBytes.set(activityKey, 0);
+        preparingActivityRestartHighWater.set(toolKey, 0);
         return true;
       }
       if (progressBytes <= previousBytes) {

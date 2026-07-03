@@ -763,6 +763,14 @@ describe("run manager soft timeout", () => {
           id: "call-a",
           progressBytes: 0,
         });
+        vi.setSystemTime(14_000);
+        send({
+          type: "activity",
+          label: "Preparing edit-design action",
+          tool: "edit-design",
+          id: "call-b",
+          progressBytes: 0,
+        });
         await new Promise<void>((resolve) => {
           signal.addEventListener("abort", () => resolve(), { once: true });
         });

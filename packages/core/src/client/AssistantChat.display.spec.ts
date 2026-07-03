@@ -681,8 +681,13 @@ describe("waitForThreadRunToClear", () => {
     ).toBeLessThan(noProgressSource.indexOf("setRunErrorInfo({"));
     expect(effectStart).toBeGreaterThan(-1);
     expect(effectEnd).toBeGreaterThan(effectStart);
+    expect(source).toContain("preserveReconnectAutoRecoveryBudget = false");
+    expect(source).toContain("if (!preserveReconnectAutoRecoveryBudget)");
     expect(effectSource).toContain("addToQueue(");
     expect(effectSource).toContain('"continue"');
+    expect(effectSource).toContain(
+      '"continue",\n        false,\n        false,\n        true,',
+    );
   });
 });
 
