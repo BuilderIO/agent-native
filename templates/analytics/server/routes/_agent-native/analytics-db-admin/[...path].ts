@@ -12,6 +12,7 @@ import { readBody } from "@agent-native/core/server";
 import {
   defineEventHandler,
   getMethod,
+  getRequestURL,
   setResponseHeader,
   setResponseStatus,
   type H3Event,
@@ -34,7 +35,7 @@ function decodeSegment(value: string | undefined): string | undefined {
 }
 
 function pathSegments(event: H3Event): string[] {
-  const url = new URL(event.req.url, "http://agent-native.local");
+  const url = getRequestURL(event);
   const marker = "/_agent-native/analytics-db-admin";
   const markerIndex = url.pathname.indexOf(marker);
   const suffix =
