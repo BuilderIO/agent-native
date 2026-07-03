@@ -1,6 +1,6 @@
 {
   "name": "@agent-native/core",
-  "version": "0.84.66",
+  "version": "0.84.67",
   "description": "Framework for agent-native application development — where AI agents and UI share SQL state, actions, and context",
   "homepage": "https://github.com/BuilderIO/agent-native#readme",
   "bugs": {
