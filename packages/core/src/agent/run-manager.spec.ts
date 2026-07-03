@@ -740,6 +740,127 @@ describe("run manager soft timeout", () => {
     await vi.waitFor(() => expect(run.status).toBe("aborted"));
   });
 
+  it("does not bump durable progress for clear events or lower-byte restarts", async () => {
+    vi.setSystemTime(10_000);
+
+    const run = startRun(
+      "run-clear-not-progress",
+      "thread-clear-not-progress",
+      async (send, signal) => {
+        send({
+          type: "activity",
+          label: "Preparing edit-design action",
+          tool: "edit-design",
+          id: "call-a",
+          progressBytes: 64,
+        });
+        vi.setSystemTime(12_000);
+        send({ type: "clear" });
+        vi.setSystemTime(14_000);
+        send({
+          type: "activity",
+          label: "Preparing edit-design action",
+          tool: "edit-design",
+          id: "call-b",
+          progressBytes: 0,
+        });
+        vi.setSystemTime(16_000);
+        send({
+          type: "activity",
+          label: "Preparing edit-design action",
+          tool: "edit-design",
+          id: "call-b",
+          progressBytes: 32,
+        });
+        vi.setSystemTime(18_000);
+        send({
+          type: "activity",
+          label: "Preparing edit-design action",
+          tool: "edit-design",
+          id: "call-c",
+          progressBytes: 64,
+        });
+        vi.setSystemTime(20_000);
+        send({
+          type: "activity",
+          label: "Preparing edit-design action",
+          tool: "edit-design",
+          id: "call-c",
+          progressBytes: 96,
+        });
+        await new Promise<void>((resolve) => {
+          signal.addEventListener("abort", () => resolve(), { once: true });
+        });
+      },
+      undefined,
+      { softTimeoutMs: 0 },
+    );
+
+    expect(bumpRunProgress).toHaveBeenCalledTimes(2);
+    expect(bumpRunProgress).toHaveBeenNthCalledWith(
+      1,
+      "run-clear-not-progress",
+    );
+    expect(bumpRunProgress).toHaveBeenNthCalledWith(
+      2,
+      "run-clear-not-progress",
+    );
+
+    expect(abortRun("run-clear-not-progress")).toBe(true);
+    await vi.waitFor(() => expect(run.status).toBe("aborted"));
+  });
+
+  it("applies clear restart high-water to no-id preparation progress", async () => {
+    vi.setSystemTime(10_000);
+
+    const run = startRun(
+      "run-clear-no-id-progress",
+      "thread-clear-no-id-progress",
+      async (send, signal) => {
+        send({
+          type: "activity",
+          label: "Preparing edit-design action",
+          tool: "edit-design",
+          progressBytes: 64,
+        });
+        vi.setSystemTime(12_000);
+        send({ type: "clear" });
+        vi.setSystemTime(14_000);
+        send({
+          type: "activity",
+          label: "Preparing edit-design action",
+          tool: "edit-design",
+          progressBytes: 32,
+        });
+        vi.setSystemTime(16_000);
+        send({
+          type: "activity",
+          label: "Preparing edit-design action",
+          tool: "edit-design",
+          progressBytes: 96,
+        });
+        await new Promise<void>((resolve) => {
+          signal.addEventListener("abort", () => resolve(), { once: true });
+        });
+      },
+      undefined,
+      { softTimeoutMs: 0 },
+    );
+
+    expect(bumpRunProgress).toHaveBeenCalledTimes(2);
+    expect(bumpRunProgress).toHaveBeenNthCalledWith(
+      1,
+      "run-clear-no-id-progress",
+    );
+    expect(bumpRunProgress).toHaveBeenNthCalledWith(
+      2,
+      "run-clear-no-id-progress",
+    );
+
+    expect(abortRun("run-clear-no-id-progress")).toBe(true);
+    await vi.waitFor(() => expect(run.status).toBe("aborted"));
+  });
+
   it("bumps durable progress only when action-preparation bytes increase", async () => {
     vi.setSystemTime(10_000);
 

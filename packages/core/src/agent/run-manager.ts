@@ -485,6 +485,8 @@ export function startRun(
   // so 1s resolution is plenty.
   let lastProgressBumpAt = 0;
   const preparingActivityBytes = new Map<string, number>();
+  const preparingActivityTools = new Map<string, string>();
+  const preparingActivityRestartHighWater = new Map<string, number>();
   let eventPersistenceErrorCaptured = false;
   const bumpProgressIfDue = () => {
     const now = Date.now();
@@ -494,9 +496,21 @@ export function startRun(
   };
   const shouldBumpProgressForEvent = (event: AgentChatEvent): boolean => {
     if (event.type === "stream_keepalive") return false;
+    if (event.type === "clear") {
+      for (const [key, bytes] of preparingActivityBytes) {
+        const toolKey = preparingActivityTools.get(key) ?? key;
+        preparingActivityRestartHighWater.set(
+          toolKey,
+          Math.max(preparingActivityRestartHighWater.get(toolKey) ?? 0, bytes),
+        );
+      }
+      preparingActivityBytes.clear();
+      preparingActivityTools.clear();
+      return false;
+    }
     if (event.type === "activity" && isPreparingActionActivityEvent(event)) {
-      const toolKey =
-        event.id?.trim() || event.tool?.trim() || event.label.trim();
+      const toolKey = event.tool?.trim() || event.label.trim();
+      const activityKey = `${toolKey}:${event.id?.trim() || "no-id"}`;
       const progressBytes =
         typeof event.progressBytes === "number" &&
         Number.isFinite(event.progressBytes) &&
@@ -504,27 +518,57 @@ export function startRun(
           ? Math.floor(event.progressBytes)
           : undefined;
       if (progressBytes === undefined) return false;
-      if (!event.id?.trim()) return progressBytes > 0;
-      const previousBytes = preparingActivityBytes.get(toolKey) ?? 0;
-      if (progressBytes <= previousBytes) {
+      const restartHighWater =
+        preparingActivityRestartHighWater.get(toolKey) ?? 0;
+      if (!event.id?.trim()) {
+        if (progressBytes <= restartHighWater) return false;
+        preparingActivityTools.set(activityKey, toolKey);
         preparingActivityBytes.set(
-          toolKey,
+          activityKey,
+          Math.max(preparingActivityBytes.get(activityKey) ?? 0, progressBytes),
+        );
+        if (preparingActivityRestartHighWater.has(toolKey)) {
+          preparingActivityRestartHighWater.set(
+            toolKey,
+            Math.max(restartHighWater, progressBytes),
+          );
+        }
+        return progressBytes > 0;
+      }
+      const previousBytes = Math.max(
+        preparingActivityBytes.get(activityKey) ?? 0,
+        restartHighWater,
+      );
+      if (progressBytes <= previousBytes) {
+        preparingActivityTools.set(activityKey, toolKey);
+        preparingActivityBytes.set(
+          activityKey,
           Math.max(previousBytes, progressBytes),
         );
         return false;
       }
-      preparingActivityBytes.set(toolKey, progressBytes);
+      preparingActivityTools.set(activityKey, toolKey);
+      preparingActivityBytes.set(activityKey, progressBytes);
+      if (preparingActivityRestartHighWater.has(toolKey)) {
+        preparingActivityRestartHighWater.set(
+          toolKey,
+          Math.max(
+            preparingActivityRestartHighWater.get(toolKey) ?? 0,
+            progressBytes,
+          ),
+        );
+      }
       return true;
     }
     if (event.type === "tool_start" || event.type === "tool_done") {
       preparingActivityBytes.clear();
+      preparingActivityTools.clear();
+      preparingActivityRestartHighWater.clear();
     }
-    if (
-      event.type === "clear" ||
-      event.type === "done" ||
-      event.type === "error"
-    ) {
+    if (event.type === "done" || event.type === "error") {
       preparingActivityBytes.clear();
+      preparingActivityTools.clear();
+      preparingActivityRestartHighWater.clear();
     }
     return true;
   };
