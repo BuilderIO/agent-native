@@ -509,14 +509,13 @@ const messages = {
     newTitle: "Novo sistema de design",
     editDescription: "Atualize sua identidade de marca.",
     newDescription:
-      "Forneça qualquer combinação de fontes; quanto mais contexto, melhor o resultado.",
+      "Conecte Figma, código e orientações opcionais de design.md pelo Builder DSI.",
     companyBrand: "Empresa / Marca",
     companyBrandPlaceholder:
       "Acme Inc. — Criamos ferramentas para desenvolvedores...",
-    figmaFile: "Arquivo Figma",
-    parsingFigmaFile: "Iniciando indexação do Builder...",
-    uploadFigDescription:
-      "Envie uma cópia local .fig para indexá-la com o Builder",
+    figmaFile: "Conectar Figma",
+    parsingFigmaFile: "Iniciando indexação do Builder DSI...",
+    uploadFigDescription: "Envie uma cópia local .fig para o Builder DSI",
     builderIndexingStarted: "Indexação do Builder iniciada",
     builderIndexingDescription:
       "Builder is indexing {{title}} into a reusable design system.",
@@ -526,10 +525,10 @@ const messages = {
     websiteUrl: "URL do site",
     websitePlaceholder: "example.com ou Nike",
     add: "Adicionar",
-    githubRepository: "Repositório GitHub",
-    codeFiles: "Arquivos de código",
+    githubRepository: "Conectar código: repositório GitHub",
+    codeFiles: "Conectar arquivos de código",
     codeFilesDrop:
-      "CSS, configuração do Tailwind, arquivos de tema — solte ou clique",
+      "CSS, configuração do Tailwind, arquivos de tema, design.md — solte ou clique",
     documents: "Documentos e apresentações",
     documentsDrop:
       "PPTX, DOCX, PDF, Markdown, TXT — guias de marca, docs de design",

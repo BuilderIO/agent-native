@@ -4,6 +4,7 @@ import {
   appPath,
   CommandMenu,
   createAgentNativeQueryClient,
+  ErrorReportActions,
   getLocaleInitScript,
   getThemeInitScript,
   type LocaleCode,
@@ -627,6 +628,14 @@ function ContentErrorBoundaryBody() {
         >
           Reload
         </button>
+        <ErrorReportActions
+          appName="Content"
+          title={title}
+          details={details}
+          issueTitle={`Content error: ${title}`}
+          className="mt-4"
+          align="center"
+        />
       </div>
     </main>
   );

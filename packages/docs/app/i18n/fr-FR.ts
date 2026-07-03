@@ -73,6 +73,10 @@ const frFR = {
     readDocs: "Lire la documentation",
     genericTitle: "Une erreur s'est produite",
     genericBody: "Une erreur inattendue est survenue.",
+    sendFeedback: "Envoyer un retour",
+    feedbackPlaceholder:
+      "Décrivez ce qui s'est passé avant cette erreur de Docs.",
+    openGitHubIssue: "Ouvrir une issue GitHub",
   },
   home: {
     hero: {

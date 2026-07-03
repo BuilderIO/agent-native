@@ -165,6 +165,7 @@ export {
 } from "./use-db-sync.js";
 export {
   VisualControlRow,
+  VisualColorPicker,
   VisualInspectorPanel,
   VisualInspectorSection,
   VisualScrubInput,
@@ -669,6 +670,16 @@ export {
   type StarfieldBackgroundProps,
 } from "./StarfieldBackground.js";
 export { FeedbackButton, type FeedbackButtonProps } from "./FeedbackButton.js";
+export {
+  ErrorReportActions,
+  type ErrorReportActionsProps,
+} from "./ErrorReportActions.js";
+export {
+  buildErrorReportTemplate,
+  buildGitHubIssueUrl,
+  type ErrorReportDebugItem,
+  type ErrorReportTemplateOptions,
+} from "./error-reporting.js";
 export { getClientSurface, type ClientSurface } from "./client-surface.js";
 export {
   DevDatabaseLink,

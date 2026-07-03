@@ -73,6 +73,9 @@ const zhCN = {
     readDocs: "阅读文档",
     genericTitle: "出现问题",
     genericBody: "发生了意外错误。",
+    sendFeedback: "发送反馈",
+    feedbackPlaceholder: "描述此 Docs 错误出现前发生了什么。",
+    openGitHubIssue: "打开 GitHub issue",
   },
   home: {
     hero: {

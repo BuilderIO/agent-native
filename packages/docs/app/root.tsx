@@ -2,6 +2,7 @@ import {
   AgentNativeI18nProvider,
   AgentSidebar,
   configureTracking,
+  ErrorReportActions,
   getLocaleInitScript,
   useT,
 } from "@agent-native/core/client";
@@ -510,6 +511,17 @@ function LocalizedError({ error }: { error: unknown }) {
               {t("errors.readDocs")}
             </Link>
           </div>
+          <ErrorReportActions
+            appName="Docs"
+            title={t("errors.notFoundTitle")}
+            details={t("errors.notFoundBody")}
+            status={404}
+            issueTitle="Docs error: Page not found"
+            feedbackLabel={t("errors.sendFeedback")}
+            feedbackPlaceholder={t("errors.feedbackPlaceholder")}
+            githubLabel={t("errors.openGitHubIssue")}
+            className="mt-4"
+          />
         </main>
       </DocsChrome>
     );
@@ -531,6 +543,16 @@ function LocalizedError({ error }: { error: unknown }) {
         >
           {t("errors.goHome")}
         </Link>
+        <ErrorReportActions
+          appName="Docs"
+          title={t("errors.genericTitle")}
+          details={t("errors.genericBody")}
+          issueTitle="Docs error: Something went wrong"
+          feedbackLabel={t("errors.sendFeedback")}
+          feedbackPlaceholder={t("errors.feedbackPlaceholder")}
+          githubLabel={t("errors.openGitHubIssue")}
+          className="mt-4"
+        />
       </main>
     </DocsChrome>
   );

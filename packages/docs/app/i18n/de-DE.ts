@@ -73,6 +73,10 @@ const deDE = {
     readDocs: "Docs lesen",
     genericTitle: "Etwas ist schiefgelaufen",
     genericBody: "Ein unerwarteter Fehler ist aufgetreten.",
+    sendFeedback: "Feedback senden",
+    feedbackPlaceholder:
+      "Beschreiben Sie, was vor diesem Docs-Fehler passiert ist.",
+    openGitHubIssue: "GitHub-Issue öffnen",
   },
   home: {
     hero: {

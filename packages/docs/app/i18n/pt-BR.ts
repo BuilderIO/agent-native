@@ -73,6 +73,10 @@ const ptBR = {
     readDocs: "Ler a documentação",
     genericTitle: "Algo deu errado",
     genericBody: "Ocorreu um erro inesperado.",
+    sendFeedback: "Enviar feedback",
+    feedbackPlaceholder:
+      "Descreva o que aconteceu antes deste erro do Docs aparecer.",
+    openGitHubIssue: "Abrir issue no GitHub",
   },
   home: {
     hero: {

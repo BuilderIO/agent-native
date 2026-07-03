@@ -591,6 +591,34 @@ export function WorkbenchProvider({
             },
           });
         } catch (error) {
+          if (error instanceof WorkspaceStaleVersionError) {
+            try {
+              const latest = await provider.readFile(path);
+              if (latest.content === content) {
+                rememberVersionHash(uri, latest.versionHash);
+                modelRegistry.markSaved(uri, altVersionId);
+                dispatch({
+                  type: "PATCH_BUFFER",
+                  uri,
+                  patch: {
+                    saving: false,
+                    dirty: modelRegistry.isDirty(uri),
+                    conflict: false,
+                    readonly: latest.readonly ?? meta.readonly,
+                    language: latest.language ?? meta.language,
+                    fileId: latest.fileId ?? meta.fileId,
+                    savedVersionHash:
+                      latest.versionHash ?? meta.savedVersionHash,
+                    lastSavedAt: Date.now(),
+                  },
+                });
+                return;
+              }
+            } catch {
+              // Keep the original stale-version error; the user can reload
+              // latest from the status bar without losing this buffer first.
+            }
+          }
           dispatch({
             type: "PATCH_BUFFER",
             uri,
@@ -618,6 +646,26 @@ export function WorkbenchProvider({
         if (!meta) return;
         if (read.versionHash && read.versionHash === meta.savedVersionHash) {
           return;
+        }
+        const entry = modelRegistry.get(uri);
+        if (entry && !entry.model.isDisposed()) {
+          if (entry.model.getValue() === read.content) {
+            rememberVersionHash(uri, read.versionHash);
+            modelRegistry.markSaved(uri, entry.model.getAlternativeVersionId());
+            dispatch({
+              type: "PATCH_BUFFER",
+              uri,
+              patch: {
+                savedVersionHash: read.versionHash ?? meta.savedVersionHash,
+                dirty: false,
+                conflict: false,
+                readonly: read.readonly ?? meta.readonly,
+                language: read.language ?? meta.language,
+                fileId: read.fileId ?? meta.fileId,
+              },
+            });
+            return;
+          }
         }
         // Stale echo: a poll that resolved out of order carries a hash this
         // client already loaded or saved. Never apply it over newer content.

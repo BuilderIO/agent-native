@@ -6,7 +6,6 @@ import {
 } from "@agent-native/core/client";
 import {
   AgentToggleButton,
-  NotificationsBell,
   ShareButton,
   PresenceBar,
   type CollabUser,
@@ -35,7 +34,7 @@ import {
   IconUpload,
   IconSun,
   IconMoon,
-  IconDots,
+  IconDotsVertical,
   IconPalette,
   IconLoader2,
 } from "@tabler/icons-react";
@@ -977,7 +976,7 @@ graph TD
                 className="p-2.5 sm:p-1.5 rounded-md hover:bg-accent transition-colors flex-shrink-0 text-muted-foreground hover:text-foreground/70 cursor-pointer"
                 aria-label={t("editorToolbar.more")}
               >
-                <IconDots className="w-4 h-4" />
+                <IconDotsVertical className="w-4 h-4" />
               </button>
             </DropdownMenuTrigger>
           </TooltipTrigger>
@@ -1015,7 +1014,6 @@ graph TD
         </DropdownMenuContent>
       </DropdownMenu>
 
-      <NotificationsBell />
       <RunsTray pollMs={1500} />
       <AgentToggleButton />
     </div>

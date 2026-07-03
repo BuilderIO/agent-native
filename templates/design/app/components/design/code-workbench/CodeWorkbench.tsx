@@ -19,7 +19,6 @@ import {
   readCodeWorkbenchTheme,
   type CodeWorkbenchTheme,
 } from "../code-workbench-theme";
-import { ActivityBar } from "./ActivityBar";
 import {
   createCoreCommands,
   dispatchKeybinding,
@@ -372,7 +371,6 @@ function CodeWorkbenchInner({
       style={theme.values as CSSProperties}
     >
       <div className="flex min-h-0 flex-1">
-        <ActivityBar />
         {state.sidebarVisible ? (
           <>
             <div
@@ -396,7 +394,9 @@ function CodeWorkbenchInner({
         ) : null}
         <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-[var(--workbench-editor-bg)]">
           <EditorTabs />
-          {activeTabUri && activePath ? <Breadcrumbs /> : null}
+          {activeTabUri && activePath && activePath.includes("/") ? (
+            <Breadcrumbs />
+          ) : null}
           <div className="relative min-h-0 flex-1">
             <MonacoHost
               editorRef={editorRef}

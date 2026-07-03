@@ -302,6 +302,89 @@ describe("dedupeReconnectContentAgainstMessages", () => {
     ).toEqual([completedCall]);
   });
 
+  it("hides reconnect text that is already visible in the latest assistant message", () => {
+    const persistedMessages = [
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "text",
+            text: "The same paragraph is already visible.",
+          },
+        ],
+      },
+    ];
+
+    expect(
+      dedupeReconnectContentAgainstMessages(
+        [
+          {
+            type: "text",
+            text: "The same paragraph is already visible.",
+          },
+        ],
+        persistedMessages,
+      ),
+    ).toEqual([]);
+  });
+
+  it("trims only the rendered prefix from reconnect text that keeps streaming", () => {
+    const persistedMessages = [
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "text",
+            text: "The first paragraph is already visible.",
+          },
+        ],
+      },
+    ];
+
+    expect(
+      dedupeReconnectContentAgainstMessages(
+        [
+          {
+            type: "text",
+            text: "The first paragraph is already visible.\n\nThe new paragraph is still streaming.",
+          },
+        ],
+        persistedMessages,
+      ),
+    ).toEqual([
+      {
+        type: "text",
+        text: "\n\nThe new paragraph is still streaming.",
+      },
+    ]);
+  });
+
+  it("does not compare reconnect text against older assistant turns", () => {
+    const persistedMessages = [
+      {
+        role: "assistant",
+        content: [{ type: "text", text: "A reusable opening line." }],
+      },
+      {
+        role: "user",
+        content: [{ type: "text", text: "Start a new turn." }],
+      },
+    ];
+    const reconnectContent = [
+      {
+        type: "text" as const,
+        text: "A reusable opening line. This belongs to the new turn.",
+      },
+    ];
+
+    expect(
+      dedupeReconnectContentAgainstMessages(
+        reconnectContent,
+        persistedMessages,
+      ),
+    ).toBe(reconnectContent);
+  });
+
   it("shows fallback activity when all reconnect content was already rendered", () => {
     const source = readFileSync("src/client/AssistantChat.tsx", {
       encoding: "utf8",

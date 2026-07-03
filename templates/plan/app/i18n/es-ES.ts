@@ -474,6 +474,10 @@ const messages = {
       requestAccessTitle: "Solicitar acceso a este plan",
       requestSent: "Solicitud enviada",
       retry: "Rever",
+      sendFeedback: "Enviar comentarios",
+      feedbackPlaceholder:
+        "Describe qué pasó antes de que apareciera este error del plan.",
+      openGitHubIssue: "Abrir issue en GitHub",
       retryHelp:
         "Vuelva a intentar la carga o inicie sesión con otra cuenta si se trata de un enlace de plan privado.",
       signIn: "Iniciar sesión",

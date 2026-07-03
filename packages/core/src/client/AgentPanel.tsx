@@ -65,6 +65,7 @@ import {
   TooltipTrigger,
   normalizeTooltipText,
 } from "./components/ui/tooltip.js";
+import { ErrorReportActions } from "./ErrorReportActions.js";
 import { FeedbackButton } from "./FeedbackButton.js";
 import { RunsTrayMenuItem } from "./progress/RunsTray.js";
 // Lazy-load the full assistant-ui chat stack (tiptap composer + react-markdown +
@@ -2251,6 +2252,15 @@ class AgentPanelErrorBoundary extends React.Component<
         >
           Reset agent panel
         </button>
+        <ErrorReportActions
+          appName="Agent panel"
+          title="Agent panel UI error"
+          details={this.state.error.message}
+          issueTitle="Agent panel UI error"
+          className="max-w-[260px]"
+          feedbackClassName="h-7"
+          githubClassName="h-7"
+        />
       </div>
     );
   }

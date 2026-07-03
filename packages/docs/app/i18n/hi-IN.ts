@@ -73,6 +73,9 @@ const hiIN = {
     readDocs: "दस्तावेज़ पढ़ें",
     genericTitle: "कुछ गलत हुआ",
     genericBody: "एक अनपेक्षित त्रुटि हुई।",
+    sendFeedback: "फ़ीडबैक भेजें",
+    feedbackPlaceholder: "इस Docs त्रुटि से पहले क्या हुआ, उसका वर्णन करें।",
+    openGitHubIssue: "GitHub issue खोलें",
   },
   home: {
     hero: {

@@ -626,6 +626,10 @@ const messages = {
       signIn: "登录",
       haveAccount: "我已有账户",
       retry: "重试",
+      sendFeedback: "フィードバックを送信",
+      feedbackPlaceholder:
+        "このプランエラーの直前に起きたことを説明してください。",
+      openGitHubIssue: "GitHub issue を開く",
       joinedOrg: "已加入 {{orgName}}。正在打开计划...",
       acceptingInvite: "正在接受邀请",
       joiningOrg: "正在加入组织",

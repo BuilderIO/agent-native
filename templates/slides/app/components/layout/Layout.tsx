@@ -121,7 +121,12 @@ export function Layout({ children }: LayoutProps) {
             )}
             {!ownToolbar && <Header />}
             <InvitationBanner />
-            <main className="agent-native-app-main min-h-0 flex-1 overflow-y-auto">
+            <main
+              className={cn(
+                "agent-native-app-main min-h-0 flex-1",
+                ownToolbar ? "overflow-hidden" : "overflow-y-auto",
+              )}
+            >
               {children}
             </main>
           </div>

@@ -1,9 +1,11 @@
 import { useActionQuery } from "@agent-native/core/client";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
+import { prettyScreenName } from "@/lib/screen-names";
+
 import { useWorkbench } from "../store";
 import { buildFileTree } from "../workspace/tree";
-import type { WorkspaceFileEntry } from "../workspace/types";
+import { baseName, type WorkspaceFileEntry } from "../workspace/types";
 import { FileTree } from "./FileTree";
 
 export interface ExplorerViewProps {
@@ -40,7 +42,11 @@ export function ExplorerView({
     return files.map((file) => ({
       path: String(file.path ?? ""),
       displayName:
-        typeof file.displayName === "string" ? file.displayName : undefined,
+        typeof file.path === "string"
+          ? prettyScreenName(baseName(file.path))
+          : typeof file.displayName === "string"
+            ? file.displayName
+            : undefined,
       fileId: typeof file.fileId === "string" ? file.fileId : undefined,
       readonly: Boolean(file.readonly),
     }));

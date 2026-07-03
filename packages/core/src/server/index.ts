@@ -388,11 +388,26 @@ export {
 } from "./credential-provider.js";
 export {
   builderDesignSystemUrl,
+  buildBuilderDesignSystemIndexFiles,
+  createBuilderDesignSystemProxyFields,
+  fetchBuilderDesignSystemDocs,
   getBuilderDesignSystemsBaseUrl,
+  hydrateBuilderDesignSystemReference,
+  localBuilderDesignSystemId,
+  mimeTypeForBuilderDesignSystemFilename,
+  parseBuilderDesignSystemProxyReference,
   startBuilderDesignSystemIndex,
+  type BuildBuilderDesignSystemIndexFilesOptions,
+  type BuilderDesignSystemCodeFileInput,
+  type BuilderDesignSystemDocsOptions,
+  type BuilderDesignSystemDocument,
+  type BuilderDesignSystemHydratedReference,
   type BuilderDesignSystemIndexFile,
   type BuilderDesignSystemIndexOptions,
   type BuilderDesignSystemIndexResult,
+  type BuilderDesignSystemProxyFields,
+  type BuilderDesignSystemProxyFieldsOptions,
+  type BuilderDesignSystemProxyReference,
 } from "./builder-design-systems.js";
 export {
   getBuilderBranchProjectId,

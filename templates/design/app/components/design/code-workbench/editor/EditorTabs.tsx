@@ -19,11 +19,16 @@ import {
   ContextMenuSeparator,
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
+import { prettyScreenName } from "@/lib/screen-names";
 import { cn } from "@/lib/utils";
 
 import { FileIcon } from "../explorer/file-icons";
 import { useWorkbench, type EditorTab } from "../store";
-import { baseName, parseWorkbenchUri } from "../workspace/types";
+import {
+  baseName,
+  parseWorkbenchUri,
+  providerKindFromKey,
+} from "../workspace/types";
 import { isTabReorderNoop, resolveTabDropIndex } from "./tab-drag";
 
 interface PendingClose {
@@ -267,7 +272,11 @@ function EditorTabRow({
   const [hovered, setHovered] = useState(false);
   const meta = state.buffers[tab.uri];
   const dirty = meta?.dirty ?? false;
-  const name = baseName(tab.path);
+  const fileName = baseName(tab.path);
+  const name =
+    providerKindFromKey(tab.providerKey) === "inline"
+      ? prettyScreenName(fileName)
+      : fileName;
 
   return (
     <ContextMenu>

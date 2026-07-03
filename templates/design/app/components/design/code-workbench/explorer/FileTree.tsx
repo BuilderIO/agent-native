@@ -34,7 +34,11 @@ import { cn } from "@/lib/utils";
 
 import { useWorkbench } from "../store";
 import { flattenVisibleTree, type TreeNode } from "../workspace/tree";
-import { workbenchUri, type WorkspaceCapabilities } from "../workspace/types";
+import {
+  baseName,
+  workbenchUri,
+  type WorkspaceCapabilities,
+} from "../workspace/types";
 import { FileIcon, FolderIcon } from "./file-icons";
 
 interface PendingNewFile {
@@ -118,7 +122,7 @@ export function FileTree({
 
   const startRename = useCallback((node: TreeNode) => {
     setRenamingPath(node.path);
-    setRenameDraft(node.name);
+    setRenameDraft(baseName(node.path));
   }, []);
 
   const handleWriteError = useCallback(
@@ -145,7 +149,7 @@ export function FileTree({
     async (node: TreeNode) => {
       const nextName = renameDraft.trim();
       setRenamingPath(null);
-      if (!nextName || nextName === node.name) return;
+      if (!nextName || nextName === baseName(node.path)) return;
       const parentPath = node.path.split("/").slice(0, -1).join("/");
       const nextPath = parentPath ? `${parentPath}/${nextName}` : nextName;
       try {

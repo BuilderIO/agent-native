@@ -73,6 +73,10 @@ const koKR = {
     readDocs: "문서 읽기",
     genericTitle: "문제가 발생했습니다",
     genericBody: "예상치 못한 오류가 발생했습니다.",
+    sendFeedback: "피드백 보내기",
+    feedbackPlaceholder:
+      "이 Docs 오류가 나타나기 전에 무슨 일이 있었는지 적어 주세요.",
+    openGitHubIssue: "GitHub issue 열기",
   },
   home: {
     hero: {

@@ -174,6 +174,12 @@ export function isDesignHotkeyEditableTarget(target: EventTarget | null) {
   ) {
     return true;
   }
+  if (
+    editable instanceof HTMLElement &&
+    editable.getAttribute("role") === "textbox"
+  ) {
+    return true;
+  }
   const tagName = editable.tagName.toLowerCase();
   return tagName === "input" || tagName === "textarea" || tagName === "select";
 }
