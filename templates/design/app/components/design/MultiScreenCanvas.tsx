@@ -2192,20 +2192,31 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       if (!event.data || event.data.type !== "agent-native:cross-screen-drag") {
         return;
       }
-      // Verify the message actually came from one of our own embedded
-      // design-preview iframes, not just any window that happens to post a
-      // same-shaped message (postMessage's origin/source aren't otherwise
-      // checked here). Same pattern as handleEmbeddedWheelMessage below.
+      // Resolve which of our own embedded design-preview iframes actually
+      // posted this message — postMessage's origin/source aren't otherwise
+      // checked here, so without this any window (including a spoofed one)
+      // could claim to be a screen. Same pattern as
+      // handleEmbeddedWheelMessage below. Bind to the matched iframe element
+      // itself rather than trusting the payload: a compromised/owned preview
+      // iframe can put any `screenId` it wants in the message body, so the
+      // sender's true screen identity must come from the DOM, not the data.
       const surfaceForSourceCheck = surfaceRef.current;
-      const isFromOwnPreviewIframe = !!(
-        surfaceForSourceCheck &&
-        Array.from(
-          surfaceForSourceCheck.querySelectorAll<HTMLIFrameElement>(
-            "iframe[data-design-preview-iframe]",
-          ),
-        ).some((iframe) => iframe.contentWindow === event.source)
-      );
-      if (!isFromOwnPreviewIframe) return;
+      const sourcePreviewIframe = surfaceForSourceCheck
+        ? Array.from(
+            surfaceForSourceCheck.querySelectorAll<HTMLIFrameElement>(
+              "iframe[data-design-preview-iframe]",
+            ),
+          ).find((iframe) => iframe.contentWindow === event.source)
+        : undefined;
+      if (!sourcePreviewIframe) return;
+      // The board's DesignCanvas renders with `boardSurface` set, which
+      // deliberately omits `data-screen-iframe-id` (see DesignCanvas.tsx), so
+      // an unset attribute here means the message came from the board
+      // surface iframe rather than a per-screen one.
+      const domScreenId =
+        sourcePreviewIframe.getAttribute("data-screen-iframe-id") ??
+        boardFileId ??
+        undefined;
       const msg = event.data as {
         type: string;
         phase: "start" | "move" | "end" | "cancel";
@@ -2240,12 +2251,17 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         return;
       }
 
-      // Prefer the iframe-supplied source id. In overview, activeId can point
-      // at a different screen than the layer currently being dragged.
+      // Attribute the drag to the DOM-verified source iframe's own screen id,
+      // never the payload's claimed `msg.screenId` — the message body is
+      // authored by the (sandboxed but same-origin-capable) preview iframe
+      // content and must not be trusted to identify itself. Fall back to
+      // activeId only when the matched iframe unexpectedly has no resolvable
+      // screen id (e.g. a stale/unknown screen), matching prior behavior for
+      // that edge case.
       const sourceScreenId =
-        msg.screenId &&
-        (msg.screenId === boardFileId || frameGeometryRef.current[msg.screenId])
-          ? msg.screenId
+        domScreenId &&
+        (domScreenId === boardFileId || frameGeometryRef.current[domScreenId])
+          ? domScreenId
           : activeId;
       if (!sourceScreenId) {
         // Always clear visual state (ghost + highlight) when we have no active
@@ -5492,8 +5508,16 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     if (tool !== "pen") finishPenPath();
   }, [activeTool, finishPenPath, localActiveTool]);
 
-  // Cmd+D / Ctrl+D: duplicate the selected frame with a visible offset so the
-  // copy doesn't land exactly on top of the original (Figma-style behaviour).
+  // Cmd+D / Ctrl+D: duplicate every selected frame (not just the first) with
+  // a visible offset so each copy doesn't land exactly on top of its
+  // original (Figma-style behaviour). `onDuplicate` is fire-and-forget
+  // (`(id, request) => void`) and the actual new file id is only known
+  // asynchronously by the caller (DesignEditor's createFileMutation
+  // onSuccess), so this component has no id to add to its own selection
+  // state. Known limitation: after a multi-duplicate, selection isn't
+  // reprogrammed to the new copies (the caller instead makes its own last
+  // duplicate the active file) — promoting the duplicates to the new
+  // selection would require `onDuplicate` to return/callback the created id.
   useEffect(() => {
     if (!onDuplicate) return;
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -5513,26 +5537,31 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       const frameIds = selectedIdsRef.current.filter(
         (id) => frameGeometryRef.current[id],
       );
-      const targetId = frameIds[0];
-      if (!targetId) return;
-      const screen = screens.find((s) => s.id === targetId);
-      if (!screen) return;
-      const sourceGeometry = frameGeometryRef.current[targetId];
-      if (!sourceGeometry) return;
+      if (frameIds.length === 0) return;
       event.stopPropagation();
       event.stopImmediatePropagation();
-      // Offset the duplicate by one grid gap to the right (and slightly down)
-      // so it is visually distinct from the original, mirroring Figma's behaviour.
-      const canvasPosition = {
-        x: sourceGeometry.x + sourceGeometry.width + SCREEN_GAP,
-        y: sourceGeometry.y,
-      };
-      onDuplicate(targetId, {
-        mode: "alt-click",
-        screen,
-        canvasPosition,
-        dropCanvasPosition: canvasPosition,
-      });
+      // Duplicate every selected frame, not just the first — each duplicate
+      // is offset relative to its OWN source geometry (not chained off the
+      // previous duplicate), mirroring how a multi-select alt-drag would
+      // offset each frame independently.
+      for (const targetId of frameIds) {
+        const screen = screens.find((s) => s.id === targetId);
+        if (!screen) continue;
+        const sourceGeometry = frameGeometryRef.current[targetId];
+        if (!sourceGeometry) continue;
+        // Offset the duplicate by one grid gap to the right (and slightly down)
+        // so it is visually distinct from the original, mirroring Figma's behaviour.
+        const canvasPosition = {
+          x: sourceGeometry.x + sourceGeometry.width + SCREEN_GAP,
+          y: sourceGeometry.y,
+        };
+        onDuplicate(targetId, {
+          mode: "alt-click",
+          screen,
+          canvasPosition,
+          dropCanvasPosition: canvasPosition,
+        });
+      }
     };
 
     window.addEventListener("keydown", handleKeyDown, true);

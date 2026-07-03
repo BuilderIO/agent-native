@@ -1617,6 +1617,27 @@ export interface FileCreationHistoryEntry {
   geometry?: CanvasFrameGeometry;
 }
 
+// U12: prune a file-creation history stack (undo OR redo) by removing any
+// entry whose filename is being hard-deleted, returning the pruned stack and
+// how many entries were removed (so the caller can trim the parallel
+// undo/redo-order arrays by the same count).
+//
+// `skip: true` is used by undoFileCreation on the REDO stack only: that path
+// pushes the just-undone create onto the redo stack and THEN soft-deletes the
+// same filename, so pruning by filename would immediately drop the entry it
+// just pushed — leaving redo permanently empty after an undo. Every other
+// caller (a direct hard delete from the overview/panel) prunes normally so a
+// redo entry pointing at a since-hard-deleted file cannot resurrect it.
+export function pruneFileCreationHistoryStack(
+  stack: FileCreationHistoryEntry[],
+  deletedFilenames: Set<string>,
+  options?: { skip?: boolean },
+): { stack: FileCreationHistoryEntry[]; removed: number } {
+  if (options?.skip) return { stack, removed: 0 };
+  const next = stack.filter((entry) => !deletedFilenames.has(entry.filename));
+  return { stack: next, removed: stack.length - next.length };
+}
+
 export function geometryHistoryEntryTouchesFrameIds(
   entry: GeometryHistoryEntry,
   frameIds: Set<string>,
@@ -5566,6 +5587,11 @@ export default function DesignEditor() {
   // round-tripped through autosave so a save never clobbers it back to "ease".
   const [motionDefaultEase, setMotionDefaultEase] = useState<string>("ease");
   const [motionPlayhead, setMotionPlayhead] = useState(0);
+  // Live playhead mirror written by MotionDock on every rAF tick / scrub frame
+  // (motionPlayhead state only updates at commit points to avoid 60fps
+  // re-renders). Auto-keyframe reads this so an inspector edit made mid-
+  // playback keys at the ACTUAL current playhead, not the last committed time.
+  const motionLivePlayheadRef = useRef<number | null>(null);
   const [motionAutoKeyframeEnabled, setMotionAutoKeyframeEnabled] =
     useState(false);
   const [motionTracksDirty, setMotionTracksDirty] = useState(false);
@@ -5876,14 +5902,16 @@ export default function DesignEditor() {
         hasLocalUndo ||
         (canUseOverviewHistory &&
           (contentUndoStackRef.current.length > 0 ||
-            geometryUndoStackRef.current.length > 0)),
+            geometryUndoStackRef.current.length > 0 ||
+            fileCreationUndoStackRef.current.length > 0)),
     );
     setCanRedo(
       Boolean(undoManager?.canRedo()) ||
         hasLocalRedo ||
         (canUseOverviewHistory &&
           (contentRedoStackRef.current.length > 0 ||
-            geometryRedoStackRef.current.length > 0)),
+            geometryRedoStackRef.current.length > 0 ||
+            fileCreationRedoStackRef.current.length > 0)),
     );
   }, []);
   const recordContentHistoryEntry = useCallback(
@@ -6430,6 +6458,16 @@ export default function DesignEditor() {
   const exportZipMutation = useActionMutation("export-zip");
   const applyMotionEditMutation = useActionMutation("apply-motion-edit");
   const applyMotionEdit = applyMotionEditMutation.mutate;
+  // U-motion-empty: apply-motion-edit's schema rejects a 0-track payload (a
+  // track array must have >= 1 entry), so deleting the last track/keyframe
+  // cannot go through the normal autosave path. remove-motion-timeline is the
+  // dedicated inverse — it deletes the motion_timeline row AND strips the
+  // managed <style data-agent-native-motion> block from the HTML so a reload
+  // doesn't resurrect the just-deleted animation.
+  const removeMotionTimelineMutation = useActionMutation(
+    "remove-motion-timeline",
+  );
+  const removeMotionTimeline = removeMotionTimelineMutation.mutate;
   const motionAutosavePending = applyMotionEditMutation.isPending;
   // §6.4 breakpoint mutations — wired to MultiScreenCanvas + affordance
   const addBreakpointMutation = useActionMutation("add-breakpoint");
@@ -9196,6 +9234,27 @@ export default function DesignEditor() {
     });
   }, []);
 
+  // U14: drop any motion track whose targetNodeId was just deleted from the
+  // DOM and, when a track was actually pruned, mark motion dirty so the
+  // autosave/remove-motion-timeline path persists the cleanup (otherwise the
+  // stale managed CSS + timeline row reappear on reload). Reads fresh state
+  // through the functional updater so a stale `motionTracks` closure can't
+  // resurrect a track; the dirty mark inside the updater is idempotent (a
+  // StrictMode double-invoke only re-bumps the deduped autosave revision).
+  const pruneMotionTracksByNodeId = useCallback(
+    (nodeIdsToRemove: Set<string>) => {
+      setMotionTracks((current) => {
+        const next = current.filter(
+          (track) => !nodeIdsToRemove.has(track.targetNodeId),
+        );
+        if (next.length === current.length) return current;
+        markMotionTracksDirty();
+        return next;
+      });
+    },
+    [markMotionTracksDirty],
+  );
+
   const handleMotionTracksChange = useCallback(
     (tracks: MotionDockTrack[]) => {
       setMotionTracks(tracks);
@@ -9248,6 +9307,11 @@ export default function DesignEditor() {
         selectedCodeLayerNode?.layerName ||
         info?.tagName ||
         "Selected element";
+      // Prefer the LIVE playhead (updated by MotionDock on every rAF/scrub
+      // frame) so an edit made mid-playback keys at the true current position;
+      // fall back to the committed motionPlayhead when no live value exists
+      // (e.g. the dock hasn't reported one yet).
+      const activePlayhead = motionLivePlayheadRef.current ?? motionPlayhead;
       setMotionTracks((current) => {
         return upsertMotionStyleKeyframes({
           tracks: current,
@@ -9256,7 +9320,7 @@ export default function DesignEditor() {
           styles,
           computedStyles:
             info?.computedStyles ?? selectedElement?.computedStyles,
-          playhead: motionPlayhead,
+          playhead: activePlayhead,
           defaultEase: motionDefaultEase,
         });
       });
@@ -9716,7 +9780,6 @@ export default function DesignEditor() {
 
   useEffect(() => {
     if (!id || !activeFile?.id || !motionTracksDirty) return;
-    if (motionTracks.length === 0) return;
     if (motionAutosavePending) return;
     if (motionAutosaveFailedRevisionRef.current === motionAutosaveRevision)
       return;
@@ -9725,6 +9788,50 @@ export default function DesignEditor() {
         motionAutosaveRevision &&
       motionAutosaveTimerRef.current !== null
     ) {
+      return;
+    }
+    // U-motion-empty: the user deleted every track (or the last keyframe of
+    // the last track, which MotionDock collapses into removing the track).
+    // apply-motion-edit's schema rejects an empty tracks array, so this can't
+    // go through the normal autosave — it must go through remove-motion-timeline
+    // instead, which deletes the motion_timeline row AND strips the managed
+    // <style data-agent-native-motion> block so a reload doesn't restore the
+    // old animation. Nothing to remove if there was never a persisted
+    // timeline for this file (motionTimelineId is null) — just clear dirty.
+    if (motionTracks.length === 0) {
+      if (!motionTimelineId) {
+        setMotionTracksDirty(false);
+        return;
+      }
+      if (removeMotionTimelineMutation.isPending) return;
+      const revisionAtSchedule = motionAutosaveRevision;
+      const timelineIdAtSchedule = motionTimelineId;
+      removeMotionTimeline(
+        { designId: id, timelineId: timelineIdAtSchedule },
+        {
+          onSuccess: () => {
+            if (motionAutosaveRevisionRef.current !== revisionAtSchedule)
+              return;
+            setMotionTracksDirty(false);
+            setMotionTimelineId(null);
+            setMotionHydrationFingerprint(null);
+            void queryClient.invalidateQueries({
+              queryKey: ["action", "get-motion-timeline"],
+            });
+          },
+          onError: (error: unknown) => {
+            if (motionAutosaveRevisionRef.current === revisionAtSchedule) {
+              motionAutosaveFailedRevisionRef.current = revisionAtSchedule;
+            }
+            toast.error(
+              error instanceof Error
+                ? error.message
+                : // i18n-ignore: fallback toast for motion timeline removal failure.
+                  "Motion changes could not be saved.",
+            );
+          },
+        },
+      );
       return;
     }
 
@@ -9736,7 +9843,13 @@ export default function DesignEditor() {
       if (motionAutosaveRevisionRef.current !== revisionAtSchedule) return;
       // Drop empty tracks defensively (a 0-keyframe track fails the action
       // schema and would brick every subsequent autosave) and canonicalise
-      // keyframe order so the persisted JSON is always time-sorted.
+      // keyframe order so the persisted JSON is always time-sorted. Full
+      // emptiness (0 tracks) is handled above via remove-motion-timeline
+      // before this closure is ever scheduled; this guards the case where
+      // every remaining track individually has 0 keyframes (shouldn't
+      // normally happen — MotionDock removes a track once its keyframes hit
+      // 0 — but stays a defensive no-op rather than sending an invalid
+      // payload that would brick the next autosave).
       const tracksForSave = motionTracks
         .filter((track) => track.keyframes.length > 0)
         .map(({ label: _label, ...track }) => ({
@@ -9917,6 +10030,8 @@ export default function DesignEditor() {
     motionTracks,
     motionTracksDirty,
     queryClient,
+    removeMotionTimeline,
+    removeMotionTimelineMutation.isPending,
   ]);
 
   const handleComponentPropApplied = useCallback(
@@ -13411,12 +13526,14 @@ export default function DesignEditor() {
       if (!didDelete) return;
       if (orphanedTrackNodeIds) {
         const idsToRemove = orphanedTrackNodeIds;
-        setMotionTracks((current) => {
-          const next = current.filter(
-            (track) => !idsToRemove.has(track.targetNodeId),
-          );
-          return next.length === current.length ? current : next;
-        });
+        // U14 fix: mark motion dirty when a track is actually pruned so the
+        // autosave/remove-motion-timeline path persists the cleanup. Without
+        // this the filtered tracks live only in memory and the stale managed
+        // CSS + timeline row reappear on reload. markMotionTracksDirty is only
+        // invoked when the filter drops at least one track; a redundant call
+        // (e.g. a StrictMode double render) is harmless — it just bumps the
+        // autosave revision, which the autosave effect dedupes.
+        pruneMotionTracksByNodeId(idsToRemove);
       }
       activeRuntimeSelectors.forEach((selector) =>
         deleteRuntimeElement(selector),
@@ -13456,12 +13573,9 @@ export default function DesignEditor() {
         ? collectCodeLayerSubtreeDataNodeIds(tree, targetNode.id, nodesById)
         : new Set<string>();
       if (subtreeIds.size > 0) {
-        setMotionTracks((current) => {
-          const next = current.filter(
-            (track) => !subtreeIds.has(track.targetNodeId),
-          );
-          return next.length === current.length ? current : next;
-        });
+        // U14 fix: same as the multi-layer path above — persist the orphan
+        // cleanup by marking motion dirty when a track is actually pruned.
+        pruneMotionTracksByNodeId(subtreeIds);
       }
     }
     deleteRuntimeElement(selectedElement.selector);
@@ -13478,6 +13592,7 @@ export default function DesignEditor() {
     getFreshActiveContent,
     getScreenContent,
     getSelectedLayerSnapshots,
+    pruneMotionTracksByNodeId,
     selectedElement,
   ]);
 
@@ -14058,7 +14173,19 @@ export default function DesignEditor() {
   } | null>(null);
 
   const performDeleteFiles = useCallback(
-    (filesToDelete: DesignFile[]) => {
+    (
+      filesToDelete: DesignFile[],
+      options?: {
+        // U12 fix: undoFileCreation pushes the just-undone create onto the
+        // file-creation REDO stack, then calls this function to soft-delete
+        // the same file it just pushed for. Without this flag the filename-
+        // keyed prune below (which exists to drop a redo entry when its file
+        // is hard-deleted directly, NOT via undo) would immediately remove
+        // the entry undoFileCreation just pushed, leaving redo permanently
+        // empty after every screen-create/duplicate undo.
+        skipFileCreationRedoPrune?: boolean;
+      },
+    ) => {
       if (!filesToDelete.length) return;
       const deleteIds = new Set(filesToDelete.map((file) => file.id));
       const nextActiveFile = files.find((file) => !deleteIds.has(file.id));
@@ -14163,34 +14290,38 @@ export default function DesignEditor() {
       // U12: a file-created entry is resolved by filename at undo/redo time
       // (it doesn't carry an id, since the id isn't known until the create
       // mutation resolves), so prune it here by filename when the file it
-      // refers to is being hard-deleted directly (not via undo, which pops
-      // its own entry off this same stack before calling performDeleteFiles).
+      // refers to is being hard-deleted directly.
       const deletedFilenames = new Set(
         filesToDelete.map((file) => file.filename),
       );
-      const nextFileCreationUndoStack = fileCreationUndoStackRef.current.filter(
-        (entry) => !deletedFilenames.has(entry.filename),
+      const prunedFileCreationUndo = pruneFileCreationHistoryStack(
+        fileCreationUndoStackRef.current,
+        deletedFilenames,
       );
-      const removedFileCreationUndoEntries =
-        fileCreationUndoStackRef.current.length -
-        nextFileCreationUndoStack.length;
-      fileCreationUndoStackRef.current = nextFileCreationUndoStack;
+      fileCreationUndoStackRef.current = prunedFileCreationUndo.stack;
       historyOrderRef.current = removeRecentUndoRedoOrderKinds(
         historyOrderRef.current,
         "file-created",
-        removedFileCreationUndoEntries,
+        prunedFileCreationUndo.removed,
       );
-      const nextFileCreationRedoStack = fileCreationRedoStackRef.current.filter(
-        (entry) => !deletedFilenames.has(entry.filename),
+      // U12 fix: undoFileCreation calls performDeleteFiles to soft-delete the
+      // file it is undoing AFTER pushing that same entry onto the redo stack
+      // (so redo can recreate it). Pruning the redo stack by filename here
+      // would immediately drop the entry undoFileCreation just pushed —
+      // redo would never survive an undo. skipFileCreationRedoPrune lets
+      // that caller opt out; every other caller (direct hard-delete from the
+      // overview/panel) still gets the filename-keyed prune so a redo entry
+      // pointing at a since-hard-deleted file cannot resurrect it.
+      const prunedFileCreationRedo = pruneFileCreationHistoryStack(
+        fileCreationRedoStackRef.current,
+        deletedFilenames,
+        { skip: options?.skipFileCreationRedoPrune },
       );
-      const removedFileCreationRedoEntries =
-        fileCreationRedoStackRef.current.length -
-        nextFileCreationRedoStack.length;
-      fileCreationRedoStackRef.current = nextFileCreationRedoStack;
+      fileCreationRedoStackRef.current = prunedFileCreationRedo.stack;
       redoOrderRef.current = removeRecentUndoRedoOrderKinds(
         redoOrderRef.current,
         "file-created",
-        removedFileCreationRedoEntries,
+        prunedFileCreationRedo.removed,
       );
 
       writeFrameGeometrySnapshot(nextGeometry);
@@ -14731,7 +14862,11 @@ export default function DesignEditor() {
         ...redoOrderRef.current.slice(-(MAX_DESIGN_UNDO_STACK - 1)),
         "file-created",
       ];
-      performDeleteFiles([createdFile]);
+      // skipFileCreationRedoPrune: the entry was just pushed onto the redo
+      // stack above for this exact filename — without this flag
+      // performDeleteFiles' filename-keyed redo prune would immediately pop
+      // it back off, leaving redo permanently empty after this undo.
+      performDeleteFiles([createdFile], { skipFileCreationRedoPrune: true });
       return true;
     };
 
@@ -18975,6 +19110,7 @@ ${serializedHtml}
           fusionUrl={designFusionUrl}
           onComponentSourceJump={handleComponentSourceJump}
           motionTracks={screenIsActive ? motionTracksWire : []}
+          motionDefaultEase={motionDefaultEase}
           embeddedFrame={getEmbeddedFrame(
             screen.id,
             geometry.width,
@@ -20837,6 +20973,7 @@ ${serializedHtml}
                         shaderFillPreview={shaderFillPreview}
                         onComponentSourceJump={handleComponentSourceJump}
                         motionTracks={motionTracksWire}
+                        motionDefaultEase={motionDefaultEase}
                         editMode={mode === "edit"}
                         interactMode={mode === "interact"}
                         readOnly={!canEditDesign}
@@ -21177,6 +21314,7 @@ ${serializedHtml}
           onAutoKeyframeChange={setMotionAutoKeyframeEnabled}
           playhead={motionPlayhead}
           onPlayheadChange={setMotionPlayhead}
+          livePlayheadRef={motionLivePlayheadRef}
           selectedTarget={motionSelectedTarget}
           applying={motionAutosavePending}
         />

@@ -610,6 +610,83 @@ describe("rotation-aware resize", () => {
     );
   });
 
+  it("keeps the frame CENTER world-fixed when resizeFromCenter is set on a rotated frame", () => {
+    // Alt/option-resize of a rotated frame should grow symmetrically about
+    // the frame's own visual center (Figma behavior), not pivot around the
+    // opposite corner the way a plain (non-center) resize does.
+    const origin = {
+      x: 100,
+      y: 100,
+      width: 200,
+      height: 150,
+      rotation: 30,
+    };
+    const centerBefore = {
+      x: origin.x + origin.width / 2,
+      y: origin.y + origin.height / 2,
+    };
+
+    const result = resizeRotatedFrameFromDelta(origin, "se", 40, 20, {
+      resizeFromCenter: true,
+    });
+
+    const centerAfter = {
+      x: result.x + result.width / 2,
+      y: result.y + result.height / 2,
+    };
+    expect(centerAfter.x).toBeCloseTo(centerBefore.x);
+    expect(centerAfter.y).toBeCloseTo(centerBefore.y);
+    // Sanity: the resize actually changed the geometry (center-invariant
+    // doesn't mean no-op) — with a 30deg rotation, a world-space (40, 20)
+    // drag resolves to a local-space delta whose height component is
+    // negative, so height should shrink while width grows.
+    expect(result.width).toBeGreaterThan(origin.width);
+    expect(result.height).toBeLessThan(origin.height);
+  });
+
+  it("keeps the opposite anchor world-fixed (not the center) when resizeFromCenter is NOT set on a rotated frame", () => {
+    // Contrast case for the test above: default (non-center) resize must
+    // keep behaving as a corner/edge-anchored resize, moving the center.
+    const origin = {
+      x: 100,
+      y: 100,
+      width: 200,
+      height: 150,
+      rotation: 30,
+    };
+    const originCenter = {
+      x: origin.x + origin.width / 2,
+      y: origin.y + origin.height / 2,
+    };
+    // "se" handle keeps the nw corner fixed in LOCAL space; find its world
+    // position before the resize so we can assert it stays put after, and
+    // that the center (unlike the resizeFromCenter case above) moves.
+    const nwWorldBefore = rotatePoint(
+      { x: origin.x, y: origin.y },
+      originCenter,
+      origin.rotation,
+    );
+
+    const result = resizeRotatedFrameFromDelta(origin, "se", 40, 20);
+
+    const nwWorldAfter = rotatePoint(
+      { x: result.x, y: result.y },
+      { x: result.x + result.width / 2, y: result.y + result.height / 2 },
+      result.rotation ?? 0,
+    );
+    expect(nwWorldAfter.x).toBeCloseTo(nwWorldBefore.x);
+    expect(nwWorldAfter.y).toBeCloseTo(nwWorldBefore.y);
+
+    const centerAfter = {
+      x: result.x + result.width / 2,
+      y: result.y + result.height / 2,
+    };
+    const centerMoved =
+      Math.abs(centerAfter.x - originCenter.x) > 0.5 ||
+      Math.abs(centerAfter.y - originCenter.y) > 0.5;
+    expect(centerMoved).toBe(true);
+  });
+
   it("computes the world-space AABB of a rotated frame", () => {
     const square = { x: 0, y: 0, width: 100, height: 100, rotation: 45 };
     const aabb = getRotatedFrameAABB(square);

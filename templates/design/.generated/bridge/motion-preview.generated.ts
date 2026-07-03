@@ -7,6 +7,7 @@ export const motionPreviewBridgeScript: string = `"use strict";
   // app/components/design/bridge/motion-preview.bridge.ts
   (function() {
     var loadedTracks = [];
+    var loadedDefaultEase = "ease";
     var touchedProps = {};
     var originalInlineValues = {};
     function camelizeProp(prop) {
@@ -169,7 +170,7 @@ export const motionPreviewBridgeScript: string = `"use strict";
         var s = segs[i];
         parts.push("lit" in s ? "L" + s.lit : "T" + s.type);
       }
-      return parts.join("\\0");
+      return parts.join("");
     }
     function cubicBezierY(x1, y1, x2, y2, x) {
       if (x <= 0) return 0;
@@ -356,7 +357,8 @@ export const motionPreviewBridgeScript: string = `"use strict";
       var span = next.t - prev.t;
       if (span <= 0) return prev.value;
       var ratio = Math.max(0, Math.min(1, (t - prev.t) / span));
-      var eased = evalEase(prev.ease, ratio);
+      var kfEase = prev.ease == null ? loadedDefaultEase : prev.ease;
+      var eased = evalEase(kfEase, ratio);
       return lerp(prev.value, next.value, eased);
     }
     function applyPreview(t) {
@@ -398,6 +400,7 @@ export const motionPreviewBridgeScript: string = `"use strict";
       touchedProps = {};
       originalInlineValues = {};
       loadedTracks = [];
+      loadedDefaultEase = "ease";
     }
     var lastPreviewT = null;
     window.addEventListener("message", function(e) {
@@ -406,6 +409,7 @@ export const motionPreviewBridgeScript: string = `"use strict";
       if (e.data.type === "motion-load-tracks") {
         clearPreview();
         loadedTracks = Array.isArray(e.data.tracks) ? e.data.tracks : [];
+        loadedDefaultEase = typeof e.data.defaultEase === "string" && e.data.defaultEase ? e.data.defaultEase : "ease";
         for (var i = 0; i < loadedTracks.length; i++) {
           var kfs = loadedTracks[i] && loadedTracks[i].keyframes;
           if (Array.isArray(kfs)) {

@@ -448,6 +448,14 @@ interface DesignCanvasProps {
    */
   motionTracks?: MotionTrackWire[];
   /**
+   * Timeline-level default easing applied to any keyframe that omits its own
+   * `ease`. Threaded to the motion-preview bridge alongside the tracks so the
+   * scrub/playback preview matches the persisted CSS (the compiler uses the
+   * same `defaultEase` fallback when emitting `animation-timing-function`).
+   * When omitted the bridge falls back to "ease".
+   */
+  motionDefaultEase?: string;
+  /**
    * Explicit iframe width in pixels.  When provided it overrides the width
    * derived from `deviceFrame`, enabling per-breakpoint preview (e.g. Mobile
    * 390 / Tablet 768 / Desktop 1280 side-by-side frames in the overview).
@@ -683,6 +691,7 @@ export function DesignCanvas({
   commentContextLabel,
   onPrototypeNavigate,
   motionTracks,
+  motionDefaultEase,
   previewWidthPx,
   onComponentSourceJump,
   shaderFillPreview,
@@ -1435,7 +1444,11 @@ export function DesignCanvas({
     // Re-send motion tracks so the preview bridge is ready after a reload.
     if (motionTracks && motionTracks.length > 0) {
       iframe.contentWindow?.postMessage(
-        { type: "motion-load-tracks", tracks: motionTracks },
+        {
+          type: "motion-load-tracks",
+          tracks: motionTracks,
+          defaultEase: motionDefaultEase,
+        },
         "*",
       );
     } else {
@@ -1465,6 +1478,7 @@ export function DesignCanvas({
     hiddenSelectors,
     lockedSelectors,
     motionTracks,
+    motionDefaultEase,
     scaleMode,
     selectedSelector,
     selectedSelectorCandidates,
@@ -1523,11 +1537,15 @@ export function DesignCanvas({
       win.postMessage({ type: "motion-preview-clear" }, "*");
     } else {
       win.postMessage(
-        { type: "motion-load-tracks", tracks: motionTracks },
+        {
+          type: "motion-load-tracks",
+          tracks: motionTracks,
+          defaultEase: motionDefaultEase,
+        },
         "*",
       );
     }
-  }, [motionTracks]);
+  }, [motionTracks, motionDefaultEase]);
 
   // Sync shader-fill preview to the iframe whenever the prop changes.
   // When cleared (null / undefined) send a clear message so the bridge

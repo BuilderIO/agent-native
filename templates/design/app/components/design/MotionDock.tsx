@@ -135,6 +135,17 @@ export interface MotionDockProps {
    */
   onPlayheadChange?: (t: number) => void;
   /**
+   * Parent-owned mirror of the LIVE playhead position, updated on every rAF
+   * tick and scrub frame (not just at commit points). The dock only notifies
+   * the parent's state at commit points to avoid 60fps re-renders, but
+   * auto-keyframe needs the true current position — an inspector edit made
+   * mid-playback must key at where the playhead actually is, not at the last
+   * committed time. Writing to a ref keeps that value fresh without
+   * re-rendering the editor. Cleared back to the committed value on
+   * pause/stop/scrub-end so a later read outside playback isn't stale.
+   */
+  livePlayheadRef?: React.MutableRefObject<number | null>;
+  /**
    * The currently-selected canvas element, if any. Required to create the FIRST
    * track for a layer: the picker animates this node's
    * `data-agent-native-node-id`. `null` when nothing is selected — the create
@@ -160,6 +171,7 @@ export function MotionDock({
   onAutoKeyframeChange,
   playhead: playheadProp,
   onPlayheadChange,
+  livePlayheadRef,
   selectedTarget = null,
 }: MotionDockProps) {
   // Controlled / uncontrolled open state.
@@ -186,8 +198,11 @@ export function MotionDock({
     if (playheadProp === undefined) return;
     const clamped = Math.max(0, Math.min(1, playheadProp));
     playheadRef.current = clamped;
+    // Keep the live-playhead mirror seeded with the committed position so a
+    // read outside playback/scrub returns the current time, not a stale one.
+    if (livePlayheadRef) livePlayheadRef.current = clamped;
     setPlayhead(clamped);
-  }, [playheadProp]);
+  }, [livePlayheadRef, playheadProp]);
 
   // Auto-keyframe mode: inspector/style edits create keyframes at the playhead.
   const [autoKeyframeInternal, setAutoKeyframeInternal] = useState(false);
@@ -204,14 +219,23 @@ export function MotionDock({
     [autoKeyframe, onAutoKeyframeChange],
   );
   /** Internal high-frequency playhead update — does NOT notify the parent. */
-  const setPlayheadLocal = useCallback((next: number) => {
-    playheadRef.current = next;
-    setPlayhead(next);
-  }, []);
+  const setPlayheadLocal = useCallback(
+    (next: number) => {
+      playheadRef.current = next;
+      // Mirror the LIVE position into the parent-owned ref so auto-keyframe
+      // reads the true current playhead during playback/scrub, not the last
+      // committed time. Updating a ref never re-renders, so this stays cheap
+      // at 60fps.
+      if (livePlayheadRef) livePlayheadRef.current = next;
+      setPlayhead(next);
+    },
+    [livePlayheadRef],
+  );
   /** Commit the current playhead to the parent (pause, scrub end, reset). */
   const commitPlayhead = useCallback(() => {
+    if (livePlayheadRef) livePlayheadRef.current = playheadRef.current;
     onPlayheadChange?.(playheadRef.current);
-  }, [onPlayheadChange]);
+  }, [livePlayheadRef, onPlayheadChange]);
 
   // Dock height (resizable via the top drag handle).
   const [dockHeight, setDockHeight] = useState(DEFAULT_DOCK_HEIGHT);

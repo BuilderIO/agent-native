@@ -499,6 +499,7 @@ const messages = {
       propsPasted: "屬性已貼上",
       primitiveInsertFailed: "無法將該圖層新增到畫面",
       layerMoveFailed: "無法移動該圖層",
+      layerRenameSelectLayer: "在面板中連按兩下圖層即可重新命名",
       duplicateElementFailed: "無法複製該元素",
       saveCopyError: "無法儲存這個設計的副本",
       auditRunFailed: "無法執行設計稽核",

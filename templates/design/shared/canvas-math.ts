@@ -1179,7 +1179,20 @@ export function resizeRotatedFrameFromDelta(
     x: origin.x + origin.width / 2,
     y: origin.y + origin.height / 2,
   };
-  const anchorLocalBefore = getResizeAnchorPoint(origin, handle);
+  // Alt/option resize (`resizeFromCenter`) already grows the frame
+  // symmetrically about its own center in LOCAL space (resizeFrameFromDelta
+  // below keeps the center fixed on both axes for that mode). To keep that
+  // center fixed in WORLD space too — matching Figma, where alt-resizing a
+  // rotated frame grows around its visual center rather than pivoting off an
+  // opposite corner — the re-anchor step below must use the center as its
+  // fixed point instead of the handle's opposite corner/edge. Using the
+  // center as the anchor is a no-op for the rotation (a point rotates around
+  // itself unchanged), so it stays put in world space by construction.
+  // Non-center (default) resizes keep anchoring on the opposite corner/edge
+  // so that world-fixed-anchor behavior is unchanged.
+  const anchorLocalBefore = options.resizeFromCenter
+    ? originCenter
+    : getResizeAnchorPoint(origin, handle);
   const anchorWorld = rotatePoint(anchorLocalBefore, originCenter, degrees);
 
   // Map the world-space pointer delta into the frame's own unrotated axes so
@@ -1195,11 +1208,13 @@ export function resizeRotatedFrameFromDelta(
     options,
   );
 
-  const anchorLocalAfter = getResizeAnchorPoint(resizedLocal, handle);
   const centerAfterLocal = {
     x: resizedLocal.x + resizedLocal.width / 2,
     y: resizedLocal.y + resizedLocal.height / 2,
   };
+  const anchorLocalAfter = options.resizeFromCenter
+    ? centerAfterLocal
+    : getResizeAnchorPoint(resizedLocal, handle);
   const anchorWorldIfUntranslated = rotatePoint(
     anchorLocalAfter,
     centerAfterLocal,

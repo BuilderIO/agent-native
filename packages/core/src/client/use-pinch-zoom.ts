@@ -62,8 +62,21 @@ export function usePinchZoom({
     // (and its cursor-anchored scroll delta) in a ref and flush once per
     // animation frame with the last-wins value. This preserves the exact
     // zoom-to-cursor math; it just applies it at most once per frame.
+    //
+    // Within a burst the DOM's real scrollLeft/scrollTop do NOT move until
+    // flush() runs, so per-event math must not read them directly — every
+    // event after the first in the same frame would anchor against the
+    // pre-burst scroll position instead of where the (not-yet-committed)
+    // previous events in the burst would have scrolled to. Track a simulated
+    // running scroll position (`simScrollLeft`/`simScrollTop`, seeded from the
+    // real scroll position when a new burst starts) and use that as the
+    // anchor base, so each event's math composes exactly as if the prior
+    // events in the burst had already been applied — matching the
+    // pre-coalescing, one-setZoom-per-event behavior.
     let pendingZoom: number | null = null;
     let pendingScrollDelta: { dx: number; dy: number } | null = null;
+    let simScrollLeft = 0;
+    let simScrollTop = 0;
     let rafId: number | null = null;
 
     const flush = () => {
@@ -100,12 +113,23 @@ export function usePinchZoom({
       if (nextZoom === currentZoom) return;
 
       if (zoomToCursor) {
+        // Starting a new burst (nothing pending yet): seed the simulated
+        // scroll position from the container's real, currently-committed
+        // scroll offset.
+        if (pendingScrollDelta === null) {
+          simScrollLeft = container.scrollLeft;
+          simScrollTop = container.scrollTop;
+        }
         const rect = container.getBoundingClientRect();
-        const cx = e.clientX - rect.left + container.scrollLeft;
-        const cy = e.clientY - rect.top + container.scrollTop;
+        const cx = e.clientX - rect.left + simScrollLeft;
+        const cy = e.clientY - rect.top + simScrollTop;
         const ratio = nextZoom / currentZoom;
         const dx = cx * (ratio - 1);
         const dy = cy * (ratio - 1);
+        // Advance the simulated scroll position so the next event in this
+        // same burst anchors against where this event would have left it.
+        simScrollLeft += dx;
+        simScrollTop += dy;
         pendingZoom = nextZoom;
         const prevDelta = pendingScrollDelta;
         pendingScrollDelta = {

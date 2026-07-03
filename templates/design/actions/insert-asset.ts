@@ -78,6 +78,26 @@ function escapeHtml(value: string): string {
     .replace(/"/g, "&quot;");
 }
 
+/**
+ * Prepare a URL for embedding inside a single-quoted CSS `url('...')` value
+ * that itself lives inside an HTML attribute. A literal `'` in the URL would
+ * otherwise close the CSS string early — and depending on whether the
+ * surrounding HTML attribute is single- or double-quoted, everything after it
+ * becomes live CSS or, worse, live HTML/JS in the script-enabled preview
+ * iframe. Percent-encoding the quote/backslash characters that are meaningful
+ * to the CSS string-literal grammar keeps the URL functionally identical
+ * (browsers resolve %27/%22/%5C the same as the raw characters) while making
+ * it impossible to break out of the `url('...')` string. HTML-escape on top
+ * so the value is also safe as an HTML attribute (covers the "..." case).
+ */
+function cssUrlValue(value: string): string {
+  const cssSafe = value
+    .replace(/\\/g, "%5C")
+    .replace(/'/g, "%27")
+    .replace(/"/g, "%22");
+  return escapeHtml(cssSafe);
+}
+
 function createInsertedNodeId(prefix: string): string {
   const random =
     typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
@@ -191,8 +211,8 @@ function backgroundFillAtNode(
       `No element found with data-agent-native-node-id="${nodeId}".`,
     );
   }
-  const escapedUrl = escapeHtml(args.assetUrl);
-  const bgDeclaration = `background-image: url('${escapedUrl}'); background-size: cover; background-position: center;`;
+  const cssUrl = cssUrlValue(args.assetUrl);
+  const bgDeclaration = `background-image: url('${cssUrl}'); background-size: cover; background-position: center;`;
   let nextTag: string;
   if (/\bstyle\s*=\s*"/.test(tag)) {
     nextTag = tag.replace(
