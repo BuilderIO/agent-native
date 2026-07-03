@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.85.6
+
+### Patch Changes
+
+- be6d307: Make stalled chat auto-continues change strategy instead of repeating oversized action inputs.
+
 ## 0.85.5
 
 ### Patch Changes
