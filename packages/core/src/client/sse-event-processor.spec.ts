@@ -957,9 +957,12 @@ describe("SSE event processor no-progress recovery", () => {
       }
     })();
 
+    expect(SSE_DURABLE_NO_PROGRESS_TIMEOUT_MS).toBe(13 * 60_000);
+
     // The foreground 75s no-progress window must NOT fire for a durable
-    // background read — the server's 150s backstop owns stall recovery and
-    // its auto_continue event normally arrives over this same stream first.
+    // background read — the server-side background backstop owns stall
+    // recovery and its auto_continue event normally arrives over this same
+    // stream first.
     await vi.advanceTimersByTimeAsync(SSE_NO_PROGRESS_TIMEOUT_MS + 1_000);
     expect(await Promise.race([errPromise, Promise.resolve("pending")])).toBe(
       "pending",

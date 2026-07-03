@@ -2581,6 +2581,8 @@ export interface AgentChatPluginOptions {
    * timeout. When reached, long runs continue through the hidden continuation
    * path instead of surfacing a timeout warning. */
   runSoftTimeoutMs?: number;
+  /** Optional per-app run-manager no-progress watchdog in milliseconds. */
+  runNoProgressTimeoutMs?: number;
   /**
    * Opt this app into Netlify durable background-function agent-chat runs. This
    * gives hosted agent turns the 15-minute async-function budget when the app's
@@ -5872,6 +5874,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
         appId: options?.appId,
         apiKey: options?.apiKey,
         runSoftTimeoutMs: options?.runSoftTimeoutMs,
+        runNoProgressTimeoutMs: options?.runNoProgressTimeoutMs,
         durableBackgroundRuns: options?.durableBackgroundRuns,
         finalResponseGuard: options?.finalResponseGuard,
         prepareRequest: async (details) => {
@@ -5963,6 +5966,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               appId: options?.appId,
               apiKey: options?.apiKey,
               runSoftTimeoutMs: options?.runSoftTimeoutMs,
+              runNoProgressTimeoutMs: options?.runNoProgressTimeoutMs,
               durableBackgroundRuns: options?.durableBackgroundRuns,
               finalResponseGuard: options?.finalResponseGuard,
               prepareRequest: options?.prepareRequest,
@@ -6094,6 +6098,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           appId: options?.appId,
           apiKey: options?.apiKey,
           runSoftTimeoutMs: options?.runSoftTimeoutMs,
+          runNoProgressTimeoutMs: options?.runNoProgressTimeoutMs,
           durableBackgroundRuns: options?.durableBackgroundRuns,
           finalResponseGuard: options?.finalResponseGuard,
           prepareRequest: options?.prepareRequest,

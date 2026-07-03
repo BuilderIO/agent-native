@@ -106,6 +106,17 @@ export const DEFAULT_BACKGROUND_RUN_SOFT_TIMEOUT_MS =
   BACKGROUND_SOFT_TIMEOUT_CEILING_MS;
 
 /**
+ * Default no-progress window for a run executing inside a proven durable
+ * background function. Keep this below the 13-minute soft timeout so a truly
+ * wedged background turn can still checkpoint, persist, and continue before
+ * the function budget expires, but far above the foreground 150s window so
+ * large Design/Plan/Assets generations are not chopped up while the model is
+ * legitimately planning a big tool payload.
+ */
+export const DEFAULT_BACKGROUND_NO_PROGRESS_TIMEOUT_MS =
+  BACKGROUND_SOFT_TIMEOUT_CEILING_MS - 60_000;
+
+/**
  * AUTHORITATIVE no-progress backstop for a run, enforced by the run manager
  * itself (timer-driven, independent of any layer below).
  *
@@ -123,8 +134,11 @@ export const DEFAULT_BACKGROUND_RUN_SOFT_TIMEOUT_MS =
  * like the soft timeout, so the normal continuation machinery recovers it.
  *
  * Sits above the 90s in-loop watchdogs (they get first chance to recover with
- * better context) and far below the 13-min background budget. Only armed when
- * a soft-timeout regime is active (hosted runs); local dev stays unbounded.
+ * better context). Foreground hosted chunks keep this short so the user sees
+ * recovery promptly; proven durable-background chunks use
+ * `DEFAULT_BACKGROUND_NO_PROGRESS_TIMEOUT_MS` so large outputs can use the
+ * background budget. Only armed when a soft-timeout regime is active (hosted
+ * runs); local dev stays unbounded.
  */
 export const RUN_NO_PROGRESS_HARD_TIMEOUT_MS = 150_000;
 
@@ -659,7 +673,11 @@ export function startRun(
   // first, so in practice this guards the long background chunks.
   const noProgressTimeoutMs =
     options?.noProgressTimeoutMs ??
-    (softTimeoutMs > 0 ? RUN_NO_PROGRESS_HARD_TIMEOUT_MS : 0);
+    (softTimeoutMs > 0
+      ? options?.backgroundFunction === true
+        ? DEFAULT_BACKGROUND_NO_PROGRESS_TIMEOUT_MS
+        : RUN_NO_PROGRESS_HARD_TIMEOUT_MS
+      : 0);
   const softTimeoutTimer =
     softTimeoutMs > 0
       ? setTimeout(() => {

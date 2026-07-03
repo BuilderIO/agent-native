@@ -8,6 +8,7 @@ import actionsRegistry from "../../.generated/actions-registry.js";
 import "../register-secrets.js";
 
 const DESIGN_BACKGROUND_RUN_SOFT_TIMEOUT_MS = 13 * 60_000;
+const DESIGN_BACKGROUND_RUN_NO_PROGRESS_TIMEOUT_MS = 12 * 60_000;
 
 const INITIAL_TOOL_NAMES = [
   "view-screen",
@@ -44,6 +45,7 @@ export default createAgentChatPlugin({
   codeExecution: { production: "sandboxed" },
   durableBackgroundRuns: true,
   runSoftTimeoutMs: DESIGN_BACKGROUND_RUN_SOFT_TIMEOUT_MS,
+  runNoProgressTimeoutMs: DESIGN_BACKGROUND_RUN_NO_PROGRESS_TIMEOUT_MS,
   resolveOrgId: async (event) => (await getOrgContext(event)).orgId,
   systemPrompt: `You are an AI prototyping assistant. You create and edit designs, files, design systems, variants, exports, sharing, and connected repository context through actions and shared application state.
 

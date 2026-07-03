@@ -151,19 +151,19 @@ export const SSE_ACTION_PREPARATION_STALL_TIMEOUT_MS = 90_000;
 /**
  * Widened client watchdog windows for durable background runs. The SERVER is
  * the recovery brain for these runs: its run-manager no-progress backstop
- * (150s, `RUN_NO_PROGRESS_HARD_TIMEOUT_MS`) emits `auto_continue` over the
- * same stream the client is already reading, and its unclaimed-run sweep reaps
- * dead workers into loud terminal errors. The client watchdogs therefore sit
- * ABOVE the server's 150s backstop so a healthy background run never trips
- * them — the server's own recovery event arrives first over the wire. When one
- * does fire, the thrown signal only means "reattach the read" (the adapter's
- * background follow loop re-polls /runs/active); it never escalates to a
- * client-declared error or a synthetic continuation POST. Progress ACCOUNTING
- * (what counts as a meaningful event) is unchanged — only the client-initiated
- * recovery timing is relaxed.
+ * emits `auto_continue` over the same stream the client is already reading,
+ * and its unclaimed-run sweep reaps dead workers into loud terminal errors.
+ * The client watchdogs therefore sit ABOVE the server's durable-background
+ * backstop so a healthy background run never trips them — the server's own
+ * recovery event arrives first over the wire. When one does fire, the thrown
+ * signal only means "reattach the read" (the adapter's background follow loop
+ * re-polls /runs/active); it never escalates to a client-declared error or a
+ * synthetic continuation POST. Progress ACCOUNTING (what counts as a
+ * meaningful event) is unchanged — only the client-initiated recovery timing
+ * is relaxed.
  */
-export const SSE_DURABLE_NO_PROGRESS_TIMEOUT_MS = 180_000;
-export const SSE_DURABLE_ACTION_PREPARATION_STALL_TIMEOUT_MS = 180_000;
+export const SSE_DURABLE_NO_PROGRESS_TIMEOUT_MS = 13 * 60_000;
+export const SSE_DURABLE_ACTION_PREPARATION_STALL_TIMEOUT_MS = 13 * 60_000;
 
 export function sseNoProgressTimeoutMs(options?: SSEStreamOptions): number {
   return options?.durableBackgroundRun === true

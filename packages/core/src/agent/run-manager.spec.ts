@@ -44,6 +44,7 @@ import { isInBackgroundFunctionRuntime } from "./durable-background.js";
 import {
   abortRun,
   BACKGROUND_SOFT_TIMEOUT_CEILING_MS,
+  DEFAULT_BACKGROUND_NO_PROGRESS_TIMEOUT_MS,
   DEFAULT_BACKGROUND_RUN_SOFT_TIMEOUT_MS,
   DEFAULT_COMPLETED_RUN_RETENTION_MS,
   DEFAULT_ERRORED_RUN_RETENTION_MS,
@@ -1906,8 +1907,12 @@ describe("run manager soft timeout", () => {
   // segment that never emits a real-progress event (only keepalives), while
   // leaving a run with a tool genuinely in flight alone.
   describe("no-progress backstop", () => {
-    it("exports the 150s backstop constant", () => {
+    it("exports foreground and background backstop constants", () => {
       expect(RUN_NO_PROGRESS_HARD_TIMEOUT_MS).toBe(150_000);
+      expect(DEFAULT_BACKGROUND_NO_PROGRESS_TIMEOUT_MS).toBe(12 * 60_000);
+      expect(DEFAULT_BACKGROUND_NO_PROGRESS_TIMEOUT_MS).toBeLessThan(
+        BACKGROUND_SOFT_TIMEOUT_CEILING_MS,
+      );
     });
 
     it("checkpoints via auto_continue(no_progress) and aborts when only keepalives stream past the window", async () => {
@@ -2138,7 +2143,7 @@ describe("run manager soft timeout", () => {
       await vi.waitFor(() => expect(aborted).toBe(true));
     });
 
-    it("is armed with the default 150s window when a soft-timeout regime is active (hosted) and no override is given", async () => {
+    it("is armed with the default 150s window when a foreground soft-timeout regime is active and no override is given", async () => {
       let aborted = false;
       let abortReason: unknown;
 
@@ -2159,14 +2164,56 @@ describe("run manager soft timeout", () => {
           });
         },
         undefined,
-        // A soft timeout far beyond the no-progress window is active (hosted
-        // background regime), so the no-progress backstop should still arm at
-        // its default 150s and fire well before the soft timeout would.
+        // A soft timeout far beyond the no-progress window is active, but this
+        // is still foreground mode (no backgroundFunction flag), so the 150s
+        // hosted backstop remains the default.
         { softTimeoutMs: BACKGROUND_SOFT_TIMEOUT_CEILING_MS },
       );
       run.subscribers.add(() => {});
 
       await vi.advanceTimersByTimeAsync(RUN_NO_PROGRESS_HARD_TIMEOUT_MS + 1);
+
+      expect(aborted).toBe(true);
+      expect(abortReason).toBe("no_progress");
+      expect(run.status).toBe("completed");
+    });
+
+    it("uses the wider durable-background no-progress window by default", async () => {
+      let aborted = false;
+      let abortReason: unknown;
+
+      const run = startRun(
+        "run-no-progress-background-default-armed",
+        "thread-no-progress-background-default-armed",
+        async (send, signal) => {
+          const keepaliveTimer = setInterval(() => {
+            send({ type: "stream_keepalive" });
+          }, 1500);
+          await new Promise<void>((resolve) => {
+            signal.addEventListener("abort", () => {
+              clearInterval(keepaliveTimer);
+              aborted = true;
+              abortReason = signal.reason;
+              resolve();
+            });
+          });
+        },
+        undefined,
+        {
+          softTimeoutMs: BACKGROUND_SOFT_TIMEOUT_CEILING_MS,
+          backgroundFunction: true,
+        },
+      );
+      run.subscribers.add(() => {});
+
+      await vi.advanceTimersByTimeAsync(RUN_NO_PROGRESS_HARD_TIMEOUT_MS + 1);
+      expect(aborted).toBe(false);
+
+      await vi.advanceTimersByTimeAsync(
+        DEFAULT_BACKGROUND_NO_PROGRESS_TIMEOUT_MS -
+          RUN_NO_PROGRESS_HARD_TIMEOUT_MS +
+          1_500,
+      );
 
       expect(aborted).toBe(true);
       expect(abortReason).toBe("no_progress");

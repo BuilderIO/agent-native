@@ -879,6 +879,8 @@ export interface ProductionAgentOptions {
    *  timeout. When reached, the client receives an internal auto-continuation
    *  signal instead of a user-facing warning. */
   runSoftTimeoutMs?: number;
+  /** Optional no-progress watchdog override for this app's runs. */
+  runNoProgressTimeoutMs?: number;
   /**
    * Opt this app into durable Netlify background-function agent-chat runs. This
    * is a runtime opt-in layered on top of the hosted-runtime + A2A_SECRET gates;
@@ -6608,6 +6610,7 @@ export function createProductionAgentHandler(
         // worker." Foreground runs never set this, so their 40s clamp is
         // unchanged.
         backgroundFunction: runsInBackgroundFunction,
+        noProgressTimeoutMs: options.runNoProgressTimeoutMs,
         // Fold continuation runs of one logical turn onto a single durable
         // assistant message. Falls back to the runId (turn == run) when the
         // client doesn't supply a turnId.
