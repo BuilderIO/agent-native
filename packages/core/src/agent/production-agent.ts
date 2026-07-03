@@ -970,6 +970,7 @@ function maxRetriesForError(err: unknown): number {
 const TOOL_INPUT_ACTIVITY_INTERVAL_MS = 1500;
 const ACTION_PREPARATION_NO_PROGRESS_TIMEOUT_MS = 90_000;
 const ACTION_PREPARATION_ZERO_BYTE_RESTART_LIMIT = 2;
+const MODEL_STREAM_NO_PROGRESS_TIMEOUT_MS = 90_000;
 const MAX_TEXT_ATTACHMENT_CHARS = 60_000;
 const MAX_SELECTION_CONTEXT_CHARS = 8_000;
 const MAX_RESOURCE_INVENTORY_ITEMS = 40;
@@ -2814,7 +2815,8 @@ export async function runAgentLoop(opts: {
         };
         const activeToolInputs = new Map<string, ActiveToolInputPreparation>();
         let zeroByteToolInputRestart: ZeroByteToolInputRestart | undefined;
-        let endedForActionPreparationNoProgress = false;
+        let endedForNoProgress = false;
+        let lastModelStreamProgressAt = Date.now();
         const sendToolInputActivity = (
           toolName: string | undefined,
           toolInputId?: string,
@@ -2871,17 +2873,23 @@ export async function runAgentLoop(opts: {
           }
           return Number.isFinite(deadlineAt) ? deadlineAt : undefined;
         };
-        const hasActionPreparationStalled = () => {
-          const deadlineAt = actionPreparationDeadlineAt();
-          return deadlineAt !== undefined && Date.now() >= deadlineAt;
+        const modelStreamNoProgressDeadlineAt = () =>
+          lastModelStreamProgressAt + MODEL_STREAM_NO_PROGRESS_TIMEOUT_MS;
+        const noProgressDeadlineAt = () => {
+          const actionDeadlineAt = actionPreparationDeadlineAt();
+          const modelDeadlineAt = modelStreamNoProgressDeadlineAt();
+          return actionDeadlineAt === undefined
+            ? modelDeadlineAt
+            : Math.min(actionDeadlineAt, modelDeadlineAt);
         };
-        const checkpointActionPreparationNoProgress = () => {
-          if (endedForActionPreparationNoProgress) return;
+        const hasNoProgressStalled = () => Date.now() >= noProgressDeadlineAt();
+        const checkpointNoProgress = () => {
+          if (endedForNoProgress) return;
           send({
             type: "auto_continue",
             reason: "no_progress",
           });
-          endedForActionPreparationNoProgress = true;
+          endedForNoProgress = true;
         };
         let eventIteratorReturnRequested = false;
         const requestEventIteratorReturn = (
@@ -2902,14 +2910,13 @@ export async function runAgentLoop(opts: {
           if (awaitReturn) return returnPromise.catch(() => undefined);
           void returnPromise.catch(() => undefined);
         };
-        const nextEngineEventWithActionPreparationTimeout = async (
+        const nextEngineEventWithNoProgressTimeout = async (
           iterator: AsyncIterator<EngineEvent>,
         ): Promise<IteratorResult<EngineEvent>> => {
-          const deadlineAt = actionPreparationDeadlineAt();
-          if (deadlineAt === undefined) return iterator.next();
+          const deadlineAt = noProgressDeadlineAt();
           const timeoutMs = Math.max(0, deadlineAt - Date.now());
           if (timeoutMs <= 0) {
-            checkpointActionPreparationNoProgress();
+            checkpointNoProgress();
             requestEventIteratorReturn(iterator, false);
             return { done: true, value: undefined };
           }
@@ -2922,7 +2929,7 @@ export async function runAgentLoop(opts: {
           try {
             const result = await Promise.race([next, timeout]);
             if (result === "timeout") {
-              checkpointActionPreparationNoProgress();
+              checkpointNoProgress();
               requestEventIteratorReturn(iterator, false);
               return { done: true, value: undefined };
             }
@@ -2982,15 +2989,18 @@ export async function runAgentLoop(opts: {
         try {
           while (true) {
             const nextEvent =
-              await nextEngineEventWithActionPreparationTimeout(eventIterator);
+              await nextEngineEventWithNoProgressTimeout(eventIterator);
             if (nextEvent.done) {
               eventIteratorDone = true;
               break;
             }
             const event = nextEvent.value;
-            if (hasActionPreparationStalled()) {
-              checkpointActionPreparationNoProgress();
+            if (hasNoProgressStalled()) {
+              checkpointNoProgress();
               break;
+            }
+            if (event.type !== "gateway-heartbeat") {
+              lastModelStreamProgressAt = Date.now();
             }
             // In-loop processor seam (stream hook). Each chunk is offered to every
             // processor's `processOutputStream` before the loop handles it. A
@@ -3030,7 +3040,7 @@ export async function runAgentLoop(opts: {
                   type: "auto_continue",
                   reason: "no_progress",
                 });
-                endedForActionPreparationNoProgress = true;
+                endedForNoProgress = true;
                 break;
               }
             } else if (event.type === "tool-input-delta") {
@@ -3068,7 +3078,7 @@ export async function runAgentLoop(opts: {
                   type: "auto_continue",
                   reason: "no_progress",
                 });
-                endedForActionPreparationNoProgress = true;
+                endedForNoProgress = true;
                 break;
               }
             } else if (event.type === "gateway-heartbeat") {
@@ -3099,8 +3109,8 @@ export async function runAgentLoop(opts: {
                 });
               }
             }
-            if (hasActionPreparationStalled()) {
-              checkpointActionPreparationNoProgress();
+            if (hasNoProgressStalled()) {
+              checkpointNoProgress();
               break;
             }
           }
@@ -3113,7 +3123,7 @@ export async function runAgentLoop(opts: {
           }
         }
 
-        if (endedForActionPreparationNoProgress) {
+        if (endedForNoProgress) {
           return usage;
         }
 
