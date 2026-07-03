@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.85.2
+
+### Patch Changes
+
+- b4c0b9d: Keep chat retry clear events from extending durable no-progress windows.
+
 ## 0.85.1
 
 ### Patch Changes
