@@ -1712,6 +1712,7 @@ export default function RecordRoute() {
               uploadUrl: uploadBase,
               recordingId: createdId,
               preferAuthenticated: true,
+              signal: abort.signal,
             });
             if (recovered) {
               finalChunk.result = recovered;
@@ -1742,6 +1743,7 @@ export default function RecordRoute() {
               uploadUrl: uploadBase,
               recordingId: createdId,
               preferAuthenticated: true,
+              signal: abort.signal,
             });
             if (recovered) {
               finalChunk.result = recovered;

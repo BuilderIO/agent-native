@@ -365,7 +365,11 @@ export default defineEventHandler(async (event: H3Event) => {
 
     // Only persist non-empty chunks. The final sentinel can legitimately be
     // empty — writing a zero-byte chunk would just clutter application_state.
+    // Check for abort/failure before writing so parallel in-flight requests
+    // don't recreate scratch chunk rows after /abort already cleared them.
     if (bytes.byteLength > 0) {
+      const failedBeforeWrite = await stopIfUploadFailed();
+      if (failedBeforeWrite) return failedBeforeWrite;
       // Pad index to 6 digits so string-sort order matches numeric order if the
       // finalize path ever sorts lexically. (finalize also parses back to a number.)
       const paddedIndex = String(index).padStart(6, "0");

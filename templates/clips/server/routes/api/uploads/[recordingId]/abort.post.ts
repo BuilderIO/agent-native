@@ -68,11 +68,6 @@ export default defineEventHandler(async (event: H3Event) => {
       return { ok: true, recordingId, alreadyReady: true, chunksCleared: 0 };
     }
 
-    const cleared = await deleteAppStateByPrefix(
-      `recording-chunks-${recordingId}-`,
-    );
-    await deleteResumableSession(recordingId).catch(() => {});
-
     const now = new Date().toISOString();
     await db
       .update(schema.recordings)
@@ -89,6 +84,11 @@ export default defineEventHandler(async (event: H3Event) => {
       failureReason,
       updatedAt: now,
     });
+
+    const cleared = await deleteAppStateByPrefix(
+      `recording-chunks-${recordingId}-`,
+    );
+    await deleteResumableSession(recordingId).catch(() => {});
     await writeAppState("refresh-signal", { ts: Date.now() });
 
     return { ok: true, recordingId, chunksCleared: cleared };

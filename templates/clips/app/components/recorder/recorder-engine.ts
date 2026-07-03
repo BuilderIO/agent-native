@@ -1837,7 +1837,9 @@ export class RecorderEngine {
             extra.isFinal &&
             (err as { name?: string } | null)?.name !== "AbortError"
           ) {
-            const recovered = await this.recoverReadyAfterFinalUploadError();
+            const recovered = await this.recoverReadyAfterFinalUploadError(
+              extra.signal,
+            );
             if (recovered) return recovered;
           }
           throw err;
@@ -1854,7 +1856,9 @@ export class RecorderEngine {
         if (extra.isFinal && res.status === 504) {
           triedFinalUploadRecovery = true;
           await res.text().catch(() => "");
-          const recovered = await this.recoverReadyAfterFinalUploadError();
+          const recovered = await this.recoverReadyAfterFinalUploadError(
+            extra.signal,
+          );
           if (recovered) return recovered;
           break;
         }
@@ -1889,7 +1893,9 @@ export class RecorderEngine {
         !triedFinalUploadRecovery &&
         this.isFinalUploadRecoveryCandidate(res.status, err)
       ) {
-        const recovered = await this.recoverReadyAfterFinalUploadError();
+        const recovered = await this.recoverReadyAfterFinalUploadError(
+          extra.signal,
+        );
         if (recovered) return recovered;
       }
       trackClipUploadBlockingFailure({
@@ -1967,14 +1973,14 @@ export class RecorderEngine {
     return !/too large|exceeds.*limit|chunk too large/i.test(error.message);
   }
 
-  private async recoverReadyAfterFinalUploadError(): Promise<Record<
-    string,
-    unknown
-  > | null> {
+  private async recoverReadyAfterFinalUploadError(
+    signal?: AbortSignal,
+  ): Promise<Record<string, unknown> | null> {
     return waitForReadyRecordingAfterFinalizeError({
       uploadUrl: this.opts.uploadUrl,
       recordingId: this.opts.recordingId,
       preferAuthenticated: true,
+      signal,
     });
   }
 
