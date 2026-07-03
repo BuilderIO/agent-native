@@ -3,7 +3,8 @@ import {
   getBrowserTabId,
   setClientAppState,
 } from "@agent-native/core/client";
-import { useParams } from "react-router";
+import { useEffect } from "react";
+import { useLocation, useParams } from "react-router";
 
 export interface NavigationState {
   view: string;
@@ -84,6 +85,14 @@ export function designEditorCommandKey(browserTabId?: string): string {
 
 export function designEditorCommandKeysForTab(browserTabId?: string): string[] {
   return [designEditorCommandKey(browserTabId)];
+}
+
+export function designSelectionStateKeysForTab(
+  browserTabId?: string,
+): string[] {
+  return browserTabId
+    ? [`design-selection:${browserTabId}`, "design-selection"]
+    : ["design-selection"];
 }
 
 function normalizeEditorView(
@@ -191,7 +200,16 @@ export function editorCommandFromNavigate(
 
 export function useNavigationState(enabled = true) {
   const params = useParams();
+  const location = useLocation();
   const browserTabId = getBrowserTabId();
+
+  useEffect(() => {
+    if (!enabled) return;
+    if (location.pathname.startsWith("/design/")) return;
+    for (const key of designSelectionStateKeysForTab(browserTabId)) {
+      setClientAppState(key, null).catch(() => {});
+    }
+  }, [browserTabId, enabled, location.pathname]);
 
   useAgentRouteState<NavigationState>({
     browserTabId,
