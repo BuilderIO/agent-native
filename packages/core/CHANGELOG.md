@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.84.62
+
+### Patch Changes
+
+- b9cac68: Mark interrupted activity-only tool cards as errors so stopped agent actions do not appear successful.
+
 ## 0.84.61
 
 ### Patch Changes
