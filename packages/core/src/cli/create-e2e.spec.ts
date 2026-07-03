@@ -213,9 +213,9 @@ describe("standalone scaffold — chat template", { timeout: 60000 }, () => {
     const pkg = readPkg(path.join(tmpDir, "test-app"));
     const deps = allDeps(pkg);
 
-    expect(deps["@react-router/dev"]).toBe("8.0.1");
-    expect(deps["@react-router/fs-routes"]).toBe("8.0.1");
-    expect(deps["react-router"]).toBe("8.0.1");
+    expect(deps["@react-router/dev"]).toBe("8.1.0");
+    expect(deps["@react-router/fs-routes"]).toBe("8.1.0");
+    expect(deps["react-router"]).toBe("8.1.0");
   });
 
   it("catalog: refs resolve to semver-like strings", async () => {
