@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.84.65
+
+### Patch Changes
+
+- d569c7a: Retry internal chat continuations when the server briefly reports the same completed run as active.
+
 ## 0.84.64
 
 ### Patch Changes
