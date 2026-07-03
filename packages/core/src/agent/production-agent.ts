@@ -4548,6 +4548,25 @@ export function shouldChainBackgroundContinuation(opts: {
   );
 }
 
+export async function markBackgroundContinuationChunkTerminal(opts: {
+  runId: string;
+  continuationReason: AgentLoopContinuationReason;
+  deps?: {
+    updateRunStatusIfRunning?: typeof updateRunStatusIfRunning;
+    setRunTerminalReason?: typeof setRunTerminalReason;
+  };
+}): Promise<boolean> {
+  const updateStatus =
+    opts.deps?.updateRunStatusIfRunning ?? updateRunStatusIfRunning;
+  const setTerminalReason =
+    opts.deps?.setRunTerminalReason ?? setRunTerminalReason;
+  const updated = await updateStatus(opts.runId, "completed");
+  if (updated) {
+    await setTerminalReason(opts.runId, opts.continuationReason);
+  }
+  return updated;
+}
+
 export async function claimBackgroundWorkerRunEarly(opts: {
   runId: string;
   threadId?: string | null;
@@ -6052,6 +6071,10 @@ export function createProductionAgentHandler(
                     RUN_DIAG_STAGE.workerSetupStep,
                     `chain_dispatch_sent nextRunId=${nextRunId} reason=${continuationReason}`,
                   ).catch(() => {});
+                  await markBackgroundContinuationChunkTerminal({
+                    runId: run.runId,
+                    continuationReason,
+                  }).catch(() => {});
                 } catch (chainErr) {
                   // Chain dispatch failed — fail loud so the held row goes
                   // terminal instead of spinning. The reaper would also catch
