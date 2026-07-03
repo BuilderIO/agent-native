@@ -1,6 +1,36 @@
-import { runMigrations } from "@agent-native/core/db";
+import {
+  ensureAdditiveColumns,
+  getDbExec,
+  runMigrations,
+} from "@agent-native/core/db";
 
-export default runMigrations(
+import * as schema from "../db/schema.js";
+
+/**
+ * Every Drizzle table exported from schema.ts. Filters out type-only and
+ * helper exports the same way db.spec.ts's `isDrizzleTable` regression guard
+ * does: a real table carries a Symbol-keyed drizzle metadata bag, plain
+ * exports don't.
+ */
+function isDrizzleTable(value: unknown): value is object {
+  return (
+    !!value &&
+    typeof value === "object" &&
+    Object.getOwnPropertySymbols(value).some((s) =>
+      s.toString().includes("drizzle"),
+    )
+  );
+}
+
+const schemaTables = Object.values(schema).filter(isDrizzleTable);
+
+// Convention: every new migration below MUST set a unique `name:` slug (see
+// packages/core/src/db/migrations.ts for the full rationale). Version numbers
+// alone are not a safe identity across parallel branches that each extend
+// this list independently — see the analytics template's v75-v83 incident
+// documented in templates/analytics/server/plugins/db.ts for the failure
+// class this guards against.
+const runDesignMigrations = runMigrations(
   [
     {
       version: 1,
@@ -269,6 +299,63 @@ CREATE INDEX IF NOT EXISTS motion_timeline_owner_org_updated_idx ON motion_timel
       version: 18,
       sql: {},
     },
+    // v19: design_fusion_edits — declared in schema.ts (queued AI edit intents
+    // for fusion-backed full-app designs) but never had a migration create the
+    // table, so any fresh/existing database without it 500s on first write.
+    // Named per the convention above since this is a new entry.
+    {
+      version: 19,
+      name: "design-fusion-edits-table",
+      sql: `CREATE TABLE IF NOT EXISTS design_fusion_edits (
+    id TEXT PRIMARY KEY,
+    design_id TEXT NOT NULL,
+    screen_file_id TEXT,
+    instruction TEXT NOT NULL,
+    target TEXT,
+    status TEXT NOT NULL DEFAULT 'pending',
+    batch_id TEXT,
+    error TEXT,
+    sent_at TEXT,
+    created_at TEXT DEFAULT (datetime('now')),
+    updated_at TEXT DEFAULT (datetime('now')),
+    owner_email TEXT NOT NULL DEFAULT 'local@localhost',
+    org_id TEXT,
+    visibility TEXT NOT NULL DEFAULT 'private'
+  )`,
+    },
   ],
   { table: "design_migrations" },
 );
+
+/**
+ * The migration list above is the authoritative source for tables, indexes,
+ * and data transforms. `ensureAdditiveColumns` runs after it as a
+ * belt-and-braces safety net for the same failure mode fixed in the
+ * analytics template: a column added to schema.ts without a matching
+ * hand-written ALTER migration, which silently 500s every query touching a
+ * pre-existing production table. It only ever adds missing columns — never
+ * drops, renames, or retypes anything — and any failure here is logged and
+ * swallowed so it can never fail boot.
+ */
+export default async (nitroApp: any): Promise<void> => {
+  await runDesignMigrations(nitroApp);
+  try {
+    const summary = await ensureAdditiveColumns({
+      db: getDbExec(),
+      tables: schemaTables,
+    });
+    if (summary.errors.length > 0) {
+      console.warn(
+        "[db] ensureAdditiveColumns completed with errors:",
+        summary.errors,
+      );
+    }
+  } catch (err) {
+    // Never fail boot over the safety net itself — the authoritative
+    // migrations above already ran.
+    console.warn(
+      "[db] ensureAdditiveColumns failed (non-fatal):",
+      err instanceof Error ? err.message : err,
+    );
+  }
+};

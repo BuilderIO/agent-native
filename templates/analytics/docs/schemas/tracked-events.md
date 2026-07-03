@@ -24,6 +24,12 @@ Events tracked by application instrumentation and stored in the configured appli
 - `agent chat message submitted` — User sends an agent chat message
 - `agent chat message received` — AI responds
 - `agent chat code applied` — AI-generated code applied to project
+- `$ai_generation` — One instrumented agent-loop LLM generation emitted through
+  server-side tracking. Properties include `$ai_trace_id`, `$ai_session_id`,
+  `$ai_model`, `$ai_provider`, `$ai_input_tokens`, `$ai_output_tokens`,
+  `$ai_latency`, `$ai_total_cost_usd`, `run_id`, `thread_id`,
+  `cost_cents_x100`, `duration_ms`, `tool_calls`, `status`, and error fields.
+  Prompt and response content are excluded by default.
 
 ### Content Editing
 

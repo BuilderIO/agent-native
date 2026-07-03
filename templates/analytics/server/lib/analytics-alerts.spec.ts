@@ -211,6 +211,30 @@ describe("analytics alert evaluation", () => {
     );
   });
 
+  it("does not let a failed rule listing crash the whole sweep", () => {
+    const jobSource = readFileSync(
+      new URL("../jobs/analytics-alerts.ts", import.meta.url),
+      "utf8",
+    );
+
+    const tryIndex = jobSource.indexOf("try {\n      rules = await");
+    const catchIndex = jobSource.indexOf(
+      "Failed to list enabled alert rules; skipping this sweep",
+    );
+    const listCallIndex = jobSource.indexOf(
+      "rules = await listEnabledAnalyticsAlertRules(",
+    );
+
+    expect(tryIndex).toBeGreaterThan(-1);
+    expect(catchIndex).toBeGreaterThan(-1);
+    expect(listCallIndex).toBeGreaterThan(tryIndex);
+    expect(catchIndex).toBeGreaterThan(listCallIndex);
+    expect(jobSource).toContain("listRulesFailureLogged");
+    expect(jobSource).toContain(
+      "return { processed: 0, triggered: 0, failed: 0, remaining: 0 };",
+    );
+  });
+
   it("seeds the default HTTP 5xx alert before evaluating rules", () => {
     const source = readFileSync(
       new URL("./analytics-alerts.ts", import.meta.url),
@@ -229,7 +253,7 @@ describe("analytics alert evaluation", () => {
       "await ensureDefaultHttp5xxSpikeAlertRules()",
     );
     const listRulesIndex = jobSource.indexOf(
-      "const rules = await listEnabledAnalyticsAlertRules",
+      "rules = await listEnabledAnalyticsAlertRules",
     );
     expect(seedCallIndex).toBeGreaterThan(-1);
     expect(listRulesIndex).toBeGreaterThan(-1);

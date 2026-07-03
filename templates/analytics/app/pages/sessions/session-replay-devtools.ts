@@ -49,6 +49,7 @@ export type ReplayNetworkEntry = {
   failed: boolean;
   durationMs: number;
   error?: string;
+  responseBody?: string;
 };
 
 export type ReplayDevToolsDiagnostics = {
@@ -167,6 +168,10 @@ function normalizeNetworkEntry(
     failed: !ok || isFailedSessionReplayNetworkStatus(status),
     durationMs: Math.max(0, Math.round(Number(payload.durationMs) || 0)),
     error: typeof payload.error === "string" ? payload.error : undefined,
+    responseBody:
+      typeof payload.responseBody === "string"
+        ? payload.responseBody
+        : undefined,
   };
 }
 

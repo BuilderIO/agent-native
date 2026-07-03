@@ -22,6 +22,71 @@ const WORKBENCH_THEME_VARS: Record<string, string[]> = {
   "--workbench-button-fg": ["--foreground"],
   "--workbench-selection-bg": ["--design-editor-selection-color", "--accent"],
   "--workbench-dirty": ["--warning", "--destructive"],
+
+  // Activity bar (40px icon rail).
+  "--workbench-activitybar-bg": [
+    "--design-editor-control-bg",
+    "--design-editor-panel-bg",
+  ],
+  "--workbench-activitybar-fg": ["--muted-foreground"],
+
+  // Tab strip.
+  "--workbench-tabbar-bg": ["--design-editor-control-bg", "--muted"],
+  "--workbench-tab-active-bg": ["--design-editor-panel-bg", "--background"],
+  "--workbench-tab-active-fg": ["--foreground"],
+  "--workbench-tab-inactive-bg": ["--design-editor-control-bg", "--muted"],
+  "--workbench-tab-inactive-fg": ["--muted-foreground"],
+  "--workbench-tab-border": ["--design-editor-control-border", "--border"],
+
+  // Breadcrumbs.
+  "--workbench-breadcrumb-fg": ["--muted-foreground"],
+
+  // Status bar.
+  "--workbench-statusbar-bg": ["--design-editor-control-bg", "--muted"],
+  "--workbench-statusbar-fg": ["--muted-foreground"],
+
+  // List rows (explorer tree, search results, suggest widget).
+  "--workbench-list-hover-bg": [
+    "--design-editor-layer-hover-color",
+    "--accent",
+  ],
+  "--workbench-list-active-bg": [
+    "--design-editor-active-row-color",
+    "--accent",
+  ],
+  "--workbench-list-selection-bg": [
+    "--design-editor-selection-color",
+    "--accent",
+  ],
+
+  // Inputs (search box, quick input, rename inline input).
+  "--workbench-input-bg": ["--design-editor-control-bg", "--background"],
+  "--workbench-input-border": ["--design-editor-control-border", "--border"],
+  "--workbench-input-fg": ["--foreground"],
+
+  // Quick input overlay + badges.
+  "--workbench-quickinput-bg": ["--design-editor-panel-bg", "--popover"],
+  "--workbench-badge-bg": ["--design-editor-accent-color", "--primary"],
+  "--workbench-badge-fg": ["--primary-foreground"],
+
+  // Search match highlight.
+  "--workbench-search-match-bg": [
+    "--design-editor-selection-color",
+    "--accent",
+  ],
+};
+
+/**
+ * Error/warning colors are color-scheme aware literals (not sourced from an
+ * app design token) since the app doesn't define semantic red/amber tokens.
+ * Kept modest saturation to match the "clean Figma" palette.
+ */
+const WORKBENCH_STATUS_COLORS: Record<
+  "light" | "dark",
+  { error: string; warning: string }
+> = {
+  light: { error: "hsl(0 72% 51%)", warning: "hsl(38 92% 42%)" },
+  dark: { error: "hsl(0 72% 62%)", warning: "hsl(38 92% 58%)" },
 };
 
 const HEX_COLOR_RE = /^#(?:[0-9a-f]{3,4}|[0-9a-f]{6}|[0-9a-f]{8})$/i;
@@ -146,5 +211,8 @@ export function readCodeWorkbenchTheme(
     rootStyles.colorScheme.includes("dark")
       ? "dark"
       : "light";
+  const statusColors = WORKBENCH_STATUS_COLORS[colorScheme];
+  values["--workbench-error"] = resolveCssColorValue(statusColors.error);
+  values["--workbench-warning"] = resolveCssColorValue(statusColors.warning);
   return { colorScheme, values };
 }

@@ -55,19 +55,6 @@ function assertPublicPaths(pluginRel: string, expected: string[]) {
   }
 }
 
-assertFilesExist("videos", [
-  "_index.tsx",
-  "c.$compositionId.tsx",
-  "components.tsx",
-  "design-systems.tsx",
-  "extensions.tsx",
-  "extensions._index.tsx",
-  "extensions.$id.tsx",
-  "extensions.$id.$slug.tsx",
-  "team.tsx",
-  "$.tsx",
-]);
-
 assertFilesExist("slides", [
   "_index.tsx",
   "deck.$id.tsx",
@@ -145,13 +132,4 @@ assertPublicPaths("templates/clips/server/plugins/auth.ts", [
   "/api/media",
   "/api/video",
 ]);
-const videosPackage = JSON.parse(read("templates/videos/package.json")) as {
-  scripts?: Record<string, string>;
-};
-assert.equal(
-  videosPackage.scripts?.typecheck,
-  "agent-native typecheck",
-  "videos is now cleaned up and must run the real typecheck (not the skip placeholder)",
-);
-
 console.log("qa-template-route-matrix: clean");

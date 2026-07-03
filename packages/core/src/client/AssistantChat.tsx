@@ -633,10 +633,40 @@ function toolCallPartHasResult(part: unknown): boolean {
   return candidate.type === "tool-call" && "result" in candidate;
 }
 
-function collectRenderedToolCallStates(
-  messages: readonly unknown[],
-): Map<string, { hasResult: boolean }> {
-  const states = new Map<string, { hasResult: boolean }>();
+/**
+ * Identity fingerprint for a tool-call part that survives across readers: two
+ * readers of the same run assign unrelated synthetic toolCallIds until both
+ * have seen the server id, but the tool name + serialized args are identical
+ * for the same logical call (argsText is `JSON.stringify(input)` on both
+ * sides). Activity placeholders (no args yet) return null — an empty-args
+ * fingerprint would over-match unrelated calls of the same tool.
+ */
+function toolCallFingerprintFromContentPart(part: unknown): string | null {
+  if (!part || typeof part !== "object") return null;
+  const candidate = part as {
+    type?: unknown;
+    toolName?: unknown;
+    argsText?: unknown;
+    activity?: unknown;
+  };
+  if (candidate.type !== "tool-call") return null;
+  if (candidate.activity === true) return null;
+  const name =
+    typeof candidate.toolName === "string" && candidate.toolName
+      ? candidate.toolName
+      : null;
+  const argsText =
+    typeof candidate.argsText === "string" ? candidate.argsText : "";
+  if (!name || !argsText) return null;
+  return `${name} ${argsText}`;
+}
+
+function collectRenderedToolCallStates(messages: readonly unknown[]): {
+  byId: Map<string, { hasResult: boolean }>;
+  completedFingerprints: Set<string>;
+} {
+  const byId = new Map<string, { hasResult: boolean }>();
+  const completedFingerprints = new Set<string>();
   for (const message of messages) {
     const msg = (message as { message?: unknown })?.message ?? message;
     const content = (msg as { content?: unknown })?.content;
@@ -644,13 +674,18 @@ function collectRenderedToolCallStates(
     for (const part of content) {
       const id = toolCallIdFromContentPart(part);
       if (!id) continue;
-      const existing = states.get(id);
-      states.set(id, {
-        hasResult: Boolean(existing?.hasResult || toolCallPartHasResult(part)),
+      const hasResult = toolCallPartHasResult(part);
+      const existing = byId.get(id);
+      byId.set(id, {
+        hasResult: Boolean(existing?.hasResult || hasResult),
       });
+      if (hasResult) {
+        const fingerprint = toolCallFingerprintFromContentPart(part);
+        if (fingerprint) completedFingerprints.add(fingerprint);
+      }
     }
   }
-  return states;
+  return { byId, completedFingerprints };
 }
 
 export function dedupeReconnectContentAgainstMessages(
@@ -658,17 +693,35 @@ export function dedupeReconnectContentAgainstMessages(
   messages: readonly unknown[],
 ): ContentPart[] {
   if (content.length === 0 || messages.length === 0) return content;
-  const renderedToolCallStates = collectRenderedToolCallStates(messages);
-  if (renderedToolCallStates.size === 0) return content;
+  const { byId, completedFingerprints } =
+    collectRenderedToolCallStates(messages);
+  if (byId.size === 0) return content;
 
   let changed = false;
   const filtered = content.filter((part) => {
     const id = toolCallIdFromContentPart(part);
-    const existing = id ? renderedToolCallStates.get(id) : undefined;
-    if (!id || !existing) return true;
-    if (toolCallPartHasResult(part) && !existing.hasResult) return true;
-    changed = true;
-    return false;
+    if (!id) return true;
+    const existing = byId.get(id);
+    if (existing) {
+      if (toolCallPartHasResult(part) && !existing.hasResult) return true;
+      changed = true;
+      return false;
+    }
+    // Fingerprint fallback for the id-convergence window: a reconnect part
+    // that is still PENDING while the rendered messages already show the same
+    // call (same tool + same serialized args) completed is a replay artifact —
+    // dropping it removes the "one spinning, one done" duplicate pair. Only
+    // pending parts are dropped by fingerprint: completed-vs-completed keeps
+    // the strict id match so a legitimately repeated identical call is never
+    // hidden.
+    if (!toolCallPartHasResult(part)) {
+      const fingerprint = toolCallFingerprintFromContentPart(part);
+      if (fingerprint && completedFingerprints.has(fingerprint)) {
+        changed = true;
+        return false;
+      }
+    }
+    return true;
   });
   return changed ? filtered : content;
 }
@@ -1232,6 +1285,14 @@ const AssistantChatInner = forwardRef<
   const threadRuntime = useThreadRuntime();
   const composerRuntime = useComposerRuntime();
   const isRuntimeRunning = thread.isRunning;
+  // Latest-value ref so long-lived async closures (the reconnect reader, its
+  // watchdog) can check the CURRENT adapter-runtime state instead of the value
+  // captured when they were created. Load-bearing for single-reader ownership:
+  // the adapter's own stream and AssistantChat's reconnect reader must never
+  // both be attached to the same run (dual accumulators render duplicate tool
+  // cards and parallel duplicate streaming text).
+  const isRuntimeRunningRef = useRef(isRuntimeRunning);
+  isRuntimeRunningRef.current = isRuntimeRunning;
   const messages = thread.messages;
   const { suggestions: resolvedSuggestions } = useAgentDynamicSuggestionsResult(
     {
@@ -1544,6 +1605,11 @@ const AssistantChatInner = forwardRef<
   // True during the 250ms continuation window and startup of the next chunk
   // (adapter's auto-continue delay before POSTing the next chunk).
   const [isAutoResuming, setIsAutoResuming] = useState(false);
+  // Latest-value ref for the same single-reader checks as isRuntimeRunningRef:
+  // during an adapter auto-continuation the runtime can flick false between
+  // chunks while the adapter is still driving the turn.
+  const isAutoResumingRef = useRef(isAutoResuming);
+  isAutoResumingRef.current = isAutoResuming;
   const autoResumeTimerRef = useRef<number | null>(null);
   const [optimisticRunning, setOptimisticRunning] = useState(false);
   const [runningActivityLabel, setRunningActivityLabel] = useState<
@@ -1889,6 +1955,16 @@ const AssistantChatInner = forwardRef<
       const runId = String(runInfo.runId);
       if (wasRecentlyStoppedRun(runId)) return false;
       if (reconnectRunIdRef.current === runId) return true;
+      // SINGLE-READER OWNERSHIP: never start a second reader while the
+      // adapter's own stream is live (or mid auto-continuation) for this
+      // thread. Two concurrent readers of the same run render two independent
+      // accumulators — duplicate tool cards (one spinning, one static) and the
+      // same assistant text streaming twice in parallel. The adapter owns the
+      // run whenever its runtime is active; this reconnect reader exists only
+      // for runs with NO live adapter stream (page reload, tab restore).
+      if (isRuntimeRunningRef.current || isAutoResumingRef.current) {
+        return false;
+      }
 
       reconnectRunIdRef.current = runId;
       const afterSeq = resolveReconnectAfterSeq(threadId, runId);
@@ -1928,6 +2004,16 @@ const AssistantChatInner = forwardRef<
             return;
           }
           const info = (await res.json()) as ActiveRunLookup;
+          // SINGLE-READER OWNERSHIP: if the adapter runtime came alive while
+          // this reader was attached (user sent a message, adapter adopted the
+          // thread's run), this reader is now the duplicate — kill it. The
+          // false→true runtime-transition effect also unwinds the UI state;
+          // this covers the reader itself.
+          if (isRuntimeRunningRef.current) {
+            abortCtrl.abort();
+            clearInterval(watchdog);
+            return;
+          }
           if (isReplayableTerminalRun(info)) {
             return;
           }
@@ -2240,7 +2326,10 @@ const AssistantChatInner = forwardRef<
             }),
           );
         }
-        if (!loaded) {
+        // Skip the final refresh when the adapter runtime is live — importing
+        // thread_data mid-stream would clobber the adapter's in-flight message
+        // (the takeover path already discarded this reader's content).
+        if (!loaded && !isRuntimeRunningRef.current) {
           const repo = await refreshThreadFromServer();
           if (afterSeq > 0 || repoHasAssistantMessage(repo)) {
             setReconnectContent([]);
@@ -2259,6 +2348,12 @@ const AssistantChatInner = forwardRef<
   const reconnectActiveRunForThread =
     useCallback(async (): Promise<boolean> => {
       if (!threadId) return false;
+      // Single-reader ownership (see startReconnectToRun, which re-checks
+      // after the async probe): skip the probe entirely while the adapter's
+      // own stream is driving this thread.
+      if (isRuntimeRunningRef.current || isAutoResumingRef.current) {
+        return false;
+      }
       try {
         const storedActiveRun = getActiveRun();
         const runRes = await fetch(
@@ -2955,7 +3050,21 @@ const AssistantChatInner = forwardRef<
     const wasRunning = prevIsRuntimeRunningRef.current;
     prevIsRuntimeRunningRef.current = isRuntimeRunning;
     if (isRuntimeRunning && !wasRunning) {
-      if (reconnectFrozen) {
+      // SINGLE-READER OWNERSHIP: the adapter runtime just took over (a new run
+      // started or an adopted run resumed). Any live reconnect reader is now a
+      // duplicate accumulator — abort it and DISCARD its content; the adapter's
+      // stream renders the canonical message. Null the run ref first so the
+      // reader's own cleanup paths (which all check reconnectRunIdRef) no-op.
+      if (reconnectRunIdRef.current !== null) {
+        reconnectRunIdRef.current = null;
+        reconnectAbortRef.current?.abort();
+        reconnectAbortRef.current = null;
+        setIsReconnecting(false);
+        setReconnectContent([]);
+        setReconnectFrozen(false);
+        reconnectCanMaterializeRef.current = false;
+        reconnectTailOnlyRef.current = false;
+      } else if (reconnectFrozen) {
         setReconnectFrozen(false);
         setReconnectContent([]);
         reconnectCanMaterializeRef.current = false;

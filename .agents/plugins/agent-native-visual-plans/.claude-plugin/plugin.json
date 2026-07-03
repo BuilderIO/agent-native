@@ -1,7 +1,7 @@
 {
   "name": "agent-native-visual-plans",
   "displayName": "Agent-Native Plan",
-  "description": "Create rich interactive visual plans and recaps with diagrams, file maps, annotated code and diffs, API/schema summaries, feedback, and HTML export.",
+  "description": "Create rich interactive visual plans, recaps, and repo-native visual docs with diagrams, file maps, annotated code and diffs, API/schema summaries, feedback, and HTML export.",
   "author": { "name": "Agent-Native", "url": "https://agent-native.com" },
   "homepage": "https://plan.agent-native.com",
   "repository": "https://github.com/BuilderIO/agent-native",

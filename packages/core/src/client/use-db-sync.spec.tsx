@@ -5,9 +5,11 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
+  subscribeSyncEvents,
   useDbSync,
   useScreenRefreshKey,
   _resetSyncTransportRegistryForTests,
+  type SyncEvent,
 } from "./use-db-sync.js";
 
 class QueryClientProbe {
@@ -174,6 +176,111 @@ describe("useDbSync", () => {
     expect(result.fetchMock).toHaveBeenCalled();
     expect(result.queryClient.calls).not.toContainEqual(undefined);
     expect(result.queryClient.calls).toContainEqual({ queryKey: ["action"] });
+  });
+
+  it("backs off polling after repeated failures and resets on success", async () => {
+    vi.useFakeTimers();
+    const queryClient = new QueryClientProbe();
+    let failing = true;
+    const fetchMock = vi.fn(async () =>
+      failing
+        ? new Response("oops", { status: 500 })
+        : new Response(JSON.stringify({ version: 1, events: [] })),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    roots.push(root);
+    containers.push(container);
+
+    await act(async () => {
+      root.render(<SyncProbe queryClient={queryClient} />);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    // Mount poll = failure #1.
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    // Base interval is 50ms, but after one failure the next poll is delayed
+    // to 50 * 2^1 = 100ms — advancing past the base interval alone must NOT
+    // trigger another poll.
+    await act(async () => {
+      vi.advanceTimersByTime(60);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      vi.advanceTimersByTime(50); // 110ms total ≥ 100ms backoff
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+
+    // Failure #2 → next delay 50 * 2^2 = 200ms.
+    await act(async () => {
+      vi.advanceTimersByTime(150);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+
+    failing = false;
+    await act(async () => {
+      vi.advanceTimersByTime(60); // crosses the 200ms mark → poll #3 succeeds
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+
+    // Success resets the backoff to the base 50ms interval.
+    await act(async () => {
+      vi.advanceTimersByTime(60);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+  });
+
+  it("subscribeSyncEvents shares the transport and reports SSE state on join", async () => {
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            version: 7,
+            events: [{ version: 7, source: "collab", docId: "d1" }],
+          }),
+        ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const received: SyncEvent[] = [];
+    const sseStates: boolean[] = [];
+    const unsubscribe = subscribeSyncEvents({
+      onEvents: (events) => received.push(...events),
+      onSseStateChange: (connected) => sseStates.push(connected),
+      sseUrl: false,
+      interval: 50,
+      pauseWhenHidden: false,
+    });
+
+    // Joining reports the current SSE state immediately (disabled here).
+    expect(sseStates).toEqual([false]);
+
+    // The transport polls on start; events fan out to plain subscribers.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(fetchMock).toHaveBeenCalled();
+    expect(
+      received.some(
+        (event) => event.source === "collab" && event.docId === "d1",
+      ),
+    ).toBe(true);
+
+    unsubscribe();
   });
 
   it("backs off polling after an auth failure", async () => {

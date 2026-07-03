@@ -235,7 +235,7 @@ VITE_AGENT_NATIVE_SESSION_REPLAY_SAMPLE_RATE=0.1
 - URL 会使用与浏览器分析相同的 `scrubUrl()` 辅助函数进行清理。
 - 重放采集仅限 Web 端且为选择性加入（opt-in）；不会录制原生桌面屏幕。
 
-录制期间，会话重放还会捕获浏览器控制台输出（`log`、`info`、`warn`、`error`、`debug`，以及 window 的 `error` / `unhandledrejection`）和网络请求元数据（`fetch` 和 XHR），并将其作为带标签的 rrweb 自定义事件记录下来，以便代理和重放查看器调试用户报告的问题。启用重放后，此项捕获默认开启；可通过 `sessionReplay.console` 和 `sessionReplay.network` 选项进行调整或禁用，两者均可接受布尔值或选项对象。请求/响应的正文和请求头永远不会被捕获，URL 会被清理，消息会被截断，录制器自身的上报/跟踪流量会被排除，并且每个会话的配额（1000 条控制台事件 / 2000 条网络事件）在超出时会附加截断提示。
+录制期间，会话重放还会捕获浏览器控制台输出（`log`、`info`、`warn`、`error`、`debug`，以及 window 的 `error` / `unhandledrejection`）和网络请求元数据（`fetch` 和 XHR），并将其作为带标签的 rrweb 自定义事件记录下来，以便代理和重放查看器调试用户报告的问题。启用重放后，此项捕获默认开启；可通过 `sessionReplay.console` 和 `sessionReplay.network` 选项进行调整或禁用，两者均可接受布尔值或选项对象（`{ maxEvents?: number }`，其中 `network` 还可接受 `captureErrorBodies` 和 `maxErrorBodyLength`）。请求正文和请求头永远不会被捕获；响应正文仅在 5xx（服务器错误）响应下才会被捕获，且只捕获一段有边界、经过脱敏处理的片段（`captureErrorBodies`，默认值为 `true`，长度上限为 `maxErrorBodyLength` 个字符，默认 2048）——非 5xx 响应以及网络失败（状态码 0）的响应永远不会携带正文。URL 会被清理，消息会被截断，录制器自身的上报/跟踪流量会被排除，并且每个会话的配额（1000 条控制台事件 / 2000 条网络事件）在超出时会附加截断提示。
 
 Analytics 模板将重放元数据存储在 SQL（`session_recordings`）中，并通过私有 blob 引用（`session_replay_chunks`）存储数据块。浏览器和代理永远不会收到提供商的 URL。回放通过受限的服务器路由进行，默认的代理工具返回的是摘要或有限范围的重放事件，而非原始数据块表的直接访问权限。
 

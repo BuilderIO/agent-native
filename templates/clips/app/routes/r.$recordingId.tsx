@@ -927,9 +927,9 @@ export default function RecordingPage() {
   );
 
   return (
-    <div className="flex h-screen w-full bg-background overflow-hidden">
+    <div className="flex min-h-screen w-full bg-background xl:h-screen xl:overflow-hidden">
       {/* Main video column */}
-      <div className="flex-1 flex flex-col min-w-0">
+      <div className="flex w-full min-w-0 flex-col xl:flex-1">
         <header className="flex items-center gap-3 px-4 py-3 border-b border-border shrink-0">
           <Button
             variant="ghost"
@@ -1128,15 +1128,17 @@ export default function RecordingPage() {
 
         <div
           className={cn(
-            "flex-1 flex flex-col overflow-hidden",
-            editing && canUseNativeEditor ? "min-h-0" : "p-4 gap-4",
+            "flex flex-col",
+            editing && canUseNativeEditor
+              ? "min-h-0 flex-1 overflow-hidden"
+              : "gap-4 p-4 xl:min-h-0 xl:flex-1 xl:overflow-hidden",
           )}
         >
           {editing && canUseNativeEditor ? (
             <EditorLayout recordingId={recording.id} className="flex-1" />
           ) : (
             <>
-              <div className="flex-1 min-h-0 relative">
+              <div className="relative aspect-video w-full xl:min-h-0 xl:flex-1 xl:aspect-auto">
                 <VideoPlayer
                   ref={playerRef}
                   recordingId={recording.id}
@@ -1159,7 +1161,7 @@ export default function RecordingPage() {
                   cta={firstCta}
                   onCtaClick={() => tracking.reportCtaClick()}
                   onTimeUpdate={(ms) => setCurrentMs(ms)}
-                  className="h-full"
+                  className="h-full w-full"
                 />
                 {commentOpen ? (
                   <TimestampedCommentBar

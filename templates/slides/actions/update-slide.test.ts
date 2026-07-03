@@ -61,6 +61,17 @@ vi.mock("../server/handlers/decks.js", () => ({
   notifyClients: (...args: unknown[]) => mockNotifyClients(...args),
 }));
 
+const mockAgentTouchDocument = vi.fn();
+vi.mock("@agent-native/core/collab", () => ({
+  agentTouchDocument: (...args: unknown[]) => mockAgentTouchDocument(...args),
+}));
+
+// Real per-deck lock just runs the fn; passthrough keeps the unit test focused
+// on update-slide's own read-modify-write logic.
+vi.mock("./patch-deck.js", () => ({
+  withDeckLock: (_deckId: string, fn: () => Promise<unknown>) => fn(),
+}));
+
 vi.mock("../server/lib/deck-versions.js", () => ({
   createDeckVersionSnapshot: vi.fn(async () => ({ created: true })),
 }));
@@ -113,7 +124,22 @@ describe("update-slide", () => {
     expect(deck.slides[0].content).toBe("<div>New</div>");
     expect(deck.updatedAt).not.toBe("2026-01-01T00:00:00.000Z");
     expect(lastUpdateSet!.updatedAt).toBe(deck.updatedAt);
-    expect(mockNotifyClients).toHaveBeenCalledWith("deck-1");
+    // The broadcast now carries the changed slideId + agent actor (backwards-
+    // compatible — { type, deckId } are still present in the wire payload).
+    expect(mockNotifyClients).toHaveBeenCalledWith("deck-1", {
+      slideId: "slide-1",
+      actor: "agent",
+    });
+    // The agent's presence is recorded on the DECK presence doc for this slide.
+    expect(mockAgentTouchDocument).toHaveBeenCalledWith(
+      "deck-deck-1",
+      expect.objectContaining({
+        metadata: { slide: "slide-1" },
+        edit: expect.objectContaining({
+          descriptor: { kind: "paths", paths: ["slides.slide-1"] },
+        }),
+      }),
+    );
   });
 
   it("applies a surgical find/replace edit", async () => {

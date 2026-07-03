@@ -56,8 +56,9 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { SaveStatusIndicator } from "@/components/visual-editor";
 import type { Deck, Slide, SlideLayout } from "@/context/DeckContext";
-import { defaultSlideContent } from "@/context/DeckContext";
+import { defaultSlideContent, useSaveState } from "@/context/DeckContext";
 import { toast } from "@/hooks/use-toast";
 import {
   ASPECT_RATIO_VALUES,
@@ -76,8 +77,6 @@ interface EditorToolbarProps {
    *  Defaults to true for backward compatibility. */
   canEdit?: boolean;
   onTitleChange: (title: string) => void;
-  activeTab: "visual" | "code";
-  onTabChange: (tab: "visual" | "code") => void;
   slideCount: number;
   currentSlideIndex: number;
   sidebarOpen: boolean;
@@ -218,8 +217,6 @@ export default function EditorToolbar({
   deckId,
   deckTitle,
   onTitleChange,
-  activeTab,
-  onTabChange,
   slideCount,
   currentSlideIndex,
   sidebarOpen,
@@ -272,6 +269,23 @@ export default function EditorToolbar({
     typeof window === "undefined"
       ? `/p/${deckId}`
       : `${window.location.origin}${appPath(`/p/${deckId}`)}`;
+
+  // Live save state for the toolbar indicator, so users always see whether
+  // their work has committed (a lost-deck report motivated surfacing this).
+  const { saving } = useSaveState();
+  const [offline, setOffline] = useState(
+    typeof navigator !== "undefined" ? !navigator.onLine : false,
+  );
+  useEffect(() => {
+    const online = () => setOffline(false);
+    const goOffline = () => setOffline(true);
+    window.addEventListener("online", online);
+    window.addEventListener("offline", goOffline);
+    return () => {
+      window.removeEventListener("online", online);
+      window.removeEventListener("offline", goOffline);
+    };
+  }, []);
 
   const activeAspectRatio: AspectRatio = aspectRatio ?? DEFAULT_ASPECT_RATIO;
   const [layoutOpen, setLayoutOpen] = useState(false);
@@ -372,7 +386,7 @@ export default function EditorToolbar({
   };
 
   return (
-    <div className="flex h-12 shrink-0 items-center gap-0.5 overflow-x-auto whitespace-nowrap border-b border-border bg-background px-1 sm:gap-1 sm:px-3">
+    <div className="flex h-11 shrink-0 items-center gap-1 overflow-x-auto whitespace-nowrap border-b border-border/70 bg-background/95 px-2 shadow-[0_1px_0_hsl(var(--border)/0.35)] backdrop-blur sm:px-3">
       {/* Back button */}
       <Tooltip>
         <TooltipTrigger asChild>
@@ -818,11 +832,11 @@ graph TD
           </>
         )}
 
-      {/* Edit-only cluster — undo/redo + edit-mode tabs */}
+      {/* Edit-only cluster — undo/redo */}
       {canEdit && (
         <>
           {/* Separator */}
-          <div className="w-px h-5 bg-accent flex-shrink-0 hidden sm:block" />
+          <div className="hidden h-5 w-px flex-shrink-0 bg-border/70 sm:block" />
 
           {/* Undo/Redo */}
           <div className="flex items-center flex-shrink-0">
@@ -861,34 +875,17 @@ graph TD
               </TooltipContent>
             </Tooltip>
           </div>
-
-          {/* Separator */}
-          <div className="w-px h-5 bg-accent flex-shrink-0 hidden sm:block" />
-
-          {/* Edit mode tabs */}
-          <div className="flex items-center rounded-md border border-border overflow-hidden flex-shrink-0">
-            <button
-              onClick={() => onTabChange("visual")}
-              className={`px-3 py-2 sm:py-1.5 text-xs font-medium transition-colors ${
-                activeTab === "visual"
-                  ? "bg-accent text-foreground"
-                  : "text-muted-foreground hover:text-muted-foreground"
-              }`}
-            >
-              {t("editorToolbar.preview")}
-            </button>
-            <button
-              onClick={() => onTabChange("code")}
-              className={`px-3 py-2 sm:py-1.5 text-xs font-medium transition-colors ${
-                activeTab === "code"
-                  ? "bg-accent text-foreground"
-                  : "text-muted-foreground hover:text-muted-foreground"
-              }`}
-            >
-              {t("editorToolbar.code")}
-            </button>
-          </div>
         </>
+      )}
+
+      {/* Save status — subtle "Saving…" / "Saved" / offline pill. Renders
+          nothing when idle. Only meaningful for editors. */}
+      {canEdit && (
+        <SaveStatusIndicator
+          saving={saving}
+          offline={offline}
+          className="flex-shrink-0 mr-1"
+        />
       )}
 
       {/* Presence avatars — shared PresenceBar (agent + collaborators) */}

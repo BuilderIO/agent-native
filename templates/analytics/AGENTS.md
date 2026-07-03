@@ -71,6 +71,25 @@ details live in `.agents/skills/`.
 - For shipped dashboard templates, call `list-dashboard-templates` first, then
   `install-dashboard-template` with the selected `templateId`. Do not recreate a
   catalog template by hand unless the user asks for a custom variant.
+- Agent LLM observability is collected through the same first-party tracking
+  API as product analytics. Core emits PostHog-compatible `$ai_generation`
+  events when emitting apps are configured with `AGENT_NATIVE_ANALYTICS_PUBLIC_KEY`
+  and `AGENT_NATIVE_ANALYTICS_ENDPOINT` (or the default hosted endpoint). Query
+  these with `query-agent-native-analytics` using `event_name = '$ai_generation'`;
+  useful JSON properties include `$ai_trace_id` / `run_id`, `$ai_session_id` /
+  `thread_id`, `$ai_model` / `model`, `$ai_provider` / `provider`,
+  `$ai_input_tokens`, `$ai_output_tokens`, `cache_read_tokens`,
+  `cache_write_tokens`, `cost_cents_x100`, `$ai_total_cost_usd`, `duration_ms`
+  / `$ai_latency`, `status`, `tool_calls`, `successful_tools`, `failed_tools`,
+  and `$ai_error` / `error_message`. Do not expect prompts, tool args, or model
+  responses in these tracked events by default.
+- `/agents` is the Analytics home for core agent-admin surfaces. The default
+  Monitoring view embeds the shared observability dashboard for traces,
+  conversations, evals, experiments, and feedback. The Advanced menu opens
+  `/agents?view=database`, which embeds the shared Code-mode database admin
+  tool for table browsing, row editing, and SQL inspection. Keep future
+  agent-admin additions inside this route instead of adding many top-level
+  sidebar tabs.
 - For dashboard edits, default to `mutate-dashboard` with its typed
   `dashboard.*` script API. It supports id-based panel moves, title/SQL/config
   edits, inserts, duplication, removal, and dashboard field patches in one
@@ -136,8 +155,9 @@ details live in `.agents/skills/`.
 - `navigation` exposes current dashboard, analysis, source, chart, and selected
   context.
 - `navigate` moves the user to the relevant analytics view, including
-  `view="catalog"` for the template catalog and `view="sessions"` for session
-  replay.
+  `view="catalog"` for the template catalog, `view="sessions"` for session
+  replay, and `view="agents"` / `agentsView="database"` for agent monitoring
+  or advanced database admin.
 - Use `view-screen` when the active dashboard/chart context is unclear.
 
 ## Session Replay
@@ -155,14 +175,18 @@ details live in `.agents/skills/`.
   scoped to one recording for two hours; SSR embeds an agent discovery payload
   and the JSON APIs expose only summary/timeline metadata plus bounded event
   reads.
-- Recordings also capture console logs and network request metadata (no
-  bodies/headers, scrubbed URLs, truncated messages, per-session budgets);
-  ingest derives `errorCount`/`networkErrorCount` and adds
+- Recordings also capture console logs and network request metadata (request
+  bodies/headers never captured; response bodies captured only as bounded,
+  redacted 5xx snippets; scrubbed URLs, truncated messages, per-session
+  budgets); ingest derives `errorCount`/`networkErrorCount` and adds
   `console-error`/`network-error` timeline markers.
 - The agent context includes a bounded `diagnostics` section (errors first) and
   advertises `GET /api/session-replay/agent-diagnostics.json` with
   `kind`/`level`/`limit` params (limit max 500) under the same `agent_access`
-  token — the primary signal when debugging a user-reported issue.
+  token — the primary signal when debugging a user-reported issue. `offset` and
+  `fromMs`/`toMs` page/window the same endpoint in strictly chronological order
+  (with `hasMore`/`truncated` per kind) so an agent can enumerate every
+  captured entry in a large session.
 - The replay player has a Dev Tools panel with Console and Network tabs
   (filters, search, jump-to-seek, error badge); extend it rather than adding a
   separate replay debugging surface. See the `session-replay` skill.
@@ -185,6 +209,9 @@ details live in `.agents/skills/`.
 - `install-dashboard-template` installs a catalog template into normal
   SQL-backed dashboards. Required: `templateId`. Optional: `dashboardId`,
   `name`, `overwrite`, `forceNew`, and `mergePanels`.
+- The LLM observability dashboard template is `agent-observability-llm`. Install
+  it when the user wants model cost, token volume, latency, error rate, or top
+  expensive agent-run visibility from first-party `$ai_generation` events.
 - To add a template's panels to an existing dashboard, call
   `install-dashboard-template` with `mergePanels: true` and the existing
   `dashboardId`. It appends only the template panels whose id is not already

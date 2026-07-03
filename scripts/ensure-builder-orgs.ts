@@ -10,7 +10,6 @@ const DEFAULT_APPS = [
   "calendar",
   "content",
   "slides",
-  "videos",
   "clips",
   "brain",
   "analytics",

@@ -11,6 +11,7 @@ import {
 } from "./dashboard-catalog";
 import { loadDashboardSeed } from "./dashboard-seeds";
 import { parseDemoDescriptor } from "./demo-source";
+import { validateFirstPartyAnalyticsSql } from "./first-party-analytics";
 import { parsePanelDescriptor } from "./prometheus";
 
 function interpolate(input: string, values: Record<string, string>): string {
@@ -125,6 +126,25 @@ describe("dashboard catalog", () => {
       expect(() =>
         parsePanelDescriptor(interpolate(panel.sql, values)),
       ).not.toThrow();
+    }
+  });
+
+  it("ships a parseable Agent LLM Observability first-party dashboard", () => {
+    const entry = getDashboardCatalogEntry("agent-observability-llm");
+    expect(entry).not.toBeNull();
+    expect(entry?.defaultDashboardId).toBe("agent-observability-llm");
+    expect(entry?.dataSources).toEqual(["first-party"]);
+    expect(entry?.panelCount).toBe(10);
+
+    const config = cloneDashboardConfig(entry!);
+    expect(config.name).toBe("Agent LLM Observability");
+    expect(config.panels).toHaveLength(10);
+    expect(config.panels.some((panel) => panel.id === "llm-cost-30d")).toBe(
+      true,
+    );
+    for (const panel of config.panels) {
+      expect(panel.source).toBe("first-party");
+      expect(() => validateFirstPartyAnalyticsSql(panel.sql)).not.toThrow();
     }
   });
 

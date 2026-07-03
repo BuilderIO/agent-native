@@ -735,11 +735,6 @@
   top: calc(100% + 0.5rem);
 }
 
-[data-agent-empty-state="compact-setup"] > .agent-chat-scroll {
-  flex: 0 0 auto;
-  overflow: visible;
-}
-
 [data-agent-empty-state="compact-setup"] .agent-empty-state {
   height: auto;
   min-height: 5rem;

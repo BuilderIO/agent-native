@@ -120,7 +120,20 @@ function UserAvatar({
             if (e.key === "Enter" || e.key === " ") onClick?.();
           }}
         >
-          {initial}
+          {user.avatarUrl ? (
+            <img
+              src={user.avatarUrl}
+              alt=""
+              style={{
+                width: "100%",
+                height: "100%",
+                borderRadius: "50%",
+                objectFit: "cover",
+              }}
+            />
+          ) : (
+            initial
+          )}
         </div>
       </TooltipTrigger>
       <TooltipContent side="bottom">

@@ -832,7 +832,7 @@ describe("DesignEditor URL state", () => {
     ).toBe("?view=overview&screen=screen-123&zoom=33.33");
   });
 
-  it("drops code panel state while the Code rail tab is hidden", () => {
+  it("round-trips code panel state now that the Code rail tab ships", () => {
     expect(
       getDesignEditorStateUrlSearch({
         currentSearch:
@@ -843,7 +843,7 @@ describe("DesignEditor URL state", () => {
         codeFileId: "code-file",
         codeFilename: "app/routes/home.tsx",
       }),
-    ).toBe("?view=single&screen=screen-123");
+    ).toBe("?view=single&panel=code&fileId=code-file&screen=screen-123");
   });
 });
 

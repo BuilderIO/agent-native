@@ -50,6 +50,7 @@ import "../server/db/index.js"; // ensure registerShareableResource runs
 import { resolveSourceCapabilities } from "../shared/capability-resolver.js";
 import { buildCodeLayerProjection } from "../shared/code-layer.js";
 import type { CodeLayerNode, CodeLayerSource } from "../shared/code-layer.js";
+import { agentSelectionDescriptor } from "../shared/collab-selection.js";
 import {
   COMPONENT_NAME_ATTR,
   COMPONENT_PROP_PREFIX,
@@ -416,7 +417,10 @@ export default defineAction({
       });
 
       agentUpdateSelection(file.id, {
-        selection: node.selector,
+        selection: agentSelectionDescriptor(
+          { nodeId: node.id, selector: node.selector },
+          "Creating component",
+        ),
         nodeId: node.id,
         editingFile: file.filename,
         designId: file.designId,

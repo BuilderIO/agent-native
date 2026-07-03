@@ -224,7 +224,8 @@ const MAX_BLOB_REPLAY_CHUNK_BYTES = 5 * 1024 * 1024;
 const MAX_REPLAY_BLOB_REF_LENGTH = 16 * 1024;
 const MAX_REPLAY_METADATA_BYTES = 16 * 1024;
 const MAX_REPLAY_EVENTS_PER_CHUNK = 1_000;
-const MAX_REPLAY_EVENTS_READ = 10_000;
+const DEFAULT_REPLAY_EVENTS_READ = 10_000;
+const MAX_REPLAY_EVENTS_READ = 100_000;
 const MAX_REPLAY_EVENTS_RESPONSE_BYTES =
   MAX_BLOB_REPLAY_CHUNK_BYTES + 512 * 1024;
 const DEFAULT_SESSION_RECORDINGS_LIMIT = 50;
@@ -1931,7 +1932,7 @@ async function getSessionReplayEventsForRecording(
 }> {
   const maxEvents = Math.min(
     MAX_REPLAY_EVENTS_READ,
-    Math.max(1, options.limit ?? MAX_REPLAY_EVENTS_READ),
+    Math.max(1, options.limit ?? DEFAULT_REPLAY_EVENTS_READ),
   );
   const conditions: any[] = [
     eq(schema.sessionReplayChunks.recordingId, recording.id),

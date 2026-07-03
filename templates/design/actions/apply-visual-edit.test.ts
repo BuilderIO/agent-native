@@ -22,6 +22,7 @@ const mocks = vi.hoisted(() => {
     })),
     hasCollabState: vi.fn().mockResolvedValue(false),
     getText: vi.fn(),
+    agentUpdateSelection: vi.fn(),
     selectChain,
   };
 });
@@ -29,7 +30,7 @@ const mocks = vi.hoisted(() => {
 vi.mock("@agent-native/core/collab", () => ({
   agentEnterDocument: vi.fn(),
   agentLeaveDocument: vi.fn(),
-  agentUpdateSelection: vi.fn(),
+  agentUpdateSelection: mocks.agentUpdateSelection,
   applyText: vi.fn(),
   getText: mocks.getText,
   hasCollabState: mocks.hasCollabState,
@@ -73,6 +74,7 @@ describe("apply-visual-edit", () => {
   beforeEach(() => {
     mocks.assertAccess.mockReset();
     mocks.applyVisualEdit.mockReset();
+    mocks.agentUpdateSelection.mockReset();
     mocks.selectChain.limit.mockReset();
     mocks.selectChain.limit.mockResolvedValue([
       {
@@ -175,6 +177,74 @@ describe("apply-visual-edit", () => {
       "design",
       "design_123",
       "editor",
+    );
+  });
+
+  it("publishes a resolvable node-id selection descriptor with a label", async () => {
+    mocks.applyVisualEdit.mockReturnValueOnce({
+      result: {
+        status: "applied",
+        changed: false,
+        target: { nodeId: "hero-cta", selector: "main > button.cta" },
+      },
+      projection: { nodes: [] },
+      content: "<main>Hello</main>",
+    });
+
+    await action.run({
+      source: { kind: "design-file", fileId: "file_123" },
+      intent: {
+        kind: "textContent",
+        target: { nodeId: "hero-cta" },
+        value: "Buy now",
+      },
+    });
+
+    expect(mocks.agentUpdateSelection).toHaveBeenCalledWith(
+      "file_123",
+      expect.objectContaining({
+        // Prefers the stable node-id anchor over the projection selector, and
+        // carries a short human-readable edit-intent label.
+        selection: {
+          selector: '[data-agent-native-node-id="hero-cta"]',
+          label: "Editing text",
+        },
+        nodeId: "hero-cta",
+        editingFile: "index.html",
+        designId: "design_123",
+      }),
+    );
+  });
+
+  it("falls back to the projection selector when no node id is present", async () => {
+    mocks.applyVisualEdit.mockReturnValueOnce({
+      result: {
+        status: "applied",
+        changed: false,
+        target: { selector: "main > button.cta" },
+      },
+      projection: { nodes: [] },
+      content: "<main>Hello</main>",
+    });
+
+    await action.run({
+      source: { kind: "design-file", fileId: "file_123" },
+      intent: {
+        kind: "style",
+        target: { selector: "main > button.cta" },
+        property: "color",
+        value: "red",
+      },
+    });
+
+    expect(mocks.agentUpdateSelection).toHaveBeenCalledWith(
+      "file_123",
+      expect.objectContaining({
+        selection: {
+          selector: "main > button.cta",
+          label: "Editing style",
+        },
+      }),
     );
   });
 });

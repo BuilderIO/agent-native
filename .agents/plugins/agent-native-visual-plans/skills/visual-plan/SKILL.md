@@ -433,9 +433,10 @@ not hit an OAuth wall:
 npx @agent-native/core@latest skills add visual-plans
 ```
 
-After that, `/visual-plan` and `/visual-recap` are the two installed slash
-commands. If you only need one command, use `skills add visual-plan` or
-`skills add visual-recap` instead. The other planning modes
+After that, `/visual-plan`, `/visual-recap`, and `/visualize-repo` are the
+installed slash commands. If you only need one command, use
+`skills add visual-plan`, `skills add visual-recap`, or
+`skills add visualize-repo` instead. The other planning modes
 (`create-ui-plan`, `create-prototype-plan`, `create-plan-design`,
 `create-visual-questions`) are MCP tools reachable from `/visual-plan`, not
 separate slash commands. Pass `--no-connect` to register the connector without
@@ -454,6 +455,11 @@ anyone with the link, but commenting on them needs an agent-native account.
 For fully offline, no-account use, run the Plans app locally and sync plans to
 your repo as MDX. This local mode is a separate advanced path, not the default
 hosted flow.
+
+For repo-wide visual docs, run
+`npx @agent-native/core@latest visualize-repo --open` to create/update
+`agent-native.json`, seed `.agent-native/visual-docs/repo-overview`, and open
+the local bridge.
 
 If a Plans tool returns `needs auth`, `Unauthorized`, or `Session terminated`, do
 not keep retrying it — stop and give the user the per-client reconnect step from

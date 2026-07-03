@@ -35,6 +35,7 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { applyVisualEdit, type EditIntent } from "../shared/code-layer.js";
+import { agentSelectionDescriptor } from "../shared/collab-selection.js";
 import {
   A11Y_FINDING_CATEGORIES,
   A11Y_FINDING_SEVERITIES,
@@ -282,7 +283,10 @@ export default defineAction({
 
     if (patch.result.target) {
       agentUpdateSelection(file.id, {
-        selection: patch.result.target.selector,
+        selection: agentSelectionDescriptor(
+          patch.result.target,
+          "Fixing accessibility",
+        ),
         nodeId: patch.result.target.nodeId,
         editingFile: file.filename,
         designId: file.designId,

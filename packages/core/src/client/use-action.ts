@@ -32,6 +32,15 @@ import { ensureEmbedAuthFetchInterceptor } from "./embed-auth.js";
 
 const ACTION_PREFIX = agentNativePath("/_agent-native/actions");
 
+/**
+ * Upper bound on how long a single action fetch may stay in flight (headers
+ * AND body). Converts a hung server/proxy/connection into a visible, typed
+ * failure instead of a UI that spins forever. Generous on purpose: it sits
+ * above every server-side budget (serverless function limits, hosted run
+ * wall-clock), so it only fires when something is genuinely stuck.
+ */
+const DEFAULT_ACTION_TIMEOUT_MS = 60_000;
+
 function isAuthFailure(error: unknown): boolean {
   return (
     !!error &&
@@ -42,12 +51,35 @@ function isAuthFailure(error: unknown): boolean {
   );
 }
 
-function defaultActionQueryRetry(
+function isActionTimeout(error: unknown): boolean {
+  return (
+    !!error &&
+    typeof error === "object" &&
+    (error as { timedOut?: unknown }).timedOut === true
+  );
+}
+
+/** @internal exported for tests */
+export function defaultActionQueryRetry(
   failureCount: number,
   error: unknown,
 ): boolean {
   if (isAuthFailure(error)) return false;
+  // A timeout already made the user wait the full timeout window once;
+  // silently retrying would multiply that wait. Surface it instead.
+  if (isActionTimeout(error)) return false;
   return failureCount < 3;
+}
+
+/**
+ * Default retry backoff for action queries. React Query's stock retryDelay
+ * (1s → 2s → 4s) makes a failing query sit on a spinner for ~7s before the
+ * error surfaces; interactive data fetches want failures visible fast.
+ *
+ * @internal exported for tests
+ */
+export function defaultActionQueryRetryDelay(failureCount: number): number {
+  return Math.min(500 * 2 ** failureCount, 2_000);
 }
 
 // ---------------------------------------------------------------------------
@@ -89,6 +121,10 @@ export type ClientActionMethod = "GET" | "POST" | "PUT" | "DELETE";
 
 export interface ClientActionCallOptions {
   method?: ClientActionMethod;
+  /** Abort signal for the underlying fetch. */
+  signal?: AbortSignal;
+  /** Override the default 60s fetch timeout for long-running actions. */
+  timeoutMs?: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -135,10 +171,22 @@ function appendActionQueryParam(
   qs.append(key, String(value));
 }
 
+export interface ActionFetchOptions {
+  /**
+   * Abort signal from the caller (React Query passes one per queryFn
+   * invocation so superseded requests — key change, unmount, refetch — cancel
+   * the underlying network request instead of hogging a connection slot).
+   */
+  signal?: AbortSignal;
+  /** Per-call override for the fetch timeout. */
+  timeoutMs?: number;
+}
+
 async function actionFetch<T>(
   name: string,
   method: string,
   params?: Record<string, any>,
+  options?: ActionFetchOptions,
 ): Promise<T> {
   ensureEmbedAuthFetchInterceptor();
   let url = `${ACTION_PREFIX}/${name}`;
@@ -168,34 +216,76 @@ async function actionFetch<T>(
     init.body = JSON.stringify(params);
   }
 
-  let res: Response;
-  try {
-    res = await fetch(url, init);
-  } catch (err) {
-    // Network failures, CORS, server unreachable, etc. — give the caller a
-    // useful message instead of the opaque "Failed to fetch".
-    const cause = err instanceof Error ? err.message : String(err);
-    throw new Error(`Action ${name} failed: ${cause}`);
+  // One controller drives both cancellation sources: the caller's signal
+  // (superseded query, unmount) and the timeout. The timer stays armed until
+  // the BODY is fully read — headers arriving quickly while the body stalls
+  // is exactly the hang this bounds.
+  const outerSignal = options?.signal;
+  const timeoutMs = options?.timeoutMs ?? DEFAULT_ACTION_TIMEOUT_MS;
+  const controller =
+    typeof AbortController === "undefined" ? null : new AbortController();
+  const onOuterAbort = () => controller?.abort();
+  if (outerSignal && controller) {
+    if (outerSignal.aborted) controller.abort();
+    else outerSignal.addEventListener("abort", onOuterAbort, { once: true });
   }
+  let timedOut = false;
+  const timer = controller
+    ? setTimeout(() => {
+        timedOut = true;
+        controller.abort();
+      }, timeoutMs)
+    : null;
+  if (controller) init.signal = controller.signal;
 
-  // 204 No Content — nothing to parse.
-  if (res.status === 204) return null as T;
+  const throwTimeout = (): never => {
+    const error = new Error(
+      `Action ${name} timed out after ${Math.round(timeoutMs / 1000)}s`,
+    );
+    (error as any).timedOut = true;
+    (error as any).status = 408;
+    throw error;
+  };
 
-  // Read the body as text first so we can:
-  //   - tolerate empty bodies (avoids "Unexpected end of JSON input")
-  //   - surface non-JSON error responses (HTML 401/404 pages, plain text, etc.)
-  //   - preserve the original HTTP status in the thrown error
-  // Track read failures separately from "no body" — a stream interruption /
-  // decode failure on a 2xx response should error rather than silently
-  // succeed with `null`.
+  let res: Response;
   let raw = "";
   let readFailed = false;
   let readError: unknown;
   try {
-    raw = await res.text();
-  } catch (err) {
-    readFailed = true;
-    readError = err;
+    try {
+      res = await fetch(url, init);
+    } catch (err) {
+      if (timedOut) throwTimeout();
+      // Caller-initiated cancellation — rethrow untouched so React Query
+      // recognizes it as a cancellation rather than a query failure.
+      if (outerSignal?.aborted) throw err;
+      // Network failures, CORS, server unreachable, etc. — give the caller a
+      // useful message instead of the opaque "Failed to fetch".
+      const cause = err instanceof Error ? err.message : String(err);
+      throw new Error(`Action ${name} failed: ${cause}`);
+    }
+
+    // 204 No Content — nothing to parse.
+    if (res.status === 204) return null as T;
+
+    // Read the body as text first so we can:
+    //   - tolerate empty bodies (avoids "Unexpected end of JSON input")
+    //   - surface non-JSON error responses (HTML 401/404 pages, plain text, etc.)
+    //   - preserve the original HTTP status in the thrown error
+    // Track read failures separately from "no body" — a stream interruption /
+    // decode failure on a 2xx response should error rather than silently
+    // succeed with `null`.
+    try {
+      raw = await res.text();
+    } catch (err) {
+      if (timedOut) throwTimeout();
+      if (outerSignal?.aborted) throw err;
+      readFailed = true;
+      readError = err;
+    }
+  } finally {
+    if (timer) clearTimeout(timer);
+    if (outerSignal) outerSignal.removeEventListener("abort", onOuterAbort);
   }
 
   let data: any = undefined;
@@ -266,7 +356,10 @@ export function callAction<
   options: ClientActionCallOptions = {},
 ): Promise<TResult extends undefined ? ActionResult<TName> : TResult> {
   type R = TResult extends undefined ? ActionResult<TName> : TResult;
-  return actionFetch<R>(actionName, options.method ?? "POST", params);
+  return actionFetch<R>(actionName, options.method ?? "POST", params, {
+    signal: options.signal,
+    timeoutMs: options.timeoutMs,
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -301,8 +394,13 @@ export function useActionQuery<
   type R = TResult extends undefined ? ActionResult<TName> : TResult;
   return useQuery<R>({
     queryKey: ["action", actionName, params],
-    queryFn: () => actionFetch<R>(actionName, "GET", params),
+    // Thread React Query's per-fetch AbortSignal into the network request so
+    // superseded fetches (key change, unmount, rapid refetch) actually cancel
+    // instead of holding a per-origin connection slot until they finish.
+    queryFn: ({ signal }) =>
+      actionFetch<R>(actionName, "GET", params, { signal }),
     retry: defaultActionQueryRetry,
+    retryDelay: defaultActionQueryRetryDelay,
     ...options,
   });
 }

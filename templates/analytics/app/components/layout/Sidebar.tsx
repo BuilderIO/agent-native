@@ -14,6 +14,7 @@ import {
   IconReportAnalytics,
   IconSearch,
   IconArchive,
+  IconActivity,
   IconPin,
   IconPlus,
   IconBuilding,
@@ -2282,6 +2283,12 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
       active: location.pathname.startsWith("/sessions"),
     },
     {
+      icon: IconActivity,
+      label: t("navigation.agents"),
+      href: "/agents",
+      active: location.pathname.startsWith("/agents"),
+    },
+    {
       icon: IconDatabase,
       label: t("navigation.dataSources"),
       href: "/data-sources",
@@ -2456,6 +2463,20 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
               >
                 <IconPlayerPlay className="h-4 w-4" />
                 {t("navigation.sessions")}
+              </Link>
+
+              {/* Agents link */}
+              <Link
+                to="/agents"
+                className={cn(
+                  "flex items-center gap-3 rounded-lg px-3 py-2 transition-all hover:text-primary",
+                  location.pathname.startsWith("/agents")
+                    ? "bg-sidebar-accent text-sidebar-accent-foreground"
+                    : "text-muted-foreground hover:bg-sidebar-accent/50",
+                )}
+              >
+                <IconActivity className="h-4 w-4" />
+                {t("navigation.agents")}
               </Link>
 
               {/* Data Sources link */}

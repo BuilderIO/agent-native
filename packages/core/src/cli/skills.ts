@@ -37,9 +37,9 @@ const HELP = `npx @agent-native/core@latest skills
 
 Usage:
   npx @agent-native/core@latest skills list
-  npx @agent-native/core@latest skills status [assets|content|design-exploration|visual-edit|visual-plan|visual-recap|context-xray|scaffold] [--client codex|claude-code|pi|all] [--scope user|project] [--json]
-  npx @agent-native/core@latest skills update [assets|content|design-exploration|visual-edit|visual-plan|visual-recap|context-xray|scaffold] [--client codex|claude-code|pi|all] [--scope user|project] [--dry-run] [--json]
-  npx @agent-native/core@latest skills add assets|content|design-exploration|visual-edit|visual-plan|visual-recap|context-xray [--client codex|claude-code|cowork|cursor|opencode|github-copilot|all] [--scope user|project] [--mode hosted|local-files|self-hosted] [--mcp-url <url>] [--no-connect] [--with-github-action] [--yes] [--dry-run] [--json]
+  npx @agent-native/core@latest skills status [assets|content|design-exploration|visual-edit|visual-plan|visual-recap|visualize-repo|context-xray|scaffold] [--client codex|claude-code|pi|all] [--scope user|project] [--json]
+  npx @agent-native/core@latest skills update [assets|content|design-exploration|visual-edit|visual-plan|visual-recap|visualize-repo|context-xray|scaffold] [--client codex|claude-code|pi|all] [--scope user|project] [--dry-run] [--json]
+  npx @agent-native/core@latest skills add assets|content|design-exploration|visual-edit|visual-plan|visual-recap|visualize-repo|context-xray [--client codex|claude-code|cowork|cursor|opencode|github-copilot|all] [--scope user|project] [--mode hosted|local-files|self-hosted] [--mcp-url <url>] [--no-connect] [--with-github-action] [--yes] [--dry-run] [--json]
   npx @agent-native/core@latest skills add <manifest-or-app-dir|skill-repo> [--skill <name>] [--client ...] [--yes]
 
 Examples:
@@ -49,6 +49,7 @@ Examples:
   npx @agent-native/core@latest skills add visual-edit
   npx @agent-native/core@latest skills add visual-plan
   npx @agent-native/core@latest skills add visual-recap
+  npx @agent-native/core@latest skills add visualize-repo
   npx @agent-native/core@latest skills add visual-recap --with-github-action
   npx @agent-native/core@latest skills add visual-plan --mode local-files
   npx @agent-native/core@latest skills add visual-plan --mode self-hosted --mcp-url https://my-plan-app.example.com
@@ -85,9 +86,10 @@ deployment) instead of the built-in hosted default — a bare origin gets the
 standard /_agent-native/mcp path appended. Use app-skill pack for marketplace
 bundles and custom adapter output.
 
-When installing visual-plan or visual-recap interactively, the CLI asks where
-plans and recaps should live: hosted Plans for shareable links/comments, local
-files for "No sharing, all local.", or a self-hosted/custom Plan app URL.
+When installing visual-plan, visual-recap, or visualize-repo interactively, the
+CLI asks where Plans artifacts should live: hosted Plans for shareable
+links/comments, local files for "No sharing, all local.", or a
+self-hosted/custom Plan app URL.
 Pass --mode to choose directly. Local-files mode skips MCP registration and
 auth and installs instructions that default to a no-auth block catalog fetch,
 MDX folders, and the localhost bridge viewer.
@@ -622,9 +624,10 @@ not hit an OAuth wall:
 npx @agent-native/core@latest skills add visual-plans
 \`\`\`
 
-After that, \`/visual-plan\` and \`/visual-recap\` are the two installed slash
-commands. If you only need one command, use \`skills add visual-plan\` or
-\`skills add visual-recap\` instead. The other planning modes
+After that, \`/visual-plan\`, \`/visual-recap\`, and \`/visualize-repo\` are the
+installed slash commands. If you only need one command, use
+\`skills add visual-plan\`, \`skills add visual-recap\`, or
+\`skills add visualize-repo\` instead. The other planning modes
 (\`create-ui-plan\`, \`create-prototype-plan\`, \`create-plan-design\`,
 \`create-visual-questions\`) are MCP tools reachable from \`/visual-plan\`, not
 separate slash commands. Pass \`--no-connect\` to register the connector without
@@ -644,6 +647,10 @@ This mode does not register the Plan MCP connector. Before authoring structured
 MDX, fetch the no-auth, schema-only block catalog with
 \`npx @agent-native/core@latest plan blocks --out plan-blocks.md\`, read that file,
 write the MDX folder locally, run \`plan local check\`, then run \`plan local serve\`.
+For repo-wide visual docs, run
+\`npx @agent-native/core@latest visualize-repo --open\` to create/update
+\`agent-native.json\`, seed \`.agent-native/visual-docs/repo-overview\`, and open
+the local bridge.
 Plain text skill
 installs (Vercel Skills CLI, copied GitHub files, etc.) can follow that same
 local flow if \`@agent-native/core\` is available. Text alone cannot register
@@ -2032,9 +2039,10 @@ not hit an OAuth wall:
 npx @agent-native/core@latest skills add visual-plans
 \`\`\`
 
-After that, \`/visual-plan\` and \`/visual-recap\` are the two installed slash
-commands. If you only need one command, use \`skills add visual-plan\` or
-\`skills add visual-recap\` instead. The other planning modes
+After that, \`/visual-plan\`, \`/visual-recap\`, and \`/visualize-repo\` are the
+installed slash commands. If you only need one command, use
+\`skills add visual-plan\`, \`skills add visual-recap\`, or
+\`skills add visualize-repo\` instead. The other planning modes
 (\`create-ui-plan\`, \`create-prototype-plan\`, \`create-plan-design\`,
 \`create-visual-questions\`) are MCP tools reachable from \`/visual-plan\`, not
 separate slash commands. Pass \`--no-connect\` to register the connector without
@@ -2053,6 +2061,11 @@ anyone with the link, but commenting on them needs an agent-native account.
 For fully offline, no-account use, run the Plans app locally and sync plans to
 your repo as MDX. This local mode is a separate advanced path, not the default
 hosted flow.
+
+For repo-wide visual docs, run
+\`npx @agent-native/core@latest visualize-repo --open\` to create/update
+\`agent-native.json\`, seed \`.agent-native/visual-docs/repo-overview\`, and open
+the local bridge.
 
 If a Plans tool returns \`needs auth\`, \`Unauthorized\`, or \`Session terminated\`, do
 not keep retrying it — stop and give the user the per-client reconnect step from
@@ -2610,6 +2623,100 @@ auto-re-run is the remaining fast-follow.
 - **sharing** — org/login-gated visibility for the plan that holds the recap.
 `;
 
+export const VISUALIZE_REPO_SKILL_MD = `---
+name: visualize-repo
+description: >-
+  Open or create a repo-native visual documentation workspace backed by local
+  Plan MDX files. Use when the user asks to visualize a repository, create
+  durable visual docs for APIs/components/models/flows, launch a visual repo
+  viewer, review repo docs like a visual IDE, or collect Plan comments that
+  should become coding-agent changes.
+metadata:
+  visibility: exported
+---
+
+# Visualize Repo
+
+\`/visualize-repo\` opens a local, source-controlled visual documentation layer
+for a repository. It is for durable repo understanding, not a one-off plan:
+components can have wireframes, APIs can have specs, models can have schema
+views, and reviewers can comment on those docs before sending work to a coding
+agent.
+
+## Default Command
+
+Run the Agent-Native CLI from the repo root:
+
+\`\`\`bash
+npx @agent-native/core@latest visualize-repo --open
+\`\`\`
+
+Useful variants:
+
+\`\`\`bash
+npx @agent-native/core@latest visualize-repo init
+npx @agent-native/core@latest visualize-repo --target actions --target server/db/schema.ts
+npx @agent-native/core@latest visualize-repo check
+npx @agent-native/core@latest visualize-repo verify
+npx @agent-native/core@latest visualize-repo --no-open
+\`\`\`
+
+The command writes or updates \`agent-native.json\` with an
+\`apps.visualize-repo\` local-files section, creates a starter MDX folder at
+\`.agent-native/visual-docs/repo-overview\`, then serves it through the Plan
+local bridge. The hosted Plan UI can render the review surface, but the plan
+source stays in local files and bridge comments stay in \`comments.json\`.
+
+## When There Is No Manifest
+
+If \`agent-native.json\` does not exist, let the CLI bootstrap one. It scans for
+high-value starting points such as \`actions/\`, \`app/components/\`,
+\`app/pages/\`, \`server/db/schema.ts\`, \`src/\`, \`packages/\`, \`templates/\`,
+\`docs/\`, and \`content/\`. Keep the first run targeted. Prefer 5-20 visualized
+nodes over a generated wall of repo prose.
+
+Use explicit targets when the user already knows the important surface:
+
+\`\`\`bash
+npx @agent-native/core@latest visualize-repo \\
+  --target actions/webhooks.ts \\
+  --target server/db/schema.ts \\
+  --target app/components/PromptComposer.tsx
+\`\`\`
+
+## Agent Workflow
+
+1. Inspect \`agent-native.json\` and the generated \`plan.mdx\`.
+2. Read the source anchors listed for each target before changing the visual
+   docs.
+3. Add only the visual blocks that earn their keep: \`api-endpoint\` for stable
+   APIs, \`data-model\` for durable schema, \`wireframe\` for user-facing
+   components/flows, \`diagram\` for architecture, and \`annotated-code\` for
+   load-bearing implementation.
+4. Run \`npx @agent-native/core@latest visualize-repo check\` after editing MDX.
+5. Use \`verify\` before handoff when renderer correctness matters.
+
+When acting on comments, treat local \`comments.json\` as the feedback inbox.
+Agent-targeted comments should become code changes plus matching MDX updates so
+the visual docs and executable code stay in sync.
+
+## Privacy Boundary
+
+\`visualize-repo check\` is local/offline lint. \`visualize-repo --open\` starts a
+localhost bridge and opens the Plan UI against local files; it does not publish
+the plan to hosted storage and performs no hosted Plan database writes.
+\`visualize-repo verify\` may send the MDX folder to the Plan app's public
+validation action so the real renderer schema can check it. For no hosted
+content egress, pass \`--app-url\` pointing at a local Plan app or skip
+\`verify\` and rely on \`check\`.
+
+Do not call hosted Plan write tools for this workflow unless the user explicitly
+asks to publish or share the docs. Avoid \`create-visual-plan\`,
+\`update-visual-plan\`, \`import-visual-plan-source\`, \`patch-visual-plan-source\`,
+and \`get-plan-feedback\` for local repo docs; edit the MDX files directly and
+use the local bridge.
+`;
+
 export const BUILT_IN_APP_SKILLS = {
   assets: {
     skillName: "assets",
@@ -2767,6 +2874,7 @@ export const BUILT_IN_APP_SKILLS = {
     skillName: "visual-plan",
     extraSkills: {
       "visual-recap": VISUAL_RECAP_SKILL_MD,
+      "visualize-repo": VISUALIZE_REPO_SKILL_MD,
     },
     // Sibling reference files materialized alongside each skill's SKILL.md
     // (progressive disclosure). Keyed by skill name -> relative path -> content.
@@ -2792,7 +2900,7 @@ export const BUILT_IN_APP_SKILLS = {
       id: "visual-plans",
       displayName: "Agent-Native Plan",
       description:
-        "Create rich interactive visual plans and recaps with diagrams, file maps, annotated code and diffs, API/schema summaries, feedback, and HTML export.",
+        "Create rich interactive visual plans, recaps, and repo-native visual docs with diagrams, file maps, annotated code and diffs, API/schema summaries, feedback, and HTML export.",
       hosted: {
         url: "https://plan.agent-native.com",
         mcpUrl: "https://plan.agent-native.com/_agent-native/mcp",
@@ -2818,6 +2926,12 @@ export const BUILT_IN_APP_SKILLS = {
           description:
             "Create an interactive visual recap from a PR, commit, branch, or git diff so reviewers see the shape of the change before raw diff review.",
         },
+        {
+          id: "visualize-repo",
+          path: "/local-plans",
+          description:
+            "Open a local, repo-backed visual documentation workspace for APIs, components, models, flows, comments, and coding-agent handoff.",
+        },
       ],
       skills: [
         {
@@ -2829,6 +2943,11 @@ export const BUILT_IN_APP_SKILLS = {
           path: "skills/visual-recap",
           visibility: "exported",
           exportAs: "visual-recap",
+        },
+        {
+          path: "skills/visualize-repo",
+          visibility: "exported",
+          exportAs: "visualize-repo",
         },
       ],
       hostAdapters: [
@@ -2926,6 +3045,10 @@ const BUILT_IN_APP_SKILL_ALIASES = {
   "visual-plan": "visual-plans",
   "visual-recap": "visual-plans",
   "visual-recaps": "visual-plans",
+  "visualize-repo": "visual-plans",
+  visualize: "visual-plans",
+  "repo-visualizer": "visual-plans",
+  "visual-docs": "visual-plans",
   "code-review-recap": "visual-plans",
   "code-review-recaps": "visual-plans",
   "html-plan": "visual-plans",
@@ -2960,6 +3083,7 @@ const BUILT_IN_APP_SKILL_DISPLAY_ALIASES = {
   "visual-plans": [
     "visual-plan",
     "visual-recap",
+    "visualize-repo",
     "code-review-recap",
     "html-plan",
     "plannotate",
@@ -3376,15 +3500,23 @@ function builtInSkillNames(
 
 /**
  * When a target names a single skill that lives inside a multi-skill bundle
- * (the plan bundle ships both `visual-plan` and `visual-recap`), restrict the
- * install to just that skill. The bundle aliases (`visual-plans`, `plannotate`,
- * …) return undefined so they install every skill in the bundle.
+ * (the plan bundle ships `visual-plan`, `visual-recap`, and `visualize-repo`),
+ * restrict the install to just that skill. The bundle aliases (`visual-plans`,
+ * `plannotate`, …) return undefined so they install every skill in the bundle.
  */
 function builtInOnlySkillNames(target: string): string[] | undefined {
   const normalized = target.trim().toLowerCase();
   if (normalized === "visual-plan") return ["visual-plan"];
   if (normalized === "visual-recap" || normalized === "visual-recaps") {
     return ["visual-recap"];
+  }
+  if (
+    normalized === "visualize-repo" ||
+    normalized === "visualize" ||
+    normalized === "repo-visualizer" ||
+    normalized === "visual-docs"
+  ) {
+    return ["visualize-repo"];
   }
   if (
     normalized === "design-exploration" ||
@@ -3783,6 +3915,18 @@ argument-hint: [PR, branch, commit, diff, or scope]
 ---
 
 Use the visual-recap skill. Treat any arguments as the recap target or focus:
+
+$ARGUMENTS
+`;
+  }
+  if (skillName === "visualize-repo") {
+    return `---
+description: Open or create a local Agent-Native visual docs workspace for this repo.
+argument-hint: [optional targets or focus]
+---
+
+Use the visualize-repo skill. Treat any arguments as source targets, repo areas,
+or review focus:
 
 $ARGUMENTS
 `;
@@ -4564,6 +4708,11 @@ const BUILT_IN_SKILL_PROMPT_OPTIONS: SkillsTargetPromptContext["options"] = [
     hint: "Interactive visual recap that maps PRs/diffs with diagrams, annotated diffs, API/schema summaries, and review notes.",
   },
   {
+    value: "visualize-repo",
+    label: "visualize-repo",
+    hint: "Local repo visual docs workspace for APIs, components, models, flows, comments, and coding-agent handoff.",
+  },
+  {
     value: "assets",
     label: "assets",
     hint: BUILT_IN_APP_SKILLS.assets.manifest.description,
@@ -4590,7 +4739,11 @@ const BUILT_IN_SKILL_PROMPT_OPTIONS: SkillsTargetPromptContext["options"] = [
   },
 ];
 
-const DEFAULT_SKILL_PROMPT_TARGETS = ["visual-plan", "visual-recap"];
+const DEFAULT_SKILL_PROMPT_TARGETS = [
+  "visual-plan",
+  "visual-recap",
+  "visualize-repo",
+];
 
 function hiddenBuiltInSkillTargets(options: RunSkillsOptions): Set<string> {
   return new Set(
@@ -5000,7 +5153,7 @@ function resolveSelectedSkillTargets(
   }
 
   const out: string[] = [];
-  const planSubskills = ["visual-plan", "visual-recap"];
+  const planSubskills = ["visual-plan", "visual-recap", "visualize-repo"];
   const selectedPlanSubskills = planSubskills.filter((skill) =>
     builtInSelections.includes(skill),
   );
@@ -5747,7 +5900,7 @@ export async function addAgentNativeSkill(
   if (isLocalOnlyBuiltInSkill(knownBuiltIn)) {
     if (parsed.planMode) {
       throw new Error(
-        "--mode only applies to visual-plan / visual-recap / content.",
+        "--mode only applies to visual-plan / visual-recap / visualize-repo / content.",
       );
     }
     if (parsed.mcpUrl) {
@@ -5826,7 +5979,7 @@ export async function addAgentNativeSkill(
     : undefined;
   if (parsed.planMode && !modeAwareTargetId) {
     throw new Error(
-      "--mode only applies to visual-plan / visual-recap / content.",
+      "--mode only applies to visual-plan / visual-recap / visualize-repo / content.",
     );
   }
   if (planMode === "local-files" && parsed.mcpUrl) {
@@ -6245,6 +6398,9 @@ function instructionContentForSkill(skillName: string): string | null {
   if (skillName === "visual-recap") {
     return "When a PR, branch, commit, or diff needs an interactive visual recap, use the /visual-recap skill always.";
   }
+  if (skillName === "visualize-repo") {
+    return "When a repository needs local visual docs or a navigable Plan-backed repo viewer, use the /visualize-repo skill always.";
+  }
   return null;
 }
 
@@ -6488,7 +6644,7 @@ export async function runSkills(
       installModeSkillNamesSelected(parsed.plainSkillNames);
     if (parsed.planMode && !includesInstallModeSkills) {
       throw new Error(
-        "--mode only applies to visual-plan / visual-recap / content.",
+        "--mode only applies to visual-plan / visual-recap / visualize-repo / content.",
       );
     }
     if (includesPlans) {

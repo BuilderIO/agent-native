@@ -186,6 +186,93 @@ describe("dedupeReconnectContentAgainstMessages", () => {
     ).toEqual([repeatedCall]);
   });
 
+  it("drops a pending reconnect duplicate whose call already completed in messages (fingerprint fallback)", () => {
+    // Two readers of the same run assign unrelated synthetic ids until the
+    // server id converges — a pending copy of an already-completed call is a
+    // replay artifact (the "one spinning, one done" duplicate pair).
+    const persistedMessages = [
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "tool-call",
+            toolCallId: "toolu_1",
+            toolName: "edit-screen",
+            argsText: '{"screen":"home"}',
+            args: { screen: "home" },
+            result: "done",
+          },
+        ],
+      },
+    ];
+    const pendingDuplicate = {
+      type: "tool-call" as const,
+      toolCallId: "tc_7",
+      toolName: "edit-screen",
+      argsText: '{"screen":"home"}',
+      args: { screen: "home" },
+    };
+    const unrelatedPending = {
+      type: "tool-call" as const,
+      toolCallId: "tc_8",
+      toolName: "edit-screen",
+      argsText: '{"screen":"settings"}',
+      args: { screen: "settings" },
+    };
+
+    expect(
+      dedupeReconnectContentAgainstMessages(
+        [pendingDuplicate, unrelatedPending],
+        persistedMessages,
+      ),
+    ).toEqual([unrelatedPending]);
+  });
+
+  it("never fingerprint-drops activity placeholders or completed parts", () => {
+    const persistedMessages = [
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "tool-call",
+            toolCallId: "toolu_1",
+            toolName: "edit-screen",
+            argsText: '{"screen":"home"}',
+            args: { screen: "home" },
+            result: "done",
+          },
+        ],
+      },
+    ];
+    // Activity placeholder (no args yet) — an empty-args fingerprint would
+    // over-match, so it must be exempt.
+    const activityPlaceholder = {
+      type: "tool-call" as const,
+      toolCallId: "reconnect-activity:edit-screen",
+      toolName: "edit-screen",
+      argsText: "",
+      args: {},
+      activity: true as const,
+    };
+    // Completed-with-different-id stays: a legitimately repeated identical
+    // call must not be hidden (strict id match only for completed parts).
+    const completedRepeat = {
+      type: "tool-call" as const,
+      toolCallId: "toolu_2",
+      toolName: "edit-screen",
+      argsText: '{"screen":"home"}',
+      args: { screen: "home" },
+      result: "done",
+    };
+
+    expect(
+      dedupeReconnectContentAgainstMessages(
+        [activityPlaceholder, completedRepeat],
+        persistedMessages,
+      ),
+    ).toEqual([activityPlaceholder, completedRepeat]);
+  });
+
   it("keeps reconnect completions when the rendered tool call is still pending", () => {
     const persistedMessages = [
       {
@@ -259,6 +346,9 @@ describe("centered empty chat setup layout", () => {
     );
     expect(css).toMatch(
       /data-agent-composer-setup-position="below"\]\s*\{[^}]*top:\s*calc\(100% \+ 0\.5rem\);/s,
+    );
+    expect(css).not.toMatch(
+      /\[data-agent-empty-state="compact-setup"\]\s*>\s*\.agent-chat-scroll\s*\{[^}]*flex:\s*0\s+0\s+auto;/s,
     );
   });
 });

@@ -1,6 +1,34 @@
-import { runMigrations } from "@agent-native/core/db";
+import {
+  ensureAdditiveColumns,
+  getDbExec,
+  runMigrations,
+} from "@agent-native/core/db";
 
-export default runMigrations(
+import * as schema from "../db/schema.js";
+
+/**
+ * Every Drizzle table exported from schema.ts. Filters out type-only and
+ * helper exports the same way db.spec.ts's `isDrizzleTable` regression guard
+ * does: a real table carries a Symbol-keyed drizzle metadata bag, plain
+ * exports don't.
+ */
+function isDrizzleTable(value: unknown): value is object {
+  return (
+    !!value &&
+    typeof value === "object" &&
+    Object.getOwnPropertySymbols(value).some((s) =>
+      s.toString().includes("drizzle"),
+    )
+  );
+}
+
+const schemaTables = Object.values(schema).filter(isDrizzleTable);
+
+// Convention: every new migration below MUST set a unique `name:` slug (see
+// packages/core/src/db/migrations.ts for the full rationale). Version numbers
+// alone are not a safe identity across parallel branches that each extend
+// this list independently — see the v20 incident documented on v20 below.
+const runBrainMigrations = runMigrations(
   [
     {
       version: 1,
@@ -209,6 +237,19 @@ export default runMigrations(
       // (no DESC, partial, or PG-only syntax). Existing indexes
       // (brain_raw_captures_source_external_idx covering source_id, and
       // brain_sources_signed_ingest_idx) are not duplicated here.
+      //
+      // Named per the v75-v83 analytics incident (packages/core/src/db/migrations.ts):
+      // a parallel branch shipped unrelated DDL (brain_ask_history tables) as
+      // its own v21/v22, which "used up" those version numbers in
+      // `brain_migrations` on shared databases before this entry ever ran.
+      // Since the legacy gate is `version > MAX(recorded version)`, any DB
+      // that already had v21/v22 recorded treated v20 as already applied even
+      // though none of its indexes had ever been created — confirmed via a
+      // live read-only audit (all 11 indexes below were missing on a DB with
+      // MAX(version) = 22). The SQL is untouched (still the original
+      // CREATE INDEX IF NOT EXISTS statements) — only `name` was added so it
+      // re-applies by name regardless of a database's recorded MAX(version).
+      name: "brain-ownable-perf-indexes",
       sql: [
         // Ownable list ORDER BY paths (accessFilter scopes owner_email/org_id).
         `CREATE INDEX IF NOT EXISTS brain_sources_owner_updated_idx ON brain_sources (owner_email, org_id, updated_at)`,
@@ -232,3 +273,35 @@ export default runMigrations(
   ],
   { table: "brain_migrations" },
 );
+
+/**
+ * The migration list above is the authoritative source for tables, indexes,
+ * and data transforms. `ensureAdditiveColumns` runs after it as a
+ * belt-and-braces safety net for the failure mode where a column is added to
+ * schema.ts without a matching hand-written ALTER migration, which silently
+ * 500s every query touching a pre-existing production table. It only ever
+ * adds missing columns — never drops, renames, or retypes anything — and any
+ * failure here is logged and swallowed so it can never fail boot.
+ */
+export default async (nitroApp: any): Promise<void> => {
+  await runBrainMigrations(nitroApp);
+  try {
+    const summary = await ensureAdditiveColumns({
+      db: getDbExec(),
+      tables: schemaTables,
+    });
+    if (summary.errors.length > 0) {
+      console.warn(
+        "[db] ensureAdditiveColumns completed with errors:",
+        summary.errors,
+      );
+    }
+  } catch (err) {
+    // Never fail boot over the safety net itself — the authoritative
+    // migrations above already ran.
+    console.warn(
+      "[db] ensureAdditiveColumns failed (non-fatal):",
+      err instanceof Error ? err.message : err,
+    );
+  }
+};

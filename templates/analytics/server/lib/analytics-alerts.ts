@@ -2,7 +2,18 @@ import { createHash, randomUUID } from "node:crypto";
 
 import { notifyWithDelivery } from "@agent-native/core/notifications";
 import { recordChange } from "@agent-native/core/server";
-import { and, asc, desc, eq, gte, isNull, lte, or, sql } from "drizzle-orm";
+import {
+  and,
+  asc,
+  desc,
+  eq,
+  gte,
+  inArray,
+  isNull,
+  lte,
+  or,
+  sql,
+} from "drizzle-orm";
 
 import { getDb, schema } from "../db/index.js";
 
@@ -435,6 +446,16 @@ export async function deleteAnalyticsAlertRule(
   });
 }
 
+const DEFAULT_ALERT_SEED_CHUNK_SIZE = 500;
+
+function chunkArray<T>(items: T[], size: number): T[][] {
+  const chunks: T[][] = [];
+  for (let i = 0; i < items.length; i += size) {
+    chunks.push(items.slice(i, i + size));
+  }
+  return chunks;
+}
+
 export async function ensureDefaultHttp5xxSpikeAlertRules(): Promise<{
   checked: number;
   created: number;
@@ -442,8 +463,9 @@ export async function ensureDefaultHttp5xxSpikeAlertRules(): Promise<{
   if (!defaultHttp5xxAlertEnabled()) return { checked: 0, created: 0 };
 
   const scopes = await defaultHttp5xxAlertScopes();
+  if (!scopes.length) return { checked: 0, created: 0 };
+
   const db = getDb() as any;
-  let created = 0;
   const threshold = envInt(
     "ANALYTICS_DEFAULT_HTTP_5XX_ALERT_THRESHOLD",
     5,
@@ -463,17 +485,28 @@ export async function ensureDefaultHttp5xxSpikeAlertRules(): Promise<{
     24 * 60,
   );
 
+  const scopesById = new Map<string, AccessCtx>();
   for (const scope of scopes) {
-    const id = defaultHttp5xxAlertId(scope.email, scope.orgId);
-    const [existing] = await db
+    scopesById.set(defaultHttp5xxAlertId(scope.email, scope.orgId), scope);
+  }
+  const allIds = Array.from(scopesById.keys());
+
+  const existingIds = new Set<string>();
+  for (const idChunk of chunkArray(allIds, DEFAULT_ALERT_SEED_CHUNK_SIZE)) {
+    const rows = await db
       .select({ id: schema.analyticsAlertRules.id })
       .from(schema.analyticsAlertRules)
-      .where(eq(schema.analyticsAlertRules.id, id))
-      .limit(1);
-    if (existing) continue;
+      .where(inArray(schema.analyticsAlertRules.id, idChunk));
+    for (const row of rows) existingIds.add(row.id);
+  }
 
-    const now = nowIso();
-    await db.insert(schema.analyticsAlertRules).values({
+  const missingIds = allIds.filter((id) => !existingIds.has(id));
+  if (!missingIds.length) return { checked: scopes.length, created: 0 };
+
+  const now = nowIso();
+  const rowsToInsert = missingIds.map((id) => {
+    const scope = scopesById.get(id)!;
+    return {
       id,
       name: "Hosted app HTTP 5xx spike",
       description:
@@ -482,12 +515,12 @@ export async function ensureDefaultHttp5xxSpikeAlertRules(): Promise<{
       filters: JSON.stringify([
         { field: "properties.status_class", value: "5xx" },
       ]),
-      thresholdMode: "event_count",
+      thresholdMode: "event_count" as const,
       distinctBy: null,
       threshold,
       windowMinutes,
       cooldownMinutes,
-      severity: "critical",
+      severity: "critical" as const,
       channels: JSON.stringify(["inbox"]),
       emailRecipients: JSON.stringify([]),
       enabled: true,
@@ -495,8 +528,20 @@ export async function ensureDefaultHttp5xxSpikeAlertRules(): Promise<{
       updatedAt: now,
       ownerEmail: scope.email,
       orgId: scope.orgId,
-    });
-    created++;
+    };
+  });
+
+  let created = 0;
+  for (const rowChunk of chunkArray(
+    rowsToInsert,
+    DEFAULT_ALERT_SEED_CHUNK_SIZE,
+  )) {
+    const inserted = await db
+      .insert(schema.analyticsAlertRules)
+      .values(rowChunk)
+      .onConflictDoNothing()
+      .returning({ id: schema.analyticsAlertRules.id });
+    created += inserted.length;
   }
 
   return { checked: scopes.length, created };

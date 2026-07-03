@@ -45,7 +45,12 @@ import {
   applyVisualEdit,
   buildCodeLayerProjection,
 } from "../shared/code-layer.js";
-import type { CodeLayerSource, ClassEditIntent } from "../shared/code-layer.js";
+import type {
+  CodeLayerSource,
+  ClassEditIntent,
+  StyleEditIntent,
+} from "../shared/code-layer.js";
+import { agentSelectionDescriptor } from "../shared/collab-selection.js";
 import {
   componentNameFor,
   componentNodeIdMatches,
@@ -387,7 +392,10 @@ export default defineAction({
       });
 
       agentUpdateSelection(file.id, {
-        selection: node.selector,
+        selection: agentSelectionDescriptor(
+          { nodeId, selector: node.selector },
+          "Editing component",
+        ),
         nodeId,
         editingFile: file.filename,
         designId: file.designId,

@@ -164,6 +164,20 @@ export {
   useScreenRefreshKey,
 } from "./use-db-sync.js";
 export {
+  VisualControlRow,
+  VisualInspectorPanel,
+  VisualInspectorSection,
+  VisualScrubInput,
+  VisualSegmentedControl,
+  VisualSliderControl,
+  VisualSwatchControl,
+  VisualToggleControl,
+  VisualTweakControl,
+  type VisualControlOption,
+  type VisualControlValue,
+  type VisualTweakDefinition,
+} from "./visual-style-controls.js";
+export {
   useChangeVersion,
   useChangeVersions,
   getChangeVersion,
@@ -660,6 +674,7 @@ export {
   DevDatabaseLink,
   type DevDatabaseLinkProps,
 } from "./db-admin/DevDatabaseLink.js";
+export { DbAdminPage } from "./db-admin/DbAdminPage.js";
 export { ErrorBoundary } from "./ErrorBoundary.js";
 export {
   installRouteChunkRecovery,
@@ -853,7 +868,40 @@ export {
 export {
   RemoteSelectionRings,
   type RemoteSelectionRingsProps,
+  type SelectionDescriptor,
 } from "./components/RemoteSelectionRings.js";
+export {
+  RecentEditHighlights,
+  type RecentEditHighlightsProps,
+} from "./components/RecentEditHighlights.js";
+// Recent-edit attribution (lingering highlights)
+export {
+  appendRecentEdit,
+  collectRecentEdits,
+  publishRecentEdit,
+  useRecentEdits,
+  RECENT_EDITS_MAX,
+  RECENT_EDIT_TTL_MS,
+  type RecentEdit,
+  type RecentEditDescriptor,
+  type AttributedRecentEdit,
+  type UseRecentEditsOptions,
+} from "../collab/recent-edits.js";
+// Per-user undo/redo
+export {
+  useCollabUndo,
+  useLocalOpUndo,
+  createLocalOpUndoController,
+  type UseCollabUndoOptions,
+  type UseCollabUndoResult,
+  type CollabUndoScope,
+  type UseLocalOpUndoOptions,
+  type UseLocalOpUndoResult,
+  type LocalOpUndoEntry,
+  type LocalOpUndoController,
+  type CreateLocalOpUndoOptions,
+  type UndoKeyboardOptions,
+} from "../collab/undo.js";
 // Structured data collaboration hooks
 export {
   useCollaborativeMap,

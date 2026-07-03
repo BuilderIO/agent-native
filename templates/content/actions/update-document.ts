@@ -1,5 +1,6 @@
 import { defineAction } from "@agent-native/core";
 import { writeAppState } from "@agent-native/core/application-state";
+import { agentTouchDocument } from "@agent-native/core/collab";
 import { assertAccess } from "@agent-native/core/sharing";
 import { and, eq, desc } from "drizzle-orm";
 import { z } from "zod";
@@ -63,6 +64,27 @@ function normalizedBuilderBodyProse(content: string | null | undefined) {
     .trim();
 }
 
+/**
+ * Best-effort quote of the first changed span between two document bodies, used
+ * as the `{ kind: "text", quote }` descriptor so the recent-edit highlight lands
+ * on (or near) the region the agent actually rewrote rather than the doc top.
+ * Returns a short slice of the new content around the first divergence.
+ */
+export function firstChangedQuote(
+  previous: string,
+  next: string,
+  maxLen = 80,
+): string {
+  if (!next) return "";
+  if (previous === next) return next.slice(0, maxLen);
+  let start = 0;
+  const min = Math.min(previous.length, next.length);
+  while (start < min && previous[start] === next[start]) start++;
+  // Skip leading whitespace so the quote begins on visible text.
+  while (start < next.length && /\s/.test(next[start])) start++;
+  return next.slice(start, start + maxLen).trim() || next.slice(0, maxLen);
+}
+
 export function isStaleBuilderImageSourceComponentSave(args: {
   incomingContent: string;
   currentContent: string;
@@ -101,9 +123,16 @@ export default defineAction({
       .optional()
       .describe("Favorite status (true/false)"),
   }),
-  run: async (args): Promise<DocumentUpdateResponse> => {
+  run: async (args, ctx): Promise<DocumentUpdateResponse> => {
     const id = args.id;
     if (!id) throw new Error("--id is required");
+
+    // Only surface AI presence for genuine agent invocations (in-app tool loop,
+    // sub-agents/A2A → "tool"; external MCP agents → "mcp"). The browser editor
+    // autosaves through this same action as "frontend"; those must NOT light the
+    // agent flag.
+    const isAgentCaller =
+      ctx?.caller === "tool" || ctx?.caller === "mcp" || ctx?.caller === "a2a";
 
     if ((await isContentLocalFileMode()) && isLocalDocumentId(id)) {
       const doc = await updateLocalFileDocument(id, args);
@@ -251,6 +280,30 @@ export default defineAction({
           id,
           content ?? "",
         );
+      }
+
+      // Make an agent full-content rewrite visible as a live collaborator. This
+      // path replaces the whole body (not a find/replace), so it can't route
+      // through `searchAndReplace`; it keeps the SQL + reconcile delivery and
+      // publishes agent presence + a lingering recent-edit highlight near the
+      // first changed span. Best-effort — never fail the save on presence.
+      if (isAgentCaller && contentChanged) {
+        try {
+          agentTouchDocument(id, {
+            edit: {
+              descriptor: {
+                kind: "text",
+                quote: firstChangedQuote(existing.content ?? "", content ?? ""),
+              },
+              label: (args.title ?? existing.title) || undefined,
+            },
+          });
+        } catch (error) {
+          console.error(
+            "update-document: agent presence publish failed",
+            error,
+          );
+        }
       }
     }
 

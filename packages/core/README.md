@@ -113,17 +113,6 @@ Generate and edit React-based presentations via prompt or point-and-click.
 <tr>
 <td width="33%" align="center" valign="top">
 
-**Video**
-
-<a href="https://agent-native.com/templates/video"><img src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F6b8bfcc18a1d4c47a491da3b2d4148a4?format=webp&width=800" alt="Video template" width="100%" /></a>
-
-**Agent-Native video editing**
-
-Create and edit Remotion video compositions with agent assistance.
-
-</td>
-<td width="33%" align="center" valign="top">
-
 **Analytics**
 
 <a href="https://agent-native.com/templates/analytics"><img src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F4933a80cc3134d7e874631f688be828a?format=webp&width=800" alt="Analytics template" width="100%" /></a>

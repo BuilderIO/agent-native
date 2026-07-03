@@ -146,11 +146,12 @@ const STARTUP_RESPONSE_TIMEOUT_MS = 45_000;
 const BACKGROUND_FOLLOW_POLL_INTERVAL_MS = 1_000;
 // How long the follow loop tolerates seeing NO active run for this turn before
 // treating the turn as ended. The server pre-inserts the successor row before
-// the old chunk completes, so a healthy chain never shows an idle gap; 45s
-// also comfortably covers the server's 25s unclaimed-handoff grace + sweep
-// cadence so a reaped handoff resurfaces as a terminal errored run (which the
-// follow loop replays) before this window expires.
-const BACKGROUND_FOLLOW_IDLE_TIMEOUT_MS = 45_000;
+// the old chunk completes, so a healthy chain never shows an idle gap; allow a
+// wider window here because the server's unclaimed-handoff recovery can span
+// the 25s grace plus sweep/DB latency. This stays below the background
+// reconnect stuck threshold, but gives the server-owned recovery brain time to
+// surface the successor or terminal errored run before the client reports idle.
+const BACKGROUND_FOLLOW_IDLE_TIMEOUT_MS = 150_000;
 
 /**
  * User-facing copy for the server's background terminal reasons

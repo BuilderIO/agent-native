@@ -12,7 +12,9 @@ vi.mock("@agent-native/core/db", () => ({
 
 import {
   listRecordingChunkKeys,
+  recordingChunkIndexFromKey,
   sumRecordingChunkBytes,
+  validateRecordingChunkKeys,
 } from "./recording-upload-state";
 
 describe("recording upload state helpers", () => {
@@ -75,5 +77,55 @@ describe("recording upload state helpers", () => {
 
     const query = dbMock.execute.mock.calls[0]?.[0];
     expect(query.sql).toContain("(value::jsonb ->> 'bytes')::bigint");
+  });
+
+  it("parses and sorts a complete contiguous chunk sequence", () => {
+    expect(recordingChunkIndexFromKey("recording-chunks-rec-000012")).toBe(12);
+
+    expect(
+      validateRecordingChunkKeys(
+        [
+          "recording-chunks-rec-000002",
+          "recording-chunks-rec-000000",
+          "recording-chunks-rec-000001",
+        ],
+        3,
+      ),
+    ).toEqual([
+      { key: "recording-chunks-rec-000000", index: 0 },
+      { key: "recording-chunks-rec-000001", index: 1 },
+      { key: "recording-chunks-rec-000002", index: 2 },
+    ]);
+  });
+
+  it("rejects missing chunk indices before assembly", () => {
+    expect(() =>
+      validateRecordingChunkKeys([
+        "recording-chunks-rec-000000",
+        "recording-chunks-rec-000002",
+      ]),
+    ).toThrow("missing chunk 1");
+  });
+
+  it("rejects uploads that do not match the final expected chunk count", () => {
+    expect(() =>
+      validateRecordingChunkKeys(
+        ["recording-chunks-rec-000000", "recording-chunks-rec-000001"],
+        3,
+      ),
+    ).toThrow("2 of 3 chunks received");
+  });
+
+  it("rejects duplicate and malformed chunk metadata", () => {
+    expect(() =>
+      validateRecordingChunkKeys([
+        "recording-chunks-rec-000000",
+        "recording-chunks-rec-000000",
+      ]),
+    ).toThrow("duplicate chunk 0");
+
+    expect(() =>
+      validateRecordingChunkKeys(["recording-chunks-rec-final"]),
+    ).toThrow("invalid chunk key");
   });
 });

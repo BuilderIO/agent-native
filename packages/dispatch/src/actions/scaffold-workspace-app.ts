@@ -22,7 +22,7 @@ export default defineAction({
       .string()
       .min(1)
       .describe(
-        "Template name (mail, calendar, slides, content, clips, analytics, forms, design, videos)",
+        "Template name (mail, calendar, slides, content, clips, analytics, forms, design, assets)",
       ),
     appId: z
       .string()

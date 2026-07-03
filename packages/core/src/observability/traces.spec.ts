@@ -1,5 +1,10 @@
 import { afterEach, describe, it, expect } from "vitest";
 
+import {
+  registerTrackingProvider,
+  unregisterTrackingProvider,
+} from "../tracking/registry.js";
+import type { TrackingEvent } from "../tracking/types.js";
 import { instrumentAgentLoop, redactSensitiveFields } from "./traces.js";
 import {
   type AgentSpan,
@@ -181,6 +186,86 @@ function createRecordingTracer() {
 describe("instrumentAgentLoop OpenTelemetry export", () => {
   afterEach(() => {
     __resetAgentTracerCache();
+    unregisterTrackingProvider("qa-ai-generation");
+  });
+
+  it("emits a PostHog-compatible AI generation tracking event", async () => {
+    const events: TrackingEvent[] = [];
+    registerTrackingProvider({
+      name: "qa-ai-generation",
+      track(event) {
+        events.push(event);
+      },
+    });
+
+    const loopOpts: any = {
+      engine: { name: "anthropic" },
+      model: "claude-test",
+      systemPrompt: "",
+      tools: [],
+      messages: [],
+      actions: {},
+      send: () => {},
+      signal: new AbortController().signal,
+    };
+
+    await instrumentAgentLoop({
+      runAgentLoop: async ({ send }) => {
+        send({ type: "tool_start", tool: "read", input: { path: "x" } });
+        send({ type: "tool_done", tool: "read", result: "ok" });
+        return {
+          inputTokens: 1_000_000,
+          outputTokens: 100_000,
+          cacheReadTokens: 1_000,
+          cacheWriteTokens: 0,
+          model: "claude-test",
+        };
+      },
+      loopOpts,
+      runId: "run-ai-1",
+      threadId: "thread-ai-1",
+      userId: "user@example.com",
+      config: { ...DEFAULT_OBSERVABILITY_CONFIG, enabled: true },
+    });
+
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(events).toHaveLength(1);
+    const event = events[0]!;
+    expect(event.name).toBe("$ai_generation");
+    expect(event.userId).toBe("user@example.com");
+    expect(event.properties).toMatchObject({
+      source: "agent_observability",
+      span_type: "llm_call",
+      run_id: "run-ai-1",
+      thread_id: "thread-ai-1",
+      model: "claude-test",
+      provider: "anthropic",
+      input_tokens: 1_000_000,
+      output_tokens: 100_000,
+      cache_read_tokens: 1_000,
+      cache_write_tokens: 0,
+      total_tokens: 1_100_000,
+      status: "success",
+      tool_calls: 1,
+      successful_tools: 1,
+      failed_tools: 0,
+      $ai_trace_id: "run-ai-1",
+      $ai_session_id: "thread-ai-1",
+      $ai_model: "claude-test",
+      $ai_provider: "anthropic",
+      $ai_input_tokens: 1_000_000,
+      $ai_output_tokens: 100_000,
+      $ai_is_error: false,
+      $ai_request_count: 1,
+    });
+    expect(event.properties?.cost_cents_x100).toEqual(expect.any(Number));
+    expect(event.properties?.cost_usd).toEqual(expect.any(Number));
+    expect(event.properties?.["$ai_total_cost_usd"]).toEqual(
+      expect.any(Number),
+    );
+    expect(event.properties?.["$ai_input"]).toBeUndefined();
+    expect(event.properties?.["$ai_output_choices"]).toBeUndefined();
   });
 
   it("emits run/tool/llm spans with expected names and attributes", async () => {

@@ -1607,6 +1607,15 @@ export default function DataSources() {
   };
 
   const searchLower = search.toLowerCase();
+  const firstPartyAnalyticsSearchText = [
+    t("dataSources.firstPartyAnalytics"),
+    t("dataSources.firstPartyDescription"),
+    "first-party analytics tracking observability llm ai generation $ai_generation posthog agent native analytics AGENT_NATIVE_ANALYTICS_PUBLIC_KEY VITE_AGENT_NATIVE_ANALYTICS_PUBLIC_KEY",
+  ]
+    .join(" ")
+    .toLowerCase();
+  const firstPartyAnalyticsMatchesSearch =
+    search.length > 0 && firstPartyAnalyticsSearchText.includes(searchLower);
   const filteredSources = search
     ? dataSources.filter(
         (s) =>
@@ -1648,8 +1657,9 @@ export default function DataSources() {
 
       {/* Filtered results */}
       {filteredSources !== null ? (
-        filteredSources.length > 0 ? (
+        filteredSources.length > 0 || firstPartyAnalyticsMatchesSearch ? (
           <div className="data-sources-grid">
+            {firstPartyAnalyticsMatchesSearch && <FirstPartyAnalyticsCard />}
             {filteredSources.map((source) => (
               <DataSourceCard
                 key={source.id}

@@ -502,6 +502,8 @@ const messages = {
       duplicateElementFailed: "無法複製該元素",
       saveCopyError: "無法儲存這個設計的副本",
       auditRunFailed: "無法執行設計稽核",
+      undoSkippedConcurrentEdit: "已略過復原 — 其他人移動了該項目",
+      redoSkippedConcurrentEdit: "已略過重做 — 其他人移動了該項目",
     },
     localSourceEdit: {
       copyPrompt: "複製提示",

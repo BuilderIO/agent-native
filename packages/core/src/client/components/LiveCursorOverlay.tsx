@@ -109,6 +109,9 @@ const CursorLabel = memo(function CursorLabel({
           position: "absolute",
           left: 31,
           top: 31,
+          display: "flex",
+          alignItems: "center",
+          gap: 5,
           backgroundColor: color,
           color: "#fff",
           fontSize: 12,
@@ -118,11 +121,23 @@ const CursorLabel = memo(function CursorLabel({
           borderRadius: 2,
           whiteSpace: "nowrap",
           boxShadow: "0 5px 12px rgba(15, 23, 42, 0.16)",
-          maxWidth: 120,
+          maxWidth: 150,
           overflow: "hidden",
           textOverflow: "ellipsis",
         }}
       >
+        {(other.user as { avatarUrl?: string }).avatarUrl ? (
+          <img
+            src={(other.user as { avatarUrl?: string }).avatarUrl}
+            alt=""
+            style={{
+              width: 14,
+              height: 14,
+              borderRadius: "50%",
+              flexShrink: 0,
+            }}
+          />
+        ) : null}
         {label}
       </div>
     </div>

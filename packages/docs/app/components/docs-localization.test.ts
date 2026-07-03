@@ -4,7 +4,6 @@ import { loader as rootLoader, resolveLayoutLocale } from "../root";
 import { loader as localizedDocLoader } from "../routes/docs.$locale.$slug";
 import { loader as defaultDocLoader } from "../routes/docs.$slug";
 import { loader as docsIndexLoader } from "../routes/docs._index";
-import { loader as templateSlugLoader } from "../routes/templates.$slug";
 import {
   buildSearchIndexAsync,
   hasLocalizedDoc,
@@ -102,23 +101,6 @@ describe("localized docs fallback", () => {
 
     expect(response?.status).toBe(302);
     expect(response?.headers.get("Location")).toBe("/fr-FR/docs");
-  });
-
-  it("keeps the locale when redirecting legacy template app aliases", async () => {
-    let response: Response | undefined;
-    try {
-      await templateSlugLoader(
-        loaderArgs(
-          { locale: "fr-FR", slug: "videos" },
-          "https://docs.test/fr-FR/apps/videos",
-        ),
-      );
-    } catch (error) {
-      response = error as Response;
-    }
-
-    expect(response?.status).toBe(301);
-    expect(response?.headers.get("Location")).toBe("/fr-FR/apps/video");
   });
 
   it("loads default docs slugs instead of treating them as locales", async () => {

@@ -41,6 +41,12 @@ export interface SessionReplayNetworkEventPayload {
   ok: boolean;
   durationMs: number;
   error?: string;
+  /**
+   * Bounded, redacted response-body snippet. Present only for 5xx
+   * responses -- request bodies and headers are never captured, and
+   * non-5xx/network-failure responses never carry a body.
+   */
+  responseBody?: string;
 }
 
 export interface SessionReplayConsoleDiagnosticsEntry extends SessionReplayConsoleEventPayload {
@@ -64,12 +70,16 @@ export interface SessionReplayDiagnostics {
     warnCount: number;
     entries: SessionReplayConsoleDiagnosticsEntry[];
     truncated: boolean;
+    /** True when more console entries remain after this page/response. */
+    hasMore: boolean;
   };
   network: {
     total: number;
     failedCount: number;
     entries: SessionReplayNetworkDiagnosticsEntry[];
     truncated: boolean;
+    /** True when more network entries remain after this page/response. */
+    hasMore: boolean;
   };
 }
 

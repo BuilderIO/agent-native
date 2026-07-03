@@ -94,6 +94,11 @@ function makeHarness() {
       contentUpdatedAt,
       editable: true,
       getMarkdown: getEditorMarkdown,
+      // These specs pin the LEGACY whole-document setContent path (the
+      // fallback when no parsed doc is available); the surgical path has its
+      // own coverage in surgical-apply.spec.ts. Disable it so `setContent`
+      // remains the counted apply mechanism.
+      parseValue: false,
       // Mirror the hook's (fixed) defaultSetContent: hand the markdown string to
       // tiptap-markdown's setContent override WITHOUT
       // `parseOptions.preserveWhitespace`, which would otherwise route through

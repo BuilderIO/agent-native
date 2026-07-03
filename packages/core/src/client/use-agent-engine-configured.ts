@@ -149,9 +149,15 @@ export function useAgentEngineConfigured(
 
   useEffect(() => {
     let cancelled = false;
+    // Monotonic call counter: overlapping checks (mount + a
+    // `agent-engine:configured-changed` fired right after a key is saved) can
+    // resolve out of order; only the latest call may write state, or a slow
+    // stale "missing" response would overwrite the fresh "configured" one.
+    let requestSeq = 0;
     const check = async (options?: { missingFallback?: boolean }) => {
+      const seq = ++requestSeq;
       const nextState = await fetchAgentEngineConfiguredState(enabled, options);
-      if (cancelled) return;
+      if (cancelled || seq !== requestSeq) return;
       if (nextState === "unknown") {
         return;
       }

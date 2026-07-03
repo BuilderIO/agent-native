@@ -7396,6 +7396,19 @@ const Screen = memo(function Screen({
           >
             {display}
           </span>
+          {metadata.source === "fusion" ? (
+            <span
+              data-frame-source-badge="fusion"
+              className="shrink-0 rounded-sm bg-muted-foreground/15 px-1 !text-[9px] font-medium uppercase tracking-wide text-muted-foreground"
+              title={
+                "Backed by a running app" /* i18n-ignore short frame badge, mirrors other frame-chrome literals in this file */
+              }
+            >
+              {
+                "App" /* i18n-ignore short frame badge, mirrors other frame-chrome literals in this file */
+              }
+            </span>
+          ) : null}
         </div>
         <button
           type="button"

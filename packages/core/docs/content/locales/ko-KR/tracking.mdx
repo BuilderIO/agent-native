@@ -235,7 +235,7 @@ VITE_AGENT_NATIVE_SESSION_REPLAY_SAMPLE_RATE=0.1
 - URL은 브라우저 분석에서 사용하는 것과 동일한 `scrubUrl()` 도우미로 정제됩니다.
 - 리플레이 캡처는 웹 전용이며 옵트인 방식입니다. 네이티브 데스크톱 화면은 기록하지 않습니다.
 
-기록하는 동안 세션 리플레이는 브라우저 콘솔 출력(`log`, `info`, `warn`, `error`, `debug` 및 window `error` / `unhandledrejection`)과 네트워크 요청 메타데이터(`fetch` 및 XHR)를 태그가 지정된 rrweb 커스텀 이벤트로 캡처하므로, 에이전트와 리플레이 뷰어가 사용자가 보고한 문제를 디버그할 수 있습니다. 리플레이가 활성화되면 캡처는 기본적으로 켜져 있으며, `sessionReplay.console` 및 `sessionReplay.network` 옵션으로 조정하거나 비활성화할 수 있습니다. 각 옵션은 불리언 또는 옵션 객체를 받습니다. 요청/응답 본문과 헤더는 절대 캡처되지 않고, URL은 정제되며, 메시지는 잘리고, 레코더 자체의 수집/추적 트래픽은 제외되며, 세션당 한도(콘솔 1000개 / 네트워크 2000개 이벤트)를 초과하면 잘림 안내가 추가됩니다.
+기록하는 동안 세션 리플레이는 브라우저 콘솔 출력(`log`, `info`, `warn`, `error`, `debug` 및 window `error` / `unhandledrejection`)과 네트워크 요청 메타데이터(`fetch` 및 XHR)를 태그가 지정된 rrweb 커스텀 이벤트로 캡처하므로, 에이전트와 리플레이 뷰어가 사용자가 보고한 문제를 디버그할 수 있습니다. 리플레이가 활성화되면 캡처는 기본적으로 켜져 있으며, `sessionReplay.console` 및 `sessionReplay.network` 옵션으로 조정하거나 비활성화할 수 있습니다. 각 옵션은 불리언 또는 옵션 객체(`{ maxEvents?: number }`)를 받으며, `network`는 추가로 `captureErrorBodies`와 `maxErrorBodyLength`를 받습니다. 요청 본문과 헤더는 절대 캡처되지 않으며, 응답 본문은 5xx(서버 오류) 응답에 한해서만 경계가 지정된 정제된 스니펫으로 캡처됩니다(`captureErrorBodies`, 기본값 `true`, `maxErrorBodyLength` 문자 수로 상한 설정, 기본값 2048) — 5xx가 아닌 응답과 네트워크 실패(상태 0) 응답에는 본문이 포함되지 않습니다. URL은 정제되며, 메시지는 잘리고, 레코더 자체의 수집/추적 트래픽은 제외되며, 세션당 한도(콘솔 1000개 / 네트워크 2000개 이벤트)를 초과하면 잘림 안내가 추가됩니다.
 
 Analytics 템플릿은 리플레이 메타데이터를 SQL(`session_recordings`)에 저장하고 청크는 프라이빗 blob 참조(`session_replay_chunks`)를 통해 저장합니다. 브라우저와 에이전트는 공급자 URL을 절대 받지 않습니다. 재생은 범위가 지정된 서버 경로를 거치며, 기본 에이전트 도구는 원시 청크 테이블 접근이 아닌 요약 또는 범위가 지정된 리플레이 이벤트를 반환합니다.
 

@@ -133,7 +133,7 @@ export function LocalhostWriteConsentDialog({
 
           <p className="text-xs text-muted-foreground">
             {
-              "Only .html and .css files can be written. Paths outside the root folder are always blocked." /* i18n-ignore */
+              "Only text and code files can be written — never secrets like .env or key files. Paths outside the root folder are always blocked." /* i18n-ignore */
             }
           </p>
         </div>
