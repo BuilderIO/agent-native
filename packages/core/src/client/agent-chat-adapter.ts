@@ -2301,11 +2301,18 @@ export function createAgentChatAdapter(
                 // can report a just-finished run as active for up to
                 // RUN_STALE_MS while its terminal status write lands) — adopting
                 // `activeRunId` below would reconnect to that prior run, replay
-                // its final answer, and silently drop this turn. Wait for the
-                // run to clear and retry THIS prompt instead. Only genuine
-                // internal continuations (deliberate resumes of the active run)
-                // fall through to the reconnect path.
-                if (!internalContinuationRequest && activeRunId) {
+                // its final answer, and silently drop this turn. The same race
+                // can happen after an internal auto-continue: if the reported
+                // active run is one this adapter already consumed, reconnecting
+                // to it replays the terminal auto_continue and exits instead of
+                // posting the continuation. Wait for stale/previous active runs
+                // to clear and retry THIS prompt. A genuinely newer background
+                // run still falls through to the reconnect path below.
+                const shouldRetryConflictingActiveRun =
+                  activeRunId !== null &&
+                  (!internalContinuationRequest ||
+                    attemptedRunIds.includes(activeRunId));
+                if (shouldRetryConflictingActiveRun) {
                   queuedConflictRetries += 1;
                   if (queuedConflictRetries <= MAX_QUEUED_CONFLICT_RETRIES) {
                     await delay(500, abortSignal);
