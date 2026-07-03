@@ -859,10 +859,12 @@ export function PlanDocumentEditor({
     }
     rememberEmitted(incoming);
     setBlocks(content.blocks);
-    // A genuine external/agent edit changed the baseline — the user's local
-    // undo entries reference a tree that no longer exists, so drop them rather
-    // than let cmd+z resurrect pre-agent state over the agent's change.
-    undoRef.current?.reset();
+    // A genuine external/agent edit changed the baseline. We intentionally do
+    // NOT wipe the user's undo/redo history here: the undo stack validates each
+    // entry at apply time, skipping any whose target blocks no longer exist
+    // (so cmd+z can't resurrect pre-agent structure) while keeping entries that
+    // still target live blocks undoable. Blowing away the whole stack on every
+    // agent patch used to strand the user's own in-progress edits.
   }, [content.blocks, rememberEmitted]);
 
   // True once the editor has been seeded with real (non-empty) content. Until
@@ -1180,6 +1182,18 @@ export function PlanDocumentEditor({
     getCurrentBlocks: () => blocksRef.current,
   });
   undoRef.current = undoStack;
+
+  // Switching to a DIFFERENT plan (this component is reused without remounting
+  // on plan→plan navigation) is the one case that genuinely invalidates ALL
+  // local history — the entire block set changed. Reset then. Ordinary
+  // external/agent edits WITHIN the current plan deliberately keep the stack;
+  // its apply-time validation skips only the entries they invalidated.
+  const undoResetPlanIdRef = useRef(planId);
+  useEffect(() => {
+    if (undoResetPlanIdRef.current === planId) return;
+    undoResetPlanIdRef.current = planId;
+    undoRef.current?.reset();
+  }, [planId]);
 
   // The plan editor disables ProseMirror history (see `disableHistory` on the
   // editor below), so cmd+z has ONE authority: this stack. A capture-phase

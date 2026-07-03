@@ -519,7 +519,13 @@ type LocalPlanBridgePayload = {
   updatedAt?: string;
   files?: string[];
   mdx?: PlanMdxFolder;
+  comments?: PlanCommentItem[];
   error?: string;
+};
+
+type LocalPlanBridgeCommentUpdate = {
+  comments?: PlanCommentInput[];
+  deletedCommentIds?: string[];
 };
 
 function assertLocalBridgeUrl(value: string): string {
@@ -553,6 +559,12 @@ function assertLocalBridgeUrl(value: string): string {
   ) {
     throw new Error("Local plan bridge URL is missing its access token.");
   }
+  return url.toString();
+}
+
+function localPlanBridgeCommentsUrl(value: string): string {
+  const url = new URL(assertLocalBridgeUrl(value));
+  url.pathname = "/local-plan-comments.json";
   return url.toString();
 }
 
@@ -799,21 +811,10 @@ function mergeLocalBridgeComments(
   };
 }
 
-async function fetchLocalPlanBridgeBundle(
-  bridgeUrl: string,
+async function localPlanBridgePayloadToBundle(
+  payload: LocalPlanBridgePayload,
   fallbackSlug: string,
 ): Promise<LocalPlanBundle> {
-  const safeUrl = assertLocalBridgeUrl(bridgeUrl);
-  const response = await fetch(safeUrl, { cache: "no-store" });
-  const payload = (await response
-    .json()
-    .catch(() => null)) as LocalPlanBridgePayload | null;
-  if (!response.ok || !payload?.ok) {
-    throw new Error(
-      payload?.error ||
-        `Local plan bridge returned ${response.status || "an error"}.`,
-    );
-  }
   if (
     payload.source !== "agent-native-local-bridge" ||
     !payload.mdx?.["plan.mdx"]
@@ -831,6 +832,9 @@ async function fetchLocalPlanBridgeBundle(
   const title = content.title || payload.title || slug;
   const brief = content.brief || payload.brief || "";
   const url = localPlanRouteUrl(slug);
+  const comments = (payload.comments ?? []).filter(
+    (comment) => !comment.deletedAt,
+  );
   const bundle: LocalPlanBundle = {
     plan: {
       id: `local-${slug}`,
@@ -855,12 +859,13 @@ async function fetchLocalPlanBridgeBundle(
       visibility: "private",
     },
     sections: [],
-    comments: [],
+    comments,
     events: [],
     summary: {
       sectionCounts: countLocalPlanBlocks(content.blocks),
-      commentCount: 0,
-      openCommentCount: 0,
+      commentCount: comments.length,
+      openCommentCount: comments.filter((comment) => comment.status === "open")
+        .length,
     },
     localOnly: true,
     slug,
@@ -870,6 +875,47 @@ async function fetchLocalPlanBridgeBundle(
     mdx: payload.mdx,
   };
   return bundle;
+}
+
+async function fetchLocalPlanBridgeBundle(
+  bridgeUrl: string,
+  fallbackSlug: string,
+): Promise<LocalPlanBundle> {
+  const safeUrl = assertLocalBridgeUrl(bridgeUrl);
+  const response = await fetch(safeUrl, { cache: "no-store" });
+  const payload = (await response
+    .json()
+    .catch(() => null)) as LocalPlanBridgePayload | null;
+  if (!response.ok || !payload?.ok) {
+    throw new Error(
+      payload?.error ||
+        `Local plan bridge returned ${response.status || "an error"}.`,
+    );
+  }
+  return localPlanBridgePayloadToBundle(payload, fallbackSlug);
+}
+
+async function updateLocalPlanBridgeComments(
+  bridgeUrl: string,
+  fallbackSlug: string,
+  update: LocalPlanBridgeCommentUpdate,
+): Promise<LocalPlanBundle> {
+  const response = await fetch(localPlanBridgeCommentsUrl(bridgeUrl), {
+    method: "POST",
+    cache: "no-store",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(update),
+  });
+  const payload = (await response
+    .json()
+    .catch(() => null)) as LocalPlanBridgePayload | null;
+  if (!response.ok || !payload?.ok) {
+    throw new Error(
+      payload?.error ||
+        `Local plan bridge returned ${response.status || "an error"}.`,
+    );
+  }
+  return localPlanBridgePayloadToBundle(payload, fallbackSlug);
 }
 
 type CommentThread = {
@@ -2505,6 +2551,8 @@ function buildPlanAgentContext(input: {
   url: string;
   screenshotNote?: string;
 }) {
+  const isLocalPlan =
+    "localOnly" in input.bundle && input.bundle.localOnly === true;
   const contentBlockCount = input.bundle.plan.content?.blocks.length ?? 0;
   const contentBlocks = input.bundle.plan.content?.blocks
     .slice(0, 12)
@@ -2564,7 +2612,9 @@ function buildPlanAgentContext(input: {
     Math.max(0, humanReviewThreads.length - 8);
   const omittedCommentNote =
     omittedComments > 0
-      ? `\n${omittedComments} additional open thread(s) omitted from this composer context. Call get-plan-feedback for the full list before editing.`
+      ? isLocalPlan
+        ? `\n${omittedComments} additional open thread(s) omitted from this composer context. Reopen the local plan or inspect comments.json for the full list before editing.`
+        : `\n${omittedComments} additional open thread(s) omitted from this composer context. Call get-plan-feedback for the full list before editing.`
       : "";
   const legacyUnroutedThreads = openThreads.filter(
     (thread) => !thread.anchor?.resolutionTarget,
@@ -2609,20 +2659,35 @@ function buildPlanAgentContext(input: {
     ...(ENABLE_PLAN_STATUS_FEATURE
       ? [`Status: ${input.bundle.plan.status}`]
       : []),
+    ...(isLocalPlan ? [`Local folder: ${input.bundle.plan.repoPath}`] : []),
     `URL: ${input.url}`,
     input.bundle.plan.content
       ? `Structured content blocks: ${contentBlockCount}`
       : `Legacy rendered HTML length: ${input.documentHtml.length} characters`,
     "",
-    "Fast iteration workflow:",
-    "1. Call get-visual-plan with this plan ID to read structured content, exported HTML, sections, comments, and activity.",
-    "2. Prefer update-visual-plan contentPatches for targeted edits. Examples: update-rich-text for copy, patch-prototype-html / update-prototype-screen for live prototype states, update-wireframe-node for one kit-tree node, update-canvas-frame for frame layout, append-canvas-annotation / update-canvas-annotation for canvas markup, append-block/remove-block for document changes, or replace-block for a single block. Use full content only for broad restructuring. Use html only when preserving or importing a legacy standalone HTML artifact.",
-    "3. Preserve the user's existing annotation comments and intent unless the user asks to remove or resolve them.",
-    "4. Keep the output as a refined document with rich text, tables, sketch diagrams, wireframes, implementation maps, code tabs, and bounded custom HTML fragments.",
-    "5. After applying feedback, keep the plan scannable, editable, and serious instead of turning it into a marketing page.",
-    "6. Work the actionable agent comments first. Treat human-review comments as FYI/questions/approval items; do not silently resolve those unless the user explicitly asks.",
-    "7. When visual screenshots are attached, each crop is centered near a comment marker and has a red ring on the exact commented point. Use the comment IDs and anchor details below to connect screenshots to threads. If a visual comment is listed as overflow, rely on its anchorDetails/coordinates and call get-plan-feedback for the full manifest.",
-    "8. For text comments, use the quoted text plus Text before/Text after and Block type details. If a quote is marked ambiguous, ask instead of editing the wrong span.",
+    ...(isLocalPlan
+      ? [
+          "Local-files workflow:",
+          "1. This is a local-only Agent-Native Plan or recap. Do not call hosted Plan tools such as get-visual-plan, get-plan-feedback, or update-visual-plan for this plan.",
+          "2. Use the local MDX files and the feedback threads included below. If your host exposes local Plan tools, read the local folder and comments.json before editing.",
+          "3. Preserve the user's existing annotation comments and intent unless the user asks to remove or resolve them.",
+          "4. Keep the output as a refined document with rich text, tables, sketch diagrams, wireframes, implementation maps, code tabs, and bounded custom HTML fragments.",
+          "5. After applying feedback, rerun the local Plan check/serve/verify path available in your environment and report the updated local URL or folder.",
+          "6. Work the actionable agent comments first. Treat human-review comments as FYI/questions/approval items; do not silently resolve those unless the user explicitly asks.",
+          "7. When visual screenshots are attached, each crop is centered near a comment marker and has a red ring on the exact commented point. Use the comment IDs and anchor details below to connect screenshots to threads.",
+          "8. For text comments, use the quoted text plus Text before/Text after and Block type details. If a quote is marked ambiguous, ask instead of editing the wrong span.",
+        ]
+      : [
+          "Fast iteration workflow:",
+          "1. Call get-visual-plan with this plan ID to read structured content, exported HTML, sections, comments, and activity.",
+          "2. Prefer update-visual-plan contentPatches for targeted edits. Examples: update-rich-text for copy, patch-prototype-html / update-prototype-screen for live prototype states, update-wireframe-node for one kit-tree node, update-canvas-frame for frame layout, append-canvas-annotation / update-canvas-annotation for canvas markup, append-block/remove-block for document changes, or replace-block for a single block. Use full content only for broad restructuring. Use html only when preserving or importing a legacy standalone HTML artifact.",
+          "3. Preserve the user's existing annotation comments and intent unless the user asks to remove or resolve them.",
+          "4. Keep the output as a refined document with rich text, tables, sketch diagrams, wireframes, implementation maps, code tabs, and bounded custom HTML fragments.",
+          "5. After applying feedback, keep the plan scannable, editable, and serious instead of turning it into a marketing page.",
+          "6. Work the actionable agent comments first. Treat human-review comments as FYI/questions/approval items; do not silently resolve those unless the user explicitly asks.",
+          "7. When visual screenshots are attached, each crop is centered near a comment marker and has a red ring on the exact commented point. Use the comment IDs and anchor details below to connect screenshots to threads. If a visual comment is listed as overflow, rely on its anchorDetails/coordinates and call get-plan-feedback for the full manifest.",
+          "8. For text comments, use the quoted text plus Text before/Text after and Block type details. If a quote is marked ambiguous, ask instead of editing the wrong span.",
+        ]),
     contentBlocks ? `\nStructured content blocks:\n${contentBlocks}` : "",
     recentReviewEvents
       ? `\nRecent review/edit events:\n${recentReviewEvents}`
@@ -2645,7 +2710,13 @@ function buildPlanAgentContext(input: {
     .join("\n");
 }
 
-function buildApplyFeedbackMessage(openCommentCount: number) {
+function buildApplyFeedbackMessage(
+  openCommentCount: number,
+  options: { local?: boolean } = {},
+) {
+  if (options.local) {
+    return `Apply the ${openCommentCount} open comment${openCommentCount === 1 ? "" : "s"} on this local visual plan. Use the local files and feedback context in this handoff; do not call hosted Plan tools for this local-only plan. Use any attached focused screenshots to understand visual comments, then update the local MDX plan/recap files as needed.`;
+  }
   return `Apply the ${openCommentCount} open comment${openCommentCount === 1 ? "" : "s"} on this visual plan. Read the plan with get-visual-plan, read feedback with get-plan-feedback, use any attached focused screenshots to understand visual comments, then update structured content blocks, prototype screens, and related implementation details as needed. Use HTML only for legacy imported artifacts.`;
 }
 
@@ -3006,6 +3077,8 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
   );
   const [agentSidebarOpen, setAgentSidebarOpen] = useState(false);
   const [sendingFeedback, setSendingFeedback] = useState(false);
+  const [localBridgeCommentPending, setLocalBridgeCommentPending] =
+    useState(false);
   const [pendingAnnotation, setPendingAnnotation] =
     useState<PlanAnnotationAnchor | null>(null);
   const [inlineCommentPosition, setInlineCommentPosition] =
@@ -3677,20 +3750,45 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
   const persistQuestionFormAnswers = useCallback(
     (summary: string, planId: string | undefined) => {
       if (!planId) return;
+      const comment: PlanCommentInput = {
+        kind: "comment",
+        status: "open",
+        message: summary,
+        createdBy: "human",
+        authorEmail: collabUser?.email,
+        authorName: collabUser?.name,
+        resolutionTarget: "agent",
+      };
+      if (localPlanMode && localPlanSlug) {
+        void (async () => {
+          if (localPlanBridgeUrl) setLocalBridgeCommentPending(true);
+          try {
+            const updated = localPlanBridgeUrl
+              ? await updateLocalPlanBridgeComments(
+                  localPlanBridgeUrl,
+                  localPlanSlug,
+                  { comments: [comment] },
+                )
+              : await updateLocalCommentMutation.mutateAsync({
+                  slug: localPlanSlug,
+                  ...(localPlanRepoPath ? { path: localPlanRepoPath } : {}),
+                  comments: [comment],
+                });
+            if (selectedPlanQueryKey) {
+              queryClient.setQueryData(selectedPlanQueryKey, updated);
+            }
+          } catch {
+            toast.error(t("plansPage.reader.saveAnswersFailed"));
+          } finally {
+            if (localPlanBridgeUrl) setLocalBridgeCommentPending(false);
+          }
+        })();
+        return;
+      }
       updatePlanMutateRef.current(
         {
           planId,
-          comments: [
-            {
-              kind: "comment",
-              status: "open",
-              message: summary,
-              createdBy: "human",
-              authorEmail: collabUser?.email,
-              authorName: collabUser?.name,
-              resolutionTarget: "agent",
-            },
-          ],
+          comments: [comment],
         },
         {
           onError: () => {
@@ -3699,7 +3797,18 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
         },
       );
     },
-    [collabUser?.email, collabUser?.name, t],
+    [
+      collabUser?.email,
+      collabUser?.name,
+      localPlanBridgeUrl,
+      localPlanMode,
+      localPlanRepoPath,
+      localPlanSlug,
+      queryClient,
+      selectedPlanQueryKey,
+      t,
+      updateLocalCommentMutation,
+    ],
   );
 
   const exportPlan = useExportPlan(localPlanMode ? undefined : selectedId);
@@ -5221,7 +5330,9 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
         : "",
       ...labels.map((label) => `- ${label}`),
       overflow.length > 0
-        ? `- ${overflow.length} additional visual comment(s) exceeded the screenshot budget. Use get-plan-feedback anchorDetails/coordinates for these overflow comments:`
+        ? localPlanMode
+          ? `- ${overflow.length} additional visual comment(s) exceeded the screenshot budget. Use comments.json anchor details/coordinates for these overflow comments:`
+          : `- ${overflow.length} additional visual comment(s) exceeded the screenshot budget. Use get-plan-feedback anchorDetails/coordinates for these overflow comments:`
         : "",
       ...overflowLabels,
     ]
@@ -5261,7 +5372,9 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
         openSidebar: true,
         context,
         images: capture.images,
-        message: buildApplyFeedbackMessage(openCommentCount),
+        message: buildApplyFeedbackMessage(openCommentCount, {
+          local: localPlanMode,
+        }),
       });
       toast.success(
         capture.images.length > 0
@@ -5287,19 +5400,33 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
       return;
     }
     await navigator.clipboard.writeText(
-      [buildApplyFeedbackMessage(openCommentCount), "", planAgentContext].join(
-        "\n",
-      ),
+      [
+        buildApplyFeedbackMessage(openCommentCount, { local: localPlanMode }),
+        "",
+        planAgentContext,
+      ].join("\n"),
     );
     toast.success(t("plansPage.reader.feedbackCopied"));
   };
 
   // Route comment writes to the DB (hosted) or comments.json (local); both
   // return the same bundle shape.
-  const writeComments = (
+  const writeComments = async (
     comments: PlanCommentInput[],
     note: string,
   ): Promise<PlanBundleWithHtml> => {
+    if (localPlanMode && localPlanBridgeUrl) {
+      setLocalBridgeCommentPending(true);
+      try {
+        return await updateLocalPlanBridgeComments(
+          localPlanBridgeUrl,
+          localPlanSlug ?? "",
+          { comments },
+        );
+      } finally {
+        setLocalBridgeCommentPending(false);
+      }
+    }
     if (localPlanMode) {
       return updateLocalCommentMutation.mutateAsync({
         slug: localPlanSlug ?? "",
@@ -5315,6 +5442,22 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
     }) as Promise<PlanBundleWithHtml>;
   };
   const removeCommentById = async (commentId: string): Promise<void> => {
+    if (localPlanMode && localPlanBridgeUrl) {
+      setLocalBridgeCommentPending(true);
+      try {
+        const updated = await updateLocalPlanBridgeComments(
+          localPlanBridgeUrl,
+          localPlanSlug ?? "",
+          { deletedCommentIds: [commentId] },
+        );
+        if (selectedPlanQueryKey) {
+          queryClient.setQueryData(selectedPlanQueryKey, updated);
+        }
+      } finally {
+        setLocalBridgeCommentPending(false);
+      }
+      return;
+    }
     if (localPlanMode) {
       await updateLocalCommentMutation.mutateAsync({
         slug: localPlanSlug ?? "",
@@ -5330,9 +5473,13 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
     });
   };
   const commentWritePending =
-    updateCommentMutation.isPending || updateLocalCommentMutation.isPending;
+    updateCommentMutation.isPending ||
+    updateLocalCommentMutation.isPending ||
+    localBridgeCommentPending;
   const commentDeletePending =
-    deleteCommentMutation.isPending || updateLocalCommentMutation.isPending;
+    deleteCommentMutation.isPending ||
+    updateLocalCommentMutation.isPending ||
+    localBridgeCommentPending;
 
   const submitInlineComment = async (draft: CommentDraft) => {
     if (!bundle || !pendingAnnotation || !selectedPlanQueryKey) return;

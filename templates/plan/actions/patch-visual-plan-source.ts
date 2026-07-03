@@ -1,4 +1,5 @@
 import { defineAction } from "@agent-native/core";
+import { agentTouchDocument } from "@agent-native/core/collab";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
@@ -43,7 +44,11 @@ export default defineAction({
     description:
       "Apply granular MDX source patches and persist the normalized visual plan.",
   },
-  run: async (args) => {
+  run: async (args, ctx) => {
+    // Only agent invocations (in-app tool loop / A2A → "tool"; external MCP →
+    // "mcp") light the AI presence flag.
+    const isAgentCaller =
+      ctx?.caller === "tool" || ctx?.caller === "mcp" || ctx?.caller === "a2a";
     await assertPlanEditor(args.planId);
     const bundle = await loadPlanBundle(args.planId);
     const versionAtLoad = bundle.plan.updatedAt;
@@ -106,6 +111,41 @@ export default defineAction({
       },
       createdBy: "agent",
     });
+
+    // Surface AI presence + a lingering highlight on the patched block(s) via the
+    // plan-presence doc. Best-effort — never fail the save on presence.
+    if (isAgentCaller) {
+      try {
+        const patchIds = new Set<string>();
+        for (const patch of args.patches) {
+          if (patch.op === "replace-markdown-block")
+            patchIds.add(patch.blockId);
+          else if (patch.op === "update-component-prop") {
+            patchIds.add(patch.componentId);
+          } else if (patch.op === "update-wireframe-node") {
+            patchIds.add(patch.nodeId);
+          }
+        }
+        if (patchIds.size === 0) {
+          for (const block of nextContent.blocks) patchIds.add(block.id);
+        }
+        const blockIds = Array.from(patchIds).slice(0, 12);
+        agentTouchDocument(`plan:${args.planId}`, {
+          edit: {
+            descriptor: { kind: "paths", paths: blockIds },
+            label: `Patched ${args.patches.length} source block${
+              args.patches.length === 1 ? "" : "s"
+            }`,
+          },
+          metadata: { blockIds },
+        });
+      } catch (error) {
+        console.error(
+          "[patch-visual-plan-source] agent presence publish failed",
+          error,
+        );
+      }
+    }
 
     const updated = await loadPlanBundle(args.planId);
     const local = isLocalPlanRuntime()

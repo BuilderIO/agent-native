@@ -681,29 +681,45 @@ export default function DeckEditor() {
       }
     : undefined;
 
-  // Slide-level collab: one Yjs doc per slide.
+  // Slide-level collab: one Yjs doc per slide. This tracks HUMAN collaborators
+  // editing the active slide's content (slideActiveUsers) and any agent edits
+  // that flow through the slide-content Yjs doc.
   // Uses activeSlideId (state) so it's stable before deck loads.
   // useCollaborativeDoc handles null docId gracefully (returns empty state).
   const slideDocId =
     id && activeSlideId ? `deck-${id}-slide-${activeSlideId}` : null;
   const {
-    ydoc,
-    awareness,
     activeUsers: slideActiveUsers,
-    agentActive,
-    agentPresent,
+    agentActive: slideAgentActive,
+    agentPresent: slideAgentPresent,
   } = useCollaborativeDoc({
     docId: slideDocId,
     requestSource: TAB_ID,
     user: currentUser,
   });
 
-  // Deck-level presence: tracks which slide each user is viewing
-  const { slidePresence } = useDeckPresence({
+  // Deck-level presence: which slide each participant (human OR agent) is on.
+  // The slide-editing actions write agent presence + lingering "AI edited"
+  // highlights to THIS doc (`deck-<id>`) via agentTouchDocument, so the agent's
+  // per-slide presence and recent edits come from here.
+  const {
+    slidePresence,
+    agentPresent: deckAgentPresent,
+    agentActive: deckAgentActive,
+    agentSlideId,
+    recentEdits: deckRecentEdits,
+    awareness: deckPresenceAwareness,
+  } = useDeckPresence({
     deckId: id ?? null,
     activeSlideId: activeSlideId,
     user: currentUser,
   });
+
+  // The agent is "present"/"active" if EITHER the deck presence doc (action
+  // edits) or the slide-content doc (Yjs edits) says so — a single unified
+  // signal for the toolbar/slide chips.
+  const agentPresent = deckAgentPresent || slideAgentPresent;
+  const agentActive = deckAgentActive || slideAgentActive;
 
   // Comments for the current slide (for badge count)
   const currentSlideCommentsQuery = useSlideComments(id ?? null, activeSlideId);
@@ -907,6 +923,7 @@ export default function DeckEditor() {
                     if (nextSlide) setActiveSlideId(nextSlide.id);
                   }}
                   slidePresence={slidePresence}
+                  recentEdits={deckRecentEdits}
                   aspectRatio={deck.aspectRatio}
                 />
               </DndContext>
@@ -975,14 +992,13 @@ export default function DeckEditor() {
               slideCount={deck.slides.length}
               designSystem={designSystem}
               aspectRatio={deck.aspectRatio}
-              ydoc={ydoc}
-              awareness={awareness}
               collabUser={
                 currentUser
                   ? { name: currentUser.name, color: currentUser.color }
                   : undefined
               }
               agentActive={agentActive}
+              recentEdits={deckRecentEdits}
               onComment={(quotedText) => {
                 setPendingComment({ quotedText });
                 setCommentsOpen(true);

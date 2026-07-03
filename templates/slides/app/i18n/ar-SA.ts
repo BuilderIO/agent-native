@@ -130,6 +130,8 @@ const messages = {
     sendToAgent: "إرسال إلى الوكيل",
     saveReconnect: "As alterações serão salvas ao reconectar",
     offline: "غير متصل",
+    saving: "جارٍ الحفظ…",
+    saved: "تم الحفظ",
     selected: "محدد",
     chooseDesignSystem: "Escolha um sistema de design",
     presentationNotFound: "لم يتم العثور على العرض",

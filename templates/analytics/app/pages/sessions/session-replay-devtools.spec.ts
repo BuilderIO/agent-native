@@ -125,6 +125,33 @@ describe("extractReplayDiagnostics", () => {
     expect(diagnostics.network[0].offsetMs).toBe(700);
   });
 
+  it("surfaces responseBody when present and leaves it undefined otherwise", () => {
+    const diagnostics = extractReplayDiagnostics([
+      ...baseEvents,
+      networkEvent(1_200, {
+        api: "fetch",
+        method: "GET",
+        url: "https://api.example.test/v1/broken",
+        status: 500,
+        ok: false,
+        durationMs: 80,
+        error: "Internal Server Error",
+        responseBody: '{"error":"boom"}',
+      }),
+      networkEvent(1_800, {
+        api: "fetch",
+        method: "GET",
+        url: "https://api.example.test/v1/ok",
+        status: 200,
+        ok: true,
+        durationMs: 15,
+      }),
+    ]);
+
+    expect(diagnostics.network[0].responseBody).toBe('{"error":"boom"}');
+    expect(diagnostics.network[1].responseBody).toBeUndefined();
+  });
+
   it("marks status 0 requests as failed and sorts entries by offset", () => {
     const diagnostics = extractReplayDiagnostics([
       ...baseEvents,

@@ -1,6 +1,8 @@
 import {
   appBasePath,
   PromptComposer,
+  RecentEditHighlights,
+  type AttributedRecentEdit,
   type CollabUser,
   useAvatarUrl,
   useT,
@@ -47,8 +49,22 @@ interface EditorSidebarProps {
   onAddEmptySlide: () => void;
   /** Presence map: slideId → list of users currently viewing that slide */
   slidePresence?: Map<string, CollabUser[]>;
+  /** Lingering recent edits (e.g. agent edits) to highlight over thumbnails. */
+  recentEdits?: AttributedRecentEdit[];
   /** Deck aspect ratio (defaults to 16:9 when omitted) */
   aspectRatio?: AspectRatio;
+}
+
+/** Extract the slide id from a `{kind:"paths",paths:["slides.<id>"]}` edit. */
+function slideIdFromEdit(edit: AttributedRecentEdit): string | null {
+  const d = edit.descriptor;
+  if (d.kind === "paths" && Array.isArray(d.paths)) {
+    for (const p of d.paths) {
+      const m = /^slides\.(.+)$/.exec(p);
+      if (m) return m[1];
+    }
+  }
+  return null;
 }
 
 const MAX_SOURCE_CONTEXT_CHARS = 60_000;
@@ -542,6 +558,7 @@ export default function EditorSidebar({
   onDeleteSlide,
   onAddEmptySlide,
   slidePresence,
+  recentEdits,
   aspectRatio,
 }: EditorSidebarProps) {
   const t = useT();
@@ -550,6 +567,21 @@ export default function EditorSidebar({
   const [addSlideGenerating, setAddSlideGenerating] = useState(false);
   const headerAddRef = useRef<HTMLButtonElement>(null);
   const slideButtonRefs = useRef(new Map<string, HTMLButtonElement>());
+  const thumbScrollRef = useRef<HTMLDivElement>(null);
+
+  // Resolve a recent-edit descriptor (`slides.<id>`) to the on-screen rect of
+  // that slide's thumbnail button, relative to the scroll container, so the
+  // shared RecentEditHighlights overlay can draw a fading "AI edited" ring.
+  const resolveThumbRect = useCallback(
+    (edit: AttributedRecentEdit): DOMRect | null => {
+      const slideId = slideIdFromEdit(edit);
+      if (!slideId) return null;
+      const node = slideButtonRefs.current.get(slideId);
+      if (!node) return null;
+      return node.getBoundingClientRect();
+    },
+    [],
+  );
   const { generating, submit: agentSubmit } = useAgentGenerating();
 
   const registerSlideButton = useCallback(
@@ -630,7 +662,10 @@ export default function EditorSidebar({
         )}
       </div>
 
-      <div className="flex-1 overflow-y-auto p-2 space-y-1">
+      <div
+        ref={thumbScrollRef}
+        className="relative flex-1 overflow-y-auto p-2 space-y-1"
+      >
         <SortableContext
           items={slides.map((s) => s.id)}
           strategy={verticalListSortingStrategy}
@@ -654,6 +689,15 @@ export default function EditorSidebar({
           <GeneratingSlideSkeleton
             index={slides.length}
             aspectRatio={aspectRatio}
+          />
+        )}
+        {/* Fading "AI edited" highlights over the thumbnails of just-edited
+            slides (the component handles the fade + name/color tag). */}
+        {recentEdits && recentEdits.length > 0 && (
+          <RecentEditHighlights
+            edits={recentEdits}
+            resolveRect={resolveThumbRect}
+            containerRef={thumbScrollRef}
           />
         )}
       </div>

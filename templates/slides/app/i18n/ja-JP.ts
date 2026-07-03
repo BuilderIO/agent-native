@@ -131,6 +131,8 @@ const messages = {
     sendToAgent: "エージェントに送信",
     saveReconnect: "再接続時に変更が保存されます",
     offline: "オフライン",
+    saving: "保存中…",
+    saved: "保存しました",
     selected: "選択済み",
     chooseDesignSystem: "デザインシステムを選択",
     presentationNotFound: "プレゼンテーションが見つかりません",

@@ -1,7 +1,11 @@
 import {
+  agentNativePath,
   appBasePath,
   callAction,
+  createLocalOpUndoController,
   isEmbedAuthActive,
+  type LocalOpUndoController,
+  type LocalOpUndoEntry,
 } from "@agent-native/core/client";
 import { nanoid } from "nanoid";
 import {
@@ -50,7 +54,19 @@ type GranularOp =
   /** Sentinel: discard all accumulated ops and do a full PUT instead. */
   | { op: "full-replace"; deck: Deck };
 
-type PatchDeckOp = Exclude<GranularOp, { op: "full-replace" }>;
+export type PatchDeckOp = Exclude<GranularOp, { op: "full-replace" }>;
+
+// ---------------------------------------------------------------------------
+// Inverse-op undo
+// ---------------------------------------------------------------------------
+// Undo/redo is per-user and expressed as granular inverse operations rather
+// than whole-decks snapshots. Each entry carries the deckId it applies to so
+// undoing while viewing deck B never mutates deck A, and applying an op runs
+// through the exact same optimistic-local + granular-persist path as a normal
+// edit — so it NEVER clobbers concurrent edits by other humans or the agent.
+//
+// A `DeckUndoOp` is a granular op (never `full-replace`) tagged with its deck.
+type DeckUndoOp = { deckId: string } & PatchDeckOp;
 
 export type SlideLayout =
   | "title"
@@ -115,12 +131,6 @@ export interface Deck {
   aspectRatio?: AspectRatio;
 }
 
-export interface HistoryEntry {
-  timestamp: number;
-  label: string;
-  decks: Deck[];
-}
-
 interface DeckContextType {
   decks: Deck[];
   loading: boolean;
@@ -170,19 +180,15 @@ interface DeckContextType {
    * in-progress edit.
    */
   markDeckDirty: (deckId: string) => void;
-  // Undo/Redo
+  // Undo/Redo — per-user inverse-op undo (see DeckUndoOp above).
   undo: () => void;
   redo: () => void;
   canUndo: boolean;
   canRedo: boolean;
-  history: HistoryEntry[];
-  historyIndex: number;
-  restoreFromHistory: (index: number) => void;
 }
 
 const DeckContext = createContext<DeckContextType | null>(null);
 
-const MAX_HISTORY = 50;
 const OPEN_DECK_FALLBACK_POLL_MS = 5_000;
 const DECK_LIST_FALLBACK_POLL_MS = 15_000;
 
@@ -344,6 +350,222 @@ function enqueueDeckOp(deckId: string, op: GranularOp) {
  */
 function saveDeckToAPI(deck: Deck) {
   enqueueDeckOp(deck.id, { op: "full-replace", deck });
+}
+
+/**
+ * Synchronously flush every pending (debounced) deck op queue using
+ * `fetch(..., { keepalive: true })` so in-flight edits survive a tab
+ * close / navigation. Called from a `pagehide` / `visibilitychange(hidden)`
+ * handler — without it there is a ~500ms window (the debounce) where the
+ * user's most recent edits are only in memory and are lost on tab close.
+ *
+ * keepalive requests are best-effort and capped (~64KB by the browser), which
+ * is fine: granular ops are small, and if a full-replace payload is too large
+ * to send keepalive the normal debounce/poll path still catches up on reopen.
+ */
+function flushPendingSaves() {
+  const actionUrl = `${agentNativePath("/_agent-native/actions")}/patch-deck`;
+  for (const [deckId, timer] of pendingSaves) {
+    clearTimeout(timer);
+    const ops = pendingOpsQueue.get(deckId);
+    pendingOpsQueue.delete(deckId);
+    if (!ops || ops.length === 0) continue;
+    try {
+      if (ops[0].op === "full-replace") {
+        const deck = ops[0].deck;
+        void fetch(`${appBasePath()}/api/decks/${deckId}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(deck),
+          keepalive: true,
+        });
+      } else {
+        void fetch(actionUrl, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "X-Agent-Native-Frontend": "1",
+          },
+          body: JSON.stringify({
+            deckId,
+            operations: ops as PatchDeckOp[],
+          }),
+          keepalive: true,
+        });
+      }
+    } catch {
+      // Best-effort — nothing more we can do as the page is unloading.
+    }
+  }
+  pendingSaves.clear();
+  notifySaveListeners();
+}
+
+// ---------------------------------------------------------------------------
+// Local op application + inverse derivation (for inverse-op undo)
+// ---------------------------------------------------------------------------
+// These mirror the server-side merge in actions/patch-deck.ts but operate on
+// the in-memory Deck[] so undo/redo can apply optimistically. They are pure:
+// they return a new slides array / deck rather than mutating in place.
+
+/** Fields carried by a `patch-deck-fields` op. */
+type PatchDeckFields = Extract<
+  PatchDeckOp,
+  { op: "patch-deck-fields" }
+>["fields"];
+
+/**
+ * Apply a single granular op to a deck's slides/fields, returning the updated
+ * Deck. Unknown/no-op cases (slide already gone, etc.) return the deck
+ * unchanged so undo entries that no longer apply fail soft instead of
+ * corrupting state.
+ */
+export function applyOpToDeck(deck: Deck, op: PatchDeckOp): Deck {
+  switch (op.op) {
+    case "patch-slide": {
+      let changed = false;
+      const slides = deck.slides.map((s) => {
+        if (s.id !== op.slideId) return s;
+        changed = true;
+        return { ...s, ...op.fields };
+      });
+      if (!changed) return deck; // slide concurrently deleted — skip
+      return { ...deck, slides, updatedAt: new Date().toISOString() };
+    }
+    case "delete-slide": {
+      const slides = deck.slides.filter((s) => s.id !== op.slideId);
+      if (slides.length === deck.slides.length) return deck; // already gone
+      // NOTE: unlike the user-facing `deleteSlide` handler and the server merge,
+      // undo/redo application does NOT inject a fallback blank slide when the
+      // deck empties out. Undo must restore the EXACT prior state — if the deck
+      // was legitimately empty before an add-slide (e.g. a freshly reloaded
+      // empty deck), undoing that add must return it to empty, not to a
+      // spurious blank slide.
+      return { ...deck, slides, updatedAt: new Date().toISOString() };
+    }
+    case "reorder-slides": {
+      const byId = new Map(deck.slides.map((s) => [s.id, s]));
+      const reordered: Slide[] = [];
+      for (const id of op.orderedIds) {
+        const slide = byId.get(id);
+        if (slide) reordered.push(slide);
+      }
+      // Preserve slides not named in orderedIds (concurrent adds) at the end.
+      const named = new Set(op.orderedIds);
+      for (const s of deck.slides) {
+        if (!named.has(s.id)) reordered.push(s);
+      }
+      return {
+        ...deck,
+        slides: reordered,
+        updatedAt: new Date().toISOString(),
+      };
+    }
+    case "add-slide": {
+      if (deck.slides.some((s) => s.id === op.slideId)) return deck; // idempotent
+      const newSlide: Slide = {
+        id: op.slideId,
+        content: op.fields.content,
+        notes: op.fields.notes ?? "",
+        layout: (op.fields.layout as SlideLayout) ?? "content",
+        ...(op.fields.background !== undefined
+          ? { background: op.fields.background }
+          : {}),
+      };
+      const slides = [...deck.slides];
+      const afterIdx = op.afterSlideId
+        ? slides.findIndex((s) => s.id === op.afterSlideId)
+        : -1;
+      if (afterIdx !== -1) slides.splice(afterIdx + 1, 0, newSlide);
+      else slides.push(newSlide);
+      return { ...deck, slides, updatedAt: new Date().toISOString() };
+    }
+    case "patch-deck-fields": {
+      return {
+        ...deck,
+        ...op.fields,
+        updatedAt: new Date().toISOString(),
+      } as Deck;
+    }
+  }
+}
+
+/**
+ * Build the inverse of a granular op given the deck state BEFORE the op was
+ * applied. Returns an array of ops to apply (usually one, occasionally two) or
+ * `null` when the op has no meaningful inverse (e.g. a no-op patch) so the
+ * caller skips pushing an undo entry.
+ */
+export function deriveInverseOp(
+  before: Deck,
+  op: PatchDeckOp,
+): PatchDeckOp[] | null {
+  switch (op.op) {
+    case "patch-slide": {
+      const prior = before.slides.find((s) => s.id === op.slideId);
+      if (!prior) return null; // slide didn't exist before — nothing to restore
+      const priorFields: Partial<Omit<Slide, "id">> = {};
+      for (const key of Object.keys(op.fields) as (keyof Omit<Slide, "id">)[]) {
+        // Capture the prior value for every field this op touches, so undo
+        // restores exactly what changed (including clearing fields back to
+        // undefined).
+        (priorFields as Record<string, unknown>)[key] = prior[key];
+      }
+      return [{ op: "patch-slide", slideId: op.slideId, fields: priorFields }];
+    }
+    case "delete-slide": {
+      const prior = before.slides.find((s) => s.id === op.slideId);
+      if (!prior) return null;
+      const idx = before.slides.findIndex((s) => s.id === op.slideId);
+      const afterSlideId = idx > 0 ? before.slides[idx - 1]?.id : undefined;
+      // Re-add the deleted slide with its full prior content, then reorder to
+      // the exact prior order. The add-slide op alone can only express "after
+      // slide X" or "append", so it cannot restore a slide to the HEAD of the
+      // deck; the follow-up reorder guarantees exact position regardless.
+      return [
+        {
+          op: "add-slide",
+          slideId: prior.id,
+          afterSlideId,
+          fields: {
+            content: prior.content,
+            notes: prior.notes,
+            layout: prior.layout,
+            ...(prior.background !== undefined
+              ? { background: prior.background }
+              : {}),
+          },
+        },
+        {
+          op: "reorder-slides",
+          orderedIds: before.slides.map((s) => s.id),
+        },
+      ];
+    }
+    case "add-slide": {
+      // Inverse of adding a slide is deleting it.
+      return [{ op: "delete-slide", slideId: op.slideId }];
+    }
+    case "reorder-slides": {
+      // Inverse reorder = the order the slides were in before.
+      return [
+        { op: "reorder-slides", orderedIds: before.slides.map((s) => s.id) },
+      ];
+    }
+    case "patch-deck-fields": {
+      const priorFields: Record<string, unknown> = {};
+      const beforeRecord = before as unknown as Record<string, unknown>;
+      for (const key of Object.keys(op.fields)) {
+        priorFields[key] = beforeRecord[key];
+      }
+      return [
+        {
+          op: "patch-deck-fields",
+          fields: priorFields as PatchDeckFields,
+        },
+      ];
+    }
+  }
 }
 
 /**
@@ -532,10 +754,14 @@ export function DeckProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
   const decksRef = useRef<Deck[]>([]);
 
-  // History for undo/redo
-  const [history, setHistory] = useState<HistoryEntry[]>([]);
-  const [historyIndex, setHistoryIndex] = useState(-1);
-  const skipHistoryRef = useRef(false);
+  // Per-user inverse-op undo/redo. `canUndo`/`canRedo` are React state kept in
+  // sync with the controller via its onChange callback. The controller and its
+  // apply path are wired below once `decks`/enqueue are in scope.
+  const [canUndo, setCanUndo] = useState(false);
+  const [canRedo, setCanRedo] = useState(false);
+  const undoControllerRef = useRef<LocalOpUndoController<DeckUndoOp> | null>(
+    null,
+  );
   // Track when external (SSE) updates happen so the save effect doesn't echo them back
   const lastExternalUpdateRef = useRef(0);
   // Track client-created decks that haven't been confirmed on the server yet.
@@ -553,28 +779,89 @@ export function DeckProvider({ children }: { children: ReactNode }) {
     dirtyDeckIdsRef.current.add(deckId);
   }, []);
 
-  const markChangedDecksDirty = useCallback((nextDecks: Deck[]) => {
-    const ids = changedDeckIds(decksRef.current, nextDecks);
-    if (ids.length === 0) return;
-    lastExternalUpdateRef.current = 0;
-    for (const id of ids) dirtyDeckIdsRef.current.add(id);
+  // Plain local decks update. Undo entries are recorded explicitly by each
+  // mutation via `recordUndo` (inverse ops), so this no longer snapshots the
+  // whole decks array the way the old `setDecksWithHistory` did.
+  const setDecksLocal = useCallback((updater: (prev: Deck[]) => Deck[]) => {
+    setDecks(updater);
   }, []);
 
   useEffect(() => {
     decksRef.current = decks;
   }, [decks]);
 
-  const resetDeckBaseline = useCallback((nextDecks: Deck[]) => {
-    skipHistoryRef.current = false;
-    setDecks(nextDecks);
-    setHistory([
-      {
-        timestamp: Date.now(),
-        label: "Initial state",
-        decks: JSON.parse(JSON.stringify(nextDecks)),
+  // ── Inverse-op undo controller ────────────────────────────────────────────
+  // Applying an undo/redo entry runs each tagged op through the SAME optimistic
+  // local update + granular persist path as a normal edit. Because we only ever
+  // send granular ops (never full-replace), undo/redo can never clobber a
+  // concurrent edit to a different slide by another human or the agent. Entries
+  // that no longer apply (e.g. the slide was deleted remotely) fail soft:
+  // applyOpToDeck returns the deck unchanged and the granular server merge
+  // ignores the missing target.
+  if (!undoControllerRef.current) {
+    undoControllerRef.current = createLocalOpUndoController<DeckUndoOp>({
+      apply: (ops) => {
+        // Apply all ops to local state in one pass, then persist each.
+        setDecks((prev) => {
+          let next = prev;
+          for (const op of ops) {
+            const idx = next.findIndex((d) => d.id === op.deckId);
+            if (idx < 0) continue; // deck gone — skip this op
+            const { deckId: _deckId, ...granular } = op;
+            void _deckId;
+            const updated = applyOpToDeck(next[idx], granular);
+            if (updated === next[idx]) continue; // no-op
+            next = next === prev ? [...prev] : next;
+            next[idx] = updated;
+          }
+          return next;
+        });
+        for (const op of ops) {
+          const { deckId, ...granular } = op;
+          markDeckDirty(deckId);
+          enqueueDeckOp(deckId, granular);
+        }
       },
-    ]);
-    setHistoryIndex(0);
+      onChange: () => {
+        const c = undoControllerRef.current;
+        setCanUndo(c ? c.canUndo() : false);
+        setCanRedo(c ? c.canRedo() : false);
+      },
+    });
+  }
+
+  /**
+   * Record an undo entry for a just-applied local mutation. `before` is the
+   * deck state prior to the mutation (for inverse derivation); `redoOp` is the
+   * forward op that was applied. Same `coalesceKey` within the controller's
+   * window merges bursts (e.g. rapid text edits to one slide).
+   */
+  const recordUndo = useCallback(
+    (
+      before: Deck,
+      redoOp: PatchDeckOp,
+      opts?: { label?: string; coalesceKey?: string },
+    ) => {
+      const inverseOps = deriveInverseOp(before, redoOp);
+      if (!inverseOps || inverseOps.length === 0) return;
+      const entry: LocalOpUndoEntry<DeckUndoOp> = {
+        undo: inverseOps.map((o) => ({ deckId: before.id, ...o })),
+        redo: [{ deckId: before.id, ...redoOp }],
+        label: opts?.label,
+        coalesceKey: opts?.coalesceKey,
+      };
+      undoControllerRef.current?.push(entry);
+    },
+    [],
+  );
+
+  const resetDeckBaseline = useCallback((nextDecks: Deck[]) => {
+    setDecks(nextDecks);
+    // A baseline reset (initial mount, route change, or access reload) starts a
+    // fresh undo timeline. Note: this is NOT the SSE/poll "remote update" path —
+    // those call setDecks directly and intentionally leave the undo stack
+    // intact so a collaborator's edit doesn't wipe your local undo history.
+    undoControllerRef.current?.clear();
   }, []);
 
   const reloadDecks = useCallback(async () => {
@@ -816,92 +1103,31 @@ export function DeckProvider({ children }: { children: ReactNode }) {
     return () => evtSource.close();
   }, []);
 
-  const pushHistory = useCallback(
-    (label: string, newDecks: Deck[]) => {
-      setHistory((prev) => {
-        const truncated = prev.slice(0, historyIndex + 1);
-        const newHistory = [
-          ...truncated,
-          {
-            timestamp: Date.now(),
-            label,
-            decks: JSON.parse(JSON.stringify(newDecks)),
-          },
-        ];
-        if (newHistory.length > MAX_HISTORY) {
-          newHistory.shift();
-          return newHistory;
-        }
-        return newHistory;
-      });
-      setHistoryIndex((prev) => {
-        const truncatedLen = Math.min(prev + 1, history.length);
-        return Math.min(truncatedLen, MAX_HISTORY - 1);
-      });
-    },
-    [historyIndex, history.length],
-  );
-
-  const setDecksWithHistory = useCallback(
-    (label: string, updater: (prev: Deck[]) => Deck[]) => {
-      setDecks((prev) => {
-        const next = updater(prev);
-        // Push to history after state update
-        setTimeout(() => {
-          if (!skipHistoryRef.current) {
-            pushHistory(label, next);
-          }
-          skipHistoryRef.current = false;
-        }, 0);
-        return next;
-      });
-    },
-    [pushHistory],
-  );
+  // Flush pending (debounced) saves before the tab is hidden or unloaded so the
+  // last ~500ms of edits aren't lost on close/navigation. `pagehide` is the
+  // reliable unload signal on modern browsers (incl. bfcache); we also flush on
+  // `visibilitychange(hidden)` which fires on mobile tab-switch / app-background
+  // where `pagehide` may not.
+  useEffect(() => {
+    const onHidden = () => {
+      if (document.visibilityState === "hidden") flushPendingSaves();
+    };
+    const onPageHide = () => flushPendingSaves();
+    document.addEventListener("visibilitychange", onHidden);
+    window.addEventListener("pagehide", onPageHide);
+    return () => {
+      document.removeEventListener("visibilitychange", onHidden);
+      window.removeEventListener("pagehide", onPageHide);
+    };
+  }, []);
 
   const undo = useCallback(() => {
-    if (historyIndex <= 0) return;
-    const newIndex = historyIndex - 1;
-    const nextDecks = JSON.parse(JSON.stringify(history[newIndex].decks));
-    // Undo restores a complete known-good snapshot — use full-replace so
-    // we don't try to infer granular ops from the diff.
-    for (const deck of nextDecks) {
-      enqueueDeckOp(deck.id, { op: "full-replace", deck });
-    }
-    markChangedDecksDirty(nextDecks);
-    setHistoryIndex(newIndex);
-    skipHistoryRef.current = true;
-    setDecks(nextDecks);
-  }, [historyIndex, history, markChangedDecksDirty]);
+    void undoControllerRef.current?.undo();
+  }, []);
 
   const redo = useCallback(() => {
-    if (historyIndex >= history.length - 1) return;
-    const newIndex = historyIndex + 1;
-    const nextDecks = JSON.parse(JSON.stringify(history[newIndex].decks));
-    // Same as undo — restore from a complete snapshot.
-    for (const deck of nextDecks) {
-      enqueueDeckOp(deck.id, { op: "full-replace", deck });
-    }
-    markChangedDecksDirty(nextDecks);
-    setHistoryIndex(newIndex);
-    skipHistoryRef.current = true;
-    setDecks(nextDecks);
-  }, [historyIndex, history, markChangedDecksDirty]);
-
-  const restoreFromHistory = useCallback(
-    (index: number) => {
-      if (index < 0 || index >= history.length) return;
-      const nextDecks = JSON.parse(JSON.stringify(history[index].decks));
-      for (const deck of nextDecks) {
-        enqueueDeckOp(deck.id, { op: "full-replace", deck });
-      }
-      markChangedDecksDirty(nextDecks);
-      setHistoryIndex(index);
-      skipHistoryRef.current = true;
-      setDecks(nextDecks);
-    },
-    [history, markChangedDecksDirty],
-  );
+    void undoControllerRef.current?.redo();
+  }, []);
 
   // Keyboard shortcuts for undo/redo
   useEffect(() => {
@@ -980,10 +1206,10 @@ export function DeckProvider({ children }: { children: ReactNode }) {
             pendingCreatePromisesRef.current.delete(newDeck.id);
           }
         });
-      setDecksWithHistory("Create deck", (prev) => [...prev, newDeck]);
+      setDecksLocal((prev) => [...prev, newDeck]);
       return newDeck;
     },
-    [setDecksWithHistory],
+    [setDecksLocal],
   );
 
   const ensureDeckPersisted = useCallback(async (id: string) => {
@@ -1050,20 +1276,18 @@ export function DeckProvider({ children }: { children: ReactNode }) {
           pendingDuplicateSourceIdsRef.current.delete(sourceDeckId);
         });
 
-      setDecksWithHistory("Duplicate deck", (prev) => [...prev, optimistic]);
+      setDecksLocal((prev) => [...prev, optimistic]);
       return optimistic;
     },
-    [decks, setDecksWithHistory],
+    [decks, setDecksLocal],
   );
 
   const deleteDeck = useCallback(
     (id: string) => {
       deleteDeckFromAPI(id);
-      setDecksWithHistory("Delete deck", (prev) =>
-        prev.filter((d) => d.id !== id),
-      );
+      setDecksLocal((prev) => prev.filter((d) => d.id !== id));
     },
-    [setDecksWithHistory],
+    [setDecksLocal],
   );
 
   const updateDeck = useCallback(
@@ -1071,6 +1295,7 @@ export function DeckProvider({ children }: { children: ReactNode }) {
       // Clear the external-update suppression window so a rename/update that
       // happens within 2s of page load (or an SSE event) is not silently dropped.
       markDeckDirty(id);
+      const before = decksRef.current.find((d) => d.id === id);
       setDecks((prev) =>
         prev.map((d) =>
           d.id === id
@@ -1093,13 +1318,24 @@ export function DeckProvider({ children }: { children: ReactNode }) {
       void _slides;
       _ca;
       if (Object.keys(persistableUpdates).length > 0) {
-        enqueueDeckOp(id, {
+        const op: PatchDeckOp = {
           op: "patch-deck-fields",
-          fields: persistableUpdates,
-        });
+          fields: persistableUpdates as PatchDeckFields,
+        };
+        enqueueDeckOp(id, op);
+        if (before) {
+          // Coalesce rapid deck-field edits (e.g. title typing, tweak sliders)
+          // per field-set so a burst becomes one undo step.
+          recordUndo(before, op, {
+            label: "Update deck",
+            coalesceKey: `${id}:deck-fields:${Object.keys(persistableUpdates)
+              .sort()
+              .join(",")}`,
+          });
+        }
       }
     },
-    [markDeckDirty],
+    [markDeckDirty, recordUndo],
   );
 
   const getDeck = useCallback(
@@ -1118,8 +1354,9 @@ export function DeckProvider({ children }: { children: ReactNode }) {
         background: "bg-[#000000]",
       };
 
+      const before = decksRef.current.find((d) => d.id === deckId);
       let afterSlideId: string | undefined;
-      setDecksWithHistory("Add slide", (prev) =>
+      setDecksLocal((prev) =>
         prev.map((d) => {
           if (d.id !== deckId) return d;
           const slides = [...d.slides];
@@ -1134,7 +1371,7 @@ export function DeckProvider({ children }: { children: ReactNode }) {
 
       // Granular op — the server splices in only this slide, preserving any
       // concurrent changes to other slides.
-      enqueueDeckOp(deckId, {
+      const op: PatchDeckOp = {
         op: "add-slide",
         slideId: newSlide.id,
         afterSlideId,
@@ -1144,11 +1381,13 @@ export function DeckProvider({ children }: { children: ReactNode }) {
           layout: newSlide.layout,
           background: newSlide.background,
         },
-      });
+      };
+      enqueueDeckOp(deckId, op);
+      if (before) recordUndo(before, op, { label: "Add slide" });
 
       return newSlide.id;
     },
-    [markDeckDirty, setDecksWithHistory],
+    [markDeckDirty, recordUndo, setDecksLocal],
   );
 
   const updateSlide = useCallback(
@@ -1161,7 +1400,8 @@ export function DeckProvider({ children }: { children: ReactNode }) {
           : updates.content
             ? "Update content"
             : "Edit slide";
-      setDecksWithHistory(label, (prev: Deck[]) =>
+      const before = decksRef.current.find((d) => d.id === deckId);
+      setDecksLocal((prev: Deck[]) =>
         prev.map((d) => {
           if (d.id !== deckId) return d;
           return {
@@ -1174,15 +1414,28 @@ export function DeckProvider({ children }: { children: ReactNode }) {
         }),
       );
       // Granular op — only this slide's changed fields reach the server.
-      enqueueDeckOp(deckId, { op: "patch-slide", slideId, fields: updates });
+      const op: PatchDeckOp = { op: "patch-slide", slideId, fields: updates };
+      enqueueDeckOp(deckId, op);
+      if (before) {
+        // Coalesce a burst of edits to the SAME slide's SAME field-set into one
+        // undo step (e.g. typing characters into inline text). Distinct
+        // field-sets (content vs background vs layout) get distinct undo steps.
+        recordUndo(before, op, {
+          label,
+          coalesceKey: `${deckId}:${slideId}:${Object.keys(updates)
+            .sort()
+            .join(",")}`,
+        });
+      }
     },
-    [markDeckDirty, setDecksWithHistory],
+    [markDeckDirty, recordUndo, setDecksLocal],
   );
 
   const deleteSlide = useCallback(
     (deckId: string, slideId: string) => {
       markDeckDirty(deckId);
-      setDecksWithHistory("Delete slide", (prev) =>
+      const before = decksRef.current.find((d) => d.id === deckId);
+      setDecksLocal((prev) =>
         prev.map((d) => {
           if (d.id !== deckId) return d;
           const slides = d.slides.filter((s) => s.id !== slideId);
@@ -1198,16 +1451,22 @@ export function DeckProvider({ children }: { children: ReactNode }) {
         }),
       );
       // Granular op — server deletes only this slide from the blob.
-      enqueueDeckOp(deckId, { op: "delete-slide", slideId });
+      const op: PatchDeckOp = { op: "delete-slide", slideId };
+      enqueueDeckOp(deckId, op);
+      // Inverse re-adds the full prior slide at its old position, so undo
+      // restores content/notes/layout/background exactly. (This is the case
+      // behind the "Undo delete" toast in DeckEditor.)
+      if (before) recordUndo(before, op, { label: "Delete slide" });
     },
-    [markDeckDirty, setDecksWithHistory],
+    [markDeckDirty, recordUndo, setDecksLocal],
   );
 
   const duplicateSlide = useCallback(
     (deckId: string, slideId: string) => {
       markDeckDirty(deckId);
+      const before = decksRef.current.find((d) => d.id === deckId);
       let copiedSlide: Slide | undefined;
-      setDecksWithHistory("Duplicate slide", (prev) =>
+      setDecksLocal((prev) =>
         prev.map((d) => {
           if (d.id !== deckId) return d;
           const idx = d.slides.findIndex((s) => s.id === slideId);
@@ -1223,7 +1482,7 @@ export function DeckProvider({ children }: { children: ReactNode }) {
       if (copiedSlide) {
         // Granular add-slide op — inserts the copy after the original.
         const { id: newSlideId, ...rest } = copiedSlide;
-        enqueueDeckOp(deckId, {
+        const op: PatchDeckOp = {
           op: "add-slide",
           slideId: newSlideId,
           afterSlideId: slideId,
@@ -1233,17 +1492,20 @@ export function DeckProvider({ children }: { children: ReactNode }) {
             layout: rest.layout,
             background: rest.background,
           },
-        });
+        };
+        enqueueDeckOp(deckId, op);
+        if (before) recordUndo(before, op, { label: "Duplicate slide" });
       }
     },
-    [markDeckDirty, setDecksWithHistory],
+    [markDeckDirty, recordUndo, setDecksLocal],
   );
 
   const reorderSlides = useCallback(
     (deckId: string, oldIndex: number, newIndex: number) => {
       markDeckDirty(deckId);
+      const before = decksRef.current.find((d) => d.id === deckId);
       let orderedIds: string[] | undefined;
-      setDecksWithHistory("Reorder slides", (prev) =>
+      setDecksLocal((prev) =>
         prev.map((d) => {
           if (d.id !== deckId) return d;
           const slides = [...d.slides];
@@ -1256,28 +1518,32 @@ export function DeckProvider({ children }: { children: ReactNode }) {
       if (orderedIds) {
         // Granular op — server reorders by slide ID rather than by index,
         // so concurrent adds from other writers don't get dropped.
-        enqueueDeckOp(deckId, { op: "reorder-slides", orderedIds });
+        const op: PatchDeckOp = { op: "reorder-slides", orderedIds };
+        enqueueDeckOp(deckId, op);
+        if (before) recordUndo(before, op, { label: "Reorder slides" });
       }
     },
-    [markDeckDirty, setDecksWithHistory],
+    [markDeckDirty, recordUndo, setDecksLocal],
   );
 
   const setDeckSlides = useCallback(
     (deckId: string, slides: Slide[]) => {
       markDeckDirty(deckId);
-      setDecksWithHistory("Generate slides", (prev) =>
+      // setDeckSlides replaces ALL slides wholesale (used by AI generation and
+      // imports). This is an explicit generation action, not a fine-grained
+      // edit, so it is not recorded on the inverse-op undo stack. A full-replace
+      // keeps server state exactly matching the generated result regardless of
+      // concurrent changes.
+      setDecksLocal((prev) =>
         prev.map((d) => {
           if (d.id !== deckId) return d;
           const updated = { ...d, slides, updatedAt: new Date().toISOString() };
-          // setDeckSlides replaces ALL slides wholesale (used by AI generation
-          // and imports). Use a full-replace so the server state always exactly
-          // matches the generated result, regardless of any concurrent changes.
           enqueueDeckOp(deckId, { op: "full-replace", deck: updated });
           return updated;
         }),
       );
     },
-    [markDeckDirty, setDecksWithHistory],
+    [markDeckDirty, setDecksLocal],
   );
 
   return (
@@ -1301,11 +1567,8 @@ export function DeckProvider({ children }: { children: ReactNode }) {
         markDeckDirty,
         undo,
         redo,
-        canUndo: historyIndex > 0,
-        canRedo: historyIndex < history.length - 1,
-        history,
-        historyIndex,
-        restoreFromHistory,
+        canUndo,
+        canRedo,
       }}
     >
       {children}

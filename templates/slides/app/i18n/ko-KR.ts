@@ -131,6 +131,8 @@ const messages = {
     sendToAgent: "에이전트에게 보내기",
     saveReconnect: "再接続時に変更が保存されます",
     offline: "오프라인",
+    saving: "저장 중…",
+    saved: "저장됨",
     selected: "선택됨",
     chooseDesignSystem: "デザインシステムを選択",
     presentationNotFound: "프레젠테이션을 찾을 수 없음",

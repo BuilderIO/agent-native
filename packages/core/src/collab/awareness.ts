@@ -16,6 +16,11 @@ import { defineEventHandler, setResponseStatus, getRouterParam } from "h3";
 import type { H3Event } from "h3";
 
 import { readBody } from "../server/h3-helpers.js";
+import {
+  deleteAwarenessRow,
+  loadAwarenessRows,
+  upsertAwarenessRow,
+} from "./awareness-store.js";
 
 const AWARENESS_TIMEOUT = 30_000; // 30 seconds
 
@@ -98,6 +103,25 @@ function pruneIfEmpty(docId: string, map: Map<number, AwarenessEntry>): void {
 }
 
 /**
+ * Merge SQL-mirrored awareness rows (written by other server instances —
+ * or by an agent action running in its own serverless invocation) into the
+ * in-memory map, newest lastSeen wins. Degrades to memory-only when the DB
+ * is unavailable.
+ */
+async function mergeStoredAwareness(
+  docId: string,
+  map: Map<number, AwarenessEntry>,
+): Promise<void> {
+  const rows = await loadAwarenessRows(docId);
+  for (const row of rows) {
+    const existing = map.get(row.clientId);
+    if (!existing || row.lastSeen > existing.lastSeen) {
+      map.set(row.clientId, row);
+    }
+  }
+}
+
+/**
  * POST /_agent-native/collab/:docId/awareness
  *
  * Client sends its awareness state and receives other clients' states.
@@ -129,10 +153,20 @@ export const postAwareness = defineEventHandler(async (event: H3Event) => {
 
   if (state === null) {
     map.delete(clientId);
+    // Best-effort cross-instance removal (never blocks the response).
+    void deleteAwarenessRow(docId, clientId);
   } else {
     // Store this client's state
-    map.set(clientId, { clientId, state, lastSeen: Date.now() });
+    const entry = { clientId, state, lastSeen: Date.now() };
+    map.set(clientId, entry);
+    // Mirror to SQL so other instances (and serverless action invocations)
+    // see this participant. Throttled internally; never throws.
+    void upsertAwarenessRow(docId, clientId, state, entry.lastSeen);
   }
+
+  // Pull in participants known to other instances (multi-instance serverless)
+  // before building the response, so every poller sees the full set.
+  await mergeStoredAwareness(docId, map);
 
   // Clean expired entries, then prune the outer-map entry if it becomes empty.
   // Without pruning, a deployment with many transient docIds (e.g. one per
@@ -172,6 +206,7 @@ export const getActiveUsers = defineEventHandler(async (event: H3Event) => {
   }
 
   const map = getDocAwareness(docId);
+  await mergeStoredAwareness(docId, map);
   cleanExpired(map);
   pruneIfEmpty(docId, map);
 

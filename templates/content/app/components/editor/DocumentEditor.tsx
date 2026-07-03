@@ -4,6 +4,7 @@ import {
   generateTabId,
   emailToColor,
   emailToName,
+  useAvatarUrl,
   useSession,
   useT,
   agentNativePath,
@@ -464,11 +465,13 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
 
   // Current user info for cursor labels
   const { session } = useSession();
+  const currentUserAvatarUrl = useAvatarUrl(session?.email);
   const currentUser: CollabUser | undefined = session?.email
     ? {
         name: emailToName(session.email),
         email: session.email,
         color: emailToColor(session.email),
+        avatarUrl: currentUserAvatarUrl ?? undefined,
       }
     : undefined;
 
@@ -863,6 +866,112 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
     pendingDocumentSaveRef.current = null;
     flushPendingDocumentSave(pending);
   }, [canEdit, documentId, flushPendingDocumentSave]);
+
+  // Last-chance flush when the tab is being hidden or torn down. A normal
+  // debounced save is an async React-Query mutation; if the page unloads before
+  // it resolves the edit is lost. On `pagehide` / `visibilitychange → hidden` we
+  // fire a `keepalive` POST straight to the update-document action so the write
+  // survives navigation/close. Local-file documents persist to disk, not this
+  // endpoint, so they fall back to the best-effort async flush.
+  useEffect(() => {
+    if (!canEdit) return;
+
+    const flushForTeardown = () => {
+      const pending = pendingDocumentSaveRef.current;
+      if (!pending || !pending.canEditWhenQueued) return;
+
+      // Local-file docs can't be flushed via keepalive fetch; best-effort only.
+      if (isLocalFileDocument || isLinkedLocalSourceDocument) {
+        flushPendingDocumentSave(pending);
+        return;
+      }
+
+      // Mirror saveDocumentImmediately's per-field stale guard + diff so we only
+      // send genuinely-changed, non-stale fields.
+      const serverUpdatedAt = documentUpdatedAtRef.current;
+      const titleIsStale =
+        !!serverUpdatedAt &&
+        !!lastSavedTitleRef.current.updatedAt &&
+        serverUpdatedAt > lastSavedTitleRef.current.updatedAt;
+      const contentIsStale =
+        !!serverUpdatedAt &&
+        !!lastSavedContentRef.current.updatedAt &&
+        serverUpdatedAt > lastSavedContentRef.current.updatedAt;
+
+      const updates: Record<string, string> = {};
+      if (pending.title !== lastSavedTitleRef.current.title && !titleIsStale) {
+        updates.title = pending.title;
+      }
+      if (
+        pending.content !== lastSavedContentRef.current.content &&
+        !contentIsStale
+      ) {
+        updates.content = pending.content;
+      }
+      if (Object.keys(updates).length === 0) return;
+
+      clearTimeout(pending.timeout);
+      saveTimeoutRef.current = null;
+      pendingDocumentSaveRef.current = null;
+
+      try {
+        const url = agentNativePath("/_agent-native/actions/update-document");
+        const body = JSON.stringify({ id: documentId, ...updates });
+        const ok = fetch(url, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            // Tag as a browser-originated call (ctx.caller = "frontend") so this
+            // never lights the AI-editing flag.
+            "X-Agent-Native-Frontend": "1",
+          },
+          body,
+          keepalive: true,
+          cache: "no-store",
+        });
+        // Adopt an optimistic watermark so a re-render doesn't re-queue the same
+        // save; the server bumps updatedAt, and the next poll reconciles it.
+        const optimisticAt = new Date().toISOString();
+        if (updates.title !== undefined) {
+          lastSavedTitleRef.current = {
+            title: pending.title,
+            updatedAt: optimisticAt,
+          };
+        }
+        if (updates.content !== undefined) {
+          lastSavedContentRef.current = {
+            content: pending.content,
+            updatedAt: optimisticAt,
+          };
+        }
+        void Promise.resolve(ok).catch(() => {
+          /* Page is going away; nothing more we can do. */
+        });
+      } catch {
+        // Fall back to the async flush if the keepalive fetch couldn't start.
+        flushPendingDocumentSave(pending);
+      }
+    };
+
+    const onVisibilityChange = () => {
+      if (window.document.visibilityState === "hidden") flushForTeardown();
+    };
+    window.addEventListener("pagehide", flushForTeardown);
+    window.document.addEventListener("visibilitychange", onVisibilityChange);
+    return () => {
+      window.removeEventListener("pagehide", flushForTeardown);
+      window.document.removeEventListener(
+        "visibilitychange",
+        onVisibilityChange,
+      );
+    };
+  }, [
+    canEdit,
+    documentId,
+    isLocalFileDocument,
+    isLinkedLocalSourceDocument,
+    flushPendingDocumentSave,
+  ]);
 
   // Collab-aware ingest flush: the `pull-document` action writes a one-shot
   // `flush-request-<id>` app-state key when an external agent wants to ingest

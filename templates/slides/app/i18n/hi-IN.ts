@@ -130,6 +130,8 @@ const messages = {
     sendToAgent: "एजेंट को भेजें",
     saveReconnect: "As alterações serão salvas ao reconectar",
     offline: "ऑफ़लाइन",
+    saving: "सहेजा जा रहा है…",
+    saved: "सहेजा गया",
     selected: "चयनित",
     chooseDesignSystem: "Escolha um sistema de design",
     presentationNotFound: "प्रस्तुति नहीं मिली",

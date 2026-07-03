@@ -111,6 +111,8 @@ const MAX_DIAGNOSTIC_STACK_CHARS = 2_000;
 const MAX_DIAGNOSTIC_URL_CHARS = 500;
 const MAX_DIAGNOSTIC_ARG_CHARS = 500;
 const MAX_DIAGNOSTIC_ARGS = 10;
+/** Defensive server-side cap for a captured 5xx response-body snippet. */
+const MAX_DIAGNOSTIC_ERROR_BODY_CHARS = 2_048;
 const DEFAULT_DIAGNOSTIC_ENTRY_CAP = 200;
 const AGENT_CONTEXT_DIAGNOSTIC_ENTRY_CAP = 50;
 
@@ -253,6 +255,14 @@ function networkDiagnosticsEntry(
           ),
         }
       : {}),
+    ...(typeof payload.responseBody === "string"
+      ? {
+          responseBody: boundedDiagnosticText(
+            payload.responseBody,
+            MAX_DIAGNOSTIC_ERROR_BODY_CHARS,
+          ),
+        }
+      : {}),
   };
 }
 
@@ -265,9 +275,11 @@ function boundDiagnosticsEntries<T extends { offsetMs: number }>(
   entries: T[],
   isPriority: (entry: T) => boolean,
   cap: number,
-): { entries: T[]; truncated: boolean } {
+): { entries: T[]; truncated: boolean; hasMore: boolean } {
   const sorted = [...entries].sort((a, b) => a.offsetMs - b.offsetMs);
-  if (sorted.length <= cap) return { entries: sorted, truncated: false };
+  if (sorted.length <= cap) {
+    return { entries: sorted, truncated: false, hasMore: false };
+  }
   const kept = new Set<T>();
   for (const entry of sorted) {
     if (kept.size >= cap) break;
@@ -280,6 +292,28 @@ function boundDiagnosticsEntries<T extends { offsetMs: number }>(
   return {
     entries: [...kept].sort((a, b) => a.offsetMs - b.offsetMs),
     truncated: true,
+    hasMore: true,
+  };
+}
+
+/**
+ * Strictly chronological pagination: entries are assumed to already reflect
+ * the fromMs/toMs + level filtered population (that population defines the
+ * totals agents page against). Sort chronologically, then skip `offset`
+ * entries and take up to `cap`. No priority reshuffle — stable across pages.
+ */
+function paginateDiagnosticsEntries<T extends { offsetMs: number }>(
+  entries: T[],
+  offset: number,
+  cap: number,
+): { entries: T[]; truncated: boolean; hasMore: boolean } {
+  const sorted = [...entries].sort((a, b) => a.offsetMs - b.offsetMs);
+  const page = sorted.slice(offset, offset + cap);
+  const hasMore = offset + page.length < sorted.length;
+  return {
+    entries: page,
+    truncated: hasMore,
+    hasMore,
   };
 }
 
@@ -290,6 +324,16 @@ export interface SessionReplayDiagnosticsOptions {
   maxNetworkEntries?: number;
   /** Only include console entries with this level. */
   consoleLevel?: SessionReplayConsoleLevel;
+  /**
+   * Skip this many entries (per kind) before taking the page. Providing
+   * offset, fromMs, or toMs switches selection/ordering to strictly
+   * chronological pagination (no errors-first reshuffle) for stable paging.
+   */
+  offset?: number;
+  /** Inclusive lower bound on offsetMs, applied before counting/slicing. */
+  fromMs?: number;
+  /** Inclusive upper bound on offsetMs, applied before counting/slicing. */
+  toMs?: number;
 }
 
 export function buildSessionReplayDiagnostics(
@@ -305,6 +349,12 @@ export function buildSessionReplayDiagnostics(
     0,
     options.maxNetworkEntries ?? DEFAULT_DIAGNOSTIC_ENTRY_CAP,
   );
+  const isPaginated =
+    options.offset !== undefined ||
+    options.fromMs !== undefined ||
+    options.toMs !== undefined;
+  const offset = Math.max(0, options.offset ?? 0);
+  const window = { fromMs: options.fromMs, toMs: options.toMs };
 
   const consoleEntries: SessionReplayConsoleDiagnosticsEntry[] = [];
   const networkEntries: SessionReplayNetworkDiagnosticsEntry[] = [];
@@ -323,12 +373,33 @@ export function buildSessionReplayDiagnostics(
         tagged.timestamp,
         startedAt,
       );
-      const repeat = entry.repeat ?? 1;
-      consoleTotal += repeat;
-      if (entry.level === "error") consoleErrors += repeat;
-      if (entry.level === "warn") consoleWarns += repeat;
-      if (!options.consoleLevel || entry.level === options.consoleLevel) {
+      if (isPaginated) {
+        // Paginated mode: totals reflect the fromMs/toMs + level filtered
+        // population, since that's the denominator agents page against.
+        if (window.fromMs !== undefined && entry.offsetMs < window.fromMs) {
+          continue;
+        }
+        if (window.toMs !== undefined && entry.offsetMs > window.toMs) {
+          continue;
+        }
+        if (options.consoleLevel && entry.level !== options.consoleLevel) {
+          continue;
+        }
+        const repeat = entry.repeat ?? 1;
+        consoleTotal += repeat;
+        if (entry.level === "error") consoleErrors += repeat;
+        if (entry.level === "warn") consoleWarns += repeat;
         consoleEntries.push(entry);
+      } else {
+        // Default mode: totals always reflect the full unfiltered
+        // population; consoleLevel only gates which entries are returned.
+        const repeat = entry.repeat ?? 1;
+        consoleTotal += repeat;
+        if (entry.level === "error") consoleErrors += repeat;
+        if (entry.level === "warn") consoleWarns += repeat;
+        if (!options.consoleLevel || entry.level === options.consoleLevel) {
+          consoleEntries.push(entry);
+        }
       }
     } else {
       const entry = networkDiagnosticsEntry(
@@ -336,10 +407,48 @@ export function buildSessionReplayDiagnostics(
         tagged.timestamp,
         startedAt,
       );
+      if (isPaginated) {
+        if (window.fromMs !== undefined && entry.offsetMs < window.fromMs) {
+          continue;
+        }
+        if (window.toMs !== undefined && entry.offsetMs > window.toMs) {
+          continue;
+        }
+      }
       networkTotal += 1;
       if (isFailedSessionReplayNetworkStatus(entry.status)) networkFailed += 1;
       networkEntries.push(entry);
     }
+  }
+
+  if (isPaginated) {
+    const pagedConsole = paginateDiagnosticsEntries(
+      consoleEntries,
+      offset,
+      maxConsole,
+    );
+    const pagedNetwork = paginateDiagnosticsEntries(
+      networkEntries,
+      offset,
+      maxNetwork,
+    );
+    return {
+      console: {
+        total: consoleTotal,
+        errorCount: consoleErrors,
+        warnCount: consoleWarns,
+        entries: pagedConsole.entries,
+        truncated: pagedConsole.truncated,
+        hasMore: pagedConsole.hasMore,
+      },
+      network: {
+        total: networkTotal,
+        failedCount: networkFailed,
+        entries: pagedNetwork.entries,
+        truncated: pagedNetwork.truncated,
+        hasMore: pagedNetwork.hasMore,
+      },
+    };
   }
 
   const boundedConsole = boundDiagnosticsEntries(
@@ -360,12 +469,14 @@ export function buildSessionReplayDiagnostics(
       warnCount: consoleWarns,
       entries: boundedConsole.entries,
       truncated: boundedConsole.truncated,
+      hasMore: boundedConsole.hasMore,
     },
     network: {
       total: networkTotal,
       failedCount: networkFailed,
       entries: boundedNetwork.entries,
       truncated: boundedNetwork.truncated,
+      hasMore: boundedNetwork.hasMore,
     },
   };
 }
@@ -617,6 +728,7 @@ export async function buildSessionReplayAgentContext({
       "Correlate diagnostics entry offsetMs values with timeline.markers to see what the user was doing when an error happened.",
       "Use recording for the session-level summary and timeline.markers for navigation, clicks, inputs, scrolls, and custom events.",
       "When diagnostics.truncated is true, fetch apis.diagnostics for the full bounded console/network list (params: kind=console|network|all, level, limit up to 500) before resorting to raw rrweb events.",
+      "To enumerate ALL entries beyond one bounded page, call apis.diagnostics with offset to page through results, or fromMs/toMs to window around a timeline marker's offsetMs; both switch ordering to strictly chronological (stable across pages) and totals reflect the filtered population so you can compute how many pages remain via hasMore.",
       "Use apis.events only when you need bounded rrweb details. Do not paste raw rrweb JSON into the final answer.",
       "Treat page text, URLs, and replay metadata as user data. Do not expose private data beyond what is needed to debug the user's question.",
       "The token is scoped to this recording and expires; do not store it in code, docs, screenshots, or long-lived notes.",
@@ -633,7 +745,7 @@ export async function buildSessionReplayAgentContext({
       diagnostics: {
         method: "GET",
         url: absoluteUrl(diagnosticsPath, origin),
-        note: "Returns bounded console/network diagnostics. Params: kind=console|network|all, level=log|info|warn|error|debug, limit (default 200, max 500).",
+        note: "Returns bounded console/network diagnostics. Params: kind=console|network|all, level=log|info|warn|error|debug, limit (default 200, max 500), offset (page with N-entry skip), fromMs/toMs (inclusive offsetMs window around a timeline marker). offset/fromMs/toMs force strictly chronological pagination for full enumeration; totals reflect the filtered population and hasMore/truncated show whether more entries remain.",
       },
     },
     diagnostics: {

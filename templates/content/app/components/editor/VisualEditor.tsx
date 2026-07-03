@@ -1,8 +1,12 @@
 import {
   createSharedEditorExtensions,
   useCollabReconcile,
+  usePresence,
+  useRecentEdits,
+  RecentEditHighlights,
   RegistryBlockDataProvider,
   useT,
+  type AttributedRecentEdit,
   type RegistryBlockSideMapBlock,
   type UseCollabReconcileResult,
 } from "@agent-native/core/client";
@@ -745,7 +749,7 @@ interface VisualEditorProps {
   /** Shared awareness instance for collaborative cursors/presence. */
   awareness?: Awareness | null;
   /** Current user info for cursor labels. */
-  user?: { name: string; color: string; email?: string };
+  user?: { name: string; color: string; email?: string; avatarUrl?: string };
   editable?: boolean;
   /** Local-file docs should not persist mount-time/schema normalization echoes. */
   localFileMode?: boolean;
@@ -894,7 +898,12 @@ interface VisualEditorExtensionOptions {
   documentId?: string;
   ydoc?: YDoc | null;
   localAwareness?: Awareness | null;
-  user?: { name: string; color: string; email?: string } | null;
+  user?: {
+    name: string;
+    color: string;
+    email?: string;
+    avatarUrl?: string;
+  } | null;
   onImageComment?: (quotedText: string, offsetTop: number) => void;
   onJoinTitle?: (text: string) => void;
   resolveNotionPageLink?: (notionPageId: string) => NotionPageLink | null;
@@ -1599,6 +1608,7 @@ export function VisualEditor({
 }: VisualEditorProps) {
   const t = useT();
   const [isDraggingMedia, setIsDraggingMedia] = useState(false);
+  const wrapperRef = useRef<HTMLDivElement>(null);
   const onChangeRef = useRef(onChange);
   onChangeRef.current = onChange;
   const onSaveContentRef = useRef(onSaveContent);
@@ -1912,6 +1922,76 @@ export function VisualEditor({
   });
   guardsRef.current = collabState;
 
+  // ─── Recent-edit highlights (Google-Docs / Figma "just edited this") ─────────
+  //
+  // Other participants — including the AI agent — publish a short ring of recent
+  // edits into their awareness state. `usePresence` surfaces the remote entries,
+  // `useRecentEdits` filters to the non-expired ones, and `RecentEditHighlights`
+  // paints a lingering, fading glow with the editor's name/color flag. For the
+  // agent, `edit-document` / `update-document` publish a `{ kind: "text", quote }`
+  // descriptor, which we resolve to a viewport rect by locating the quote in the
+  // live ProseMirror doc and measuring the span with `coordsAtPos`.
+  const localClientId = ydoc?.clientID ?? null;
+  const { others } = usePresence(localAwareness, localClientId);
+  const recentEdits = useRecentEdits(others);
+
+  const resolveRecentEditRect = useCallback(
+    (edit: AttributedRecentEdit): DOMRect | null => {
+      if (!editor || editor.isDestroyed) return null;
+      if (edit.descriptor.kind !== "text") return null;
+      const quote =
+        typeof edit.descriptor.quote === "string"
+          ? edit.descriptor.quote.trim()
+          : "";
+      if (!quote) return null;
+
+      // Clamp very long quotes — matching a long exact string across the doc is
+      // brittle (whitespace/markdown differences); the leading slice is enough to
+      // anchor the highlight to the right region.
+      const needle = quote.slice(0, 60);
+
+      // Walk the doc's text, tracking absolute positions, to find the needle.
+      const doc = editor.state.doc;
+      let found: { from: number; to: number } | null = null;
+      let acc = "";
+      let accStart = -1;
+      doc.descendants((node, pos) => {
+        if (found) return false;
+        if (!node.isText || typeof node.text !== "string") return true;
+        if (accStart === -1) accStart = pos;
+        acc += node.text;
+        const idx = acc.indexOf(needle);
+        if (idx !== -1) {
+          const from = accStart + idx;
+          found = { from, to: from + needle.length };
+          return false;
+        }
+        // Keep only a tail long enough to catch a needle spanning two text nodes.
+        if (acc.length > needle.length * 2) {
+          const drop = acc.length - needle.length;
+          acc = acc.slice(drop);
+          accStart += drop;
+        }
+        return true;
+      });
+      if (!found) return null;
+
+      try {
+        const { from, to } = found;
+        const start = editor.view.coordsAtPos(from);
+        const end = editor.view.coordsAtPos(Math.max(from, to - 1), 1);
+        const left = Math.min(start.left, end.left);
+        const right = Math.max(start.right, end.right);
+        const top = Math.min(start.top, end.top);
+        const bottom = Math.max(start.bottom, end.bottom);
+        return new DOMRect(left, top, Math.max(1, right - left), bottom - top);
+      } catch {
+        return null;
+      }
+    },
+    [editor],
+  );
+
   // Side-map that feeds the shared registry-block NodeView its typed `data`,
   // lazily parsed from each node's verbatim `__raw` NFM. Edits write the
   // re-serialized MDX back onto the node so the existing NFM save path persists
@@ -2086,8 +2166,14 @@ export function VisualEditor({
 
   return (
     <div
+      ref={wrapperRef}
       className={`visual-editor-wrapper${isDraggingMedia ? " visual-editor-wrapper--dragging" : ""}`}
     >
+      <RecentEditHighlights
+        edits={recentEdits}
+        resolveRect={resolveRecentEditRect}
+        containerRef={wrapperRef}
+      />
       {editable ? (
         <BubbleToolbar editor={editor} onComment={onComment} />
       ) : null}

@@ -2,10 +2,12 @@ import { agentChat } from "@agent-native/core";
 import {
   AgentPresenceChip,
   agentNativePath,
+  RecentEditHighlights,
   sendToAgentChat,
   usePinchZoom,
   useT,
   useAvatarUrl,
+  type AttributedRecentEdit,
   type CollabUser,
 } from "@agent-native/core/client";
 import { appStateKeyForBrowserTab } from "@shared/app-state-tabs";
@@ -23,8 +25,6 @@ import {
   type MouseEvent as ReactMouseEvent,
 } from "react";
 import { createPortal } from "react-dom";
-import type { Awareness } from "y-protocols/awareness";
-import type * as Y from "yjs";
 
 import { ExcalidrawSlide } from "@/components/deck/ExcalidrawSlide";
 import SlideRenderer from "@/components/deck/SlideRenderer";
@@ -219,14 +219,13 @@ interface SlideEditorProps {
     position?: { x: number; y: number },
   ) => void;
   onToggleObjectFit: (imgSrc: string, newFit: string) => void;
-  /** Yjs document for collaborative editing */
-  ydoc?: Y.Doc | null;
-  /** Yjs Awareness for cursor/presence sync */
-  awareness?: Awareness | null;
   /** Current user display info for cursor caret */
   collabUser?: { name: string; color: string };
   /** True briefly when AI agent is making edits */
   agentActive?: boolean;
+  /** Lingering recent edits (e.g. agent edits) to highlight over the canvas
+   *  when they target the currently-active slide. */
+  recentEdits?: AttributedRecentEdit[];
   /** Called when the user selects text and clicks the comment button */
   onComment?: (quotedText: string) => void;
   /** Zero-based index of the current slide */
@@ -516,6 +515,7 @@ export default function SlideEditor({
   deckId,
   onInlineEditStart,
   presentUsers = [],
+  recentEdits = [],
 }: SlideEditorProps) {
   const t = useT();
   const content = typeof slide.content === "string" ? slide.content : "";
@@ -534,6 +534,27 @@ export default function SlideEditor({
   const [selectionRect, setSelectionRect] = useState<DOMRect | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
+  // Wraps the rendered slide; used as the positioning container for the
+  // lingering "AI edited" ring when the active slide was just edited.
+  const slideCanvasRef = useRef<HTMLDivElement>(null);
+
+  // Recent edits (usually the agent's) that target THIS slide. The ring is
+  // drawn around the whole canvas since a slide-level `slides.<id>` descriptor
+  // refers to the entire slide.
+  const activeSlideId = slideId || slide.id;
+  const activeSlideEdits = recentEdits.filter((edit) => {
+    const d = edit.descriptor;
+    return (
+      d.kind === "paths" &&
+      Array.isArray(d.paths) &&
+      d.paths.some((p) => p === `slides.${activeSlideId}`)
+    );
+  });
+  const resolveCanvasRect = useCallback(
+    (): DOMRect | null =>
+      slideCanvasRef.current?.getBoundingClientRect() ?? null,
+    [],
+  );
 
   // --- Multi-select state ---
   /** Set of data-builder-id values currently in the multi-select */
@@ -1471,6 +1492,7 @@ export default function SlideEditor({
                     style={{ width: canvasWidth, maxWidth: canvasWidth }}
                   >
                     <div
+                      ref={slideCanvasRef}
                       className="slide-image-clickable relative"
                       onClick={handleSlideClick}
                       onContextMenu={handleSlideContextMenu}
@@ -1488,6 +1510,15 @@ export default function SlideEditor({
                         aspectRatio={aspectRatio}
                         onOverflowChange={handleOverflowChange}
                       />
+                      {/* Fading "AI edited" ring around the canvas when the
+                          agent just edited THIS slide (component handles fade). */}
+                      {activeSlideEdits.length > 0 && (
+                        <RecentEditHighlights
+                          edits={activeSlideEdits}
+                          resolveRect={resolveCanvasRect}
+                          containerRef={slideCanvasRef}
+                        />
+                      )}
                       {/* Double-click hint — only shown for HTML slides that support inline editing */}
                       {isHoveringText && !editingEl && isHtmlSlide && (
                         <div className="absolute bottom-2 left-1/2 -translate-x-1/2 rounded bg-black/60 px-2 py-0.5 text-xs text-white/40 pointer-events-none select-none">

@@ -17,6 +17,8 @@
     "@agent-native/core": "workspace:*",
     "@excalidraw/excalidraw": "0.18.1",
     "@excalidraw/mermaid-to-excalidraw": "2.2.2",
+    "@fontsource-variable/inter": "^5.2.8",
+    "@fontsource-variable/vazirmatn": "^5.2.8",
     "@libsql/client": "^0.15.8",
     "@tabler/icons-react": "catalog:",
     "@tiptap/core": "3.27.1",

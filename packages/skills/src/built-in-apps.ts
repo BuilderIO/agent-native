@@ -54,8 +54,8 @@ export const BUILT_IN_APP_MCP: BuiltInAppMcp[] = [
     // core skills.ts:1822 (id), :1823 (displayName)
     appId: "visual-plans",
     displayName: "Agent-Native Plan",
-    // core skills.ts:1803 (skillName "visual-plan") + :1805 (extraSkills "visual-recap")
-    skillNames: ["visual-plan", "visual-recap"],
+    // core skills.ts:2867 (skillName "visual-plan") + extraSkills
+    skillNames: ["visual-plan", "visual-recap", "visualize-repo"],
     // core skills.ts:1830 (mcp.serverName + mcp.aliases)
     serverName: "plan",
     aliases: ["agent-native-plans"],

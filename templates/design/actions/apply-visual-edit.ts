@@ -22,8 +22,35 @@ import {
   type UnwrapEditIntent,
   type WrapNodesEditIntent,
 } from "../shared/code-layer.js";
+import { agentSelectionDescriptor } from "../shared/collab-selection.js";
 import type { TailwindBreakpointPrefix } from "../shared/design-state.js";
 import { utilityStem, widthToPrefix } from "../shared/responsive-classes.js";
+
+/**
+ * Short human-readable label describing an edit intent, shown next to the
+ * agent's selection ring for live viewers (e.g. "AI — Editing text").
+ */
+function editIntentLabel(intent: EditIntent): string {
+  switch (intent.kind) {
+    case "textContent":
+      return "Editing text";
+    case "style":
+      return "Editing style";
+    case "class":
+    case "responsive-class":
+      return "Editing styles";
+    case "moveNode":
+      return "Moving element";
+    case "wrapNodes":
+      return "Grouping elements";
+    case "unwrap":
+      return "Ungrouping elements";
+    case "autoLayout":
+      return "Editing layout";
+    default:
+      return "Editing element";
+  }
+}
 
 type VisualEditActionSource = CodeLayerSource & { html?: string };
 
@@ -490,8 +517,14 @@ export default defineAction({
     });
 
     if (patch.result.target) {
+      // Publish a RESOLVABLE selection descriptor so live viewers can render a
+      // ring over the element being edited. Prefer the stable
+      // `data-agent-native-node-id` anchor over the projection CSS selector.
       agentUpdateSelection(file.id, {
-        selection: patch.result.target.selector,
+        selection: agentSelectionDescriptor(
+          patch.result.target,
+          editIntentLabel(editIntent),
+        ),
         nodeId: patch.result.target.nodeId,
         editingFile: file.filename,
         designId: file.designId,

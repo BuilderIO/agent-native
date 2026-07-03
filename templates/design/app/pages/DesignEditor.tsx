@@ -23,12 +23,17 @@ import {
   usePresence,
   useFollowUser,
   LiveCursorOverlay,
+  RemoteSelectionRings,
+  RecentEditHighlights,
+  useRecentEdits,
   useT,
   useChangeVersion,
   setAgentChatContextItem,
   removeAgentChatContextItem,
   useAvatarUrl,
   type CollabUser,
+  type AttributedRecentEdit,
+  type OtherPresence,
   type PromptComposerSubmitOptions,
 } from "@agent-native/core/client";
 import type { TweakDefinition } from "@shared/api";
@@ -57,6 +62,7 @@ import {
   DESIGN_CAPABILITY_NAMES,
   hasCapability,
 } from "@shared/design-source-capabilities";
+import { FULL_APP_BUILDING_ENABLED, readFusionApp } from "@shared/full-app";
 import { shouldUseLiveFileContent } from "@shared/html-content";
 import {
   compile as compileMotionTimeline,
@@ -165,7 +171,7 @@ import {
   CanvasContextMenu,
   type CanvasContextMenuHandle,
 } from "@/components/design/CanvasContextMenu";
-import { type CodeWorkbenchActiveFile } from "@/components/design/CodeWorkbenchHost";
+import { type CodeWorkbenchActiveFile } from "@/components/design/code-workbench/CodeWorkbench";
 import {
   DesignCanvas,
   type CreatePrimitiveSpec,
@@ -188,6 +194,7 @@ import {
   type ScreenGeometrySelection,
   type StyleChangeMeta,
 } from "@/components/design/EditPanel";
+import { FusionAppBanner } from "@/components/design/FusionAppBanner";
 import type { ExportSettingsValue } from "@/components/design/inspector";
 import { InspectorAiActions } from "@/components/design/inspector/InspectorAiActions";
 import {
@@ -4666,11 +4673,11 @@ type DesignLeftPanel =
   | "import"
   | "code";
 
-const SHOW_DESIGN_CODE_LEFT_PANEL = false;
+const SHOW_DESIGN_CODE_LEFT_PANEL = true;
 
-const CodeWorkbenchHost = lazy(() =>
-  import("@/components/design/CodeWorkbenchHost").then((module) => ({
-    default: module.CodeWorkbenchHost,
+const CodeWorkbench = lazy(() =>
+  import("@/components/design/code-workbench/CodeWorkbench").then((module) => ({
+    default: module.CodeWorkbench,
   })),
 );
 
@@ -5625,6 +5632,48 @@ function cloneCanvasFrameGeometry(
   );
 }
 
+/**
+ * Freshness guard for geometry undo/redo. Returns the ids of frames that a
+ * geometry history entry touched whose LIVE geometry no longer matches what the
+ * entry expects (`expected` = the state this entry previously wrote). A
+ * non-empty result means a concurrent peer/agent moved those frames since the
+ * snapshot was captured, so replaying the entry's stored "before"/"after" would
+ * clobber their change. Frames absent from live geometry (deleted) are treated
+ * as changed. Only compares the frames the entry itself changed, so unrelated
+ * concurrent edits to OTHER frames don't block this undo.
+ */
+function frameGeometryEquals(
+  a: CanvasFrameGeometry | undefined,
+  b: CanvasFrameGeometry | undefined,
+): boolean {
+  return JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
+}
+
+function staleGeometryFrameIds(
+  entry: GeometryHistoryEntry,
+  live: CanvasFrameGeometryById,
+  expected: CanvasFrameGeometryById,
+): string[] {
+  // A frame is "touched" when ANY geometry field differs between before and
+  // after — moves (x/y), rotation, and z-order count, not just viewport size.
+  const touched = new Set<string>(
+    [...Object.keys(entry.before), ...Object.keys(entry.after)].filter(
+      (frameId) =>
+        !frameGeometryEquals(entry.before[frameId], entry.after[frameId]),
+    ),
+  );
+  const stale: string[] = [];
+  for (const frameId of touched) {
+    const expectedGeo = expected[frameId];
+    const liveGeo = live[frameId];
+    if (!expectedGeo) continue; // entry didn't establish this frame's geometry
+    if (!liveGeo || JSON.stringify(liveGeo) !== JSON.stringify(expectedGeo)) {
+      stale.push(frameId);
+    }
+  }
+  return stale;
+}
+
 function viewportSizeFromFrameGeometry(
   geometry: CanvasFrameGeometry | undefined,
 ) {
@@ -6247,7 +6296,7 @@ export default function DesignEditor() {
       const setWidth =
         side === "left" ? setLeftSidebarWidth : setRightSidebarWidth;
       const minWidth = side === "left" ? (codePanelOpen ? 520 : 220) : 240;
-      const maxWidth = side === "left" ? (codePanelOpen ? 860 : 420) : 390;
+      const maxWidth = side === "left" ? (codePanelOpen ? 1100 : 420) : 390;
       const target =
         side === "left"
           ? leftSidebarContentRef.current
@@ -6750,7 +6799,10 @@ export default function DesignEditor() {
     pendingQuestionsVisible,
   ]);
 
-  // Current user info for collaborative presence
+  // Current user info for collaborative presence. The avatar (if the user has
+  // uploaded one) is plumbed through so peers see the user's face on cursors,
+  // selection rings, edit highlights, and the presence bar.
+  const currentUserAvatarUrl = useAvatarUrl(session?.email);
   const currentUser: CollabUser | undefined = useMemo(
     () =>
       session?.email
@@ -6758,9 +6810,12 @@ export default function DesignEditor() {
             name: session.name?.trim() || emailToName(session.email),
             email: session.email,
             color: emailToColor(session.email),
+            ...(currentUserAvatarUrl
+              ? { avatarUrl: currentUserAvatarUrl }
+              : {}),
           }
         : undefined,
-    [session?.email, session?.name],
+    [session?.email, session?.name, currentUserAvatarUrl],
   );
   const signInToSaveHref = buildSignInHrefForDesignIntent("save");
   const signInToShareHref = buildSignInHrefForDesignIntent("share");
@@ -7438,6 +7493,14 @@ export default function DesignEditor() {
     () => getCanvasFrameGeometry(designDataJson),
     [designDataJson],
   );
+  // Freshest live geometry for the geometry-undo freshness guard. Read from a
+  // ref (not a render-time closure) so undo/redo compare against the geometry a
+  // concurrent peer/agent may have just written, not the value captured when
+  // handleUndo's callback was memoized.
+  const liveFrameGeometryRef = useRef(canvasFrameGeometryById);
+  useEffect(() => {
+    liveFrameGeometryRef.current = canvasFrameGeometryById;
+  }, [canvasFrameGeometryById]);
 
   // ── Board file ─────────────────────────────────────────────────────────────
   // The board is a reserved design_file (filename "__board__.html") whose id is
@@ -9143,6 +9206,209 @@ export default function DesignEditor() {
     };
   }, [activeFileId, zoom, setPresence]);
 
+  // ── Remote selection rings + lingering edit highlights on the canvas ────────
+  //
+  // The agent (and human peers) publish selection descriptors + recentEdits into
+  // awareness. Both are resolved by locating the target element INSIDE the active
+  // screen's iframe, then transforming the iframe-local rect into parent-viewport
+  // coordinates. The iframe sits inside a `transform: scale(zoom)` wrapper, so its
+  // on-screen size differs from its internal layout size; we derive the scale from
+  // `boundingRect.width / iframe.clientWidth` (robust to any wrapper transform)
+  // instead of reading the zoom value directly. Cross-origin/unmounted iframes
+  // return null (the ring/highlight is silently skipped).
+
+  // Map an iframe-local DOMRect (element or Range) to the parent viewport.
+  const mapIframeRectToViewport = useCallback(
+    (iframe: HTMLIFrameElement, rect: DOMRect): DOMRect | null => {
+      const frameRect = iframe.getBoundingClientRect();
+      if (frameRect.width === 0 || frameRect.height === 0) return null;
+      // Effective on-screen scale of the iframe's internal coordinate system.
+      const layoutWidth = iframe.clientWidth || frameRect.width;
+      const layoutHeight = iframe.clientHeight || frameRect.height;
+      const scaleX = layoutWidth ? frameRect.width / layoutWidth : 1;
+      const scaleY = layoutHeight ? frameRect.height / layoutHeight : 1;
+      return new DOMRect(
+        frameRect.left + rect.left * scaleX,
+        frameRect.top + rect.top * scaleY,
+        rect.width * scaleX,
+        rect.height * scaleY,
+      );
+    },
+    [],
+  );
+
+  // Resolve a CSS selector to a viewport rect inside the active screen iframe.
+  const resolveSelectorRect = useCallback(
+    (selector: string): DOMRect | null => {
+      const iframe = canvasIframeRef.current;
+      if (!iframe) return null;
+      let doc: Document | null = null;
+      try {
+        doc = iframe.contentDocument;
+      } catch {
+        return null; // cross-origin — cannot inspect
+      }
+      if (!doc) return null;
+      let el: Element | null = null;
+      try {
+        el = doc.querySelector(selector);
+      } catch {
+        return null; // invalid selector
+      }
+      if (!el) return null;
+      return mapIframeRectToViewport(iframe, el.getBoundingClientRect());
+    },
+    [canvasIframeRef, mapIframeRectToViewport],
+  );
+
+  // Resolve a text quote to a viewport rect by walking the iframe body's text.
+  const resolveTextQuoteRect = useCallback(
+    (quote: string): DOMRect | null => {
+      const needle = quote.trim();
+      if (!needle) return null;
+      const iframe = canvasIframeRef.current;
+      if (!iframe) return null;
+      let doc: Document | null = null;
+      try {
+        doc = iframe.contentDocument;
+      } catch {
+        return null;
+      }
+      if (!doc?.body) return null;
+      const walker = doc.createTreeWalker(doc.body, NodeFilter.SHOW_TEXT);
+      let node: Node | null = walker.nextNode();
+      while (node) {
+        const text = node.nodeValue ?? "";
+        const idx = text.indexOf(needle);
+        if (idx !== -1 && node.parentElement) {
+          try {
+            const range = doc.createRange();
+            range.setStart(node, idx);
+            range.setEnd(node, idx + needle.length);
+            const rect = range.getBoundingClientRect();
+            if (rect.width > 0 || rect.height > 0) {
+              return mapIframeRectToViewport(iframe, rect);
+            }
+          } catch {
+            // fall back to the parent element rect below
+          }
+          return mapIframeRectToViewport(
+            iframe,
+            node.parentElement.getBoundingClientRect(),
+          );
+        }
+        node = walker.nextNode();
+      }
+      return null;
+    },
+    [canvasIframeRef, mapIframeRectToViewport],
+  );
+
+  // resolveRect for RemoteSelectionRings — descriptor is a CSS selector string.
+  const resolveSelectionRect = useCallback(
+    (descriptor: string): DOMRect | null => resolveSelectorRect(descriptor),
+    [resolveSelectorRect],
+  );
+
+  // resolveRect for RecentEditHighlights — dispatch on descriptor kind.
+  const resolveRecentEditRect = useCallback(
+    (edit: AttributedRecentEdit): DOMRect | null => {
+      const d = edit.descriptor;
+      if (d.kind === "selector" && typeof d.selector === "string") {
+        return resolveSelectorRect(d.selector);
+      }
+      if (d.kind === "text" && typeof d.quote === "string") {
+        return resolveTextQuoteRect(d.quote);
+      }
+      // "paths" and whole-"doc" descriptors have no canvas region here.
+      return null;
+    },
+    [resolveSelectorRect, resolveTextQuoteRect],
+  );
+
+  const recentEdits = useRecentEdits(others);
+
+  // Re-key the presence array on zoom so the overlays recompute their rects when
+  // the canvas zooms (the container itself doesn't resize, so the overlays'
+  // ResizeObserver wouldn't otherwise fire). Cheap: a new array reference only.
+  const othersForOverlays = useMemo<OtherPresence[]>(
+    () => others.slice(),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [others, zoom],
+  );
+  const recentEditsForOverlays = useMemo<AttributedRecentEdit[]>(
+    () => recentEdits.slice(),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [recentEdits, zoom],
+  );
+
+  // ── Synthesized AI cursor (Task 3) ──────────────────────────────────────────
+  //
+  // The agent publishes a selection/recentEdit but no cursor. Derive a moving
+  // cursor for it from whatever region currently resolves, normalized against
+  // the canvas container the same way human cursors are (see
+  // handleCanvasPointerMove) so LiveCursorOverlay places it correctly. The 120ms
+  // CSS transition in the overlay animates it smoothly between edit targets.
+  const othersWithAgentCursor = useMemo<OtherPresence[]>(() => {
+    const container = canvasContainerRef.current;
+    if (!container) return othersForOverlays;
+    const containerRect = container.getBoundingClientRect();
+    if (containerRect.width === 0 || containerRect.height === 0) {
+      return othersForOverlays;
+    }
+    return othersForOverlays.map((other) => {
+      // Only synthesize when the agent has no real cursor of its own.
+      if (!other.isAgent || other.presence.cursor) return other;
+      // Prefer the agent's active selection; fall back to its latest recentEdit.
+      let rect: DOMRect | null = null;
+      const selection = other.presence.selection as
+        | string
+        | { selector?: string }
+        | null
+        | undefined;
+      const selector =
+        typeof selection === "string" ? selection : selection?.selector;
+      if (selector) rect = resolveSelectorRect(selector);
+      if (!rect) {
+        const ring = other.presence.recentEdits;
+        if (Array.isArray(ring)) {
+          for (let i = ring.length - 1; i >= 0 && !rect; i--) {
+            const entry = ring[i] as AttributedRecentEdit;
+            if (entry?.descriptor) {
+              rect = resolveRecentEditRect({
+                ...entry,
+                clientId: other.clientId,
+                user: other.user,
+                isAgent: true,
+              });
+            }
+          }
+        }
+      }
+      if (!rect) return other;
+      // Normalize the rect's center to container fractions (matches human cursors).
+      const cx = rect.left + rect.width / 2 - containerRect.left;
+      const cy = rect.top + rect.height / 2 - containerRect.top;
+      return {
+        ...other,
+        presence: {
+          ...other.presence,
+          cursor: {
+            x: Math.max(0, Math.min(1, cx / containerRect.width)),
+            y: Math.max(0, Math.min(1, cy / containerRect.height)),
+          },
+        },
+      };
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    othersForOverlays,
+    resolveSelectorRect,
+    resolveRecentEditRect,
+    canvasContainerRef,
+    zoom,
+  ]);
+
   // Follow mode — clicking an avatar in the toolbar follows that participant.
   const [followingEmail, setFollowingEmail] = useState<string | null>(null);
   const followingId = useMemo(() => {
@@ -9580,14 +9846,28 @@ export default function DesignEditor() {
     return DESIGN_CAPABILITY_NAMES.filter((name) => hasCapability(caps, name));
   }, [designSourceType]);
 
-  // Builder-hosted preview URL for fusion-source designs, written into the
-  // design data blob by the "Make it real" migration. Threaded into DesignCanvas
-  // so the fusion preview renders (and so the bridge trust check can validate
-  // the frame's origin against it).
+  // Full-app-building linkage (see shared/full-app.ts). Non-null only for
+  // designs created via the "Full app" creation mode — drives FusionAppBanner
+  // and the fusion preview URL fallback below. Flag-independent on read: once
+  // a design has this data (created while the flag was on), the banner and
+  // canvas wiring keep working even if the flag is later flipped off, so
+  // existing full-app designs never regress.
+  const fusionApp = useMemo(
+    () => readFusionApp(designDataJson),
+    [designDataJson],
+  );
+
+  // Builder-hosted preview URL for fusion-source designs. Prefers the flat
+  // `fusionUrl` written by the "Make it real" migration; falls back to the
+  // full-app-building `fusionApp.previewUrl` linkage so container dev-server
+  // screens render the same way once the container reports a preview URL.
+  // Threaded into DesignCanvas so the fusion preview renders (and so the
+  // bridge trust check can validate the frame's origin against it).
   const designFusionUrl = useMemo(() => {
     const raw = (designDataJson as { fusionUrl?: unknown }).fusionUrl;
-    return typeof raw === "string" && raw ? raw : undefined;
-  }, [designDataJson]);
+    if (typeof raw === "string" && raw) return raw;
+    return fusionApp?.previewUrl;
+  }, [designDataJson, fusionApp]);
 
   // §6.1 — open a component instance's source. open-component-source selects the
   // component root in the editor and emits a navigate app-state; for real-app
@@ -15484,6 +15764,24 @@ export default function DesignEditor() {
       if (!canUseOverviewHistory) return false;
       const entry = geometryUndoStackRef.current.pop();
       if (!entry) return false;
+      // Freshness guard: this entry last wrote `entry.after`. If a peer/agent
+      // has since moved any of the frames it touched, replaying `entry.before`
+      // would silently clobber their change — drop this entry instead. The pop
+      // above already removed it, so undo skips forward to the next entry.
+      const stale = staleGeometryFrameIds(
+        entry,
+        liveFrameGeometryRef.current,
+        entry.after,
+      );
+      if (stale.length > 0) {
+        console.debug(
+          "[design] skipping stale geometry undo; frames changed since capture:",
+          stale,
+        );
+        toast.info(t("designEditor.toasts.undoSkippedConcurrentEdit"));
+        // Try the next undo entry rather than swallowing the whole gesture.
+        return undoGeometry();
+      }
       geometryRedoStackRef.current = [
         ...geometryRedoStackRef.current.slice(-(MAX_DESIGN_UNDO_STACK - 1)),
         entry,
@@ -15590,6 +15888,7 @@ export default function DesignEditor() {
     syncUndoRedoState,
     updateLiveScreenSnapshotContent,
     writeFrameGeometrySnapshot,
+    t,
   ]);
 
   const handleRedo = useCallback(() => {
@@ -15772,6 +16071,22 @@ export default function DesignEditor() {
       if (!canUseOverviewHistory) return false;
       const entry = geometryRedoStackRef.current.pop();
       if (!entry) return false;
+      // Freshness guard: when this entry was undone it wrote `entry.before`. If
+      // a peer/agent has since moved any touched frame, replaying `entry.after`
+      // would clobber that change — drop this entry and try the next redo.
+      const stale = staleGeometryFrameIds(
+        entry,
+        liveFrameGeometryRef.current,
+        entry.before,
+      );
+      if (stale.length > 0) {
+        console.debug(
+          "[design] skipping stale geometry redo; frames changed since capture:",
+          stale,
+        );
+        toast.info(t("designEditor.toasts.redoSkippedConcurrentEdit"));
+        return redoGeometry();
+      }
       geometryUndoStackRef.current = [
         ...geometryUndoStackRef.current.slice(-(MAX_DESIGN_UNDO_STACK - 1)),
         entry,
@@ -15901,6 +16216,7 @@ export default function DesignEditor() {
     t,
     updateLiveScreenSnapshotContent,
     writeFrameGeometrySnapshot,
+    t,
   ]);
 
   const handleZoomIn = useCallback(() => {
@@ -18444,6 +18760,50 @@ ${serializedHtml}
   // requestLocalhostWrite is consumed via the component instance or by
   // connected inspector components; not all render paths call it directly.
   void requestLocalhostWrite;
+
+  // Localhost workspace roots for the code workbench: one per distinct
+  // connection referenced by this design's localhost-backed screens.
+  const workbenchLocalhostConnections = useMemo(() => {
+    const seen = new Map<string, { connectionId: string; label: string }>();
+    for (const screen of overviewScreens) {
+      if (screen.sourceType !== "localhost" || !screen.connectionId) continue;
+      if (seen.has(screen.connectionId)) continue;
+      let label = "Local app" /* i18n-ignore */;
+      const screenUrl = screen.url ?? screen.previewUrl;
+      if (screenUrl) {
+        try {
+          label = new URL(screenUrl).host || label;
+        } catch {
+          // Keep the fallback label for malformed screen URLs.
+        }
+      }
+      seen.set(screen.connectionId, {
+        connectionId: screen.connectionId,
+        label,
+      });
+    }
+    return [...seen.values()];
+  }, [overviewScreens]);
+
+  // Consent round trip for code-workbench saves to local files: opens the
+  // shared write-consent dialog and retries the save once granted.
+  const handleWorkbenchLocalWriteConsent = useCallback(
+    (connectionId: string, retry: () => void, filePath?: string) => {
+      if (!id || !canEditDesign) return;
+      setLocalhostConsentConnectionId(connectionId);
+      setLocalhostWriteConsentPayload({
+        rootPath:
+          workbenchLocalhostConnections.find(
+            (connection) => connection.connectionId === connectionId,
+          )?.label ?? connectionId,
+        files: filePath ? [filePath] : [],
+        onGranted: () => retry(),
+        onCancel: () => {},
+      });
+      setLocalhostWriteConsentOpen(true);
+    },
+    [canEditDesign, id, workbenchLocalhostConnections],
+  );
 
   /**
    * Derive a relative file path from the active localhost screen.
@@ -21325,7 +21685,7 @@ ${serializedHtml}
                       </div>
                     }
                   >
-                    <CodeWorkbenchHost
+                    <CodeWorkbench
                       designId={id}
                       activeFileId={routeCodeFileId}
                       activeFilename={routeCodeFilename}
@@ -21333,6 +21693,10 @@ ${serializedHtml}
                       selectedSelector={selectedCanvasSelector}
                       canEdit={canEditDesign}
                       onActiveFileChange={setActiveCodeFile}
+                      localhostConnections={workbenchLocalhostConnections}
+                      onRequestLocalWriteConsent={
+                        handleWorkbenchLocalWriteConsent
+                      }
                     />
                   </Suspense>
                 ) : null}
@@ -21517,6 +21881,21 @@ ${serializedHtml}
                         zIndex: 10,
                         pointerEvents: "auto",
                       }}
+                    />
+                  )}
+                  {/* Full-app building status/controls. Renders only for
+                      designs backed by a fusion app (see readFusionApp) and
+                      only while the flag is on — the fusion actions the
+                      banner calls are gated on the same flag, so rendering it
+                      with the flag off would show controls that all error. */}
+                  {FULL_APP_BUILDING_ENABLED && id && fusionApp && (
+                    <FusionAppBanner
+                      designId={id}
+                      status={fusionApp.status}
+                      statusMessage={fusionApp.statusMessage}
+                      previewUrl={fusionApp.previewUrl}
+                      editorUrl={fusionApp.editorUrl}
+                      deployedUrl={fusionApp.deployedUrl}
                     />
                   )}
                   {showPendingVisualStyleApply ? (
@@ -21810,10 +22189,30 @@ ${serializedHtml}
                           }
                         }}
                       />
-                      {/* Presence: live cursor overlay for remote participants */}
+                      {/* Presence: remote selection rings (human peers + AI),
+                          resolved into the active screen's iframe. */}
                       {others.length > 0 && (
+                        <RemoteSelectionRings
+                          others={othersForOverlays}
+                          resolveRect={resolveSelectionRect}
+                          containerRef={canvasContainerRef}
+                        />
+                      )}
+                      {/* Presence: lingering fading highlights over regions a
+                          peer or the AI just edited. */}
+                      {recentEditsForOverlays.length > 0 && (
+                        <RecentEditHighlights
+                          edits={recentEditsForOverlays}
+                          resolveRect={resolveRecentEditRect}
+                          containerRef={canvasContainerRef}
+                        />
+                      )}
+                      {/* Presence: live cursor overlay for remote participants.
+                          The AI gets a synthesized cursor derived from its
+                          current edit target (see othersWithAgentCursor). */}
+                      {othersWithAgentCursor.length > 0 && (
                         <LiveCursorOverlay
-                          others={others}
+                          others={othersWithAgentCursor}
                           containerRef={canvasContainerRef}
                         />
                       )}
@@ -22344,7 +22743,7 @@ ${serializedHtml}
       {/* Localhost write-consent dialog: shown when the agent or editor wants to
           persist an edit to a local HTML/CSS source file and no valid grant
           exists for the active connection yet. */}
-      {id && activeLocalhostConnectionId && (
+      {id && (activeLocalhostConnectionId || localhostConsentConnectionId) && (
         <LocalhostWriteConsentDialog
           open={localhostWriteConsentOpen}
           onOpenChange={(next) => {

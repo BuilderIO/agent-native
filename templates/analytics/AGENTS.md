@@ -155,14 +155,18 @@ details live in `.agents/skills/`.
   scoped to one recording for two hours; SSR embeds an agent discovery payload
   and the JSON APIs expose only summary/timeline metadata plus bounded event
   reads.
-- Recordings also capture console logs and network request metadata (no
-  bodies/headers, scrubbed URLs, truncated messages, per-session budgets);
-  ingest derives `errorCount`/`networkErrorCount` and adds
+- Recordings also capture console logs and network request metadata (request
+  bodies/headers never captured; response bodies captured only as bounded,
+  redacted 5xx snippets; scrubbed URLs, truncated messages, per-session
+  budgets); ingest derives `errorCount`/`networkErrorCount` and adds
   `console-error`/`network-error` timeline markers.
 - The agent context includes a bounded `diagnostics` section (errors first) and
   advertises `GET /api/session-replay/agent-diagnostics.json` with
   `kind`/`level`/`limit` params (limit max 500) under the same `agent_access`
-  token — the primary signal when debugging a user-reported issue.
+  token — the primary signal when debugging a user-reported issue. `offset` and
+  `fromMs`/`toMs` page/window the same endpoint in strictly chronological order
+  (with `hasMore`/`truncated` per kind) so an agent can enumerate every
+  captured entry in a large session.
 - The replay player has a Dev Tools panel with Console and Network tabs
   (filters, search, jump-to-seek, error badge); extend it rather than adding a
   separate replay debugging surface. See the `session-replay` skill.

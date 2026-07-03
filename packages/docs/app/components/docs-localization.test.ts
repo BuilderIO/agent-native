@@ -104,23 +104,6 @@ describe("localized docs fallback", () => {
     expect(response?.headers.get("Location")).toBe("/fr-FR/docs");
   });
 
-  it("keeps the locale when redirecting legacy template app aliases", async () => {
-    let response: Response | undefined;
-    try {
-      await templateSlugLoader(
-        loaderArgs(
-          { locale: "fr-FR", slug: "videos" },
-          "https://docs.test/fr-FR/apps/videos",
-        ),
-      );
-    } catch (error) {
-      response = error as Response;
-    }
-
-    expect(response?.status).toBe(301);
-    expect(response?.headers.get("Location")).toBe("/fr-FR/apps/video");
-  });
-
   it("loads default docs slugs instead of treating them as locales", async () => {
     const doc = await defaultDocLoader(loaderArgs({ slug: "agent-surfaces" }));
 

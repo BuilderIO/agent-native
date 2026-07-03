@@ -56,8 +56,9 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { SaveStatusIndicator } from "@/components/visual-editor";
 import type { Deck, Slide, SlideLayout } from "@/context/DeckContext";
-import { defaultSlideContent } from "@/context/DeckContext";
+import { defaultSlideContent, useSaveState } from "@/context/DeckContext";
 import { toast } from "@/hooks/use-toast";
 import {
   ASPECT_RATIO_VALUES,
@@ -272,6 +273,23 @@ export default function EditorToolbar({
     typeof window === "undefined"
       ? `/p/${deckId}`
       : `${window.location.origin}${appPath(`/p/${deckId}`)}`;
+
+  // Live save state for the toolbar indicator, so users always see whether
+  // their work has committed (a lost-deck report motivated surfacing this).
+  const { saving } = useSaveState();
+  const [offline, setOffline] = useState(
+    typeof navigator !== "undefined" ? !navigator.onLine : false,
+  );
+  useEffect(() => {
+    const online = () => setOffline(false);
+    const goOffline = () => setOffline(true);
+    window.addEventListener("online", online);
+    window.addEventListener("offline", goOffline);
+    return () => {
+      window.removeEventListener("online", online);
+      window.removeEventListener("offline", goOffline);
+    };
+  }, []);
 
   const activeAspectRatio: AspectRatio = aspectRatio ?? DEFAULT_ASPECT_RATIO;
   const [layoutOpen, setLayoutOpen] = useState(false);
@@ -889,6 +907,16 @@ graph TD
             </button>
           </div>
         </>
+      )}
+
+      {/* Save status — subtle "Saving…" / "Saved" / offline pill. Renders
+          nothing when idle. Only meaningful for editors. */}
+      {canEdit && (
+        <SaveStatusIndicator
+          saving={saving}
+          offline={offline}
+          className="flex-shrink-0 mr-1"
+        />
       )}
 
       {/* Presence avatars — shared PresenceBar (agent + collaborators) */}

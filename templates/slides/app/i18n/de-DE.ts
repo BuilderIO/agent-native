@@ -134,6 +134,8 @@ const messages = {
     sendToAgent: "An Agent senden",
     saveReconnect: "Änderungen werden nach Wiederverbindung gespeichert",
     offline: "Offline",
+    saving: "Wird gespeichert…",
+    saved: "Gespeichert",
     selected: "ausgewählt",
     chooseDesignSystem: "Designsystem auswählen",
     presentationNotFound: "Präsentation nicht gefunden",

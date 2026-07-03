@@ -42,14 +42,19 @@ describe("callAction", () => {
       id: "meal-1",
     });
 
-    expect(fetchMock).toHaveBeenCalledWith("/_agent-native/actions/log-meal", {
-      method: "POST",
-      headers: expect.objectContaining({
-        "Content-Type": "application/json",
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/_agent-native/actions/log-meal",
+      expect.objectContaining({
+        method: "POST",
+        headers: expect.objectContaining({
+          "Content-Type": "application/json",
+        }),
+        cache: "no-store",
+        body: JSON.stringify({ name: "Salad" }),
+        // Every action fetch carries a timeout AbortController signal.
+        signal: expect.any(AbortSignal),
       }),
-      cache: "no-store",
-      body: JSON.stringify({ name: "Salad" }),
-    });
+    );
   });
 
   it("serializes GET params for imperative reads", async () => {
@@ -64,13 +69,14 @@ describe("callAction", () => {
 
     expect(fetchMock).toHaveBeenCalledWith(
       "/_agent-native/actions/list-meals?tags%5B%5D=lunch&tags%5B%5D=fresh",
-      {
+      expect.objectContaining({
         method: "GET",
         headers: expect.objectContaining({
           "Content-Type": "application/json",
         }),
         cache: "no-store",
-      },
+        signal: expect.any(AbortSignal),
+      }),
     );
   });
 });

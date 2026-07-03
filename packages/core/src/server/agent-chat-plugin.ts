@@ -7750,16 +7750,20 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             // queued messages durable across reloads without piggybacking
             // on full-thread saves.
             if (method === "POST" && isThreadSubroute("queued")) {
-              const thread = await getThread(threadId);
-              if (!thread || thread.ownerEmail !== owner) {
-                setResponseStatus(event, 404);
-                return { error: "Thread not found" };
-              }
               const body = await readBody(event);
               const queued = Array.isArray(body?.queuedMessages)
                 ? body.queuedMessages
                 : [];
-              await setThreadQueuedMessages(threadId, queued);
+              // Ownership is checked inside setThreadQueuedMessages (under
+              // the thread-data lock) — no separate getThread pre-read on
+              // this debounced hot path.
+              const saved = await setThreadQueuedMessages(threadId, queued, {
+                ownerEmail: owner,
+              });
+              if (!saved) {
+                setResponseStatus(event, 404);
+                return { error: "Thread not found" };
+              }
               return { ok: true };
             }
 

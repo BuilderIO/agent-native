@@ -193,4 +193,184 @@ describe("session replay agent diagnostics route", () => {
     expect(mockSetResponseStatus).toHaveBeenCalledWith(expect.anything(), 404);
     expect(result).toEqual({ error: "Session recording not found" });
   });
+
+  describe("pagination and time windowing", () => {
+    function manyConsoleEvents(count: number) {
+      const events: unknown[] = [];
+      for (let i = 0; i < count; i += 1) {
+        events.push({
+          type: 5,
+          timestamp: 1000 + i * 10,
+          data: {
+            tag: "agent-native.console",
+            payload: { level: "log", source: "console", message: `log ${i}` },
+          },
+        });
+      }
+      return events;
+    }
+
+    it("echoes offset and pages results chronologically", async () => {
+      mockReplayEvents(manyConsoleEvents(25));
+
+      const page1 = await (handler as any)(
+        makeEvent({
+          id: "sr_1",
+          agent_access: "tok",
+          kind: "console",
+          limit: "10",
+          offset: "0",
+        }),
+      );
+      expect(page1.offset).toBe(0);
+      expect(page1.console.entries).toHaveLength(10);
+      expect(page1.console.entries[0].message).toBe("log 0");
+      expect(page1.console.hasMore).toBe(true);
+
+      const page2 = await (handler as any)(
+        makeEvent({
+          id: "sr_1",
+          agent_access: "tok",
+          kind: "console",
+          limit: "10",
+          offset: "10",
+        }),
+      );
+      expect(page2.offset).toBe(10);
+      expect(page2.console.entries[0].message).toBe("log 10");
+      expect(page2.console.hasMore).toBe(true);
+
+      const page3 = await (handler as any)(
+        makeEvent({
+          id: "sr_1",
+          agent_access: "tok",
+          kind: "console",
+          limit: "10",
+          offset: "20",
+        }),
+      );
+      expect(page3.offset).toBe(20);
+      expect(page3.console.entries).toHaveLength(5);
+      expect(page3.console.hasMore).toBe(false);
+
+      // Pages union to the full 25-entry set with no overlap.
+      const union = [
+        ...page1.console.entries,
+        ...page2.console.entries,
+        ...page3.console.entries,
+      ].map((entry: any) => entry.message);
+      expect(union).toHaveLength(25);
+      expect(new Set(union).size).toBe(25);
+    });
+
+    it("echoes fromMs/toMs and windows the response, with totals reflecting the window", async () => {
+      mockReplayEvents(manyConsoleEvents(10));
+      // offsetMs values: 0,10,20,...,90 (startedAt = 1000)
+
+      const result = await (handler as any)(
+        makeEvent({
+          id: "sr_1",
+          agent_access: "tok",
+          kind: "console",
+          fromMs: "20",
+          toMs: "50",
+        }),
+      );
+
+      expect(result.fromMs).toBe(20);
+      expect(result.toMs).toBe(50);
+      expect(result.console.entries.map((entry: any) => entry.message)).toEqual(
+        ["log 2", "log 3", "log 4", "log 5"],
+      );
+      expect(result.console.total).toBe(4);
+      expect(result.console.hasMore).toBe(false);
+    });
+
+    it("rejects fromMs greater than toMs with 400", async () => {
+      const result = await (handler as any)(
+        makeEvent({
+          id: "sr_1",
+          agent_access: "tok",
+          fromMs: "500",
+          toMs: "100",
+        }),
+      );
+      expect(mockSetResponseStatus).toHaveBeenCalledWith(
+        expect.anything(),
+        400,
+      );
+      expect(result).toEqual({
+        error: "fromMs must be less than or equal to toMs",
+      });
+    });
+
+    it("rejects a negative or non-numeric offset with 400", async () => {
+      const negative = await (handler as any)(
+        makeEvent({ id: "sr_1", agent_access: "tok", offset: "-5" }),
+      );
+      expect(mockSetResponseStatus).toHaveBeenCalledWith(
+        expect.anything(),
+        400,
+      );
+      expect(negative).toEqual({
+        error: "offset must be a non-negative integer",
+      });
+
+      mockSetResponseStatus.mockClear();
+      const nonNumeric = await (handler as any)(
+        makeEvent({ id: "sr_1", agent_access: "tok", offset: "abc" }),
+      );
+      expect(mockSetResponseStatus).toHaveBeenCalledWith(
+        expect.anything(),
+        400,
+      );
+      expect(nonNumeric).toEqual({
+        error: "offset must be a non-negative integer",
+      });
+    });
+
+    it("rejects negative or non-numeric fromMs/toMs with 400", async () => {
+      const badFrom = await (handler as any)(
+        makeEvent({ id: "sr_1", agent_access: "tok", fromMs: "-1" }),
+      );
+      expect(badFrom).toEqual({
+        error: "fromMs must be a non-negative integer",
+      });
+
+      const badTo = await (handler as any)(
+        makeEvent({ id: "sr_1", agent_access: "tok", toMs: "nope" }),
+      );
+      expect(badTo).toEqual({
+        error: "toMs must be a non-negative integer",
+      });
+    });
+
+    it("does not echo offset/fromMs/toMs when not provided and keeps default errors-first behavior", async () => {
+      const events: unknown[] = [];
+      for (let i = 0; i < 5; i += 1) {
+        events.push({
+          type: 5,
+          timestamp: 1000 + i,
+          data: {
+            tag: "agent-native.console",
+            payload: { level: "log", source: "console", message: `log ${i}` },
+          },
+        });
+      }
+      events.push(consoleErrorEvent);
+      mockReplayEvents(events);
+
+      const result = await (handler as any)(
+        makeEvent({ id: "sr_1", agent_access: "tok", kind: "console" }),
+      );
+
+      expect(result).not.toHaveProperty("offset");
+      expect(result).not.toHaveProperty("fromMs");
+      expect(result).not.toHaveProperty("toMs");
+      // Default (no paging params) behavior is unchanged: errors-first is
+      // exercised in the builder spec; here we just confirm the route still
+      // returns the full unbounded set with no page params echoed.
+      expect(result.console.entries.length).toBeGreaterThan(0);
+    });
+  });
 });

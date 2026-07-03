@@ -29,15 +29,66 @@ import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import { verifyWriteGrant } from "../server/lib/verify-write-grant.js";
 
-/** File extensions the agent is permitted to write via the bridge. */
-const ALLOWED_EXTENSIONS = new Set([".html", ".htm", ".css"]);
+/**
+ * Text/code file extensions the agent is permitted to write via the bridge.
+ * Mirrors ALLOWED_WRITE_EXTENSIONS in the core design-connect bridge, which
+ * enforces the same list plus a secret-path blocklist on its side.
+ */
+const ALLOWED_EXTENSIONS = new Set([
+  ".html",
+  ".htm",
+  ".css",
+  ".scss",
+  ".less",
+  ".js",
+  ".jsx",
+  ".ts",
+  ".tsx",
+  ".mjs",
+  ".cjs",
+  ".json",
+  ".md",
+  ".mdx",
+  ".vue",
+  ".svelte",
+  ".astro",
+  ".txt",
+  ".yml",
+  ".yaml",
+  ".svg",
+]);
+
+/**
+ * Secret-looking paths are never writable, regardless of extension. All
+ * comparisons are case-insensitive: macOS's default filesystem (and Windows)
+ * is case-insensitive, so ".ENV", "ID_RSA", or "KEY.PEM" refer to the exact
+ * same on-disk file as their lowercase form and must be blocked identically.
+ * Mirrors isBlockedSecretPath in packages/core/src/cli/design-connect.ts.
+ */
+function isBlockedSecretPath(relPath: string): boolean {
+  const segments = relPath
+    .split(/[\\/]+/)
+    .filter(Boolean)
+    .map((segment) => segment.toLowerCase());
+  const basename = segments[segments.length - 1] ?? "";
+  if (segments.some((segment) => segment === ".git")) return true;
+  if (basename.startsWith(".env")) return true;
+  if (basename.endsWith(".pem") || basename.endsWith(".key")) return true;
+  if (basename.startsWith("id_rsa")) return true;
+  return false;
+}
 
 function assertAllowedExtension(relPath: string): void {
+  if (isBlockedSecretPath(relPath)) {
+    throw new Error(
+      `File "${relPath}" looks like a secret or VCS-internal file and may not be written through the bridge.`,
+    );
+  }
   const ext = path.extname(relPath).toLowerCase();
   if (!ALLOWED_EXTENSIONS.has(ext)) {
     throw new Error(
       `File "${relPath}" has extension "${ext}" which is not allowed. ` +
-        "Only .html, .htm, and .css files may be written through the bridge.",
+        "Only text and code files (HTML, CSS, JS/TS, JSON, Markdown, and similar) may be written through the bridge.",
     );
   }
 }
@@ -105,11 +156,14 @@ function normalizeBridgeUrl(value: string): string {
 
 export default defineAction({
   description:
-    "Write or patch a local file (HTML or CSS only) via the localhost design bridge. " +
-    "The user MUST have already granted write consent via grant-localhost-write-consent; " +
-    "this action will reject the request if no valid grant exists. " +
-    "Pass content for a full file write, or {search, replace} for a targeted patch. " +
-    "Requires editor access on the design.",
+    "Write or patch a local file via the localhost design bridge. Accepts " +
+    "common text/code files: HTML, CSS, JS/TS/JSX/TSX, JSON, Markdown, YAML, " +
+    "SVG, Vue/Svelte/Astro, and similar. Secret-looking paths (.env*, *.pem, " +
+    "*.key, id_rsa*, anything under .git/) are always blocked, regardless of " +
+    "extension. The user MUST have already granted write consent via " +
+    "grant-localhost-write-consent; this action will reject the request if no " +
+    "valid grant exists. Pass content for a full file write, or {search, " +
+    "replace} for a targeted patch. Requires editor access on the design.",
   schema: z.object({
     designId: z.string().describe("Design ID."),
     connectionId: z
@@ -118,8 +172,10 @@ export default defineAction({
     relPath: z
       .string()
       .describe(
-        "Path to the file relative to the connection rootPath. " +
-          "Only .html, .htm, and .css files are accepted.",
+        "Path to the file relative to the connection rootPath. Common " +
+          "text/code files are accepted (HTML, CSS, JS/TS/JSX/TSX, JSON, " +
+          "Markdown, YAML, SVG, Vue/Svelte/Astro, and similar); " +
+          "secret-looking paths are always rejected.",
       ),
     content: z
       .string()
@@ -139,8 +195,24 @@ export default defineAction({
         "Search-and-replace patch. Use for targeted edits. " +
           "Mutually exclusive with content.",
       ),
+    expectedVersionHash: z
+      .string()
+      .optional()
+      .describe(
+        "Optional version hash previously returned by read-local-file or a " +
+          "prior write. When provided, the bridge rejects the write with a " +
+          "version-conflict error if the file changed on disk since that " +
+          "hash was read.",
+      ),
   }),
-  run: async ({ designId, connectionId, relPath, content, patch }) => {
+  run: async ({
+    designId,
+    connectionId,
+    relPath,
+    content,
+    patch,
+    expectedVersionHash,
+  }) => {
     // --- Gate 1: access ---
     await assertAccess("design", designId, "editor");
 
@@ -209,13 +281,27 @@ export default defineAction({
       const res = await fetch(`${bridgeUrl}/write-file`, {
         method: "POST",
         headers,
-        body: JSON.stringify({ relPath, content }),
+        body: JSON.stringify({ relPath, content, expectedVersionHash }),
       });
       if (!res.ok) {
+        if (res.status === 409) {
+          throw new Error(
+            `version conflict: "${relPath}" changed on disk since it was last read.`,
+          );
+        }
         const errText = await res.text().catch(() => res.statusText);
         throw bridgeRequestError("write-file", res.status, errText);
       }
-      return { designId, relPath, operation: "write" as const, written: true };
+      const body = (await res.json().catch(() => ({}))) as {
+        versionHash?: string;
+      };
+      return {
+        designId,
+        relPath,
+        operation: "write" as const,
+        written: true,
+        versionHash: body.versionHash,
+      };
     } else {
       // Search-and-replace patch. The bridge's /apply-edit validates the file
       // itself (404s on a missing file), so no pre-read round-trip is needed.
@@ -226,13 +312,28 @@ export default defineAction({
           relPath,
           search: patch!.search,
           replace: patch!.replace,
+          expectedVersionHash,
         }),
       });
       if (!applyRes.ok) {
+        if (applyRes.status === 409) {
+          throw new Error(
+            `version conflict: "${relPath}" changed on disk since it was last read.`,
+          );
+        }
         const errText = await applyRes.text().catch(() => applyRes.statusText);
         throw bridgeRequestError("apply-edit", applyRes.status, errText);
       }
-      return { designId, relPath, operation: "patch" as const, written: true };
+      const body = (await applyRes.json().catch(() => ({}))) as {
+        versionHash?: string;
+      };
+      return {
+        designId,
+        relPath,
+        operation: "patch" as const,
+        written: true,
+        versionHash: body.versionHash,
+      };
     }
   },
 });

@@ -69,6 +69,32 @@ export default defineEventHandler(async (event) => {
     Math.max(1, queryInt(query.limit) ?? DEFAULT_DIAGNOSTICS_LIMIT),
   );
 
+  const rawOffset = queryString(query.offset);
+  if (rawOffset && queryInt(query.offset) === undefined) {
+    setResponseStatus(event, 400);
+    return { error: "offset must be a non-negative integer" };
+  }
+  const offset = Math.max(0, queryInt(query.offset) ?? 0);
+
+  const rawFromMs = queryString(query.fromMs);
+  if (rawFromMs && queryInt(query.fromMs) === undefined) {
+    setResponseStatus(event, 400);
+    return { error: "fromMs must be a non-negative integer" };
+  }
+  const fromMs = queryInt(query.fromMs);
+
+  const rawToMs = queryString(query.toMs);
+  if (rawToMs && queryInt(query.toMs) === undefined) {
+    setResponseStatus(event, 400);
+    return { error: "toMs must be a non-negative integer" };
+  }
+  const toMs = queryInt(query.toMs);
+
+  if (fromMs !== undefined && toMs !== undefined && fromMs > toMs) {
+    setResponseStatus(event, 400);
+    return { error: "fromMs must be less than or equal to toMs" };
+  }
+
   try {
     const eventsResponse = await getSessionReplayTokenizedEvents(id, {
       limit: 10_000,
@@ -83,12 +109,18 @@ export default defineEventHandler(async (event) => {
       maxConsoleEntries: kind === "network" ? 0 : limit,
       maxNetworkEntries: kind === "console" ? 0 : limit,
       consoleLevel: level,
+      ...(rawOffset ? { offset } : {}),
+      ...(fromMs !== undefined ? { fromMs } : {}),
+      ...(toMs !== undefined ? { toMs } : {}),
     });
     return {
       recordingId: eventsResponse.recording.id,
       kind,
       ...(level ? { level } : {}),
       limit,
+      ...(rawOffset ? { offset } : {}),
+      ...(fromMs !== undefined ? { fromMs } : {}),
+      ...(toMs !== undefined ? { toMs } : {}),
       ...(kind !== "network" ? { console: diagnostics.console } : {}),
       ...(kind !== "console" ? { network: diagnostics.network } : {}),
       eventsTruncated: eventsResponse.truncated,

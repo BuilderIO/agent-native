@@ -2131,10 +2131,17 @@ function mapBetterAuthSession(baSession: {
  * org is active.
  *
  */
-async function backfillSessionOrg(session: AuthSession): Promise<AuthSession> {
+async function backfillSessionOrg(
+  session: AuthSession,
+  event: H3Event,
+): Promise<AuthSession> {
   if (session.orgId) return session;
-  const { resolveOrgIdForEmail } = await import("../org/context.js");
-  const orgId = await resolveOrgIdForEmail(session.email).catch(() => null);
+  // Event-aware variant: shares the per-request org_members lookup with
+  // getOrgContext so one request never pays the membership query twice.
+  const { resolveOrgIdForEmailViaEvent } = await import("../org/context.js");
+  const orgId = await resolveOrgIdForEmailViaEvent(event, session.email).catch(
+    () => null,
+  );
   return orgId ? { ...session, orgId } : session;
 }
 
@@ -2166,7 +2173,7 @@ export async function getSession(event: H3Event): Promise<AuthSession | null> {
   };
   return (ctx.__anSessionCache ??= (async () => {
     const session = await resolveSessionUncached(event);
-    return session?.email ? backfillSessionOrg(session) : session;
+    return session?.email ? backfillSessionOrg(session, event) : session;
   })());
 }
 

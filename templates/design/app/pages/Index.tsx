@@ -4,6 +4,7 @@ import {
   useT,
 } from "@agent-native/core/client";
 import type { PromptComposerSubmitOptions } from "@agent-native/core/client";
+import { FULL_APP_BUILDING_ENABLED } from "@shared/full-app";
 import {
   IconChecks,
   IconPlus,
@@ -53,6 +54,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { useDesignSystems } from "@/hooks/use-design-systems";
+import { sendToDesignAgentChat } from "@/lib/agent-chat";
 import {
   clearPendingGeneration,
   writePendingGeneration,
@@ -87,6 +89,13 @@ export default function Index() {
   const [newDesignSystemId, setNewDesignSystemId] = useState<
     string | null | undefined
   >(undefined);
+  // "Design" (default, inline prototype) vs "Full app" (Builder Fusion
+  // cloud container). Only reachable behind FULL_APP_BUILDING_ENABLED — the
+  // popover renders no mode control at all when the flag is off, so this
+  // state is always "design" in that case.
+  const [newDesignMode, setNewDesignMode] = useState<"design" | "app">(
+    "design",
+  );
   const [renameId, setRenameId] = useState<string | null>(null);
   const [renameDraft, setRenameDraft] = useState("");
 
@@ -101,6 +110,9 @@ export default function Index() {
   }>("list-designs", { includePreview: "true" });
 
   const createMutation = useActionMutation("create-design");
+  // Fires the fusion-backed cloud container build; only ever called when
+  // FULL_APP_BUILDING_ENABLED is true and the user picked "Full app".
+  const createFusionAppMutation = useActionMutation("create-fusion-app");
   const deleteMutation = useActionMutation("delete-design");
   const duplicateMutation = useActionMutation("duplicate-design");
   const updateMutation = useActionMutation("update-design");
@@ -141,7 +153,10 @@ export default function Index() {
 
   const handleNewPromptOpenChange = useCallback((open: boolean) => {
     setShowNewPrompt(open);
-    if (!open) setNewDesignSystemId(undefined);
+    if (!open) {
+      setNewDesignSystemId(undefined);
+      setNewDesignMode("design");
+    }
   }, []);
 
   useEffect(() => {
@@ -268,19 +283,56 @@ export default function Index() {
 
       const { id, title } = createDesign(derivedTitle, designSystemId);
 
-      writePendingGeneration(id, {
-        prompt,
-        files,
-        title,
-        designSystemId,
-        skipQuestions: pendingOptions?.skipQuestions,
-        ...options,
-      });
+      if (FULL_APP_BUILDING_ENABLED && newDesignMode === "app") {
+        // Full-app designs are backed by a real running container, not a
+        // queued inline generation — skip writePendingGeneration and let the
+        // fusion app mutation (and its own status/progress banner in the
+        // editor) drive the build instead.
+        void createFusionAppMutation
+          .mutateAsync({ designId: id, prompt } as any)
+          .then((result: any) => {
+            if (result?.status !== "not-configured") return;
+            // Builder isn't connected/configured, so no fusionApp linkage was
+            // written and no banner will render. Hand off to the agent chat,
+            // which owns the connect-Builder card flow, keeping the user's
+            // prompt so nothing is lost.
+            sendToDesignAgentChat({
+              message: `I want to build this design as a full app: ${prompt}`,
+              context:
+                `create-fusion-app returned status "not-configured" for design ` +
+                `${id}. ${result?.message ?? ""} Help the user connect ` +
+                `Builder.io (see connect-builder-app), then retry ` +
+                `create-fusion-app with the user's prompt.`,
+              submit: true,
+            });
+          })
+          .catch(() => {
+            // Swallow here — the design still opens normally; the editor's
+            // FusionAppBanner (or its absence, if create-fusion-app never
+            // wrote fusionApp data) reflects the real state on refetch.
+          });
+      } else {
+        writePendingGeneration(id, {
+          prompt,
+          files,
+          title,
+          designSystemId,
+          skipQuestions: pendingOptions?.skipQuestions,
+          ...options,
+        });
+      }
 
       setNewDesignHandoffPending(true);
       navigate(`/design/${id}`);
     },
-    [createDesign, navigate, newDesignSystemId, resolveDefaultDesignSystemId],
+    [
+      createDesign,
+      createFusionAppMutation,
+      navigate,
+      newDesignMode,
+      newDesignSystemId,
+      resolveDefaultDesignSystemId,
+    ],
   );
 
   const handleDelete = useCallback(() => {
@@ -652,6 +704,10 @@ export default function Index() {
           handleNewPromptOpenChange(false);
           navigate("/design-systems/setup");
         }}
+        creationMode={FULL_APP_BUILDING_ENABLED ? newDesignMode : undefined}
+        onCreationModeChange={
+          FULL_APP_BUILDING_ENABLED ? setNewDesignMode : undefined
+        }
       />
 
       {/* Delete Confirmation */}

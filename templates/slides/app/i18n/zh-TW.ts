@@ -127,6 +127,8 @@ const messages = {
     sendToAgent: "傳送給代理",
     saveReconnect: "重新連線時會儲存變更",
     offline: "離線",
+    saving: "儲存中…",
+    saved: "已儲存",
     selected: "已選取",
     chooseDesignSystem: "選取設計系統",
     presentationNotFound: "未找到簡報",

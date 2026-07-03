@@ -242,6 +242,96 @@ describe("DeckContext deck creation persistence", () => {
     await waitFor(() => expect(result.current.canUndo).toBe(true));
   });
 
+  it("undo of a slide edit fails soft when that slide was deleted remotely", async () => {
+    window.history.pushState({}, "", "/deck/shared-deck");
+    setupFetch();
+    const { result } = renderHook(() => useDecks(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    // Seed a deck with two slides directly via addSlide from empty.
+    act(() => {
+      result.current.createDeck("Deck", { noDefaultSlides: true });
+    });
+    // The freshly created deck isn't the open route; edit it by id anyway.
+    const deckId = result.current.decks[0].id;
+    let slideId = "";
+    act(() => {
+      slideId = result.current.addSlide(deckId);
+    });
+    act(() => {
+      result.current.addSlide(deckId);
+    });
+
+    // Edit the first slide (records an undo entry with the prior content).
+    act(() => {
+      result.current.updateSlide(deckId, slideId, {
+        content: "<div>edited</div>",
+      });
+    });
+    await waitFor(() => expect(result.current.canUndo).toBe(true));
+
+    // Simulate a remote deletion of that slide by rewriting local state as the
+    // SSE/poll path would (slide removed out from under the undo entry).
+    act(() => {
+      result.current.setDeckSlides(
+        deckId,
+        result.current.getDeck(deckId)!.slides.filter((s) => s.id !== slideId),
+      );
+    });
+
+    // Undo must NOT throw or resurrect the slide — it applies the inverse
+    // patch-slide to a missing slide, which is a no-op (fails soft).
+    act(() => {
+      result.current.undo();
+    });
+    expect(
+      result.current.getDeck(deckId)?.slides.some((s) => s.id === slideId),
+    ).toBe(false);
+  });
+
+  it("scopes undo per deck — undoing does not mutate a different deck", async () => {
+    window.history.pushState({}, "", "/");
+    setupFetch();
+    const { result } = renderHook(() => useDecks(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    act(() => {
+      result.current.createDeck("Deck A", { noDefaultSlides: true });
+    });
+    act(() => {
+      result.current.createDeck("Deck B", { noDefaultSlides: true });
+    });
+    const deckA = result.current.decks[0].id;
+    const deckB = result.current.decks[1].id;
+
+    // Edit deck A (records undo), then edit deck B.
+    act(() => {
+      result.current.addSlide(deckA);
+    });
+    act(() => {
+      result.current.updateDeck(deckB, { title: "Deck B renamed" });
+    });
+    const deckASlidesBefore = result.current.getDeck(deckA)!.slides.length;
+
+    // Undo the most recent entry (deck B's rename). Deck A is untouched.
+    act(() => {
+      result.current.undo();
+    });
+    expect(result.current.getDeck(deckB)?.title).toBe("Deck B");
+    expect(result.current.getDeck(deckA)?.slides.length).toBe(
+      deckASlidesBefore,
+    );
+
+    // Undo again (deck A's add-slide). Deck B stays at its (undone) title.
+    act(() => {
+      result.current.undo();
+    });
+    expect(result.current.getDeck(deckA)?.slides.length).toBe(
+      deckASlidesBefore - 1,
+    );
+    expect(result.current.getDeck(deckB)?.title).toBe("Deck B");
+  });
+
   it("ignores stale reload responses after the route changes", async () => {
     window.history.pushState({}, "", "/");
     const firstDeck: Deck = {

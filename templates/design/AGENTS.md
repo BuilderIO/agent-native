@@ -156,8 +156,10 @@ patterns live in `.agents/skills/`.
   current SQL-backed prototype mode. Localhost connections come from
   `npx @agent-native/core@latest design connect` and are persisted with
   `connect-localhost`; list them with `list-localhost-connections` before
-  creating or resolving local-code artboards. Fusion is a future source type and
-  should be preserved when present but not invented for inline/local work.
+  creating or resolving local-code artboards. Fusion designs are full-app
+  designs backed by a running Builder Fusion container, created via
+  `create-fusion-app` when `FULL_APP_BUILDING_ENABLED` is on; preserve the
+  design's `fusionApp` linkage data whenever present and never invent it.
 - Localhost route manifests are scaffolding for URL-backed Flow Canvas
   artboards. Use `add-localhost-screens` to place routes or path/query states as
   iframe screens in overview mode. Preserve route ids, paths, `sourceType`,
@@ -198,21 +200,31 @@ patterns live in `.agents/skills/`.
 
 ## Code Workspace
 
-- The editor left rail has a wide `code` workspace panel. Open it with
-  `navigate --view editor --designId <id> --leftPanel code` and optionally pass
-  `fileId`, `filename`, or `screen` to focus a file.
-- Use `list-source-files` to inspect the source workspace. For the MVP the
-  backend is `virtual-inline` over SQL-backed `design_files`, exposed as
-  `designfs://<designId>/`.
-- Use `read-source-file` for file contents and preserve its `versionHash` before
+- The editor left rail has a wide `code` panel: a VS Code-style workbench
+  (`app/components/design/code-workbench/`) with an explorer, workspace search,
+  editor tabs, quick open (⌘P), a command palette (⇧⌘P), and a status bar. Open
+  it with `navigate --view editor --designId <id> --leftPanel code` and
+  optionally pass `fileId`, `filename`, or `screen` to focus a file.
+- The explorer shows one root per workspace source: the design's SQL-backed
+  files (`designfs://<designId>/`, backend `virtual-inline`) always, plus one
+  root per localhost connection referenced by the design's screens
+  (`list-local-files` / `read-local-file` proxy the `design connect` bridge;
+  writes go through `write-local-file` and its user-approved consent grant).
+- Inline design files are auto-formatted with Prettier the first time they are
+  opened in the workbench and the formatted result is persisted; local files
+  are never auto-formatted.
+- Use `list-source-files` to inspect the inline source workspace and
+  `read-source-file` for file contents; preserve its `versionHash` before
   writing. Do not return full file content from `view-screen`; it reports only
   active code file metadata and dirty state.
 - Use `preview-source-edit` to show a diff without saving, then
   `apply-source-edit` with the prior `versionHash` to save either a full replace
-  or exact replace. These actions update the same inline file state as the UI.
+  or exact replace. These actions update the same inline file state as the UI;
+  agent edits show up live in open workbench buffers.
 - Use `resolve-selection-source` when the user has a canvas element selected and
-  you need the best matching inline file location/snippet. Localhost/container
-  source reads and writes remain future backend work.
+  you need the best matching inline file location/snippet.
+- The workbench session (open tabs, active file, sidebar layout) persists per
+  design in application state under `code-workbench:<designId>`.
 
 ## Localhost Source Actions
 
@@ -255,6 +267,31 @@ patterns live in `.agents/skills/`.
   section — promote a 3+ times repeated pattern instead of inventing another
   near-duplicate.
 
+## Full App Building
+
+Flag-gated (`FULL_APP_BUILDING_ENABLED` in `shared/full-app.ts`, default off)
+and requires Builder connected. See `full-app-build` skill for the full flow.
+
+- `create-fusion-app`: creates the app branch via the Builder cloud agent; one
+  branch per design; returns existing linkage if already created.
+- `sync-fusion-app`: boots/attaches the container; poll while building; on
+  ready, updates `previewUrl` and upserts URL-backed screens.
+- `add-fusion-screens`: places more routes as screens once `previewUrl` is
+  known.
+- `queue-fusion-edit`: queues one edit intent against a fusion screen.
+- `list-fusion-edits`: inspects the queued edits.
+- `apply-fusion-edits`: batches pending edits into one prompt for the app's
+  in-container agent (fire-and-forget); marks them "sent".
+- `send-fusion-message`: relays a freeform request to the app's coding agent.
+- `push-fusion-app`: pushes the branch's code to its git remote.
+- `deploy-fusion-app`: reserves `<slug>.builder.cloud` and triggers a deploy.
+- `get-fusion-deploy-status`: polls deploy status until live/failed/canceled.
+- Fusion screens are URL-backed iframes, same model as localhost screens.
+  Never inline-edit a fusion screen's HTML or use `generate-design` /
+  `edit-design` / `apply-visual-edit` on it — queue and dispatch edits
+  instead. When not configured, actions return a connect CTA like
+  `migrate-inline-design-to-app`; never throw or invent `fusionApp` data.
+
 ## App-Backed Skill Distribution
 
 - The preferred hosted install path is
@@ -296,6 +333,7 @@ Read the relevant skill before deeper work:
 - `design-generation` for creating/editing prototype HTML and variant flows.
 - `design-systems` for tokens, brand extraction, and linked systems.
 - `export-handoff` for HTML/PNG/SVG/ZIP/code handoff.
+- `full-app-build` for flag-gated fusion-backed full app building.
 - `frontend-design` and `shadcn-ui` for app UI changes.
 - `actions`, `delegate-to-agent`, `security`, and `self-modifying-code` for
   framework patterns.

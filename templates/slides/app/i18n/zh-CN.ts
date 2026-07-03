@@ -129,6 +129,8 @@ const messages = {
     sendToAgent: "发送给代理",
     saveReconnect: "再接続時に変更が保存されます",
     offline: "离线",
+    saving: "保存中…",
+    saved: "已保存",
     selected: "已选择",
     chooseDesignSystem: "デザインシステムを選択",
     presentationNotFound: "未找到演示文稿",

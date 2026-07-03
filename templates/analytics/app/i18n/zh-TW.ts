@@ -946,6 +946,7 @@ const messages = {
     devtoolsToggleDetails: "切換詳細資訊",
     devtoolsArgs: "記錄的參數",
     devtoolsStack: "堆疊追蹤",
+    devtoolsResponseBody: "回應內容",
     devtoolsRepeatCount: "×{{count}}",
     devtoolsFailedStatus: "失敗",
     devtoolsDurationMs: "{{ms}} 毫秒",

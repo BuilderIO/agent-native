@@ -133,6 +133,8 @@ const messages = {
     sendToAgent: "Enviar al agente",
     saveReconnect: "Los cambios se guardarán al reconectar",
     offline: "Sin conexión",
+    saving: "Guardando…",
+    saved: "Guardado",
     selected: "seleccionado",
     chooseDesignSystem: "Elige un sistema de diseño",
     presentationNotFound: "Presentación no encontrada",

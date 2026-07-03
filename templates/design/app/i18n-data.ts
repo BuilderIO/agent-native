@@ -516,6 +516,8 @@ const enUS = {
       auditRunFailed: "Unable to run design audit",
       componentCreated: "Component created",
       componentCreateFailed: "Could not create component",
+      undoSkippedConcurrentEdit: "Skipped an undo — someone else moved that",
+      redoSkippedConcurrentEdit: "Skipped a redo — someone else moved that",
     },
     localSourceEdit: {
       copyPrompt: "Copy prompt",

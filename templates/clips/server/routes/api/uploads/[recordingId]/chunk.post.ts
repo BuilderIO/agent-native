@@ -96,6 +96,13 @@ function stateNumber(
   return typeof raw === "number" && Number.isFinite(raw) ? raw : undefined;
 }
 
+function expectedDataChunksForFinalPost(
+  index: number,
+  bodySize: number,
+): number {
+  return index + (bodySize > 0 ? 1 : 0);
+}
+
 function trackUploadBlockingFailure(
   ownerEmail: string,
   properties: Record<string, unknown>,
@@ -145,7 +152,7 @@ export default defineEventHandler(async (event: H3Event) => {
     mimeType,
   });
 
-  if (!Number.isFinite(index) || index < 0) {
+  if (!Number.isFinite(index) || !Number.isInteger(index) || index < 0) {
     throw createError({ statusCode: 400, message: "Invalid chunk index" });
   }
 
@@ -286,6 +293,9 @@ export default defineEventHandler(async (event: H3Event) => {
     // readRawBody(event, false) returns Uint8Array. Buffer is a Uint8Array
     // subclass on Node, so this is safe whether we're on Node or workerd.
     const bytes: Uint8Array = raw ?? new Uint8Array(0);
+    const expectedDataChunks = isFinal
+      ? expectedDataChunksForFinalPost(index, bytes.byteLength)
+      : undefined;
 
     const uploadStateRaw = await readAppState(
       `recording-upload-${recordingId}`,
@@ -409,6 +419,13 @@ export default defineEventHandler(async (event: H3Event) => {
         progress,
         chunksReceived: index + 1,
         totalChunks: total,
+        ...(expectedDataChunks !== undefined
+          ? {
+              expectedDataChunks,
+              finalChunkIndex: index,
+              finalChunkBytes: bytes.byteLength,
+            }
+          : {}),
         bytesReceived,
         maxBytes: MAX_RECORDING_UPLOAD_BYTES,
         mimeType,
@@ -426,13 +443,20 @@ export default defineEventHandler(async (event: H3Event) => {
             eq(schema.recordings.status, existing.status),
           ),
         );
-    } else if (bytes.byteLength > 0) {
+    } else if (bytes.byteLength > 0 || isFinal) {
       const failedResponse = await stopIfUploadFailed();
       if (failedResponse) return failedResponse;
       await writeAppState(`recording-upload-${recordingId}`, {
         recordingId,
-        status: "uploading",
+        status: isFinal ? "processing" : "uploading",
         chunksReceived: index + 1,
+        ...(expectedDataChunks !== undefined
+          ? {
+              expectedDataChunks,
+              finalChunkIndex: index,
+              finalChunkBytes: bytes.byteLength,
+            }
+          : {}),
         bytesReceived,
         maxBytes: MAX_RECORDING_UPLOAD_BYTES,
         mimeType,

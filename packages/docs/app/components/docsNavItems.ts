@@ -321,7 +321,6 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
         ],
       },
       { id: "template-slides", labelKey: "slides", slug: "template-slides" },
-      { id: "template-videos", labelKey: "video", slug: "template-videos" },
       {
         id: "template-analytics",
         labelKey: "analytics",

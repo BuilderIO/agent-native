@@ -9,6 +9,7 @@ import {
   type EmbeddedAppRef,
 } from "@agent-native/core/embedding/react";
 import {
+  IconApps,
   IconPalette,
   IconPhoto,
   IconPlus,
@@ -288,6 +289,8 @@ function AssetsPickerSkeleton() {
   );
 }
 
+export type PromptCreationMode = "design" | "app";
+
 interface PromptPopoverProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -308,6 +311,14 @@ interface PromptPopoverProps {
   selectedDesignSystemId?: string | null;
   onDesignSystemChange?: (id: string | null) => void;
   onCreateDesignSystem?: () => void;
+  /**
+   * "Design" (inline prototype, default) vs "Full app" (Builder Fusion cloud
+   * container). Omit both this and `onCreationModeChange` to hide the mode
+   * selector entirely — used when full-app building is flag-disabled, so the
+   * popover renders pixel-identical to the design-only version.
+   */
+  creationMode?: PromptCreationMode;
+  onCreationModeChange?: (mode: PromptCreationMode) => void;
 }
 
 export interface PromptDesignSystemOption {
@@ -344,6 +355,8 @@ export default function PromptPopover({
   selectedDesignSystemId,
   onDesignSystemChange,
   onCreateDesignSystem,
+  creationMode,
+  onCreationModeChange,
 }: PromptPopoverProps) {
   const t = useT();
   const [uploading, setUploading] = useState(false);
@@ -533,10 +546,17 @@ export default function PromptPopover({
         data-agent-native-prompt-popover
         className="z-[200] w-[min(420px,calc(100vw-24px))] rounded-xl border-border p-0 shadow-2xl shadow-black/60"
       >
-        <div className="px-3.5 pt-3 pb-2">
+        <div className="flex items-center justify-between gap-2 px-3.5 pt-3 pb-2">
           <span className="text-sm font-medium text-foreground/90">
             {title}
           </span>
+          {creationMode && onCreationModeChange ? (
+            <CreationModeToggle
+              mode={creationMode}
+              onChange={onCreationModeChange}
+              disabled={loading || uploading}
+            />
+          ) : null}
         </div>
 
         <div className="px-2 pb-2">
@@ -755,5 +775,64 @@ function PromptAttachmentMenu({
         </button>
       </PopoverContent>
     </Popover>
+  );
+}
+
+/**
+ * Compact segmented "Design" / "Full app" pill selector shown in the new-design
+ * popover title row. Only rendered by the caller when full-app building is
+ * flag-enabled (see FULL_APP_BUILDING_ENABLED in shared/full-app.ts) — when
+ * absent the popover renders with no mode control at all.
+ */
+function CreationModeToggle({
+  mode,
+  onChange,
+  disabled,
+}: {
+  mode: "design" | "app";
+  onChange: (mode: "design" | "app") => void;
+  disabled?: boolean;
+}) {
+  return (
+    <div
+      role="radiogroup"
+      aria-label={
+        "Design or full app" /* i18n-ignore compact new-design mode toggle, flag-gated */
+      }
+      className="flex shrink-0 items-center gap-0.5 rounded-full border border-border bg-muted/40 p-0.5"
+    >
+      <button
+        type="button"
+        role="radio"
+        aria-checked={mode === "design"}
+        disabled={disabled}
+        onClick={() => onChange("design")}
+        className={`flex cursor-pointer items-center gap-1 rounded-full px-2 py-1 !text-[11px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
+          mode === "design"
+            ? "bg-background text-foreground shadow-sm"
+            : "text-muted-foreground hover:text-foreground/80"
+        }`}
+      >
+        <IconPalette className="h-3 w-3" />
+        {"Design" /* i18n-ignore compact new-design mode toggle, flag-gated */}
+      </button>
+      <button
+        type="button"
+        role="radio"
+        aria-checked={mode === "app"}
+        disabled={disabled}
+        onClick={() => onChange("app")}
+        className={`flex cursor-pointer items-center gap-1 rounded-full px-2 py-1 !text-[11px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
+          mode === "app"
+            ? "bg-background text-foreground shadow-sm"
+            : "text-muted-foreground hover:text-foreground/80"
+        }`}
+      >
+        <IconApps className="h-3 w-3" />
+        {
+          "Full app" /* i18n-ignore compact new-design mode toggle, flag-gated */
+        }
+      </button>
+    </div>
   );
 }

@@ -8,7 +8,7 @@ import {
   currentAccess,
   resolveAccess,
 } from "@agent-native/core/sharing";
-import { and, asc, eq, inArray, isNull } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull } from "drizzle-orm";
 import { z } from "zod";
 
 import {
@@ -764,12 +764,19 @@ export async function loadPlanBundle(planId: string): Promise<PlanBundle> {
       .select()
       .from(schema.planEvents)
       .where(eq(schema.planEvents.planId, planId))
-      .orderBy(asc(schema.planEvents.createdAt)),
+      // plan_events is an append-only log with no cap; loadPlanBundle is polled
+      // every 3s while a plan is open (usePlan refetchInterval), so fetching
+      // every event ever written grows unbounded with plan age. Cap to the most
+      // recent 50 and reverse back to ascending order — downstream consumers
+      // (get-plan-feedback, PlansPage) only ever take the last 6-10 of a given
+      // event type, well within this window.
+      .orderBy(desc(schema.planEvents.createdAt))
+      .limit(50),
   ]);
 
   const sections = sectionRows.map(toSection);
   const comments = commentRows.map(toComment);
-  const events = eventRows.map(toEvent);
+  const events = eventRows.reverse().map(toEvent);
   return {
     plan: {
       id: plan.id,
@@ -805,6 +812,22 @@ export async function loadPlanBundle(planId: string): Promise<PlanBundle> {
     events,
     summary: summarizePlan(sections, comments),
   };
+}
+
+/**
+ * Full append-only event log for a plan, ascending. `loadPlanBundle` caps its
+ * events at the most recent 50 because it sits on a 3s poll; durable receipts
+ * (export-visual-plan) call this instead so the exported history stays
+ * complete. Callers must have already resolved access to the plan.
+ */
+export async function loadFullPlanEvents(planId: string): Promise<PlanEvent[]> {
+  const db = getDb();
+  const rows = await db
+    .select()
+    .from(schema.planEvents)
+    .where(eq(schema.planEvents.planId, planId))
+    .orderBy(asc(schema.planEvents.createdAt));
+  return rows.map(toEvent);
 }
 
 export function summarizePlan(

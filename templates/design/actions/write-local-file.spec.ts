@@ -114,6 +114,58 @@ describe("write-local-file", () => {
     );
   });
 
+  it("forwards expectedVersionHash to the bridge write-file call", async () => {
+    await action.run({
+      designId: "design_1",
+      connectionId: "conn_1",
+      relPath: "index.html",
+      content: "<h1>Hello</h1>",
+      expectedVersionHash: "123-456",
+    });
+
+    const call = (fetch as unknown as ReturnType<typeof vi.fn>).mock
+      .calls[0] as [string, RequestInit];
+    const body = JSON.parse(call[1].body as string);
+    expect(body.expectedVersionHash).toBe("123-456");
+  });
+
+  it("throws a version-conflict error on a 409 from the bridge", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        Response.json(
+          { ok: false, error: "version conflict", currentVersionHash: "9-9" },
+          { status: 409 },
+        ),
+      ),
+    );
+
+    await expect(
+      action.run({
+        designId: "design_1",
+        connectionId: "conn_1",
+        relPath: "index.html",
+        content: "<h1>Hello</h1>",
+        expectedVersionHash: "stale-hash",
+      }),
+    ).rejects.toThrow(/version conflict/);
+  });
+
+  it.each([".ENV", "ID_RSA", "KEY.PEM", "secrets/SECRET.PEM"])(
+    "rejects uppercase/mixed-case secret-looking paths (%s)",
+    async (relPath) => {
+      await expect(
+        action.run({
+          designId: "design_1",
+          connectionId: "conn_1",
+          relPath,
+          content: "nope",
+        }),
+      ).rejects.toThrow(/secret|VCS-internal/);
+      expect(fetch).not.toHaveBeenCalled();
+    },
+  );
+
   it("surfaces a bridge 401 as a stale-token error with re-grant instructions (VE4)", async () => {
     vi.stubGlobal(
       "fetch",

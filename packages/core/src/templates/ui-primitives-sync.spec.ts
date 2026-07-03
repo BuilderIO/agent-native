@@ -71,8 +71,8 @@ const ALLOW_LIST: Array<[string, string, string]> = [
   // chart.tsx — analytics adds the useChartTooltipFlip hook (which only exists
   // in the analytics template's hooks/ dir) and uses `[_, config]` destructuring.
   // forms/mail have a shared variant without that hook and with `[, config]`.
-  // The canonical 8-template version (calendar/chat/clips/design/macros/plan/
-  // slides/videos) has neither analytics-specific hook nor forms/mail style.
+  // The canonical 7-template version (calendar/chat/clips/design/macros/plan/
+  // slides) has neither analytics-specific hook nor forms/mail style.
   [
     "chart.tsx",
     "analytics",
@@ -136,17 +136,15 @@ const ALLOW_LIST: Array<[string, string, string]> = [
     "shadcn v2 function-component API with data-slot + variant prop",
   ],
 
-  // input.tsx — three intentional variants beyond the canonical 11-template version:
+  // input.tsx — two intentional variants beyond the canonical 10-template version:
   //   • macros: adds transition-all hover:border-ring/50 (custom visual polish)
   //   • mail: uses h-9 instead of h-10 (intentional compact sizing for dense UI)
-  //   • videos: adds text-foreground class (explicit foreground color)
   [
     "input.tsx",
     "macros",
     "custom: transition-all hover:border-ring/50 animation",
   ],
   ["input.tsx", "mail", "intentional compact sizing: h-9 vs canonical h-10"],
-  ["input.tsx", "videos", "adds explicit text-foreground class"],
 
   // menubar.tsx — macros uses a different trigger style. forms/mail use a newer
   // shadcn snapshot with improved data-[state=open] focus/hover handling and

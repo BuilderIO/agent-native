@@ -503,55 +503,91 @@ function NetworkRow({
   onSeek: (ms: number) => void;
 }) {
   const t = useT();
+  const [open, setOpen] = useState(false);
+  const hasDetail = Boolean(entry.responseBody);
   const displayUrl = middleTruncate(networkDisplayUrl(entry.url), 72);
 
   return (
-    <div
-      data-entry-id={entry.id}
-      className={cn(
-        "group flex items-center gap-2 border-b px-3 py-1.5 transition-colors last:border-b-0 hover:bg-muted/50",
-        active && "bg-muted",
-      )}
-    >
-      <span className="w-10 shrink-0 font-mono text-[11px] text-muted-foreground">
-        {formatOffsetClock(entry.offsetMs)}
-      </span>
-      <span
+    <Collapsible open={open} onOpenChange={setOpen}>
+      <div
+        data-entry-id={entry.id}
         className={cn(
-          "w-12 shrink-0 font-mono text-[11px] font-semibold",
-          entry.failed
-            ? "text-red-600 dark:text-red-400"
-            : "text-muted-foreground",
+          "group flex items-center gap-2 border-b px-3 py-1.5 transition-colors last:border-b-0 hover:bg-muted/50",
+          active && "bg-muted",
         )}
       >
-        {entry.status > 0 ? entry.status : t("sessions.devtoolsFailedStatus")}
-      </span>
-      <span className="w-12 shrink-0 font-mono text-[11px] text-muted-foreground">
-        {entry.method}
-      </span>
-      <span className="w-10 shrink-0 font-mono text-[10px] uppercase text-muted-foreground/70">
-        {entry.api === "xhr" ? "XHR" : "fetch"}
-      </span>
-      <span
-        className="min-w-0 flex-1 truncate font-mono text-xs text-foreground/80"
-        title={entry.url}
-      >
-        {displayUrl}
-      </span>
-      {entry.error ? (
-        <span
-          className="max-w-32 shrink-0 truncate font-mono text-[11px] text-red-600 dark:text-red-400"
-          title={entry.error}
-        >
-          {entry.error}
+        <span className="w-10 shrink-0 font-mono text-[11px] text-muted-foreground">
+          {formatOffsetClock(entry.offsetMs)}
         </span>
+        <span
+          className={cn(
+            "w-12 shrink-0 font-mono text-[11px] font-semibold",
+            entry.failed
+              ? "text-red-600 dark:text-red-400"
+              : "text-muted-foreground",
+          )}
+        >
+          {entry.status > 0 ? entry.status : t("sessions.devtoolsFailedStatus")}
+        </span>
+        <span className="w-12 shrink-0 font-mono text-[11px] text-muted-foreground">
+          {entry.method}
+        </span>
+        <span className="w-10 shrink-0 font-mono text-[10px] uppercase text-muted-foreground/70">
+          {entry.api === "xhr" ? "XHR" : "fetch"}
+        </span>
+        <span
+          className="min-w-0 flex-1 truncate font-mono text-xs text-foreground/80"
+          title={entry.url}
+        >
+          {displayUrl}
+        </span>
+        {entry.error ? (
+          <span
+            className="max-w-32 shrink-0 truncate font-mono text-[11px] text-red-600 dark:text-red-400"
+            title={entry.error}
+          >
+            {entry.error}
+          </span>
+        ) : null}
+        <span className="w-14 shrink-0 text-end font-mono text-[11px] text-muted-foreground">
+          {t("sessions.devtoolsDurationMs", {
+            ms: String(entry.durationMs),
+          })}
+        </span>
+        <JumpToButton offsetMs={entry.offsetMs} onSeek={onSeek} />
+        {hasDetail ? (
+          <CollapsibleTrigger asChild>
+            <button
+              type="button"
+              className="mt-0.5 shrink-0 rounded p-0.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+              aria-label={t("sessions.devtoolsToggleDetails")}
+            >
+              <IconChevronRight
+                className={cn(
+                  "h-3.5 w-3.5 transition-transform rtl:-scale-x-100",
+                  open && "rotate-90 rtl:scale-x-100",
+                )}
+              />
+            </button>
+          </CollapsibleTrigger>
+        ) : null}
+      </div>
+      {hasDetail ? (
+        <CollapsibleContent>
+          <div className="space-y-2 border-b bg-muted/30 px-3 py-2 ps-[3.75rem]">
+            {entry.responseBody ? (
+              <div>
+                <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                  {t("sessions.devtoolsResponseBody")}
+                </p>
+                <pre className="max-h-40 overflow-auto whitespace-pre-wrap break-all font-mono text-[11px] text-muted-foreground">
+                  {entry.responseBody}
+                </pre>
+              </div>
+            ) : null}
+          </div>
+        </CollapsibleContent>
       ) : null}
-      <span className="w-14 shrink-0 text-end font-mono text-[11px] text-muted-foreground">
-        {t("sessions.devtoolsDurationMs", {
-          ms: String(entry.durationMs),
-        })}
-      </span>
-      <JumpToButton offsetMs={entry.offsetMs} onSeek={onSeek} />
-    </div>
+    </Collapsible>
   );
 }

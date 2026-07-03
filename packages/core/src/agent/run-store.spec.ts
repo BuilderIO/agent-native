@@ -723,6 +723,15 @@ describe("run store", () => {
     expect(insert?.args[7]).toBeNull();
   });
 
+  it("insertRun is idempotent for retried or pre-claimed run rows", async () => {
+    await insertRun("run-retry", "thread-1");
+
+    const insert = execCalls.find((call) =>
+      /INSERT INTO agent_runs/i.test(call.sql),
+    );
+    expect(insert?.sql).toContain("ON CONFLICT (id) DO NOTHING");
+  });
+
   it("readRunDispatchPayload returns the persisted payload string", async () => {
     dispatchPayloadRows = [{ dispatch_payload: '{"foo":"bar"}' }];
     const payload = await readRunDispatchPayload("run-payload");

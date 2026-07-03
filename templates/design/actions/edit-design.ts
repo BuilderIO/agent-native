@@ -290,23 +290,20 @@ export default defineAction({
     if (changed) {
       // Mark agent presence + selection so live viewers can see where the
       // agent is working before the update arrives via collab.
+      //
+      // No resolvable DOM selector is available here (search-replace targets
+      // source text, not a stamped node), so we publish `selection: null`
+      // rather than a fabricated `[data-edit-target=...]` selector that could
+      // never resolve against the rendered iframe. Region attribution instead
+      // rides on the `{ kind: "text", quote }` recentEdits descriptor that
+      // `applyText(..., "agent")` auto-publishes from the content diff below —
+      // clients render a lingering highlight over the changed text.
       agentEnterDocument(file.id);
-      if (resolvedMode === "search-replace" && applied > 0) {
-        const firstSearch = edits?.[0]?.search;
-        agentUpdateSelection(file.id, {
-          selection: firstSearch
-            ? `[data-edit-target="${firstSearch.slice(0, 40)}"]`
-            : null,
-          editingFile: file.filename,
-          designId,
-        });
-      } else {
-        agentUpdateSelection(file.id, {
-          selection: null,
-          editingFile: file.filename,
-          designId,
-        });
-      }
+      agentUpdateSelection(file.id, {
+        selection: null,
+        editingFile: file.filename,
+        designId,
+      });
 
       try {
         await db

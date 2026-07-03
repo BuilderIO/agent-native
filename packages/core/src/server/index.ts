@@ -402,6 +402,19 @@ export {
   runBuilderAgent,
   type RunBuilderAgentResult,
 } from "./builder-browser.js";
+export {
+  ensureFusionContainer,
+  sendFusionBranchMessage,
+  pushFusionBranch,
+  reserveFusionHostingSlug,
+  deployFusionProject,
+  getFusionDeploys,
+  getFusionBranchEditorUrl,
+  getFusionHostingUrl,
+  type FusionBranchRef,
+  type EnsureFusionContainerResult,
+  type SendFusionMessageResult,
+} from "./fusion-app.js";
 
 export {
   sendEmail,
