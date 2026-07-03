@@ -1,11 +1,10 @@
 import { IconDatabase, IconLoader2 } from "@tabler/icons-react";
 /**
- * Code-mode database admin page — the shell that hosts the table browser, the
- * table editor, and the SQL editor.
+ * Database admin page — the shell that hosts the table browser, the table
+ * editor, and the SQL editor.
  *
- * Gated to Code mode: when the app cannot toggle into Code mode
- * (`canToggle` is false) we render a clean notice instead of the tool. The
- * backend also enforces this with a 403, so this is purely a friendlier UX.
+ * By default this is gated to Code mode for the core dev route. Trusted hosts
+ * can opt out and point it at their own admin-gated API path.
  */
 import { useEffect, useMemo, useState } from "react";
 

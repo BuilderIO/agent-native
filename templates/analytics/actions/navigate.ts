@@ -31,7 +31,13 @@ export default defineAction({
     agentsView: z
       .enum(["monitoring", "database"])
       .optional()
-      .describe("Agents subview to open (monitoring or database)"),
+      .describe("Agents subview to open (monitoring or app databases)"),
+    dbAdminConnectionId: z
+      .string()
+      .optional()
+      .describe(
+        "Connected app database id to select when navigating to agentsView=database",
+      ),
   }),
   http: false,
   run: async (args) => {
@@ -41,10 +47,11 @@ export default defineAction({
       !args.analysisId &&
       !args.extensionId &&
       !args.recordingId &&
-      !args.agentsView
+      !args.agentsView &&
+      !args.dbAdminConnectionId
     ) {
       throw new Error(
-        "At least --view, --dashboardId, --analysisId, --extensionId, --recordingId, or --agentsView is required.",
+        "At least --view, --dashboardId, --analysisId, --extensionId, --recordingId, --agentsView, or --dbAdminConnectionId is required.",
       );
     }
     const nav: Record<string, string> = {};
@@ -69,6 +76,11 @@ export default defineAction({
       nav.agentsView = args.agentsView;
       if (!args.view) nav.view = "agents";
     }
+    if (args.dbAdminConnectionId) {
+      nav.dbAdminConnectionId = args.dbAdminConnectionId;
+      nav.agentsView = "database";
+      if (!args.view) nav.view = "agents";
+    }
     await writeAppState("navigate", nav);
 
     const parts: string[] = [];
@@ -78,6 +90,8 @@ export default defineAction({
     if (nav.extensionId) parts.push(`extension:${nav.extensionId}`);
     if (nav.recordingId) parts.push(`recording:${nav.recordingId}`);
     if (nav.agentsView) parts.push(`agents:${nav.agentsView}`);
+    if (nav.dbAdminConnectionId)
+      parts.push(`db-admin:${nav.dbAdminConnectionId}`);
     return `Navigating to ${parts.join(" ")}`;
   },
 });

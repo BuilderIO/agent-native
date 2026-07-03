@@ -197,6 +197,9 @@ export default defineAction({
     } else if (nav?.view === "agents") {
       screen.page = "agents";
       screen.agentsView = nav?.agentsView || "monitoring";
+      if (nav?.dbAdminConnectionId) {
+        screen.dbAdminConnectionId = nav.dbAdminConnectionId;
+      }
       screen.agentAdminSurfaces = [
         {
           id: "monitoring",
@@ -212,11 +215,16 @@ export default defineAction({
         },
         {
           id: "database",
-          label: "Database",
+          label: "App Databases",
           path: "/agents?view=database",
           advanced: true,
-          codeModeOnly: true,
-          includes: ["table browser", "row editor", "SQL editor"],
+          adminOnly: true,
+          includes: [
+            "connected agent-native app databases",
+            "table browser",
+            "row editor",
+            "SQL editor",
+          ],
         },
       ];
       const email = getRequestUserEmail();

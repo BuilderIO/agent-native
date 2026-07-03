@@ -1,11 +1,12 @@
 /**
- * Dev-mode database admin operations.
+ * Database admin operations.
  *
  * Pure, dialect-agnostic, RAW/UNSCOPED helpers backing the Supabase-Studio-like
  * DB admin. These run the FULL database with no per-user `accessFilter`
- * scoping — they are a developer tool, gated to dev + localhost at the route
- * and agent-tool layers. Do NOT call these from any production-reachable
- * surface.
+ * scoping. Callers MUST gate access before invoking them. The built-in core
+ * route gates this to dev + localhost; production-reachable surfaces must pass
+ * an explicit runtime for the target database and enforce their own admin-only
+ * checks before reading or mutating.
  *
  * All access goes through the unified `getDbExec()` client, which uses `?`
  * placeholders (auto-converted to `$1,$2,…` for Postgres) and returns rows
