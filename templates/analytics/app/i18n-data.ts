@@ -5478,6 +5478,27 @@ const translatedAnalyticsDebtTranslations = {
       advanced: "高级",
       database: "应用数据库",
       openCatalog: "打开目录",
+      dbConnectionsTitle: "已连接的应用数据库",
+      dbConnectionsDescription:
+        "连接其他 agent-native 应用数据库，供管理员专用检查和修复。这不会向所有用户公开 Analytics 数据。",
+      selectConnection: "选择数据库",
+      connectDatabase: "连接数据库",
+      connectDatabaseDescription:
+        "使用目标应用的数据库连接字符串。只有组织所有者和管理员可以读取或写入已连接的数据库数据。",
+      connectedDatabase: "已连接数据库",
+      noConnections: "尚未连接应用数据库",
+      noConnectionsDescription:
+        "添加 agent-native 应用数据库，以便从 Analytics 浏览表、检查行或运行 SQL。",
+      connectionName: "名称",
+      connectionAppId: "应用 ID",
+      connectionAppUrl: "应用 URL",
+      connectionDatabaseUrl: "数据库 URL",
+      connectionAuthToken: "认证令牌（可选）",
+      saveConnection: "保存连接",
+      deleteConnection: "删除连接",
+      deleteConnectionTitle: "删除数据库连接？",
+      deleteConnectionDescription:
+        "这会从 Analytics 移除 {{name}} 并删除其存储的连接密钥。目标应用数据库不会被修改。",
     },
     sqlDashboard: {
       addDescriptionPlaceholder: "添加描述",
@@ -5666,6 +5687,27 @@ const translatedAnalyticsDebtTranslations = {
       advanced: "Avanzado",
       database: "Bases de datos de apps",
       openCatalog: "Abrir catálogo",
+      dbConnectionsTitle: "Bases de datos de apps conectadas",
+      dbConnectionsDescription:
+        "Conecta bases de datos de otras apps agent-native para inspección y reparación solo de administradores. Esto no expone los datos de Analytics a todos los usuarios.",
+      selectConnection: "Seleccionar base de datos",
+      connectDatabase: "Conectar base de datos",
+      connectDatabaseDescription:
+        "Usa la cadena de conexión de la base de datos de la app destino. Solo propietarios y administradores de la organización pueden leer o escribir datos conectados.",
+      connectedDatabase: "Base de datos conectada",
+      noConnections: "No hay bases de datos de apps conectadas",
+      noConnectionsDescription:
+        "Añade una base de datos de app agent-native para explorar tablas, inspeccionar filas o ejecutar SQL desde Analytics.",
+      connectionName: "Nombre",
+      connectionAppId: "ID de app",
+      connectionAppUrl: "URL de app",
+      connectionDatabaseUrl: "URL de base de datos",
+      connectionAuthToken: "Token de autenticación (opcional)",
+      saveConnection: "Guardar conexión",
+      deleteConnection: "Eliminar conexión",
+      deleteConnectionTitle: "¿Eliminar conexión de base de datos?",
+      deleteConnectionDescription:
+        "Esto quita {{name}} de Analytics y elimina sus secretos de conexión guardados. La base de datos de la app destino no se modifica.",
     },
     sqlDashboard: {
       addDescriptionPlaceholder: "Agregar una descripción",
@@ -5859,6 +5901,27 @@ const translatedAnalyticsDebtTranslations = {
       advanced: "Avancé",
       database: "Bases de données d'apps",
       openCatalog: "Ouvrir le catalogue",
+      dbConnectionsTitle: "Bases de données d'apps connectées",
+      dbConnectionsDescription:
+        "Connectez des bases de données d'autres apps agent-native pour une inspection et une réparation réservées aux administrateurs. Cela n'expose pas les données Analytics à tous les utilisateurs.",
+      selectConnection: "Sélectionner une base de données",
+      connectDatabase: "Connecter une base de données",
+      connectDatabaseDescription:
+        "Utilisez la chaîne de connexion de la base de données de l'app cible. Seuls les propriétaires et administrateurs de l'organisation peuvent lire ou modifier les données connectées.",
+      connectedDatabase: "Base de données connectée",
+      noConnections: "Aucune base de données d'app connectée",
+      noConnectionsDescription:
+        "Ajoutez une base de données d'app agent-native pour parcourir les tables, inspecter les lignes ou exécuter du SQL depuis Analytics.",
+      connectionName: "Nom",
+      connectionAppId: "ID de l'app",
+      connectionAppUrl: "URL de l'app",
+      connectionDatabaseUrl: "URL de la base de données",
+      connectionAuthToken: "Jeton d'authentification (facultatif)",
+      saveConnection: "Enregistrer la connexion",
+      deleteConnection: "Supprimer la connexion",
+      deleteConnectionTitle: "Supprimer la connexion à la base de données ?",
+      deleteConnectionDescription:
+        "Cela retire {{name}} d'Analytics et supprime ses secrets de connexion stockés. La base de données de l'app cible n'est pas modifiée.",
     },
     sqlDashboard: {
       addDescriptionPlaceholder: "Ajouter une description",
@@ -6053,6 +6116,27 @@ const translatedAnalyticsDebtTranslations = {
       advanced: "Erweitert",
       database: "App-Datenbanken",
       openCatalog: "Katalog öffnen",
+      dbConnectionsTitle: "Verbundene App-Datenbanken",
+      dbConnectionsDescription:
+        "Verbinde Datenbanken anderer agent-native Apps für admin-exklusive Prüfung und Reparatur. Dadurch werden Analytics-Daten nicht für alle Benutzer offengelegt.",
+      selectConnection: "Datenbank auswählen",
+      connectDatabase: "Datenbank verbinden",
+      connectDatabaseDescription:
+        "Verwende die Datenbank-Verbindungszeichenfolge der Ziel-App. Nur Organisationsinhaber und Admins können verbundene Daten lesen oder schreiben.",
+      connectedDatabase: "Verbundene Datenbank",
+      noConnections: "Keine App-Datenbanken verbunden",
+      noConnectionsDescription:
+        "Füge eine agent-native App-Datenbank hinzu, um Tabellen zu durchsuchen, Zeilen zu prüfen oder SQL aus Analytics auszuführen.",
+      connectionName: "Name",
+      connectionAppId: "App-ID",
+      connectionAppUrl: "App-URL",
+      connectionDatabaseUrl: "Datenbank-URL",
+      connectionAuthToken: "Authentifizierungstoken (optional)",
+      saveConnection: "Verbindung speichern",
+      deleteConnection: "Verbindung löschen",
+      deleteConnectionTitle: "Datenbankverbindung löschen?",
+      deleteConnectionDescription:
+        "Dadurch wird {{name}} aus Analytics entfernt und die gespeicherten Verbindungsgeheimnisse werden gelöscht. Die Ziel-App-Datenbank wird nicht geändert.",
     },
     sqlDashboard: {
       addDescriptionPlaceholder: "Fügen Sie eine Beschreibung hinzu",
@@ -6242,6 +6326,27 @@ const translatedAnalyticsDebtTranslations = {
       advanced: "詳細",
       database: "アプリデータベース",
       openCatalog: "カタログを開く",
+      dbConnectionsTitle: "接続済みアプリデータベース",
+      dbConnectionsDescription:
+        "他の agent-native アプリのデータベースを接続し、管理者専用の確認と修復に使います。Analytics データがすべてのユーザーに公開されることはありません。",
+      selectConnection: "データベースを選択",
+      connectDatabase: "データベースを接続",
+      connectDatabaseDescription:
+        "対象アプリのデータベース接続文字列を使用します。接続済みデータを読み書きできるのは組織のオーナーと管理者のみです。",
+      connectedDatabase: "接続済みデータベース",
+      noConnections: "接続済みのアプリデータベースはありません",
+      noConnectionsDescription:
+        "agent-native アプリデータベースを追加すると、Analytics からテーブルの参照、行の確認、SQL の実行ができます。",
+      connectionName: "名前",
+      connectionAppId: "アプリ ID",
+      connectionAppUrl: "アプリ URL",
+      connectionDatabaseUrl: "データベース URL",
+      connectionAuthToken: "認証トークン（任意）",
+      saveConnection: "接続を保存",
+      deleteConnection: "接続を削除",
+      deleteConnectionTitle: "データベース接続を削除しますか？",
+      deleteConnectionDescription:
+        "これにより {{name}} が Analytics から削除され、保存済みの接続シークレットも削除されます。対象アプリのデータベースは変更されません。",
     },
     sqlDashboard: {
       addDescriptionPlaceholder: "説明を追加する",
@@ -6430,6 +6535,27 @@ const translatedAnalyticsDebtTranslations = {
       advanced: "고급",
       database: "앱 데이터베이스",
       openCatalog: "카탈로그 열기",
+      dbConnectionsTitle: "연결된 앱 데이터베이스",
+      dbConnectionsDescription:
+        "다른 agent-native 앱 데이터베이스를 연결해 관리자 전용 점검과 복구에 사용합니다. Analytics 데이터가 모든 사용자에게 노출되지는 않습니다.",
+      selectConnection: "데이터베이스 선택",
+      connectDatabase: "데이터베이스 연결",
+      connectDatabaseDescription:
+        "대상 앱의 데이터베이스 연결 문자열을 사용합니다. 조직 소유자와 관리자만 연결된 데이터베이스 데이터를 읽거나 쓸 수 있습니다.",
+      connectedDatabase: "연결된 데이터베이스",
+      noConnections: "연결된 앱 데이터베이스 없음",
+      noConnectionsDescription:
+        "agent-native 앱 데이터베이스를 추가해 Analytics에서 테이블을 탐색하고 행을 점검하거나 SQL을 실행하세요.",
+      connectionName: "이름",
+      connectionAppId: "앱 ID",
+      connectionAppUrl: "앱 URL",
+      connectionDatabaseUrl: "데이터베이스 URL",
+      connectionAuthToken: "인증 토큰(선택 사항)",
+      saveConnection: "연결 저장",
+      deleteConnection: "연결 삭제",
+      deleteConnectionTitle: "데이터베이스 연결을 삭제할까요?",
+      deleteConnectionDescription:
+        "{{name}} 항목을 Analytics에서 제거하고 저장된 연결 비밀 값을 삭제합니다. 대상 앱 데이터베이스는 변경되지 않습니다.",
     },
     sqlDashboard: {
       addDescriptionPlaceholder: "설명 추가",
@@ -6622,6 +6748,27 @@ const translatedAnalyticsDebtTranslations = {
       advanced: "Avançado",
       database: "Bancos de dados de apps",
       openCatalog: "Abrir catálogo",
+      dbConnectionsTitle: "Bancos de dados de apps conectados",
+      dbConnectionsDescription:
+        "Conecte bancos de dados de outros apps agent-native para inspeção e reparo apenas por administradores. Isso não expõe dados do Analytics a todos os usuários.",
+      selectConnection: "Selecionar banco de dados",
+      connectDatabase: "Conectar banco de dados",
+      connectDatabaseDescription:
+        "Use a string de conexão do banco de dados do app de destino. Somente proprietários e administradores da organização podem ler ou gravar dados conectados.",
+      connectedDatabase: "Banco de dados conectado",
+      noConnections: "Nenhum banco de dados de app conectado",
+      noConnectionsDescription:
+        "Adicione um banco de dados de app agent-native para navegar por tabelas, inspecionar linhas ou executar SQL no Analytics.",
+      connectionName: "Nome",
+      connectionAppId: "ID do app",
+      connectionAppUrl: "URL do app",
+      connectionDatabaseUrl: "URL do banco de dados",
+      connectionAuthToken: "Token de autenticação (opcional)",
+      saveConnection: "Salvar conexão",
+      deleteConnection: "Excluir conexão",
+      deleteConnectionTitle: "Excluir conexão de banco de dados?",
+      deleteConnectionDescription:
+        "Isso remove {{name}} do Analytics e exclui os segredos de conexão armazenados. O banco de dados do app de destino não é modificado.",
     },
     sqlDashboard: {
       addDescriptionPlaceholder: "Adicione uma descrição",
@@ -6810,6 +6957,27 @@ const translatedAnalyticsDebtTranslations = {
       advanced: "उन्नत",
       database: "ऐप डेटाबेस",
       openCatalog: "कैटलॉग खोलें",
+      dbConnectionsTitle: "कनेक्ट किए गए ऐप डेटाबेस",
+      dbConnectionsDescription:
+        "admin-only निरीक्षण और repair के लिए दूसरे agent-native ऐप डेटाबेस कनेक्ट करें। इससे Analytics डेटा हर उपयोगकर्ता के लिए expose नहीं होता।",
+      selectConnection: "डेटाबेस चुनें",
+      connectDatabase: "डेटाबेस कनेक्ट करें",
+      connectDatabaseDescription:
+        "target ऐप का database connection string उपयोग करें। केवल organization owners और admins connected database data पढ़ या लिख सकते हैं।",
+      connectedDatabase: "कनेक्टेड डेटाबेस",
+      noConnections: "कोई ऐप डेटाबेस कनेक्ट नहीं है",
+      noConnectionsDescription:
+        "Analytics से tables browse करने, rows inspect करने, या SQL चलाने के लिए agent-native ऐप डेटाबेस जोड़ें।",
+      connectionName: "नाम",
+      connectionAppId: "ऐप ID",
+      connectionAppUrl: "ऐप URL",
+      connectionDatabaseUrl: "डेटाबेस URL",
+      connectionAuthToken: "Auth token (वैकल्पिक)",
+      saveConnection: "कनेक्शन सहेजें",
+      deleteConnection: "कनेक्शन हटाएं",
+      deleteConnectionTitle: "डेटाबेस कनेक्शन हटाएं?",
+      deleteConnectionDescription:
+        "यह Analytics से {{name}} हटाता है और उसके stored connection secrets मिटाता है। target ऐप डेटाबेस बदला नहीं जाता।",
     },
     sqlDashboard: {
       addDescriptionPlaceholder: "विवरण जोड़ें",
@@ -6997,6 +7165,27 @@ const translatedAnalyticsDebtTranslations = {
       advanced: "متقدم",
       database: "قواعد بيانات التطبيقات",
       openCatalog: "فتح الكتالوج",
+      dbConnectionsTitle: "قواعد بيانات التطبيقات المتصلة",
+      dbConnectionsDescription:
+        "صِل قواعد بيانات تطبيقات agent-native أخرى للفحص والإصلاح المخصصين للمشرفين فقط. لا يؤدي ذلك إلى كشف بيانات Analytics لكل المستخدمين.",
+      selectConnection: "تحديد قاعدة بيانات",
+      connectDatabase: "توصيل قاعدة بيانات",
+      connectDatabaseDescription:
+        "استخدم سلسلة اتصال قاعدة بيانات التطبيق المستهدف. يمكن لمالكي المؤسسة والمشرفين فقط قراءة بيانات قاعدة البيانات المتصلة أو كتابتها.",
+      connectedDatabase: "قاعدة بيانات متصلة",
+      noConnections: "لا توجد قواعد بيانات تطبيقات متصلة",
+      noConnectionsDescription:
+        "أضف قاعدة بيانات تطبيق agent-native لتصفح الجداول أو فحص الصفوف أو تشغيل SQL من Analytics.",
+      connectionName: "الاسم",
+      connectionAppId: "معرّف التطبيق",
+      connectionAppUrl: "رابط التطبيق",
+      connectionDatabaseUrl: "رابط قاعدة البيانات",
+      connectionAuthToken: "رمز المصادقة (اختياري)",
+      saveConnection: "حفظ الاتصال",
+      deleteConnection: "حذف الاتصال",
+      deleteConnectionTitle: "هل تريد حذف اتصال قاعدة البيانات؟",
+      deleteConnectionDescription:
+        "سيؤدي ذلك إلى إزالة {{name}} من Analytics وحذف أسرار الاتصال المخزنة. لن يتم تعديل قاعدة بيانات التطبيق المستهدف.",
     },
     sqlDashboard: {
       addDescriptionPlaceholder: "Add a description",
