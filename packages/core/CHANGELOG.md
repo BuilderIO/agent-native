@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.85.5
+
+### Patch Changes
+
+- bd7c040: Auto-continue active chat reconnects when action preparation stalls, and count first action-prep events as durable progress.
+
 ## 0.85.4
 
 ### Patch Changes
