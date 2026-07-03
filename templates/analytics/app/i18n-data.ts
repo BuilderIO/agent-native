@@ -5471,12 +5471,12 @@ const translatedAnalyticsDebtTranslations = {
     agents: {
       title: "代理",
       description:
-        "监控代理运行、评估、实验、反馈，以及用于检查应用幕后状态的管理数据工具。",
+        "监控代理运行、评估、实验、反馈，以及只有管理员可检查的已连接应用数据库。",
       monitoring: "监控",
       monitoringDescription:
         "核心可观测性集中在这里：运行、追踪、评估、实验和反馈。需要第一方 token、延迟和成本图表时，请从目录安装 LLM 可观测性仪表板。",
       advanced: "高级",
-      database: "数据库",
+      database: "应用数据库",
       openCatalog: "打开目录",
     },
     sqlDashboard: {
@@ -5659,12 +5659,12 @@ const translatedAnalyticsDebtTranslations = {
     agents: {
       title: "Agentes",
       description:
-        "Supervisa ejecuciones de agentes, evaluaciones, experimentos, comentarios y herramientas administrativas de datos para inspeccionar la app por detrás.",
+        "Supervisa ejecuciones de agentes, evaluaciones, experimentos, comentarios y bases de datos de apps conectadas que solo los administradores pueden inspeccionar.",
       monitoring: "Monitorización",
       monitoringDescription:
         "La observabilidad principal vive aquí: ejecuciones, trazas, evaluaciones, experimentos y comentarios. Instala el panel de observabilidad LLM desde el catálogo cuando necesites gráficos propios de tokens, latencia y coste.",
       advanced: "Avanzado",
-      database: "Base de datos",
+      database: "Bases de datos de apps",
       openCatalog: "Abrir catálogo",
     },
     sqlDashboard: {
@@ -5852,12 +5852,12 @@ const translatedAnalyticsDebtTranslations = {
     agents: {
       title: "Agents",
       description:
-        "Surveillez les exécutions d'agents, les évaluations, les expériences, les retours et les outils d'administration des données utilisés pour inspecter l'application en arrière-plan.",
+        "Surveillez les exécutions d'agents, les évaluations, les expériences, les retours et les bases de données d'apps connectées que seuls les administrateurs peuvent inspecter.",
       monitoring: "Surveillance",
       monitoringDescription:
         "L'observabilité principale est ici : exécutions, traces, évaluations, expériences et retours. Installez le tableau de bord d'observabilité LLM depuis le catalogue lorsque vous voulez des graphiques de tokens, latence et coût de première partie.",
       advanced: "Avancé",
-      database: "Base de données",
+      database: "Bases de données d'apps",
       openCatalog: "Ouvrir le catalogue",
     },
     sqlDashboard: {
@@ -6046,12 +6046,12 @@ const translatedAnalyticsDebtTranslations = {
     agents: {
       title: "Agenten",
       description:
-        "Überwache Agentenläufe, Evals, Experimente, Feedback und Admin-Datentools, mit denen die App im Hintergrund geprüft wird.",
+        "Überwache Agentenläufe, Evals, Experimente, Feedback und verbundene App-Datenbanken, die nur Admins prüfen können.",
       monitoring: "Monitoring",
       monitoringDescription:
         "Die zentrale Observability liegt hier: Läufe, Traces, Evals, Experimente und Feedback. Installiere das LLM-Observability-Dashboard aus dem Katalog, wenn du First-Party-Diagramme zu Tokens, Latenz und Kosten brauchst.",
       advanced: "Erweitert",
-      database: "Datenbank",
+      database: "App-Datenbanken",
       openCatalog: "Katalog öffnen",
     },
     sqlDashboard: {
@@ -6235,12 +6235,12 @@ const translatedAnalyticsDebtTranslations = {
     agents: {
       title: "エージェント",
       description:
-        "エージェントの実行、評価、実験、フィードバック、アプリ内部を確認する管理用データツールを監視します。",
+        "エージェントの実行、評価、実験、フィードバック、管理者だけが確認できる接続済みアプリデータベースを監視します。",
       monitoring: "監視",
       monitoringDescription:
         "主要な可観測性はここに集約されます: 実行、トレース、評価、実験、フィードバック。ファーストパーティのトークン、レイテンシ、コストのグラフが必要な場合は、カタログから LLM 可観測性ダッシュボードをインストールしてください。",
       advanced: "詳細",
-      database: "データベース",
+      database: "アプリデータベース",
       openCatalog: "カタログを開く",
     },
     sqlDashboard: {
@@ -6423,12 +6423,12 @@ const translatedAnalyticsDebtTranslations = {
     agents: {
       title: "에이전트",
       description:
-        "에이전트 실행, 평가, 실험, 피드백과 앱 내부를 점검하는 관리 데이터 도구를 모니터링합니다.",
+        "에이전트 실행, 평가, 실험, 피드백과 관리자만 점검할 수 있는 연결된 앱 데이터베이스를 모니터링합니다.",
       monitoring: "모니터링",
       monitoringDescription:
         "핵심 관측성은 여기에 있습니다: 실행, 추적, 평가, 실험, 피드백. 퍼스트파티 토큰, 지연 시간, 비용 차트가 필요하면 카탈로그에서 LLM 관측성 대시보드를 설치하세요.",
       advanced: "고급",
-      database: "데이터베이스",
+      database: "앱 데이터베이스",
       openCatalog: "카탈로그 열기",
     },
     sqlDashboard: {
@@ -6615,12 +6615,12 @@ const translatedAnalyticsDebtTranslations = {
     agents: {
       title: "Agentes",
       description:
-        "Monitore execuções de agentes, avaliações, experimentos, feedback e ferramentas administrativas de dados usadas para inspecionar o app por trás.",
+        "Monitore execuções de agentes, avaliações, experimentos, feedback e bancos de dados de apps conectados que apenas administradores podem inspecionar.",
       monitoring: "Monitoramento",
       monitoringDescription:
         "A observabilidade principal fica aqui: execuções, traces, avaliações, experimentos e feedback. Instale o dashboard de observabilidade LLM pelo catálogo quando quiser gráficos primários de tokens, latência e custo.",
       advanced: "Avançado",
-      database: "Banco de dados",
+      database: "Bancos de dados de apps",
       openCatalog: "Abrir catálogo",
     },
     sqlDashboard: {
@@ -6803,12 +6803,12 @@ const translatedAnalyticsDebtTranslations = {
     agents: {
       title: "एजेंट",
       description:
-        "एजेंट runs, evals, experiments, feedback, और app के पीछे की स्थिति देखने वाले admin data tools को monitor करें।",
+        "एजेंट runs, evals, experiments, feedback, और सिर्फ admins द्वारा देखे जा सकने वाले connected app databases को monitor करें।",
       monitoring: "मॉनिटरिंग",
       monitoringDescription:
         "मुख्य observability यहां रहती है: runs, traces, evals, experiments, और feedback। first-party token, latency, और cost charts चाहिए हों तो catalog से LLM observability dashboard install करें।",
       advanced: "उन्नत",
-      database: "डेटाबेस",
+      database: "ऐप डेटाबेस",
       openCatalog: "कैटलॉग खोलें",
     },
     sqlDashboard: {
@@ -6990,12 +6990,12 @@ const translatedAnalyticsDebtTranslations = {
     agents: {
       title: "الوكلاء",
       description:
-        "راقب تشغيلات الوكلاء والتقييمات والتجارب والملاحظات وأدوات إدارة البيانات المستخدمة لفحص التطبيق من الداخل.",
+        "راقب تشغيلات الوكلاء والتقييمات والتجارب والملاحظات وقواعد بيانات التطبيقات المتصلة التي يمكن للمشرفين فقط فحصها.",
       monitoring: "المراقبة",
       monitoringDescription:
         "توجد قابلية المراقبة الأساسية هنا: التشغيلات والتتبعات والتقييمات والتجارب والملاحظات. ثبّت لوحة مراقبة LLM من الكتالوج عندما تحتاج إلى مخططات الطرف الأول للرموز وزمن الاستجابة والتكلفة.",
       advanced: "متقدم",
-      database: "قاعدة البيانات",
+      database: "قواعد بيانات التطبيقات",
       openCatalog: "فتح الكتالوج",
     },
     sqlDashboard: {
