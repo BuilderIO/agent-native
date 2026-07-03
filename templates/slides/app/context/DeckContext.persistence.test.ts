@@ -498,9 +498,15 @@ describe("DeckContext deck creation persistence", () => {
       "<div>Generated</div>",
     );
 
-    const patchCall = fetchMock.mock.calls.find(([url]) =>
-      String(url).includes("/_agent-native/actions/patch-deck"),
-    );
+    const patchCall = fetchMock.mock.calls.find(([url, init]) => {
+      if (!String(url).includes("/_agent-native/actions/patch-deck")) {
+        return false;
+      }
+      const body = JSON.parse(String(init?.body ?? "{}")) as {
+        deckId?: string;
+      };
+      return body.deckId === deckId;
+    });
     expect(patchCall).toBeTruthy();
     expect(JSON.parse(String(patchCall?.[1]?.body))).toMatchObject({
       deckId,
