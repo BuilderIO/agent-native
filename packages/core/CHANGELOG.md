@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.85.1
+
+### Patch Changes
+
+- c67d671: Keep background chat continuation rows terminal and preserve Design edit recovery guidance across retries.
+
 ## 0.85.0
 
 ### Minor Changes
