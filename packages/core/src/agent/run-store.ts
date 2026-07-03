@@ -1183,11 +1183,13 @@ export async function markRunAborted(
 ): Promise<void> {
   await ensureRunTables();
   const client = getDbExec();
-  await client.execute({
-    sql: `UPDATE agent_runs SET status = 'aborted', abort_reason = ?, completed_at = ?, terminal_reason = ? WHERE id = ?`,
+  const { rowsAffected } = await client.execute({
+    sql: `UPDATE agent_runs SET status = 'aborted', abort_reason = ?, completed_at = ?, terminal_reason = ? WHERE id = ? AND status = 'running'`,
     args: [reason ?? "user", Date.now(), `aborted:${reason ?? "user"}`, runId],
   });
-  await safeAppendTerminalRunEvent(runId, { type: "done" }, "mark-aborted");
+  if ((rowsAffected ?? 0) > 0) {
+    await safeAppendTerminalRunEvent(runId, { type: "done" }, "mark-aborted");
+  }
 }
 
 export async function isRunAborted(runId: string): Promise<boolean> {
