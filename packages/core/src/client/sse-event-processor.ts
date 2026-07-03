@@ -118,6 +118,7 @@ export function settleInterruptedToolCalls(
         part.activity === true
           ? (options?.activityResult ?? INTERRUPTED_ACTIVITY_RESULT)
           : result;
+      part.isError = true;
       changed = true;
     }
   }

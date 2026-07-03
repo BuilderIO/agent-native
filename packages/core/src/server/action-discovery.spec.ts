@@ -92,6 +92,21 @@ describe("action discovery", () => {
     expect(registry["safe-write"].parallelSafe).toBe(true);
   });
 
+  it("preserves explicit allowInPlanMode false metadata", () => {
+    const registry = loadActionsFromStaticRegistry({
+      "act-only-read": {
+        default: {
+          tool: { description: "Act-only read", parameters: {} },
+          readOnly: true,
+          allowInPlanMode: false,
+          run: async () => ({ ok: true }),
+        },
+      },
+    });
+
+    expect(registry["act-only-read"].allowInPlanMode).toBe(false);
+  });
+
   it("preserves per-tool timeout and result limits", () => {
     const registry = loadActionsFromStaticRegistry({
       "slow-provider": {

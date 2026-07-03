@@ -144,6 +144,70 @@ export interface SessionRecordingSummary {
   canManage?: boolean;
 }
 
+export interface AgentSessionRecordingSummary {
+  id: string;
+  clientRecordingId: string;
+  sessionId: string;
+  userId: string | null;
+  anonymousId: string | null;
+  userKey: string | null;
+  startedAt: string;
+  endedAt: string | null;
+  durationMs: number | null;
+  chunkCount: number;
+  eventCount: number;
+  totalBytes: number;
+  pageCount: number;
+  errorCount: number;
+  rageClickCount: number;
+  privacyMode: string;
+  firstUrl: string | null;
+  lastUrl: string | null;
+  path: string | null;
+  hostname: string | null;
+  referrer: string | null;
+  app: string | null;
+  template: string | null;
+  status: "active" | "completed";
+  createdAt: string;
+  updatedAt: string;
+  lastIngestedAt: string | null;
+}
+
+export function compactSessionRecordingSummary(
+  recording: SessionRecordingSummary,
+): AgentSessionRecordingSummary {
+  return {
+    id: recording.id,
+    clientRecordingId: recording.clientRecordingId,
+    sessionId: recording.sessionId,
+    userId: recording.userId,
+    anonymousId: recording.anonymousId,
+    userKey: recording.userKey,
+    startedAt: recording.startedAt,
+    endedAt: recording.endedAt,
+    durationMs: recording.durationMs,
+    chunkCount: recording.chunkCount,
+    eventCount: recording.eventCount,
+    totalBytes: recording.totalBytes,
+    pageCount: recording.pageCount,
+    errorCount: recording.errorCount,
+    rageClickCount: recording.rageClickCount,
+    privacyMode: recording.privacyMode,
+    firstUrl: recording.firstUrl,
+    lastUrl: recording.lastUrl,
+    path: recording.path,
+    hostname: recording.hostname,
+    referrer: recording.referrer,
+    app: recording.app,
+    template: recording.template,
+    status: recording.status,
+    createdAt: recording.createdAt,
+    updatedAt: recording.updatedAt,
+    lastIngestedAt: recording.lastIngestedAt,
+  };
+}
+
 const MAX_REPLAY_CHUNKS_PER_REQUEST = 20;
 const MAX_REPLAY_CHUNKS_PER_RECORDING = 2_000;
 const MAX_INLINE_REPLAY_CHUNK_BYTES = 256 * 1024;
@@ -1524,6 +1588,22 @@ export async function getSessionReplaySummary(
   return rowToSessionRecordingSummary(access.resource, access.role);
 }
 
+export async function getSessionReplayTokenizedSummary(
+  recordingId: string,
+): Promise<SessionRecordingSummary> {
+  const db = getDb() as any;
+  // guard:allow-unscoped -- called only after verifySessionReplayAgentAccess(recordingId, token) verifies a signed, recording-scoped agent_access token.
+  const [row] = await db
+    .select()
+    .from(schema.sessionRecordings)
+    .where(eq(schema.sessionRecordings.id, recordingId))
+    .limit(1);
+  if (!row || !isVisibleSessionRecording(row)) {
+    throw replayError("Session recording not found", 404);
+  }
+  return rowToSessionRecordingSummary(row, "viewer");
+}
+
 function parseInlineReplayEvents(inlineData: string): unknown[] {
   try {
     const parsed = JSON.parse(inlineData);
@@ -1563,8 +1643,47 @@ export async function getSessionReplayManifest(
   }>;
 }> {
   const recording = await getSessionReplaySummary(recordingId, scope);
+  return getSessionReplayManifestForRecording(recording);
+}
+
+export async function getSessionReplayTokenizedManifest(
+  recordingId: string,
+): Promise<{
+  recording: AgentSessionRecordingSummary;
+  chunks: Array<{
+    seq: number;
+    checksum: string;
+    byteLength: number;
+    eventCount: number;
+    startedAt: string | null;
+    endedAt: string | null;
+    bytesPath: string;
+  }>;
+}> {
+  const recording = await getSessionReplayTokenizedSummary(recordingId);
+  const manifest = await getSessionReplayManifestForRecording(recording);
+  return {
+    ...manifest,
+    recording: compactSessionRecordingSummary(manifest.recording),
+  };
+}
+
+async function getSessionReplayManifestForRecording(
+  recording: SessionRecordingSummary,
+): Promise<{
+  recording: SessionRecordingSummary;
+  chunks: Array<{
+    seq: number;
+    checksum: string;
+    byteLength: number;
+    eventCount: number;
+    startedAt: string | null;
+    endedAt: string | null;
+    bytesPath: string;
+  }>;
+}> {
   const db = getDb() as any;
-  // guard:allow-unscoped -- chunk rows are loaded only after resolveAccess("session-recording", recordingId) verifies viewer access; chunks are not directly shareable resources.
+  // guard:allow-unscoped -- chunk rows are loaded only after resolveAccess("session-recording", recordingId) or a scoped agent token verifies access; chunks are not directly shareable resources.
   const rows = await db
     .select()
     .from(schema.sessionReplayChunks)
@@ -1599,8 +1718,39 @@ export async function readSessionReplayChunkBytes(
   json: string;
 }> {
   const recording = await getSessionReplaySummary(recordingId, scope);
+  return readSessionReplayChunkBytesForRecording(recording, seq);
+}
+
+export async function readSessionReplayTokenizedChunkBytes(
+  recordingId: string,
+  seq: number,
+): Promise<{
+  recording: AgentSessionRecordingSummary;
+  seq: number;
+  checksum: string;
+  /** Decompressed replay-chunk JSON text (a serialized rrweb events array). */
+  json: string;
+}> {
+  const recording = await getSessionReplayTokenizedSummary(recordingId);
+  const chunk = await readSessionReplayChunkBytesForRecording(recording, seq);
+  return {
+    ...chunk,
+    recording: compactSessionRecordingSummary(chunk.recording),
+  };
+}
+
+async function readSessionReplayChunkBytesForRecording(
+  recording: SessionRecordingSummary,
+  seq: number,
+): Promise<{
+  recording: SessionRecordingSummary;
+  seq: number;
+  checksum: string;
+  /** Decompressed replay-chunk JSON text (a serialized rrweb events array). */
+  json: string;
+}> {
   const db = getDb() as any;
-  // guard:allow-unscoped -- chunk rows are loaded only after resolveAccess("session-recording", recordingId) verifies viewer access; chunks are not directly shareable resources.
+  // guard:allow-unscoped -- chunk rows are loaded only after resolveAccess("session-recording", recordingId) or a scoped agent token verifies access; chunks are not directly shareable resources.
   const [row] = await db
     .select()
     .from(schema.sessionReplayChunks)
@@ -1660,6 +1810,51 @@ export async function getSessionReplayEvents(
   unavailableChunks: number;
 }> {
   const recording = await getSessionReplaySummary(recordingId, scope);
+  return getSessionReplayEventsForRecording(recording, options);
+}
+
+export async function getSessionReplayTokenizedEvents(
+  recordingId: string,
+  options: SessionReplayEventReadOptions = {},
+): Promise<{
+  recording: AgentSessionRecordingSummary;
+  chunks: Array<{
+    seq: number;
+    checksum: string;
+    byteLength: number;
+    eventCount: number;
+    events: unknown[];
+    unavailable?: boolean;
+  }>;
+  eventCount: number;
+  truncated: boolean;
+  unavailableChunks: number;
+}> {
+  const recording = await getSessionReplayTokenizedSummary(recordingId);
+  const result = await getSessionReplayEventsForRecording(recording, options);
+  return {
+    ...result,
+    recording: compactSessionRecordingSummary(result.recording),
+  };
+}
+
+async function getSessionReplayEventsForRecording(
+  recording: SessionRecordingSummary,
+  options: SessionReplayEventReadOptions = {},
+): Promise<{
+  recording: SessionRecordingSummary;
+  chunks: Array<{
+    seq: number;
+    checksum: string;
+    byteLength: number;
+    eventCount: number;
+    events: unknown[];
+    unavailable?: boolean;
+  }>;
+  eventCount: number;
+  truncated: boolean;
+  unavailableChunks: number;
+}> {
   const maxEvents = Math.min(
     MAX_REPLAY_EVENTS_READ,
     Math.max(1, options.limit ?? MAX_REPLAY_EVENTS_READ),
@@ -1675,7 +1870,7 @@ export async function getSessionReplayEvents(
   }
 
   const db = getDb() as any;
-  // guard:allow-unscoped -- chunk rows are loaded only after resolveAccess("session-recording", recordingId) verifies viewer access; chunks are not directly shareable resources.
+  // guard:allow-unscoped -- chunk rows are loaded only after resolveAccess("session-recording", recordingId) or a scoped agent token verifies access; chunks are not directly shareable resources.
   const rows = await db
     .select()
     .from(schema.sessionReplayChunks)

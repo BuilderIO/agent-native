@@ -431,7 +431,7 @@ const messages = {
     agentPrompt:
       "Récupère cette URL de contexte Clips pour agent : {{agentContextUrl}}. Utilise transcript.segments pour le contexte parlé, récupère recommendedFrames ou les URLs de l'API d'images pour voir l'écran, et consulte browserDiagnostics s'il est présent pour les journaux de console expurgés et les métadonnées de requêtes fetch/XHR.",
     agentTokenDescription:
-      "Cet agent URL utilise un jeton de courte durée, afin que les agents puissent lire le clip sans exposer le mot de passe.",
+      "Cette URL temporaire pour agents permet de lire le clip sans le rendre public. Elle expire dans deux heures.",
     gifPreview: "aperçu de GIF",
     openPlayer: "Joueur ouvert",
     downloadMp4: "Télécharger MP4",
@@ -655,6 +655,11 @@ Tous les changements visibles par les utilisateurs de Clips sont documentés ici
     s3SecretAccessKeyLabel: "Clé d’accès secrète",
     s3RegionLabel: "Région",
     s3PublicBaseUrlLabel: "URL de base publique",
+    s3UrlInvalid:
+      "Doit être une URL valide (ex. https://s3.us-east-1.amazonaws.com)",
+    s3BucketInvalid:
+      "Le nom du bucket doit contenir 3–63 lettres minuscules, chiffres ou tirets",
+    s3RegionInvalid: 'Doit être une région valide (ex. us-east-1) ou "auto"',
     apiSetup: "Configuration IA",
     apiSetupDescription:
       "Connectez l’IA avec les crédits gratuits Builder.io ou vos propres clés LLM.",
@@ -669,6 +674,8 @@ Tous les changements visibles par les utilisateurs de Clips sont documentés ici
     providerKeysSet: "{{count}} définies",
     checkingProviderKeys: "Vérification des clés fournisseur…",
     keySet: "Définie",
+    keyCleared: "Identifiants de stockage effacés",
+    clearAllS3: "Effacer les identifiants",
     replaceKey: "Remplacer la clé…",
     pasteProviderKey: "Collez d’abord une clé fournisseur.",
     apiKeySaved: "Clé API enregistrée",

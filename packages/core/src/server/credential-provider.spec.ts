@@ -828,7 +828,7 @@ describe("resolveSecret (generic)", () => {
     ]);
   });
 
-  it("does not consult process.env in an authenticated request", async () => {
+  it("does not consult process.env in a signed-in production shared-database request", async () => {
     process.env.NODE_ENV = "production";
     process.env.OPENAI_API_KEY = "deploy-key";
     mockIsLocalDatabase.mockReturnValue(false);
@@ -837,7 +837,7 @@ describe("resolveSecret (generic)", () => {
     expect(await resolveSecret("OPENAI_API_KEY")).toBeNull();
   });
 
-  it("keeps deploy env secrets blocked for signed-in production shared-database users even when AGENT_ENGINE is set", async () => {
+  it("blocks generic deploy env secrets for signed-in production shared-database users even when AGENT_ENGINE is set", async () => {
     process.env.NODE_ENV = "production";
     process.env.AGENT_ENGINE = "builder";
     process.env.BUILDER_PRIVATE_KEY = "deploy-key";

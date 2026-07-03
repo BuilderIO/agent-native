@@ -28,6 +28,14 @@ agent answers about browser recordings in the Analytics template.
   `session-recording` access before reading private blob refs.
 - SQL inline chunks are a local/dev fallback only; production should use
   private or encrypted blob storage.
+- When sharing a replay with an external agent, use
+  `create-session-replay-agent-link`. It mints a two-hour `agent_access` URL
+  scoped to the recording, embeds a small SSR discovery payload on
+  `/sessions/:recordingId`, and advertises
+  `/api/session-replay/agent-context.json` plus bounded
+  `/api/session-replay/agent-events.json` reads.
+- Do not make session recordings public just so an agent can inspect them.
+  Tokenized agent links are the intended handoff path.
 
 ## Capture Defaults
 

@@ -44,12 +44,24 @@ const sourceTypeSchema = z
 
 const sourcePrStateSchema = z.enum(["open", "closed", "merged", "unknown"]);
 
+const sourceAuthorEmailSchema = z
+  .string()
+  .trim()
+  .email()
+  .transform((email) => email.toLowerCase())
+  .optional();
+
+const sourceAuthorTextSchema = z.string().trim().min(1).optional();
+
 type RecapSourceMetadata = {
   sourceType?: string;
   sourceRepo?: string;
   sourcePrNumber?: number;
   sourcePrState?: "open" | "closed" | "merged" | "unknown";
   sourcePrMergedAt?: string;
+  sourceAuthorEmail?: string;
+  sourceAuthorName?: string;
+  sourceAuthorLogin?: string;
 };
 
 type RecapVisibility = "private" | "org" | "public";
@@ -82,17 +94,26 @@ function normalizeRecapSourceMetadata(args: {
   sourcePrNumber?: number;
   sourcePrState?: "open" | "closed" | "merged" | "unknown";
   sourcePrMergedAt?: string;
+  sourceAuthorEmail?: string;
+  sourceAuthorName?: string;
+  sourceAuthorLogin?: string;
 }): RecapSourceMetadata {
   const inferred = inferGithubPullRequestSource(args.sourceUrl);
   const sourcePrMergedAt = args.sourcePrMergedAt?.trim();
   const sourcePrState =
     args.sourcePrState ?? (sourcePrMergedAt ? "merged" : undefined);
+  const sourceAuthorEmail = args.sourceAuthorEmail?.trim().toLowerCase();
+  const sourceAuthorName = args.sourceAuthorName?.trim();
+  const sourceAuthorLogin = args.sourceAuthorLogin?.trim();
   return {
     sourceType: args.sourceType ?? inferred.sourceType,
     sourceRepo: args.sourceRepo ?? inferred.sourceRepo,
     sourcePrNumber: args.sourcePrNumber ?? inferred.sourcePrNumber,
     sourcePrState,
     sourcePrMergedAt: sourcePrMergedAt || undefined,
+    sourceAuthorEmail: sourceAuthorEmail || undefined,
+    sourceAuthorName: sourceAuthorName || undefined,
+    sourceAuthorLogin: sourceAuthorLogin || undefined,
   };
 }
 
@@ -229,6 +250,15 @@ export default defineAction({
       .min(1)
       .optional()
       .describe("ISO timestamp for when the source pull request was merged."),
+    sourceAuthorEmail: sourceAuthorEmailSchema.describe(
+      "Email address for the human author of the source PR, used as the default human comment target for recap feedback.",
+    ),
+    sourceAuthorName: sourceAuthorTextSchema.describe(
+      "Display name for the human author of the source PR.",
+    ),
+    sourceAuthorLogin: sourceAuthorTextSchema.describe(
+      "GitHub login for the human author of the source PR.",
+    ),
     idempotencyKey: z
       .string()
       .trim()
@@ -327,6 +357,15 @@ export default defineAction({
             : {}),
           ...(sourceMetadata.sourcePrMergedAt !== undefined
             ? { sourcePrMergedAt: sourceMetadata.sourcePrMergedAt }
+            : {}),
+          ...(sourceMetadata.sourceAuthorEmail !== undefined
+            ? { sourceAuthorEmail: sourceMetadata.sourceAuthorEmail }
+            : {}),
+          ...(sourceMetadata.sourceAuthorName !== undefined
+            ? { sourceAuthorName: sourceMetadata.sourceAuthorName }
+            : {}),
+          ...(sourceMetadata.sourceAuthorLogin !== undefined
+            ? { sourceAuthorLogin: sourceMetadata.sourceAuthorLogin }
             : {}),
           ...(idempotencyKey ? { recapIdempotencyKey: idempotencyKey } : {}),
         };

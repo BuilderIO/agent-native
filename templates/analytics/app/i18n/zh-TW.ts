@@ -803,6 +803,8 @@ const messages = {
     emptyStepVisit: "存取應用",
     installSnippetTitle: "新增工作階段回放",
     backToSessions: "返回工作階段",
+    copyForAgent: "複製給 Agent",
+    copiedForAgent: "已複製",
     askAgent: "詢問代理此工作階段",
     askSessionTitle: "詢問此工作階段",
     askSessionDescription: "將此回放作為脈絡，向 Analytics 代理傳送聚焦提示。",
