@@ -746,20 +746,20 @@ const messages = {
     continue: "繼續生成",
     title: "設定您的設計系統",
     description:
-      "提供來源的任意組合。您提供的脈絡越多，擷取的設計系統就越準確。",
-    figmaParsingTitle: "正在解析您的 Figma 檔案...",
-    figmaParsingDescription: "解碼檔案並擷取品牌權杖",
-    uploadFig: "上傳.fig 檔案",
-    figmaSaveLocalCopy: "在Figma中：檔案->儲存本機副本",
+      "透過 Builder DSI 連接 Figma、程式碼和選用的 design.md 指引。脈絡越多，代理得到的系統越準確。",
+    figmaParsingTitle: "正在啟動 Builder DSI 索引...",
+    figmaParsingDescription: "Builder 會擷取權杖、元件、資產和使用指引",
+    uploadFig: "連接 Figma .fig 檔案",
+    figmaSaveLocalCopy: "上傳 Figma 本機副本：File -> Save local copy",
     websiteUrl: "網站 URL",
     add: "新增",
     githubRepository: "GitHub 儲存庫",
     privateRepoPrefix: "私人倉庫需要一個細粒度的權杖，另存為",
     privateRepoSuffix: "具有內容讀取權限。",
-    localCodeFiles: "本機程式碼檔案",
-    dropCodeFiles: "將 CSS、Tailwind 設定、主題檔案拖放到此處，或點選瀏覽",
+    localCodeFiles: "連接程式碼檔案",
+    dropCodeFiles: "將 CSS、Tailwind 設定、主題檔案或 design.md 拖放到此處",
     codeFilePatterns:
-      "檔案型別: .css、.scss、tailwind.config.*、theme.*、tokens.*、package.json",
+      "檔案型別: .css、.scss、tailwind.config.*、theme.*、tokens.*、design.md、package.json",
     documents: "檔案和簡報",
     documentsHelp: "PPTX、DOCX、PDF、XLSX - 品牌指南、推介材料、風格檔案",
     visualReferences: "螢幕截圖和視覺參考",
@@ -800,21 +800,22 @@ const messages = {
     },
     sections: {
       figma: {
-        title: "從 Figma 檔案開始",
+        title: "連接 Figma",
         description:
-          "上傳.fig，我們會將品牌（顏色、字型比例、簽名漸變和品牌特徵簡介）深入擷取到即用型設計系統中。",
+          "上傳 .fig，Builder DSI 會將權杖、元件、資產和品牌指引索引成可重用的設計系統。",
       },
       company: {
         title: "公司/品牌",
         description: "名稱、描述和網站",
       },
       code: {
-        title: "程式碼",
-        description: "GitHub 儲存庫或本機檔案 - 設計權杖的最強信號",
+        title: "連接程式碼",
+        description:
+          "GitHub 儲存庫、本機程式碼檔案或 design.md 會交給 Builder DSI 索引。",
       },
       designFiles: {
-        title: "設計檔案",
-        description: "Figma 檔案、檔案、螢幕截圖、品牌資產",
+        title: "參考檔案",
+        description: "文件、截圖和品牌資產會補充 Builder DSI 的索引脈絡",
       },
       importExisting: {
         title: "從現有的匯入",

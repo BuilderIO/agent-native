@@ -13,7 +13,7 @@ import {
 
 import { DEFAULT_LOCALE, type LocaleCode } from "../localization/shared.js";
 import { getFeedbackClientContext } from "./feedback-context.js";
-import { useLocale } from "./i18n.js";
+import { useOptionalLocale } from "./i18n.js";
 import { useSession } from "./use-session.js";
 import { cn } from "./utils.js";
 
@@ -241,6 +241,8 @@ export interface FeedbackButtonProps {
   align?: "start" | "center" | "end";
   /** Placeholder text for the textarea. */
   placeholder?: string;
+  /** Optional text to prefill when the popover opens. */
+  initialValue?: string;
   /** Current chat session/thread id, when the host already knows it. */
   chatSessionId?: string | null;
   /** Chat localStorage namespace, when the host uses per-app chat storage. */
@@ -273,6 +275,7 @@ export function FeedbackButton({
   side,
   align = "end",
   placeholder,
+  initialValue,
   chatSessionId,
   chatStorageKey,
   open: controlledOpen,
@@ -281,7 +284,8 @@ export function FeedbackButton({
 }: FeedbackButtonProps) {
   const target = parseTarget(url);
   const { session } = useSession();
-  const { locale } = useLocale();
+  const localeContext = useOptionalLocale();
+  const locale = localeContext?.locale ?? DEFAULT_LOCALE;
   const copy = FEEDBACK_COPY[locale] ?? FEEDBACK_COPY[DEFAULT_LOCALE];
   const resolvedLabel = label ?? copy.label;
 
@@ -308,7 +312,7 @@ export function FeedbackButton({
   useEffect(() => {
     if (!open) return;
     openedAtRef.current = Date.now();
-    setValue("");
+    setValue(initialValue ?? "");
     setHoneypot("");
     setSubmitting(false);
     setSubmitted(false);
@@ -332,7 +336,7 @@ export function FeedbackButton({
         closeTimerRef.current = null;
       }
     };
-  }, [open, url]);
+  }, [copy.invalidUrl, copy.loadError, initialValue, open, url]);
 
   const submit = useCallback(
     async (e?: FormEvent) => {

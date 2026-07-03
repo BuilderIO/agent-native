@@ -69,7 +69,7 @@ export function MonacoHost({
       fontFamily: MONACO_FONT_FAMILY,
       fontSize: 12,
       lineHeight: 20,
-      minimap: { enabled: true, scale: 0.75, showSlider: "mouseover" },
+      minimap: { enabled: false },
       bracketPairColorization: { enabled: true },
       guides: { bracketPairs: true, indentation: true },
       lineNumbers: "on",

@@ -476,6 +476,10 @@ const messages = {
       requestAccessTitle: "Demander l'accès à ce plan",
       requestSent: "Demande envoyée",
       retry: "Réessayer",
+      sendFeedback: "Envoyer un retour",
+      feedbackPlaceholder:
+        "Décrivez ce qui s'est passé avant cette erreur de plan.",
+      openGitHubIssue: "Ouvrir une issue GitHub",
       retryHelp:
         "Réessayez le chargement ou connectez-vous avec un autre compte s'il s'agit d'un lien vers un forfait privé.",
       signIn: "Se connecter",

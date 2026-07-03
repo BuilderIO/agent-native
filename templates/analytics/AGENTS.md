@@ -86,8 +86,10 @@ details live in `.agents/skills/`.
 - `/agents` is the Analytics home for core agent-admin surfaces. The default
   Monitoring view embeds the shared observability dashboard for traces,
   conversations, evals, experiments, and feedback. The Advanced menu opens
-  `/agents?view=database`, which embeds the shared Code-mode database admin
-  tool for table browsing, row editing, and SQL inspection. Keep future
+  `/agents?view=database`, where organization owners/admins can connect other
+  agent-native app databases and use the shared database admin tool for table
+  browsing, row editing, and SQL inspection. This surface is for connected
+  target app databases, not broad access to all Analytics data. Keep future
   agent-admin additions inside this route instead of adding many top-level
   sidebar tabs.
 - For dashboard edits, default to `mutate-dashboard` with its typed
@@ -156,8 +158,8 @@ details live in `.agents/skills/`.
   context.
 - `navigate` moves the user to the relevant analytics view, including
   `view="catalog"` for the template catalog, `view="sessions"` for session
-  replay, and `view="agents"` / `agentsView="database"` for agent monitoring
-  or advanced database admin.
+  replay, and `view="agents"` / `agentsView="database"` with optional
+  `dbAdminConnectionId` for agent monitoring or connected app database admin.
 - Use `view-screen` when the active dashboard/chart context is unclear.
 
 ## Session Replay

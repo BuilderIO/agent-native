@@ -786,22 +786,22 @@ const enUS = {
     continue: "Continue to generation",
     title: "Set up your design system",
     description:
-      "Provide any combination of sources. The more context you give, the more accurate the extracted design system will be.",
-    figmaParsingTitle: "Parsing your Figma file...",
+      "Connect Figma, code, and optional design.md guidance through Builder DSI. More context gives the agent a more accurate system.",
+    figmaParsingTitle: "Starting Builder DSI indexing...",
     figmaParsingDescription:
-      "Decoding the document and extracting brand tokens",
-    uploadFig: "Upload a .fig file",
-    figmaSaveLocalCopy: "In Figma: File -> Save local copy",
+      "Builder will extract tokens, components, assets, and usage guidance",
+    uploadFig: "Connect Figma with a .fig file",
+    figmaSaveLocalCopy:
+      "Upload a local copy from Figma: File -> Save local copy",
     websiteUrl: "Website-URL",
     add: "Add",
     githubRepository: "GitHub repository",
     privateRepoPrefix: "Private repos need a fine-grained token saved as",
     privateRepoSuffix: "with Contents read access.",
-    localCodeFiles: "Local code files",
-    dropCodeFiles:
-      "Drop CSS, Tailwind config, theme files here, or click to browse",
+    localCodeFiles: "Connect code files",
+    dropCodeFiles: "Drop CSS, Tailwind config, theme files, or design.md here",
     codeFilePatterns:
-      ".css, .scss, tailwind.config.*, theme.*, tokens.*, package.json",
+      ".css, .scss, tailwind.config.*, theme.*, tokens.*, design.md, package.json",
     documents: "Documents & presentations",
     documentsHelp:
       "PPTX, DOCX, PDF, XLSX - brand guides, pitch decks, style docs",
@@ -847,22 +847,22 @@ const enUS = {
     },
     sections: {
       figma: {
-        title: "Start from a Figma file",
+        title: "Connect Figma",
         description:
-          "Upload a .fig and we'll deeply extract the brand - colors, type scale, signature gradients, and a brand-character brief - into a ready-to-use design system.",
+          "Upload a .fig local copy and Builder DSI will extract tokens, components, assets, and guidance into a reusable design system.",
       },
       company: {
         title: "Company / Brand",
         description: "Name, description, and website",
       },
       code: {
-        title: "Code",
+        title: "Connect Code",
         description:
-          "GitHub repos or local files - the strongest signal for design tokens",
+          "GitHub repos, local source files, and optional design.md guidance for Builder DSI",
       },
       designFiles: {
-        title: "Design files",
-        description: "Figma files, documents, screenshots, brand assets",
+        title: "Reference files",
+        description: "Documents, screenshots, logos, fonts, and brand assets",
       },
       importExisting: {
         title: "Import from existing",
@@ -1200,18 +1200,18 @@ const designLocaleOverrides = {
       continue: "继续生成",
       title: "设置您的设计系统",
       description:
-        "提供来源的任意组合。您提供的上下文越多，提取的设计系统就越准确。",
-      figmaParsingTitle: "正在解析您的 Figma 文件...",
-      figmaParsingDescription: "解码文档并提取品牌令牌",
-      uploadFig: "上传.fig 文件",
-      figmaSaveLocalCopy: "在Figma中：文件->保存本地副本",
+        "通过 Builder DSI 连接 Figma、代码和可选的 design.md 指引。上下文越多，代理得到的系统越准确。",
+      figmaParsingTitle: "正在启动 Builder DSI 索引...",
+      figmaParsingDescription: "Builder 会提取令牌、组件、资产和使用指引",
+      uploadFig: "连接 Figma .fig 文件",
+      figmaSaveLocalCopy: "上传 Figma 本地副本：File -> Save local copy",
       websiteUrl: "网站URL",
       add: "添加",
       githubRepository: "GitHub 存储库",
       privateRepoPrefix: "私人仓库需要一个细粒度的令牌，另存为",
       privateRepoSuffix: "具有内容读取权限。",
-      localCodeFiles: "本地代码文件",
-      dropCodeFiles: "将 CSS、Tailwind 配置、主题文件拖放到此处，或单击浏览",
+      localCodeFiles: "连接代码文件",
+      dropCodeFiles: "将 CSS、Tailwind 配置、主题文件或 design.md 拖放到此处",
       documents: "文件和演示文稿",
       documentsHelp: "PPTX、DOCX、PDF、XLSX - 品牌指南、推介材料、风格文档",
       visualReferences: "屏幕截图和视觉参考",
@@ -1253,21 +1253,22 @@ const designLocaleOverrides = {
       },
       sections: {
         figma: {
-          title: "从 Figma 文件开始",
+          title: "连接 Figma",
           description:
-            "上传.fig，我们会将品牌（颜色、字体比例、签名渐变和品牌特征简介）深入提取到即用型设计系统中。",
+            "上传 .fig，Builder DSI 会将令牌、组件、资产和品牌指引索引成可重用的设计系统。",
         },
         company: {
           title: "公司/品牌",
           description: "名称、描述和网站",
         },
         code: {
-          title: "代码",
-          description: "GitHub 存储库或本地文件 - 设计令牌的最强信号",
+          title: "连接代码",
+          description:
+            "GitHub 存储库、本地代码文件或 design.md 会交给 Builder DSI 索引。",
         },
         designFiles: {
-          title: "设计文件",
-          description: "Figma 文件、文档、屏幕截图、品牌资产",
+          title: "参考文件",
+          description: "文档、截图和品牌资产会补充 Builder DSI 的索引上下文",
         },
         importExisting: {
           title: "从现有的导入",
@@ -1560,21 +1561,22 @@ const designLocaleOverrides = {
       continue: "continuar con la generación",
       title: "Configure su sistema de diseño",
       description:
-        "Proporcione cualquier combinación de fuentes. Cuanto más contexto proporcione, más preciso será el sistema de diseño extraído.",
-      figmaParsingTitle: "Analizando su archivo Figma...",
+        "Conecta Figma, código y guía opcional de design.md mediante Builder DSI. Más contexto le da al agente un sistema más preciso.",
+      figmaParsingTitle: "Iniciando indexación de Builder DSI...",
       figmaParsingDescription:
-        "Decodificando el documento y extrayendo tokens de marca.",
-      uploadFig: "Sube un archivo.fig",
-      figmaSaveLocalCopy: "En Figma: Archivo -> Guardar copia local",
+        "Builder extraerá tokens, componentes, recursos y guía de uso.",
+      uploadFig: "Conectar Figma con un archivo .fig",
+      figmaSaveLocalCopy:
+        "Sube una copia local de Figma: File -> Save local copy",
       websiteUrl: "Sitio web URL",
       add: "Agregar",
       githubRepository: "repositorio GitHub",
       privateRepoPrefix:
         "Los repositorios privados necesitan un token detallado guardado como",
       privateRepoSuffix: "con acceso de lectura de contenidos.",
-      localCodeFiles: "Archivos de código local",
+      localCodeFiles: "Conectar archivos de código",
       dropCodeFiles:
-        "Suelte aquí los archivos de temas y de configuración CSS, Tailwind o haga clic para explorar",
+        "Suelta aquí CSS, configuración de Tailwind, archivos de tema o design.md",
       documents: "Documentos y presentaciones",
       documentsHelp:
         "PPTX, DOCX, PDF, XLSX: guías de marca, presentaciones, documentos de estilo",
@@ -1622,23 +1624,23 @@ const designLocaleOverrides = {
       },
       sections: {
         figma: {
-          title: "Comenzar desde un archivo Figma",
+          title: "Conectar Figma",
           description:
-            "Cargue un.fig y extraeremos en profundidad la marca (colores, escala de tipografía, degradados característicos y un resumen del personaje de la marca) en un sistema de diseño listo para usar.",
+            "Sube un .fig y Builder DSI indexará tokens, componentes, recursos y guía de marca en un sistema de diseño reutilizable.",
         },
         company: {
           title: "Empresa / Marca",
           description: "Nombre, descripción y sitio web.",
         },
         code: {
-          title: "Código",
+          title: "Conectar código",
           description:
-            "GitHub repositorios o archivos locales: la señal más fuerte para tokens de diseño",
+            "Repositorios de GitHub, archivos de código locales o design.md se indexan con Builder DSI.",
         },
         designFiles: {
-          title: "Archivos de diseño",
+          title: "Archivos de referencia",
           description:
-            "Archivos Figma, documentos, capturas de pantalla y activos de marca.",
+            "Documentos, capturas de pantalla y recursos de marca complementan el contexto de Builder DSI.",
         },
         importExisting: {
           title: "Importar desde existente",
@@ -1941,21 +1943,22 @@ const designLocaleOverrides = {
       continue: "Continuer jusqu'à la génération",
       title: "Configurez votre système de conception",
       description:
-        "Fournissez n’importe quelle combinaison de sources. Plus vous donnez de contexte, plus le système de conception extrait sera précis.",
-      figmaParsingTitle: "Analyse de votre fichier Figma...",
+        "Connectez Figma, le code et les consignes design.md facultatives via Builder DSI. Plus le contexte est riche, plus le système de l’agent est précis.",
+      figmaParsingTitle: "Démarrage de l’indexation Builder DSI...",
       figmaParsingDescription:
-        "Décoder le document et extraire les jetons de marque",
-      uploadFig: "Téléchargez un fichier.fig",
-      figmaSaveLocalCopy: "Dans Figma: Fichier -> Enregistrer la copie locale",
+        "Builder extraira les jetons, composants, ressources et consignes d’utilisation",
+      uploadFig: "Connecter Figma avec un fichier .fig",
+      figmaSaveLocalCopy:
+        "Importez une copie locale Figma : File -> Save local copy",
       websiteUrl: "Site Web URL",
       add: "Ajouter",
       githubRepository: "référentiel GitHub",
       privateRepoPrefix:
         "Les dépôts privés nécessitent un jeton à granularité fine enregistré sous",
       privateRepoSuffix: "avec accès en lecture au contenu.",
-      localCodeFiles: "Fichiers de codes locaux",
+      localCodeFiles: "Connecter des fichiers de code",
       dropCodeFiles:
-        "Déposez CSS, Tailwind config, fichiers de thème ici ou cliquez pour parcourir",
+        "Déposez ici CSS, config Tailwind, fichiers de thème ou design.md",
       documents: "Documents & présentations",
       documentsHelp:
         "PPTX, DOCX, PDF, XLSX – guides de marque, pitch decks, documents de style",
@@ -2003,23 +2006,23 @@ const designLocaleOverrides = {
       },
       sections: {
         figma: {
-          title: "Démarrer à partir d'un fichier Figma",
+          title: "Connecter Figma",
           description:
-            "Téléchargez un.fig et nous extrairons en profondeur la marque - couleurs, échelle de caractères, dégradés de signature et description du personnage de la marque - dans un système de conception prêt à l'emploi.",
+            "Importez un .fig et Builder DSI indexera les jetons, composants, ressources et consignes de marque dans un système de design réutilisable.",
         },
         company: {
           title: "Entreprise / Marque",
           description: "Nom, description et site Web",
         },
         code: {
-          title: "Code",
+          title: "Connecter le code",
           description:
-            "Dépôts GitHub ou fichiers locaux - le signal le plus fort pour les jetons de conception",
+            "Les dépôts GitHub, fichiers de code locaux ou design.md sont indexés par Builder DSI.",
         },
         designFiles: {
-          title: "Fichiers de conception",
+          title: "Fichiers de référence",
           description:
-            "Fichiers Figma, documents, captures d'écran, actifs de marque",
+            "Documents, captures d’écran et ressources de marque enrichissent le contexte Builder DSI",
         },
         importExisting: {
           title: "Importer depuis un existant",
@@ -2322,21 +2325,22 @@ const designLocaleOverrides = {
       continue: "Weiter zur Generation",
       title: "Richten Sie Ihr Designsystem ein",
       description:
-        "Geben Sie eine beliebige Kombination von Quellen an. Je mehr Kontext Sie angeben, desto genauer wird das extrahierte Designsystem sein.",
-      figmaParsingTitle: "Parsen Ihrer Figma-Datei...",
+        "Verbinde Figma, Code und optionale design.md-Anweisungen über Builder DSI. Mehr Kontext gibt dem Agenten ein genaueres System.",
+      figmaParsingTitle: "Builder-DSI-Indizierung wird gestartet...",
       figmaParsingDescription:
-        "Entschlüsseln des Dokuments und Extrahieren von Markentokens",
-      uploadFig: "Laden Sie eine.fig-Datei hoch",
-      figmaSaveLocalCopy: "In Figma: Datei -> Lokale Kopie speichern",
+        "Builder extrahiert Tokens, Komponenten, Assets und Nutzungsanweisungen",
+      uploadFig: "Figma mit einer .fig-Datei verbinden",
+      figmaSaveLocalCopy:
+        "Lade eine lokale Figma-Kopie hoch: File -> Save local copy",
       websiteUrl: "Website URL",
       add: "Hinzufügen",
       githubRepository: "GitHub-Repository",
       privateRepoPrefix:
         "Private Repos benötigen einen feinkörnigen Token, der unter gespeichert wird",
       privateRepoSuffix: "mit Lesezugriff auf Inhalte.",
-      localCodeFiles: "Lokale Codedateien",
+      localCodeFiles: "Code-Dateien verbinden",
       dropCodeFiles:
-        "Legen Sie die CSS-, Tailwind-Konfigurations- und Designdateien hier ab oder klicken Sie zum Durchsuchen",
+        "CSS, Tailwind-Konfiguration, Theme-Dateien oder design.md hier ablegen",
       documents: "Dokumente und Präsentationen",
       documentsHelp:
         "PPTX, DOCX, PDF, XLSX – Markenführer, Pitchdecks, Stildokumente",
@@ -2386,22 +2390,23 @@ const designLocaleOverrides = {
       },
       sections: {
         figma: {
-          title: "Beginnen Sie mit einer Figma-Datei",
+          title: "Figma verbinden",
           description:
-            "Laden Sie ein.fig hoch und wir extrahieren die Marke – Farben, Schriftskalierung, Signaturverläufe und eine Beschreibung der Markencharaktere – tiefgreifend in ein gebrauchsfertiges Designsystem.",
+            "Lade eine .fig hoch und Builder DSI indexiert Tokens, Komponenten, Assets und Markenanweisungen als wiederverwendbares Designsystem.",
         },
         company: {
           title: "Unternehmen / Marke",
           description: "Name, Beschreibung und Website",
         },
         code: {
-          title: "Code",
+          title: "Code verbinden",
           description:
-            "GitHub Repos oder lokale Dateien – das stärkste Signal für Design-Token",
+            "GitHub-Repositories, lokale Code-Dateien oder design.md werden mit Builder DSI indexiert.",
         },
         designFiles: {
-          title: "Designdateien",
-          description: "Figma-Dateien, Dokumente, Screenshots, Markenwerte",
+          title: "Referenzdateien",
+          description:
+            "Dokumente, Screenshots und Markenassets ergänzen den Builder-DSI-Kontext",
         },
         importExisting: {
           title: "Aus vorhandenem importieren",
@@ -2702,20 +2707,22 @@ const designLocaleOverrides = {
       continue: "世代を継続する",
       title: "デザインシステムをセットアップする",
       description:
-        "ソースを任意に組み合わせて提供します。提供するコンテキストが多いほど、抽出されたデザイン システムの精度が高くなります。",
-      figmaParsingTitle: "Figma ファイルを解析しています...",
-      figmaParsingDescription: "文書をデコードしてブランドトークンを抽出する",
-      uploadFig: ".fig ファイルをアップロードする",
-      figmaSaveLocalCopy: "Figma の場合: [ファイル] -> [ローカル コピーを保存]",
+        "Figma、コード、任意の design.md ガイドを Builder DSI で接続します。コンテキストが多いほど、エージェントのシステムは正確になります。",
+      figmaParsingTitle: "Builder DSI のインデックス作成を開始しています...",
+      figmaParsingDescription:
+        "Builder がトークン、コンポーネント、アセット、利用ガイドを抽出します",
+      uploadFig: "Figma .fig ファイルを接続",
+      figmaSaveLocalCopy:
+        "Figma のローカルコピーをアップロード: File -> Save local copy",
       websiteUrl: "ウェブサイト URL",
       add: "追加",
       githubRepository: "GitHub リポジトリ",
       privateRepoPrefix:
         "プライベート リポジトリには、次のように保存されたきめ細かいトークンが必要です。",
       privateRepoSuffix: "コンテンツ読み取りアクセス付き。",
-      localCodeFiles: "ローカルコードファイル",
+      localCodeFiles: "コードファイルを接続",
       dropCodeFiles:
-        "CSS、Tailwind 設定、テーマ ファイルをここにドロップするか、クリックして参照します",
+        "CSS、Tailwind 設定、テーマファイル、design.md をここにドロップ",
       documents: "ドキュメントとプレゼンテーション",
       documentsHelp:
         "PPTX、DOCX、PDF、XLSX - ブランド ガイド、提案資料、スタイル ドキュメント",
@@ -2763,23 +2770,23 @@ const designLocaleOverrides = {
       },
       sections: {
         figma: {
-          title: "Figma ファイルから開始します",
+          title: "Figma を接続",
           description:
-            ".fig をアップロードすると、ブランド (色、タイプ スケール、特徴的なグラデーション、ブランド キャラクターの概要) がすぐに使用できるデザイン システムに深く抽出されます。",
+            ".fig をアップロードすると、Builder DSI がトークン、コンポーネント、アセット、ブランドガイドを再利用可能なデザインシステムにインデックス化します。",
         },
         company: {
           title: "会社・ブランド",
           description: "名前、説明、Web サイト",
         },
         code: {
-          title: "コード",
+          title: "コードを接続",
           description:
-            "GitHub リポジトリまたはローカル ファイル - デザイン トークンの最も強いシグナル",
+            "GitHub リポジトリ、ローカルコードファイル、design.md は Builder DSI でインデックス化されます。",
         },
         designFiles: {
-          title: "デザインファイル",
+          title: "参照ファイル",
           description:
-            "Figma ファイル、ドキュメント、スクリーンショット、ブランド資産",
+            "ドキュメント、スクリーンショット、ブランドアセットが Builder DSI のコンテキストを補足します",
         },
         importExisting: {
           title: "既存からインポート",
@@ -3077,20 +3084,21 @@ const designLocaleOverrides = {
       continue: "세대를 이어가다",
       title: "디자인 시스템 설정",
       description:
-        "소스 조합을 제공하십시오. 더 많은 컨텍스트를 제공할수록 추출된 디자인 시스템이 더 정확해집니다.",
-      figmaParsingTitle: "Figma 파일을 구문 분석하는 중...",
-      figmaParsingDescription: "문서 디코딩 및 브랜드 토큰 추출",
-      uploadFig: ".fig 파일 업로드",
-      figmaSaveLocalCopy: "Figma에서: 파일 -> 로컬 복사본 저장",
+        "Figma, 코드, 선택적 design.md 지침을 Builder DSI로 연결하세요. 맥락이 많을수록 에이전트의 시스템이 더 정확해집니다.",
+      figmaParsingTitle: "Builder DSI 색인 생성을 시작하는 중...",
+      figmaParsingDescription:
+        "Builder가 토큰, 컴포넌트, 자산, 사용 지침을 추출합니다",
+      uploadFig: "Figma .fig 파일 연결",
+      figmaSaveLocalCopy: "Figma 로컬 사본 업로드: File -> Save local copy",
       websiteUrl: "웹사이트 URL",
       add: "추가하다",
       githubRepository: "GitHub 저장소",
       privateRepoPrefix:
         "비공개 저장소에는 다음과 같이 저장된 세분화된 토큰이 필요합니다.",
       privateRepoSuffix: "콘텐츠 읽기 액세스 권한이 있습니다.",
-      localCodeFiles: "로컬 코드 파일",
+      localCodeFiles: "코드 파일 연결",
       dropCodeFiles:
-        "CSS, Tailwind 구성, 테마 파일을 여기에 드롭하거나 클릭하여 찾아보세요.",
+        "CSS, Tailwind 구성, 테마 파일 또는 design.md를 여기에 드롭하세요",
       documents: "문서 및 프리젠테이션",
       documentsHelp:
         "PPTX, DOCX, PDF, XLSX - 브랜드 가이드, 프레젠테이션 자료, 스타일 문서",
@@ -3135,22 +3143,23 @@ const designLocaleOverrides = {
       },
       sections: {
         figma: {
-          title: "Figma 파일에서 시작",
+          title: "Figma 연결",
           description:
-            ".fig를 업로드하면 브랜드(색상, 활자 크기, 시그니처 그라데이션, 브랜드 캐릭터 개요)를 바로 사용할 수 있는 디자인 시스템으로 심층적으로 추출해 드립니다.",
+            ".fig를 업로드하면 Builder DSI가 토큰, 컴포넌트, 자산, 브랜드 지침을 재사용 가능한 디자인 시스템으로 색인화합니다.",
         },
         company: {
           title: "회사/브랜드",
           description: "이름, 설명, 웹사이트",
         },
         code: {
-          title: "암호",
+          title: "코드 연결",
           description:
-            "GitHub 저장소 또는 로컬 파일 - 디자인 토큰에 대한 가장 강력한 신호",
+            "GitHub 저장소, 로컬 코드 파일 또는 design.md가 Builder DSI로 색인화됩니다.",
         },
         designFiles: {
-          title: "디자인 파일",
-          description: "Figma 파일, 문서, 스크린샷, 브랜드 자산",
+          title: "참조 파일",
+          description:
+            "문서, 스크린샷, 브랜드 자산이 Builder DSI 맥락을 보강합니다",
         },
         importExisting: {
           title: "기존에서 가져오기",
@@ -3447,21 +3456,22 @@ const designLocaleOverrides = {
       continue: "Continuar para a geração",
       title: "Configure seu sistema de design",
       description:
-        "Forneça qualquer combinação de fontes. Quanto mais contexto você fornecer, mais preciso será o sistema de design extraído.",
-      figmaParsingTitle: "Analisando seu arquivo Figma...",
+        "Conecte Figma, código e orientações opcionais de design.md pelo Builder DSI. Mais contexto dá ao agente um sistema mais preciso.",
+      figmaParsingTitle: "Iniciando indexação do Builder DSI...",
       figmaParsingDescription:
-        "Decodificando o documento e extraindo tokens de marca",
-      uploadFig: "Carregar um arquivo.fig",
-      figmaSaveLocalCopy: "Em Figma: Arquivo -> Salvar cópia local",
+        "Builder extrairá tokens, componentes, recursos e orientações de uso",
+      uploadFig: "Conectar Figma com um arquivo .fig",
+      figmaSaveLocalCopy:
+        "Envie uma cópia local do Figma: File -> Save local copy",
       websiteUrl: "Site URL",
       add: "Adicionar",
       githubRepository: "repositório GitHub",
       privateRepoPrefix:
         "Os repositórios privados precisam de um token refinado salvo como",
       privateRepoSuffix: "com acesso de leitura de conteúdo.",
-      localCodeFiles: "Arquivos de código local",
+      localCodeFiles: "Conectar arquivos de código",
       dropCodeFiles:
-        "Solte CSS, Tailwind config, arquivos de tema aqui ou clique para navegar",
+        "Solte CSS, configuração do Tailwind, arquivos de tema ou design.md aqui",
       documents: "Documentos e apresentações",
       documentsHelp:
         "PPTX, DOCX, PDF, XLSX - guias de marca, apresentações de argumento de venda, documentos de estilo",
@@ -3508,23 +3518,23 @@ const designLocaleOverrides = {
       },
       sections: {
         figma: {
-          title: "Comece a partir de um arquivo Figma",
+          title: "Conectar Figma",
           description:
-            "Faça upload de um.fig e extrairemos profundamente a marca - cores, escala de tipo, gradientes de assinatura e um resumo do personagem da marca - em um sistema de design pronto para uso.",
+            "Envie um .fig e o Builder DSI indexará tokens, componentes, recursos e orientações de marca em um sistema de design reutilizável.",
         },
         company: {
           title: "Empresa / Marca",
           description: "Nome, descrição e site",
         },
         code: {
-          title: "Código",
+          title: "Conectar código",
           description:
-            "repositórios GitHub ou arquivos locais - o sinal mais forte para tokens de design",
+            "Repositórios GitHub, arquivos de código locais ou design.md são indexados com Builder DSI.",
         },
         designFiles: {
-          title: "Arquivos de projeto",
+          title: "Arquivos de referência",
           description:
-            "arquivos Figma, documentos, capturas de tela, ativos de marca",
+            "Documentos, capturas de tela e recursos de marca complementam o contexto do Builder DSI",
         },
         importExisting: {
           title: "Importar de existente",
@@ -3823,20 +3833,20 @@ const designLocaleOverrides = {
       continue: "पीढ़ी तक जारी रखें",
       title: "अपना डिज़ाइन सिस्टम सेट करें",
       description:
-        "स्रोतों का कोई संयोजन प्रदान करें. आप जितना अधिक संदर्भ देंगे, निकाली गई डिज़ाइन प्रणाली उतनी ही सटीक होगी।",
-      figmaParsingTitle: "आपकी Figma फ़ाइल को पार्स किया जा रहा है...",
-      figmaParsingDescription: "दस्तावेज़ को डिकोड करना और ब्रांड टोकन निकालना",
-      uploadFig: "एक.fig फ़ाइल अपलोड करें",
-      figmaSaveLocalCopy: "Figma में: फ़ाइल -> स्थानीय प्रतिलिपि सहेजें",
+        "Figma, कोड और वैकल्पिक design.md मार्गदर्शन को Builder DSI से कनेक्ट करें. अधिक संदर्भ एजेंट को अधिक सटीक सिस्टम देता है.",
+      figmaParsingTitle: "Builder DSI indexing शुरू की जा रही है...",
+      figmaParsingDescription:
+        "Builder टोकन, कंपोनेंट, एसेट और उपयोग मार्गदर्शन निकालेगा",
+      uploadFig: "Figma .fig फ़ाइल कनेक्ट करें",
+      figmaSaveLocalCopy: "Figma स्थानीय कॉपी अपलोड करें: File -> Save local copy",
       websiteUrl: "वेबसाइट URL",
       add: "जोड़ना",
       githubRepository: "GitHub रिपॉजिटरी",
       privateRepoPrefix:
         "निजी रेपो को एक बढ़िया टोकन के रूप में सहेजे जाने की आवश्यकता होती है",
       privateRepoSuffix: "सामग्री पढ़ने की पहुंच के साथ।",
-      localCodeFiles: "स्थानीय कोड फ़ाइलें",
-      dropCodeFiles:
-        "CSS, Tailwind कॉन्फिगरेशन, थीम फ़ाइलें यहां छोड़ें, या ब्राउज़ करने के लिए क्लिक करें",
+      localCodeFiles: "कोड फ़ाइलें कनेक्ट करें",
+      dropCodeFiles: "CSS, Tailwind कॉन्फ़िग, थीम फ़ाइलें या design.md यहां छोड़ें",
       documents: "दस्तावेज़ एवं प्रस्तुतियाँ",
       documentsHelp: "PPTX, DOCX, PDF, XLSX - ब्रांड गाइड, पिच डेक, स्टाइल डॉक्स",
       visualReferences: "स्क्रीनशॉट और दृश्य संदर्भ",
@@ -3880,22 +3890,23 @@ const designLocaleOverrides = {
       },
       sections: {
         figma: {
-          title: "Figma फ़ाइल से प्रारंभ करें",
+          title: "Figma कनेक्ट करें",
           description:
-            "एक.fig अपलोड करें और हम उपयोग के लिए तैयार डिज़ाइन सिस्टम में ब्रांड - रंग, प्रकार का पैमाना, हस्ताक्षर ग्रेडिएंट और एक ब्रांड-चरित्र संक्षिप्त - को गहराई से निकालेंगे।",
+            ".fig अपलोड करें और Builder DSI टोकन, कंपोनेंट, एसेट और ब्रांड मार्गदर्शन को पुन: उपयोग योग्य डिज़ाइन सिस्टम में index करेगा.",
         },
         company: {
           title: "कंपनी/ब्रांड",
           description: "नाम, विवरण और वेबसाइट",
         },
         code: {
-          title: "कोड",
+          title: "कोड कनेक्ट करें",
           description:
-            "GitHub रेपो या स्थानीय फ़ाइलें - डिज़ाइन टोकन के लिए सबसे मजबूत संकेत",
+            "GitHub रिपॉज़िटरी, स्थानीय कोड फ़ाइलें या design.md Builder DSI से index होते हैं.",
         },
         designFiles: {
-          title: "फ़ाइलें डिज़ाइन करें",
-          description: "Figma फ़ाइलें, दस्तावेज़, स्क्रीनशॉट, ब्रांड संपत्ति",
+          title: "संदर्भ फ़ाइलें",
+          description:
+            "दस्तावेज़, स्क्रीनशॉट और ब्रांड एसेट Builder DSI संदर्भ को मजबूत करते हैं",
         },
         importExisting: {
           title: "मौजूदा से आयात करें",
@@ -4190,20 +4201,21 @@ const designLocaleOverrides = {
       continue: "الاستمرار في الجيل",
       title: "قم بإعداد نظام التصميم الخاص بك",
       description:
-        "توفير أي مجموعة من المصادر. كلما زاد السياق الذي تقدمه، أصبح نظام التصميم المستخرج أكثر دقة.",
-      figmaParsingTitle: "جارٍ تحليل ملف Figma...",
-      figmaParsingDescription: "فك تشفير الوثيقة واستخراج رموز العلامة التجارية",
-      uploadFig: "تحميل ملف.fig",
-      figmaSaveLocalCopy: "في Figma: ملف -> حفظ النسخة المحلية",
+        "اربط Figma والكود وإرشادات design.md الاختيارية عبر Builder DSI. كلما زاد السياق، حصل الوكيل على نظام أدق.",
+      figmaParsingTitle: "جارٍ بدء فهرسة Builder DSI...",
+      figmaParsingDescription:
+        "سيستخرج Builder الرموز والمكونات والأصول وإرشادات الاستخدام",
+      uploadFig: "ربط Figma بملف .fig",
+      figmaSaveLocalCopy: "حمّل نسخة Figma محلية: File -> Save local copy",
       websiteUrl: "موقع URL",
       add: "يضيف",
       githubRepository: "مستودع GitHub",
       privateRepoPrefix:
         "تحتاج عمليات إعادة الشراء الخاصة إلى رمز مميز محفوظ باسم",
       privateRepoSuffix: "مع محتويات الوصول للقراءة.",
-      localCodeFiles: "ملفات التعليمات البرمجية المحلية",
+      localCodeFiles: "ربط ملفات الكود",
       dropCodeFiles:
-        "قم بإسقاط CSS، أو Tailwind، أو ملفات السمات هنا، أو انقر للتصفح",
+        "أسقط CSS أو إعدادات Tailwind أو ملفات السمة أو design.md هنا",
       documents: "الوثائق والعروض التقديمية",
       documentsHelp:
         "PPTX، DOCX، PDF، XLSX - أدلة العلامة التجارية، والعروض الترويجية، ومستندات النمط",
@@ -4248,23 +4260,23 @@ const designLocaleOverrides = {
       },
       sections: {
         figma: {
-          title: "ابدأ من ملف Figma",
+          title: "ربط Figma",
           description:
-            "قم بتحميل.fig وسنقوم باستخراج العلامة التجارية بعمق - الألوان، ومقياس الكتابة، وتدرجات التوقيع، وملخص شخصية العلامة التجارية - في نظام تصميم جاهز للاستخدام.",
+            "حمّل .fig وسيقوم Builder DSI بفهرسة الرموز والمكونات والأصول وإرشادات العلامة في نظام تصميم قابل لإعادة الاستخدام.",
         },
         company: {
           title: "الشركة / العلامة التجارية",
           description: "الاسم والوصف والموقع",
         },
         code: {
-          title: "شفرة",
+          title: "ربط الكود",
           description:
-            "GitHub repos أو الملفات المحلية - أقوى إشارة لرموز التصميم",
+            "تتم فهرسة مستودعات GitHub أو ملفات الكود المحلية أو design.md عبر Builder DSI.",
         },
         designFiles: {
-          title: "ملفات التصميم",
+          title: "ملفات مرجعية",
           description:
-            "ملفات Figma والمستندات ولقطات الشاشة وأصول العلامة التجارية",
+            "تضيف المستندات ولقطات الشاشة وأصول العلامة سياقًا لفهرسة Builder DSI",
         },
         importExisting: {
           title: "الاستيراد من الموجود",
@@ -5759,7 +5771,7 @@ const designExactEnglishOverrides = {
     },
     designSystemSetup: {
       codeFilePatterns:
-        "文件类型: .css、.scss、tailwind.config.*、theme.*、tokens.*、package.json",
+        "文件类型: .css、.scss、tailwind.config.*、theme.*、tokens.*、design.md、package.json",
     },
     designEditor: {
       backToDesigns: "返回设计",
@@ -5833,7 +5845,7 @@ const designExactEnglishOverrides = {
     },
     designSystemSetup: {
       codeFilePatterns:
-        "Tipos de archivo: .css, .scss, tailwind.config.*, theme.*, tokens.*, package.json",
+        "Tipos de archivo: .css, .scss, tailwind.config.*, theme.*, tokens.*, design.md, package.json",
     },
     designEditor: {
       backToDesigns: "Volver a diseños",
@@ -5909,7 +5921,7 @@ const designExactEnglishOverrides = {
     },
     designSystemSetup: {
       codeFilePatterns:
-        "Types de fichiers : .css, .scss, tailwind.config.*, theme.*, tokens.*, package.json",
+        "Types de fichiers : .css, .scss, tailwind.config.*, theme.*, tokens.*, design.md, package.json",
     },
     designEditor: {
       backToDesigns: "Retour aux designs",
@@ -5986,7 +5998,7 @@ const designExactEnglishOverrides = {
     },
     designSystemSetup: {
       codeFilePatterns:
-        "Dateitypen: .css, .scss, tailwind.config.*, theme.*, tokens.*, package.json",
+        "Dateitypen: .css, .scss, tailwind.config.*, theme.*, tokens.*, design.md, package.json",
     },
     designEditor: {
       backToDesigns: "Zurück zu Designs",
@@ -6063,7 +6075,7 @@ const designExactEnglishOverrides = {
     },
     designSystemSetup: {
       codeFilePatterns:
-        "ファイル形式: .css、.scss、tailwind.config.*、theme.*、tokens.*、package.json",
+        "ファイル形式: .css、.scss、tailwind.config.*、theme.*、tokens.*、design.md、package.json",
     },
     designEditor: {
       backToDesigns: "デザインに戻る",
@@ -6140,7 +6152,7 @@ const designExactEnglishOverrides = {
     },
     designSystemSetup: {
       codeFilePatterns:
-        "파일 형식: .css, .scss, tailwind.config.*, theme.*, tokens.*, package.json",
+        "파일 형식: .css, .scss, tailwind.config.*, theme.*, tokens.*, design.md, package.json",
     },
     designEditor: {
       backToDesigns: "디자인으로 돌아가기",
@@ -6216,7 +6228,7 @@ const designExactEnglishOverrides = {
     },
     designSystemSetup: {
       codeFilePatterns:
-        "Tipos de arquivo: .css, .scss, tailwind.config.*, theme.*, tokens.*, package.json",
+        "Tipos de arquivo: .css, .scss, tailwind.config.*, theme.*, tokens.*, design.md, package.json",
     },
     designEditor: {
       backToDesigns: "Voltar aos designs",
@@ -6292,7 +6304,7 @@ const designExactEnglishOverrides = {
     },
     designSystemSetup: {
       codeFilePatterns:
-        "फ़ाइल प्रकार: .css, .scss, tailwind.config.*, theme.*, tokens.*, package.json",
+        "फ़ाइल प्रकार: .css, .scss, tailwind.config.*, theme.*, tokens.*, design.md, package.json",
     },
     designEditor: {
       backToDesigns: "डिज़ाइन पर वापस जाएँ",
@@ -6367,7 +6379,7 @@ const designExactEnglishOverrides = {
     },
     designSystemSetup: {
       codeFilePatterns:
-        "أنواع الملفات: .css و.scss وtailwind.config.* وtheme.* وtokens.* وpackage.json",
+        "أنواع الملفات: .css و.scss وtailwind.config.* وtheme.* وtokens.* وdesign.md وpackage.json",
     },
     designEditor: {
       backToDesigns: "العودة إلى التصاميم",

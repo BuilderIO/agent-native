@@ -92,13 +92,19 @@ patterns live in `.agents/skills/`.
   `inspectorTab: "extensions"` after installing it.
 - Follow linked design-system tokens and `customInstructions` whenever present;
   explicit user instructions in the current turn still win.
-- When a user wants tokens from design.md, CSS, theme/tokens JSON, Tailwind
-  config, local files, or the current design, call `import-design-tokens` and
-  preserve its `tokens`, `filesAnalyzed`, and provenance in your answer. Manual
-  `apply-design-token-edit` / one-by-one token entry is the fallback for a small
-  one-off token, not the primary import workflow. For Figma variables/styles or
-  raw `.fig` files, keep using Builder-backed design-system indexing instead of
-  local `.fig` parsing.
+- For reusable design-system setup from Figma, connected code/GitHub, local
+  code/design files, or optional `design.md`, use Builder-backed DSI indexing
+  through `index-design-system-with-builder` or `import-file --format fig`.
+  Pass readable `design.md` content as `designMd`, use the returned local design
+  system id in Design flows, and call `get-design-system` before generation to
+  hydrate Builder docs/tokens when available. Do not create a duplicate local
+  design system from raw Figma/code sources.
+- When a user wants one-off tokens from design.md, CSS, theme/tokens JSON,
+  Tailwind config, local files, or the current design, call
+  `import-design-tokens` and preserve its `tokens`, `filesAnalyzed`, and
+  provenance in your answer. Manual `apply-design-token-edit` / one-by-one
+  token entry is the fallback for a small one-off token, not the primary import
+  workflow.
 - Persist useful work early: create/update the design and files as soon as a
   coherent candidate exists, then iterate.
 - For non-trivial new design prompts, ask before generating: create/open the

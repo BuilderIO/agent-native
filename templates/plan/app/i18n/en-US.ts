@@ -630,6 +630,10 @@ const messages = {
       signIn: "Sign in",
       haveAccount: "I have an account",
       retry: "Retry",
+      sendFeedback: "Send feedback",
+      feedbackPlaceholder:
+        "Describe what happened before this plan error appeared.",
+      openGitHubIssue: "Open GitHub issue",
       joinedOrg: "Joined {{orgName}}. Opening plan...",
       acceptingInvite: "Accepting invite",
       joiningOrg: "Joining organization",

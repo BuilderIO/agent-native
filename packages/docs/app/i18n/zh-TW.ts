@@ -71,6 +71,9 @@ const messages = {
     readDocs: "閱讀檔案",
     genericTitle: "出現問題",
     genericBody: "發生了意外錯誤。",
+    sendFeedback: "傳送意見回饋",
+    feedbackPlaceholder: "描述此 Docs 錯誤出現前發生了什麼。",
+    openGitHubIssue: "開啟 GitHub issue",
   },
   home: {
     hero: {

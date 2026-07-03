@@ -2,6 +2,7 @@ import {
   SIDEBAR_STATE_CHANGE_EVENT,
   PromptComposer,
   BuilderSetupCard,
+  ErrorReportActions,
   ShareButton,
   appPath,
   agentNativePath,
@@ -15,6 +16,7 @@ import {
   emailToColor,
   emailToName,
   type AgentSidebarStateChangeDetail,
+  type ErrorReportDebugItem,
   type RichMarkdownCollabUser,
 } from "@agent-native/core/client";
 import {
@@ -5904,6 +5906,7 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
           ) : showPlanLoadError ? (
             <PlanLoadError
               error={planQuery.error}
+              planId={selectedId}
               accessStatus={planAccessStatus}
               onRetry={() => void planQuery.refetch()}
               onSignIn={() => openSignIn()}
@@ -7617,6 +7620,35 @@ function ReviewMarkupToolbar({
   );
 }
 
+function PlanErrorFeedbackActions({
+  title,
+  message,
+  status,
+  extraDebug,
+}: {
+  title: string;
+  message: string;
+  status?: number;
+  extraDebug?: ErrorReportDebugItem[];
+}) {
+  const t = useT();
+  return (
+    <ErrorReportActions
+      appName="Plan"
+      title={title}
+      details={message}
+      status={status}
+      issueTitle={`Plan error: ${title}`}
+      feedbackLabel={t("plansPage.loadError.sendFeedback")}
+      feedbackPlaceholder={t("plansPage.loadError.feedbackPlaceholder")}
+      githubLabel={t("plansPage.loadError.openGitHubIssue")}
+      align="start"
+      className="justify-start"
+      extraDebug={extraDebug}
+    />
+  );
+}
+
 function LocalPlanLoadError({
   error,
   slug,
@@ -7631,6 +7663,7 @@ function LocalPlanLoadError({
     error instanceof Error && error.message
       ? error.message.replace(/^Action [\w-]+ failed:\s*/, "")
       : t("plansPage.localPlanLoadError.message", { slug });
+  const title = t("plansPage.localPlanLoadError.title");
 
   return (
     <div className="flex min-h-0 flex-1 items-center justify-center px-6 py-12">
@@ -7640,9 +7673,7 @@ function LocalPlanLoadError({
             <IconAlertTriangle className="size-5" />
           </div>
           <div>
-            <h1 className="text-lg font-semibold tracking-tight">
-              {t("plansPage.localPlanLoadError.title")}
-            </h1>
+            <h1 className="text-lg font-semibold tracking-tight">{title}</h1>
             <p className="mt-1 text-sm text-muted-foreground">{message}</p>
           </div>
         </div>
@@ -7658,6 +7689,15 @@ function LocalPlanLoadError({
             </Link>
           </Button>
         </div>
+        <div className="mt-4 border-t border-border/70 pt-3">
+          <PlanErrorFeedbackActions
+            title={title}
+            message={message}
+            extraDebug={[
+              { label: "Local plan slug", value: slug }, // i18n-ignore debug label
+            ]}
+          />
+        </div>
       </div>
     </div>
   );
@@ -7665,6 +7705,7 @@ function LocalPlanLoadError({
 
 function PlanLoadError({
   error,
+  planId,
   accessStatus,
   onRetry,
   onSignIn,
@@ -7675,6 +7716,7 @@ function PlanLoadError({
   viewerEmail,
 }: {
   error?: unknown;
+  planId?: string | null;
   accessStatus?: PlanAccessStatusResponse | null;
   onRetry: () => void;
   onSignIn: () => void;
@@ -7822,6 +7864,7 @@ function PlanLoadError({
             : t("plansPage.loadError.maybeOtherOrgBody")
           : t("plansPage.loadError.privateBody")
       : message;
+  const reportMessage = `${body}${message && message !== body ? `\n${message}` : ""}`;
 
   return (
     <div className="flex h-full flex-col items-center justify-center bg-background p-8">
@@ -8007,6 +8050,34 @@ function PlanLoadError({
             )}
           </div>
         ) : null}
+        <div className="mt-4 border-t border-border/70 pt-3">
+          <PlanErrorFeedbackActions
+            title={title}
+            message={reportMessage}
+            status={status}
+            extraDebug={[
+              { label: "Plan id", value: planId }, // i18n-ignore debug label
+              accessStatus?.visibility
+                ? {
+                    label: "Plan visibility", // i18n-ignore debug label
+                    value: accessStatus.visibility,
+                  }
+                : {
+                    label: "Plan visibility", // i18n-ignore debug label
+                    value: null,
+                  },
+              accessStatus?.hasAccess !== undefined
+                ? {
+                    label: "Has access", // i18n-ignore debug label
+                    value: accessStatus.hasAccess,
+                  }
+                : {
+                    label: "Has access", // i18n-ignore debug label
+                    value: null,
+                  },
+            ]}
+          />
+        </div>
       </div>
       <Button
         type="button"

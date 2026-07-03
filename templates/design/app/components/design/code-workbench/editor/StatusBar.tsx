@@ -161,7 +161,7 @@ export function StatusBar({ editorRef, onGoToLine }: StatusBarProps) {
             onClick={() => activeUri && void api.reloadBuffer(activeUri)}
             className="flex cursor-pointer items-center gap-1 rounded-[3px] px-1.5 text-[var(--workbench-warning)] hover:bg-[var(--workbench-list-hover-bg)]"
           >
-            {"File changed externally — click to reload" /* i18n-ignore */}
+            {"File changed elsewhere — reload latest" /* i18n-ignore */}
           </button>
         ) : null}
       </div>

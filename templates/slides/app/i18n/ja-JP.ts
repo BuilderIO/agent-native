@@ -496,13 +496,12 @@ const messages = {
     newTitle: "新しいデザインシステム",
     editDescription: "ブランドアイデンティティを更新します。",
     newDescription:
-      "任意のソースを組み合わせてください。コンテキストが多いほど結果が良くなります。",
+      "Figma、コード、任意の design.md ガイドを Builder DSI で接続します。",
     companyBrand: "会社 / ブランド",
     companyBrandPlaceholder: "Acme Inc. — 開発者向けツールを作っています...",
-    figmaFile: "Figma ファイル",
-    parsingFigmaFile: "Builder インデックス作成を開始しています...",
-    uploadFigDescription:
-      "Builder でインデックス作成するためにローカル .fig コピーをアップロード",
+    figmaFile: "Figma を接続",
+    parsingFigmaFile: "Builder DSI のインデックス作成を開始しています...",
+    uploadFigDescription: "Builder DSI 用にローカル .fig コピーをアップロード",
     builderIndexingStarted: "Builder インデックス作成を開始しました",
     builderIndexingDescription:
       "Builder is indexing {{title}} into a reusable design system.",
@@ -512,10 +511,10 @@ const messages = {
     websiteUrl: "Web サイト URL",
     websitePlaceholder: "example.com または Nike",
     add: "追加",
-    githubRepository: "GitHub リポジトリ",
-    codeFiles: "コードファイル",
+    githubRepository: "コードを接続: GitHub リポジトリ",
+    codeFiles: "コードファイルを接続",
     codeFilesDrop:
-      "CSS、Tailwind 設定、テーマファイル — ドロップまたはクリック",
+      "CSS、Tailwind 設定、テーマファイル、design.md — ドロップまたはクリック",
     documents: "ドキュメントとプレゼンテーション",
     documentsDrop:
       "PPTX、DOCX、PDF、Markdown、TXT — ブランドガイド、デザイン文書",

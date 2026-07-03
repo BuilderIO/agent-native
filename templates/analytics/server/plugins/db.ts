@@ -671,6 +671,41 @@ const runAnalyticsMigrations = runMigrations(
       name: "analytics-alert-rules-enabled-eval-idx",
       sql: `CREATE INDEX IF NOT EXISTS analytics_alert_rules_enabled_eval_idx ON analytics_alert_rules (enabled, last_status, last_evaluated_at, created_at)`,
     },
+    {
+      version: 81,
+      name: "analytics-db-admin-connections-table",
+      sql: {
+        postgres: `CREATE TABLE IF NOT EXISTS analytics_db_admin_connections (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      app_id TEXT,
+      app_url TEXT,
+      database_url_secret_key TEXT NOT NULL,
+      database_auth_token_secret_key TEXT,
+      created_by TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (now()::text),
+      updated_at TEXT NOT NULL DEFAULT (now()::text),
+      org_id TEXT NOT NULL
+    )`,
+        sqlite: `CREATE TABLE IF NOT EXISTS analytics_db_admin_connections (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      app_id TEXT,
+      app_url TEXT,
+      database_url_secret_key TEXT NOT NULL,
+      database_auth_token_secret_key TEXT,
+      created_by TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+      org_id TEXT NOT NULL
+    )`,
+      },
+    },
+    {
+      version: 82,
+      name: "analytics-db-admin-connections-org-updated-idx",
+      sql: `CREATE INDEX IF NOT EXISTS analytics_db_admin_connections_org_updated_idx ON analytics_db_admin_connections (org_id, updated_at)`,
+    },
   ],
   { table: "analytics_migrations" },
 );
