@@ -2837,9 +2837,15 @@ export async function runAgentLoop(opts: {
             ...(typeof progressBytes === "number" ? { progressBytes } : {}),
           });
         };
-        const hasActionPreparationStalled = () => {
-          if (activeToolInputs.size === 0) return false;
-          const now = Date.now();
+        const actionPreparationDeadlineAt = () => {
+          let deadlineAt = Number.POSITIVE_INFINITY;
+          if (zeroByteToolInputRestart) {
+            deadlineAt = Math.min(
+              deadlineAt,
+              zeroByteToolInputRestart.firstStartedAt +
+                ACTION_PREPARATION_NO_PROGRESS_TIMEOUT_MS,
+            );
+          }
           let earliestStartedAt = Number.POSITIVE_INFINITY;
           let latestPositiveProgressAt = 0;
           for (const active of activeToolInputs.values()) {
@@ -2857,8 +2863,73 @@ export async function runAgentLoop(opts: {
             latestPositiveProgressAt > 0
               ? latestPositiveProgressAt
               : earliestStartedAt;
-          if (!Number.isFinite(progressAt)) return false;
-          return now - progressAt >= ACTION_PREPARATION_NO_PROGRESS_TIMEOUT_MS;
+          if (Number.isFinite(progressAt)) {
+            deadlineAt = Math.min(
+              deadlineAt,
+              progressAt + ACTION_PREPARATION_NO_PROGRESS_TIMEOUT_MS,
+            );
+          }
+          return Number.isFinite(deadlineAt) ? deadlineAt : undefined;
+        };
+        const hasActionPreparationStalled = () => {
+          const deadlineAt = actionPreparationDeadlineAt();
+          return deadlineAt !== undefined && Date.now() >= deadlineAt;
+        };
+        const checkpointActionPreparationNoProgress = () => {
+          if (endedForActionPreparationNoProgress) return;
+          send({
+            type: "auto_continue",
+            reason: "no_progress",
+          });
+          endedForActionPreparationNoProgress = true;
+        };
+        let eventIteratorReturnRequested = false;
+        const requestEventIteratorReturn = (
+          iterator: AsyncIterator<EngineEvent>,
+          awaitReturn: boolean,
+        ) => {
+          if (eventIteratorReturnRequested) return;
+          eventIteratorReturnRequested = true;
+          let returnPromise:
+            | ReturnType<NonNullable<typeof iterator.return>>
+            | undefined;
+          try {
+            returnPromise = iterator.return?.();
+          } catch {
+            return;
+          }
+          if (!returnPromise) return;
+          if (awaitReturn) return returnPromise.catch(() => undefined);
+          void returnPromise.catch(() => undefined);
+        };
+        const nextEngineEventWithActionPreparationTimeout = async (
+          iterator: AsyncIterator<EngineEvent>,
+        ): Promise<IteratorResult<EngineEvent>> => {
+          const deadlineAt = actionPreparationDeadlineAt();
+          if (deadlineAt === undefined) return iterator.next();
+          const timeoutMs = Math.max(0, deadlineAt - Date.now());
+          if (timeoutMs <= 0) {
+            checkpointActionPreparationNoProgress();
+            requestEventIteratorReturn(iterator, false);
+            return { done: true, value: undefined };
+          }
+          let timeoutId: ReturnType<typeof setTimeout> | undefined;
+          const next = iterator.next();
+          void next.catch(() => undefined);
+          const timeout = new Promise<"timeout">((resolve) => {
+            timeoutId = setTimeout(() => resolve("timeout"), timeoutMs);
+          });
+          try {
+            const result = await Promise.race([next, timeout]);
+            if (result === "timeout") {
+              checkpointActionPreparationNoProgress();
+              requestEventIteratorReturn(iterator, false);
+              return { done: true, value: undefined };
+            }
+            return result;
+          } finally {
+            if (timeoutId) clearTimeout(timeoutId);
+          }
         };
         const trackActiveToolInput = (
           key: string,
@@ -2906,129 +2977,139 @@ export async function runAgentLoop(opts: {
               ACTION_PREPARATION_NO_PROGRESS_TIMEOUT_MS
           );
         };
-        for await (const event of eventStream) {
-          if (hasActionPreparationStalled()) {
-            send({
-              type: "auto_continue",
-              reason: "no_progress",
-            });
-            endedForActionPreparationNoProgress = true;
-            break;
-          }
-          // In-loop processor seam (stream hook). Each chunk is offered to every
-          // processor's `processOutputStream` before the loop handles it. A
-          // processor `abort()` throws a TripWire; catch it locally so it is not
-          // mistaken for a retryable engine error, then break out cleanly.
-          if (processorChain) {
-            try {
-              await processorChain.runStream(event);
-            } catch (err) {
-              if (err instanceof TripWire) {
-                emitTripwire(err);
+        const eventIterator = eventStream[Symbol.asyncIterator]();
+        let eventIteratorDone = false;
+        try {
+          while (true) {
+            const nextEvent =
+              await nextEngineEventWithActionPreparationTimeout(eventIterator);
+            if (nextEvent.done) {
+              eventIteratorDone = true;
+              break;
+            }
+            const event = nextEvent.value;
+            if (hasActionPreparationStalled()) {
+              checkpointActionPreparationNoProgress();
+              break;
+            }
+            // In-loop processor seam (stream hook). Each chunk is offered to every
+            // processor's `processOutputStream` before the loop handles it. A
+            // processor `abort()` throws a TripWire; catch it locally so it is not
+            // mistaken for a retryable engine error, then break out cleanly.
+            if (processorChain) {
+              try {
+                await processorChain.runStream(event);
+              } catch (err) {
+                if (err instanceof TripWire) {
+                  emitTripwire(err);
+                  break;
+                }
+                throw err;
+              }
+            }
+            if (event.type === "text-delta") {
+              resetZeroByteToolInputRestart();
+              streamedAssistantText += event.text;
+              send({ type: "text", text: event.text });
+            } else if (event.type === "thinking-delta") {
+              thinkingBuffer += event.text;
+              // Forward thinking deltas as a distinct event type so the UI
+              // can render a collapsible "Thinking…" cell while the model
+              // reasons, then collapse it when content arrives.
+              send({ type: "thinking", text: event.text });
+            } else if (event.type === "tool-input-start") {
+              const key = event.id ?? event.name;
+              if (key && event.name) {
+                toolInputNames.set(key, event.name);
+                toolInputBytes.set(key, 0);
+                trackActiveToolInput(key, event.name, 0);
+              }
+              sendToolInputActivity(event.name, key, undefined, true);
+              if (noteZeroByteToolInputStart(event.name)) {
+                send({
+                  type: "auto_continue",
+                  reason: "no_progress",
+                });
+                endedForActionPreparationNoProgress = true;
                 break;
               }
-              throw err;
-            }
-          }
-          if (event.type === "text-delta") {
-            resetZeroByteToolInputRestart();
-            streamedAssistantText += event.text;
-            send({ type: "text", text: event.text });
-          } else if (event.type === "thinking-delta") {
-            thinkingBuffer += event.text;
-            // Forward thinking deltas as a distinct event type so the UI
-            // can render a collapsible "Thinking…" cell while the model
-            // reasons, then collapse it when content arrives.
-            send({ type: "thinking", text: event.text });
-          } else if (event.type === "tool-input-start") {
-            const key = event.id ?? event.name;
-            if (key && event.name) {
-              toolInputNames.set(key, event.name);
-              toolInputBytes.set(key, 0);
-              trackActiveToolInput(key, event.name, 0);
-            }
-            sendToolInputActivity(event.name, key, undefined, true);
-            if (noteZeroByteToolInputStart(event.name)) {
-              send({
-                type: "auto_continue",
-                reason: "no_progress",
-              });
-              endedForActionPreparationNoProgress = true;
-              break;
-            }
-          } else if (event.type === "tool-input-delta") {
-            const key = event.id ?? event.name;
-            const toolName =
-              event.name ??
-              (event.id ? toolInputNames.get(event.id) : undefined);
-            let progressBytes: number | undefined;
-            let startedZeroByteInput = false;
-            if (key) {
-              const hadByteRecord = toolInputBytes.has(key);
-              const previous = hadByteRecord
-                ? (toolInputBytes.get(key) ?? 0)
-                : 0;
-              progressBytes =
-                previous +
-                new TextEncoder().encode(event.text ?? "").byteLength;
-              toolInputBytes.set(key, progressBytes);
-              if (!hadByteRecord || progressBytes > previous) {
-                trackActiveToolInput(key, toolName, progressBytes);
-                if (progressBytes > 0) {
-                  resetZeroByteToolInputRestart(toolName);
-                } else if (!hadByteRecord) {
-                  startedZeroByteInput = true;
+            } else if (event.type === "tool-input-delta") {
+              const key = event.id ?? event.name;
+              const toolName =
+                event.name ??
+                (event.id ? toolInputNames.get(event.id) : undefined);
+              let progressBytes: number | undefined;
+              let startedZeroByteInput = false;
+              if (key) {
+                const hadByteRecord = toolInputBytes.has(key);
+                const previous = hadByteRecord
+                  ? (toolInputBytes.get(key) ?? 0)
+                  : 0;
+                progressBytes =
+                  previous +
+                  new TextEncoder().encode(event.text ?? "").byteLength;
+                toolInputBytes.set(key, progressBytes);
+                if (!hadByteRecord || progressBytes > previous) {
+                  trackActiveToolInput(key, toolName, progressBytes);
+                  if (progressBytes > 0) {
+                    resetZeroByteToolInputRestart();
+                  } else if (!hadByteRecord) {
+                    startedZeroByteInput = true;
+                  }
                 }
               }
-            }
-            sendToolInputActivity(toolName, key, progressBytes);
-            if (
-              startedZeroByteInput &&
-              toolName &&
-              noteZeroByteToolInputStart(toolName)
-            ) {
-              send({
-                type: "auto_continue",
-                reason: "no_progress",
+              sendToolInputActivity(toolName, key, progressBytes);
+              if (
+                startedZeroByteInput &&
+                toolName &&
+                noteZeroByteToolInputStart(toolName)
+              ) {
+                send({
+                  type: "auto_continue",
+                  reason: "no_progress",
+                });
+                endedForActionPreparationNoProgress = true;
+                break;
+              }
+            } else if (event.type === "gateway-heartbeat") {
+              send({ type: "stream_keepalive" });
+            } else if (event.type === "tool-call") {
+              // The authoritative tool-call blocks arrive in assistant-content.
+            } else if (event.type === "tool-call-error") {
+              toolCallErrors.set(event.id, {
+                name: event.name,
+                input: event.input,
+                error: event.error,
               });
-              endedForActionPreparationNoProgress = true;
+            } else if (event.type === "assistant-content") {
+              assistantContent = event.parts;
+            } else if (event.type === "usage") {
+              usage.inputTokens += event.inputTokens;
+              usage.outputTokens += event.outputTokens;
+              usage.cacheReadTokens += event.cacheReadTokens ?? 0;
+              usage.cacheWriteTokens += event.cacheWriteTokens ?? 0;
+            } else if (event.type === "stop") {
+              terminalStopReason = event.reason;
+              if (event.reason === "error") {
+                throw new EngineError(event.error ?? "Engine stream error", {
+                  errorCode: event.errorCode,
+                  upgradeUrl: event.upgradeUrl,
+                  statusCode: event.statusCode,
+                  providerRetryable: event.providerRetryable,
+                });
+              }
+            }
+            if (hasActionPreparationStalled()) {
+              checkpointActionPreparationNoProgress();
               break;
             }
-          } else if (event.type === "gateway-heartbeat") {
-            send({ type: "stream_keepalive" });
-          } else if (event.type === "tool-call") {
-            // The authoritative tool-call blocks arrive in assistant-content.
-          } else if (event.type === "tool-call-error") {
-            toolCallErrors.set(event.id, {
-              name: event.name,
-              input: event.input,
-              error: event.error,
-            });
-          } else if (event.type === "assistant-content") {
-            assistantContent = event.parts;
-          } else if (event.type === "usage") {
-            usage.inputTokens += event.inputTokens;
-            usage.outputTokens += event.outputTokens;
-            usage.cacheReadTokens += event.cacheReadTokens ?? 0;
-            usage.cacheWriteTokens += event.cacheWriteTokens ?? 0;
-          } else if (event.type === "stop") {
-            terminalStopReason = event.reason;
-            if (event.reason === "error") {
-              throw new EngineError(event.error ?? "Engine stream error", {
-                errorCode: event.errorCode,
-                upgradeUrl: event.upgradeUrl,
-                statusCode: event.statusCode,
-                providerRetryable: event.providerRetryable,
-              });
-            }
           }
-          if (hasActionPreparationStalled()) {
-            send({
-              type: "auto_continue",
-              reason: "no_progress",
-            });
-            endedForActionPreparationNoProgress = true;
-            break;
+        } finally {
+          if (!eventIteratorDone) {
+            await requestEventIteratorReturn(
+              eventIterator,
+              !eventIteratorReturnRequested,
+            );
           }
         }
 
