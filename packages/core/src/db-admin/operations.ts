@@ -92,10 +92,6 @@ async function notifyDbAdminChange(runtime?: DbAdminRuntime): Promise<void> {
 // listTables
 // ---------------------------------------------------------------------------
 
-export async function listTables(): Promise<{
-  dialect: DbAdminDialect;
-  tables: DbAdminTableSummary[];
-}>;
 export async function listTables(runtime?: DbAdminRuntime): Promise<{
   dialect: DbAdminDialect;
   tables: DbAdminTableSummary[];
