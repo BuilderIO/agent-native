@@ -448,6 +448,14 @@ interface DesignCanvasProps {
    */
   motionTracks?: MotionTrackWire[];
   /**
+   * Timeline-level default easing applied to any keyframe that omits its own
+   * `ease`. Threaded to the motion-preview bridge alongside the tracks so the
+   * scrub/playback preview matches the persisted CSS (the compiler uses the
+   * same `defaultEase` fallback when emitting `animation-timing-function`).
+   * When omitted the bridge falls back to "ease".
+   */
+  motionDefaultEase?: string;
+  /**
    * Explicit iframe width in pixels.  When provided it overrides the width
    * derived from `deviceFrame`, enabling per-breakpoint preview (e.g. Mobile
    * 390 / Tablet 768 / Desktop 1280 side-by-side frames in the overview).
@@ -683,6 +691,7 @@ export function DesignCanvas({
   commentContextLabel,
   onPrototypeNavigate,
   motionTracks,
+  motionDefaultEase,
   previewWidthPx,
   onComponentSourceJump,
   shaderFillPreview,
@@ -695,6 +704,40 @@ export function DesignCanvas({
   const runtimeReplacementContentRef = useRef(runtimeReplacementContent);
   const runtimeReplacementKeyRef = useRef(runtimeReplacementKey);
   const lastRuntimeReplacementKeyRef = useRef(runtimeReplacementKey);
+  // Bridge-ready handshake (see EDITOR_CHROME_BRIDGE_SCRIPT's
+  // agent-native:editor-chrome-ready post on install). One-shot commands —
+  // begin-text-edit, set-editor-chrome-scale, style-change, delete-element,
+  // replace-document-content — are fire-and-forget postMessages with no retry:
+  // if the iframe document is still loading (fresh srcdoc, screen switch, or a
+  // mid-flight reload) the bridge script hasn't attached its message listener
+  // yet and the command is silently dropped. replayIframeEditorState only
+  // re-sends steady-state selection/hover/tweak/motion values, never these
+  // one-shot commands, so a dropped one-shot never recovers on its own.
+  // Queue them here until ready fires (or the iframe finishes loading, as a
+  // fallback for older/interact-mode documents that never inject the chrome
+  // bridge and thus never post ready) and flush in order.
+  const bridgeReadyRef = useRef(false);
+  const pendingOneShotMessagesRef = useRef<unknown[]>([]);
+  const flushPendingOneShotMessages = useCallback(() => {
+    const iframe = iframeRef.current;
+    const win = iframe?.contentWindow;
+    if (!win) return;
+    const queued = pendingOneShotMessagesRef.current;
+    if (queued.length === 0) return;
+    pendingOneShotMessagesRef.current = [];
+    queued.forEach((message) => win.postMessage(message, "*"));
+  }, []);
+  const postOneShotBridgeMessage = useCallback((message: unknown) => {
+    const iframe = iframeRef.current;
+    const win = iframe?.contentWindow;
+    if (!win) return false;
+    if (!bridgeReadyRef.current) {
+      pendingOneShotMessagesRef.current.push(message);
+      return true;
+    }
+    win.postMessage(message, "*");
+    return true;
+  }, []);
   const [renderedContent, setRenderedContent] = useState(content);
   const [annotationPins, setAnnotationPins] = useState<CanvasPin[]>([]);
   const [pinSubmitSignal, setPinSubmitSignal] = useState(0);
@@ -865,6 +908,15 @@ export function DesignCanvas({
     if (previousContentKeyRef.current !== contentKey) {
       previousContentKeyRef.current = contentKey;
       lastRuntimeReplacementKeyRef.current = runtimeReplacementKey;
+      // A content-key change rebuilds srcdoc, which reloads the iframe with a
+      // brand-new document. The previous document's ready handshake (and any
+      // one-shot commands still queued against it) no longer apply — reset
+      // synchronously here rather than on the iframe's `load` event, since
+      // `load` fires AFTER the freshly (re)injected editor-chrome bridge script
+      // has already run and posted its own new ready message; resetting on
+      // `load` would incorrectly clobber that just-arrived ready signal.
+      bridgeReadyRef.current = false;
+      pendingOneShotMessagesRef.current = [];
       setRenderedContent(content);
     }
     // Same-screen visual edits are already applied optimistically inside the
@@ -888,11 +940,14 @@ export function DesignCanvas({
   // outside Edit mode. The editor chrome bridge is omitted for Interact mode
   // so preview/app users can interact with the app normally.
   //
-  // readOnly is intentionally NOT a dep here: the bridge is injected whenever
-  // !interactMode and the initial __READ_ONLY__ placeholder is baked from the
-  // *first* render only. After that, live readOnly changes flow through the
-  // set-read-only postMessage (see the useEffect below) so switching the active
-  // surface (board ↔ screen) never rebuilds srcdoc / reloads the iframe.
+  // readOnly and editMode are intentionally NOT deps here: the bridge is
+  // injected whenever !interactMode and the initial __READ_ONLY__ /
+  // __TEXT_EDITING_ENABLED__ placeholders are baked from the *first* render
+  // only (so first paint never flashes the wrong mode). After that, live
+  // readOnly / editMode changes flow through the set-read-only and
+  // set-text-editing-enabled postMessages (see the useEffects below) so
+  // switching the active surface (board ↔ screen) or toggling Edit ⇄ Preview
+  // never rebuilds srcdoc / reloads every screen iframe.
   const srcdoc = useMemo(() => {
     if (externalPreviewUrl) return undefined;
     const editorChromeBridge = interactMode
@@ -917,12 +972,20 @@ export function DesignCanvas({
       "__EMBEDDED_WHEEL_FORWARDING_ENABLED__",
       isEmbeddedFrame ? "true" : "false",
     );
+    // ALWAYS injected (like the other always-on bridges above) so
+    // MultiScreenCanvas's cross-screen drag hit-testing
+    // (agent-native:hit-test / agent-native:hit-test-result) resolves an
+    // anchor+placement against this screen's live DOM too, not only the
+    // static-fallback board thumbnails that call appendHitTestResponder.
+    // Without this, a drop onto a live/active screen has no responder and
+    // always falls through to the 50ms request timeout.
     const bridgeToInject =
       MOTION_PREVIEW_BRIDGE_SCRIPT +
       SHADER_FILL_PREVIEW_BRIDGE_SCRIPT +
       TWEAK_BRIDGE_SCRIPT +
       ZOOM_BRIDGE_SCRIPT +
       NAV_BRIDGE_SCRIPT +
+      LIGHTWEIGHT_HIT_TEST_BRIDGE_SCRIPT +
       embeddedWheelBridge +
       editorChromeBridge;
     const frameContent = getEmbeddedFrameDocumentContent({
@@ -954,10 +1017,10 @@ export function DesignCanvas({
     // baked chrome scale. Live zoom updates flow through the set-editor-chrome-scale
     // postMessage above. Including them here rebuilds srcdoc on every zoom commit,
     // which reloads the iframe and flashes the screen content white.
-    // readOnly is intentionally NOT a dep: live changes flow through set-read-only.
+    // readOnly and editMode are intentionally NOT deps: live changes flow
+    // through set-read-only / set-text-editing-enabled.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
-    editMode,
     boardSurface,
     externalPreviewUrl,
     interactMode,
@@ -996,6 +1059,11 @@ export function DesignCanvas({
         return;
       }
       if (!e.data || !e.data.type) return;
+      if (e.data.type === "agent-native:editor-chrome-ready") {
+        bridgeReadyRef.current = true;
+        flushPendingOneShotMessages();
+        return;
+      }
       if (e.data.type === "clear-selection") {
         onClearSelection?.();
         return;
@@ -1256,17 +1324,30 @@ export function DesignCanvas({
         const iframe = iframeRef.current;
         const scroll = scrollContainerRef.current;
         if (!iframe || !scroll) return;
+        // Guard against non-finite values (NaN/undefined/string) before they
+        // reach Math.max/Math.min/Math.exp — an unguarded NaN here would
+        // propagate through nextZoom and silently break zoom (mirrors the
+        // Number.isFinite-style validation the embedded-canvas-wheel sibling
+        // handler above applies to its own wheel deltas/coordinates).
+        const rawDeltaY = Number(e.data.deltaY);
+        if (!Number.isFinite(rawDeltaY)) return;
         // Mirror usePinchZoom's algorithm here. We can't reliably re-dispatch
         // a synthetic WheelEvent to trigger the hook's listener — untrusted
         // events are inconsistent across browsers — so just compute the
         // next zoom directly using the same exponential factor + cursor-anchor
         // math. Clamp range matches the usePinchZoom call above (10–500).
         const currentZoom = zoomRef.current;
-        const clampedDelta = Math.max(-50, Math.min(50, e.data.deltaY));
+        const clampedDelta = Math.max(-50, Math.min(50, rawDeltaY));
         const factor = Math.exp(-clampedDelta * 0.01);
         const nextZoom = Math.max(10, Math.min(500, currentZoom * factor));
-        if (nextZoom === currentZoom) return;
+        if (!Number.isFinite(nextZoom) || nextZoom === currentZoom) return;
         if (deviceFrame === "none") {
+          const rawClientX = Number(e.data.clientX);
+          const rawClientY = Number(e.data.clientY);
+          if (!Number.isFinite(rawClientX) || !Number.isFinite(rawClientY)) {
+            onZoomChange(nextZoom);
+            return;
+          }
           // The iframe lives inside a `transform: scale(zoom/100)` wrapper, so
           // its visual scale relative to viewport is currentZoom / 100. Convert
           // the iframe-document point under the cursor → viewport point →
@@ -1274,8 +1355,8 @@ export function DesignCanvas({
           const iframeRect = iframe.getBoundingClientRect();
           const scrollRect = scroll.getBoundingClientRect();
           const scale = currentZoom / 100;
-          const viewportX = iframeRect.left + e.data.clientX * scale;
-          const viewportY = iframeRect.top + e.data.clientY * scale;
+          const viewportX = iframeRect.left + rawClientX * scale;
+          const viewportY = iframeRect.top + rawClientY * scale;
           const cx = viewportX - scrollRect.left + scroll.scrollLeft;
           const cy = viewportY - scrollRect.top + scroll.scrollTop;
           const ratio = nextZoom / currentZoom;
@@ -1315,6 +1396,7 @@ export function DesignCanvas({
     isEmbeddedFrame,
     sourceType,
     fusionUrl,
+    flushPendingOneShotMessages,
   ]);
 
   const replayIframeEditorState = useCallback(() => {
@@ -1362,7 +1444,11 @@ export function DesignCanvas({
     // Re-send motion tracks so the preview bridge is ready after a reload.
     if (motionTracks && motionTracks.length > 0) {
       iframe.contentWindow?.postMessage(
-        { type: "motion-load-tracks", tracks: motionTracks },
+        {
+          type: "motion-load-tracks",
+          tracks: motionTracks,
+          defaultEase: motionDefaultEase,
+        },
         "*",
       );
     } else {
@@ -1392,6 +1478,7 @@ export function DesignCanvas({
     hiddenSelectors,
     lockedSelectors,
     motionTracks,
+    motionDefaultEase,
     scaleMode,
     selectedSelector,
     selectedSelectorCandidates,
@@ -1411,6 +1498,27 @@ export function DesignCanvas({
     return () => iframe.removeEventListener("load", replayIframeEditorState);
   }, [replayIframeEditorState]);
 
+  // Fallback for documents that never inject the editor-chrome bridge (e.g.
+  // interactMode, or an external-preview iframe where srcdoc is undefined):
+  // those never post agent-native:editor-chrome-ready, so nothing would ever
+  // flush a queued one-shot command. Treat the iframe's `load` event as an
+  // implicit ready in that case — the queued commands (begin-text-edit,
+  // style-change, delete-element, replace-document-content) target the
+  // editor-chrome bridge's own message handlers, so with no chrome bridge
+  // present there is nothing that would have handled them regardless; this
+  // just prevents the queue from growing unbounded across repeated reloads.
+  useEffect(() => {
+    const iframe = iframeRef.current;
+    if (!iframe) return;
+    function handleLoadReadyFallback() {
+      if (bridgeReadyRef.current) return;
+      bridgeReadyRef.current = true;
+      flushPendingOneShotMessages();
+    }
+    iframe.addEventListener("load", handleLoadReadyFallback);
+    return () => iframe.removeEventListener("load", handleLoadReadyFallback);
+  }, [flushPendingOneShotMessages]);
+
   useEffect(() => {
     if (clearSelectionRequest === undefined) return;
     iframeRef.current?.contentWindow?.postMessage(
@@ -1429,11 +1537,15 @@ export function DesignCanvas({
       win.postMessage({ type: "motion-preview-clear" }, "*");
     } else {
       win.postMessage(
-        { type: "motion-load-tracks", tracks: motionTracks },
+        {
+          type: "motion-load-tracks",
+          tracks: motionTracks,
+          defaultEase: motionDefaultEase,
+        },
         "*",
       );
     }
-  }, [motionTracks]);
+  }, [motionTracks, motionDefaultEase]);
 
   // Sync shader-fill preview to the iframe whenever the prop changes.
   // When cleared (null / undefined) send a clear message so the bridge
@@ -1461,16 +1573,16 @@ export function DesignCanvas({
   // overview zoom settles. This is intentionally separate from the srcdoc build so
   // a scale change never rebuilds srcdoc / reloads the iframe (which flashes the
   // content white). The baked __EDITOR_CHROME_SCALE__ values cover first paint.
+  // Routed through the one-shot queue too: a zoom settle that lands while the
+  // iframe is mid-reload would otherwise be silently dropped, leaving the
+  // chrome at a stale scale until the next zoom change.
   useEffect(() => {
-    iframeRef.current?.contentWindow?.postMessage(
-      {
-        type: "set-editor-chrome-scale",
-        scaleX: editorChromeScaleX,
-        scaleY: editorChromeScaleY,
-      },
-      "*",
-    );
-  }, [editorChromeScaleX, editorChromeScaleY]);
+    postOneShotBridgeMessage({
+      type: "set-editor-chrome-scale",
+      scaleX: editorChromeScaleX,
+      scaleY: editorChromeScaleY,
+    });
+  }, [editorChromeScaleX, editorChromeScaleY, postOneShotBridgeMessage]);
 
   // Sync readOnly to the bridge IN-PLACE via postMessage so switching the active
   // surface (board ↔ screen) does not rebuild srcdoc / reload the iframe.
@@ -1495,6 +1607,34 @@ export function DesignCanvas({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [readOnly]);
 
+  // Sync editMode to the bridge IN-PLACE via postMessage so toggling Edit ⇄
+  // Preview does not rebuild srcdoc / reload every screen iframe (which was
+  // PF21: __TEXT_EDITING_ENABLED__ used to be baked into srcdoc, so flipping
+  // edit/preview mode reloaded every iframe — white flash + lost in-iframe
+  // Alpine state). The initial baked __TEXT_EDITING_ENABLED__ placeholder
+  // covers first paint; subsequent changes arrive here. Also re-send on
+  // iframe load so the bridge is in sync after any content-key-driven reload.
+  const editModeRef = useRef(editMode);
+  editModeRef.current = editMode;
+  useEffect(() => {
+    const iframe = iframeRef.current;
+    if (!iframe) return;
+    function sendTextEditingEnabled() {
+      iframe!.contentWindow?.postMessage(
+        {
+          type: "set-text-editing-enabled",
+          enabled: editModeRef.current,
+        },
+        "*",
+      );
+    }
+    sendTextEditingEnabled();
+    iframe.addEventListener("load", sendTextEditingEnabled);
+    return () => iframe.removeEventListener("load", sendTextEditingEnabled);
+    // Only re-run when editMode changes; iframe identity is stable.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editMode]);
+
   /**
    * Trigger immediate text-editing mode for a specific node inside the iframe,
    * identified by its data-agent-native-node-id value.  Call this after
@@ -1504,14 +1644,18 @@ export function DesignCanvas({
    * Posts { type: 'begin-text-edit', nodeId } to the iframe bridge.
    * The bridge enters the same contenteditable text-editing path used on dblclick.
    */
-  const beginTextEdit = useCallback((nodeId: string) => {
-    const iframe = iframeRef.current;
-    if (!iframe?.contentWindow || !nodeId) return;
-    iframe.contentWindow.postMessage(
-      { type: "begin-text-edit", nodeId, force: true },
-      "*",
-    );
-  }, []);
+  const beginTextEdit = useCallback(
+    (nodeId: string) => {
+      const iframe = iframeRef.current;
+      if (!iframe?.contentWindow || !nodeId) return;
+      postOneShotBridgeMessage({
+        type: "begin-text-edit",
+        nodeId,
+        force: true,
+      });
+    },
+    [postOneShotBridgeMessage],
+  );
 
   const sendStyleChange = useCallback(
     (
@@ -1522,19 +1666,16 @@ export function DesignCanvas({
     ) => {
       const iframe = iframeRef.current;
       if (!iframe?.contentWindow) return;
-      iframe.contentWindow.postMessage(
-        {
-          type: "style-change",
-          selector,
-          property,
-          value,
-          selectorCandidates: options?.selectorCandidates ?? [],
-          nodeId: options?.nodeId ?? "",
-        },
-        "*",
-      );
+      postOneShotBridgeMessage({
+        type: "style-change",
+        selector,
+        property,
+        value,
+        selectorCandidates: options?.selectorCandidates ?? [],
+        nodeId: options?.nodeId ?? "",
+      });
     },
-    [],
+    [postOneShotBridgeMessage],
   );
 
   /**
@@ -1601,19 +1742,15 @@ export function DesignCanvas({
     ) => {
       const iframe = iframeRef.current;
       if (!iframe?.contentWindow) return false;
-      iframe.contentWindow.postMessage(
-        {
-          type: "replace-document-content",
-          content: nextContent,
-          selectedSelector: selector ?? "",
-          selectorCandidates: candidates ?? [],
-          forceFullDocument: options?.forceFullDocument === true,
-        },
-        "*",
-      );
-      return true;
+      return postOneShotBridgeMessage({
+        type: "replace-document-content",
+        content: nextContent,
+        selectedSelector: selector ?? "",
+        selectorCandidates: candidates ?? [],
+        forceFullDocument: options?.forceFullDocument === true,
+      });
     },
-    [],
+    [postOneShotBridgeMessage],
   );
 
   const replaceRuntimeContentInPlace = useCallback(
@@ -1680,17 +1817,13 @@ export function DesignCanvas({
     (selector?: string | null, candidates?: string[]) => {
       const iframe = iframeRef.current;
       if (!iframe?.contentWindow) return false;
-      iframe.contentWindow.postMessage(
-        {
-          type: "delete-element",
-          selector: selector ?? "",
-          selectorCandidates: candidates ?? [],
-        },
-        "*",
-      );
-      return true;
+      return postOneShotBridgeMessage({
+        type: "delete-element",
+        selector: selector ?? "",
+        selectorCandidates: candidates ?? [],
+      });
     },
-    [],
+    [postOneShotBridgeMessage],
   );
 
   // Expose iframe runtime mutations for the editor orchestrator.
@@ -1826,7 +1959,29 @@ export function DesignCanvas({
         sandbox={
           externalPreviewUrl
             ? "allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox allow-same-origin"
-            : "allow-scripts allow-popups allow-popups-to-escape-sandbox allow-same-origin"
+            : // NOTE(security): allow-same-origin is still present on this
+              // branch (the inline srcdoc iframe, where agent/user-generated
+              // design HTML executes) even though allow-scripts +
+              // allow-same-origin together defeat the sandbox in principle.
+              // This is a deliberate, currently-blocked tradeoff, not an
+              // oversight — see the long comment above DesignCanvasProps /
+              // sourceType for the security model, and the PNG/SVG export
+              // handlers in DesignEditor.tsx (handleDownloadPng /
+              // handleDownloadSvg). Those handlers read this same iframe's
+              // `contentDocument` directly and hand the LIVE document element
+              // to html2canvas, and read live CSSOM (getComputedStyle,
+              // doc.styleSheets) for SVG serialization. That cannot be
+              // expressed over the postMessage bridge without moving
+              // html2canvas execution and CSSOM-dependent serialization logic
+              // INTO the sandboxed iframe itself — a separate, larger rewrite,
+              // not a bridge-handler addition. All other former
+              // `contentDocument`/`contentWindow.document` reads on this
+              // iframe (e.g. text-edit-status) now go through bridge
+              // request/response postMessage handlers in
+              // editor-chrome.bridge.ts and no longer need allow-same-origin.
+              // Do not remove this flag until PNG/SVG export is rebuilt to run
+              // inside the iframe.
+              "allow-scripts allow-popups allow-popups-to-escape-sandbox allow-same-origin"
         }
         data-design-preview-iframe
         data-screen-iframe-id={

@@ -158,6 +158,10 @@ export function DrawOverlay({
     value: string;
   } | null>(null);
   const textInputRef = useRef<HTMLInputElement>(null);
+  // Escape cancels the pending text annotation, but unmounting the input also
+  // fires its blur handler, which would commit the very annotation the user
+  // just cancelled. This flag lets the blur handler skip that commit.
+  const cancelingTextRef = useRef(false);
   const [instruction, setInstruction] = useState("");
   const drawing = useRef(false);
   const canvasSizeRef = useRef({ w: 0, h: 0 });
@@ -252,6 +256,7 @@ export function DrawOverlay({
       const rect = canvasRef.current?.getBoundingClientRect();
       if (!rect) return;
       if (textMode) {
+        cancelingTextRef.current = false;
         setTextInput({
           xFrac: (e.clientX - rect.left) / rect.width,
           yFrac: (e.clientY - rect.top) / rect.height,
@@ -708,6 +713,12 @@ export function DrawOverlay({
                   )
                 }
                 onBlur={() => {
+                  // Escape unmounts the input, which fires this blur — skip
+                  // the commit for a cancelled annotation.
+                  if (cancelingTextRef.current) {
+                    cancelingTextRef.current = false;
+                    return;
+                  }
                   if (textInput.value.trim()) commitTextAnnotation();
                 }}
                 onKeyDown={(e) => {
@@ -715,7 +726,10 @@ export function DrawOverlay({
                     e.preventDefault();
                     commitTextAnnotation();
                   }
-                  if (e.key === "Escape") setTextInput(null);
+                  if (e.key === "Escape") {
+                    cancelingTextRef.current = true;
+                    setTextInput(null);
+                  }
                 }}
                 className="h-7 w-48 border-primary bg-background text-sm"
                 autoFocus

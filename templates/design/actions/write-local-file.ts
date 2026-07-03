@@ -8,8 +8,14 @@
  *     must exist. The agent CANNOT bypass this check.
  *  4. Path confinement: assertPathInside ensures the target stays inside
  *     rootPath (pre-bridge check; bridge also validates with realpath).
- *  5. Bridge token: the X-Bridge-Token header is set to the per-grant token
- *     minted at consent time so the bridge can reject unauthorized calls.
+ *  5. Bridge token: the X-Bridge-Token header is set to the connection's
+ *     CURRENT bridge token (falling back to the token snapshotted on the
+ *     grant). The CLI mints a fresh token on every bridge start, so a bridge
+ *     restart + reconnect rotates the connection token while the user's
+ *     time-boxed consent grant stays valid; preferring the connection token
+ *     keeps writes working across restarts. A bridge 401/403 is surfaced as a
+ *     specific stale-token error telling the user to re-run design connect
+ *     and re-grant write consent.
  */
 
 import path from "node:path";
@@ -51,6 +57,30 @@ function isLoopbackHostname(hostname: string): boolean {
     parts[0] === "127" &&
     parts.every((part) => /^\d+$/.test(part) && Number(part) <= 255)
   );
+}
+
+/**
+ * Build the error for a failed bridge call. 401/403 means the bridge rejected
+ * the token — after a bridge restart the CLI mints a fresh token, so a token
+ * snapshotted at consent time goes stale even though the grant itself is
+ * still valid. Surface that as a specific, actionable message instead of a
+ * generic failure.
+ */
+function bridgeRequestError(
+  operation: string,
+  status: number,
+  errText: string,
+): Error {
+  if (status === 401 || status === 403) {
+    return new Error(
+      `Bridge ${operation} rejected authentication (${status}). ` +
+        "The stored bridge token is stale — the design bridge was likely restarted " +
+        "since write consent was granted (each bridge start mints a fresh token). " +
+        "Re-run `npx @agent-native/core@latest design connect` and re-grant write " +
+        "consent, then retry.",
+    );
+  }
+  return new Error(`Bridge ${operation} failed (${status}): ${errText}`);
 }
 
 function normalizeBridgeUrl(value: string): string {
@@ -140,10 +170,13 @@ export default defineAction({
       );
     }
 
-    // --- Resolve bridge URL ---
+    // --- Resolve bridge URL + current token ---
     const db = getDb();
     const [connection] = await db
-      .select({ bridgeUrl: schema.designLocalhostConnections.bridgeUrl })
+      .select({
+        bridgeUrl: schema.designLocalhostConnections.bridgeUrl,
+        bridgeToken: schema.designLocalhostConnections.bridgeToken,
+      })
       .from(schema.designLocalhostConnections)
       .where(
         and(
@@ -160,10 +193,15 @@ export default defineAction({
       );
     }
 
+    // Prefer the connection's CURRENT bridge token over the one snapshotted on
+    // the grant: the CLI mints a fresh token on every bridge start, and a
+    // later connect-localhost by the same authenticated user refreshes the
+    // connection row. The user's time-boxed consent grant is unchanged — only
+    // the transport token rotated — so writes keep working across restarts.
     const bridgeUrl = normalizeBridgeUrl(connection.bridgeUrl);
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
-      "X-Bridge-Token": grant.bridgeToken,
+      "X-Bridge-Token": connection.bridgeToken || grant.bridgeToken,
     };
 
     if (content !== undefined) {
@@ -175,23 +213,12 @@ export default defineAction({
       });
       if (!res.ok) {
         const errText = await res.text().catch(() => res.statusText);
-        throw new Error(`Bridge write-file failed (${res.status}): ${errText}`);
+        throw bridgeRequestError("write-file", res.status, errText);
       }
       return { designId, relPath, operation: "write" as const, written: true };
     } else {
-      // Search-and-replace patch — first read, then apply-edit
-      const readRes = await fetch(`${bridgeUrl}/read-file`, {
-        method: "POST",
-        headers,
-        body: JSON.stringify({ relPath }),
-      });
-      if (!readRes.ok) {
-        const errText = await readRes.text().catch(() => readRes.statusText);
-        throw new Error(
-          `Bridge read-file failed (${readRes.status}): ${errText}`,
-        );
-      }
-
+      // Search-and-replace patch. The bridge's /apply-edit validates the file
+      // itself (404s on a missing file), so no pre-read round-trip is needed.
       const applyRes = await fetch(`${bridgeUrl}/apply-edit`, {
         method: "POST",
         headers,
@@ -203,9 +230,7 @@ export default defineAction({
       });
       if (!applyRes.ok) {
         const errText = await applyRes.text().catch(() => applyRes.statusText);
-        throw new Error(
-          `Bridge apply-edit failed (${applyRes.status}): ${errText}`,
-        );
+        throw bridgeRequestError("apply-edit", applyRes.status, errText);
       }
       return { designId, relPath, operation: "patch" as const, written: true };
     }

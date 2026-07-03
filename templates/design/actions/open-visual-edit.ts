@@ -3,6 +3,7 @@ import crypto from "node:crypto";
 import { defineAction, embedApp } from "@agent-native/core";
 import { writeAppState } from "@agent-native/core/application-state";
 import { buildDeepLink } from "@agent-native/core/server";
+import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 
@@ -88,10 +89,23 @@ function isLoopbackUrl(value: string): boolean {
   );
 }
 
-function stableConnectionId(devServerUrl: string, rootPath?: string) {
+/**
+ * Derive a stable per-user connection id for a devServerUrl + rootPath pair.
+ *
+ * The owner email is embedded in the hash so two users with an identical
+ * devServerUrl + rootPath (common with devcontainers/codespaces images) derive
+ * DIFFERENT ids and never collide on the shared primary key. Connections
+ * created before user scoping keep their old ids; those users simply
+ * reconnect fresh under the new per-user id.
+ */
+function stableConnectionId(
+  devServerUrl: string,
+  rootPath: string | undefined,
+  ownerEmail: string,
+) {
   const hash = crypto
     .createHash("sha256")
-    .update(`${devServerUrl}\n${rootPath ?? ""}`)
+    .update(`${ownerEmail}\n${devServerUrl}\n${rootPath ?? ""}`)
     .digest("base64url")
     .slice(0, 16);
   return `localhost_${hash}`;
@@ -147,7 +161,7 @@ export default defineAction({
       .string()
       .optional()
       .describe(
-        "Existing localhost connection. Omit to reuse a stable connection for devServerUrl + rootPath.",
+        "Existing localhost connection. Omit to reuse a stable per-user connection for devServerUrl + rootPath.",
       ),
     title: z
       .string()
@@ -240,8 +254,16 @@ export default defineAction({
             }) ?? [],
           generatedAt: new Date().toISOString(),
         };
-    const connectionId =
-      args.connectionId ?? stableConnectionId(devServerUrl, args.rootPath);
+    let connectionId = args.connectionId;
+    if (!connectionId) {
+      const ownerEmail = getRequestUserEmail();
+      if (!ownerEmail) throw new Error("no authenticated user");
+      connectionId = stableConnectionId(
+        devServerUrl,
+        args.rootPath,
+        ownerEmail,
+      );
+    }
 
     const connection = await connectLocalhostAction.run({
       id: connectionId,

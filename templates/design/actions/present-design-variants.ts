@@ -250,7 +250,7 @@ function colorForVariant(
 ) {
   const provided = variant.accentColor?.trim();
   if (provided) return provided;
-  return ["#8b5cf6", "#06b6d4", "#10b981", "#f43f5e", "#f59e0b"][index % 5]!;
+  return ["#f59e0b", "#06b6d4", "#10b981", "#f43f5e", "#d97706"][index % 5]!;
 }
 
 function fallbackVariantContent(
@@ -307,7 +307,7 @@ function fallbackVariantContent(
 <style>
 :root { color-scheme: dark; --accent: ${accent}; --bg: #080a0f; --panel: rgba(18, 22, 33, 0.82); --line: rgba(255,255,255,.11); --muted: #94a3b8; }
 * { box-sizing: border-box; }
-body { margin: 0; width: ${screenWidth}px; min-height: ${screenHeight}px; overflow: hidden; font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: #f8fafc; background:
+body { margin: 0; width: ${screenWidth}px; min-height: ${screenHeight}px; overflow: hidden; font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: #f8fafc; background:
   radial-gradient(circle at 18% 8%, color-mix(in srgb, var(--accent) 42%, transparent), transparent 30%),
   linear-gradient(140deg, #05070b 0%, #111827 48%, #05070b 100%); }
 .shell { width: ${screenWidth}px; min-height: ${screenHeight}px; padding: ${compact ? "18" : "34"}px; display: grid; grid-template-columns: ${compact ? "1fr" : tablet ? "220px 1fr" : "258px 1fr 304px"}; gap: ${compact ? "14" : "22"}px; }

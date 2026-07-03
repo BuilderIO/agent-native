@@ -511,6 +511,8 @@ const enUS = {
       propsPasted: "Properties pasted",
       primitiveInsertFailed: "Could not add that layer to the screen",
       layerMoveFailed: "Could not move that layer",
+      layerRenameSelectLayer:
+        "Double-click the layer in the panel to rename it",
       duplicateElementFailed: "Could not duplicate that element",
       saveCopyError: "Could not save a copy of this design",
       auditRunFailed: "Unable to run design audit",
@@ -8228,6 +8230,7 @@ const designCanvasFeatureOverrides = {
         propsPasted: "属性已粘贴",
         primitiveInsertFailed: "无法将该图层添加到画面",
         layerMoveFailed: "无法移动该图层",
+        layerRenameSelectLayer: "双击面板中的图层即可重命名",
         duplicateElementFailed: "无法复制该元素",
       },
     },
@@ -8288,6 +8291,8 @@ const designCanvasFeatureOverrides = {
         propsPasted: "Propiedades pegadas",
         primitiveInsertFailed: "No se pudo añadir esa capa a la pantalla",
         layerMoveFailed: "No se pudo mover esa capa",
+        layerRenameSelectLayer:
+          "Haz doble clic en la capa del panel para renombrarla",
         duplicateElementFailed: "No se pudo duplicar ese elemento",
       },
     },
@@ -8348,6 +8353,8 @@ const designCanvasFeatureOverrides = {
         propsPasted: "Propriétés collées",
         primitiveInsertFailed: "Impossible d’ajouter ce calque à l’écran",
         layerMoveFailed: "Impossible de déplacer ce calque",
+        layerRenameSelectLayer:
+          "Double-cliquez sur le calque dans le panneau pour le renommer",
         duplicateElementFailed: "Impossible de dupliquer cet élément",
       },
     },
@@ -8409,6 +8416,8 @@ const designCanvasFeatureOverrides = {
         primitiveInsertFailed:
           "Diese Ebene konnte nicht zur Ansicht hinzugefügt werden",
         layerMoveFailed: "Diese Ebene konnte nicht verschoben werden",
+        layerRenameSelectLayer:
+          "Doppelklicken Sie auf die Ebene im Panel, um sie umzubenennen",
         duplicateElementFailed: "Dieses Element konnte nicht dupliziert werden",
       },
     },
@@ -8469,6 +8478,8 @@ const designCanvasFeatureOverrides = {
         propsPasted: "プロパティを貼り付けました",
         primitiveInsertFailed: "そのレイヤーを画面に追加できませんでした",
         layerMoveFailed: "そのレイヤーを移動できませんでした",
+        layerRenameSelectLayer:
+          "パネル内のレイヤーをダブルクリックすると名前を変更できます",
         duplicateElementFailed: "その要素を複製できませんでした",
       },
     },
@@ -8529,6 +8540,8 @@ const designCanvasFeatureOverrides = {
         propsPasted: "속성이 붙여넣어짐",
         primitiveInsertFailed: "해당 레이어를 화면에 추가할 수 없습니다",
         layerMoveFailed: "해당 레이어를 이동할 수 없습니다",
+        layerRenameSelectLayer:
+          "패널에서 레이어를 더블클릭하면 이름을 바꿀 수 있습니다",
         duplicateElementFailed: "해당 요소를 복제할 수 없습니다",
       },
     },
@@ -8589,6 +8602,8 @@ const designCanvasFeatureOverrides = {
         propsPasted: "Propriedades coladas",
         primitiveInsertFailed: "Não foi possível adicionar essa camada à tela",
         layerMoveFailed: "Não foi possível mover essa camada",
+        layerRenameSelectLayer:
+          "Clique duas vezes na camada no painel para renomeá-la",
         duplicateElementFailed: "Não foi possível duplicar esse elemento",
       },
     },
@@ -8649,6 +8664,7 @@ const designCanvasFeatureOverrides = {
         propsPasted: "गुण चिपकाए गए",
         primitiveInsertFailed: "उस परत को स्क्रीन में नहीं जोड़ा जा सका",
         layerMoveFailed: "उस परत को स्थानांतरित नहीं किया जा सका",
+        layerRenameSelectLayer: "नाम बदलने के लिए पैनल में परत पर डबल-क्लिक करें",
         duplicateElementFailed: "उस तत्व की प्रतिलिपि नहीं बनाई जा सकी",
       },
     },
@@ -8709,6 +8725,8 @@ const designCanvasFeatureOverrides = {
         propsPasted: "تم لصق الخصائص",
         primitiveInsertFailed: "تعذرت إضافة تلك الطبقة إلى الشاشة",
         layerMoveFailed: "تعذر نقل تلك الطبقة",
+        layerRenameSelectLayer:
+          "انقر نقرًا مزدوجًا فوق الطبقة في اللوحة لإعادة تسميتها",
         duplicateElementFailed: "تعذّر تكرار هذا العنصر",
       },
     },

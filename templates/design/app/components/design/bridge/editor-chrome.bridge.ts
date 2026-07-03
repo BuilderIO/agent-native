@@ -30,8 +30,25 @@ declare var __DESIGN_CANVAS_SCREEN_ID__: string;
 declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
 
 (function () {
+  // Idempotency guard: replace-document-content / srcdoc rebuilds can end up
+  // re-injecting this script into a document where a previous instance's
+  // listeners, overlays, and observers are still alive (e.g. a head-only
+  // content swap in replaceRuntimeDocument that preserves persistent overlay
+  // nodes but re-runs inline <script> tags). Without this, a second instance
+  // would double-post every message and double-attach every document-level
+  // listener. Bail out entirely if an instance is already installed.
+  if ((window as any).__anEditorChromeBridge) return;
+  (window as any).__anEditorChromeBridge = true;
+
   var readOnly = __READ_ONLY__;
-  var textEditingEnabled = !readOnly && __TEXT_EDITING_ENABLED__;
+  // Raw host-controlled flag, kept separate from the derived
+  // `textEditingEnabled` below. The host (DesignCanvas.tsx) live-updates this
+  // via the `set-text-editing-enabled` postMessage instead of rebuilding
+  // srcdoc, exactly like `set-read-only`. See that handler for why: baking
+  // edit/preview-mode toggles into srcdoc would reload every screen iframe on
+  // every mode switch (white flash + lost in-iframe/Alpine state).
+  var textEditingEnabledFlag = __TEXT_EDITING_ENABLED__;
+  var textEditingEnabled = !readOnly && textEditingEnabledFlag;
   var designCanvasScreenId = __DESIGN_CANVAS_SCREEN_ID__ || "";
   var designCanvasBoardSurface = !!__DESIGN_CANVAS_BOARD_SURFACE__;
   var scaleToolEnabled = false;
@@ -548,6 +565,38 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
     };
   }
 
+  // Raw authored (not computed) inline style values for the properties the
+  // EditPanel constraints/position/auto-size readers need to distinguish
+  // "unset" from "resolved to a computed pixel value" (e.g. an absolutely
+  // positioned element with only `left` authored still computes both `left`
+  // and `right` — only the inline style tells you which side was actually
+  // set). Empty-string values are omitted so callers can treat key-absence as
+  // "not authored".
+  var INLINE_STYLE_PROPERTIES = [
+    "position",
+    "left",
+    "right",
+    "top",
+    "bottom",
+    "width",
+    "height",
+    "transform",
+    "whiteSpace",
+  ];
+
+  function collectInlineStyles(el: Element): Record<string, string> {
+    var styles: Record<string, string> = {};
+    var inline = (el as HTMLElement).style;
+    if (!inline) return styles;
+    INLINE_STYLE_PROPERTIES.forEach(function (property) {
+      var value = inline[property as never] as unknown as string;
+      if (typeof value === "string" && value !== "") {
+        styles[property] = value;
+      }
+    });
+    return styles;
+  }
+
   function chromeColorForElement(el: Element | null): string {
     return elementLooksLikeComponent(el)
       ? "var(--design-editor-component-color)"
@@ -748,7 +797,20 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
         filter: cs.filter,
         mixBlendMode: cs.mixBlendMode,
         zIndex: cs.zIndex,
+        transform: cs.transform,
+        scale: cs.scale,
+        visibility: cs.visibility,
+        backdropFilter: cs.backdropFilter,
+        webkitBackdropFilter: (
+          cs as unknown as { webkitBackdropFilter?: string }
+        ).webkitBackdropFilter,
+        flexWrap: cs.flexWrap,
+        alignContent: cs.alignContent,
+        isolation: cs.isolation,
+        whiteSpace: cs.whiteSpace,
       },
+      inlineStyles: collectInlineStyles(el),
+      primitiveKind: el.getAttribute("data-an-primitive") || undefined,
       portableStyleSnapshot: collectPortableStyleSnapshot(el),
       boundingRect: {
         x: rect.x + (window.scrollX || window.pageXOffset || 0),
@@ -773,6 +835,49 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
         return Math.max(best, item.confidence || 0);
       }, 0),
       provenance: provenance,
+    };
+  }
+
+  // Light hover descriptor: every pointer hover posts one of these instead of
+  // the full getElementInfo() payload. getElementInfo() runs getComputedStyle
+  // over ~130 properties on the element PLUS (via collectPortableStyleSnapshot)
+  // up to 80 descendants — fine at select/drag-start time, too expensive to run
+  // on every mousemove. Hover-only consumers (outline positioning, code-layer
+  // resolution by selector/id/tagName/classes/text) never read computedStyles
+  // or portableStyleSnapshot, so this intentionally omits both. Full detail is
+  // still posted on element-select / drag-start / edit-time messages via
+  // getElementInfo().
+  function getLightElementInfo(el: Element): unknown {
+    var rect = el.getBoundingClientRect();
+    var componentName = componentNameForElement(el);
+    var sourceBacked =
+      hasStableOwnSource(el) || !!closestStableSourceElement(el);
+    var sourceId = sourceBacked ? getSourceId(el) || getSelector(el) : "";
+    var parentStyles = el.parentElement
+      ? window.getComputedStyle(el.parentElement)
+      : null;
+    var parentDisplay = parentStyles ? parentStyles.display : undefined;
+    var cs = window.getComputedStyle(el);
+    return {
+      tagName: el.tagName.toLowerCase(),
+      componentName: componentName || undefined,
+      id: el.id || undefined,
+      sourceId: sourceId,
+      selector: getSelector(el),
+      classes: Array.from(el.classList),
+      computedStyles: {},
+      boundingRect: {
+        x: rect.x + (window.scrollX || window.pageXOffset || 0),
+        y: rect.y + (window.scrollY || window.pageYOffset || 0),
+        width: rect.width,
+        height: rect.height,
+      },
+      textContent: el.textContent ? el.textContent.slice(0, 200) : undefined,
+      childElementCount: el.children ? el.children.length : 0,
+      isFlexContainer: cs.display === "flex" || cs.display === "inline-flex",
+      isGridContainer: cs.display === "grid" || cs.display === "inline-grid",
+      isFlexChild: parentDisplay === "flex" || parentDisplay === "inline-flex",
+      parentDisplay: parentDisplay,
     };
   }
 
@@ -1145,6 +1250,33 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
     onUp: (ev: MouseEvent) => void;
   } | null = null;
   var activeTextEditEl: HTMLElement | null = null;
+  // Session-captured original min-width/min-height for the active text edit
+  // (T19): refreshOverlays() re-applies these on every reflow via
+  // updateTextEditingChrome, so it needs the real originals rather than "" —
+  // otherwise every overlay refresh during an edit clobbers the saved size
+  // back to the "1px"/"1em" empty-text defaults.
+  var activeTextEditOriginalMinWidth = "";
+  var activeTextEditOriginalMinHeight = "";
+  // Module-level ref to the in-flight text edit session's finish() closure
+  // (T4). replaceRuntimeDocument (forceFullDocument path, e.g. HMR/localhost
+  // reload) must commit or discard the active edit through the same path a
+  // user Escape/blur would use — removing its listeners and clearing overlay
+  // chrome — instead of only resetting the activeTextEditEl variable, which
+  // left the session's keydown/blur/paste/input/selectionchange listeners
+  // (including a document-level "selectionchange" listener) attached forever.
+  var finishActiveTextEdit: ((commit: boolean) => void) | null = null;
+  // Buffered runtime-content-update payload dropped while a text edit session
+  // is active (T13). replaceRuntimeDocument silently no-ops non-force updates
+  // during an edit (so the user's in-progress typing isn't yanked out from
+  // under them), but the host's one-shot queue still marks the update as
+  // applied. Without buffering, the canvas is left stale once the edit
+  // session ends. We keep only the latest dropped payload — a newer update
+  // supersedes an older one.
+  var pendingRuntimeDocumentUpdate: {
+    html: string;
+    preferredSelector: string;
+    selectorCandidates: string[];
+  } | null = null;
   var textEditPointerState: {
     shield: string;
     selection: string;
@@ -1414,15 +1546,34 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
   ): void {
     if (typeof html !== "string") return;
     if (activeTextEditEl && !forceFullDocument) {
+      // Don't yank a runtime content update out from under an in-progress
+      // text edit — but don't silently lose it either (T13). Buffer only the
+      // latest payload; it is applied once the edit session ends via
+      // finishActiveTextEdit's replay below.
+      pendingRuntimeDocumentUpdate = {
+        html: html,
+        preferredSelector: preferredSelector,
+        selectorCandidates: Array.isArray(selectorCandidates)
+          ? selectorCandidates
+          : [],
+      };
       applyHiddenSelectors();
       refreshOverlays();
       return;
     }
     if (activeTextEditEl) {
-      postTextEditingState(activeTextEditEl, false);
-      activeTextEditEl = null;
-      setTextEditingPointerPassthrough(false);
-      setSelectionOverlayResizeChromeVisible(true);
+      // Commit (or discard, if empty) the active edit through the same path
+      // Escape/blur would use — this removes the session's listeners
+      // (including the document-level "selectionchange" listener) instead of
+      // just resetting activeTextEditEl, which leaked them (T4).
+      if (finishActiveTextEdit) {
+        finishActiveTextEdit(true);
+      } else {
+        postTextEditingState(activeTextEditEl, false);
+        activeTextEditEl = null;
+        setTextEditingPointerPassthrough(false);
+        setSelectionOverlayResizeChromeVisible(true);
+      }
     }
     var parser = new DOMParser();
     var nextDoc = parser.parseFromString(html, "text/html");
@@ -2193,7 +2344,7 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
     hideMeasurements();
     if (changed) {
       (window.parent as Window).postMessage(
-        { type: "element-hover", payload: getElementInfo(selectedEl) },
+        { type: "element-hover", payload: getLightElementInfo(selectedEl) },
         "*",
       );
     }
@@ -2345,54 +2496,60 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
       });
   }
 
+  // Rotation-aware local-box placement shared by selectionOverlay, the hover
+  // highlightOverlay, and the passive multi-selection overlays: prefer the CSS
+  // box + rotation transform so the outline hugs the rotated element rather
+  // than its inflated axis-aligned bounding box. Returns true when it placed
+  // the overlay (caller should skip the AABB fallback), false when the element
+  // has no usable local box (falls back to getBoundingClientRect).
+  function positionOverlayForRotatedLocalBox(
+    overlay: HTMLElement,
+    el: Element,
+  ): boolean {
+    var elCs = window.getComputedStyle(el);
+    var elLeft = readFinitePx(el.style.left || elCs.left);
+    var elTop = readFinitePx(el.style.top || elCs.top);
+    var elW = readFinitePx(el.style.width || elCs.width);
+    var elH = readFinitePx(el.style.height || elCs.height);
+    var elRot = currentRotation(el);
+    var canUseLocalBox =
+      Math.abs(elRot) > 0.01 &&
+      elLeft !== null &&
+      elTop !== null &&
+      elW !== null &&
+      elH !== null;
+    if (!canUseLocalBox) return false;
+    // Convert element-local left/top to viewport coords by walking to the
+    // nearest positioned ancestor (same reference frame as getBoundingClientRect).
+    var parentRect = (
+      (el as HTMLElement).offsetParent || document.documentElement
+    ).getBoundingClientRect();
+    overlay.style.display = "block";
+    overlay.style.left = parentRect.left + elLeft + "px";
+    overlay.style.top = parentRect.top + elTop + "px";
+    overlay.style.width = elW + "px";
+    overlay.style.height = elH + "px";
+    overlay.style.transform = "rotate(" + elRot + "deg)";
+    overlay.style.transformOrigin = "0 0";
+    return true;
+  }
+
   function positionOverlay(overlay: HTMLElement, el: Element): void {
     if (!el || !document.documentElement.contains(el)) {
       overlay.style.display = "none";
       if (overlay === selectionOverlay) hideSelectionOverlay();
       return;
     }
-    // For the selection overlay, prefer the CSS box + rotation transform so
-    // the handles hug the rotated element rather than its inflated AABB.
-    if (overlay === selectionOverlay) {
-      var elCs = window.getComputedStyle(el);
-      var elLeft = readFinitePx(el.style.left || elCs.left);
-      var elTop = readFinitePx(el.style.top || elCs.top);
-      var elW = readFinitePx(el.style.width || elCs.width);
-      var elH = readFinitePx(el.style.height || elCs.height);
-      var elRot = currentRotation(el);
-      var canUseLocalBox =
-        Math.abs(elRot) > 0.01 &&
-        elLeft !== null &&
-        elTop !== null &&
-        elW !== null &&
-        elH !== null;
-      // Convert element-local left/top to viewport coords by walking to the
-      // nearest positioned ancestor (same reference frame as getBoundingClientRect).
-      if (canUseLocalBox) {
-        var parentRect = (
-          (el as HTMLElement).offsetParent || document.documentElement
-        ).getBoundingClientRect();
-        overlay.style.display = "block";
-        overlay.style.left = parentRect.left + elLeft + "px";
-        overlay.style.top = parentRect.top + elTop + "px";
-        overlay.style.width = elW + "px";
-        overlay.style.height = elH + "px";
-        overlay.style.transform = "rotate(" + elRot + "deg)";
-        overlay.style.transformOrigin = "0 0";
-        applySelectionChrome(el);
-        updateSpacingOverlay(el);
-        updateComponentTag(el);
-        updateParentAutoLayoutOverlay(el);
-        return;
-      }
+    var placedRotatedLocalBox = positionOverlayForRotatedLocalBox(overlay, el);
+    if (!placedRotatedLocalBox) {
+      var rect = el.getBoundingClientRect();
+      overlay.style.display = "block";
+      overlay.style.top = rect.top + "px";
+      overlay.style.left = rect.left + "px";
+      overlay.style.width = rect.width + "px";
+      overlay.style.height = rect.height + "px";
+      overlay.style.transform = "";
     }
-    var rect = el.getBoundingClientRect();
-    overlay.style.display = "block";
-    overlay.style.top = rect.top + "px";
-    overlay.style.left = rect.left + "px";
-    overlay.style.width = rect.width + "px";
-    overlay.style.height = rect.height + "px";
-    overlay.style.transform = "";
     if (overlay === selectionOverlay) {
       applySelectionChrome(el);
       updateSpacingOverlay(el);
@@ -2416,7 +2573,11 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
     }
     if (textEditingEl) {
       if (activeTextEditEl === textEditingEl) {
-        updateTextEditingChrome(textEditingEl, "", "");
+        updateTextEditingChrome(
+          textEditingEl,
+          activeTextEditOriginalMinWidth,
+          activeTextEditOriginalMinHeight,
+        );
       }
       if (!hasTextCharacters(textEditingEl)) {
         hideSelectionOverlay();
@@ -2430,6 +2591,103 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
       var overlay = passiveSelectionOverlays[index];
       if (overlay) positionOverlay(overlay, el);
     });
+    syncOverlayObservers();
+  }
+
+  // Coalesced overlay refresh: ResizeObserver/MutationObserver callbacks can
+  // fire in bursts (e.g. a font/image load reflowing many ancestors, or an
+  // Alpine x-show toggling several siblings in one microtask). Collapse any
+  // number of triggers within a frame into a single refreshOverlays() call.
+  var refreshOverlaysScheduled = false;
+  function scheduleRefreshOverlays(): void {
+    if (refreshOverlaysScheduled) return;
+    refreshOverlaysScheduled = true;
+    window.requestAnimationFrame(function () {
+      refreshOverlaysScheduled = false;
+      refreshOverlays();
+    });
+  }
+
+  // ResizeObserver on the selected + hovered elements catches size changes
+  // that scroll/resize listeners miss entirely: webfont swap reflow, image
+  // decode, CSS transitions/animations, and Alpine/Vue reactivity toggling
+  // classes on the element itself. MutationObserver (attributes + childList,
+  // scoped to the selected element and its parent) catches structural/attr
+  // changes that resize an element without necessarily firing a ResizeObserver
+  // entry on that exact node (e.g. a sibling insertion shifting layout).
+  var overlayResizeObserver: ResizeObserver | null = null;
+  var overlayMutationObserver: MutationObserver | null = null;
+  var observedResizeEls: Element[] = [];
+  var observedMutationRoot: Element | null = null;
+
+  function ensureOverlayObservers(): void {
+    if (!overlayResizeObserver && typeof ResizeObserver !== "undefined") {
+      overlayResizeObserver = new ResizeObserver(function () {
+        scheduleRefreshOverlays();
+      });
+    }
+    if (!overlayMutationObserver && typeof MutationObserver !== "undefined") {
+      overlayMutationObserver = new MutationObserver(function () {
+        scheduleRefreshOverlays();
+      });
+    }
+  }
+
+  function syncOverlayObservers(): void {
+    ensureOverlayObservers();
+    if (overlayResizeObserver) {
+      var nextTargets: Element[] = [];
+      if (selectedEl && document.documentElement.contains(selectedEl)) {
+        nextTargets.push(selectedEl);
+      }
+      if (
+        hoveredEl &&
+        hoveredEl !== selectedEl &&
+        document.documentElement.contains(hoveredEl)
+      ) {
+        nextTargets.push(hoveredEl);
+      }
+      var targetsChanged =
+        nextTargets.length !== observedResizeEls.length ||
+        nextTargets.some(function (el, i) {
+          return observedResizeEls[i] !== el;
+        });
+      if (targetsChanged) {
+        observedResizeEls.forEach(function (el) {
+          overlayResizeObserver!.unobserve(el);
+        });
+        nextTargets.forEach(function (el) {
+          overlayResizeObserver!.observe(el);
+        });
+        observedResizeEls = nextTargets;
+      }
+    }
+    if (overlayMutationObserver) {
+      var nextRoot: Element | null =
+        selectedEl && document.documentElement.contains(selectedEl)
+          ? selectedEl.parentElement || selectedEl
+          : null;
+      if (nextRoot !== observedMutationRoot) {
+        overlayMutationObserver.disconnect();
+        if (nextRoot) {
+          overlayMutationObserver.observe(nextRoot, {
+            attributes: true,
+            childList: true,
+            subtree: false,
+          });
+          // Also watch the selected element itself for attribute changes
+          // (e.g. class/style toggles) when it isn't the observed root.
+          if (nextRoot !== selectedEl && selectedEl) {
+            overlayMutationObserver.observe(selectedEl, {
+              attributes: true,
+              childList: true,
+              subtree: false,
+            });
+          }
+        }
+        observedMutationRoot = nextRoot;
+      }
+    }
   }
 
   function hideMeasurements(): void {
@@ -2728,6 +2986,11 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
   }
 
   function shouldForwardDesignHotkey(e) {
+    // Read-only surfaces (e.g. background/inactive board screens) must never
+    // forward edit hotkeys or preventDefault() native browser shortcuts —
+    // Escape/Enter/Tab/Delete/arrow-key/undo-redo forwarding is an editing
+    // affordance and has no business intercepting keys on a passive view.
+    if (readOnly) return false;
     if (activeTextEditEl || isEditorTypingTarget(e.target) || e.isComposing)
       return false;
     var key = e.key;
@@ -3564,6 +3827,64 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
     selection.addRange(range);
   }
 
+  // T2: Figma-style text editing treats Enter as a line break while editing
+  // (Escape or blur commits and exits). Uses the same insertText execCommand
+  // path as insertPlainTextAtSelection so undo grouping/IME behavior matches,
+  // falling back to a manual <br> insertion when insertText isn't supported.
+  function insertLineBreak(): void {
+    if (
+      document.queryCommandSupported &&
+      document.queryCommandSupported("insertText")
+    ) {
+      document.execCommand("insertText", false, "\n");
+      return;
+    }
+    var selection: Selection | null = window.getSelection
+      ? window.getSelection()
+      : null;
+    if (!selection || selection.rangeCount === 0) return;
+    var range = selection.getRangeAt(0);
+    range.deleteContents();
+    var br = document.createElement("br");
+    range.insertNode(br);
+    range.setStartAfter(br);
+    range.setEndAfter(br);
+    selection.removeAllRanges();
+    selection.addRange(range);
+  }
+
+  // T12: applyTextRangeStyle wraps a fresh <span> per invocation, so repeated
+  // scrub/commit cycles on the same range nest span chains
+  // (<span><span><span>text</span></span></span>) that persist in saved HTML.
+  // Collapse any run of nested spans that carry the exact same style
+  // attribute and no other attributes down to a single span. Only merges
+  // spans that are the sole child of their parent span (an exact 1:1 nesting,
+  // not spans that merely overlap a wider range).
+  function normalizeNestedIdenticalSpans(root: Element | null): void {
+    if (!root) return;
+    var spans = Array.prototype.slice.call(root.querySelectorAll("span"));
+    for (var i = 0; i < spans.length; i += 1) {
+      var span = spans[i];
+      if (!span || !span.parentNode) continue;
+      var parent = span.parentNode;
+      while (
+        parent &&
+        parent.nodeType === 1 &&
+        (parent as Element).tagName === "SPAN" &&
+        (parent as Element).childNodes.length === 1 &&
+        (parent as Element).getAttribute("style") ===
+          span.getAttribute("style") &&
+        (parent as Element).attributes.length === span.attributes.length
+      ) {
+        var grandparent = parent.parentNode;
+        if (!grandparent) break;
+        grandparent.insertBefore(span, parent);
+        grandparent.removeChild(parent);
+        parent = grandparent;
+      }
+    }
+  }
+
   function selectionBelongsToElement(
     selection: Selection | null,
     el: Element | null,
@@ -3597,6 +3918,50 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
     return true;
   }
 
+  // T12: if the current selection exactly covers an existing <span>'s content
+  // (i.e. the user is re-scrubbing/re-applying a style to the same range
+  // rather than a new sub-range), reuse that span instead of wrapping another
+  // one around it. Without this, a scrub gesture that fires applyTextRangeStyle
+  // many times per gesture nests a new <span> on every tick
+  // (<span><span><span>text</span></span></span>), and those chains persist
+  // in the saved HTML.
+  function exactCoverSpanForRange(range: Range): HTMLSpanElement | null {
+    var start = range.startContainer;
+    var end = range.endContainer;
+    if (start !== end) return null;
+
+    // Shape A: start/end container IS the span itself, with node-offsets
+    // spanning all of its children (this is what
+    // Range.selectNodeContents(span) produces — offsets into an Element
+    // container count child nodes, not characters).
+    if (start.nodeType === 1) {
+      var containerEl = start as HTMLElement;
+      if (containerEl.tagName !== "SPAN") return null;
+      if (containerEl.childNodes.length !== 1) return null;
+      if (range.startOffset !== 0 || range.endOffset !== 1) return null;
+      return containerEl as HTMLSpanElement;
+    }
+
+    // Shape B: start/end container is a text node, with character offsets
+    // spanning its full length (this is what surroundContents +
+    // selectNodeContents(span) round-trips to on a subsequent read, or what a
+    // caller-constructed range over the text node directly looks like).
+    if (start.nodeType !== 3) return null; // text node
+    var parent = start.parentNode;
+    if (!parent || parent.nodeType !== 1) return null;
+    var el = parent as HTMLElement;
+    if (el.tagName !== "SPAN") return null;
+    // The span must contain exactly this one text node, and the range must
+    // span the text node's full content (not a sub-range within it).
+    if (el.childNodes.length !== 1 || el.childNodes[0] !== start) return null;
+    if (
+      range.startOffset !== 0 ||
+      range.endOffset !== start.textContent!.length
+    )
+      return null;
+    return el as HTMLSpanElement;
+  }
+
   function applyTextRangeStyle(property: unknown, value: unknown): boolean {
     if (!activeTextEditEl || !property) return false;
     var selection: Selection | null = window.getSelection
@@ -3606,6 +3971,15 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
       return false;
     if (!selectionBelongsToElement(selection, activeTextEditEl)) return false;
     var range = selection.getRangeAt(0);
+    var reused = exactCoverSpanForRange(range);
+    if (reused) {
+      if (!applyInlineStyleProperty(reused, property, value)) return false;
+      selection.removeAllRanges();
+      var reusedRange = document.createRange();
+      reusedRange.selectNodeContents(reused);
+      selection.addRange(reusedRange);
+      return true;
+    }
     var span = document.createElement("span");
     applyInlineStyleProperty(span, property, value);
     if (!span.getAttribute("style")) return false;
@@ -5096,6 +5470,18 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
     }
   }
 
+  // T5: elements that must never become contenteditable via the raw-target
+  // fallback below, even when a caller opts into programmatic text editing.
+  // Chrome overlays are never real content; img/svg/canvas cannot host a text
+  // selection/caret the way findTextEditTarget expects and would leave the
+  // editor in a broken state (see the warning comment in findTextEditTarget).
+  function isRejectedRawTextEditTarget(el: Element | null): boolean {
+    if (!el) return true;
+    if (isOverlayElement(el)) return true;
+    var tag = el.tagName ? el.tagName.toLowerCase() : "";
+    return tag === "img" || tag === "svg" || tag === "canvas";
+  }
+
   function beginTextEditingFromEvent(e, forceTextEditing) {
     if (activeTextEditEl && e.target && activeTextEditEl.contains(e.target))
       return;
@@ -5106,10 +5492,25 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
     stopNativeInteraction(e);
     var eventTarget =
       e && e.target && e.target.nodeType === 1 ? e.target : null;
+    // The raw `eventTarget` fallback (no findTextEditTarget resolution at
+    // all) bypasses findTextEditTarget's editable-ancestor check entirely, so
+    // it is only safe when the caller has explicitly opted into programmatic
+    // text editing (e.g. an agent action creating a new text primitive and
+    // immediately entering edit mode on it) — and even then, never for a
+    // chrome overlay or an img/svg/canvas element, which cannot be made
+    // sensibly contenteditable.
+    var programmaticFlag =
+      !!e &&
+      (e as unknown as { agentNativeProgrammaticTextEdit?: boolean })
+        .agentNativeProgrammaticTextEdit === true;
+    var rawTargetFallback =
+      programmaticFlag && !isRejectedRawTextEditTarget(eventTarget)
+        ? eventTarget
+        : null;
     var target =
       findTextEditTarget(elementFromEditorPoint(e.clientX, e.clientY)) ||
       findTextEditTarget(eventTarget) ||
-      eventTarget;
+      rawTargetFallback;
     if (!target || target.nodeType !== 1) return;
     // Anchor the selection identity to the nearest source-backed element. Text
     // editing still operates on the actual target text node, but a later
@@ -5117,10 +5518,7 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
     // code-layer node rather than a runtime-only descendant (which would emit a
     // brittle body > div:nth-of-type(...) selector that never resolves).
     selectedEl = selectionTargetForHit(target) || target;
-    var programmaticTextEdit =
-      !!e &&
-      (e as unknown as { agentNativeProgrammaticTextEdit?: boolean })
-        .agentNativeProgrammaticTextEdit === true;
+    var programmaticTextEdit = programmaticFlag;
     var originalText = target.textContent || "";
     var originalHtml = target.innerHTML || "";
     var originalMinWidth = target.style.minWidth;
@@ -5130,6 +5528,27 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
     var originalOutlineOffset = target.style.outlineOffset;
     var committed = false;
     activeTextEditEl = target;
+    // T19: publish this session's captured originals so refreshOverlays()
+    // (which runs on ResizeObserver/MutationObserver ticks during the edit,
+    // not just from inside this closure) can pass the real values instead of
+    // "" to updateTextEditingChrome.
+    activeTextEditOriginalMinWidth = originalMinWidth;
+    activeTextEditOriginalMinHeight = originalMinHeight;
+    // T20: per-keystroke chrome updates (onInput/onSelectionChange) and the
+    // 3-4 postMessages they cause (text-editing-state + a caret-move
+    // selectionchange on every arrow key / click) are coalesced into a single
+    // rAF tick instead of firing synchronously on every event.
+    var chromeUpdateScheduled = false;
+    function scheduleTextEditingChromeUpdate() {
+      if (chromeUpdateScheduled) return;
+      chromeUpdateScheduled = true;
+      window.requestAnimationFrame(function () {
+        chromeUpdateScheduled = false;
+        if (committed) return;
+        updateTextEditingChrome(target, originalMinWidth, originalMinHeight);
+        postTextEditingState(target, true);
+      });
+    }
     target.setAttribute("contenteditable", "true");
     target.setAttribute("data-agent-native-text-editing", "true");
     target.style.cursor = "text";
@@ -5174,19 +5593,43 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
       setTextEditingPointerPassthrough(false);
       setSelectionOverlayResizeChromeVisible(true);
       if (activeTextEditEl === target) activeTextEditEl = null;
+      // T4: this session no longer owns the active-edit slot.
+      if (finishActiveTextEdit === finish) finishActiveTextEdit = null;
       postTextEditingState(target, false);
       if (!commit) {
         target.innerHTML = originalHtml;
         refreshOverlays();
         return;
       }
+      // T12: collapse any nested-identical-style <span> chains left behind by
+      // repeated applyTextRangeStyle scrub/commit cycles before reading out
+      // the committed HTML.
+      normalizeNestedIdenticalSpans(target);
       var next = target.textContent || "";
       var nextHtml = target.innerHTML || "";
       refreshOverlays();
       if (next !== originalText || nextHtml !== originalHtml) {
         postTextContentChange(target, next, nextHtml);
       }
+      // T13: replay the latest runtime-content update that arrived (and was
+      // buffered) while this edit session was active, so the canvas isn't
+      // left stale now that editing has ended.
+      if (pendingRuntimeDocumentUpdate) {
+        var pending = pendingRuntimeDocumentUpdate;
+        pendingRuntimeDocumentUpdate = null;
+        replaceRuntimeDocument(
+          pending.html,
+          pending.preferredSelector,
+          pending.selectorCandidates,
+          true,
+        );
+      }
     }
+    // T4: publish this session's finish() so replaceRuntimeDocument (and any
+    // other caller that must end an in-progress edit deterministically) can
+    // commit/discard through the same listener-teardown path a user
+    // Escape/blur would take, instead of only resetting activeTextEditEl.
+    finishActiveTextEdit = finish;
 
     function onBlur() {
       if (programmaticTextEdit && !(target.textContent || "").trim()) {
@@ -5202,16 +5645,42 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
     }
 
     function onKeyDown(ev) {
+      // T3: bail out on IME composition input (e.g. CJK/Korean input method
+      // candidate selection) so a composing Enter/Escape keystroke isn't
+      // intercepted as a commit/newline before the IME has finished composing
+      // the character. keyCode 229 is the legacy signal browsers send for
+      // composition keydowns that don't set isComposing.
+      if (ev.isComposing || ev.keyCode === 229) return;
       if (ev.key === "Escape") {
         ev.preventDefault();
         finish(true);
         target.blur();
         return;
       }
+      // T2: Enter inserts a line break while editing (Figma convention);
+      // Escape or blur (click-out) is what commits and exits the session.
       if (ev.key === "Enter" && !ev.shiftKey) {
         ev.preventDefault();
-        finish(true);
-        target.blur();
+        insertLineBreak();
+        scheduleTextEditingChromeUpdate();
+        return;
+      }
+      // T21: forward Cmd/Ctrl+B and Cmd/Ctrl+I within the edit session to
+      // execCommand bold/italic on the current selection. normalizeNestedIdenticalSpans
+      // (T12) cleans up any span nesting execCommand leaves behind when the
+      // session commits.
+      var metaOrCtrl = ev.metaKey || ev.ctrlKey;
+      if (metaOrCtrl && !ev.altKey && ev.key.toLowerCase() === "b") {
+        ev.preventDefault();
+        document.execCommand("bold");
+        scheduleTextEditingChromeUpdate();
+        return;
+      }
+      if (metaOrCtrl && !ev.altKey && ev.key.toLowerCase() === "i") {
+        ev.preventDefault();
+        document.execCommand("italic");
+        scheduleTextEditingChromeUpdate();
+        return;
       }
     }
 
@@ -5220,18 +5689,15 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
       insertPlainTextAtSelection(
         (ev.clipboardData && ev.clipboardData.getData("text/plain")) || "",
       );
-      updateTextEditingChrome(target, originalMinWidth, originalMinHeight);
-      postTextEditingState(target, true);
+      scheduleTextEditingChromeUpdate();
     }
 
     function onInput() {
-      updateTextEditingChrome(target, originalMinWidth, originalMinHeight);
-      postTextEditingState(target, true);
+      scheduleTextEditingChromeUpdate();
     }
 
     function onSelectionChange() {
-      updateTextEditingChrome(target, originalMinWidth, originalMinHeight);
-      postTextEditingState(target, true);
+      scheduleTextEditingChromeUpdate();
     }
 
     target.addEventListener("blur", onBlur, true);
@@ -5300,7 +5766,7 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
       } else {
         hideMeasurements();
       }
-      var info = getElementInfo(hoveredEl);
+      var info = getLightElementInfo(hoveredEl);
       (window.parent as Window).postMessage(
         { type: "element-hover", payload: info },
         "*",
@@ -5363,11 +5829,17 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
   window.addEventListener("message", function (e) {
     if (e.source !== window.parent) return;
     if (!e.data) return;
-    if (e.data.payload && typeof e.data.payload === "object") {
-      Object.keys(e.data.payload).forEach(function (key) {
-        if (e.data[key] === undefined) e.data[key] = e.data.payload[key];
-      });
-    }
+    // NOTE: no message type in this handler is sourced from a `payload`
+    // sub-object — every host sender (DesignCanvas.tsx) puts its fields
+    // directly on the top-level message. A previous blanket
+    // `Object.keys(e.data.payload).forEach(...)` hoist here copied every key
+    // of an arbitrary `payload` object onto `e.data` for ANY message type,
+    // which could let an attacker-controlled `payload` (e.g. relayed through
+    // a less-trusted surface) inject fields like `readOnly`, `force`, or
+    // `content` into a message type that never intended to accept them. If a
+    // future message type needs payload-sourced fields, extract them
+    // explicitly inside that type's own branch below instead of reintroducing
+    // a blanket hoist.
     // set-read-only: toggle the bridge's readOnly state in-place without a reload.
     // When readOnly becomes true the shield/selection/drag/edit entry points are
     // gated so the surface is safe for background/inactive display use.
@@ -5375,7 +5847,7 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
       var nextReadOnly = !!e.data.readOnly;
       if (readOnly === nextReadOnly) return;
       readOnly = nextReadOnly;
-      textEditingEnabled = !readOnly && __TEXT_EDITING_ENABLED__;
+      textEditingEnabled = !readOnly && textEditingEnabledFlag;
       if (readOnly) {
         // Leave the text editor gracefully before going read-only.
         if (activeTextEditEl) {
@@ -5385,6 +5857,27 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
         shieldOverlay.style.pointerEvents = "none";
       } else {
         shieldOverlay.style.pointerEvents = "auto";
+      }
+      return;
+    }
+    // set-text-editing-enabled: toggle the bridge's edit/preview-mode flag
+    // in-place without a reload, mirroring set-read-only above. The host
+    // flips this whenever DesignCanvas's `editMode` prop changes (Edit ⇄
+    // Preview). Without this postMessage path, `editMode` would need to stay
+    // a srcdoc dependency, which rebuilds and reloads every screen iframe on
+    // every edit/preview toggle.
+    if (e.data.type === "set-text-editing-enabled") {
+      var nextTextEditingEnabledFlag = !!e.data.enabled;
+      if (textEditingEnabledFlag === nextTextEditingEnabledFlag) return;
+      textEditingEnabledFlag = nextTextEditingEnabledFlag;
+      var nextTextEditingEnabled = !readOnly && textEditingEnabledFlag;
+      if (textEditingEnabled === nextTextEditingEnabled) return;
+      textEditingEnabled = nextTextEditingEnabled;
+      // Leaving text-editing-enabled mode: gracefully exit any in-progress
+      // text edit rather than leaving a live contenteditable behind, mirroring
+      // the readOnly transition above.
+      if (!textEditingEnabled && activeTextEditEl) {
+        activeTextEditEl.blur();
       }
       return;
     }
@@ -5468,6 +5961,53 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
               ? e.data.correlationId
               : "",
           payload: collectSelectableElementInfos(),
+        },
+        "*",
+      );
+      return;
+    }
+    // agent-native:text-edit-status: host-side query used instead of a direct
+    // (now sandbox-blocked) iframe.contentDocument read. Mirrors the exact
+    // resolution `postBeginTextEditToPreviewIframes` (DesignEditor.tsx) used to
+    // do itself: find the node by data-agent-native-node-id, and report whether
+    // a text-edit session is currently "active" on it (focused element carries
+    // data-agent-native-text-editing), "done" (non-empty committed text and not
+    // actively focused), or neither.
+    if (e.data.type === "agent-native:text-edit-status") {
+      var textEditStatusCorrelationId: string =
+        typeof e.data.correlationId === "string" ? e.data.correlationId : "";
+      var textEditStatusNodeId: string =
+        typeof e.data.nodeId === "string" ? e.data.nodeId : "";
+      var textEditStatus: "active" | "done" | false = false;
+      if (textEditStatusNodeId) {
+        var escapedTextEditStatusNodeId = textEditStatusNodeId
+          .replace(/\\/g, "\\\\")
+          .replace(/"/g, '\\"');
+        var textEditStatusNode: Element | null = document.querySelector(
+          '[data-agent-native-node-id="' + escapedTextEditStatusNodeId + '"]',
+        );
+        var textEditStatusEditingEl: Element | null = document.querySelector(
+          '[data-agent-native-node-id="' +
+            escapedTextEditStatusNodeId +
+            '"][data-agent-native-text-editing]',
+        );
+        if (
+          textEditStatusEditingEl &&
+          document.activeElement === textEditStatusEditingEl
+        ) {
+          textEditStatus = "active";
+        } else if (
+          textEditStatusNode &&
+          (textEditStatusNode.textContent ?? "").trim().length > 0
+        ) {
+          textEditStatus = "done";
+        }
+      }
+      (window.parent as Window).postMessage(
+        {
+          type: "agent-native:text-edit-status-result",
+          correlationId: textEditStatusCorrelationId,
+          status: textEditStatus,
         },
         "*",
       );
@@ -5675,16 +6215,32 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
       );
     }
     var el = findRuntimeTarget(String(sel || ""), candidatesForStyle);
+    // T11: a live text-edit session's selection lives inside activeTextEditEl,
+    // but the incoming style-change's selector/candidates were captured from
+    // selectedEl at edit-start time, which selectionTargetForHit may have
+    // anchored to a source-backed ancestor rather than activeTextEditEl
+    // itself (when the actual edit target is a runtime-only descendant).
+    // Requiring `el === activeTextEditEl` then never matches, and the whole
+    // ancestor gets restyled instead of just the visible range. Route on
+    // activeTextEditEl's own relationship to the resolved target instead: a
+    // style-change should still be treated as "editing the active session"
+    // when the resolved element IS activeTextEditEl, or IS an ancestor that
+    // activeTextEditEl lives inside (the panel is targeting "the thing the
+    // user double-clicked into", which is this edit session, even though the
+    // selector re-anchored to its stable container).
+    var styleChangeTargetsActiveTextEdit =
+      !!activeTextEditEl &&
+      !!el &&
+      (el === activeTextEditEl || el.contains(activeTextEditEl));
     if (
       prop &&
-      activeTextEditEl &&
-      el === activeTextEditEl &&
+      styleChangeTargetsActiveTextEdit &&
       applyTextRangeStyle(prop, val)
     ) {
       postTextContentChange(
         activeTextEditEl,
-        activeTextEditEl.textContent || "",
-        activeTextEditEl.innerHTML || "",
+        activeTextEditEl!.textContent || "",
+        activeTextEditEl!.innerHTML || "",
       );
       refreshOverlays();
       return;
@@ -5755,4 +6311,16 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
   window.addEventListener("scroll", refreshOverlays, true);
   window.addEventListener("resize", refreshOverlays);
   applyEditorChromeScale();
+
+  // One-time ready signal: tells the host that every message listener above is
+  // now attached, so one-shot commands (begin-text-edit, set-editor-chrome-scale,
+  // style-change, delete-element, replace-document-content) sent immediately
+  // after (re)creating this iframe are safe to deliver. Without this, a command
+  // posted before the bridge script has executed — or while the iframe is
+  // reloading — is simply lost; replayIframeEditorState only replays
+  // steady-state selection/hover/tweak/motion state, not one-shot commands.
+  (window.parent as Window).postMessage(
+    { type: "agent-native:editor-chrome-ready" },
+    "*",
+  );
 })();

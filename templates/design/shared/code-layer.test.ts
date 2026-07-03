@@ -933,15 +933,31 @@ describe("wrapNodes", () => {
     expect(patch.content).toBe(html);
   });
 
-  it("returns unsupported when selected siblings are not contiguous", () => {
+  it("groups non-contiguous same-parent siblings by moving them adjacent to the topmost member first (L6)", () => {
     const html = `<main><div data-agent-native-node-id="a">A</div><div data-agent-native-node-id="b">B</div><div data-agent-native-node-id="c">C</div></main>`;
     const patch = applyVisualEdit(html, {
       kind: "wrapNodes",
       targetIds: ["a", "c"],
     });
 
-    expect(patch.result.status).toBe("unsupported");
-    expect(patch.content).toBe(html);
+    expect(patch.result.status).toBe("applied");
+    expect(patch.result.changed).toBe(true);
+    expect(patch.result.wrapperNodeId).toBeTruthy();
+    // Both non-adjacent targets end up inside the wrapper, adjacent to each other.
+    expect(patch.content).toContain(`data-agent-native-node-id="a"`);
+    expect(patch.content).toContain(`data-agent-native-node-id="c"`);
+    const wrapperIdx = patch.content.indexOf(
+      `data-agent-native-node-id="${patch.result.wrapperNodeId}"`,
+    );
+    const aIdx = patch.content.indexOf(`data-agent-native-node-id="a"`);
+    const cIdx = patch.content.indexOf(`data-agent-native-node-id="c"`);
+    const bIdx = patch.content.indexOf(`data-agent-native-node-id="b"`);
+    expect(wrapperIdx).toBeLessThan(aIdx);
+    expect(aIdx).toBeLessThan(cIdx);
+    // b (not selected) is left behind in the original parent, outside the wrapper.
+    expect(bIdx).toBeGreaterThan(
+      patch.content.indexOf("</div>", cIdx) /* end of wrapper's C child */,
+    );
   });
 
   it("returns conflict when a target node id is not found", () => {
@@ -953,6 +969,89 @@ describe("wrapNodes", () => {
 
     expect(patch.result.status).toBe("conflict");
     expect(patch.content).toBe(html);
+  });
+
+  it("L6: gives a distinct message when targets don't share a parent (not the generic move-failed message)", () => {
+    const html = `<main><section><div data-agent-native-node-id="a">A</div></section><div data-agent-native-node-id="b">B</div></main>`;
+    const patch = applyVisualEdit(html, {
+      kind: "wrapNodes",
+      targetIds: ["a", "b"],
+    });
+
+    expect(patch.result.status).toBe("unsupported");
+    expect(patch.result.message).toMatch(/same parent/i);
+  });
+
+  it("L6: gives a distinct message for an empty selection", () => {
+    const html = `<main><div data-agent-native-node-id="a">A</div></main>`;
+    const patch = applyVisualEdit(html, {
+      kind: "wrapNodes",
+      targetIds: [],
+    });
+
+    expect(patch.result.status).toBe("unsupported");
+    expect(patch.result.message).toMatch(/select at least one/i);
+  });
+
+  it("L7: names sequential groups Group, Group 2, Group 3 instead of repeating 'Group'", () => {
+    const html = `<main><div data-agent-native-node-id="a">A</div><div data-agent-native-node-id="b">B</div><div data-agent-native-node-id="c">C</div><div data-agent-native-node-id="d">D</div></main>`;
+    const first = applyVisualEdit(html, {
+      kind: "wrapNodes",
+      targetIds: ["a", "b"],
+    });
+    expect(first.result.status).toBe("applied");
+    expect(first.content).toContain(`data-agent-native-layer-name="Group"`);
+
+    const second = applyVisualEdit(first.content, {
+      kind: "wrapNodes",
+      targetIds: ["c", "d"],
+    });
+    expect(second.result.status).toBe("applied");
+    expect(second.content).toContain(`data-agent-native-layer-name="Group 2"`);
+  });
+
+  it("L7: computes union bounds for a wrapper when all children are absolutely positioned", () => {
+    const html =
+      `<main>` +
+      `<div data-agent-native-node-id="a" style="position: absolute; left: 10px; top: 20px; width: 100px; height: 50px">A</div>` +
+      `<div data-agent-native-node-id="b" style="position: absolute; left: 150px; top: 40px; width: 80px; height: 60px">B</div>` +
+      `</main>`;
+    const patch = applyVisualEdit(html, {
+      kind: "wrapNodes",
+      targetIds: ["a", "b"],
+    });
+
+    expect(patch.result.status).toBe("applied");
+    // Union: left=10, top=20, right=max(110,230)=230, bottom=max(70,100)=100
+    expect(patch.content).toContain("position: absolute");
+    expect(patch.content).toContain("left: 10px");
+    expect(patch.content).toContain("top: 20px");
+    expect(patch.content).toContain("width: 220px");
+    expect(patch.content).toContain("height: 80px");
+    // Children are rebased relative to the new wrapper origin (10, 20):
+    // a: left 10-10=0, top 20-20=0; b: left 150-10=140, top 40-20=20.
+    expect(patch.content).toContain("left: 0px");
+    expect(patch.content).toContain("top: 0px");
+    expect(patch.content).toContain("left: 140px");
+    expect(patch.content).toContain("top: 20px");
+  });
+
+  it("L7: falls back to a flow wrapper (no geometry) when children are not all absolutely positioned", () => {
+    const html = `<main><div data-agent-native-node-id="a" style="position: absolute; left: 10px; top: 20px; width: 100px; height: 50px">A</div><div data-agent-native-node-id="b">B</div></main>`;
+    const patch = applyVisualEdit(html, {
+      kind: "wrapNodes",
+      targetIds: ["a", "b"],
+    });
+
+    expect(patch.result.status).toBe("applied");
+    expect(patch.content).toContain(`data-agent-native-layer-name="Group"`);
+    // No union-bounds style block should have been added to the wrapper div itself.
+    const wrapperOpenTagMatch = patch.content.match(
+      new RegExp(
+        `<div data-agent-native-node-id="${patch.result.wrapperNodeId}"[^>]*>`,
+      ),
+    );
+    expect(wrapperOpenTagMatch?.[0]).not.toContain("position: absolute");
   });
 });
 
@@ -1006,6 +1105,83 @@ describe("unwrap", () => {
 
     expect(patch.result.status).toBe("conflict");
     expect(patch.content).toBe(html);
+  });
+
+  it("L3: returns unsupported for a leaf element with no element children (safety gate)", () => {
+    const html = `<main><p data-agent-native-node-id="leaf">Just some text, no child elements</p></main>`;
+    const patch = applyVisualEdit(html, {
+      kind: "unwrap",
+      targetId: "leaf",
+    });
+
+    expect(patch.result.status).toBe("unsupported");
+    expect(patch.content).toBe(html);
+    // The leaf element must be left completely untouched — not spliced away.
+    expect(patch.content).toContain(`data-agent-native-node-id="leaf"`);
+    expect(patch.content).toContain("Just some text, no child elements");
+  });
+
+  it("L3: returns unsupported for an empty/void element", () => {
+    const html = `<main><img data-agent-native-node-id="img" src="x.png" /></main>`;
+    const patch = applyVisualEdit(html, {
+      kind: "unwrap",
+      targetId: "img",
+    });
+
+    expect(patch.result.status).toBe("unsupported");
+    expect(patch.content).toBe(html);
+  });
+
+  it("L3: still unwraps a container whose only child is a text-bearing leaf element", () => {
+    const html = `<main><div data-agent-native-node-id="wrapper"><p data-agent-native-node-id="child">Hello</p></div></main>`;
+    const patch = applyVisualEdit(html, {
+      kind: "unwrap",
+      targetId: "wrapper",
+    });
+
+    expect(patch.result.status).toBe("applied");
+    expect(patch.content).not.toContain(`data-agent-native-node-id="wrapper"`);
+    expect(patch.content).toContain(`data-agent-native-node-id="child"`);
+    expect(patch.content).toContain("Hello");
+  });
+
+  it("L3: rebases absolutely-positioned children by the wrapper's own offset on unwrap", () => {
+    const html =
+      `<main>` +
+      `<div data-agent-native-node-id="wrapper" style="position: absolute; left: 50px; top: 30px">` +
+      `<div data-agent-native-node-id="child" style="position: absolute; left: 10px; top: 5px; width: 20px; height: 20px">Child</div>` +
+      `</div>` +
+      `</main>`;
+    const patch = applyVisualEdit(html, {
+      kind: "unwrap",
+      targetId: "wrapper",
+    });
+
+    expect(patch.result.status).toBe("applied");
+    expect(patch.content).not.toContain(`data-agent-native-node-id="wrapper"`);
+    expect(patch.content).toContain(`data-agent-native-node-id="child"`);
+    // Child's absolute offset must be rebased by the wrapper's own former
+    // offset (50, 30) so it keeps the same absolute screen position once
+    // spliced directly into <main>: 10+50=60, 5+30=35.
+    expect(patch.content).toContain("left: 60px");
+    expect(patch.content).toContain("top: 35px");
+  });
+
+  it("L3: does not rebase children when the wrapper itself is not absolutely positioned", () => {
+    const html =
+      `<main>` +
+      `<div data-agent-native-node-id="wrapper">` +
+      `<div data-agent-native-node-id="child" style="position: absolute; left: 10px; top: 5px">Child</div>` +
+      `</div>` +
+      `</main>`;
+    const patch = applyVisualEdit(html, {
+      kind: "unwrap",
+      targetId: "wrapper",
+    });
+
+    expect(patch.result.status).toBe("applied");
+    expect(patch.content).toContain("left: 10px");
+    expect(patch.content).toContain("top: 5px");
   });
 });
 

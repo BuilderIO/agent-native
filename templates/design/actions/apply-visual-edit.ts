@@ -106,6 +106,7 @@ function scopeClassIntentToBreakpoint(
       prefix,
       operation: "replace",
       utility: intent.to,
+      from: intent.from,
     };
   }
 
@@ -474,11 +475,12 @@ export default defineAction({
       const patch = applyVisualEdit("", editIntent, {
         source: codeLayerSource,
       });
+      // local-file / remote-url sources are not editable here (the engine
+      // reports "unsupported"), so no byte counts are returned — a 0/0 pair
+      // would misleadingly suggest an empty file was measured.
       return {
         result: patch.result,
         projection: patch.projection,
-        bytesBefore: 0,
-        bytesAfter: 0,
       };
     }
 

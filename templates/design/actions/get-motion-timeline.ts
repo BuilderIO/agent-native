@@ -1,5 +1,4 @@
 import { defineAction } from "@agent-native/core";
-import { getText, hasCollabState } from "@agent-native/core/collab";
 import { assertAccess } from "@agent-native/core/sharing";
 import { and, desc, eq } from "drizzle-orm";
 import { z } from "zod";
@@ -10,6 +9,7 @@ import {
   extractManagedMotionCss,
   hashCss,
   parse,
+  parseFirstAnimationDurationMs,
 } from "../shared/motion-compiler.js";
 import type { MotionTrack } from "../shared/motion-timeline.js";
 
@@ -30,21 +30,6 @@ interface TimelineResult {
   updatedAt: string | null;
 }
 
-async function liveFileContent(
-  fileId: string,
-  storedContent: string,
-): Promise<string> {
-  try {
-    if (await hasCollabState(fileId)) {
-      const live = await getText(fileId, "content");
-      if (typeof live === "string") return live;
-    }
-  } catch {
-    // Best-effort; SQL is the fallback.
-  }
-  return storedContent;
-}
-
 function parseTrackJson(raw: string | null): MotionTrack[] {
   try {
     const parsed: unknown = JSON.parse(raw ?? "[]");
@@ -57,7 +42,12 @@ function parseTrackJson(raw: string | null): MotionTrack[] {
 async function readManagedCssForSource(args: {
   designId: string;
   sourceRef?: string;
-}): Promise<{ css: string; hash: string; tracks: MotionTrack[] } | null> {
+}): Promise<{
+  css: string;
+  hash: string;
+  tracks: MotionTrack[];
+  durationMs: number | null;
+} | null> {
   if (!args.sourceRef) return null;
 
   const db = getDb();
@@ -77,7 +67,13 @@ async function readManagedCssForSource(args: {
 
   if (!file) return null;
 
-  const content = await liveFileContent(file.id, file.content ?? "");
+  // Read the managed block from the SQL content, NOT a live collab snapshot:
+  // apply-motion-edit persists the managed <style> block to SQL only, so a
+  // live collab session's text lags the freshest motion CSS. Comparing the
+  // stored compiledHash against stale collab CSS would flag phantom
+  // "stored-css-drift" right after every save and replace fresh tracks with
+  // stale CSS-parsed ones. SQL is the motion block's source of truth.
+  const content = file.content ?? "";
   const css = extractManagedMotionCss(content);
   if (!css) return null;
 
@@ -88,7 +84,12 @@ async function readManagedCssForSource(args: {
   );
   if (tracks.length === 0) return null;
 
-  return { css, hash: hashCss(css), tracks };
+  return {
+    css,
+    hash: hashCss(css),
+    tracks,
+    durationMs: parseFirstAnimationDurationMs(css),
+  };
 }
 
 export default defineAction({
@@ -179,7 +180,9 @@ export default defineAction({
           sourceRef: sourceRef ?? null,
           filePath: null,
           tracks: managedCss.tracks,
-          durationMs: 1000,
+          // Recover the compiled animation-duration instead of inventing a
+          // default the next save would silently persist.
+          durationMs: managedCss.durationMs ?? 1000,
           defaultEase: "ease",
           compiledHash: managedCss.hash,
           cssHash: managedCss.hash,
@@ -191,6 +194,9 @@ export default defineAction({
         timelines[0] = {
           ...first,
           tracks: managedCss.tracks,
+          // In the drift case the CSS is the runtime truth — surface its
+          // compiled duration alongside its recovered tracks.
+          durationMs: managedCss.durationMs ?? first.durationMs,
           cssHash: managedCss.hash,
           source: "stored-css-drift",
         };

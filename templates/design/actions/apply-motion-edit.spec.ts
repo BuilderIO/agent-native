@@ -22,6 +22,7 @@ import {
 } from "../shared/motion-compiler.js";
 import {
   canPatchManagedMotionCss,
+  motionTrackKey,
   resolveMotionTimelineInsertOwnership,
 } from "./apply-motion-edit.js";
 
@@ -233,5 +234,54 @@ describe("apply-motion-edit write ordering (Issue 2 — non-atomic write)", () =
     expect(src).toContain(
       "ALTER TABLE motion_timeline ADD COLUMN IF NOT EXISTS visibility",
     );
+  });
+});
+
+// ─── Issue 6: duplicate-track key separator must not be a literal NUL ─────────
+//
+// The duplicate (targetNodeId, property) guard joins the two fields with a
+// separator. Previously that separator was a literal NUL (\0) embedded in the
+// source, which made tooling (grep, editors, diff) treat the file as binary.
+// motionTrackKey now uses the ASCII Unit Separator (\x1f), an escape in source
+// so the file stays plain text, while still being a delimiter that cannot
+// appear in a CSS-safe nodeId or property.
+
+describe("motionTrackKey (Issue 6 — NUL separator made the file binary)", () => {
+  it("does not contain a literal NUL byte", () => {
+    expect(motionTrackKey("node-1", "opacity")).not.toContain("\0");
+  });
+
+  it("uses the ASCII Unit Separator (\\x1f) as the field delimiter", () => {
+    expect(motionTrackKey("node-1", "opacity")).toBe("node-1\x1fopacity");
+  });
+
+  it("distinguishes distinct (nodeId, property) pairs", () => {
+    const a = motionTrackKey("node-1", "opacity");
+    const b = motionTrackKey("node-1", "transform");
+    const c = motionTrackKey("node-2", "opacity");
+    expect(a).not.toBe(b);
+    expect(a).not.toBe(c);
+    expect(b).not.toBe(c);
+  });
+
+  it("returns the same key for the same pair (duplicate detection works)", () => {
+    expect(motionTrackKey("node-9", "color")).toBe(
+      motionTrackKey("node-9", "color"),
+    );
+  });
+
+  it("cannot be forged by a nodeId/property boundary shift", () => {
+    // Without a delimiter, ("ab","c") and ("a","bc") would collide. The
+    // separator keeps them distinct.
+    expect(motionTrackKey("ab", "c")).not.toBe(motionTrackKey("a", "bc"));
+  });
+
+  it("the action source file contains no literal NUL byte", () => {
+    const actionPath = path.resolve(
+      path.dirname(fileURLToPath(import.meta.url)),
+      "apply-motion-edit.ts",
+    );
+    const src = readFileSync(actionPath, "utf8");
+    expect(src.includes("\0")).toBe(false);
   });
 });

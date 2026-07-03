@@ -27,11 +27,15 @@ import {
   MOTION_PROPERTY_PRESETS,
   createMotionTrackFromPreset,
   hasTrackFor,
+  sampleMotionKeyframesAt,
+  sortMotionKeyframes,
+  upsertMotionKeyframeAtTime,
 } from "@shared/motion-timeline";
 import {
   IconPlayerPlay,
   IconPlayerPause,
   IconPlayerStop,
+  IconCheck,
   IconDiamond,
   IconChevronDown,
   IconChevronRight,
@@ -49,6 +53,7 @@ import {
   type PointerEvent as ReactPointerEvent,
   type TransitionEvent as ReactTransitionEvent,
 } from "react";
+import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -123,8 +128,23 @@ export interface MotionDockProps {
   onAutoKeyframeChange?: (enabled: boolean) => void;
   /** Controlled playhead position, normalized to [0, 1]. */
   playhead?: number;
-  /** Called whenever the playhead moves. */
+  /**
+   * Called when the playhead position COMMITS (pause/stop, scrub end, reset)
+   * — deliberately not on every rAF tick/scrub frame, so the parent is never
+   * re-rendered at 60fps. Continuous preview stays inside the dock.
+   */
   onPlayheadChange?: (t: number) => void;
+  /**
+   * Parent-owned mirror of the LIVE playhead position, updated on every rAF
+   * tick and scrub frame (not just at commit points). The dock only notifies
+   * the parent's state at commit points to avoid 60fps re-renders, but
+   * auto-keyframe needs the true current position — an inspector edit made
+   * mid-playback must key at where the playhead actually is, not at the last
+   * committed time. Writing to a ref keeps that value fresh without
+   * re-rendering the editor. Cleared back to the committed value on
+   * pause/stop/scrub-end so a later read outside playback isn't stale.
+   */
+  livePlayheadRef?: React.MutableRefObject<number | null>;
   /**
    * The currently-selected canvas element, if any. Required to create the FIRST
    * track for a layer: the picker animates this node's
@@ -151,6 +171,7 @@ export function MotionDock({
   onAutoKeyframeChange,
   playhead: playheadProp,
   onPlayheadChange,
+  livePlayheadRef,
   selectedTarget = null,
 }: MotionDockProps) {
   // Controlled / uncontrolled open state.
@@ -164,15 +185,24 @@ export function MotionDock({
     [onOpenChange],
   );
 
-  // Playhead position: normalised [0, 1].
+  // Playhead position: normalised [0, 1]. High-frequency updates (rAF playback
+  // ticks, ruler scrubbing) stay INTERNAL to the dock; the parent is only
+  // notified at commit points (pause/stop, scrub end, reset) so a 60fps
+  // playhead never re-renders the whole editor page.
   const [playhead, setPlayhead] = useState(playheadProp ?? 0);
+  const playheadRef = useRef(playheadProp ?? 0);
   const [playing, setPlaying] = useState(false);
   const playRafRef = useRef<number | null>(null);
   const playStartRef = useRef<{ wallMs: number; startT: number } | null>(null);
   useEffect(() => {
     if (playheadProp === undefined) return;
-    setPlayhead(Math.max(0, Math.min(1, playheadProp)));
-  }, [playheadProp]);
+    const clamped = Math.max(0, Math.min(1, playheadProp));
+    playheadRef.current = clamped;
+    // Keep the live-playhead mirror seeded with the committed position so a
+    // read outside playback/scrub returns the current time, not a stale one.
+    if (livePlayheadRef) livePlayheadRef.current = clamped;
+    setPlayhead(clamped);
+  }, [livePlayheadRef, playheadProp]);
 
   // Auto-keyframe mode: inspector/style edits create keyframes at the playhead.
   const [autoKeyframeInternal, setAutoKeyframeInternal] = useState(false);
@@ -188,13 +218,24 @@ export function MotionDock({
     },
     [autoKeyframe, onAutoKeyframeChange],
   );
-  const setPlayheadValue = useCallback(
+  /** Internal high-frequency playhead update — does NOT notify the parent. */
+  const setPlayheadLocal = useCallback(
     (next: number) => {
+      playheadRef.current = next;
+      // Mirror the LIVE position into the parent-owned ref so auto-keyframe
+      // reads the true current playhead during playback/scrub, not the last
+      // committed time. Updating a ref never re-renders, so this stays cheap
+      // at 60fps.
+      if (livePlayheadRef) livePlayheadRef.current = next;
       setPlayhead(next);
-      onPlayheadChange?.(next);
     },
-    [onPlayheadChange],
+    [livePlayheadRef],
   );
+  /** Commit the current playhead to the parent (pause, scrub end, reset). */
+  const commitPlayhead = useCallback(() => {
+    if (livePlayheadRef) livePlayheadRef.current = playheadRef.current;
+    onPlayheadChange?.(playheadRef.current);
+  }, [livePlayheadRef, onPlayheadChange]);
 
   // Dock height (resizable via the top drag handle).
   const [dockHeight, setDockHeight] = useState(DEFAULT_DOCK_HEIGHT);
@@ -258,7 +299,9 @@ export function MotionDock({
     }
     playStartRef.current = null;
     setPlaying(false);
-  }, []);
+    // Pause/stop is a commit point: hand the final position to the parent.
+    commitPlayhead();
+  }, [commitPlayhead]);
 
   const startPlayback = useCallback(() => {
     stopPlayback();
@@ -270,7 +313,7 @@ export function MotionDock({
       if (!playStartRef.current) return;
       const elapsed = now - playStartRef.current.wallMs;
       const t = Math.min(1, playStartRef.current.startT + elapsed / durationMs);
-      setPlayheadValue(t);
+      setPlayheadLocal(t);
       sendPreview(t);
       if (t < 1) {
         playRafRef.current = requestAnimationFrame(tick);
@@ -279,7 +322,7 @@ export function MotionDock({
       }
     };
     playRafRef.current = requestAnimationFrame(tick);
-  }, [durationMs, playhead, sendPreview, setPlayheadValue, stopPlayback]);
+  }, [durationMs, playhead, sendPreview, setPlayheadLocal, stopPlayback]);
 
   useEffect(() => {
     return () => {
@@ -298,10 +341,10 @@ export function MotionDock({
       (e.target as HTMLElement).setPointerCapture(e.pointerId);
       const rect = trackAreaRef.current.getBoundingClientRect();
       const t = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
-      setPlayheadValue(t);
+      setPlayheadLocal(t);
       sendPreview(t);
     },
-    [sendPreview, setPlayheadValue, stopPlayback],
+    [sendPreview, setPlayheadLocal, stopPlayback],
   );
 
   const handleRulerPointerMove = useCallback(
@@ -309,15 +352,18 @@ export function MotionDock({
       if (!isDraggingPlayhead.current || !trackAreaRef.current) return;
       const rect = trackAreaRef.current.getBoundingClientRect();
       const t = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
-      setPlayheadValue(t);
+      setPlayheadLocal(t);
       sendPreview(t);
     },
-    [sendPreview, setPlayheadValue],
+    [sendPreview, setPlayheadLocal],
   );
 
   const handleRulerPointerUp = useCallback(() => {
+    if (!isDraggingPlayhead.current) return;
     isDraggingPlayhead.current = false;
-  }, []);
+    // Scrub end is a commit point.
+    commitPlayhead();
+  }, [commitPlayhead]);
 
   // ── Dock resize drag ─────────────────────────────────────────────────────
   const handleResizePointerDown = useCallback(
@@ -368,14 +414,25 @@ export function MotionDock({
 
   const addKeyframe = useCallback(
     (track: MotionDockTrack) => {
+      // Seed the new keyframe with the track's interpolated value at the
+      // playhead (what the preview currently shows) — a hardcoded "0" is
+      // invalid CSS for transform/filter/color tracks and snaps the preview.
+      const sampled = sampleMotionKeyframesAt(
+        track.keyframes,
+        playhead,
+        defaultEase,
+      );
       const newKf: MotionKeyframe = {
         t: playhead,
-        value: "0",
+        value: sampled || "0",
         ease: defaultEase,
       };
       updateTrack(track.targetNodeId, track.property, (tr) => ({
         ...tr,
-        keyframes: [...tr.keyframes, newKf].sort((a, b) => a.t - b.t),
+        // Epsilon replace-at-time: adding at (nearly) the same playhead
+        // position replaces the existing stop instead of stacking an
+        // invisible duplicate diamond.
+        keyframes: upsertMotionKeyframeAtTime(tr.keyframes, newKf),
       }));
     },
     [defaultEase, playhead, updateTrack],
@@ -400,7 +457,13 @@ export function MotionDock({
       });
 
       if (hasTrackFor(tracks, nodeId, preset.property)) {
-        // Track already exists — do not duplicate; the expand above surfaces it.
+        // Track already exists — do not duplicate; the expand above surfaces
+        // it, and an explicit notice explains why nothing new appeared (two
+        // presets can target the same property, e.g. slide + scale are both
+        // "transform").
+        toast.info(
+          `A "${preset.property}" track already exists for ${label}. Edit its keyframes in the timeline instead.`,
+        );
         return;
       }
 
@@ -412,10 +475,63 @@ export function MotionDock({
   );
 
   const deleteKeyframe = useCallback(
-    (track: MotionDockTrack, kf: MotionKeyframe) => {
+    (track: MotionDockTrack, index: number) => {
+      if (!onTracksChange) return;
+      if (track.keyframes.length <= 1) {
+        // Deleting the last keyframe removes the whole track: a 0-keyframe
+        // track cannot compile and is rejected by apply-motion-edit, which
+        // would brick every subsequent autosave with no UI to recover.
+        onTracksChange(
+          tracks.filter(
+            (tr) =>
+              !(
+                tr.targetNodeId === track.targetNodeId &&
+                tr.property === track.property
+              ),
+          ),
+        );
+        return;
+      }
       updateTrack(track.targetNodeId, track.property, (tr) => ({
         ...tr,
-        keyframes: tr.keyframes.filter((k) => k !== kf),
+        keyframes: tr.keyframes.filter((_, i) => i !== index),
+      }));
+    },
+    [onTracksChange, tracks, updateTrack],
+  );
+
+  const moveKeyframe = useCallback(
+    (track: MotionDockTrack, index: number, newT: number) => {
+      updateTrack(track.targetNodeId, track.property, (tr) => ({
+        ...tr,
+        keyframes: tr.keyframes.map((kf, i) =>
+          i === index ? { ...kf, t: newT } : kf,
+        ),
+      }));
+    },
+    [updateTrack],
+  );
+
+  // Re-sort a track's keyframes once a drag finishes. Sorting DURING the drag
+  // would reshuffle the dragged keyframe's index mid-gesture; the preview
+  // bridge and compiler sort defensively, so drag-time order is safe.
+  const moveKeyframeEnd = useCallback(
+    (track: MotionDockTrack) => {
+      updateTrack(track.targetNodeId, track.property, (tr) => ({
+        ...tr,
+        keyframes: sortMotionKeyframes(tr.keyframes),
+      }));
+    },
+    [updateTrack],
+  );
+
+  const easeKeyframe = useCallback(
+    (track: MotionDockTrack, index: number, ease: MotionEase) => {
+      updateTrack(track.targetNodeId, track.property, (tr) => ({
+        ...tr,
+        keyframes: tr.keyframes.map((kf, i) =>
+          i === index ? { ...kf, ease } : kf,
+        ),
       }));
     },
     [updateTrack],
@@ -528,7 +644,8 @@ export function MotionDock({
                   className="size-6 shrink-0"
                   onClick={() => {
                     stopPlayback();
-                    setPlayheadValue(0);
+                    setPlayheadLocal(0);
+                    commitPlayhead();
                     sendPreview(0);
                   }}
                   aria-label="Reset playhead"
@@ -708,14 +825,9 @@ export function MotionDock({
                   expanded={expandedNodeIds.has(layer.nodeId)}
                   playhead={playhead}
                   onDeleteKeyframe={deleteKeyframe}
-                  onMoveKeyframe={(track, kf, newT) => {
-                    updateTrack(track.targetNodeId, track.property, (tr) => ({
-                      ...tr,
-                      keyframes: tr.keyframes.map((k) =>
-                        k === kf ? { ...k, t: newT } : k,
-                      ),
-                    }));
-                  }}
+                  onMoveKeyframe={moveKeyframe}
+                  onMoveKeyframeEnd={moveKeyframeEnd}
+                  onEaseKeyframe={easeKeyframe}
                 />
               ))}
 
@@ -933,11 +1045,13 @@ interface LayerTrackRowsProps {
   layer: { nodeId: string; label: string; tracks: MotionDockTrack[] };
   expanded: boolean;
   playhead: number;
-  onDeleteKeyframe: (track: MotionDockTrack, kf: MotionKeyframe) => void;
-  onMoveKeyframe: (
+  onDeleteKeyframe: (track: MotionDockTrack, index: number) => void;
+  onMoveKeyframe: (track: MotionDockTrack, index: number, newT: number) => void;
+  onMoveKeyframeEnd: (track: MotionDockTrack) => void;
+  onEaseKeyframe: (
     track: MotionDockTrack,
-    kf: MotionKeyframe,
-    newT: number,
+    index: number,
+    ease: MotionEase,
   ) => void;
 }
 
@@ -947,6 +1061,8 @@ function LayerTrackRows({
   playhead: _playhead,
   onDeleteKeyframe,
   onMoveKeyframe,
+  onMoveKeyframeEnd,
+  onEaseKeyframe,
 }: LayerTrackRowsProps) {
   return (
     <>
@@ -962,8 +1078,10 @@ function LayerTrackRows({
           <TrackRow
             key={`${track.targetNodeId}-${track.property}`}
             track={track}
-            onDeleteKeyframe={(kf) => onDeleteKeyframe(track, kf)}
-            onMoveKeyframe={(kf, newT) => onMoveKeyframe(track, kf, newT)}
+            onDeleteKeyframe={(index) => onDeleteKeyframe(track, index)}
+            onMoveKeyframe={(index, newT) => onMoveKeyframe(track, index, newT)}
+            onMoveKeyframeEnd={() => onMoveKeyframeEnd(track)}
+            onEaseKeyframe={(index, ease) => onEaseKeyframe(track, index, ease)}
           />
         ))}
     </>
@@ -972,22 +1090,44 @@ function LayerTrackRows({
 
 interface TrackRowProps {
   track: MotionDockTrack;
-  onDeleteKeyframe: (kf: MotionKeyframe) => void;
-  onMoveKeyframe: (kf: MotionKeyframe, newT: number) => void;
+  onDeleteKeyframe: (index: number) => void;
+  onMoveKeyframe: (index: number, newT: number) => void;
+  onMoveKeyframeEnd: () => void;
+  onEaseKeyframe: (index: number, ease: MotionEase) => void;
 }
 
-function TrackRow({ track, onDeleteKeyframe, onMoveKeyframe }: TrackRowProps) {
+function TrackRow({
+  track,
+  onDeleteKeyframe,
+  onMoveKeyframe,
+  onMoveKeyframeEnd,
+  onEaseKeyframe,
+}: TrackRowProps) {
   const rowRef = useRef<HTMLDivElement>(null);
+  // Identify the dragged keyframe by its INDEX in track.keyframes, not object
+  // identity: the parent replaces keyframe objects on every move (immutable
+  // update), so a captured object reference goes stale after the first move
+  // and every subsequent pointermove would match nothing (frozen keyframe).
   const dragging = useRef<{
-    kf: MotionKeyframe;
+    index: number;
     startX: number;
     startT: number;
+    moved: boolean;
   } | null>(null);
 
   const handleDiamondPointerDown = useCallback(
-    (e: ReactPointerEvent<SVGSVGElement>, kf: MotionKeyframe) => {
+    (
+      e: ReactPointerEvent<SVGSVGElement>,
+      index: number,
+      kf: MotionKeyframe,
+    ) => {
       e.stopPropagation();
-      dragging.current = { kf, startX: e.clientX, startT: kf.t };
+      dragging.current = {
+        index,
+        startX: e.clientX,
+        startT: kf.t,
+        moved: false,
+      };
       (e.target as Element).setPointerCapture(e.pointerId);
     },
     [],
@@ -1000,14 +1140,19 @@ function TrackRow({ track, onDeleteKeyframe, onMoveKeyframe }: TrackRowProps) {
       const dx = e.clientX - dragging.current.startX;
       const dt = dx / rect.width;
       const newT = Math.max(0, Math.min(1, dragging.current.startT + dt));
-      onMoveKeyframe(dragging.current.kf, newT);
+      dragging.current.moved = true;
+      onMoveKeyframe(dragging.current.index, newT);
     },
     [onMoveKeyframe],
   );
 
   const handlePointerUp = useCallback(() => {
+    const wasMoved = dragging.current?.moved === true;
     dragging.current = null;
-  }, []);
+    // Only re-sort (and re-mark dirty) when the keyframe actually moved — a
+    // plain click on a diamond must not trigger an autosave.
+    if (wasMoved) onMoveKeyframeEnd();
+  }, [onMoveKeyframeEnd]);
 
   return (
     <div
@@ -1016,6 +1161,7 @@ function TrackRow({ track, onDeleteKeyframe, onMoveKeyframe }: TrackRowProps) {
       style={{ height: ROW_HEIGHT }}
       onPointerMove={handlePointerMove}
       onPointerUp={handlePointerUp}
+      onPointerCancel={handlePointerUp}
     >
       {/* Track baseline */}
       <div className="absolute inset-y-1/2 left-0 right-0 h-px bg-border/50" />
@@ -1025,8 +1171,9 @@ function TrackRow({ track, onDeleteKeyframe, onMoveKeyframe }: TrackRowProps) {
         <KeyframeDiamond
           key={i}
           kf={kf}
-          onPointerDown={(e) => handleDiamondPointerDown(e, kf)}
-          onDelete={() => onDeleteKeyframe(kf)}
+          onPointerDown={(e) => handleDiamondPointerDown(e, i, kf)}
+          onDelete={() => onDeleteKeyframe(i)}
+          onEaseChange={(ease) => onEaseKeyframe(i, ease)}
         />
       ))}
     </div>
@@ -1037,14 +1184,20 @@ interface KeyframeDiamondProps {
   kf: MotionKeyframe;
   onPointerDown: (e: ReactPointerEvent<SVGSVGElement>) => void;
   onDelete: () => void;
+  onEaseChange: (ease: MotionEase) => void;
 }
 
 function KeyframeDiamond({
   kf,
   onPointerDown,
   onDelete,
+  onEaseChange,
 }: KeyframeDiamondProps) {
   const [hovered, setHovered] = useState(false);
+  const currentEase = kf.ease ?? "ease";
+  const currentPreset = EASE_PRESETS.find(
+    (preset) => preset.value === currentEase,
+  );
 
   return (
     <div
@@ -1085,7 +1238,8 @@ function KeyframeDiamond({
           className="flex items-center gap-1 text-[10px]"
         >
           <span>
-            {Math.round(kf.t * 100)}% — {kf.value}
+            {Math.round(kf.t * 100)}% — {kf.value} —{" "}
+            {currentPreset?.label ?? currentEase}
           </span>
           <button
             type="button"
@@ -1097,6 +1251,40 @@ function KeyframeDiamond({
           </button>
         </TooltipContent>
       </Tooltip>
+
+      {/* Easing picker — appears under the diamond on hover. */}
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <button
+            type="button"
+            className="absolute left-1/2 top-full flex size-3 -translate-x-1/2 cursor-pointer items-center justify-center rounded-sm text-muted-foreground opacity-0 transition-opacity hover:bg-accent hover:text-foreground group-hover:opacity-100 data-[state=open]:opacity-100"
+            aria-label={`Change easing (currently ${currentPreset?.label ?? currentEase})`}
+          >
+            <IconChevronDown className="size-2.5" />
+          </button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="start" className="w-40 p-1">
+          <DropdownMenuLabel className="px-2 py-1 text-[10px] font-medium leading-none text-muted-foreground">
+            Easing
+          </DropdownMenuLabel>
+          <DropdownMenuSeparator className="my-1" />
+          {EASE_PRESETS.map((preset) => (
+            <DropdownMenuItem
+              key={preset.value}
+              className="h-7 px-2 text-[12px] leading-none"
+              onSelect={() => onEaseChange(preset.value)}
+            >
+              <IconCheck
+                className={cn(
+                  "mr-1 size-3",
+                  preset.value === currentEase ? "opacity-100" : "opacity-0",
+                )}
+              />
+              {preset.label}
+            </DropdownMenuItem>
+          ))}
+        </DropdownMenuContent>
+      </DropdownMenu>
     </div>
   );
 }

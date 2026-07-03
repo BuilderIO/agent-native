@@ -5,10 +5,12 @@ import {
 } from "./component-model";
 import type { TailwindBreakpointPrefix } from "./design-state.js";
 import {
+  getPropertyClasses,
   parseClassGroups,
   parseClassToken,
   setPropertyClass,
   removePropertyClass,
+  utilityStem,
 } from "./responsive-classes.js";
 import type { DesignSourceType } from "./source-mode";
 
@@ -454,6 +456,13 @@ export interface AutoLayoutEditIntent {
  * `utility` should be the bare utility without its prefix (e.g. `"text-lg"`,
  * not `"md:text-lg"`).  The prefix is applied automatically.
  * `stem` is required only for `"remove"` operations.
+ * `from` is an optional guard for `"replace"`: when present, the replace only
+ * applies if the utility EFFECTIVE at `prefix` equals `from` (bare, without
+ * prefix). "Effective" follows the Tailwind mobile-first cascade — an explicit
+ * override at `prefix` wins, otherwise the nearest smaller breakpoint's
+ * utility (down to base) is what renders there. If the guard fails (a stale
+ * selection targeting a different element/state than the caller expected) the
+ * edit reports `"conflict"` instead of silently overwriting whatever is there.
  */
 export interface ResponsiveClassEditIntent {
   kind: "responsive-class";
@@ -469,6 +478,13 @@ export interface ResponsiveClassEditIntent {
    * derived from `utility` instead).
    */
   stem?: string;
+  /**
+   * Guard for `"replace"` (honoured for `"add"` too when provided): the bare
+   * utility (without prefix) the caller expects to be EFFECTIVE at `prefix`,
+   * following the Tailwind mobile-first cascade. On mismatch the edit is
+   * rejected as `"conflict"` rather than applied. Ignored for `"remove"`.
+   */
+  from?: string;
 }
 
 export type EditIntent =
@@ -2658,7 +2674,13 @@ function applyTextEdit(
  *               new token at the target prefix (or replaces the existing one for
  *               the same stem).
  * - `"replace"`: same as `"add"` — `setPropertyClass` already handles the
- *               replace-if-same-stem semantics.
+ *               replace-if-same-stem semantics. When `intent.from` is set, the
+ *               EFFECTIVE utility at `prefix` must match it exactly or the edit
+ *               is rejected as `"conflict"` (guards against a stale selection
+ *               silently rewriting the wrong element/breakpoint). "Effective"
+ *               follows the Tailwind mobile-first cascade: an explicit override
+ *               at `prefix` wins; otherwise the nearest smaller breakpoint's
+ *               utility (down to base) is what the caller would have seen.
  * - `"remove"`:  calls `removePropertyClass(className, prefix, stem)` — strips
  *               all tokens with the given property stem at the target prefix,
  *               falling back to the base value (Tailwind cascade).
@@ -2666,6 +2688,36 @@ function applyTextEdit(
  * Uses the helpers from `responsive-classes.ts` so the logic is shared with
  * the StatesPanel / inspector UI.
  */
+/** Mobile-first breakpoint order used to resolve the effective utility at a prefix. */
+const BREAKPOINT_CASCADE: ReadonlyArray<TailwindBreakpointPrefix> = [
+  "base",
+  "sm",
+  "md",
+  "lg",
+  "xl",
+  "2xl",
+];
+
+/**
+ * Resolve the utilities EFFECTIVE at `prefix` for the given property `stem`,
+ * following the Tailwind mobile-first cascade: an explicit override at
+ * `prefix` wins; otherwise the nearest smaller breakpoint (down to base) with
+ * a token for that stem is what actually renders there.
+ */
+function effectivePropertyUtilities(
+  className: string,
+  prefix: TailwindBreakpointPrefix,
+  stem: string,
+): string[] {
+  for (let i = BREAKPOINT_CASCADE.indexOf(prefix); i >= 0; i--) {
+    const tokens = getPropertyClasses(className, BREAKPOINT_CASCADE[i], stem);
+    if (tokens.length > 0) {
+      return tokens.map((token) => parseClassToken(token).utility);
+    }
+  }
+  return [];
+}
+
 function applyResponsiveClassEdit(
   html: string,
   element: ParsedElement,
@@ -2685,6 +2737,18 @@ function applyResponsiveClassEdit(
     // "add" and "replace" both use setPropertyClass
     if (!intent.utility) return "unsupported";
     if (!isSafeClassToken(intent.utility)) return "unsupported";
+    if (intent.from) {
+      // `from` guard: the utility the caller expects to be effective at this
+      // prefix. On mismatch (stale selection / wrong element) reject instead
+      // of silently overwriting whatever is actually there.
+      if (!isSafeClassToken(intent.from)) return "unsupported";
+      const effective = effectivePropertyUtilities(
+        currentClass,
+        intent.prefix,
+        utilityStem(intent.from),
+      );
+      if (!effective.includes(intent.from)) return "conflict";
+    }
     nextClass = setPropertyClass(currentClass, intent.prefix, intent.utility);
   }
 
@@ -2850,6 +2914,85 @@ function stripAbsolutePositioningFromChild(
 }
 
 /**
+ * L7: sequential "Group N" naming. Counts existing layer names already
+ * matching "Group" or "Group <number>" in the projection (via
+ * data-agent-native-layer-name / layerName) and returns the next unused
+ * name in that sequence, so repeated grouping doesn't leave multiple
+ * ambiguous "Group" layers.
+ */
+function nextSequentialGroupName(nodes: CodeLayerNode[]): string {
+  const groupNamePattern = /^Group(?: (\d+))?$/;
+  let highestNumbered = 0;
+  let hasBareGroup = false;
+  for (const node of nodes) {
+    const match = groupNamePattern.exec(node.layerName.trim());
+    if (!match) continue;
+    if (match[1]) {
+      highestNumbered = Math.max(highestNumbered, Number(match[1]));
+    } else {
+      hasBareGroup = true;
+    }
+  }
+  if (!hasBareGroup && highestNumbered === 0) return "Group";
+  return `Group ${Math.max(highestNumbered, hasBareGroup ? 1 : 0) + 1}`;
+}
+
+interface AbsoluteUnionBounds {
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+}
+
+/**
+ * L7: computes the union bounding box of a set of sibling elements, but only
+ * when EVERY element is absolutely positioned with pixel left/top/width/
+ * height. Returns null otherwise (mixed/flow children have no meaningful
+ * bounding box without an actual layout pass — the wrapper falls back to a
+ * plain flow div in that case).
+ */
+function computeAbsoluteUnionBounds(
+  elements: ParsedElement[],
+): AbsoluteUnionBounds | null {
+  let minLeft = Infinity;
+  let minTop = Infinity;
+  let maxRight = -Infinity;
+  let maxBottom = -Infinity;
+
+  for (const element of elements) {
+    const style = parseStyle(attributeValue(element, "style"));
+    if (style.position !== "absolute") return null;
+    const left = parsePixelLength(style.left);
+    const top = parsePixelLength(style.top);
+    const width = parsePixelLength(style.width);
+    const height = parsePixelLength(style.height);
+    if (left === null || top === null || width === null || height === null) {
+      return null;
+    }
+    minLeft = Math.min(minLeft, left);
+    minTop = Math.min(minTop, top);
+    maxRight = Math.max(maxRight, left + width);
+    maxBottom = Math.max(maxBottom, top + height);
+  }
+
+  if (
+    !Number.isFinite(minLeft) ||
+    !Number.isFinite(minTop) ||
+    !Number.isFinite(maxRight) ||
+    !Number.isFinite(maxBottom)
+  ) {
+    return null;
+  }
+
+  return {
+    left: minLeft,
+    top: minTop,
+    width: maxRight - minLeft,
+    height: maxBottom - minTop,
+  };
+}
+
+/**
  * GROUP: wrap targetted sibling elements (sharing a common parent) in a new
  * <div> wrapper. Targets must all share the same parent element.
  */
@@ -2883,15 +3026,15 @@ function applyWrapNodes(
   // Sort targets by their source position (ascending).
   targetElements.sort((a, b) => a.start - b.start);
 
-  const siblingIndexes = targetElements
-    .map((el) => el.siblingIndex)
-    .sort((a, b) => a - b);
-  const firstSiblingIndex = siblingIndexes[0];
-  if (firstSiblingIndex === undefined) return "unsupported";
-  const targetsAreContiguous = siblingIndexes.every(
-    (siblingIndex, index) => siblingIndex === firstSiblingIndex + index,
-  );
-  if (!targetsAreContiguous) return "unsupported";
+  // L6: targets no longer need to be sibling-index-CONTIGUOUS. The removal +
+  // single-reinsertion-point algorithm below already extracts every target
+  // (regardless of gaps) and re-inserts them together at the topmost
+  // target's position — i.e. it already "moves members adjacent to the
+  // topmost member, then wraps." A non-adjacent same-parent selection (e.g.
+  // sibling indexes 0, 2, 4) closes its own gaps naturally: the un-selected
+  // siblings that were between them (1, 3) end up adjacent to each other
+  // once the targets are pulled out, and the targets end up adjacent to each
+  // other inside the new wrapper. This matches Figma's group behavior.
 
   // Collect existing node ids so we can generate a unique one.
   const usedIds = new Set(
@@ -2906,10 +3049,26 @@ function applyWrapNodes(
     `wrap:${targetElements.map((el) => el.start).join(":")}`,
   );
 
+  // L7: sequential "Group N" naming — count existing "Group"/"Group N" names
+  // already in the projection so repeated grouping doesn't produce multiple
+  // ambiguous layers all just named "Group".
+  const wrapperLayerName = nextSequentialGroupName(build.projection.nodes);
+
+  // L7: when EVERY target is absolutely positioned with pixel left/top (and
+  // ideally width/height), give the wrapper real computed geometry — the
+  // union bounding box of its children — instead of a zero-geometry static
+  // div. This matches Figma: grouping absolutely-positioned layers produces
+  // a group frame sized/positioned to fit them, not a layout-only wrapper.
+  // Falls back to the previous flow/auto-layout wrapper when any child isn't
+  // absolutely positioned (there is no meaningful bounding box to compute
+  // without a layout pass).
+  const targetGeometry = !autoLayout
+    ? computeAbsoluteUnionBounds(targetElements)
+    : null;
+
   // Collect the source fragments for all targets.
   const fragments = targetElements.map((el) => {
     let frag = html.slice(el.start, el.end);
-    // If autoLayout, strip positioning from each wrapped child.
     if (autoLayout) {
       // We need a ParsedElement that reflects the fragment's own positions.
       // Re-parse the fragment to find the root element and strip its style.
@@ -2918,14 +3077,31 @@ function applyWrapNodes(
       if (root) {
         frag = stripAbsolutePositioningFromChild(frag, root);
       }
+    } else if (targetGeometry) {
+      // Rebase each child's left/top from the old parent's coordinate space
+      // into the new wrapper's coordinate space (wrapper now sits at the
+      // union's top-left origin).
+      const fragElements = parseHtmlElements(frag);
+      const root = fragElements.find((fe) => fe.parentIndex === undefined);
+      if (root) {
+        frag = rebaseChildOffset(
+          frag,
+          root,
+          -targetGeometry.left,
+          -targetGeometry.top,
+        );
+      }
     }
     return frag;
   });
 
-  const autoLayoutStyle = autoLayout
-    ? ` style="display: flex; flex-direction: column; gap: 8px"`
-    : "";
-  const wrapperOpen = `<div data-agent-native-node-id="${escapeHtmlAttribute(wrapperNodeId)}" data-agent-native-layer-name="Group"${autoLayoutStyle}>`;
+  const wrapperStyle = autoLayout
+    ? "display: flex; flex-direction: column; gap: 8px"
+    : targetGeometry
+      ? `position: absolute; left: ${targetGeometry.left}px; top: ${targetGeometry.top}px; width: ${targetGeometry.width}px; height: ${targetGeometry.height}px;`
+      : null;
+  const wrapperStyleAttr = wrapperStyle ? ` style="${wrapperStyle}"` : "";
+  const wrapperOpen = `<div data-agent-native-node-id="${escapeHtmlAttribute(wrapperNodeId)}" data-agent-native-layer-name="${escapeHtmlAttribute(wrapperLayerName)}"${wrapperStyleAttr}>`;
   const wrapperClose = `</div>`;
   const wrapperContent = `${wrapperOpen}${fragments.join("")}${wrapperClose}`;
 
@@ -2970,9 +3146,71 @@ function applyWrapNodes(
   };
 }
 
+/** Parse a CSS length like "12px" into a finite pixel number, else null. */
+function parsePixelLength(value: string | undefined): number | null {
+  if (!value) return null;
+  const match = /^(-?[\d.]+)px$/.exec(value.trim());
+  if (!match) return null;
+  const parsed = Number(match[1]);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+/**
+ * Rebase a single child element's `left`/`top` inline-style offsets by the
+ * given deltas (adding the unwrapped wrapper's own offset so the child keeps
+ * its absolute screen position once reparented into the wrapper's parent).
+ * No-ops (returns html unchanged) when the child isn't absolutely positioned
+ * with a pixel offset — non-absolute children have no coordinate space to
+ * rebase, and non-pixel units (%, calc(), var()) can't be safely combined
+ * without a layout pass.
+ */
+function rebaseChildOffset(
+  html: string,
+  child: ParsedElement,
+  deltaLeftPx: number,
+  deltaTopPx: number,
+): string {
+  const currentStyle = attributeValue(child, "style");
+  const style = parseStyle(currentStyle);
+  if (style.position !== "absolute") return html;
+
+  let nextStyle = currentStyle ?? "";
+  const currentLeft = parsePixelLength(style.left);
+  if (currentLeft !== null && deltaLeftPx !== 0) {
+    nextStyle = setStyleValue(
+      nextStyle,
+      "left",
+      `${currentLeft + deltaLeftPx}px`,
+    );
+  }
+  const currentTop = parsePixelLength(style.top);
+  if (currentTop !== null && deltaTopPx !== 0) {
+    nextStyle = setStyleValue(nextStyle, "top", `${currentTop + deltaTopPx}px`);
+  }
+  if (nextStyle === (currentStyle ?? "")) return html;
+  return replaceOrInsertAttribute(html, child, "style", nextStyle);
+}
+
 /**
  * UNGROUP: replace the wrapper node with its children, spliced into the
  * wrapper's parent at the wrapper's position, then remove the wrapper.
+ *
+ * L3 safety: only containers (elements with at least one direct element
+ * child) can be ungrouped. A leaf node (text-only element like <p>Hello</p>
+ * or a void/self-closing element) has no children to "release" — splicing
+ * its inner text/content directly into the parent would silently destroy
+ * the element's own tag, attributes, and styles. Callers (canUngroup gate)
+ * are expected to also pre-filter to containers, but this is the
+ * authoritative, safety-critical check since applyUnwrap can be invoked
+ * directly.
+ *
+ * L3 coordinate rebase: when the wrapper being removed is itself absolutely
+ * positioned with pixel left/top offsets, its direct children were
+ * positioned relative to IT. Splicing them into the wrapper's parent without
+ * adjustment would silently shift every absolutely-positioned child by the
+ * wrapper's former offset. Rebase each such child's left/top by adding the
+ * wrapper's offset so it keeps the same absolute screen position under the
+ * new parent.
  */
 function applyUnwrap(
   html: string,
@@ -2994,9 +3232,46 @@ function applyUnwrap(
     // Nothing to unwrap from an empty/void element.
     return "unsupported";
   }
+  if (element.childIndexes.length === 0) {
+    // Leaf node (text-only or otherwise childless): there is nothing to
+    // "release" as children, and splicing raw inner content into the parent
+    // would destroy this element's own identity (tag/attrs/styles).
+    return "unsupported";
+  }
 
-  // The children's source content is the element's inner HTML.
-  const innerContent = html.slice(element.contentStart, element.contentEnd);
+  // If the wrapper itself is absolutely positioned with pixel left/top,
+  // rebase each direct child's own absolute left/top by that offset before
+  // splicing, so children keep their absolute screen position once
+  // reparented. Re-parse the wrapper's inner HTML in isolation so child
+  // element spans are relative to that fragment (matches how
+  // replaceOrInsertAttribute below operates on the fragment, not the outer
+  // document offsets).
+  const wrapperStyle = parseStyle(attributeValue(element, "style"));
+  const wrapperLeft = parsePixelLength(wrapperStyle.left);
+  const wrapperTop = parsePixelLength(wrapperStyle.top);
+  const shouldRebase =
+    wrapperStyle.position === "absolute" &&
+    (wrapperLeft !== null || wrapperTop !== null);
+
+  let innerContent = html.slice(element.contentStart, element.contentEnd);
+  if (shouldRebase) {
+    const deltaLeftPx = wrapperLeft ?? 0;
+    const deltaTopPx = wrapperTop ?? 0;
+    const fragmentElements = parseHtmlElements(innerContent);
+    const directChildren = fragmentElements.filter(
+      (fe) => fe.parentIndex === undefined,
+    );
+    // Apply back-to-front so earlier offsets in the fragment stay valid as
+    // later ones are rewritten.
+    for (const child of [...directChildren].sort((a, b) => b.start - a.start)) {
+      innerContent = rebaseChildOffset(
+        innerContent,
+        child,
+        deltaLeftPx,
+        deltaTopPx,
+      );
+    }
+  }
 
   // Replace the whole element (start..end) with its inner content.
   const result = `${html.slice(0, element.start)}${innerContent}${html.slice(element.end)}`;
@@ -3178,19 +3453,22 @@ export function applyVisualEdit(
   if (intent.kind === "wrapNodes") {
     const wrapEdit = applyWrapNodes(html, initial, intent);
     if (typeof wrapEdit === "string") {
+      // L6: a distinct, specific message per failure kind instead of one
+      // generic "group failed" toast — the previous single message
+      // ("...share a common parent element") was misleadingly shown even
+      // when the real cause was an empty selection or an unresolvable node,
+      // making it hard for the user to tell what to fix.
+      const message =
+        wrapEdit === "unsupported"
+          ? intent.targetIds.length === 0
+            ? "Select at least one layer to group."
+            : "Group requires all selected layers to share the same parent."
+          : "Could not find one or more selected layers to group — the selection may be stale.";
       return {
         content: html,
         projection: initial.projection,
         result: {
-          ...patchResult(
-            wrapEdit,
-            source,
-            intent,
-            false,
-            wrapEdit === "unsupported"
-              ? "wrapNodes requires all targets to share a common parent element."
-              : "Could not resolve one or more target nodes for wrapNodes.",
-          ),
+          ...patchResult(wrapEdit, source, intent, false, message),
         },
       };
     }

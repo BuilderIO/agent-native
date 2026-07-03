@@ -1,6 +1,7 @@
 import {
   alphaToOpacity,
   parseCssColor,
+  parseCssColorExtended,
   rgbaToCss,
   rgbaToHex,
   rgbaToHsl,
@@ -204,86 +205,10 @@ interface HsvaColor {
 
 const FALLBACK_COLOR: RgbaColor = { r: 0, g: 0, b: 0, a: 1 };
 
-// ─── Extended CSS color parser ──────────────────────────────────────────────────
-//
-// `parseCssColor` from color-utils handles hex, comma-separated rgb/rgba, and
-// hsl/hsla. Browsers increasingly emit modern CSS Level 4 formats from
-// getComputedStyle: space-separated `rgb(R G B)`, `rgb(R G B / A)`, and
-// opaque formats like `oklch(...)` or `color(display-p3 ...)`.
-//
-// This local wrapper extends the parser to cover those cases so that colors
-// arriving from the canvas's computed-style bridge are always usable.
-
-const MODERN_RGB_PATTERN =
-  /^rgba?\(\s*([0-9.]+)\s+([0-9.]+)\s+([0-9.]+)(?:\s*\/\s*([0-9.]+%?))?\s*\)$/i;
-
-/** Canvas element reused across calls for DOM-based color resolution. */
-let _resolverCanvas: HTMLCanvasElement | null = null;
-let _resolverCtx: CanvasRenderingContext2D | null = null;
-
-/**
- * Parses a CSS color string into RgbaColor, extending the base parser with:
- *   - Modern space-separated `rgb(R G B)` / `rgb(R G B / A)` syntax
- *   - Opaque formats (oklch, color, etc.) resolved via a hidden canvas
- *
- * Falls back to null if the value is unparseable and the DOM is unavailable.
- */
-function parseCssColorExtended(value: string): RgbaColor | null {
-  // 1. Try the standard parser first (handles hex, comma rgb/rgba, hsl/hsla).
-  const standard = parseCssColor(value);
-  if (standard) return standard;
-
-  const trimmed = value.trim();
-  if (!trimmed || trimmed === "transparent" || trimmed === "none") return null;
-
-  // 2. Modern space-separated rgb/rgba — CSS Level 4.
-  const modernRgb = trimmed.match(MODERN_RGB_PATTERN);
-  if (modernRgb) {
-    const parseAlphaLocal = (v: string | undefined): number => {
-      if (!v) return 1;
-      if (v.endsWith("%"))
-        return Math.max(0, Math.min(1, Number(v.slice(0, -1)) / 100));
-      return Math.max(0, Math.min(1, Number(v)));
-    };
-    return {
-      r: Math.round(Math.max(0, Math.min(255, Number(modernRgb[1])))),
-      g: Math.round(Math.max(0, Math.min(255, Number(modernRgb[2])))),
-      b: Math.round(Math.max(0, Math.min(255, Number(modernRgb[3])))),
-      a: parseAlphaLocal(modernRgb[4]),
-    };
-  }
-
-  // 3. DOM-based resolver for oklch, color(display-p3 ...), hsl (modern), etc.
-  //    Uses a hidden 1×1 canvas to resolve any valid CSS color to rgb().
-  if (typeof document === "undefined") return null;
-  try {
-    if (!_resolverCanvas) {
-      _resolverCanvas = document.createElement("canvas");
-      _resolverCanvas.width = 1;
-      _resolverCanvas.height = 1;
-    }
-    if (!_resolverCtx) {
-      _resolverCtx = _resolverCanvas.getContext("2d", {
-        willReadFrequently: true,
-      });
-    }
-    const ctx = _resolverCtx;
-    if (!ctx) return null;
-    // Detect invalid color values: save fillStyle before and after assignment.
-    // If the browser rejects the value, fillStyle won't change.
-    const prev = ctx.fillStyle;
-    ctx.fillStyle = trimmed;
-    const next = ctx.fillStyle; // browser normalises to rgb/hex on accept
-    // If the value was rejected, fillStyle stays at the previous value.
-    if (next === prev) return null;
-    ctx.clearRect(0, 0, 1, 1);
-    ctx.fillRect(0, 0, 1, 1);
-    const [r, g, b, a] = ctx.getImageData(0, 0, 1, 1).data;
-    return { r, g, b, a: a / 255 };
-  } catch {
-    return null;
-  }
-}
+// `parseCssColorExtended` (from color-utils) extends `parseCssColor` with
+// modern CSS Level 4 syntax (space-separated rgb, `oklch(...)`,
+// `color(display-p3 ...)`) so that colors arriving from the canvas's
+// computed-style bridge are always usable.
 
 const DEFAULT_LABELS: DesignColorPickerLabels = {
   trigger: "Open color picker", // i18n-ignore fallback component label
@@ -865,13 +790,20 @@ export function DesignColorPicker({
     emitColor(hslToRgba({ ...nextHsl, a: opacityToAlpha(effectiveOpacity) }));
   };
 
+  // Shared by the invalid-commit path below and the Escape handler in the hex
+  // input: reverts the draft to the currently active color (the selected
+  // gradient stop while editing a gradient, otherwise the solid color).
+  const revertHexDraft = () => {
+    const reverted = toDisplayHex(activeGradient ? fieldColor : color);
+    hexDraftRef.current = reverted;
+    setHexDraft(reverted);
+  };
+
   const commitHex = () => {
-    const currentDraft = hexDraftRef.current;
+    const currentDraft = expandHexShorthand(hexDraftRef.current);
     const parsed = parseCssColor(`#${currentDraft.replace(/^#/, "")}`);
     if (!parsed) {
-      const reverted = toDisplayHex(activeGradient ? fieldColor : color);
-      hexDraftRef.current = reverted;
-      setHexDraft(reverted);
+      revertHexDraft();
       return;
     }
     if (activeGradient) {
@@ -913,9 +845,14 @@ export function DesignColorPicker({
     : color;
   const rawFieldHsv = rgbaToHsv(fieldColor);
   // Preserve the last non-zero hue so dragging through gray doesn't lose it.
-  if (rawFieldHsv.s > 0 && rawFieldHsv.v > 0) {
-    lastHueRef.current = rawFieldHsv.h;
-  }
+  // Recorded as an effect (not mutated during render) so the ref update is a
+  // render side-effect, not a render-body mutation.
+  useEffect(() => {
+    if (rawFieldHsv.s > 0 && rawFieldHsv.v > 0) {
+      lastHueRef.current = rawFieldHsv.h;
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rawFieldHsv.h, rawFieldHsv.s, rawFieldHsv.v]);
   const fieldHsv: HsvaColor =
     rawFieldHsv.s === 0
       ? { ...rawFieldHsv, h: lastHueRef.current }
@@ -1099,9 +1036,7 @@ export function DesignColorPicker({
               e.currentTarget.blur();
             }
             if (e.key === "Escape") {
-              const reverted = toDisplayHex(color);
-              hexDraftRef.current = reverted;
-              setHexDraft(reverted);
+              revertHexDraft();
               skipNextHexBlurCommitRef.current = true;
               e.currentTarget.blur();
             }
@@ -1235,12 +1170,12 @@ export function DesignColorPicker({
           // switch causes the canvas to re-project the element. Without this,
           // Radix treats the resulting focus shift as an "interact outside" event
           // and closes the popover before the type switch is visible.
-          onInteractOutside={(e) => {
-            // Allow closing only for genuine pointer clicks on the canvas area
-            // (the user clicked somewhere else). Programmatic focus changes from
-            // the canvas bridge (element re-projection) should not close the picker.
-            if (e.type === "focusoutside") e.preventDefault();
-          }}
+          // Radix fires a dedicated `onFocusOutside` (not `onInteractOutside`
+          // with e.type === "focusoutside" — that never matches) whenever focus
+          // moves outside the content; suppress it so canvas-driven focus
+          // re-projection can't close the popover. Genuine pointer clicks
+          // outside still close it via the default onInteractOutside behavior.
+          onFocusOutside={(e) => e.preventDefault()}
         >
           <div className="rounded-md bg-popover text-popover-foreground">
             {view === "shader" ? (
@@ -1475,6 +1410,13 @@ export function DesignColorPicker({
                         backgroundImage="linear-gradient(90deg, #ff0000, #ffff00, #00ff00, #00ffff, #0000ff, #ff00ff, #ff0000)"
                         onChange={(next) => {
                           const h = next === 360 ? 0 : next;
+                          // Record the dragged hue immediately so the slider
+                          // doesn't snap back to a stale hue on the next
+                          // render when the color is (or becomes) achromatic
+                          // — the round-tripped color's s/v may still be 0,
+                          // so the lastHueRef-sync effect's s>0&&v>0 guard
+                          // won't fire on its own.
+                          lastHueRef.current = h;
                           if (activeGradient) {
                             emitStopColor(
                               hsvToRgba({
@@ -1627,7 +1569,7 @@ export function DesignColorPicker({
                       : [rgbaToCss(color)]
                     ).map((docColor) => {
                       const currentHex = rgbaToHex(
-                        parseCssColor(docColor) ?? color,
+                        parseCssColorExtended(docColor) ?? color,
                       );
                       const isActive =
                         rgbaToHex(color) === currentHex && !activeGradient;
@@ -1647,7 +1589,8 @@ export function DesignColorPicker({
                               )}
                               style={swatchStyle(docColor)}
                               onClick={() => {
-                                const parsed = parseCssColor(docColor) ?? color;
+                                const parsed =
+                                  parseCssColorExtended(docColor) ?? color;
                                 if (activeGradient) emitStopColor(parsed);
                                 else emitColor(parsed);
                               }}
@@ -1999,8 +1942,8 @@ function ScrubbyNumberInput({
   }, [value]);
 
   const commit = () => {
-    const parsed = Number(draftRef.current);
-    if (!Number.isFinite(parsed)) {
+    const parsed = parseNumericDraft(draftRef.current);
+    if (parsed === null) {
       const reverted = String(value);
       draftRef.current = reverted;
       setDraft(reverted);
@@ -2095,7 +2038,7 @@ export function inferPaintType(
     return "linear";
   }
   if (lower.startsWith("url(")) return "image";
-  const parsed = parseCssColor(value);
+  const parsed = parseCssColorExtended(value);
   if (opacity <= 0 || parsed?.a === 0 || value.trim() === "transparent") {
     return "none";
   }
@@ -2189,13 +2132,19 @@ function triggerSwatchStyle(
   return swatchStyle(rgbaToCss(color));
 }
 
+/** Values that render their own background without needing color parsing. */
+function looksLikeImageOrGradient(value: string): boolean {
+  const lower = value.trim().toLowerCase();
+  return lower.includes("gradient(") || lower.startsWith("url(");
+}
+
 function swatchStyle(value: string): {
   backgroundColor?: string;
   backgroundImage?: string;
   backgroundSize?: string;
   backgroundPosition?: string;
 } {
-  const parsed = parseCssColor(value);
+  const parsed = parseCssColorExtended(value);
   if (parsed && parsed.a < 1) {
     return {
       backgroundImage: `${CHECKERBOARD_IMAGE}, linear-gradient(${rgbaToCss(parsed)}, ${rgbaToCss(parsed)})`,
@@ -2204,7 +2153,16 @@ function swatchStyle(value: string): {
     };
   }
   if (parsed) return { backgroundColor: rgbaToCss(parsed) };
-  return { backgroundImage: value || "none" };
+  if (value && looksLikeImageOrGradient(value)) {
+    return { backgroundImage: value };
+  }
+  // Unparseable and not a gradient/image value (e.g. a stale/invalid document
+  // color) — show a neutral checkerboard instead of an invalid `background-image`
+  // that would otherwise render as a blank swatch.
+  return {
+    backgroundImage: CHECKERBOARD_IMAGE,
+    backgroundSize: "8px 8px",
+  };
 }
 
 function alphaTrackBackground(color: RgbaColor): string {
@@ -2274,4 +2232,33 @@ function clampFloat(value: number, min: number, max: number): number {
 
 function hasHexAlpha(value: string): boolean {
   return /^#?(?:[0-9a-f]{4}|[0-9a-f]{8})$/i.test(value.trim());
+}
+
+/**
+ * Parses a `ScrubbyNumberInput` draft string into a finite number, or `null`
+ * when the draft should be treated as invalid (and thus reverted rather than
+ * committed). `Number("")` is `0`, not `NaN`, so an emptied field must be
+ * special-cased — otherwise clearing the input and blurring/pressing Enter
+ * would silently commit `0` instead of reverting to the last real value.
+ */
+export function parseNumericDraft(draft: string): number | null {
+  const trimmed = draft.trim();
+  if (trimmed === "") return null;
+  const parsed = Number(trimmed);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+/**
+ * Expands a bare 1-digit hex fragment (e.g. "F") into the standard 3-digit
+ * shorthand ("FFF", which `parseCssColor` then doubles up to "FFFFFF") so a
+ * single typed hex digit still commits instead of being rejected as
+ * unparseable. Standard 3/4/6/8-digit hex (already handled by
+ * `parseCssColor`) passes through unchanged.
+ */
+export function expandHexShorthand(value: string): string {
+  const trimmed = value.trim().replace(/^#/, "");
+  if (/^[0-9a-f]$/i.test(trimmed)) {
+    return trimmed.repeat(3);
+  }
+  return trimmed;
 }

@@ -39,7 +39,12 @@ patterns live in `.agents/skills/`.
   supports our own primitives.
 - For raster image generation, restyling, or editing existing screenshots/photos,
   use the available first-party Assets MCP tool such as `generate-asset` instead
-  of placeholders or generic stock imagery. When the Assets picker returns a
+  of placeholders or generic stock imagery. Default to `tier: "fast"` (the cheap
+  Gemini flash "nanobanana"-class model) unless the user explicitly asks for
+  best quality; pass `aspectRatio` matching the layout slot (e.g. `21:9` hero,
+  `4:3` card, `1:1` avatar); include the linked design system's
+  `imageStyle.styleDescription` in the prompt when one is linked; and always
+  pass `callerAppId: "design"`. When the Assets picker returns a
   selected asset, preserve `assetId`, `runId`, and URLs verbatim; if a design is
   open, call `insert-asset` with the chosen URL/id, then refine placement with
   `get-design-snapshot` and `edit-design` as needed. If no Assets MCP tool is
@@ -222,6 +227,33 @@ patterns live in `.agents/skills/`.
   the latest localhost connection or a specific `connectionId`. Pass `routes`
   with `path`/`url` when visualizing a flow; pass `paths` for a concise route
   list. Then call `navigate --view editor --designId <id> --editorView overview`.
+
+## Review, Breakpoints, Screen States & Components
+
+- **Review**: `run-design-audit` runs a read-only accessibility audit over a
+  design's rendered HTML (missing alt/labels, tap-target size,
+  focus-visibility, reduced-motion coverage, a contrast hint) and returns
+  `A11yFinding[]`. `apply-a11y-fix` applies one deterministic inline fix for a
+  finding (contrast, tap-target size, focus ring) when `fixAvailable: true`.
+  `get-design-review` compares two design snapshots/branches and returns a
+  file-level visual diff (added/removed/modified). See the `design-generation`
+  skill's Phase 5 for when to run these.
+- **Breakpoints**: `add-breakpoint`, `remove-breakpoint`, and
+  `set-active-breakpoint` manage the design's device-width frame set and which
+  frame new edits target. See the `design-generation` skill's "Breakpoints &
+  screen states" section.
+- **Design states**: `create-design-state`, `apply-design-state`,
+  `capture-design-state`, `list-design-states`, and `delete-design-state`
+  manage named DOM/Alpine states (Loading/Empty/Error), static data fixtures,
+  and live app captures. See the same skill section.
+- **Components**: `create-component` promotes a selected element into a
+  recognised reusable component; `index-components` scans a design's HTML for
+  existing component annotations; `get-component-details`,
+  `preview-component-prop-edit`, `apply-component-prop-edit`, and
+  `open-component-source` inspect, preview, persist, and navigate to a
+  component instance. See the `design-generation` skill's "Component reuse"
+  section — promote a 3+ times repeated pattern instead of inventing another
+  near-duplicate.
 
 ## App-Backed Skill Distribution
 

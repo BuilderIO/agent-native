@@ -69,4 +69,22 @@ describe("scrub input expression parsing", () => {
       0.2,
     );
   });
+
+  it("accepts a comma decimal separator", () => {
+    expect(parseScrubExpression("12,5", 0)?.value).toBe(12.5);
+    expect(parseScrubExpression("-12,5", 0)?.value).toBe(-12.5);
+    expect(parseScrubExpression("+2,5", 24)?.value).toBe(26.5);
+    // Still supports comma decimals inside a larger expression.
+    expect(parseScrubExpression("1,5 + 2,5", 0)?.value).toBe(4);
+    // Units are stripped before tokenizing, so this still works with a unit.
+    expect(
+      parseScrubExpression("12,5px", 0, { unit: "px", precision: 1 }),
+    ).toEqual({ value: 12.5, normalized: "12.5px" });
+  });
+
+  it("rejects a malformed number with more than one decimal separator", () => {
+    expect(parseScrubExpression("12,5,6", 0)).toBeNull();
+    expect(parseScrubExpression("12.5.6", 0)).toBeNull();
+    expect(parseScrubExpression("12,5.6", 0)).toBeNull();
+  });
 });

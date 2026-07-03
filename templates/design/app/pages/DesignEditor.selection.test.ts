@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { buildCodeLayerProjection } from "../../shared/code-layer";
+import {
+  buildCodeLayerProjection,
+  buildCodeLayerTree,
+} from "../../shared/code-layer";
 import {
   buildActiveFileNodeIdSet,
   computeExportCropBox,
@@ -26,10 +29,18 @@ import {
   getPendingVisualStylePropertyCount,
   parseInlineStyleAttribute,
   refreshElementInfoFromContent,
+  refreshSelectedLayerIdsFromContent,
   removeUndoRedoOrderKind,
+  renameFilenamePreservingExtension,
+  replaceDataScreenReferences,
   getSidebarCodeLayerSelectionState,
+  applyGeometryHistoryDiff,
+  collectCodeLayerSubtreeDataNodeIds,
+  geometryHistoryEntryTouchesFrameIds,
   hydrateMotionDockTracks,
   isScreenRootElementInfo,
+  mergeLocalContentHistoryFallback,
+  pruneGeometryHistoryEntryForDeletedFiles,
   resolveCodeLayerNodeFromElementInfo,
   getSelectedScreenIdsForEditorState,
   getSelectedScreenGeometryForInspector,
@@ -1466,5 +1477,314 @@ describe("buildActiveFileNodeIdSet (group/ungroup stale-id filter)", () => {
     for (const n of projection.nodes) {
       expect(idSet.has(n.id)).toBe(true);
     }
+  });
+});
+
+describe("U2: geometry history pruning on screen deletion", () => {
+  it("keeps a grouped geometry entry when it touches an unrelated frame", () => {
+    const entry = {
+      before: { "screen-a": { x: 0, y: 0 }, "screen-b": { x: 10, y: 10 } },
+      after: { "screen-a": { x: 5, y: 5 }, "screen-b": { x: 10, y: 10 } },
+    };
+    expect(
+      geometryHistoryEntryTouchesFrameIds(entry, new Set(["screen-a"])),
+    ).toBe(true);
+    // Deleting screen-b (untouched by this entry's actual change) must not
+    // discard screen-a's still-undoable move.
+    const pruned = pruneGeometryHistoryEntryForDeletedFiles(
+      entry,
+      new Set(["screen-b"]),
+    );
+    expect(pruned).toEqual({
+      before: { "screen-a": { x: 0, y: 0 } },
+      after: { "screen-a": { x: 5, y: 5 } },
+    });
+  });
+
+  it("drops the entry once every remaining frame key is unchanged", () => {
+    const entry = {
+      before: { "screen-a": { x: 0, y: 0 } },
+      after: { "screen-a": { x: 0, y: 0 } },
+    };
+    expect(
+      pruneGeometryHistoryEntryForDeletedFiles(entry, new Set(["screen-b"])),
+    ).toEqual(entry);
+    expect(
+      pruneGeometryHistoryEntryForDeletedFiles(entry, new Set(["screen-a"])),
+    ).toBeNull();
+  });
+
+  it("returns the entry unchanged when it touches none of the deleted ids", () => {
+    const entry = {
+      before: { "screen-a": { x: 0, y: 0 } },
+      after: { "screen-a": { x: 5, y: 5 } },
+    };
+    expect(
+      pruneGeometryHistoryEntryForDeletedFiles(entry, new Set(["screen-z"])),
+    ).toBe(entry);
+  });
+});
+
+describe("U11: geometry undo/redo merges a per-frame diff onto the live map", () => {
+  it("undo does not drop a frame created after the entry was recorded", () => {
+    const entry = {
+      before: { "screen-a": { x: 0, y: 0 } },
+      after: { "screen-a": { x: 100, y: 100 } },
+    };
+    // screen-b was created after this move was committed, so it has no key
+    // in either snapshot — a naive whole-map replace with entry.before would
+    // silently drop it.
+    const currentGeometry = {
+      "screen-a": { x: 100, y: 100 },
+      "screen-b": { x: 500, y: 500 },
+    };
+    expect(applyGeometryHistoryDiff(currentGeometry, entry, "undo")).toEqual({
+      "screen-a": { x: 0, y: 0 },
+      "screen-b": { x: 500, y: 500 },
+    });
+  });
+
+  it("redo re-applies only the entry's own frames", () => {
+    const entry = {
+      before: { "screen-a": { x: 0, y: 0 } },
+      after: { "screen-a": { x: 100, y: 100 } },
+    };
+    const currentGeometry = {
+      "screen-a": { x: 0, y: 0 },
+      "screen-b": { x: 500, y: 500 },
+    };
+    expect(applyGeometryHistoryDiff(currentGeometry, entry, "redo")).toEqual({
+      "screen-a": { x: 100, y: 100 },
+      "screen-b": { x: 500, y: 500 },
+    });
+  });
+
+  it("removes a frame key on undo when the entry introduced it (frame created by the gesture)", () => {
+    const entry = {
+      before: {},
+      after: { "screen-new": { x: 10, y: 10 } },
+    };
+    const currentGeometry = {
+      "screen-new": { x: 10, y: 10 },
+      "screen-other": { x: 1, y: 1 },
+    };
+    expect(applyGeometryHistoryDiff(currentGeometry, entry, "undo")).toEqual({
+      "screen-other": { x: 1, y: 1 },
+    });
+  });
+});
+
+describe("U14: orphaned motion-track cleanup on delete", () => {
+  it("collects the deleted node's own id and every descendant's id", () => {
+    const html = `
+      <section data-agent-native-node-id="card">
+        <h2 data-agent-native-node-id="card-title">Title</h2>
+        <button data-agent-native-node-id="card-cta">Go</button>
+      </section>
+      <footer data-agent-native-node-id="footer">Footer</footer>
+    `;
+    const projection = buildCodeLayerProjection(html);
+    const tree = buildCodeLayerTree(projection);
+    const nodesById = new Map(projection.nodes.map((node) => [node.id, node]));
+    const cardNode = projection.nodes.find(
+      (node) => node.dataAttributes["data-agent-native-node-id"] === "card",
+    );
+    expect(cardNode).toBeDefined();
+
+    const ids = collectCodeLayerSubtreeDataNodeIds(
+      tree,
+      cardNode!.id,
+      nodesById,
+    );
+
+    expect(ids).toEqual(new Set(["card", "card-title", "card-cta"]));
+    // The unrelated sibling is not included.
+    expect(ids.has("footer")).toBe(false);
+  });
+
+  it("returns an empty set for an unknown target id", () => {
+    const html = `<div data-agent-native-node-id="only"></div>`;
+    const projection = buildCodeLayerProjection(html);
+    const tree = buildCodeLayerTree(projection);
+    const nodesById = new Map(projection.nodes.map((node) => [node.id, node]));
+    expect(
+      collectCodeLayerSubtreeDataNodeIds(tree, "does-not-exist", nodesById),
+    ).toEqual(new Set());
+  });
+});
+
+describe("U18: undo/redo refreshes stale layer selection", () => {
+  const html = `
+    <div data-agent-native-node-id="kept">Kept</div>
+    <div data-agent-native-node-id="also-kept">Also kept</div>
+  `;
+
+  it("drops ids that no longer exist in the new content", () => {
+    expect(
+      refreshSelectedLayerIdsFromContent(html, ["kept", "removed-by-undo"]),
+    ).toEqual(["kept"]);
+  });
+
+  it("returns the same array reference when nothing changed", () => {
+    const ids = ["kept", "also-kept"];
+    expect(refreshSelectedLayerIdsFromContent(html, ids)).toBe(ids);
+  });
+
+  it("returns the same (empty) array reference for an empty selection", () => {
+    const ids: string[] = [];
+    expect(refreshSelectedLayerIdsFromContent(html, ids)).toBe(ids);
+  });
+
+  it("matches by projection node id as well as the stamped data attribute", () => {
+    const projection = buildCodeLayerProjection(html);
+    const keptNode = projection.nodes.find(
+      (node) => node.dataAttributes["data-agent-native-node-id"] === "kept",
+    );
+    expect(keptNode).toBeDefined();
+    expect(refreshSelectedLayerIdsFromContent(html, [keptNode!.id])).toEqual([
+      keptNode!.id,
+    ]);
+  });
+});
+
+describe("U3: local content history fallback mirror", () => {
+  it("appends a new entry for a different file", () => {
+    const stack = [{ fileId: "a", before: "1", after: "2" }];
+    const next = mergeLocalContentHistoryFallback(stack, {
+      fileId: "b",
+      before: "x",
+      after: "y",
+    });
+    expect(next).toEqual([
+      { fileId: "a", before: "1", after: "2" },
+      { fileId: "b", before: "x", after: "y" },
+    ]);
+  });
+
+  it("coalesces a continuing edit to the same file into the last entry", () => {
+    const stack = [{ fileId: "a", before: "1", after: "2" }];
+    const next = mergeLocalContentHistoryFallback(stack, {
+      fileId: "a",
+      before: "2",
+      after: "3",
+    });
+    expect(next).toEqual([{ fileId: "a", before: "1", after: "3" }]);
+  });
+
+  it("appends rather than merges when the edit does not continue from the last entry", () => {
+    const stack = [{ fileId: "a", before: "1", after: "2" }];
+    const next = mergeLocalContentHistoryFallback(stack, {
+      fileId: "a",
+      before: "9",
+      after: "10",
+    });
+    expect(next).toEqual([
+      { fileId: "a", before: "1", after: "2" },
+      { fileId: "a", before: "9", after: "10" },
+    ]);
+  });
+
+  it("drops a no-op change (before === after)", () => {
+    const stack = [{ fileId: "a", before: "1", after: "2" }];
+    expect(
+      mergeLocalContentHistoryFallback(stack, {
+        fileId: "a",
+        before: "same",
+        after: "same",
+      }),
+    ).toBe(stack);
+  });
+});
+
+// L11: screen rename must preserve the file extension instead of writing the
+// raw typed display name (which never itself has a valid extension — the
+// panel edits prettyScreenName's stripped/reformatted display text) straight
+// into the filename column.
+describe("renameFilenamePreservingExtension", () => {
+  it("appends the current extension when the typed name has none", () => {
+    expect(renameFilenamePreservingExtension("index.html", "Dashboard")).toBe(
+      "Dashboard.html",
+    );
+  });
+
+  it("respects a typed name that already ends with the current extension", () => {
+    expect(
+      renameFilenamePreservingExtension("about.html", "contact.html"),
+    ).toBe("contact.html");
+  });
+
+  it("respects a typed name ending with a different known web extension", () => {
+    expect(renameFilenamePreservingExtension("styles.css", "theme.css")).toBe(
+      "theme.css",
+    );
+  });
+
+  it("reverts to the current filename when the typed name is empty/whitespace", () => {
+    expect(renameFilenamePreservingExtension("index.html", "   ")).toBe(
+      "index.html",
+    );
+  });
+
+  it("preserves multi-word names with spaces converted by the caller elsewhere", () => {
+    expect(
+      renameFilenamePreservingExtension("page-pricing.html", "Pricing page"),
+    ).toBe("Pricing page.html");
+  });
+
+  it("handles a filename with no extension at all", () => {
+    expect(renameFilenamePreservingExtension("README", "notes")).toBe("notes");
+  });
+});
+
+describe("replaceDataScreenReferences", () => {
+  it("updates a double-quoted data-screen reference", () => {
+    expect(
+      replaceDataScreenReferences(
+        '<a data-screen="index.html">Home</a>',
+        "index.html",
+        "dashboard.html",
+      ),
+    ).toBe('<a data-screen="dashboard.html">Home</a>');
+  });
+
+  it("updates a single-quoted data-screen reference", () => {
+    expect(
+      replaceDataScreenReferences(
+        "<a data-screen='index.html'>Home</a>",
+        "index.html",
+        "dashboard.html",
+      ),
+    ).toBe("<a data-screen='dashboard.html'>Home</a>");
+  });
+
+  it("updates every matching reference in the document", () => {
+    const html =
+      '<a data-screen="index.html">Home</a><a data-screen="index.html">Also home</a>';
+    expect(
+      replaceDataScreenReferences(html, "index.html", "dashboard.html"),
+    ).toBe(
+      '<a data-screen="dashboard.html">Home</a><a data-screen="dashboard.html">Also home</a>',
+    );
+  });
+
+  it("does not touch a data-screen value that only partially matches", () => {
+    const html = '<a data-screen="index-old.html">Home</a>';
+    expect(
+      replaceDataScreenReferences(html, "index.html", "dashboard.html"),
+    ).toBe(html);
+  });
+
+  it("is a no-op when old and new filenames are identical", () => {
+    const html = '<a data-screen="index.html">Home</a>';
+    expect(replaceDataScreenReferences(html, "index.html", "index.html")).toBe(
+      html,
+    );
+  });
+
+  it("escapes regex-special characters in the filename", () => {
+    const html = '<a data-screen="a+b.html">Link</a>';
+    expect(replaceDataScreenReferences(html, "a+b.html", "c.html")).toBe(
+      '<a data-screen="c.html">Link</a>',
+    );
   });
 });

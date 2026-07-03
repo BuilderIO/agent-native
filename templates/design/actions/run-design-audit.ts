@@ -1,10 +1,13 @@
 /**
  * run-design-audit — read-only a11y audit over a design's rendered HTML/DOM.
  *
- * Checks contrast ratios, tap-target sizes, missing alt/labels, focus
- * visibility, and reduced-motion concerns by static analysis of the stored
- * HTML.  Does NOT perform writes.  Results are returned as `A11yFinding[]`
- * and may be persisted by the caller via `create-design-review-snapshot`.
+ * Flags low-opacity text color classes as a contrast hint (real contrast
+ * ratios require a DOM/CSS cascade resolver that isn't available server-side,
+ * so this is not a computed ratio check), plus tap-target sizes, missing
+ * alt/labels, focus visibility, and reduced-motion concerns, all by static
+ * analysis of the stored HTML. Does NOT perform writes. Results are returned
+ * as `A11yFinding[]` and may be persisted by the caller via
+ * `create-design-review-snapshot`.
  *
  * See DESIGN-STUDIO-PLAN.md §6.5 + §7 (Review surface).
  */

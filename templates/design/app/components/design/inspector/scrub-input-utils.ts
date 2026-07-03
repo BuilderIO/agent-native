@@ -17,6 +17,11 @@ type Token =
   | { type: "operator"; value: MathOperator };
 
 const NUMBER_CHAR_PATTERN = /[0-9.]/;
+// Comma is only treated as a digit character while scanning a number token
+// (see tokenizeExpression) so a locale-style decimal comma ("12,5") parses as
+// 12.5, without swallowing the "," that a caller might use to separate
+// distinct expressions elsewhere.
+const NUMBER_OR_COMMA_CHAR_PATTERN = /[0-9.,]/;
 
 export function parseScrubExpression(
   input: string,
@@ -157,8 +162,12 @@ function tokenizeExpression(expression: string): Token[] {
     if (NUMBER_CHAR_PATTERN.test(char) || signedNumber) {
       const start = index;
       index += 1;
-      while (NUMBER_CHAR_PATTERN.test(expression[index] ?? "")) index += 1;
-      const value = Number(expression.slice(start, index));
+      // Allow a single comma decimal separator within this number token
+      // ("12,5" → 12.5), matching common European locale input. A second
+      // comma/period is left for the caller's Number() parse to reject.
+      while (NUMBER_OR_COMMA_CHAR_PATTERN.test(expression[index] ?? ""))
+        index += 1;
+      const value = Number(expression.slice(start, index).replace(",", "."));
       if (!Number.isFinite(value)) return [];
       tokens.push({ type: "number", value });
       previousWasOperator = false;

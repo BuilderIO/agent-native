@@ -28,6 +28,10 @@ import {
 
 type ScrubInputIcon = (props: { className?: string }) => ReactNode;
 
+/** Cumulative pointer movement (px) required before a label pointerdown→move
+ * is treated as a scrub drag rather than jitter during a plain click. */
+const DRAG_THRESHOLD_PX = 3;
+
 export interface ScrubInputChangeMeta {
   source: "commit" | "keyboard" | "scrub";
   expression?: string;
@@ -127,7 +131,10 @@ export function ScrubInput({
 
     draftRef.current = parsed.normalized;
     setDraft(parsed.normalized);
-    if (parsed.value !== value) {
+    // From a mixed selection every explicitly typed value must commit, even
+    // when it equals the placeholder `value` prop (e.g. typing "0"): the
+    // selected objects hold differing values, so "no change" is meaningless.
+    if (parsed.value !== value || mixed) {
       onChange(parsed.value, { source: "commit", expression: currentDraft });
     }
   };
@@ -135,12 +142,28 @@ export function ScrubInput({
   const handleKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
     if (event.key === "ArrowUp" || event.key === "ArrowDown") {
       event.preventDefault();
+      // Mixed selection: the `value` prop is only a placeholder (typically 0),
+      // so stepping from it would snap every selected object to a value the
+      // user never chose. Require an explicit typed value first — typing then
+      // committing applies to all, which is the design-editor convention.
+      if (mixed) return;
       const direction = event.key === "ArrowUp" ? 1 : -1;
       // getScrubStepFromEvent handles shiftKey (×10) and altKey (÷10).
       // Cmd (metaKey) mirrors Shift for ×10 — editor convention on macOS.
       const baseStep = getScrubStepFromEvent(event, step);
       const cmdMultiplier = event.metaKey && !event.shiftKey ? 10 : 1;
-      setNextValue(value + direction * baseStep * cmdMultiplier, {
+      // Step from the currently typed draft, not the last-committed `value`
+      // prop — otherwise an in-progress, uncommitted edit (typed but not yet
+      // blurred/entered) is silently discarded the moment an arrow key is
+      // pressed. Parse the draft the same way commitDraft does, falling back
+      // to `value` only when the draft doesn't parse (e.g. empty/invalid).
+      const draftParsed = parseScrubExpression(
+        draftRef.current,
+        value,
+        options,
+      );
+      const base = draftParsed ? draftParsed.value : value;
+      setNextValue(base + direction * baseStep * cmdMultiplier, {
         source: "keyboard",
       });
       return;
@@ -179,8 +202,25 @@ export function ScrubInput({
 
   const handlePointerMove = (event: PointerEvent<HTMLLabelElement>) => {
     if (!dragging || dragRef.current.pointerId !== event.pointerId) return;
+    // Mixed selection: scrubbing has no meaningful base value (the `value`
+    // prop is a placeholder), so committing drag deltas would snap every
+    // selected object to a step-from-0 value. Keep the drag inert; releasing
+    // without a committed drag focuses the input so the user can type an
+    // explicit value that then applies to all.
+    if (mixed) return;
     const incr = event.clientX - dragRef.current.prevX;
     if (incr === 0) return;
+    // Require a small cumulative movement before treating this as a real
+    // drag. Without a threshold, ordinary mouse jitter between pointerdown
+    // and pointerup (a couple of px is common on real hardware even for a
+    // plain click) sets hasDragged=true on the very first move event, which
+    // makes endDrag skip its "focus the input for typing" path even though
+    // the user only meant to click.
+    const cumulativeDelta = Math.abs(event.clientX - dragRef.current.startX);
+    if (!dragRef.current.hasDragged && cumulativeDelta < DRAG_THRESHOLD_PX) {
+      dragRef.current.prevX = event.clientX;
+      return;
+    }
     dragRef.current.prevX = event.clientX;
     dragRef.current.hasDragged = true;
     // Use incremental deltas from the last move so that clamped/rounded values

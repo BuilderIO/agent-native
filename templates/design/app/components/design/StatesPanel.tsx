@@ -25,6 +25,7 @@ import {
   IconTrash,
 } from "@tabler/icons-react";
 import { useState } from "react";
+import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -253,15 +254,37 @@ export function StatesPanel({
   const handleCreateState = async () => {
     const name = newStateName.trim();
     if (!name) return;
+    // Optimistically close the form; restored below if the create fails.
     setIsAdding(false);
     setNewStateName("");
-    await createState.mutateAsync({ designId, name, kind: "state" });
+    try {
+      await createState.mutateAsync({ designId, name, kind: "state" });
+    } catch (error) {
+      // Reopen the form with the typed name so the user's input isn't lost.
+      setIsAdding(true);
+      setNewStateName(name);
+      toast.error(
+        error instanceof Error && error.message
+          ? error.message
+          : `Could not create state "${name}".`,
+      );
+      return;
+    }
     await refetch();
   };
 
   // --- Delete state ---
   const handleDeleteState = async (id: string) => {
-    await deleteState.mutateAsync({ id, designId });
+    try {
+      await deleteState.mutateAsync({ id, designId });
+    } catch (error) {
+      toast.error(
+        error instanceof Error && error.message
+          ? error.message
+          : "Could not delete the state.",
+      );
+      return;
+    }
     if (activeStateId === id) onStateSelect(null);
     await refetch();
   };

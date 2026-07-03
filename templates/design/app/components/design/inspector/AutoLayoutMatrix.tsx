@@ -344,7 +344,15 @@ export function AutoLayoutMatrix({
                   <IconFlowGrid className="size-3.5" />
                 </FlowButton>
               </div>
-              {/* Reset / reverse-flow button */}
+              {/* Swap axis: flips between horizontal/vertical flex flow
+                  without forcing a specific direction. Previously this
+                  unconditionally called selectFlow("horizontal"), silently
+                  destroying an authored vertical/grid/normal-flow layout
+                  every time it was clicked regardless of the current state
+                  (there's no stashed "authored" value to restore to, so a
+                  true reset isn't possible) — swapping is the one action
+                  here that's both non-destructive and matches what an
+                  undo/reverse-style icon implies. */}
               <Tooltip>
                 <TooltipTrigger asChild>
                   <Button
@@ -353,16 +361,20 @@ export function AutoLayoutMatrix({
                     size="icon"
                     disabled={disabled}
                     aria-label={
-                      "Reset auto layout flow" /* i18n-ignore inspector tooltip */
+                      "Swap flow direction" /* i18n-ignore inspector tooltip */
                     }
-                    onClick={() => selectFlow("horizontal")}
+                    onClick={() =>
+                      selectFlow(
+                        activeFlow === "vertical" ? "horizontal" : "vertical",
+                      )
+                    }
                     className="size-7 shrink-0 rounded-md text-muted-foreground hover:bg-[var(--design-editor-control-bg)] hover:text-foreground"
                   >
                     <IconArrowBackUp className="size-4" />
                   </Button>
                 </TooltipTrigger>
                 <TooltipContent>
-                  {"Reset auto layout flow" /* i18n-ignore inspector tooltip */}
+                  {"Swap flow direction" /* i18n-ignore inspector tooltip */}
                 </TooltipContent>
               </Tooltip>
             </div>

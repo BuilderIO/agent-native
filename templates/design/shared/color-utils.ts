@@ -205,6 +205,90 @@ export function parseCssColor(value: string): RgbaColor | null {
   return null;
 }
 
+// `parseCssColor` above handles hex, comma-separated rgb/rgba, and hsl/hsla.
+// Browsers increasingly emit modern CSS Level 4 formats from getComputedStyle:
+// space-separated `rgb(R G B)`, `rgb(R G B / A)`, and opaque formats like
+// `oklch(...)` or `color(display-p3 ...)`. `parseCssColorExtended` covers those
+// cases so that colors arriving from a canvas's computed-style bridge are
+// always usable.
+
+const MODERN_RGB_PATTERN =
+  /^rgba?\(\s*([0-9.]+)\s+([0-9.]+)\s+([0-9.]+)(?:\s*\/\s*([0-9.]+%?))?\s*\)$/i;
+
+/** Canvas element reused across calls for DOM-based color resolution. */
+let _resolverCanvas: HTMLCanvasElement | null = null;
+let _resolverCtx: CanvasRenderingContext2D | null = null;
+
+/**
+ * Parses a CSS color string into RgbaColor, extending the base parser with:
+ *   - Modern space-separated `rgb(R G B)` / `rgb(R G B / A)` syntax
+ *   - Opaque formats (oklch, color, etc.) resolved via a hidden canvas
+ *
+ * Falls back to null if the value is unparseable and the DOM is unavailable.
+ */
+export function parseCssColorExtended(value: string): RgbaColor | null {
+  // 1. Try the standard parser first (handles hex, comma rgb/rgba, hsl/hsla).
+  const standard = parseCssColor(value);
+  if (standard) return standard;
+
+  const trimmed = value.trim();
+  if (!trimmed || trimmed === "transparent" || trimmed === "none") return null;
+
+  // 2. Modern space-separated rgb/rgba — CSS Level 4.
+  const modernRgb = trimmed.match(MODERN_RGB_PATTERN);
+  if (modernRgb) {
+    const parseAlphaLocal = (v: string | undefined): number => {
+      if (!v) return 1;
+      if (v.endsWith("%"))
+        return Math.max(0, Math.min(1, Number(v.slice(0, -1)) / 100));
+      return Math.max(0, Math.min(1, Number(v)));
+    };
+    return {
+      r: Math.round(Math.max(0, Math.min(255, Number(modernRgb[1])))),
+      g: Math.round(Math.max(0, Math.min(255, Number(modernRgb[2])))),
+      b: Math.round(Math.max(0, Math.min(255, Number(modernRgb[3])))),
+      a: parseAlphaLocal(modernRgb[4]),
+    };
+  }
+
+  // 3. DOM-based resolver for oklch, color(display-p3 ...), hsl (modern), etc.
+  //    Uses a hidden 1×1 canvas to resolve any valid CSS color to rgb().
+  if (typeof document === "undefined") return null;
+  try {
+    if (!_resolverCanvas) {
+      _resolverCanvas = document.createElement("canvas");
+      _resolverCanvas.width = 1;
+      _resolverCanvas.height = 1;
+    }
+    if (!_resolverCtx) {
+      _resolverCtx = _resolverCanvas.getContext("2d", {
+        willReadFrequently: true,
+      });
+    }
+    const ctx = _resolverCtx;
+    if (!ctx) return null;
+    // Detect invalid color values: reset fillStyle to a sentinel that can
+    // never be the browser's normalized output for a real color (an
+    // out-of-gamut placeholder), then assign the candidate and compare.
+    // Comparing against the *previous* candidate's fillStyle (instead of a
+    // fixed sentinel) misfires when two consecutive calls resolve to the
+    // same valid color — the "rejected, unchanged" check would incorrectly
+    // trip even though the value was accepted and just happens to match.
+    const sentinel = "#010203";
+    ctx.fillStyle = sentinel;
+    ctx.fillStyle = trimmed;
+    const next = ctx.fillStyle; // browser normalises to rgb/hex on accept
+    // If the value was rejected, fillStyle stays at the sentinel.
+    if (next === sentinel) return null;
+    ctx.clearRect(0, 0, 1, 1);
+    ctx.fillRect(0, 0, 1, 1);
+    const [r, g, b, a] = ctx.getImageData(0, 0, 1, 1).data;
+    return { r, g, b, a: a / 255 };
+  } catch {
+    return null;
+  }
+}
+
 export function hexToRgba(value: string): RgbaColor | null {
   const raw = value.trim().replace(/^#/, "");
   const expanded =
