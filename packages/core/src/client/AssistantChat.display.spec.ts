@@ -651,6 +651,39 @@ describe("waitForThreadRunToClear", () => {
       "if (afterSeq > 0) {\n            reconnectCanMaterializeRef.current = false;\n          }",
     );
   });
+
+  it("auto-continues reconnect no-progress stalls before showing the recovery card", () => {
+    const source = readFileSync("src/client/AssistantChat.tsx", {
+      encoding: "utf8",
+    });
+    const start = source.indexOf(
+      "if (noProgressDuringReconnect && reconnectRunIdRef.current === runId)",
+    );
+    const end = source.indexOf("setReconnectFrozen(afterSeq === 0)", start);
+    const noProgressSource = source.slice(start, end);
+    const effectStart = source.indexOf("if (!pendingReconnectRecovery) return");
+    const effectEnd = source.indexOf(
+      "// Expose imperative handle",
+      effectStart,
+    );
+    const effectSource = source.slice(effectStart, effectEnd);
+
+    expect(start).toBeGreaterThan(-1);
+    expect(end).toBeGreaterThan(start);
+    expect(noProgressSource).toContain("MAX_RECONNECT_AUTO_RECOVERIES");
+    expect(noProgressSource).toContain(
+      "reconnectAutoRecoveryCountRef.current += 1",
+    );
+    expect(noProgressSource).toContain("setPendingReconnectRecovery");
+    expect(noProgressSource).toContain("agent-chat:auto-continue");
+    expect(
+      noProgressSource.indexOf("setPendingReconnectRecovery"),
+    ).toBeLessThan(noProgressSource.indexOf("setRunErrorInfo({"));
+    expect(effectStart).toBeGreaterThan(-1);
+    expect(effectEnd).toBeGreaterThan(effectStart);
+    expect(effectSource).toContain("addToQueue(");
+    expect(effectSource).toContain('"continue"');
+  });
 });
 
 describe("reconnectProgressTimedOut", () => {

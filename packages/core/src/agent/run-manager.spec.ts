@@ -708,7 +708,7 @@ describe("run manager soft timeout", () => {
     expect(run.abortReason).toBe("no_progress");
   });
 
-  it("does not bump durable progress for keepalives or zero-byte action preparation", async () => {
+  it("does not bump durable progress for keepalives or anonymous zero-byte action preparation", async () => {
     vi.setSystemTime(10_000);
 
     const run = startRun(
@@ -738,6 +738,45 @@ describe("run manager soft timeout", () => {
     expect(bumpRunProgress).not.toHaveBeenCalled();
 
     expect(abortRun("run-empty-prep-progress")).toBe(true);
+    await vi.waitFor(() => expect(run.status).toBe("aborted"));
+  });
+
+  it("bumps durable progress for the first identified zero-byte action preparation", async () => {
+    vi.setSystemTime(10_000);
+
+    const run = startRun(
+      "run-identified-empty-prep-progress",
+      "thread-identified-empty-prep-progress",
+      async (send, signal) => {
+        send({
+          type: "activity",
+          label: "Preparing edit-design action",
+          tool: "edit-design",
+          id: "call-a",
+          progressBytes: 0,
+        });
+        vi.setSystemTime(12_000);
+        send({
+          type: "activity",
+          label: "Preparing edit-design action",
+          tool: "edit-design",
+          id: "call-a",
+          progressBytes: 0,
+        });
+        await new Promise<void>((resolve) => {
+          signal.addEventListener("abort", () => resolve(), { once: true });
+        });
+      },
+      undefined,
+      { softTimeoutMs: 0 },
+    );
+
+    expect(bumpRunProgress).toHaveBeenCalledTimes(1);
+    expect(bumpRunProgress).toHaveBeenCalledWith(
+      "run-identified-empty-prep-progress",
+    );
+
+    expect(abortRun("run-identified-empty-prep-progress")).toBe(true);
     await vi.waitFor(() => expect(run.status).toBe("aborted"));
   });
 

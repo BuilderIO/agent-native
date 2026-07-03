@@ -242,6 +242,9 @@ const ACTIVE_RUN_STUCK_THRESHOLD_MS = 90_000;
 const BACKGROUND_ACTIVE_RUN_STUCK_THRESHOLD_MS = 13 * 60_000;
 const ACTIVE_RUN_POLL_INTERVAL_MS = 150;
 const AUTO_RESUME_STATUS_TIMEOUT_MS = 30_000;
+const MAX_RECONNECT_AUTO_RECOVERIES = 3;
+const RECONNECT_NO_PROGRESS_CONTINUE_MESSAGE =
+  "Continue from where you stopped. Use the partial work above, verify what succeeded, and finish the original request. Do not rerun the exact same failed tool input unless the failure was transient or the user explicitly asked for an exact rerun. Prefer dedicated app actions over raw database edits when they exist.";
 // How long a single activity (model call, tool prep, long tool) must stay
 // in-flight before its label is surfaced in the running indicator. Below this
 // the indicator stays a steady "Thinking" so normal fast turns don't flicker
@@ -260,6 +263,11 @@ type ActiveRunLookup = {
   dispatchMode?: string | null;
   terminalReason?: string | null;
   serverNow?: number;
+};
+
+type PendingReconnectRecovery = {
+  id: number;
+  message: string;
 };
 
 function isReplayableTerminalRun(runInfo: ActiveRunLookup): boolean {
@@ -1568,6 +1576,9 @@ const AssistantChatInner = forwardRef<
   const reconnectTailOnlyRef = useRef(false);
   const reconnectCanMaterializeRef = useRef(false);
   const reconnectAbortRef = useRef<AbortController | null>(null);
+  const reconnectAutoRecoveryCountRef = useRef(0);
+  const [pendingReconnectRecovery, setPendingReconnectRecovery] =
+    useState<PendingReconnectRecovery | null>(null);
   // Nuclear stop: user clicked stop. Clears the stop button/indicator AND
   // lets new submissions go through immediately — prevents the "stuck
   // queueing forever" state where isReconnecting or isRuntimeRunning gets
@@ -2134,6 +2145,38 @@ const AssistantChatInner = forwardRef<
             setReconnectFrozen(latestContent.length > 0);
             reconnectCanMaterializeRef.current = latestContent.length > 0;
           }
+          const canAutoRecoverReconnect =
+            reconnectTerminalReason !== "run_timeout" &&
+            reconnectAutoRecoveryCountRef.current <
+              MAX_RECONNECT_AUTO_RECOVERIES;
+          if (canAutoRecoverReconnect) {
+            reconnectAutoRecoveryCountRef.current += 1;
+            setRunErrorInfo(null);
+            setDismissedRunErrorKey(null);
+            clearActiveRunIfMatches(threadId, runId);
+            reconnectAbortRef.current = null;
+            setIsReconnecting(false);
+            reconnectRunIdRef.current = null;
+            reconnectTailOnlyRef.current = false;
+            if (afterSeq > 0) {
+              reconnectCanMaterializeRef.current = false;
+            }
+            window.dispatchEvent(
+              new CustomEvent("agent-chat:auto-continue", {
+                detail: { tabId: tabId || threadId },
+              }),
+            );
+            setPendingReconnectRecovery({
+              id: Date.now(),
+              message: RECONNECT_NO_PROGRESS_CONTINUE_MESSAGE,
+            });
+            window.dispatchEvent(
+              new CustomEvent("agentNative.chatRunning", {
+                detail: { isRunning: false, tabId: tabId || threadId },
+              }),
+            );
+            return;
+          }
           setRunErrorInfo({
             message:
               reconnectTerminalReason === "run_timeout"
@@ -2187,6 +2230,9 @@ const AssistantChatInner = forwardRef<
           reconnectTailOnlyRef.current = false;
           if (loaded || afterSeq > 0 || latestContent.length === 0) {
             reconnectCanMaterializeRef.current = false;
+          }
+          if (loaded) {
+            reconnectAutoRecoveryCountRef.current = 0;
           }
           window.dispatchEvent(
             new CustomEvent("agentNative.chatRunning", {
@@ -3074,6 +3120,9 @@ const AssistantChatInner = forwardRef<
       if (!(await ensureAgentEngineReadyForSubmit())) {
         return;
       }
+      if (recoveryAction !== "continue") {
+        reconnectAutoRecoveryCountRef.current = 0;
+      }
       materializeFrozenReconnectContent();
       setShowContinue(false);
       setLoopLimitInfo(null);
@@ -3295,6 +3344,26 @@ const AssistantChatInner = forwardRef<
       updateComposerContextItems,
     ],
   );
+
+  useEffect(() => {
+    if (!pendingReconnectRecovery) return;
+    const recovery = pendingReconnectRecovery;
+    const timer = window.setTimeout(() => {
+      setPendingReconnectRecovery((current) =>
+        current?.id === recovery.id ? null : current,
+      );
+      addToQueue(
+        recovery.message,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        "queued",
+        "continue",
+      );
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [addToQueue, pendingReconnectRecovery]);
 
   // Expose imperative handle
   useImperativeHandle(
@@ -3871,7 +3940,7 @@ const AssistantChatInner = forwardRef<
                           onContinue={() => {
                             setRunErrorInfo(null);
                             addToQueue(
-                              "Continue from where you stopped. Use the partial work above, verify what succeeded, and finish the original request. Do not rerun the exact same failed tool input unless the failure was transient or the user explicitly asked for an exact rerun. Prefer dedicated app actions over raw database edits when they exist.",
+                              RECONNECT_NO_PROGRESS_CONTINUE_MESSAGE,
                               undefined,
                               undefined,
                               undefined,
