@@ -2,26 +2,19 @@
   "version": "0.0.1",
   "configurations": [
     {
-      "name": "slides",
+      "name": "plan",
       "runtimeExecutable": "env",
       "runtimeArgs": [
-        "DATABASE_URL=file:/private/tmp/claude-501/-Users-steve-Projects-builder-agent-native-framework/bdee078f-450e-4457-a910-cdd88dcbc0e1/scratchpad/slides-verify.sqlite",
+        "DATABASE_URL=file:/private/tmp/claude-501/-Users-steve-Projects-builder-agent-native-framework/bdee078f-450e-4457-a910-cdd88dcbc0e1/scratchpad/plan-verify.sqlite",
+        "PORT=3100",
         "pnpm",
         "--dir",
-        "templates/slides",
-        "dev"
+        "templates/plan",
+        "dev",
+        "--port",
+        "3100"
       ],
-      "port": 3000
-    },
-    {
-      "name": "design-code-workbench",
-      "runtimeExecutable": "bash",
-      "runtimeArgs": [
-        "-c",
-        "NODE_ENV=development APP_NAME=design AGENT_USER_EMAIL=dev@local.test DESIGN_DATABASE_URL=file:/tmp/design-code-workbench.db pnpm --filter design exec agent-native dev"
-      ],
-      "port": 8080,
-      "autoPort": true
+      "port": 3100
     }
   ]
 }
