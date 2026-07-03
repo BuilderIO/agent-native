@@ -1,5 +1,129 @@
 # @agent-native/core
 
+## 0.86.0
+
+### Minor Changes
+
+- 622d552: Collaborative editing kit: agent edits now behave like a visible collaborator
+  and undo is per-user everywhere.
+  - Agent presence lingers (~6s) after edits instead of vanishing instantly;
+    any agent-sourced collab write (`applyText`, `searchAndReplace`, `applyJson`,
+    `applyPatchOps`) automatically publishes presence plus lingering edit
+    attribution — no per-action wiring required (`agentTouchDocument`).
+  - New `recentEdits` awareness convention with `useRecentEdits`,
+    `publishRecentEdit`, and the `RecentEditHighlights` overlay — fading,
+    name/avatar-flagged highlights over regions a human or the AI just edited.
+  - New shared per-user undo primitives: `useCollabUndo` (Y.UndoManager
+    lifecycle with local-origin scoping) and `useLocalOpUndo` /
+    `createLocalOpUndoController` (inverse-op undo for op-based apps that never
+    reverts other participants' work).
+  - `CollabUser.avatarUrl` renders profile images in `PresenceBar`,
+    `LiveCursorOverlay`, and `RemoteSelectionRings`; selection descriptors may
+    now carry labels (`{ selector, label }`), and agent selection tags no longer
+    render as "AI — AI".
+  - Presence now survives multi-instance/serverless deployments: awareness
+    state is mirrored to a new `_collab_awareness` table (SQLite/Postgres
+    portable, additive, best-effort with throttled writes), so cursors and the
+    agent's presence written in one invocation are visible to clients polling
+    any other instance.
+  - Surgical reconcile: `useCollabReconcile` now applies authoritative external
+    content by diffing top-level nodes and replacing only the changed run
+    (new `parseValue` option, `applyDocSurgically`/`diffTopLevel` exports)
+    instead of a whole-document `setContent` — unchanged block NodeViews are
+    never torn down, remote carets stop jumping, and Collaboration sees minimal
+    Yjs ops. Falls back to `setContent` when no parsed doc is available.
+
+- 622d552: Add `ensureAdditiveColumns` (`@agent-native/core/db`), a boot-time helper that diffs each Drizzle table's declared columns against the live database and additively `ALTER TABLE ... ADD COLUMN`s any that are missing. This closes the gap where a column added to a Drizzle schema without a matching hand-written migration silently 500s every query on pre-existing production tables (fresh dev databases don't show the bug because `CREATE TABLE IF NOT EXISTS` always includes new columns). It only ever adds missing columns — never drops, renames, or retypes existing ones — skips `NOT NULL` columns with no safe backfill default, and is wired into the analytics template's `server/plugins/db.ts` after its authoritative migrations run.
+- 622d552: Add optional name-based tracking to `runMigrations` (`@agent-native/core/db`): a migration entry can now set a stable, unique `name` slug that is tracked independently of its `version` number in a companion `<table>_named` bookkeeping table. This fixes a collision class where two branches that each independently extend the same migration list under the same version numbers cause whichever deploys first to "claim" those version numbers, silently skipping the other branch's DDL forever — the exact failure that left the analytics template's `analytics_alert_rules`, `analytics_alert_incidents`, and `session_recordings.network_error_count` missing in production despite `analytics_migrations` reporting every version as applied. Unnamed migrations keep the exact legacy `version > MAX(version)` behavior; a duplicate `name` in a migration list throws at startup.
+- 622d552: Session replay network capture now records a bounded, redacted response-body snippet for 5xx (server error) responses, so agents can see the actual server error message. Request bodies and headers are still never captured, and non-5xx or network-failure responses never carry a body. Configurable via `sessionReplay.network.captureErrorBodies` (default `true`) and `maxErrorBodyLength` (default 2048 chars).
+
+### Patch Changes
+
+- 622d552: Live collab updates now push over SSE to read-only viewer sharees, not just the
+  resource owner and org members. Collab events are tagged with their
+  resourceType/resourceId, and the per-user delivery filter runs an access-aware
+  (cached, fail-closed) check against the same `resolveAccess` authority used by
+  the collab routes — so a viewer with explicit access sees edits at push latency
+  instead of falling back to the poll cycle, while unauthorized users are never
+  delivered events.
+- 622d552: Shared rich-markdown editors can now disable the default markdown surgical
+  parser when they own a custom value format, preventing JSON-backed editor content
+  from being interpreted as literal markdown.
+- 622d552: Data-fetch hot-path hardening: faster loads, bounded hangs, fewer round trips.
+  - `useActionQuery` now threads React Query's per-fetch `AbortSignal` into the
+    network request, so superseded fetches (key change, unmount, rapid refetch)
+    actually cancel instead of holding a per-origin connection slot.
+  - Every action fetch is bounded by a 60s timeout (override via
+    `callAction(..., { timeoutMs })`); a hung server surfaces a typed timeout
+    error instead of an infinite spinner, and timeouts are not silently retried.
+  - Action query retries back off in ~0.5–2s steps instead of React Query's
+    1s/2s/4s, so real failures surface in about a quarter of the time.
+  - Collaborative docs no longer open their own `EventSource` per doc (one for
+    updates, one for awareness): they subscribe to the shared sync transport via
+    the new `subscribeSyncEvents` API, so a tab holds exactly ONE SSE connection
+    no matter how many docs are mounted — previously 3+ streams could starve the
+    browser's per-origin connection budget and stall unrelated data fetches.
+  - Awareness (cursor/presence) events no longer trigger the framework-level
+    query-invalidation sweep on every peer keystroke.
+  - The `/_agent-native/poll` fallback now backs off exponentially (cap 30s) on
+    consecutive non-auth failures instead of hammering a down server at full
+    cadence.
+  - Session org backfill and `getOrgContext` now share one per-request
+    `org_members` lookup, and `getSetting`/`getUserSetting` reads are memoized
+    per request — several DB round trips removed from every authenticated
+    action call.
+  - Chat-thread share links resolve through a new indexed `share_token_hash`
+    column (additive, with legacy-blob fallback + opportunistic backfill)
+    instead of a `LIKE '%hash%'` scan over every thread's full message blob.
+  - Queued-message saves no longer pre-read the full thread blob a second time
+    on every debounced composer write.
+  - The Drizzle non-Neon Postgres path gets the same per-op timeout +
+    connection-error retry protection as every other Postgres path, and the
+    Drizzle SQLite path now sets `busy_timeout` like the raw exec path.
+  - `agent_checkpoints` gains indexes on `(thread_id, created_at)` and `run_id`.
+  - Schema-prompt introspection coalesces concurrent cache-miss rebuilds;
+    recurring-job runs no longer leak a live 5-minute backstop timer; a failed
+    migration-connection open no longer poisons the shared exec singleton;
+    `detachThread` no longer applies its optimistic update when the server
+    rejects the change; `useAgentEngineConfigured` guards against out-of-order
+    responses overwriting newer state.
+
+- 622d552: Add a token-gated `POST /list-files` endpoint to the `design connect` localhost bridge (recursive walk honoring a simple `.gitignore` subset, always-ignored build/dependency directories, binary/size filtering, and a 20,000-entry cap), broaden the bridge's writable text-file extension allowlist beyond `.html`/`.htm`/`.css` to common web/code/text formats, and add a secret-path blocklist (`.env*`, `*.pem`, `*.key`, `id_rsa*`, anything under `.git/`) enforced across `/read-file`, `/write-file`, `/apply-edit`, and `/list-files`. The manifest now advertises additive `listFiles`/`readTextFiles`/`writeTextFiles` capabilities for the Design app's code workbench.
+
+  Harden the bridge further: `assertPathInside` now also rejects a symlink at
+  the target path itself (not just a symlink in an ancestor directory), closing
+  a confinement bypass where a pre-existing symlink leaf inside the root could
+  point outside it and be silently followed by `/read-file`, `/write-file`, or
+  `/apply-edit`. The secret-path blocklist is now case-insensitive end to end
+  (bridge and the Design app's `write-local-file` action), so uppercase or
+  mixed-case variants like `.ENV`, `ID_RSA`, or `KEY.PEM` are blocked the same
+  as their lowercase form — required on case-insensitive filesystems such as
+  macOS's default APFS. `/read-file` now returns a `versionHash` derived from
+  the file's mtime/size, and `/write-file` and `/apply-edit` accept an optional
+  `expectedVersionHash`: when provided and the file's current hash does not
+  match, the bridge responds `409` with `{ error: "version conflict",
+currentVersionHash }` instead of overwriting concurrent changes, and
+  successful writes echo back the new `versionHash`. The Design app's
+  `write-local-file` and `read-local-file` actions and the code workbench's
+  localhost workspace provider forward this version chain end to end, and the
+  workbench now polls open localhost tabs every 5 seconds so external edits
+  (made directly on disk or by the agent through the bridge) show up without a
+  manual reload.
+
+- 622d552: Keep Electron Google sign-in polling active after the desktop app regains focus.
+- 622d552: Add server helpers for the Builder Fusion app-building backend: ensure branch
+  containers and resolve preview URLs, send fire-and-forget prompts to the
+  in-container coding agent, push branch code to git, reserve hosting slugs, and
+  trigger/poll hosted deploys.
+- 622d552: Make durable agent run recovery quieter by idempotently handling retried run rows and waiting longer for server-owned background continuations.
+- 622d552: Emit PostHog-compatible `$ai_generation` tracking events from instrumented agent runs so LLM cost, latency, tokens, and errors can flow through configured tracking providers, and expose the shared database admin page through the client barrel for app-owned admin surfaces.
+- 622d552: Persist local Plan bridge comments to comments.json so local visual plans and recaps can collect feedback without hosted database writes.
+- 622d552: Upgrade React Router to 8.1.0 to silence Vite's deprecated `envFile` warning during dev startup.
+- 622d552: Remove retired scaffold aliases from template catalogs and app pickers.
+- 622d552: Fix duplicate tool-call cards and parallel duplicate text streaming in agent chat: the reconnect reader and the adapter's own stream can no longer attach to the same run concurrently (single-reader ownership — reconnect probes skip while the adapter runtime is live, and an adapter takeover aborts any active reconnect reader and discards its accumulator), journal/ledger-replayed tool results now merge into the original card instead of rendering a second stuck-spinner copy, and reconnect content drops pending tool cards whose call already completed in the rendered messages.
+- 622d552: Add shared visual style controls for template editor inspector surfaces.
+- 622d552: Add `/visualize-repo` and a local visual docs CLI for repo-backed Plan workspaces.
+
 ## 0.85.7
 
 ### Patch Changes

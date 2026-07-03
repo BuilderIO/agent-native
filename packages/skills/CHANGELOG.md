@@ -1,5 +1,30 @@
 # @agent-native/skills
 
+## 0.2.250
+
+### Patch Changes
+
+- 622d552: Add `/visualize-repo` and a local visual docs CLI for repo-backed Plan workspaces.
+- Updated dependencies [622d552]
+- Updated dependencies [622d552]
+- Updated dependencies [622d552]
+- Updated dependencies [622d552]
+- Updated dependencies [622d552]
+- Updated dependencies [622d552]
+- Updated dependencies [622d552]
+- Updated dependencies [622d552]
+- Updated dependencies [622d552]
+- Updated dependencies [622d552]
+- Updated dependencies [622d552]
+- Updated dependencies [622d552]
+- Updated dependencies [622d552]
+- Updated dependencies [622d552]
+- Updated dependencies [622d552]
+- Updated dependencies [622d552]
+- Updated dependencies [622d552]
+- Updated dependencies [622d552]
+  - @agent-native/core@0.86.0
+
 ## 0.2.249
 
 ### Patch Changes

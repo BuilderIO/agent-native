@@ -1,5 +1,11 @@
 # @agent-native/dispatch
 
+## 0.13.6
+
+### Patch Changes
+
+- 622d552: Remove retired scaffold aliases from template catalogs and app pickers.
+
 ## 0.13.5
 
 ### Patch Changes
