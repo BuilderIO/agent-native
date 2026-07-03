@@ -516,12 +516,12 @@ const messages = {
     newTitle: "نظام تصميم جديد",
     editDescription: "حدّث هوية علامتك التجارية.",
     newDescription:
-      "قدّم أي مزيج من المصادر؛ كلما زاد السياق كانت النتيجة أفضل.",
+      "اربط Figma والكود وإرشادات design.md الاختيارية عبر Builder DSI.",
     companyBrand: "الشركة / العلامة",
     companyBrandPlaceholder: "Acme Inc. — نبني أدوات للمطورين...",
-    figmaFile: "ملف Figma",
-    parsingFigmaFile: "جارٍ بدء فهرسة Builder...",
-    uploadFigDescription: "حمّل نسخة .fig محلية لفهرستها باستخدام Builder",
+    figmaFile: "ربط Figma",
+    parsingFigmaFile: "جارٍ بدء فهرسة Builder DSI...",
+    uploadFigDescription: "حمّل نسخة .fig محلية إلى Builder DSI",
     builderIndexingStarted: "بدأت فهرسة Builder",
     builderIndexingDescription:
       "Builder is indexing {{title}} into a reusable design system.",
@@ -531,9 +531,10 @@ const messages = {
     websiteUrl: "رابط الموقع",
     websitePlaceholder: "example.com أو Nike",
     add: "إضافة",
-    githubRepository: "مستودع GitHub",
-    codeFiles: "ملفات الكود",
-    codeFilesDrop: "CSS، إعدادات Tailwind، ملفات السمة — اسحبها أو انقر",
+    githubRepository: "ربط الكود: مستودع GitHub",
+    codeFiles: "ربط ملفات الكود",
+    codeFilesDrop:
+      "CSS، إعدادات Tailwind، ملفات السمة، design.md — اسحبها أو انقر",
     documents: "المستندات والعروض",
     documentsDrop:
       "PPTX وDOCX وPDF وMarkdown وTXT — أدلة العلامة ومستندات التصميم",

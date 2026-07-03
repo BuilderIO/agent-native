@@ -1,11 +1,11 @@
 import {
   useT,
+  VisualColorPicker,
   VisualControlRow,
   VisualInspectorPanel,
   VisualInspectorSection,
   VisualScrubInput,
   VisualSegmentedControl,
-  VisualSwatchControl,
 } from "@agent-native/core/client";
 import type { DesignSystemData } from "@shared/api";
 import {
@@ -125,16 +125,19 @@ function tokenPalette(
 export function SlideStyleInspector({
   snapshot,
   designSystem,
+  className,
   onChange,
   onClose,
 }: {
   snapshot: SlideStyleSnapshot;
   designSystem?: DesignSystemData;
+  className?: string;
   onChange: (patch: SlideStylePatch) => void;
   onClose: () => void;
 }) {
   const t = useT();
   const palette = tokenPalette(designSystem, t);
+  const documentColors = palette.map((option) => option.value);
   const targetLabel =
     snapshot.textPreview || snapshot.label || snapshot.tagName.toUpperCase();
 
@@ -142,7 +145,7 @@ export function SlideStyleInspector({
     <VisualInspectorPanel
       title={t("styleInspector.title")}
       subtitle={targetLabel}
-      className="pointer-events-auto"
+      className={className}
       headerAction={
         <Button
           type="button"
@@ -166,9 +169,10 @@ export function SlideStyleInspector({
           }
         >
           <VisualControlRow label={t("styleInspector.color")}>
-            <VisualSwatchControl
-              options={palette}
+            <VisualColorPicker
+              label={t("styleInspector.color")}
               value={snapshot.color}
+              documentColors={documentColors}
               onChange={(value) => onChange({ color: value })}
             />
           </VisualControlRow>
@@ -235,16 +239,15 @@ export function SlideStyleInspector({
               : t("styleInspector.fill")
           }
         >
-          <VisualSwatchControl
-            options={[
-              {
-                label: t("styleInspector.transparent"),
-                value: "transparent",
-                color: "transparent",
-              },
-              ...palette,
-            ]}
+          <VisualColorPicker
+            label={
+              snapshot.isImage
+                ? t("styleInspector.tint")
+                : t("styleInspector.fill")
+            }
             value={snapshot.backgroundColor}
+            documentColors={documentColors}
+            allowTransparent
             onChange={(value) => onChange({ backgroundColor: value })}
           />
         </VisualControlRow>
@@ -288,9 +291,10 @@ export function SlideStyleInspector({
           />
         </div>
         <VisualControlRow label={t("styleInspector.strokeColor")}>
-          <VisualSwatchControl
-            options={palette}
+          <VisualColorPicker
+            label={t("styleInspector.strokeColor")}
             value={snapshot.borderColor}
+            documentColors={documentColors}
             onChange={(value) => onChange({ borderColor: value })}
           />
         </VisualControlRow>

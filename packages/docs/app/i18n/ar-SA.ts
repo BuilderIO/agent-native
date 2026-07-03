@@ -73,6 +73,9 @@ const arSA = {
     readDocs: "اقرأ الوثائق",
     genericTitle: "حدث خطأ",
     genericBody: "حدث خطأ غير متوقع.",
+    sendFeedback: "إرسال الملاحظات",
+    feedbackPlaceholder: "صف ما حدث قبل ظهور خطأ Docs هذا.",
+    openGitHubIssue: "فتح مشكلة في GitHub",
   },
   home: {
     hero: {

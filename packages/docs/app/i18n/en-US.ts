@@ -82,6 +82,10 @@ const enUS = {
     readDocs: "Read the docs",
     genericTitle: "Something went wrong",
     genericBody: "An unexpected error occurred.",
+    sendFeedback: "Send feedback",
+    feedbackPlaceholder:
+      "Describe what happened before this Docs error appeared.",
+    openGitHubIssue: "Open GitHub issue",
   },
   home: {
     hero: {

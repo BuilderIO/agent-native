@@ -584,13 +584,34 @@ const messages = {
   agents: {
     title: "代理",
     description:
-      "監控代理執行、評估、實驗、回饋，以及用來檢查應用程式內部狀態的管理資料工具。",
+      "監控代理執行、評估、實驗、回饋，以及只有管理員可檢查的已連接應用程式資料庫。",
     monitoring: "監控",
     monitoringDescription:
       "核心可觀測性集中在這裡：執行、追蹤、評估、實驗與回饋。若需要第一方 token、延遲與成本圖表，請從目錄安裝 LLM 可觀測性儀表板。",
     advanced: "進階",
-    database: "資料庫",
+    database: "應用程式資料庫",
     openCatalog: "開啟目錄",
+    dbConnectionsTitle: "已連接的應用程式資料庫",
+    dbConnectionsDescription:
+      "連接其他 agent-native 應用程式資料庫，供管理員檢查與修復。這不會把 Analytics 資料開放給所有使用者。",
+    selectConnection: "選擇資料庫",
+    connectDatabase: "連接資料庫",
+    connectDatabaseDescription:
+      "使用目標應用程式的資料庫連線字串。只有組織擁有者與管理員可以讀寫已連接資料庫資料。",
+    connectedDatabase: "已連接資料庫",
+    noConnections: "尚未連接應用程式資料庫",
+    noConnectionsDescription:
+      "新增 agent-native 應用程式資料庫，即可在 Analytics 中瀏覽資料表、檢查資料列或執行 SQL。",
+    connectionName: "名稱",
+    connectionAppId: "應用程式 ID",
+    connectionAppUrl: "應用程式 URL",
+    connectionDatabaseUrl: "資料庫 URL",
+    connectionAuthToken: "驗證權杖（選填）",
+    saveConnection: "儲存連線",
+    deleteConnection: "刪除連線",
+    deleteConnectionTitle: "刪除資料庫連線？",
+    deleteConnectionDescription:
+      "這會從 Analytics 移除 {{name}} 並刪除儲存的連線密鑰。目標應用程式資料庫不會被修改。",
   },
   providerCorpusNotifier: {
     completed: "提供者語料庫作業已完成",

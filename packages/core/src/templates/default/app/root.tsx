@@ -1,6 +1,7 @@
 import { useDbSync } from "@agent-native/core/client";
 import {
   AppProviders,
+  ErrorReportActions,
   appPath,
   getLocaleInitScript,
   getThemeInitScript,
@@ -66,6 +67,9 @@ const ERROR_COPY = {
       "This page doesn't exist. It may have been moved or deleted.",
     statusTitle: (status: number) => `${status} Error`,
     goHome: "Go home",
+    sendFeedback: "Send feedback",
+    feedbackPlaceholder: "Describe what happened before this error appeared.",
+    openGitHubIssue: "Open GitHub issue",
   },
   "zh-CN": {
     genericTitle: "出了点问题",
@@ -74,6 +78,9 @@ const ERROR_COPY = {
     notFoundDetails: "此页面不存在。它可能已被移动或删除。",
     statusTitle: (status: number) => `${status} 错误`,
     goHome: "返回首页",
+    sendFeedback: "发送反馈",
+    feedbackPlaceholder: "描述此错误出现前发生了什么。",
+    openGitHubIssue: "打开 GitHub issue",
   },
   "zh-TW": {
     genericTitle: "發生錯誤",
@@ -82,6 +89,9 @@ const ERROR_COPY = {
     notFoundDetails: "此頁面不存在，可能已被移動或刪除。",
     statusTitle: (status: number) => `${status} 錯誤`,
     goHome: "返回首頁",
+    sendFeedback: "傳送意見回饋",
+    feedbackPlaceholder: "描述此錯誤出現前發生了什麼。",
+    openGitHubIssue: "開啟 GitHub issue",
   },
   "es-ES": {
     genericTitle: "Algo salió mal",
@@ -91,6 +101,10 @@ const ERROR_COPY = {
       "Esta página no existe. Puede que se haya movido o eliminado.",
     statusTitle: (status: number) => `Error ${status}`,
     goHome: "Ir al inicio",
+    sendFeedback: "Enviar comentarios",
+    feedbackPlaceholder:
+      "Describe qué pasó antes de que apareciera este error.",
+    openGitHubIssue: "Abrir issue en GitHub",
   },
   "fr-FR": {
     genericTitle: "Une erreur est survenue",
@@ -100,6 +114,9 @@ const ERROR_COPY = {
       "Cette page n'existe pas. Elle a peut-être été déplacée ou supprimée.",
     statusTitle: (status: number) => `Erreur ${status}`,
     goHome: "Retour à l'accueil",
+    sendFeedback: "Envoyer un retour",
+    feedbackPlaceholder: "Décrivez ce qui s'est passé avant cette erreur.",
+    openGitHubIssue: "Ouvrir une issue GitHub",
   },
   "de-DE": {
     genericTitle: "Etwas ist schiefgelaufen",
@@ -109,6 +126,9 @@ const ERROR_COPY = {
       "Diese Seite existiert nicht. Sie wurde möglicherweise verschoben oder gelöscht.",
     statusTitle: (status: number) => `${status} Fehler`,
     goHome: "Zur Startseite",
+    sendFeedback: "Feedback senden",
+    feedbackPlaceholder: "Beschreiben Sie, was vor diesem Fehler passiert ist.",
+    openGitHubIssue: "GitHub-Issue öffnen",
   },
   "ja-JP": {
     genericTitle: "問題が発生しました",
@@ -118,6 +138,9 @@ const ERROR_COPY = {
       "このページは存在しません。移動または削除された可能性があります。",
     statusTitle: (status: number) => `${status} エラー`,
     goHome: "ホームへ",
+    sendFeedback: "フィードバックを送信",
+    feedbackPlaceholder: "このエラーの直前に起きたことを説明してください。",
+    openGitHubIssue: "GitHub issue を開く",
   },
   "ko-KR": {
     genericTitle: "문제가 발생했습니다",
@@ -127,6 +150,10 @@ const ERROR_COPY = {
       "이 페이지는 존재하지 않습니다. 이동되었거나 삭제되었을 수 있습니다.",
     statusTitle: (status: number) => `${status} 오류`,
     goHome: "홈으로 이동",
+    sendFeedback: "피드백 보내기",
+    feedbackPlaceholder:
+      "이 오류가 나타나기 전에 무슨 일이 있었는지 적어 주세요.",
+    openGitHubIssue: "GitHub issue 열기",
   },
   "pt-BR": {
     genericTitle: "Algo deu errado",
@@ -136,6 +163,9 @@ const ERROR_COPY = {
       "Esta página não existe. Ela pode ter sido movida ou excluída.",
     statusTitle: (status: number) => `Erro ${status}`,
     goHome: "Ir para o início",
+    sendFeedback: "Enviar feedback",
+    feedbackPlaceholder: "Descreva o que aconteceu antes deste erro aparecer.",
+    openGitHubIssue: "Abrir issue no GitHub",
   },
   "hi-IN": {
     genericTitle: "कुछ गलत हुआ",
@@ -144,6 +174,9 @@ const ERROR_COPY = {
     notFoundDetails: "यह पेज मौजूद नहीं है। इसे स्थानांतरित या हटाया गया हो सकता है।",
     statusTitle: (status: number) => `${status} त्रुटि`,
     goHome: "होम जाएं",
+    sendFeedback: "फ़ीडबैक भेजें",
+    feedbackPlaceholder: "इस त्रुटि से पहले क्या हुआ, उसका वर्णन करें।",
+    openGitHubIssue: "GitHub issue खोलें",
   },
   "ar-SA": {
     genericTitle: "حدث خطأ",
@@ -152,6 +185,9 @@ const ERROR_COPY = {
     notFoundDetails: "هذه الصفحة غير موجودة. ربما تم نقلها أو حذفها.",
     statusTitle: (status: number) => `خطأ ${status}`,
     goHome: "الذهاب إلى الرئيسية",
+    sendFeedback: "إرسال الملاحظات",
+    feedbackPlaceholder: "صف ما حدث قبل ظهور هذا الخطأ.",
+    openGitHubIssue: "فتح مشكلة في GitHub",
   },
 };
 
@@ -285,6 +321,17 @@ export function ErrorBoundary() {
         >
           {copy.goHome}
         </Link>
+        <ErrorReportActions
+          appName="Agent Native"
+          title={title}
+          details={details}
+          status={status}
+          issueTitle={`Error screen: ${title}`}
+          feedbackLabel={copy.sendFeedback}
+          feedbackPlaceholder={copy.feedbackPlaceholder}
+          githubLabel={copy.openGitHubIssue}
+          className="mt-4"
+        />
         {stack && (
           <pre className="mt-6 w-full text-left text-xs overflow-auto p-4 bg-muted rounded">
             <code>{stack}</code>

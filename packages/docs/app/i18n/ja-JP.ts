@@ -73,6 +73,10 @@ const jaJP = {
     readDocs: "ドキュメントを読む",
     genericTitle: "問題が発生しました",
     genericBody: "予期しないエラーが発生しました。",
+    sendFeedback: "フィードバックを送信",
+    feedbackPlaceholder:
+      "この Docs エラーの直前に起きたことを説明してください。",
+    openGitHubIssue: "GitHub issue を開く",
   },
   home: {
     hero: {

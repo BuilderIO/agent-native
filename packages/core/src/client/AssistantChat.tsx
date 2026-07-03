@@ -688,6 +688,62 @@ function collectRenderedToolCallStates(messages: readonly unknown[]): {
   return { byId, completedFingerprints };
 }
 
+function assistantTextFromContent(content: unknown): string {
+  if (typeof content === "string") return content;
+  if (!Array.isArray(content)) return "";
+  return content
+    .filter(
+      (part): part is { type: "text"; text: string } =>
+        part?.type === "text" && typeof part.text === "string",
+    )
+    .map((part) => part.text)
+    .join("");
+}
+
+function latestRenderedAssistantText(messages: readonly unknown[]): string {
+  const latestEntry = messages.at(-1);
+  const latestMessage = getRepoMessage(latestEntry as any);
+  if (latestMessage?.role !== "assistant") return "";
+  return assistantTextFromContent(latestMessage.content);
+}
+
+function trimReconnectTextAlreadyRendered(
+  content: ContentPart[],
+  renderedAssistantText: string,
+): ContentPart[] {
+  if (!renderedAssistantText) return content;
+
+  let remainingOverlap = renderedAssistantText;
+  let changed = false;
+  const next: ContentPart[] = [];
+
+  for (const part of content) {
+    if (part.type !== "text" || remainingOverlap.length === 0) {
+      next.push(part);
+      continue;
+    }
+
+    if (remainingOverlap.startsWith(part.text)) {
+      remainingOverlap = remainingOverlap.slice(part.text.length);
+      changed = true;
+      continue;
+    }
+
+    if (part.text.startsWith(remainingOverlap)) {
+      const text = part.text.slice(remainingOverlap.length);
+      remainingOverlap = "";
+      changed = true;
+      if (text) next.push({ ...part, text });
+      continue;
+    }
+
+    remainingOverlap = "";
+    next.push(part);
+  }
+
+  return changed ? next : content;
+}
+
 export function dedupeReconnectContentAgainstMessages(
   content: ContentPart[],
   messages: readonly unknown[],
@@ -695,35 +751,43 @@ export function dedupeReconnectContentAgainstMessages(
   if (content.length === 0 || messages.length === 0) return content;
   const { byId, completedFingerprints } =
     collectRenderedToolCallStates(messages);
-  if (byId.size === 0) return content;
+  const renderedAssistantText = latestRenderedAssistantText(messages);
+  if (byId.size === 0 && !renderedAssistantText) return content;
 
   let changed = false;
-  const filtered = content.filter((part) => {
-    const id = toolCallIdFromContentPart(part);
-    if (!id) return true;
-    const existing = byId.get(id);
-    if (existing) {
-      if (toolCallPartHasResult(part) && !existing.hasResult) return true;
-      changed = true;
-      return false;
-    }
-    // Fingerprint fallback for the id-convergence window: a reconnect part
-    // that is still PENDING while the rendered messages already show the same
-    // call (same tool + same serialized args) completed is a replay artifact —
-    // dropping it removes the "one spinning, one done" duplicate pair. Only
-    // pending parts are dropped by fingerprint: completed-vs-completed keeps
-    // the strict id match so a legitimately repeated identical call is never
-    // hidden.
-    if (!toolCallPartHasResult(part)) {
-      const fingerprint = toolCallFingerprintFromContentPart(part);
-      if (fingerprint && completedFingerprints.has(fingerprint)) {
-        changed = true;
-        return false;
-      }
-    }
-    return true;
-  });
-  return changed ? filtered : content;
+  const filtered = byId.size
+    ? content.filter((part) => {
+        const id = toolCallIdFromContentPart(part);
+        if (!id) return true;
+        const existing = byId.get(id);
+        if (existing) {
+          if (toolCallPartHasResult(part) && !existing.hasResult) return true;
+          changed = true;
+          return false;
+        }
+        // Fingerprint fallback for the id-convergence window: a reconnect part
+        // that is still PENDING while the rendered messages already show the same
+        // call (same tool + same serialized args) completed is a replay artifact —
+        // dropping it removes the "one spinning, one done" duplicate pair. Only
+        // pending parts are dropped by fingerprint: completed-vs-completed keeps
+        // the strict id match so a legitimately repeated identical call is never
+        // hidden.
+        if (!toolCallPartHasResult(part)) {
+          const fingerprint = toolCallFingerprintFromContentPart(part);
+          if (fingerprint && completedFingerprints.has(fingerprint)) {
+            changed = true;
+            return false;
+          }
+        }
+        return true;
+      })
+    : content;
+  const textDeduped = trimReconnectTextAlreadyRendered(
+    filtered,
+    renderedAssistantText,
+  );
+  if (textDeduped !== filtered) changed = true;
+  return changed ? textDeduped : content;
 }
 
 const RECOVERY_USER_MESSAGE_PREFIXES = [

@@ -63,6 +63,7 @@
     },
     "./agent-web": "./dist/agent-web/index.js",
     "./db": "./dist/db/index.js",
+    "./db-admin": "./dist/db-admin/index.js",
     "./db/schema": "./dist/db/schema.js",
     "./db/drizzle-config": "./dist/db/drizzle-config.js",
     "./client": "./dist/client/index.js",

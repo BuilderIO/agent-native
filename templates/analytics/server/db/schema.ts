@@ -235,6 +235,33 @@ export const analyticsAlertIncidents = table("analytics_alert_incidents", {
 });
 
 /**
+ * Admin-only registry of external agent-native app databases that Analytics can
+ * inspect. Secret values live in app_secrets; this table stores metadata and
+ * secret keys scoped to the active organization.
+ */
+export const analyticsDbAdminConnections = table(
+  "analytics_db_admin_connections",
+  {
+    id: text("id").primaryKey(),
+    name: text("name").notNull(),
+    appId: text("app_id"),
+    appUrl: text("app_url"),
+    databaseUrlSecretKey: text("database_url_secret_key").notNull(),
+    databaseAuthTokenSecretKey: text("database_auth_token_secret_key"),
+    createdBy: text("created_by").notNull(),
+    createdAt: text("created_at").notNull().default(now()),
+    updatedAt: text("updated_at").notNull().default(now()),
+    orgId: text("org_id").notNull(),
+  },
+  (connection) => ({
+    orgUpdatedIdx: index("analytics_db_admin_connections_org_updated_idx").on(
+      connection.orgId,
+      connection.updatedAt,
+    ),
+  }),
+);
+
+/**
  * Session replay summaries recorded through the first-party analytics replay
  * endpoint. Raw replay chunks live in session_replay_chunks and are only read
  * through scoped replay helpers, not first-party dashboard SQL.

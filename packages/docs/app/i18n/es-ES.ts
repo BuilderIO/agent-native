@@ -73,6 +73,10 @@ const esES = {
     readDocs: "Leer la documentación",
     genericTitle: "Algo salió mal",
     genericBody: "Ocurrió un error inesperado.",
+    sendFeedback: "Enviar comentarios",
+    feedbackPlaceholder:
+      "Describe qué pasó antes de que apareciera este error de Docs.",
+    openGitHubIssue: "Abrir issue en GitHub",
   },
   home: {
     hero: {

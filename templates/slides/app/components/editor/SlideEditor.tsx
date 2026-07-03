@@ -796,10 +796,16 @@ export default function SlideEditor({
       const horizontalPadding =
         (parseFloat(trackStyle?.paddingLeft ?? "0") || 0) +
         (parseFloat(trackStyle?.paddingRight ?? "0") || 0);
+      const verticalPadding =
+        (parseFloat(trackStyle?.paddingTop ?? "0") || 0) +
+        (parseFloat(trackStyle?.paddingBottom ?? "0") || 0);
       const nextFitZoom = computeCanvasFitZoom({
         viewportWidth: scrollContainer.clientWidth,
+        viewportHeight: scrollContainer.clientHeight,
         canvasWidth: dims.width,
+        canvasHeight: dims.height,
         horizontalPadding,
+        verticalPadding,
       });
 
       setFitCanvasZoom(nextFitZoom);
@@ -1791,162 +1797,179 @@ export default function SlideEditor({
 
   return (
     <div
-      className="relative flex-1 flex flex-col h-full overflow-hidden"
+      className="relative flex h-full min-h-0 flex-1 flex-col overflow-hidden"
       data-slide-element-selected={slideElementSelected ? "true" : undefined}
     >
-      <div className="flex-1 overflow-hidden">
-        {slide.excalidrawData ? (
-          <div className="h-full bg-background">
-            <ExcalidrawSlide
-              initialData={slide.excalidrawData}
-              onChange={(data) => onUpdateSlide({ excalidrawData: data })}
-            />
-          </div>
-        ) : (
-          <div className="relative h-full bg-background">
-            <div className="absolute right-3 top-3 z-20 flex h-8 items-center gap-0.5 rounded-md border border-border bg-popover/95 px-1 shadow-lg backdrop-blur">
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-6 w-6 cursor-pointer"
-                    onClick={canvasZoomOut}
-                    disabled={canvasZoom <= MIN_CANVAS_ZOOM}
-                    aria-label={t("raw.zoomOut")}
-                  >
-                    <IconZoomOut className="h-3.5 w-3.5" />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>{t("raw.zoomOut")}</TooltipContent>
-              </Tooltip>
-              <span className="w-11 text-center text-xs tabular-nums text-muted-foreground">
-                {canvasZoom}%
-              </span>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-6 w-6 cursor-pointer"
-                    onClick={canvasZoomIn}
-                    disabled={
-                      canvasZoom >=
-                      CANVAS_ZOOM_PRESETS[CANVAS_ZOOM_PRESETS.length - 1]
-                    }
-                    aria-label={t("raw.zoomIn")}
-                  >
-                    <IconZoomIn className="h-3.5 w-3.5" />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>{t("raw.zoomIn")}</TooltipContent>
-              </Tooltip>
-              <div className="mx-0.5 h-4 w-px bg-border" />
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-6 w-6 cursor-pointer"
-                    onClick={fitCanvasToScreen}
-                    aria-label={t("raw.fitSlideToScreen")}
-                  >
-                    <IconMaximize className="h-3.5 w-3.5" />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>{t("raw.fitToScreen")}</TooltipContent>
-              </Tooltip>
+      <div className="flex min-h-0 flex-1 overflow-hidden">
+        <div className="min-w-0 flex-1 overflow-hidden">
+          {slide.excalidrawData ? (
+            <div className="h-full bg-background">
+              <ExcalidrawSlide
+                initialData={slide.excalidrawData}
+                onChange={(data) => onUpdateSlide({ excalidrawData: data })}
+              />
             </div>
-            <div
-              ref={scrollContainerRef}
-              className={`h-full overflow-auto ${
-                drawMode ? "pb-24 sm:pb-28" : ""
-              }`}
-            >
+          ) : (
+            <div className="relative h-full bg-background">
+              <div className="absolute right-3 top-3 z-20 flex h-8 items-center gap-0.5 rounded-md border border-border bg-popover/95 px-1 shadow-lg backdrop-blur">
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-6 w-6 cursor-pointer"
+                      onClick={canvasZoomOut}
+                      disabled={canvasZoom <= MIN_CANVAS_ZOOM}
+                      aria-label={t("raw.zoomOut")}
+                    >
+                      <IconZoomOut className="h-3.5 w-3.5" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>{t("raw.zoomOut")}</TooltipContent>
+                </Tooltip>
+                <span className="w-11 text-center text-xs tabular-nums text-muted-foreground">
+                  {canvasZoom}%
+                </span>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-6 w-6 cursor-pointer"
+                      onClick={canvasZoomIn}
+                      disabled={
+                        canvasZoom >=
+                        CANVAS_ZOOM_PRESETS[CANVAS_ZOOM_PRESETS.length - 1]
+                      }
+                      aria-label={t("raw.zoomIn")}
+                    >
+                      <IconZoomIn className="h-3.5 w-3.5" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>{t("raw.zoomIn")}</TooltipContent>
+                </Tooltip>
+                <div className="mx-0.5 h-4 w-px bg-border" />
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-6 w-6 cursor-pointer"
+                      onClick={fitCanvasToScreen}
+                      aria-label={t("raw.fitSlideToScreen")}
+                    >
+                      <IconMaximize className="h-3.5 w-3.5" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>{t("raw.fitToScreen")}</TooltipContent>
+                </Tooltip>
+              </div>
               <div
-                ref={canvasTrackRef}
-                className="flex min-h-full w-max min-w-full items-center justify-center p-2 pt-14 sm:p-4 sm:pt-14 md:p-8 md:pt-16"
+                ref={scrollContainerRef}
+                className={`h-full overflow-auto ${
+                  drawMode ? "pb-24 sm:pb-28" : ""
+                }`}
               >
                 <div
-                  ref={containerRef}
-                  data-main-slide-canvas="true"
-                  className="shrink-0"
-                  style={{ width: canvasWidth, maxWidth: canvasWidth }}
+                  ref={canvasTrackRef}
+                  className="flex min-h-full w-max min-w-full items-center justify-center p-2 pt-14 sm:p-4 sm:pt-14 md:p-8 md:pt-16"
                 >
                   <div
-                    ref={slideCanvasRef}
-                    className="slide-image-clickable relative"
-                    data-editable={!readOnly ? "true" : undefined}
-                    onClick={handleSlideClick}
-                    onContextMenu={handleSlideContextMenu}
-                    onDoubleClick={handleSlideDoubleClick}
-                    onPointerDown={handleSlidePointerDown}
-                    onDragOver={handleSlideDragOver}
-                    onDrop={handleSlideDrop}
-                    onMouseEnter={() => setIsHoveringText(true)}
-                    onMouseLeave={() => setIsHoveringText(false)}
+                    ref={containerRef}
+                    data-main-slide-canvas="true"
+                    className="shrink-0"
+                    style={{ width: canvasWidth, maxWidth: canvasWidth }}
                   >
-                    <SlideRenderer
-                      slide={slide}
-                      className={`shadow-2xl shadow-black/40 ${isHoveringText ? "ring-2 ring-[#609FF8]/60" : ""}`}
-                      designSystem={designSystem}
-                      aspectRatio={aspectRatio}
-                      onOverflowChange={handleOverflowChange}
-                    />
-                    {/* Fading "AI edited" ring around the canvas when the
-                          agent just edited THIS slide (component handles fade). */}
-                    {activeSlideEdits.length > 0 && (
-                      <RecentEditHighlights
-                        edits={activeSlideEdits}
-                        resolveRect={resolveCanvasRect}
-                        containerRef={slideCanvasRef}
+                    <div
+                      ref={slideCanvasRef}
+                      className="slide-image-clickable relative"
+                      data-editable={!readOnly ? "true" : undefined}
+                      onClick={handleSlideClick}
+                      onContextMenu={handleSlideContextMenu}
+                      onDoubleClick={handleSlideDoubleClick}
+                      onPointerDown={handleSlidePointerDown}
+                      onDragOver={handleSlideDragOver}
+                      onDrop={handleSlideDrop}
+                      onMouseEnter={() => setIsHoveringText(true)}
+                      onMouseLeave={() => setIsHoveringText(false)}
+                    >
+                      <SlideRenderer
+                        slide={slide}
+                        className={`shadow-2xl shadow-black/40 ${isHoveringText ? "ring-2 ring-[#609FF8]/60" : ""}`}
+                        designSystem={designSystem}
+                        aspectRatio={aspectRatio}
+                        onOverflowChange={handleOverflowChange}
                       />
-                    )}
-                    {/* Double-click hint — only shown for HTML slides that support inline editing */}
-                    {isHoveringText && !editingEl && isHtmlSlide && (
-                      <div className="absolute bottom-2 left-1/2 -translate-x-1/2 rounded bg-black/60 px-2 py-0.5 text-xs text-white/40 pointer-events-none select-none">
-                        {t("raw.doubleClickEdit")}
-                      </div>
-                    )}
-                    {agentActive && (
-                      <div className="absolute top-2 right-2 z-10 pointer-events-none">
-                        <AgentPresenceChip active={agentActive} />
-                      </div>
-                    )}
-                    {presentUsers.length > 0 && (
-                      <div
-                        className={`absolute right-2 z-10 ${
-                          agentActive ? "top-11" : "top-2"
-                        }`}
-                      >
-                        <SameSlidePresenceIndicator users={presentUsers} />
-                      </div>
-                    )}
-                    {overflowInfo && !readOnly && !agentActive && (
-                      <div className="absolute top-3 left-3 z-20 flex items-center gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 backdrop-blur px-2.5 py-1.5 text-xs text-amber-100 shadow-lg">
-                        <IconAlertTriangle
-                          className="h-3.5 w-3.5 flex-shrink-0"
-                          stroke={2}
+                      {/* Fading "AI edited" ring around the canvas when the
+                          agent just edited THIS slide (component handles fade). */}
+                      {activeSlideEdits.length > 0 && (
+                        <RecentEditHighlights
+                          edits={activeSlideEdits}
+                          resolveRect={resolveCanvasRect}
+                          containerRef={slideCanvasRef}
                         />
-                        <span className="leading-tight">
-                          Layout overflows by {overflowInfo.verticalOverflow}
-                          px
-                        </span>
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          className="ml-1 h-6 cursor-pointer px-2 text-[11px] font-medium text-amber-100 hover:bg-amber-500/20 hover:text-white"
-                          onClick={handleAskAgentToFixLayout}
-                          disabled={isAskingAgentToFix}
+                      )}
+                      {/* Double-click hint — only shown for HTML slides that support inline editing */}
+                      {isHoveringText && !editingEl && isHtmlSlide && (
+                        <div className="absolute bottom-2 left-1/2 -translate-x-1/2 rounded bg-black/60 px-2 py-0.5 text-xs text-white/40 pointer-events-none select-none">
+                          {t("raw.doubleClickEdit")}
+                        </div>
+                      )}
+                      {agentActive && (
+                        <div className="absolute top-2 right-2 z-10 pointer-events-none">
+                          <AgentPresenceChip active={agentActive} />
+                        </div>
+                      )}
+                      {presentUsers.length > 0 && (
+                        <div
+                          className={`absolute right-2 z-10 ${
+                            agentActive ? "top-11" : "top-2"
+                          }`}
                         >
-                          {isAskingAgentToFix ? "Asking…" : "Fix with AI"}
-                        </Button>
-                      </div>
-                    )}
+                          <SameSlidePresenceIndicator users={presentUsers} />
+                        </div>
+                      )}
+                      {overflowInfo && !readOnly && !agentActive && (
+                        <div className="absolute top-3 left-3 z-20 flex items-center gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 backdrop-blur px-2.5 py-1.5 text-xs text-amber-100 shadow-lg">
+                          <IconAlertTriangle
+                            className="h-3.5 w-3.5 flex-shrink-0"
+                            stroke={2}
+                          />
+                          <span className="leading-tight">
+                            Layout overflows by {overflowInfo.verticalOverflow}
+                            px
+                          </span>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="ml-1 h-6 cursor-pointer px-2 text-[11px] font-medium text-amber-100 hover:bg-amber-500/20 hover:text-white"
+                            onClick={handleAskAgentToFixLayout}
+                            disabled={isAskingAgentToFix}
+                          >
+                            {isAskingAgentToFix ? "Asking…" : "Fix with AI"}
+                          </Button>
+                        </div>
+                      )}
+                    </div>
                   </div>
                 </div>
               </div>
             </div>
+          )}
+        </div>
+
+        {selectedStyleSnapshot && !readOnly && (
+          <div className="hidden h-full w-[17rem] shrink-0 border-l border-border/70 bg-background/95 lg:block">
+            <SlideStyleInspector
+              snapshot={selectedStyleSnapshot}
+              designSystem={designSystem}
+              className="h-full w-full rounded-none border-0 bg-transparent shadow-none"
+              onChange={applySelectedStylePatch}
+              onClose={() => {
+                clearSelectedElement();
+                syncSelectionToAppState(null);
+              }}
+            />
           </div>
         )}
       </div>
@@ -1961,20 +1984,6 @@ export default function SlideEditor({
       {selectionRect && <ImageSelectionOutline rect={selectionRect} />}
       {selectedElementRect && (
         <ElementSelectionOutline rect={selectedElementRect} />
-      )}
-
-      {selectedStyleSnapshot && !readOnly && (
-        <div className="pointer-events-none absolute right-3 top-14 z-[80] hidden md:block">
-          <SlideStyleInspector
-            snapshot={selectedStyleSnapshot}
-            designSystem={designSystem}
-            onChange={applySelectedStylePatch}
-            onClose={() => {
-              clearSelectedElement();
-              syncSelectionToAppState(null);
-            }}
-          />
-        </div>
       )}
 
       {/* Multi-select outlines */}

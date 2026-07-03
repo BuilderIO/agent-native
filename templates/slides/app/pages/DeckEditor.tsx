@@ -776,7 +776,7 @@ export default function DeckEditor() {
 
   return (
     <div
-      className="flex-1 flex flex-col overflow-hidden bg-background"
+      className="flex h-full min-h-0 flex-1 flex-col overflow-hidden bg-background"
       onDragOver={editorDragOver}
       onDrop={editorDrop}
     >
@@ -878,14 +878,14 @@ export default function DeckEditor() {
         }}
       />
 
-      <div className="flex-1 flex overflow-hidden relative">
+      <div className="relative flex min-h-0 flex-1 overflow-hidden">
         {sidebarOpen && (
           <>
             <div
               className="md:hidden fixed inset-0 bg-black/50 z-30"
               onClick={() => setSidebarOpen(false)}
             />
-            <div className="absolute md:relative z-40 h-full">
+            <div className="absolute z-40 h-full min-h-0 md:relative">
               <DndContext
                 sensors={sensors}
                 collisionDetection={closestCenter}

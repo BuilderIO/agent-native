@@ -347,13 +347,34 @@ const enUS = {
   agents: {
     title: "Agents",
     description:
-      "Monitor agent runs, evals, experiments, feedback, and the admin data tools used to inspect the app behind the scenes.",
+      "Monitor agent runs, evals, experiments, feedback, and connected app databases that admins can inspect behind the scenes.",
     monitoring: "Monitoring",
     monitoringDescription:
       "Core observability stays here: runs, traces, evals, experiments, and feedback. Install the LLM observability dashboard from the catalog when you want first-party token, latency, and cost charts.",
     advanced: "Advanced",
-    database: "Database",
+    database: "App Databases",
     openCatalog: "Open catalog",
+    dbConnectionsTitle: "Connected app databases",
+    dbConnectionsDescription:
+      "Connect other agent-native app databases for admin-only inspection and repair. This does not expose Analytics data to every user.",
+    selectConnection: "Select database",
+    connectDatabase: "Connect database",
+    connectDatabaseDescription:
+      "Use the target app's database connection string. Only organization owners and admins can read or write connected database data.",
+    connectedDatabase: "Connected database",
+    noConnections: "No app databases connected",
+    noConnectionsDescription:
+      "Add an agent-native app database to browse tables, inspect rows, or run SQL from Analytics.",
+    connectionName: "Name",
+    connectionAppId: "App ID",
+    connectionAppUrl: "App URL",
+    connectionDatabaseUrl: "Database URL",
+    connectionAuthToken: "Auth token (optional)",
+    saveConnection: "Save connection",
+    deleteConnection: "Delete connection",
+    deleteConnectionTitle: "Delete database connection?",
+    deleteConnectionDescription:
+      "This removes {{name}} from Analytics and deletes its stored connection secrets. The target app database is not modified.",
   },
   providerCorpusNotifier: {
     completed: "Provider corpus job completed",
