@@ -6508,7 +6508,7 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
                   ) : (
                     pendingCommentPin
                   )}
-                  {!session ? (
+                  {!session && !localPlanMode ? (
                     <GuestCommentCta
                       position={inlineCommentPosition}
                       onSignIn={() => {
