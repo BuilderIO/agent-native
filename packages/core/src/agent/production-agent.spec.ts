@@ -1004,6 +1004,70 @@ describe("runAgentLoop", () => {
     );
   });
 
+  it("checkpoints when zero-byte action input preparation goes silent", async () => {
+    vi.useFakeTimers({ now: 1_000_000 });
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: true,
+      },
+      async *stream(): AsyncIterable<EngineEvent> {
+        yield {
+          type: "tool-input-delta",
+          id: "tool-edit",
+          name: "edit-design",
+          text: "",
+        };
+        await new Promise(() => {});
+      },
+    };
+    const events: AgentChatEvent[] = [];
+
+    try {
+      const run = runAgentLoop({
+        engine,
+        model: "test-model",
+        systemPrompt: "system",
+        tools: [],
+        messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+        actions: {
+          "edit-design": actionEntry({ readOnly: false }),
+        },
+        send: (event) => events.push(event),
+        signal: new AbortController().signal,
+      });
+
+      await vi.advanceTimersByTimeAsync(0);
+      expect(events).toContainEqual({
+        type: "activity",
+        label: "Preparing edit-design action",
+        tool: "edit-design",
+        id: "tool-edit",
+        progressBytes: 0,
+      });
+
+      await vi.advanceTimersByTimeAsync(90_000);
+      await run;
+    } finally {
+      vi.useRealTimers();
+    }
+
+    expect(events.at(-1)).toEqual({
+      type: "auto_continue",
+      reason: "no_progress",
+    });
+    expect(events).not.toContainEqual(
+      expect.objectContaining({ type: "tool_start" }),
+    );
+  });
+
   it("keeps tracking a stalled action input across assistant snapshots", async () => {
     let now = 1_000_000;
     const dateNow = vi.spyOn(Date, "now").mockImplementation(() => now);

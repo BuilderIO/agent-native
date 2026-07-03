@@ -2837,9 +2837,15 @@ export async function runAgentLoop(opts: {
             ...(typeof progressBytes === "number" ? { progressBytes } : {}),
           });
         };
-        const hasActionPreparationStalled = () => {
-          if (activeToolInputs.size === 0) return false;
-          const now = Date.now();
+        const actionPreparationDeadlineAt = () => {
+          let deadlineAt = Number.POSITIVE_INFINITY;
+          if (zeroByteToolInputRestart) {
+            deadlineAt = Math.min(
+              deadlineAt,
+              zeroByteToolInputRestart.firstStartedAt +
+                ACTION_PREPARATION_NO_PROGRESS_TIMEOUT_MS,
+            );
+          }
           let earliestStartedAt = Number.POSITIVE_INFINITY;
           let latestPositiveProgressAt = 0;
           for (const active of activeToolInputs.values()) {
@@ -2857,8 +2863,51 @@ export async function runAgentLoop(opts: {
             latestPositiveProgressAt > 0
               ? latestPositiveProgressAt
               : earliestStartedAt;
-          if (!Number.isFinite(progressAt)) return false;
-          return now - progressAt >= ACTION_PREPARATION_NO_PROGRESS_TIMEOUT_MS;
+          if (Number.isFinite(progressAt)) {
+            deadlineAt = Math.min(
+              deadlineAt,
+              progressAt + ACTION_PREPARATION_NO_PROGRESS_TIMEOUT_MS,
+            );
+          }
+          return Number.isFinite(deadlineAt) ? deadlineAt : undefined;
+        };
+        const hasActionPreparationStalled = () => {
+          const deadlineAt = actionPreparationDeadlineAt();
+          return deadlineAt !== undefined && Date.now() >= deadlineAt;
+        };
+        const checkpointActionPreparationNoProgress = () => {
+          if (endedForActionPreparationNoProgress) return;
+          send({
+            type: "auto_continue",
+            reason: "no_progress",
+          });
+          endedForActionPreparationNoProgress = true;
+        };
+        const nextEngineEventWithActionPreparationTimeout = async (
+          iterator: AsyncIterator<EngineEvent>,
+        ): Promise<IteratorResult<EngineEvent>> => {
+          const deadlineAt = actionPreparationDeadlineAt();
+          if (deadlineAt === undefined) return iterator.next();
+          const timeoutMs = Math.max(0, deadlineAt - Date.now());
+          if (timeoutMs <= 0) {
+            checkpointActionPreparationNoProgress();
+            void iterator.return?.().catch(() => undefined);
+            return { done: true, value: undefined };
+          }
+          let timeoutId: ReturnType<typeof setTimeout> | undefined;
+          const next = iterator.next();
+          void next.catch(() => undefined);
+          const timeout = new Promise<"timeout">((resolve) => {
+            timeoutId = setTimeout(() => resolve("timeout"), timeoutMs);
+          });
+          const result = await Promise.race([next, timeout]);
+          if (timeoutId) clearTimeout(timeoutId);
+          if (result === "timeout") {
+            checkpointActionPreparationNoProgress();
+            void iterator.return?.().catch(() => undefined);
+            return { done: true, value: undefined };
+          }
+          return result;
         };
         const trackActiveToolInput = (
           key: string,
@@ -2906,13 +2955,15 @@ export async function runAgentLoop(opts: {
               ACTION_PREPARATION_NO_PROGRESS_TIMEOUT_MS
           );
         };
-        for await (const event of eventStream) {
+        const eventIterator = eventStream[Symbol.asyncIterator]();
+        while (true) {
+          const nextEvent =
+            await nextEngineEventWithActionPreparationTimeout(eventIterator);
+          if (nextEvent.done) break;
+          const event = nextEvent.value;
           if (hasActionPreparationStalled()) {
-            send({
-              type: "auto_continue",
-              reason: "no_progress",
-            });
-            endedForActionPreparationNoProgress = true;
+            checkpointActionPreparationNoProgress();
+            void eventIterator.return?.().catch(() => undefined);
             break;
           }
           // In-loop processor seam (stream hook). Each chunk is offered to every
@@ -3023,11 +3074,8 @@ export async function runAgentLoop(opts: {
             }
           }
           if (hasActionPreparationStalled()) {
-            send({
-              type: "auto_continue",
-              reason: "no_progress",
-            });
-            endedForActionPreparationNoProgress = true;
+            checkpointActionPreparationNoProgress();
+            void eventIterator.return?.().catch(() => undefined);
             break;
           }
         }
