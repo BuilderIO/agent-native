@@ -1,6 +1,6 @@
 [package]
 name = "clips-tray"
-version = "0.1.1"
+version = "0.2.0"
 description = "Clips — menu-bar tray app (Tauri 2)"
 authors = ["Clips"]
 license = "MIT"
@@ -123,6 +123,16 @@ whisper-rs = { version = "0.16.0" }
 # crate. Its API surface drifts between minor 0.3.x releases (and not
 # every version exposes `EKEventStore::eventsMatchingPredicate`); the
 # slice we need is small enough that hand-rolling is more durable.
+
+# Windows-only: voice-dictation text delivery. `arboard` writes the
+# transcript to the Windows clipboard (so the user can paste manually too),
+# and the `windows` crate's SendInput synthesizes Ctrl+V into the focused
+# field — the Win32 equivalent of the macOS pbcopy + CGEvent Cmd+V path.
+[target."cfg(target_os = \"windows\")".dependencies]
+arboard = "3.6.1"
+windows = { version = "0.62.2", features = [
+  "Win32_UI_Input_KeyboardAndMouse",
+] }
 
 [profile.release]
 panic = "abort"
