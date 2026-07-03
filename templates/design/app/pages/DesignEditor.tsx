@@ -264,6 +264,7 @@ import { useAgentGenerating } from "@/hooks/use-agent-generating";
 import { useDesignSystems } from "@/hooks/use-design-systems";
 import {
   designEditorCommandKey,
+  designSelectionStateKeysForTab,
   type DesignEditorCommand,
 } from "@/hooks/use-navigation-state";
 import { useQuestionFlow } from "@/hooks/use-question-flow";
@@ -297,10 +298,7 @@ const TAB_ID = generateTabId();
 // overwrite this tab's selection context. The global key is mirrored as a
 // fallback for CLI/external agents that do not send a browser tab id.
 function designSelectionStateKeys(): string[] {
-  const tabId = getBrowserTabId();
-  return tabId
-    ? [`design-selection:${tabId}`, "design-selection"]
-    : ["design-selection"];
+  return designSelectionStateKeysForTab(getBrowserTabId());
 }
 // Stable symbol used as the Yjs transaction origin for all local user edits.
 // The UndoManager tracks only this origin so remote peers' and the agent's
