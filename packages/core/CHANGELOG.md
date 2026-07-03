@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.84.66
+
+### Patch Changes
+
+- 70a6085: Keep hosted chat runs inside the active worker when a progress-aware action-preparation checkpoint asks to continue, instead of depending on the browser to start the recovery turn.
+
 ## 0.84.65
 
 ### Patch Changes
