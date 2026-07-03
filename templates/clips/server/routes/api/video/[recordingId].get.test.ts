@@ -79,6 +79,10 @@ vi.mock("../../../db/index.js", () => ({
   },
 }));
 
+import {
+  isLoomEmbedBackedRecording,
+  loomEmbedUrlForRecording,
+} from "../../../../shared/loom.js";
 import handler from "./[recordingId].get";
 
 function createDbWithSelectResult(rows: unknown[]) {
@@ -335,6 +339,32 @@ describe("/api/video/:recordingId route", () => {
     expect(result).toBeInstanceOf(Response);
     expect(event.status).not.toBe(403);
     expect(fetch).toHaveBeenCalled();
+  });
+
+  it("does not emit a CSP header on Loom embed HTML responses", async () => {
+    vi.mocked(isLoomEmbedBackedRecording).mockReturnValueOnce(true);
+    vi.mocked(loomEmbedUrlForRecording).mockReturnValueOnce(
+      "https://www.loom.com/embed/recording",
+    );
+    mockResolveAccess.mockResolvedValue({
+      role: "viewer",
+      resource: {
+        visibility: "public",
+        password: null,
+        expiresAt: null,
+        videoUrl: "loom:recording",
+      },
+    });
+
+    const result = await handler(makeEvent() as any);
+
+    expect(result).toBeInstanceOf(Response);
+    expect(
+      (result as Response).headers.get("content-security-policy"),
+    ).toBeNull();
+    expect((result as Response).headers.get("content-type")).toContain(
+      "text/html",
+    );
   });
 
   it("forbids anonymous viewers on a non-public recording with no grant", async () => {

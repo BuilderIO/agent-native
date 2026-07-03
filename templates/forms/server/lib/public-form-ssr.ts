@@ -279,7 +279,6 @@ export async function renderPublicForm(event: H3Event) {
 
   const headers: Record<string, string> = {
     "Content-Type": "text/html; charset=utf-8",
-    "Content-Security-Policy": "frame-ancestors *",
   };
   if (status === 200) {
     // Public form SSR is anonymous HTML and follows the same framework-level
