@@ -46,7 +46,7 @@ agent answers about browser recordings in the Analytics template.
   custom events tagged `agent-native.console` and `agent-native.network`.
 - Capture is on by default whenever session replay is enabled. Tune or disable
   it with the `console` / `network` options on the session replay config; each
-  accepts a boolean or an options object.
+  accepts a boolean or an options object (`{ maxEvents?: number }`).
 - Privacy bounds: request/response bodies and headers are never captured, URLs
   are scrubbed, messages are truncated, and recorder self-traffic (the replay
   ingest and tracking endpoints) is excluded.
