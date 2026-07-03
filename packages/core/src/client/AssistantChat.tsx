@@ -239,6 +239,7 @@ function createUserMessageRunConfig(
 const PENDING_SELECTION_KEY = "pending-selection-context";
 const ACTIVE_RUN_CLEAR_TIMEOUT_MS = 5_000;
 const ACTIVE_RUN_STUCK_THRESHOLD_MS = 90_000;
+const BACKGROUND_ACTIVE_RUN_STUCK_THRESHOLD_MS = 13 * 60_000;
 const ACTIVE_RUN_POLL_INTERVAL_MS = 150;
 const AUTO_RESUME_STATUS_TIMEOUT_MS = 30_000;
 // How long a single activity (model call, tool prep, long tool) must stay
@@ -271,15 +272,24 @@ function isReplayableTerminalRun(runInfo: ActiveRunLookup): boolean {
   );
 }
 
+function activeRunStuckThresholdMs(runInfo: ActiveRunLookup): number {
+  const dispatchMode =
+    typeof runInfo.dispatchMode === "string" ? runInfo.dispatchMode : "";
+  return dispatchMode.startsWith("background")
+    ? BACKGROUND_ACTIVE_RUN_STUCK_THRESHOLD_MS
+    : ACTIVE_RUN_STUCK_THRESHOLD_MS;
+}
+
 function activeRunLooksStale(runInfo: ActiveRunLookup): boolean {
   const lastProgressAt =
     typeof runInfo.lastProgressAt === "number" ? runInfo.lastProgressAt : null;
   const nowMs =
     typeof runInfo.serverNow === "number" ? runInfo.serverNow : Date.now();
+  const thresholdMs = activeRunStuckThresholdMs(runInfo);
   return (
     runInfo.status === "running" &&
     lastProgressAt != null &&
-    nowMs - lastProgressAt > ACTIVE_RUN_STUCK_THRESHOLD_MS
+    nowMs - lastProgressAt > thresholdMs
   );
 }
 
@@ -1894,6 +1904,7 @@ const AssistantChatInner = forwardRef<
       reconnectAbortRef.current = abortCtrl;
       let reconnectTerminalReason: AgentAutoContinueSignal["reason"] | null =
         null;
+      const reconnectStuckThresholdMs = activeRunStuckThresholdMs(runInfo);
 
       const watchdog = setInterval(async () => {
         try {
@@ -1937,6 +1948,7 @@ const AssistantChatInner = forwardRef<
           !reconnectProgressTimedOut({
             lastProgressAt: lastReconnectProgressAt,
             now: Date.now(),
+            thresholdMs: reconnectStuckThresholdMs,
           })
         ) {
           return;
