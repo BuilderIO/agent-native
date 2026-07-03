@@ -1,3 +1,8 @@
+import {
+  hitTestPenAnchor,
+  hitTestPenHandle,
+  type PenPath,
+} from "@shared/pen-path";
 import { beforeEach, describe, expect, it } from "vitest";
 
 import {
@@ -18,7 +23,10 @@ import {
   primitiveLocalToBoardRect,
   primitiveParseCache,
   resolveNodeScreenId,
+  screenPxToCanvasPx,
   shouldBoardSurfaceCapturePointerEvents,
+  vectorEditCanvasToLocalPoint,
+  vectorEditLocalToCanvasPoint,
   type FrameGeometry,
 } from "./MultiScreenCanvas";
 
@@ -952,3 +960,139 @@ describe("breakpoint sub-frame iframe id resolution", () => {
     expect(getActiveScreenIframeId({ id: "screen-1" })).toBe("screen-1");
   });
 });
+
+// ---------------------------------------------------------------------------
+// Vector edit mode (P-VE1): coordinate mapping + hit-test priority
+//
+// MultiScreenCanvas isn't render-testable in this vitest environment (no
+// jsdom `environment`, no @testing-library/react in this package — see the
+// harness-limitation note in the smoke test below), so these tests cover the
+// pure coordinate/hit-test logic that backs the interactive overlay:
+// local<->canvas point mapping (vectorEditLocalToCanvasPoint /
+// vectorEditCanvasToLocalPoint), the screen-px->canvas-px hit-radius
+// conversion (screenPxToCanvasPx), and — via the already-tested pen-path.ts
+// primitives — the "handles take priority over anchors when overlapping"
+// hit-test ordering the overlay's mousedown handler relies on.
+// ---------------------------------------------------------------------------
+describe("vector edit: local/canvas coordinate mapping", () => {
+  it("maps a local point to canvas space by adding the origin", () => {
+    expect(
+      vectorEditLocalToCanvasPoint({ x: 10, y: 20 }, { x: 100, y: 200 }),
+    ).toEqual({ x: 110, y: 220 });
+  });
+
+  it("maps a canvas point back to local space by subtracting the origin", () => {
+    expect(
+      vectorEditCanvasToLocalPoint({ x: 110, y: 220 }, { x: 100, y: 200 }),
+    ).toEqual({ x: 10, y: 20 });
+  });
+
+  it("round-trips local -> canvas -> local for arbitrary points/origins", () => {
+    const origin = { x: -37.5, y: 812.25 };
+    const local = { x: 4.5, y: -9 };
+    const canvas = vectorEditLocalToCanvasPoint(local, origin);
+    expect(vectorEditCanvasToLocalPoint(canvas, origin)).toEqual(local);
+  });
+
+  it("is a no-op when origin is (0,0)", () => {
+    const local = { x: 42, y: -7 };
+    expect(vectorEditLocalToCanvasPoint(local, { x: 0, y: 0 })).toEqual(local);
+    expect(vectorEditCanvasToLocalPoint(local, { x: 0, y: 0 })).toEqual(local);
+  });
+});
+
+describe("vector edit: screenPxToCanvasPx zoom conversion", () => {
+  it("is a no-op at 100% zoom", () => {
+    expect(screenPxToCanvasPx(8, 100)).toBe(8);
+  });
+
+  it("grows the canvas-space radius when zoomed out (matches a constant screen size)", () => {
+    // At 50% zoom, one canvas px covers half a screen px, so hitting the
+    // same *screen*-sized radius requires a larger canvas-space radius.
+    expect(screenPxToCanvasPx(8, 50)).toBe(16);
+  });
+
+  it("shrinks the canvas-space radius when zoomed in", () => {
+    expect(screenPxToCanvasPx(8, 200)).toBe(4);
+  });
+
+  it("falls back to the raw screen px for a non-positive zoom", () => {
+    expect(screenPxToCanvasPx(8, 0)).toBe(8);
+    expect(screenPxToCanvasPx(8, -10)).toBe(8);
+  });
+});
+
+describe("vector edit: hit-test priority (handles over anchors when overlapping)", () => {
+  // A node whose handleOut coincides exactly with the anchor point (e.g. a
+  // freshly-converted "smooth" node whose handle hasn't been dragged out
+  // yet) — both hitTestPenAnchor and hitTestPenHandle should match the same
+  // point, and the overlay's mousedown handler must check handles first so
+  // the handle wins.
+  const overlappingPath: PenPath = {
+    nodes: [
+      {
+        point: { x: 50, y: 50 },
+        handleOut: { x: 50, y: 50 },
+      },
+    ],
+    closed: false,
+  };
+
+  it("both an anchor and a handle can match the same point", () => {
+    const point = { x: 50, y: 50 };
+    expect(hitTestPenAnchor(overlappingPath, point, 8)).toEqual({
+      nodeIndex: 0,
+    });
+    expect(hitTestPenHandle(overlappingPath, point, 8)).toEqual({
+      nodeIndex: 0,
+      which: "out",
+    });
+  });
+
+  it("checking hitTestPenHandle before hitTestPenAnchor resolves the handle as the winner", () => {
+    const point = { x: 50, y: 50 };
+    // This mirrors MultiScreenCanvas's handleMouseDown vectorEdit branch:
+    // hitTestPenHandle is checked first, and only falls through to
+    // hitTestPenAnchor when no handle is in range.
+    const handleHit = hitTestPenHandle(overlappingPath, point, 8);
+    const winner = handleHit
+      ? { kind: "handle" as const, ...handleHit }
+      : (() => {
+          const anchorHit = hitTestPenAnchor(overlappingPath, point, 8);
+          return anchorHit ? { kind: "anchor" as const, ...anchorHit } : null;
+        })();
+    expect(winner).toEqual({ kind: "handle", nodeIndex: 0, which: "out" });
+  });
+
+  it("falls through to the anchor when no handle is in range", () => {
+    const cornerPath: PenPath = {
+      nodes: [{ point: { x: 0, y: 0 } }],
+      closed: false,
+    };
+    expect(hitTestPenHandle(cornerPath, { x: 0, y: 0 }, 8)).toBeNull();
+    expect(hitTestPenAnchor(cornerPath, { x: 0, y: 0 }, 8)).toEqual({
+      nodeIndex: 0,
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Smoke-test harness note (P-VE1):
+//
+// The task asked for a smoke test asserting the vector-edit overlay renders
+// the correct anchor/handle counts for a given path, if the harness supports
+// component rendering. It does not: this package's vitest.config has no
+// `test.environment` (defaults to "node", no DOM) and has no
+// @testing-library/react (or any React renderer) dependency — confirmed by
+// grepping every *.test.ts(x) file under app/components/design, none of
+// which render a component; MotionDock.test.tsx and friends all test pure
+// exported functions the same way this file does. Adding a DOM/render
+// environment is a package-wide harness change out of scope for this
+// overlay, so overlay rendering is instead covered indirectly: the anchor
+// count always equals path.nodes.length and the handle count always equals
+// the number of present handleIn/handleOut across all nodes (see
+// VectorEditOverlay's canvasPath.nodes.map / .flatMap in MultiScreenCanvas.tsx),
+// which is exactly what getPenPathGeometry/serializePenPath (already
+// exercised elsewhere) are computed over, so a positive assertion here would
+// only restate that mapping rather than exercise any DOM output.
+// ---------------------------------------------------------------------------

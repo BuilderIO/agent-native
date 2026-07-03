@@ -131,6 +131,7 @@ import {
   type DesignGradientStopPatch,
   type DesignGradientType,
   type ImageFillValue,
+  type ScrubInputChangeMeta,
 } from "./inspector";
 import { IconLayoutSettings } from "./inspector/design-icons";
 import type { DesignPaintType } from "./inspector/DesignColorPicker";
@@ -141,6 +142,33 @@ import { TweaksPanelContent } from "./TweaksPanel";
 import type { ElementInfo } from "./types";
 
 export type InspectorTab = "design" | "tweaks";
+
+/**
+ * PF12: gesture-lifecycle metadata threaded alongside a style commit.
+ *
+ * - "preview": a live, in-progress tick (a ScrubInput scrub sample or a
+ *   DesignColorPicker drag tick) — cheap to show in the live iframe preview,
+ *   but must NOT trigger the expensive source commit (projection parse + HTML
+ *   patch + history entry) on every tick.
+ * - "commit" (or omitted, for callers that don't pass meta at all): the
+ *   gesture's authoritative final value — exactly one per gesture — which
+ *   DOES trigger the full source commit. Omitting meta entirely preserves
+ *   prior behavior (treated as "commit") for every non-scrub/color call site.
+ */
+export interface StyleChangeMeta {
+  phase?: "preview" | "commit";
+}
+
+export type StyleChangeHandler = (
+  property: string,
+  value: string,
+  meta?: StyleChangeMeta,
+) => void;
+
+export type StylesChangeHandler = (
+  styles: Record<string, string>,
+  meta?: StyleChangeMeta,
+) => void;
 
 const MIXED_VALUE = "Mixed";
 
@@ -246,8 +274,8 @@ interface EditPanelProps {
   tweakValues?: Record<string, string | number | boolean>;
   onTweakChange?: (id: string, value: string | number | boolean) => void;
   onRequestTweaks?: (anchor: HTMLElement) => void;
-  onStyleChange: (property: string, value: string) => void;
-  onStylesChange?: (styles: Record<string, string>) => void;
+  onStyleChange: StyleChangeHandler;
+  onStylesChange?: StylesChangeHandler;
   onExport?: (settings: ExportSettingsValue[]) => void;
   exporting?: boolean;
   /** Active file id — used for component prop editing context. */
@@ -512,7 +540,7 @@ function ColorInput({
 }: {
   label: string;
   value: string;
-  onChange: (value: string) => void;
+  onChange: (value: string, meta?: StyleChangeMeta) => void;
   backgroundImage?: string;
   backgroundSize?: string;
   backgroundRepeat?: string;
@@ -580,7 +608,13 @@ function ColorInput({
     }
   }, [activeStopIds, selectedStopId]);
 
-  const setNext = (next: string) => {
+  // PF12: `phase` defaults to "commit" so every discrete/one-shot caller
+  // (swatch clicks, paint-type switches, hex commit, fill-row edits) keeps
+  // committing immediately as before. Only the raw per-tick `onChange` wired
+  // to DesignColorPicker below passes "preview" explicitly — the picker's own
+  // `onChangeComplete` re-invokes setNext with the same final value tagged
+  // "commit" once the gesture ends (see the DesignColorPicker render below).
+  const setNext = (next: string, phase: "preview" | "commit" = "commit") => {
     // Guard rail for callers that don't wire onBackgroundImageChange (i.e.
     // supportsLayeredFills is false, e.g. the text-fill "color" row): the
     // picker manages gradient/image paint-type selection as *local* UI state
@@ -595,7 +629,7 @@ function ColorInput({
     // that case instead of forwarding it.
     if (!supportsLayeredFills && !parseCssColor(next)) return;
     setDraft(next);
-    onChange(next);
+    onChange(next, { phase });
   };
 
   const replaceBackgroundLayer = (index: number, nextLayer: string) => {
@@ -854,7 +888,14 @@ function ColorInput({
       key={pickerKey}
       label={label}
       value={pickerValue}
-      onChange={setNext}
+      // PF12: `onChange` fires on every SV/hue/alpha drag tick — tag those as
+      // "preview" so the caller can skip the expensive source commit and only
+      // update the live iframe preview. `onChangeComplete` fires exactly once
+      // per gesture (drag-end, hex commit, keyboard nudge, swatch click,
+      // paint-type switch) with the same final value, tagged "commit" so the
+      // authoritative source write always happens exactly once.
+      onChange={(v) => setNext(v, "preview")}
+      onChangeComplete={(v) => setNext(v, "commit")}
       onPaintValueChange={
         supportsLayeredFills ? handlePaintValueChange : undefined
       }
@@ -1750,7 +1791,7 @@ function ScrubStyleInput({
   label: string;
   value: string;
   placeholder?: number;
-  onChange: (value: number) => void;
+  onChange: (value: number, meta?: ScrubInputChangeMeta) => void;
   unit?: string;
   min?: number;
   max?: number;
@@ -1792,8 +1833,8 @@ function ScrubStyleInput({
 
 function commitStylePatch(
   styles: Record<string, string>,
-  onStyleChange: (property: string, value: string) => void,
-  onStylesChange?: (styles: Record<string, string>) => void,
+  onStyleChange: StyleChangeHandler,
+  onStylesChange?: StylesChangeHandler,
 ) {
   if (onStylesChange) {
     onStylesChange(styles);
@@ -2131,7 +2172,7 @@ function commitElementMinMax(
   axis: AutoLayoutSizingAxis,
   kind: "min" | "max",
   value: number | null,
-  onStyleChange: (property: string, value: string) => void,
+  onStyleChange: StyleChangeHandler,
 ) {
   const isHorizontal = axis === "horizontal";
   const property =
@@ -2206,8 +2247,8 @@ function commitElementSizing(
   element: ElementInfo,
   axis: AutoLayoutSizingAxis,
   sizing: AutoLayoutSizing,
-  onStyleChange: (property: string, value: string) => void,
-  onStylesChange?: (styles: Record<string, string>) => void,
+  onStyleChange: StyleChangeHandler,
+  onStylesChange?: StylesChangeHandler,
 ) {
   const isHorizontal = axis === "horizontal";
   const sizeProperty = isHorizontal ? "width" : "height";
@@ -3486,7 +3527,7 @@ function CornerRadiusControl({
   onStyleChange,
 }: {
   styles: Record<string, string>;
-  onStyleChange: (property: string, value: string) => void;
+  onStyleChange: StyleChangeHandler;
 }) {
   const t = useT();
   const independentCornersLabel = t("editPanel.labels.independentCorners");
@@ -3543,16 +3584,16 @@ function CornerRadiusControl({
     : cornersDiffer
       ? corners.topLeft
       : cssLengthNumber(styles.borderRadius || String(corners.topLeft));
-  const commitRadius = (value: number) => {
+  const commitRadius = (value: number, meta?: ScrubInputChangeMeta) => {
     const next = `${Math.max(0, Math.round(value))}px`;
     // Always write the longhands along with the shorthand: stale inline
     // longhand declarations serialize after the shorthand and would override
     // it, turning uniform-radius commits into silent no-ops.
-    onStyleChange("borderRadius", next);
-    onStyleChange("borderTopLeftRadius", next);
-    onStyleChange("borderTopRightRadius", next);
-    onStyleChange("borderBottomRightRadius", next);
-    onStyleChange("borderBottomLeftRadius", next);
+    onStyleChange("borderRadius", next, meta);
+    onStyleChange("borderTopLeftRadius", next, meta);
+    onStyleChange("borderTopRightRadius", next, meta);
+    onStyleChange("borderBottomRightRadius", next, meta);
+    onStyleChange("borderBottomLeftRadius", next, meta);
   };
   const toggleIndependentCorners = () => {
     // Collapsing while corners differ flattens them to the displayed uniform
@@ -3607,10 +3648,11 @@ function CornerRadiusControl({
             ariaLabel="Top left"
             icon={IconRadiusTopLeft}
             value={corners.topLeft}
-            onChange={(value) =>
+            onChange={(value, meta) =>
               onStyleChange(
                 "borderTopLeftRadius",
                 `${Math.max(0, Math.round(value))}px`,
+                meta,
               )
             }
             mixed={cornerMixed.topLeft}
@@ -3622,10 +3664,11 @@ function CornerRadiusControl({
             ariaLabel="Top right"
             icon={IconRadiusTopRight}
             value={corners.topRight}
-            onChange={(value) =>
+            onChange={(value, meta) =>
               onStyleChange(
                 "borderTopRightRadius",
                 `${Math.max(0, Math.round(value))}px`,
+                meta,
               )
             }
             mixed={cornerMixed.topRight}
@@ -3638,10 +3681,11 @@ function CornerRadiusControl({
             ariaLabel="Bottom left"
             icon={IconRadiusBottomLeft}
             value={corners.bottomLeft}
-            onChange={(value) =>
+            onChange={(value, meta) =>
               onStyleChange(
                 "borderBottomLeftRadius",
                 `${Math.max(0, Math.round(value))}px`,
+                meta,
               )
             }
             mixed={cornerMixed.bottomLeft}
@@ -3653,10 +3697,11 @@ function CornerRadiusControl({
             ariaLabel="Bottom right"
             icon={IconRadiusBottomRight}
             value={corners.bottomRight}
-            onChange={(value) =>
+            onChange={(value, meta) =>
               onStyleChange(
                 "borderBottomRightRadius",
                 `${Math.max(0, Math.round(value))}px`,
+                meta,
               )
             }
             mixed={cornerMixed.bottomRight}
@@ -3687,7 +3732,7 @@ function AppearanceScrubField({
   ariaLabel?: string;
   icon: (props: { className?: string }) => ReactNode;
   value: number;
-  onChange: (value: number) => void;
+  onChange: (value: number, meta?: ScrubInputChangeMeta) => void;
   mixed?: boolean;
   min?: number;
   max?: number;
@@ -3720,7 +3765,7 @@ function BlendModeMenu({
   onStyleChange,
 }: {
   styles: Record<string, string>;
-  onStyleChange: (property: string, value: string) => void;
+  onStyleChange: StyleChangeHandler;
 }) {
   const [open, setOpen] = useState(false);
   const blendMode = optionValue(
@@ -3830,7 +3875,7 @@ function StrokeLayerControl({
   color: string;
   width: string;
   styleValue: string;
-  onStyleChange: (property: string, value: string) => void;
+  onStyleChange: StyleChangeHandler;
   onRemove: () => void;
 }) {
   const t = useT();
@@ -3861,7 +3906,9 @@ function StrokeLayerControl({
           <ColorInput
             label=""
             value={cssColorOrFallback(color, "#000000")}
-            onChange={(value) => onStyleChange(`${prefix}Color`, value)}
+            onChange={(value, meta) =>
+              onStyleChange(`${prefix}Color`, value, meta)
+            }
           />
         </div>
         <SectionIconButton
@@ -3932,10 +3979,11 @@ function StrokeLayerControl({
           ariaLabel={t("editPanel.labels.weight")}
           icon={IconBorderStyle}
           value={cssLengthNumber(width)}
-          onChange={(value) =>
+          onChange={(value, meta) =>
             onStyleChange(
               `${prefix}Width`,
               `${Math.max(0, roundToOneDecimal(value))}px`,
+              meta,
             )
           }
           unit="px"
@@ -4079,7 +4127,7 @@ function ShadowEffectRow({
 }: {
   layer: ShadowLayer;
   index: number;
-  onChange: (patch: Partial<ShadowLayer>) => void;
+  onChange: (patch: Partial<ShadowLayer>, meta?: StyleChangeMeta) => void;
   onRemove: () => void;
   onToggleVisibility: () => void;
 }) {
@@ -4158,7 +4206,9 @@ function ShadowEffectRow({
             <ScrubInput
               label="X"
               value={layer.x}
-              onChange={(value) => onChange({ x: value })}
+              onChange={(value, meta) =>
+                onChange({ x: value }, { phase: meta?.phase })
+              }
               unit="px"
               precision={1}
               inputClassName="h-6"
@@ -4166,7 +4216,9 @@ function ShadowEffectRow({
             <ScrubInput
               label="Y"
               value={layer.y}
-              onChange={(value) => onChange({ y: value })}
+              onChange={(value, meta) =>
+                onChange({ y: value }, { phase: meta?.phase })
+              }
               unit="px"
               precision={1}
               inputClassName="h-6"
@@ -4174,7 +4226,9 @@ function ShadowEffectRow({
             <ScrubInput
               label={t("editPanel.labels.blur")}
               value={layer.blur}
-              onChange={(value) => onChange({ blur: Math.max(0, value) })}
+              onChange={(value, meta) =>
+                onChange({ blur: Math.max(0, value) }, { phase: meta?.phase })
+              }
               unit="px"
               min={0}
               precision={1}
@@ -4187,7 +4241,9 @@ function ShadowEffectRow({
               // (non-inset) shadows in real CSS — negative spread shrinks
               // the shadow smaller than the box before blurring, a common
               // technique. Only blur-radius must stay >= 0.
-              onChange={(value) => onChange({ spread: value })}
+              onChange={(value, meta) =>
+                onChange({ spread: value }, { phase: meta?.phase })
+              }
               unit="px"
               precision={1}
               inputClassName="h-6"
@@ -4196,7 +4252,7 @@ function ShadowEffectRow({
           <ColorInput
             label={t("editPanel.labels.color")}
             value={cssColorOrFallback(layer.color, "rgba(0, 0, 0, 0.25)")}
-            onChange={(value) => onChange({ color: value })}
+            onChange={(value, meta) => onChange({ color: value }, meta)}
           />
         </div>
       </PopoverContent>
@@ -4211,8 +4267,8 @@ function PageProperties({
   onStylesChange,
 }: {
   styles: Record<string, string>;
-  onStyleChange: (property: string, value: string) => void;
-  onStylesChange?: (styles: Record<string, string>) => void;
+  onStyleChange: StyleChangeHandler;
+  onStylesChange?: StylesChangeHandler;
 }) {
   const t = useT();
   const baseFontFamilyOptions = FONT_FAMILY_OPTIONS.map((option) => ({
@@ -4238,7 +4294,7 @@ function PageProperties({
         <ColorInput
           label={t("editPanel.labels.background")}
           value={styles.backgroundColor || ""}
-          onChange={(v) => onStyleChange("backgroundColor", v)}
+          onChange={(v, meta) => onStyleChange("backgroundColor", v, meta)}
           backgroundImage={styles.backgroundImage}
           backgroundSize={styles.backgroundSize}
           backgroundRepeat={styles.backgroundRepeat}
@@ -4279,7 +4335,7 @@ function TypographyProperties({
   onStyleChange,
 }: {
   element: ElementInfo;
-  onStyleChange: (property: string, value: string) => void;
+  onStyleChange: StyleChangeHandler;
 }) {
   const t = useT();
   const styles = element.computedStyles;
@@ -4484,10 +4540,11 @@ function TypographyProperties({
                 : 16
           }
           mixed={fontSizeIsMixed}
-          onChange={(value) =>
+          onChange={(value, meta) =>
             onStyleChange(
               "fontSize",
               `${Math.max(1, roundToOneDecimal(value))}px`,
+              meta,
             )
           }
           unit="px"
@@ -4511,8 +4568,8 @@ function TypographyProperties({
               : resolveLineHeight(styles.lineHeight, styles.fontSize)
           }
           mixed={lineHeightIsMixed}
-          onChange={(value) =>
-            onStyleChange("lineHeight", String(Math.max(0.1, value)))
+          onChange={(value, meta) =>
+            onStyleChange("lineHeight", String(Math.max(0.1, value)), meta)
           }
           min={0.1}
           step={0.1}
@@ -4533,7 +4590,9 @@ function TypographyProperties({
                 : 0
           }
           mixed={letterSpacingIsMixed}
-          onChange={(value) => onStyleChange("letterSpacing", `${value}px`)}
+          onChange={(value, meta) =>
+            onStyleChange("letterSpacing", `${value}px`, meta)
+          }
           unit="px"
           precision={1}
           className="gap-0"
@@ -4615,8 +4674,8 @@ function FlexContainerControls({
   onStylesChange,
 }: {
   element: ElementInfo;
-  onStyleChange: (property: string, value: string) => void;
-  onStylesChange?: (styles: Record<string, string>) => void;
+  onStyleChange: StyleChangeHandler;
+  onStylesChange?: StylesChangeHandler;
 }) {
   const t = useT();
   const styles = element.computedStyles;
@@ -4800,7 +4859,7 @@ function FlexChildControls({
   onStyleChange,
 }: {
   element: ElementInfo;
-  onStyleChange: (property: string, value: string) => void;
+  onStyleChange: StyleChangeHandler;
 }) {
   const t = useT();
   const styles = element.computedStyles;
@@ -4852,7 +4911,7 @@ function GridChildControls({
   onStyleChange,
 }: {
   element: ElementInfo;
-  onStyleChange: (property: string, value: string) => void;
+  onStyleChange: StyleChangeHandler;
 }) {
   const t = useT();
   const styles = element.computedStyles;
@@ -4894,8 +4953,8 @@ function LayoutContextProperties({
   onStylesChange,
 }: {
   element: ElementInfo;
-  onStyleChange: (property: string, value: string) => void;
-  onStylesChange?: (styles: Record<string, string>) => void;
+  onStyleChange: StyleChangeHandler;
+  onStylesChange?: StylesChangeHandler;
 }) {
   const t = useT();
   const flexChild = isParentFlex(element);
@@ -5013,7 +5072,7 @@ function LayoutGuideProperties({
   onStyleChange,
 }: {
   element: ElementInfo;
-  onStyleChange: (property: string, value: string) => void;
+  onStyleChange: StyleChangeHandler;
 }) {
   const styles = element.computedStyles;
   const active = hasLayoutGuide(styles);
@@ -5140,7 +5199,7 @@ function PositionLayoutProperties({
   onStyleChange,
 }: {
   element: ElementInfo;
-  onStyleChange: (property: string, value: string) => void;
+  onStyleChange: StyleChangeHandler;
 }) {
   const t = useT();
   const styles = element.computedStyles;
@@ -5381,14 +5440,14 @@ function PositionLayoutProperties({
             }
             placeholder={element.boundingRect.x}
             inputClassName="h-6"
-            onChange={(v) => {
+            onChange={(v, meta) => {
               // Typing X/Y on a static (non-positioned) element is a no-op on
               // canvas unless we first give it a position to offset from —
               // mirror handleConstraintsChange, which always sets
               // position:absolute (the convention canvas drag/resize and
               // primitive creation both use) before writing left/top.
               if (!constrainedPosition) onStyleChange("position", "absolute");
-              onStyleChange("left", `${Math.round(v)}px`);
+              onStyleChange("left", `${Math.round(v)}px`, meta);
             }}
           />
           <ScrubStyleInput
@@ -5398,9 +5457,9 @@ function PositionLayoutProperties({
             value={isMixedValue(authoredTop) ? MIXED_VALUE : authoredTop || ""}
             placeholder={element.boundingRect.y}
             inputClassName="h-6"
-            onChange={(v) => {
+            onChange={(v, meta) => {
               if (!constrainedPosition) onStyleChange("position", "absolute");
-              onStyleChange("top", `${Math.round(v)}px`);
+              onStyleChange("top", `${Math.round(v)}px`, meta);
             }}
           />
           <Tooltip>
@@ -5459,7 +5518,7 @@ function PositionLayoutProperties({
               }
               unit="deg"
               inputClassName="h-6"
-              onChange={(v) =>
+              onChange={(v, meta) =>
                 onStyleChange(
                   "transform",
                   // From a mixed selection the sentinel is not a transform —
@@ -5472,6 +5531,7 @@ function PositionLayoutProperties({
                       : styles.transform,
                     v,
                   ),
+                  meta,
                 )
               }
             />
@@ -5508,8 +5568,8 @@ function FillProperties({
   onStylesChange,
 }: {
   element: ElementInfo;
-  onStyleChange: (property: string, value: string) => void;
-  onStylesChange?: (styles: Record<string, string>) => void;
+  onStyleChange: StyleChangeHandler;
+  onStylesChange?: StylesChangeHandler;
 }) {
   const t = useT();
   const styles = element.computedStyles;
@@ -5659,7 +5719,7 @@ function FillProperties({
                 <ColorInput
                   label=""
                   value={fillValue}
-                  onChange={(v) => onStyleChange(fillProperty, v)}
+                  onChange={(v, meta) => onStyleChange(fillProperty, v, meta)}
                   // Pass the real layer stack (not "") so that switching this
                   // swatch's paint type to gradient/image composes a new
                   // layer on top of any existing backgroundImage layers
@@ -5915,8 +5975,8 @@ function StrokeProperties({
   onStylesChange,
 }: {
   element: ElementInfo;
-  onStyleChange: (property: string, value: string) => void;
-  onStylesChange?: (styles: Record<string, string>) => void;
+  onStyleChange: StyleChangeHandler;
+  onStylesChange?: StylesChangeHandler;
 }) {
   const t = useT();
   const styles = element.computedStyles;
@@ -6078,7 +6138,7 @@ function AppearanceProperties({
   onStyleChange,
 }: {
   element: ElementInfo;
-  onStyleChange: (property: string, value: string) => void;
+  onStyleChange: StyleChangeHandler;
 }) {
   const t = useT();
   const styles = element.computedStyles;
@@ -6128,7 +6188,9 @@ function AppearanceProperties({
               ? 0
               : parseNumericValue(styles.opacity || "1") * 100
           }
-          onChange={(v) => onStyleChange("opacity", String(v / 100))}
+          onChange={(v, meta) =>
+            onStyleChange("opacity", String(v / 100), meta)
+          }
           mixed={isMixedValue(styles.opacity)}
           min={0}
           max={100}
@@ -6156,8 +6218,8 @@ function EffectsProperties({
   onStylesChange,
 }: {
   element: ElementInfo;
-  onStyleChange: (property: string, value: string) => void;
-  onStylesChange?: (styles: Record<string, string>) => void;
+  onStyleChange: StyleChangeHandler;
+  onStylesChange?: StylesChangeHandler;
 }) {
   const t = useT();
   const styles = element.computedStyles;
@@ -6176,10 +6238,10 @@ function EffectsProperties({
   const layerBlurStashKey = `${effectStashKey}:filter:blur`;
   const backdropBlurStashKey = `${effectStashKey}:backdrop-filter:blur`;
   const shadowLayers = parseShadowLayers(styles.boxShadow);
-  const setShadowLayers = (layers: ShadowLayer[]) => {
+  const setShadowLayers = (layers: ShadowLayer[], meta?: StyleChangeMeta) => {
     const boxShadow = serializeShadowLayers(layers);
-    if (onStylesChange) onStylesChange({ boxShadow });
-    else onStyleChange("boxShadow", boxShadow);
+    if (onStylesChange) onStylesChange({ boxShadow }, meta);
+    else onStyleChange("boxShadow", boxShadow, meta);
   };
   const addDropShadow = () =>
     setShadowLayers([
@@ -6238,13 +6300,13 @@ function EffectsProperties({
               key={layer.id}
               layer={layer}
               index={index}
-              onChange={(patch) => {
+              onChange={(patch, meta) => {
                 const next = shadowLayers.map((candidate) =>
                   candidate.id === layer.id
                     ? { ...candidate, ...patch }
                     : candidate,
                 );
-                setShadowLayers(next);
+                setShadowLayers(next, meta);
               }}
               onToggleVisibility={() => {
                 const visible = colorHasVisibleAlpha(layer.color);
@@ -6360,10 +6422,11 @@ function EffectsProperties({
             <ScrubInput
               label={t("editPanel.labels.blur")}
               value={blurValue}
-              onChange={(value) =>
+              onChange={(value, meta) =>
                 onStyleChange(
                   "filter",
                   setBlurFilterValue(styles.filter, value),
+                  meta,
                 )
               }
               unit="px"
@@ -6450,10 +6513,11 @@ function EffectsProperties({
             <ScrubInput
               label={t("editPanel.labels.blur")}
               value={backdropBlurValue}
-              onChange={(value) =>
+              onChange={(value, meta) =>
                 onStyleChange(
                   "backdropFilter",
                   setBlurFilterValue(backdropFilterValue, value),
+                  meta,
                 )
               }
               unit="px"
@@ -6510,7 +6574,7 @@ function SelectionColorsProperties({
   onStyleChange,
 }: {
   element: ElementInfo;
-  onStyleChange: (property: string, value: string) => void;
+  onStyleChange: StyleChangeHandler;
 }) {
   // M6 · the design editor's Selection colors collapses to a single "Show selection colors"
   // affordance, expanding to one editable [swatch · hex · opacity] row per
@@ -6556,7 +6620,19 @@ function SelectionColorsProperties({
                 >
                   <DesignColorPicker
                     value={cssColorOrFallback(color.value, "#000000")}
-                    onChange={(value) => onStyleChange(color.property, value)}
+                    // PF12: per-tick drag preview vs. one authoritative
+                    // commit on gesture-end — same split as ColorInput's
+                    // setNext (see its PF12 comment above).
+                    onChange={(value) =>
+                      onStyleChange(color.property, value, {
+                        phase: "preview",
+                      })
+                    }
+                    onChangeComplete={(value) =>
+                      onStyleChange(color.property, value, {
+                        phase: "commit",
+                      })
+                    }
                   />
                 </PopoverContent>
               </Popover>
