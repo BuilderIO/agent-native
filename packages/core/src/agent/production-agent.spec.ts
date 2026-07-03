@@ -30,6 +30,7 @@ import {
   resolveBackgroundDispatchOutcome,
   resolveSkillReferenceContent,
   runAgentLoop,
+  runAgentLoopWithMainChatInternalContinuations,
   shouldChainBackgroundContinuation,
   shouldGuardRepeatedSourceSweep,
   structuredHistoryToEngineMessages,
@@ -999,6 +1000,90 @@ describe("runAgentLoop", () => {
     });
     expect(events).not.toContainEqual({ type: "stream_keepalive" });
     expect(events).not.toContainEqual({ type: "done" });
+    expect(events).not.toContainEqual(
+      expect.objectContaining({ type: "text", text: "should not continue" }),
+    );
+  });
+
+  it("continues main chat internally after a no-progress action preparation checkpoint", async () => {
+    let now = 1_000_000;
+    let attempts = 0;
+    const dateNow = vi.spyOn(Date, "now").mockImplementation(() => now);
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: true,
+      },
+      async *stream(): AsyncIterable<EngineEvent> {
+        attempts++;
+        if (attempts === 1) {
+          yield {
+            type: "tool-input-start",
+            id: "tool-edit",
+            name: "edit-design",
+          };
+          now += 91_000;
+          yield { type: "gateway-heartbeat" };
+          yield { type: "text-delta", text: "should not continue" };
+          return;
+        }
+        yield { type: "text-delta", text: "continued" };
+        yield {
+          type: "assistant-content",
+          parts: [{ type: "text" as const, text: "continued" }],
+        };
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+    const events: AgentChatEvent[] = [];
+    const messages = [
+      {
+        role: "user" as const,
+        content: [{ type: "text" as const, text: "go" }],
+      },
+    ];
+
+    try {
+      await runAgentLoopWithMainChatInternalContinuations({
+        engine,
+        model: "test-model",
+        systemPrompt: "system",
+        tools: [],
+        messages,
+        actions: {
+          "edit-design": actionEntry({ readOnly: false }),
+        },
+        send: (event) => events.push(event),
+        signal: new AbortController().signal,
+      });
+    } finally {
+      dateNow.mockRestore();
+    }
+
+    expect(attempts).toBe(2);
+    const continuationText = messages
+      .map((message) =>
+        message.content[0]?.type === "text" ? message.content[0].text : "",
+      )
+      .find((text) => text.includes(AGENT_INTERNAL_CONTINUE_PROMPT));
+    expect(continuationText).toContain(AGENT_INTERNAL_CONTINUE_PROMPT);
+    expect(continuationText).toContain(
+      "preparing the `edit-design` action input",
+    );
+    expect(events).toContainEqual({ type: "clear" });
+    expect(events).toContainEqual({ type: "text", text: "continued" });
+    expect(events).toContainEqual({ type: "done" });
+    expect(events).not.toContainEqual({
+      type: "auto_continue",
+      reason: "no_progress",
+    });
     expect(events).not.toContainEqual(
       expect.objectContaining({ type: "text", text: "should not continue" }),
     );
