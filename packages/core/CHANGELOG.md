@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.84.67
+
+### Patch Changes
+
+- 171f6e6: Remove app document CSP headers so hosted Google Tag Manager and framework inline bootstrap scripts are not blocked or reported by a shared policy.
+
 ## 0.84.66
 
 ### Patch Changes
