@@ -4,7 +4,6 @@ import { loader as rootLoader, resolveLayoutLocale } from "../root";
 import { loader as localizedDocLoader } from "../routes/docs.$locale.$slug";
 import { loader as defaultDocLoader } from "../routes/docs.$slug";
 import { loader as docsIndexLoader } from "../routes/docs._index";
-import { loader as templateSlugLoader } from "../routes/templates.$slug";
 import {
   buildSearchIndexAsync,
   hasLocalizedDoc,

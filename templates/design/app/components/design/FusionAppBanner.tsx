@@ -141,8 +141,10 @@ export function FusionAppBanner({
       <div className="pointer-events-auto absolute inset-x-0 top-0 z-30 flex items-center gap-2 border-b border-border/60 bg-background/95 px-3 py-1.5 text-xs shadow-sm backdrop-blur-sm">
         <IconAlertTriangle className="size-3.5 shrink-0 text-destructive" />
         <span className="min-w-0 flex-1 truncate text-destructive">
-          {statusMessage ||
-            "Couldn't build your app" /* i18n-ignore fusion app banner, flag-gated feature */}
+          {
+            statusMessage ||
+              "Couldn't build your app" /* i18n-ignore fusion app banner, flag-gated feature */
+          }
         </span>
         <Button
           size="sm"

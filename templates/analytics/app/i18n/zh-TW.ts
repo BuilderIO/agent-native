@@ -10,6 +10,7 @@ const messages = {
     dataSources: "資料來源",
     dataDictionary: "資料字典",
     sessions: "工作階段",
+    agents: "代理",
     templateCatalog: "目錄",
     dashboards: "儀表板",
     analyses: "分析",
@@ -419,7 +420,7 @@ const messages = {
       "例如，“新增 Salesforce 整合，以便我可以查詢 CRM 資料”",
     firstPartyAnalytics: "第一方 Analytics",
     firstPartyDescription:
-      "在第一方端點接收產品事件並將其作為儀表板資料來源進行查詢。",
+      "透過同一個第一方端點接收產品、工作階段與 $ai_generation 事件，用於儀表板和 LLM 可觀測性。",
     defaultKeyName: "託管範本",
     endpoint: "端點",
     serverEnv: "伺服器環境",
@@ -567,6 +568,7 @@ const messages = {
     dataDictionary: "資料字典 - Analytics",
     dataSources: "資料來源 - Analytics",
     sessions: "工作階段 - Analytics",
+    agents: "代理 - Analytics",
     session: "工作階段回放 - Analytics",
     tool: "工具 - Analytics",
     extensions: "擴充功能 - Analytics",
@@ -578,6 +580,17 @@ const messages = {
     embedBlocked: "嵌入被阻止",
     sameOriginEmbedsOnly: "僅允許同來源嵌入路徑。",
     embeddedContent: "嵌入內容",
+  },
+  agents: {
+    title: "代理",
+    description:
+      "監控代理執行、評估、實驗、回饋，以及用來檢查應用程式內部狀態的管理資料工具。",
+    monitoring: "監控",
+    monitoringDescription:
+      "核心可觀測性集中在這裡：執行、追蹤、評估、實驗與回饋。若需要第一方 token、延遲與成本圖表，請從目錄安裝 LLM 可觀測性儀表板。",
+    advanced: "進階",
+    database: "資料庫",
+    openCatalog: "開啟目錄",
   },
   providerCorpusNotifier: {
     completed: "提供者語料庫作業已完成",

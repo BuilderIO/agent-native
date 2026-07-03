@@ -83,6 +83,13 @@ details live in `.agents/skills/`.
   / `$ai_latency`, `status`, `tool_calls`, `successful_tools`, `failed_tools`,
   and `$ai_error` / `error_message`. Do not expect prompts, tool args, or model
   responses in these tracked events by default.
+- `/agents` is the Analytics home for core agent-admin surfaces. The default
+  Monitoring view embeds the shared observability dashboard for traces,
+  conversations, evals, experiments, and feedback. The Advanced menu opens
+  `/agents?view=database`, which embeds the shared Code-mode database admin
+  tool for table browsing, row editing, and SQL inspection. Keep future
+  agent-admin additions inside this route instead of adding many top-level
+  sidebar tabs.
 - For dashboard edits, default to `mutate-dashboard` with its typed
   `dashboard.*` script API. It supports id-based panel moves, title/SQL/config
   edits, inserts, duplication, removal, and dashboard field patches in one
@@ -148,8 +155,9 @@ details live in `.agents/skills/`.
 - `navigation` exposes current dashboard, analysis, source, chart, and selected
   context.
 - `navigate` moves the user to the relevant analytics view, including
-  `view="catalog"` for the template catalog and `view="sessions"` for session
-  replay.
+  `view="catalog"` for the template catalog, `view="sessions"` for session
+  replay, and `view="agents"` / `agentsView="database"` for agent monitoring
+  or advanced database admin.
 - Use `view-screen` when the active dashboard/chart context is unclear.
 
 ## Session Replay

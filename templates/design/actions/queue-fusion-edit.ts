@@ -99,6 +99,7 @@ export default defineAction({
       .where(
         and(
           eq(schema.designFusionEdits.designId, designId),
+          eq(schema.designFusionEdits.ownerEmail, ownerEmail),
           eq(schema.designFusionEdits.status, "pending"),
         ),
       );

@@ -114,20 +114,20 @@ event_name = '$ai_generation'
 
 Useful query fields live in `properties`:
 
-| Property                                      | Description                                |
-| --------------------------------------------- | ------------------------------------------ |
-| `$ai_trace_id`, `run_id`                      | Agent run id                               |
-| `$ai_session_id`, `thread_id`                 | Chat/thread id, when available             |
-| `$ai_model`, `model`                          | Model used                                 |
-| `$ai_provider`, `provider`                    | Engine/provider name                       |
-| `$ai_input_tokens`, `input_tokens`            | Input tokens                               |
-| `$ai_output_tokens`, `output_tokens`          | Output tokens                              |
-| `cache_read_tokens`, `cache_write_tokens`     | Prompt-cache token counts                  |
-| `$ai_total_cost_usd`, `cost_usd`              | Estimated run cost in USD                  |
-| `cost_cents_x100`                             | Estimated run cost in centicents           |
-| `$ai_latency`, `duration_ms`                  | Run duration in seconds / milliseconds     |
-| `tool_calls`, `successful_tools`, `failed_tools` | Tool-call counts                        |
-| `$ai_is_error`, `status`, `$ai_error`         | Error status and message, when applicable  |
+| Property                                         | Description                               |
+| ------------------------------------------------ | ----------------------------------------- |
+| `$ai_trace_id`, `run_id`                         | Agent run id                              |
+| `$ai_session_id`, `thread_id`                    | Chat/thread id, when available            |
+| `$ai_model`, `model`                             | Model used                                |
+| `$ai_provider`, `provider`                       | Engine/provider name                      |
+| `$ai_input_tokens`, `input_tokens`               | Input tokens                              |
+| `$ai_output_tokens`, `output_tokens`             | Output tokens                             |
+| `cache_read_tokens`, `cache_write_tokens`        | Prompt-cache token counts                 |
+| `$ai_total_cost_usd`, `cost_usd`                 | Estimated run cost in USD                 |
+| `cost_cents_x100`                                | Estimated run cost in centicents          |
+| `$ai_latency`, `duration_ms`                     | Run duration in seconds / milliseconds    |
+| `tool_calls`, `successful_tools`, `failed_tools` | Tool-call counts                          |
+| `$ai_is_error`, `status`, `$ai_error`            | Error status and message, when applicable |
 
 Install the `agent-observability-llm` dashboard template for canned panels over
 these events.

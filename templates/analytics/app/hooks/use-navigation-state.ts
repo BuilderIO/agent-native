@@ -17,6 +17,7 @@ interface NavigationState {
   analysisId?: string;
   extensionId?: string;
   recordingId?: string;
+  agentsView?: string;
   filters?: Record<string, string>;
 }
 
@@ -72,6 +73,9 @@ export function useNavigationState() {
           state.recordingId = decodeURIComponent(match[1]);
         }
         state.filters = sessionFilters(searchParams);
+      } else if (pathname === "/agents") {
+        state.view = "agents";
+        state.agentsView = searchParams.get("view") || "monitoring";
       } else if (pathname === "/data-sources") {
         state.view = "data-sources";
       } else if (pathname === "/data-dictionary") {
@@ -96,6 +100,9 @@ export function useNavigationState() {
       if (cmd.view === "sessions" && cmd.recordingId)
         return `/sessions/${encodeURIComponent(cmd.recordingId)}`;
       if (cmd.view === "sessions") return "/sessions";
+      if (cmd.view === "agents" && cmd.agentsView === "database")
+        return "/agents?view=database";
+      if (cmd.view === "agents") return "/agents";
       if (cmd.view === "data-sources") return "/data-sources";
       if (cmd.view === "data-dictionary") return "/data-dictionary";
       if (cmd.view === "catalog") return "/catalog";

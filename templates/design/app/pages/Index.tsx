@@ -253,7 +253,8 @@ export default function Index() {
             ? { designSystemId: linkedDesignSystemId }
             : {}),
         } as any)
-        .catch(() => {
+        .then(() => undefined)
+        .catch((error) => {
           clearPendingGeneration(id);
           queryClient.invalidateQueries({
             queryKey: ["action", "list-designs"],

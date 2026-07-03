@@ -63,14 +63,32 @@ interface ExtensionSearchItem {
 
 const defaultTools = [
   {
+    id: "agents",
+    nameKey: "navigation.agents",
+    href: "/agents",
+    keywords: [
+      "agent monitoring",
+      "observability",
+      "evals",
+      "experiments",
+      "feedback",
+      "database",
+      "db admin",
+      "ab testing",
+      "llm",
+    ],
+  },
+  {
     id: "explorer",
     nameKey: "commandPalette.toolExplorer",
     href: "/dashboards/explorer",
+    keywords: [],
   },
   {
     id: "customer-health",
     nameKey: "commandPalette.toolCustomerHealth",
     href: "/dashboards/customer-health",
+    keywords: [],
   },
 ];
 
@@ -414,7 +432,11 @@ export function CommandPalette() {
               <CommandItem
                 key={`tool-${tool.id}`}
                 onSelect={() => go(tool.href)}
-                keywords={commandPaletteKeywords(t(tool.nameKey), "tool")}
+                keywords={commandPaletteKeywords(
+                  t(tool.nameKey),
+                  "tool",
+                  ...tool.keywords,
+                )}
               >
                 <IconTool className="me-2 h-4 w-4 text-muted-foreground" />
                 {t(tool.nameKey)}

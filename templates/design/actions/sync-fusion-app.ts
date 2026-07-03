@@ -33,14 +33,17 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === "object" && !Array.isArray(value));
 }
 
-async function countPendingEdits(designId: string): Promise<number> {
+async function countPendingEdits(
+  design: Pick<typeof schema.designs.$inferSelect, "id" | "ownerEmail">,
+): Promise<number> {
   const db = getDb();
   const [row] = await db
     .select({ value: count() })
     .from(schema.designFusionEdits)
     .where(
       and(
-        eq(schema.designFusionEdits.designId, designId),
+        eq(schema.designFusionEdits.designId, design.id),
+        eq(schema.designFusionEdits.ownerEmail, design.ownerEmail),
         eq(schema.designFusionEdits.status, "pending"),
       ),
     );
@@ -176,7 +179,7 @@ export default defineAction({
       .set({ data: JSON.stringify(nextData), updatedAt: now })
       .where(eq(schema.designs.id, designId));
 
-    const pendingEditCount = await countPendingEdits(designId);
+    const pendingEditCount = await countPendingEdits(design);
 
     return {
       status: "ready" as const,

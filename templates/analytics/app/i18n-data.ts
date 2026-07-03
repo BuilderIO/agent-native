@@ -14,6 +14,7 @@ const enUS = {
     dataSources: "Data Sources",
     dataDictionary: "Data Dictionary",
     sessions: "Sessions",
+    agents: "Agents",
     templateCatalog: "Catalog",
     dashboards: "Dashboards",
     analyses: "Analyses",
@@ -330,6 +331,7 @@ const enUS = {
     dataDictionary: "Data Dictionary - Analytics",
     dataSources: "Data Sources - Analytics",
     sessions: "Sessions - Analytics",
+    agents: "Agents - Analytics",
     session: "Session Replay - Analytics",
     tool: "Tool - Analytics",
     extensions: "Extensions - Analytics",
@@ -341,6 +343,17 @@ const enUS = {
     embedBlocked: "Embed blocked",
     sameOriginEmbedsOnly: "Only same-origin embed paths are allowed.",
     embeddedContent: "Embedded content",
+  },
+  agents: {
+    title: "Agents",
+    description:
+      "Monitor agent runs, evals, experiments, feedback, and the admin data tools used to inspect the app behind the scenes.",
+    monitoring: "Monitoring",
+    monitoringDescription:
+      "Core observability stays here: runs, traces, evals, experiments, and feedback. Install the LLM observability dashboard from the catalog when you want first-party token, latency, and cost charts.",
+    advanced: "Advanced",
+    database: "Database",
+    openCatalog: "Open catalog",
   },
   providerCorpusNotifier: {
     completed: "Provider corpus job completed",
@@ -726,7 +739,7 @@ const enUS = {
       'e.g., "Add Salesforce integration so I can query CRM data"',
     firstPartyAnalytics: "First-party Analytics",
     firstPartyDescription:
-      "Receive product events at your first-party endpoint and query them as a dashboard data source.",
+      "Receive product, session, and $ai_generation events through the same first-party endpoint for dashboarding and LLM observability.",
     defaultKeyName: "Hosted templates",
     endpoint: "Endpoint",
     serverEnv: "Server env",
@@ -1154,7 +1167,7 @@ const analyticsSliceTranslations: {
         "例如，“添加 Salesforce 集成，以便我可以查询 CRM 数据”",
       firstPartyAnalytics: "第一方 Analytics",
       firstPartyDescription:
-        "在第一方端点接收产品事件并将其作为仪表板数据源进行查询。",
+        "通过同一个第一方端点接收产品、会话和 $ai_generation 事件，用于仪表板和 LLM 可观测性。",
       defaultKeyName: "托管模板",
       endpoint: "端点",
       serverEnv: "服务器环境",
@@ -1420,7 +1433,7 @@ const analyticsSliceTranslations: {
         'por ejemplo, "Agregar integración de Salesforce para poder consultar datos de CRM"',
       firstPartyAnalytics: "zx3qz",
       firstPartyDescription:
-        "Reciba eventos de productos en su punto final propio y consúltelos como fuente de datos del panel.",
+        "Reciba eventos de producto, sesión y $ai_generation en el mismo endpoint propio para dashboards y observabilidad de LLM.",
       defaultKeyName: "Plantillas alojadas",
       endpoint: "Punto final",
       serverEnv: "entorno del servidor",
@@ -1703,7 +1716,7 @@ const analyticsSliceTranslations: {
         'par exemple, "Ajouter l\'intégration Salesforce pour pouvoir interroger les données CRM"',
       firstPartyAnalytics: "Analytics propriétaire",
       firstPartyDescription:
-        "Recevez des événements produits sur votre point de terminaison propriétaire et interrogez-les en tant que source de données de tableau de bord.",
+        "Recevez les événements produit, session et $ai_generation sur le même point de terminaison propriétaire pour les tableaux de bord et l'observabilité LLM.",
       defaultKeyName: "Modèles hébergés",
       endpoint: "Point de terminaison",
       serverEnv: "Environnement du serveur",
@@ -1984,7 +1997,7 @@ const analyticsSliceTranslations: {
         "Beispiel: „Fügen Sie die Salesforce-Integration hinzu, damit ich CRM-Daten abfragen kann.“",
       firstPartyAnalytics: "First-Party-Analytics",
       firstPartyDescription:
-        "Empfangen Sie Produktereignisse an Ihrem Erstanbieter-Endpunkt und fragen Sie sie als Dashboard-Datenquelle ab.",
+        "Empfangen Sie Produkt-, Sitzungs- und $ai_generation-Ereignisse über denselben Erstanbieter-Endpunkt für Dashboards und LLM-Observability.",
       defaultKeyName: "Gehostete Vorlagen",
       endpoint: "Endpunkt",
       serverEnv: "Serverumgebung",
@@ -2261,7 +2274,7 @@ const analyticsSliceTranslations: {
         "例: 「CRM データをクエリできるように、Salesforce 統合を追加します」",
       firstPartyAnalytics: "ファーストパーティ Analytics",
       firstPartyDescription:
-        "ファーストパーティのエンドポイントで製品イベントを受信し、ダッシュボード データ ソースとしてクエリします。",
+        "同じファーストパーティエンドポイントで製品、セッション、$ai_generation イベントを受信し、ダッシュボードと LLM 可観測性に使用します。",
       defaultKeyName: "ホストされたテンプレート",
       endpoint: "終点",
       serverEnv: "サーバー環境",
@@ -2533,7 +2546,7 @@ const analyticsSliceTranslations: {
         '예: "CRM 데이터를 쿼리할 수 있도록 Salesforce 통합을 추가하세요."',
       firstPartyAnalytics: "퍼스트파티 Analytics",
       firstPartyDescription:
-        "자사 엔드포인트에서 제품 이벤트를 수신하고 이를 대시보드 데이터 원본으로 쿼리합니다.",
+        "동일한 퍼스트파티 엔드포인트에서 제품, 세션, $ai_generation 이벤트를 받아 대시보드와 LLM 관측성에 사용합니다.",
       defaultKeyName: "호스팅된 템플릿",
       endpoint: "엔드포인트",
       serverEnv: "서버 환경",
@@ -2802,7 +2815,7 @@ const analyticsSliceTranslations: {
         'por exemplo, "Adicionar integração Salesforce para que eu possa consultar dados CRM"',
       firstPartyAnalytics: "Analytics primário",
       firstPartyDescription:
-        "Receba eventos de produto em seu endpoint primário e consulte-os como uma fonte de dados do painel.",
+        "Receba eventos de produto, sessão e $ai_generation pelo mesmo endpoint primário para dashboards e observabilidade de LLM.",
       defaultKeyName: "Modelos hospedados",
       endpoint: "Ponto final",
       serverEnv: "Ambiente do servidor",
@@ -3076,7 +3089,7 @@ const analyticsSliceTranslations: {
         'उदाहरण के लिए, "Salesforce एकीकरण जोड़ें ताकि मैं CRM डेटा को क्वेरी कर सकूं"',
       firstPartyAnalytics: "प्रथम-पक्ष Analytics",
       firstPartyDescription:
-        "अपने प्रथम-पक्ष समापन बिंदु पर उत्पाद ईवेंट प्राप्त करें और उन्हें डैशबोर्ड डेटा स्रोत के रूप में क्वेरी करें।",
+        "डैशबोर्ड और LLM observability के लिए उसी प्रथम-पक्ष endpoint से product, session, और $ai_generation events प्राप्त करें।",
       defaultKeyName: "होस्ट किए गए टेम्पलेट",
       endpoint: "endpoint",
       serverEnv: "सर्वर एन.वी",
@@ -3342,7 +3355,7 @@ const analyticsSliceTranslations: {
         'على سبيل المثال، "أضف تكامل Salesforce حتى أتمكن من الاستعلام عن بيانات CRM"',
       firstPartyAnalytics: "تحليلات الطرف الأول",
       firstPartyDescription:
-        "يمكنك تلقي أحداث المنتج عند نقطة نهاية الطرف الأول لديك والاستعلام عنها كمصدر بيانات للوحة المعلومات.",
+        "استقبل أحداث المنتج والجلسة و $ai_generation عبر نقطة نهاية الطرف الأول نفسها للوحات المعلومات ومراقبة LLM.",
       defaultKeyName: "القوالب المستضافة",
       endpoint: "نقطة النهاية",
       serverEnv: "بيئة الخادم",
@@ -3526,6 +3539,7 @@ function mergeMessages(overrides: {
     overview: { ...enUS.overview, ...overrides.overview },
     sessions: { ...enUS.sessions, ...overrides.sessions },
     catalog: { ...enUS.catalog, ...overrides.catalog },
+    agents: { ...enUS.agents, ...overrides.agents },
   };
 }
 
@@ -3544,6 +3558,7 @@ export const messagesByLocale = {
       dashboard: "仪表板",
       dataSources: "数据源",
       dataDictionary: "数据字典",
+      agents: "代理",
       templateCatalog: "目录",
       dashboards: "仪表板",
       analyses: "分析",
@@ -3731,6 +3746,7 @@ export const messagesByLocale = {
       dashboard: "Panel",
       dataSources: "Fuentes de datos",
       dataDictionary: "Diccionario de datos",
+      agents: "Agentes",
       templateCatalog: "Catálogo",
       dashboards: "Paneles",
       analyses: "Análisis",
@@ -3926,6 +3942,7 @@ export const messagesByLocale = {
       dashboard: "Tableau de bord",
       dataSources: "Sources de données",
       dataDictionary: "Dictionnaire de données",
+      agents: "Agents",
       templateCatalog: "Catalogue",
       dashboards: "Tableaux de bord",
       analyses: "Analyses",
@@ -4127,6 +4144,7 @@ export const messagesByLocale = {
       dashboard: "Dashboard",
       dataSources: "Datenquellen",
       dataDictionary: "Datenlexikon",
+      agents: "Agenten",
       templateCatalog: "Katalog",
       dashboards: "Dashboards",
       analyses: "Analysen",
@@ -4328,6 +4346,7 @@ export const messagesByLocale = {
       dashboard: "ダッシュボード",
       dataSources: "データソース",
       dataDictionary: "データ辞書",
+      agents: "エージェント",
       templateCatalog: "テンプレートカタログ",
       dashboards: "ダッシュボード",
       analyses: "分析",
@@ -4525,6 +4544,7 @@ export const messagesByLocale = {
       dashboard: "대시보드",
       dataSources: "데이터 소스",
       dataDictionary: "데이터 사전",
+      agents: "에이전트",
       templateCatalog: "템플릿 카탈로그",
       dashboards: "대시보드",
       analyses: "분석",
@@ -4721,6 +4741,7 @@ export const messagesByLocale = {
       dashboard: "Dashboard",
       dataSources: "Fontes de dados",
       dataDictionary: "Dicionário de dados",
+      agents: "Agentes",
       templateCatalog: "Catálogo de modelos",
       dashboards: "Dashboards",
       analyses: "Análises",
@@ -4922,6 +4943,7 @@ export const messagesByLocale = {
       dashboard: "डैशबोर्ड",
       dataSources: "डेटा स्रोत",
       dataDictionary: "डेटा शब्दकोश",
+      agents: "एजेंट",
       templateCatalog: "टेम्पलेट कैटलॉग",
       dashboards: "डैशबोर्ड",
       analyses: "विश्लेषण",
@@ -5116,6 +5138,7 @@ export const messagesByLocale = {
       dashboard: "لوحة معلومات",
       dataSources: "مصادر البيانات",
       dataDictionary: "قاموس البيانات",
+      agents: "الوكلاء",
       templateCatalog: "كتالوج القوالب",
       dashboards: "لوحات المعلومات",
       analyses: "التحليلات",
@@ -5416,12 +5439,24 @@ const translatedAnalyticsDebtTranslations = {
       dashboard: "仪表板 - Analytics",
       dataDictionary: "数据字典 - Analytics",
       dataSources: "数据源 - Analytics",
+      agents: "代理 - Analytics",
       extensions: "扩展 - Analytics",
       notFound: "未找到 - Analytics",
       overview: "概述 - Analytics",
       settings: "设置 - Analytics",
       team: "团队 - Analytics",
       tool: "工具 - Analytics",
+    },
+    agents: {
+      title: "代理",
+      description:
+        "监控代理运行、评估、实验、反馈，以及用于检查应用幕后状态的管理数据工具。",
+      monitoring: "监控",
+      monitoringDescription:
+        "核心可观测性集中在这里：运行、追踪、评估、实验和反馈。需要第一方 token、延迟和成本图表时，请从目录安装 LLM 可观测性仪表板。",
+      advanced: "高级",
+      database: "数据库",
+      openCatalog: "打开目录",
     },
     sqlDashboard: {
       addDescriptionPlaceholder: "添加描述",
@@ -5592,12 +5627,24 @@ const translatedAnalyticsDebtTranslations = {
       dashboard: "Panel de control - Analytics",
       dataDictionary: "Diccionario de datos - Analytics",
       dataSources: "Fuentes de datos - Analytics",
+      agents: "Agentes - Analytics",
       extensions: "Extensiones - Analytics",
       notFound: "No encontrado - Analytics",
       overview: "Descripción general - Analytics",
       settings: "Configuración - Analytics",
       team: "Equipo - Analytics",
       tool: "Herramienta - Analytics",
+    },
+    agents: {
+      title: "Agentes",
+      description:
+        "Supervisa ejecuciones de agentes, evaluaciones, experimentos, comentarios y herramientas administrativas de datos para inspeccionar la app por detrás.",
+      monitoring: "Monitorización",
+      monitoringDescription:
+        "La observabilidad principal vive aquí: ejecuciones, trazas, evaluaciones, experimentos y comentarios. Instala el panel de observabilidad LLM desde el catálogo cuando necesites gráficos propios de tokens, latencia y coste.",
+      advanced: "Avanzado",
+      database: "Base de datos",
+      openCatalog: "Abrir catálogo",
     },
     sqlDashboard: {
       addDescriptionPlaceholder: "Agregar una descripción",
@@ -5773,12 +5820,24 @@ const translatedAnalyticsDebtTranslations = {
       dashboard: "Tableau de bord - Analytics",
       dataDictionary: "Dictionnaire de données - Analytics",
       dataSources: "Sources de données - Analytics",
+      agents: "Agents - Analytique",
       extensions: "Extensions-Analytics",
       notFound: "Introuvable - Analytics",
       overview: "Présentation - Analytics",
       settings: "Paramètres - Analytics",
       team: "Équipe - Analytics",
       tool: "Outil - Analytics",
+    },
+    agents: {
+      title: "Agents",
+      description:
+        "Surveillez les exécutions d'agents, les évaluations, les expériences, les retours et les outils d'administration des données utilisés pour inspecter l'application en arrière-plan.",
+      monitoring: "Surveillance",
+      monitoringDescription:
+        "L'observabilité principale est ici : exécutions, traces, évaluations, expériences et retours. Installez le tableau de bord d'observabilité LLM depuis le catalogue lorsque vous voulez des graphiques de tokens, latence et coût de première partie.",
+      advanced: "Avancé",
+      database: "Base de données",
+      openCatalog: "Ouvrir le catalogue",
     },
     sqlDashboard: {
       addDescriptionPlaceholder: "Ajouter une description",
@@ -5955,12 +6014,24 @@ const translatedAnalyticsDebtTranslations = {
       dashboard: "Dashboard – Analytics",
       dataDictionary: "Datenwörterbuch – Analytics",
       dataSources: "Datenquellen – Analytics",
+      agents: "Agenten – Analytics",
       extensions: "Erweiterungen – Analytics",
       notFound: "Nicht gefunden – Analytics",
       overview: "Übersicht – Analytics",
       settings: "Einstellungen – Analytics",
       team: "Team - Analytics",
       tool: "Werkzeug - Analytics",
+    },
+    agents: {
+      title: "Agenten",
+      description:
+        "Überwache Agentenläufe, Evals, Experimente, Feedback und Admin-Datentools, mit denen die App im Hintergrund geprüft wird.",
+      monitoring: "Monitoring",
+      monitoringDescription:
+        "Die zentrale Observability liegt hier: Läufe, Traces, Evals, Experimente und Feedback. Installiere das LLM-Observability-Dashboard aus dem Katalog, wenn du First-Party-Diagramme zu Tokens, Latenz und Kosten brauchst.",
+      advanced: "Erweitert",
+      database: "Datenbank",
+      openCatalog: "Katalog öffnen",
     },
     sqlDashboard: {
       addDescriptionPlaceholder: "Fügen Sie eine Beschreibung hinzu",
@@ -6132,12 +6203,24 @@ const translatedAnalyticsDebtTranslations = {
       dashboard: "ダッシュボード - Analytics",
       dataDictionary: "データディクショナリ - Analytics",
       dataSources: "データソース - Analytics",
+      agents: "エージェント - Analytics",
       extensions: "拡張機能 - Analytics",
       notFound: "見つかりません - Analytics",
       overview: "概要 - Analytics",
       settings: "設定 - Analytics",
       team: "チーム - Analytics",
       tool: "ツール - Analytics",
+    },
+    agents: {
+      title: "エージェント",
+      description:
+        "エージェントの実行、評価、実験、フィードバック、アプリ内部を確認する管理用データツールを監視します。",
+      monitoring: "監視",
+      monitoringDescription:
+        "主要な可観測性はここに集約されます: 実行、トレース、評価、実験、フィードバック。ファーストパーティのトークン、レイテンシ、コストのグラフが必要な場合は、カタログから LLM 可観測性ダッシュボードをインストールしてください。",
+      advanced: "詳細",
+      database: "データベース",
+      openCatalog: "カタログを開く",
     },
     sqlDashboard: {
       addDescriptionPlaceholder: "説明を追加する",
@@ -6308,12 +6391,24 @@ const translatedAnalyticsDebtTranslations = {
       dashboard: "대시보드 - Analytics",
       dataDictionary: "데이터 사전 - Analytics",
       dataSources: "데이터 소스 - Analytics",
+      agents: "에이전트 - Analytics",
       extensions: "확장 - Analytics",
       notFound: "찾을 수 없음 - Analytics",
       overview: "개요 - Analytics",
       settings: "설정 - Analytics",
       team: "팀 - Analytics",
       tool: "도구 - Analytics",
+    },
+    agents: {
+      title: "에이전트",
+      description:
+        "에이전트 실행, 평가, 실험, 피드백과 앱 내부를 점검하는 관리 데이터 도구를 모니터링합니다.",
+      monitoring: "모니터링",
+      monitoringDescription:
+        "핵심 관측성은 여기에 있습니다: 실행, 추적, 평가, 실험, 피드백. 퍼스트파티 토큰, 지연 시간, 비용 차트가 필요하면 카탈로그에서 LLM 관측성 대시보드를 설치하세요.",
+      advanced: "고급",
+      database: "데이터베이스",
+      openCatalog: "카탈로그 열기",
     },
     sqlDashboard: {
       addDescriptionPlaceholder: "설명 추가",
@@ -6488,12 +6583,24 @@ const translatedAnalyticsDebtTranslations = {
       dashboard: "Painel - Analytics",
       dataDictionary: "Dicionário de Dados - Analytics",
       dataSources: "Fontes de dados - Analytics",
+      agents: "Agentes - Analytics",
       extensions: "Extensões - Analytics",
       notFound: "Não encontrado - Analytics",
       overview: "Visão geral - Analytics",
       settings: "Configurações - Analytics",
       team: "Equipe - Analytics",
       tool: "Ferramenta - Analytics",
+    },
+    agents: {
+      title: "Agentes",
+      description:
+        "Monitore execuções de agentes, avaliações, experimentos, feedback e ferramentas administrativas de dados usadas para inspecionar o app por trás.",
+      monitoring: "Monitoramento",
+      monitoringDescription:
+        "A observabilidade principal fica aqui: execuções, traces, avaliações, experimentos e feedback. Instale o dashboard de observabilidade LLM pelo catálogo quando quiser gráficos primários de tokens, latência e custo.",
+      advanced: "Avançado",
+      database: "Banco de dados",
+      openCatalog: "Abrir catálogo",
     },
     sqlDashboard: {
       addDescriptionPlaceholder: "Adicione uma descrição",
@@ -6664,12 +6771,24 @@ const translatedAnalyticsDebtTranslations = {
       dashboard: "डैशबोर्ड - Analytics",
       dataDictionary: "डेटा डिक्शनरी - Analytics",
       dataSources: "डेटा स्रोत - Analytics",
+      agents: "एजेंट - Analytics",
       extensions: "एक्सटेंशन - Analytics",
       notFound: "नहीं मिला - Analytics",
       overview: "अवलोकन - Analytics",
       settings: "सेटिंग्स - Analytics",
       team: "टीम - Analytics",
       tool: "उपकरण - Analytics",
+    },
+    agents: {
+      title: "एजेंट",
+      description:
+        "एजेंट runs, evals, experiments, feedback, और app के पीछे की स्थिति देखने वाले admin data tools को monitor करें।",
+      monitoring: "मॉनिटरिंग",
+      monitoringDescription:
+        "मुख्य observability यहां रहती है: runs, traces, evals, experiments, और feedback। first-party token, latency, और cost charts चाहिए हों तो catalog से LLM observability dashboard install करें।",
+      advanced: "उन्नत",
+      database: "डेटाबेस",
+      openCatalog: "कैटलॉग खोलें",
     },
     sqlDashboard: {
       addDescriptionPlaceholder: "विवरण जोड़ें",
@@ -6839,12 +6958,24 @@ const translatedAnalyticsDebtTranslations = {
       dashboard: "لوحة القيادة - Analytics",
       dataDictionary: "قاموس البيانات - Analytics",
       dataSources: "مصادر البيانات - Analytics",
+      agents: "الوكلاء - Analytics",
       extensions: "Extensions - Analytics",
       notFound: "Not Found - Analytics",
       overview: "نظرة عامة - Analytics",
       settings: "Settings - Analytics",
       team: "Team - Analytics",
       tool: "Tool - Analytics",
+    },
+    agents: {
+      title: "الوكلاء",
+      description:
+        "راقب تشغيلات الوكلاء والتقييمات والتجارب والملاحظات وأدوات إدارة البيانات المستخدمة لفحص التطبيق من الداخل.",
+      monitoring: "المراقبة",
+      monitoringDescription:
+        "توجد قابلية المراقبة الأساسية هنا: التشغيلات والتتبعات والتقييمات والتجارب والملاحظات. ثبّت لوحة مراقبة LLM من الكتالوج عندما تحتاج إلى مخططات الطرف الأول للرموز وزمن الاستجابة والتكلفة.",
+      advanced: "متقدم",
+      database: "قاعدة البيانات",
+      openCatalog: "فتح الكتالوج",
     },
     sqlDashboard: {
       addDescriptionPlaceholder: "Add a description",

@@ -169,22 +169,9 @@ replace them with copied `srcdoc` HTML unless the user explicitly asks for a
 frozen snapshot. To change a state, rerun `add-localhost-screens` with the new
 path/query or duplicate the screen and update the copy's URL metadata.
 
-## Local Files in the Code Tab
-
-Once connected, the design editor's Code panel (left rail → Code, or
-`navigate --view editor --designId <id> --leftPanel code`) shows a local-files
-workspace root for the connection alongside the design's own files, listing
-the app's text/code files through the bridge (`list-local-files` /
-`read-local-file`). Build output, `node_modules`, `.git`, and secret-looking
-paths (`.env*`, key files) are always excluded. Reads need editor access plus
-the running bridge; the first save opens the write-consent dialog (an 8-hour,
-folder-scoped grant) and retries once granted, and saves are version-checked
-so a file changed on disk is never silently overwritten.
-
 ## Verification
 
 - `list-localhost-connections` returns the expected connection and routes.
 - The Design editor opens in overview mode.
 - Every requested screen renders the intended localhost URL.
 - Alt-dragging a screen copies the URL-backed frame, not an inline HTML clone.
-- The Code tab shows a local-files root for the connection and opens its files.

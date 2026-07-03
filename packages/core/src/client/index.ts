@@ -674,6 +674,7 @@ export {
   DevDatabaseLink,
   type DevDatabaseLinkProps,
 } from "./db-admin/DevDatabaseLink.js";
+export { DbAdminPage } from "./db-admin/DbAdminPage.js";
 export { ErrorBoundary } from "./ErrorBoundary.js";
 export {
   installRouteChunkRecovery,
