@@ -1,5 +1,14 @@
 # @agent-native/core
 
+## 0.86.1
+
+### Patch Changes
+
+- 097d59b: Add compact feedback and GitHub issue actions to shared error states, with prefilled debug context for reports.
+- 097d59b: Prevent reconnect replay text from temporarily duplicating assistant sidebar responses that are already visible.
+- 097d59b: Add shared Builder DSI helpers for template design-system indexing.
+- 097d59b: Expose target-aware database admin helpers and let the shared DB admin page use admin-gated custom API paths.
+
 ## 0.86.0
 
 ### Minor Changes
