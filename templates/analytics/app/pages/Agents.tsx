@@ -223,7 +223,9 @@ function AnalyticsDbAdminPanel({
 
   const selectedConnection = useMemo(() => {
     return (
-      connections.find((connection) => connection.id === selectedConnectionId) ??
+      connections.find(
+        (connection) => connection.id === selectedConnectionId,
+      ) ??
       connections[0] ??
       null
     );
