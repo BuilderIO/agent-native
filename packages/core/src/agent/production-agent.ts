@@ -972,6 +972,12 @@ const TOOL_INPUT_ACTIVITY_INTERVAL_MS = 1500;
 const ACTION_PREPARATION_NO_PROGRESS_TIMEOUT_MS = 90_000;
 const ACTION_PREPARATION_ZERO_BYTE_RESTART_LIMIT = 2;
 const MODEL_STREAM_NO_PROGRESS_TIMEOUT_MS = 90_000;
+const MAIN_CHAT_INTERNAL_CONTINUATION_LIMIT = 6;
+const RUN_BUDGET_EXHAUSTED_ERROR_CODE = "run_budget_exhausted";
+const RUN_BUDGET_EXHAUSTED_MESSAGE =
+  "I ran out of time before finishing this step. " +
+  "I stopped rather than keep retrying silently. " +
+  "Check any completed tool cards above before retrying, ideally as one smaller follow-up.";
 const MAX_TEXT_ATTACHMENT_CHARS = 60_000;
 const MAX_SELECTION_CONTEXT_CHARS = 8_000;
 const MAX_RESOURCE_INVENTORY_ITEMS = 40;
@@ -2979,7 +2985,7 @@ export async function runAgentLoop(opts: {
             };
           }
           return (
-            zeroByteToolInputRestart.count >
+            zeroByteToolInputRestart.count >=
               ACTION_PREPARATION_ZERO_BYTE_RESTART_LIMIT &&
             now - zeroByteToolInputRestart.firstStartedAt >=
               ACTION_PREPARATION_NO_PROGRESS_TIMEOUT_MS
@@ -4431,6 +4437,82 @@ export function backgroundContinuationReasonForRun(
   return "run_timeout";
 }
 
+export async function runAgentLoopWithMainChatInternalContinuations(
+  opts: Parameters<typeof runAgentLoop>[0],
+): Promise<Awaited<ReturnType<typeof runAgentLoop>>> {
+  const usage: Awaited<ReturnType<typeof runAgentLoop>> = {
+    inputTokens: 0,
+    outputTokens: 0,
+    cacheReadTokens: 0,
+    cacheWriteTokens: 0,
+    model: opts.model,
+  };
+  const addUsage = (next: Awaited<ReturnType<typeof runAgentLoop>>) => {
+    usage.inputTokens += next.inputTokens;
+    usage.outputTokens += next.outputTokens;
+    usage.cacheReadTokens += next.cacheReadTokens;
+    usage.cacheWriteTokens += next.cacheWriteTokens;
+    usage.model = next.model;
+  };
+
+  const localTurnEvents: AgentChatEvent[] = [];
+  let lastAttemptWasUnfinishedContinuation = false;
+  for (
+    let attempt = 0;
+    !opts.signal.aborted && attempt < MAIN_CHAT_INTERNAL_CONTINUATION_LIMIT;
+    attempt++
+  ) {
+    lastAttemptWasUnfinishedContinuation = false;
+    let continuationReason: AgentLoopContinuationReason | undefined;
+    const attemptStartIndex = localTurnEvents.length;
+    const send = (event: AgentChatEvent) => {
+      localTurnEvents.push(event);
+      if (
+        event.type === "auto_continue" &&
+        isAgentLoopContinuationReason(event.reason)
+      ) {
+        continuationReason = event.reason;
+        return;
+      }
+      opts.send(event);
+    };
+
+    const nextUsage = await runAgentLoop({ ...opts, send });
+    addUsage(nextUsage);
+
+    if (!continuationReason || opts.signal.aborted) {
+      return usage;
+    }
+
+    lastAttemptWasUnfinishedContinuation = true;
+    const attemptEvents = localTurnEvents.slice(attemptStartIndex);
+    const completedSideEffect = attemptEvents.some(
+      (event) =>
+        event.type === "tool_done" &&
+        event.completedSideEffect === true &&
+        event.isError !== true,
+    );
+    if (!completedSideEffect) {
+      opts.send({ type: "clear" });
+    }
+    const actionPreparationTool =
+      lastUnfinishedPreparingActionToolFromEvents(localTurnEvents);
+    appendAgentLoopContinuation(opts.messages, continuationReason, {
+      ...(actionPreparationTool ? { actionPreparationTool } : {}),
+    });
+  }
+
+  if (!opts.signal.aborted && lastAttemptWasUnfinishedContinuation) {
+    opts.send({
+      type: "error",
+      error: RUN_BUDGET_EXHAUSTED_MESSAGE,
+      errorCode: RUN_BUDGET_EXHAUSTED_ERROR_CODE,
+      recoverable: true,
+    });
+  }
+  return usage;
+}
+
 function endsAtContinuationBoundary(run: ActiveRun): boolean {
   return (
     endsAtInternalContinuationBoundary(run) ||
@@ -5839,6 +5921,11 @@ export function createProductionAgentHandler(
                 };
                 delete continuationBody[AGENT_CHAT_BACKGROUND_RUN_FIELD];
                 try {
+                  await recordRunDiagnostic(
+                    run.runId,
+                    RUN_DIAG_STAGE.workerSetupStep,
+                    `chain_dispatch_start nextRunId=${nextRunId} reason=${continuationReason} path=${continuationDispatchPath}`,
+                  ).catch(() => {});
                   // ── TRANSACTIONAL HANDOFF ──────────────────────────────────
                   // 1. Insert the successor row (with its rehydration payload)
                   //    BEFORE firing the dispatch, so:
@@ -5869,6 +5956,15 @@ export function createProductionAgentHandler(
                     );
                     nextRowInserted = true;
                   } catch (insertErr) {
+                    await recordRunDiagnostic(
+                      run.runId,
+                      RUN_DIAG_STAGE.workerSetupStep,
+                      `chain_successor_insert_failed nextRunId=${nextRunId} ${
+                        insertErr instanceof Error
+                          ? insertErr.message
+                          : String(insertErr)
+                      }`,
+                    ).catch(() => {});
                     console.error(
                       "[agent-chat] continuation insertRun failed; dispatching with inline body:",
                       insertErr instanceof Error
@@ -5951,10 +6047,24 @@ export function createProductionAgentHandler(
                       ? lastDispatchErr
                       : new Error(String(lastDispatchErr));
                   }
+                  await recordRunDiagnostic(
+                    run.runId,
+                    RUN_DIAG_STAGE.workerSetupStep,
+                    `chain_dispatch_sent nextRunId=${nextRunId} reason=${continuationReason}`,
+                  ).catch(() => {});
                 } catch (chainErr) {
                   // Chain dispatch failed — fail loud so the held row goes
                   // terminal instead of spinning. The reaper would also catch
                   // it, but this is immediate and truthful.
+                  await recordRunDiagnostic(
+                    run.runId,
+                    RUN_DIAG_STAGE.workerThrew,
+                    `chain_dispatch_failed nextRunId=${nextRunId} ${
+                      chainErr instanceof Error
+                        ? chainErr.message
+                        : String(chainErr)
+                    }`,
+                  ).catch(() => {});
                   console.error(
                     "[agent-chat] background continuation dispatch failed:",
                     chainErr instanceof Error ? chainErr.message : chainErr,
@@ -6397,7 +6507,7 @@ export function createProductionAgentHandler(
           if (obsConfig.enabled) {
             instrumented = true;
             loopUsage = await instrumentAgentLoop({
-              runAgentLoop,
+              runAgentLoop: runAgentLoopWithMainChatInternalContinuations,
               loopOpts: agentLoopOpts,
               runId,
               threadId: threadId ?? null,
@@ -6427,7 +6537,8 @@ export function createProductionAgentHandler(
           if (instrumented) throw err;
         }
         if (!instrumented) {
-          loopUsage = await runAgentLoop(agentLoopOpts);
+          loopUsage =
+            await runAgentLoopWithMainChatInternalContinuations(agentLoopOpts);
         }
 
         // Record token usage for cost monitoring so the Usage panel in

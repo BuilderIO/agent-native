@@ -1,5 +1,23 @@
 # @agent-native/core
 
+## 0.84.67
+
+### Patch Changes
+
+- 171f6e6: Remove app document CSP headers so hosted Google Tag Manager and framework inline bootstrap scripts are not blocked or reported by a shared policy.
+
+## 0.84.66
+
+### Patch Changes
+
+- 70a6085: Keep hosted chat runs inside the active worker when a progress-aware action-preparation checkpoint asks to continue, instead of depending on the browser to start the recovery turn.
+
+## 0.84.65
+
+### Patch Changes
+
+- d569c7a: Retry internal chat continuations when the server briefly reports the same completed run as active.
+
 ## 0.84.64
 
 ### Patch Changes
