@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.85.3
+
+### Patch Changes
+
+- c213eb8: Allow durable background agent runs to wait longer between real progress events before checkpointing, so large hosted tool generations can use the background-function budget instead of retrying every few minutes.
+
 ## 0.85.2
 
 ### Patch Changes
