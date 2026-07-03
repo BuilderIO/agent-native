@@ -331,6 +331,8 @@ export function FileTree({
           const isExpanded =
             row.node.kind === "folder" && expandedPaths.has(row.path);
           const isRenaming = renamingPath === row.path;
+          const canRenameNode = row.node.kind === "file" && capabilities.rename;
+          const canDeleteNode = row.node.kind === "file" && capabilities.delete;
           return (
             <ContextMenu key={row.path}>
               <ContextMenuTrigger asChild>
@@ -422,7 +424,7 @@ export function FileTree({
                     {"New File…" /* i18n-ignore */}
                   </ContextMenuItem>
                 ) : null}
-                {capabilities.rename ? (
+                {canRenameNode ? (
                   <ContextMenuItem
                     className="text-[12px]"
                     onSelect={() => startRename(row.node)}
@@ -430,7 +432,7 @@ export function FileTree({
                     {"Rename…" /* i18n-ignore */}
                   </ContextMenuItem>
                 ) : null}
-                {capabilities.delete ? (
+                {canDeleteNode ? (
                   <ContextMenuItem
                     className="text-[12px] text-destructive focus:text-destructive"
                     onSelect={() => setDeleteTarget(row.node)}
@@ -438,7 +440,7 @@ export function FileTree({
                     {"Delete" /* i18n-ignore */}
                   </ContextMenuItem>
                 ) : null}
-                {capabilities.rename || capabilities.delete ? (
+                {canRenameNode || canDeleteNode ? (
                   <ContextMenuSeparator />
                 ) : null}
                 <ContextMenuItem

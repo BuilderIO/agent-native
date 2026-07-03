@@ -248,7 +248,7 @@ export function getTemplate(name: string): TemplateMeta | undefined {
   if (name === "image" || name === "images" || name === "asset") {
     name = "assets";
   }
-  if (name === "visual-plans") name = "plan";
+  if (name === "contracts" || name === "visual-plans") name = "plan";
   return TEMPLATES.find((t) => t.name === name);
 }
 

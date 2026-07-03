@@ -71,6 +71,18 @@ details live in `.agents/skills/`.
 - For shipped dashboard templates, call `list-dashboard-templates` first, then
   `install-dashboard-template` with the selected `templateId`. Do not recreate a
   catalog template by hand unless the user asks for a custom variant.
+- Agent LLM observability is collected through the same first-party tracking
+  API as product analytics. Core emits PostHog-compatible `$ai_generation`
+  events when emitting apps are configured with `AGENT_NATIVE_ANALYTICS_PUBLIC_KEY`
+  and `AGENT_NATIVE_ANALYTICS_ENDPOINT` (or the default hosted endpoint). Query
+  these with `query-agent-native-analytics` using `event_name = '$ai_generation'`;
+  useful JSON properties include `$ai_trace_id` / `run_id`, `$ai_session_id` /
+  `thread_id`, `$ai_model` / `model`, `$ai_provider` / `provider`,
+  `$ai_input_tokens`, `$ai_output_tokens`, `cache_read_tokens`,
+  `cache_write_tokens`, `cost_cents_x100`, `$ai_total_cost_usd`, `duration_ms`
+  / `$ai_latency`, `status`, `tool_calls`, `successful_tools`, `failed_tools`,
+  and `$ai_error` / `error_message`. Do not expect prompts, tool args, or model
+  responses in these tracked events by default.
 - For dashboard edits, default to `mutate-dashboard` with its typed
   `dashboard.*` script API. It supports id-based panel moves, title/SQL/config
   edits, inserts, duplication, removal, and dashboard field patches in one
@@ -189,6 +201,9 @@ details live in `.agents/skills/`.
 - `install-dashboard-template` installs a catalog template into normal
   SQL-backed dashboards. Required: `templateId`. Optional: `dashboardId`,
   `name`, `overwrite`, `forceNew`, and `mergePanels`.
+- The LLM observability dashboard template is `agent-observability-llm`. Install
+  it when the user wants model cost, token volume, latency, error rate, or top
+  expensive agent-run visibility from first-party `$ai_generation` events.
 - To add a template's panels to an existing dashboard, call
   `install-dashboard-template` with `mergePanels: true` and the existing
   `dashboardId`. It appends only the template panels whose id is not already

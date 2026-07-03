@@ -773,7 +773,7 @@ export default function ShareRoute() {
   return (
     <div className="flex min-h-screen flex-col bg-background text-foreground lg:h-screen lg:flex-row lg:overflow-hidden">
       {agentDiscovery}
-      <div className="flex min-w-0 flex-1 flex-col">
+      <div className="flex w-full min-w-0 flex-col lg:flex-1">
         <header className="flex shrink-0 flex-wrap items-center gap-3 border-b border-border px-4 py-3 lg:flex-nowrap">
           {session ? (
             <Button
@@ -880,8 +880,8 @@ export default function ShareRoute() {
           </div>
         </header>
 
-        <div className="flex flex-1 flex-col gap-4 overflow-visible p-4 lg:min-h-0 lg:overflow-hidden">
-          <div className="min-h-[240px] flex-1 lg:min-h-0">
+        <div className="flex flex-col gap-4 overflow-visible p-4 lg:min-h-0 lg:flex-1 lg:overflow-hidden">
+          <div className="aspect-video w-full lg:min-h-0 lg:flex-1 lg:aspect-auto">
             <VideoPlayer
               ref={playerRef}
               recordingId={recording.id}

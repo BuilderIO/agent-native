@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   parseVisualizeRepoArgs,
   prepareVisualizeRepoWorkspace,
+  runVisualizeRepo,
 } from "./visualize-repo.js";
 
 const tmpRoots: string[] = [];
@@ -22,6 +23,16 @@ function readJson(filePath: string) {
     string,
     unknown
   >;
+}
+
+async function withCwd<T>(cwd: string, fn: () => Promise<T>): Promise<T> {
+  const previous = process.cwd();
+  process.chdir(cwd);
+  try {
+    return await fn();
+  } finally {
+    process.chdir(previous);
+  }
 }
 
 afterEach(() => {
@@ -148,5 +159,36 @@ describe("visualize-repo CLI", () => {
     expect(workspace.created).toBe(false);
     expect(fs.existsSync(path.join(root, "agent-native.json"))).toBe(false);
     expect(fs.existsSync(workspace.planPath)).toBe(false);
+  });
+
+  it("does not bootstrap files before check validates an existing visual docs folder", async () => {
+    const root = tmpDir();
+    fs.writeFileSync(path.join(root, "package.json"), '{"name":"demo"}\n');
+    const workspace = await prepareVisualizeRepoWorkspace({
+      cwd: root,
+      dir: "docs/repo-map",
+      dryRun: false,
+    });
+    fs.rmSync(path.join(root, "agent-native.json"));
+
+    const status = await withCwd(root, () =>
+      runVisualizeRepo(["check", "--dir", "docs/repo-map"]),
+    );
+
+    expect(status).toBe(0);
+    expect(fs.existsSync(path.join(root, "agent-native.json"))).toBe(false);
+    expect(fs.existsSync(workspace.planPath)).toBe(true);
+  });
+
+  it("does not create a workspace when check fails before initialization", async () => {
+    const root = tmpDir();
+    fs.writeFileSync(path.join(root, "package.json"), '{"name":"demo"}\n');
+
+    await expect(
+      withCwd(root, () => runVisualizeRepo(["check"])),
+    ).rejects.toThrow();
+
+    expect(fs.existsSync(path.join(root, "agent-native.json"))).toBe(false);
+    expect(fs.existsSync(path.join(root, ".agent-native"))).toBe(false);
   });
 });

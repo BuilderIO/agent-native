@@ -9,6 +9,7 @@ const repoRoot = process.cwd();
 const retiredTargets = new Set([
   "calls",
   "code",
+  "contracts",
   "images",
   "issues",
   "meeting-notes",

@@ -8553,6 +8553,37 @@ export default function DesignEditor() {
       user: currentUser,
     });
 
+  // ── Overview presence (Task 1) ──────────────────────────────────────────────
+  //
+  // In single-screen mode the collab doc above already drives selection rings +
+  // recent-edit highlights over the one active iframe. Overview (MultiScreenCanvas)
+  // has no single active collab doc, so we open a SEPARATE, presence-only
+  // subscription here. Design decisions:
+  //
+  //  • Subscription model: a SINGLE subscription for the most-relevant file —
+  //    `activeFileId` (which in overview defaults to the selected/first screen
+  //    and is advanced to the worked file by the agent's view-screen / navigate
+  //    actions). We deliberately do NOT open one subscription per visible frame:
+  //    an overview board can hold many screens, and N polling docs would be
+  //    wasteful. Actions publish agent presence to the FILE id (see
+  //    edit-design.ts / apply-visual-edit.ts → agentEnterDocument(file.id)), so
+  //    this one doc surfaces the agent's `selection` + `recentEdits` for the file
+  //    it is editing.
+  //  • Only mounts in overview so we never run two live docs for the same file.
+  const overviewPresenceFileId =
+    viewMode === "overview"
+      ? (activeFileId ?? overviewScreens[0]?.id ?? null)
+      : null;
+  const { awareness: overviewAwareness, ydoc: overviewYdoc } =
+    useCollaborativeDoc({
+      docId:
+        isSignedIn && canEditDesign && overviewPresenceFileId
+          ? overviewPresenceFileId
+          : null,
+      requestSource: TAB_ID,
+      user: currentUser,
+    });
+
   // Track collab-sourced content for the active file.
   // When Y.Doc is synced and has content, use it as the source of truth
   // instead of the DB-fetched content so live remote edits appear instantly.
@@ -9237,10 +9268,12 @@ export default function DesignEditor() {
     [],
   );
 
-  // Resolve a CSS selector to a viewport rect inside the active screen iframe.
-  const resolveSelectorRect = useCallback(
-    (selector: string): DOMRect | null => {
-      const iframe = canvasIframeRef.current;
+  // Resolve a CSS selector to a viewport rect inside a specific iframe. The
+  // iframe is the coordinate anchor, so the same logic serves both the
+  // single-screen preview iframe and each overview frame iframe (see the
+  // overview resolvers below, which pass the frame the agent is editing).
+  const resolveSelectorRectInIframe = useCallback(
+    (iframe: HTMLIFrameElement | null, selector: string): DOMRect | null => {
       if (!iframe) return null;
       let doc: Document | null = null;
       try {
@@ -9258,15 +9291,14 @@ export default function DesignEditor() {
       if (!el) return null;
       return mapIframeRectToViewport(iframe, el.getBoundingClientRect());
     },
-    [canvasIframeRef, mapIframeRectToViewport],
+    [mapIframeRectToViewport],
   );
 
-  // Resolve a text quote to a viewport rect by walking the iframe body's text.
-  const resolveTextQuoteRect = useCallback(
-    (quote: string): DOMRect | null => {
+  // Resolve a text quote to a viewport rect by walking a specific iframe body.
+  const resolveTextQuoteRectInIframe = useCallback(
+    (iframe: HTMLIFrameElement | null, quote: string): DOMRect | null => {
       const needle = quote.trim();
       if (!needle) return null;
-      const iframe = canvasIframeRef.current;
       if (!iframe) return null;
       let doc: Document | null = null;
       try {
@@ -9301,7 +9333,21 @@ export default function DesignEditor() {
       }
       return null;
     },
-    [canvasIframeRef, mapIframeRectToViewport],
+    [mapIframeRectToViewport],
+  );
+
+  // Resolve a CSS selector to a viewport rect inside the active screen iframe.
+  const resolveSelectorRect = useCallback(
+    (selector: string): DOMRect | null =>
+      resolveSelectorRectInIframe(canvasIframeRef.current, selector),
+    [canvasIframeRef, resolveSelectorRectInIframe],
+  );
+
+  // Resolve a text quote to a viewport rect by walking the iframe body's text.
+  const resolveTextQuoteRect = useCallback(
+    (quote: string): DOMRect | null =>
+      resolveTextQuoteRectInIframe(canvasIframeRef.current, quote),
+    [canvasIframeRef, resolveTextQuoteRectInIframe],
   );
 
   // resolveRect for RemoteSelectionRings — descriptor is a CSS selector string.
@@ -9408,6 +9454,97 @@ export default function DesignEditor() {
     canvasContainerRef,
     zoom,
   ]);
+
+  // ── Overview presence overlays (Task 1) ─────────────────────────────────────
+  //
+  // Element-level rings + recent-edit highlights over the overview board. The
+  // agent's descriptors are published on the overview presence doc above and
+  // resolved INSIDE the frame the agent is editing. Because we resolve against
+  // the frame iframe's `getBoundingClientRect()` (via mapIframeRectToViewport),
+  // the board pan/zoom transform is already baked into the returned viewport
+  // coords — RemoteSelectionRings / RecentEditHighlights convert those to
+  // container-relative against the same `canvasContainerRef`, so we do NOT
+  // duplicate MultiScreenCanvas's transform math.
+  const { others: overviewOthers } = usePresence(
+    overviewAwareness,
+    overviewYdoc?.clientID ?? null,
+  );
+
+  // Find the overview frame iframe for a given file id. Frames tag their iframe
+  // with `data-screen-iframe-id` = screen id (or `<id>::bp-<width>` for an
+  // active breakpoint), so match the exact id or the breakpoint-prefixed form.
+  const getOverviewFrameIframe = useCallback(
+    (fileId: string | null): HTMLIFrameElement | null => {
+      if (!fileId) return null;
+      const container = canvasContainerRef.current;
+      if (!container) return null;
+      const escaped =
+        typeof CSS !== "undefined" && CSS.escape ? CSS.escape(fileId) : fileId;
+      return (
+        container.querySelector<HTMLIFrameElement>(
+          `iframe[data-screen-iframe-id="${escaped}"]`,
+        ) ??
+        container.querySelector<HTMLIFrameElement>(
+          `iframe[data-screen-iframe-id^="${escaped}::bp-"]`,
+        ) ??
+        null
+      );
+    },
+    [canvasContainerRef],
+  );
+
+  // Overview resolvers: the agent's presence rides on `overviewPresenceFileId`,
+  // so resolve every descriptor inside that file's frame iframe.
+  const resolveOverviewSelectionRect = useCallback(
+    (descriptor: string): DOMRect | null =>
+      resolveSelectorRectInIframe(
+        getOverviewFrameIframe(overviewPresenceFileId),
+        descriptor,
+      ),
+    [
+      getOverviewFrameIframe,
+      overviewPresenceFileId,
+      resolveSelectorRectInIframe,
+    ],
+  );
+  const resolveOverviewRecentEditRect = useCallback(
+    (edit: AttributedRecentEdit): DOMRect | null => {
+      const iframe = getOverviewFrameIframe(overviewPresenceFileId);
+      if (!iframe) return null;
+      const d = edit.descriptor;
+      if (d.kind === "selector" && typeof d.selector === "string") {
+        return resolveSelectorRectInIframe(iframe, d.selector);
+      }
+      if (d.kind === "text" && typeof d.quote === "string") {
+        return resolveTextQuoteRectInIframe(iframe, d.quote);
+      }
+      // "paths" and whole-"doc" descriptors have no single canvas region.
+      return null;
+    },
+    [
+      getOverviewFrameIframe,
+      overviewPresenceFileId,
+      resolveSelectorRectInIframe,
+      resolveTextQuoteRectInIframe,
+    ],
+  );
+
+  // Show only the agent's presence in overview (human peers edit inside their
+  // own focused screen; the board treatment is about surfacing agent work). Re-
+  // key on the overview zoom so rings recompute when the board zooms — the
+  // container itself doesn't resize, so the overlays' ResizeObserver wouldn't
+  // otherwise fire (same trick as the single-screen `othersForOverlays`).
+  const overviewAgentOthers = useMemo<OtherPresence[]>(
+    () => overviewOthers.filter((o) => o.isAgent),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [overviewOthers, overviewCanvasZoom],
+  );
+  const overviewRecentEdits = useRecentEdits(overviewAgentOthers);
+  const overviewRecentEditsForOverlays = useMemo<AttributedRecentEdit[]>(
+    () => overviewRecentEdits.slice(),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [overviewRecentEdits, overviewCanvasZoom],
+  );
 
   // Follow mode — clicking an avatar in the toolbar follows that participant.
   const [followingEmail, setFollowingEmail] = useState<string | null>(null);
@@ -21942,140 +22079,164 @@ ${serializedHtml}
                     </div>
                   ) : null}
                   {viewMode === "overview" ? (
-                    <MultiScreenCanvas
-                      screens={overviewScreens}
-                      zoom={overviewCanvasZoom}
-                      onZoomChange={setExplicitOverviewCanvasZoom}
-                      activeId={activeFileId}
-                      selectedScreenIds={overviewSelectedScreenIds}
-                      fullViewScreenIds={fullViewScreenIds}
-                      activeScreenHasHoveredChild={
-                        Boolean(hoveredElement) &&
-                        !hoveredElementIsScreenRoot &&
-                        hoveredElementScreenId === activeFileId
-                      }
-                      hoveredChildScreenId={hoveredChildScreenId}
-                      directlyHoveredScreenId={hoveredScreenRootId}
-                      previewDeviceFrame={deviceFrame}
-                      activeTool={activeTool}
-                      onActiveToolChange={handleOverviewActiveToolChange}
-                      selectAllRequest={overviewSelectAllRequest}
-                      clearSelectionRequest={overviewClearSelectionRequest}
-                      onScreenSelectionChange={
-                        handleOverviewScreenSelectionChange
-                      }
-                      geometryById={canvasFrameGeometryById}
-                      onGeometryChange={queueFrameGeometrySave}
-                      onGeometryCommit={handleGeometryCommit}
-                      vectorEdit={vectorEditOverlayState}
-                      onCreatePrimitive={handleCreatePrimitive}
-                      onPrimitiveCreated={handlePrimitiveCreated}
-                      onPrimitiveReparent={handleOverviewPrimitiveReparent}
-                      onCrossScreenElementDrop={handleCrossScreenElementDrop}
-                      boardFileId={boardFileId}
-                      boardIsActive={activeFileId === boardFileId}
-                      boardFileContent={boardFileContent}
-                      boardFrameGeometry={boardFrameGeometry}
-                      boardClearSelectionRequest={overviewClearSelectionRequest}
-                      boardSelectedSelector={
-                        activeFileId === boardFileId
-                          ? selectedCanvasSelector
-                          : null
-                      }
-                      boardSelectedSelectorCandidates={
-                        activeFileId === boardFileId
-                          ? selectedCanvasSelectorCandidates
-                          : undefined
-                      }
-                      boardHoveredSelector={
-                        hoveredElementScreenId === boardFileId
-                          ? hoveredCanvasSelector
-                          : null
-                      }
-                      boardHoveredSelectorCandidates={
-                        hoveredElementScreenId === boardFileId
-                          ? hoveredCanvasSelectorCandidates
-                          : undefined
-                      }
-                      boardLockedSelectors={
-                        boardFileId
-                          ? getLayerSelectorsForFile(
-                              boardFileId,
-                              lockedLayerIds,
-                            )
-                          : undefined
-                      }
-                      boardHiddenSelectors={
-                        boardFileId
-                          ? getLayerSelectorsForFile(
-                              boardFileId,
-                              hiddenLayerIds,
-                            )
-                          : undefined
-                      }
-                      onBoardDrawPrimitive={
-                        canEditDesign ? handleBoardDrawPrimitive : undefined
-                      }
-                      boardEditMode={canEditDesign}
-                      onBoardElementSelect={
-                        boardFileId ? handleBoardElementSelect : undefined
-                      }
-                      onBoardElementMarqueeSelect={
-                        boardFileId
-                          ? handleBoardElementMarqueeSelect
-                          : undefined
-                      }
-                      onBoardElementHover={
-                        boardFileId ? handleBoardElementHover : undefined
-                      }
-                      onBoardElementClear={
-                        boardFileId ? handleBoardElementClear : undefined
-                      }
-                      onBoardIframeHotkey={handleIframeHotkey}
-                      onBoardFigmaClipboardPaste={
-                        handleCanvasFigmaClipboardPaste
-                      }
-                      onBoardIframeContextMenu={handleIframeContextMenu}
-                      onBoardTextEditingStateChange={
-                        handleBoardTextEditingStateChange
-                      }
-                      onBoardElementDblClickText={
-                        boardFileId ? handleBoardElementDblClickText : undefined
-                      }
-                      onBoardVisualStyleChange={
-                        boardFileId ? handleBoardVisualStyleChange : undefined
-                      }
-                      onBoardVisualStructureChange={
-                        boardFileId
-                          ? handleBoardVisualStructureChange
-                          : undefined
-                      }
-                      onBoardVisualDuplicateChange={
-                        boardFileId
-                          ? handleBoardVisualDuplicateChange
-                          : undefined
-                      }
-                      onBoardTextContentChange={
-                        boardFileId ? handleBoardTextContentChange : undefined
-                      }
-                      onCreateScreenFrame={handleCreateScreenFrame}
-                      onDeleteSelection={handleDeleteOverviewSelection}
-                      onSelectionChange={handleOverviewScreenSelectionChange}
-                      onLayerMarqueeSelectionChange={
-                        handleLayerMarqueeSelectionChange
-                      }
-                      selectedLayerSelectorGroupsByScreen={
-                        selectedLayerSelectorGroupsByScreen
-                      }
-                      onPick={handleOverviewScreenPick}
-                      onEdit={enterSingleScreen}
-                      onDuplicate={handleDuplicateScreen}
-                      onAddBreakpoint={handleOverviewAddBreakpoint}
-                      onActiveBreakpointChange={
-                        handleOverviewActiveBreakpointChange
-                      }
-                      renderScreenContent={renderScreenContent}
-                    />
+                    <>
+                      <MultiScreenCanvas
+                        screens={overviewScreens}
+                        zoom={overviewCanvasZoom}
+                        onZoomChange={setExplicitOverviewCanvasZoom}
+                        activeId={activeFileId}
+                        selectedScreenIds={overviewSelectedScreenIds}
+                        fullViewScreenIds={fullViewScreenIds}
+                        activeScreenHasHoveredChild={
+                          Boolean(hoveredElement) &&
+                          !hoveredElementIsScreenRoot &&
+                          hoveredElementScreenId === activeFileId
+                        }
+                        hoveredChildScreenId={hoveredChildScreenId}
+                        directlyHoveredScreenId={hoveredScreenRootId}
+                        previewDeviceFrame={deviceFrame}
+                        activeTool={activeTool}
+                        onActiveToolChange={handleOverviewActiveToolChange}
+                        selectAllRequest={overviewSelectAllRequest}
+                        clearSelectionRequest={overviewClearSelectionRequest}
+                        onScreenSelectionChange={
+                          handleOverviewScreenSelectionChange
+                        }
+                        geometryById={canvasFrameGeometryById}
+                        onGeometryChange={queueFrameGeometrySave}
+                        onGeometryCommit={handleGeometryCommit}
+                        vectorEdit={vectorEditOverlayState}
+                        onCreatePrimitive={handleCreatePrimitive}
+                        onPrimitiveCreated={handlePrimitiveCreated}
+                        onPrimitiveReparent={handleOverviewPrimitiveReparent}
+                        onCrossScreenElementDrop={handleCrossScreenElementDrop}
+                        boardFileId={boardFileId}
+                        boardIsActive={activeFileId === boardFileId}
+                        boardFileContent={boardFileContent}
+                        boardFrameGeometry={boardFrameGeometry}
+                        boardClearSelectionRequest={
+                          overviewClearSelectionRequest
+                        }
+                        boardSelectedSelector={
+                          activeFileId === boardFileId
+                            ? selectedCanvasSelector
+                            : null
+                        }
+                        boardSelectedSelectorCandidates={
+                          activeFileId === boardFileId
+                            ? selectedCanvasSelectorCandidates
+                            : undefined
+                        }
+                        boardHoveredSelector={
+                          hoveredElementScreenId === boardFileId
+                            ? hoveredCanvasSelector
+                            : null
+                        }
+                        boardHoveredSelectorCandidates={
+                          hoveredElementScreenId === boardFileId
+                            ? hoveredCanvasSelectorCandidates
+                            : undefined
+                        }
+                        boardLockedSelectors={
+                          boardFileId
+                            ? getLayerSelectorsForFile(
+                                boardFileId,
+                                lockedLayerIds,
+                              )
+                            : undefined
+                        }
+                        boardHiddenSelectors={
+                          boardFileId
+                            ? getLayerSelectorsForFile(
+                                boardFileId,
+                                hiddenLayerIds,
+                              )
+                            : undefined
+                        }
+                        onBoardDrawPrimitive={
+                          canEditDesign ? handleBoardDrawPrimitive : undefined
+                        }
+                        boardEditMode={canEditDesign}
+                        onBoardElementSelect={
+                          boardFileId ? handleBoardElementSelect : undefined
+                        }
+                        onBoardElementMarqueeSelect={
+                          boardFileId
+                            ? handleBoardElementMarqueeSelect
+                            : undefined
+                        }
+                        onBoardElementHover={
+                          boardFileId ? handleBoardElementHover : undefined
+                        }
+                        onBoardElementClear={
+                          boardFileId ? handleBoardElementClear : undefined
+                        }
+                        onBoardIframeHotkey={handleIframeHotkey}
+                        onBoardFigmaClipboardPaste={
+                          handleCanvasFigmaClipboardPaste
+                        }
+                        onBoardIframeContextMenu={handleIframeContextMenu}
+                        onBoardTextEditingStateChange={
+                          handleBoardTextEditingStateChange
+                        }
+                        onBoardElementDblClickText={
+                          boardFileId
+                            ? handleBoardElementDblClickText
+                            : undefined
+                        }
+                        onBoardVisualStyleChange={
+                          boardFileId ? handleBoardVisualStyleChange : undefined
+                        }
+                        onBoardVisualStructureChange={
+                          boardFileId
+                            ? handleBoardVisualStructureChange
+                            : undefined
+                        }
+                        onBoardVisualDuplicateChange={
+                          boardFileId
+                            ? handleBoardVisualDuplicateChange
+                            : undefined
+                        }
+                        onBoardTextContentChange={
+                          boardFileId ? handleBoardTextContentChange : undefined
+                        }
+                        onCreateScreenFrame={handleCreateScreenFrame}
+                        onDeleteSelection={handleDeleteOverviewSelection}
+                        onSelectionChange={handleOverviewScreenSelectionChange}
+                        onLayerMarqueeSelectionChange={
+                          handleLayerMarqueeSelectionChange
+                        }
+                        selectedLayerSelectorGroupsByScreen={
+                          selectedLayerSelectorGroupsByScreen
+                        }
+                        onPick={handleOverviewScreenPick}
+                        onEdit={enterSingleScreen}
+                        onDuplicate={handleDuplicateScreen}
+                        onAddBreakpoint={handleOverviewAddBreakpoint}
+                        onActiveBreakpointChange={
+                          handleOverviewActiveBreakpointChange
+                        }
+                        renderScreenContent={renderScreenContent}
+                      />
+                      {/* Presence (overview): the agent's selection ring +
+                        fading recent-edit highlights, resolved element-level
+                        inside the frame it is editing and positioned over the
+                        board. See overview presence pipeline above. */}
+                      {overviewAgentOthers.length > 0 && (
+                        <RemoteSelectionRings
+                          others={overviewAgentOthers}
+                          resolveRect={resolveOverviewSelectionRect}
+                          containerRef={canvasContainerRef}
+                        />
+                      )}
+                      {overviewRecentEditsForOverlays.length > 0 && (
+                        <RecentEditHighlights
+                          edits={overviewRecentEditsForOverlays}
+                          resolveRect={resolveOverviewRecentEditRect}
+                          containerRef={canvasContainerRef}
+                        />
+                      )}
+                    </>
                   ) : (
                     <>
                       <DesignCanvas

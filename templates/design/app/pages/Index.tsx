@@ -219,7 +219,7 @@ export default function Index() {
     (
       title: string,
       designSystemId?: string | null,
-    ): { id: string; title: string } => {
+    ): { id: string; title: string; ready: Promise<void> } => {
       const id = nanoid();
       const projectType: ProjectType = "prototype";
       const finalTitle = title.trim() || "Untitled Design";
@@ -244,8 +244,7 @@ export default function Index() {
         },
       );
 
-      // Fire mutation in background; keep the optimistic navigation instant.
-      void createMutation
+      const ready = createMutation
         .mutateAsync({
           id,
           title: finalTitle,
@@ -259,8 +258,11 @@ export default function Index() {
           queryClient.invalidateQueries({
             queryKey: ["action", "list-designs"],
           });
+          throw error;
         });
-      return { id, title: finalTitle };
+      // Fire mutation in background; keep the optimistic navigation instant.
+      void ready.catch(() => {});
+      return { id, title: finalTitle, ready };
     },
     [queryClient, createMutation],
   );
@@ -281,15 +283,20 @@ export default function Index() {
           ? resolveDefaultDesignSystemId()
           : newDesignSystemId;
 
-      const { id, title } = createDesign(derivedTitle, designSystemId);
+      const { id, title, ready } = createDesign(derivedTitle, designSystemId);
 
       if (FULL_APP_BUILDING_ENABLED && newDesignMode === "app") {
         // Full-app designs are backed by a real running container, not a
         // queued inline generation — skip writePendingGeneration and let the
         // fusion app mutation (and its own status/progress banner in the
         // editor) drive the build instead.
-        void createFusionAppMutation
-          .mutateAsync({ designId: id, prompt } as any)
+        void ready
+          .then(() =>
+            createFusionAppMutation.mutateAsync({
+              designId: id,
+              prompt,
+            } as any),
+          )
           .then((result: any) => {
             if (result?.status !== "not-configured") return;
             // Builder isn't connected/configured, so no fusionApp linkage was
@@ -306,10 +313,19 @@ export default function Index() {
               submit: true,
             });
           })
-          .catch(() => {
-            // Swallow here — the design still opens normally; the editor's
-            // FusionAppBanner (or its absence, if create-fusion-app never
-            // wrote fusionApp data) reflects the real state on refetch.
+          .catch((error) => {
+            const message =
+              error instanceof Error && error.message
+                ? error.message
+                : String(error);
+            sendToDesignAgentChat({
+              message: `I want to build this design as a full app: ${prompt}`,
+              context:
+                `Starting the full-app build for design ${id} failed: ` +
+                `${message}. Check whether the design row exists, Builder is ` +
+                `connected, and create-fusion-app can be retried safely.`,
+              submit: true,
+            });
           });
       } else {
         writePendingGeneration(id, {

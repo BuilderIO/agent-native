@@ -475,8 +475,17 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
       }
     : undefined;
 
-  // Collaborative editing is write-only for now. Viewers get the SQL snapshot
-  // and skip collab endpoints that reject non-editor access.
+  // Live collaboration for everyone who can open the doc — editors and viewers
+  // alike. Viewers join the shared Y.Doc read-only: they see live keystrokes,
+  // cursors, and presence (Google-Docs style) instead of a lagging SQL snapshot.
+  // The server enforces the split — collab READ routes (state / awareness GET /
+  // users) require viewer access, WRITE routes (update) require editor — so a
+  // viewer's client can subscribe but never push. The editor stays non-editable
+  // for viewers (see `editable={canEdit}` below), and VisualEditor additionally
+  // neutralizes every local Y.Doc mutation for viewers (no seed, no reconcile
+  // apply) so a read-only client can never originate a rejected `/update` POST.
+  // Local-file documents are still excluded (they have no SQL-backed collab doc).
+  const collabEnabled = !isLocalFileDocument;
   const {
     ydoc,
     awareness,
@@ -485,7 +494,7 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
     agentActive,
     agentPresent,
   } = useCollaborativeDoc({
-    docId: canEdit && !isLocalFileDocument ? documentId : "",
+    docId: collabEnabled ? documentId : "",
     requestSource: TAB_ID,
     user: currentUser,
   });
@@ -1408,10 +1417,12 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
                         }
                         onChange={handleContentChange}
                         onSaveContent={handleContentSaveNow}
-                        ydoc={canEdit && !isLocalFileDocument ? ydoc : null}
-                        awareness={
-                          canEdit && !isLocalFileDocument ? awareness : null
-                        }
+                        // Bind the shared Y.Doc/awareness for viewers too — the
+                        // editor is non-editable for them and VisualEditor blocks
+                        // any local Y.Doc mutation, so they get live edits +
+                        // cursors without ever writing. Excludes local-file docs.
+                        ydoc={collabEnabled ? ydoc : null}
+                        awareness={collabEnabled ? awareness : null}
                         user={currentUser}
                         editable={canEdit}
                         localFileMode={isLocalFileDocument}

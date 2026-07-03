@@ -164,6 +164,20 @@ export {
   useScreenRefreshKey,
 } from "./use-db-sync.js";
 export {
+  VisualControlRow,
+  VisualInspectorPanel,
+  VisualInspectorSection,
+  VisualScrubInput,
+  VisualSegmentedControl,
+  VisualSliderControl,
+  VisualSwatchControl,
+  VisualToggleControl,
+  VisualTweakControl,
+  type VisualControlOption,
+  type VisualControlValue,
+  type VisualTweakDefinition,
+} from "./visual-style-controls.js";
+export {
   useChangeVersion,
   useChangeVersions,
   getChangeVersion,

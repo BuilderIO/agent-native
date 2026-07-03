@@ -6213,18 +6213,20 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
                               )}
                             </DropdownMenuRadioItem>
                           </DropdownMenuRadioGroup>
-                          <DropdownMenuItem
-                            onClick={() => {
-                              preservePlanReaderScroll(() => {
-                                closeInlineComment();
-                                setHistoryOpen(true);
-                              });
-                            }}
-                            className="gap-2"
-                          >
-                            <IconHistory className="size-4" />
-                            {t("plansPage.history.title")}
-                          </DropdownMenuItem>
+                          {canEditPlanContent ? (
+                            <DropdownMenuItem
+                              onClick={() => {
+                                preservePlanReaderScroll(() => {
+                                  closeInlineComment();
+                                  setHistoryOpen(true);
+                                });
+                              }}
+                              className="gap-2"
+                            >
+                              <IconHistory className="size-4" />
+                              {t("plansPage.history.title")}
+                            </DropdownMenuItem>
+                          ) : null}
                         </>
                       )}
                       <DropdownMenuItem
@@ -6835,7 +6837,7 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
       {bundle && (
         <PlanHistorySheet
           planId={bundle.plan.id}
-          open={historyOpen}
+          open={historyOpen && canEditPlanContent}
           onOpenChange={setHistoryOpen}
           canRestore={canEditPlanContent}
         />
@@ -8807,8 +8809,11 @@ function PlanHistorySheet({
   const [restoreCandidateId, setRestoreCandidateId] = useState<string | null>(
     null,
   );
-  const versionsQuery = usePlanVersions(planId, open);
-  const versionQuery = usePlanVersion(open ? planId : null, selectedVersionId);
+  const versionsQuery = usePlanVersions(planId, open && canRestore);
+  const versionQuery = usePlanVersion(
+    open && canRestore ? planId : null,
+    selectedVersionId,
+  );
   const restoreVersion = useRestorePlanVersion();
   const versions = versionsQuery.data?.versions ?? [];
   const selectedVersion = versionQuery.data;

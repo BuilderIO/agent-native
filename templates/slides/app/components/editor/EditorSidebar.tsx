@@ -638,8 +638,8 @@ export default function EditorSidebar({
   }, [slides, activeSlideId, onSelectSlide]);
 
   return (
-    <div className="w-56 sm:w-64 flex-shrink-0 border-r border-border bg-background flex flex-col h-full">
-      <div className="p-3 border-b border-border flex items-center justify-between">
+    <div className="flex h-full w-56 flex-shrink-0 flex-col border-r border-border/70 bg-background/95 sm:w-64">
+      <div className="flex items-center justify-between border-b border-border/70 p-3">
         <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
           {t("editorSidebar.slides")}
         </span>
@@ -664,7 +664,7 @@ export default function EditorSidebar({
 
       <div
         ref={thumbScrollRef}
-        className="relative flex-1 overflow-y-auto p-2 space-y-1"
+        className="relative flex-1 space-y-1 overflow-y-auto p-2"
       >
         <SortableContext
           items={slides.map((s) => s.id)}

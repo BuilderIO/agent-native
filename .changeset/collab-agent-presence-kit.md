@@ -25,3 +25,9 @@ and undo is per-user everywhere.
   portable, additive, best-effort with throttled writes), so cursors and the
   agent's presence written in one invocation are visible to clients polling
   any other instance.
+- Surgical reconcile: `useCollabReconcile` now applies authoritative external
+  content by diffing top-level nodes and replacing only the changed run
+  (new `parseValue` option, `applyDocSurgically`/`diffTopLevel` exports)
+  instead of a whole-document `setContent` — unchanged block NodeViews are
+  never torn down, remote carets stop jumping, and Collaboration sees minimal
+  Yjs ops. Falls back to `setContent` when no parsed doc is available.

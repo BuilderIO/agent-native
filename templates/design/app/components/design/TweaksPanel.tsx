@@ -1,4 +1,4 @@
-import { useT } from "@agent-native/core/client";
+import { useT, VisualTweakControl } from "@agent-native/core/client";
 import type { TweakDefinition } from "@shared/api";
 import {
   IconX,
@@ -9,8 +9,6 @@ import {
 import { useState, useRef, useCallback } from "react";
 
 import { Button } from "@/components/ui/button";
-import { Slider } from "@/components/ui/slider";
-import { Switch } from "@/components/ui/switch";
 import {
   Tooltip,
   TooltipContent,
@@ -221,101 +219,12 @@ function TweakControl({
   value: string | number | boolean;
   onChange: (v: string | number | boolean) => void;
 }) {
-  // Toggle gets an inline row; other types get a label above
-  if (tweak.type === "toggle") {
-    return (
-      <div className="flex h-6 items-center justify-between gap-1.5">
-        <span className="!text-[11px] text-muted-foreground">
-          {tweak.label}
-        </span>
-        <Switch
-          checked={!!value}
-          onCheckedChange={(checked) => onChange(checked)}
-          className="scale-[0.7] origin-right"
-        />
-      </div>
-    );
-  }
-
   return (
-    <div className="space-y-1">
-      <span className="!text-[11px] text-muted-foreground">{tweak.label}</span>
-
-      {((tweak.type as string) === "color-swatch" ||
-        (tweak.type as string) === "color-swatches") && (
-        <div className="flex gap-1.5">
-          {tweak.options?.map((opt) => (
-            <Tooltip key={opt.value}>
-              <TooltipTrigger asChild>
-                <button
-                  type="button"
-                  onClick={() => onChange(opt.value)}
-                  className={cn(
-                    "size-4 cursor-pointer rounded-sm transition-all",
-                    value === opt.value
-                      ? "ring-2 ring-foreground/80 ring-offset-1 ring-offset-card"
-                      : "ring-1 ring-border/60 hover:ring-border",
-                  )}
-                  style={{ backgroundColor: opt.color ?? opt.value }}
-                />
-              </TooltipTrigger>
-              <TooltipContent>{opt.label}</TooltipContent>
-            </Tooltip>
-          ))}
-        </div>
-      )}
-
-      {tweak.type === "segment" && (
-        <div className="flex h-6 overflow-hidden rounded border border-border">
-          {tweak.options?.map((opt) => (
-            <button
-              type="button"
-              key={opt.value}
-              onClick={() => onChange(opt.value)}
-              className={cn(
-                "flex flex-1 cursor-pointer items-center justify-center px-2 !text-[11px] font-medium transition-colors",
-                value === opt.value
-                  ? "bg-accent text-foreground"
-                  : "text-muted-foreground/70 hover:bg-accent/50 hover:text-foreground",
-              )}
-            >
-              {opt.label}
-            </button>
-          ))}
-        </div>
-      )}
-
-      {tweak.type === "slider" && (
-        <div className="flex h-6 items-center gap-1.5">
-          {(() => {
-            const sliderMin = tweak.min ?? 0;
-            const sliderMax = tweak.max ?? 100;
-            const rawNum = typeof value === "number" ? value : Number(value);
-            const sliderValue = Number.isFinite(rawNum)
-              ? Math.min(sliderMax, Math.max(sliderMin, rawNum))
-              : sliderMin;
-            return (
-              <>
-                <Slider
-                  min={sliderMin}
-                  max={sliderMax}
-                  step={tweak.step ?? 1}
-                  value={[sliderValue]}
-                  onValueChange={([v]) => onChange(v)}
-                  className="flex-1"
-                />
-                <span className="min-w-[2ch] text-right !text-[11px] tabular-nums text-muted-foreground">
-                  {sliderValue}
-                  {tweak.unit ??
-                    (tweak.cssVar?.toLowerCase().includes("radius")
-                      ? "px"
-                      : "")}
-                </span>
-              </>
-            );
-          })()}
-        </div>
-      )}
-    </div>
+    <VisualTweakControl
+      tweak={tweak}
+      value={value}
+      onChange={onChange}
+      className="min-w-0"
+    />
   );
 }

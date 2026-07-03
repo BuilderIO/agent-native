@@ -42,6 +42,7 @@ describe("parseDesignDataBlob", () => {
 describe("readFusionApp / writeFusionApp", () => {
   it("round-trips through a design data blob", () => {
     const data = writeFusionApp('{"canvasFrames":{"f1":{"x":10}}}', app);
+    expect(data.sourceType).toBe("fusion");
     expect(data.sourceMode).toBe("fusion");
     expect(data.canvasFrames).toEqual({ f1: { x: 10 } });
 

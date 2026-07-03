@@ -109,8 +109,8 @@ export function readFusionApp(data: unknown): DesignFusionApp | null {
 
 /**
  * Return a new `data` object with the fusion app linkage written. Also stamps
- * `sourceMode: "fusion"` so capability resolution treats the design as
- * fusion-backed. Additive — all other keys are preserved.
+ * `sourceType/sourceMode: "fusion"` so capability resolution treats the design
+ * as fusion-backed. Additive — all other keys are preserved.
  */
 export function writeFusionApp(
   data: unknown,
@@ -119,6 +119,7 @@ export function writeFusionApp(
   const blob = parseDesignDataBlob(data);
   return {
     ...blob,
+    sourceType: "fusion",
     sourceMode: "fusion",
     fusionApp: { ...app },
   };

@@ -56,6 +56,43 @@ describe("tracking providers", () => {
     });
   });
 
+  it("sends PostHog AI observability events to the AI event endpoint", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response("{}"));
+    vi.stubGlobal("fetch", fetchMock);
+    vi.stubEnv("POSTHOG_API_KEY", "ph_test");
+    vi.stubEnv("POSTHOG_HOST", "https://us.i.posthog.com");
+    const { flushTracking, registerBuiltinProviders, track } =
+      await freshTrackingModules();
+
+    registerBuiltinProviders();
+    track(
+      "$ai_generation",
+      {
+        $ai_trace_id: "run-1",
+        $ai_model: "gpt-5",
+        $ai_input_tokens: 10,
+        $ai_output_tokens: 20,
+      },
+      { userId: "u1" },
+    );
+    await flushTracking();
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe("https://us.i.posthog.com/i/v0/e/");
+    expect(JSON.parse(init.body)).toMatchObject({
+      api_key: "ph_test",
+      event: "$ai_generation",
+      properties: {
+        distinct_id: "u1",
+        $ai_trace_id: "run-1",
+        $ai_model: "gpt-5",
+        $ai_input_tokens: 10,
+        $ai_output_tokens: 20,
+      },
+    });
+  });
+
   it("waits for queued provider sends when flushing", async () => {
     let resolveFetch: (() => void) | undefined;
     const fetchMock = vi.fn(

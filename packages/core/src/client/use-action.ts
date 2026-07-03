@@ -59,7 +59,8 @@ function isActionTimeout(error: unknown): boolean {
   );
 }
 
-function defaultActionQueryRetry(
+/** @internal exported for tests */
+export function defaultActionQueryRetry(
   failureCount: number,
   error: unknown,
 ): boolean {
@@ -74,8 +75,10 @@ function defaultActionQueryRetry(
  * Default retry backoff for action queries. React Query's stock retryDelay
  * (1s → 2s → 4s) makes a failing query sit on a spinner for ~7s before the
  * error surfaces; interactive data fetches want failures visible fast.
+ *
+ * @internal exported for tests
  */
-function defaultActionQueryRetryDelay(failureCount: number): number {
+export function defaultActionQueryRetryDelay(failureCount: number): number {
   return Math.min(500 * 2 ** failureCount, 2_000);
 }
 

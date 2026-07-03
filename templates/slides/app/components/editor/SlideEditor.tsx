@@ -4,6 +4,7 @@ import {
   agentNativePath,
   RecentEditHighlights,
   sendToAgentChat,
+  setClientAppState,
   usePinchZoom,
   useT,
   useAvatarUrl,
@@ -56,8 +57,12 @@ import { enterSelectionMode } from "@/root";
 
 import type { DesignSystemData } from "../../../shared/api";
 import { BlockBubbleMenu } from "./BlockBubbleMenu";
-import CodeEditor from "./CodeEditor";
 import ImageOverlay from "./ImageOverlay";
+import {
+  SlideStyleInspector,
+  type SlideStylePatch,
+  type SlideStyleSnapshot,
+} from "./SlideStyleInspector";
 import { SpeakerNotesPanel } from "./SpeakerNotesPanel";
 
 let builderIdCounter = 0;
@@ -197,6 +202,147 @@ function stripBuilderIds(html: string): string {
   return cleaned.replace(/\s*data-builder-id="[^"]*"/g, "");
 }
 
+function cssPx(value: string): number {
+  const parsed = Number.parseFloat(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function normalizedColor(value: string): string {
+  return value === "rgba(0, 0, 0, 0)" ? "transparent" : value;
+}
+
+function normalizedFontWeight(value: string): string {
+  if (value === "normal") return "400";
+  if (value === "bold") return "700";
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isFinite(parsed)) return "400";
+  if (parsed >= 700) return "700";
+  if (parsed >= 600) return "600";
+  if (parsed >= 500) return "500";
+  return "400";
+}
+
+function normalizedTextAlign(value: string): string {
+  if (value === "start") return "left";
+  if (value === "end") return "right";
+  return ["left", "center", "right", "justify"].includes(value)
+    ? value
+    : "left";
+}
+
+function stylePropertyName(property: string): string {
+  return property.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`);
+}
+
+function elementPathFromRoot(
+  root: HTMLElement,
+  element: HTMLElement,
+): number[] {
+  const path: number[] = [];
+  let current: HTMLElement | null = element;
+  while (current && current !== root) {
+    const parent: HTMLElement | null = current.parentElement;
+    if (!parent) return [];
+    path.unshift(Array.prototype.indexOf.call(parent.children, current));
+    current = parent;
+  }
+  return path;
+}
+
+function resolveElementPath(
+  root: HTMLElement | null,
+  path: number[],
+): HTMLElement | null {
+  let current: Element | null = root;
+  for (const index of path) {
+    if (!current?.children[index]) return null;
+    current = current.children[index];
+  }
+  return current instanceof HTMLElement ? current : null;
+}
+
+function buildStyleSnapshot(
+  element: HTMLElement,
+  selector: string,
+): SlideStyleSnapshot {
+  const computed = window.getComputedStyle(element);
+  const textPreview = (element.textContent ?? "").trim().slice(0, 80);
+  const fontSize = cssPx(computed.fontSize);
+  const rawLineHeight = cssPx(computed.lineHeight);
+  const lineHeight =
+    rawLineHeight > 0 && fontSize > 0
+      ? Number((rawLineHeight / fontSize).toFixed(2))
+      : 1.2;
+  const paddingLeft = cssPx(computed.paddingLeft);
+  const paddingRight = cssPx(computed.paddingRight);
+  const paddingTop = cssPx(computed.paddingTop);
+  const paddingBottom = cssPx(computed.paddingBottom);
+
+  return {
+    selector,
+    label: element.getAttribute("aria-label") || element.tagName.toLowerCase(),
+    tagName: element.tagName.toLowerCase(),
+    textPreview,
+    isText: element.tagName !== "IMG" && !!textPreview,
+    isImage: element.tagName === "IMG",
+    color: normalizedColor(computed.color),
+    backgroundColor: normalizedColor(computed.backgroundColor),
+    fontSize,
+    fontWeight: normalizedFontWeight(computed.fontWeight),
+    lineHeight,
+    textAlign: normalizedTextAlign(computed.textAlign),
+    opacity: Math.round(Number(computed.opacity || 1) * 100),
+    borderRadius: cssPx(computed.borderTopLeftRadius),
+    borderWidth: cssPx(computed.borderTopWidth),
+    borderColor: normalizedColor(computed.borderTopColor),
+    paddingX: Math.round((paddingLeft + paddingRight) / 2),
+    paddingY: Math.round((paddingTop + paddingBottom) / 2),
+  };
+}
+
+interface SlideSelectionItem {
+  selector: string;
+  text?: string;
+  kind?: string;
+  tagName?: string;
+  imageSrc?: string;
+  style?: Partial<SlideStyleSnapshot>;
+}
+
+interface SlidesSelectionState {
+  deckId?: string;
+  slideId: string;
+  slideIndex: number;
+  slideNumber: number;
+  mode: "single" | "multi" | "image" | "editing";
+  activeTool?: "select" | "draw" | "pin";
+  items: SlideSelectionItem[];
+}
+
+function syncSelectionToAppState(state: SlidesSelectionState | null) {
+  const slidesKeys = [
+    appStateKeyForBrowserTab("slides-selection", TAB_ID),
+    "slides-selection",
+  ];
+  const genericKeys = [
+    appStateKeyForBrowserTab("selection", TAB_ID),
+    "selection",
+  ];
+  for (const key of slidesKeys) {
+    setClientAppState(key, state, {
+      keepalive: true,
+      requestSource: TAB_ID,
+    }).catch(() => {});
+  }
+  const generic = state ? { items: state.items } : null;
+  for (const key of genericKeys) {
+    setClientAppState(key, generic, {
+      keepalive: true,
+      requestSource: TAB_ID,
+    }).catch(() => {});
+  }
+}
+
 interface SlideEditorProps {
   slide: Slide;
   onUpdateSlide: (
@@ -207,7 +353,6 @@ interface SlideEditorProps {
    *  navigable but contentEditable / image overlays don't activate.
    *  Mirrors Google Slides' viewer experience. */
   readOnly?: boolean;
-  activeTab: "visual" | "code";
   onGenerateImage: () => void;
   onOpenAssetLibrary: (replaceSrc: string) => void;
   onUploadImage: (replaceSrc: string) => void;
@@ -350,6 +495,47 @@ function ImageSelectionOutline({ rect }: { rect: DOMRect }) {
   );
 }
 
+function ElementSelectionOutline({ rect }: { rect: DOMRect }) {
+  const pad = 2;
+  const handle = 7;
+  const handleClass =
+    "absolute size-[7px] rounded-sm border border-background bg-[#609FF8] shadow-sm";
+  return createPortal(
+    <div
+      style={{
+        position: "fixed",
+        top: rect.top - pad,
+        left: rect.left - pad,
+        width: rect.width + pad * 2,
+        height: rect.height + pad * 2,
+        pointerEvents: "none",
+        zIndex: 51,
+        border: "1.5px solid #609FF8",
+        borderRadius: 3,
+        boxShadow: "0 0 0 1px rgba(96, 159, 248, 0.2)",
+      }}
+    >
+      <span
+        className={handleClass}
+        style={{ left: -handle / 2, top: -handle / 2 }}
+      />
+      <span
+        className={handleClass}
+        style={{ right: -handle / 2, top: -handle / 2 }}
+      />
+      <span
+        className={handleClass}
+        style={{ left: -handle / 2, bottom: -handle / 2 }}
+      />
+      <span
+        className={handleClass}
+        style={{ right: -handle / 2, bottom: -handle / 2 }}
+      />
+    </div>,
+    document.body,
+  );
+}
+
 /** Outline rendered around a multi-select element */
 function MultiSelectOutline({ rect }: { rect: DOMRect }) {
   const pad = 1;
@@ -411,33 +597,6 @@ function rectsIntersect(
 }
 
 /**
- * Push the multi-selection to application_state under "selection" so the
- * agent can read it. Empty array clears the key entirely.
- */
-function syncSelectionToAppState(
-  items: Array<{ selector: string; text: string }>,
-) {
-  const url = agentNativePath("/_agent-native/application-state/selection");
-  if (items.length === 0) {
-    fetch(url, {
-      method: "DELETE",
-      keepalive: true,
-      headers: { "X-Request-Source": TAB_ID },
-    }).catch(() => {});
-    return;
-  }
-  fetch(url, {
-    method: "PUT",
-    keepalive: true,
-    headers: {
-      "Content-Type": "application/json",
-      "X-Request-Source": TAB_ID,
-    },
-    body: JSON.stringify({ items }),
-  }).catch(() => {});
-}
-
-/**
  * Push the current slide's vertical-fit measurement to application_state.
  * Browser-tab requests read the tab-scoped key; the legacy global key stays
  * available for CLI/headless runs. Always written, even when the slide fits —
@@ -493,7 +652,6 @@ export default function SlideEditor({
   slide,
   onUpdateSlide,
   readOnly = false,
-  activeTab,
   onGenerateImage,
   onOpenAssetLibrary,
   onUploadImage,
@@ -565,6 +723,16 @@ export default function SlideEditor({
   const [multiSelectionRects, setMultiSelectionRects] = useState<
     Map<string, { rect: DOMRect; text: string; selector: string }>
   >(() => new Map());
+  const [selectedElementPath, setSelectedElementPath] = useState<
+    number[] | null
+  >(null);
+  const [selectedElementSelector, setSelectedElementSelector] = useState<
+    string | null
+  >(null);
+  const [selectedElementRect, setSelectedElementRect] =
+    useState<DOMRect | null>(null);
+  const [selectedStyleSnapshot, setSelectedStyleSnapshot] =
+    useState<SlideStyleSnapshot | null>(null);
   /** Anchor rect for the floating chip (the slide canvas) */
   const [chipAnchorRect, setChipAnchorRect] = useState<DOMRect | null>(null);
   /** Active marquee rectangle (viewport coords). null = not dragging. */
@@ -777,6 +945,78 @@ export default function SlideEditor({
     [readCurrentSlideContentHtml, slide.id],
   );
 
+  /** Resolve the slide-content root element (where selectable items live) */
+  const getSlideContent = useCallback((): HTMLElement | null => {
+    return (
+      (containerRef.current?.querySelector(
+        ".slide-content",
+      ) as HTMLElement | null) || null
+    );
+  }, []);
+
+  const resolveSelectedElement = useCallback((): HTMLElement | null => {
+    if (!selectedElementPath) return null;
+    return resolveElementPath(getSlideContent(), selectedElementPath);
+  }, [getSlideContent, selectedElementPath]);
+
+  const buildSelectionState = useCallback(
+    (
+      mode: SlidesSelectionState["mode"],
+      items: SlideSelectionItem[],
+      activeTool: SlidesSelectionState["activeTool"] = drawMode
+        ? "draw"
+        : pinMode
+          ? "pin"
+          : "select",
+    ): SlidesSelectionState => ({
+      deckId,
+      slideId: slide.id,
+      slideIndex,
+      slideNumber: slideIndex + 1,
+      mode,
+      activeTool,
+      items,
+    }),
+    [deckId, drawMode, pinMode, slide.id, slideIndex],
+  );
+
+  const clearSelectedElement = useCallback(() => {
+    setSelectedElementPath(null);
+    setSelectedElementSelector(null);
+    setSelectedElementRect(null);
+    setSelectedStyleSnapshot(null);
+  }, []);
+
+  const selectElementForStyling = useCallback(
+    (element: HTMLElement, selector: string) => {
+      const slideContent = getSlideContent();
+      if (!slideContent) return;
+      const path = elementPathFromRoot(slideContent, element);
+      if (path.length === 0) return;
+      const snapshot = buildStyleSnapshot(element, selector);
+      setSelectedElementPath(path);
+      setSelectedElementSelector(selector);
+      setSelectedElementRect(element.getBoundingClientRect());
+      setSelectedStyleSnapshot(snapshot);
+      syncSelectionToAppState(
+        buildSelectionState(snapshot.isImage ? "image" : "single", [
+          {
+            selector,
+            kind: snapshot.isImage ? "image" : "element",
+            tagName: snapshot.tagName,
+            text: snapshot.textPreview,
+            imageSrc:
+              element instanceof HTMLImageElement
+                ? (element.getAttribute("src") ?? undefined)
+                : undefined,
+            style: snapshot,
+          },
+        ]),
+      );
+    },
+    [buildSelectionState, getSlideContent],
+  );
+
   /** Exit edit mode, saving changes to slide.content */
   const exitInlineEdit = useCallback(() => {
     setEditingEl((el) => {
@@ -789,6 +1029,7 @@ export default function SlideEditor({
         onUpdateSlideRef.current({ content: html });
       }
       inlineEditDraftRef.current = null;
+      syncSelectionToAppState(null);
       return null;
     });
   }, [readCurrentSlideContentHtml]);
@@ -796,8 +1037,10 @@ export default function SlideEditor({
   /** Enter edit mode on a smart block (text leaf or smart group) */
   const enterInlineEdit = useCallback(
     (el: HTMLElement) => {
+      const selector = getBuilderSelector(el);
       el.contentEditable = "true";
       el.setAttribute("data-editing-block", "true");
+      clearSelectedElement();
       captureInlineEditDraft(slide.id);
       // Mark the deck dirty immediately so SSE/poll refreshes do not replace
       // the deck under an active contentEditable edit, even before the user
@@ -810,8 +1053,26 @@ export default function SlideEditor({
       // browsers, so it's safe to keep for keyboard delivery.
       el.focus({ preventScroll: true });
       setEditingEl(el);
+      if (selector) {
+        syncSelectionToAppState(
+          buildSelectionState("editing", [
+            {
+              selector,
+              kind: "text",
+              tagName: el.tagName.toLowerCase(),
+              text: (el.textContent ?? "").trim().slice(0, 200),
+            },
+          ]),
+        );
+      }
     },
-    [captureInlineEditDraft, onInlineEditStart, slide.id],
+    [
+      buildSelectionState,
+      captureInlineEditDraft,
+      clearSelectedElement,
+      onInlineEditStart,
+      slide.id,
+    ],
   );
 
   // Exit edit mode when switching slides — save pending content first so
@@ -912,6 +1173,50 @@ export default function SlideEditor({
     };
   }, [selectedImg]);
 
+  useEffect(() => {
+    if (!selectedElementPath || !selectedElementSelector) return;
+    const update = () => {
+      const element = resolveSelectedElement();
+      if (!element) {
+        clearSelectedElement();
+        syncSelectionToAppState(null);
+        return;
+      }
+      const snapshot = buildStyleSnapshot(element, selectedElementSelector);
+      setSelectedElementRect(element.getBoundingClientRect());
+      setSelectedStyleSnapshot(snapshot);
+      syncSelectionToAppState(
+        buildSelectionState(snapshot.isImage ? "image" : "single", [
+          {
+            selector: selectedElementSelector,
+            kind: snapshot.isImage ? "image" : "element",
+            tagName: snapshot.tagName,
+            text: snapshot.textPreview,
+            imageSrc:
+              element instanceof HTMLImageElement
+                ? (element.getAttribute("src") ?? undefined)
+                : undefined,
+            style: snapshot,
+          },
+        ]),
+      );
+    };
+    update();
+    window.addEventListener("resize", update);
+    window.addEventListener("scroll", update, true);
+    return () => {
+      window.removeEventListener("resize", update);
+      window.removeEventListener("scroll", update, true);
+    };
+  }, [
+    buildSelectionState,
+    clearSelectedElement,
+    resolveSelectedElement,
+    selectedElementPath,
+    selectedElementSelector,
+    slide.content,
+  ]);
+
   // Deselect when clicking outside
   useEffect(() => {
     if (!selectedImg) return;
@@ -949,15 +1254,6 @@ export default function SlideEditor({
 
   // --- Multi-select helpers ---
 
-  /** Resolve the slide-content root element (where selectable items live) */
-  const getSlideContent = useCallback((): HTMLElement | null => {
-    return (
-      (containerRef.current?.querySelector(
-        ".slide-content",
-      ) as HTMLElement | null) || null
-    );
-  }, []);
-
   /**
    * Apply a new multi-selection: caches rects + selectors and pushes to
    * application_state. Pass an empty set to clear.
@@ -969,7 +1265,7 @@ export default function SlideEditor({
         string,
         { rect: DOMRect; text: string; selector: string }
       >();
-      const items: Array<{ selector: string; text: string }> = [];
+      const items: SlideSelectionItem[] = [];
       if (slideContent) {
         ids.forEach((id) => {
           const el = slideContent.querySelector(
@@ -979,19 +1275,27 @@ export default function SlideEditor({
           const selector = `[data-builder-id="${id}"]`;
           const text = (el.textContent || "").trim().slice(0, 200);
           rects.set(id, { rect: el.getBoundingClientRect(), text, selector });
-          items.push({ selector, text });
+          items.push({
+            selector,
+            text,
+            kind: el.tagName === "IMG" ? "image" : "element",
+            tagName: el.tagName.toLowerCase(),
+          });
         });
       }
       setMultiSelection(ids);
       setMultiSelectionRects(rects);
+      if (ids.size > 0) clearSelectedElement();
       // Anchor the chip to the slide canvas (clickable wrapper)
       const canvas = containerRef.current?.querySelector(
         ".slide-image-clickable",
       ) as HTMLElement | null;
       setChipAnchorRect(canvas?.getBoundingClientRect() || null);
-      syncSelectionToAppState(items);
+      syncSelectionToAppState(
+        items.length > 0 ? buildSelectionState("multi", items) : null,
+      );
     },
-    [getSlideContent],
+    [buildSelectionState, clearSelectedElement, getSlideContent],
   );
 
   const clearMultiSelection = useCallback(() => {
@@ -1069,8 +1373,9 @@ export default function SlideEditor({
     setMultiSelection(new Set());
     setMultiSelectionRects(new Map());
     setChipAnchorRect(null);
-    syncSelectionToAppState([]);
-  }, [slide.id]);
+    clearSelectedElement();
+    syncSelectionToAppState(null);
+  }, [clearSelectedElement, slide.id]);
 
   // Escape key clears multi-selection (only when not inline-editing)
   useEffect(() => {
@@ -1098,6 +1403,18 @@ export default function SlideEditor({
       while (el && slideContent.contains(el) && el !== slideContent) {
         const id = el.getAttribute("data-builder-id");
         if (id) return id;
+        el = el.parentElement;
+      }
+      return null;
+    },
+    [],
+  );
+
+  const findSelectableElement = useCallback(
+    (target: HTMLElement, slideContent: HTMLElement): HTMLElement | null => {
+      let el: HTMLElement | null = target;
+      while (el && slideContent.contains(el) && el !== slideContent) {
+        if (el.getAttribute("data-builder-id")) return el;
         el = el.parentElement;
       }
       return null;
@@ -1141,8 +1458,12 @@ export default function SlideEditor({
 
       // Clear single-select feedback when starting a marquee on whitespace
       // (non-additive). Additive marquee preserves the existing selection.
-      if (!marqueeAdditiveRef.current && multiSelection.size > 0) {
-        applyMultiSelection(new Set());
+      if (!marqueeAdditiveRef.current) {
+        clearSelectedElement();
+        syncSelectionToAppState(null);
+        if (multiSelection.size > 0) {
+          applyMultiSelection(new Set());
+        }
       }
     },
     [
@@ -1151,6 +1472,7 @@ export default function SlideEditor({
       isSlideWhitespaceTarget,
       multiSelection,
       applyMultiSelection,
+      clearSelectedElement,
     ],
   );
 
@@ -1315,6 +1637,8 @@ export default function SlideEditor({
       // with zero movement won't trigger pointerup with a real rect).
       if (slideContent && isSlideWhitespaceTarget(target, slideContent)) {
         if (multiSelection.size > 0) clearMultiSelection();
+        clearSelectedElement();
+        syncSelectionToAppState(null);
         return;
       }
 
@@ -1325,8 +1649,12 @@ export default function SlideEditor({
       showImageOverlay(target);
 
       // Send style-editing postMessage with a unique selector for the clicked element
-      const selector = getBuilderSelector(target);
-      if (selector) {
+      const selectableEl = slideContent
+        ? findSelectableElement(target, slideContent)
+        : null;
+      const selector = selectableEl ? getBuilderSelector(selectableEl) : null;
+      if (selector && selectableEl) {
+        selectElementForStyling(selectableEl, selector);
         enterSelectionMode("agentNative.enterStyleEditing", { selector });
       }
     },
@@ -1335,10 +1663,13 @@ export default function SlideEditor({
       editingEl,
       getSlideContent,
       findSelectableId,
+      findSelectableElement,
       isSlideWhitespaceTarget,
       multiSelection,
       applyMultiSelection,
       clearMultiSelection,
+      clearSelectedElement,
+      selectElementForStyling,
     ],
   );
 
@@ -1351,6 +1682,57 @@ export default function SlideEditor({
       }
     },
     [showImageOverlay],
+  );
+
+  const applySelectedStylePatch = useCallback(
+    (patch: SlideStylePatch) => {
+      const element = resolveSelectedElement();
+      if (!element || !selectedElementSelector) return;
+
+      for (const [property, value] of Object.entries(patch)) {
+        if (value === undefined) continue;
+        element.style.setProperty(stylePropertyName(property), value);
+      }
+
+      if (
+        patch.borderWidth &&
+        patch.borderWidth !== "0" &&
+        patch.borderWidth !== "0px" &&
+        window.getComputedStyle(element).borderStyle === "none"
+      ) {
+        element.style.borderStyle = "solid";
+      }
+
+      const html = readCurrentSlideContentHtml();
+      if (html !== null) {
+        onUpdateSlideRef.current({ content: html });
+      }
+
+      const snapshot = buildStyleSnapshot(element, selectedElementSelector);
+      setSelectedElementRect(element.getBoundingClientRect());
+      setSelectedStyleSnapshot(snapshot);
+      syncSelectionToAppState(
+        buildSelectionState(snapshot.isImage ? "image" : "single", [
+          {
+            selector: selectedElementSelector,
+            kind: snapshot.isImage ? "image" : "element",
+            tagName: snapshot.tagName,
+            text: snapshot.textPreview,
+            imageSrc:
+              element instanceof HTMLImageElement
+                ? (element.getAttribute("src") ?? undefined)
+                : undefined,
+            style: snapshot,
+          },
+        ]),
+      );
+    },
+    [
+      buildSelectionState,
+      readCurrentSlideContentHtml,
+      resolveSelectedElement,
+      selectedElementSelector,
+    ],
   );
 
   // --- Pending visual updates ---
@@ -1404,183 +1786,196 @@ export default function SlideEditor({
     [showImageOverlay, enterInlineEdit, isHtmlSlide, readOnly],
   );
 
-  const slideElementSelected = !!selectedImg || !!editingEl;
+  const slideElementSelected =
+    !!selectedImg || !!editingEl || !!selectedStyleSnapshot;
 
   return (
     <div
-      className="flex-1 flex flex-col h-full overflow-hidden"
+      className="relative flex-1 flex flex-col h-full overflow-hidden"
       data-slide-element-selected={slideElementSelected ? "true" : undefined}
     >
       <div className="flex-1 overflow-hidden">
-        {activeTab === "visual" ? (
-          slide.excalidrawData ? (
-            <div className="h-full bg-background">
-              <ExcalidrawSlide
-                initialData={slide.excalidrawData}
-                onChange={(data) => onUpdateSlide({ excalidrawData: data })}
-              />
+        {slide.excalidrawData ? (
+          <div className="h-full bg-background">
+            <ExcalidrawSlide
+              initialData={slide.excalidrawData}
+              onChange={(data) => onUpdateSlide({ excalidrawData: data })}
+            />
+          </div>
+        ) : (
+          <div className="relative h-full bg-background">
+            <div className="absolute right-3 top-3 z-20 flex h-8 items-center gap-0.5 rounded-md border border-border bg-popover/95 px-1 shadow-lg backdrop-blur">
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-6 w-6 cursor-pointer"
+                    onClick={canvasZoomOut}
+                    disabled={canvasZoom <= MIN_CANVAS_ZOOM}
+                    aria-label={t("raw.zoomOut")}
+                  >
+                    <IconZoomOut className="h-3.5 w-3.5" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>{t("raw.zoomOut")}</TooltipContent>
+              </Tooltip>
+              <span className="w-11 text-center text-xs tabular-nums text-muted-foreground">
+                {canvasZoom}%
+              </span>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-6 w-6 cursor-pointer"
+                    onClick={canvasZoomIn}
+                    disabled={
+                      canvasZoom >=
+                      CANVAS_ZOOM_PRESETS[CANVAS_ZOOM_PRESETS.length - 1]
+                    }
+                    aria-label={t("raw.zoomIn")}
+                  >
+                    <IconZoomIn className="h-3.5 w-3.5" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>{t("raw.zoomIn")}</TooltipContent>
+              </Tooltip>
+              <div className="mx-0.5 h-4 w-px bg-border" />
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-6 w-6 cursor-pointer"
+                    onClick={fitCanvasToScreen}
+                    aria-label={t("raw.fitSlideToScreen")}
+                  >
+                    <IconMaximize className="h-3.5 w-3.5" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>{t("raw.fitToScreen")}</TooltipContent>
+              </Tooltip>
             </div>
-          ) : (
-            <div className="relative h-full bg-background">
-              <div className="absolute right-3 top-3 z-20 flex h-8 items-center gap-0.5 rounded-md border border-border bg-popover/95 px-1 shadow-lg backdrop-blur">
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-6 w-6 cursor-pointer"
-                      onClick={canvasZoomOut}
-                      disabled={canvasZoom <= MIN_CANVAS_ZOOM}
-                      aria-label={t("raw.zoomOut")}
-                    >
-                      <IconZoomOut className="h-3.5 w-3.5" />
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent>{t("raw.zoomOut")}</TooltipContent>
-                </Tooltip>
-                <span className="w-11 text-center text-xs tabular-nums text-muted-foreground">
-                  {canvasZoom}%
-                </span>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-6 w-6 cursor-pointer"
-                      onClick={canvasZoomIn}
-                      disabled={
-                        canvasZoom >=
-                        CANVAS_ZOOM_PRESETS[CANVAS_ZOOM_PRESETS.length - 1]
-                      }
-                      aria-label={t("raw.zoomIn")}
-                    >
-                      <IconZoomIn className="h-3.5 w-3.5" />
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent>{t("raw.zoomIn")}</TooltipContent>
-                </Tooltip>
-                <div className="mx-0.5 h-4 w-px bg-border" />
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-6 w-6 cursor-pointer"
-                      onClick={fitCanvasToScreen}
-                      aria-label={t("raw.fitSlideToScreen")}
-                    >
-                      <IconMaximize className="h-3.5 w-3.5" />
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent>{t("raw.fitToScreen")}</TooltipContent>
-                </Tooltip>
-              </div>
+            <div
+              ref={scrollContainerRef}
+              className={`h-full overflow-auto ${
+                drawMode ? "pb-24 sm:pb-28" : ""
+              }`}
+            >
               <div
-                ref={scrollContainerRef}
-                className={`h-full overflow-auto ${
-                  drawMode ? "pb-24 sm:pb-28" : ""
-                }`}
+                ref={canvasTrackRef}
+                className="flex min-h-full w-max min-w-full items-center justify-center p-2 pt-14 sm:p-4 sm:pt-14 md:p-8 md:pt-16"
               >
                 <div
-                  ref={canvasTrackRef}
-                  className="flex min-h-full w-max min-w-full items-center justify-center p-2 pt-14 sm:p-4 sm:pt-14 md:p-8 md:pt-16"
+                  ref={containerRef}
+                  data-main-slide-canvas="true"
+                  className="shrink-0"
+                  style={{ width: canvasWidth, maxWidth: canvasWidth }}
                 >
                   <div
-                    ref={containerRef}
-                    data-main-slide-canvas="true"
-                    className="shrink-0"
-                    style={{ width: canvasWidth, maxWidth: canvasWidth }}
+                    ref={slideCanvasRef}
+                    className="slide-image-clickable relative"
+                    data-editable={!readOnly ? "true" : undefined}
+                    onClick={handleSlideClick}
+                    onContextMenu={handleSlideContextMenu}
+                    onDoubleClick={handleSlideDoubleClick}
+                    onPointerDown={handleSlidePointerDown}
+                    onDragOver={handleSlideDragOver}
+                    onDrop={handleSlideDrop}
+                    onMouseEnter={() => setIsHoveringText(true)}
+                    onMouseLeave={() => setIsHoveringText(false)}
                   >
-                    <div
-                      ref={slideCanvasRef}
-                      className="slide-image-clickable relative"
-                      onClick={handleSlideClick}
-                      onContextMenu={handleSlideContextMenu}
-                      onDoubleClick={handleSlideDoubleClick}
-                      onPointerDown={handleSlidePointerDown}
-                      onDragOver={handleSlideDragOver}
-                      onDrop={handleSlideDrop}
-                      onMouseEnter={() => setIsHoveringText(true)}
-                      onMouseLeave={() => setIsHoveringText(false)}
-                    >
-                      <SlideRenderer
-                        slide={slide}
-                        className={`shadow-2xl shadow-black/40 ${isHoveringText ? "ring-2 ring-[#609FF8]/60" : ""}`}
-                        designSystem={designSystem}
-                        aspectRatio={aspectRatio}
-                        onOverflowChange={handleOverflowChange}
-                      />
-                      {/* Fading "AI edited" ring around the canvas when the
+                    <SlideRenderer
+                      slide={slide}
+                      className={`shadow-2xl shadow-black/40 ${isHoveringText ? "ring-2 ring-[#609FF8]/60" : ""}`}
+                      designSystem={designSystem}
+                      aspectRatio={aspectRatio}
+                      onOverflowChange={handleOverflowChange}
+                    />
+                    {/* Fading "AI edited" ring around the canvas when the
                           agent just edited THIS slide (component handles fade). */}
-                      {activeSlideEdits.length > 0 && (
-                        <RecentEditHighlights
-                          edits={activeSlideEdits}
-                          resolveRect={resolveCanvasRect}
-                          containerRef={slideCanvasRef}
+                    {activeSlideEdits.length > 0 && (
+                      <RecentEditHighlights
+                        edits={activeSlideEdits}
+                        resolveRect={resolveCanvasRect}
+                        containerRef={slideCanvasRef}
+                      />
+                    )}
+                    {/* Double-click hint — only shown for HTML slides that support inline editing */}
+                    {isHoveringText && !editingEl && isHtmlSlide && (
+                      <div className="absolute bottom-2 left-1/2 -translate-x-1/2 rounded bg-black/60 px-2 py-0.5 text-xs text-white/40 pointer-events-none select-none">
+                        {t("raw.doubleClickEdit")}
+                      </div>
+                    )}
+                    {agentActive && (
+                      <div className="absolute top-2 right-2 z-10 pointer-events-none">
+                        <AgentPresenceChip active={agentActive} />
+                      </div>
+                    )}
+                    {presentUsers.length > 0 && (
+                      <div
+                        className={`absolute right-2 z-10 ${
+                          agentActive ? "top-11" : "top-2"
+                        }`}
+                      >
+                        <SameSlidePresenceIndicator users={presentUsers} />
+                      </div>
+                    )}
+                    {overflowInfo && !readOnly && !agentActive && (
+                      <div className="absolute top-3 left-3 z-20 flex items-center gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 backdrop-blur px-2.5 py-1.5 text-xs text-amber-100 shadow-lg">
+                        <IconAlertTriangle
+                          className="h-3.5 w-3.5 flex-shrink-0"
+                          stroke={2}
                         />
-                      )}
-                      {/* Double-click hint — only shown for HTML slides that support inline editing */}
-                      {isHoveringText && !editingEl && isHtmlSlide && (
-                        <div className="absolute bottom-2 left-1/2 -translate-x-1/2 rounded bg-black/60 px-2 py-0.5 text-xs text-white/40 pointer-events-none select-none">
-                          {t("raw.doubleClickEdit")}
-                        </div>
-                      )}
-                      {agentActive && (
-                        <div className="absolute top-2 right-2 z-10 pointer-events-none">
-                          <AgentPresenceChip active={agentActive} />
-                        </div>
-                      )}
-                      {presentUsers.length > 0 && (
-                        <div
-                          className={`absolute right-2 z-10 ${
-                            agentActive ? "top-11" : "top-2"
-                          }`}
+                        <span className="leading-tight">
+                          Layout overflows by {overflowInfo.verticalOverflow}
+                          px
+                        </span>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="ml-1 h-6 cursor-pointer px-2 text-[11px] font-medium text-amber-100 hover:bg-amber-500/20 hover:text-white"
+                          onClick={handleAskAgentToFixLayout}
+                          disabled={isAskingAgentToFix}
                         >
-                          <SameSlidePresenceIndicator users={presentUsers} />
-                        </div>
-                      )}
-                      {overflowInfo && !readOnly && !agentActive && (
-                        <div className="absolute top-3 left-3 z-20 flex items-center gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 backdrop-blur px-2.5 py-1.5 text-xs text-amber-100 shadow-lg">
-                          <IconAlertTriangle
-                            className="h-3.5 w-3.5 flex-shrink-0"
-                            stroke={2}
-                          />
-                          <span className="leading-tight">
-                            Layout overflows by {overflowInfo.verticalOverflow}
-                            px
-                          </span>
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            className="ml-1 h-6 cursor-pointer px-2 text-[11px] font-medium text-amber-100 hover:bg-amber-500/20 hover:text-white"
-                            onClick={handleAskAgentToFixLayout}
-                            disabled={isAskingAgentToFix}
-                          >
-                            {isAskingAgentToFix ? "Asking…" : "Fix with AI"}
-                          </Button>
-                        </div>
-                      )}
-                    </div>
+                          {isAskingAgentToFix ? "Asking…" : "Fix with AI"}
+                        </Button>
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>
             </div>
-          )
-        ) : (
-          <CodeEditor slide={slide} onUpdateSlide={onUpdateSlide} />
+          </div>
         )}
       </div>
 
-      {activeTab === "visual" && (
-        <SpeakerNotesPanel
-          notes={slide.notes}
-          onChange={(notes) => onUpdateSlide({ notes })}
-          slideIndex={slideIndex}
-          slideCount={slideCount}
-        />
-      )}
+      <SpeakerNotesPanel
+        notes={slide.notes}
+        onChange={(notes) => onUpdateSlide({ notes })}
+        slideIndex={slideIndex}
+        slideCount={slideCount}
+      />
 
       {selectionRect && <ImageSelectionOutline rect={selectionRect} />}
+      {selectedElementRect && (
+        <ElementSelectionOutline rect={selectedElementRect} />
+      )}
+
+      {selectedStyleSnapshot && !readOnly && (
+        <div className="pointer-events-none absolute right-3 top-14 z-[80] hidden md:block">
+          <SlideStyleInspector
+            snapshot={selectedStyleSnapshot}
+            designSystem={designSystem}
+            onChange={applySelectedStylePatch}
+            onClose={() => {
+              clearSelectedElement();
+              syncSelectionToAppState(null);
+            }}
+          />
+        </div>
+      )}
 
       {/* Multi-select outlines */}
       {Array.from(multiSelectionRects.entries()).map(([id, v]) => (

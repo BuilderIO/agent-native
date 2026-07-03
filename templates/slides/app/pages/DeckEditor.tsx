@@ -174,7 +174,6 @@ export default function DeckEditor() {
   // Track new-deck-creation intent: set once on mount if ?generating=1.
   // The editor reveals partial slides as soon as the first one lands.
   const wasNewDeckCreation = useRef(searchParams.get("generating") === "1");
-  const [activeTab, setActiveTab] = useState<"visual" | "code">("visual");
   const [sidebarOpen, setSidebarOpen] = useState(
     () => typeof window !== "undefined" && window.innerWidth >= 768,
   );
@@ -787,8 +786,6 @@ export default function DeckEditor() {
         deckTitle={deck.title}
         canEdit={canEdit}
         onTitleChange={(title) => updateDeck(id, { title })}
-        activeTab={activeTab}
-        onTabChange={setActiveTab}
         slideCount={deck.slides.length}
         currentSlideIndex={currentIndex >= 0 ? currentIndex : 0}
         sidebarOpen={sidebarOpen}
@@ -968,7 +965,6 @@ export default function DeckEditor() {
                 updateSlide(id, slideIdOverride ?? currentSlide.id, updates)
               }
               onInlineEditStart={() => markDeckDirty(id)}
-              activeTab={activeTab}
               onGenerateImage={() => setImageGenOpen(true)}
               onOpenAssetLibrary={(src) => {
                 setReplaceImageSrc(src);

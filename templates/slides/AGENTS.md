@@ -51,6 +51,10 @@ extending the editor's save path, enqueue a granular op (`patch-slide`,
 ## Application State
 
 - `navigation` exposes the current deck, slide, selection, and editor view.
+- `slides-selection` exposes the active visual editing context: selected slide
+  element(s), tool mode, transient selectors, text/image hints, and compact
+  computed style data. Use `view-screen` before a visual/style edit so you can
+  act on the same object the user clicked.
 - `navigate` moves the UI to decks, slides, imports, and exports.
 - Use app actions for full deck/slide data instead of relying on ambient context.
 

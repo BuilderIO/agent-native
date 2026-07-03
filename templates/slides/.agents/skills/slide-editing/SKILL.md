@@ -37,10 +37,14 @@ All generated slides follow these conventions:
 
 To edit a slide's content:
 
-1. **Get the deck**: `pnpm action get-deck --id=<deckId>`
-2. **Parse the JSON**, find the slide by ID
-3. **Modify the content** HTML string
-4. **Update the deck** via `PUT /api/decks/:id` with the full updated deck JSON
+1. **Inspect the current context**: call `view-screen` to get the active deck,
+   slide ID, HTML, and any `slides-selection` style/edit target.
+2. **Modify the content** HTML string for the intended slide.
+3. **Update the slide** with the `update-slide` action using `deckId`,
+   `slideId`, and `fullContent`. Do not write deck rows directly and do not add
+   raw `/api/decks/:id` PUT calls for normal slide edits.
+4. For browser/editor code, enqueue granular deck operations through
+   `patch-deck` / `DeckContext.tsx` instead of replacing the whole deck JSON.
 
 ## Image Placeholders
 

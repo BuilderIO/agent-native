@@ -45,8 +45,13 @@ export interface AttributedRecentEdit extends RecentEdit {
 /** Max entries kept in a participant's recentEdits ring. */
 export const RECENT_EDITS_MAX = 5;
 
-/** Default time a recent-edit highlight stays visible. */
-export const RECENT_EDIT_TTL_MS = 6000;
+/**
+ * Default time a recent-edit highlight stays visible, measured from the
+ * edit's `at` timestamp. Awareness delivery adds up to ~3s (poll cadence),
+ * and some actions do post-write work before a viewer looks, so this is
+ * deliberately generous — the fade consumes the final 40% of the window.
+ */
+export const RECENT_EDIT_TTL_MS = 10_000;
 
 /**
  * Append an edit to a recentEdits ring, keeping the newest

@@ -1895,7 +1895,15 @@ export function VisualEditor({
     contentUpdatedAt,
     editable,
     getMarkdown: (e) => docToNfm(e.getJSON() as any),
+    // Read-only viewers join the shared Y.Doc purely to RECEIVE live edits and
+    // cursors; their editor content comes from the server state fetch + peer Yjs
+    // updates, never from SQL reconcile. Any local Y.Doc write from a viewer
+    // would be POSTed to the editor-only `/update` route (→ 403) and could
+    // publish an author-less snapshot, so both write paths are neutered when
+    // `!editable`: this `setContent` (used by both the seed and the reconcile
+    // apply) no-ops, and `shouldSeed` returns false so the seed never runs.
     setContent: (e, value, options) => {
+      if (!editable) return;
       const doc = nfmToDoc(value);
       if (options.addToHistory === false) {
         e.chain()
@@ -1913,6 +1921,7 @@ export function VisualEditor({
     },
     normalizeValue: canonicalizeNfm,
     shouldSeed: ({ value, currentMarkdown, fragmentLength }) =>
+      editable &&
       shouldSeedCollaborativeContent({
         content: value,
         currentMarkdown,

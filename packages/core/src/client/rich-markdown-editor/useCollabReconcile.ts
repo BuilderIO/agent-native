@@ -1,4 +1,5 @@
 import { isChangeOrigin } from "@tiptap/extension-collaboration";
+import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import type { Transaction } from "@tiptap/pm/state";
 import type { Editor } from "@tiptap/react";
 import { useEffect, useRef, useState, type MutableRefObject } from "react";
@@ -7,9 +8,13 @@ import type { Doc as YDoc } from "yjs";
 
 import { AGENT_CLIENT_ID } from "../../collab/agent-identity.js";
 import { isReconcileLeadClient } from "../../collab/client.js";
+import {
+  RICH_MARKDOWN_PROGRAMMATIC_TRANSACTION,
+  applyDocSurgically,
+  defaultParseValue,
+} from "./surgical-apply.js";
 
-export const RICH_MARKDOWN_PROGRAMMATIC_TRANSACTION =
-  "an-rich-md-programmatic-transaction";
+export { RICH_MARKDOWN_PROGRAMMATIC_TRANSACTION };
 
 /** Reads the current markdown out of the tiptap-markdown storage. */
 export function getEditorMarkdown(editor: Editor): string {
@@ -71,6 +76,22 @@ export interface UseCollabReconcileOptions {
     value: string,
     options: { emitUpdate?: boolean; addToHistory?: boolean },
   ) => void;
+  /**
+   * Parses the authoritative `value` into a full ProseMirror document for the
+   * SURGICAL reconcile path: instead of a whole-document `setContent` (which
+   * under Collaboration rewrites the entire Y.XmlFragment and tears down every
+   * block NodeView), the reconcile diffs the parsed doc against the live doc
+   * and replaces only the changed top-level run. Return null to skip the
+   * surgical path for a given value (falls back to `setContent`).
+   *
+   * Defaults to a best-effort tiptap-markdown parse; apps with their own
+   * serializers (Content's NFM, Plan's blocks[] doc) should supply the exact
+   * doc their `setContent` would write. Pass `false` to disable surgical
+   * application entirely.
+   */
+  parseValue?:
+    | ((editor: Editor, value: string) => ProseMirrorNode | null)
+    | false;
   /**
    * Normalizes the authoritative `value` to the canonical markdown the editor
    * would emit, so the "already in sync / our own echo" equality checks match a
@@ -198,6 +219,7 @@ export function useCollabReconcile({
   editable,
   getMarkdown = getEditorMarkdown,
   setContent = defaultSetContent,
+  parseValue,
   normalizeValue = (v) => v,
   shouldSeed = defaultShouldSeed,
   initialAppliedUpdatedAt,
@@ -452,7 +474,23 @@ export function useCollabReconcile({
           return;
         }
         isSettingContentRef.current = true;
-        setContent(editor, value, { emitUpdate: false, addToHistory: false });
+        // Surgical path first: replace only the changed top-level run so
+        // unchanged block NodeViews are never torn down and (under
+        // Collaboration) Yjs sees a minimal edit instead of a full-fragment
+        // rewrite. Falls back to the classic whole-document setContent when no
+        // parser is available or the targeted transaction cannot be applied.
+        let appliedSurgically = false;
+        if (parseValue !== false) {
+          const parse = parseValue ?? defaultParseValue;
+          const parsedDoc = parse(editor, value);
+          if (parsedDoc) {
+            const result = applyDocSurgically(editor, parsedDoc);
+            appliedSurgically = result === "applied" || result === "noop";
+          }
+        }
+        if (!appliedSurgically) {
+          setContent(editor, value, { emitUpdate: false, addToHistory: false });
+        }
         isSettingContentRef.current = false;
         // Capture the SERIALIZED result, not the raw value. For non-idempotent
         // input these differ; recording the serialized output is what lets the
@@ -482,6 +520,7 @@ export function useCollabReconcile({
     isLeadClient,
     getMarkdown,
     setContent,
+    parseValue,
     normalizeValue,
   ]);
 

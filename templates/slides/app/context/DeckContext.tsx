@@ -59,14 +59,14 @@ export type PatchDeckOp = Exclude<GranularOp, { op: "full-replace" }>;
 // ---------------------------------------------------------------------------
 // Inverse-op undo
 // ---------------------------------------------------------------------------
-// Undo/redo is per-user and expressed as granular inverse operations rather
-// than whole-decks snapshots. Each entry carries the deckId it applies to so
-// undoing while viewing deck B never mutates deck A, and applying an op runs
-// through the exact same optimistic-local + granular-persist path as a normal
-// edit — so it NEVER clobbers concurrent edits by other humans or the agent.
-//
-// A `DeckUndoOp` is a granular op (never `full-replace`) tagged with its deck.
-type DeckUndoOp = { deckId: string } & PatchDeckOp;
+// Undo/redo is per-user and is granular for ordinary slide/deck-field edits.
+// Deck lifecycle and generated/imported full replacements use explicit
+// deck-level ops because those user actions are whole-resource mutations.
+export type DeckUndoOp =
+  | ({ deckId: string } & PatchDeckOp)
+  | { op: "delete-deck"; deckId: string }
+  | { op: "restore-deck"; deckId: string; deck: Deck; index?: number }
+  | { op: "replace-deck"; deckId: string; deck: Deck };
 
 export type SlideLayout =
   | "title"
@@ -401,6 +401,14 @@ function flushPendingSaves() {
   notifySaveListeners();
 }
 
+function discardPendingDeckOps(deckId: string) {
+  const timer = pendingSaves.get(deckId);
+  if (timer) clearTimeout(timer);
+  pendingSaves.delete(deckId);
+  pendingOpsQueue.delete(deckId);
+  notifySaveListeners();
+}
+
 // ---------------------------------------------------------------------------
 // Local op application + inverse derivation (for inverse-op undo)
 // ---------------------------------------------------------------------------
@@ -486,6 +494,47 @@ export function applyOpToDeck(deck: Deck, op: PatchDeckOp): Deck {
         ...op.fields,
         updatedAt: new Date().toISOString(),
       } as Deck;
+    }
+  }
+}
+
+export function applyUndoOpToDecks(decks: Deck[], op: DeckUndoOp): Deck[] {
+  switch (op.op) {
+    case "delete-deck":
+      return decks.filter((deck) => deck.id !== op.deckId);
+    case "restore-deck": {
+      const nextDeck = op.deck;
+      const existingIndex = decks.findIndex((deck) => deck.id === op.deckId);
+      if (existingIndex >= 0) {
+        const next = [...decks];
+        next[existingIndex] = nextDeck;
+        return next;
+      }
+      const next = [...decks];
+      const index =
+        typeof op.index === "number" && op.index >= 0
+          ? Math.min(op.index, next.length)
+          : next.length;
+      next.splice(index, 0, nextDeck);
+      return next;
+    }
+    case "replace-deck": {
+      const existingIndex = decks.findIndex((deck) => deck.id === op.deckId);
+      if (existingIndex < 0) return [...decks, op.deck];
+      const next = [...decks];
+      next[existingIndex] = op.deck;
+      return next;
+    }
+    default: {
+      const idx = decks.findIndex((deck) => deck.id === op.deckId);
+      if (idx < 0) return decks;
+      const { deckId: _deckId, ...granular } = op;
+      void _deckId;
+      const updated = applyOpToDeck(decks[idx], granular);
+      if (updated === decks[idx]) return decks;
+      const next = [...decks];
+      next[idx] = updated;
+      return next;
     }
   }
 }
@@ -805,21 +854,21 @@ export function DeckProvider({ children }: { children: ReactNode }) {
         setDecks((prev) => {
           let next = prev;
           for (const op of ops) {
-            const idx = next.findIndex((d) => d.id === op.deckId);
-            if (idx < 0) continue; // deck gone — skip this op
-            const { deckId: _deckId, ...granular } = op;
-            void _deckId;
-            const updated = applyOpToDeck(next[idx], granular);
-            if (updated === next[idx]) continue; // no-op
-            next = next === prev ? [...prev] : next;
-            next[idx] = updated;
+            next = applyUndoOpToDecks(next, op);
           }
           return next;
         });
         for (const op of ops) {
-          const { deckId, ...granular } = op;
-          markDeckDirty(deckId);
-          enqueueDeckOp(deckId, granular);
+          markDeckDirty(op.deckId);
+          if (op.op === "delete-deck") {
+            discardPendingDeckOps(op.deckId);
+            void deleteDeckFromAPI(op.deckId);
+          } else if (op.op === "restore-deck" || op.op === "replace-deck") {
+            enqueueDeckOp(op.deckId, { op: "full-replace", deck: op.deck });
+          } else {
+            const { deckId, ...granular } = op;
+            enqueueDeckOp(deckId, granular);
+          }
         }
       },
       onChange: () => {
@@ -1163,6 +1212,7 @@ export function DeckProvider({ children }: { children: ReactNode }) {
       title?: string,
       options?: { noDefaultSlides?: boolean; designSystemId?: string | null },
     ): Deck => {
+      const insertIndex = decksRef.current.length;
       const newDeck: Deck = {
         id: nanoid(10),
         title: title || "Untitled Deck",
@@ -1207,6 +1257,18 @@ export function DeckProvider({ children }: { children: ReactNode }) {
           }
         });
       setDecksLocal((prev) => [...prev, newDeck]);
+      undoControllerRef.current?.push({
+        undo: [{ op: "delete-deck", deckId: newDeck.id }],
+        redo: [
+          {
+            op: "restore-deck",
+            deckId: newDeck.id,
+            deck: newDeck,
+            index: insertIndex,
+          },
+        ],
+        label: "Create deck",
+      });
       return newDeck;
     },
     [setDecksLocal],
@@ -1234,6 +1296,7 @@ export function DeckProvider({ children }: { children: ReactNode }) {
 
       const now = new Date().toISOString();
       const newTitle = title || `Copy of ${source.title}`;
+      const insertIndex = decksRef.current.length;
       // Re-id slides so optimistic edits to the copy don't collide with the
       // original. The server does the same thing — these client ids will be
       // replaced by server-generated ones once the duplicate action lands and
@@ -1277,6 +1340,18 @@ export function DeckProvider({ children }: { children: ReactNode }) {
         });
 
       setDecksLocal((prev) => [...prev, optimistic]);
+      undoControllerRef.current?.push({
+        undo: [{ op: "delete-deck", deckId: optimistic.id }],
+        redo: [
+          {
+            op: "restore-deck",
+            deckId: optimistic.id,
+            deck: optimistic,
+            index: insertIndex,
+          },
+        ],
+        label: "Duplicate deck",
+      });
       return optimistic;
     },
     [decks, setDecksLocal],
@@ -1284,8 +1359,25 @@ export function DeckProvider({ children }: { children: ReactNode }) {
 
   const deleteDeck = useCallback(
     (id: string) => {
+      const beforeDeck = decksRef.current.find((deck) => deck.id === id);
+      const beforeIndex = decksRef.current.findIndex((deck) => deck.id === id);
+      discardPendingDeckOps(id);
       deleteDeckFromAPI(id);
       setDecksLocal((prev) => prev.filter((d) => d.id !== id));
+      if (beforeDeck) {
+        undoControllerRef.current?.push({
+          undo: [
+            {
+              op: "restore-deck",
+              deckId: id,
+              deck: beforeDeck,
+              index: beforeIndex,
+            },
+          ],
+          redo: [{ op: "delete-deck", deckId: id }],
+          label: "Delete deck",
+        });
+      }
     },
     [setDecksLocal],
   );
@@ -1529,19 +1621,32 @@ export function DeckProvider({ children }: { children: ReactNode }) {
   const setDeckSlides = useCallback(
     (deckId: string, slides: Slide[]) => {
       markDeckDirty(deckId);
+      const before = decksRef.current.find((deck) => deck.id === deckId);
+      const after = before
+        ? { ...before, slides, updatedAt: new Date().toISOString() }
+        : null;
       // setDeckSlides replaces ALL slides wholesale (used by AI generation and
-      // imports). This is an explicit generation action, not a fine-grained
-      // edit, so it is not recorded on the inverse-op undo stack. A full-replace
-      // keeps server state exactly matching the generated result regardless of
-      // concurrent changes.
+      // imports), so its undo entry is a deck-level full replacement instead of
+      // a fine-grained slide patch.
       setDecksLocal((prev) =>
         prev.map((d) => {
           if (d.id !== deckId) return d;
-          const updated = { ...d, slides, updatedAt: new Date().toISOString() };
-          enqueueDeckOp(deckId, { op: "full-replace", deck: updated });
-          return updated;
+          const next = after ?? {
+            ...d,
+            slides,
+            updatedAt: new Date().toISOString(),
+          };
+          enqueueDeckOp(deckId, { op: "full-replace", deck: next });
+          return next;
         }),
       );
+      if (before && after) {
+        undoControllerRef.current?.push({
+          undo: [{ op: "replace-deck", deckId, deck: before }],
+          redo: [{ op: "replace-deck", deckId, deck: after }],
+          label: "Replace slides",
+        });
+      }
     },
     [markDeckDirty, setDecksLocal],
   );

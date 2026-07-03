@@ -79,9 +79,9 @@ One install gives you:
 
 </Diagram>
 
-By default, the Plan skills publish to the hosted Plan app — they create a plan via
-the MCP connector and hand you a link or inline plan to review. They never dump
-an inline Markdown/ASCII plan into chat as the deliverable. If a Plan tool
+By default, `/visual-plan` and `/visual-recap` publish to the hosted Plan app —
+they create a plan via the MCP connector and hand you a link or inline plan to
+review. They never dump an inline Markdown/ASCII plan into chat as the deliverable. If a Plan tool
 returns `needs auth`, `Unauthorized`, or `Session terminated`, re-authenticate
 the connector instead of falling back to inline output. Access tokens are
 long-lived (30-day default, sliding 365-day refresh), so this should be rare;

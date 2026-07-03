@@ -15,6 +15,7 @@ import { EventEmitter } from "node:events";
 import { defineEventHandler, setResponseStatus, getRouterParam } from "h3";
 import type { H3Event } from "h3";
 
+import { getSession } from "../server/auth.js";
 import { readBody } from "../server/h3-helpers.js";
 import {
   deleteAwarenessRow,
@@ -135,6 +136,7 @@ export const postAwareness = defineEventHandler(async (event: H3Event) => {
     setResponseStatus(event, 400);
     return { error: "docId required" };
   }
+  const session = await getSession(event).catch(() => null);
 
   const body = await readBody(event);
   const { clientId, state } = body as {
@@ -188,7 +190,12 @@ export const postAwareness = defineEventHandler(async (event: H3Event) => {
 
   // Fast-path: push the updated state set to SSE-connected peers so they
   // don't have to wait for the next poll cycle for cursor/selection updates.
-  emitAwarenessChange(docId, allStates);
+  emitAwarenessChange(
+    docId,
+    allStates,
+    session?.email,
+    session?.orgId ?? undefined,
+  );
 
   return { states: otherStates };
 });

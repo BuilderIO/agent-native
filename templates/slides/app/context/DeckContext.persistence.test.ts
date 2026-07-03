@@ -3,7 +3,7 @@ import { act, renderHook, waitFor } from "@testing-library/react";
 import { createElement, type ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { DeckProvider, useDecks, type Deck } from "./DeckContext";
+import { DeckProvider, useDecks, type Deck, type Slide } from "./DeckContext";
 
 class MockEventSource {
   onmessage: ((event: MessageEvent) => void) | null = null;
@@ -242,7 +242,7 @@ describe("DeckContext deck creation persistence", () => {
     await waitFor(() => expect(result.current.canUndo).toBe(true));
   });
 
-  it("undo of a slide edit fails soft when that slide was deleted remotely", async () => {
+  it("undoes a wholesale slide replacement that removed an edited slide", async () => {
     window.history.pushState({}, "", "/deck/shared-deck");
     setupFetch();
     const { result } = renderHook(() => useDecks(), { wrapper });
@@ -270,8 +270,8 @@ describe("DeckContext deck creation persistence", () => {
     });
     await waitFor(() => expect(result.current.canUndo).toBe(true));
 
-    // Simulate a remote deletion of that slide by rewriting local state as the
-    // SSE/poll path would (slide removed out from under the undo entry).
+    // setDeckSlides is the generated/import replacement path. It replaces the
+    // whole slide list and should now be undoable back to the prior deck.
     act(() => {
       result.current.setDeckSlides(
         deckId,
@@ -279,14 +279,12 @@ describe("DeckContext deck creation persistence", () => {
       );
     });
 
-    // Undo must NOT throw or resurrect the slide — it applies the inverse
-    // patch-slide to a missing slide, which is a no-op (fails soft).
     act(() => {
       result.current.undo();
     });
     expect(
       result.current.getDeck(deckId)?.slides.some((s) => s.id === slideId),
-    ).toBe(false);
+    ).toBe(true);
   });
 
   it("scopes undo per deck — undoing does not mutate a different deck", async () => {
@@ -330,6 +328,86 @@ describe("DeckContext deck creation persistence", () => {
       deckASlidesBefore - 1,
     );
     expect(result.current.getDeck(deckB)?.title).toBe("Deck B");
+  });
+
+  it("records create deck on the undo stack", async () => {
+    window.history.pushState({}, "", "/");
+    setupFetch();
+    const { result } = renderHook(() => useDecks(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    let deckId = "";
+    act(() => {
+      deckId = result.current.createDeck("Draft", { noDefaultSlides: true }).id;
+    });
+    await waitFor(() => expect(result.current.canUndo).toBe(true));
+
+    act(() => {
+      result.current.undo();
+    });
+    expect(result.current.getDeck(deckId)).toBeUndefined();
+
+    act(() => {
+      result.current.redo();
+    });
+    expect(result.current.getDeck(deckId)?.title).toBe("Draft");
+  });
+
+  it("records delete deck on the undo stack", async () => {
+    window.history.pushState({}, "", "/");
+    setupFetch();
+    const { result } = renderHook(() => useDecks(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    let deckId = "";
+    act(() => {
+      deckId = result.current.createDeck("Disposable", {
+        noDefaultSlides: true,
+      }).id;
+    });
+    act(() => {
+      result.current.deleteDeck(deckId);
+    });
+    expect(result.current.getDeck(deckId)).toBeUndefined();
+
+    act(() => {
+      result.current.undo();
+    });
+    expect(result.current.getDeck(deckId)?.title).toBe("Disposable");
+  });
+
+  it("records generated slide replacement on the undo stack", async () => {
+    window.history.pushState({}, "", "/");
+    setupFetch();
+    const { result } = renderHook(() => useDecks(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    let deckId = "";
+    act(() => {
+      deckId = result.current.createDeck("Generated", {
+        noDefaultSlides: true,
+      }).id;
+    });
+    const generated: Slide[] = [
+      {
+        id: "generated-slide",
+        content: "<div>Generated</div>",
+        notes: "",
+        layout: "content",
+      },
+    ];
+
+    act(() => {
+      result.current.setDeckSlides(deckId, generated);
+    });
+    expect(result.current.getDeck(deckId)?.slides.map((s) => s.id)).toEqual([
+      "generated-slide",
+    ]);
+
+    act(() => {
+      result.current.undo();
+    });
+    expect(result.current.getDeck(deckId)?.slides).toEqual([]);
   });
 
   it("ignores stale reload responses after the route changes", async () => {

@@ -16,6 +16,10 @@ if (!name) {
 }
 
 const replacements = {
+  contracts: {
+    label: "Plans",
+    url: "https://plan.agent-native.com",
+  },
   images: {
     label: "Assets",
     url: "https://assets.agent-native.com",

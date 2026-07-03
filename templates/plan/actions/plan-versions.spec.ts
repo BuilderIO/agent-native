@@ -417,6 +417,31 @@ describe("plan version actions", () => {
     ).rejects.toMatchObject({ statusCode: 403 });
   });
 
+  it("does not reveal history snapshots to viewer-share readers", async () => {
+    await seedPlan();
+    const snapshot = await createPlanVersionSnapshot(PLAN_ID, { force: true });
+    await db.insert(planSchema.planShares).values({
+      id: "share_viewer_history",
+      resourceId: PLAN_ID,
+      principalType: "user",
+      principalId: OTHER,
+      role: "viewer",
+      createdBy: OWNER,
+      createdAt: CREATED_AT,
+    });
+
+    await expect(
+      runWithRequestContext({ userEmail: OTHER }, () =>
+        listPlanVersions.run({ planId: PLAN_ID }),
+      ),
+    ).rejects.toMatchObject({ statusCode: 403 });
+    await expect(
+      runWithRequestContext({ userEmail: OTHER }, () =>
+        getPlanVersion.run({ planId: PLAN_ID, versionId: snapshot.id }),
+      ),
+    ).rejects.toMatchObject({ statusCode: 403 });
+  });
+
   it("restore preserves comment sectionId for sections that survive, nulls it only for sections absent from the snapshot", async () => {
     // Seed a plan with TWO sections.
     await db.insert(planSchema.plans).values({

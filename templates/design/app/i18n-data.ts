@@ -1188,6 +1188,8 @@ const designLocaleOverrides = {
         openScreenSvg: "导出 SVG 之前打开一个屏幕",
         svgDownloaded: "SVG 下载",
         svgExportError: "无法导出 SVG",
+        undoSkippedConcurrentEdit: "已跳过撤消 — 其他人移动了该内容",
+        redoSkippedConcurrentEdit: "已跳过重做 — 其他人移动了该内容",
       },
     },
     designSystemSetup: {
@@ -1546,6 +1548,8 @@ const designLocaleOverrides = {
         openScreenSvg: "Abra una pantalla antes de exportar SVG",
         svgDownloaded: "SVG descargado",
         svgExportError: "No se pudo exportar SVG",
+        undoSkippedConcurrentEdit: "Se omitió deshacer: otra persona movió eso",
+        redoSkippedConcurrentEdit: "Se omitió rehacer: otra persona movió eso",
       },
     },
     designSystemSetup: {
@@ -1923,6 +1927,10 @@ const designLocaleOverrides = {
         openScreenSvg: "Ouvrir un écran avant d'exporter SVG",
         svgDownloaded: "SVG téléchargé",
         svgExportError: "Impossible d'exporter SVG",
+        undoSkippedConcurrentEdit:
+          "Annulation ignorée : quelqu'un d'autre a déplacé cet élément",
+        redoSkippedConcurrentEdit:
+          "Rétablissement ignoré : quelqu'un d'autre a déplacé cet élément",
       },
     },
     designSystemSetup: {
@@ -2300,6 +2308,10 @@ const designLocaleOverrides = {
         openScreenSvg: "Öffnen Sie einen Bildschirm, bevor Sie SVG exportieren",
         svgDownloaded: "SVG heruntergeladen",
         svgExportError: "SVG konnte nicht exportiert werden",
+        undoSkippedConcurrentEdit:
+          "Rückgängig übersprungen – jemand anderes hat das verschoben",
+        redoSkippedConcurrentEdit:
+          "Wiederholen übersprungen – jemand anderes hat das verschoben",
       },
     },
     designSystemSetup: {
@@ -2676,6 +2688,10 @@ const designLocaleOverrides = {
         openScreenSvg: "SVG をエクスポートする前に画面を開く",
         svgDownloaded: "SVGがダウンロードされました",
         svgExportError: "SVG をエクスポートできませんでした",
+        undoSkippedConcurrentEdit:
+          "元に戻す操作をスキップしました — 他のユーザーがそれを移動しました",
+        redoSkippedConcurrentEdit:
+          "やり直し操作をスキップしました — 他のユーザーがそれを移動しました",
       },
     },
     designSystemSetup: {
@@ -3047,6 +3063,10 @@ const designLocaleOverrides = {
         openScreenSvg: "SVG를 내보내기 전에 화면을 엽니다",
         svgDownloaded: "SVG 다운로드됨",
         svgExportError: "SVG를 내보낼 수 없습니다.",
+        undoSkippedConcurrentEdit:
+          "실행 취소를 건너뛰었습니다 — 다른 사용자가 이동했습니다",
+        redoSkippedConcurrentEdit:
+          "다시 실행을 건너뛰었습니다 — 다른 사용자가 이동했습니다",
       },
     },
     designSystemSetup: {
@@ -3414,6 +3434,9 @@ const designLocaleOverrides = {
         openScreenSvg: "Abra uma tela antes de exportar SVG",
         svgDownloaded: "SVG baixado",
         svgExportError: "Não foi possível exportar SVG",
+        undoSkippedConcurrentEdit:
+          "Desfazer ignorado — outra pessoa moveu isso",
+        redoSkippedConcurrentEdit: "Refazer ignorado — outra pessoa moveu isso",
       },
     },
     designSystemSetup: {
@@ -3786,6 +3809,10 @@ const designLocaleOverrides = {
         openScreenSvg: "SVG निर्यात करने से पहले एक स्क्रीन खोलें",
         svgDownloaded: "SVG डाउनलोड किया गया",
         svgExportError: "SVG निर्यात नहीं किया जा सका",
+        undoSkippedConcurrentEdit:
+          "पूर्ववत करना छोड़ दिया गया — किसी और ने इसे स्थानांतरित कर दिया",
+        redoSkippedConcurrentEdit:
+          "फिर से करना छोड़ दिया गया — किसी और ने इसे स्थानांतरित कर दिया",
       },
     },
     designSystemSetup: {
@@ -4151,6 +4178,8 @@ const designLocaleOverrides = {
         openScreenSvg: "افتح الشاشة قبل تصدير SVG",
         svgDownloaded: "تم تنزيل SVG",
         svgExportError: "تعذر تصدير SVG",
+        undoSkippedConcurrentEdit: "تم تخطي التراجع — قام شخص آخر بنقله",
+        redoSkippedConcurrentEdit: "تم تخطي الإعادة — قام شخص آخر بنقله",
       },
     },
     designSystemSetup: {

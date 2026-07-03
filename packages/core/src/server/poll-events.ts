@@ -13,6 +13,15 @@ import {
   type ChangeEvent,
 } from "./poll.js";
 
+export function canSeeAwarenessChangeForUser(
+  change: Pick<AwarenessChangeEvent, "owner" | "orgId">,
+  userEmail: string,
+  orgId: string | undefined,
+): boolean {
+  if (!change.owner && !change.orgId) return false;
+  return canSeeChangeForUser(change, userEmail, orgId);
+}
+
 /**
  * Stream in-process poll events over SSE.
  *
@@ -56,9 +65,9 @@ export function createPollEventsHandler() {
     // No ring-buffer needed — clients reconcile on the next poll if SSE is down.
     const pushAwareness = (change: AwarenessChangeEvent) => {
       if (closed) return;
-      // Respect org scoping if present.
-      if (change.orgId && session.orgId && change.orgId !== session.orgId)
+      if (!canSeeAwarenessChangeForUser(change, session.email, session.orgId)) {
         return;
+      }
       safePush(JSON.stringify(change));
     };
 

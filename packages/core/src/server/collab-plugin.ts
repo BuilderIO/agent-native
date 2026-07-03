@@ -111,16 +111,17 @@ export function createCollabPlugin(
     // Security: when resourceType is configured, resolve the resource's
     // owner/org so getChangesSinceForUser can scope delivery. We use
     // resolveAccess to obtain the resource row — it already handles ownership,
-    // visibility, and share rows. Rather than trying to enumerate every sharee
-    // (which would require querying the shares table for every update), the
-    // conservative strategy is:
-    //   • tag the event with the resource owner's email and org (owner-scoped).
-    //   • non-owner sharees who have explicit viewer+ access will NOT receive
-    //     the push event; they fall back to the state-vector catch-up via the
-    //     poll loop.  This is safe (never delivers to someone without access)
-    //     at the cost of sharees seeing slightly higher latency (state-vector
-    //     fetch on the next poll cycle) rather than the push path.
-    // See also: SECURITY comment in poll.ts on getChangesSinceForUser.
+    // visibility, and share rows. In addition to the owner/org tags we also
+    // tag the event with `resourceType` + `resourceId` so the per-user
+    // delivery filter (canSeeChangeForUser) can evaluate resource access
+    // directly for non-owner sharees:
+    //   • tag the event with the resource owner's email and org (owner-scoped)
+    //     for backward compatibility with the conservative owner/org fast path.
+    //   • ALSO tag with resourceType/resourceId so canSeeChangeForUser can run
+    //     an access-aware (cached) check and push to explicit viewer+ sharees
+    //     who don't match owner/org — instead of only degrading them to the
+    //     poll fallback.
+    // See also: SECURITY comment in poll.ts on canSeeChangeForUser.
     if (!resourceType && !_unscoped_warning_logged) {
       _unscoped_warning_logged = true;
       console.warn(
@@ -180,12 +181,15 @@ export function createCollabPlugin(
         const orgId =
           typeof resource.orgId === "string" ? resource.orgId : undefined;
 
-        // Tag the event with owner/org. Non-owner sharees fall back to poll;
-        // this is acceptable (see comment above).
+        // Tag the event with owner/org (backward-compat fast path) AND with
+        // resourceType/resourceId so canSeeChangeForUser can run an
+        // access-aware check for non-owner sharees (see poll.ts).
         recordChange({
           ...event,
           ...(ownerEmail ? { owner: ownerEmail } : {}),
           ...(orgId ? { orgId } : {}),
+          resourceType,
+          resourceId,
         });
       } catch {
         // If we fail to resolve the resource (DB not ready, etc.) we skip

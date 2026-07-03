@@ -616,13 +616,15 @@ export async function runVisualizeRepo(argv: string[]) {
     return 0;
   }
 
+  const readOnlyCommand =
+    parsed.command === "check" || parsed.command === "verify";
   const workspace = await prepareVisualizeRepoWorkspace({
     dir: parsed.dir,
     root: parsed.root,
     targets: parsed.targets,
     title: parsed.title,
     brief: parsed.brief,
-    dryRun: parsed.dryRun,
+    dryRun: parsed.dryRun || readOnlyCommand,
     force: parsed.force,
   });
 
