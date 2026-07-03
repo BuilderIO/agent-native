@@ -65,6 +65,16 @@ import {
 import type { MotionTrack } from "@shared/motion-timeline";
 import { sortMotionKeyframes } from "@shared/motion-timeline";
 import {
+  createCornerNode,
+  getPenPathGeometry,
+  parsePenNodes,
+  serializePenNodes,
+  serializePenPath,
+  type PenNode,
+  type PenPath,
+  type PenPoint,
+} from "@shared/pen-path";
+import {
   resolveTweaksToCssVars,
   type TweakSelections,
 } from "@shared/resolve-tweaks";
@@ -158,6 +168,8 @@ import {
 import { type CodeWorkbenchActiveFile } from "@/components/design/CodeWorkbenchHost";
 import {
   DesignCanvas,
+  type CreatePrimitiveSpec,
+  type CreationTool,
   type IframeContextMenuPayload,
   type IframeHotkeyPayload,
   type MotionTrackWire,
@@ -174,12 +186,14 @@ import {
   type InspectCodeData,
   type InspectorTab,
   type ScreenGeometrySelection,
+  type StyleChangeMeta,
 } from "@/components/design/EditPanel";
 import type { ExportSettingsValue } from "@/components/design/inspector";
 import { InspectorAiActions } from "@/components/design/inspector/InspectorAiActions";
 import {
   LayersPanel,
   type LayersPanelFile,
+  type LayersPanelHandle,
   type LayersPanelMoveIntent,
   type LayersPanelNode,
 } from "@/components/design/LayersPanel";
@@ -199,6 +213,8 @@ import {
   type CanvasPrimitiveInsert,
   type FrameGeometry,
   type MultiScreenCanvasTool,
+  type Point,
+  type VectorEditOverlayState,
 } from "@/components/design/MultiScreenCanvas";
 import { QuestionFlow } from "@/components/design/QuestionFlow";
 import type { ReviewPanelProps } from "@/components/design/ReviewPanel";
@@ -504,6 +520,59 @@ export function getSelectedScreenGeometryForInspector(args: {
   };
 }
 
+/**
+ * Vector-edit foundations (P5 integration): resolves the canvas-space point
+ * where a screen's own screen-content-local (0,0) sits — i.e.
+ * `VectorEditOverlayState.originCanvas` — for a committed pen path owned by
+ * `screenId`.
+ *
+ * Mirrors the exact same fallback-merge (`getInitialFrameGeometry(index,
+ * ...)` overridden by any persisted `canvasFrameGeometryById` entry) that
+ * `getSelectedScreenGeometryForInspector` above and MultiScreenCanvas's own
+ * internal frame-geometry resolution both use, so the overlay lines up with
+ * whatever frame position is actually rendered on screen.
+ *
+ * The reserved board file (`__board__.html`, see shared/board-file.ts) is the
+ * one exception: `handleBoardDrawPrimitive`/`persistDraftPrimitive` commit
+ * board primitives with a 1:1 `{x:0,y:0,width:1,height:1}` frame (no offset
+ * subtraction — see MultiScreenCanvas's persistDraftPrimitive), so a board
+ * pen path's nodes are already in absolute canvas coordinates and
+ * `originCanvas` is `{0, 0}`.
+ *
+ * Returns `null` when the screen can't be resolved (not in `overviewScreens`
+ * and not the board file) — the caller should not enter vector-edit mode in
+ * that case.
+ */
+export function getScreenFrameOriginCanvas(args: {
+  screenId: string;
+  overviewScreens: Array<{
+    id: string;
+    width?: number;
+    height?: number;
+  }>;
+  canvasFrameGeometryById: CanvasFrameGeometryById;
+  boardFileId?: string | null;
+}): Point | null {
+  if (args.boardFileId && args.screenId === args.boardFileId) {
+    return { x: 0, y: 0 };
+  }
+  const screenIndex = args.overviewScreens.findIndex(
+    (screen) => screen.id === args.screenId,
+  );
+  if (screenIndex < 0) return null;
+  const screen = args.overviewScreens[screenIndex];
+  if (!screen) return null;
+  const fallbackGeometry = getInitialFrameGeometry(screenIndex, {
+    width: screen.width ?? 1280,
+    height: screen.height ?? 2560,
+  });
+  const persistedGeometry = args.canvasFrameGeometryById[args.screenId] ?? {};
+  return {
+    x: persistedGeometry.x ?? fallbackGeometry.x,
+    y: persistedGeometry.y ?? fallbackGeometry.y,
+  };
+}
+
 function fileIdFromLayerSelectionId(
   layerId: string,
   fileIds: Set<string>,
@@ -742,6 +811,28 @@ export function shouldReplacePreviewAfterVisualStyleCommit(args: {
   runtimeStyleApplied: boolean;
 }) {
   return !args.runtimeApplied && !args.runtimeStyleApplied;
+}
+
+/**
+ * PF12: decide whether a style change from EditPanel (ScrubInput scrub tick /
+ * DesignColorPicker drag tick) should skip the expensive source commit
+ * (commitVisualStyles / commitStylesToSelectedLayers — projection parse, HTML
+ * patch, Yjs write, history entry) and instead only try the cheap live
+ * iframe preview.
+ *
+ * Only a genuine mid-gesture "preview" tick against a single selected element
+ * qualifies: `meta` is undefined for every existing call site that never
+ * passed gesture metadata (keyboard edits, agent edits, discrete commits),
+ * so this returns false for all of them — preserving prior full-commit
+ * behavior exactly. Multi-layer-selection edits (`selectedLayerCount > 1`)
+ * have no equivalent cheap multi-element preview channel, so those
+ * conservatively keep committing on every tick, same as before PF12.
+ */
+export function shouldSkipVisualStyleCommitForPreview(args: {
+  phase?: "preview" | "commit";
+  selectedLayerCount: number;
+}): boolean {
+  return args.phase === "preview" && args.selectedLayerCount <= 1;
 }
 
 export function getLayerMoveIterationOrder<T>(
@@ -1172,6 +1263,40 @@ function normalizeDesignTool(value: unknown): DesignTool | null {
 
 function isSingleScreenAnnotationTool(tool: DesignTool): boolean {
   return tool === "draw" || tool === "comment";
+}
+
+/**
+ * P4/single-screen placement: maps the editor's current tool + view mode to
+ * the `CreationTool` DesignCanvas's single-screen click-to-place overlay
+ * understands, or `null` when the overlay should not mount.
+ *
+ * Only mounts while actually focused on a single screen (`viewMode ===
+ * "single"`) with an active file — overview mode keeps using
+ * MultiScreenCanvas's own draft-primitive drawing, which this overlay does
+ * not replace. `rect` (the DesignTool id) maps to CreationTool's
+ * `"rectangle"`; `polygon`/`star`/`frame`/`draw`/`hand`/`comment`/`scale`/
+ * `move` have no single-screen click-to-place equivalent yet and map to
+ * `null` so the overlay never mounts for them (existing tool behavior for
+ * those is unaffected).
+ */
+export function getSingleScreenCreationTool(args: {
+  activeTool: DesignTool;
+  viewMode: "single" | "overview";
+  hasActiveFile: boolean;
+}): CreationTool | null {
+  if (args.viewMode !== "single" || !args.hasActiveFile) return null;
+  switch (args.activeTool) {
+    case "rect":
+      return "rectangle";
+    case "ellipse":
+    case "line":
+    case "arrow":
+    case "text":
+    case "pen":
+      return args.activeTool;
+    default:
+      return null;
+  }
 }
 
 interface DesignFile {
@@ -2433,6 +2558,208 @@ function reassignDuplicatedNodeIds(content: string): string {
   );
 }
 
+/** Mirrors DesignCanvas's own local CREATION_DEFAULT_LINE_LENGTH (single-
+ *  screen creation overlay) so a single-screen pen click gets a visible
+ *  minimal path of the same default length a line/arrow click would use,
+ *  rather than a zero-length point. */
+const SINGLE_SCREEN_PEN_CLICK_DEFAULT_LENGTH = 120;
+
+/**
+ * P4/single-screen placement: converts a `CreatePrimitiveSpec` emitted by
+ * DesignCanvas's single-screen click-to-place overlay (coordinates already in
+ * screen-content space, matching `appendCanvasPrimitiveToHtml`'s own
+ * coordinate system) into the `CanvasPrimitiveInsert` shape the overview path
+ * (`handleCreatePrimitive` / `appendCanvasPrimitiveToHtml`) already knows how
+ * to persist. This deliberately reuses the exact same insert shape as
+ * `draftPrimitiveToInsert` produces in MultiScreenCanvas.tsx so single-screen
+ * and overview creation commit through one shared persistence path instead of
+ * two.
+ *
+ * Pen is the one deferred case (see DesignCanvas's SingleScreenCreationOverlay
+ * doc comment): a single-screen pen click only ever gets a single start
+ * point, so — rather than force overview to get full multi-click pen
+ * authoring — this commits a minimal open 2-node path (start point to a
+ * fixed-length point to the right, matching the line/arrow click default
+ * length) so the user gets a real, editable pen path immediately. True
+ * single-screen multi-click pen authoring remains a follow-up.
+ */
+export function createPrimitiveInsertFromSpec(
+  spec: CreatePrimitiveSpec,
+  nodeId: string,
+): CanvasPrimitiveInsert | null {
+  if (spec.tool === "line" || spec.tool === "arrow") {
+    const points = spec.points;
+    if (!points || points.length < 2) return null;
+    const [start, end] = points;
+    if (!start || !end) return null;
+    const left = Math.min(start.x, end.x);
+    const top = Math.min(start.y, end.y);
+    const width = Math.max(1, Math.abs(end.x - start.x));
+    const height = Math.max(1, Math.abs(end.y - start.y));
+    return {
+      kind: spec.tool,
+      nodeId,
+      geometry: { x: left, y: top, width, height },
+      points,
+    };
+  }
+
+  if (spec.tool === "pen") {
+    const start = spec.points?.[0];
+    if (!start) return null;
+    const end = {
+      x: start.x + SINGLE_SCREEN_PEN_CLICK_DEFAULT_LENGTH,
+      y: start.y,
+    };
+    const penPath: PenPath = {
+      nodes: [createCornerNode(start), createCornerNode(end)],
+      closed: false,
+    };
+    const geometry = getPenPathGeometry(penPath);
+    return {
+      kind: "path",
+      nodeId,
+      geometry,
+      points: [start, end],
+      pathData: serializePenPath(penPath),
+    };
+  }
+
+  const rect = spec.rect;
+  if (!rect) return null;
+  return {
+    kind: spec.tool,
+    nodeId,
+    geometry: {
+      x: rect.x,
+      y: rect.y,
+      width: Math.max(1, rect.width),
+      height: Math.max(1, rect.height),
+    },
+    autoSize: spec.tool === "text" ? spec.fromClick : undefined,
+  };
+}
+
+/**
+ * Reconstructs a structured `PenPath` (nodes + optional handles) from a `d`
+ * string produced by `serializePenPath` (shared/pen-path.ts). This is the
+ * deliberate INVERSE of that exact serializer — not a general SVG path
+ * parser — so it only needs to understand the small grammar
+ * `serializePenPath` actually emits: `M x y`, then per-segment `L x y` (both
+ * handles coincide with their anchors) or `C c1x c1y c2x c2y x y`
+ * (`c1`/`c2` are the FROM node's `handleOut` / TO node's `handleIn`,
+ * respectively — see `serializeSegment`), optionally followed by a trailing
+ * `Z` for a closed path (whose preceding segment is the wrap-around from the
+ * last node back to the first, not a new node).
+ *
+ * This exists because `CanvasPrimitiveInsert` (MultiScreenCanvas.tsx) only
+ * carries the already-flattened `pathData` string across the overview
+ * commit boundary, not the richer `DraftPrimitive.penPath` MultiScreenCanvas
+ * keeps internally — so committing a pen path drawn in OVERVIEW mode has no
+ * other source for the structured node/handle data `data-an-pen-nodes`
+ * needs. Single-screen pen placement (`createPrimitiveInsertFromSpec` above)
+ * builds its `PenPath` directly and never needs this reverse parse.
+ *
+ * Returns `null` for anything that doesn't match the expected grammar
+ * (empty/malformed `d`) rather than throwing, so a call site can always fall
+ * back to skipping `data-an-pen-nodes` for that element.
+ */
+export function parsePenPathFromSerializedD(d: string): PenPath | null {
+  const trimmed = d.trim();
+  if (!trimmed) return null;
+  const tokens = trimmed.match(/[MLCZ]|-?\d+(?:\.\d+)?/gi);
+  if (!tokens || tokens.length === 0) return null;
+
+  const readNumbers = (count: number): PenPoint[] => {
+    const points: PenPoint[] = [];
+    for (let i = 0; i < count; i += 2) {
+      const x = Number(tokens[cursor + i]);
+      const y = Number(tokens[cursor + i + 1]);
+      if (!Number.isFinite(x) || !Number.isFinite(y)) {
+        throw new Error("invalid pen path number");
+      }
+      points.push({ x, y });
+    }
+    return points;
+  };
+
+  let cursor = 0;
+  const command = tokens[cursor];
+  if (command?.toUpperCase() !== "M") return null;
+  cursor += 1;
+
+  try {
+    const [start] = readNumbers(2);
+    if (!start) return null;
+    cursor += 2;
+    const nodes: PenNode[] = [{ point: start }];
+    let closed = false;
+
+    while (cursor < tokens.length) {
+      const token = tokens[cursor]?.toUpperCase();
+      if (token === "Z") {
+        cursor += 1;
+        continue;
+      }
+      if (token === "L") {
+        cursor += 1;
+        const [to] = readNumbers(2);
+        if (!to) return null;
+        cursor += 2;
+        // Same wrap-around case as the "C" branch below: a closed path's
+        // final segment (immediately followed by Z) returns to the FIRST
+        // node rather than describing a new one.
+        const nextIsClose = tokens[cursor]?.toUpperCase() === "Z";
+        if (nextIsClose) {
+          closed = true;
+        } else {
+          nodes.push({ point: to });
+        }
+        continue;
+      }
+      if (token === "C") {
+        cursor += 1;
+        const coords = readNumbers(6);
+        cursor += 6;
+        const [c1, c2, to] = coords;
+        if (!c1 || !c2 || !to) return null;
+        const fromNode = nodes[nodes.length - 1];
+        if (!fromNode) return null;
+        if (!samePenPoint(c1, fromNode.point)) {
+          fromNode.handleOut = c1;
+        }
+        // A closed path's final "C"/"L" segment (immediately followed by Z)
+        // wraps from the last real node back to the FIRST node — it is not a
+        // new node. Apply its handles to the existing first node instead of
+        // pushing a duplicate.
+        const nextIsClose = tokens[cursor]?.toUpperCase() === "Z";
+        if (nextIsClose) {
+          closed = true;
+          const firstNode = nodes[0];
+          if (firstNode && !samePenPoint(c2, firstNode.point)) {
+            firstNode.handleIn = c2;
+          }
+        } else {
+          const node: PenNode = { point: to };
+          if (!samePenPoint(c2, to)) node.handleIn = c2;
+          nodes.push(node);
+        }
+        continue;
+      }
+      // Unknown token — grammar mismatch, bail rather than guess.
+      return null;
+    }
+
+    return { nodes, closed };
+  } catch {
+    return null;
+  }
+}
+
+function samePenPoint(a: PenPoint, b: PenPoint): boolean {
+  return Math.abs(a.x - b.x) < 0.05 && Math.abs(a.y - b.y) < 0.05;
+}
+
 function primitiveLayerName(primitive: CanvasPrimitiveInsert): string {
   switch (primitive.kind) {
     case "frame":
@@ -2712,6 +3039,108 @@ function appendCanvasPrimitiveToHtml(
     return `<!DOCTYPE html>\n${doc.documentElement.outerHTML}`;
   } catch {
     return null;
+  }
+}
+
+/**
+ * Vector-edit foundations: stamps `data-an-pen-nodes` (the compact
+ * serializePenNodes encoding — see shared/pen-path.ts) onto the committed
+ * pen-path SVG element identified by `data-agent-native-node-id === nodeId`,
+ * so the structured node/handle data survives independently of the
+ * flattened `d` attribute and can later be re-hydrated into vector edit
+ * mode. Returns `content` unchanged (never null) if the node can't be found
+ * or `content` fails to parse — this is a best-effort enrichment step, never
+ * a hard requirement for the primitive to commit successfully.
+ */
+function setPenNodesAttributeOnElement(
+  content: string,
+  nodeId: string,
+  penPath: PenPath,
+): string {
+  if (typeof window === "undefined") return content;
+  try {
+    const doc = new DOMParser().parseFromString(content, "text/html");
+    // nodeId always comes from uniqueLayerId(...) (alphanumeric/hyphen/UUID
+    // chars only, never quotes), but escape defensively anyway since this
+    // value is interpolated into a CSS attribute-selector string.
+    const safeNodeId = nodeId.replace(/["\\]/g, "\\$&");
+    const element = doc.querySelector(
+      `[data-agent-native-node-id="${safeNodeId}"]`,
+    );
+    if (!element) return content;
+    element.setAttribute("data-an-pen-nodes", serializePenNodes(penPath));
+    return `<!DOCTYPE html>\n${doc.documentElement.outerHTML}`;
+  } catch {
+    return content;
+  }
+}
+
+/**
+ * Vector-edit foundations: writes an edited PenPath back onto its committed
+ * SVG element — the `<path>` child's `d` (serializePenPath, matching what
+ * appendCanvasPrimitiveToHtml's explicitPathData branch produces) AND the
+ * `<svg>` root's `data-an-pen-nodes` (serializePenNodes, the structured
+ * round-trip source), plus the root's `viewBox`/left/top/width/height so the
+ * element's bounding box stays correct after anchors/handles moved it.
+ * `nodeId` is the element's `data-agent-native-node-id` value (screen-content
+ * space — same coordinate system the path's own nodes are already in, see
+ * parsePenPathFromSerializedD's doc comment for that finding).
+ *
+ * Returns `content` unchanged (never null/throws) if the element can't be
+ * found, isn't an SVG pen-path root, or has no `<path>` child — the caller
+ * treats that as a no-op commit rather than losing the user's edit.
+ */
+function writeBackVectorEditedPenPath(
+  content: string,
+  nodeId: string,
+  penPath: PenPath,
+): string {
+  if (typeof window === "undefined") return content;
+  try {
+    const doc = new DOMParser().parseFromString(content, "text/html");
+    const safeNodeId = nodeId.replace(/["\\]/g, "\\$&");
+    const svg = doc.querySelector(
+      `[data-agent-native-node-id="${safeNodeId}"]`,
+    );
+    const path = svg?.querySelector("path");
+    if (!svg || !path) return content;
+
+    const d = serializePenPath(penPath);
+    const geometry = getPenPathGeometry(penPath);
+    const isClosed = Boolean(penPath.closed && penPath.nodes.length > 1);
+
+    path.setAttribute("d", d);
+    if (isClosed && path.getAttribute("fill") === "none") {
+      path.setAttribute("fill", "#D9D9D9");
+    } else if (!isClosed) {
+      path.setAttribute("fill", "none");
+    }
+
+    svg.setAttribute("data-an-pen-nodes", serializePenNodes(penPath));
+    svg.setAttribute(
+      "viewBox",
+      `${geometry.x} ${geometry.y} ${geometry.width} ${geometry.height}`,
+    );
+    const existingStyle = svg.getAttribute("style") ?? "";
+    const rotationMatch = existingStyle.match(/transform:[^;]+/);
+    svg.setAttribute(
+      "style",
+      [
+        "position:absolute",
+        `left:${Math.round(geometry.x)}px`,
+        `top:${Math.round(geometry.y)}px`,
+        `width:${Math.max(1, Math.round(geometry.width))}px`,
+        `height:${Math.max(1, Math.round(geometry.height))}px`,
+        "overflow:visible",
+        rotationMatch?.[0] ?? "",
+      ]
+        .filter(Boolean)
+        .join(";"),
+    );
+
+    return `<!DOCTYPE html>\n${doc.documentElement.outerHTML}`;
+  } catch {
+    return content;
   }
 }
 
@@ -5363,6 +5792,18 @@ export default function DesignEditor() {
   const [selectedElement, setSelectedElement] = useState<ElementInfo | null>(
     null,
   );
+  // Vector-edit mode (P5 integration): active while the user is editing a
+  // committed pen path's anchors/handles on the overview canvas. `path` is
+  // the LIVE working copy (path-local coordinates, matching pen-path.ts);
+  // `originCanvas` is recomputed from the owning screen's current frame
+  // geometry on every render (see vectorEditOverlayState below) rather than
+  // stored here, so dragging/resizing the screen frame while editing doesn't
+  // leave the overlay pinned to a stale position. null when not editing.
+  const [vectorEditingState, setVectorEditingState] = useState<{
+    screenId: string;
+    nodeId: string;
+    path: PenPath;
+  } | null>(null);
   const [pendingVisualStyleEdits, setPendingVisualStyleEdits] = useState<
     PendingVisualStyleEdit[]
   >([]);
@@ -8508,6 +8949,10 @@ export default function DesignEditor() {
 
   // Canvas container ref for cursor overlay coordinate mapping.
   const canvasContextMenuRef = useRef<CanvasContextMenuHandle | null>(null);
+  // L12: imperative handle so Cmd+R and the canvas context-menu Rename item
+  // can start the layers panel's real inline rename editor on the selected
+  // layer (see beginRename in LayersPanel.tsx).
+  const layersPanelRef = useRef<LayersPanelHandle | null>(null);
   const canvasContainerRef = useRef<HTMLDivElement>(null);
   const activeEditorDragRef = useRef(false);
 
@@ -9121,6 +9566,15 @@ export default function DesignEditor() {
   const activeCanvasSourceType =
     normalizeDesignSourceType(activeOverviewScreen?.sourceType) ??
     designSourceType;
+  // P4: arms DesignCanvas's single-screen click-to-place overlay only while
+  // focused on a single screen with an active creation tool selected —
+  // `null` in every other case leaves the overlay unmounted (see
+  // getSingleScreenCreationTool's doc comment for the full tool mapping).
+  const activeSingleScreenCreationTool = getSingleScreenCreationTool({
+    activeTool,
+    viewMode,
+    hasActiveFile: Boolean(activeFile),
+  });
   const sourceCapabilities = useMemo(() => {
     const caps = resolveSourceCapabilities(designSourceType);
     return DESIGN_CAPABILITY_NAMES.filter((name) => hasCapability(caps, name));
@@ -10137,13 +10591,38 @@ export default function DesignEditor() {
                 : storedContent;
             })()
           : storedContent);
-      const nextContent = appendCanvasPrimitiveToHtml(baseContent, primitive, {
-        preserveNegativePosition: targetFile.id === boardFileId,
-      });
-      if (!nextContent) {
+      const insertedContent = appendCanvasPrimitiveToHtml(
+        baseContent,
+        primitive,
+        { preserveNegativePosition: targetFile.id === boardFileId },
+      );
+      if (!insertedContent) {
         toast.error(t("designEditor.toasts.primitiveInsertFailed"));
         return false;
       }
+      // Vector-edit foundations: stash the structured pen path (nodes +
+      // handles) alongside the flattened `d` so a later double-click/Enter
+      // can re-hydrate it into an editable path instead of only having the
+      // already-flattened curve. `primitive.pathData` is the only carrier of
+      // pen geometry that crosses the MultiScreenCanvas -> DesignEditor
+      // boundary for an OVERVIEW-drawn pen path (see
+      // parsePenPathFromSerializedD's doc comment for why this reconstructs
+      // rather than receives the structured path directly).
+      const nextContent =
+        primitive.kind === "path" && primitive.pathData && primitive.nodeId
+          ? (() => {
+              const reconstructed = parsePenPathFromSerializedD(
+                primitive.pathData!,
+              );
+              return reconstructed
+                ? setPenNodesAttributeOnElement(
+                    insertedContent,
+                    primitive.nodeId!,
+                    reconstructed,
+                  )
+                : insertedContent;
+            })()
+          : insertedContent;
       const projectedNodeId = primitive.nodeId
         ? buildCodeLayerProjection(nextContent).nodes.find(
             (node) =>
@@ -10353,6 +10832,109 @@ export default function DesignEditor() {
     [boardFileId, canEditDesign, handleCreatePrimitive, handlePrimitiveCreated],
   );
 
+  /**
+   * P4: DesignCanvas's single-screen click-to-place creation overlay
+   * (`activeCreationTool`/`onCreatePrimitive` below) commits through this
+   * same `handleCreatePrimitive`/`handlePrimitiveCreated` pair overview
+   * drawing already uses — `createPrimitiveInsertFromSpec` just translates
+   * the overlay's screen-content-space spec into the shared
+   * `CanvasPrimitiveInsert` shape first. Always returns the active tool to
+   * "move" afterward (Figma/overview parity) since single-screen pen never
+   * has a multi-click "mid-path" state to preserve (see
+   * createPrimitiveInsertFromSpec's pen doc comment).
+   */
+  const handleSingleScreenCreatePrimitive = useCallback(
+    (spec: CreatePrimitiveSpec) => {
+      if (!activeFile || !canEditDesign) return;
+      const nodeId = uniqueLayerId(spec.tool === "pen" ? "path" : spec.tool);
+      const primitive = createPrimitiveInsertFromSpec(spec, nodeId);
+      if (!primitive) return;
+      const result = handleCreatePrimitive(activeFile.id, primitive);
+      if (!result) return;
+      const resultNodeId = typeof result === "string" ? result : nodeId;
+      handlePrimitiveCreated(activeFile.id, resultNodeId, {
+        selectFrame: false,
+      });
+    },
+    [activeFile, canEditDesign, handleCreatePrimitive, handlePrimitiveCreated],
+  );
+
+  /**
+   * P5/vector-edit: commits the working PenPath from MultiScreenCanvas's
+   * `vectorEdit` overlay back onto its owning screen. `"preview"` phases
+   * (live anchor/handle drag) only update `vectorEditingState.path` — the
+   * overlay renders straight off that in-memory path, so nothing needs to
+   * touch the iframe/content until the gesture actually settles. `"commit"`
+   * phases (mirroring the same preview/commit gesture-signal convention as
+   * ScrubInput/DesignColorPicker's onChangeComplete) additionally write the
+   * new `d` + data-an-pen-nodes back into the owning screen's HTML through
+   * the existing applyFileContentUpdate persistence path, so a single mouse
+   * drag becomes exactly one saved edit (and one undo/history entry) rather
+   * than one per intermediate frame.
+   */
+  const handleVectorEditChange = useCallback(
+    (nextPath: PenPath, phase: "preview" | "commit") => {
+      setVectorEditingState((current) => {
+        if (!current) return current;
+        if (phase === "commit") {
+          const baseContent = getScreenContent(current.screenId);
+          if (baseContent) {
+            const nextContent = writeBackVectorEditedPenPath(
+              baseContent,
+              current.nodeId,
+              nextPath,
+            );
+            if (nextContent !== baseContent) {
+              applyFileContentUpdate(current.screenId, nextContent, {
+                skipPreview: current.screenId !== activeFile?.id,
+              });
+            }
+          }
+        }
+        return { ...current, path: nextPath };
+      });
+    },
+    [activeFile?.id, applyFileContentUpdate, getScreenContent],
+  );
+
+  const handleVectorEditExit = useCallback(() => {
+    setVectorEditingState(null);
+  }, []);
+
+  /**
+   * P5/vector-edit: the VectorEditOverlayState prop threaded to
+   * MultiScreenCanvas. `originCanvas` is recomputed on every render from the
+   * owning screen's CURRENT frame geometry (see getScreenFrameOriginCanvas)
+   * rather than cached in vectorEditingState, so dragging/resizing the
+   * screen frame mid-edit can't leave the overlay pinned to a stale
+   * position. `null` whenever not editing or the origin can't be resolved
+   * (e.g. the owning screen was deleted mid-edit) — MultiScreenCanvas
+   * doesn't render the overlay in that case.
+   */
+  const vectorEditOverlayState = useMemo<VectorEditOverlayState | null>(() => {
+    if (!vectorEditingState) return null;
+    const originCanvas = getScreenFrameOriginCanvas({
+      screenId: vectorEditingState.screenId,
+      overviewScreens,
+      canvasFrameGeometryById,
+      boardFileId,
+    });
+    if (!originCanvas) return null;
+    return {
+      path: vectorEditingState.path,
+      originCanvas,
+      onChange: handleVectorEditChange,
+      onExit: handleVectorEditExit,
+    };
+  }, [
+    boardFileId,
+    canvasFrameGeometryById,
+    handleVectorEditChange,
+    handleVectorEditExit,
+    overviewScreens,
+    vectorEditingState,
+  ]);
+
   const handleOverviewScreenSelectionChange = useCallback(
     (ids: string[]) => {
       const pendingId = pendingOverviewScreenSelectionRef.current;
@@ -10410,11 +10992,24 @@ export default function DesignEditor() {
     });
   }, [canEditDesign]);
 
+  // T14/P4: text/shape/pen tools used to always force a jump to overview —
+  // that's still correct when the user is already IN overview (or has no
+  // screen focused yet), but when a single screen is already focused these
+  // tools should arm single-screen click-to-place instead of yanking the
+  // user out to overview to draw. Overview mode itself is left completely
+  // alone below (same flushSync/setViewMode("overview") as before).
   const handleTextTool = useCallback(() => {
     if (!canEditDesign) return;
     blurActiveDesignEditableTarget();
     flushSync(() => {
       setActiveTool("text");
+      if (viewModeRef.current === "single" && activeFile) {
+        setMode("edit");
+        setDrawMode(false);
+        setPinMode(false);
+        setSelectedElement(null);
+        return;
+      }
       viewModeRef.current = "overview";
       setViewMode("overview");
       setMode("edit");
@@ -10422,7 +11017,7 @@ export default function DesignEditor() {
       setPinMode(false);
       setSelectedElement(null);
     });
-  }, [canEditDesign]);
+  }, [activeFile, canEditDesign]);
 
   const handleShapeTool = useCallback(
     (tool: ShapeTool) => {
@@ -10430,6 +11025,13 @@ export default function DesignEditor() {
       blurActiveDesignEditableTarget();
       flushSync(() => {
         setActiveTool(tool);
+        if (viewModeRef.current === "single" && activeFile) {
+          setMode("edit");
+          setDrawMode(false);
+          setPinMode(false);
+          setSelectedElement(null);
+          return;
+        }
         viewModeRef.current = "overview";
         setViewMode("overview");
         setMode("edit");
@@ -10438,7 +11040,7 @@ export default function DesignEditor() {
         setSelectedElement(null);
       });
     },
-    [canEditDesign],
+    [activeFile, canEditDesign],
   );
 
   const handleRectTool = useCallback(() => {
@@ -10474,6 +11076,13 @@ export default function DesignEditor() {
     blurActiveDesignEditableTarget();
     flushSync(() => {
       setActiveTool("pen");
+      if (viewModeRef.current === "single" && activeFile) {
+        setMode("edit");
+        setDrawMode(false);
+        setPinMode(false);
+        setSelectedElement(null);
+        return;
+      }
       viewModeRef.current = "overview";
       setViewMode("overview");
       setMode("edit");
@@ -10481,7 +11090,7 @@ export default function DesignEditor() {
       setPinMode(false);
       setSelectedElement(null);
     });
-  }, [canEditDesign]);
+  }, [activeFile, canEditDesign]);
 
   const handleHandTool = useCallback(() => {
     if (!canEditDesign) return;
@@ -11721,7 +12330,7 @@ export default function DesignEditor() {
   );
 
   const handleStyleChange = useCallback(
-    (property: string, value: string) => {
+    (property: string, value: string, meta?: StyleChangeMeta) => {
       const selector = selectedElement?.selector ?? "body";
       if (
         textEditingState.active &&
@@ -11736,6 +12345,36 @@ export default function DesignEditor() {
           });
           return;
         }
+      }
+      // PF12: a mid-gesture scrub/color-drag preview tick (ScrubInput's
+      // `phase: "preview"`, DesignColorPicker's per-tick `onChange`) is cheap
+      // to show live but must NOT run the expensive source commit
+      // (projection parse + HTML patch + history entry) on every tick — only
+      // the gesture's final "commit" (or a caller that never passes meta at
+      // all, e.g. keyboard/agent edits) does that. Route preview ticks
+      // through the same cheap iframe postMessage path the text-range case
+      // above already uses, and skip commitVisualStyles entirely so there is
+      // no source write — and therefore no history entry — for any preview
+      // tick. Multi-layer-selection commits (commitStylesToSelectedLayers)
+      // have no equivalent cheap multi-element preview channel, so previews
+      // for that case conservatively fall through to the existing full-commit
+      // behavior below (unchanged from before PF12).
+      if (
+        shouldSkipVisualStyleCommitForPreview({
+          phase: meta?.phase,
+          selectedLayerCount: selectedLayerTargetsRef.current.length,
+        })
+      ) {
+        const sendStyleChange = (window as any).__designCanvasSendStyle;
+        if (typeof sendStyleChange === "function") {
+          sendStyleChange(selector, property, value, {
+            selectorCandidates: selectedCanvasSelectorCandidates,
+            nodeId: selectedElement?.sourceId,
+          });
+        }
+        // No live bridge available for this preview tick (e.g. inactive
+        // screen) — nothing cheap to do; wait for the gesture's "commit".
+        return;
       }
       if (commitStylesToSelectedLayers({ [property]: value })) return;
       commitVisualStyles(selector, { [property]: value });
@@ -11768,7 +12407,7 @@ export default function DesignEditor() {
   );
 
   const handleStylesChange = useCallback(
-    (styles: Record<string, string>) => {
+    (styles: Record<string, string>, meta?: StyleChangeMeta) => {
       const selector = selectedElement?.selector ?? "body";
       const entries = Object.entries(styles).filter(([, value]) =>
         Boolean(value),
@@ -11796,6 +12435,28 @@ export default function DesignEditor() {
           });
           return;
         }
+      }
+      // PF12: same preview/commit split as handleStyleChange — see its
+      // comment for the full undo-safety rationale. A batched multi-property
+      // preview tick (e.g. EditPanel's shadow X/Y/blur/spread popover) is
+      // still just a live preview: send every property to the cheap iframe
+      // bridge and skip the expensive multi-property commitVisualStyles call.
+      if (
+        shouldSkipVisualStyleCommitForPreview({
+          phase: meta?.phase,
+          selectedLayerCount: selectedLayerTargetsRef.current.length,
+        })
+      ) {
+        const sendStyleChange = (window as any).__designCanvasSendStyle;
+        if (typeof sendStyleChange === "function") {
+          entries.forEach(([property, value]) => {
+            sendStyleChange(selector, property, value, {
+              selectorCandidates: selectedCanvasSelectorCandidates,
+              nodeId: selectedElement?.sourceId,
+            });
+          });
+        }
+        return;
       }
       if (commitStylesToSelectedLayers(Object.fromEntries(entries))) return;
       commitVisualStyles(selector, Object.fromEntries(entries));
@@ -15355,6 +16016,12 @@ export default function DesignEditor() {
       pendingOverviewLayerSelectionRef.current = null;
       clearPendingOverviewLayerSelectionTimer();
       setCreatedOverviewLayerSelection(null);
+      // P5/vector-edit: MultiScreenCanvas (the only place the vectorEdit
+      // overlay renders) unmounts on leaving overview, so an active
+      // vector-edit session has nothing left to render into — clear it
+      // rather than leaving a stale/orphaned session in memory that would
+      // resurface if the user returns to overview later.
+      setVectorEditingState(null);
       runEditorViewTransition(() => {
         if (fileId) setActiveFileId(fileId);
         setDrawMode(false);
@@ -15597,6 +16264,36 @@ export default function DesignEditor() {
       ]),
     [],
   );
+  /**
+   * P5/vector-edit entry point. Only reachable while `viewMode === "overview"`
+   * — MultiScreenCanvas's `vectorEdit` overlay (the only place this state is
+   * rendered) doesn't exist in single-screen mode, so entering vector edit
+   * from a single-screen selection is deliberately deferred rather than
+   * silently doing something broken; see FINAL REPORT for the exact
+   * deferral. Returns true when vector edit mode was entered (caller should
+   * not also drill into the screen), false otherwise (not a pen path, or its
+   * origin couldn't be resolved).
+   */
+  const enterVectorEditForSelection = useCallback(
+    (owner: { fileId: string; node: CodeLayerNode }): boolean => {
+      const penNodesAttr = owner.node.dataAttributes["data-an-pen-nodes"];
+      if (!penNodesAttr) return false;
+      const path = parsePenNodes(penNodesAttr);
+      if (!path) return false;
+      const originCanvas = getScreenFrameOriginCanvas({
+        screenId: owner.fileId,
+        overviewScreens,
+        canvasFrameGeometryById,
+        boardFileId,
+      });
+      if (!originCanvas) return false;
+      const nodeId =
+        owner.node.dataAttributes["data-agent-native-node-id"] ?? owner.node.id;
+      setVectorEditingState({ screenId: owner.fileId, nodeId, path });
+      return true;
+    },
+    [boardFileId, canvasFrameGeometryById, overviewScreens],
+  );
   const handleEnterHotkey = useCallback(() => {
     if (viewMode !== "overview") {
       if (selectedLayerIdsState.length === 1) {
@@ -15616,6 +16313,20 @@ export default function DesignEditor() {
       }
       return;
     }
+    // P5/vector-edit: Enter on a single selected committed pen path (has
+    // data-an-pen-nodes — see setPenNodesAttributeOnElement) enters vector
+    // edit mode instead of drilling into the owning screen. Vector edit's
+    // overlay only exists on MultiScreenCanvas (overview), so this
+    // deliberately only fires here — see enterVectorEditForSelection's doc
+    // comment for the single-screen deferral.
+    if (selectedLayerIdsState.length === 1) {
+      const layerId = selectedLayerIdsState[0]!;
+      const owner = codeLayerOwnerByNodeIdRef.current.get(layerId);
+      const penNodesAttr = owner?.node.dataAttributes["data-an-pen-nodes"];
+      if (owner && penNodesAttr && enterVectorEditForSelection(owner)) {
+        return;
+      }
+    }
     const target = getOverviewEnterTarget({
       activeFileId: activeFile?.id ?? activeFileId,
       overviewSelectedScreenIds,
@@ -15627,6 +16338,7 @@ export default function DesignEditor() {
     activeFile?.id,
     activeFileId,
     enterSingleScreen,
+    enterVectorEditForSelection,
     overviewSelectedScreenIds,
     selectedLayerIdsState,
     viewMode,
@@ -15772,6 +16484,22 @@ export default function DesignEditor() {
     setOverviewSelectAllRequest((request) => request + 1);
   }, [activeFile, files, getFreshActiveContent]);
 
+  // L12: shared by Cmd+R and the canvas context-menu Rename item — the single
+  // currently-selected layer id eligible for the layers-panel inline rename,
+  // or null when zero or more-than-one layers are selected (screen/file rows
+  // are excluded; renaming those is a separate flow). `__`-prefixed and file
+  // ids are filtered the same way handleSelectAllFrames/other selection
+  // helpers already do.
+  const getSingleSelectedRenamableLayerId = useCallback((): string | null => {
+    const fileIds = new Set(files.map((file) => file.id));
+    const selectedRenamableLayerIds = selectedLayerIdsState.filter(
+      (layerId) => !layerId.startsWith("__") && !fileIds.has(layerId),
+    );
+    return selectedRenamableLayerIds.length === 1
+      ? selectedRenamableLayerIds[0]!
+      : null;
+  }, [files, selectedLayerIdsState]);
+
   const shouldHandleEditorHotkey = useCallback((event: KeyboardEvent) => {
     const key = event.key.length === 1 ? event.key.toLowerCase() : event.key;
     const primary = event.metaKey || event.ctrlKey;
@@ -15815,21 +16543,16 @@ export default function DesignEditor() {
     // L12: Cmd+R (and the context-menu Rename item, both routed through
     // useDesignHotkeys' onRename) previously always renamed the DESIGN
     // TITLE, even while a layer was selected — surprising when the user's
-    // focus is clearly on a specific layer. Route to the layer instead when
-    // exactly one selectable (non-file-row) layer is selected; only fall
-    // back to renaming the design title when nothing is selected. The panel
-    // itself only exposes rename as an internal double-click/context-menu
-    // interaction (no imperative "start rename" entry point yet), so this
-    // selects the layer and nudges the user to double-click it in the panel
-    // rather than silently doing nothing or renaming the wrong thing.
+    // focus is clearly on a specific layer. Route to the layer's real inline
+    // rename editor (LayersPanel ref's beginRename) when exactly one
+    // selectable (non-file-row) layer is selected; only fall back to
+    // renaming the design title when nothing (or more than one layer) is
+    // selected.
     onRename: () => {
       if (!canEditDesign) return;
-      const fileIds = new Set(files.map((file) => file.id));
-      const selectedRenamableLayerIds = selectedLayerIdsState.filter(
-        (layerId) => !layerId.startsWith("__") && !fileIds.has(layerId),
-      );
-      if (selectedRenamableLayerIds.length === 1) {
-        toast.info(t("designEditor.toasts.layerRenameSelectLayer"));
+      const layerId = getSingleSelectedRenamableLayerId();
+      if (layerId) {
+        layersPanelRef.current?.beginRename(layerId);
         return;
       }
       setTitleDraft(design?.title ?? "");
@@ -20437,6 +21160,7 @@ ${serializedHtml}
                 </div>
                 <div className="min-h-0 flex-1">
                   <LayersPanel
+                    ref={layersPanelRef}
                     screens={layerPanelFiles}
                     activeScreenId={activeFileId ?? undefined}
                     screenOverviewActive={viewMode === "overview"}
@@ -20688,7 +21412,12 @@ ${serializedHtml}
                 (selectedScreenIds.length > 0 && files.length > 1)),
             )}
             canReorder={canEditDesign && Boolean(selectedElement)}
-            canRename={false}
+            // L12: rename is only offered for a single selectable layer
+            // target (matching Cmd+R's routing) — the design-title rename
+            // flow lives elsewhere (the title control), not this menu.
+            canRename={
+              canEditDesign && Boolean(getSingleSelectedRenamableLayerId())
+            }
             canToggleLocked={canEditDesign && Boolean(activeLayerId)}
             canToggleHidden={canEditDesign && Boolean(activeLayerId)}
             canCopyProps={Boolean(selectedElement)}
@@ -20698,7 +21427,6 @@ ${serializedHtml}
             canCopyAsCode={Boolean(selectedElement?.selector)}
             canGroup={canGroup}
             canUngroup={canUngroup}
-            hiddenActions={["rename"]}
             getCanvasPoint={getContextCanvasPoint}
             onPasteHere={(details) =>
               void handlePasteSelection(
@@ -20720,6 +21448,14 @@ ${serializedHtml}
             onBringToFront={() => changeSelectedZIndex("front")}
             onSendBackward={() => changeSelectedZIndex("backward")}
             onSendToBack={() => changeSelectedZIndex("back")}
+            // L12: start the layers panel's real inline rename editor on the
+            // single selected layer — canRename above already gates this item
+            // to exactly that case, so getSingleSelectedRenamableLayerId()
+            // should always resolve here.
+            onRename={() => {
+              const layerId = getSingleSelectedRenamableLayerId();
+              if (layerId) layersPanelRef.current?.beginRename(layerId);
+            }}
             onToggleLocked={() => {
               if (activeLayerId) {
                 handleToggleLayerLocked(activeLayerId, !activeLayerLocked);
@@ -20852,6 +21588,7 @@ ${serializedHtml}
                       geometryById={canvasFrameGeometryById}
                       onGeometryChange={queueFrameGeometrySave}
                       onGeometryCommit={handleGeometryCommit}
+                      vectorEdit={vectorEditOverlayState}
                       onCreatePrimitive={handleCreatePrimitive}
                       onPrimitiveCreated={handlePrimitiveCreated}
                       onPrimitiveReparent={handleOverviewPrimitiveReparent}
@@ -20988,6 +21725,8 @@ ${serializedHtml}
                         interactMode={mode === "interact"}
                         readOnly={!canEditDesign}
                         scaleMode={activeTool === "scale"}
+                        activeCreationTool={activeSingleScreenCreationTool}
+                        onCreatePrimitive={handleSingleScreenCreatePrimitive}
                         clearSelectionRequest={overviewClearSelectionRequest}
                         selectedSelector={selectedCanvasSelector}
                         selectedSelectorCandidates={

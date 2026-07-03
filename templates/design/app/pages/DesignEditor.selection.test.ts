@@ -45,6 +45,7 @@ import {
   getSelectedScreenIdsForEditorState,
   getSelectedScreenGeometryForInspector,
   shouldReplacePreviewAfterVisualStyleCommit,
+  shouldSkipVisualStyleCommitForPreview,
   shouldLimitEditorChromeUntilContentReady,
   shouldEscapeToOverview,
   shouldIgnoreOverviewLayerCreationEcho,
@@ -203,6 +204,55 @@ describe("DesignEditor visual style preview replacement", () => {
       shouldReplacePreviewAfterVisualStyleCommit({
         runtimeApplied: false,
         runtimeStyleApplied: true,
+      }),
+    ).toBe(false);
+  });
+});
+
+describe("DesignEditor PF12 scrub/color-drag preview throttling", () => {
+  it("skips the expensive source commit for a mid-gesture preview tick on a single selection", () => {
+    expect(
+      shouldSkipVisualStyleCommitForPreview({
+        phase: "preview",
+        selectedLayerCount: 1,
+      }),
+    ).toBe(true);
+  });
+
+  it("skips the expensive source commit for a preview tick with no selection (page-level edits)", () => {
+    expect(
+      shouldSkipVisualStyleCommitForPreview({
+        phase: "preview",
+        selectedLayerCount: 0,
+      }),
+    ).toBe(true);
+  });
+
+  it("runs the full commit for the gesture's authoritative commit phase", () => {
+    expect(
+      shouldSkipVisualStyleCommitForPreview({
+        phase: "commit",
+        selectedLayerCount: 1,
+      }),
+    ).toBe(false);
+  });
+
+  it("runs the full commit when no phase is provided (keyboard/agent edits keep prior behavior)", () => {
+    expect(
+      shouldSkipVisualStyleCommitForPreview({
+        phase: undefined,
+        selectedLayerCount: 1,
+      }),
+    ).toBe(false);
+  });
+
+  it("never skips the commit for a multi-layer selection, even mid-gesture", () => {
+    // No cheap multi-element preview channel exists yet — conservatively
+    // keep committing every tick, same as before PF12.
+    expect(
+      shouldSkipVisualStyleCommitForPreview({
+        phase: "preview",
+        selectedLayerCount: 2,
       }),
     ).toBe(false);
   });

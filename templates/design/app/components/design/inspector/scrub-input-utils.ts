@@ -5,6 +5,62 @@ export interface ScrubExpressionOptions {
   precision?: number;
 }
 
+// ─── Scrub-drag gesture-lifecycle state machine ───────────────────────────────
+//
+// Pure mirror of the pointerdown/pointermove/pointerup bookkeeping in
+// ScrubInput's dragRef, extracted so the "exactly one commit-phase emission
+// per gesture" contract can be unit tested without simulating real DOM
+// pointer events (this template has no jsdom/testing-library dependency).
+
+/** Cumulative pointer movement (px) required before a drag start is treated
+ * as a real scrub rather than jitter during a plain click. Mirrors
+ * ScrubInput's DRAG_THRESHOLD_PX. */
+export const SCRUB_DRAG_THRESHOLD_PX = 3;
+
+export interface ScrubDragState {
+  startX: number;
+  prevX: number;
+  hasDragged: boolean;
+}
+
+/** Begins tracking a new scrub gesture at the given starting pointer X. */
+export function startScrubDrag(startX: number): ScrubDragState {
+  return { startX, prevX: startX, hasDragged: false };
+}
+
+export interface ScrubDragTick {
+  /** The updated drag state after this pointermove sample. */
+  state: ScrubDragState;
+  /** The incremental delta (px) to apply this tick, or null when the move
+   * should be ignored (no movement, or still under the jitter threshold). */
+  deltaX: number | null;
+}
+
+/**
+ * Processes one pointermove sample against the in-progress drag state.
+ * Mirrors ScrubInput's handlePointerMove threshold/hasDragged logic exactly:
+ * a move is ignored until cumulative movement clears SCRUB_DRAG_THRESHOLD_PX,
+ * after which every subsequent move (including this one) yields an
+ * incremental delta and marks the gesture as a real drag.
+ */
+export function updateScrubDrag(
+  state: ScrubDragState,
+  clientX: number,
+): ScrubDragTick {
+  const incr = clientX - state.prevX;
+  if (incr === 0) {
+    return { state, deltaX: null };
+  }
+  const cumulativeDelta = Math.abs(clientX - state.startX);
+  if (!state.hasDragged && cumulativeDelta < SCRUB_DRAG_THRESHOLD_PX) {
+    return { state: { ...state, prevX: clientX }, deltaX: null };
+  }
+  return {
+    state: { ...state, prevX: clientX, hasDragged: true },
+    deltaX: incr,
+  };
+}
+
 export interface ParsedScrubExpression {
   value: number;
   normalized: string;

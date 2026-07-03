@@ -34,9 +34,14 @@ import {
   createCornerNode,
   createSmoothNode,
   getPenPathGeometry,
+  hitTestPenAnchor,
+  hitTestPenHandle,
   isPenCloseTarget,
+  movePenAnchor,
+  movePenHandle,
   scalePenPathToGeometry,
   serializePenPath,
+  setPenNodeType,
   snapPenAnchorPoint,
   translatePenPath,
   type PenNode,
@@ -402,6 +407,14 @@ interface MultiScreenCanvasProps {
     info?: ElementInfo,
     details?: { html?: string },
   ) => void;
+  /**
+   * Figma-style vector edit mode: when present, renders an interactive
+   * overlay (draggable anchors + control handles) over `path` and lets the
+   * user reshape it. When null/undefined, nothing new renders and existing
+   * pen-draw / selection / drag behavior is unaffected. The parent owns the
+   * working PenPath state, entering/exiting edit mode, and persistence.
+   */
+  vectorEdit?: VectorEditOverlayState | null;
 }
 
 /**
@@ -749,6 +762,13 @@ const DRAFT_TEXT_HEIGHT = 48;
 const DRAFT_LINE_WIDTH = 160;
 const DRAFT_PATH_MIN_SIZE = 12;
 const PEN_CLOSE_HIT_RADIUS_SCREEN_PX = 10;
+/** Screen-space hit radius for vector-edit anchor/handle pointer targets,
+ *  independent of PEN_CLOSE_HIT_RADIUS_SCREEN_PX (that one gates the pen
+ *  tool's close-path affordance while drawing, not editing an existing
+ *  path). Converted to canvas px via `screenPxToCanvasPx` before being
+ *  passed to hitTestPenAnchor/hitTestPenHandle, which operate in canvas
+ *  space. */
+const VECTOR_EDIT_HIT_RADIUS_SCREEN_PX = 8;
 
 interface ResolvedScreenMetadata {
   source: ScreenSourceType;
@@ -789,6 +809,56 @@ type FrameGeometryById = Record<string, FrameGeometry>;
 export interface Point {
   x: number;
   y: number;
+}
+
+/**
+ * Interactive vector-edit overlay state, supplied by the parent
+ * (DesignEditor) whenever the user is editing an existing path's anchors and
+ * control handles on the canvas. `path` is expressed in path-local
+ * coordinates (the same space `pen-path.ts` helpers operate in); `originCanvas`
+ * is where that path's local origin (0,0) sits in canvas space, so a given
+ * local point's canvas position is simply `originCanvas + localPoint`
+ * (see `vectorEditLocalToCanvasPoint`). The parent owns the working PenPath
+ * state, entering/exiting edit mode, and persistence — this component only
+ * renders the overlay and reports pointer interaction back through
+ * `onChange`/`onExit`.
+ */
+export interface VectorEditOverlayState {
+  path: PenPath;
+  originCanvas: Point;
+  onChange: (nextPath: PenPath, phase: "preview" | "commit") => void;
+  onExit: () => void;
+}
+
+/** Path-local point -> canvas-space point, given the path's canvas origin. */
+export function vectorEditLocalToCanvasPoint(
+  local: Point,
+  originCanvas: Point,
+): Point {
+  return { x: originCanvas.x + local.x, y: originCanvas.y + local.y };
+}
+
+/** Canvas-space point -> path-local point, given the path's canvas origin.
+ *  Inverse of `vectorEditLocalToCanvasPoint`. */
+export function vectorEditCanvasToLocalPoint(
+  canvasPoint: Point,
+  originCanvas: Point,
+): Point {
+  return {
+    x: canvasPoint.x - originCanvas.x,
+    y: canvasPoint.y - originCanvas.y,
+  };
+}
+
+/** Converts a constant on-screen pixel radius (e.g. a hit-test tolerance
+ *  that should feel the same size regardless of zoom) into canvas px, the
+ *  space hitTestPenAnchor/hitTestPenHandle and PenPath geometry operate in.
+ *  `zoom` is the same 0-based-at-100 percentage used throughout this file
+ *  (100 = 1:1). Mirrors the `screenPx / (zoom / 100)` conversion already
+ *  used by the pen tool's close-hit-target radius. */
+export function screenPxToCanvasPx(screenPx: number, zoom: number): number {
+  const scale = zoom / 100;
+  return scale > 0 ? screenPx / scale : screenPx;
 }
 
 export type CrossScreenDropPlacement = "before" | "after" | "inside";
@@ -1179,6 +1249,32 @@ interface PenNodeDragState {
   closing?: boolean;
 }
 
+/** Dragging an anchor square of a `vectorEdit` overlay path (P-VE1). Anchor
+ *  drags move the whole node (point + handles, via movePenAnchor's default
+ *  moveHandlesWithAnchor:true) rather than reshaping a single handle. */
+interface VectorEditAnchorDragState {
+  type: "vector-anchor";
+  originClient: Point;
+  nodeIndex: number;
+  /** Path snapshot (local coords) from just before this drag began, restored
+   *  on cancel. */
+  pathBefore: PenPath;
+  hasMoved: boolean;
+}
+
+/** Dragging a control-handle circle of a `vectorEdit` overlay path (P-VE1).
+ *  Alt/Option held during the drag breaks handle symmetry into a cusp
+ *  (movePenHandle's breakSymmetry), matching the pen tool's own alt
+ *  behavior while placing a fresh anchor. */
+interface VectorEditHandleDragState {
+  type: "vector-handle";
+  originClient: Point;
+  nodeIndex: number;
+  which: "in" | "out";
+  pathBefore: PenPath;
+  hasMoved: boolean;
+}
+
 interface DraftCreationPreview {
   tool: DraftCreationTool;
   geometry: FrameGeometry;
@@ -1195,7 +1291,9 @@ type DragState =
   | DraftMoveDragState
   | DraftResizeDragState
   | DraftCreateDragState
-  | PenNodeDragState;
+  | PenNodeDragState
+  | VectorEditAnchorDragState
+  | VectorEditHandleDragState;
 
 type PendingWheelGesture =
   | {
@@ -1281,6 +1379,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   onBoardVisualStyleChange,
   onBoardVisualDuplicateChange,
   onBoardTextContentChange,
+  vectorEdit,
 }: MultiScreenCanvasProps) {
   const t = useT();
   const surfaceRef = useRef<HTMLDivElement>(null);
@@ -1359,6 +1458,12 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     useState<PrimitiveDropTarget | null>(null);
   const primitiveDropTargetRef = useRef<PrimitiveDropTarget | null>(null);
   const onPrimitiveReparentRef = useRef(onPrimitiveReparent);
+  // Mirrors the `vectorEdit` prop so long-lived mousemove/mouseup closures
+  // created at drag-start (beginVectorAnchorDrag/beginVectorHandleDrag) always
+  // read the current path/onChange even if the prop identity changes mid-drag
+  // (e.g. a re-render from the preview onChange itself), rather than closing
+  // over a snapshot from the moment the drag began.
+  const vectorEditRef = useRef(vectorEdit);
 
   // Cross-screen element drag state — driven by postMessage from the source iframe.
   interface CrossScreenDragGhost {
@@ -1483,6 +1588,10 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   useEffect(() => {
     onPrimitiveReparentRef.current = onPrimitiveReparent;
   }, [onPrimitiveReparent]);
+
+  useEffect(() => {
+    vectorEditRef.current = vectorEdit;
+  }, [vectorEdit]);
 
   useEffect(() => {
     onCrossScreenElementDropRef.current = onCrossScreenElementDrop;
@@ -2948,6 +3057,14 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         setPenGesturePreview(null);
         setPenPointer(null);
         setPenCloseHover(false);
+      } else if (
+        state.type === "vector-anchor" ||
+        state.type === "vector-handle"
+      ) {
+        // vectorEdit's path is parent-owned (unlike activePenPath above),
+        // so reverting on cancel means reporting the pre-drag snapshot back
+        // as a commit rather than mutating any local state here.
+        vectorEdit?.onChange(clonePenPath(state.pathBefore), "commit");
       }
     }
 
@@ -2967,22 +3084,33 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     updateFrameGeometry,
     updateSelectedDraftIds,
     updateSelectedIds,
+    vectorEdit,
   ]);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
-      if (!cancelActiveDrag()) return;
-      event.preventDefault();
-      event.stopPropagation();
-      event.stopImmediatePropagation();
+      if (cancelActiveDrag()) {
+        event.preventDefault();
+        event.stopPropagation();
+        event.stopImmediatePropagation();
+        return;
+      }
+      // No in-flight drag to cancel: Escape while in vector edit mode exits
+      // the mode entirely (matches Figma), rather than being a no-op.
+      if (vectorEdit) {
+        vectorEdit.onExit();
+        event.preventDefault();
+        event.stopPropagation();
+        event.stopImmediatePropagation();
+      }
     };
 
     window.addEventListener("keydown", handleKeyDown, true);
     return () => {
       window.removeEventListener("keydown", handleKeyDown, true);
     };
-  }, [cancelActiveDrag]);
+  }, [cancelActiveDrag, vectorEdit]);
 
   const beginPan = useCallback(
     (e: React.MouseEvent) => {
@@ -3680,6 +3808,220 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       installDragListeners,
       onActiveToolChange,
     ],
+  );
+
+  // ── Vector edit mode (P-VE1): drag an existing path's anchors/handles ────
+  // (see VectorEditOverlayState / VectorEditOverlay). The overlay itself
+  // resolves hit-tests and starts these; both gestures follow the same
+  // installDragListeners/dragState pattern as every other drag above, with
+  // the parent-owned `vectorEdit.path` (not local React state) as the
+  // source of truth: every move reports an updated path via
+  // `vectorEdit.onChange(next, "preview" | "commit")` instead of setting
+  // local state.
+  const beginVectorAnchorDrag = useCallback(
+    (nodeIndex: number, e: React.MouseEvent) => {
+      if (!vectorEdit || e.button !== 0) return;
+      e.preventDefault();
+      e.stopPropagation();
+      claimKeyboardFocus();
+
+      const pathBefore = clonePenPath(vectorEdit.path);
+      dragState.current = {
+        type: "vector-anchor",
+        originClient: { x: e.clientX, y: e.clientY },
+        nodeIndex,
+        pathBefore,
+        hasMoved: false,
+      };
+      setIsDragging(true);
+      setDragCursor("move");
+
+      const handleMouseMove = (ev: MouseEvent) => {
+        const state = dragState.current;
+        if (!state || state.type !== "vector-anchor") return;
+        const active = vectorEditRef.current;
+        if (!active) return;
+        if (
+          !state.hasMoved &&
+          Math.hypot(
+            ev.clientX - state.originClient.x,
+            ev.clientY - state.originClient.y,
+          ) >= DRAG_THRESHOLD
+        ) {
+          state.hasMoved = true;
+        }
+        const canvasPoint = getCanvasPoint(ev.clientX, ev.clientY);
+        const localPoint = vectorEditCanvasToLocalPoint(
+          canvasPoint,
+          active.originCanvas,
+        );
+        const nextPath = movePenAnchor(
+          state.pathBefore,
+          state.nodeIndex,
+          localPoint,
+        );
+        active.onChange(nextPath, "preview");
+      };
+
+      const handleMouseUp = (ev: MouseEvent) => {
+        const state = dragState.current;
+        if (!state || state.type !== "vector-anchor") {
+          finishDrag();
+          return;
+        }
+        const active = vectorEditRef.current;
+        if (!active) {
+          finishDrag();
+          return;
+        }
+        const canvasPoint = getCanvasPoint(ev.clientX, ev.clientY);
+        const localPoint = vectorEditCanvasToLocalPoint(
+          canvasPoint,
+          active.originCanvas,
+        );
+        const nextPath = state.hasMoved
+          ? movePenAnchor(state.pathBefore, state.nodeIndex, localPoint)
+          : state.pathBefore;
+        active.onChange(nextPath, "commit");
+        finishDrag();
+      };
+
+      const cancelGesture = () => {
+        const state = dragState.current;
+        const active = vectorEditRef.current;
+        if (state?.type === "vector-anchor" && active) {
+          active.onChange(clonePenPath(state.pathBefore), "commit");
+        }
+        finishDrag();
+      };
+
+      installDragListeners(handleMouseMove, handleMouseUp, cancelGesture);
+    },
+    [
+      claimKeyboardFocus,
+      finishDrag,
+      getCanvasPoint,
+      installDragListeners,
+      vectorEdit,
+    ],
+  );
+
+  const beginVectorHandleDrag = useCallback(
+    (nodeIndex: number, which: "in" | "out", e: React.MouseEvent) => {
+      if (!vectorEdit || e.button !== 0) return;
+      e.preventDefault();
+      e.stopPropagation();
+      claimKeyboardFocus();
+
+      const pathBefore = clonePenPath(vectorEdit.path);
+      dragState.current = {
+        type: "vector-handle",
+        originClient: { x: e.clientX, y: e.clientY },
+        nodeIndex,
+        which,
+        pathBefore,
+        hasMoved: false,
+      };
+      setIsDragging(true);
+      setDragCursor("crosshair");
+
+      const handleMouseMove = (ev: MouseEvent) => {
+        const state = dragState.current;
+        if (!state || state.type !== "vector-handle") return;
+        const active = vectorEditRef.current;
+        if (!active) return;
+        if (
+          !state.hasMoved &&
+          Math.hypot(
+            ev.clientX - state.originClient.x,
+            ev.clientY - state.originClient.y,
+          ) >= DRAG_THRESHOLD
+        ) {
+          state.hasMoved = true;
+        }
+        const canvasPoint = getCanvasPoint(ev.clientX, ev.clientY);
+        const localPoint = vectorEditCanvasToLocalPoint(
+          canvasPoint,
+          active.originCanvas,
+        );
+        // Alt/Option held mid-drag breaks handle symmetry into a cusp,
+        // matching the pen tool's own alt behavior (read live on every move
+        // so toggling Alt mid-drag updates immediately).
+        const nextPath = movePenHandle(
+          state.pathBefore,
+          state.nodeIndex,
+          state.which,
+          localPoint,
+          { breakSymmetry: ev.altKey },
+        );
+        active.onChange(nextPath, "preview");
+      };
+
+      const handleMouseUp = (ev: MouseEvent) => {
+        const state = dragState.current;
+        if (!state || state.type !== "vector-handle") {
+          finishDrag();
+          return;
+        }
+        const active = vectorEditRef.current;
+        if (!active) {
+          finishDrag();
+          return;
+        }
+        const canvasPoint = getCanvasPoint(ev.clientX, ev.clientY);
+        const localPoint = vectorEditCanvasToLocalPoint(
+          canvasPoint,
+          active.originCanvas,
+        );
+        const nextPath = state.hasMoved
+          ? movePenHandle(
+              state.pathBefore,
+              state.nodeIndex,
+              state.which,
+              localPoint,
+              { breakSymmetry: ev.altKey },
+            )
+          : state.pathBefore;
+        active.onChange(nextPath, "commit");
+        finishDrag();
+      };
+
+      const cancelGesture = () => {
+        const state = dragState.current;
+        const active = vectorEditRef.current;
+        if (state?.type === "vector-handle" && active) {
+          active.onChange(clonePenPath(state.pathBefore), "commit");
+        }
+        finishDrag();
+      };
+
+      installDragListeners(handleMouseMove, handleMouseUp, cancelGesture);
+    },
+    [
+      claimKeyboardFocus,
+      finishDrag,
+      getCanvasPoint,
+      installDragListeners,
+      vectorEdit,
+    ],
+  );
+
+  /** Toggle corner<->smooth on double-click of an anchor (P-VE1). Always
+   *  commits immediately (no preview phase — there's no drag to preview). */
+  const toggleVectorNodeType = useCallback(
+    (nodeIndex: number) => {
+      if (!vectorEdit) return;
+      const node = vectorEdit.path.nodes[nodeIndex];
+      if (!node) return;
+      const isCorner = !node.handleIn && !node.handleOut;
+      const nextPath = setPenNodeType(
+        vectorEdit.path,
+        nodeIndex,
+        isCorner ? "smooth" : "corner",
+      );
+      vectorEdit.onChange(nextPath, "commit");
+    },
+    [vectorEdit],
   );
 
   const beginDraftCreation = useCallback(
@@ -5006,6 +5348,52 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       const target = e.target as HTMLElement;
       const onFrame = !!target.closest("[data-frame-shell]");
       const tool = normalizeCanvasTool(activeTool ?? localActiveTool);
+      if (vectorEdit) {
+        if (e.button !== 0) return;
+        e.preventDefault();
+        // Hit-test the click directly against the path's anchors/handles
+        // (rather than relying on per-element DOM handlers), reusing the
+        // same pure hitTestPenAnchor/hitTestPenHandle helpers pen-path.ts
+        // exports. A screen-space radius keeps the hit target a constant
+        // physical size regardless of zoom, matching PEN_CLOSE_HIT_RADIUS
+        // above. Handles take priority over anchors when both are in range
+        // (checked first, below).
+        const canvasPoint = getCanvasPoint(e.clientX, e.clientY);
+        const localPoint = vectorEditCanvasToLocalPoint(
+          canvasPoint,
+          vectorEdit.originCanvas,
+        );
+        const hitRadius = screenPxToCanvasPx(
+          VECTOR_EDIT_HIT_RADIUS_SCREEN_PX,
+          zoomRef.current,
+        );
+        const handleHit = hitTestPenHandle(
+          vectorEdit.path,
+          localPoint,
+          hitRadius,
+        );
+        if (handleHit) {
+          beginVectorHandleDrag(handleHit.nodeIndex, handleHit.which, e);
+          return;
+        }
+        const anchorHit = hitTestPenAnchor(
+          vectorEdit.path,
+          localPoint,
+          hitRadius,
+        );
+        if (anchorHit) {
+          if (e.detail > 1) {
+            toggleVectorNodeType(anchorHit.nodeIndex);
+            return;
+          }
+          beginVectorAnchorDrag(anchorHit.nodeIndex, e);
+          return;
+        }
+        // Missed everything: an empty-canvas click while in vector edit mode
+        // exits the mode, matching Figma.
+        vectorEdit.onExit();
+        return;
+      }
       if (e.button === 1) {
         beginPan(e);
         return;
@@ -5033,8 +5421,13 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       beginMarquee,
       beginPan,
       beginPenNodeCreation,
+      beginVectorAnchorDrag,
+      beginVectorHandleDrag,
       claimKeyboardFocus,
+      getCanvasPoint,
       localActiveTool,
+      toggleVectorNodeType,
+      vectorEdit,
     ],
   );
 
@@ -5966,6 +6359,13 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           />
         ) : null}
 
+        {vectorEdit ? (
+          <VectorEditOverlay
+            vectorEdit={vectorEdit}
+            chromeScale={chromeScale}
+          />
+        ) : null}
+
         {singleSelectedFrame ? (
           <SelectionBox
             geometry={singleSelectedFrame.geometry}
@@ -6572,6 +6972,154 @@ function PenPathOverlay({
 
 function isPoint(point: Point | undefined): point is Point {
   return !!point;
+}
+
+/**
+ * Interactive counterpart of `PenPathOverlay` (P-VE1): renders the same
+ * anchor-square / handle-circle / dashed-connector visual language, sized by
+ * `chromeScale` so it stays a constant screen size at any zoom — like
+ * `SelectionBox`'s resize handles, not like `PenPathOverlay`'s fixed-size
+ * (non-interactive) chrome. Lives inside the pan/zoom-scaled `world`
+ * container alongside `PenPathOverlay`/`SelectionBox`, positioned in canvas
+ * space via `originCanvas + local point` (`vectorEditLocalToCanvasPoint`).
+ *
+ * Purely visual: pointer interaction (hit-testing + drag) is owned entirely
+ * by the parent's `handleMouseDown`, which runs on the capture phase and
+ * resolves hitTestPenHandle/hitTestPenAnchor itself against the raw click
+ * point (handles take priority over anchors when both are in range) — see
+ * the `vectorEdit` branch there. This mirrors how `PenPathOverlay` is a pure
+ * render of `activePenPath`/`penGesturePreview` state owned by the pen-tool
+ * gesture handlers rather than an independently-interactive component.
+ */
+function VectorEditOverlay({
+  vectorEdit,
+  chromeScale,
+}: {
+  vectorEdit: VectorEditOverlayState;
+  chromeScale: number;
+}) {
+  const { path, originCanvas } = vectorEdit;
+  // Render in canvas space: every local point is offset by the path's
+  // canvas origin before being laid out, so the overlay's own geometry/
+  // pathData stay in the same canvas coordinate frame PenPathOverlay uses.
+  const canvasPath = useMemo<PenPath>(
+    () => translatePenPath(path, originCanvas.x, originCanvas.y),
+    [path, originCanvas.x, originCanvas.y],
+  );
+  const geometry = getPenPathGeometry(canvasPath);
+  const pathData = serializePenPath(canvasPath);
+
+  const anchorSize = 9 * chromeScale;
+  const handleSize = 7 * chromeScale;
+  const anchorBorderWidth = Math.max(1, 1.5 * chromeScale);
+  const handleBorderWidth = Math.max(1, chromeScale);
+  const outlineStrokeWidth = 5 * chromeScale;
+  const strokeWidth = 2 * chromeScale;
+  const handleLineStrokeWidth = Math.max(1, chromeScale);
+
+  return (
+    <div
+      data-vector-edit-overlay
+      // pointer-events:auto on the overlay's own bounding box (not each
+      // anchor/handle) so a click anywhere within it is captured by the
+      // surface's onMouseDownCapture handler for hit-testing, while empty
+      // space *outside* this box still reaches the surface as a background
+      // click (which exits vector edit mode) via CSS containment rather than
+      // per-element listeners.
+      className="pointer-events-auto absolute z-[95]"
+      style={{
+        left: SURFACE_PADDING + geometry.x,
+        top: SURFACE_PADDING + geometry.y,
+        width: geometry.width,
+        height: geometry.height,
+      }}
+    >
+      <svg
+        className="pointer-events-none absolute inset-0 size-full overflow-visible"
+        viewBox={`${geometry.x} ${geometry.y} ${geometry.width} ${geometry.height}`}
+      >
+        {canvasPath.nodes.map((node, index) => (
+          <g key={`vector-handle-lines-${index}`}>
+            {node.handleIn ? (
+              <line
+                x1={node.point.x}
+                y1={node.point.y}
+                x2={node.handleIn.x}
+                y2={node.handleIn.y}
+                stroke="var(--design-editor-accent-color)"
+                strokeDasharray="3 3"
+                strokeWidth={handleLineStrokeWidth}
+              />
+            ) : null}
+            {node.handleOut ? (
+              <line
+                x1={node.point.x}
+                y1={node.point.y}
+                x2={node.handleOut.x}
+                y2={node.handleOut.y}
+                stroke="var(--design-editor-accent-color)"
+                strokeDasharray="3 3"
+                strokeWidth={handleLineStrokeWidth}
+              />
+            ) : null}
+          </g>
+        ))}
+        <path
+          d={pathData}
+          fill="none"
+          stroke="rgba(255,255,255,0.95)"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          strokeWidth={outlineStrokeWidth}
+        />
+        <path
+          d={pathData}
+          fill="none"
+          stroke="var(--design-editor-accent-color)"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          strokeWidth={strokeWidth}
+        />
+      </svg>
+      {canvasPath.nodes.map((node, index) => (
+        <span
+          key={`vector-anchor-${index}`}
+          data-vector-anchor
+          className="pointer-events-none absolute rounded-[2px] border shadow-sm border-[var(--design-editor-accent-color)] bg-[var(--design-editor-accent-contrast-color)]"
+          style={{
+            left: node.point.x - geometry.x - anchorSize / 2,
+            top: node.point.y - geometry.y - anchorSize / 2,
+            width: anchorSize,
+            height: anchorSize,
+            borderWidth: anchorBorderWidth,
+          }}
+        />
+      ))}
+      {canvasPath.nodes.flatMap((node, index) =>
+        (
+          [
+            ["in", node.handleIn] as const,
+            ["out", node.handleOut] as const,
+          ] as const
+        )
+          .filter((entry): entry is ["in" | "out", Point] => isPoint(entry[1]))
+          .map(([which, handle]) => (
+            <span
+              key={`vector-handle-${index}-${which}`}
+              data-vector-handle
+              className="pointer-events-none absolute rounded-full border border-[var(--design-editor-accent-color)] bg-background shadow-sm"
+              style={{
+                left: handle.x - geometry.x - handleSize / 2,
+                top: handle.y - geometry.y - handleSize / 2,
+                width: handleSize,
+                height: handleSize,
+                borderWidth: handleBorderWidth,
+              }}
+            />
+          )),
+      )}
+    </div>
+  );
 }
 
 /** Standard Tailwind breakpoint widths, mobile-first (base / md: / lg: / xl:). */

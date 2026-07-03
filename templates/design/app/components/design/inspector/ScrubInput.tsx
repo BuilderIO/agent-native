@@ -23,18 +23,30 @@ import {
   getScrubStepFromEvent,
   normalizeScrubNumber,
   parseScrubExpression,
+  startScrubDrag,
+  updateScrubDrag,
   type ScrubExpressionOptions,
 } from "./scrub-input-utils";
 
 type ScrubInputIcon = (props: { className?: string }) => ReactNode;
 
-/** Cumulative pointer movement (px) required before a label pointerdown→move
- * is treated as a scrub drag rather than jitter during a plain click. */
-const DRAG_THRESHOLD_PX = 3;
-
 export interface ScrubInputChangeMeta {
   source: "commit" | "keyboard" | "scrub";
   expression?: string;
+  /**
+   * Gesture-lifecycle signal for downstream consumers that want to throttle
+   * expensive work during a drag and only do the expensive commit once.
+   *
+   * - "preview": a live, in-progress tick — e.g. one pointermove sample while
+   *   scrubbing. There can be many of these per gesture; treat each as a
+   *   cheap, throttleable preview of the value, not a point to commit at full
+   *   cost.
+   * - "commit": the gesture's authoritative, final value. Fired exactly once
+   *   per gesture: on pointerup that ends a scrub drag, and for every
+   *   `source: "commit"` (blur/Enter) or `source: "keyboard"` (arrow step)
+   *   change, since those are already discrete, complete edits.
+   */
+  phase: "preview" | "commit";
 }
 
 export interface ScrubInputProps extends ScrubExpressionOptions {
@@ -89,10 +101,12 @@ export function ScrubInput({
   const skipNextBlurCommitRef = useRef(false);
   const dragRef = useRef({
     pointerId: -1,
-    startX: 0,
-    prevX: 0,
-    hasDragged: false,
+    drag: startScrubDrag(0),
   });
+  // The last normalized value emitted as a "preview" scrub tick, so endDrag
+  // can re-emit it once as the gesture's authoritative "commit" — without
+  // recomputing from stale pointer deltas after pointer capture is released.
+  const lastScrubValueRef = useRef(value);
 
   useEffect(() => {
     if (!focused) {
@@ -113,6 +127,7 @@ export function ScrubInput({
     const formatted = formatScrubValue(normalized, options);
     draftRef.current = formatted;
     setDraft(formatted);
+    return normalized;
   };
 
   const commitDraft = () => {
@@ -135,7 +150,11 @@ export function ScrubInput({
     // when it equals the placeholder `value` prop (e.g. typing "0"): the
     // selected objects hold differing values, so "no change" is meaningless.
     if (parsed.value !== value || mixed) {
-      onChange(parsed.value, { source: "commit", expression: currentDraft });
+      onChange(parsed.value, {
+        source: "commit",
+        expression: currentDraft,
+        phase: "commit",
+      });
     }
   };
 
@@ -165,6 +184,7 @@ export function ScrubInput({
       const base = draftParsed ? draftParsed.value : value;
       setNextValue(base + direction * baseStep * cmdMultiplier, {
         source: "keyboard",
+        phase: "commit",
       });
       return;
     }
@@ -192,9 +212,7 @@ export function ScrubInput({
     event.preventDefault();
     dragRef.current = {
       pointerId: event.pointerId,
-      startX: event.clientX,
-      prevX: event.clientX,
-      hasDragged: false,
+      drag: startScrubDrag(event.clientX),
     };
     event.currentTarget.setPointerCapture(event.pointerId);
     setDragging(true);
@@ -208,39 +226,44 @@ export function ScrubInput({
     // without a committed drag focuses the input so the user can type an
     // explicit value that then applies to all.
     if (mixed) return;
-    const incr = event.clientX - dragRef.current.prevX;
-    if (incr === 0) return;
-    // Require a small cumulative movement before treating this as a real
-    // drag. Without a threshold, ordinary mouse jitter between pointerdown
-    // and pointerup (a couple of px is common on real hardware even for a
-    // plain click) sets hasDragged=true on the very first move event, which
-    // makes endDrag skip its "focus the input for typing" path even though
-    // the user only meant to click.
-    const cumulativeDelta = Math.abs(event.clientX - dragRef.current.startX);
-    if (!dragRef.current.hasDragged && cumulativeDelta < DRAG_THRESHOLD_PX) {
-      dragRef.current.prevX = event.clientX;
-      return;
-    }
-    dragRef.current.prevX = event.clientX;
-    dragRef.current.hasDragged = true;
+    // updateScrubDrag mirrors the jitter-threshold + hasDragged bookkeeping
+    // (see scrub-input-utils.ts) so it can be unit tested in isolation from
+    // real DOM pointer events.
+    const tick = updateScrubDrag(dragRef.current.drag, event.clientX);
+    dragRef.current.drag = tick.state;
+    if (tick.deltaX === null) return;
     // Use incremental deltas from the last move so that clamped/rounded values
     // committed by onChange are respected. A total-delta approach would create
     // a dead zone equal to the amount dragged past the clamp boundary.
     const next =
       value +
-      incr *
+      tick.deltaX *
         getScrubStepFromEvent(
           { altKey: event.altKey, shiftKey: event.shiftKey },
           step,
         );
-    setNextValue(next, { source: "scrub" });
+    lastScrubValueRef.current = setNextValue(next, {
+      source: "scrub",
+      phase: "preview",
+    });
   };
 
   const endDrag = (event: PointerEvent<HTMLLabelElement>) => {
     if (dragRef.current.pointerId !== event.pointerId) return;
     event.currentTarget.releasePointerCapture(event.pointerId);
-    const wasDrag = dragRef.current.hasDragged;
+    const wasDrag = dragRef.current.drag.hasDragged;
     setDragging(false);
+    // A real scrub drag emitted only "preview" ticks via handlePointerMove.
+    // Emit exactly one authoritative "commit" here with the final value so a
+    // downstream consumer can distinguish "gesture finished" from "still
+    // dragging" — without this, the last preview tick would be the only
+    // signal, and a consumer that ignores preview ticks would never commit.
+    if (wasDrag && !mixed) {
+      onChange(lastScrubValueRef.current, {
+        source: "scrub",
+        phase: "commit",
+      });
+    }
     // If the pointer was released without dragging (a plain click), focus the
     // input so the user can type immediately — mirrors the design editor's label click
     // behaviour (the event.preventDefault() in handlePointerDown blocks the

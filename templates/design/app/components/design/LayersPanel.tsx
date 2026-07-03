@@ -12,9 +12,11 @@ import {
   IconSearch,
 } from "@tabler/icons-react";
 import {
+  forwardRef,
   memo,
   useCallback,
   useEffect,
+  useImperativeHandle,
   useLayoutEffect,
   useMemo,
   useRef,
@@ -23,6 +25,7 @@ import {
   type DragEvent,
   type MouseEvent,
   type ReactNode,
+  type Ref,
   type RefObject,
 } from "react";
 
@@ -178,6 +181,20 @@ export interface LayersPanelProps {
   // Board elements — top-level layer nodes projected from the board file.
   // When absent the panel is unchanged.
   boardElements?: LayersPanelNode[];
+}
+
+// L12: imperative handle so an external trigger (Cmd+R hotkey, canvas
+// context-menu Rename item) can start the panel's inline rename editor on a
+// specific layer, matching Figma. See beginRename below for what it does.
+export interface LayersPanelHandle {
+  /**
+   * Starts inline rename for the given layer id. Returns false (and does
+   * nothing) when the id doesn't resolve to a renamable row — i.e. it isn't
+   * in the current tree, or the node has `renamable === false`. On success,
+   * expands the layer's collapsed ancestors so the row is visible, scrolls
+   * it into view, and focuses+selects the rename input once it mounts.
+   */
+  beginRename: (layerId: string) => boolean;
 }
 
 export interface FlatLayerRow {
@@ -519,6 +536,34 @@ export function buildAncestorIdMap(
   return map;
 }
 
+// L12: find a node anywhere in the full (unfiltered) tree by id, alongside
+// its ancestor id chain. Used by beginRename to validate the target and to
+// know which ancestors must be expanded for the row to become visible,
+// independent of the current search/expand state.
+export function findNodeWithAncestors(
+  nodes: LayersPanelNode[],
+  targetId: string,
+): { node: LayersPanelNode; ancestorIds: string[] } | null {
+  function visit(
+    node: LayersPanelNode,
+    ancestorIds: string[],
+  ): { node: LayersPanelNode; ancestorIds: string[] } | null {
+    if (node.id === targetId) return { node, ancestorIds };
+    const children = node.children ?? [];
+    for (const child of children) {
+      const found = visit(child, [...ancestorIds, node.id]);
+      if (found) return found;
+    }
+    return null;
+  }
+
+  for (const node of nodes) {
+    const found = visit(node, []);
+    if (found) return found;
+  }
+  return null;
+}
+
 export function getLayerSelectionAnchorFromExternalSelection(args: {
   selectedIds: readonly string[];
   selectableVisibleIds: readonly string[];
@@ -622,35 +667,42 @@ function layerCanShowBadge(node: LayersPanelNode) {
 // <LayersPanel>), so a default shallow-prop comparator is sufficient here;
 // no custom comparator is needed or wanted since it would risk silently
 // ignoring a genuinely-changed prop.
-export const LayersPanel = memo(function LayersPanel({
-  screens,
-  activeScreenId,
-  screenOverviewActive = false,
-  files,
-  layers,
-  codeLayers,
-  elementLayers,
-  selectedIds,
-  expandedIds,
-  searchQuery,
-  className,
-  footer,
-  labels: labelsProp,
-  onSearchQueryChange,
-  onScreenSelect,
-  onScreenOverview,
-  onAddScreen,
-  onExpandedIdsChange,
-  onSelectionChange,
-  onRename,
-  onToggleLocked,
-  onToggleHidden,
-  onHoverLayer,
-  onLeaveLayer,
-  onMoveLayer,
-  canMoveLayer,
-  boardElements,
-}: LayersPanelProps) {
+// L12: forwardRef is composed OUTSIDE memo (memo(forwardRef(...))) — this is
+// the standard ordering and keeps the default shallow-prop memo comparator
+// applying to the same props as before; the ref itself is never part of that
+// comparison (React handles ref identity separately from memo's prop diff).
+function LayersPanelImpl(
+  {
+    screens,
+    activeScreenId,
+    screenOverviewActive = false,
+    files,
+    layers,
+    codeLayers,
+    elementLayers,
+    selectedIds,
+    expandedIds,
+    searchQuery,
+    className,
+    footer,
+    labels: labelsProp,
+    onSearchQueryChange,
+    onScreenSelect,
+    onScreenOverview,
+    onAddScreen,
+    onExpandedIdsChange,
+    onSelectionChange,
+    onRename,
+    onToggleLocked,
+    onToggleHidden,
+    onHoverLayer,
+    onLeaveLayer,
+    onMoveLayer,
+    canMoveLayer,
+    boardElements,
+  }: LayersPanelProps,
+  ref: Ref<LayersPanelHandle>,
+) {
   const t = useT();
   const labels = useMemo(() => mergeLabels(labelsProp, t), [labelsProp, t]);
   const selectedIdSet = useMemo(() => new Set(selectedIds), [selectedIds]);
@@ -897,6 +949,63 @@ export const LayersPanel = memo(function LayersPanel({
     },
     [],
   );
+
+  // L12: id of a layer whose rename was started externally (beginRename) and
+  // is waiting for its row to become visible/mounted so the input can be
+  // focused. Ancestor expansion is asynchronous (it flows out through
+  // onExpandedIdsChange and back in via the expandedIds prop), so we can't
+  // synchronously focus the input the same tick beginRename runs — the row
+  // may not exist in the DOM yet. The effect below watches for the row to
+  // appear in rowElementRefs and finishes the job once it does.
+  const pendingRenameFocusIdRef = useRef<string | null>(null);
+
+  const beginRename = useCallback(
+    (layerId: string): boolean => {
+      if (!onRename) return false;
+      const found = findNodeWithAncestors(rootsRef.current, layerId);
+      if (!found || found.node.renamable === false) return false;
+      const { node, ancestorIds } = found;
+
+      renameOriginalNameRef.current = node.name;
+      setRenamingId(node.id);
+      setRenameDraft(node.name);
+
+      const nextExpanded = nextAutoExpandedIds({
+        selectedAncestorIds: ancestorIds,
+        expandedIds: expandedIdsRef.current,
+      });
+      if (nextExpanded) onExpandedIdsChange(nextExpanded);
+
+      pendingRenameFocusIdRef.current = node.id;
+      return true;
+    },
+    [onExpandedIdsChange, onRename],
+  );
+
+  useImperativeHandle(ref, () => ({ beginRename }), [beginRename]);
+
+  // Finishes an in-flight beginRename once its row is mounted: scrolls it
+  // into view and focuses+selects the rename input (the input already
+  // select-on-focuses via its own onFocus handler below). Depends on
+  // renamingId and visibleRows so it re-checks whenever either the rename
+  // target or ancestor-expansion state changes — the row can become visible
+  // either on this same render (already expanded) or a later one (ancestors
+  // needed expanding first, which round-trips through onExpandedIdsChange).
+  useEffect(() => {
+    const pendingId = pendingRenameFocusIdRef.current;
+    if (!pendingId || renamingId !== pendingId) return;
+    const rowKey = visibleRows.find((row) => row.node.id === pendingId)?.rowKey;
+    if (!rowKey) return;
+    const frame = window.requestAnimationFrame(() => {
+      const rowElement = rowElementRefs.current.get(rowKey);
+      rowElement?.scrollIntoView({ block: "nearest" });
+      rowElement
+        ?.querySelector<HTMLInputElement>("input")
+        ?.focus({ preventScroll: true });
+    });
+    pendingRenameFocusIdRef.current = null;
+    return () => window.cancelAnimationFrame(frame);
+  }, [renamingId, visibleRows]);
 
   // Id-first, stable callbacks for LayerRow. Each reads current
   // expandedIds/onExpandedIdsChange/onRename from refs/closure-captured
@@ -1198,7 +1307,16 @@ export const LayersPanel = memo(function LayersPanel({
       {footer ? <div className="shrink-0">{footer}</div> : null}
     </aside>
   );
-});
+}
+
+// L12: forwardRef wraps the implementation function, and memo wraps the
+// forwardRef result — memo(forwardRef(Impl)), the standard composition order.
+// displayName is set explicitly because forwardRef's returned object doesn't
+// inherit the inner function's name the way a plain function component would
+// (React devtools/debugging would otherwise show "ForwardRef").
+const LayersPanelWithRef = forwardRef(LayersPanelImpl);
+LayersPanelWithRef.displayName = "LayersPanel";
+export const LayersPanel = memo(LayersPanelWithRef);
 
 interface LayerRowProps {
   row: FlatLayerRow;
