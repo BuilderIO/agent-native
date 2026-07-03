@@ -215,7 +215,62 @@
 }
 
 .an-replay-stage-root .replayer-wrapper {
+  position: relative;
   transform-origin: top left;
+}
+
+/* First-party visitor-cursor styles for rrweb playback. These are bundled
+   statically so the cursor stays visible even if the lazily imported
+   `@rrweb/replay/dist/style.css` sheet fails to load, and they replace the
+   default black arrow sprite with an app-styled indicator. The cursor lives
+   inside `.replayer-wrapper`, so it scales with the fit-to-stage transform. */
+.an-replay-stage-root .replayer-mouse {
+  position: absolute;
+  z-index: 2;
+  width: 0.875rem;
+  height: 0.875rem;
+  border-radius: 9999px;
+  background: hsl(217 91% 60%);
+  background-image: none;
+  box-shadow:
+    0 0 0 2px hsl(0 0% 100% / 0.9),
+    0 1px 6px hsl(0 0% 0% / 0.35);
+  transform: translate(-50%, -50%);
+  transition:
+    left 80ms linear,
+    top 80ms linear;
+  pointer-events: none;
+}
+
+.an-replay-stage-root .replayer-mouse::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 9999px;
+  background: hsl(217 91% 60%);
+  opacity: 0;
+}
+
+/* rrweb toggles `.active` on mouse interactions; pulse a click ripple. */
+.an-replay-stage-root .replayer-mouse.active::after {
+  animation: an-replay-mouse-click 0.4s ease-out 1;
+}
+
+@keyframes an-replay-mouse-click {
+  0% {
+    opacity: 0.5;
+    transform: scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(3.5);
+  }
+}
+
+.an-replay-stage-root .replayer-mouse-tail {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
 }
 
 .analytics-session-snippet .plan-code-surface {

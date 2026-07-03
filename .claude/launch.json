@@ -58,6 +58,16 @@
       "autoPort": true
     },
     {
+      "name": "analytics-devtools",
+      "runtimeExecutable": "bash",
+      "runtimeArgs": [
+        "-c",
+        "NODE_ENV=development APP_NAME=analytics AGENT_USER_EMAIL=dev@local.test ANALYTICS_DATABASE_URL=file:/tmp/analytics-devtools.db pnpm --filter analytics exec agent-native dev"
+      ],
+      "port": 8080,
+      "autoPort": true
+    },
+    {
       "name": "analytics-local",
       "runtimeExecutable": "bash",
       "runtimeArgs": [

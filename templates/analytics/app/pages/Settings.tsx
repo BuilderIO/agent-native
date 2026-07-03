@@ -43,6 +43,7 @@ import { useReplayStorageStatus } from "@/hooks/use-replay-storage-status";
 import { cn } from "@/lib/utils";
 
 import changelog from "../../CHANGELOG.md?raw";
+import { AlertRulesSettingsCard } from "./settings/AlertRulesSettingsCard";
 
 const S3_STORAGE_FIELDS = [
   {
@@ -417,6 +418,8 @@ export default function Settings() {
               </Button>
             </CardContent>
           </Card>
+
+          <AlertRulesSettingsCard />
 
           <Card className="bg-card border-border/50">
             <CardHeader>

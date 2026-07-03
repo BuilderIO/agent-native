@@ -199,7 +199,7 @@ async function runWithRecapOrgContext<T>(
 
 export default defineAction({
   description:
-    "Create a visual code-review recap from an existing PR, commit, branch, or git diff. For a forward plan before implementation use create-visual-plan; for a UI-first plan use create-ui-plan; for a running prototype use create-prototype-plan. Derive all content from the real diff — never invent schema, API, file, or contract facts. Publish via this tool; never deliver the recap as inline chat text.",
+    "Create a visual code-review recap from an existing PR, commit, branch, or git diff. Also the way to regenerate or rewrite an existing recap: pass planId to replace a recap you own in place. For a forward plan before implementation use create-visual-plan; for a UI-first plan use create-ui-plan; for a running prototype use create-prototype-plan. Derive all content from the real diff — never invent schema, API, file, or contract facts. Publish via this tool; never deliver the recap as inline chat text.",
   schema: z.object({
     planId: z
       .string()

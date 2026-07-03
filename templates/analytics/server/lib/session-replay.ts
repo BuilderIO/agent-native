@@ -17,6 +17,11 @@ import {
 } from "@agent-native/core/sharing";
 import { and, asc, desc, eq, gte, isNull, lt, lte, or, sql } from "drizzle-orm";
 
+import {
+  isFailedSessionReplayNetworkStatus,
+  SESSION_REPLAY_CONSOLE_EVENT_TAG,
+  SESSION_REPLAY_NETWORK_EVENT_TAG,
+} from "../../shared/session-replay-diagnostics.js";
 import { getDb, schema } from "../db/index.js";
 import { resolveAnalyticsEventDimensions } from "./first-party-analytics.js";
 
@@ -100,6 +105,7 @@ export interface ParsedSessionReplayIngest {
   template: string | null;
   pageCount: number;
   errorCount: number;
+  networkErrorCount: number;
   rageClickCount: number;
   privacyMode: string;
   status: "active" | "completed";
@@ -122,6 +128,7 @@ export interface SessionRecordingSummary {
   totalBytes: number;
   pageCount: number;
   errorCount: number;
+  networkErrorCount: number;
   rageClickCount: number;
   privacyMode: string;
   firstUrl: string | null;
@@ -159,6 +166,7 @@ export interface AgentSessionRecordingSummary {
   totalBytes: number;
   pageCount: number;
   errorCount: number;
+  networkErrorCount: number;
   rageClickCount: number;
   privacyMode: string;
   firstUrl: string | null;
@@ -192,6 +200,7 @@ export function compactSessionRecordingSummary(
     totalBytes: recording.totalBytes,
     pageCount: recording.pageCount,
     errorCount: recording.errorCount,
+    networkErrorCount: recording.networkErrorCount,
     rageClickCount: recording.rageClickCount,
     privacyMode: recording.privacyMode,
     firstUrl: recording.firstUrl,
@@ -739,6 +748,28 @@ function inlineEventsForSignals(
   return events;
 }
 
+function replayDiagnosticsTag(event: unknown): {
+  tag: string;
+  payload: Record<string, unknown>;
+} | null {
+  const record = replayRecord(event);
+  if (replayInteger(record.type) !== 5) return null;
+  const data = replayRecord(record.data);
+  const tag = replayString(data.tag);
+  if (
+    tag !== SESSION_REPLAY_CONSOLE_EVENT_TAG &&
+    tag !== SESSION_REPLAY_NETWORK_EVENT_TAG
+  ) {
+    return null;
+  }
+  return { tag, payload: replayRecord(data.payload) };
+}
+
+function replayConsoleRepeat(payload: Record<string, unknown>): number {
+  const repeat = replayInteger(payload.repeat);
+  return repeat !== null && repeat > 0 ? repeat : 1;
+}
+
 function deriveReplaySignals({
   body,
   metadata,
@@ -752,19 +783,42 @@ function deriveReplaySignals({
 }): {
   pageCount: number;
   errorCount: number;
+  networkErrorCount: number;
   rageClickCount: number;
   privacyMode: string;
 } {
   const events = inlineEventsForSignals(chunks);
   const pages = new Set<string>();
   if (url) pages.add(url);
-  let detectedErrors = 0;
+  let heuristicErrors = 0;
+  let taggedConsoleErrors = 0;
+  let taggedNetworkErrors = 0;
+  let hasTaggedDiagnostics = false;
 
   for (const event of events) {
     const record = replayRecord(event);
     const data = replayRecord(record.data);
     const href = replayString(data.href ?? data.url);
     if (href) pages.add(href);
+
+    const tagged = replayDiagnosticsTag(event);
+    if (tagged) {
+      // Tagged diagnostics are the real signal; never let the substring
+      // heuristic below double-count these same events.
+      hasTaggedDiagnostics = true;
+      if (tagged.tag === SESSION_REPLAY_CONSOLE_EVENT_TAG) {
+        if (replayString(tagged.payload.level) === "error") {
+          taggedConsoleErrors += replayConsoleRepeat(tagged.payload);
+        }
+      } else {
+        const status = replayInteger(tagged.payload.status);
+        if (status !== null && isFailedSessionReplayNetworkStatus(status)) {
+          taggedNetworkErrors += 1;
+        }
+      }
+      continue;
+    }
+
     const source = `${replayString(record.type) ?? ""} ${
       replayString(data.type) ?? ""
     } ${replayString(data.message) ?? ""}`.toLowerCase();
@@ -773,9 +827,16 @@ function deriveReplaySignals({
       source.includes("exception") ||
       source.includes("unhandledrejection")
     ) {
-      detectedErrors += 1;
+      heuristicErrors += 1;
     }
   }
+
+  // The substring heuristic predates tagged console/network capture. Once any
+  // tagged diagnostics event is present the recorder is diagnostics-aware, so
+  // the tagged counts are authoritative and the heuristic stays off.
+  const detectedErrors = hasTaggedDiagnostics
+    ? taggedConsoleErrors
+    : heuristicErrors;
 
   return {
     pageCount:
@@ -784,6 +845,12 @@ function deriveReplaySignals({
     errorCount:
       numberFrom(body.errorCount, body.error_count, metadata.errorCount) ??
       detectedErrors,
+    networkErrorCount:
+      numberFrom(
+        body.networkErrorCount,
+        body.network_error_count,
+        metadata.networkErrorCount,
+      ) ?? taggedNetworkErrors,
     rageClickCount:
       numberFrom(
         body.rageClickCount,
@@ -918,6 +985,7 @@ export function parseSessionReplayIngestPayload(
     template,
     pageCount: signals.pageCount,
     errorCount: signals.errorCount,
+    networkErrorCount: signals.networkErrorCount,
     rageClickCount: signals.rageClickCount,
     privacyMode: signals.privacyMode,
     status,
@@ -1075,6 +1143,7 @@ function rowToSessionRecordingSummary(
     totalBytes: row.totalBytes ?? 0,
     pageCount: row.pageCount ?? 0,
     errorCount: row.errorCount ?? 0,
+    networkErrorCount: row.networkErrorCount ?? 0,
     rageClickCount: row.rageClickCount ?? 0,
     privacyMode: row.privacyMode ?? "unknown",
     firstUrl: row.firstUrl ?? null,
@@ -1250,6 +1319,7 @@ export async function recordSessionReplayChunks(
         durationMs: clampedInput.durationMs,
         pageCount: clampedInput.pageCount,
         errorCount: clampedInput.errorCount,
+        networkErrorCount: clampedInput.networkErrorCount,
         rageClickCount: clampedInput.rageClickCount,
         privacyMode: clampedInput.privacyMode,
         firstUrl: clampedInput.url,
@@ -1451,6 +1521,10 @@ export async function recordSessionReplayChunks(
       errorCount: Math.max(
         Number(recording.errorCount ?? 0),
         clampedInput.errorCount,
+      ),
+      networkErrorCount: Math.max(
+        Number(recording.networkErrorCount ?? 0),
+        clampedInput.networkErrorCount,
       ),
       rageClickCount: Math.max(
         Number(recording.rageClickCount ?? 0),

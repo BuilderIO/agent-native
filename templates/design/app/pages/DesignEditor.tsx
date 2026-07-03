@@ -611,9 +611,13 @@ export function getDesignEditorStateUrlSearch(args: {
   zoom?: number | null;
 }) {
   const params = new URLSearchParams(args.currentSearch);
+  const leftPanel =
+    args.leftPanel === "code" && !SHOW_DESIGN_CODE_LEFT_PANEL
+      ? null
+      : args.leftPanel;
   params.set("view", args.viewMode);
-  if (args.leftPanel && args.leftPanel !== "file") {
-    params.set("panel", args.leftPanel);
+  if (leftPanel && leftPanel !== "file") {
+    params.set("panel", leftPanel);
   } else {
     params.delete("panel");
   }
@@ -622,12 +626,12 @@ export function getDesignEditorStateUrlSearch(args: {
   } else {
     params.delete("screen");
   }
-  if (args.leftPanel === "code" && args.codeFileId) {
+  if (leftPanel === "code" && args.codeFileId) {
     params.set("fileId", args.codeFileId);
   } else {
     params.delete("fileId");
   }
-  if (args.leftPanel === "code" && !args.codeFileId && args.codeFilename) {
+  if (leftPanel === "code" && !args.codeFileId && args.codeFilename) {
     params.set("filename", args.codeFilename);
   } else {
     params.delete("filename");
@@ -3572,6 +3576,8 @@ type DesignLeftPanel =
   | "import"
   | "code";
 
+const SHOW_DESIGN_CODE_LEFT_PANEL = false;
+
 const CodeWorkbenchHost = lazy(() =>
   import("@/components/design/CodeWorkbenchHost").then((module) => ({
     default: module.CodeWorkbenchHost,
@@ -3589,13 +3595,15 @@ const INITIAL_GENERATION_DISABLED_LEFT_PANELS = new Set<DesignLeftPanel>([
 
 function normalizeDesignLeftPanel(value: unknown): DesignLeftPanel | undefined {
   if (value === "extensions") return "tools";
+  if (value === "code") {
+    return SHOW_DESIGN_CODE_LEFT_PANEL ? "code" : undefined;
+  }
   return value === "file" ||
     value === "agent" ||
     value === "assets" ||
     value === "tools" ||
     value === "tokens" ||
-    value === "import" ||
-    value === "code"
+    value === "import"
     ? value
     : undefined;
 }
@@ -3654,12 +3662,16 @@ function DesignWorkspaceRail({
       label: t("designEditor.leftRail.tokens"),
       icon: <IconAssembly className="size-[15px]" />,
     },
-    {
-      panel: "code",
-      label: "Code" /* i18n-ignore */,
-      icon: <IconCode className="size-[15px]" />,
-      separatorBefore: true,
-    },
+    ...(SHOW_DESIGN_CODE_LEFT_PANEL
+      ? [
+          {
+            panel: "code" as const,
+            label: "Code" /* i18n-ignore */,
+            icon: <IconCode className="size-[15px]" />,
+            separatorBefore: true,
+          },
+        ]
+      : []),
   ];
 
   return (

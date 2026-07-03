@@ -26,6 +26,9 @@ let refreshedRunListRows: Array<Record<string, unknown>> | null = null;
 let runListSelectCount = 0;
 let runOwnerRows: Array<{ owner_email: string | null }> = [];
 let insertEventBehavior: () => void = () => {};
+let dispatchPayloadRows: Array<{ dispatch_payload: string | null }> = [];
+let unclaimedBackgroundRunRows: Array<{ id: string }> = [];
+let runCountRows: Array<{ run_count: number }> = [];
 
 const mockDb = {
   execute: vi.fn(async (sql: string | { sql: string; args?: unknown[] }) => {
@@ -48,6 +51,15 @@ const mockDb = {
       /COALESCE\(heartbeat_at, started_at\) >=/i.test(rawSql)
     ) {
       return { rows: claimSlotRows, rowsAffected: 0 };
+    }
+    // listUnclaimedBackgroundRunIds: SELECT id FROM agent_runs WHERE status =
+    // 'running' AND dispatch_mode = 'background' AND ... Must also come before
+    // the broader stale-run SELECT check below, which matches the same shape.
+    if (
+      /SELECT id FROM agent_runs\s*WHERE status = 'running'/i.test(rawSql) &&
+      /dispatch_mode = 'background'/i.test(rawSql)
+    ) {
+      return { rows: unclaimedBackgroundRunRows, rowsAffected: 0 };
     }
     if (/SELECT id FROM agent_runs[\s\S]*status = 'running'/i.test(rawSql)) {
       return { rows: staleSelectRows, rowsAffected: 0 };
@@ -90,6 +102,14 @@ const mockDb = {
     if (/SELECT result_summary FROM agent_tool_ledger/i.test(rawSql)) {
       return { rows: ledgerRows, rowsAffected: 0 };
     }
+    // readRunDispatchPayload: SELECT dispatch_payload FROM agent_runs WHERE id = ?
+    if (/SELECT dispatch_payload FROM agent_runs WHERE id/i.test(rawSql)) {
+      return { rows: dispatchPayloadRows, rowsAffected: 0 };
+    }
+    // countRunsForTurn: SELECT COUNT(*) AS run_count FROM agent_runs WHERE thread_id = ? AND turn_id = ?
+    if (/SELECT COUNT\(\*\) AS run_count FROM agent_runs/i.test(rawSql)) {
+      return { rows: runCountRows, rowsAffected: 0 };
+    }
 
     return {
       rows: [],
@@ -118,6 +138,7 @@ const {
   cleanupOldRuns,
   tryClaimRunSlot,
   updateRunStatusIfRunning,
+  updateRunStatus,
   getRunStatus,
   listRunsForThread,
   readBackgroundRunClaim,
@@ -125,6 +146,11 @@ const {
   writeLedgerEntry,
   readLedgerEntry,
   clearLedgerForThread,
+  insertRun,
+  readRunDispatchPayload,
+  clearRunDispatchPayload,
+  listUnclaimedBackgroundRunIds,
+  countRunsForTurn,
 } = await import("./run-store.js");
 
 // Mock storage for ledger SELECT responses, keyed by toolKey
@@ -143,6 +169,9 @@ describe("run store", () => {
     runListSelectCount = 0;
     runOwnerRows = [];
     ledgerRows = [];
+    dispatchPayloadRows = [];
+    unclaimedBackgroundRunRows = [];
+    runCountRows = [];
     insertEventBehavior = () => {};
     vi.clearAllMocks();
   });
@@ -639,5 +668,166 @@ describe("run store", () => {
   it("clearLedgerForThread never throws on DB error (best-effort)", async () => {
     mockDb.execute.mockRejectedValueOnce(new Error("DB unavailable"));
     await expect(clearLedgerForThread("thread-err")).resolves.toBeUndefined();
+  });
+
+  // ─── dispatch_payload persistence (payload-ref rehydration) ────────────────
+
+  it("insertRun persists dispatchPayload into the dispatch_payload column", async () => {
+    await insertRun("run-payload", "thread-1", "turn-1", {
+      dispatchMode: "background",
+      dispatchPayload: '{"messages":[]}',
+    });
+
+    const insert = execCalls.find((call) =>
+      /INSERT INTO agent_runs/i.test(call.sql),
+    );
+    expect(insert?.sql).toContain("dispatch_payload");
+    expect(insert?.args).toEqual([
+      "run-payload",
+      "thread-1",
+      expect.any(Number),
+      expect.any(Number),
+      expect.any(Number),
+      "turn-1",
+      "background",
+      '{"messages":[]}',
+    ]);
+  });
+
+  it("insertRun binds null dispatch_payload when no payload is given", async () => {
+    await insertRun("run-no-payload", "thread-1");
+
+    const insert = execCalls.find((call) =>
+      /INSERT INTO agent_runs/i.test(call.sql),
+    );
+    expect(insert?.args[7]).toBeNull();
+  });
+
+  it("readRunDispatchPayload returns the persisted payload string", async () => {
+    dispatchPayloadRows = [{ dispatch_payload: '{"foo":"bar"}' }];
+    const payload = await readRunDispatchPayload("run-payload");
+    expect(payload).toBe('{"foo":"bar"}');
+
+    const select = execCalls.find((call) =>
+      /SELECT dispatch_payload FROM agent_runs WHERE id/i.test(call.sql),
+    );
+    expect(select?.args[0]).toBe("run-payload");
+  });
+
+  it("readRunDispatchPayload returns null when missing, cleared, or empty", async () => {
+    dispatchPayloadRows = [];
+    expect(await readRunDispatchPayload("run-missing")).toBeNull();
+
+    dispatchPayloadRows = [{ dispatch_payload: null }];
+    expect(await readRunDispatchPayload("run-cleared")).toBeNull();
+
+    dispatchPayloadRows = [{ dispatch_payload: "" }];
+    expect(await readRunDispatchPayload("run-empty")).toBeNull();
+  });
+
+  it("clearRunDispatchPayload issues an UPDATE setting dispatch_payload to NULL", async () => {
+    await clearRunDispatchPayload("run-clear-me");
+
+    const update = execCalls.find(
+      (call) =>
+        /UPDATE agent_runs SET dispatch_payload = NULL/i.test(call.sql) &&
+        /WHERE id = \?/i.test(call.sql),
+    );
+    expect(update?.args).toEqual(["run-clear-me"]);
+  });
+
+  it("updateRunStatus also NULLs dispatch_payload on the terminal write", async () => {
+    await updateRunStatus("run-terminal", "completed");
+
+    const update = execCalls.find((call) =>
+      /UPDATE agent_runs SET status = \?, completed_at = \?, dispatch_payload = NULL WHERE id = \?/i.test(
+        call.sql,
+      ),
+    );
+    expect(update).toBeDefined();
+    expect(update?.args).toEqual([
+      "completed",
+      expect.any(Number),
+      "run-terminal",
+    ]);
+  });
+
+  it("updateRunStatusIfRunning also NULLs dispatch_payload on the conditional terminal write", async () => {
+    await updateRunStatusIfRunning("run-terminal-if-running", "errored");
+
+    const update = execCalls.find((call) =>
+      /UPDATE agent_runs SET status = \?, completed_at = \?, dispatch_payload = NULL WHERE id = \? AND status = 'running'/i.test(
+        call.sql,
+      ),
+    );
+    expect(update).toBeDefined();
+    expect(update?.args).toEqual([
+      "errored",
+      expect.any(Number),
+      "run-terminal-if-running",
+    ]);
+  });
+
+  // ─── countRunsForTurn (durable per-turn ledger) ─────────────────────────────
+
+  it("countRunsForTurn returns the SQL count, scoped by thread_id AND turn_id", async () => {
+    runCountRows = [{ run_count: 7 }];
+    const count = await countRunsForTurn("thread-x", "turn-y");
+    expect(count).toBe(7);
+
+    const select = execCalls.find((call) =>
+      /SELECT COUNT\(\*\) AS run_count FROM agent_runs/i.test(call.sql),
+    );
+    expect(select?.sql).toContain("thread_id = ?");
+    expect(select?.sql).toContain("turn_id = ?");
+    expect(select?.args).toEqual(["thread-x", "turn-y"]);
+  });
+
+  it("countRunsForTurn returns 0 for a non-finite/missing count", async () => {
+    runCountRows = [];
+    expect(await countRunsForTurn("thread-x", "turn-missing")).toBe(0);
+
+    runCountRows = [{ run_count: Number.NaN }];
+    expect(await countRunsForTurn("thread-x", "turn-nan")).toBe(0);
+  });
+
+  // ─── listUnclaimedBackgroundRunIds (lost-handoff sweep) ────────────────────
+
+  it("listUnclaimedBackgroundRunIds filters running+background rows past the grace window", async () => {
+    unclaimedBackgroundRunRows = [{ id: "run-lost-1" }, { id: "run-lost-2" }];
+    const ids = await listUnclaimedBackgroundRunIds();
+    expect(ids).toEqual(["run-lost-1", "run-lost-2"]);
+
+    const select = execCalls.find((call) =>
+      /SELECT id FROM agent_runs\s*WHERE status = 'running'/i.test(call.sql),
+    );
+    expect(select?.sql).toContain("dispatch_mode = 'background'");
+    expect(select?.sql).toContain("COALESCE(heartbeat_at, started_at)");
+  });
+
+  it("listUnclaimedBackgroundRunIds casts the now param to BIGINT and binds a full ms epoch", async () => {
+    // Regression guard mirroring the tryClaimRunSlot BIGINT-cast test: without
+    // an explicit cast, Postgres can infer the parameter as int4 from the
+    // literal grace-window subtraction, and a ms epoch overflows int4.
+    unclaimedBackgroundRunRows = [];
+    await listUnclaimedBackgroundRunIds();
+
+    const select = execCalls.find((call) =>
+      /SELECT id FROM agent_runs\s*WHERE status = 'running'/i.test(call.sql),
+    );
+    expect(select?.sql).toMatch(/CAST\(\?\s+AS\s+BIGINT\)/i);
+    expect(Number(select?.args[0])).toBeGreaterThan(2_147_483_647);
+  });
+
+  it("listUnclaimedBackgroundRunIds ignores non-string/empty ids defensively", async () => {
+    unclaimedBackgroundRunRows = [
+      { id: "run-ok" },
+      // @ts-expect-error -- exercising defensive filtering of malformed rows
+      { id: null },
+      // @ts-expect-error -- exercising defensive filtering of malformed rows
+      { id: "" },
+    ];
+    const ids = await listUnclaimedBackgroundRunIds();
+    expect(ids).toEqual(["run-ok"]);
   });
 });

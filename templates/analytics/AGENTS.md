@@ -128,6 +128,8 @@ details live in `.agents/skills/`.
   runtimes use the in-process scheduler unless `ANALYTICS_ALERT_JOBS=0` is set.
   External cron callers can POST `/api/analytics-alerts/run` with
   `Authorization: Bearer $ANALYTICS_ALERTS_CRON_SECRET`.
+  Users can view and manage these rules in Settings under the Alerts card, which
+  uses the same action surface as the agent.
 
 ## Application State
 
@@ -153,6 +155,17 @@ details live in `.agents/skills/`.
   scoped to one recording for two hours; SSR embeds an agent discovery payload
   and the JSON APIs expose only summary/timeline metadata plus bounded event
   reads.
+- Recordings also capture console logs and network request metadata (no
+  bodies/headers, scrubbed URLs, truncated messages, per-session budgets);
+  ingest derives `errorCount`/`networkErrorCount` and adds
+  `console-error`/`network-error` timeline markers.
+- The agent context includes a bounded `diagnostics` section (errors first) and
+  advertises `GET /api/session-replay/agent-diagnostics.json` with
+  `kind`/`level`/`limit` params (limit max 500) under the same `agent_access`
+  token — the primary signal when debugging a user-reported issue.
+- The replay player has a Dev Tools panel with Console and Network tabs
+  (filters, search, jump-to-seek, error badge); extend it rather than adding a
+  separate replay debugging surface. See the `session-replay` skill.
 - Dashboard rows that include `recording_id` should link to
   `/sessions/:recordingId`; rows that only include `session_id` can link to a
   filtered `/sessions` search.

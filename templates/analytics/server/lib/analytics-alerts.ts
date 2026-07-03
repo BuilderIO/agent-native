@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 
 import { notifyWithDelivery } from "@agent-native/core/notifications";
 import { recordChange } from "@agent-native/core/server";
@@ -114,6 +114,7 @@ function nowIso(): string {
 }
 
 const ALERT_RULE_RUNNING_STALE_MS = 15 * 60 * 1000;
+const DEFAULT_HTTP_5XX_ALERT_ID_PREFIX = "default-http-5xx-spike";
 
 function safeJsonParse<T>(raw: unknown, fallback: T): T {
   if (typeof raw !== "string" || !raw.trim()) return fallback;
@@ -189,6 +190,79 @@ function normalizeEmailRecipients(recipients: string[] | undefined): string[] {
     normalized.push(email);
   }
   return normalized;
+}
+
+function boolEnv(name: string): boolean | null {
+  const raw = process.env[name]?.trim().toLowerCase();
+  if (!raw) return null;
+  if (["1", "true", "yes", "on"].includes(raw)) return true;
+  if (["0", "false", "no", "off"].includes(raw)) return false;
+  return null;
+}
+
+function currentDeployHostname(): string {
+  const raw = process.env.URL || process.env.DEPLOY_URL || "";
+  if (!raw) return "";
+  try {
+    return new URL(raw).hostname.toLowerCase();
+  } catch {
+    return "";
+  }
+}
+
+function defaultHttp5xxAlertEnabled(): boolean {
+  const configured = boolEnv("ANALYTICS_DEFAULT_HTTP_5XX_ALERT_ENABLED");
+  if (configured !== null) return configured;
+  return currentDeployHostname() === "analytics.agent-native.com";
+}
+
+function envInt(name: string, fallback: number, min: number, max: number) {
+  const raw = process.env[name]?.trim();
+  if (!raw) return fallback;
+  const parsed = Number.parseInt(raw, 10);
+  return Number.isFinite(parsed)
+    ? Math.max(min, Math.min(max, parsed))
+    : fallback;
+}
+
+function defaultHttp5xxAlertId(ownerEmail: string, orgId: string | null) {
+  const hash = createHash("sha256")
+    .update(`${ownerEmail.toLowerCase()}|${orgId ?? ""}`)
+    .digest("hex")
+    .slice(0, 10);
+  return `${DEFAULT_HTTP_5XX_ALERT_ID_PREFIX}-${hash}`;
+}
+
+async function defaultHttp5xxAlertScopes(): Promise<AccessCtx[]> {
+  const ownerEmail = process.env.ANALYTICS_DEFAULT_ALERT_OWNER_EMAIL?.trim();
+  const orgId = process.env.ANALYTICS_DEFAULT_ALERT_ORG_ID?.trim() || null;
+  if (ownerEmail) return [{ email: ownerEmail, orgId }];
+
+  const db = getDb() as any;
+  const rows = await db
+    .select({
+      ownerEmail: schema.analyticsPublicKeys.ownerEmail,
+      orgId: schema.analyticsPublicKeys.orgId,
+    })
+    .from(schema.analyticsPublicKeys)
+    .where(isNull(schema.analyticsPublicKeys.revokedAt))
+    .limit(1000);
+
+  const seen = new Set<string>();
+  const scopes: AccessCtx[] = [];
+  for (const row of rows) {
+    const email = String(row.ownerEmail ?? "").trim();
+    if (!email) continue;
+    const scopeOrgId =
+      typeof row.orgId === "string" && row.orgId.trim()
+        ? row.orgId.trim()
+        : null;
+    const key = `${email.toLowerCase()}|${scopeOrgId ?? ""}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    scopes.push({ email, orgId: scopeOrgId });
+  }
+  return scopes;
 }
 
 function rowToRule(row: any): AnalyticsAlertRule {
@@ -359,6 +433,73 @@ export async function deleteAnalyticsAlertRule(
     owner: existing.ownerEmail,
     orgId: existing.orgId ?? undefined,
   });
+}
+
+export async function ensureDefaultHttp5xxSpikeAlertRules(): Promise<{
+  checked: number;
+  created: number;
+}> {
+  if (!defaultHttp5xxAlertEnabled()) return { checked: 0, created: 0 };
+
+  const scopes = await defaultHttp5xxAlertScopes();
+  const db = getDb() as any;
+  let created = 0;
+  const threshold = envInt(
+    "ANALYTICS_DEFAULT_HTTP_5XX_ALERT_THRESHOLD",
+    5,
+    1,
+    1000,
+  );
+  const windowMinutes = envInt(
+    "ANALYTICS_DEFAULT_HTTP_5XX_ALERT_WINDOW_MINUTES",
+    5,
+    1,
+    60,
+  );
+  const cooldownMinutes = envInt(
+    "ANALYTICS_DEFAULT_HTTP_5XX_ALERT_COOLDOWN_MINUTES",
+    30,
+    0,
+    24 * 60,
+  );
+
+  for (const scope of scopes) {
+    const id = defaultHttp5xxAlertId(scope.email, scope.orgId);
+    const [existing] = await db
+      .select({ id: schema.analyticsAlertRules.id })
+      .from(schema.analyticsAlertRules)
+      .where(eq(schema.analyticsAlertRules.id, id))
+      .limit(1);
+    if (existing) continue;
+
+    const now = nowIso();
+    await db.insert(schema.analyticsAlertRules).values({
+      id,
+      name: "Hosted app HTTP 5xx spike",
+      description:
+        "Default Agent Native alert for a spike in server responses with 5xx status codes.",
+      eventName: "http.response",
+      filters: JSON.stringify([
+        { field: "properties.status_class", value: "5xx" },
+      ]),
+      thresholdMode: "event_count",
+      distinctBy: null,
+      threshold,
+      windowMinutes,
+      cooldownMinutes,
+      severity: "critical",
+      channels: JSON.stringify(["inbox"]),
+      emailRecipients: JSON.stringify([]),
+      enabled: true,
+      createdAt: now,
+      updatedAt: now,
+      ownerEmail: scope.email,
+      orgId: scope.orgId,
+    });
+    created++;
+  }
+
+  return { checked: scopes.length, created };
 }
 
 export async function listEnabledAnalyticsAlertRules(options: {

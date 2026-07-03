@@ -80,7 +80,9 @@ export default defineAction({
     const currentComments = await readLocalPlanComments(current.folder);
     const kind = resolveLocalPlanKind(args.kind, current.mdx) as PlanKind;
     if (kind === "recap") {
-      throw new Error("Local recap folders are read-only in the browser.");
+      throw new Error(
+        "Local recap folders are read-only through this action; do not retry it. To change this recap, edit the folder's MDX files (plan.mdx / canvas.mdx / prototype.mdx) directly on disk, or re-run create-visual-recap to publish a fresh hosted recap.",
+      );
     }
 
     let nextContent: PlanContent =

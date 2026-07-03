@@ -130,6 +130,7 @@ import {
   claimBackgroundRun,
   readBackgroundRunClaim,
   recordRunDiagnostic,
+  countRunsForTurn,
   RUN_DIAG_STAGE,
   UNCLAIMED_BACKGROUND_RUN_GRACE_MS,
 } from "./run-store.js";
@@ -5445,8 +5446,13 @@ export function createProductionAgentHandler(
         // Insert the run row up front so /runs/active sees it immediately and
         // the slot stays held while the background function cold-starts. Mark
         // it background-dispatched so the stale reaper uses the wider window.
+        // The full request body is persisted ON the row (dispatch_payload) so
+        // the self-POST below can carry only the tiny marker — Netlify caps
+        // background-function request bodies at 256KB, and a large chat
+        // history (inline attachments especially) silently exceeded that.
         await insertRun(runId, effectiveThreadId, effectiveTurnId, {
           dispatchMode: "background",
+          dispatchPayload: JSON.stringify(body),
         });
         backgroundRowInserted = true;
       } catch (err) {
@@ -5478,16 +5484,31 @@ export function createProductionAgentHandler(
           // the Authorization Bearer HMAC is preserved either way.
           path: backgroundDispatchPath,
           taskId: runId,
-          body: {
-            ...body,
-            // Carry the pre-claimed identity so the worker reuses this run.
-            [AGENT_CHAT_BACKGROUND_RUN_FIELD]: {
-              runId,
-              turnId: effectiveTurnId,
-              backgroundFunctionRuntimeExpected:
-                expectsNetlifyBackgroundFunction,
-            },
-          },
+          // When the row (and its persisted payload) landed, send only the
+          // marker — the worker rehydrates the body from dispatch_payload
+          // (`payloadRef`), keeping the self-POST far under Netlify's 256KB
+          // background-function body cap. If the insert failed we fall back to
+          // carrying the full body inline, exactly as before.
+          body: backgroundRowInserted
+            ? {
+                [AGENT_CHAT_BACKGROUND_RUN_FIELD]: {
+                  runId,
+                  turnId: effectiveTurnId,
+                  backgroundFunctionRuntimeExpected:
+                    expectsNetlifyBackgroundFunction,
+                  payloadRef: true,
+                },
+              }
+            : {
+                ...body,
+                // Carry the pre-claimed identity so the worker reuses this run.
+                [AGENT_CHAT_BACKGROUND_RUN_FIELD]: {
+                  runId,
+                  turnId: effectiveTurnId,
+                  backgroundFunctionRuntimeExpected:
+                    expectsNetlifyBackgroundFunction,
+                },
+              },
         });
         dispatched = true;
       } catch (err) {
@@ -5753,6 +5774,38 @@ export function createProductionAgentHandler(
               // foreground fallback, which is not a worker and rides the
               // connected client's auto_continue instead.)
               if (willChainBackgroundContinuation(run)) {
+                // DURABLE PER-TURN LEDGER: bound the total number of runs one
+                // logical turn may consume, counted in SQL. The in-marker
+                // `continuationCount` resets whenever a fresh POST starts a new
+                // chain for the same turn (client recovery, duplicate delivery),
+                // so it cannot bound cross-chain loops — the SQL count survives
+                // every recovery path and is what actually kills a pathological
+                // turn (the "dozens of runs on one prompt" incident class).
+                const turnRunCount = await countRunsForTurn(
+                  effectiveThreadId,
+                  effectiveTurnId,
+                ).catch(() => null);
+                if (
+                  turnRunCount !== null &&
+                  turnRunCount > MAX_BACKGROUND_RUN_CONTINUATIONS + 5
+                ) {
+                  console.error(
+                    `[agent-chat] turn ${effectiveTurnId} consumed ${turnRunCount} runs — refusing to chain further`,
+                    runId,
+                  );
+                  const statusUpdated = await updateRunStatusIfRunning(
+                    runId,
+                    "errored",
+                  ).catch(() => false);
+                  if (statusUpdated) {
+                    await setRunTerminalReason(
+                      runId,
+                      "turn_continuation_budget_exhausted",
+                    ).catch(() => {});
+                  }
+                  return;
+                }
+
                 // Mint the next chunk's runId here and sign the dispatch token
                 // over it, so the `_process-run` route's HMAC check and the
                 // worker's run identity agree. Fresh runId (not this chunk's) so
@@ -5769,33 +5822,135 @@ export function createProductionAgentHandler(
                   dispatchPathTargetsNetlifyBackgroundFunction(
                     continuationDispatchPath,
                   );
+                const continuationMarker = {
+                  runId: nextRunId,
+                  turnId: effectiveTurnId,
+                  continuationCount: backgroundContinuationCount + 1,
+                  continuationReason,
+                  ...(actionPreparationTool ? { actionPreparationTool } : {}),
+                  backgroundFunctionRuntimeExpected:
+                    continuationExpectsNetlifyBackgroundFunction,
+                };
+                // Strip this chunk's own marker before persisting/forwarding —
+                // the next chunk gets the fresh marker above.
+                const continuationBody: Record<string, unknown> = {
+                  ...(body as unknown as Record<string, unknown>),
+                  internalContinuation: true,
+                };
+                delete continuationBody[AGENT_CHAT_BACKGROUND_RUN_FIELD];
                 try {
-                  await fireInternalDispatch({
-                    event,
-                    // Continuation chunks use the same path resolution as the
-                    // initial dispatch: on hosted Netlify the background
-                    // function's DEFAULT url (no custom config.path; async via
-                    // background:true; never shadowed because /.netlify/* is
-                    // excluded from the /* catch-all) so each chunk keeps the
-                    // 15-min budget; off-Netlify the in-process framework route.
-                    path: continuationDispatchPath,
-                    taskId: nextRunId,
-                    body: {
-                      ...body,
-                      internalContinuation: true,
-                      [AGENT_CHAT_BACKGROUND_RUN_FIELD]: {
-                        runId: nextRunId,
-                        turnId: effectiveTurnId,
-                        continuationCount: backgroundContinuationCount + 1,
-                        continuationReason,
-                        ...(actionPreparationTool
-                          ? { actionPreparationTool }
-                          : {}),
-                        backgroundFunctionRuntimeExpected:
-                          continuationExpectsNetlifyBackgroundFunction,
+                  // ── TRANSACTIONAL HANDOFF ──────────────────────────────────
+                  // 1. Insert the successor row (with its rehydration payload)
+                  //    BEFORE firing the dispatch, so:
+                  //    - /runs/active shows an active run continuously across
+                  //      the chunk boundary (no idle gap for the client to
+                  //      misread as "the turn ended"), and
+                  //    - a lost dispatch leaves a row the unclaimed-run sweep
+                  //      reaps into a LOUD error instead of a silent hang.
+                  // 2. Await the dispatch response fully (`awaitResponse`) —
+                  //    this worker's Lambda is about to finish, and the old
+                  //    250ms settle race let a still-in-flight handoff fetch be
+                  //    killed by the post-return freeze WITHOUT rejecting: the
+                  //    turn just stopped, silently. A Netlify background
+                  //    function 202s on enqueue (normally well under a second),
+                  //    and this chunk has minutes of budget headroom left, so
+                  //    awaiting is cheap. Retried with backoff for transient
+                  //    network blips.
+                  let nextRowInserted = false;
+                  try {
+                    await insertRun(
+                      nextRunId,
+                      effectiveThreadId,
+                      effectiveTurnId,
+                      {
+                        dispatchMode: "background",
+                        dispatchPayload: JSON.stringify(continuationBody),
                       },
-                    },
-                  });
+                    );
+                    nextRowInserted = true;
+                  } catch (insertErr) {
+                    console.error(
+                      "[agent-chat] continuation insertRun failed; dispatching with inline body:",
+                      insertErr instanceof Error
+                        ? insertErr.message
+                        : insertErr,
+                    );
+                  }
+                  const dispatchBody = nextRowInserted
+                    ? {
+                        internalContinuation: true,
+                        [AGENT_CHAT_BACKGROUND_RUN_FIELD]: {
+                          ...continuationMarker,
+                          payloadRef: true,
+                        },
+                      }
+                    : {
+                        ...continuationBody,
+                        [AGENT_CHAT_BACKGROUND_RUN_FIELD]: continuationMarker,
+                      };
+                  let dispatched = false;
+                  let lastDispatchErr: unknown;
+                  for (let attempt = 0; attempt < 3 && !dispatched; attempt++) {
+                    try {
+                      if (attempt > 0) {
+                        await new Promise<void>((resolve) =>
+                          setTimeout(resolve, 500 * 2 ** attempt),
+                        );
+                        // Keep the pre-inserted successor row visibly alive
+                        // while we retry: the awaited attempts + backoff can
+                        // outlast UNCLAIMED_BACKGROUND_RUN_GRACE_MS (25s), and
+                        // without a fresh heartbeat the unclaimed-run reaper /
+                        // sweep could error a handoff we are still delivering.
+                        if (nextRowInserted) {
+                          await updateRunHeartbeat(nextRunId).catch(() => {});
+                        }
+                      }
+                      await fireInternalDispatch({
+                        event,
+                        // Continuation chunks use the same path resolution as
+                        // the initial dispatch: on hosted Netlify the background
+                        // function's DEFAULT url (no custom config.path; async
+                        // via background:true; never shadowed because
+                        // /.netlify/* is excluded from the /* catch-all) so each
+                        // chunk keeps the 15-min budget; off-Netlify the
+                        // in-process framework route.
+                        path: continuationDispatchPath,
+                        taskId: nextRunId,
+                        body: dispatchBody,
+                        awaitResponse: true,
+                        responseTimeoutMs: 15_000,
+                      });
+                      dispatched = true;
+                    } catch (dispatchErr) {
+                      lastDispatchErr = dispatchErr;
+                      console.error(
+                        `[agent-chat] background continuation dispatch attempt ${attempt + 1} failed:`,
+                        dispatchErr instanceof Error
+                          ? dispatchErr.message
+                          : dispatchErr,
+                      );
+                    }
+                  }
+                  if (!dispatched) {
+                    // The pre-inserted successor row would otherwise sit
+                    // unclaimed until the sweep reaps it — error it now so the
+                    // failure is immediate and truthful.
+                    if (nextRowInserted) {
+                      const nextStatusUpdated = await updateRunStatusIfRunning(
+                        nextRunId,
+                        "errored",
+                      ).catch(() => false);
+                      if (nextStatusUpdated) {
+                        await setRunTerminalReason(
+                          nextRunId,
+                          "background_continuation_dispatch_failed",
+                        ).catch(() => {});
+                      }
+                    }
+                    throw lastDispatchErr instanceof Error
+                      ? lastDispatchErr
+                      : new Error(String(lastDispatchErr));
+                  }
                 } catch (chainErr) {
                   // Chain dispatch failed — fail loud so the held row goes
                   // terminal instead of spinning. The reaper would also catch

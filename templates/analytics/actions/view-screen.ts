@@ -9,6 +9,7 @@ import {
 } from "@agent-native/core/server";
 import { z } from "zod";
 
+import { listAnalyticsAlertRules } from "../server/lib/analytics-alerts";
 import { listDashboardCatalog } from "../server/lib/dashboard-catalog";
 import { getAnalysis, getDashboard } from "../server/lib/dashboards-store";
 import { listAnalyticsPublicKeys } from "../server/lib/first-party-analytics.js";
@@ -195,6 +196,30 @@ export default defineAction({
       }
     } else if (nav?.view === "settings") {
       screen.page = "settings";
+      const email = getRequestUserEmail();
+      if (email) {
+        const orgId = getRequestOrgId() || null;
+        const alertRules = await listAnalyticsAlertRules({ email, orgId });
+        screen.analyticsAlerts = alertRules.map((rule) => ({
+          id: rule.id,
+          name: rule.name,
+          enabled: rule.enabled,
+          severity: rule.severity,
+          eventName: rule.eventName,
+          filters: rule.filters,
+          thresholdMode: rule.thresholdMode,
+          distinctBy: rule.distinctBy,
+          threshold: rule.threshold,
+          windowMinutes: rule.windowMinutes,
+          cooldownMinutes: rule.cooldownMinutes,
+          channels: rule.channels,
+          emailRecipients: rule.emailRecipients,
+          lastStatus: rule.lastStatus,
+          lastEvaluatedAt: rule.lastEvaluatedAt,
+          lastTriggeredAt: rule.lastTriggeredAt,
+          lastError: rule.lastError,
+        }));
+      }
     }
 
     if (Object.keys(screen).length === 0) {
