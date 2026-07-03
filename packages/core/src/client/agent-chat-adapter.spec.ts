@@ -2585,7 +2585,9 @@ describe("createAgentChatAdapter", () => {
     );
     expect(secondBody.message).toContain("smaller `edit-design` payload");
     expect(secondBody.message).toContain("exact search/replace edits");
-    expect(secondBody.message).toContain("avoid `replacementContent`");
+    expect(secondBody.message).toContain("reuse the existing `fileId`");
+    expect(secondBody.message).toContain("do not call `list-files`");
+    expect(secondBody.message).toContain("`replacementContent`");
     expect(secondBody.message).toContain("save once");
   });
 

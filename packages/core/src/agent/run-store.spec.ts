@@ -26,6 +26,7 @@ let refreshedRunListRows: Array<Record<string, unknown>> | null = null;
 let runListSelectCount = 0;
 let runOwnerRows: Array<{ owner_email: string | null }> = [];
 let insertEventBehavior: () => void = () => {};
+let abortRowsAffected = 1;
 let dispatchPayloadRows: Array<{ dispatch_payload: string | null }> = [];
 let unclaimedBackgroundRunRows: Array<{ id: string }> = [];
 let runCountRows: Array<{ run_count: number }> = [];
@@ -97,6 +98,9 @@ const mockDb = {
     if (/INSERT INTO agent_run_events/i.test(rawSql)) {
       insertEventBehavior();
       return { rows: [], rowsAffected: 1 };
+    }
+    if (/UPDATE agent_runs SET status = 'aborted'/i.test(rawSql)) {
+      return { rows: [], rowsAffected: abortRowsAffected };
     }
     // Tool-call result ledger: SELECT result_summary FROM agent_tool_ledger
     if (/SELECT result_summary FROM agent_tool_ledger/i.test(rawSql)) {
@@ -173,6 +177,7 @@ describe("run store", () => {
     unclaimedBackgroundRunRows = [];
     runCountRows = [];
     insertEventBehavior = () => {};
+    abortRowsAffected = 1;
     vi.clearAllMocks();
   });
 
@@ -259,6 +264,21 @@ describe("run store", () => {
 
     await markRunAborted("run-abort-after-terminal", "no_progress");
 
+    const eventInserts = execCalls.filter((call) =>
+      /INSERT INTO agent_run_events/i.test(call.sql),
+    );
+    expect(eventInserts).toHaveLength(0);
+  });
+
+  it("does not rewrite a run that is already terminal", async () => {
+    abortRowsAffected = 0;
+
+    await markRunAborted("run-already-completed", "user");
+
+    const update = execCalls.find((call) =>
+      /UPDATE agent_runs SET status = 'aborted'/i.test(call.sql),
+    );
+    expect(update?.sql).toMatch(/AND status = 'running'/i);
     const eventInserts = execCalls.filter((call) =>
       /INSERT INTO agent_run_events/i.test(call.sql),
     );

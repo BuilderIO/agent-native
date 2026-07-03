@@ -26,6 +26,7 @@ import {
   actionsToEngineTools,
   MAX_BACKGROUND_RUN_CONTINUATIONS,
   lastUnfinishedPreparingActionToolFromEvents,
+  markBackgroundContinuationChunkTerminal,
   resolveAgentOwnerEmail,
   resolveBackgroundDispatchOutcome,
   resolveSkillReferenceContent,
@@ -5923,6 +5924,44 @@ describe("shouldChainBackgroundContinuation (server-driven background chain)", (
       }),
     ).toBe(true);
   });
+
+  it("marks a successfully chained background chunk terminal before the worker returns", async () => {
+    const updateRunStatusIfRunning = vi.fn(async () => true);
+    const setRunTerminalReason = vi.fn(async () => {});
+
+    await expect(
+      markBackgroundContinuationChunkTerminal({
+        runId: "run-old",
+        continuationReason: "no_progress",
+        deps: { updateRunStatusIfRunning, setRunTerminalReason },
+      }),
+    ).resolves.toBe(true);
+
+    expect(updateRunStatusIfRunning).toHaveBeenCalledWith(
+      "run-old",
+      "completed",
+    );
+    expect(setRunTerminalReason).toHaveBeenCalledWith("run-old", "no_progress");
+  });
+
+  it("does not overwrite terminal reason when another process already finished the chunk", async () => {
+    const updateRunStatusIfRunning = vi.fn(async () => false);
+    const setRunTerminalReason = vi.fn(async () => {});
+
+    await expect(
+      markBackgroundContinuationChunkTerminal({
+        runId: "run-old",
+        continuationReason: "run_timeout",
+        deps: { updateRunStatusIfRunning, setRunTerminalReason },
+      }),
+    ).resolves.toBe(false);
+
+    expect(updateRunStatusIfRunning).toHaveBeenCalledWith(
+      "run-old",
+      "completed",
+    );
+    expect(setRunTerminalReason).not.toHaveBeenCalled();
+  });
 });
 
 describe("appendAgentLoopContinuation", () => {
@@ -5938,7 +5977,9 @@ describe("appendAgentLoopContinuation", () => {
     expect(text).toContain("preparing the `edit-design` action input");
     expect(text).toContain("smaller `edit-design` payload");
     expect(text).toContain("exact search/replace edits");
-    expect(text).toContain("avoid `replacementContent`");
+    expect(text).toContain("reuse the existing `fileId`");
+    expect(text).toContain("do not call `list-files`");
+    expect(text).toContain("`replacementContent`");
   });
 });
 
