@@ -244,7 +244,7 @@ const ACTIVE_RUN_POLL_INTERVAL_MS = 150;
 const AUTO_RESUME_STATUS_TIMEOUT_MS = 30_000;
 const MAX_RECONNECT_AUTO_RECOVERIES = 3;
 const RECONNECT_NO_PROGRESS_CONTINUE_MESSAGE =
-  "Continue from where you stopped. Use the partial work above, verify what succeeded, and finish the original request. Do not rerun the exact same failed tool input unless the failure was transient or the user explicitly asked for an exact rerun. Prefer dedicated app actions over raw database edits when they exist.";
+  "Continue from where you stopped. Use the partial work above, verify what succeeded, and finish the original request. If the last visible step was preparing an app action and no tool result was returned, treat that action input as stalled or too large: change strategy, use a smaller bounded input, and preserve optional details as visible affordances instead of repeating the same giant action. Do not rerun the exact same failed tool input unless the failure was transient or the user explicitly asked for an exact rerun. Prefer dedicated app actions over raw database edits when they exist.";
 // How long a single activity (model call, tool prep, long tool) must stay
 // in-flight before its label is surfaced in the running indicator. Below this
 // the indicator stays a steady "Thinking" so normal fast turns don't flicker

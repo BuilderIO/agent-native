@@ -676,6 +676,8 @@ describe("waitForThreadRunToClear", () => {
     );
     expect(noProgressSource).toContain("setPendingReconnectRecovery");
     expect(noProgressSource).toContain("agent-chat:auto-continue");
+    expect(source).toContain("treat that action input as stalled or too large");
+    expect(source).toContain("use a smaller bounded input");
     expect(
       noProgressSource.indexOf("setPendingReconnectRecovery"),
     ).toBeLessThan(noProgressSource.indexOf("setRunErrorInfo({"));

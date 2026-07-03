@@ -246,9 +246,13 @@ patterns live in `.agents/skills/`.
   on that same `fileId` for follow-up refinement. The kept variant screen is a
   representative direction, not the final deliverable: use `mode:
 "replace-file"` to replace it with the actual requested app/product UI in the
-  chosen visual style. Do not leave a direction board, variant brief, summary
-  card, or prose description as the final screen. Do not repeat delete/snapshot
-  cycles, and do not call `generate-design` after a variant pick.
+  chosen visual style. Keep the replacement complete but compact: prioritize
+  the primary workflow, and if the requested feature list is too large for one
+  reliable edit, represent secondary details as visible controls, states, or
+  affordances instead of expanding the action input. Do not leave a direction
+  board, variant brief, summary card, or prose description as the final screen.
+  Do not repeat delete/snapshot cycles, and do not call `generate-design` after
+  a variant pick.
 - If inline chat choice buttons are unavailable, the user can tell you the
   preferred screen name. Do not show a separate variant picker or ask them to
   paste a copyable handoff summary.
