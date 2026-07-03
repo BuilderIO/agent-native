@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.85.4
+
+### Patch Changes
+
+- 00c6f16: Keep chat restore and active-run polling on the durable background timeout budget so healthy long-running background turns do not look stale to the browser.
+
 ## 0.85.3
 
 ### Patch Changes
