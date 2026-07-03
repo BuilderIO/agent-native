@@ -2883,6 +2883,25 @@ export async function runAgentLoop(opts: {
           });
           endedForActionPreparationNoProgress = true;
         };
+        let eventIteratorReturnRequested = false;
+        const requestEventIteratorReturn = (
+          iterator: AsyncIterator<EngineEvent>,
+          awaitReturn: boolean,
+        ) => {
+          if (eventIteratorReturnRequested) return;
+          eventIteratorReturnRequested = true;
+          let returnPromise:
+            | ReturnType<NonNullable<typeof iterator.return>>
+            | undefined;
+          try {
+            returnPromise = iterator.return?.();
+          } catch {
+            return;
+          }
+          if (!returnPromise) return;
+          if (awaitReturn) return returnPromise.catch(() => undefined);
+          void returnPromise.catch(() => undefined);
+        };
         const nextEngineEventWithActionPreparationTimeout = async (
           iterator: AsyncIterator<EngineEvent>,
         ): Promise<IteratorResult<EngineEvent>> => {
@@ -2891,7 +2910,7 @@ export async function runAgentLoop(opts: {
           const timeoutMs = Math.max(0, deadlineAt - Date.now());
           if (timeoutMs <= 0) {
             checkpointActionPreparationNoProgress();
-            void iterator.return?.().catch(() => undefined);
+            requestEventIteratorReturn(iterator, false);
             return { done: true, value: undefined };
           }
           let timeoutId: ReturnType<typeof setTimeout> | undefined;
@@ -2900,14 +2919,17 @@ export async function runAgentLoop(opts: {
           const timeout = new Promise<"timeout">((resolve) => {
             timeoutId = setTimeout(() => resolve("timeout"), timeoutMs);
           });
-          const result = await Promise.race([next, timeout]);
-          if (timeoutId) clearTimeout(timeoutId);
-          if (result === "timeout") {
-            checkpointActionPreparationNoProgress();
-            void iterator.return?.().catch(() => undefined);
-            return { done: true, value: undefined };
+          try {
+            const result = await Promise.race([next, timeout]);
+            if (result === "timeout") {
+              checkpointActionPreparationNoProgress();
+              requestEventIteratorReturn(iterator, false);
+              return { done: true, value: undefined };
+            }
+            return result;
+          } finally {
+            if (timeoutId) clearTimeout(timeoutId);
           }
-          return result;
         };
         const trackActiveToolInput = (
           key: string,
@@ -2956,127 +2978,138 @@ export async function runAgentLoop(opts: {
           );
         };
         const eventIterator = eventStream[Symbol.asyncIterator]();
-        while (true) {
-          const nextEvent =
-            await nextEngineEventWithActionPreparationTimeout(eventIterator);
-          if (nextEvent.done) break;
-          const event = nextEvent.value;
-          if (hasActionPreparationStalled()) {
-            checkpointActionPreparationNoProgress();
-            void eventIterator.return?.().catch(() => undefined);
-            break;
-          }
-          // In-loop processor seam (stream hook). Each chunk is offered to every
-          // processor's `processOutputStream` before the loop handles it. A
-          // processor `abort()` throws a TripWire; catch it locally so it is not
-          // mistaken for a retryable engine error, then break out cleanly.
-          if (processorChain) {
-            try {
-              await processorChain.runStream(event);
-            } catch (err) {
-              if (err instanceof TripWire) {
-                emitTripwire(err);
+        let eventIteratorDone = false;
+        try {
+          while (true) {
+            const nextEvent =
+              await nextEngineEventWithActionPreparationTimeout(eventIterator);
+            if (nextEvent.done) {
+              eventIteratorDone = true;
+              break;
+            }
+            const event = nextEvent.value;
+            if (hasActionPreparationStalled()) {
+              checkpointActionPreparationNoProgress();
+              break;
+            }
+            // In-loop processor seam (stream hook). Each chunk is offered to every
+            // processor's `processOutputStream` before the loop handles it. A
+            // processor `abort()` throws a TripWire; catch it locally so it is not
+            // mistaken for a retryable engine error, then break out cleanly.
+            if (processorChain) {
+              try {
+                await processorChain.runStream(event);
+              } catch (err) {
+                if (err instanceof TripWire) {
+                  emitTripwire(err);
+                  break;
+                }
+                throw err;
+              }
+            }
+            if (event.type === "text-delta") {
+              resetZeroByteToolInputRestart();
+              streamedAssistantText += event.text;
+              send({ type: "text", text: event.text });
+            } else if (event.type === "thinking-delta") {
+              thinkingBuffer += event.text;
+              // Forward thinking deltas as a distinct event type so the UI
+              // can render a collapsible "Thinking…" cell while the model
+              // reasons, then collapse it when content arrives.
+              send({ type: "thinking", text: event.text });
+            } else if (event.type === "tool-input-start") {
+              const key = event.id ?? event.name;
+              if (key && event.name) {
+                toolInputNames.set(key, event.name);
+                toolInputBytes.set(key, 0);
+                trackActiveToolInput(key, event.name, 0);
+              }
+              sendToolInputActivity(event.name, key, undefined, true);
+              if (noteZeroByteToolInputStart(event.name)) {
+                send({
+                  type: "auto_continue",
+                  reason: "no_progress",
+                });
+                endedForActionPreparationNoProgress = true;
                 break;
               }
-              throw err;
-            }
-          }
-          if (event.type === "text-delta") {
-            resetZeroByteToolInputRestart();
-            streamedAssistantText += event.text;
-            send({ type: "text", text: event.text });
-          } else if (event.type === "thinking-delta") {
-            thinkingBuffer += event.text;
-            // Forward thinking deltas as a distinct event type so the UI
-            // can render a collapsible "Thinking…" cell while the model
-            // reasons, then collapse it when content arrives.
-            send({ type: "thinking", text: event.text });
-          } else if (event.type === "tool-input-start") {
-            const key = event.id ?? event.name;
-            if (key && event.name) {
-              toolInputNames.set(key, event.name);
-              toolInputBytes.set(key, 0);
-              trackActiveToolInput(key, event.name, 0);
-            }
-            sendToolInputActivity(event.name, key, undefined, true);
-            if (noteZeroByteToolInputStart(event.name)) {
-              send({
-                type: "auto_continue",
-                reason: "no_progress",
-              });
-              endedForActionPreparationNoProgress = true;
-              break;
-            }
-          } else if (event.type === "tool-input-delta") {
-            const key = event.id ?? event.name;
-            const toolName =
-              event.name ??
-              (event.id ? toolInputNames.get(event.id) : undefined);
-            let progressBytes: number | undefined;
-            let startedZeroByteInput = false;
-            if (key) {
-              const hadByteRecord = toolInputBytes.has(key);
-              const previous = hadByteRecord
-                ? (toolInputBytes.get(key) ?? 0)
-                : 0;
-              progressBytes =
-                previous +
-                new TextEncoder().encode(event.text ?? "").byteLength;
-              toolInputBytes.set(key, progressBytes);
-              if (!hadByteRecord || progressBytes > previous) {
-                trackActiveToolInput(key, toolName, progressBytes);
-                if (progressBytes > 0) {
-                  resetZeroByteToolInputRestart(toolName);
-                } else if (!hadByteRecord) {
-                  startedZeroByteInput = true;
+            } else if (event.type === "tool-input-delta") {
+              const key = event.id ?? event.name;
+              const toolName =
+                event.name ??
+                (event.id ? toolInputNames.get(event.id) : undefined);
+              let progressBytes: number | undefined;
+              let startedZeroByteInput = false;
+              if (key) {
+                const hadByteRecord = toolInputBytes.has(key);
+                const previous = hadByteRecord
+                  ? (toolInputBytes.get(key) ?? 0)
+                  : 0;
+                progressBytes =
+                  previous +
+                  new TextEncoder().encode(event.text ?? "").byteLength;
+                toolInputBytes.set(key, progressBytes);
+                if (!hadByteRecord || progressBytes > previous) {
+                  trackActiveToolInput(key, toolName, progressBytes);
+                  if (progressBytes > 0) {
+                    resetZeroByteToolInputRestart();
+                  } else if (!hadByteRecord) {
+                    startedZeroByteInput = true;
+                  }
                 }
               }
-            }
-            sendToolInputActivity(toolName, key, progressBytes);
-            if (
-              startedZeroByteInput &&
-              toolName &&
-              noteZeroByteToolInputStart(toolName)
-            ) {
-              send({
-                type: "auto_continue",
-                reason: "no_progress",
+              sendToolInputActivity(toolName, key, progressBytes);
+              if (
+                startedZeroByteInput &&
+                toolName &&
+                noteZeroByteToolInputStart(toolName)
+              ) {
+                send({
+                  type: "auto_continue",
+                  reason: "no_progress",
+                });
+                endedForActionPreparationNoProgress = true;
+                break;
+              }
+            } else if (event.type === "gateway-heartbeat") {
+              send({ type: "stream_keepalive" });
+            } else if (event.type === "tool-call") {
+              // The authoritative tool-call blocks arrive in assistant-content.
+            } else if (event.type === "tool-call-error") {
+              toolCallErrors.set(event.id, {
+                name: event.name,
+                input: event.input,
+                error: event.error,
               });
-              endedForActionPreparationNoProgress = true;
+            } else if (event.type === "assistant-content") {
+              assistantContent = event.parts;
+            } else if (event.type === "usage") {
+              usage.inputTokens += event.inputTokens;
+              usage.outputTokens += event.outputTokens;
+              usage.cacheReadTokens += event.cacheReadTokens ?? 0;
+              usage.cacheWriteTokens += event.cacheWriteTokens ?? 0;
+            } else if (event.type === "stop") {
+              terminalStopReason = event.reason;
+              if (event.reason === "error") {
+                throw new EngineError(event.error ?? "Engine stream error", {
+                  errorCode: event.errorCode,
+                  upgradeUrl: event.upgradeUrl,
+                  statusCode: event.statusCode,
+                  providerRetryable: event.providerRetryable,
+                });
+              }
+            }
+            if (hasActionPreparationStalled()) {
+              checkpointActionPreparationNoProgress();
               break;
             }
-          } else if (event.type === "gateway-heartbeat") {
-            send({ type: "stream_keepalive" });
-          } else if (event.type === "tool-call") {
-            // The authoritative tool-call blocks arrive in assistant-content.
-          } else if (event.type === "tool-call-error") {
-            toolCallErrors.set(event.id, {
-              name: event.name,
-              input: event.input,
-              error: event.error,
-            });
-          } else if (event.type === "assistant-content") {
-            assistantContent = event.parts;
-          } else if (event.type === "usage") {
-            usage.inputTokens += event.inputTokens;
-            usage.outputTokens += event.outputTokens;
-            usage.cacheReadTokens += event.cacheReadTokens ?? 0;
-            usage.cacheWriteTokens += event.cacheWriteTokens ?? 0;
-          } else if (event.type === "stop") {
-            terminalStopReason = event.reason;
-            if (event.reason === "error") {
-              throw new EngineError(event.error ?? "Engine stream error", {
-                errorCode: event.errorCode,
-                upgradeUrl: event.upgradeUrl,
-                statusCode: event.statusCode,
-                providerRetryable: event.providerRetryable,
-              });
-            }
           }
-          if (hasActionPreparationStalled()) {
-            checkpointActionPreparationNoProgress();
-            void eventIterator.return?.().catch(() => undefined);
-            break;
+        } finally {
+          if (!eventIteratorDone) {
+            await requestEventIteratorReturn(
+              eventIterator,
+              !eventIteratorReturnRequested,
+            );
           }
         }
 

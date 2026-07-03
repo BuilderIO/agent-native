@@ -1068,6 +1068,131 @@ describe("runAgentLoop", () => {
     );
   });
 
+  it("clears the action-preparation timeout when the stream rejects", async () => {
+    vi.useFakeTimers({ now: 1_000_000 });
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: true,
+      },
+      async *stream(): AsyncIterable<EngineEvent> {
+        yield {
+          type: "tool-input-start",
+          id: "tool-edit",
+          name: "edit-design",
+        };
+        throw new Error("fatal stream exploded");
+      },
+    };
+    const events: AgentChatEvent[] = [];
+
+    try {
+      await expect(
+        runAgentLoop({
+          engine,
+          model: "test-model",
+          systemPrompt: "system",
+          tools: [],
+          messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+          actions: {
+            "edit-design": actionEntry({ readOnly: false }),
+          },
+          send: (event) => events.push(event),
+          signal: new AbortController().signal,
+        }),
+      ).rejects.toThrow("fatal stream exploded");
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+
+    expect(events).toContainEqual({
+      type: "activity",
+      label: "Preparing edit-design action",
+      tool: "edit-design",
+      id: "tool-edit",
+    });
+  });
+
+  it("closes the event stream after an action-preparation stall", async () => {
+    let now = 1_000_000;
+    const dateNow = vi.spyOn(Date, "now").mockImplementation(() => now);
+    const returnSpy = vi.fn(async () => ({ done: true, value: undefined }));
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: true,
+      },
+      stream(): AsyncIterable<EngineEvent> {
+        let step = 0;
+        return {
+          [Symbol.asyncIterator]() {
+            return {
+              async next() {
+                if (step === 0) {
+                  step += 1;
+                  return {
+                    done: false,
+                    value: {
+                      type: "tool-input-start",
+                      id: "tool-edit",
+                      name: "edit-design",
+                    },
+                  };
+                }
+                now += 91_000;
+                return {
+                  done: false,
+                  value: { type: "gateway-heartbeat" },
+                };
+              },
+              return: returnSpy,
+            };
+          },
+        };
+      },
+    };
+    const events: AgentChatEvent[] = [];
+
+    try {
+      await runAgentLoop({
+        engine,
+        model: "test-model",
+        systemPrompt: "system",
+        tools: [],
+        messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+        actions: {
+          "edit-design": actionEntry({ readOnly: false }),
+        },
+        send: (event) => events.push(event),
+        signal: new AbortController().signal,
+      });
+    } finally {
+      dateNow.mockRestore();
+    }
+
+    expect(returnSpy).toHaveBeenCalledTimes(1);
+    expect(events.at(-1)).toEqual({
+      type: "auto_continue",
+      reason: "no_progress",
+    });
+    expect(events).not.toContainEqual({ type: "stream_keepalive" });
+  });
+
   it("keeps tracking a stalled action input across assistant snapshots", async () => {
     let now = 1_000_000;
     const dateNow = vi.spyOn(Date, "now").mockImplementation(() => now);
@@ -1748,6 +1873,82 @@ describe("runAgentLoop", () => {
         id: "search-replacement",
         progressBytes: 43,
       }),
+    );
+    expect(events).not.toContainEqual({
+      type: "auto_continue",
+      reason: "no_progress",
+    });
+    expect(events.at(-1)).toEqual({ type: "done" });
+  });
+
+  it("keeps a different tool streaming after an abandoned zero-byte tool", async () => {
+    let now = 1_000_000;
+    const dateNow = vi.spyOn(Date, "now").mockImplementation(() => now);
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: true,
+      },
+      async *stream(): AsyncIterable<EngineEvent> {
+        yield {
+          type: "tool-input-delta",
+          id: "edit-abandoned",
+          name: "edit-design",
+          text: "",
+        };
+        now += 89_000;
+        yield {
+          type: "tool-input-delta",
+          id: "generate-replacement",
+          name: "generate-design",
+          text: '{"prompt":"fresh generated screen',
+        };
+        now += 2_000;
+        yield { type: "text-delta", text: "still preparing" };
+        yield {
+          type: "assistant-content",
+          parts: [{ type: "text" as const, text: "done" }],
+        };
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+    const events: AgentChatEvent[] = [];
+
+    try {
+      await runAgentLoop({
+        engine,
+        model: "test-model",
+        systemPrompt: "system",
+        tools: [],
+        messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+        actions: {
+          "edit-design": actionEntry({ readOnly: false }),
+          "generate-design": actionEntry({ readOnly: false }),
+        },
+        send: (event) => events.push(event),
+        signal: new AbortController().signal,
+      });
+    } finally {
+      dateNow.mockRestore();
+    }
+
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "activity",
+        tool: "generate-design",
+        id: "generate-replacement",
+        progressBytes: 33,
+      }),
+    );
+    expect(events).toContainEqual(
+      expect.objectContaining({ type: "text", text: "still preparing" }),
     );
     expect(events).not.toContainEqual({
       type: "auto_continue",
