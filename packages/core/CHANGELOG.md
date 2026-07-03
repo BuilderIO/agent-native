@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.84.63
+
+### Patch Changes
+
+- 231460f: Recover action preparation stalls even when the model stream goes silent before sending any tool input bytes.
+
 ## 0.84.62
 
 ### Patch Changes
