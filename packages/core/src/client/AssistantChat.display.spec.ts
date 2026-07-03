@@ -365,6 +365,21 @@ describe("waitForThreadRunToClear", () => {
     expect(helperSource).not.toContain("heartbeatAt");
   });
 
+  it("uses the background run budget when deciding whether an active run is stale", () => {
+    const source = readFileSync("src/client/AssistantChat.tsx", {
+      encoding: "utf8",
+    });
+    const start = source.indexOf("function activeRunStuckThresholdMs");
+    const end = source.indexOf("function activeRunLooksStale");
+    const helperSource = source.slice(start, end);
+
+    expect(start).toBeGreaterThan(-1);
+    expect(end).toBeGreaterThan(start);
+    expect(helperSource).toContain('dispatchMode.startsWith("background")');
+    expect(helperSource).toContain("BACKGROUND_ACTIVE_RUN_STUCK_THRESHOLD_MS");
+    expect(helperSource).toContain("ACTIVE_RUN_STUCK_THRESHOLD_MS");
+  });
+
   it("aborts the reconnect on an idle gap, not a fixed total duration", () => {
     const source = readFileSync("src/client/AssistantChat.tsx", {
       encoding: "utf8",
@@ -380,6 +395,7 @@ describe("waitForThreadRunToClear", () => {
     // total reconnect duration and falsely fails a healthy long run.
     expect(helperSource).toContain("markReconnectProgress");
     expect(helperSource).toContain("reconnectProgressTimedOut");
+    expect(helperSource).toContain("thresholdMs: reconnectStuckThresholdMs");
     expect(helperSource).not.toContain(
       "setTimeout(() => {\n        reconnectTimedOut = true;",
     );

@@ -243,10 +243,12 @@ patterns live in `.agents/skills/`.
   wait for the user to pick one in chat, delete each other generated variant
   screen with `delete-file` at most once, call `get-design-snapshot` exactly
   once with the selected screen's `fileId`, then call `edit-design` exactly once
-  on that same `fileId` for follow-up refinement. Use `mode: "replace-file"`
-  when expanding the representative placeholder into the full chosen direction.
-  Do not repeat delete/snapshot cycles, and do not call `generate-design` after
-  a variant pick.
+  on that same `fileId` for follow-up refinement. The kept variant screen is a
+  representative direction, not the final deliverable: use `mode:
+"replace-file"` to replace it with the actual requested app/product UI in the
+  chosen visual style. Do not leave a direction board, variant brief, summary
+  card, or prose description as the final screen. Do not repeat delete/snapshot
+  cycles, and do not call `generate-design` after a variant pick.
 - If inline chat choice buttons are unavailable, the user can tell you the
   preferred screen name. Do not show a separate variant picker or ask them to
   paste a copyable handoff summary.
