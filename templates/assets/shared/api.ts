@@ -41,6 +41,24 @@ export const IMAGE_MODELS = [
   "gpt-image-2",
 ] as const;
 
+// Per-model aspect-ratio constraints. Mirrors the image service catalog's
+// `supportedAspectRatios` (see the ai-services image-generation catalog). Models
+// omitted here accept the full ASPECT_RATIOS set. gpt-image-2 maps each aspect
+// ratio to a fixed OpenAI resolution and supports only these three; other ratios
+// are rejected upstream with `unsupported_aspect_ratio`. Keep this in sync with
+// the catalog until the picker sources it dynamically from `/discover`.
+export const MODEL_ASPECT_RATIOS: Partial<
+  Record<ImageModel, readonly AspectRatio[]>
+> = {
+  "gpt-image-2": ["1:1", "2:3", "3:2"],
+};
+
+export function supportedAspectRatiosForModel(
+  model: ImageModel,
+): readonly AspectRatio[] {
+  return MODEL_ASPECT_RATIOS[model] ?? ASPECT_RATIOS;
+}
+
 export const GENERATION_INTENTS = ["generate", "restyle", "edit"] as const;
 
 export const STYLE_STRENGTHS = ["subtle", "balanced", "strong"] as const;

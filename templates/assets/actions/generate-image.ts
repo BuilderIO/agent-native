@@ -84,7 +84,7 @@ export default defineAction({
       .enum(ASPECT_RATIOS)
       .optional()
       .describe(
-        "Image aspect ratio. When a presetId is set, omit this — the preset's aspect ratio is used. Pass a value only when there is no preset, or when the user explicitly asks for a ratio different from the preset's.",
+        "Image aspect ratio. When a presetId is set, omit this — the preset's aspect ratio is used. Pass a value only when there is no preset, or when the user explicitly asks for a ratio different from the preset's. Note: gpt-image-2 supports only 1:1, 2:3, and 3:2; other ratios (16:9, 9:16, 4:5, 21:9, …) require a Gemini model.",
       ),
     imageSize: z
       .enum(IMAGE_SIZES)
@@ -92,7 +92,12 @@ export default defineAction({
       .describe(
         "Output resolution tier. When a presetId is set, omit this — the preset's size is used unless the user explicitly requests a different one.",
       ),
-    model: z.enum(IMAGE_MODELS).optional(),
+    model: z
+      .enum(IMAGE_MODELS)
+      .optional()
+      .describe(
+        "Image model. Omit to use the user's picker default. Gemini models accept any aspectRatio; gpt-image-2 supports ONLY 1:1, 2:3, and 3:2 — do not pair it with other ratios, choose a Gemini model (e.g. gemini-3-pro-image) for those instead.",
+      ),
     tier: z.enum(IMAGE_QUALITY_TIERS).optional(),
     intent: z.enum(GENERATION_INTENTS).default("generate"),
     styleStrength: z.enum(STYLE_STRENGTHS).default("balanced"),
