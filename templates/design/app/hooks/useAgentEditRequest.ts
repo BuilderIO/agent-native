@@ -64,7 +64,7 @@ export function buildEditContext(args: AgentEditRequestArgs): string {
     "2. For style, class, text, or positional changes on the selected element, prefer apply-visual-edit — it is deterministic and does not require a full regeneration.",
   );
   lines.push(
-    "3. For structural changes, new sections, or multi-element edits, use edit-design (search/replace) for small targeted changes or generate-design for full rewrites.",
+    "3. For structural changes, new sections, or multi-element edits in an existing file, call get-design-snapshot and then edit-design. Use edit-design in replace-file mode for full rewrites of the selected file. Reserve generate-design for creating brand-new design files, not rewriting the current selected screen.",
   );
   lines.push(
     "4. If a routeSourceFile is provided, the design screen is connected to localhost source code. Route edits through the agent code editing surface for that file rather than modifying the inline HTML prototype.",
