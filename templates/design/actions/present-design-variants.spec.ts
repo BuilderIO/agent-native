@@ -233,9 +233,9 @@ describe("present-design-variants", () => {
     expect(guidedQuestions.submitMessage).toContain(
       "exact file ids and tool instructions in the selected answer",
     );
-    expect(guidedQuestions.submitMessage).toContain(
-      "full requested app/product UI",
-    );
+    expect(guidedQuestions.submitMessage).toContain("requested app/product UI");
+    expect(guidedQuestions.submitMessage).toContain("complete but compact");
+    expect(guidedQuestions.submitMessage).toContain("primary workflow");
     expect(guidedQuestions.submitMessage).toContain(
       "must not be a direction board",
     );
@@ -258,6 +258,8 @@ describe("present-design-variants", () => {
     expect(firstOption?.value).toContain(
       "replace the representative direction screen",
     );
+    expect(firstOption?.value).toContain("complete but compact");
+    expect(firstOption?.value).toContain("primary workflow");
     expect(firstOption?.value).toContain("actual usable UI requested");
     expect(firstOption?.value).toContain("not a direction board");
     expect(firstOption?.value).toContain("bounded single-file pass");
@@ -313,9 +315,8 @@ describe("present-design-variants", () => {
     expect(result.nextRequiredAction).toContain("fileId");
     expect(result.nextRequiredAction).toContain("edit-design");
     expect(result.nextRequiredAction).toContain('mode "replace-file"');
-    expect(result.nextRequiredAction).toContain(
-      "full requested app/product UI",
-    );
+    expect(result.nextRequiredAction).toContain("complete but compact");
+    expect(result.nextRequiredAction).toContain("primary workflow");
     expect(result.nextRequiredAction).toContain(
       "Do not leave a direction board",
     );

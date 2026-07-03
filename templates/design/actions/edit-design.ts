@@ -142,8 +142,10 @@ export default defineAction({
     "the snapshot with only the requested copy changed. After a variant pick " +
     "or any other selected-screen follow-up, pass the exact `fileId` from " +
     '`get-design-snapshot` and use `mode: "replace-file"` when replacing ' +
-    "the representative placeholder with the full chosen direction. Use " +
-    "`generate-design` instead only for brand-new files.",
+    "the representative placeholder with a complete but compact UI in the chosen " +
+    "direction; prioritize the primary workflow and render secondary details " +
+    "as visible controls, states, or affordances when needed. Use `generate-design` " +
+    "instead only for brand-new files.",
   schema: z
     .object({
       designId: z.string().describe("Design project ID"),
@@ -175,7 +177,7 @@ export default defineAction({
         .min(1)
         .optional()
         .describe(
-          "Complete updated file content. Use only with mode=replace-file for selected variant expansion or broad copy-only changes; preserve all HTML structure, CSS, scripts, and tweaks from get-design-snapshot.",
+          "Complete updated file content. Use only with mode=replace-file for selected variant expansion or broad copy-only changes; preserve all HTML structure, CSS, scripts, and tweaks from get-design-snapshot. For selected variants, keep the replacement complete but compact instead of expanding secondary details into an oversized payload.",
         ),
     })
     .superRefine((value, ctx) => {
