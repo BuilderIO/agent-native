@@ -28,6 +28,28 @@ function sseResponse(events: unknown[], runId = "run-qa"): Response {
   );
 }
 
+/** SSE response for a run dispatched into a background function — carries the
+ *  X-Dispatch-Mode header the adapter uses as its recovery-ownership switch. */
+function backgroundSseResponse(events: unknown[], runId: string): Response {
+  const body = events.map((event) => `data: ${JSON.stringify(event)}\n\n`);
+  return new Response(
+    new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode(body.join("")));
+        controller.close();
+      },
+    }),
+    {
+      status: 200,
+      headers: {
+        "Content-Type": "text/event-stream",
+        "X-Run-Id": runId,
+        "X-Dispatch-Mode": "background",
+      },
+    },
+  );
+}
+
 function emptySseResponse(runId = "run-empty"): Response {
   return new Response(
     new ReadableStream<Uint8Array>({
@@ -5122,6 +5144,242 @@ describe("createAgentChatAdapter", () => {
       expect.stringContaining("/runs/run-foreground-other/events"),
       expect.any(Object),
     );
+    const last = results.at(-1) as any;
+    expect(last.content.at(-1).text).toContain("Working continued");
+  });
+
+  it("follows a server-chained background continuation without POSTing a synthetic continuation", async () => {
+    // Background dispatch: the server chains continuation chunks itself
+    // (fresh runId, same turnId, successor row pre-inserted). The client must
+    // act as a READER: poll /runs/active, attach to the successor's event
+    // stream, fold its content into the same assistant message — and never
+    // issue a second POST to the chat endpoint.
+    vi.useFakeTimers();
+    vi.stubGlobal("window", { dispatchEvent: vi.fn() });
+    vi.stubGlobal(
+      "CustomEvent",
+      class CustomEvent {
+        type: string;
+        detail: unknown;
+        constructor(type: string, init?: { detail?: unknown }) {
+          this.type = type;
+          this.detail = init?.detail;
+        }
+      },
+    );
+
+    let postCount = 0;
+    const fetchSpy = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/_agent-native/agent-chat" && init?.method === "POST") {
+        postCount += 1;
+        return backgroundSseResponse(
+          [
+            { type: "text", text: "Working" },
+            { type: "auto_continue", reason: "run_timeout" },
+          ],
+          "run-bg-chunk-1",
+        );
+      }
+      if (url.includes("/runs/active")) {
+        return jsonResponse({
+          active: true,
+          runId: "run-bg-chunk-2",
+          threadId: "thread-bg-follow",
+          status: "running",
+          dispatchMode: "background-processing",
+          heartbeatAt: Date.now(),
+          lastProgressAt: Date.now(),
+        });
+      }
+      if (url.includes("/runs/run-bg-chunk-2/events")) {
+        return sseResponse(
+          [{ type: "text", text: " and done" }, { type: "done" }],
+          "run-bg-chunk-2",
+        );
+      }
+      return jsonResponse({ error: "unexpected" }, 500);
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const adapter = createAgentChatAdapter({
+      apiUrl: "/_agent-native/agent-chat",
+      tabId: "chat-bg-follow",
+      threadId: "thread-bg-follow",
+    });
+    const promise = drain(
+      adapter.run({
+        messages: [
+          {
+            role: "user",
+            content: [{ type: "text", text: "do a long background job" }],
+          },
+        ],
+        abortSignal: new AbortController().signal,
+      } as any),
+    );
+
+    await vi.advanceTimersByTimeAsync(5_000);
+    const results = await promise;
+
+    // Exactly ONE POST — the original turn. Recovery was reads only.
+    expect(postCount).toBe(1);
+    // Successor attached from the start (new runId → cursor reset to -1).
+    expect(fetchSpy).toHaveBeenCalledWith(
+      expect.stringContaining("/runs/run-bg-chunk-2/events?after=0"),
+      expect.any(Object),
+    );
+    const last = results.at(-1) as any;
+    expect(last.content.at(-1).text).toContain("Working and done");
+  });
+
+  it("surfaces a terminal error when a background run goes idle with no successor", async () => {
+    // If the server-chained successor never appears (lost handoff that even
+    // the server sweep failed to resurface), the follow loop must end the
+    // turn with a loud terminal error after its idle window — never a silent
+    // stop, and never a synthetic continuation POST.
+    vi.useFakeTimers();
+    vi.stubGlobal("window", { dispatchEvent: vi.fn() });
+    vi.stubGlobal(
+      "CustomEvent",
+      class CustomEvent {
+        type: string;
+        detail: unknown;
+        constructor(type: string, init?: { detail?: unknown }) {
+          this.type = type;
+          this.detail = init?.detail;
+        }
+      },
+    );
+
+    let postCount = 0;
+    const fetchSpy = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/_agent-native/agent-chat" && init?.method === "POST") {
+        postCount += 1;
+        return backgroundSseResponse(
+          [
+            { type: "text", text: "Working" },
+            { type: "auto_continue", reason: "run_timeout" },
+          ],
+          "run-bg-lost",
+        );
+      }
+      if (url.includes("/runs/active")) {
+        return jsonResponse({
+          active: false,
+          threadId: "thread-bg-lost",
+          status: "idle",
+          heartbeatAt: null,
+          lastProgressAt: null,
+        });
+      }
+      if (url.includes("/runs/run-bg-lost/events")) {
+        return jsonResponse({ error: "Run not found" }, 404);
+      }
+      return jsonResponse({ error: "unexpected" }, 500);
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const adapter = createAgentChatAdapter({
+      apiUrl: "/_agent-native/agent-chat",
+      tabId: "chat-bg-lost",
+      threadId: "thread-bg-lost",
+    });
+    const promise = drain(
+      adapter.run({
+        messages: [
+          {
+            role: "user",
+            content: [{ type: "text", text: "do a long background job" }],
+          },
+        ],
+        abortSignal: new AbortController().signal,
+      } as any),
+    );
+
+    // Past the 45s follow idle window (polled at ~1s cadence).
+    await vi.advanceTimersByTimeAsync(60_000);
+    const results = await promise;
+
+    expect(postCount).toBe(1);
+    const last = results.at(-1) as any;
+    expect(last.status).toEqual({ type: "incomplete", reason: "error" });
+    expect(last.metadata?.custom?.runError?.errorCode).toBe(
+      "background_run_lost",
+    );
+    expect(last.content.at(-1).text).toContain(
+      "stopped before finishing and no continuation appeared",
+    );
+  });
+
+  it("still self-POSTs a foreground continuation after run_timeout (foreground behavior pin)", async () => {
+    // Foreground regression pin for the background follow-mode change: a run
+    // with no background dispatch mode keeps the full client-side
+    // continuation machinery — synthetic POST and all.
+    vi.useFakeTimers();
+    vi.stubGlobal("window", { dispatchEvent: vi.fn() });
+    vi.stubGlobal(
+      "CustomEvent",
+      class CustomEvent {
+        type: string;
+        detail: unknown;
+        constructor(type: string, init?: { detail?: unknown }) {
+          this.type = type;
+          this.detail = init?.detail;
+        }
+      },
+    );
+
+    let postCount = 0;
+    const fetchSpy = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/_agent-native/agent-chat" && init?.method === "POST") {
+        postCount += 1;
+        return postCount === 1
+          ? sseResponse(
+              [
+                { type: "text", text: "Working" },
+                { type: "auto_continue", reason: "run_timeout" },
+              ],
+              "run-fg-1",
+            )
+          : sseResponse(
+              [{ type: "text", text: " continued" }, { type: "done" }],
+              "run-fg-2",
+            );
+      }
+      if (url.includes("/runs/active")) {
+        return jsonResponse({
+          active: false,
+          threadId: "thread-fg-pin",
+          status: "idle",
+          heartbeatAt: null,
+          lastProgressAt: null,
+        });
+      }
+      return jsonResponse({ error: "unexpected" }, 500);
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const adapter = createAgentChatAdapter({
+      apiUrl: "/_agent-native/agent-chat",
+      tabId: "chat-fg-pin",
+      threadId: "thread-fg-pin",
+    });
+    const promise = drain(
+      adapter.run({
+        messages: [
+          {
+            role: "user",
+            content: [{ type: "text", text: "do a normal foreground task" }],
+          },
+        ],
+        abortSignal: new AbortController().signal,
+      } as any),
+    );
+
+    await vi.advanceTimersByTimeAsync(5_000);
+    const results = await promise;
+
+    expect(postCount).toBe(2);
     const last = results.at(-1) as any;
     expect(last.content.at(-1).text).toContain("Working continued");
   });

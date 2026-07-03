@@ -694,16 +694,33 @@ export function emitPlanStatusChanged(input: {
 }
 
 export async function assertPlanEditor(planId: string) {
-  const access = await assertAccess(
-    "plan",
-    planId,
-    "editor",
-    resolvePlanAccessContext(currentAccess()),
-  );
-  if ((access.resource as typeof schema.plans.$inferSelect).deletedAt) {
-    throw new ForbiddenError(`Plan ${planId} not found`);
+  const ctx = resolvePlanAccessContext(currentAccess());
+  try {
+    const access = await assertAccess("plan", planId, "editor", ctx);
+    if ((access.resource as typeof schema.plans.$inferSelect).deletedAt) {
+      throw new ForbiddenError(`Plan ${planId} not found`);
+    }
+    return access;
+  } catch (error) {
+    if (!(error instanceof ForbiddenError)) throw error;
+    // The caller failed the editor gate. If they can still READ the resource
+    // (viewer on an org/public plan or recap), replace core's bare role error
+    // ("Requires editor role on plan X (have viewer)") with a teaching error
+    // that names the resource kind and the sanctioned next step. Agents retry
+    // bare role errors verbatim in a loop; they act on errors that say what to
+    // do instead. Callers with no read access (or a deleted plan) keep the
+    // original non-leaking error.
+    const readable = await resolveAccess("plan", planId, ctx).catch(() => null);
+    const resource = readable?.resource as
+      | typeof schema.plans.$inferSelect
+      | undefined;
+    if (!readable || !resource || resource.deletedAt) throw error;
+    throw new ForbiddenError(
+      resource.kind === "recap"
+        ? `Recap ${planId} is read-only for you (your role: ${readable.role}). Recaps are published review snapshots owned by whoever published them (often the PR recap workflow), and changing one requires editor access. Do not retry this call with the same arguments. Instead: (1) add review feedback with a comment-only update-visual-plan call or reply-to-plan-comment — commenting only needs viewer access; (2) publish an updated recap you own with create-visual-recap (pass its planId only when replacing a recap you own); or (3) ask the recap owner to share editor access.`
+        : `Plan ${planId} is read-only for you (your role: ${readable.role}); this operation requires editor access. Do not retry this call with the same arguments. Instead add feedback with a comment-only update-visual-plan call or reply-to-plan-comment — commenting only needs viewer access — or ask the plan owner to share editor access.`,
+    );
   }
-  return access;
 }
 
 export async function loadPlanBundle(planId: string): Promise<PlanBundle> {

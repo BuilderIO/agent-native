@@ -1233,6 +1233,7 @@ function AnalyticsChatsSection() {
   const {
     threads,
     activeThreadId,
+    isLoading: chatsLoading,
     createThread,
     switchThread,
     pinThread,
@@ -1348,6 +1349,25 @@ function AnalyticsChatsSection() {
 
   return (
     <div className="ms-4 min-w-0 space-y-0.5">
+      {chatsLoading &&
+        visibleThreads.length === 0 &&
+        Array.from({ length: 3 }).map((_, i) => (
+          <div
+            key={`chat-skeleton-${i}`}
+            className="flex items-center gap-2 px-3 py-1"
+          >
+            <Skeleton
+              className={cn(
+                "h-3.5 w-3.5 shrink-0 rounded-sm",
+                SIDEBAR_SKELETON_CLASS,
+              )}
+            />
+            <Skeleton
+              className={cn("h-3 rounded", SIDEBAR_SKELETON_CLASS)}
+              style={{ width: `${60 + ((i * 17) % 30)}%` }}
+            />
+          </div>
+        ))}
       {visibleThreads.map((thread) => {
         const title = threadTitle(thread, t("chat.untitledChat"));
         const isActive =

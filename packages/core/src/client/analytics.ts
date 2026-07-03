@@ -13,6 +13,8 @@ import type {
 import { scrubUrl } from "./url-scrub.js";
 export { scrubUrl } from "./url-scrub.js";
 export type {
+  SessionReplayConsoleOptions,
+  SessionReplayNetworkOptions,
   SessionReplayOptions,
   SessionReplayStartResult,
   SessionReplayUrlMatcher,

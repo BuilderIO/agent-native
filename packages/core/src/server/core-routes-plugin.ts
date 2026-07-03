@@ -46,6 +46,12 @@ import { mountBrowserSessionRoutes } from "../browser-sessions/routes.js";
 import { mountDbAdminRoutes } from "../db-admin/routes.js";
 import { getDbExec } from "../db/client.js";
 import {
+  getDatabaseRuntimeFingerprint,
+  getRuntimeDebugFingerprint,
+  runDatabaseSchemaHealthCheck,
+  type DatabaseSchemaHealthResult,
+} from "../db/runtime-diagnostics.js";
+import {
   uploadFile,
   getActiveFileUploadProviderForRequest,
   listFileUploadProviders,
@@ -143,6 +149,7 @@ import {
   DEFAULT_UPLOAD_MAX_FILE_BYTES,
   isAllowedUploadMimeType,
 } from "./h3-helpers.js";
+import { createHttpResponseTelemetryMiddleware } from "./http-response-telemetry.js";
 import { isIdentitySsoEnabled } from "./identity-sso-store.js";
 import { handleIdentitySso } from "./identity-sso.js";
 import { createOpenRouteHandler } from "./open-route.js";
@@ -204,10 +211,24 @@ export function getFrameworkEnvKeys(): EnvKeyConfig[] {
 export interface DbHealthProbeResult {
   /** The serverless function is live and served the request. */
   ok: true;
+  /** Database + optional schema readiness for stricter production monitors. */
+  ready: boolean;
   /** A trivial `SELECT 1` reached the database (false = no DB or unreachable). */
   db: boolean;
   /** Round-trip time of the probe in milliseconds. */
   ms: number;
+  /** Redacted database routing details useful for deploy/runtime checks. */
+  database: {
+    configured: boolean;
+    source: string;
+    dialect: string;
+    urlHash?: string;
+    appName?: string;
+    authTokenConfigured: boolean;
+    netlifyDatabaseUrlConfigured: boolean;
+  };
+  /** Optional metadata-only schema compatibility check. */
+  schema?: DatabaseSchemaHealthResult;
 }
 
 /**
@@ -222,16 +243,40 @@ export interface DbHealthProbeResult {
  */
 export async function runDbHealthProbe(
   exec: () => { execute: (sql: string) => Promise<unknown> } = getDbExec,
+  options: { schema?: boolean } = {},
 ): Promise<DbHealthProbeResult> {
   const startedAt = Date.now();
   let db = false;
+  let schema: DatabaseSchemaHealthResult | undefined;
+  const dbExec = exec();
   try {
-    await exec().execute("SELECT 1");
+    await dbExec.execute("SELECT 1");
     db = true;
   } catch {
     // Live even when the DB is unreachable or the app has no database.
   }
-  return { ok: true, db, ms: Date.now() - startedAt };
+  if (db && options.schema) {
+    schema = await runDatabaseSchemaHealthCheck({
+      exec: dbExec as ReturnType<typeof getDbExec>,
+    });
+  }
+  const database = getDatabaseRuntimeFingerprint();
+  return {
+    ok: true,
+    ready: db && (!schema || schema.ok),
+    db,
+    ms: Date.now() - startedAt,
+    database: {
+      configured: database.configured,
+      source: database.source,
+      dialect: database.dialect,
+      urlHash: database.urlHash,
+      appName: database.appName,
+      authTokenConfigured: database.authTokenConfigured,
+      netlifyDatabaseUrlConfigured: database.netlifyDatabaseUrlConfigured,
+    },
+    ...(schema ? { schema } : {}),
+  };
 }
 const DEFAULT_BUILDER_WAITLIST_FORM_ID = "DYTHuM0jlV";
 const DEFAULT_BUILDER_WAITLIST_FORMS_ORIGIN = "https://forms.agent-native.com";
@@ -863,6 +908,8 @@ export function createCoreRoutesPlugin(
 
       const P = FRAMEWORK_ROUTE_PREFIX;
 
+      getH3App(nitroApp).use(createHttpResponseTelemetryMiddleware());
+
       // Security response headers — emitted on every framework response.
       // Mounted before route handlers so 4xx/5xx error pages also carry the
       // headers. Routes that need to tighten a specific header override via
@@ -1071,16 +1118,56 @@ export function createCoreRoutesPlugin(
       // Health + DB warmup — liveness probe that touches the database so
       // uptime monitors and the keep-warm cron prevent a scale-to-zero
       // serverless DB (e.g. Neon) from cold-starting on the next real
-      // request. Public, side-effect free, and never cached.
+      // request. Public, side-effect free, and never cached. Add ?schema=1
+      // for metadata-only schema checks, and ?strict=1 to turn a not-ready
+      // DB/schema probe into a failing HTTP status for monitors.
       if (!options.disableHealth) {
         getH3App(nitroApp).use(
           `${P}/health`,
           defineEventHandler(async (event) => {
             setResponseHeader(event, "cache-control", "no-store");
-            return runDbHealthProbe();
+            const schema =
+              event.url?.searchParams.get("schema") === "1" ||
+              event.url?.searchParams.get("schema") === "true";
+            const strict =
+              event.url?.searchParams.get("strict") === "1" ||
+              event.url?.searchParams.get("strict") === "true" ||
+              process.env.AGENT_NATIVE_HEALTH_STRICT_SCHEMA === "true";
+            const result = await runDbHealthProbe(getDbExec, { schema });
+            if (strict && !result.ready) setResponseStatus(event, 503);
+            return result;
           }),
         );
       }
+
+      getH3App(nitroApp).use(
+        `${P}/debug/runtime`,
+        defineEventHandler(async (event) => {
+          setResponseHeader(event, "cache-control", "no-store");
+          const session = await getSession(event).catch(() => null);
+          const productionLike =
+            process.env.NODE_ENV === "production" ||
+            process.env.NETLIFY === "true" ||
+            process.env.VERCEL === "1";
+          if (!session?.email && productionLike) {
+            setResponseStatus(event, 401);
+            return { error: "Authentication required" };
+          }
+          const schema = await runDatabaseSchemaHealthCheck().catch((err) => ({
+            ok: false,
+            checked: false,
+            dialect: getDatabaseRuntimeFingerprint().dialect,
+            missingTables: [],
+            missingColumns: [],
+            error: err instanceof Error ? err.message : String(err),
+          }));
+          return {
+            ok: true,
+            runtime: getRuntimeDebugFingerprint(),
+            schema,
+          };
+        }),
+      );
 
       getH3App(nitroApp).use(
         `${P}/speculation-rules.json`,

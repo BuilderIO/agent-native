@@ -149,6 +149,7 @@ describe("session replay agent summaries", () => {
       totalBytes: 2048,
       pageCount: 1,
       errorCount: 0,
+      networkErrorCount: 0,
       rageClickCount: 0,
       privacyMode: "default",
       firstUrl: "https://example.test/start",
@@ -226,6 +227,112 @@ describe("session replay ingest parsing", () => {
       eventCount: 1,
       storageKind: "inline",
     });
+  });
+
+  it("derives error and network-error counts from tagged diagnostics events", () => {
+    const parsed = parseSessionReplayIngestPayload({
+      publicKey: "anpk_test",
+      replayId: "recording_1",
+      sessionId: "session_1",
+      userId: "dev@example.com",
+      sequence: 0,
+      events: [
+        { type: 4, timestamp: 1, data: { href: "https://example.com" } },
+        {
+          type: 5,
+          timestamp: 2,
+          data: {
+            tag: "agent-native.console",
+            payload: {
+              level: "error",
+              source: "console",
+              message: "boom",
+              repeat: 3,
+            },
+          },
+        },
+        {
+          type: 5,
+          timestamp: 3,
+          data: {
+            tag: "agent-native.console",
+            payload: { level: "warn", source: "console", message: "meh" },
+          },
+        },
+        {
+          type: 5,
+          timestamp: 4,
+          data: {
+            tag: "agent-native.network",
+            payload: {
+              api: "fetch",
+              method: "GET",
+              url: "/api/broken",
+              status: 500,
+              ok: false,
+              durationMs: 12,
+            },
+          },
+        },
+        {
+          type: 5,
+          timestamp: 5,
+          data: {
+            tag: "agent-native.network",
+            payload: {
+              api: "xhr",
+              method: "POST",
+              url: "/api/dropped",
+              status: 0,
+              ok: false,
+              durationMs: 8,
+              error: "network failure",
+            },
+          },
+        },
+        {
+          type: 5,
+          timestamp: 6,
+          data: {
+            tag: "agent-native.network",
+            payload: {
+              api: "fetch",
+              method: "GET",
+              url: "/api/fine",
+              status: 200,
+              ok: true,
+              durationMs: 5,
+            },
+          },
+        },
+        // Legacy-style event whose message matches the old substring
+        // heuristic; it must NOT add to errorCount once tagged diagnostics
+        // exist (no double counting).
+        { type: 5, timestamp: 7, data: { message: "Uncaught error thing" } },
+      ],
+    });
+
+    expect(parsed.errorCount).toBe(3);
+    expect(parsed.networkErrorCount).toBe(2);
+  });
+
+  it("falls back to the substring heuristic when no tagged diagnostics exist", () => {
+    const parsed = parseSessionReplayIngestPayload({
+      publicKey: "anpk_test",
+      replayId: "recording_1",
+      sessionId: "session_1",
+      userId: "dev@example.com",
+      sequence: 0,
+      events: [
+        { type: 4, timestamp: 1, data: { href: "https://example.com" } },
+        { type: 5, timestamp: 2, data: { message: "Uncaught TypeError" } },
+        { type: 5, timestamp: 3, data: { type: "unhandledrejection" } },
+        { type: 3, timestamp: 4, data: { source: 2, type: 2 } },
+      ],
+    });
+
+    expect(parsed.errorCount).toBe(2);
+    expect(parsed.networkErrorCount).toBe(0);
   });
 
   it("accepts full snapshot chunks larger than the SQL inline fallback cap", () => {

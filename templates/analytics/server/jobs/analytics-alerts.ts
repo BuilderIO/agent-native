@@ -1,5 +1,6 @@
 import {
   claimAnalyticsAlertRuleEvaluation,
+  ensureDefaultHttp5xxSpikeAlertRules,
   evaluateAndNotifyAnalyticsAlertRule,
   listEnabledAnalyticsAlertRules,
   markAnalyticsAlertRuleError,
@@ -43,6 +44,9 @@ export async function runAnalyticsAlertsOnce(
 
   try {
     const sweepLimit = maxRulesPerSweep(options.limit);
+    await ensureDefaultHttp5xxSpikeAlertRules().catch((err) => {
+      console.error("[analytics-alerts] Default 5xx alert seed failed:", err);
+    });
     const rules = await listEnabledAnalyticsAlertRules({
       limit: sweepLimit,
       ownerEmail: options.ownerEmail,

@@ -21,6 +21,7 @@ import {
   IconPlayerSkipForward,
   IconPlayerTrackNext,
   IconRoute,
+  IconTerminal2,
   IconTimelineEvent,
 } from "@tabler/icons-react";
 import { useQuery } from "@tanstack/react-query";
@@ -50,6 +51,9 @@ import {
 } from "@/components/ui/tooltip";
 import { getIdToken } from "@/lib/auth";
 import { cn } from "@/lib/utils";
+
+import { extractReplayDiagnostics } from "./session-replay-devtools";
+import { SessionDevToolsPanel } from "./SessionDevToolsPanel";
 
 type SessionRecordingSummary = {
   id: string;
@@ -393,6 +397,7 @@ function ReplayPlayer({
   const [totalTime, setTotalTime] = useState(0);
   const [speed, setSpeed] = useState(DEFAULT_SPEED);
   const [skipInactive, setSkipInactive] = useState(true);
+  const [devToolsOpen, setDevToolsOpen] = useState(false);
   const [streamedDims, setStreamedDims] = useState<{
     width: number;
     height: number;
@@ -414,6 +419,9 @@ function ReplayPlayer({
     () => currentUrlAt(events, currentTime),
     [events, currentTime],
   );
+  const diagnostics = useMemo(() => extractReplayDiagnostics(events), [events]);
+  const devToolsIssueCount =
+    diagnostics.consoleErrorCount + diagnostics.networkFailedCount;
 
   useEffect(() => {
     const el = stageAreaRef.current;
@@ -494,7 +502,14 @@ function ReplayPlayer({
         showWarning: false,
         showDebug: false,
         triggerFocus: false,
-        mouseTail: false,
+        // Subtle FullStory-style trail behind the visitor cursor. The canvas
+        // is resized alongside the iframe in applyReplayFrameDimensions.
+        mouseTail: {
+          strokeStyle: "rgba(59, 130, 246, 0.35)",
+          lineWidth: 2,
+          duration: 600,
+          lineCap: "round",
+        },
         insertStyleRules: [
           "[data-radix-popper-content-wrapper], .Toastify, [class*='toast'], [class*='Toast'] { display: none !important; }",
         ],
@@ -793,6 +808,31 @@ function ReplayPlayer({
                   : t("sessions.skipInactiveOff")}
               </TooltipContent>
             </Tooltip>
+
+            <button
+              type="button"
+              className={cn(
+                "inline-flex h-8 items-center gap-1.5 rounded-md border px-2 text-xs font-medium transition-colors hover:bg-muted",
+                devToolsOpen && "border-primary/40 bg-primary/10 text-primary",
+              )}
+              onClick={() => setDevToolsOpen((value) => !value)}
+              aria-pressed={devToolsOpen}
+              aria-expanded={devToolsOpen}
+            >
+              <IconTerminal2 className="h-4 w-4" />
+              {t("sessions.devtools")}
+              {devToolsIssueCount > 0 ? (
+                <span
+                  className="inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-red-500 px-1 font-mono text-[10px] font-semibold leading-none text-white"
+                  aria-label={t("sessions.devtoolsIssueCount", {
+                    count: String(devToolsIssueCount),
+                  })}
+                >
+                  {devToolsIssueCount > 99 ? "99+" : devToolsIssueCount}
+                </span>
+              ) : null}
+            </button>
+
             <span className="ms-auto hidden text-xs text-muted-foreground lg:inline">
               {t("sessions.replayEventCount", {
                 events: String(response.eventCount),
@@ -800,6 +840,14 @@ function ReplayPlayer({
               {response.truncated ? ` ${t("sessions.truncated")}` : ""}
             </span>
           </div>
+
+          {devToolsOpen ? (
+            <SessionDevToolsPanel
+              diagnostics={diagnostics}
+              currentTime={currentTime}
+              onSeek={(ms) => seek(ms, true)}
+            />
+          ) : null}
 
           {response.unavailableChunks > 0 ? (
             <div className="border-t px-4 py-2 text-xs text-muted-foreground">

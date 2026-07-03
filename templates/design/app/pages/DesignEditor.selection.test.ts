@@ -770,6 +770,20 @@ describe("DesignEditor URL state", () => {
       }),
     ).toBe("?view=overview&screen=screen-123&zoom=33.33");
   });
+
+  it("drops code panel state while the Code rail tab is hidden", () => {
+    expect(
+      getDesignEditorStateUrlSearch({
+        currentSearch:
+          "?view=single&panel=code&fileId=old-file&filename=old.tsx",
+        viewMode: "single",
+        screenId: "screen-123",
+        leftPanel: "code",
+        codeFileId: "code-file",
+        codeFilename: "app/routes/home.tsx",
+      }),
+    ).toBe("?view=single&screen=screen-123");
+  });
 });
 
 describe("DesignEditor localhost route source", () => {

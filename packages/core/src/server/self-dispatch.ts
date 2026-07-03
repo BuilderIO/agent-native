@@ -94,6 +94,23 @@ export interface FireInternalDispatchOptions {
   body?: Record<string, unknown>;
   /** Max ms to wait for the outbound request to leave the box. Default 250ms. */
   settleMs?: number;
+  /**
+   * Await the dispatch response fully instead of racing the settle timer.
+   *
+   * The 250ms settle race is correct for a synchronous handler that must
+   * respond to its own caller quickly — but it is WRONG for a handoff fired
+   * from a function that is about to finish (e.g. a background worker chaining
+   * its continuation chunk): once the handler's promise resolves, the Lambda
+   * freezes and a still-in-flight dispatch fetch is killed WITHOUT rejecting,
+   * so the handoff is lost silently — the error path never fires. With
+   * `awaitResponse: true` the call resolves only after the target confirmed
+   * receipt (Netlify background functions 202 on enqueue, normally well under
+   * a second) and throws on any network error or non-2xx, bounded by
+   * `responseTimeoutMs`.
+   */
+  awaitResponse?: boolean;
+  /** Max ms to await the dispatch response when `awaitResponse` is set. Default 15s. */
+  responseTimeoutMs?: number;
 }
 
 async function dispatchResponseError(
@@ -167,10 +184,14 @@ export async function fireInternalDispatch(
     }
   }
 
+  const awaitResponse = options.awaitResponse === true;
   const dispatchPromise = fetch(url, {
     method: "POST",
     headers,
     body: JSON.stringify({ taskId: options.taskId, ...(options.body ?? {}) }),
+    ...(awaitResponse
+      ? { signal: AbortSignal.timeout(options.responseTimeoutMs ?? 15_000) }
+      : {}),
   }).then(async (res) => {
     if (!res.ok) {
       throw await dispatchResponseError(options.path, res);
@@ -186,6 +207,14 @@ export async function fireInternalDispatch(
       err,
     );
   });
+
+  if (awaitResponse) {
+    // Confirmed handoff: resolve only once the target acknowledged the
+    // dispatch (throws on network error / timeout / non-2xx). Used by callers
+    // whose own invocation is about to end — see the option doc above.
+    await dispatchPromise;
+    return;
+  }
 
   const settleMs = options.settleMs ?? DEFAULT_DISPATCH_SETTLE_MS;
   await Promise.race([

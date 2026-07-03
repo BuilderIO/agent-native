@@ -5,6 +5,8 @@ import {
   readSSEStream,
   readSSEStreamRaw,
   SSE_ACTION_PREPARATION_STALL_TIMEOUT_MS,
+  SSE_DURABLE_ACTION_PREPARATION_STALL_TIMEOUT_MS,
+  SSE_DURABLE_NO_PROGRESS_TIMEOUT_MS,
   SSE_NO_PROGRESS_TIMEOUT_MS,
 } from "./sse-event-processor.js";
 
@@ -755,6 +757,11 @@ describe("SSE event processor no-progress recovery", () => {
     ]);
   });
 
+  // UPDATED: durable background reads now use the widened
+  // SSE_DURABLE_ACTION_PREPARATION_STALL_TIMEOUT_MS window so the SERVER's own
+  // 150s no-progress backstop recovers a stall first (the client is a reader,
+  // not a second recovery brain). A genuinely silent prep still recovers —
+  // just on the durable window, never at the foreground 90s mark.
   it("recovers a durable background stream stuck on zero-byte preparation activity", async () => {
     vi.useFakeTimers();
 
@@ -762,7 +769,11 @@ describe("SSE event processor no-progress recovery", () => {
       try {
         await drain(
           readSSEStream(
-            preparingActionZeroByteActivityThenDoneStream(),
+            preparingActionZeroByteActivityThenDoneStream(
+              "edit-design",
+              30_000,
+              SSE_DURABLE_ACTION_PREPARATION_STALL_TIMEOUT_MS + 60_000,
+            ),
             [],
             { value: 0 },
             undefined,
@@ -776,8 +787,17 @@ describe("SSE event processor no-progress recovery", () => {
       }
     })();
 
+    // The foreground 90s window must NOT fire for a durable background read.
     await vi.advanceTimersByTimeAsync(
       SSE_ACTION_PREPARATION_STALL_TIMEOUT_MS + 1,
+    );
+    expect(await Promise.race([errPromise, Promise.resolve("pending")])).toBe(
+      "pending",
+    );
+
+    await vi.advanceTimersByTimeAsync(
+      SSE_DURABLE_ACTION_PREPARATION_STALL_TIMEOUT_MS -
+        SSE_ACTION_PREPARATION_STALL_TIMEOUT_MS,
     );
 
     const err = await errPromise;
@@ -792,6 +812,9 @@ describe("SSE event processor no-progress recovery", () => {
     ]);
   });
 
+  // UPDATED: durable background reads recover on the widened durable stall
+  // window (see the durable constants) instead of the foreground 90s window,
+  // so the server's own recovery gets first chance.
   it("recovers a durable background stream stuck on preparation keepalives", async () => {
     vi.useFakeTimers();
 
@@ -814,7 +837,7 @@ describe("SSE event processor no-progress recovery", () => {
     })();
 
     await vi.advanceTimersByTimeAsync(
-      SSE_ACTION_PREPARATION_STALL_TIMEOUT_MS + 1,
+      SSE_DURABLE_ACTION_PREPARATION_STALL_TIMEOUT_MS + 1,
     );
     const err = await errPromise;
 
@@ -859,12 +882,16 @@ describe("SSE event processor no-progress recovery", () => {
       return undefined;
     };
 
+    // UPDATED: the shared preparation watchdog state still carries stall age
+    // across reconnect reads, measured against the widened durable window
+    // (SSE_DURABLE_ACTION_PREPARATION_STALL_TIMEOUT_MS) instead of the
+    // foreground 90s window.
     const firstErr = await readPreparationReplay("call-a");
     expect(firstErr).toBeInstanceOf(AgentAutoContinueSignal);
     expect((firstErr as AgentAutoContinueSignal).reason).toBe("stream_ended");
 
     await vi.advanceTimersByTimeAsync(
-      Math.floor(SSE_ACTION_PREPARATION_STALL_TIMEOUT_MS / 2),
+      Math.floor(SSE_DURABLE_ACTION_PREPARATION_STALL_TIMEOUT_MS / 2),
     );
 
     const secondErr = await readPreparationReplay("call-b");
@@ -872,7 +899,7 @@ describe("SSE event processor no-progress recovery", () => {
     expect((secondErr as AgentAutoContinueSignal).reason).toBe("stream_ended");
 
     await vi.advanceTimersByTimeAsync(
-      Math.ceil(SSE_ACTION_PREPARATION_STALL_TIMEOUT_MS / 2) + 1,
+      Math.ceil(SSE_DURABLE_ACTION_PREPARATION_STALL_TIMEOUT_MS / 2) + 1,
     );
 
     const thirdErr = await readPreparationReplay("call-c");
@@ -907,6 +934,46 @@ describe("SSE event processor no-progress recovery", () => {
     await vi.advanceTimersByTimeAsync(SSE_NO_PROGRESS_TIMEOUT_MS + 5_000);
 
     await expect(donePromise).resolves.toBeDefined();
+  });
+
+  it("holds a silent durable background read past the foreground no-progress window, then reattaches", async () => {
+    vi.useFakeTimers();
+
+    const errPromise = (async () => {
+      try {
+        await drain(
+          readSSEStream(
+            silentStream(),
+            [],
+            { value: 0 },
+            undefined,
+            undefined,
+            undefined,
+            { durableBackgroundRun: true },
+          ),
+        );
+      } catch (err) {
+        return err;
+      }
+    })();
+
+    // The foreground 75s no-progress window must NOT fire for a durable
+    // background read — the server's 150s backstop owns stall recovery and
+    // its auto_continue event normally arrives over this same stream first.
+    await vi.advanceTimersByTimeAsync(SSE_NO_PROGRESS_TIMEOUT_MS + 1_000);
+    expect(await Promise.race([errPromise, Promise.resolve("pending")])).toBe(
+      "pending",
+    );
+
+    // Past the widened durable window, a truly dead transport still detaches
+    // so the adapter's follow loop can re-poll /runs/active and reattach.
+    await vi.advanceTimersByTimeAsync(
+      SSE_DURABLE_NO_PROGRESS_TIMEOUT_MS - SSE_NO_PROGRESS_TIMEOUT_MS,
+    );
+    const err = await errPromise;
+
+    expect(err).toBeInstanceOf(AgentAutoContinueSignal);
+    expect((err as AgentAutoContinueSignal).reason).toBe("no_progress");
   });
 
   it("does not stall while a large tool input is still streaming progress", async () => {
@@ -988,8 +1055,9 @@ describe("SSE event processor no-progress recovery", () => {
       }
     })();
 
+    // UPDATED: durable background reads stall on the widened durable window.
     await vi.advanceTimersByTimeAsync(
-      SSE_ACTION_PREPARATION_STALL_TIMEOUT_MS + 1,
+      SSE_DURABLE_ACTION_PREPARATION_STALL_TIMEOUT_MS + 1,
     );
 
     const err = await errPromise;
@@ -1534,6 +1602,59 @@ describe("SSE event processor error classification", () => {
               "The model provider is rate-limiting this chat right now. Wait a moment, then retry.",
             details: "429 status code (no body)",
             errorCode: "provider_rate_limited",
+          },
+        },
+      },
+    });
+  });
+
+  it("surfaces bare provider auth failures as terminal run errors", async () => {
+    const dispatchEvent = vi.fn();
+    vi.stubGlobal("window", { dispatchEvent });
+
+    const results = await drain(
+      readSSEStream(
+        eventStream([
+          {
+            type: "error",
+            error: "401 status code (no body)",
+            details: "401 status code (no body)",
+          },
+        ]),
+        [],
+        { value: 0 },
+        "tab-provider-auth",
+      ),
+    );
+
+    expect(dispatchEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "agent-chat:run-error",
+        detail: {
+          message:
+            "The model provider rejected the saved API key. Update the key in API Keys & Connections, then retry.",
+          details: "401 status code (no body)",
+          tabId: "tab-provider-auth",
+        },
+      }),
+    );
+    expect(dispatchEvent).not.toHaveBeenCalledWith(
+      expect.objectContaining({ type: "agent-chat:auth-error" }),
+    );
+    expect(results[0]).toEqual({
+      content: [
+        {
+          type: "text",
+          text: "Error: The model provider rejected the saved API key. Update the key in API Keys & Connections, then retry.",
+        },
+      ],
+      status: { type: "incomplete", reason: "error" },
+      metadata: {
+        custom: {
+          runError: {
+            message:
+              "The model provider rejected the saved API key. Update the key in API Keys & Connections, then retry.",
+            details: "401 status code (no body)",
           },
         },
       },

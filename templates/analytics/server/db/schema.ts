@@ -255,6 +255,9 @@ export const sessionRecordings = table("session_recordings", {
   totalBytes: integer("total_bytes").notNull().default(0),
   pageCount: integer("page_count").notNull().default(0),
   errorCount: integer("error_count").notNull().default(0),
+  // Additive column: failed network requests (status >= 400 or status 0)
+  // observed in captured replay diagnostics events.
+  networkErrorCount: integer("network_error_count").notNull().default(0),
   rageClickCount: integer("rage_click_count").notNull().default(0),
   privacyMode: text("privacy_mode").notNull().default("unknown"),
   firstUrl: text("first_url"),

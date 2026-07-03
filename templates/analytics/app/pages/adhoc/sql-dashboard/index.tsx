@@ -27,17 +27,20 @@ import {
 } from "@dnd-kit/core";
 import {
   IconArchive,
+  IconBuilding,
   IconClock,
   IconDotsVertical,
   IconEye,
   IconEyeOff,
   IconGripVertical,
   IconInfoCircle,
+  IconLock,
   IconMail,
   IconPencil,
   IconPlus,
   IconTrash,
   IconUser,
+  IconWorld,
   IconX,
 } from "@tabler/icons-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -1422,24 +1425,14 @@ export default function SqlDashboardPage() {
                   </span>
                 )}
                 {dashboardVisibility ? (
-                  <span
-                    className={`flex items-center gap-1.5 font-medium ${
-                      dashboardVisibility === "public"
-                        ? "text-green-600"
-                        : dashboardVisibility === "org"
-                          ? "text-blue-600"
-                          : "text-yellow-600"
-                    }`}
-                  >
-                    <span
-                      className={`h-1.5 w-1.5 rounded-full ${
-                        dashboardVisibility === "public"
-                          ? "bg-green-500"
-                          : dashboardVisibility === "org"
-                            ? "bg-blue-500"
-                            : "bg-yellow-500"
-                      }`}
-                    />
+                  <span className="flex items-center gap-1.5">
+                    {dashboardVisibility === "public" ? (
+                      <IconWorld className="h-3 w-3" />
+                    ) : dashboardVisibility === "org" ? (
+                      <IconBuilding className="h-3 w-3" />
+                    ) : (
+                      <IconLock className="h-3 w-3" />
+                    )}
                     {dashboardVisibility === "public"
                       ? t("sqlDashboard.public")
                       : dashboardVisibility === "org"
