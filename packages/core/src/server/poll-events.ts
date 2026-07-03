@@ -14,11 +14,14 @@ import {
 } from "./poll.js";
 
 export function canSeeAwarenessChangeForUser(
-  change: Pick<AwarenessChangeEvent, "owner" | "orgId">,
+  change: Pick<
+    AwarenessChangeEvent,
+    "owner" | "orgId" | "resourceType" | "resourceId"
+  >,
   userEmail: string,
   orgId: string | undefined,
 ): boolean {
-  if (!change.owner && !change.orgId) return false;
+  if (!change.owner && !change.orgId && !change.resourceType) return false;
   return canSeeChangeForUser(change, userEmail, orgId);
 }
 

@@ -48,28 +48,58 @@ export interface AwarenessChangeEvent {
   owner?: string;
   /** Org ID for org-scoped delivery. */
   orgId?: string;
+  /** Shareable resource type this awareness event belongs to, when known. */
+  resourceType?: string;
+  /** Shareable resource id this awareness event belongs to, when known. */
+  resourceId?: string;
+}
+
+export interface AwarenessScope {
+  owner?: string;
+  orgId?: string;
+  resourceType?: string;
+  resourceId?: string;
 }
 
 const _awarenessEmitter = new EventEmitter();
 _awarenessEmitter.setMaxListeners(0);
 
+const _awarenessScopes = new Map<string, AwarenessScope>();
+
 export function getAwarenessEmitter(): EventEmitter {
   return _awarenessEmitter;
+}
+
+export function rememberAwarenessScope(
+  docId: string,
+  scope: AwarenessScope | undefined,
+): void {
+  if (!scope) return;
+  const next = { ...(_awarenessScopes.get(docId) ?? {}), ...scope };
+  if (!next.owner && !next.orgId && !next.resourceType && !next.resourceId) {
+    return;
+  }
+  _awarenessScopes.set(docId, next);
 }
 
 export function emitAwarenessChange(
   docId: string,
   states: Array<{ clientId: number; state: string }>,
-  owner?: string,
-  orgId?: string,
+  scope?: AwarenessScope,
 ): void {
+  rememberAwarenessScope(docId, scope);
+  const resolvedScope = _awarenessScopes.get(docId) ?? {};
   const event: AwarenessChangeEvent = {
     source: "awareness",
     type: "awareness-change",
     docId,
     states,
-    ...(owner && { owner }),
-    ...(orgId && { orgId }),
+    ...(resolvedScope.owner && { owner: resolvedScope.owner }),
+    ...(resolvedScope.orgId && { orgId: resolvedScope.orgId }),
+    ...(resolvedScope.resourceType && {
+      resourceType: resolvedScope.resourceType,
+    }),
+    ...(resolvedScope.resourceId && { resourceId: resolvedScope.resourceId }),
   };
   _awarenessEmitter.emit(AWARENESS_CHANGE_EVENT, event);
 }
@@ -137,6 +167,9 @@ export const postAwareness = defineEventHandler(async (event: H3Event) => {
     return { error: "docId required" };
   }
   const session = await getSession(event).catch(() => null);
+  const contextScope = (
+    event.context as { _collabAwarenessScope?: AwarenessScope } | undefined
+  )?._collabAwarenessScope;
 
   const body = await readBody(event);
   const { clientId, state } = body as {
@@ -193,8 +226,10 @@ export const postAwareness = defineEventHandler(async (event: H3Event) => {
   emitAwarenessChange(
     docId,
     allStates,
-    session?.email,
-    session?.orgId ?? undefined,
+    contextScope ?? {
+      ...(session?.email ? { owner: session.email } : {}),
+      ...(session?.orgId ? { orgId: session.orgId } : {}),
+    },
   );
 
   return { states: otherStates };

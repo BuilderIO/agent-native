@@ -19,7 +19,11 @@
 
 import { AGENT_CLIENT_ID, DEFAULT_AGENT_IDENTITY } from "./agent-identity.js";
 import { deleteAwarenessRow, upsertAwarenessRow } from "./awareness-store.js";
-import { getDocAwareness, type AwarenessEntry } from "./awareness.js";
+import {
+  emitAwarenessChange,
+  getDocAwareness,
+  type AwarenessEntry,
+} from "./awareness.js";
 import { appendRecentEdit, type RecentEdit } from "./recent-edits.js";
 import { searchAndReplace } from "./ydoc-manager.js";
 
@@ -47,6 +51,7 @@ function removeAgentPresence(docId: string): void {
   cancelLinger(docId);
   const map = getDocAwareness(docId);
   map.delete(AGENT_CLIENT_ID);
+  emitAwarenessChange(docId, currentAwarenessStates(map));
   // Cross-instance removal (serverless) — best-effort, never blocks.
   void deleteAwarenessRow(docId, AGENT_CLIENT_ID);
 
@@ -102,6 +107,13 @@ function ensureHeartbeat(docId: string): void {
   _heartbeats.set(docId, interval);
 }
 
+function currentAwarenessStates(map: Map<number, AwarenessEntry>) {
+  return Array.from(map, ([clientId, entry]) => ({
+    clientId,
+    state: entry.state,
+  }));
+}
+
 function readAgentState(docId: string): Record<string, unknown> {
   const existing = getDocAwareness(docId).get(AGENT_CLIENT_ID);
   if (existing) {
@@ -126,7 +138,9 @@ function writeAgentState(docId: string, state: Record<string, unknown>): void {
     state: JSON.stringify(state),
     lastSeen: Date.now(),
   };
-  getDocAwareness(docId).set(AGENT_CLIENT_ID, entry);
+  const map = getDocAwareness(docId);
+  map.set(AGENT_CLIENT_ID, entry);
+  emitAwarenessChange(docId, currentAwarenessStates(map));
   // Mirror to SQL so pollers on other instances see the agent — an action
   // often runs in a different serverless invocation than the poll route.
   void upsertAwarenessRow(docId, AGENT_CLIENT_ID, entry.state, entry.lastSeen);

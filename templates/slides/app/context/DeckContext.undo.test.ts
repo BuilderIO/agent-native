@@ -124,6 +124,23 @@ describe("deriveInverseOp / applyOpToDeck round-trips", () => {
     expectRoundTrip(before, op);
   });
 
+  it("add-slide on an empty deck opts into preserving empty on persisted undo", () => {
+    const before = deck([]);
+    const op: PatchDeckOp = {
+      op: "add-slide",
+      slideId: "first",
+      fields: { content: "<div>first</div>" },
+    };
+    expect(deriveInverseOp(before, op)).toEqual([
+      {
+        op: "delete-slide",
+        slideId: "first",
+        allowEmpty: true,
+      },
+    ]);
+    expectRoundTrip(before, op);
+  });
+
   it("delete-slide: inverse re-adds the full slide at its prior position", () => {
     const before = deck([
       slide("a"),

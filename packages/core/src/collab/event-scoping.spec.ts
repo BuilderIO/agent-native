@@ -434,6 +434,29 @@ describe("awareness event scoping via poll-events", () => {
       ),
     ).toBe(false);
   });
+
+  it("delivers resource-scoped awareness to explicit sharees after the access cache resolves", async () => {
+    resolveAccessMock.mockResolvedValue({ role: "viewer", resource: {} });
+    const event = {
+      owner: "alice@example.com",
+      resourceType: "document",
+      resourceId: "doc-res-1",
+    };
+
+    expect(
+      canSeeAwarenessChangeForUser(event, "sharee@example.com", "org-bob"),
+    ).toBe(false);
+
+    await flushAsync();
+    expect(resolveAccessMock).toHaveBeenCalledWith("document", "doc-res-1", {
+      userEmail: "sharee@example.com",
+      orgId: "org-bob",
+    });
+
+    expect(
+      canSeeAwarenessChangeForUser(event, "sharee@example.com", "org-bob"),
+    ).toBe(true);
+  });
 });
 
 describe("awareness outer-map memory leak guard (pruneIfEmpty)", () => {

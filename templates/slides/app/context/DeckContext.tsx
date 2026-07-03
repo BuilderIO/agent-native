@@ -32,7 +32,7 @@ type GranularOp =
       slideId: string;
       fields: Partial<Omit<Slide, "id">>;
     }
-  | { op: "delete-slide"; slideId: string }
+  | { op: "delete-slide"; slideId: string; allowEmpty?: boolean }
   | { op: "reorder-slides"; orderedIds: string[] }
   | {
       op: "add-slide";
@@ -593,7 +593,13 @@ export function deriveInverseOp(
     }
     case "add-slide": {
       // Inverse of adding a slide is deleting it.
-      return [{ op: "delete-slide", slideId: op.slideId }];
+      return [
+        {
+          op: "delete-slide",
+          slideId: op.slideId,
+          ...(before.slides.length === 0 ? { allowEmpty: true } : {}),
+        },
+      ];
     }
     case "reorder-slides": {
       // Inverse reorder = the order the slides were in before.
@@ -828,6 +834,20 @@ export function DeckProvider({ children }: { children: ReactNode }) {
     dirtyDeckIdsRef.current.add(deckId);
   }, []);
 
+  const deleteDeckAfterPendingCreate = useCallback((deckId: string) => {
+    const pendingCreate = pendingCreatePromisesRef.current.get(deckId);
+    if (!pendingCreate) {
+      void deleteDeckFromAPI(deckId);
+      return;
+    }
+
+    void pendingCreate
+      .then(() => deleteDeckFromAPI(deckId))
+      .catch(() => {
+        // The create/duplicate failed, so there is nothing on the server to delete.
+      });
+  }, []);
+
   // Plain local decks update. Undo entries are recorded explicitly by each
   // mutation via `recordUndo` (inverse ops), so this no longer snapshots the
   // whole decks array the way the old `setDecksWithHistory` did.
@@ -862,7 +882,7 @@ export function DeckProvider({ children }: { children: ReactNode }) {
           markDeckDirty(op.deckId);
           if (op.op === "delete-deck") {
             discardPendingDeckOps(op.deckId);
-            void deleteDeckFromAPI(op.deckId);
+            deleteDeckAfterPendingCreate(op.deckId);
           } else if (op.op === "restore-deck" || op.op === "replace-deck") {
             enqueueDeckOp(op.deckId, { op: "full-replace", deck: op.deck });
           } else {
@@ -1324,11 +1344,16 @@ export function DeckProvider({ children }: { children: ReactNode }) {
       pendingDuplicateSourceIdsRef.current.add(sourceDeckId);
 
       // Fire the action in the background. On error, roll back.
-      callAction<DuplicateDeckActionResult>("duplicate-deck", {
-        deckId: sourceDeckId,
-        newId,
-        title,
-      })
+      const duplicatePromise = callAction<DuplicateDeckActionResult>(
+        "duplicate-deck",
+        {
+          deckId: sourceDeckId,
+          newId,
+          title,
+        },
+      ).then(() => undefined);
+      pendingCreatePromisesRef.current.set(newId, duplicatePromise);
+      duplicatePromise
         .catch((err) => {
           console.error("Duplicate failed:", err);
           // Roll back: drop the optimistic deck from local state.
@@ -1336,6 +1361,11 @@ export function DeckProvider({ children }: { children: ReactNode }) {
         })
         .finally(() => {
           pendingCreateIdsRef.current.delete(newId);
+          if (
+            pendingCreatePromisesRef.current.get(newId) === duplicatePromise
+          ) {
+            pendingCreatePromisesRef.current.delete(newId);
+          }
           pendingDuplicateSourceIdsRef.current.delete(sourceDeckId);
         });
 
@@ -1362,7 +1392,7 @@ export function DeckProvider({ children }: { children: ReactNode }) {
       const beforeDeck = decksRef.current.find((deck) => deck.id === id);
       const beforeIndex = decksRef.current.findIndex((deck) => deck.id === id);
       discardPendingDeckOps(id);
-      deleteDeckFromAPI(id);
+      deleteDeckAfterPendingCreate(id);
       setDecksLocal((prev) => prev.filter((d) => d.id !== id));
       if (beforeDeck) {
         undoControllerRef.current?.push({
@@ -1379,7 +1409,7 @@ export function DeckProvider({ children }: { children: ReactNode }) {
         });
       }
     },
-    [setDecksLocal],
+    [deleteDeckAfterPendingCreate, setDecksLocal],
   );
 
   const updateDeck = useCallback(

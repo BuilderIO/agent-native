@@ -18,7 +18,13 @@ import {
   agentApplyEditsIncrementally,
   agentApplyPatchesIncrementally,
 } from "./agent-presence.js";
-import { getDocAwareness } from "./awareness.js";
+import {
+  AWARENESS_CHANGE_EVENT,
+  getAwarenessEmitter,
+  getDocAwareness,
+  rememberAwarenessScope,
+  type AwarenessChangeEvent,
+} from "./awareness.js";
 import { RECENT_EDITS_MAX } from "./recent-edits.js";
 
 function agentState(docId: string): Record<string, any> | undefined {
@@ -216,6 +222,36 @@ describe("agentUpdateSelection", () => {
 });
 
 describe("agentTouchDocument", () => {
+  it("emits awareness-change events for agent presence updates and removal", () => {
+    const docId = "touch-emits";
+    rememberAwarenessScope(docId, {
+      owner: "owner@example.com",
+      resourceType: "document",
+      resourceId: "doc-1",
+    });
+    const received: AwarenessChangeEvent[] = [];
+    const onEvent = (event: AwarenessChangeEvent) => received.push(event);
+    getAwarenessEmitter().on(AWARENESS_CHANGE_EVENT, onEvent);
+
+    agentTouchDocument(docId, { edit: { descriptor: { kind: "doc" } } });
+    flushLinger();
+
+    getAwarenessEmitter().off(AWARENESS_CHANGE_EVENT, onEvent);
+    expect(received).toHaveLength(2);
+    expect(received[0]).toMatchObject({
+      docId,
+      owner: "owner@example.com",
+      resourceType: "document",
+      resourceId: "doc-1",
+    });
+    expect(received[0].states.some((s) => s.clientId === AGENT_CLIENT_ID)).toBe(
+      true,
+    );
+    expect(received[1].states.some((s) => s.clientId === AGENT_CLIENT_ID)).toBe(
+      false,
+    );
+  });
+
   it("creates presence with a recentEdits entry and lastEditAt", () => {
     const docId = "touch-basic";
     vi.setSystemTime(1000);

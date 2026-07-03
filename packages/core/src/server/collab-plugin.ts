@@ -45,6 +45,13 @@ type NitroPluginDef = (nitroApp: any) => void | Promise<void>;
 /** Default maximum body size in bytes for collab write operations (2 MB). */
 const DEFAULT_MAX_PAYLOAD_BYTES = 2 * 1024 * 1024;
 
+type CollabAwarenessScope = {
+  owner?: string;
+  orgId?: string;
+  resourceType?: string;
+  resourceId?: string;
+};
+
 /**
  * Whether the no-resourceType warning has already been logged once per server
  * process. Avoids flooding logs on every request in templates that deliberately
@@ -248,13 +255,45 @@ export function createCollabPlugin(
 
             if (isWrite) {
               // assertAccess throws ForbiddenError (→ 403) if no editor access
-              await assertAccess(resourceType, resourceId, "editor");
+              const access = await assertAccess(
+                resourceType,
+                resourceId,
+                "editor",
+              );
+              const resource = access.resource as Record<string, unknown>;
+              const awarenessScope: CollabAwarenessScope = {
+                resourceType,
+                resourceId,
+                ...(typeof resource.ownerEmail === "string"
+                  ? { owner: resource.ownerEmail }
+                  : {}),
+                ...(typeof resource.orgId === "string"
+                  ? { orgId: resource.orgId }
+                  : {}),
+              };
+              if (event.context) {
+                event.context._collabAwarenessScope = awarenessScope;
+              }
             } else {
               // resolveAccess returns null when no access; return 404 to avoid leaking existence
               const access = await resolveAccess(resourceType, resourceId);
               if (!access) {
                 setResponseStatus(event, 404);
                 return { error: "Not found" };
+              }
+              const resource = access.resource as Record<string, unknown>;
+              const awarenessScope: CollabAwarenessScope = {
+                resourceType,
+                resourceId,
+                ...(typeof resource.ownerEmail === "string"
+                  ? { owner: resource.ownerEmail }
+                  : {}),
+                ...(typeof resource.orgId === "string"
+                  ? { orgId: resource.orgId }
+                  : {}),
+              };
+              if (event.context) {
+                event.context._collabAwarenessScope = awarenessScope;
               }
             }
           }

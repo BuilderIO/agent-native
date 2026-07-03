@@ -353,6 +353,43 @@ describe("DeckContext deck creation persistence", () => {
     expect(result.current.getDeck(deckId)?.title).toBe("Draft");
   });
 
+  it("waits for an in-flight create before deleting an undone optimistic deck", async () => {
+    window.history.pushState({}, "", "/");
+    const { fetchMock, resolveCreate } = setupFetch();
+    const { result } = renderHook(() => useDecks(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    let deckId = "";
+    act(() => {
+      deckId = result.current.createDeck("Draft", { noDefaultSlides: true }).id;
+    });
+    await waitFor(() => expect(result.current.canUndo).toBe(true));
+
+    act(() => {
+      result.current.undo();
+    });
+    expect(result.current.getDeck(deckId)).toBeUndefined();
+    expect(
+      fetchMock.mock.calls.some(
+        ([url, init]) =>
+          String(url).includes(`/api/decks/${deckId}`) &&
+          init?.method === "DELETE",
+      ),
+    ).toBe(false);
+
+    resolveCreate(new Response("", { status: 200 }));
+
+    await waitFor(() =>
+      expect(
+        fetchMock.mock.calls.some(
+          ([url, init]) =>
+            String(url).includes(`/api/decks/${deckId}`) &&
+            init?.method === "DELETE",
+        ),
+      ).toBe(true),
+    );
+  });
+
   it("records delete deck on the undo stack", async () => {
     window.history.pushState({}, "", "/");
     setupFetch();
