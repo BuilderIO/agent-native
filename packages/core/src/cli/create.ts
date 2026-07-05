@@ -469,6 +469,22 @@ async function scaffoldWorkspaceRoot(
     }
   }
 
+  const localToolkit = localToolkitOverride();
+  if (localToolkit) {
+    const wsPath = path.join(targetDir, "pnpm-workspace.yaml");
+    const existing = fs.existsSync(wsPath)
+      ? fs.readFileSync(wsPath, "utf-8")
+      : "";
+    const updated = mergeWorkspaceYamlSections(existing, {
+      overrides: {
+        '"@agent-native/toolkit"': JSON.stringify(localToolkit),
+      },
+    });
+    if (updated !== existing) {
+      fs.writeFileSync(wsPath, updated);
+    }
+  }
+
   const corePackageDir = path.join(targetDir, "packages", "shared");
   fs.mkdirSync(path.join(targetDir, "packages"), { recursive: true });
   copyDir(coreTemplate, corePackageDir);
