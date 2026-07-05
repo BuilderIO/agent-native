@@ -4,9 +4,9 @@ import {
   VisualInspectorSection,
   VisualTweakControl,
 } from "@agent-native/core/client";
+import { Button } from "@agent-native/toolkit/ui/button";
 import { IconAdjustmentsHorizontal, IconX } from "@tabler/icons-react";
 
-import { Button } from "@/components/ui/button";
 import type { TweakDefinition } from "@/lib/design-systems";
 
 interface TweaksPanelProps {

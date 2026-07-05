@@ -1,9 +1,5 @@
 import { useT } from "@agent-native/core/client";
-import { IconLoader2 } from "@tabler/icons-react";
-import { FormEvent, useState } from "react";
-import { toast } from "sonner";
-
-import { Button } from "@/components/ui/button";
+import { Button } from "@agent-native/toolkit/ui/button";
 import {
   Dialog,
   DialogContent,
@@ -11,9 +7,13 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+} from "@agent-native/toolkit/ui/dialog";
+import { Input } from "@agent-native/toolkit/ui/input";
+import { Label } from "@agent-native/toolkit/ui/label";
+import { IconLoader2 } from "@tabler/icons-react";
+import { FormEvent, useState } from "react";
+import { toast } from "sonner";
+
 import { useCreateSpace } from "@/hooks/use-library";
 import { cn } from "@/lib/utils";
 

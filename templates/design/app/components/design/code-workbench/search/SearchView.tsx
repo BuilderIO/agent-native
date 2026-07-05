@@ -1,7 +1,3 @@
-import { IconChevronDown, IconChevronRight, IconX } from "@tabler/icons-react";
-import * as monaco from "monaco-editor";
-import { useEffect, useMemo, useRef, useState } from "react";
-
 import {
   AlertDialog,
   AlertDialogAction,
@@ -11,8 +7,12 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
-import { Input } from "@/components/ui/input";
+} from "@agent-native/toolkit/ui/alert-dialog";
+import { Input } from "@agent-native/toolkit/ui/input";
+import { IconChevronDown, IconChevronRight, IconX } from "@tabler/icons-react";
+import * as monaco from "monaco-editor";
+import { useEffect, useMemo, useRef, useState } from "react";
+
 import { cn } from "@/lib/utils";
 
 import { FileIcon } from "../explorer/file-icons";

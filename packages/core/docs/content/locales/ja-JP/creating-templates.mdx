@@ -7,6 +7,8 @@ description: "独自のエージェント ネイティブ アプリ テンプレ
 
 テンプレートは、実際のワークフローを解決する完全なフォーク可能なエージェント ネイティブ アプリです。ファーストパーティ テンプレートは、使用するのと同じフレームワーク サーフェスを使用して構築されます。UI の React ルート、データの Drizzle SQL、操作の actions、エージェントの動作のワークスペース リソース、およびエージェントと UI の連携を維持するためのポーリング同期です。
 
+`@agent-native/core` は runtime contract に使用します: actions、server plugins、database helpers、app state、routing helpers、agent chat です。`@agent-native/toolkit` は shared primitives、toast/mobile hooks、date pickers、simple app shell slots などの再利用可能な app-building UI と helpers に使用します。製品動作や visual identity を表す template-specific variants はローカルに保持してください。
+
 良いテンプレート:
 
 - 有用なシード データまたは空の状態のフローを使用して、1 つのワークフローをエンドツーエンドで解決します。

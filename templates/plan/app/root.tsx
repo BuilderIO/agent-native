@@ -12,6 +12,7 @@ import {
   useT,
 } from "@agent-native/core/client";
 import { configureTracking } from "@agent-native/core/client";
+import { Toaster } from "@agent-native/toolkit/ui/sonner";
 import {
   IconMoon,
   IconScribble,
@@ -36,7 +37,6 @@ import {
   toggleWireframeStyle,
   useWireframeStyle,
 } from "@/components/plan/wireframe/use-wireframe-style";
-import { Toaster } from "@/components/ui/sonner";
 import { useNavigationState } from "@/hooks/use-navigation-state";
 import { APP_TITLE } from "@/lib/app-config";
 // Side effect: register Plan's native chat renderers so visual answers render

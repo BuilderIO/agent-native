@@ -6,6 +6,19 @@ import {
   appApiPath,
   useT,
 } from "@agent-native/core/client";
+import { toast } from "@agent-native/toolkit/hooks/use-toast";
+import { Button } from "@agent-native/toolkit/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from "@agent-native/toolkit/ui/dialog";
+import { Input } from "@agent-native/toolkit/ui/input";
+import { Label } from "@agent-native/toolkit/ui/label";
+import { ScrollArea } from "@agent-native/toolkit/ui/scroll-area";
+import { Textarea } from "@agent-native/toolkit/ui/textarea";
 import {
   IconWorld,
   IconPalette,
@@ -20,20 +33,6 @@ import {
   IconExternalLink,
 } from "@tabler/icons-react";
 import { useState, useCallback, useEffect, useRef, useMemo } from "react";
-
-import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-} from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { ScrollArea } from "@/components/ui/scroll-area";
-import { Textarea } from "@/components/ui/textarea";
-import { toast } from "@/hooks/use-toast";
 
 import {
   MAX_BUILDER_INDEX_UPLOAD_BYTES,

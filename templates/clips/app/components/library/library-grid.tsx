@@ -4,19 +4,19 @@ import {
   useSession,
   useT,
 } from "@agent-native/core/client";
-import { useEffect, useMemo, useRef, useState } from "react";
-import { toast } from "sonner";
-
-import { ShareRecordingDialog } from "@/components/player/share-dialog";
-import { Button } from "@/components/ui/button";
+import { Button } from "@agent-native/toolkit/ui/button";
 import {
   Dialog,
   DialogContent,
   DialogHeader,
   DialogTitle,
   DialogFooter,
-} from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
+} from "@agent-native/toolkit/ui/dialog";
+import { Input } from "@agent-native/toolkit/ui/input";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { toast } from "sonner";
+
+import { ShareRecordingDialog } from "@/components/player/share-dialog";
 import { isDefaultTitle } from "@/hooks/use-auto-title";
 import {
   useFolders,

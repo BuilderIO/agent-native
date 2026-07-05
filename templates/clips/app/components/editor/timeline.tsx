@@ -1,10 +1,10 @@
-import { useMemo } from "react";
-
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
-} from "@/components/ui/tooltip";
+} from "@agent-native/toolkit/ui/tooltip";
+import { useMemo } from "react";
+
 import { formatMs } from "@/lib/timestamp-mapping";
 import { cn } from "@/lib/utils";
 

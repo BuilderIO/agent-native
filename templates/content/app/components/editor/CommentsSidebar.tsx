@@ -1,5 +1,10 @@
 import { sendToAgentChat, emailToName, useT } from "@agent-native/core/client";
 import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@agent-native/toolkit/ui/tooltip";
+import {
   IconCheck,
   IconMessageCircle,
   IconArrowUp,
@@ -15,11 +20,6 @@ import {
   type RefObject,
 } from "react";
 
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
 import {
   useCreateComment,
   useResolveComment,

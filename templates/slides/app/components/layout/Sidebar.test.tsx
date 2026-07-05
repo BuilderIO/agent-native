@@ -3,10 +3,9 @@ import { render, screen, cleanup } from "@testing-library/react";
 import { describe, it, expect, vi, afterEach } from "vitest";
 
 afterEach(() => cleanup());
+import { TooltipProvider } from "@agent-native/toolkit/ui/tooltip";
 import type { ReactNode } from "react";
 import { MemoryRouter } from "react-router";
-
-import { TooltipProvider } from "@/components/ui/tooltip";
 
 vi.mock("@agent-native/core", () => ({
   cn: (...args: unknown[]) =>

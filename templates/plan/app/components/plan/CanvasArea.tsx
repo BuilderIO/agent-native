@@ -1,4 +1,6 @@
 import { useT } from "@agent-native/core/client";
+import { Button } from "@agent-native/toolkit/ui/button";
+import { Textarea } from "@agent-native/toolkit/ui/textarea";
 import type {
   PlanAnnotation,
   PlanAnnotationPlacement,
@@ -24,9 +26,6 @@ import {
   type PointerEvent as ReactPointerEvent,
   type RefObject,
 } from "react";
-
-import { Button } from "@/components/ui/button";
-import { Textarea } from "@/components/ui/textarea";
 
 import { Wireframe, type DesignElementSelection } from "./wireframe/Wireframe";
 

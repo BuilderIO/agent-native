@@ -1,4 +1,5 @@
-import { Spinner } from "@/components/ui/spinner";
+import { Spinner } from "@agent-native/toolkit/ui/spinner";
+
 import { APP_TITLE } from "@/lib/app-config";
 import { planDocumentTitle } from "@/lib/plan-document-title";
 import { PlansPage } from "@/pages/PlansPage";

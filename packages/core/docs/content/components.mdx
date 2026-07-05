@@ -25,6 +25,19 @@ Avoid importing UI components from the bare `@agent-native/core` package. Use
 `@agent-native/core/client` or a focused `@agent-native/core/client/*` subpath
 so bundlers choose the browser-safe entry.
 
+Use `@agent-native/toolkit` for reusable app-building pieces that are not part
+of the foundational runtime contract: shadcn-style UI primitives, shared hooks,
+simple app shell helpers, and other template composition modules. Core keeps
+compatibility re-exports for migrated internals during the transition, but new
+template and app code should import toolkit modules directly:
+
+```tsx
+import { Button } from "@agent-native/toolkit/ui/button";
+import { Toaster } from "@agent-native/toolkit/ui/sonner";
+import { useToast } from "@agent-native/toolkit/hooks/use-toast";
+import { useSetHeaderActions } from "@agent-native/toolkit/app-shell";
+```
+
 <Diagram id="doc-block-u3yfqy" title="Drop down a layer, not out of the framework" summary={"Each layer keeps the same runtime — actions, thread state, and SQL-backed sync — while giving you more control over the chrome."}>
 
 ```html

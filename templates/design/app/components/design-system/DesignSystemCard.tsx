@@ -1,10 +1,9 @@
-import { IconPalette, IconStar, IconStarFilled } from "@tabler/icons-react";
-
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
-} from "@/components/ui/tooltip";
+} from "@agent-native/toolkit/ui/tooltip";
+import { IconPalette, IconStar, IconStarFilled } from "@tabler/icons-react";
 
 import type { DesignSystemData } from "../../../shared/api";
 

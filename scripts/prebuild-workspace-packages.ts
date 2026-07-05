@@ -104,6 +104,13 @@ const targets: PackageTarget[] = [
     ],
   },
   {
+    id: "toolkit",
+    name: "@agent-native/toolkit",
+    dir: "packages/toolkit",
+    expectedOutputs: exportedDistOutputs("packages/toolkit"),
+    tsBuildInfoFiles: ["node_modules/.cache/tsbuildinfo/toolkit.tsbuildinfo"],
+  },
+  {
     id: "core",
     name: "@agent-native/core",
     dir: "packages/core",
@@ -166,6 +173,7 @@ const targets: PackageTarget[] = [
 const modeTargets: Record<PrebuildMode, string[]> = {
   dev: [
     "shared-app-config",
+    "toolkit",
     "core",
     "code-agents-ui",
     "scheduling",
@@ -174,6 +182,7 @@ const modeTargets: Record<PrebuildMode, string[]> = {
   ],
   postinstall: [
     "shared-app-config",
+    "toolkit",
     "core",
     "code-agents-ui",
     "migrate",

@@ -1,5 +1,10 @@
 import { useT } from "@agent-native/core/client";
 import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@agent-native/toolkit/ui/tooltip";
+import {
   IconBold,
   IconItalic,
   IconStrikethrough,
@@ -22,11 +27,6 @@ import type { Editor } from "@tiptap/react";
 import { BubbleMenu } from "@tiptap/react/menus";
 import { useEffect, useState } from "react";
 
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
 import { captureAnchor, type CommentTextAnchor } from "./comment-anchors";

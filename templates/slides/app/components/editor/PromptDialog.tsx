@@ -1,8 +1,7 @@
 import { appBasePath, PromptComposer, useT } from "@agent-native/core/client";
+import { toast } from "@agent-native/toolkit/hooks/use-toast";
 import { useState, useEffect, useCallback, useRef } from "react";
 import { createPortal } from "react-dom";
-
-import { toast } from "@/hooks/use-toast";
 
 import { GoogleDocImportHint } from "./GoogleDocImportHint";
 

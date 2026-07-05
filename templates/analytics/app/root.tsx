@@ -7,6 +7,8 @@ import {
   useDbSync,
 } from "@agent-native/core/client";
 import { configureTracking } from "@agent-native/core/client";
+import { Toaster as Sonner } from "@agent-native/toolkit/ui/sonner";
+import { Toaster } from "@agent-native/toolkit/ui/toaster";
 import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useState } from "react";
 import { Links, Meta, Outlet, Scripts, ScrollRestoration } from "react-router";
@@ -14,8 +16,6 @@ import type { LinksFunction } from "react-router";
 
 import { AuthProvider } from "@/components/auth/AuthProvider";
 import { ProviderCorpusJobNotifier } from "@/components/ProviderCorpusJobNotifier";
-import { Toaster as Sonner } from "@/components/ui/sonner";
-import { Toaster } from "@/components/ui/toaster";
 import { TAB_ID } from "@/lib/tab-id";
 
 import { CommandPalette } from "./components/layout/CommandPalette";

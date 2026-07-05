@@ -25,6 +25,15 @@ import { ResourcesPanel } from "@agent-native/core/client/resources";
 `@agent-native/core/client` 또는 집중된 `@agent-native/core/client/*` 하위 경로
 따라서 번들러는 브라우저 안전 항목을 선택합니다.
 
+`@agent-native/toolkit`은 기본 런타임 계약에 속하지 않는 재사용 가능한 앱 구축 요소에 사용하세요: shadcn 스타일 UI primitives, 공유 hooks, 단순 app shell helpers, 기타 template composition modules입니다. 전환 기간 동안 Core는 호환성 re-export를 유지하지만, 새 템플릿과 앱 코드는 toolkit modules를 직접 가져와야 합니다:
+
+```tsx
+import { Button } from "@agent-native/toolkit/ui/button";
+import { Toaster } from "@agent-native/toolkit/ui/sonner";
+import { useToast } from "@agent-native/toolkit/hooks/use-toast";
+import { useSetHeaderActions } from "@agent-native/toolkit/app-shell";
+```
+
 <Diagram id="doc-block-wyryue" title={"프레임워크 외부가 아닌 레이어를 드롭다운하세요."} summary={"각 레이어는 동일한 런타임(작업, 스레드 상태, SQL-backed 동기화)을 유지하면서 크롬에 대한 더 많은 제어권을 제공합니다."}>
 
 ```html
