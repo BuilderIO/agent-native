@@ -227,6 +227,132 @@ async function putObject(
     : `${cfg.endpoint}/${cfg.bucket}/${key}`;
 }
 
+function withTrailingSlash(value: string): string {
+  return value.endsWith("/") ? value : `${value}/`;
+}
+
+function decodeUrlPathSegment(value: string): string | null {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return null;
+  }
+}
+
+function keyFromUrlPrefix(rawUrl: URL, rawBase: string): string | null {
+  const base = new URL(withTrailingSlash(rawBase));
+  if (rawUrl.origin !== base.origin) return null;
+  const basePath = withTrailingSlash(base.pathname);
+  if (!rawUrl.pathname.startsWith(basePath)) return null;
+  const encodedKey = rawUrl.pathname.slice(basePath.length);
+  if (!encodedKey) return null;
+  return decodeUrlPathSegment(encodedKey);
+}
+
+function objectKeyFromUrl(cfg: S3Config, rawUrl: string): string | null {
+  let url: URL;
+  try {
+    url = new URL(rawUrl);
+  } catch {
+    return null;
+  }
+  if (url.protocol !== "http:" && url.protocol !== "https:") return null;
+
+  if (cfg.publicBaseUrl) {
+    const key = keyFromUrlPrefix(url, cfg.publicBaseUrl);
+    if (key) return key;
+  }
+
+  const endpoint = new URL(withTrailingSlash(cfg.endpoint));
+  if (url.origin !== endpoint.origin) return null;
+  const endpointPath = withTrailingSlash(endpoint.pathname);
+  const bucketPath = `${endpointPath}${rfc3986(cfg.bucket)}/`;
+  if (!url.pathname.startsWith(bucketPath)) return null;
+  const encodedKey = url.pathname.slice(bucketPath.length);
+  if (!encodedKey) return null;
+  return decodeUrlPathSegment(encodedKey);
+}
+
+async function deleteObject(cfg: S3Config, key: string): Promise<void> {
+  const now = new Date();
+  const amzDate =
+    now
+      .toISOString()
+      .replace(/[:-]|\.\d{3}/g, "")
+      .slice(0, 15) + "Z";
+  const dateStamp = amzDate.slice(0, 8);
+  const credentialScope = `${dateStamp}/${cfg.region}/s3/aws4_request`;
+
+  const hostUrl = new URL(cfg.endpoint);
+  const host = hostUrl.host;
+  const canonicalUri = `/${cfg.bucket}/${key.split("/").map(rfc3986).join("/")}`;
+  const payloadHash = await sha256(new Uint8Array(0));
+
+  const headers: Record<string, string> = {
+    host,
+    "x-amz-content-sha256": payloadHash,
+    "x-amz-date": amzDate,
+  };
+
+  const signedHeaderKeys = Object.keys(headers).sort();
+  const signedHeaders = signedHeaderKeys.join(";");
+  const canonicalHeaders =
+    signedHeaderKeys.map((k) => `${k}:${headers[k]}`).join("\n") + "\n";
+
+  const canonicalRequest = [
+    "DELETE",
+    canonicalUri,
+    "",
+    canonicalHeaders,
+    signedHeaders,
+    payloadHash,
+  ].join("\n");
+
+  const crHash = await sha256(new TextEncoder().encode(canonicalRequest));
+  const stringToSign = [
+    "AWS4-HMAC-SHA256",
+    amzDate,
+    credentialScope,
+    crHash,
+  ].join("\n");
+
+  const signingKey = await deriveSigningKey(
+    cfg.secretAccessKey,
+    dateStamp,
+    cfg.region,
+  );
+  const signature = toHex(await hmac(signingKey, stringToSign));
+
+  const authorization =
+    `AWS4-HMAC-SHA256 Credential=${cfg.accessKeyId}/${credentialScope}, ` +
+    `SignedHeaders=${signedHeaders}, Signature=${signature}`;
+
+  const url = `${cfg.endpoint}${canonicalUri}`;
+  const res = await fetch(url, {
+    method: "DELETE",
+    headers: {
+      ...headers,
+      Authorization: authorization,
+    },
+  });
+
+  if (!res.ok && res.status !== 404) {
+    const text = await res.text().catch(() => "");
+    throw new Error(
+      `S3 DeleteObject failed (${res.status}): ${text || res.statusText}`,
+    );
+  }
+}
+
+export async function deleteS3ObjectByUrl(url: string): Promise<boolean> {
+  const cfg = await readS3Config();
+  if (!cfg) return false;
+  const key = objectKeyFromUrl(cfg, url);
+  if (!key) return false;
+  await deleteObject(cfg, key);
+  return true;
+}
+
 // ── Provider ──────────────────────────────────────────────────────────
 
 export const s3FileUploadProvider: FileUploadProvider = {

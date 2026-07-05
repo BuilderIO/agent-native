@@ -15,6 +15,7 @@ import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { deleteRecordingMediaObjects } from "../server/lib/recording-media-cleanup.js";
 import {
   getCurrentOwnerEmail,
   ownerEmailMatches,
@@ -40,6 +41,8 @@ export default defineAction({
         ),
       );
     if (!existing) throw new Error(`Recording not found: ${args.id}`);
+
+    const mediaCleanup = await deleteRecordingMediaObjects(existing);
 
     // Cascade delete every related row.
     await db
@@ -86,6 +89,6 @@ export default defineAction({
     console.log(
       `Permanently deleted recording "${existing.title}" (${args.id})`,
     );
-    return { success: true, id: args.id };
+    return { success: true, id: args.id, mediaCleanup };
   },
 });
