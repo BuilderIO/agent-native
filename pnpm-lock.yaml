@@ -1142,6 +1142,9 @@ importers:
 
   packages/scheduling:
     dependencies:
+      '@agent-native/toolkit':
+        specifier: workspace:*
+        version: link:../toolkit
       '@date-fns/tz':
         specifier: ^1.2.0
         version: 1.5.0
