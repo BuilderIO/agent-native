@@ -1690,7 +1690,7 @@ async function startNativeFullscreenRecording(
   const wantsSystemAudio = params.systemAudioOn !== false;
   const wantsRecordedAudio = wantsAudio || wantsSystemAudio;
   const saveTranscriptFailure = async (failureReason: string) => {
-    if (!wantsAudio || nativeTranscriptFailureSaved || !id) return;
+    if (!wantsRecordedAudio || nativeTranscriptFailureSaved || !id) return;
     nativeTranscriptFailureSaved = true;
     await saveRecordingTranscriptFailure(
       params.serverUrl,
@@ -2055,9 +2055,9 @@ async function startNativeFullscreenRecording(
               capturedTranscript,
               params.authToken,
             );
-          } else if (wantsAudio) {
+          } else if (wantsRecordedAudio) {
             await saveTranscriptFailure(
-              "No speech was captured during this recording. If you spoke, check Microphone input, Speech Recognition permission, and the selected mic, then retry transcription.",
+              "No speech was captured during this recording. If you spoke or played system audio, check System Audio, Microphone input, Speech Recognition permission, and the selected mic, then retry transcription.",
             );
           }
 
@@ -2246,7 +2246,7 @@ async function startNativeFullscreenRecording(
 
   if (!localOnly) {
     await showRegionGuidesForRecording(true);
-    transcriptionCapture = wantsAudio
+    transcriptionCapture = wantsRecordedAudio
       ? await startTranscriptionCapture(
           {
             deviceId: params.micId,
@@ -2268,12 +2268,12 @@ async function startNativeFullscreenRecording(
       );
       void transcriptionCapture.pause().catch(() => {});
     } else if (
-      wantsAudio &&
+      wantsRecordedAudio &&
       !transcriptionCapture &&
       shouldSaveLocalTranscriptionStartupFailure()
     ) {
       void saveTranscriptFailure(
-        "macOS Speech recognition could not start for this recording. Check Speech Recognition and Microphone permissions, then retry transcription.",
+        "macOS Speech recognition could not start for this recording. Check Speech Recognition, System Audio, and Microphone permissions, then retry transcription.",
       );
     }
   }
@@ -2390,6 +2390,7 @@ async function startRecordingInner(
   const wantsCamera = params.mode !== "screen" && params.cameraOn;
   const wantsAudio = params.micOn;
   const wantsSystemAudio = wantsScreen && params.systemAudioOn !== false;
+  const wantsRecordedAudio = wantsAudio || wantsSystemAudio;
   const audioCue = createAudioCue();
   const captureSource = params.source ?? "window";
   const localRecordingMode = params.localRecordingMode ?? "off";
@@ -2892,7 +2893,7 @@ async function startRecordingInner(
   console.log("[clips-recorder] recording row created", { id, uploadMode });
   let nativeTranscriptFailureSaved = false;
   const saveTranscriptFailure = async (failureReason: string) => {
-    if (!wantsAudio || nativeTranscriptFailureSaved) return;
+    if (!wantsRecordedAudio || nativeTranscriptFailureSaved) return;
     nativeTranscriptFailureSaved = true;
     await saveRecordingTranscriptFailure(
       params.serverUrl,
@@ -3152,7 +3153,7 @@ async function startRecordingInner(
   // delaying capture, so the first ~1s the user expected to record was lost
   // (and the recording felt cut at the end). It's a separate capture from the
   // recorded audio tracks, so starting it slightly late is safe.
-  transcriptionCapture = wantsAudio
+  transcriptionCapture = wantsRecordedAudio
     ? await startTranscriptionCapture(
         {
           deviceId: params.micId,
@@ -3174,12 +3175,12 @@ async function startRecordingInner(
     );
     void transcriptionCapture.pause().catch(() => {});
   } else if (
-    wantsAudio &&
+    wantsRecordedAudio &&
     !transcriptionCapture &&
     shouldSaveLocalTranscriptionStartupFailure()
   ) {
     void saveTranscriptFailure(
-      "macOS Speech recognition could not start for this recording. Check Speech Recognition and Microphone permissions, then retry transcription.",
+      "macOS Speech recognition could not start for this recording. Check Speech Recognition, System Audio, and Microphone permissions, then retry transcription.",
     );
   }
 
@@ -3259,9 +3260,9 @@ async function startRecordingInner(
           capturedTranscript,
           params.authToken,
         );
-      } else if (wantsAudio) {
+      } else if (wantsRecordedAudio) {
         await saveTranscriptFailure(
-          "No speech was captured during this recording. If you spoke, check Microphone input, Speech Recognition permission, and the selected mic, then retry transcription.",
+          "No speech was captured during this recording. If you spoke or played system audio, check System Audio, Microphone input, Speech Recognition permission, and the selected mic, then retry transcription.",
         );
       }
       await thumbnailUploadPromise;
