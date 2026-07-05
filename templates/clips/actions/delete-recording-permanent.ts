@@ -72,42 +72,47 @@ export default defineAction({
       }
     }
 
+    await db.transaction(async (tx) => {
+      // Cascade delete every related row before deleting remote objects. If any
+      // DB delete fails, the transaction rolls back and provider media stays put.
+      await tx
+        .delete(schema.recordingComments)
+        .where(eq(schema.recordingComments.recordingId, args.id));
+      await tx
+        .delete(schema.recordingReactions)
+        .where(eq(schema.recordingReactions.recordingId, args.id));
+      await tx
+        .delete(schema.recordingViewers)
+        .where(eq(schema.recordingViewers.recordingId, args.id));
+      await tx
+        .delete(schema.recordingEvents)
+        .where(eq(schema.recordingEvents.recordingId, args.id));
+      await tx
+        .delete(schema.recordingTranscripts)
+        .where(eq(schema.recordingTranscripts.recordingId, args.id));
+      await tx
+        .delete(schema.recordingBrowserDiagnostics)
+        .where(eq(schema.recordingBrowserDiagnostics.recordingId, args.id));
+      await tx
+        .delete(schema.recordingBugReports)
+        .where(eq(schema.recordingBugReports.recordingId, args.id));
+      await tx
+        .delete(schema.recordingTags)
+        .where(eq(schema.recordingTags.recordingId, args.id));
+      await tx
+        .delete(schema.recordingCtas)
+        .where(eq(schema.recordingCtas.recordingId, args.id));
+      await tx
+        .delete(schema.recordingShares)
+        .where(eq(schema.recordingShares.resourceId, args.id));
+      await tx
+        .delete(schema.recordings)
+        .where(eq(schema.recordings.id, args.id));
+    });
+
     const mediaCleanup = await deleteRecordingMediaObjects(existing, {
       protectedUrls,
     });
-
-    // Cascade delete every related row.
-    await db
-      .delete(schema.recordingComments)
-      .where(eq(schema.recordingComments.recordingId, args.id));
-    await db
-      .delete(schema.recordingReactions)
-      .where(eq(schema.recordingReactions.recordingId, args.id));
-    await db
-      .delete(schema.recordingViewers)
-      .where(eq(schema.recordingViewers.recordingId, args.id));
-    await db
-      .delete(schema.recordingEvents)
-      .where(eq(schema.recordingEvents.recordingId, args.id));
-    await db
-      .delete(schema.recordingTranscripts)
-      .where(eq(schema.recordingTranscripts.recordingId, args.id));
-    await db
-      .delete(schema.recordingBrowserDiagnostics)
-      .where(eq(schema.recordingBrowserDiagnostics.recordingId, args.id));
-    await db
-      .delete(schema.recordingBugReports)
-      .where(eq(schema.recordingBugReports.recordingId, args.id));
-    await db
-      .delete(schema.recordingTags)
-      .where(eq(schema.recordingTags.recordingId, args.id));
-    await db
-      .delete(schema.recordingCtas)
-      .where(eq(schema.recordingCtas.recordingId, args.id));
-    await db
-      .delete(schema.recordingShares)
-      .where(eq(schema.recordingShares.resourceId, args.id));
-    await db.delete(schema.recordings).where(eq(schema.recordings.id, args.id));
 
     // Clean up any lingering application state for this recording.
     await deleteAppStateByPrefix(`recording-chunks-${args.id}-`);

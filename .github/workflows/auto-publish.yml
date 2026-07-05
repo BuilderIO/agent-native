@@ -125,6 +125,10 @@ jobs:
           # package.json isn't honored everywhere, so set the env var —
           # both npm and pnpm read NPM_CONFIG_PROVENANCE.
           NPM_CONFIG_PROVENANCE: "true"
+          # Optional one-time escape hatch for brand-new public packages. The
+          # publish wrapper uses this only when npm returns 404 for the package
+          # name itself; existing packages still publish through OIDC/provenance.
+          AGENT_NATIVE_NPM_BOOTSTRAP_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Generate Builder downstream app token
         if: |

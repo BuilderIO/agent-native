@@ -43,6 +43,9 @@ const mockDb = vi.hoisted(() => ({
     })),
   })),
   delete: mockDbDelete,
+  transaction: vi.fn(async (fn: (tx: unknown) => Promise<unknown>) =>
+    fn(mockDb),
+  ),
 }));
 const mockWriteAppState = vi.hoisted(() => vi.fn(async () => undefined));
 const mockDeleteAppState = vi.hoisted(() => vi.fn(async () => undefined));
@@ -126,16 +129,17 @@ describe("delete-recording-permanent", () => {
       .mockResolvedValueOnce([]);
   });
 
-  it("deletes provider media before permanently deleting recording rows", async () => {
+  it("deletes provider media after permanently deleting recording rows", async () => {
     const result = await deleteRecordingPermanent.run({ id: "rec_1" });
 
     expect(mockDeleteRecordingMediaObjects).toHaveBeenCalledWith(
       mockExistingRecording,
       { protectedUrls: new Set() },
     );
-    expect(
+    expect(mockDb.transaction).toHaveBeenCalled();
+    expect(mockDbDelete.mock.invocationCallOrder[0]).toBeLessThan(
       mockDeleteRecordingMediaObjects.mock.invocationCallOrder[0],
-    ).toBeLessThan(mockDbDelete.mock.invocationCallOrder[0]);
+    );
     expect(mockDeleteAppStateByPrefix).toHaveBeenCalledWith(
       "recording-chunks-rec_1-",
     );
@@ -170,5 +174,15 @@ describe("delete-recording-permanent", () => {
     expect([...(cleanupOptions?.protectedUrls ?? [])]).toEqual([
       mockExistingRecording.thumbnailUrl,
     ]);
+  });
+
+  it("does not delete provider media when the database delete fails", async () => {
+    mockDeleteWhere.mockRejectedValueOnce(new Error("delete failed"));
+
+    await expect(deleteRecordingPermanent.run({ id: "rec_1" })).rejects.toThrow(
+      "delete failed",
+    );
+
+    expect(mockDeleteRecordingMediaObjects).not.toHaveBeenCalled();
   });
 });
