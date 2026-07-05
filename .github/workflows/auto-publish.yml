@@ -168,8 +168,10 @@ jobs:
       - name: Trigger Builder starter package update
         if: |
           steps.changesets.outputs.published == 'true' &&
-          contains(steps.changesets.outputs.publishedPackages, '@agent-native/core') ||
-          contains(steps.changesets.outputs.publishedPackages, '@agent-native/toolkit')
+          (
+            contains(steps.changesets.outputs.publishedPackages, '@agent-native/core') ||
+            contains(steps.changesets.outputs.publishedPackages, '@agent-native/toolkit')
+          )
         env:
           GH_TOKEN: ${{ steps.builder-downstream-token.outputs.token }}
           PUBLISHED_PACKAGES: ${{ steps.changesets.outputs.publishedPackages }}

@@ -11,11 +11,14 @@ import {
   deleteAppState,
   deleteAppStateByPrefix,
 } from "@agent-native/core/application-state";
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray, ne, or } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
-import { deleteRecordingMediaObjects } from "../server/lib/recording-media-cleanup.js";
+import {
+  deleteRecordingMediaObjects,
+  recordingMediaUrls,
+} from "../server/lib/recording-media-cleanup.js";
 import {
   getCurrentOwnerEmail,
   ownerEmailMatches,
@@ -42,7 +45,36 @@ export default defineAction({
       );
     if (!existing) throw new Error(`Recording not found: ${args.id}`);
 
-    const mediaCleanup = await deleteRecordingMediaObjects(existing);
+    const mediaUrls = recordingMediaUrls(existing);
+    const protectedUrls = new Set<string>();
+    if (mediaUrls.length > 0) {
+      const mediaReferences = await db
+        .select({
+          videoUrl: schema.recordings.videoUrl,
+          thumbnailUrl: schema.recordings.thumbnailUrl,
+          animatedThumbnailUrl: schema.recordings.animatedThumbnailUrl,
+        })
+        .from(schema.recordings)
+        .where(
+          and(
+            ne(schema.recordings.id, args.id),
+            or(
+              inArray(schema.recordings.videoUrl, mediaUrls),
+              inArray(schema.recordings.thumbnailUrl, mediaUrls),
+              inArray(schema.recordings.animatedThumbnailUrl, mediaUrls),
+            ),
+          ),
+        );
+      for (const reference of mediaReferences) {
+        for (const url of recordingMediaUrls(reference)) {
+          if (mediaUrls.includes(url)) protectedUrls.add(url);
+        }
+      }
+    }
+
+    const mediaCleanup = await deleteRecordingMediaObjects(existing, {
+      protectedUrls,
+    });
 
     // Cascade delete every related row.
     await db

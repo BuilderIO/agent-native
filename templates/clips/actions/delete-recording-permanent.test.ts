@@ -17,6 +17,21 @@ const mockDeleteRecordingMediaObjects = vi.hoisted(() =>
     errors: [],
   })),
 );
+const mockRecordingMediaUrls = vi.hoisted(() =>
+  vi.fn(
+    (recording: {
+      videoUrl?: string | null;
+      thumbnailUrl?: string | null;
+      animatedThumbnailUrl?: string | null;
+    }) =>
+      [
+        recording.videoUrl,
+        recording.thumbnailUrl,
+        recording.animatedThumbnailUrl,
+      ].filter((url): url is string => Boolean(url)),
+  ),
+);
+const mockSelectWhere = vi.hoisted(() => vi.fn());
 const mockDeleteWhere = vi.hoisted(() => vi.fn(async () => undefined));
 const mockDbDelete = vi.hoisted(() =>
   vi.fn(() => ({ where: mockDeleteWhere })),
@@ -24,7 +39,7 @@ const mockDbDelete = vi.hoisted(() =>
 const mockDb = vi.hoisted(() => ({
   select: vi.fn(() => ({
     from: vi.fn(() => ({
-      where: vi.fn(async () => [mockExistingRecording]),
+      where: mockSelectWhere,
     })),
   })),
   delete: mockDbDelete,
@@ -49,6 +64,13 @@ vi.mock("@agent-native/core/application-state", () => ({
 vi.mock("drizzle-orm", () => ({
   and: vi.fn((...args: unknown[]) => args),
   eq: vi.fn((column: unknown, value: unknown) => ({ column, value })),
+  inArray: vi.fn((column: unknown, values: unknown[]) => ({ column, values })),
+  ne: vi.fn((column: unknown, value: unknown) => ({
+    column,
+    value,
+    not: true,
+  })),
+  or: vi.fn((...args: unknown[]) => args),
 }));
 
 vi.mock("../server/db/index.js", () => ({
@@ -57,6 +79,9 @@ vi.mock("../server/db/index.js", () => ({
     recordings: {
       id: "recordings.id",
       ownerEmail: "recordings.ownerEmail",
+      videoUrl: "recordings.videoUrl",
+      thumbnailUrl: "recordings.thumbnailUrl",
+      animatedThumbnailUrl: "recordings.animatedThumbnailUrl",
     },
     recordingComments: { recordingId: "recordingComments.recordingId" },
     recordingReactions: { recordingId: "recordingReactions.recordingId" },
@@ -78,6 +103,8 @@ vi.mock("../server/db/index.js", () => ({
 vi.mock("../server/lib/recording-media-cleanup.js", () => ({
   deleteRecordingMediaObjects: (...args: unknown[]) =>
     mockDeleteRecordingMediaObjects(...args),
+  recordingMediaUrls: (...args: Parameters<typeof mockRecordingMediaUrls>) =>
+    mockRecordingMediaUrls(...args),
 }));
 
 vi.mock("../server/lib/recordings.js", () => ({
@@ -94,6 +121,9 @@ import deleteRecordingPermanent from "./delete-recording-permanent";
 describe("delete-recording-permanent", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockSelectWhere
+      .mockResolvedValueOnce([mockExistingRecording])
+      .mockResolvedValueOnce([]);
   });
 
   it("deletes provider media before permanently deleting recording rows", async () => {
@@ -101,6 +131,7 @@ describe("delete-recording-permanent", () => {
 
     expect(mockDeleteRecordingMediaObjects).toHaveBeenCalledWith(
       mockExistingRecording,
+      { protectedUrls: new Set() },
     );
     expect(
       mockDeleteRecordingMediaObjects.mock.invocationCallOrder[0],
@@ -118,5 +149,26 @@ describe("delete-recording-permanent", () => {
         errors: [],
       },
     });
+  });
+
+  it("skips provider deletion for media still referenced by another recording", async () => {
+    mockSelectWhere
+      .mockReset()
+      .mockResolvedValueOnce([mockExistingRecording])
+      .mockResolvedValueOnce([
+        {
+          videoUrl: null,
+          thumbnailUrl: mockExistingRecording.thumbnailUrl,
+          animatedThumbnailUrl: null,
+        },
+      ]);
+
+    await deleteRecordingPermanent.run({ id: "rec_1" });
+
+    const cleanupOptions = mockDeleteRecordingMediaObjects.mock
+      .calls[0]?.[1] as { protectedUrls?: Set<string> } | undefined;
+    expect([...(cleanupOptions?.protectedUrls ?? [])]).toEqual([
+      mockExistingRecording.thumbnailUrl,
+    ]);
   });
 });
