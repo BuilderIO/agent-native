@@ -34,13 +34,9 @@ function requireNodeCrypto(): NonNullable<typeof nodeCrypto> {
   return nodeCrypto;
 }
 
-function processEnv(name: string): string | undefined {
-  if (typeof process === "undefined") return undefined;
-  return process.env?.[name];
-}
-
 function processNodeEnv(): string | undefined {
-  return processEnv("NODE_ENV");
+  if (typeof process === "undefined") return undefined;
+  return process.env.NODE_ENV;
 }
 
 function processCwd(): string {
@@ -55,7 +51,12 @@ function processCwd(): string {
 export function getSecretEncryptionKey(): Buffer {
   const { createHash } = requireNodeCrypto();
   const explicit =
-    processEnv("SECRETS_ENCRYPTION_KEY") || processEnv("BETTER_AUTH_SECRET");
+    (typeof process === "undefined"
+      ? undefined
+      : process.env.SECRETS_ENCRYPTION_KEY) ||
+    (typeof process === "undefined"
+      ? undefined
+      : process.env.BETTER_AUTH_SECRET);
 
   if (!explicit) {
     if (processNodeEnv() === "production") {
