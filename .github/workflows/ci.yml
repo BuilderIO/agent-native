@@ -425,10 +425,13 @@ jobs:
       # control the exact build order and avoid redundant parallel builds.
       - run: pnpm install --frozen-lockfile --ignore-scripts
 
-      # Build core (plan's only @agent-native workspace dep) so the deploy
-      # build's CLI is available, then produce the real serverless bundle.
-      - name: Build core
-        run: pnpm --filter @agent-native/core build
+      # Build core and its package dependency so the deploy build's CLI and
+      # compatibility shims are available, then produce the real serverless
+      # bundle.
+      - name: Build toolkit and core
+        run: |
+          pnpm --filter @agent-native/toolkit build
+          pnpm --filter @agent-native/core build
 
       # The `plan` template exercises the Excalidraw/Mermaid diagram blocks, so
       # its server bundle is the canonical reproducer for browser-only libs

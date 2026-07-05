@@ -559,6 +559,33 @@ describe("workspace scaffold — required packages", { timeout: 60000 }, () => {
     );
   });
 
+  it("overrides toolkit for standalone installs during local core development", async () => {
+    const previous = process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE;
+    process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE = "1";
+    try {
+      await createApp("local-chat", { template: "chat" });
+      const pkg = readPkg(path.join(tmpDir, "local-chat"));
+      expect(pkg.dependencies["@agent-native/core"]).toMatch(/^file:\/\//);
+      expect(pkg.dependencies["@agent-native/toolkit"]).toMatch(/^file:\/\//);
+
+      const workspaceYaml = fs
+        .readFileSync(path.join(tmpDir, "local-chat", "pnpm-workspace.yaml"), {
+          encoding: "utf-8",
+        })
+        .replaceAll("\\", "/");
+      expect(workspaceYaml).toContain("overrides:");
+      expect(workspaceYaml).toContain('"@agent-native/toolkit": "file://');
+      expect(workspaceYaml).toContain("/packages/toolkit");
+      expect(workspaceYaml).not.toContain("packages:");
+    } finally {
+      if (previous === undefined) {
+        delete process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE;
+      } else {
+        process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE = previous;
+      }
+    }
+  });
+
   it("resolves @agent-native/dispatch to latest in workspacified apps", async () => {
     // Pin the default (non-local-linking) behaviour regardless of an ambient
     // AGENT_NATIVE_CREATE_USE_LOCAL_CORE set by the headless install e2e.

@@ -1067,6 +1067,12 @@ function postProcessStandalone(
         nf3: '"0.3.17"',
       };
     }
+    const localToolkit = localToolkitOverride();
+    if (localToolkit) {
+      sections.overrides ??= {};
+      sections.overrides['"@agent-native/toolkit"'] =
+        JSON.stringify(localToolkit);
+    }
     let updated = mergeWorkspaceYamlSections(existing, sections);
     updated = mergeWorkspaceYamlListItems(
       updated,
@@ -1590,6 +1596,12 @@ function getToolkitDependencyVersion(): string {
   }
 
   return "latest";
+}
+
+function localToolkitOverride(): string | null {
+  if (process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE !== "1") return null;
+  const localToolkit = findLocalPackage("toolkit");
+  return localToolkit ? pathToFileURL(localToolkit).href : null;
 }
 
 function getCorePackageVersion(): string | undefined {
