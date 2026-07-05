@@ -15,7 +15,51 @@
  * process.env so existing `AGENT_USER_EMAIL=x pnpm action foo` invocations
  * continue to work.
  */
-import { AsyncLocalStorage } from "node:async_hooks";
+
+type AsyncLocalStorageLike<T> = {
+  getStore(): T | undefined;
+  run<R>(store: T, callback: () => R): R;
+};
+
+class StackAsyncLocalStorage<T> implements AsyncLocalStorageLike<T> {
+  private readonly stack: T[] = [];
+
+  getStore(): T | undefined {
+    return this.stack.at(-1);
+  }
+
+  run<R>(store: T, callback: () => R): R {
+    this.stack.push(store);
+    try {
+      const result = callback();
+      const maybePromise = result as unknown as
+        | { finally?: (callback: () => void) => unknown }
+        | undefined;
+      if (maybePromise && typeof maybePromise.finally === "function") {
+        return maybePromise.finally(() => {
+          this.stack.pop();
+        }) as R;
+      }
+      this.stack.pop();
+      return result;
+    } catch (error) {
+      this.stack.pop();
+      throw error;
+    }
+  }
+}
+
+const AsyncLocalStorageCtor =
+  typeof window === "undefined" &&
+  typeof process !== "undefined" &&
+  process.versions?.node
+    ? (await import("node:async_hooks")).AsyncLocalStorage
+    : undefined;
+
+function processEnv(name: string): string | undefined {
+  if (typeof process === "undefined") return undefined;
+  return process.env?.[name];
+}
 
 /**
  * Per-request agent-run state. Lives on `RequestContext.run` so the
@@ -114,12 +158,14 @@ const GLOBAL_KEY = "__agentNativeRequestContextAls" as const;
 const OBSERVERS_KEY = "__agentNativeRequestContextObservers" as const;
 type RequestContextObserver = (ctx: RequestContext) => void;
 type GlobalWithRequestContext = typeof globalThis & {
-  [GLOBAL_KEY]?: AsyncLocalStorage<RequestContext>;
+  [GLOBAL_KEY]?: AsyncLocalStorageLike<RequestContext>;
   [OBSERVERS_KEY]?: RequestContextObserver[];
 };
 const globalRef = globalThis as GlobalWithRequestContext;
 if (!globalRef[GLOBAL_KEY]) {
-  globalRef[GLOBAL_KEY] = new AsyncLocalStorage<RequestContext>();
+  globalRef[GLOBAL_KEY] = AsyncLocalStorageCtor
+    ? new AsyncLocalStorageCtor<RequestContext>()
+    : new StackAsyncLocalStorage<RequestContext>();
 }
 if (!globalRef[OBSERVERS_KEY]) {
   globalRef[OBSERVERS_KEY] = [];
@@ -211,7 +257,7 @@ export function getRequestUserEmail(): string | undefined {
     if (store.userEmail) markAuthContextAccess(store);
     return store.userEmail;
   }
-  return process.env.AGENT_USER_EMAIL;
+  return processEnv("AGENT_USER_EMAIL");
 }
 
 /**
@@ -227,7 +273,7 @@ export function getRequestUserName(): string | undefined {
     if (store.userName) markAuthContextAccess(store);
     return store.userName;
   }
-  return process.env.AGENT_USER_NAME;
+  return processEnv("AGENT_USER_NAME");
 }
 
 /**
@@ -243,7 +289,7 @@ export function getRequestOrgId(): string | undefined {
     if (store.orgId) markAuthContextAccess(store);
     return store.orgId;
   }
-  return process.env.AGENT_ORG_ID;
+  return processEnv("AGENT_ORG_ID");
 }
 
 function markAuthContextAccess(ctx: RequestContext | undefined) {
@@ -267,7 +313,7 @@ export function hasAuthContextAccess(ctx: RequestContext | undefined): boolean {
 export function getRequestTimezone(): string | undefined {
   const store = als.getStore();
   if (store !== undefined) return store.timezone;
-  return process.env.AGENT_USER_TIMEZONE;
+  return processEnv("AGENT_USER_TIMEZONE");
 }
 
 /**

@@ -241,6 +241,12 @@ Das Analytics-Template speichert Replay-Metadaten in SQL (`session_recordings`) 
 
 Wenn Sie eine private Aufzeichnung an einen externen Agenten übergeben müssen, verwenden Sie auf der Sitzungsdetailseite die Funktion **Copy for agent**. Sie erzeugt einen zwei Stunden gültigen, aufzeichnungsgebundenen `agent_access`-Link, rendert eine kleine Discovery-Payload per SSR unter `/sessions/:recordingId` und stellt ausschließlich die JSON-APIs für Agent-Kontext/-Ereignisse bereit. Die Sichtbarkeit der Aufzeichnung ändert sich dadurch nicht.
 
+Implementation note: the reusable layer is the core agent-access URL contract,
+not a replay-specific UI abstraction. Use `createScopedAgentAccessGrant`,
+`verifyScopedAgentAccessToken`, `buildAgentAccessUrl`, and
+`buildAgentAccessApiUrl` for scoped SSR and JSON API links; keep replay storage,
+diagnostics shaping, and access policy inside the Analytics template.
+
 Nur für die lokale Entwicklung kann Analytics auf begrenzte SQL-Inline-Chunks zurückgreifen, wenn kein privater Blob-Speicher verfügbar ist. Produktions-Deployments sollten privaten oder verschlüsselten Blob-Speicher konfigurieren, anstatt sich für Replay-Payloads auf Postgres zu verlassen.
 
 ## Erweitert: benutzerdefinierte Anbieter und Interna {#advanced}

@@ -133,6 +133,13 @@ agente.
 
 Temporary private agent links are also supported: the Share dialog can mint a two-hour `agent_access` URL for any recording the viewer can access. Agents use that token with the share page and JSON APIs, and the clip does not become public.
 
+Implementation note: use the shared core agent-access helpers
+(`createScopedAgentAccessGrant`, `verifyScopedAgentAccessToken`,
+`buildAgentAccessUrl`, and `buildAgentAccessApiUrl`) for the SSR/bot-visible
+URL contract. Keep Clips-specific visibility checks, transcript/frame payloads,
+and player UI local. New links use `agent_access`; routes should continue
+accepting the legacy `t` query where existing agent API URLs may already use it.
+
 Os endpoints seguem as mesmas regras de público/senha/expiração da página de compartilhamento.
 Clipes protegidos por senha exigem a senha uma vez; retorno de respostas bem-sucedidas
 links tokenizados de curta duração para que os agentes downstream não precisem do texto simples

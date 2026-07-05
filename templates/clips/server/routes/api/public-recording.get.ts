@@ -13,7 +13,12 @@
  * the authenticated player route).
  */
 
-import { getSession, signShortLivedToken } from "@agent-native/core/server";
+import {
+  getSession,
+  signScopedAgentAccessToken,
+  signShortLivedToken,
+  verifyScopedAgentAccessToken,
+} from "@agent-native/core/server";
 import { asc, eq } from "drizzle-orm";
 import {
   defineEventHandler,
@@ -27,8 +32,8 @@ import {
 } from "h3";
 
 import {
-  agentAccessTokenResourceId,
   buildAgentApiUrls,
+  CLIP_AGENT_ACCESS_TOKEN_PREFIX,
 } from "../../../shared/agent-context.js";
 import {
   normalizeTranscriptSegments,
@@ -122,9 +127,20 @@ function addProtectedMediaTokenFallback(
 }
 
 export default defineEventHandler(async (event) => {
-  const q = getQuery(event) as { id?: string; password?: string };
+  const q = getQuery(event) as {
+    id?: string;
+    password?: string;
+    agent_access?: string;
+    t?: string;
+  };
   const recordingId = q.id;
   const password = typeof q.password === "string" ? q.password : "";
+  const suppliedAgentAccessToken =
+    typeof q.agent_access === "string"
+      ? q.agent_access
+      : typeof q.t === "string"
+        ? q.t
+        : "";
 
   if (!recordingId) {
     setResponseStatus(event, 400);
@@ -147,8 +163,18 @@ export default defineEventHandler(async (event) => {
   const viewerIsOwner = Boolean(
     session?.email && sameOwnerEmail(session.email, rec.ownerEmail),
   );
+  const tokenAllowsAgentAccess = suppliedAgentAccessToken
+    ? verifyScopedAgentAccessToken(suppliedAgentAccessToken, {
+        resourceKind: CLIP_AGENT_ACCESS_TOKEN_PREFIX,
+        resourceId: rec.id,
+      }).ok
+    : false;
 
-  if (rec.visibility !== "public" && !viewerIsOwner) {
+  if (
+    rec.visibility !== "public" &&
+    !viewerIsOwner &&
+    !tokenAllowsAgentAccess
+  ) {
     setResponseStatus(event, 404);
     return { error: "Not found" };
   }
@@ -165,10 +191,15 @@ export default defineEventHandler(async (event) => {
   // Password check
   let protectedMediaToken: string | null = null;
   if (rec.password && !viewerIsOwner) {
-    if (!password || !verifySharePassword(password, rec.password)) {
+    if (
+      !tokenAllowsAgentAccess &&
+      (!password || !verifySharePassword(password, rec.password))
+    ) {
       setResponseStatus(event, 401);
       return { error: "Password required", passwordRequired: true };
     }
+    protectedMediaToken = setProtectedMediaAccessCookie(event, recordingId);
+  } else if (tokenAllowsAgentAccess && !viewerIsOwner) {
     protectedMediaToken = setProtectedMediaAccessCookie(event, recordingId);
   }
 
@@ -248,13 +279,18 @@ export default defineEventHandler(async (event) => {
   );
 
   const canExposeAgentContext =
-    rec.visibility === "public" && !rec.archivedAt && !rec.trashedAt;
+    (rec.visibility === "public" || tokenAllowsAgentAccess || viewerIsOwner) &&
+    !rec.archivedAt &&
+    !rec.trashedAt;
   const agentToken =
-    canExposeAgentContext && rec.password
-      ? signShortLivedToken({
-          resourceId: agentAccessTokenResourceId(recordingId),
-        })
-      : undefined;
+    canExposeAgentContext && tokenAllowsAgentAccess
+      ? suppliedAgentAccessToken
+      : canExposeAgentContext && rec.password
+        ? signScopedAgentAccessToken({
+            resourceKind: CLIP_AGENT_ACCESS_TOKEN_PREFIX,
+            resourceId: recordingId,
+          })
+        : undefined;
   const agentContextUrl = canExposeAgentContext
     ? buildAgentApiUrls(recordingId, {
         origin: getRequestURL(event).origin,

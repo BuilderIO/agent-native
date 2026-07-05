@@ -2,16 +2,17 @@ import { appStateGet } from "@agent-native/core/application-state";
 import { ssrfSafeFetch } from "@agent-native/core/extensions/url-safety";
 import {
   getSession,
-  signShortLivedToken,
-  verifyShortLivedToken,
+  signScopedAgentAccessToken,
+  verifyScopedAgentAccessToken,
 } from "@agent-native/core/server";
 import { asc, eq } from "drizzle-orm";
 import { getRequestURL, setResponseHeader, type H3Event } from "h3";
 
 import {
-  agentAccessTokenResourceId,
   buildAgentApiUrls,
   buildRecommendedFrames,
+  CLIP_AGENT_ACCESS_TOKEN_PREFIX,
+  CLIPS_AGENT_ACCESS_PARAM,
   CLIP_AGENT_CONTEXT_VERSION,
   toAgentTranscriptSegments,
 } from "../../shared/agent-context.js";
@@ -54,8 +55,8 @@ export type PublicAgentAccessResult =
   | { ok: false; failure: PublicAgentFailure };
 
 const DEFAULT_MAX_AGENT_FRAME_MEDIA_BYTES = 200 * 1024 * 1024;
-export const CLIPS_AGENT_ACCESS_PARAM = "agent_access";
 export const CLIPS_AGENT_ACCESS_TTL_SECONDS = 2 * 60 * 60;
+export { CLIPS_AGENT_ACCESS_PARAM };
 
 function sameOwnerEmail(
   a: string | null | undefined,
@@ -212,10 +213,10 @@ export async function loadPublicAgentAccess(
   );
   const suppliedToken = options.token ?? "";
   const tokenAccess = suppliedToken
-    ? verifyShortLivedToken(
-        suppliedToken,
-        agentAccessTokenResourceId(recording.id),
-      )
+    ? verifyScopedAgentAccessToken(suppliedToken, {
+        resourceKind: CLIP_AGENT_ACCESS_TOKEN_PREFIX,
+        resourceId: recording.id,
+      })
     : null;
   const tokenAllowsAgentAccess = Boolean(tokenAccess?.ok);
 
@@ -252,8 +253,10 @@ export async function loadPublicAgentAccess(
     recording.visibility === "public" &&
     viewerIsOwner
   ) {
-    apiToken = signShortLivedToken({
-      resourceId: agentAccessTokenResourceId(recording.id),
+    apiToken = signScopedAgentAccessToken({
+      resourceKind: CLIP_AGENT_ACCESS_TOKEN_PREFIX,
+      resourceId: recording.id,
+      ttlSeconds: CLIPS_AGENT_ACCESS_TTL_SECONDS,
     });
   }
 
@@ -267,8 +270,10 @@ export async function loadPublicAgentAccess(
       verifySharePassword(suppliedPassword, recording.password)
     ) {
       allowed = true;
-      apiToken = signShortLivedToken({
-        resourceId: agentAccessTokenResourceId(recording.id),
+      apiToken = signScopedAgentAccessToken({
+        resourceKind: CLIP_AGENT_ACCESS_TOKEN_PREFIX,
+        resourceId: recording.id,
+        ttlSeconds: CLIPS_AGENT_ACCESS_TTL_SECONDS,
       });
     }
 

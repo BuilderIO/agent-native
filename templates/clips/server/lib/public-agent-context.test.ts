@@ -3,8 +3,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const mockAppStateGet = vi.hoisted(() => vi.fn());
 const mockSsrfSafeFetch = vi.hoisted(() => vi.fn());
 const mockGetSession = vi.hoisted(() => vi.fn());
-const mockSignShortLivedToken = vi.hoisted(() => vi.fn());
-const mockVerifyShortLivedToken = vi.hoisted(() => vi.fn());
+const mockSignScopedAgentAccessToken = vi.hoisted(() => vi.fn());
+const mockVerifyScopedAgentAccessToken = vi.hoisted(() => vi.fn());
 const mockRecordings = vi.hoisted(() => ({ rows: [] as any[] }));
 
 vi.mock("@agent-native/core/application-state", () => ({
@@ -17,9 +17,10 @@ vi.mock("@agent-native/core/extensions/url-safety", () => ({
 
 vi.mock("@agent-native/core/server", () => ({
   getSession: (...args: unknown[]) => mockGetSession(...args),
-  signShortLivedToken: (...args: unknown[]) => mockSignShortLivedToken(...args),
-  verifyShortLivedToken: (...args: unknown[]) =>
-    mockVerifyShortLivedToken(...args),
+  signScopedAgentAccessToken: (...args: unknown[]) =>
+    mockSignScopedAgentAccessToken(...args),
+  verifyScopedAgentAccessToken: (...args: unknown[]) =>
+    mockVerifyScopedAgentAccessToken(...args),
 }));
 
 vi.mock("drizzle-orm", () => ({
@@ -56,9 +57,9 @@ vi.mock("./share-password.js", () => ({
   verifySharePassword: vi.fn(() => false),
 }));
 
-import { agentAccessTokenResourceId } from "../../shared/agent-context";
 import {
   buildPublicAgentContext,
+  CLIPS_AGENT_ACCESS_TTL_SECONDS,
   loadPublicAgentAccess,
   loadRecordingMediaBytes,
   RecordingMediaFetchError,
@@ -100,8 +101,8 @@ describe("public agent context access", () => {
     vi.clearAllMocks();
     mockRecordings.rows = [];
     mockGetSession.mockResolvedValue(null);
-    mockSignShortLivedToken.mockReturnValue("signed-token");
-    mockVerifyShortLivedToken.mockReturnValue({ ok: false });
+    mockSignScopedAgentAccessToken.mockReturnValue("signed-token");
+    mockVerifyScopedAgentAccessToken.mockReturnValue({ ok: false });
   });
 
   it("mints a short-lived API token for owners sharing password-protected public clips", async () => {
@@ -118,8 +119,10 @@ describe("public agent context access", () => {
     if (result.ok) {
       expect(result.access.apiToken).toBe("signed-token");
     }
-    expect(mockSignShortLivedToken).toHaveBeenCalledWith({
-      resourceId: agentAccessTokenResourceId("rec-1"),
+    expect(mockSignScopedAgentAccessToken).toHaveBeenCalledWith({
+      resourceKind: "clip-agent-context",
+      resourceId: "rec-1",
+      ttlSeconds: CLIPS_AGENT_ACCESS_TTL_SECONDS,
     });
   });
 
@@ -129,7 +132,7 @@ describe("public agent context access", () => {
         visibility: "private",
       }),
     ];
-    mockVerifyShortLivedToken.mockReturnValue({ ok: true });
+    mockVerifyScopedAgentAccessToken.mockReturnValue({ ok: true });
 
     const result = await loadPublicAgentAccess({} as any, "rec-1", {
       token: "agent-token",
@@ -140,9 +143,12 @@ describe("public agent context access", () => {
       expect(result.access.apiToken).toBe("agent-token");
       expect(result.access.recording.visibility).toBe("private");
     }
-    expect(mockVerifyShortLivedToken).toHaveBeenCalledWith(
+    expect(mockVerifyScopedAgentAccessToken).toHaveBeenCalledWith(
       "agent-token",
-      agentAccessTokenResourceId("rec-1"),
+      {
+        resourceKind: "clip-agent-context",
+        resourceId: "rec-1",
+      },
     );
   });
 

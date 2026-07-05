@@ -241,6 +241,12 @@ VITE_AGENT_NATIVE_SESSION_REPLAY_SAMPLE_RATE=0.1
 
 عندما تحتاج إلى تسليم تسجيل خاص إلى وكيل خارجي، استخدم عنصر التحكم **نسخ للوكيل** في صفحة تفاصيل الجلسة. فهو يُنشئ رابط `agent_access` محدد النطاق بالتسجيل ومدته ساعتان، ويقوم بعرض SSR لحمولة اكتشاف صغيرة على `/sessions/:recordingId`، ولا يكشف إلا عن واجهات برمجة تطبيقات JSON الخاصة بسياق/أحداث الوكيل. لا تتغير رؤية التسجيل.
 
+Implementation note: the reusable layer is the core agent-access URL contract,
+not a replay-specific UI abstraction. Use `createScopedAgentAccessGrant`,
+`verifyScopedAgentAccessToken`, `buildAgentAccessUrl`, and
+`buildAgentAccessApiUrl` for scoped SSR and JSON API links; keep replay storage,
+diagnostics shaping, and access policy inside the Analytics template.
+
 للتطوير المحلي فقط، يمكن لـ Analytics الرجوع إلى أجزاء SQL مضمّنة محدودة السعة عندما يكون تخزين blob الخاص غير متاح. يجب أن تُهيّئ عمليات النشر في الإنتاج تخزين blob خاصًا أو مشفّرًا بدلاً من الاعتماد على Postgres لحمولات إعادة التشغيل.
 
 ## متقدم: الموفرون المخصصون والداخليون {#advanced}

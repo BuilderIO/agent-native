@@ -24,16 +24,16 @@ describe("agent clip context helpers", () => {
     });
 
     expect(urls.contextUrl).toBe(
-      "https://clips.example.com/app/api/agent-context.json?id=rec+1&t=tok",
+      "https://clips.example.com/app/api/agent-context.json?id=rec+1&agent_access=tok",
     );
     expect(urls.transcriptUrl).toBe(
-      "https://clips.example.com/app/api/agent-transcript.json?id=rec+1&t=tok",
+      "https://clips.example.com/app/api/agent-transcript.json?id=rec+1&agent_access=tok",
     );
     expect(urls.frameUrlTemplate).toBe(
-      "https://clips.example.com/app/api/agent-frame.jpg?id=rec+1&t=tok&atMs={timestampMs}",
+      "https://clips.example.com/app/api/agent-frame.jpg?id=rec+1&agent_access=tok&atMs={timestampMs}",
     );
     expect(urls.frameUrl(1234)).toBe(
-      "https://clips.example.com/app/api/agent-frame.jpg?id=rec+1&t=tok&atMs=1234",
+      "https://clips.example.com/app/api/agent-frame.jpg?id=rec+1&agent_access=tok&atMs=1234",
     );
   });
 
