@@ -196,6 +196,7 @@ import { useTheme } from "next-themes";
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -261,6 +262,9 @@ import { planDocumentTitle } from "@/lib/plan-document-title";
 import { cn } from "@/lib/utils";
 
 import { parsePlanMdxFolder } from "../../server/plan-mdx";
+
+const useBrowserLayoutEffect =
+  typeof window === "undefined" ? useEffect : useLayoutEffect;
 
 function GoogleLogoIcon({ className }: { className?: string }) {
   return (
@@ -462,6 +466,17 @@ type PlanDocumentState = {
   clientWidth: number;
   clientHeight: number;
 };
+
+export function resetPlanReaderScrollPosition(reader: HTMLElement | null) {
+  if (reader) {
+    reader.scrollTo({ left: 0, top: 0, behavior: "auto" });
+    reader.scrollLeft = 0;
+    reader.scrollTop = 0;
+  }
+  if (typeof window !== "undefined") {
+    window.scrollTo(0, 0);
+  }
+}
 
 function shortDate(value: string) {
   return new Intl.DateTimeFormat(undefined, {
@@ -3067,6 +3082,7 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
   const pendingDocumentRestoreRef = useRef<PlanDocumentState | null>(null);
   const pendingDocumentRestoreTimerRef = useRef<number | null>(null);
   const nativeScrollFrameRef = useRef<number | null>(null);
+  const initialReaderScrollResetKeyRef = useRef<string | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
   const [annotationsOpen, setAnnotationsOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
@@ -4241,6 +4257,47 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
   }, [clearPendingDocumentRestore, postRuntimeState]);
 
   useEffect(() => clearPendingDocumentRestore, [clearPendingDocumentRestore]);
+
+  useBrowserLayoutEffect(() => {
+    if (!selectedId || !bundle?.plan.content || location.hash) return;
+    const resetKey = `${bundle.plan.kind}:${selectedId}`;
+    if (initialReaderScrollResetKeyRef.current === resetKey) return;
+    initialReaderScrollResetKeyRef.current = resetKey;
+    clearPendingDocumentRestore();
+    documentStateRef.current = null;
+
+    const reset = () => resetPlanReaderScrollPosition(nativeReaderRef.current);
+    const frameIds: number[] = [];
+    const timeoutIds: number[] = [];
+    const scheduleFrame = () => {
+      frameIds.push(window.requestAnimationFrame(reset));
+    };
+    const scheduleTimeout = (delay: number) => {
+      timeoutIds.push(
+        window.setTimeout(() => {
+          reset();
+          scheduleFrame();
+        }, delay),
+      );
+    };
+
+    reset();
+    scheduleFrame();
+    scheduleTimeout(0);
+    scheduleTimeout(120);
+    scheduleTimeout(500);
+
+    return () => {
+      frameIds.forEach((id) => window.cancelAnimationFrame(id));
+      timeoutIds.forEach((id) => window.clearTimeout(id));
+    };
+  }, [
+    bundle?.plan.content,
+    bundle?.plan.kind,
+    clearPendingDocumentRestore,
+    location.hash,
+    selectedId,
+  ]);
 
   useEffect(() => {
     const frame = requestAnimationFrame(() => postRuntimeState());

@@ -359,6 +359,12 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
     const resolvePlayAttempt = useCallback((attemptId: number) => {
       if (attemptId !== playAttemptIdRef.current) return;
       playAttemptPendingRef.current = false;
+      const v = videoRef.current;
+      if (v && !v.paused && !v.ended) {
+        setIsPlaying(true);
+        setHasPlaybackStarted(true);
+      }
+      setCanPlay(true);
       setIsPlayPending(false);
       setIsBuffering(false);
       setIsPreparing(false);
@@ -410,6 +416,10 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
 
       bumpControls();
       setPlayError(null);
+      if (v.readyState >= 2 || v.currentTime > 0) {
+        setCanPlay(true);
+        setIsPreparing(false);
+      }
       setIsBuffering(v.readyState < 3);
       setIsPlayPending(true);
 
@@ -810,7 +820,10 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
         return;
       }
       setIsPreparing(true);
-      const t = setTimeout(() => setIsPreparing(false), 10000);
+      const t = setTimeout(() => {
+        setIsPreparing(false);
+        setCanPlay(true);
+      }, 10000);
       return () => clearTimeout(t);
     }, [activeVideoSrc]);
 
@@ -958,6 +971,9 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
             onPlay={() => {
               setIsPlaying(true);
               setHasPlaybackStarted(true);
+              setCanPlay(true);
+              setIsPreparing(false);
+              setIsBuffering(false);
               onPlay?.();
             }}
             onPlaying={() => {
@@ -996,6 +1012,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
             }}
             onCanPlayThrough={(e) => {
               setCanPlay(true);
+              setIsPreparing(false);
               setIsBuffering(false);
               retryPendingPlay(e.currentTarget);
             }}
@@ -1010,7 +1027,9 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
               }
             }}
             onSeeked={() => {
+              setCanPlay(true);
               setIsPreparing(false);
+              setIsBuffering(false);
               captureThumbnail();
             }}
             onTimeUpdate={(e) => {
@@ -1030,20 +1049,29 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
               if (visibleMs !== ms) {
                 v.currentTime = visibleMs / 1000;
                 setCurrentMs(visibleMs);
-                if (visibleMs > 0) setHasPlaybackStarted(true);
-                if (visibleMs > 0) setIsPreparing(false);
+                if (visibleMs > 0) {
+                  setCanPlay(true);
+                  setHasPlaybackStarted(true);
+                  setIsPreparing(false);
+                  setIsBuffering(false);
+                }
                 onTimeUpdate?.(visibleMs, resolvedDurationMs);
                 return;
               }
               setCurrentMs(ms);
-              if (ms > 0) setHasPlaybackStarted(true);
-              if (ms > 0) setIsPreparing(false);
+              if (ms > 0) {
+                setCanPlay(true);
+                setHasPlaybackStarted(true);
+                setIsPreparing(false);
+                setIsBuffering(false);
+              }
               onTimeUpdate?.(ms, resolvedDurationMs);
             }}
             onEnded={() => {
               setIsPlaying(false);
               setIsPlayPending(false);
               setIsBuffering(false);
+              setIsPreparing(false);
               onEnded?.();
             }}
             onError={(e) => {

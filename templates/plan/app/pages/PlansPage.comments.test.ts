@@ -2,7 +2,7 @@
 
 import { SOURCE_AUTHOR_COMMENT_MENTION_EMAIL } from "@shared/comment-context";
 import type { PlanBundle } from "@shared/types";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { planBundleQueryKey } from "@/hooks/use-plans";
 
@@ -31,6 +31,7 @@ import {
   shouldKeepCommentPopoverOpenForTarget,
   shouldHandlePlanCommentShortcut,
   resolvePlanOrgAccessPrompt,
+  resetPlanReaderScrollPosition,
 } from "./PlansPage";
 
 type PlanComment = PlanBundle["comments"][number];
@@ -105,6 +106,52 @@ function rect(left: number, top: number, width: number, height: number) {
 }
 
 describe("plan comment thread UI model", () => {
+  it("resets the plan reader and window scroll to the top", () => {
+    const windowScrollTo = vi.fn();
+    const originalWindowScrollTo = window.scrollTo;
+    Object.defineProperty(window, "scrollTo", {
+      value: windowScrollTo,
+      configurable: true,
+    });
+
+    const reader = document.createElement("div");
+    const readerScrollTo = vi.fn(
+      (options?: ScrollToOptions | number, y?: number) => {
+        if (typeof options === "number") {
+          reader.scrollLeft = options;
+          reader.scrollTop = y ?? 0;
+          return;
+        }
+        reader.scrollLeft = options?.left ?? reader.scrollLeft;
+        reader.scrollTop = options?.top ?? reader.scrollTop;
+      },
+    );
+    Object.defineProperty(reader, "scrollTo", {
+      value: readerScrollTo,
+      configurable: true,
+    });
+    reader.scrollLeft = 40;
+    reader.scrollTop = 320;
+
+    try {
+      resetPlanReaderScrollPosition(reader);
+    } finally {
+      Object.defineProperty(window, "scrollTo", {
+        value: originalWindowScrollTo,
+        configurable: true,
+      });
+    }
+
+    expect(readerScrollTo).toHaveBeenCalledWith({
+      left: 0,
+      top: 0,
+      behavior: "auto",
+    });
+    expect(reader.scrollLeft).toBe(0);
+    expect(reader.scrollTop).toBe(0);
+    expect(windowScrollTo).toHaveBeenCalledWith(0, 0);
+  });
+
   it("uses the exact get-visual-plan query key for optimistic bundle updates", () => {
     expect(planBundleQueryKey("plan_1")).toEqual([
       "action",

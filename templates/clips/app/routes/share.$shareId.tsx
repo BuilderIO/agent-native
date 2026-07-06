@@ -792,10 +792,10 @@ export default function ShareRoute() {
   );
 
   return (
-    <div className="flex min-h-screen flex-col bg-background text-foreground lg:h-screen lg:flex-row lg:overflow-hidden">
+    <div className="flex min-h-screen max-w-full flex-col overflow-x-hidden bg-background text-foreground lg:h-screen lg:flex-row lg:overflow-hidden">
       {agentDiscovery}
       <div className="flex w-full min-w-0 flex-col lg:flex-1">
-        <header className="flex shrink-0 flex-wrap items-center gap-3 border-b border-border px-4 py-3 lg:flex-nowrap">
+        <header className="flex min-w-0 shrink-0 flex-wrap items-center gap-2 border-b border-border px-3 py-2 sm:gap-3 sm:px-4 sm:py-3 lg:flex-nowrap">
           {session ? (
             <Button
               variant="ghost"
@@ -817,7 +817,7 @@ export default function ShareRoute() {
             )}
           </div>
 
-          <div className="flex w-full min-w-0 items-center justify-between gap-2 sm:w-auto sm:justify-end">
+          <div className="flex w-full min-w-0 flex-wrap items-center justify-between gap-2 sm:w-auto sm:justify-end">
             {viewerCanEdit ? (
               <Button variant="outline" size="sm" asChild>
                 <a
@@ -901,7 +901,7 @@ export default function ShareRoute() {
           </div>
         </header>
 
-        <div className="flex flex-col gap-4 overflow-visible p-4 lg:min-h-0 lg:flex-1 lg:overflow-hidden">
+        <div className="flex flex-col gap-4 overflow-hidden p-0 sm:p-4 lg:min-h-0 lg:flex-1">
           <div className="aspect-video w-full lg:min-h-0 lg:flex-1 lg:aspect-auto">
             <VideoPlayer
               ref={playerRef}
@@ -920,11 +920,11 @@ export default function ShareRoute() {
               cta={firstCta}
               onCtaClick={() => tracking.reportCtaClick()}
               onTimeUpdate={(ms) => setCurrentMs(ms)}
-              className="h-full w-full"
+              className="h-full w-full rounded-none sm:rounded-xl"
             />
           </div>
 
-          <div className="flex shrink-0 flex-col gap-3 sm:flex-row sm:items-start">
+          <div className="flex shrink-0 flex-col gap-3 px-4 pb-4 sm:flex-row sm:items-start sm:px-0 sm:pb-0">
             <div className="min-w-0 flex-1">
               {showTitleSkeleton ? (
                 <Skeleton
@@ -999,14 +999,11 @@ export default function ShareRoute() {
         </div>
       </div>
 
-      <aside className="flex min-h-[420px] w-full shrink-0 flex-col border-t border-border bg-background lg:min-h-0 lg:w-[380px] lg:border-s lg:border-t-0">
-        <Tabs defaultValue="agent" className="flex h-full flex-col">
+      <aside className="flex min-h-[420px] w-full min-w-0 shrink-0 flex-col border-t border-border bg-background lg:min-h-0 lg:w-[380px] lg:border-s lg:border-t-0">
+        <Tabs defaultValue="comments" className="flex h-full flex-col">
           <TabsList className="mx-3 mt-3 grid w-auto grid-cols-4">
-            <TabsTrigger value="agent" className="text-xs">
-              {t("sharePage.agent")}
-            </TabsTrigger>
             <TabsTrigger value="comments" className="text-xs gap-1">
-              {t("sharePage.comments")}
+              {t("recordingPage.activity")}
               {comments.length > 0 ? (
                 <span className="ms-0.5 rounded-full bg-accent px-1.5 text-[10px] tabular-nums">
                   {comments.length}
@@ -1015,6 +1012,9 @@ export default function ShareRoute() {
             </TabsTrigger>
             <TabsTrigger value="transcript" className="text-xs">
               {t("sharePage.transcript")}
+            </TabsTrigger>
+            <TabsTrigger value="agent" className="text-xs">
+              {t("sharePage.agent")}
             </TabsTrigger>
             <TabsTrigger value="insights" className="text-xs">
               {t("sharePage.insights")}
@@ -1070,7 +1070,12 @@ export default function ShareRoute() {
               enableComments={recording.enableComments}
               onSeek={(ms) => playerRef.current?.seek(ms)}
               onUnauthenticated={requireSignIn}
-              queryKey={["public-recording", shareId, password]}
+              queryKey={[
+                "public-recording",
+                shareId,
+                password,
+                agentAccessToken,
+              ]}
               selectComments={(d: any) => d?.data?.comments}
               applyComments={(d: any, next) =>
                 d ? { ...d, data: { ...(d.data ?? {}), comments: next } } : d
