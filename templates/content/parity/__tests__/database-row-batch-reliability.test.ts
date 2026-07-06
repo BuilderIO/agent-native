@@ -30,14 +30,20 @@ const batchSchemaSource = readFileSync(
   "utf8",
 );
 
-const databaseSurfaces = [
+const databaseImplementationSurfaces = [
   ["DatabaseView.tsx", databaseViewSource],
-  ["DocumentDatabase.tsx", documentDatabaseSource],
 ] as const;
 
 describe("database row batch reliability", () => {
   it("keeps selected duplicate/delete on batch row actions instead of per-row mutations", () => {
-    for (const [filename, source] of databaseSurfaces) {
+    expect(documentDatabaseSource).toContain(
+      'import { DatabaseView } from "./database/DatabaseView";',
+    );
+    expect(documentDatabaseSource).toContain(
+      'export * from "./database/DatabaseView";',
+    );
+
+    for (const [filename, source] of databaseImplementationSurfaces) {
       expect(source, filename).toContain("useDuplicateDatabaseItems");
       expect(source, filename).toContain("useDeleteDatabaseItems");
       expect(source, filename).not.toContain(
