@@ -1790,7 +1790,12 @@ async function startNativeFullscreenRecording(
     if (wantsAudio && params.micId) {
       try {
         const probe = await navigator.mediaDevices.getUserMedia({
-          audio: { deviceId: { exact: params.micId } },
+          audio: {
+            deviceId: { exact: params.micId },
+            echoCancellation: false,
+            noiseSuppression: false,
+            autoGainControl: false,
+          },
           video: false,
         });
         const liveLabel = probe.getAudioTracks()[0]?.label?.trim();

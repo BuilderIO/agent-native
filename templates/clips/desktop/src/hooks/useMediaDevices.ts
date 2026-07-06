@@ -26,6 +26,15 @@ const MIC_KEY = "clips:last-mic-id";
 const CAM_LABEL_KEY = "clips:last-camera-label";
 const MIC_LABEL_KEY = "clips:last-mic-label";
 
+function rawMicConstraints(deviceId?: string): MediaTrackConstraints {
+  return {
+    ...(deviceId ? { deviceId: { exact: deviceId } } : {}),
+    echoCancellation: false,
+    noiseSuppression: false,
+    autoGainControl: false,
+  };
+}
+
 function concreteMediaDeviceId(value: string | null | undefined): string {
   const id = normalizedMediaDeviceId(value);
   return id && !isPseudoMediaDeviceId(id) ? id : "";
@@ -167,7 +176,7 @@ export function useMediaDevices({
         return;
       }
       const s = await navigator.mediaDevices.getUserMedia({
-        audio: { deviceId: { exact: selectedMicId } },
+        audio: rawMicConstraints(selectedMicId),
         video: false,
       });
       s.getTracks().forEach((t) => t.stop());
@@ -187,9 +196,7 @@ export function useMediaDevices({
           kind === "camera"
             ? { video: true, audio: false }
             : {
-                audio: selectedMicId
-                  ? { deviceId: { exact: selectedMicId } }
-                  : true,
+                audio: rawMicConstraints(selectedMicId || undefined),
                 video: false,
               },
         );
