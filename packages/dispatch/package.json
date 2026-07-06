@@ -1,6 +1,6 @@
 {
   "name": "@agent-native/dispatch",
-  "version": "0.13.7",
+  "version": "0.13.8",
   "description": "Dispatch — workspace control plane for agent-native apps. Vault, integrations, destinations, scheduled jobs, and cross-app delegation, shipped as a single drop-in package.",
   "homepage": "https://github.com/BuilderIO/agent-native#readme",
   "bugs": {
