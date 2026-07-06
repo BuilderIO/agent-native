@@ -386,9 +386,6 @@ function SidebarSectionSettingsPopover({
                 {t("sidebar.manual")}
               </ToggleGroupItem>
             </ToggleGroup>
-            <p className="px-2 text-[11px] leading-snug text-muted-foreground">
-              {t("sidebar.personalControlsNote")}
-            </p>
           </div>
           <div className="grid gap-1">
             {onShowHiddenChange && showHidden !== undefined && (
@@ -817,7 +814,7 @@ function SortableRow({
                     className="text-destructive focus:text-destructive"
                   >
                     <IconTrash className="me-2 h-3.5 w-3.5" />
-                    {t("sidebar.deletePermanently")}
+                    {t("sidebar.delete")}
                   </DropdownMenuItem>
                 </>
               ) : (
@@ -985,6 +982,7 @@ function SortableDashboardItem({
                     <Tooltip>
                       <TooltipTrigger asChild>
                         <button
+                          type="button"
                           onClick={(e) => {
                             e.preventDefault();
                             e.stopPropagation();
@@ -996,6 +994,11 @@ function SortableDashboardItem({
                               ? "text-yellow-500 opacity-100"
                               : "opacity-0 group-hover/sv:opacity-100 text-muted-foreground/50 hover:text-yellow-500",
                           )}
+                          aria-label={
+                            favoriteIds.has(`view:${d.id}:${sv.id}`)
+                              ? t("sidebar.unfavoritePersonal")
+                              : t("sidebar.favoritePersonal")
+                          }
                         >
                           <IconStar
                             className={cn(
