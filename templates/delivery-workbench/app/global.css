@@ -1,0 +1,68 @@
+@import "tailwindcss";
+@import "@agent-native/core/styles/agent-native.css";
+
+@source "./**/*.{ts,tsx}";
+
+:root {
+  --background: 210 20% 98%;
+  --foreground: 222 28% 10%;
+  --card: 0 0% 100%;
+  --card-foreground: 222 28% 10%;
+  --popover: 0 0% 100%;
+  --popover-foreground: 222 28% 10%;
+  --primary: 172 72% 24%;
+  --primary-foreground: 0 0% 100%;
+  --secondary: 214 18% 92%;
+  --secondary-foreground: 222 28% 10%;
+  --muted: 210 18% 94%;
+  --muted-foreground: 220 9% 42%;
+  --accent: 168 30% 90%;
+  --accent-foreground: 175 58% 18%;
+  --destructive: 0 76% 52%;
+  --destructive-foreground: 0 0% 100%;
+  --border: 214 18% 86%;
+  --input: 214 18% 86%;
+  --ring: 172 72% 24%;
+  --radius: 0.5rem;
+}
+
+.dark {
+  --background: 222 24% 8%;
+  --foreground: 210 20% 96%;
+  --card: 222 22% 10%;
+  --card-foreground: 210 20% 96%;
+  --popover: 222 22% 10%;
+  --popover-foreground: 210 20% 96%;
+  --primary: 170 70% 42%;
+  --primary-foreground: 222 24% 8%;
+  --secondary: 218 18% 16%;
+  --secondary-foreground: 210 20% 96%;
+  --muted: 218 18% 14%;
+  --muted-foreground: 216 12% 66%;
+  --accent: 174 32% 17%;
+  --accent-foreground: 170 70% 82%;
+  --destructive: 0 70% 48%;
+  --destructive-foreground: 0 0% 100%;
+  --border: 218 16% 20%;
+  --input: 218 16% 20%;
+  --ring: 170 70% 42%;
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  html {
+    color-scheme: light;
+  }
+
+  .dark {
+    color-scheme: dark;
+  }
+
+  body {
+    @apply bg-background text-foreground font-sans antialiased;
+    min-height: 100vh;
+  }
+}

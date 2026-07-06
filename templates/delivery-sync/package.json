@@ -1,0 +1,24 @@
+{
+  "name": "delivery-sync",
+  "displayName": "Delivery Sync",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "agent-native dev",
+    "build": "pnpm typecheck",
+    "start": "agent-native start",
+    "typecheck": "tsc --noEmit",
+    "action": "agent-native action",
+    "test": "vitest --run --config vitest.config.ts"
+  },
+  "dependencies": {
+    "@agent-native/core": "workspace:*",
+    "drizzle-orm": "^0.45.2",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@types/node": "^24.2.1",
+    "typescript": "^6.0.3",
+    "vitest": "catalog:"
+  }
+}

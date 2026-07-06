@@ -1,0 +1,16 @@
+{
+  "extends": "@agent-native/core/tsconfig.base.json",
+  "compilerOptions": {
+    "ignoreDeprecations": "6.0",
+    "types": ["node", "vitest/globals"],
+    "noEmit": true
+  },
+  "include": [
+    "actions/**/*.ts",
+    "server/**/*.ts",
+    "../delivery-workbench/server/lib/**/*.ts",
+    "../delivery-workbench/server/db/**/*.ts",
+    "vitest.config.ts"
+  ],
+  "exclude": ["node_modules", "dist", "build", ".output"]
+}

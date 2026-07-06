@@ -1,0 +1,44 @@
+{
+  "name": "delivery-workbench",
+  "displayName": "Delivery Workbench",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "agent-native dev",
+    "build": "agent-native build",
+    "start": "agent-native start",
+    "typecheck": "agent-native typecheck",
+    "action": "agent-native action",
+    "test": "vitest --run --config vitest.config.ts"
+  },
+  "dependencies": {
+    "@agent-native/core": "workspace:*",
+    "@radix-ui/react-select": "^2.3.2",
+    "@radix-ui/react-separator": "^1.1.10",
+    "@radix-ui/react-slot": "^1.3.0",
+    "@radix-ui/react-tooltip": "^1.2.10",
+    "@tabler/icons-react": "catalog:",
+    "@tanstack/react-query": "^5.101.2",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "drizzle-orm": "^0.45.2",
+    "react": "catalog:",
+    "react-dom": "catalog:",
+    "react-router": "^8.0.1",
+    "tailwind-merge": "^3.6.0",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@react-router/dev": "^8.0.1",
+    "@react-router/fs-routes": "^8.0.1",
+    "@tailwindcss/vite": "catalog:",
+    "@types/node": "^24.2.1",
+    "@types/react": "catalog:",
+    "@types/react-dom": "catalog:",
+    "oxfmt": "catalog:",
+    "tailwindcss": "catalog:",
+    "typescript": "^6.0.3",
+    "vite": "catalog:",
+    "vitest": "catalog:"
+  }
+}
