@@ -565,7 +565,11 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
                   {t("navigation.desktopBody")}
                 </span>
               </div>
-              <CaptureInstallButton size="sm" className="shrink-0">
+              <CaptureInstallButton
+                variant="outline"
+                size="sm"
+                className="shrink-0"
+              >
                 Download
               </CaptureInstallButton>
               <Tooltip>
