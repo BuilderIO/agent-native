@@ -1326,10 +1326,16 @@ export default function SqlDashboardPage() {
   const dashboardVisibilityLabel = dashboardVisibility
     ? t(visibilityLabelKey(dashboardVisibility))
     : null;
+  const DashboardVisibilityIcon =
+    dashboardVisibility === "public"
+      ? IconWorld
+      : dashboardVisibility === "org"
+        ? IconBuilding
+        : IconLock;
 
   useSetPageTitle(
     reportScreenshot ? null : dashboard ? (
-      <div className="flex min-w-0 flex-col gap-0.5">
+      <div className="dashboard-title-resource-meta flex w-full min-w-0 flex-col gap-0.5">
         <div className="flex min-w-0 items-center gap-2">
           {editingName && canEdit ? (
             <Input
@@ -1358,24 +1364,40 @@ export default function SqlDashboardPage() {
           )}
         </div>
         {(dashboardVisibilityLabel || dashboardOwnerName) && (
-          <div className="flex min-w-0 flex-wrap items-center gap-1.5 text-[11px] leading-none text-muted-foreground">
+          <div className="dashboard-title-resource-badges flex min-w-0 flex-nowrap items-center gap-1.5 overflow-hidden text-[11px] leading-none text-muted-foreground">
             {dashboardVisibility && dashboardVisibilityLabel ? (
-              <span className="inline-flex min-w-0 items-center gap-1 rounded-full border border-border/80 px-1.5 py-0.5">
-                {dashboardVisibility === "public" ? (
-                  <IconWorld className="h-3 w-3 shrink-0" />
-                ) : dashboardVisibility === "org" ? (
-                  <IconBuilding className="h-3 w-3 shrink-0" />
-                ) : (
-                  <IconLock className="h-3 w-3 shrink-0" />
-                )}
-                <span className="truncate">{dashboardVisibilityLabel}</span>
-              </span>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span
+                    className="dashboard-title-resource-chip inline-flex h-5 max-w-[8rem] shrink-0 items-center gap-1 rounded-full border border-border/80 px-1.5 py-0.5"
+                    aria-label={dashboardVisibilityLabel}
+                    tabIndex={0}
+                  >
+                    <DashboardVisibilityIcon className="h-3 w-3 shrink-0" />
+                    <span className="dashboard-title-resource-chip-label truncate">
+                      {dashboardVisibilityLabel}
+                    </span>
+                  </span>
+                </TooltipTrigger>
+                <TooltipContent>{dashboardVisibilityLabel}</TooltipContent>
+              </Tooltip>
             ) : null}
             {dashboardOwnerName && (
-              <span className="inline-flex min-w-0 items-center gap-1 rounded-full border border-border/80 px-1.5 py-0.5">
-                <IconUser className="h-3 w-3 shrink-0" />
-                <span className="truncate">{dashboardOwnerName}</span>
-              </span>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span
+                    className="dashboard-title-resource-chip inline-flex h-5 max-w-[8rem] shrink-0 items-center gap-1 rounded-full border border-border/80 px-1.5 py-0.5"
+                    aria-label={dashboardOwnerName}
+                    tabIndex={0}
+                  >
+                    <IconUser className="h-3 w-3 shrink-0" />
+                    <span className="dashboard-title-resource-chip-label truncate">
+                      {dashboardOwnerName}
+                    </span>
+                  </span>
+                </TooltipTrigger>
+                <TooltipContent>{dashboardOwnerName}</TooltipContent>
+              </Tooltip>
             )}
           </div>
         )}
