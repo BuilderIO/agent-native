@@ -478,6 +478,15 @@ export {
   type ScopedAgentAccessGrant,
   type ScopedAgentAccessTokenOptions,
 } from "./agent-access.js";
+export {
+  AGENT_READABLE_RESOURCE_PAYLOAD_TYPE,
+  AGENT_READABLE_RESOURCE_SCRIPT_TYPE,
+  buildAgentReadableResourceDiscovery,
+  renderAgentReadableResourceDiscoveryScript,
+  safeJsonForHtml,
+  type AgentReadableResourceDiscovery,
+  type BuildAgentReadableResourceDiscoveryOptions,
+} from "../shared/agent-readable-resource.js";
 
 // SSR handler is NOT re-exported here — it uses a virtual module
 // (virtual:react-router/server-build) that only exists at Vite dev/build time.

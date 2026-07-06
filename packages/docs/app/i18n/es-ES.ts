@@ -1420,6 +1420,7 @@ const esES = {
     whatIsAgentNative: "¿Qué es Agent-Native?",
     agentSurfaces: "Superficies del Agent",
     keyConcepts: "Conceptos clave",
+    agentNativeToolkit: "Toolkit de Agent-Native",
     templates: "Plantillas",
     faq: "FAQ",
     server: "Servidor",

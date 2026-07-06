@@ -740,6 +740,30 @@ export async function loadPlanBundle(planId: string): Promise<PlanBundle> {
   if (plan.deletedAt) {
     throw new ForbiddenError(`Plan ${planId} not found`);
   }
+  return loadPlanBundleForAuthorizedPlan(planId, plan, access.role);
+}
+
+export async function loadPlanBundleForAgentAccess(
+  planId: string,
+): Promise<PlanBundle> {
+  const db = getDb();
+  // guard:allow-unscoped -- callers must verify a plan-scoped agent_access token before using this helper; it intentionally returns a read-only viewer bundle.
+  const [plan] = await db
+    .select()
+    .from(schema.plans)
+    .where(eq(schema.plans.id, planId))
+    .limit(1);
+  if (!plan || plan.deletedAt) {
+    throw new ForbiddenError(`Plan ${planId} not found`);
+  }
+  return loadPlanBundleForAuthorizedPlan(planId, plan, "viewer");
+}
+
+async function loadPlanBundleForAuthorizedPlan(
+  planId: string,
+  plan: typeof schema.plans.$inferSelect,
+  role: PlanBundle["access"]["role"],
+): Promise<PlanBundle> {
   const db = getDb();
   const [sectionRows, commentRows, eventRows] = await Promise.all([
     db
@@ -802,7 +826,7 @@ export async function loadPlanBundle(planId: string): Promise<PlanBundle> {
       deletedBy: plan.deletedBy,
     },
     access: {
-      role: access.role,
+      role,
       ownerEmail: plan.ownerEmail ?? null,
       orgId: plan.orgId ?? null,
       visibility: plan.visibility ?? "private",

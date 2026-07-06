@@ -1418,6 +1418,7 @@ const ptBR = {
     whatIsAgentNative: "O que é Agent-Native?",
     agentSurfaces: "Superfícies do Agent",
     keyConcepts: "Conceitos principais",
+    agentNativeToolkit: "Toolkit do Agent-Native",
     templates: "Modelos",
     faq: "FAQ",
     server: "Servidor",

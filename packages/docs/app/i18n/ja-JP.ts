@@ -1420,6 +1420,7 @@ const jaJP = {
     whatIsAgentNative: "Agent-Native とは？",
     agentSurfaces: "Agent サーフェス",
     keyConcepts: "主要概念",
+    agentNativeToolkit: "Agent-Native ツールキット",
     templates: "テンプレート",
     faq: "FAQ",
     server: "サーバー",

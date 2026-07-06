@@ -819,6 +819,7 @@ describe("Vite SSR stubs", () => {
     expect(code).toContain("export const encodeStateAsUpdate = stub;");
     expect(code).toContain("export const mergeUpdates = stub;");
     expect(code).toContain("export const EditorContent = stub;");
+    expect(code).toContain("export const createNodeFromContent = stub;");
     expect(code).toContain("export const format = stub;");
   });
 });

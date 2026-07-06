@@ -1415,6 +1415,7 @@ const koKR = {
     whatIsAgentNative: "Agent-Native란?",
     agentSurfaces: "Agent 표면",
     keyConcepts: "핵심 개념",
+    agentNativeToolkit: "Agent-Native 툴킷",
     templates: "템플릿",
     faq: "FAQ",
     server: "서버",

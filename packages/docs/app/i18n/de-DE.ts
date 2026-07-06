@@ -1421,6 +1421,7 @@ const deDE = {
     whatIsAgentNative: "Was ist Agent-Native?",
     agentSurfaces: "Agent-Oberflächen",
     keyConcepts: "Schlüsselkonzepte",
+    agentNativeToolkit: "Agent-Native-Toolkit",
     templates: "Vorlagen",
     faq: "FAQ",
     server: "Server",

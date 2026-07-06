@@ -1397,6 +1397,7 @@ const zhCN = {
     whatIsAgentNative: "什么是 Agent-Native？",
     agentSurfaces: "Agent 界面",
     keyConcepts: "核心概念",
+    agentNativeToolkit: "Agent-Native 工具包",
     templates: "模板",
     faq: "常见问题",
     server: "服务器",

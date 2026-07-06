@@ -9,6 +9,8 @@ vi.mock("h3", () => ({
   getMethod: (event: any) => event._method ?? "GET",
   getQuery: (event: any) => event._query ?? {},
   getHeader: (event: any, name: string) => event._headers?.[name.toLowerCase()],
+  getRequestURL: (event: any) =>
+    new URL(event.req?.url ?? "http://localhost/_agent-native/actions/test"),
   setResponseStatus: (event: any, status: number) => {
     event._status = status;
   },

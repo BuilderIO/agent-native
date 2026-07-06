@@ -1,0 +1,61 @@
+---
+title: "Agent-Native 工具包"
+description: "用於協作、設定、分享、導覽、線上狀態、歷史、配置和 Agent UX 的可重用套件。"
+---
+
+# Agent-Native 工具包
+
+Agent-Native 應用程式不應重複建置 workspace 的通用能力。應用程式負責自己的領域模型、
+領域 actions 和產品視圖。Framework 與 `@agent-native/toolkit` 負責每個應用程式都應繼承的
+可重用產品表面：協作、分享、設定、導覽、組織、配置、Agent UX、歷史和營運可見性。
+
+使用者應該只學會一種分享方式、一種連接金鑰的方式、一種看到 Agent 一起編輯的方式、一個設定入口，
+以及一種理解變更的方式。
+
+## 工具包契約 {#toolkit-contract}
+
+當行為符合以下條件時，應移到 toolkit：
+
+- **Workspace 層級** - 使用者期待所有應用程式都一致。
+- **Agent 可見** - Agent 需要透過 actions、instructions 或 application state 使用同一能力。
+- **受治理** - 權限、audit、secrets、組織政策、billing 或分享規則會參與。
+- **重複出現** - 兩個應用程式已經建了相似 UI 或邏輯。
+- **非領域專屬** - 應用程式提供 resource 名稱與 actions，但互動模式是通用的。
+
+如果行為綁定領域模型、專屬 workflow 或應用程式自己的心智模型，就保持 app-local。
+
+## 可重用套件 {#reusable-kits}
+
+- **Settings kit** - account、workspace、AI models、LLM keys、connections、secrets、
+  usage、notifications、changelog 和 app preferences 的標準 tabs。持久設定放在 Settings；
+  Agent sidebar 只保留情境 quick controls 與 deep links。
+- **Collaboration kit** - real-time editing、Yjs docs、presence、agent presence、live
+  cursors、remote selections、recent edit highlights 和 shared undo/redo。請參閱
+  [Real-Time Collaboration](/docs/real-time-collaboration)。
+- **Sharing kit** - 用一個隱私與權限模型處理 private、workspace、org、public link、invites、
+  roles、expirations 和 agent-readable access。請參閱 [Sharing & Privacy](/docs/sharing)。
+- **Navigation and command kit** - app shell、nav、breadcrumbs、app switcher、command
+  palette、recents、pinned resources 和 search。
+- **Organization kit** - folders、tags、favorites、archive、trash、ownership、membership
+  和 common metadata。
+- **Setup and connections kit** - API keys、OAuth、connections、model readiness、
+  missing secrets 和 declarative onboarding。請參閱
+  [Workspace Connections](/docs/workspace-connections)。
+- **Agent UX kit** - sidebar、composer、staged context、mentions、voice、human approval、
+  generative UI、progress 和 Agent-visible state。
+- **History and recovery kit** - audit log、activity feed、version history、checkpoints、
+  undo、redo、restore 和 proof-of-done。請參閱 [Audit Log](/docs/audit-log)。
+- **Comments and review kit** - anchored comments、pins、mentions、review requests、
+  resolved threads 和 Agent follow-up tasks。
+- **Workflow and observability kit** - notifications、approvals、background runs、
+  recurring jobs、traces、evals、feedback 和 run timelines。請參閱
+  [Observability](/docs/observability)。
+
+## 實作順序 {#implementation-order}
+
+1. 將持久設定合併到標準 Settings tabs。
+2. 用共享 adapters 統一 collaboration、presence、agent presence、undo/redo 和 real-time editing。
+3. 將 navigation、commands、recents、favorites、folders、tags、archive 和 trash 移入共享 primitives。
+4. 讓所有可分享 resource 註冊到同一 permissions 和 agent-readable access 模型。
+5. 為每個 collaborative resource 提供一致的 activity、comments、review、restore 和 audit 體驗。
+6. 統一 notifications、approvals、run status、traces、evals 和 feedback。

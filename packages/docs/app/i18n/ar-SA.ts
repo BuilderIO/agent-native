@@ -1410,6 +1410,7 @@ const arSA = {
     whatIsAgentNative: "ما هو Agent-Native؟",
     agentSurfaces: "واجهات Agent",
     keyConcepts: "المفاهيم الأساسية",
+    agentNativeToolkit: "مجموعة أدوات Agent-Native",
     templates: "القوالب",
     faq: "FAQ",
     server: "Server",

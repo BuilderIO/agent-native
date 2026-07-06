@@ -562,6 +562,10 @@ export async function mergeCoreSharingActions(
       "set-resource-visibility",
       () => import("../sharing/actions/set-resource-visibility.js"),
     ],
+    [
+      "create-agent-resource-link",
+      () => import("../sharing/actions/create-agent-resource-link.js"),
+    ],
     ["upload-image", () => import("../file-upload/actions/upload-image.js")],
     [
       "context-manifest-get",

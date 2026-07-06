@@ -201,6 +201,9 @@ Read the relevant skill before making changes in that area:
 - `client-methods` for browser/client APIs that must use named helpers instead
   of raw REST calls.
 - `delegate-to-agent` for LLM/agent delegation.
+- `agent-native-toolkit` for deciding whether settings, app chrome,
+  collaboration, sharing, navigation, organization, comments, or history belong
+  in reusable framework/toolkit primitives.
 - `composable-mini-apps` for many one-job headless apps that discover siblings
   and compose through `invoke` / `call-agent`.
 - `visual-answer` for code/product questions answered as visual Plan artifacts.
