@@ -1492,6 +1492,11 @@ export function installDesktopVoiceDictation(
   // User clicked the X on the flow-bar. Mark cancelled (skips paste),
   // abort any in-flight HTTP, stop the recognizer / recorder, hide.
   const cancel = () => {
+    // P4: Esc (or the flow-bar X button) always exits hands-free, even if
+    // there's no live session to tear down (e.g. cancel arriving in the
+    // narrow gap between the terminating tap's stop() and this call).
+    handsFreeActive = false;
+    pendingHandsFreeTapAt = null;
     const current = session ?? lingeringSession;
     const isLingeringOnly = !!current && session !== current;
     if (!current) {
@@ -2158,6 +2163,8 @@ export function installDesktopVoiceDictation(
     shortcut = "both";
     mode = "push-to-talk";
     provider = "auto";
+    handsFreeActive = false;
+    pendingHandsFreeTapAt = null;
     unlistens.forEach((u) => {
       try {
         u();
