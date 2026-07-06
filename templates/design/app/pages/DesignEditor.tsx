@@ -246,7 +246,6 @@ import {
   type StyleChangeMeta,
 } from "@/components/design/EditPanel";
 import { FusionAppBanner } from "@/components/design/FusionAppBanner";
-import { ReadOnlyDesignBanner } from "@/components/design/ReadOnlyDesignBanner";
 import type { ExportSettingsValue } from "@/components/design/inspector";
 import { InspectorAiActions } from "@/components/design/inspector/InspectorAiActions";
 import {
@@ -276,6 +275,7 @@ import {
   type VectorEditOverlayState,
 } from "@/components/design/MultiScreenCanvas";
 import { QuestionFlow } from "@/components/design/QuestionFlow";
+import { ReadOnlyDesignBanner } from "@/components/design/ReadOnlyDesignBanner";
 import type { ReviewPanelProps } from "@/components/design/ReviewPanel";
 import { TokensPanel } from "@/components/design/TokensPanel";
 import type {
