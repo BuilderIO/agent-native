@@ -11,6 +11,8 @@ import { join } from "node:path";
 import { and, eq, ne } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
+import { BUILDER_CMS_BODY_CONTENT_KEY } from "./_builder-cms-source-adapter";
+
 const builderReadMock = vi.hoisted(() => ({
   mode: "full" as "full" | "paged",
   calls: [] as Array<{ model: string; maxPages?: number; offset?: number }>,
@@ -774,6 +776,259 @@ it("full Builder refresh reads every page in one resync call", async () => {
   expect(builderReadMock.calls).toEqual([
     { model: "collection-a", maxPages: undefined, offset: 0 },
   ]);
+});
+
+it("does not let open-row hydration promotion downgrade a queued full Builder body", async () => {
+  builderReadMock.mode = "full";
+  builderReadMock.calls = [];
+  const db = getDb();
+  const now = new Date().toISOString();
+  const databaseId = "db_open_hydration_downgrade";
+  const databaseDocId = "doc_db_open_hydration_downgrade";
+  const documentId = "doc_open_hydration_downgrade";
+  const itemId = "item_open_hydration_downgrade";
+  const sourceId = "src_open_hydration_downgrade";
+  const rowId = "row_open_hydration_downgrade";
+  const queueId = "queue_open_hydration_downgrade";
+  const sourceRowId = "entry_open_hydration_downgrade";
+  const fullBody = "This full Builder body must survive open-row promotion.";
+
+  await db.insert(schema.documents).values([
+    {
+      id: databaseDocId,
+      ownerEmail: OWNER,
+      title: "DB open hydration downgrade",
+      createdAt: now,
+      updatedAt: now,
+    },
+    {
+      id: documentId,
+      ownerEmail: OWNER,
+      parentId: databaseDocId,
+      title: "Open hydration downgrade",
+      content: "",
+      createdAt: now,
+      updatedAt: now,
+    },
+  ]);
+  await db.insert(schema.contentDatabases).values({
+    id: databaseId,
+    ownerEmail: OWNER,
+    documentId: databaseDocId,
+    title: "DB open hydration downgrade",
+    createdAt: now,
+    updatedAt: now,
+  });
+  await db.insert(schema.contentDatabaseItems).values({
+    id: itemId,
+    ownerEmail: OWNER,
+    databaseId,
+    documentId,
+    position: 0,
+    bodyHydrationStatus: "pending",
+    bodyHydrationError: null,
+    createdAt: now,
+    updatedAt: now,
+  });
+  await db.insert(schema.contentDatabaseSources).values({
+    id: sourceId,
+    ownerEmail: OWNER,
+    databaseId,
+    sourceType: "builder-cms",
+    sourceName: "collection-open-hydration",
+    sourceTable: "collection-open-hydration",
+    createdAt: now,
+    updatedAt: now,
+  });
+  await db.insert(schema.contentDatabaseSourceRows).values({
+    id: rowId,
+    ownerEmail: OWNER,
+    sourceId,
+    databaseItemId: itemId,
+    documentId,
+    sourceRowId,
+    sourceQualifiedId: `builder-cms://collection-open-hydration/${sourceRowId}`,
+    sourceDisplayKey: "Open hydration downgrade",
+    sourceValuesJson: JSON.stringify({
+      "data.title": "Open hydration downgrade",
+      "data.url": "/blog/open-hydration-downgrade",
+      lastUpdated: "2026-01-01T00:00:00.000Z",
+    }),
+    provenance: "Builder CMS read adapter",
+    createdAt: now,
+    updatedAt: now,
+  });
+  await db.insert(schema.contentDatabaseBodyHydrationQueue).values({
+    id: queueId,
+    ownerEmail: OWNER,
+    sourceId,
+    databaseItemId: itemId,
+    documentId,
+    sourceRowId,
+    sourceTable: "collection-open-hydration",
+    sourceEntryJson: JSON.stringify({
+      id: sourceRowId,
+      model: "collection-open-hydration",
+      title: "Open hydration downgrade",
+      urlPath: "/blog/open-hydration-downgrade",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+      sourceValues: {
+        "data.title": "Open hydration downgrade",
+        "data.url": "/blog/open-hydration-downgrade",
+        lastUpdated: "2026-01-01T00:00:00.000Z",
+        [BUILDER_CMS_BODY_CONTENT_KEY]: fullBody,
+      },
+    }),
+    priority: 10,
+    attempts: 0,
+    createdAt: now,
+    updatedAt: now,
+  });
+
+  await hydrateQueuedBodies({ sourceId, documentId, limit: 1 });
+
+  const [after] = await db
+    .select({
+      content: schema.documents.content,
+      status: schema.contentDatabaseItems.bodyHydrationStatus,
+      queued: schema.contentDatabaseBodyHydrationQueue.id,
+    })
+    .from(schema.documents)
+    .innerJoin(
+      schema.contentDatabaseItems,
+      eq(schema.contentDatabaseItems.documentId, schema.documents.id),
+    )
+    .leftJoin(
+      schema.contentDatabaseBodyHydrationQueue,
+      eq(
+        schema.contentDatabaseBodyHydrationQueue.databaseItemId,
+        schema.contentDatabaseItems.id,
+      ),
+    )
+    .where(eq(schema.documents.id, documentId));
+
+  expect(after.content).toBe(fullBody);
+  expect(after.status).toBe("hydrated");
+  expect(after.queued).toBeNull();
+});
+
+it("re-enqueues hydrated Builder rows with empty document content on resync", async () => {
+  builderReadMock.mode = "full";
+  builderReadMock.calls = [];
+  const db = getDb();
+  const now = new Date().toISOString();
+  const databaseId = "db_hydration_empty_repair";
+  const databaseDocId = "doc_db_hydration_empty_repair";
+  const documentId = "doc_hydration_empty_repair";
+  const itemId = "item_hydration_empty_repair";
+  const sourceId = "src_hydration_empty_repair";
+  const sourceRowId = "entry-hydration-1";
+  await db.insert(schema.documents).values([
+    {
+      id: databaseDocId,
+      ownerEmail: OWNER,
+      title: "DB hydration empty repair",
+      createdAt: now,
+      updatedAt: now,
+    },
+    {
+      id: documentId,
+      ownerEmail: OWNER,
+      parentId: databaseDocId,
+      title: "Hydration One",
+      content: "",
+      createdAt: now,
+      updatedAt: now,
+    },
+  ]);
+  await db.insert(schema.contentDatabases).values({
+    id: databaseId,
+    ownerEmail: OWNER,
+    documentId: databaseDocId,
+    title: "DB hydration empty repair",
+    createdAt: now,
+    updatedAt: now,
+  });
+  await db.insert(schema.contentDatabaseSources).values({
+    id: sourceId,
+    ownerEmail: OWNER,
+    databaseId,
+    sourceType: "builder-cms",
+    sourceName: "collection-hydration-repair-offline",
+    sourceTable: "collection-hydration-repair-offline",
+    createdAt: now,
+    updatedAt: now,
+  });
+  await db.insert(schema.contentDatabaseItems).values({
+    id: itemId,
+    ownerEmail: OWNER,
+    databaseId,
+    documentId,
+    position: 0,
+    bodyHydrationStatus: "hydrated",
+    bodyHydrationError: null,
+    bodyHydrationVersion: "2026-01-01T00:00:00.000Z:readable-native-images-v5",
+    createdAt: now,
+    updatedAt: now,
+  });
+  await db.insert(schema.contentDatabaseSourceRows).values({
+    id: "row_hydration_empty_repair",
+    ownerEmail: OWNER,
+    sourceId,
+    databaseItemId: itemId,
+    documentId,
+    sourceRowId,
+    sourceQualifiedId: `builder-cms://collection-hydration-repair-offline/${sourceRowId}`,
+    sourceDisplayKey: "Hydration One",
+    sourceValuesJson: JSON.stringify({
+      "data.title": "Hydration One",
+      "data.url": "/blog/hydration-one",
+      lastUpdated: "2026-01-01T00:00:00.000Z",
+      [BUILDER_CMS_BODY_CONTENT_KEY]: "Hydrated body One baseline.",
+    }),
+    provenance: "Builder CMS read adapter",
+    createdAt: now,
+    updatedAt: now,
+  });
+
+  const [database] = await db
+    .select()
+    .from(schema.contentDatabases)
+    .where(eq(schema.contentDatabases.id, databaseId));
+  const [source] = await db
+    .select()
+    .from(schema.contentDatabaseSources)
+    .where(eq(schema.contentDatabaseSources.id, sourceId));
+
+  await resync({
+    database,
+    source,
+    now: "2026-01-01T00:20:00.000Z",
+    runFullRefresh: true,
+  });
+
+  const queued = await db
+    .select({ id: schema.contentDatabaseBodyHydrationQueue.id })
+    .from(schema.contentDatabaseBodyHydrationQueue)
+    .where(eq(schema.contentDatabaseBodyHydrationQueue.databaseItemId, itemId));
+  expect(queued).toHaveLength(1);
+
+  await hydrateQueuedBodies({ sourceId, limit: 10 });
+
+  const [after] = await db
+    .select({
+      content: schema.documents.content,
+      status: schema.contentDatabaseItems.bodyHydrationStatus,
+    })
+    .from(schema.documents)
+    .innerJoin(
+      schema.contentDatabaseItems,
+      eq(schema.contentDatabaseItems.documentId, schema.documents.id),
+    )
+    .where(eq(schema.documents.id, documentId));
+
+  expect(after.status).toBe("hydrated");
+  expect(after.content).toBe("Hydrated body One baseline.");
 });
 
 it("keeps Builder outbound change sets empty while body hydration streams", async () => {

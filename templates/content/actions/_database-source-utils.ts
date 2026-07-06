@@ -72,6 +72,7 @@ import {
 } from "./_builder-cms-source-adapter.js";
 import { mergeBuilderCmsWriteSettingsIntoJson } from "./_builder-cms-write-settings.js";
 import { listPropertiesForDatabase, nanoid } from "./_property-utils.js";
+import { isEffectivelyEmptyDocumentContent } from "./update-document.js";
 
 type ContentDatabaseRow = typeof schema.contentDatabases.$inferSelect;
 type ContentDatabaseSourceRowDb =
@@ -508,6 +509,22 @@ const BUILDER_BODY_HYDRATION_MAX_ATTEMPTS = 5;
 const BUILDER_BODY_HYDRATION_CODEC_VERSION = "readable-native-images-v5";
 const BUILDER_CMS_REFRESH_INITIAL_PAGES = 1;
 
+function builderBodyHydrationDelayMs() {
+  if (
+    process.env.NODE_ENV === "production" ||
+    process.env.CI ||
+    process.env.VITEST
+  ) {
+    return 0;
+  }
+  const parsed = Number(process.env.BUILDER_BODY_HYDRATION_DELAY_MS ?? "0");
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
+}
+
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 export function builderBodyHydrationPriorityForRequest(args: {
   documentId?: string | null;
 }) {
@@ -661,6 +678,13 @@ function builderStoredBodyIsStale(args: {
   );
 }
 
+function builderEntryHasBodyContent(entry: BuilderCmsSourceEntry | null) {
+  return !!stringSourceValue(
+    entry?.sourceValues ?? {},
+    BUILDER_CMS_BODY_CONTENT_KEY,
+  )?.trim();
+}
+
 async function readableBuilderBodyFromStoredLossless(args: {
   losslessContent: string | null;
   sidecarsJson: string | null;
@@ -759,6 +783,13 @@ export async function enqueueBuilderBodyHydration(args: {
         args.databaseItemId,
       ),
     );
+  const existingEntry = existing ? parseHydrationEntry(existing) : null;
+  const shouldPreserveExistingEntry =
+    builderEntryHasBodyContent(existingEntry) &&
+    !builderEntryHasBodyContent(args.entry);
+  const sourceEntryJson = shouldPreserveExistingEntry
+    ? existing!.sourceEntryJson
+    : JSON.stringify(args.entry);
   const values = {
     ownerEmail: args.ownerEmail,
     orgId: args.orgId,
@@ -767,7 +798,7 @@ export async function enqueueBuilderBodyHydration(args: {
     documentId: args.documentId,
     sourceRowId,
     sourceTable: args.sourceTable,
-    sourceEntryJson: JSON.stringify(args.entry),
+    sourceEntryJson,
     priority: Math.min(existing?.priority ?? priority, priority),
     lastError: null,
     updatedAt: args.now,
@@ -812,6 +843,7 @@ export async function enqueueBuilderBodyHydrationForItems(args: {
     if (
       item.bodyHydration?.status === "hydrated" &&
       item.bodyHydration.version === builderBodyHydrationVersion(entry) &&
+      !isEffectivelyEmptyDocumentContent(item.document.content) &&
       !builderBodyIsRawPlaceholderOnly(item.document.content)
     ) {
       continue;
@@ -833,6 +865,56 @@ export async function enqueueBuilderBodyHydrationForItems(args: {
   }).catch((error) => {
     console.error("Builder body hydration background kick failed", error);
   });
+}
+
+async function enqueueEmptyHydratedBuilderBodiesFromStoredRows(args: {
+  source: ContentDatabaseSourceRowDb;
+  now: string;
+}) {
+  const db = getDb();
+  const rows = await db
+    .select({
+      item: schema.contentDatabaseItems,
+      sourceRow: schema.contentDatabaseSourceRows,
+      document: schema.documents,
+    })
+    .from(schema.contentDatabaseSourceRows)
+    .innerJoin(
+      schema.contentDatabaseItems,
+      eq(
+        schema.contentDatabaseItems.id,
+        schema.contentDatabaseSourceRows.databaseItemId,
+      ),
+    )
+    .innerJoin(
+      schema.documents,
+      eq(schema.documents.id, schema.contentDatabaseSourceRows.documentId),
+    )
+    .where(eq(schema.contentDatabaseSourceRows.sourceId, args.source.id));
+  for (const row of rows) {
+    if (row.item.bodyHydrationStatus !== "hydrated") continue;
+    if (!isEffectivelyEmptyDocumentContent(row.document.content)) continue;
+    const entry = builderEntryFromSourceRow({
+      row: row.sourceRow,
+      sourceTable: args.source.sourceTable,
+      fallbackTitle: row.document.title,
+    });
+    const refreshedEntry = entry
+      ? await refreshBuilderBodySourceValuesFromStoredLossless(entry)
+      : null;
+    if (!refreshedEntry || !builderEntryHasBodyContent(refreshedEntry))
+      continue;
+    await enqueueBuilderBodyHydration({
+      sourceId: args.source.id,
+      ownerEmail: row.item.ownerEmail,
+      orgId: row.item.orgId,
+      databaseItemId: row.item.id,
+      documentId: row.item.documentId,
+      sourceTable: args.source.sourceTable,
+      entry: refreshedEntry,
+      now: args.now,
+    });
+  }
 }
 
 function parseHydrationEntry(
@@ -907,6 +989,18 @@ async function processBuilderBodyHydrationJob(
   };
   const nextContent =
     stringSourceValue(nextValues, BUILDER_CMS_BODY_CONTENT_KEY) ?? "";
+  if (!nextContent.trim()) {
+    await db
+      .update(schema.contentDatabaseItems)
+      .set({
+        bodyHydrationStatus: "pending",
+        bodyHydrationAttemptedAt: now,
+        bodyHydrationError: null,
+        updatedAt: now,
+      })
+      .where(eq(schema.contentDatabaseItems.id, row.databaseItemId));
+    return;
+  }
   const [document] = await db
     .select({ content: schema.documents.content })
     .from(schema.documents)
@@ -1198,6 +1292,8 @@ export async function processBuilderBodyHydrationQueue(args: {
   for (const job of jobs) {
     const attemptNow = new Date().toISOString();
     try {
+      const delayMs = builderBodyHydrationDelayMs();
+      if (delayMs > 0) await sleep(delayMs);
       await processBuilderBodyHydrationJob(job, attemptNow);
       succeeded += 1;
     } catch (error) {
@@ -3364,6 +3460,10 @@ export async function resyncBuilderCmsSourceSnapshot(args: {
     .select()
     .from(schema.contentDatabaseSourceRows)
     .where(eq(schema.contentDatabaseSourceRows.sourceId, args.source.id));
+  await enqueueEmptyHydratedBuilderBodiesFromStoredRows({
+    source: args.source,
+    now: args.now,
+  });
   let importedEntriesByDocumentId = new Map<string, BuilderCmsSourceEntry>();
   const existingFields = await db
     .select()
