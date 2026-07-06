@@ -81,19 +81,40 @@ function savePendingAccountColor(accountEmail: string, accountColor: string) {
 
 function clearPendingAccountColor(accountEmail: string) {
   try {
-    const colors = loadPendingAccountColors();
+    const pending = loadPendingAccountPreferences();
+    if (!pending) return;
+    const colors = { ...pending.colors };
+    const removedColor = colors[accountEmail];
     delete colors[accountEmail];
     if (Object.keys(colors).length === 0) {
       localStorage.removeItem(PENDING_ACCOUNT_COLORS_KEY);
       return;
     }
-    const colorValues = Object.values(colors);
-    const singleColor = colorValues[colorValues.length - 1];
     localStorage.setItem(
       PENDING_ACCOUNT_COLORS_KEY,
       JSON.stringify({
         colors,
-        ...(singleColor ? { colorMode: "single" as const, singleColor } : {}),
+        ...(pending.singleColor && pending.singleColor !== removedColor
+          ? { colorMode: pending.colorMode, singleColor: pending.singleColor }
+          : {}),
+        expiresAt: Date.now() + PENDING_ACCOUNT_COLORS_TTL_MS,
+      } satisfies PendingAccountColors),
+    );
+  } catch {}
+}
+
+function clearPendingAccountFallback() {
+  try {
+    const pending = loadPendingAccountPreferences();
+    if (!pending) return;
+    if (Object.keys(pending.colors).length === 0) {
+      localStorage.removeItem(PENDING_ACCOUNT_COLORS_KEY);
+      return;
+    }
+    localStorage.setItem(
+      PENDING_ACCOUNT_COLORS_KEY,
+      JSON.stringify({
+        colors: pending.colors,
         expiresAt: Date.now() + PENDING_ACCOUNT_COLORS_TTL_MS,
       } satisfies PendingAccountColors),
     );
@@ -117,19 +138,6 @@ async function readAppStatePreferences(): Promise<CalendarViewPreferences | null
   if (res.status === 404) return null;
   if (!res.ok) throw new Error(`${res.status}`);
   return normalizeCalendarViewPreferences(await res.json());
-}
-
-function writeAppStatePreferences(prefs: CalendarViewPreferences) {
-  fetch(
-    agentNativePath(
-      `/_agent-native/application-state/${CALENDAR_VIEW_PREFERENCES_KEY}`,
-    ),
-    {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(prefs),
-    },
-  ).catch(() => {});
 }
 
 export function useViewPreferences() {
@@ -211,13 +219,17 @@ export function useViewPreferences() {
   }, []);
 
   const update = useCallback((patch: Partial<ViewPreferences>) => {
+    if ("colorMode" in patch || "singleColor" in patch) {
+      pendingSingleColor.current = null;
+      clearPendingAccountFallback();
+    }
     setPrefs((prev) => {
       const next = normalizeCalendarViewPreferences({ ...prev, ...patch });
       save(next);
-      writeAppStatePreferences(next);
       window.dispatchEvent(new Event(CALENDAR_VIEW_PREFERENCES_CHANGE_EVENT));
       return next;
     });
+    callAction("update-calendar-visual-preferences", patch).catch(() => {});
   }, []);
 
   const updateAccountColor = useCallback(
@@ -255,7 +267,7 @@ export function useViewPreferences() {
             return;
           }
           delete pendingAccountColors.current[accountEmail];
-          if (Object.keys(pendingAccountColors.current).length === 0) {
+          if (pendingSingleColor.current === accountColor) {
             pendingSingleColor.current = null;
           }
           clearPendingAccountColor(accountEmail);
@@ -267,7 +279,8 @@ export function useViewPreferences() {
             const next = normalizeCalendarViewPreferences({
               ...current,
               colorMode:
-                rollbackPrefs && current.colorMode === rollbackPrefs.colorMode
+                current.colorMode === "single" &&
+                current.singleColor === accountColor
                   ? serverPrefs.colorMode
                   : current.colorMode,
               singleColor:
@@ -293,7 +306,7 @@ export function useViewPreferences() {
         .catch(() => {
           if (accountColorRequestIds.current[accountEmail] === requestId) {
             delete pendingAccountColors.current[accountEmail];
-            if (Object.keys(pendingAccountColors.current).length === 0) {
+            if (pendingSingleColor.current === accountColor) {
               pendingSingleColor.current = null;
             }
             clearPendingAccountColor(accountEmail);
