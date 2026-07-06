@@ -38,7 +38,7 @@ const mockDb = {
     execCalls.push({ sql: rawSql, args });
 
     if (
-      /SELECT seq, event_data(?:, event_at)? FROM agent_run_events/i.test(
+      /SELECT seq,\s*event_data(?:,\s*event_at)?\s+FROM agent_run_events/i.test(
         rawSql,
       )
     ) {
@@ -368,6 +368,125 @@ describe("run store", () => {
           call.args.includes("run-done-event"),
       ),
     ).toBe(false);
+  });
+
+  it("reconciles missing credential terminal events as errored runs", async () => {
+    latestEventRows = [
+      {
+        seq: 9,
+        event_at: 123_456,
+        event_data: JSON.stringify({ type: "missing_api_key" }),
+      },
+    ];
+
+    const reaped = await reapIfStale("run-missing-key-event");
+
+    expect(reaped).toBe(false);
+    const repair = execCalls.find(
+      (call) =>
+        /UPDATE agent_runs/i.test(call.sql) &&
+        /SET status = \?/i.test(call.sql),
+    );
+    expect(repair?.args[0]).toBe("errored");
+    expect(repair?.args[1]).toBe(123_456);
+    expect(repair?.args[2]).toBe("missing_credentials");
+    expect(repair?.args[3]).toEqual(
+      expect.stringContaining("No LLM provider is connected"),
+    );
+    expect(repair?.args[4]).toBe("missing_api_key");
+    expect(repair?.args[5]).toBe("run-missing-key-event");
+  });
+
+  it("keeps an earlier stream error from reconciling as a later successful terminal event", async () => {
+    latestEventRows = [
+      {
+        seq: 10,
+        event_at: 124_000,
+        event_data: JSON.stringify({ type: "done" }),
+      },
+      {
+        seq: 9,
+        event_at: 123_456,
+        event_data: JSON.stringify({
+          type: "error",
+          errorCode: "provider_failed",
+          error: "Provider failed",
+          details: "model returned 500",
+        }),
+      },
+    ];
+
+    const reaped = await reapIfStale("run-error-then-done");
+
+    expect(reaped).toBe(false);
+    const repair = execCalls.find(
+      (call) =>
+        /UPDATE agent_runs/i.test(call.sql) &&
+        /SET status = \?/i.test(call.sql),
+    );
+    expect(repair?.args[0]).toBe("errored");
+    expect(repair?.args[1]).toBe(123_456);
+    expect(repair?.args[2]).toBe("provider_failed");
+    expect(repair?.args[3]).toBe("model returned 500");
+    expect(repair?.args[4]).toBe("error:provider_failed");
+    expect(repair?.args[5]).toBe("run-error-then-done");
+  });
+
+  it("keeps an earlier missing credential event from reconciling as a later successful terminal event", async () => {
+    latestEventRows = [
+      {
+        seq: 10,
+        event_at: 124_000,
+        event_data: JSON.stringify({ type: "done" }),
+      },
+      {
+        seq: 9,
+        event_at: 123_456,
+        event_data: JSON.stringify({ type: "missing_api_key" }),
+      },
+    ];
+
+    await reapIfStale("run-missing-then-done");
+
+    const repair = execCalls.find(
+      (call) =>
+        /UPDATE agent_runs/i.test(call.sql) &&
+        /SET status = \?/i.test(call.sql),
+    );
+    expect(repair?.args[0]).toBe("errored");
+    expect(repair?.args[1]).toBe(123_456);
+    expect(repair?.args[2]).toBe("missing_credentials");
+    expect(repair?.args[4]).toBe("missing_api_key");
+    expect(repair?.args[5]).toBe("run-missing-then-done");
+  });
+
+  it("still repairs a synthetic stale-run event when a later done event was persisted", async () => {
+    latestEventRows = [
+      {
+        seq: 10,
+        event_at: 124_000,
+        event_data: JSON.stringify({ type: "done" }),
+      },
+      {
+        seq: 9,
+        event_at: 123_456,
+        event_data: JSON.stringify(STALE_RUN_ERROR_EVENT),
+      },
+    ];
+
+    await reapIfStale("run-stale-then-done");
+
+    const repair = execCalls.find(
+      (call) =>
+        /UPDATE agent_runs/i.test(call.sql) &&
+        /SET status = \?/i.test(call.sql),
+    );
+    expect(repair?.args[0]).toBe("completed");
+    expect(repair?.args[1]).toBe(124_000);
+    expect(repair?.args[2]).toBeNull();
+    expect(repair?.args[3]).toBeNull();
+    expect(repair?.args[4]).toBe("done");
+    expect(repair?.args[5]).toBe("run-stale-then-done");
   });
 
   it("reconciles legacy terminal events without stamping repair time", async () => {

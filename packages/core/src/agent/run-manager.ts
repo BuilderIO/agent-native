@@ -1,5 +1,9 @@
 import { captureError } from "../server/capture-error.js";
-import { isLlmCredentialError } from "./engine/credential-errors.js";
+import {
+  isLlmCredentialError,
+  LLM_MISSING_CREDENTIALS_ERROR_CODE,
+  LLM_MISSING_CREDENTIALS_MESSAGE,
+} from "./engine/credential-errors.js";
 import { EngineError } from "./engine/types.js";
 import {
   insertRun,
@@ -367,6 +371,10 @@ function isTerminalRunEvent(event: AgentChatEvent): boolean {
     event.type === "loop_limit" ||
     event.type === "auto_continue"
   );
+}
+
+function terminalEventForcesErroredStatus(event: AgentChatEvent | null) {
+  return event?.type === "error" || event?.type === "missing_api_key";
 }
 
 function terminalReasonForRun(
@@ -872,15 +880,18 @@ export function startRun(
       // 2. Compute final status. If the completion callback threw, we'd
       //    rather mark the run errored than claim success with incomplete
       //    thread_data.
+      const terminalEvent = pendingTerminalEvent?.event ?? null;
       const finalStatus =
         run.status === "aborted"
           ? "aborted"
-          : run.status === "errored" || completionError
+          : run.status === "errored" ||
+              completionError ||
+              terminalEventForcesErroredStatus(terminalEvent)
             ? "errored"
             : "completed";
       const terminalReason = terminalReasonForRun(
         finalStatus,
-        pendingTerminalEvent?.event ?? null,
+        terminalEvent,
         run.abortReason,
         completionError,
       );
@@ -904,7 +915,8 @@ export function startRun(
         const terminalEvent: AgentChatEvent =
           finalStatus === "completed"
             ? (pendingTerminalEvent?.event ?? { type: "done" })
-            : pendingTerminalEvent?.event.type === "error"
+            : pendingTerminalEvent?.event.type === "error" ||
+                pendingTerminalEvent?.event.type === "missing_api_key"
               ? pendingTerminalEvent.event
               : pendingTerminalEvent?.event.type === "auto_continue"
                 ? // The run was checkpointed at a soft-timeout/loop boundary and
@@ -981,14 +993,21 @@ export function startRun(
       if (finalStatus === "errored") {
         let errorCode: string | undefined;
         let errorDetail: string | undefined;
-        for (let i = run.events.length - 1; i >= 0; i--) {
-          const ev = run.events[i].event as {
+        const diagnosticEvents = pendingTerminalEvent
+          ? [...run.events, pendingTerminalEvent]
+          : run.events;
+        for (let i = diagnosticEvents.length - 1; i >= 0; i--) {
+          const ev = diagnosticEvents[i].event as {
             type: string;
             error?: string;
             errorCode?: string;
             details?: string;
           };
-          if (ev.type === "error") {
+          if (ev.type === "missing_api_key") {
+            errorCode = LLM_MISSING_CREDENTIALS_ERROR_CODE;
+            errorDetail = LLM_MISSING_CREDENTIALS_MESSAGE;
+            break;
+          } else if (ev.type === "error") {
             errorCode = ev.errorCode;
             errorDetail = ev.error ?? ev.details;
             break;

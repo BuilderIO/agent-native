@@ -1,6 +1,10 @@
 import type { ChatModelAdapter, ChatModelRunResult } from "@assistant-ui/react";
 
 import { actionPreparationContinuationNote } from "../agent/action-continuation-guidance.js";
+import {
+  LLM_MISSING_CREDENTIALS_ERROR_CODE,
+  LLM_MISSING_CREDENTIALS_MESSAGE,
+} from "../agent/engine/credential-errors.js";
 import type {
   AgentChatStructuredContentPart,
   AgentChatStructuredMessage,
@@ -158,7 +162,9 @@ const BACKGROUND_FOLLOW_IDLE_TIMEOUT_MS = 150_000;
  * (`agent_runs.terminal_reason`, surfaced by /runs/active). These runs died in
  * server-side handoff machinery where no richer error event may exist, so the
  * client owns the message. Keys are matched after stripping an optional
- * `error:` prefix (`terminalReasonForEvent` records `error:<code>`).
+ * `error:` prefix (`terminalReasonForEvent` records `error:<code>`). Keep this
+ * map scoped to terminal failures, including reasons that must override a
+ * mistakenly completed row.
  */
 const BACKGROUND_TERMINAL_REASON_MESSAGES: Record<string, string> = {
   background_worker_never_started:
@@ -167,6 +173,7 @@ const BACKGROUND_TERMINAL_REASON_MESSAGES: Record<string, string> = {
     "The agent's background worker could not hand off the next step of this run. Retry to continue from the preserved context.",
   dispatch_payload_missing:
     "The agent's background run lost its saved request data and could not continue. Retry to start a fresh run.",
+  missing_api_key: LLM_MISSING_CREDENTIALS_MESSAGE,
   turn_continuation_budget_exhausted:
     "This request needed more automatic continuations than allowed and was stopped. Try breaking it into smaller steps.",
 };
@@ -2076,6 +2083,9 @@ export function createAgentChatAdapter(
             ...(runId ? { runId } : {}),
           };
           if (typeof window !== "undefined") {
+            if (args.errorCode === LLM_MISSING_CREDENTIALS_ERROR_CODE) {
+              dispatchMissingApiKey();
+            }
             window.dispatchEvent(
               new CustomEvent("agent-chat:run-error", {
                 detail: { ...runError, tabId },
@@ -2114,6 +2124,22 @@ export function createAgentChatAdapter(
           // terminal_reason is either a bare reason ("dispatch_payload_missing")
           // or "error:<errorCode>" when derived from a terminal error event.
           const terminalReason = rawTerminalReason.replace(/^error:/, "");
+          const mappedMessage = terminalReason
+            ? BACKGROUND_TERMINAL_REASON_MESSAGES[terminalReason]
+            : undefined;
+          const mappedErrorCode =
+            terminalReason === "missing_api_key"
+              ? LLM_MISSING_CREDENTIALS_ERROR_CODE
+              : terminalReason;
+
+          if (mappedMessage) {
+            yield* emitBackgroundTerminalError({
+              message: mappedMessage,
+              errorCode: mappedErrorCode,
+              details: `terminal_reason: ${rawTerminalReason}`,
+            });
+            return;
+          }
 
           if (status === "completed") {
             // The turn finished server-side; the events we managed to fold are
@@ -2130,17 +2156,6 @@ export function createAgentChatAdapter(
             return;
           }
 
-          const mappedMessage = terminalReason
-            ? BACKGROUND_TERMINAL_REASON_MESSAGES[terminalReason]
-            : undefined;
-          if (mappedMessage) {
-            yield* emitBackgroundTerminalError({
-              message: mappedMessage,
-              errorCode: terminalReason,
-              details: `terminal_reason: ${rawTerminalReason}`,
-            });
-            return;
-          }
           if (lastRecoverableRunError) {
             // A replayed terminal error event already carried the real
             // message (recoverable errors replay as auto-continue signals

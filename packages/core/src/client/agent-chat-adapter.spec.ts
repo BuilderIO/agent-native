@@ -5234,6 +5234,97 @@ describe("createAgentChatAdapter", () => {
     expect(last.content.at(-1).text).toContain("Working and done");
   });
 
+  it("surfaces missing credentials from a terminal background run instead of completing successfully", async () => {
+    vi.useFakeTimers();
+    const dispatchEvent = vi.fn();
+    vi.stubGlobal("window", { dispatchEvent });
+    vi.stubGlobal(
+      "CustomEvent",
+      class CustomEvent {
+        type: string;
+        detail: unknown;
+        constructor(type: string, init?: { detail?: unknown }) {
+          this.type = type;
+          this.detail = init?.detail;
+        }
+      },
+    );
+
+    let postCount = 0;
+    const fetchSpy = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/_agent-native/agent-chat" && init?.method === "POST") {
+        postCount += 1;
+        return backgroundSseResponse(
+          [
+            { type: "text", text: "Checking credentials" },
+            { type: "auto_continue", reason: "run_timeout" },
+          ],
+          "run-bg-missing-key",
+        );
+      }
+      if (url.includes("/runs/active")) {
+        return jsonResponse({
+          active: true,
+          runId: "run-bg-missing-key",
+          threadId: "thread-bg-missing-key",
+          status: "completed",
+          terminalReason: "missing_api_key",
+          dispatchMode: "background-processing",
+          heartbeatAt: Date.now(),
+          lastProgressAt: Date.now(),
+        });
+      }
+      return jsonResponse({ error: "unexpected" }, 500);
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const adapter = createAgentChatAdapter({
+      apiUrl: "/_agent-native/agent-chat",
+      tabId: "chat-bg-missing-key",
+      threadId: "thread-bg-missing-key",
+    });
+    const promise = drain(
+      adapter.run({
+        messages: [
+          {
+            role: "user",
+            content: [{ type: "text", text: "answer my analytics question" }],
+          },
+        ],
+        abortSignal: new AbortController().signal,
+      } as any),
+    );
+
+    await vi.advanceTimersByTimeAsync(2_000);
+    const results = await promise;
+
+    expect(postCount).toBe(1);
+    expect(dispatchEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "agent-chat:missing-api-key",
+        detail: {
+          tabId: "chat-bg-missing-key",
+          threadId: "thread-bg-missing-key",
+        },
+      }),
+    );
+    expect(dispatchEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "agent-chat:run-error",
+        detail: expect.objectContaining({
+          errorCode: "missing_credentials",
+          message: expect.stringContaining("No LLM provider is connected"),
+        }),
+      }),
+    );
+    const last = results.at(-1) as any;
+    expect(last.status).toEqual({ type: "incomplete", reason: "error" });
+    expect(last.metadata?.custom?.runError?.errorCode).toBe(
+      "missing_credentials",
+    );
+    expect(last.content.at(-1).text).toContain("No LLM provider is connected");
+  });
+
   it("surfaces a terminal error when a background run goes idle with no successor", async () => {
     // If the server-chained successor never appears (lost handoff that even
     // the server sweep failed to resurface), the follow loop must end the

@@ -7,6 +7,10 @@ import { getDbExec, intType, isPostgres } from "../db/client.js";
 import { ensureColumnExists, ensureTableExists } from "../db/ddl-guard.js";
 import { widenIntColumnsToBigInt } from "../db/widen-columns.js";
 import { captureError } from "../server/capture-error.js";
+import {
+  LLM_MISSING_CREDENTIALS_ERROR_CODE,
+  LLM_MISSING_CREDENTIALS_MESSAGE,
+} from "./engine/credential-errors.js";
 import type { AgentChatEvent } from "./types.js";
 
 let _initPromise: Promise<void> | undefined;
@@ -792,9 +796,9 @@ function terminalStatusForEvent(
   event: AgentChatEvent,
 ): "completed" | "errored" | null {
   if (event.type === "error") return "errored";
+  if (event.type === "missing_api_key") return "errored";
   if (
     event.type === "done" ||
-    event.type === "missing_api_key" ||
     event.type === "loop_limit" ||
     event.type === "auto_continue"
   ) {
@@ -812,32 +816,75 @@ function terminalReasonForEvent(event: AgentChatEvent): string | null {
   return null;
 }
 
-async function getLatestRunEvent(runId: string): Promise<{
+function isRealFailureTerminalEvent(event: AgentChatEvent): boolean {
+  if (event.type === "missing_api_key") return true;
+  if (event.type !== "error") return false;
+  return event.errorCode !== STALE_RUN_ERROR_EVENT.errorCode;
+}
+
+async function getRunEventForReconciliation(runId: string): Promise<{
   event: AgentChatEvent;
   eventAt: number | null;
 } | null> {
   const client = getDbExec();
   const { rows } = await client.execute({
-    sql: `SELECT seq, event_data, event_at FROM agent_run_events WHERE run_id = ? ORDER BY seq DESC LIMIT 1`,
+    sql: `SELECT seq, event_data, event_at
+          FROM agent_run_events
+          WHERE run_id = ?
+            AND (
+              event_data LIKE '{"type":"done"%'
+              OR event_data LIKE '{"type":"error"%'
+              OR event_data LIKE '{"type":"missing_api_key"%'
+              OR event_data LIKE '{"type":"loop_limit"%'
+              OR event_data LIKE '{"type":"auto_continue"%'
+            )
+          ORDER BY seq DESC`,
     args: [runId],
   });
-  const row = rows[0] as
-    | {
-        event_at?: number | string | null;
-        event_data?: string;
+  let latestTerminal: {
+    event: AgentChatEvent;
+    eventAt: number | null;
+  } | null = null;
+  for (const row of rows as Array<{
+    event_at?: number | string | null;
+    event_data?: string;
+  }>) {
+    const raw = row.event_data;
+    if (!raw) continue;
+    try {
+      const event = JSON.parse(raw) as AgentChatEvent;
+      if (!terminalStatusForEvent(event) || !terminalReasonForEvent(event)) {
+        continue;
       }
-    | undefined;
-  const raw = row?.event_data;
-  if (!raw) return null;
-  try {
-    const eventAt = row.event_at == null ? NaN : Number(row.event_at);
-    return {
-      event: JSON.parse(raw) as AgentChatEvent,
-      eventAt: Number.isFinite(eventAt) && eventAt > 0 ? eventAt : null,
-    };
-  } catch {
-    return null;
+      const rawEventAt = row.event_at == null ? NaN : Number(row.event_at);
+      const parsed = {
+        event,
+        eventAt:
+          Number.isFinite(rawEventAt) && rawEventAt > 0 ? rawEventAt : null,
+      };
+      if (!latestTerminal) latestTerminal = parsed;
+      // A real stream failure must not be laundered into success by a later
+      // done/continuation boundary. Keep the synthetic stale-run error special:
+      // that repair marker may be superseded by a later durable done event.
+      if (isRealFailureTerminalEvent(event)) return parsed;
+    } catch {
+      continue;
+    }
   }
+  return latestTerminal;
+}
+
+function errorCodeForTerminalEvent(event: AgentChatEvent): string | null {
+  if (event.type === "missing_api_key")
+    return LLM_MISSING_CREDENTIALS_ERROR_CODE;
+  if (event.type === "error") return event.errorCode ?? null;
+  return null;
+}
+
+function errorDetailForTerminalEvent(event: AgentChatEvent): string | null {
+  if (event.type === "missing_api_key") return LLM_MISSING_CREDENTIALS_MESSAGE;
+  if (event.type !== "error") return null;
+  return (event.details || event.error || "").slice(0, 2000) || null;
 }
 
 /**
@@ -853,20 +900,15 @@ export async function reconcileTerminalRunFromEvents(
   runId: string,
 ): Promise<boolean> {
   await ensureRunTables();
-  const latest = await getLatestRunEvent(runId);
+  const latest = await getRunEventForReconciliation(runId);
   if (!latest) return false;
   const status = terminalStatusForEvent(latest.event);
   const terminalReason = terminalReasonForEvent(latest.event);
   if (!status || !terminalReason) return false;
 
   const client = getDbExec();
-  const errorCode =
-    latest.event.type === "error" ? (latest.event.errorCode ?? null) : null;
-  const errorDetail =
-    latest.event.type === "error"
-      ? (latest.event.details || latest.event.error || "").slice(0, 2000) ||
-        null
-      : null;
+  const errorCode = errorCodeForTerminalEvent(latest.event);
+  const errorDetail = errorDetailForTerminalEvent(latest.event);
   const { rowsAffected } = await client.execute({
     sql: `UPDATE agent_runs
           SET status = ?,
