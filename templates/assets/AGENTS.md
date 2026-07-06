@@ -43,10 +43,11 @@ prompt, aspectRatio }`.
   `brand-kit` references to `libraryId`, `preset` references to `presetId`, and
   `media-type` references to choosing image (`generate-image` /
   `generate-image-batch`) or video (`generate-video`) generation. The current
-  library view auto-tags its brand kit as a visible removable chip when the
-  composer is empty. The image model is the only remaining composer-side
-  default; the image-model picker writes `imageGenerationModel`, which image
-  generation actions may use when `model` is omitted.
+  library view auto-tags its brand kit as a visible removable chip, and the
+  generation preset editor auto-tags both its brand kit and preset. The image
+  model is the only remaining composer-side default; the image-model picker
+  writes `imageGenerationModel`, which image generation actions may use when
+  `model` is omitted.
 - When a `preset` is tagged, the server embeds that preset's aesthetics and
   creative philosophy (brand style brief, prompt template, text/logo policy,
   output format) into your message inside a `<tagged-generation-presets>` block.
@@ -66,6 +67,9 @@ prompt, aspectRatio }`.
   model never draws the logo itself. Pass `includeLogo` on a generate call only
   to override the preset for that one run; otherwise omit it. See the
   `logo-composite` skill.
+- Humans can edit an existing generation preset from
+  `/brand-kits/:libraryId/presets/:presetId`. Use `navigate` with
+  `{ view: "preset", libraryId, presetId }` when sending a user to that editor.
 - `asset-variants` is the shared live generation tray state. New image
   candidates should appear there through `generate-image` or
   `generate-image-batch`; do not invent page-local progress surfaces.

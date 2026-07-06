@@ -2110,9 +2110,12 @@ function GenerationPresetsPanel({
           >
             <div className="min-w-0">
               <div className="flex flex-wrap items-center gap-2">
-                <span className="truncate text-sm font-medium">
+                <Link
+                  to={`/brand-kits/${libraryId}/presets/${preset.id}`}
+                  className="truncate text-sm font-medium underline-offset-4 hover:underline"
+                >
                   {preset.title}
-                </span>
+                </Link>
                 <Badge variant="outline">{preset.aspectRatio}</Badge>
                 {preset.includeLogo ? (
                   <Badge variant="secondary">{t("brandKitDetail.logo")}</Badge>
@@ -2122,15 +2125,22 @@ function GenerationPresetsPanel({
                 {preset.textPolicy || preset.description || preset.category}
               </p>
             </div>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-8 w-8 shrink-0 text-muted-foreground hover:text-destructive"
-              aria-label={`${t("brandKitDetail.delete")} ${preset.title}`}
-              onClick={() => setConfirmPresetId(preset.id)}
-            >
-              <IconTrash className="h-4 w-4" />
-            </Button>
+            <div className="flex shrink-0 items-center gap-1">
+              <Button variant="ghost" size="sm" asChild>
+                <Link to={`/brand-kits/${libraryId}/presets/${preset.id}`}>
+                  {t("brandKitDetail.edit")}
+                </Link>
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8 text-muted-foreground hover:text-destructive"
+                aria-label={`${t("brandKitDetail.delete")} ${preset.title}`}
+                onClick={() => setConfirmPresetId(preset.id)}
+              >
+                <IconTrash className="h-4 w-4" />
+              </Button>
+            </div>
           </div>
         ))}
         {!presets.length ? (
