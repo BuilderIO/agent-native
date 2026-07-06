@@ -53,9 +53,16 @@ async function resolveAgentEngineSecret(
   } catch {
     // Fall through to deploy env when this request is allowed to use it.
   }
-  return canUseDeployCredentialFallbackForRequest()
+  return canUseDeployCredentialFallbackForRequest(key)
     ? readDeployCredentialEnv(key)
     : undefined;
+}
+
+function canUseDeployEnvForEntry(entry: AgentEngineEntry): boolean {
+  if (entry.requiredEnvVars.length === 0) return true;
+  return entry.requiredEnvVars.every((key) =>
+    canUseDeployCredentialFallbackForRequest(key),
+  );
 }
 
 async function createEngineConfig(
@@ -67,7 +74,7 @@ async function createEngineConfig(
       entry.requiredEnvVars.length > 0
         ? await resolveAgentEngineSecret(entry.requiredEnvVars[0])
         : undefined,
-    allowEnvFallback: canUseDeployCredentialFallbackForRequest(),
+    allowEnvFallback: canUseDeployEnvForEntry(entry),
   };
 
   if (entry.name === "ai-sdk:openai") {

@@ -107,6 +107,48 @@ function unescapeInlineText(text: string): string {
   return out;
 }
 
+// Patterns that, at the START of a serialized paragraph line, are
+// indistinguishable from real block structure (list items, headings,
+// task items) — none of whose marker characters ('#', '-', digits, '.', ')')
+// are in the spec's ESCAPABLE set. A paragraph whose text happens to start
+// with one of these needs a single leading backslash so it round-trips as a
+// paragraph instead of being reparsed as that block type. These are matched
+// against the raw (untrimmed) text because the corresponding block parsers
+// (heading/list/task) also match against the untrimmed dedented line.
+const LEADING_BLOCK_MARKER = /^(#{1,4} |[-*+] |\d+[.)] |\[[ xX]\] )/;
+
+// Divider lookalikes ("---", "***", "___", 3+ repeats) — matched separately
+// because the divider parser trims the line before testing
+// (`/^(---+|\*\*\*+|___+)$/.test(dedent.trim())`), so a paragraph like
+// "--- " or "  ---" must be escape-checked against the same trimmed form or
+// it silently reparses as a horizontalRule and loses its text.
+const DIVIDER_LOOKALIKE = /^(-{3,}|\*{3,}|_{3,})$/;
+
+// Escape a leading block-marker pattern in a serialized paragraph's inline
+// text by inserting one backslash before the first character. Only ever
+// applied at the very start of the line, so it can't perturb Notion-parity
+// bytes anywhere else in the text.
+function escapeLeadingBlockMarker(text: string): string {
+  if (LEADING_BLOCK_MARKER.test(text) || DIVIDER_LOOKALIKE.test(text.trim())) {
+    return "\\" + text;
+  }
+  return text;
+}
+
+// Inverse of escapeLeadingBlockMarker: drop one leading backslash that was
+// inserted purely to keep a literal marker-like paragraph from being
+// reparsed as structure.
+function unescapeLeadingBlockMarker(text: string): string {
+  if (
+    text[0] === "\\" &&
+    (LEADING_BLOCK_MARKER.test(text.slice(1)) ||
+      DIVIDER_LOOKALIKE.test(text.slice(1).trim()))
+  ) {
+    return text.slice(1);
+  }
+  return text;
+}
+
 // ── Attribute helpers (for the HTML-ish tags) ───────────────────────
 function escapeAttr(value: string): string {
   return String(value)
@@ -157,6 +199,43 @@ function blockAttrSuffix(opts: {
   if (isColor(opts.color)) parts.push(`color="${opts.color}"`);
   return parts.length ? ` {${parts.join(" ")}}` : "";
 }
+// True when `s` ends in an odd number of backslashes, meaning the character
+// immediately after it (a `{` or `}` at the call sites below) is escaped.
+function oddTrailingBackslashes(s: string): boolean {
+  return (s.match(/\\+$/)?.[0].length ?? 0) % 2 === 1;
+}
+
+// A toggle-heading line is `${summary}${blockAttrSuffix(...)}` — `summary`
+// and the real trailing `{toggle="true" ...}` attrs end up concatenated on
+// one line, then re-split by splitBlockAttrs. `summary` is stored as raw NFM
+// (see serializeToggle), which is fine for Notion-emitted summaries (Notion's
+// own inline spec already backslash-escapes a literal trailing backslash, so
+// valid raw-NFM summary text never ends in an odd backslash run). But the
+// editor's plain summary <input> writes untouched plain text into the same
+// attr, and a plain-text summary ending in an odd number of backslashes
+// (e.g. "C:\path\") makes splitBlockAttrs's oddTrailingBackslashes guard
+// think the real trailing `{toggle="true"}` attrs are themselves escaped
+// literal text, degrading the toggle into a heading containing the literal
+// attrs string. Doubling (not just parity-flipping) the trailing backslash
+// run is safe to apply unconditionally — it's a no-op with no trailing
+// backslash, and unlike "add one backslash when odd", doubling is exactly
+// reversible for every run length (k -> 2k -> k) with no ambiguity between
+// an original even run and an escaped former-odd run.
+function escapeTrailingBackslashRun(s: string): string {
+  const run = s.match(/\\+$/)?.[0];
+  if (!run) return s;
+  return s.slice(0, -run.length) + run + run;
+}
+
+// Inverse of escapeTrailingBackslashRun: halve a trailing backslash run.
+// Safe to apply unconditionally to text extracted from a toggle-heading line
+// (see escapeTrailingBackslashRun) since the run length is always even there.
+function unescapeTrailingBackslashRun(s: string): string {
+  const run = s.match(/\\+$/)?.[0];
+  if (!run) return s;
+  return s.slice(0, -run.length) + "\\".repeat(run.length / 2);
+}
+
 // Strip + read a trailing `{...}` attribute list from a block line.
 function splitBlockAttrs(line: string): {
   text: string;
@@ -166,6 +245,13 @@ function splitBlockAttrs(line: string): {
   const m = line.match(/^(.*?)\s*\{([^{}]*)\}\s*$/);
   if (!m) return { text: line, toggle: false, color: null };
   const body = m[2];
+  // Escape-aware: a backslash-escaped `\{...\}` is literal text, not a block
+  // attribute list. `\s*` in the regex above cannot consume a backslash, so
+  // an escaped opening brace leaves its backslash at the end of m[1]; an
+  // escaped closing brace leaves its backslash at the end of the body.
+  if (oddTrailingBackslashes(m[1]) || oddTrailingBackslashes(body)) {
+    return { text: line, toggle: false, color: null };
+  }
   const toggle = /\btoggle\s*=\s*"true"/.test(body);
   const colorMatch = body.match(/\bcolor\s*=\s*"([^"]+)"/);
   const color = colorMatch && isColor(colorMatch[1]) ? colorMatch[1] : null;
@@ -219,7 +305,32 @@ function serializeInlineNode(node: PMNode): string {
   const code = markOf(node, "code");
   let out: string;
   if (code) {
-    out = "`" + raw.replace(/\n/g, "<br>") + "`";
+    const codeText = raw.replace(/\n/g, "<br>");
+    // CommonMark-style variable-length code span delimiter: use a backtick
+    // run one longer than the longest run inside the text, so a code span
+    // containing its own backtick(s) (e.g. "a`b") can't be split apart by a
+    // naive single-backtick delimiter. Pad with a single space on each side
+    // when the text starts OR ends with a backtick OR a space, so the
+    // delimiter run doesn't visually merge with the content's own backtick
+    // and a leading/trailing space in the content isn't mistaken for our own
+    // padding on the next parse — see the matching strip rule in parseInline.
+    // Content that is entirely spaces (including empty) is exempt: there is
+    // no backtick to visually separate from the delimiter, and padding it
+    // would be indistinguishable from un-padded all-space content on parse.
+    const isAllSpaces = /^ *$/.test(codeText);
+    const longestRun = Math.max(
+      0,
+      ...(codeText.match(/`+/g) || []).map((r) => r.length),
+    );
+    const delim = "`".repeat(Math.max(1, longestRun + 1));
+    const needsPadding =
+      !isAllSpaces &&
+      (codeText.startsWith("`") ||
+        codeText.endsWith("`") ||
+        codeText.startsWith(" ") ||
+        codeText.endsWith(" "));
+    const body = needsPadding ? ` ${codeText} ` : codeText;
+    out = delim + body + delim;
   } else {
     out = escapeInlineText(raw);
   }
@@ -242,21 +353,25 @@ function serializeInlineNode(node: PMNode): string {
   }
 
   const span = markOf(node, "notionSpan");
-  if (span) {
-    const a = span.attrs || {};
+  // StarterKit registers a plain "underline" mark (Cmd+U) that nfm never
+  // otherwise serializes. Fold it into the notionSpan <span underline="true">
+  // form nfmToDoc already parses, so Cmd+U formatting survives a save instead
+  // of silently vanishing.
+  const plainUnderline = !!markOf(node, "underline");
+  if (span || plainUnderline) {
+    const a = span?.attrs || {};
+    const underlined =
+      a.underline === "true" || a.underline === true || plainUnderline;
     const attrStr = serializeAttrs([
       ["color", a.color || a.bgColor || null],
-      [
-        "underline",
-        a.underline === "true" || a.underline === true ? "true" : null,
-      ],
+      ["underline", underlined ? "true" : null],
     ]);
     if (attrStr) out = `<span${attrStr}>${out}</span>`;
   }
 
   const link = markOf(node, "link");
   if (link?.attrs?.href) {
-    out = `[${out}](${link.attrs.href})`;
+    out = `[${out}](${serializeUrlForParens(link.attrs.href)})`;
   }
   return out;
 }
@@ -346,14 +461,47 @@ function parseInline(input: string): PMNode[] {
       }
     }
 
-    // Inline code `...`
+    // Inline code `...` — CommonMark-style variable-length delimiter: the
+    // opening run of N backticks closes only at the next run of exactly N
+    // backticks (a longer or shorter run is just more code content), so a
+    // code span can itself contain shorter backtick runs (e.g. ``a`b``).
     if (ch === "`") {
-      const close = input.indexOf("`", i + 1);
+      const openRun = /^`+/.exec(input.slice(i))?.[0].length ?? 0;
+      const delim = "`".repeat(openRun);
+      let searchFrom = i + openRun;
+      let close = -1;
+      while (searchFrom <= input.length - openRun) {
+        const idx = input.indexOf(delim, searchFrom);
+        if (idx === -1) break;
+        // Reject if this run is actually longer than `openRun` (part of a
+        // longer backtick sequence) — advance past the whole run.
+        const runLen = /^`+/.exec(input.slice(idx))?.[0].length ?? 0;
+        if (runLen === openRun) {
+          close = idx;
+          break;
+        }
+        searchFrom = idx + runLen;
+      }
       if (close !== -1) {
         flush();
-        const codeText = input.slice(i + 1, close).replace(/<br\/?>/g, "\n");
+        let codeText = input
+          .slice(i + openRun, close)
+          .replace(/<br\/?>/g, "\n");
+        // A single leading+trailing space is padding the serializer adds
+        // whenever the content itself starts/ends with a backtick OR a
+        // space (see serializeInlineNode) — strip exactly one on each side
+        // in that case. Content that is entirely spaces is never padding
+        // (there is no unpadded content to disambiguate from), so it is
+        // left untouched.
+        if (
+          codeText.startsWith(" ") &&
+          codeText.endsWith(" ") &&
+          codeText.trim().length > 0
+        ) {
+          codeText = codeText.slice(1, -1);
+        }
         out.push(textNode(codeText, [{ type: "code" }]));
-        i = close + 1;
+        i = close + openRun;
         continue;
       }
     }
@@ -490,20 +638,19 @@ function makeInlineAtom(
     attrs: {
       tagName,
       attrsJson: JSON.stringify(attrs),
-      label: label.trim(),
+      // serializeInlineAtom escapes the label with escapeAttr on write; mirror
+      // that here (like parseLeafTag does for block atoms) so a round trip
+      // doesn't accumulate an extra "amp;" layer every cycle.
+      label: unescapeAttr(label).trim(),
     },
   };
 }
 
-function matchLink(
-  s: string,
-  start: number,
-): { text: string; href: string; end: number } | null {
-  // Find matching unescaped ] then immediately ( ... )
+// Find the index of the matching unescaped `]` for a `[` at `start`,
+// respecting nested (escaped-aware) brackets. Returns -1 if none found.
+function findMatchingBracketClose(s: string, start: number): number {
   let depth = 0;
-  let i = start;
-  let closeBracket = -1;
-  for (; i < s.length; i++) {
+  for (let i = start; i < s.length; i++) {
     if (s[i] === "\\") {
       i++;
       continue;
@@ -511,18 +658,88 @@ function matchLink(
     if (s[i] === "[") depth++;
     else if (s[i] === "]") {
       depth--;
-      if (depth === 0) {
-        closeBracket = i;
-        break;
-      }
+      if (depth === 0) return i;
     }
   }
+  return -1;
+}
+
+// Find the index of the matching unescaped `)` for a `(` at `openParenIdx`,
+// respecting nested (escaped-aware) parens — links/images can carry URLs
+// with literal parens, e.g. Wikipedia disambiguation links. Returns -1 if
+// none found.
+function findMatchingParenClose(s: string, openParenIdx: number): number {
+  let depth = 0;
+  for (let i = openParenIdx; i < s.length; i++) {
+    if (s[i] === "\\") {
+      i++;
+      continue;
+    }
+    if (s[i] === "(") depth++;
+    else if (s[i] === ")") {
+      depth--;
+      if (depth === 0) return i;
+    }
+  }
+  return -1;
+}
+
+// True when every `(`/`)` in a raw URL is already paren-balanced on its own
+// (depth never goes negative and ends at zero). `findMatchingParenClose`
+// treats a link/image destination as everything up to the matching close
+// paren, so a balanced URL placed verbatim inside `(...)` parses back to
+// itself byte-for-byte — this is what lets canonical Notion emissions like
+// `https://en.wikipedia.org/wiki/Foo_(bar)` stay untouched (Notion never
+// escapes those parens). An UNBALANCED URL (e.g. a single stray `)` or `(`)
+// would either truncate the destination early or fail to find a close paren
+// at all, so those need escaping instead — see escapeUrlParens.
+function hasBalancedParens(url: string): boolean {
+  let depth = 0;
+  for (let i = 0; i < url.length; i++) {
+    if (url[i] === "(") depth++;
+    else if (url[i] === ")") {
+      depth--;
+      if (depth < 0) return false;
+    }
+  }
+  return depth === 0;
+}
+
+// Serialize a URL (link href or image src) for use inside `(...)`. Verbatim
+// when its parens are already balanced (preserves Notion's byte-exact
+// fixpoint for canonical URLs like Wikipedia disambiguation links). When
+// unbalanced, backslash-escape every paren so findMatchingParenClose (which
+// already understands `\(`/`\)`) can find the true end of the destination
+// and reparse the exact original URL instead of truncating or overrunning.
+function serializeUrlForParens(url: string): string {
+  if (hasBalancedParens(url)) return url;
+  return url.replace(/[()]/g, (ch) => "\\" + ch);
+}
+
+// Inverse of serializeUrlForParens: a raw destination slice extracted by
+// findMatchingParenClose keeps any `\(`/`\)` literally (that function only
+// uses the backslash to skip past the character for depth-counting — it
+// doesn't strip it). A balanced canonical URL never contains a backslash
+// immediately before a paren, so unescaping unconditionally is safe and
+// keeps the Notion fixpoint intact while undoing our own escaping.
+function unescapeUrlParens(url: string): string {
+  return url.replace(/\\([()])/g, "$1");
+}
+
+function matchLink(
+  s: string,
+  start: number,
+): { text: string; href: string; end: number } | null {
+  // Find matching unescaped ] then immediately ( ... )
+  const closeBracket = findMatchingBracketClose(s, start);
   if (closeBracket === -1 || s[closeBracket + 1] !== "(") return null;
-  const closeParen = s.indexOf(")", closeBracket + 2);
+  // findMatchingParenClose expects to start AT the opening '(' itself so its
+  // depth counter begins at 1; closeBracket + 1 is that '('.
+  const closeParen = findMatchingParenClose(s, closeBracket + 1);
   if (closeParen === -1) return null;
   return {
     text: s.slice(start + 1, closeBracket),
-    href: s.slice(closeBracket + 2, closeParen),
+    href: unescapeUrlParens(s.slice(closeBracket + 2, closeParen)),
     end: closeParen + 1,
   };
 }
@@ -561,6 +778,12 @@ export interface NfmSerializeContext {
 }
 
 let activeSerializeContext: NfmSerializeContext | null = null;
+// Suppresses the top-level editor-terminal-filler trim (see
+// trimEditorTerminalFiller) for the duration of a canonicalizeNfm call, so
+// server pull canonicalization and content hashing never delete a Notion-
+// authored `<empty-block/>`. Only docToNfm's direct callers (the editor save
+// paths) want that heuristic; canonicalization must be lossless.
+let suppressTerminalFillerTrim = false;
 
 export function docToNfm(
   doc: PMDoc | PMNode | null | undefined,
@@ -570,7 +793,7 @@ export function docToNfm(
   const previous = activeSerializeContext;
   activeSerializeContext = context ?? null;
   try {
-    const lines = serializeBlocks(content, 0);
+    const lines = serializeBlocks(content, 0, /* isTopLevel */ true);
     return lines.join("\n");
   } finally {
     activeSerializeContext = previous;
@@ -585,6 +808,7 @@ function isEmptyParagraphNode(node: PMNode | undefined): boolean {
 }
 
 function trimEditorTerminalFiller(blocks: PMNode[]): PMNode[] {
+  if (suppressTerminalFillerTrim) return blocks;
   if (blocks.length < 2) return blocks;
   const last = blocks[blocks.length - 1];
   const previous = blocks[blocks.length - 2];
@@ -594,9 +818,20 @@ function trimEditorTerminalFiller(blocks: PMNode[]): PMNode[] {
   return blocks.slice(0, -1);
 }
 
-function serializeBlocks(blocks: PMNode[], indent: number): string[] {
+function serializeBlocks(
+  blocks: PMNode[],
+  indent: number,
+  isTopLevel = false,
+): string[] {
   const out: string[] = [];
-  const serializableBlocks = trimEditorTerminalFiller(blocks);
+  // The editor only ever appends its terminal filler paragraph at the very
+  // top level of the document, never inside a nested callout/toggle/column —
+  // so only trim there. Trimming at every nesting level (the original bug)
+  // deleted intentional Notion `<empty-block/>` spacers nested inside
+  // containers.
+  const serializableBlocks = isTopLevel
+    ? trimEditorTerminalFiller(blocks)
+    : blocks;
   for (let i = 0; i < serializableBlocks.length; i++) {
     const block = serializableBlocks[i];
     if (block.type === "bulletList" || block.type === "orderedList") {
@@ -624,7 +859,9 @@ function serializeBlock(node: PMNode, indent: number): string[] {
       const inline = serializeInline(node.content);
       if (!inline) return [indentStr(ind) + "<empty-block/>"];
       return [
-        indentStr(ind) + inline + blockAttrSuffix({ color: node.attrs?.color }),
+        indentStr(ind) +
+          escapeLeadingBlockMarker(inline) +
+          blockAttrSuffix({ color: node.attrs?.color }),
       ];
     }
     case "heading": {
@@ -644,7 +881,15 @@ function serializeBlock(node: PMNode, indent: number): string[] {
       const lang = (node.attrs?.language as string) || "";
       const text = (node.content || []).map((t) => t.text || "").join("");
       const body = text.split("\n").map((l) => indentStr(ind) + l);
-      return [indentStr(ind) + "```" + lang, ...body, indentStr(ind) + "```"];
+      // CommonMark-style variable-length fence: if the body itself contains a
+      // backtick run, the fence must be longer than the longest such run so
+      // the body's own backticks can never be mistaken for the closing fence.
+      const longestRun = Math.max(
+        0,
+        ...(text.match(/`+/g) || []).map((r) => r.length),
+      );
+      const fence = "`".repeat(Math.max(3, longestRun + 1));
+      return [indentStr(ind) + fence + lang, ...body, indentStr(ind) + fence];
     }
     case "blockquote":
       return serializeQuote(node, ind);
@@ -710,16 +955,28 @@ function serializeQuote(node: PMNode, ind: number): string[] {
 }
 
 function serializeToggle(node: PMNode, ind: number): string[] {
+  // `summary` is stored as raw NFM source (see the parse side, which keeps it
+  // verbatim rather than unescaping it) and must be emitted verbatim too —
+  // escaping it here would double-escape already-escaped literals like
+  // "\*not bold\*" and mangle real inline formatting like "**bold**", both of
+  // which broke the pull/push fixpoint and corrupted Notion toggle titles.
   const summary = (node.attrs?.summary as string) || "";
   const headingLevel = Number(node.attrs?.headingLevel) || 0;
   const color = node.attrs?.color;
   const out: string[] = [];
   if (headingLevel >= 1 && headingLevel <= 4) {
+    // A heading-toggle's summary shares one line with the real trailing
+    // `{toggle="true" ...}` attrs (unlike <details><summary>, which keeps
+    // summary on its own line) — escapeTrailingBackslashRun keeps a
+    // plain-text summary ending in an odd backslash run (e.g. an
+    // editor-typed "C:\path\") from being misread as escaping that suffix
+    // away; see its doc comment for why this is a no-op for every valid
+    // Notion-emitted summary.
     out.push(
       indentStr(ind) +
         "#".repeat(headingLevel) +
         " " +
-        escapeInlineText(summary) +
+        escapeTrailingBackslashRun(summary) +
         blockAttrSuffix({ toggle: true, color }),
     );
     out.push(...serializeBlocks(node.content || [], ind + 1));
@@ -727,7 +984,7 @@ function serializeToggle(node: PMNode, ind: number): string[] {
   }
   const attrStr = serializeAttrs([["color", isColor(color) ? color : null]]);
   out.push(indentStr(ind) + `<details${attrStr}>`);
-  out.push(indentStr(ind) + `<summary>${escapeInlineText(summary)}</summary>`);
+  out.push(indentStr(ind) + `<summary>${summary}</summary>`);
   out.push(...serializeBlocks(node.content || [], ind + 1));
   out.push(indentStr(ind) + "</details>");
   return out;
@@ -772,7 +1029,10 @@ function serializeImage(node: PMNode, ind: number): string[] {
   const alt = (node.attrs?.alt as string) || "";
   const color = node.attrs?.color;
   const suffix = isColor(color) ? ` {color="${color}"}` : "";
-  return [indentStr(ind) + `![${escapeInlineText(alt)}](${src})${suffix}`];
+  return [
+    indentStr(ind) +
+      `![${escapeInlineText(alt)}](${serializeUrlForParens(src)})${suffix}`,
+  ];
 }
 
 function serializeMedia(node: PMNode, ind: number): string[] {
@@ -791,6 +1051,12 @@ function serializeMedia(node: PMNode, ind: number): string[] {
 }
 
 function serializeBlockAtom(node: PMNode, ind: number): string[] {
+  // Raw containers (e.g. <meeting-notes>) parsed by parseRawContainer carry
+  // their exact source in __raw and must be emitted verbatim — the tagName/
+  // label/attrsJson below are only a summary for display, never the content.
+  const raw = serializeRawSourceBlock(node, ind);
+  if (raw.length > 0) return raw;
+
   const tagName = (node.attrs?.tagName as string) || "unknown";
   const label = (node.attrs?.label as string) || "";
   let attrs: Record<string, string> = {};
@@ -897,6 +1163,50 @@ function serializeTaskList(node: PMNode, indent: number): string[] {
   return out;
 }
 
+// Table cells (<td>/<th>) are inline-only in NFM. Editor cells are
+// block+ (@tiptap/extension-table-cell), so Enter or a pasted list can put
+// multiple blocks — or a non-paragraph block — into a cell. Flatten every
+// child to inline text joined by "<br>" instead of keeping only the first
+// paragraph, so nothing the user typed is silently discarded. "<br>" round
+// trips because the inline parser already maps <br>/<br/> to hardBreak.
+function serializeCellInline(cell: PMNode): string {
+  const parts: string[] = [];
+  for (const child of cell.content || []) {
+    const part = serializeCellChildInline(child);
+    if (part) parts.push(part);
+  }
+  return parts.join("<br>");
+}
+
+function serializeCellChildInline(node: PMNode): string {
+  switch (node.type) {
+    case "paragraph":
+    case "heading":
+      return serializeInline(node.content);
+    case "bulletList":
+    case "orderedList":
+    case "taskList": {
+      const items: string[] = [];
+      for (const item of node.content || []) {
+        const textPara = firstParagraph(item);
+        const inline = textPara ? serializeInline(textPara.content) : "";
+        if (inline) items.push(inline);
+      }
+      return items.join("<br>");
+    }
+    case "blockquote": {
+      const parts: string[] = [];
+      for (const child of node.content || []) {
+        const part = serializeCellChildInline(child);
+        if (part) parts.push(part);
+      }
+      return parts.join("<br>");
+    }
+    default:
+      return serializeInline(node.content);
+  }
+}
+
 function serializeTable(node: PMNode, ind: number): string[] {
   const attrs = node.attrs || {};
   const tableAttrStr = serializeAttrs([
@@ -930,10 +1240,7 @@ function serializeTable(node: PMNode, ind: number): string[] {
     out.push(indentStr(ind) + `<tr${rowAttrStr}>`);
     for (const cell of row.content || []) {
       const cellColor = isColor(cell.attrs?.color) ? cell.attrs?.color : null;
-      // Cells hold inline rich text only; flatten the single paragraph.
-      const para =
-        cell.content?.find((c) => c.type === "paragraph") || cell.content?.[0];
-      const inline = para ? serializeInline(para.content) : "";
+      const inline = serializeCellInline(cell);
       const cellAttrStr = serializeAttrs([["color", cellColor]]);
       out.push(indentStr(ind) + `<td${cellAttrStr}>${inline}</td>`);
     }
@@ -1116,15 +1423,26 @@ function parseSingleBlock(
     };
   }
 
-  // Code fence
-  if (/^```/.test(dedent)) {
-    const lang = dedent.slice(3).trim();
+  // Code fence. CommonMark-style variable-length fences: the closing fence
+  // must be a backtick run at least as long as the opening one, so a fence
+  // body line that happens to be a shorter ``` run doesn't close early and
+  // split the code block apart.
+  const fenceOpenMatch = dedent.match(/^(`{3,})(.*)$/);
+  if (fenceOpenMatch) {
+    const fenceLen = fenceOpenMatch[1].length;
+    const lang = fenceOpenMatch[2].trim();
     const body: string[] = [];
     let i = start + 1;
     for (; i < lines.length; i++) {
       const l = lines[i];
       const ld = l.slice(Math.min(indent, leadingTabs(l)));
-      if (/^```\s*$/.test(ld.trim()) && leadingTabs(l) >= indent) break;
+      const closeMatch = ld.trim().match(/^(`{3,})\s*$/);
+      if (
+        closeMatch &&
+        closeMatch[1].length >= fenceLen &&
+        leadingTabs(l) >= indent
+      )
+        break;
       // Strip exactly `indent` leading tabs (structural), keep the rest literal.
       body.push(stripTabs(l, indent));
     }
@@ -1169,7 +1487,11 @@ function parseSingleBlock(
       const node: PMNode = {
         type: "notionToggle",
         attrs: {
-          summary: unescapeInlineText(text),
+          // Keep as raw NFM source (not unescaped) — see serializeToggle.
+          // unescapeTrailingBackslashRun undoes the write-side doubling that
+          // keeps a plain-text summary's own trailing backslash run from
+          // being misread as escaping the real `{toggle="true"}` suffix.
+          summary: unescapeTrailingBackslashRun(text),
           headingLevel: level,
           open: false,
           color: isColor(color) ? color : null,
@@ -1245,23 +1567,37 @@ function parseSingleBlock(
     return parseContainer(lines, start, indent, rel, containerTag);
   }
 
-  // Image ![alt](src)
-  const imageMatch = dedent.match(
-    /^!\[([^\]]*)\]\(([^)]*)\)\s*(\{[^}]*\})?\s*$/,
-  );
-  if (imageMatch) {
-    const colorMatch = imageMatch[3]?.match(/color="([^"]+)"/);
-    const node: PMNode = {
-      type: "image",
-      attrs: {
-        src: imageMatch[2],
-        alt: unescapeInlineText(imageMatch[1]),
-        ...(colorMatch && isColor(colorMatch[1])
-          ? { color: colorMatch[1] }
-          : {}),
-      },
-    };
-    return { nodes: [withIndentAttr(node)], end: start + 1 };
+  // Image ![alt](src) — escape- and paren-balance-aware, mirroring matchLink,
+  // so an escaped `]` in the alt text and literal `(`/`)` pairs in the src
+  // (e.g. Wikipedia-style URLs) don't truncate or fail the match.
+  if (dedent.startsWith("![")) {
+    const altCloseBracket = findMatchingBracketClose(dedent, 1);
+    if (altCloseBracket !== -1 && dedent[altCloseBracket + 1] === "(") {
+      // findMatchingParenClose starts AT the opening '(' itself (altCloseBracket + 1).
+      const srcCloseParen = findMatchingParenClose(dedent, altCloseBracket + 1);
+      if (srcCloseParen !== -1) {
+        const alt = dedent.slice(2, altCloseBracket);
+        const src = unescapeUrlParens(
+          dedent.slice(altCloseBracket + 2, srcCloseParen),
+        );
+        const rest = dedent.slice(srcCloseParen + 1);
+        const suffixMatch = rest.match(/^\s*(\{[^}]*\})?\s*$/);
+        if (suffixMatch) {
+          const colorMatch = suffixMatch[1]?.match(/color="([^"]+)"/);
+          const node: PMNode = {
+            type: "image",
+            attrs: {
+              src,
+              alt: unescapeInlineText(alt),
+              ...(colorMatch && isColor(colorMatch[1])
+                ? { color: colorMatch[1] }
+                : {}),
+            },
+          };
+          return { nodes: [withIndentAttr(node)], end: start + 1 };
+        }
+      }
+    }
   }
 
   // Self-contained media / atom tags on one line: <video.../>, <page ...>..</page>, <x .../>
@@ -1273,9 +1609,15 @@ function parseSingleBlock(
     if (node) return { nodes: [withIndentAttr(node)], end: start + 1 };
   }
 
-  // Plain paragraph
+  // Plain paragraph. Undo escapeLeadingBlockMarker: a line that reaches here
+  // fell through every block-marker check above, so a leading "\-", "\#",
+  // etc. was only ever inserted to keep literal marker-like text from being
+  // reparsed as structure — strip that one backslash back off.
   const { text, color } = splitBlockAttrs(dedent);
-  const node: PMNode = { type: "paragraph", content: parseInline(text) };
+  const node: PMNode = {
+    type: "paragraph",
+    content: parseInline(unescapeLeadingBlockMarker(text)),
+  };
   if (isColor(color)) node.attrs = { color };
   return { nodes: [withIndentAttr(node)], end: start + 1 };
 }
@@ -1628,6 +1970,18 @@ function parseContainer(
       if (depth === 0) break;
     }
   }
+  if (depth !== 0) {
+    // Unterminated container (agent-authored/truncated/hand-edited content —
+    // Notion itself always closes tags). Swallowing to EOF here would parse
+    // the children at indent+1 but never emit them anywhere, silently
+    // deleting every subsequent same-indent line. Degrade the open line to
+    // an ordinary paragraph instead so nothing is lost; the rest of the
+    // document re-parses normally as siblings.
+    const { text, color } = splitBlockAttrs(openLine);
+    const node: PMNode = { type: "paragraph", content: parseInline(text) };
+    if (isColor(color)) node.attrs = { color };
+    return { nodes: [withIndentAttr(node)], end: start + 1 };
+  }
   const closeIdx = i;
   const innerEnd = closeIdx;
 
@@ -1639,7 +1993,8 @@ function parseContainer(
     const summaryLine = lines[childStart]?.slice(indent) ?? "";
     const sm = summaryLine.match(/^<summary>([\s\S]*?)<\/summary>\s*$/);
     if (sm) {
-      summary = unescapeInlineText(sm[1]);
+      // Keep as raw NFM source (not unescaped) — see serializeToggle.
+      summary = sm[1];
       bodyStart = childStart + 1;
     }
     const childRes = parseBlockSequence(lines, bodyStart, indent + 1);
@@ -1719,9 +2074,25 @@ function parseRawContainer(
   withIndentAttr: (n: PMNode) => PMNode,
 ): ParseResult {
   let i = start + 1;
+  let closed = false;
   for (; i < lines.length; i++) {
-    if (lines[i].slice(indent) === closeTag && leadingTabs(lines[i]) >= indent)
+    if (
+      lines[i].slice(indent) === closeTag &&
+      leadingTabs(lines[i]) >= indent
+    ) {
+      closed = true;
       break;
+    }
+  }
+  if (!closed) {
+    // Unterminated container: swallowing to EOF would silently drop every
+    // following line (they're never re-parsed as siblings). Degrade the
+    // open line to a paragraph instead so nothing is lost.
+    const openLine = lines[start].slice(indent);
+    const { text, color } = splitBlockAttrs(openLine);
+    const node: PMNode = { type: "paragraph", content: parseInline(text) };
+    if (isColor(color)) node.attrs = { color };
+    return { nodes: [withIndentAttr(node)], end: start + 1 };
   }
   const rawLines = lines.slice(start, i + 1).map((l) => stripTabs(l, indent));
   const node: PMNode = {
@@ -1750,11 +2121,13 @@ function parseTable(
   let i = start + 1;
   const colMeta: Array<{ color?: string; width?: string }> = [];
   const rows: PMNode[] = [];
+  let closed = false;
 
   for (; i < lines.length; i++) {
     const ld = lines[i].slice(Math.min(indent, leadingTabs(lines[i]))).trim();
     if (ld === "</table>") {
       i++;
+      closed = true;
       break;
     }
     if (ld === "<colgroup>") continue;
@@ -1795,6 +2168,17 @@ function parseTable(
         content: cells,
       });
     }
+  }
+
+  if (!closed) {
+    // Unterminated <table>: swallowing to EOF would silently drop every
+    // following line as consumed-but-unrendered table rows. Degrade the
+    // open line to a paragraph instead so nothing is lost.
+    const openLine = lines[start].slice(indent);
+    const { text, color } = splitBlockAttrs(openLine);
+    const node: PMNode = { type: "paragraph", content: parseInline(text) };
+    if (isColor(color)) node.attrs = { color };
+    return { nodes: [withIndentAttr(node)], end: start + 1 };
   }
 
   const node: PMNode = {
@@ -1858,7 +2242,16 @@ function parseLeafTag(
 
 /** Canonicalize NFM into the exact stable form (Notion's emission form). */
 export function canonicalizeNfm(nfm: string | null | undefined): string {
-  return docToNfm(nfmToDoc(nfm ?? ""));
+  // Never apply the editor-only terminal-filler heuristic here: this runs on
+  // every server pull and content hash, and Notion-authored content can
+  // legitimately end in an intentional `<empty-block/>` that must survive.
+  const previous = suppressTerminalFillerTrim;
+  suppressTerminalFillerTrim = true;
+  try {
+    return docToNfm(nfmToDoc(nfm ?? ""));
+  } finally {
+    suppressTerminalFillerTrim = previous;
+  }
 }
 
 export function collapseExactRepeatedNfm(

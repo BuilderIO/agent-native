@@ -4,19 +4,20 @@ import {
   useChangeVersions,
   useT,
 } from "@agent-native/core/client";
-import { Badge } from "@agent-native/toolkit/ui/badge";
+import { IconFlask, IconClock, IconSearch } from "@tabler/icons-react";
+import { useQuery } from "@tanstack/react-query";
+import { useState } from "react";
+import { Link } from "react-router";
+
+import { Badge } from "@/components/ui/badge";
 import {
   Card,
   CardContent,
   CardDescription,
   CardHeader,
   CardTitle,
-} from "@agent-native/toolkit/ui/card";
-import { Skeleton } from "@agent-native/toolkit/ui/skeleton";
-import { IconFlask, IconClock, IconSearch } from "@tabler/icons-react";
-import { useQuery } from "@tanstack/react-query";
-import { useState } from "react";
-import { Link } from "react-router";
+} from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
 
 interface AnalysisSummary {
   id: string;

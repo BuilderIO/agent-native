@@ -4,8 +4,6 @@ import {
   useActionQuery,
   useT,
 } from "@agent-native/core/client";
-import { Button } from "@agent-native/toolkit/ui/button";
-import { Spinner } from "@agent-native/toolkit/ui/spinner";
 import type { CalendarEvent } from "@shared/api";
 import {
   IconClock,
@@ -18,6 +16,8 @@ import {
 import { format, parseISO, differenceInMinutes } from "date-fns";
 import { useSearchParams } from "react-router";
 
+import { Button } from "@/components/ui/button";
+import { Spinner } from "@/components/ui/spinner";
 import { messagesByLocale } from "@/i18n-data";
 
 type EventPreviewResult = CalendarEvent | { error: string };

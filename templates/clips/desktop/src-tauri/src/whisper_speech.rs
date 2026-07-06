@@ -21,6 +21,7 @@ pub async fn whisper_transcription_start(
     mic_device_id: Option<String>,
     mic_device_label: Option<String>,
     capture_system: bool,
+    owner: Option<String>,
 ) -> Result<(), String> {
     if !crate::config::feature_config(&app).whisper_model_enabled {
         return Err("whisper-model-disabled".into());
@@ -33,6 +34,7 @@ pub async fn whisper_transcription_start(
             mic_device_id,
             mic_device_label,
             capture_system,
+            macos::SessionOwner::from_param(owner),
         )
         .await
     }
@@ -44,6 +46,7 @@ pub async fn whisper_transcription_start(
             mic_device_id,
             mic_device_label,
             capture_system,
+            owner,
         );
         Err("Whisper transcription is only supported on macOS.".into())
     }
@@ -489,6 +492,28 @@ mod macos {
 
     // ---- session ----------------------------------------------------------
 
+    /// Who owns an in-flight whisper `Session`. Mirrors
+    /// `native_speech::macos::SessionOwner` — meeting beats dictation; all
+    /// other combinations (same owner replacing itself, or a meeting evicting
+    /// a dictation session) keep the original unconditional stop+replace
+    /// behavior.
+    #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+    pub(crate) enum SessionOwner {
+        Dictation,
+        Meeting,
+    }
+
+    impl SessionOwner {
+        /// Parses the Tauri command's `owner` string param, defaulting to
+        /// `Dictation` for back-compat with callers that omit it.
+        pub(crate) fn from_param(owner: Option<String>) -> Self {
+            match owner.as_deref() {
+                Some("meeting") => SessionOwner::Meeting,
+                _ => SessionOwner::Dictation,
+            }
+        }
+    }
+
     struct Session {
         mic_cap: RawMicCapture,
         // System capture is optional — skipped when the user turns system
@@ -496,6 +521,8 @@ mod macos {
         sys_cap: Option<RawSystemCapture>,
         mic: Arc<WhisperStream>,
         sys: Option<Arc<WhisperStream>>,
+        /// Who started this session — see `SessionOwner`.
+        owner: SessionOwner,
     }
 
     // SAFETY: the capture handles hold refcounted ObjC objects (already
@@ -514,8 +541,24 @@ mod macos {
         mic_device_id: Option<String>,
         mic_device_label: Option<String>,
         capture_system: bool,
+        owner: SessionOwner,
     ) -> Result<(), String> {
-        // Tear down any prior session first.
+        // Priority rule (D10): a meeting-owned session must never be
+        // silently evicted by a dictation takeover. Check (without taking)
+        // BEFORE calling `stop()`, so a refused dictation start leaves the
+        // meeting's session completely untouched.
+        {
+            let slot = session_slot().lock().map_err(|e| e.to_string())?;
+            if let Some(prev) = slot.as_ref() {
+                if prev.owner == SessionOwner::Meeting && owner == SessionOwner::Dictation {
+                    return Err("speech-engine-busy-meeting".into());
+                }
+            }
+        }
+
+        // Tear down any prior session first. (Any other owner combination —
+        // same-owner replacement, or meeting evicting dictation — keeps this
+        // unconditional stop+replace behavior.)
         stop(&app);
 
         // Download (first run) + load the model before opening any capture so a
@@ -603,6 +646,7 @@ mod macos {
             sys_cap,
             mic: mic_stream,
             sys: sys_stream,
+            owner,
         });
         eprintln!(
             "[whisper] transcription started (mic{})",

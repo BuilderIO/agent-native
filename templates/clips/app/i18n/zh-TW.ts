@@ -329,6 +329,13 @@ const messages = {
     segments: "{{count}} 段",
     copyTranscript: "複製逐字稿",
     copyFullTranscript: "複製完整逐字稿",
+    timeRemaining_one: "還剩 {{count}} 分鐘",
+    timeRemaining_other: "還剩 {{count}} 分鐘",
+    endMeeting: "結束會議",
+    endThisMeeting: "結束這次會議嗎？",
+    endMeetingDescription:
+      "這會停止本次會議的錄製與轉錄。您仍然可以根據目前擷取的內容產生筆記。",
+    couldNotEndMeeting: "無法結束會議",
   },
   transcriptPanel: {
     transcribing: "正在轉錄…",
@@ -408,6 +415,8 @@ const messages = {
       "取得這個 Clips Agent 脈絡 URL：{{agentContextUrl}}。使用 transcript.segments 讀取語音脈絡，取得 recommendedFrames 或影格 API URL 來查看螢幕，並在 browserDiagnostics 存在時檢查已遮蔽的主控台記錄和 fetch/XHR 請求中繼資料。",
     agentTokenDescription:
       "這個臨時 Agent URL 可讓 Agent 讀取剪輯，而不必將其設為公開。它會在兩小時後過期。",
+    agentLinkUnavailable: "無法建立 Agent 連結。",
+    retryAgentLink: "重試",
     gifPreview: "GIF 預覽",
     openPlayer: "開啟播放器",
     downloadMp4: "下載 MP4",
@@ -476,6 +485,12 @@ const messages = {
     placeholder: "詢問任何事情...",
     send: "傳送",
     sentToChat: "已傳送至聊天 - 請參閱代理側邊欄以取得回覆。",
+    suggestQuestions: "為我建議可以提出的問題",
+    suggestQuestionsPrompt:
+      "根據本次會議目前為止討論的內容，建議我接下來可以提出的幾個好問題。",
+    makeMeSoundSmart: "讓我聽起來更聰明",
+    makeMeSoundSmartPrompt:
+      "根據本次會議目前為止的內容，給我一個現在就能補充的犀利、有見地的評論或問題。",
   },
   brandingEditor: {
     title: "品牌推廣",
@@ -721,6 +736,9 @@ const messages = {
     anonymous: "匿名",
     anon: "匿名",
     moreViewers: "+{{count}} 更多",
+    viewedBy: "觀看者",
+    someone: "有人",
+    noViewsYet: "尚無觀看紀錄。",
   },
   libraryGrid: {
     spaceRoot: "空間根目錄",
@@ -875,6 +893,8 @@ const messages = {
     noVideo: "沒有可用影片",
     thanks: "感謝觀看",
     playClip: "播放剪輯",
+    unsupportedFormat:
+      "此瀏覽器無法播放此影片。請嘗試在 Chrome、Edge 或 Firefox 中開啟連結。",
   },
   searchBar: {
     placeholder: "搜尋錄製…",
@@ -937,6 +957,13 @@ const messages = {
     liveTranscriptDescription: "開始紀錄後，即時轉錄會顯示在這裡。",
     me: "我",
     them: "對方",
+    searchTranscript: "搜尋逐字稿",
+    searchPlaceholder: "搜尋逐字稿…",
+    searchMatchCount: "第 {{current}} 項，共 {{total}} 項",
+    searchNoMatches: "沒有符合項目",
+    searchPrevMatch: "上一個符合項目",
+    searchNextMatch: "下一個符合項目",
+    searchClose: "關閉搜尋",
   },
   editorLayout: {
     trimmed: "已修剪",
@@ -1195,6 +1222,11 @@ const messages = {
     browserDictation: "瀏覽器聽寫",
     browserDictationDescription:
       "使用此頁面上的按鈕，或在此分頁取得焦點時按快捷鍵。瀏覽器聽寫會儲存在這裡，供您複製與清理。",
+    browserDictationDescriptionDesktop:
+      "使用下方的按鈕，直接在此頁面擷取一則筆記。它不會貼到其他應用程式——如需這項功能，請使用右側的桌面快捷鍵。",
+    quickNoteTitle: "快速聽寫筆記",
+    quickNoteHint:
+      "不必離開此頁面即可在此擷取內容——它不會貼到其他應用程式。使用按鈕開始與停止。",
     desktopShortcuts: "桌面快捷鍵",
     desktopShortcutsDescriptionSuffix: "，於桌面應用程式中。",
     holdFn: "按住 Fn",
@@ -1225,6 +1257,18 @@ const messages = {
       "具備 AI 清理功能的語音轉文字聽寫。取得桌面應用程式，即可用全域快捷鍵在任何地方聽寫。",
     loadFailed: "無法載入聽寫。",
     noFilterMatches: "沒有符合此篩選條件的聽寫。",
+    dictionaryTitle: "字典",
+    dictionaryDescription:
+      "這裡的詞彙會讓語音辨識偏向您慣用的拼寫——可從修正中自動學得，或自行新增。",
+    dictionaryTermPlaceholder: "詞彙",
+    dictionaryReplacementPlaceholder: "替換內容（選填）",
+    dictionaryAdd: "新增",
+    dictionaryLoading: "正在載入字典...",
+    dictionaryEmpty: "尚無已學習的詞彙。",
+    dictionaryUsesCount: "已使用 {{count}} 次",
+    dictionaryRemove: "移除",
+    vocabularyAddFailed: "無法新增詞彙",
+    vocabularyRemoveFailed: "無法移除詞彙",
   },
   clipsFinalRaw: {
     splitAtPlayhead: "在播放頭處分割 (S)",

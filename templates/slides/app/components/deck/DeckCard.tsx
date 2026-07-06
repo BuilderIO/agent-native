@@ -1,12 +1,5 @@
 import { VisibilityBadge, useT } from "@agent-native/core/client";
 import {
-  DropdownMenu,
-  DropdownMenuTrigger,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-} from "@agent-native/toolkit/ui/dropdown-menu";
-import {
   IconDots,
   IconTrash,
   IconCopy,
@@ -16,6 +9,13 @@ import {
 import { useState, useRef, useEffect } from "react";
 import { Link } from "react-router";
 
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+} from "@/components/ui/dropdown-menu";
 import type { Deck } from "@/context/DeckContext";
 
 import SlideRenderer from "./SlideRenderer";

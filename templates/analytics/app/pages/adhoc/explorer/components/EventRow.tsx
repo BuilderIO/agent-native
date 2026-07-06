@@ -1,5 +1,6 @@
-import { Button } from "@agent-native/toolkit/ui/button";
 import { IconGripVertical, IconX } from "@tabler/icons-react";
+
+import { Button } from "@/components/ui/button";
 
 import type { ExplorerEvent } from "../types";
 import { EventCombobox } from "./EventCombobox";

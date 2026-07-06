@@ -313,8 +313,8 @@ const enUS = {
       "This page is currently under construction. Please check back later or return to the dashboard.",
     askAnalytics: "Ask Analytics about your data.",
     askPlaceholder: "Ask about data, dashboards, metrics, or sources...",
-    askIntroTitle: "What would you like to explore?",
-    askIntroBody: "Ask about data, dashboards, metrics, or sources.",
+    askIntroTitle: "What should we explore?",
+    askIntroBody: "Data, dashboards, metrics, or sources.",
     emptyDashboard: "Empty Dashboard",
     emptyDashboardDescription:
       'This dashboard is empty. Tell the AI assistant what charts and data you want to see here — for example, "show me signups by attribution source over the last 90 days" — and it will populate this dashboard for you.',
@@ -3745,8 +3745,8 @@ export const messagesByLocale = {
         "此页面正在建设中。请稍后再回来查看，或返回仪表板。",
       askAnalytics: "向 Analytics 询问你的数据。",
       askPlaceholder: "询问数据、仪表板、指标或数据源...",
-      askIntroTitle: "你想探索什么？",
-      askIntroBody: "询问数据、仪表板、指标或数据源。",
+      askIntroTitle: "我们该探索什么？",
+      askIntroBody: "数据、仪表板、指标或数据源。",
 
       emptyDashboard: "空仪表板",
       emptyDashboardDescription:
@@ -3941,8 +3941,8 @@ export const messagesByLocale = {
         "Esta página está en construcción. Vuelve más tarde o regresa al panel.",
       askAnalytics: "Pregunta a Analytics sobre tus datos.",
       askPlaceholder: "Pregunta sobre datos, paneles, métricas o fuentes...",
-      askIntroTitle: "¿Qué te gustaría explorar?",
-      askIntroBody: "Pregunta sobre datos, paneles, métricas o fuentes.",
+      askIntroTitle: "¿Qué exploramos?",
+      askIntroBody: "Datos, paneles, métricas o fuentes.",
 
       emptyDashboard: "Panel vacío",
       emptyDashboardDescription:
@@ -4142,9 +4142,8 @@ export const messagesByLocale = {
       askAnalytics: "Interrogez Analytics sur vos données.",
       askPlaceholder:
         "Posez une question sur les données, tableaux de bord, métriques ou sources...",
-      askIntroTitle: "Que souhaitez-vous explorer ?",
-      askIntroBody:
-        "Posez une question sur les données, tableaux de bord, métriques ou sources.",
+      askIntroTitle: "Que devrions-nous explorer ?",
+      askIntroBody: "Données, tableaux de bord, métriques ou sources.",
 
       emptyDashboard: "Tableau de bord vide",
       emptyDashboardDescription:
@@ -4345,8 +4344,8 @@ export const messagesByLocale = {
         "Diese Seite befindet sich im Aufbau. Bitte später erneut versuchen oder zum Dashboard zurückkehren.",
       askAnalytics: "Frage Analytics zu deinen Daten.",
       askPlaceholder: "Frage nach Daten, Dashboards, Metriken oder Quellen...",
-      askIntroTitle: "Was möchtest du untersuchen?",
-      askIntroBody: "Frage nach Daten, Dashboards, Metriken oder Quellen.",
+      askIntroTitle: "Was sollen wir untersuchen?",
+      askIntroBody: "Daten, Dashboards, Metriken oder Quellen.",
 
       emptyDashboard: "Leeres Dashboard",
       emptyDashboardDescription:
@@ -4542,9 +4541,8 @@ export const messagesByLocale = {
         "このページは現在準備中です。後でもう一度確認するか、ダッシュボードに戻ってください。",
       askAnalytics: "Analytics にデータについて質問します。",
       askPlaceholder: "データ、ダッシュボード、指標、ソースについて質問...",
-      askIntroTitle: "何を調べますか？",
-      askIntroBody:
-        "データ、ダッシュボード、指標、ソースについて質問できます。",
+      askIntroTitle: "何を調べましょうか？",
+      askIntroBody: "データ、ダッシュボード、指標、ソース。",
 
       emptyDashboard: "空のダッシュボード",
       emptyDashboardDescription:
@@ -4741,7 +4739,7 @@ export const messagesByLocale = {
       askAnalytics: "Analytics에 데이터에 대해 물어보세요.",
       askPlaceholder: "데이터, 대시보드, 지표 또는 소스에 대해 질문하세요...",
       askIntroTitle: "무엇을 살펴볼까요?",
-      askIntroBody: "데이터, 대시보드, 지표 또는 소스에 대해 질문하세요.",
+      askIntroBody: "데이터, 대시보드, 지표 또는 소스.",
 
       emptyDashboard: "빈 대시보드",
       emptyDashboardDescription:
@@ -4942,8 +4940,8 @@ export const messagesByLocale = {
         "Esta página está em construção. Volte mais tarde ou retorne ao dashboard.",
       askAnalytics: "Pergunte ao Analytics sobre seus dados.",
       askPlaceholder: "Pergunte sobre dados, dashboards, métricas ou fontes...",
-      askIntroTitle: "O que você quer explorar?",
-      askIntroBody: "Pergunte sobre dados, dashboards, métricas ou fontes.",
+      askIntroTitle: "O que devemos explorar?",
+      askIntroBody: "Dados, dashboards, métricas ou fontes.",
 
       emptyDashboard: "Dashboard vazio",
       emptyDashboardDescription:
@@ -5137,8 +5135,8 @@ export const messagesByLocale = {
         "यह पेज अभी बनाया जा रहा है। कृपया बाद में फिर देखें या डैशबोर्ड पर लौटें।",
       askAnalytics: "Analytics से अपने डेटा के बारे में पूछें।",
       askPlaceholder: "डेटा, डैशबोर्ड, मेट्रिक्स या स्रोतों के बारे में पूछें...",
-      askIntroTitle: "आप क्या खोजना चाहेंगे?",
-      askIntroBody: "डेटा, डैशबोर्ड, मेट्रिक्स या स्रोतों के बारे में पूछें।",
+      askIntroTitle: "हमें क्या खोजना चाहिए?",
+      askIntroBody: "डेटा, डैशबोर्ड, मेट्रिक्स या स्रोत।",
 
       emptyDashboard: "खाली डैशबोर्ड",
       emptyDashboardDescription:
@@ -5332,9 +5330,8 @@ export const messagesByLocale = {
       askAnalytics: "اسأل Analytics عن بياناتك.",
       askPlaceholder:
         "اسأل عن البيانات أو لوحات المعلومات أو المقاييس أو المصادر...",
-      askIntroTitle: "ماذا تريد أن تستكشف؟",
-      askIntroBody:
-        "اسأل عن البيانات أو لوحات المعلومات أو المقاييس أو المصادر.",
+      askIntroTitle: "ما الذي ينبغي أن نستكشفه؟",
+      askIntroBody: "البيانات أو لوحات المعلومات أو المقاييس أو المصادر.",
 
       emptyDashboard: "لوحة معلومات فارغة",
       emptyDashboardDescription:

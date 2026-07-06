@@ -299,7 +299,6 @@ const messages = {
     whatShouldItDo: "Que devrait-il faire ?",
     createPlaceholder:
       "Une liste de tâches, un tableau de bord API, une calculatrice...",
-    backToApp: "Retour à l'application",
     title: "Rallonges",
     hiddenShown: "Masquer affiché",
     showHidden: "Afficher les éléments masqués",

@@ -18,15 +18,6 @@
  */
 
 import { sendToAgentChat, useT } from "@agent-native/core/client";
-import { Button } from "@agent-native/toolkit/ui/button";
-import { Card } from "@agent-native/toolkit/ui/card";
-import {
-  Sheet,
-  SheetContent,
-  SheetHeader,
-  SheetTitle,
-} from "@agent-native/toolkit/ui/sheet";
-import { Textarea } from "@agent-native/toolkit/ui/textarea";
 import {
   IconCommand,
   IconNotes,
@@ -35,6 +26,15 @@ import {
 } from "@tabler/icons-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
+import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 
 const QUICK_PROMPTS: Array<{ labelKey: string; promptKey: string }> = [
@@ -43,8 +43,16 @@ const QUICK_PROMPTS: Array<{ labelKey: string; promptKey: string }> = [
     promptKey: "quickAsk.whatDidIMissPrompt",
   },
   {
+    labelKey: "quickAsk.suggestQuestions",
+    promptKey: "quickAsk.suggestQuestionsPrompt",
+  },
+  {
     labelKey: "quickAsk.summarizeLastFive",
     promptKey: "quickAsk.summarizeLastFivePrompt",
+  },
+  {
+    labelKey: "quickAsk.makeMeSoundSmart",
+    promptKey: "quickAsk.makeMeSoundSmartPrompt",
   },
   {
     labelKey: "quickAsk.actionItemsForMe",

@@ -1,8 +1,6 @@
 import { PoweredByBadge, appPath, useT } from "@agent-native/core/client";
 import { getRequestUserEmail } from "@agent-native/core/server";
 import { resolveAccess } from "@agent-native/core/sharing";
-import { Button } from "@agent-native/toolkit/ui/button";
-import { Spinner } from "@agent-native/toolkit/ui/spinner";
 import {
   IconCalendar,
   IconExternalLink,
@@ -11,13 +9,16 @@ import {
   IconWand,
 } from "@tabler/icons-react";
 import { and, eq, isNull } from "drizzle-orm";
+import { useEffect, useRef } from "react";
 import type { LoaderFunctionArgs, MetaFunction } from "react-router";
-import { useLoaderData } from "react-router";
+import { useLoaderData, useRevalidator } from "react-router";
 
 import {
   AttendeeStack,
   type AttendeeStackParticipant,
 } from "@/components/meetings/attendee-stack";
+import { Button } from "@/components/ui/button";
+import { Spinner } from "@/components/ui/spinner";
 import enMessages from "@/i18n/en-US";
 
 import { getDb, schema } from "../../server/db";
@@ -39,19 +40,20 @@ interface Bullet {
   text: string;
 }
 
-type LoaderData =
-  | {
-      meeting: {
-        id: string;
-        title: string;
-        scheduledStart: string | null;
-        summaryMd: string;
-        bullets: Bullet[];
-        participants: Participant[];
-        actionItems: ActionItem[];
-      };
-    }
-  | { meeting: null };
+interface ShareMeetingData {
+  id: string;
+  title: string;
+  scheduledStart: string | null;
+  summaryMd: string;
+  bullets: Bullet[];
+  participants: Participant[];
+  actionItems: ActionItem[];
+  actualStart: string | null;
+  actualEnd: string | null;
+  transcriptStatus: string | null;
+}
+
+type LoaderData = { meeting: ShareMeetingData } | { meeting: null };
 
 export async function loader({
   params,
@@ -67,6 +69,9 @@ export async function loader({
       visibility: schema.meetings.visibility,
       summaryMd: schema.meetings.summaryMd,
       bulletsJson: schema.meetings.bulletsJson,
+      actualStart: schema.meetings.actualStart,
+      actualEnd: schema.meetings.actualEnd,
+      transcriptStatus: schema.meetings.transcriptStatus,
     })
     .from(schema.meetings)
     .where(and(eq(schema.meetings.id, id), isNull(schema.meetings.trashedAt)))
@@ -115,6 +120,9 @@ export async function loader({
       bullets,
       participants,
       actionItems,
+      actualStart: row.actualStart,
+      actualEnd: row.actualEnd,
+      transcriptStatus: row.transcriptStatus,
     },
   };
 }
@@ -158,9 +166,56 @@ function formatDateTime(iso?: string | null): string {
   }
 }
 
+const REVALIDATE_INTERVAL_MS = 5_000;
+const REVALIDATE_MAX_DURATION_MS = 30 * 60 * 1000;
+
+/**
+ * Silent client-side revalidation while a meeting is still live or its notes
+ * haven't landed yet — the loader is SSR-only otherwise (M9), so a share link
+ * opened mid-meeting would never update without a manual reload. Polls the
+ * same access-checked loader (via useRevalidator, not a new endpoint) every
+ * 5s and stops once notes arrive or after 30 minutes.
+ */
+function useMeetingShareRevalidation(meeting: ShareMeetingData | null) {
+  const revalidator = useRevalidator();
+  const startedAtRef = useRef<number | null>(null);
+
+  const isLive = !!meeting && !!meeting.actualStart && !meeting.actualEnd;
+  const transcriptPending =
+    meeting?.transcriptStatus === "in_progress" ||
+    meeting?.transcriptStatus === "pending";
+  const notesAbsentWhileReady =
+    !!meeting &&
+    meeting.transcriptStatus === "ready" &&
+    !meeting.summaryMd &&
+    meeting.bullets.length === 0 &&
+    meeting.actionItems.length === 0;
+  const shouldPoll = isLive || transcriptPending || notesAbsentWhileReady;
+
+  useEffect(() => {
+    if (!shouldPoll) {
+      startedAtRef.current = null;
+      return;
+    }
+    if (startedAtRef.current == null) startedAtRef.current = Date.now();
+    const interval = window.setInterval(() => {
+      if (
+        Date.now() - (startedAtRef.current ?? Date.now()) >
+        REVALIDATE_MAX_DURATION_MS
+      ) {
+        window.clearInterval(interval);
+        return;
+      }
+      if (revalidator.state === "idle") revalidator.revalidate();
+    }, REVALIDATE_INTERVAL_MS);
+    return () => window.clearInterval(interval);
+  }, [shouldPoll, revalidator]);
+}
+
 export default function ShareMeetingRoute() {
   const t = useT();
   const data = useLoaderData<LoaderData>();
+  useMeetingShareRevalidation(data.meeting);
 
   if (!data.meeting) {
     return (

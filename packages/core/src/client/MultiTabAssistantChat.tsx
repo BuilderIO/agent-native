@@ -57,6 +57,7 @@ import {
   TooltipTrigger,
 } from "./components/ui/tooltip.js";
 import { isTrustedFrameMessage } from "./frame.js";
+import { KeepTabOpenNotice } from "./KeepTabOpenNotice.js";
 import { RunStuckBanner } from "./RunStuckBanner.js";
 import { callAction } from "./use-action.js";
 import {
@@ -2682,8 +2683,14 @@ export function MultiTabAssistantChat({
                     contentHidden || tabId !== activeThreadId ? "none" : "flex",
                 }}
               >
+                <KeepTabOpenNotice
+                  threadId={tabId}
+                  enabled={tabId === activeThreadId}
+                  apiUrl={apiUrl}
+                />
                 <RunStuckBanner
                   threadId={tabId}
+                  enabled={tabId === activeThreadId}
                   apiUrl={apiUrl}
                   autoRetry
                   autoRetryOwnerId={browserTabId}

@@ -1,11 +1,12 @@
-import { Button } from "@agent-native/toolkit/ui/button";
+import { IconArrowsSort, IconCheck } from "@tabler/icons-react";
+
+import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
-} from "@agent-native/toolkit/ui/dropdown-menu";
-import { IconArrowsSort, IconCheck } from "@tabler/icons-react";
+} from "@/components/ui/dropdown-menu";
 
 export type SortKey = "recent" | "views" | "oldest";
 

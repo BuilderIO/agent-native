@@ -14,18 +14,18 @@ Agent-native
 Agent-Native sidecar
 AgentHarness substrate
 AgentRunHost
-analytics@example.com, ops@example.com
 AGENTS.md · skills
+analytics@example.com, ops@example.com
 AuthSession
 AWS Lambda
 Bearer access token
 Better Auth
-ChatGPT web
 channels:history, search
+ChatGPT web
 claude · codex
+Claude Code
 Claude Code · Codex · Pi — own tools, sandbox, compaction
 Claude Code / Codex
-Claude Code
 Claude web
 CLI
 Cloudflare D1
@@ -85,6 +85,7 @@ Sandboxed iframe
 Secret proxy
 Secret vault
 session.orgId
+Shell & Hooks
 Signed app route
 Signed processor
 Slack · Granola · GitHub · Clips · webhooks

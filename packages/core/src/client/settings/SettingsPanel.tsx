@@ -30,6 +30,7 @@ import React, {
   useState,
   useEffect,
   useCallback,
+  useMemo,
   useRef,
 } from "react";
 
@@ -44,12 +45,15 @@ import {
 } from "../components/ui/tooltip.js";
 import { callAction } from "../use-action.js";
 import { uploadAvatar, useAvatarUrl } from "../use-avatar.js";
+import { useDevMode } from "../use-dev-mode.js";
 import { useSession } from "../use-session.js";
+import { cn } from "../utils.js";
 import { AgentsSection } from "./AgentsSection.js";
 import { AutomationsSection } from "./AutomationsSection.js";
 import { DemoModeSection } from "./DemoModeSection.js";
 import { SecretsSection } from "./SecretsSection.js";
 import { SettingsSection } from "./SettingsSection.js";
+import type { SettingsTabItem } from "./SettingsTabsPage.js";
 import { UsageSection } from "./UsageSection.js";
 import {
   type BuilderConnectFlow,
@@ -2001,6 +2005,54 @@ const SETTINGS_SECTION_IDS = new Set<SettingsSectionId>([
   "a2a",
 ]);
 
+const ALL_SETTINGS_SECTIONS: readonly SettingsSectionId[] = [
+  "account",
+  "llm",
+  "app-models",
+  "limits",
+  "voice",
+  "demo-mode",
+  "automations",
+  "secrets",
+  "hosting",
+  "database",
+  "uploads",
+  "auth",
+  "email",
+  "browser",
+  "background",
+  "integrations",
+  "usage",
+  "a2a",
+];
+
+const AGENT_SETTINGS_SECTIONS: readonly SettingsSectionId[] = [
+  "llm",
+  "app-models",
+  "limits",
+  "voice",
+  "automations",
+  "background",
+  "a2a",
+];
+
+const CONNECTION_SETTINGS_SECTIONS: readonly SettingsSectionId[] = [
+  "secrets",
+  "integrations",
+  "email",
+  "browser",
+  "usage",
+];
+
+const WORKSPACE_SETTINGS_SECTIONS: readonly SettingsSectionId[] = [
+  "account",
+  "demo-mode",
+  "hosting",
+  "database",
+  "uploads",
+  "auth",
+];
+
 function normalizeSettingsSection(
   value?: string | null,
 ): SettingsSectionId | null {
@@ -2038,6 +2090,12 @@ function settingsSectionDomId(section: SettingsSectionId): string {
 function initialOpenSection(): SettingsSectionId {
   if (typeof window === "undefined") return "llm";
   return normalizeSettingsSection(window.location.hash) ?? "llm";
+}
+
+function firstVisibleSection(
+  sections: readonly SettingsSectionId[],
+): SettingsSectionId {
+  return sections[0] ?? "llm";
 }
 
 // Agent capability modes. The internal values ("production"/"development") are
@@ -2238,14 +2296,23 @@ function AccountSectionInner({
   );
 }
 
-export function SettingsPanel({
+interface SettingsPanelContentProps extends SettingsPanelProps {
+  sections?: readonly SettingsSectionId[];
+  showCapabilityStrip?: boolean;
+  className?: string;
+}
+
+function SettingsPanelContent({
   isDevMode,
   onToggleDevMode,
   showDevToggle,
   devAppUrl,
   initialSection,
   sectionRequestKey,
-}: SettingsPanelProps) {
+  sections = ALL_SETTINGS_SECTIONS,
+  showCapabilityStrip = true,
+  className,
+}: SettingsPanelContentProps) {
   const { status: builder, loading: builderLoading } = useBuilderStatus();
   const connected = builder?.configured ?? false;
   const connectUrl = builder?.cliAuthUrl ?? builder?.connectUrl;
@@ -2263,11 +2330,19 @@ export function SettingsPanel({
   const [focusSecretKey, setFocusSecretKey] = useState<string | undefined>(
     undefined,
   );
+  const visibleSections = useMemo(() => new Set(sections), [sections]);
+  const shouldShowSection = useCallback(
+    (section: SettingsSectionId) => visibleSections.has(section),
+    [visibleSections],
+  );
 
   // Accordion: only one section open at a time (null = all closed)
-  const [openSection, setOpenSection] = useState<string | null>(
-    initialOpenSection,
-  );
+  const [openSection, setOpenSection] = useState<string | null>(() => {
+    const initial = initialOpenSection();
+    return visibleSections.has(initial)
+      ? initial
+      : firstVisibleSection(sections);
+  });
   const toggle = (id: string) =>
     setOpenSection((prev) => (prev === id ? null : id));
 
@@ -2290,10 +2365,15 @@ export function SettingsPanel({
 
   useEffect(() => {
     const section = normalizeSettingsSection(initialSection);
-    if (!section) return;
+    if (!section || !shouldShowSection(section)) return;
     if (section !== "secrets") setFocusSecretKey(undefined);
     openSettingsSection(section, true);
-  }, [initialSection, sectionRequestKey, openSettingsSection]);
+  }, [
+    initialSection,
+    sectionRequestKey,
+    openSettingsSection,
+    shouldShowSection,
+  ]);
 
   // Support `#secrets:<KEY>` hash fragments from the onboarding CTA — opens
   // the section and focuses the matching input.
@@ -2302,7 +2382,7 @@ export function SettingsPanel({
     const handleHash = () => {
       const hash = window.location.hash?.replace(/^#/, "") ?? "";
       const section = normalizeSettingsSection(hash);
-      if (!section) return;
+      if (!section || !shouldShowSection(section)) return;
       if (hash.startsWith("secrets:") || hash === "secrets") {
         const key = hash.slice("secrets:".length);
         setFocusSecretKey(key || undefined);
@@ -2314,11 +2394,11 @@ export function SettingsPanel({
     handleHash();
     window.addEventListener("hashchange", handleHash);
     return () => window.removeEventListener("hashchange", handleHash);
-  }, [openSettingsSection]);
+  }, [openSettingsSection, shouldShowSection]);
 
   return (
     <div
-      className="flex-1 min-h-0 overflow-y-auto p-3 space-y-2"
+      className={cn("flex-1 min-h-0 overflow-y-auto p-3 space-y-2", className)}
       style={{ overflowY: "auto" }}
     >
       {/* Agent capability mode (App vs Code) + app link */}
@@ -2356,230 +2436,260 @@ export function SettingsPanel({
         </div>
       )}
 
-      <CapabilityStatusStrip
-        isDevMode={isDevMode}
-        builderConnected={connected}
-        builderLoading={builderLoading}
-        builderBranchesAvailable={builderBranchesAvailable}
-        onOpenLlm={() => openSettingsSection("llm", true)}
-      />
+      {showCapabilityStrip && (
+        <CapabilityStatusStrip
+          isDevMode={isDevMode}
+          builderConnected={connected}
+          builderLoading={builderLoading}
+          builderBranchesAvailable={builderBranchesAvailable}
+          onOpenLlm={() => openSettingsSection("llm", true)}
+        />
+      )}
 
       {/* Account */}
-      <AccountSectionInner
-        open={openSection === "account"}
-        onToggle={() => toggle("account")}
-      />
+      {shouldShowSection("account") && (
+        <AccountSectionInner
+          open={openSection === "account"}
+          onToggle={() => toggle("account")}
+        />
+      )}
 
       {/* LLM */}
-      <LLMSectionInner
-        builderFlow={builderFlow}
-        builderLoading={builderLoading}
-        connectUrl={connectUrl}
-        connected={connected}
-        orgName={orgName}
-        envManaged={envManaged}
-        credentialSource={credentialSource}
-        open={openSection === "llm"}
-        onToggle={() => toggle("llm")}
-      />
-
-      {/* App default model */}
-      <AppModelDefaultsSectionInner
-        open={openSection === "app-models"}
-        onToggle={() => toggle("app-models")}
-      />
-
-      {/* Agent limits */}
-      <AgentLimitsSectionInner
-        open={openSection === "limits"}
-        onToggle={() => toggle("limits")}
-      />
-
-      {/* Voice transcription */}
-      <SettingsSection
-        icon={<IconMicrophone size={14} />}
-        title="Voice Transcription"
-        subtitle="How the composer microphone turns your voice into text."
-        open={openSection === "voice"}
-        onToggle={() => toggle("voice")}
-      >
-        <VoiceTranscriptionSection />
-      </SettingsSection>
-
-      {/* Demo mode */}
-      <SettingsSection
-        icon={<IconEyeOff size={14} />}
-        title="Demo mode"
-        subtitle="Replace names, emails, and numbers with realistic fake data everywhere — in the UI and what the agent sees. IDs and structure are preserved so the app keeps working."
-        open={openSection === "demo-mode"}
-        onToggle={() => toggle("demo-mode")}
-      >
-        <DemoModeSection />
-      </SettingsSection>
-
-      {/* Automations */}
-      <SettingsSection
-        icon={<IconBolt size={14} />}
-        title="Automations"
-        subtitle="Event-triggered and scheduled automations."
-        open={openSection === "automations"}
-        onToggle={() => toggle("automations")}
-      >
-        <AutomationsSection />
-      </SettingsSection>
-
-      {/* API Keys & Connections */}
-      <SettingsSection
-        id={settingsSectionDomId("secrets")}
-        icon={<IconKey size={14} />}
-        title="API Keys & Connections"
-        subtitle="Service credentials and automation keys."
-        open={openSection === "secrets"}
-        onToggle={() => toggle("secrets")}
-      >
-        <SecretsSection focusKey={focusSecretKey} />
-      </SettingsSection>
-
-      {/* Hosting */}
-      <SettingsSection
-        icon={<IconCloud size={14} />}
-        title="Hosting"
-        subtitle="Deploy your app to the cloud."
-        connected={connected}
-        open={openSection === "hosting"}
-        onToggle={() => toggle("hosting")}
-      >
-        <div className="space-y-2">
-          <UseBuilderCard
-            builderFlow={builderFlow}
-            connectUrl={connectUrl}
-            connected={connected}
-            orgName={orgName}
-            envManaged={envManaged}
-            credentialSource={credentialSource}
-            trackingSource="hosting_settings"
-            trackingFlow="hosting"
-          />
-          <ManualSetupCard
-            hint="Deploy manually to Netlify, Vercel, Cloudflare, or any Nitro-supported target."
-            docsUrl="https://www.builder.io/c/docs/agent-native-deployment"
-            dim={connected}
-          />
-        </div>
-      </SettingsSection>
-
-      {/* Database */}
-      <SettingsSection
-        icon={<IconDatabase size={14} />}
-        title="Database"
-        subtitle="Connect a cloud database for persistent storage."
-        connected={connected}
-        open={openSection === "database"}
-        onToggle={() => toggle("database")}
-      >
-        <div className="space-y-2">
-          <UseBuilderCard
-            builderFlow={builderFlow}
-            connectUrl={connectUrl}
-            connected={connected}
-            orgName={orgName}
-            envManaged={envManaged}
-            credentialSource={credentialSource}
-            trackingSource="database_settings"
-            trackingFlow="database"
-          />
-          <ManualSetupCard
-            hint="Set DATABASE_URL in your .env to connect Neon, Supabase, Turso, any Postgres/SQLite database, or local PGlite with pglite:./data/pglite."
-            docsUrl="https://www.builder.io/c/docs/agent-native-database"
-            dim={connected}
-          />
-        </div>
-      </SettingsSection>
-
-      {/* File uploads */}
-      <SettingsSection
-        icon={<IconUpload size={14} />}
-        title="File uploads"
-        subtitle="Where user-uploaded files (avatars, chat attachments) are stored."
-        connected={connected}
-        open={openSection === "uploads"}
-        onToggle={() => toggle("uploads")}
-      >
-        <div className="space-y-2">
-          <UseBuilderCard
-            builderFlow={builderFlow}
-            connectUrl={connectUrl}
-            connected={connected}
-            orgName={orgName}
-            envManaged={envManaged}
-            credentialSource={credentialSource}
-            trackingSource="file_upload_settings"
-            trackingFlow="file_upload"
-          />
-          <ManualSetupCard
-            hint="Without a provider, files are stored as base64 in your database. Fine for dev, not recommended for production."
-            docsUrl="https://www.builder.io/c/docs/agent-native-file-uploads"
-            dim={connected}
-          />
-        </div>
-      </SettingsSection>
-
-      {/* Authentication */}
-      <SettingsSection
-        icon={<IconShield size={14} />}
-        title="Authentication"
-        subtitle="Set up user authentication and access control."
-        connected={connected}
-        open={openSection === "auth"}
-        onToggle={() => toggle("auth")}
-      >
-        <div className="space-y-2">
-          <UseBuilderCard
-            builderFlow={builderFlow}
-            connectUrl={connectUrl}
-            connected={connected}
-            orgName={orgName}
-            envManaged={envManaged}
-            credentialSource={credentialSource}
-            trackingSource="auth_settings"
-            trackingFlow="auth"
-          />
-          <ManualSetupCard
-            hint="Configure Better Auth with BETTER_AUTH_SECRET and optional Google/GitHub OAuth providers."
-            docsUrl="https://www.builder.io/c/docs/agent-native-authentication"
-            dim={connected}
-          />
-        </div>
-      </SettingsSection>
-
-      {/* Email */}
-      <EmailSectionInner
-        open={openSection === "email"}
-        onToggle={() => toggle("email")}
-      />
-
-      {/* Browser Automation */}
-      <SettingsSection
-        icon={<IconBrowser size={14} />}
-        title="Browser Automation"
-        subtitle="Let agents control a real browser for web tasks."
-        connected={connected}
-        open={openSection === "browser"}
-        onToggle={() => toggle("browser")}
-      >
-        <UseBuilderCard
+      {shouldShowSection("llm") && (
+        <LLMSectionInner
           builderFlow={builderFlow}
+          builderLoading={builderLoading}
           connectUrl={connectUrl}
           connected={connected}
           orgName={orgName}
           envManaged={envManaged}
           credentialSource={credentialSource}
-          trackingSource="browser_settings"
-          trackingFlow="browser_automation"
+          open={openSection === "llm"}
+          onToggle={() => toggle("llm")}
         />
-      </SettingsSection>
+      )}
 
-      {builderBranchesAvailable && (
+      {/* App default model */}
+      {shouldShowSection("app-models") && (
+        <AppModelDefaultsSectionInner
+          open={openSection === "app-models"}
+          onToggle={() => toggle("app-models")}
+        />
+      )}
+
+      {/* Agent limits */}
+      {shouldShowSection("limits") && (
+        <AgentLimitsSectionInner
+          open={openSection === "limits"}
+          onToggle={() => toggle("limits")}
+        />
+      )}
+
+      {/* Voice transcription */}
+      {shouldShowSection("voice") && (
+        <SettingsSection
+          icon={<IconMicrophone size={14} />}
+          title="Voice Transcription"
+          subtitle="How the composer microphone turns your voice into text."
+          open={openSection === "voice"}
+          onToggle={() => toggle("voice")}
+        >
+          <VoiceTranscriptionSection />
+        </SettingsSection>
+      )}
+
+      {/* Demo mode */}
+      {shouldShowSection("demo-mode") && (
+        <SettingsSection
+          icon={<IconEyeOff size={14} />}
+          title="Demo mode"
+          subtitle="Replace names, emails, and numbers with realistic fake data everywhere — in the UI and what the agent sees. IDs and structure are preserved so the app keeps working."
+          open={openSection === "demo-mode"}
+          onToggle={() => toggle("demo-mode")}
+        >
+          <DemoModeSection />
+        </SettingsSection>
+      )}
+
+      {/* Automations */}
+      {shouldShowSection("automations") && (
+        <SettingsSection
+          icon={<IconBolt size={14} />}
+          title="Automations"
+          subtitle="Event-triggered and scheduled automations."
+          open={openSection === "automations"}
+          onToggle={() => toggle("automations")}
+        >
+          <AutomationsSection />
+        </SettingsSection>
+      )}
+
+      {/* API Keys & Connections */}
+      {shouldShowSection("secrets") && (
+        <SettingsSection
+          id={settingsSectionDomId("secrets")}
+          icon={<IconKey size={14} />}
+          title="API Keys & Connections"
+          subtitle="Service credentials and automation keys."
+          open={openSection === "secrets"}
+          onToggle={() => toggle("secrets")}
+        >
+          <SecretsSection focusKey={focusSecretKey} />
+        </SettingsSection>
+      )}
+
+      {/* Hosting */}
+      {shouldShowSection("hosting") && (
+        <SettingsSection
+          icon={<IconCloud size={14} />}
+          title="Hosting"
+          subtitle="Deploy your app to the cloud."
+          connected={connected}
+          open={openSection === "hosting"}
+          onToggle={() => toggle("hosting")}
+        >
+          <div className="space-y-2">
+            <UseBuilderCard
+              builderFlow={builderFlow}
+              connectUrl={connectUrl}
+              connected={connected}
+              orgName={orgName}
+              envManaged={envManaged}
+              credentialSource={credentialSource}
+              trackingSource="hosting_settings"
+              trackingFlow="hosting"
+            />
+            <ManualSetupCard
+              hint="Deploy manually to Netlify, Vercel, Cloudflare, or any Nitro-supported target."
+              docsUrl="https://www.builder.io/c/docs/agent-native-deployment"
+              dim={connected}
+            />
+          </div>
+        </SettingsSection>
+      )}
+
+      {/* Database */}
+      {shouldShowSection("database") && (
+        <SettingsSection
+          icon={<IconDatabase size={14} />}
+          title="Database"
+          subtitle="Connect a cloud database for persistent storage."
+          connected={connected}
+          open={openSection === "database"}
+          onToggle={() => toggle("database")}
+        >
+          <div className="space-y-2">
+            <UseBuilderCard
+              builderFlow={builderFlow}
+              connectUrl={connectUrl}
+              connected={connected}
+              orgName={orgName}
+              envManaged={envManaged}
+              credentialSource={credentialSource}
+              trackingSource="database_settings"
+              trackingFlow="database"
+            />
+            <ManualSetupCard
+              hint="Set DATABASE_URL in your .env to connect Neon, Supabase, Turso, any Postgres/SQLite database, or local PGlite with pglite:./data/pglite."
+              docsUrl="https://www.builder.io/c/docs/agent-native-database"
+              dim={connected}
+            />
+          </div>
+        </SettingsSection>
+      )}
+
+      {/* File uploads */}
+      {shouldShowSection("uploads") && (
+        <SettingsSection
+          icon={<IconUpload size={14} />}
+          title="File uploads"
+          subtitle="Where user-uploaded files (avatars, chat attachments) are stored."
+          connected={connected}
+          open={openSection === "uploads"}
+          onToggle={() => toggle("uploads")}
+        >
+          <div className="space-y-2">
+            <UseBuilderCard
+              builderFlow={builderFlow}
+              connectUrl={connectUrl}
+              connected={connected}
+              orgName={orgName}
+              envManaged={envManaged}
+              credentialSource={credentialSource}
+              trackingSource="file_upload_settings"
+              trackingFlow="file_upload"
+            />
+            <ManualSetupCard
+              hint="Without a provider, files are stored as base64 in your database. Fine for dev, not recommended for production."
+              docsUrl="https://www.builder.io/c/docs/agent-native-file-uploads"
+              dim={connected}
+            />
+          </div>
+        </SettingsSection>
+      )}
+
+      {/* Authentication */}
+      {shouldShowSection("auth") && (
+        <SettingsSection
+          icon={<IconShield size={14} />}
+          title="Authentication"
+          subtitle="Set up user authentication and access control."
+          connected={connected}
+          open={openSection === "auth"}
+          onToggle={() => toggle("auth")}
+        >
+          <div className="space-y-2">
+            <UseBuilderCard
+              builderFlow={builderFlow}
+              connectUrl={connectUrl}
+              connected={connected}
+              orgName={orgName}
+              envManaged={envManaged}
+              credentialSource={credentialSource}
+              trackingSource="auth_settings"
+              trackingFlow="auth"
+            />
+            <ManualSetupCard
+              hint="Configure Better Auth with BETTER_AUTH_SECRET and optional Google/GitHub OAuth providers."
+              docsUrl="https://www.builder.io/c/docs/agent-native-authentication"
+              dim={connected}
+            />
+          </div>
+        </SettingsSection>
+      )}
+
+      {/* Email */}
+      {shouldShowSection("email") && (
+        <EmailSectionInner
+          open={openSection === "email"}
+          onToggle={() => toggle("email")}
+        />
+      )}
+
+      {/* Browser Automation */}
+      {shouldShowSection("browser") && (
+        <SettingsSection
+          icon={<IconBrowser size={14} />}
+          title="Browser Automation"
+          subtitle="Let agents control a real browser for web tasks."
+          connected={connected}
+          open={openSection === "browser"}
+          onToggle={() => toggle("browser")}
+        >
+          <UseBuilderCard
+            builderFlow={builderFlow}
+            connectUrl={connectUrl}
+            connected={connected}
+            orgName={orgName}
+            envManaged={envManaged}
+            credentialSource={credentialSource}
+            trackingSource="browser_settings"
+            trackingFlow="browser_automation"
+          />
+        </SettingsSection>
+      )}
+
+      {builderBranchesAvailable && shouldShowSection("background") && (
         <SettingsSection
           icon={<IconGitBranch size={14} />}
           title="Background Agent"
@@ -2602,39 +2712,108 @@ export function SettingsPanel({
       )}
 
       {/* Integrations */}
-      <SettingsSection
-        icon={<IconPlugConnected size={14} />}
-        title="Integrations"
-        subtitle="Connect messaging platforms and external services."
-        open={openSection === "integrations"}
-        onToggle={() => toggle("integrations")}
-      >
-        <Suspense fallback={null}>
-          <IntegrationsPanel />
-        </Suspense>
-      </SettingsSection>
+      {shouldShowSection("integrations") && (
+        <SettingsSection
+          icon={<IconPlugConnected size={14} />}
+          title="Integrations"
+          subtitle="Connect messaging platforms and external services."
+          open={openSection === "integrations"}
+          onToggle={() => toggle("integrations")}
+        >
+          <Suspense fallback={null}>
+            <IntegrationsPanel />
+          </Suspense>
+        </SettingsSection>
+      )}
 
       {/* Usage & spend */}
-      <SettingsSection
-        icon={<IconCoin size={14} />}
-        title="Usage"
-        subtitle="Track token consumption and estimated cost — broken down by chat, automations, and background jobs."
-        open={openSection === "usage"}
-        onToggle={() => toggle("usage")}
-      >
-        <UsageSection />
-      </SettingsSection>
+      {shouldShowSection("usage") && (
+        <SettingsSection
+          icon={<IconCoin size={14} />}
+          title="Usage"
+          subtitle="Track token consumption and estimated cost — broken down by chat, automations, and background jobs."
+          open={openSection === "usage"}
+          onToggle={() => toggle("usage")}
+        >
+          <UsageSection />
+        </SettingsSection>
+      )}
 
       {/* A2A Agents */}
-      <SettingsSection
-        icon={<IconTopologyRing2 size={14} />}
-        title="Connected Agents (A2A)"
-        subtitle="Manage remote agents connected via the A2A protocol."
-        open={openSection === "a2a"}
-        onToggle={() => toggle("a2a")}
-      >
-        <AgentsSection />
-      </SettingsSection>
+      {shouldShowSection("a2a") && (
+        <SettingsSection
+          icon={<IconTopologyRing2 size={14} />}
+          title="Connected Agents (A2A)"
+          subtitle="Manage remote agents connected via the A2A protocol."
+          open={openSection === "a2a"}
+          onToggle={() => toggle("a2a")}
+        >
+          <AgentsSection />
+        </SettingsSection>
+      )}
     </div>
+  );
+}
+
+export function SettingsPanel(props: SettingsPanelProps) {
+  return <SettingsPanelContent {...props} />;
+}
+
+export function useAgentSettingsTabs(): SettingsTabItem[] {
+  const { isDevMode, canToggle, setDevMode } = useDevMode();
+  const baseProps = useMemo<SettingsPanelProps>(
+    () => ({
+      isDevMode,
+      onToggleDevMode: () => {
+        void setDevMode(!isDevMode);
+      },
+      showDevToggle: canToggle,
+    }),
+    [canToggle, isDevMode, setDevMode],
+  );
+
+  return useMemo<SettingsTabItem[]>(
+    () => [
+      {
+        id: "agent",
+        label: "Agent",
+        icon: IconBrain,
+        content: (
+          <SettingsPanelContent
+            {...baseProps}
+            sections={AGENT_SETTINGS_SECTIONS}
+            showCapabilityStrip={false}
+            className="mx-auto w-full max-w-3xl p-0"
+          />
+        ),
+      },
+      {
+        id: "connections",
+        label: "Connections",
+        icon: IconPlugConnected,
+        content: (
+          <SettingsPanelContent
+            {...baseProps}
+            sections={CONNECTION_SETTINGS_SECTIONS}
+            showCapabilityStrip={false}
+            className="mx-auto w-full max-w-3xl p-0"
+          />
+        ),
+      },
+      {
+        id: "workspace",
+        label: "Workspace",
+        icon: IconCloud,
+        content: (
+          <SettingsPanelContent
+            {...baseProps}
+            sections={WORKSPACE_SETTINGS_SECTIONS}
+            showCapabilityStrip={false}
+            className="mx-auto w-full max-w-3xl p-0"
+          />
+        ),
+      },
+    ],
+    [baseProps],
   );
 }

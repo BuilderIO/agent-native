@@ -281,6 +281,21 @@ export function insertComposerHardBreakAndScrollIntoView(
   return true;
 }
 
+export function getComposerPopoverPosition(
+  view: Pick<EditorView, "coordsAtPos">,
+  pos: number,
+): { top: number; left: number } | null {
+  try {
+    const coords = view.coordsAtPos(pos);
+    if (!Number.isFinite(coords.top) || !Number.isFinite(coords.left)) {
+      return null;
+    }
+    return { top: coords.top, left: coords.left };
+  } catch {
+    return null;
+  }
+}
+
 export function displayableComposerModeMessage(options: {
   messagePrefix: string;
   trimmedText: string;
@@ -1265,6 +1280,10 @@ export function TiptapComposer({
   const [popover, setPopover] = useState<PopoverState>(null);
   const popoverRef = useRef<MentionPopoverRef>(null);
   const composerRuntime = useComposerRuntime();
+  const lastComposerRuntimeSyncRef = useRef<{
+    text: string;
+    runConfigSignature: string;
+  } | null>(null);
   const submitInFlightRef = useRef(false);
   const [editorHasText, setEditorHasText] = useState(false);
   const [slotReferences, setSlotReferences] = useState<
@@ -1377,6 +1396,9 @@ export function TiptapComposer({
       clearTimeout(draftTimerRef.current);
     };
   }, []);
+  useEffect(() => {
+    lastComposerRuntimeSyncRef.current = null;
+  }, [composerRuntime]);
   // Tiptap reads extension config once at init; ref keeps runtime prop
   // changes visible to Placeholder's function form.
   const placeholderRef = useRef(placeholder);
@@ -1612,11 +1634,12 @@ export function TiptapComposer({
             from,
           );
           if (from === 1 || textBefore === "" || /\s/.test(textBefore)) {
-            const coords = view.coordsAtPos(from);
+            const position = getComposerPopoverPosition(view, from);
+            if (!position) return false;
             setTimeout(() => {
               const state: PopoverState = {
                 type: "@",
-                position: { top: coords.top, left: coords.left },
+                position,
                 startPos: view.state.selection.from,
                 query: "",
               };
@@ -1635,11 +1658,12 @@ export function TiptapComposer({
             from,
           );
           if (from === 1 || textBefore === "" || /\s/.test(textBefore)) {
-            const coords = view.coordsAtPos(from);
+            const position = getComposerPopoverPosition(view, from);
+            if (!position) return false;
             setTimeout(() => {
               const state: PopoverState = {
                 type: "/",
-                position: { top: coords.top, left: coords.left },
+                position,
                 startPos: view.state.selection.from,
                 query: "",
               };
@@ -2045,26 +2069,65 @@ export function TiptapComposer({
     return { text, references };
   }, [editor, slotReferences]);
 
+  const syncComposerRuntimeState = useCallback(
+    (text: string, references: Reference[]) => {
+      const requestMode =
+        execMode === "plan" ? "plan" : execMode === "build" ? "act" : undefined;
+      const custom: {
+        references?: Reference[];
+        requestMode?: "act" | "plan";
+      } = {};
+      if (references.length > 0) {
+        custom.references = references;
+      }
+      if (requestMode) {
+        custom.requestMode = requestMode;
+      }
+      const runConfig = Object.keys(custom).length > 0 ? { custom } : {};
+      const runConfigSignature = JSON.stringify(runConfig);
+      const last = lastComposerRuntimeSyncRef.current;
+      if (
+        last?.text === text &&
+        last.runConfigSignature === runConfigSignature
+      ) {
+        return;
+      }
+      composerRuntime.setText(text);
+      composerRuntime.setRunConfig(runConfig);
+      lastComposerRuntimeSyncRef.current = { text, runConfigSignature };
+    },
+    [composerRuntime, execMode],
+  );
+
+  const resetComposerRuntimeState = useCallback(() => {
+    const runConfigSignature = "{}";
+    const last = lastComposerRuntimeSyncRef.current;
+    if (last?.text === "" && last.runConfigSignature === runConfigSignature) {
+      return;
+    }
+    composerRuntime.setText("");
+    composerRuntime.setRunConfig({});
+    lastComposerRuntimeSyncRef.current = { text: "", runConfigSignature };
+  }, [composerRuntime]);
+
   const syncComposerState = useCallback(() => {
     const { text, references } = extractComposerPayload();
-    const requestMode =
-      execMode === "plan" ? "plan" : execMode === "build" ? "act" : undefined;
-    const custom: {
-      references?: Reference[];
-      requestMode?: "act" | "plan";
-    } = {};
-    if (references.length > 0) {
-      custom.references = references;
-    }
-    if (requestMode) {
-      custom.requestMode = requestMode;
-    }
-    composerRuntime.setText(text);
-    composerRuntime.setRunConfig(
-      Object.keys(custom).length > 0 ? { custom } : {},
-    );
+    syncComposerRuntimeState(text, references);
     return { text, references };
-  }, [composerRuntime, execMode, extractComposerPayload]);
+  }, [extractComposerPayload, syncComposerRuntimeState]);
+
+  const clearEditorAfterSubmit = useCallback(() => {
+    const ed = editor;
+    if (!ed) return;
+    ed.commands.clearContent();
+    setEditorHasText(false);
+    setSlotReferences([]);
+    resetComposerRuntimeState();
+    try {
+      localStorage.removeItem(draftKey);
+    } catch {}
+    closePopover();
+  }, [closePopover, draftKey, editor, resetComposerRuntimeState]);
 
   const submitComposer = useCallback(
     async (intent: ComposerSubmitIntent = "immediate") => {
@@ -2098,11 +2161,7 @@ export function TiptapComposer({
         const cmdName = normalizeSlashCommandName(trimmed);
         const matched = allSlashCommands.find((c) => c.name === cmdName);
         if (matched) {
-          ed.commands.clearContent();
-          try {
-            localStorage.removeItem(draftKey);
-          } catch {}
-          closePopover();
+          clearEditorAfterSubmit();
           onSlashCommandRef.current?.(matched.name);
           return;
         }
@@ -2120,13 +2179,7 @@ export function TiptapComposer({
         tryDelegateBuildRequestToBuilder(trimmed)
       ) {
         cancelActiveVoice();
-        ed.commands.clearContent();
-        setEditorHasText(false);
-        setSlotReferences([]);
-        try {
-          localStorage.removeItem(draftKey);
-        } catch {}
-        closePopover();
+        clearEditorAfterSubmit();
         return;
       }
 
@@ -2191,6 +2244,9 @@ export function TiptapComposer({
           closePopover();
           return;
         }
+        cancelActiveVoice();
+        clearEditorAfterSubmit();
+        return;
       } else {
         composerRuntime.send();
       }
@@ -2205,6 +2261,7 @@ export function TiptapComposer({
     },
     [
       closePopover,
+      clearEditorAfterSubmit,
       composerMode,
       composerRuntime,
       draftKey,
@@ -2332,8 +2389,6 @@ export function TiptapComposer({
     if (!editor || !popover) return;
 
     const updateHandler = () => {
-      syncComposerState();
-
       const pop = popoverStateRef.current;
       if (!pop) return;
       const { from } = editor.state.selection;
@@ -2361,6 +2416,7 @@ export function TiptapComposer({
         }
       }
 
+      if (pop.query === text) return;
       const updated = { ...pop, query: text };
       popoverStateRef.current = updated;
       setPopover(updated);
@@ -2372,7 +2428,7 @@ export function TiptapComposer({
       editor.off("update", updateHandler);
       editor.off("selectionUpdate", updateHandler);
     };
-  }, [editor, popover, closePopover, syncComposerState]);
+  }, [editor, popover, closePopover]);
 
   useEffect(() => {
     if (!editor) return;

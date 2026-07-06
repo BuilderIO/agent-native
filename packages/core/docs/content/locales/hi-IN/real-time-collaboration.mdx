@@ -260,11 +260,8 @@ export default createCollabPlugin({
 ### 4. क्लाइंट हुक का उपयोग करें
 
 ```ts
-import {
-  useCollaborativeDoc,
-  emailToColor,
-  emailToName,
-} from "@agent-native/core/client";
+import { useCollaborativeDoc } from "@agent-native/core/client";
+import { emailToColor, emailToName } from "@agent-native/toolkit/collab-ui";
 
 const TAB_ID = generateTabId(); // or Math.random().toString(36)
 
@@ -366,12 +363,14 @@ pnpm action edit-document --id doc123 --find "delete me" --replace ""
 
 ```ts
 import {
-  PresenceBar,
-  LiveCursorOverlay,
-  RemoteSelectionRings,
   useCollaborativeDoc,
   usePresence,
 } from "@agent-native/core/client/collab";
+import {
+  PresenceBar,
+  LiveCursorOverlay,
+  RemoteSelectionRings,
+} from "@agent-native/toolkit/collab-ui";
 ```
 
 सर्वर-साइड एजेंट उपस्थिति सहायक निम्न-स्तरीय सहयोग पैकेज में रहते हैं:
@@ -457,7 +456,7 @@ setPresence({ cursor: { x: 0.4, y: 0.7 }, selection: "#hero" });
 दूरस्थ कर्सर को एक कंटेनर तत्व पर बिल्कुल स्थित लेबल के रूप में प्रस्तुत करता है:
 
 ```tsx
-import { LiveCursorOverlay } from "@agent-native/core/client";
+import { LiveCursorOverlay } from "@agent-native/toolkit/collab-ui";
 
 // cursor positions stored as { x, y } normalized 0–1 under presence.cursor
 <div ref={containerRef} style={{ position: "relative" }}>
@@ -477,7 +476,7 @@ import { LiveCursorOverlay } from "@agent-native/core/client";
 दूरस्थ रूप से चयनित तत्वों पर रंगीन आउटलाइन रिंग + नाम टैग प्रस्तुत करता है:
 
 ```tsx
-import { RemoteSelectionRings } from "@agent-native/core/client";
+import { RemoteSelectionRings } from "@agent-native/toolkit/collab-ui";
 
 <div ref={containerRef} style={{ position: "relative" }}>
   {content}

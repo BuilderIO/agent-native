@@ -1,25 +1,4 @@
 import { sendToAgentChat, useT } from "@agent-native/core/client";
-import { useIsMobile } from "@agent-native/toolkit/hooks/use-mobile";
-import { Button } from "@agent-native/toolkit/ui/button";
-import {
-  Popover,
-  PopoverTrigger,
-  PopoverContent,
-} from "@agent-native/toolkit/ui/popover";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@agent-native/toolkit/ui/select";
-import { Skeleton } from "@agent-native/toolkit/ui/skeleton";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-  TooltipProvider,
-} from "@agent-native/toolkit/ui/tooltip";
 import type {
   CalendarEvent,
   FindTimeSlot,
@@ -69,7 +48,28 @@ import { FindTimeTakeover } from "@/components/calendar/FindTimePanel";
 import { useGuestNotificationPrompt } from "@/components/calendar/GuestNotificationDialog";
 import { useCalendarContext } from "@/components/layout/AppLayout";
 import { TimezoneCombobox } from "@/components/TimezoneCombobox";
+import { Button } from "@/components/ui/button";
+import {
+  Popover,
+  PopoverTrigger,
+  PopoverContent,
+} from "@/components/ui/popover";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Skeleton } from "@/components/ui/skeleton";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+  TooltipProvider,
+} from "@/components/ui/tooltip";
 import { useEvent, useUpdateEvent } from "@/hooks/use-events";
+import { useIsMobile } from "@/hooks/use-mobile";
 import { useConnectZoom, useZoomStatus } from "@/hooks/use-zoom-auth";
 import { getGoogleEventColorHex } from "@/lib/event-colors";
 import {

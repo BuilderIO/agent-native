@@ -1,14 +1,14 @@
 import { useT } from "@agent-native/core/client";
-import { Textarea } from "@agent-native/toolkit/ui/textarea";
+import { IconWand } from "@tabler/icons-react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
+
+import { Textarea } from "@/components/ui/textarea";
 import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
   TooltipTrigger,
-} from "@agent-native/toolkit/ui/tooltip";
-import { IconWand } from "@tabler/icons-react";
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
-
+} from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
 function useAutoGrow(

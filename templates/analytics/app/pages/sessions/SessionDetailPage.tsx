@@ -6,20 +6,6 @@ import {
   useSendToAgentChat,
   useT,
 } from "@agent-native/core/client";
-import { Button } from "@agent-native/toolkit/ui/button";
-import { Card, CardContent } from "@agent-native/toolkit/ui/card";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@agent-native/toolkit/ui/popover";
-import { Skeleton } from "@agent-native/toolkit/ui/skeleton";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "@agent-native/toolkit/ui/tooltip";
 import { SESSION_REPLAY_AGENT_ACCESS_PARAM } from "@shared/session-replay-agent-access";
 import {
   IconArrowLeft,
@@ -49,6 +35,20 @@ import {
 } from "react";
 import { Link, useParams } from "react-router";
 
+import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import { Skeleton } from "@/components/ui/skeleton";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { getIdToken } from "@/lib/auth";
 import { cn } from "@/lib/utils";
 

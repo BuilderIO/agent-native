@@ -1,22 +1,19 @@
 import { useT } from "@agent-native/core/client";
-import { Button } from "@agent-native/toolkit/ui/button";
-import { Label } from "@agent-native/toolkit/ui/label";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@agent-native/toolkit/ui/popover";
-import {
-  RadioGroup,
-  RadioGroupItem,
-} from "@agent-native/toolkit/ui/radio-group";
-import { Separator } from "@agent-native/toolkit/ui/separator";
-import { Textarea } from "@agent-native/toolkit/ui/textarea";
 import type { CalendarEvent } from "@shared/api";
 import { IconMessageCircle, IconUser } from "@tabler/icons-react";
 import { useEffect, useId, useMemo, useState } from "react";
 
 import { AttendeeApolloPopover } from "@/components/calendar/ApolloPanel";
+import { Button } from "@/components/ui/button";
+import { Label } from "@/components/ui/label";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { Separator } from "@/components/ui/separator";
+import { Textarea } from "@/components/ui/textarea";
 import { useAttendeePhotos } from "@/hooks/use-attendee-photos";
 import { useRsvpEvent } from "@/hooks/use-events";
 import {

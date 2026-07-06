@@ -15,7 +15,6 @@ import {
   type LocaleCode,
 } from "@agent-native/core/client";
 import { configureTracking } from "@agent-native/core/client";
-import { Button } from "@agent-native/toolkit/ui/button";
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import {
@@ -30,7 +29,9 @@ import {
 import type { LinksFunction } from "react-router";
 
 import { AppLayout } from "@/components/layout/AppLayout";
+import { Button } from "@/components/ui/button";
 import { Toaster } from "@/components/ui/sonner";
+import { AppToolkitProvider } from "@/components/ui/toolkit-provider";
 import { markExternalEmailRefresh } from "@/hooks/use-emails";
 import { isMcpEmbedSurface } from "@/lib/mcp-embed";
 import { TAB_ID } from "@/lib/tab-id";
@@ -422,23 +423,25 @@ export default function Root() {
     }),
   );
   return (
-    <AppProviders
-      queryClient={queryClient}
-      themeAttribute={["class", "data-theme"]}
-      tooltipDelayDuration={300}
-      toaster={MAIL_TOASTER}
-      i18n={{ catalog: i18nCatalog }}
-    >
-      <RequireSession bypass={isMcpEmbedSurface()}>
-        <AutoFocus />
-        <AutomationTrigger />
-        <VisibilityRefresh />
-        <DbSyncSetup />
-        <AppLayout>
-          <Outlet />
-        </AppLayout>
-      </RequireSession>
-    </AppProviders>
+    <AppToolkitProvider>
+      <AppProviders
+        queryClient={queryClient}
+        themeAttribute={["class", "data-theme"]}
+        tooltipDelayDuration={300}
+        toaster={MAIL_TOASTER}
+        i18n={{ catalog: i18nCatalog }}
+      >
+        <RequireSession bypass={isMcpEmbedSurface()}>
+          <AutoFocus />
+          <AutomationTrigger />
+          <VisibilityRefresh />
+          <DbSyncSetup />
+          <AppLayout>
+            <Outlet />
+          </AppLayout>
+        </RequireSession>
+      </AppProviders>
+    </AppToolkitProvider>
   );
 }
 

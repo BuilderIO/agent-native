@@ -5,6 +5,7 @@ import {
   generateTabId,
   type AttributedRecentEdit,
   type CollabUser,
+  type UseCollaborativeDocResult,
 } from "@agent-native/core/client";
 
 /** One tab id per browser tab, shared by every plan presence hook instance. */
@@ -19,6 +20,14 @@ export interface UsePlanPresenceResult {
   agentActive: boolean;
   /** Non-expired recent edits from remote participants (human + agent). */
   recentEdits: AttributedRecentEdit[];
+  /**
+   * The underlying `plan:<planId>` collab connection this hook opened, so
+   * `PlanContentRenderer` can hand it to `PlanDocumentEditor` instead of that
+   * editor opening a SECOND independent connection to the same doc id (same
+   * `Y.Doc`/`Awareness`/poll loop, doubled `/collab/<docId>/*` traffic). Null
+   * when presence itself is disabled (recap views, no planId).
+   */
+  collabDoc: Pick<UseCollaborativeDocResult, "ydoc" | "awareness" | "isSynced">;
 }
 
 /**
@@ -41,7 +50,7 @@ export function usePlanPresence(options: {
   const { planId, enabled = true, user } = options;
   const docId = enabled && planId ? `plan:${planId}` : null;
 
-  const { ydoc, awareness, activeUsers, agentPresent, agentActive } =
+  const { ydoc, awareness, isSynced, activeUsers, agentPresent, agentActive } =
     useCollaborativeDoc({
       docId,
       user,
@@ -62,5 +71,6 @@ export function usePlanPresence(options: {
     agentPresent,
     agentActive,
     recentEdits,
+    collabDoc: { ydoc, awareness, isSynced },
   };
 }

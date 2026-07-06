@@ -1,5 +1,11 @@
 # @agent-native/dispatch
 
+## 0.13.8
+
+### Patch Changes
+
+- 9d8c83c: Route Dispatch agent settings through the shared settings tabs.
+
 ## 0.13.7
 
 ### Patch Changes

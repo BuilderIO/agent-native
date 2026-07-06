@@ -143,6 +143,18 @@
   padding-bottom: clamp(4rem, 12vh, 8rem);
 }
 
+.analytics-mobile-nav {
+  height: 2.75rem;
+  min-height: 2.75rem;
+  background-color: hsl(var(--background)) !important;
+}
+
+@media (max-width: 767px) {
+  .analytics-chat-panel [data-agent-page-new-chat] {
+    display: none;
+  }
+}
+
 .analytics-chat-intro {
   display: none;
 }
@@ -173,7 +185,7 @@
 .analytics-chat-intro h1 {
   margin: 0;
   color: hsl(var(--foreground));
-  font-size: clamp(1.75rem, 2.5vw, 2.75rem);
+  font-size: 2.25rem;
   font-weight: 600;
   letter-spacing: 0;
   line-height: 1.12;
@@ -196,7 +208,10 @@
   padding-inline: 1rem;
 }
 
-.analytics-chat-panel [data-agent-empty-state="centered"] .agent-composer-area {
+.analytics-chat-panel [data-agent-empty-state="centered"] .agent-composer-area,
+.analytics-chat-panel
+  [data-agent-empty-state="centered"]
+  .agent-plan-mode-callout {
   width: 100%;
   max-width: min(760px, 90%);
   padding: 0;
@@ -356,11 +371,18 @@
     [data-agent-empty-state="centered"]
     .analytics-chat-intro {
     width: 100%;
+    max-width: min(640px, 95%);
     margin-bottom: 0.875rem;
   }
 
   .analytics-chat-intro h1 {
-    font-size: 1.75rem;
+    font-size: 1.5rem;
+    white-space: nowrap;
+  }
+
+  .analytics-chat-intro p {
+    font-size: 0.875rem;
+    white-space: nowrap;
   }
 
   .analytics-chat-panel

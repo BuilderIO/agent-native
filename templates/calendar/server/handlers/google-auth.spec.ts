@@ -76,7 +76,11 @@ vi.mock("../lib/google-calendar.js", () => ({
   getAuthUrl: mocks.getAuthUrl,
 }));
 
-const { getGoogleAuthUrl } = await import("./google-auth.js");
+const {
+  getGoogleAuthUrl,
+  handleGoogleAddAccountCallback,
+  handleGoogleCallback,
+} = await import("./google-auth.js");
 
 function createEvent(query: Record<string, string> = {}) {
   return { query };
@@ -105,6 +109,9 @@ describe("Calendar Google auth-url handler", () => {
       (_context: unknown, callback: () => unknown) => callback(),
     );
     mocks.encodeOAuthState.mockReturnValue("encoded-state");
+    mocks.createOAuthSession.mockResolvedValue({
+      sessionToken: "owner-session-token",
+    });
     mocks.safeReturnPath.mockImplementation((value: string) => value);
   });
 
@@ -163,5 +170,113 @@ describe("Calendar Google auth-url handler", () => {
     expect(result).toEqual({
       url: "https://accounts.google.com/o/oauth2/v2/auth?scope=calendar&state=encoded-state",
     });
+  });
+
+  it("publishes a desktop exchange for Calendar connect without switching away from the owner", async () => {
+    const event = createEvent({
+      code: "google-code",
+      state: "encoded-state",
+    });
+    mocks.decodeOAuthState.mockReturnValue({
+      redirectUri:
+        "https://calendar.agent-native.com/_agent-native/google/callback",
+      owner: "owner@example.com",
+      orgId: "org-123",
+      desktop: true,
+      addAccount: true,
+      flowId: "flow-123",
+    });
+    mocks.resolveOAuthOwner.mockResolvedValue({
+      owner: "owner@example.com",
+      hasProductionSession: false,
+    });
+    mocks.exchangeCode.mockResolvedValue("steve@builder.io");
+    mocks.oauthCallbackResponse.mockReturnValue("ok");
+
+    const result = await handleGoogleCallback(event as any);
+
+    expect(result).toBe("ok");
+    expect(mocks.exchangeCode).toHaveBeenCalledWith(
+      "google-code",
+      undefined,
+      "https://calendar.agent-native.com/_agent-native/google/callback",
+      "owner@example.com",
+      "org-123",
+    );
+    expect(mocks.createOAuthSession).toHaveBeenCalledWith(
+      event,
+      "owner@example.com",
+      {
+        hasProductionSession: false,
+        desktop: true,
+      },
+    );
+    expect(mocks.setDesktopExchange).toHaveBeenCalledWith(
+      "flow-123",
+      "owner-session-token",
+      "owner@example.com",
+    );
+    expect(mocks.oauthCallbackResponse).toHaveBeenCalledWith(
+      event,
+      "steve@builder.io",
+      expect.objectContaining({
+        sessionToken: "owner-session-token",
+        desktop: true,
+        addAccount: true,
+        flowId: "flow-123",
+      }),
+    );
+  });
+
+  it("publishes a desktop exchange for explicit add-account callbacks", async () => {
+    const event = createEvent({
+      code: "google-code",
+      state: "encoded-state",
+    });
+    mocks.getSession.mockResolvedValue(null);
+    mocks.decodeOAuthState.mockReturnValue({
+      redirectUri:
+        "https://calendar.agent-native.com/_agent-native/google/add-account/callback",
+      owner: "owner@example.com",
+      orgId: "org-123",
+      desktop: true,
+      flowId: "flow-456",
+    });
+    mocks.exchangeCode.mockResolvedValue("secondary@example.com");
+    mocks.oauthCallbackResponse.mockReturnValue("ok");
+
+    const result = await handleGoogleAddAccountCallback(event as any);
+
+    expect(result).toBe("ok");
+    expect(mocks.exchangeCode).toHaveBeenCalledWith(
+      "google-code",
+      undefined,
+      "https://calendar.agent-native.com/_agent-native/google/add-account/callback",
+      "owner@example.com",
+      "org-123",
+    );
+    expect(mocks.createOAuthSession).toHaveBeenCalledWith(
+      event,
+      "owner@example.com",
+      {
+        hasProductionSession: false,
+        desktop: true,
+      },
+    );
+    expect(mocks.setDesktopExchange).toHaveBeenCalledWith(
+      "flow-456",
+      "owner-session-token",
+      "owner@example.com",
+    );
+    expect(mocks.oauthCallbackResponse).toHaveBeenCalledWith(
+      event,
+      "secondary@example.com",
+      expect.objectContaining({
+        sessionToken: "owner-session-token",
+        desktop: true,
+        addAccount: true,
+        flowId: "flow-456",
+      }),
+    );
   });
 });

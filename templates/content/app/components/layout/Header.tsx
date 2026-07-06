@@ -1,7 +1,4 @@
-import {
-  AgentToggleButton,
-  NotificationsBell,
-} from "@agent-native/core/client";
+import { AgentToggleButton } from "@agent-native/core/client";
 import {
   useHeaderTitle,
   useHeaderActions,
@@ -43,7 +40,6 @@ export function Header({ sidebarTrigger }: HeaderProps) {
       </div>
       <div className="flex items-center gap-2 shrink-0">
         {actions}
-        <NotificationsBell />
         <AgentToggleButton />
       </div>
     </header>

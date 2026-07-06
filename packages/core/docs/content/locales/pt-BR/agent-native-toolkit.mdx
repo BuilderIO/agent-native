@@ -1,77 +1,103 @@
 ---
-title: "Toolkit do Agent-Native"
-description: "Kits reutilizáveis para colaboração, configurações, compartilhamento, navegação, presença, histórico, setup e UX do agente."
+title: "Toolkit"
+description: "Reusable app-building primitives that sit between @agent-native/core and template apps."
 ---
 
-# Toolkit do Agent-Native
+# Toolkit
 
-Apps Agent-Native não devem reconstruir a infraestrutura comum do workspace.
-Apps são donas dos modelos de domínio, ações de domínio e telas específicas do
-produto. O framework e `@agent-native/toolkit` são donos das superfícies
-reutilizáveis que toda app deve herdar: colaboração, compartilhamento,
-configurações, navegação, organização, setup, UX do agente, histórico e
-visibilidade operacional.
+`@agent-native/core` owns the foundational runtime: actions, app state, auth,
+SQL, server plugins, agent chat, sharing access checks, and collaboration
+transport. `@agent-native/toolkit` owns reusable app-building pieces that sit on
+top of that runtime: UI primitives, app-local adapters, shell helpers, sharing
+badges, and collaboration UI.
 
-O objetivo é que usuários aprendam uma única forma de compartilhar, conectar
-chaves, ver o agente editando junto, encontrar configurações e entender o que
-mudou.
+Apps should compose those pieces through local adapters. That keeps app UI easy
+to customize without copying Toolkit implementation code.
 
-## Contrato do toolkit {#toolkit-contract}
+<WireframeBlock id="doc-block-toolkit-layering">
+  <Screen
+    surface="desktop"
+    html={
+      "<div style='min-height:520px;box-sizing:border-box;padding:48px 36px;display:flex;align-items:center;justify-content:center'><div style='width:min(900px,100%);display:grid;grid-template-columns:1fr;gap:18px'><div class='wf-card' style='padding:22px 24px'><div style='display:flex;align-items:center;justify-content:space-between;gap:16px'><div><strong>App</strong><p class='wf-muted' style='margin:6px 0 0'>Domain routes, actions, local UI adapters, product-specific views</p></div><span class='wf-pill'>@/components/ui/button</span></div></div><div class='wf-card' style='padding:22px 24px;border-color:hsl(var(--primary))'><div style='display:flex;align-items:center;justify-content:space-between;gap:16px'><div><strong>Toolkit</strong><p class='wf-muted' style='margin:6px 0 0'>Reusable primitives, collab UI, sharing UI, app shell hooks</p></div><span class='wf-pill'>ToolkitProvider</span></div><div style='display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin-top:16px'><span class='wf-pill'>UI</span><span class='wf-pill'>Collab UI</span><span class='wf-pill'>Sharing UI</span><span class='wf-pill'>Shell</span></div></div><div class='wf-card' style='padding:22px 24px'><div style='display:flex;align-items:center;justify-content:space-between;gap:16px'><div><strong>Core</strong><p class='wf-muted' style='margin:6px 0 0'>Actions, SQL, auth, sharing runtime, Yjs transport, app state</p></div><span class='wf-pill'>@agent-native/core</span></div></div></div></div>"
+    }
+  />
+</WireframeBlock>
 
-Mova comportamento para o toolkit quando ele for:
+## What Ships Today {#what-ships-today}
 
-- **Do workspace** - usuários esperam o mesmo comportamento em todas as apps.
-- **Visível ao agente** - o agente precisa da mesma capacidade por ações,
-  instruções ou estado da aplicação.
-- **Governado** - permissões, auditoria, secrets, política da org, cobrança ou
-  regras de compartilhamento se aplicam.
-- **Repetido** - duas apps já criaram UI ou lógica parecida.
-- **Não específico de domínio** - a app fornece nomes e ações de recursos, mas o
-  padrão de interação é genérico.
+- **UI primitives**: shadcn-style components under
+  `@agent-native/toolkit/ui/*`.
+- **App adapters**: template-local wrappers such as
+  `@/components/ui/button` that re-export Toolkit primitives until an app wants
+  to customize them.
+- **ToolkitProvider**: an override layer that lets reusable Toolkit UI use an
+  app's local primitives, starting with `Button`.
+- **Collaboration UI**: presence avatars, live cursors, remote selection rings,
+  recent edit highlights, and agent presence chips under
+  `@agent-native/toolkit/collab-ui`.
+- **Sharing UI**: the reusable `VisibilityBadge` under
+  `@agent-native/toolkit/sharing`.
+- **Shell and hooks**: app-shell header actions plus shared hooks such as
+  `useIsMobile` and `useToast`.
 
-Mantenha local quando o comportamento depender do modelo de domínio ou de um
-fluxo específico da app.
+## Compatibility {#compatibility}
 
-## Kits reutilizáveis {#reusable-kits}
+Existing imports from `@agent-native/core/client` keep working. Core now exposes
+thin re-export shims for Toolkit-owned visual pieces while keeping runtime
+behavior in core.
 
-- **Settings kit** - abas padrão para conta, workspace, modelos de AI, chaves
-  LLM, conexões, secrets, uso, notificações, changelog e preferências da app.
-  Configuração durável fica em Settings; a sidebar do agente mantém controles
-  contextuais e deep links.
-- **Collaboration kit** - edição em tempo real, documentos Yjs, presença,
-  presença do agente, cursores, seleções remotas, destaques de edição e
-  undo/redo compartilhado. Veja
-  [Real-Time Collaboration](/docs/real-time-collaboration).
-- **Sharing kit** - um modelo de privacidade e permissões para privado,
-  workspace, org, link público, convites, roles, expiração e acesso legível pelo
-  agente. Veja [Sharing & Privacy](/docs/sharing).
-- **Navigation and command kit** - app shell, navegação, breadcrumbs, app
-  switcher, command palette, recursos recentes, fixados e busca.
-- **Organization kit** - pastas, tags, favoritos, arquivo, lixeira, ownership,
-  membros e metadados comuns.
-- **Setup and connections kit** - chaves API, OAuth, conexões, prontidão de
-  modelos, secrets ausentes e onboarding declarativo. Veja
-  [Workspace Connections](/docs/workspace-connections).
-- **Agent UX kit** - sidebar, composer, contexto preparado, menções, voz,
-  aprovação humana, UI generativa, progresso e estado visível ao agente.
-- **History and recovery kit** - audit log, activity feed, version history,
-  checkpoints, undo, redo, restore e proof-of-done. Veja
-  [Audit Log](/docs/audit-log).
-- **Comments and review kit** - comentários ancorados, pins, menções, pedidos de
-  review, threads resolvidas e follow-ups do agente.
-- **Workflow and observability kit** - notificações, aprovações, background
-  runs, jobs recorrentes, traces, evals, feedback e timelines. Veja
-  [Observability](/docs/observability).
+Those core shims are temporary migration support, not the long-term dependency
+direction. The next major can remove them; after that, reusable app-building
+packages should import Toolkit directly, and behaviorful Toolkit kits may compose
+core runtime APIs as peer/runtime dependencies instead of pushing more UI back
+into core.
 
-## Ordem de implementação {#implementation-order}
+Extract future behaviorful kits one at a time before broadening the split.
+Sharing is the first candidate to validate that model because it exercises
+access checks, action-backed data, and share-link UI together.
 
-1. Consolidar configuração durável em abas padrão de Settings.
-2. Normalizar colaboração, presença, presença do agente, undo/redo e edição em
-   tempo real por adapters compartilhados.
-3. Mover navegação, comandos, recentes, favoritos, pastas, tags, arquivo e
-   lixeira para primitivas compartilhadas.
-4. Registrar todo recurso compartilhável no mesmo modelo de permissões e acesso
-   legível pelo agente.
-5. Dar a cada recurso colaborativo uma história consistente de atividade,
-   comentários, review, restore e auditoria.
-6. Unificar notificações, aprovações, status de runs, traces, evals e feedback.
+That means this keeps working:
+
+```tsx
+import { PresenceBar, VisibilityBadge } from "@agent-native/core/client";
+```
+
+New reusable app code should prefer Toolkit or app-local adapters:
+
+```tsx
+import { PresenceBar } from "@agent-native/toolkit/collab-ui";
+import { Button } from "@/components/ui/button";
+```
+
+## Boundary {#boundary}
+
+Move code into Toolkit when it is reusable app-building UI or a pure UI contract.
+Keep code in core when it owns access control, SQL, actions, request context,
+Yjs transport, auth, or other runtime guarantees.
+
+Good Toolkit candidates:
+
+- Components that render the same interaction across apps.
+- Display-only helpers and structural prop types.
+- Base components that receive data and callbacks from an app or core wrapper.
+- App-shell hooks and adapters that do not own domain data.
+
+Keep app-local:
+
+- Domain-specific workflows.
+- Resource-specific mutations and routes.
+- Custom visual systems an app intentionally owns.
+
+Keep core-owned:
+
+- Sharing actions and access checks.
+- Collaboration storage, awareness transport, and Yjs document sync.
+- Auth, sessions, app state, SQL, and server plugins.
+
+## Pages {#pages}
+
+- [UI Primitives](/docs/toolkit-ui)
+- [App Adapters](/docs/toolkit-app-adapters)
+- [Collaboration UI](/docs/toolkit-collaboration-ui)
+- [Sharing UI](/docs/toolkit-sharing-ui)
+- [Shell & Hooks](/docs/toolkit-shell-hooks)

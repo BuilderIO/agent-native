@@ -55,10 +55,18 @@ export function isMediaConstraintFailure(err: unknown): boolean {
 
 export async function getCameraStreamWithFallback(
   deviceId?: string | null,
+  videoConstraints?: MediaTrackConstraints,
 ): Promise<MediaStream> {
   const id = deviceId?.trim();
+  // Extra constraints (e.g. the bubble's ideal resolution) apply to both the
+  // exact-device attempt and the default-camera retry; with no extras the
+  // fallback stays a plain `video: true` request.
+  const baseVideo: MediaStreamConstraints["video"] =
+    videoConstraints && Object.keys(videoConstraints).length > 0
+      ? videoConstraints
+      : true;
   const exactConstraints: MediaStreamConstraints = {
-    video: id ? { deviceId: { exact: id } } : true,
+    video: id ? { ...videoConstraints, deviceId: { exact: id } } : baseVideo,
     audio: false,
   };
 
@@ -70,7 +78,10 @@ export async function getCameraStreamWithFallback(
       "[clips-recorder] selected camera constraint failed; retrying default camera",
       err,
     );
-    return navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+    return navigator.mediaDevices.getUserMedia({
+      video: baseVideo,
+      audio: false,
+    });
   }
 }
 

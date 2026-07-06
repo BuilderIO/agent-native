@@ -3,12 +3,12 @@ import {
   useActionMutation,
   useT,
 } from "@agent-native/core/client";
-import { Skeleton } from "@agent-native/toolkit/ui/skeleton";
 import type { Weight } from "@shared/types";
 import { IconScale } from "@tabler/icons-react";
 import { useState } from "react";
 import { toast } from "sonner";
 
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   isOptimisticLogRow,
   useOptimisticLogRows,

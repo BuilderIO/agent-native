@@ -141,6 +141,29 @@ export function useMediaDevices({
     };
   }, [loadDevices]);
 
+  // Reopening the popover doesn't reliably re-fire the Tauri
+  // `clips:popover-visible` event (the WebView is shown/hidden, not
+  // remounted, and the native side only ever emits the `false`/hidden
+  // transition). Without this, a webcam unplugged while the popover was
+  // closed would still show the previous session's device list — the exact
+  // "reopen without my webcam, it still shows the old camera selected" bug.
+  // Cover reopen via both signals so it works whether the WebView regains
+  // focus or only its document visibility flips.
+  useEffect(() => {
+    const onFocus = (): void => {
+      loadDevices();
+    };
+    const onVisibility = (): void => {
+      if (document.visibilityState === "visible") loadDevices();
+    };
+    window.addEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      window.removeEventListener("focus", onFocus);
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
+  }, [loadDevices]);
+
   const unlockDeviceLabels = useCallback(async () => {
     // Audio-only probe to unlock mic labels. We INTENTIONALLY skip video —
     // the on-screen camera bubble window owns the camera, and probing
@@ -223,6 +246,30 @@ export function useMediaDevices({
     if (!isPseudoMediaDeviceId(micId) || mics.length === 0) return;
     const builtIn = mics.find(isBuiltInMicDevice);
     setMicId(builtIn?.deviceId ?? "");
+  }, [micId, mics]);
+
+  // A stored device id that no longer matches anything enumerated (e.g. the
+  // webcam/mic was unplugged since the app last ran) must not keep being
+  // treated as a live selection — fall back to the default device instead of
+  // silently re-launching with a ghost id, which fails acquisition with
+  // OverconstrainedError ("Invalid constraint") and leaves a stale label in
+  // the picker until the user manually refreshes and reselects.
+  //
+  // Only trust a NON-EMPTY list, though: enumeration legitimately returns an
+  // empty list on a transient error or before permission is granted, and
+  // clearing a valid saved selection over that would destroy the user's
+  // choice for no reason.
+  useEffect(() => {
+    if (!cameraId || cameras.length === 0) return;
+    if (cameras.some((d) => d.deviceId === cameraId)) return;
+    setCameraId("");
+    setCameraLabel("");
+  }, [cameraId, cameras]);
+  useEffect(() => {
+    if (isPseudoMediaDeviceId(micId) || !micId || mics.length === 0) return;
+    if (mics.some((d) => d.deviceId === micId)) return;
+    setMicId("");
+    setMicLabel("");
   }, [micId, mics]);
 
   useEffect(() => saveString(CAM_KEY, cameraId), [cameraId]);

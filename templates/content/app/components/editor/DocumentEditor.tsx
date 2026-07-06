@@ -10,9 +10,6 @@ import {
   agentNativePath,
   type CollabUser,
 } from "@agent-native/core/client";
-import { Button } from "@agent-native/toolkit/ui/button";
-import { Sheet, SheetContent } from "@agent-native/toolkit/ui/sheet";
-import { Skeleton } from "@agent-native/toolkit/ui/skeleton";
 import type { Document, DocumentSyncStatus } from "@shared/api";
 import { IconArrowLeft, IconDatabase, IconLoader2 } from "@tabler/icons-react";
 import { IconLock } from "@tabler/icons-react";
@@ -33,13 +30,18 @@ import {
   contentBlockRegistry,
   createContentBlockRenderContext,
 } from "@/blocks/contentBlockRegistry";
+import { Button } from "@/components/ui/button";
+import { Sheet, SheetContent } from "@/components/ui/sheet";
+import { Skeleton } from "@/components/ui/skeleton";
 import { useComments } from "@/hooks/use-comments";
 import { useProcessBuilderBodyHydration } from "@/hooks/use-content-database";
 import {
+  isDocumentUpdateConflict,
   useDocument,
   useDocuments,
   useUpdateDocument,
 } from "@/hooks/use-documents";
+import type { DocumentUpdateConflictResponse } from "@/hooks/use-documents";
 import { useLocalStorage } from "@/hooks/use-local-storage";
 import {
   documentSyncStatusQueryKey,
@@ -494,6 +496,7 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
     ydoc,
     awareness,
     isLoading: collabLoading,
+    isSynced: collabSynced,
     activeUsers,
     agentActive,
     agentPresent,
@@ -698,7 +701,7 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
         icon?: string | null;
       },
       options: DocumentSaveOptions = {},
-    ): Promise<Document> => {
+    ): Promise<Document | DocumentUpdateConflictResponse> => {
       if (!options.allowQueuedSave && !canEditRef.current) return document;
 
       const localSource = document.source;
@@ -735,6 +738,15 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
       }
 
       try {
+        // Content saves are guarded with a CAS against the last snapshot this
+        // editor reconciled for content, so a save can't silently clobber a
+        // concurrent update (e.g. the Notion auto-pull) that landed between
+        // this editor's last reconcile and this save reaching the server.
+        // Title/icon-only saves are unaffected (no baseUpdatedAt sent).
+        const baseUpdatedAt =
+          updates.content !== undefined
+            ? (lastSavedContentRef.current.updatedAt ?? undefined)
+            : undefined;
         return await updateDocument.mutateAsync({
           id: documentId,
           loadedUpdatedAt: documentUpdatedAtRef.current ?? undefined,
@@ -745,6 +757,7 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
                 )
               : undefined,
           ...updates,
+          ...(baseUpdatedAt !== undefined ? { baseUpdatedAt } : {}),
         });
       } catch (error) {
         if (!isLinkedLocalSource) throw error;
@@ -795,6 +808,19 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
       }
 
       const saved = await persistDocumentUpdates(updates, options);
+      if (isDocumentUpdateConflict(saved)) {
+        // A concurrent write (e.g. the Notion auto-pull) landed after this
+        // editor's last reconciled content snapshot — the save was rejected,
+        // not applied. Don't adopt watermarks for the content we tried to
+        // send (that would make the editor believe its now-discarded content
+        // is the saved truth) and don't push to Notion below. The conflict
+        // response already lands the winning server document in the
+        // get-document cache (see useUpdateDocument), so the existing
+        // external-change effects above pick it up and reconcile the editor
+        // to it the same way they handle any other out-of-band write —
+        // silently, with no toast.
+        return { contentPersisted: false };
+      }
       // Adopt the server updatedAt per saved field.
       const savedAt = saved?.updatedAt ?? new Date().toISOString();
       adoptConfirmedSaveWatermarks({
@@ -947,7 +973,21 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
 
       try {
         const url = agentNativePath("/_agent-native/actions/update-document");
-        const body = JSON.stringify({ id: documentId, ...updates });
+        // Include the same CAS guard as the normal save path: if content is
+        // going out, tag it with the last content snapshot this editor
+        // reconciled so a teardown flush can't clobber a concurrent write
+        // (e.g. Notion auto-pull) either. The tab is unloading, so there's no
+        // response handling — this only prevents the write from applying; it
+        // can't reconcile the editor, which is fine since it's going away.
+        const baseUpdatedAt =
+          updates.content !== undefined
+            ? (lastSavedContentRef.current.updatedAt ?? undefined)
+            : undefined;
+        const body = JSON.stringify({
+          id: documentId,
+          ...updates,
+          ...(baseUpdatedAt !== undefined ? { baseUpdatedAt } : {}),
+        });
         const ok = fetch(url, {
           method: "POST",
           headers: {
@@ -1036,16 +1076,23 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
             try {
               if (Object.keys(updates).length > 0) {
                 const saved = await persistDocumentUpdates(updates);
-                const savedAt = saved?.updatedAt ?? new Date().toISOString();
-                adoptConfirmedSaveWatermarks({
-                  saved,
-                  savedAt,
-                  title,
-                  content,
-                  updates,
-                  lastSavedTitleRef,
-                  lastSavedContentRef,
-                });
+                // A CAS conflict here means a newer write landed between this
+                // editor's last reconcile and the flush; leave watermarks
+                // alone so the external-change effects reconcile this editor
+                // to the winning server content instead of us claiming the
+                // now-discarded flush content as saved.
+                if (!isDocumentUpdateConflict(saved)) {
+                  const savedAt = saved?.updatedAt ?? new Date().toISOString();
+                  adoptConfirmedSaveWatermarks({
+                    saved,
+                    savedAt,
+                    title,
+                    content,
+                    updates,
+                    lastSavedTitleRef,
+                    lastSavedContentRef,
+                  });
+                }
               }
             } finally {
               // Acknowledge the flush even if nothing changed — the SQL row is
@@ -1332,6 +1379,12 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
                               const saved = await persistDocumentUpdates({
                                 icon: emoji,
                               });
+                              // Icon-only save: never CAS-guarded server-side
+                              // (no content in this call), so this can't come
+                              // back as a conflict — narrow defensively anyway
+                              // since persistDocumentUpdates' return type is a
+                              // union.
+                              if (isDocumentUpdateConflict(saved)) return;
                               adoptConfirmedSaveWatermarks({
                                 saved,
                                 savedAt:
@@ -1453,6 +1506,7 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
                         // any local Y.Doc mutation, so they get live edits +
                         // cursors without ever writing. Excludes local-file docs.
                         ydoc={collabEnabled ? ydoc : null}
+                        collabSynced={collabEnabled ? collabSynced : true}
                         awareness={collabEnabled ? awareness : null}
                         user={currentUser}
                         editable={editorCanEdit}

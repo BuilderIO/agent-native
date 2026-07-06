@@ -1,25 +1,4 @@
 import { agentNativePath, useT } from "@agent-native/core/client";
-import { useIsMobile } from "@agent-native/toolkit/hooks/use-mobile";
-import { Button } from "@agent-native/toolkit/ui/button";
-import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from "@agent-native/toolkit/ui/collapsible";
-import { Input } from "@agent-native/toolkit/ui/input";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@agent-native/toolkit/ui/popover";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@agent-native/toolkit/ui/select";
-import { Switch } from "@agent-native/toolkit/ui/switch";
 import {
   IconBrowser,
   IconCamera,
@@ -42,6 +21,27 @@ import {
 } from "react";
 
 import { CaptureInstallInlineLink } from "@/components/capture-install-options";
+import { Button } from "@/components/ui/button";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
+import { Input } from "@/components/ui/input";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
+import { useIsMobile } from "@/hooks/use-mobile";
 import {
   loadRecorderPreferences,
   saveRecorderPreferences,

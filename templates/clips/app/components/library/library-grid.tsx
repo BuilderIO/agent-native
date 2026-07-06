@@ -3,12 +3,12 @@ import {
   setClientAppState,
   useT,
 } from "@agent-native/core/client";
-import { Button } from "@agent-native/toolkit/ui/button";
 import { IconAlertTriangle } from "@tabler/icons-react";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
 import { ShareRecordingDialog } from "@/components/player/share-dialog";
+import { Button } from "@/components/ui/button";
 import {
   useFolders,
   useRecordings,

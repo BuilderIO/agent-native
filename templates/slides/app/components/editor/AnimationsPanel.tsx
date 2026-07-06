@@ -1,12 +1,5 @@
 import { useT } from "@agent-native/core/client";
 import {
-  Select,
-  SelectTrigger,
-  SelectValue,
-  SelectContent,
-  SelectItem,
-} from "@agent-native/toolkit/ui/select";
-import {
   DndContext,
   closestCenter,
   PointerSensor,
@@ -30,6 +23,13 @@ import {
 import { nanoid } from "nanoid";
 import { useMemo, useCallback } from "react";
 
+import {
+  Select,
+  SelectTrigger,
+  SelectValue,
+  SelectContent,
+  SelectItem,
+} from "@/components/ui/select";
 import type {
   Slide,
   SlideAnimation,

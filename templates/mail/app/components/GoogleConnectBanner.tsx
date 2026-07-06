@@ -4,7 +4,6 @@ import {
   oauthRedirectUri,
   useT,
 } from "@agent-native/core/client";
-import { Button } from "@agent-native/toolkit/ui/button";
 import {
   IconMail,
   IconX,
@@ -19,6 +18,7 @@ import {
 } from "@tabler/icons-react";
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 
+import { Button } from "@/components/ui/button";
 import {
   useGoogleAuthStatus,
   useGoogleAuthUrl,

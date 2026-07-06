@@ -3,7 +3,12 @@ import {
   useActionQuery,
   useT,
 } from "@agent-native/core/client";
-import { Button } from "@agent-native/toolkit/ui/button";
+import { IconLayoutDashboard } from "@tabler/icons-react";
+import { useMemo, useState } from "react";
+import { useNavigate } from "react-router";
+import { toast } from "sonner";
+
+import { Button } from "@/components/ui/button";
 import {
   Card,
   CardContent,
@@ -11,13 +16,8 @@ import {
   CardFooter,
   CardHeader,
   CardTitle,
-} from "@agent-native/toolkit/ui/card";
-import { Skeleton } from "@agent-native/toolkit/ui/skeleton";
-import { IconLayoutDashboard } from "@tabler/icons-react";
-import { useMemo, useState } from "react";
-import { useNavigate } from "react-router";
-import { toast } from "sonner";
-
+} from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
 import { demoNodeExporterDashboardPath } from "@/lib/demo-dashboard-path";
 
 type InstalledDashboard = {

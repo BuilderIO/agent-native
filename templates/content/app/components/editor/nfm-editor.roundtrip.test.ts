@@ -207,6 +207,19 @@ const HARD_CASES: Array<{ name: string; nfm: string }> = [
       "</synced_block_reference>",
     ),
   },
+  {
+    // n1 regression: unrecognized raw containers (parsed to a notionBlockAtom
+    // with the source preserved in __raw) must survive a full editor
+    // load/save cycle byte-exact, not collapse to the bare tag name.
+    name: "raw container (meeting-notes) preserves body through the editor",
+    nfm: L(
+      "<meeting-notes>",
+      "Attendees: Steve, Alex",
+      "Notes: discussed the roadmap",
+      "Decisions: ship it",
+      "</meeting-notes>",
+    ),
+  },
 ];
 
 /**
@@ -332,4 +345,74 @@ describe("NFM ⇄ real TipTap editor round-trip", () => {
       expect(editorRoundTrip(nfm)).toBe(nfm);
     });
   }
+});
+
+/**
+ * The toggle heading's `summary` node attr is raw NFM source (round-tripped
+ * verbatim for Notion fixtures — see the CASES "toggle heading" case above),
+ * but the `notion-toggle__summary` <input> in NotionExtensions.tsx writes
+ * plain editor-typed text into that same attr with no escaping. These cases
+ * start from a doc JSON (as the editor would actually produce it after a
+ * user types into that input) rather than from an NFM string, and confirm a
+ * save/reload cycle through the live schema preserves the exact summary text
+ * and toggle structure instead of degrading into a plain heading containing
+ * literal attrs.
+ */
+describe("NFM ⇄ real TipTap editor round-trip: editor-typed toggle summaries", () => {
+  const docRoundTrip = (docJson: any): any => {
+    const editor = new Editor({
+      extensions: createVisualEditorExtensions(),
+      content: docJson,
+    });
+    const nfm = docToNfm(editor.getJSON() as any);
+    editor.destroy();
+    const editor2 = new Editor({
+      extensions: createVisualEditorExtensions(),
+      content: nfmToDoc(nfm),
+    });
+    const result = editor2.getJSON();
+    editor2.destroy();
+    return { nfm, result };
+  };
+
+  const headingToggleDoc = (summary: string) => ({
+    type: "doc",
+    content: [
+      {
+        type: "notionToggle",
+        attrs: { summary, headingLevel: 2, open: true },
+        content: [{ type: "paragraph" }],
+      },
+    ],
+  });
+
+  it("preserves a toggle-heading summary ending in a single backslash", () => {
+    const { result } = docRoundTrip(headingToggleDoc("b\\"));
+    expect(result.content?.[0]?.type).toBe("notionToggle");
+    expect(result.content?.[0]?.attrs?.summary).toBe("b\\");
+    expect(result.content?.[0]?.attrs?.headingLevel).toBe(2);
+  });
+
+  it("preserves an editor-typed Windows-path toggle-heading summary", () => {
+    const { result } = docRoundTrip(headingToggleDoc("C:\\path\\"));
+    expect(result.content?.[0]?.type).toBe("notionToggle");
+    expect(result.content?.[0]?.attrs?.summary).toBe("C:\\path\\");
+  });
+
+  it("preserves a toggle-heading summary containing an attr-lookalike sequence", () => {
+    const { result } = docRoundTrip(headingToggleDoc('hi {color="red"}'));
+    expect(result.content?.[0]?.type).toBe("notionToggle");
+    expect(result.content?.[0]?.attrs?.summary).toBe('hi {color="red"}');
+  });
+
+  it("is a stable fixpoint on the second save", () => {
+    const { nfm } = docRoundTrip(headingToggleDoc("b\\"));
+    const editor2 = new Editor({
+      extensions: createVisualEditorExtensions(),
+      content: nfmToDoc(nfm),
+    });
+    const nfm2 = docToNfm(editor2.getJSON() as any);
+    editor2.destroy();
+    expect(nfm2).toBe(nfm);
+  });
 });

@@ -1,6 +1,8 @@
 import { useT } from "@agent-native/core/client";
-import { Badge } from "@agent-native/toolkit/ui/badge";
-import { Button } from "@agent-native/toolkit/ui/button";
+import { IconAlertTriangle, IconBook, IconFileText } from "@tabler/icons-react";
+
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import {
   Sheet,
   SheetContent,
@@ -8,9 +10,8 @@ import {
   SheetFooter,
   SheetHeader,
   SheetTitle,
-} from "@agent-native/toolkit/ui/sheet";
-import { Textarea } from "@agent-native/toolkit/ui/textarea";
-import { IconAlertTriangle, IconBook, IconFileText } from "@tabler/icons-react";
+} from "@/components/ui/sheet";
+import { Textarea } from "@/components/ui/textarea";
 
 export interface CanonicalPreviewData {
   source: "knowledge" | "proposal";

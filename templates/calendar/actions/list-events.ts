@@ -16,6 +16,39 @@ import { calendarEventMatchesQuery } from "./event-search.js";
 
 const DATE_ONLY_RE = /^\d{4}-\d{2}-\d{2}$/;
 
+// External ICS feeds are third-party HTTP fetches re-parsed on every
+// list-events call; a short TTL avoids re-fetching/re-parsing the same feed
+// + range on every poll while a calendar tab stays open. Per-process only —
+// a serverless cold start just resets it, which is fine since the feed is
+// re-fetched on the next call.
+const ICAL_CACHE_TTL_MS = 5 * 60_000;
+const icalCache = new Map<
+  string,
+  { events: CalendarEvent[]; fetchedAt: number }
+>();
+
+async function fetchICalEventsCached(
+  cal: ExternalCalendar,
+  from: string,
+  to: string,
+): Promise<CalendarEvent[]> {
+  const cacheKey = `${cal.url}|${from}|${to}`;
+  const cached = icalCache.get(cacheKey);
+  if (cached && Date.now() - cached.fetchedAt < ICAL_CACHE_TTL_MS) {
+    return cached.events;
+  }
+  const events = await fetchICalEvents(
+    cal.id,
+    cal.name,
+    cal.url,
+    cal.color,
+    from,
+    to,
+  );
+  icalCache.set(cacheKey, { events, fetchedAt: Date.now() });
+  return events;
+}
+
 interface CalendarEventRange {
   from: string;
   to: string;
@@ -308,14 +341,7 @@ export async function listCalendarEvents(
 
   const icalResults = await Promise.allSettled(
     externalCalendars.map((cal) =>
-      fetchICalEvents(
-        cal.id,
-        cal.name,
-        cal.url,
-        cal.color,
-        range.from,
-        range.to,
-      ),
+      fetchICalEventsCached(cal, range.from, range.to),
     ),
   );
 

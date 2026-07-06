@@ -1,0 +1,33 @@
+---
+title: "Toolkit Sharing UI"
+description: "Reusable sharing display components with core-owned sharing runtime compatibility."
+---
+
+# Toolkit Sharing UI
+
+`@agent-native/toolkit/sharing` contains sharing UI that does not perform access
+checks or mutations. Today it exports `VisibilityBadge`:
+
+```tsx
+import { VisibilityBadge } from "@agent-native/toolkit/sharing";
+```
+
+Core still owns the sharing runtime: share tables, resource registration, access
+filters, visibility changes, invites, roles, and private access tokens for
+agent-readable public surfaces.
+
+Use core wrappers when a component needs to call sharing actions:
+
+```tsx
+import { ShareButton, ShareDialog } from "@agent-native/core/client";
+```
+
+Those imports remain compatible. As more sharing UI is split into presentational
+base components, core wrappers should keep doing the runtime work and pass data
+and callbacks into Toolkit-owned UI.
+
+## Boundary {#boundary}
+
+Toolkit sharing UI can render badges, rows, base dialogs, and role pickers when
+data and callbacks are injected. Core sharing code should own SQL, permissions,
+request context, org membership lookups, and share-token minting.

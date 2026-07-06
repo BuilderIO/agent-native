@@ -276,7 +276,6 @@ const messages = {
       'Create a new widget that fits in slot "{{slotId}}". I\'ll describe what it should do next.',
     whatShouldItDo: "它应该做什么？",
     createPlaceholder: "待办事项列表、API 仪表板、计算器...",
-    backToApp: "返回应用程序",
     title: "扩展",
     hiddenShown: "显示隐藏",
     showHidden: "显示隐藏项",

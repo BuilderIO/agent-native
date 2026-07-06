@@ -293,7 +293,6 @@ const messages = {
       'Create a new widget that fits in slot "{{slotId}}". I\'ll describe what it should do next.',
     whatShouldItDo: "What should it do?",
     createPlaceholder: "A todo list, API dashboard, calculator...",
-    backToApp: "Back to app",
     title: "Extensions",
     hiddenShown: "Hiding shown",
     showHidden: "Show hidden",
@@ -474,7 +473,7 @@ const messages = {
     toolsAvailable_one: "{{count}} tool available",
     toolsAvailable_other: "{{count}} tools available",
     failed: "Failed",
-    docsLabel: "{{name}} docs",
+    docsLabel: "View {{name}} docs",
     catalog: {
       context7: {
         description: "Fetch current library docs in agent chats.",

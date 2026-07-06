@@ -222,6 +222,7 @@ class BuilderEngine implements AgentEngine {
       max_tokens: resolveMaxOutputTokensForEngine(
         this.name,
         opts.maxOutputTokens,
+        opts.model,
       ),
       ...(reasoningEffort ? { reasoning_effort: reasoningEffort } : {}),
     };

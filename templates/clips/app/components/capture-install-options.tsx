@@ -1,10 +1,4 @@
 import { appPath, useT } from "@agent-native/core/client";
-import { Button, type ButtonProps } from "@agent-native/toolkit/ui/button";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@agent-native/toolkit/ui/popover";
 import {
   IconBrandApple,
   IconBrandChrome,
@@ -15,6 +9,12 @@ import {
 } from "@tabler/icons-react";
 import { type ReactNode } from "react";
 
+import { Button, type ButtonProps } from "@/components/ui/button";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import {
   clipsChromeExtensionEnabled,
   clipsChromeExtensionUrl,

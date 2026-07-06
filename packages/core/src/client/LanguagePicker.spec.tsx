@@ -10,6 +10,13 @@ import {
   LOCALE_STORAGE_KEY,
 } from "./i18n.js";
 
+function importI18nCopy(tag: string) {
+  const specifier = `./i18n.js?${tag}`;
+  return import(/* @vite-ignore */ specifier) as Promise<
+    typeof import("./i18n.js")
+  >;
+}
+
 describe("LanguagePicker", () => {
   let container: HTMLDivElement;
   let root: Root;
@@ -120,5 +127,31 @@ describe("LanguagePicker", () => {
         .querySelector("[data-language-picker-trigger]")
         ?.getAttribute("aria-label"),
     ).toBe("Interface language: Français (fr-FR)");
+  });
+
+  it("shares locale context across duplicate optimized module instances", async () => {
+    const providerModule = await importI18nCopy("provider-copy");
+    const consumerModule = await importI18nCopy("consumer-copy");
+    const Provider = providerModule.AgentNativeI18nProvider;
+    const ForeignLanguagePicker = consumerModule.LanguagePicker;
+
+    await act(async () => {
+      root.render(
+        <Provider
+          initialLocale="en-US"
+          initialPreference="en-US"
+          persistPreference={false}
+        >
+          <ForeignLanguagePicker label="Interface language" />
+        </Provider>,
+      );
+      await Promise.resolve();
+    });
+
+    expect(
+      document
+        .querySelector("[data-language-picker-trigger]")
+        ?.getAttribute("aria-label"),
+    ).toBe("Interface language: English (en-US)");
   });
 });

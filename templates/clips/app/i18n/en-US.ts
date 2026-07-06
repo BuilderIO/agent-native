@@ -340,6 +340,13 @@ const messages = {
     segments: "{{count}} segments",
     copyTranscript: "Copy transcript",
     copyFullTranscript: "Copy full transcript",
+    timeRemaining_one: "{{count}} min left",
+    timeRemaining_other: "{{count}} min left",
+    endMeeting: "End meeting",
+    endThisMeeting: "End this meeting?",
+    endMeetingDescription:
+      "This stops recording and transcription for this meeting. You can still generate notes from what was captured so far.",
+    couldNotEndMeeting: "Couldn't end meeting",
   },
   transcriptPanel: {
     transcribing: "Transcribing…",
@@ -424,6 +431,8 @@ const messages = {
       "Fetch this Clips agent context URL: {{agentContextUrl}}. Use transcript.segments for spoken context, fetch recommendedFrames or the frame API URLs to see the screen, and check browserDiagnostics if present for redacted console logs and fetch/XHR request metadata.",
     agentTokenDescription:
       "This temporary agent URL lets agents read the clip without making it public. It expires after two hours.",
+    agentLinkUnavailable: "Couldn't create the agent link.",
+    retryAgentLink: "Retry",
     gifPreview: "GIF preview",
     openPlayer: "Open player",
     downloadMp4: "Download MP4",
@@ -482,9 +491,15 @@ const messages = {
     quickPrompts: "Quick prompts",
     whatDidIMiss: "What did I miss?",
     whatDidIMissPrompt: "What did I miss?",
+    suggestQuestions: "Suggest questions for me to ask",
+    suggestQuestionsPrompt:
+      "Suggest a few good questions I could ask next in this meeting, based on what's been discussed so far.",
     summarizeLastFive: "Summarize the last 5 minutes",
     summarizeLastFivePrompt:
       "Summarize the last 5 minutes of this meeting in 3-5 bullets.",
+    makeMeSoundSmart: "Make me sound smart",
+    makeMeSoundSmartPrompt:
+      "Give me a sharp, insightful comment or question I could add right now, based on this meeting so far.",
     actionItemsForMe: "Action items for me",
     actionItemsForMePrompt:
       "List the action items from this meeting that are assigned to me. Use checkbox bullets.",
@@ -759,6 +774,9 @@ All notable user-facing changes to Clips are documented here. Open it any time f
     anonymous: "Anonymous",
     anon: "Anon",
     moreViewers: "+{{count}} more",
+    viewedBy: "Viewed by",
+    someone: "Someone",
+    noViewsYet: "No views yet.",
   },
   libraryGrid: {
     spaceRoot: "Space root",
@@ -917,6 +935,8 @@ All notable user-facing changes to Clips are documented here. Open it any time f
     noVideo: "No video available",
     thanks: "Thanks for watching",
     playClip: "Play clip",
+    unsupportedFormat:
+      "This browser can't play this video. Try opening the link in Chrome, Edge, or Firefox.",
   },
   searchBar: {
     placeholder: "Search recordings…",
@@ -980,6 +1000,13 @@ All notable user-facing changes to Clips are documented here. Open it any time f
       "The live transcript will appear here once notes start.",
     me: "Me",
     them: "Them",
+    searchTranscript: "Search transcript",
+    searchPlaceholder: "Search transcript…",
+    searchMatchCount: "{{current}} of {{total}}",
+    searchNoMatches: "No matches",
+    searchPrevMatch: "Previous match",
+    searchNextMatch: "Next match",
+    searchClose: "Close search",
   },
   editorLayout: {
     trimmed: "Trimmed",
@@ -1248,6 +1275,11 @@ All notable user-facing changes to Clips are documented here. Open it any time f
     browserDictation: "Browser dictation",
     browserDictationDescription:
       "Use the button on this page, or press the shortcut while this tab is focused. Browser dictation saves here for copy and cleanup.",
+    browserDictationDescriptionDesktop:
+      "Use the button below to capture a note right here on this page. It does not paste into other apps — for that, use the desktop shortcut on the right.",
+    quickNoteTitle: "Quick dictation note",
+    quickNoteHint:
+      "Captures here without leaving this page — it does not paste into other apps. Use the button to start and stop.",
     desktopShortcuts: "Desktop shortcuts",
     desktopShortcutsDescriptionSuffix: ", in the desktop app.",
     holdFn: "Hold Fn",
@@ -1279,6 +1311,18 @@ All notable user-facing changes to Clips are documented here. Open it any time f
       "Voice-to-text dictation with AI cleanup. Get the desktop app to dictate from anywhere with a global shortcut.",
     loadFailed: "Couldn't load dictations.",
     noFilterMatches: "No dictations matching this filter.",
+    dictionaryTitle: "Dictionary",
+    dictionaryDescription:
+      "Terms here bias speech recognition toward your preferred spellings — auto-learned from corrections, or add your own.",
+    dictionaryTermPlaceholder: "Term",
+    dictionaryReplacementPlaceholder: "Replacement (optional)",
+    dictionaryAdd: "Add",
+    dictionaryLoading: "Loading dictionary...",
+    dictionaryEmpty: "No learned terms yet.",
+    dictionaryUsesCount: "Used {{count}}x",
+    dictionaryRemove: "Remove",
+    vocabularyAddFailed: "Couldn't add term",
+    vocabularyRemoveFailed: "Couldn't remove term",
   },
   clipsFinalRaw: {
     splitAtPlayhead: "Split at playhead (S)",

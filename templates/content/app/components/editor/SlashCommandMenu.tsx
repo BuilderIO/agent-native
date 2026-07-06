@@ -1,9 +1,4 @@
 import { useSendToAgentChat, useT } from "@agent-native/core/client";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@agent-native/toolkit/ui/popover";
 import type { CreateInlineDatabaseResponse } from "@shared/api";
 import { collapseExactRepeatedNfm, docToNfm } from "@shared/nfm";
 import { serializeRegistryBlockToMdx } from "@shared/nfm-registry";
@@ -35,6 +30,11 @@ import { useNavigate } from "react-router";
 import { toast } from "sonner";
 
 import { contentBlockRegistry } from "@/blocks/contentBlockRegistry";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import { useCreateInlineContentDatabase } from "@/hooks/use-content-database";
 import { useCreatePage } from "@/hooks/use-create-page";
 import { cn } from "@/lib/utils";

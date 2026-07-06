@@ -1,32 +1,5 @@
 import { useT } from "@agent-native/core/client";
 import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@agent-native/toolkit/ui/alert-dialog";
-import { Button } from "@agent-native/toolkit/ui/button";
-import { Card, CardContent } from "@agent-native/toolkit/ui/card";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogFooter,
-} from "@agent-native/toolkit/ui/dialog";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@agent-native/toolkit/ui/dropdown-menu";
-import { Input } from "@agent-native/toolkit/ui/input";
-import {
   IconChevronDown,
   IconDeviceFloppy,
   IconFolderOpen,
@@ -36,6 +9,33 @@ import {
 import { useMemo, useState, useEffect } from "react";
 import { useSearchParams } from "react-router";
 
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Input } from "@/components/ui/input";
 import { useMetricsQuery } from "@/lib/query-metrics";
 
 import { ChartTypePicker } from "./components/ChartTypePicker";

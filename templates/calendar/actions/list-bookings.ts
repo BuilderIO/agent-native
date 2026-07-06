@@ -6,7 +6,24 @@ import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import type { Booking } from "../shared/api.js";
 
-function rowToBooking(row: typeof schema.bookings.$inferSelect): Booking {
+function rowToBooking(
+  row: Pick<
+    typeof schema.bookings.$inferSelect,
+    | "id"
+    | "name"
+    | "email"
+    | "start"
+    | "end"
+    | "slug"
+    | "eventTitle"
+    | "notes"
+    | "fieldResponses"
+    | "meetingLink"
+    | "googleEventId"
+    | "status"
+    | "createdAt"
+  >,
+): Booking {
   let fieldResponses: Record<string, string | boolean> | undefined;
   if (row.fieldResponses) {
     try {
@@ -43,7 +60,21 @@ export default defineAction({
     if (slugs.length === 0) return [];
 
     const rows = await getDb()
-      .select()
+      .select({
+        id: schema.bookings.id,
+        name: schema.bookings.name,
+        email: schema.bookings.email,
+        start: schema.bookings.start,
+        end: schema.bookings.end,
+        slug: schema.bookings.slug,
+        eventTitle: schema.bookings.eventTitle,
+        notes: schema.bookings.notes,
+        fieldResponses: schema.bookings.fieldResponses,
+        meetingLink: schema.bookings.meetingLink,
+        googleEventId: schema.bookings.googleEventId,
+        status: schema.bookings.status,
+        createdAt: schema.bookings.createdAt,
+      })
       .from(schema.bookings)
       .where(inArray(schema.bookings.slug, slugs))
       .orderBy(schema.bookings.start);

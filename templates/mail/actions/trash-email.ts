@@ -5,6 +5,38 @@ import { z } from "zod";
 
 import { trashEmail } from "../server/lib/email-state.js";
 
+// Gmail has no batch endpoint for trash (unlike label add/remove), so bulk
+// trash uses bounded-concurrency parallel calls instead of one-at-a-time or
+// fully-unbounded fan-out.
+const TRASH_CONCURRENCY = 5;
+
+async function trashWithBoundedConcurrency(
+  ids: string[],
+  run: (id: string, index: number) => Promise<void>,
+): Promise<{ id: string; success: boolean; error?: string }[]> {
+  const results: { id: string; success: boolean; error?: string }[] = new Array(
+    ids.length,
+  );
+  let next = 0;
+  async function worker() {
+    while (true) {
+      const i = next++;
+      if (i >= ids.length) return;
+      const id = ids[i];
+      try {
+        await run(id, i);
+        results[i] = { id, success: true };
+      } catch (err: any) {
+        results[i] = { id, success: false, error: err?.message ?? "failed" };
+      }
+    }
+  }
+  await Promise.all(
+    Array.from({ length: Math.min(TRASH_CONCURRENCY, ids.length) }, worker),
+  );
+  return results;
+}
+
 export default defineAction({
   description: "Move one or more emails to trash by ID.",
   schema: z.object({
@@ -13,6 +45,12 @@ export default defineAction({
       .string()
       .optional()
       .describe("Specific connected account to use"),
+    accountEmails: z
+      .string()
+      .optional()
+      .describe(
+        "Per-id account emails, comma-separated and positionally matched to --id (bulk UI calls only)",
+      ),
   }),
   run: async (args) => {
     const ids = args.id
@@ -24,16 +62,17 @@ export default defineAction({
     const ownerEmail = getRequestUserEmail();
     if (!ownerEmail) throw new Error("no authenticated user");
 
-    const results: { id: string; success: boolean; error?: string }[] = [];
+    const accountEmailList = args.accountEmails
+      ?.split(",")
+      .map((s) => s.trim());
 
-    for (const id of ids) {
-      try {
-        await trashEmail({ id, ownerEmail, accountEmail: args.accountEmail });
-        results.push({ id, success: true });
-      } catch (err: any) {
-        results.push({ id, success: false, error: err?.message ?? "failed" });
-      }
-    }
+    const results = await trashWithBoundedConcurrency(ids, (id, i) =>
+      trashEmail({
+        id,
+        ownerEmail,
+        accountEmail: accountEmailList?.[i] || args.accountEmail,
+      }).then(() => undefined),
+    );
 
     await writeAppState("refresh-signal", { ts: Date.now() });
 

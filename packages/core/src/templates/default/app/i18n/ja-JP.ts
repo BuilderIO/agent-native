@@ -287,7 +287,6 @@ const messages = {
       'Create a new widget that fits in slot "{{slotId}}". I\'ll describe what it should do next.',
     whatShouldItDo: "それは何をすべきでしょうか？",
     createPlaceholder: "ToDo リスト、API ダッシュボード、電卓...",
-    backToApp: "アプリに戻る",
     title: "拡張機能",
     hiddenShown: "非表示を表示",
     showHidden: "非表示を表示",

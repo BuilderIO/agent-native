@@ -1,19 +1,19 @@
 ---
-title: "範本"
+title: "應用程式"
 description: "分叉一個可用的 SaaS 產品並使其成為您的產品 - 包括代理。"
 ---
 
-# 範本
+# 應用程式
 
-想要發布您自己的人工智慧分析工具嗎？郵件用戶端？表格生成器？選取一個範本，您只需幾分鐘即可獲得一個可執行的 SaaS — 代理、資料庫、驗證和部署管道已連線完畢。
+想要發布您自己的人工智慧分析工具嗎？郵件用戶端？表格生成器？選取一個範例應用程式，您只需幾分鐘即可獲得一個可執行的 SaaS — 代理、資料庫、驗證和部署管道已連線完畢。
 
-大多數“範本”都會為您提供一個空白的腳手架和一個很長的 TODO 清單。Agent-Native 翻轉了這一點。每一個都是**完整的 SaaS 級產品** - 在第一天就已經可以執行，已經可以發貨，並且完全由您來定制、品牌化和部署。將它們視為可克隆的 SaaS，而不是入門工具包：您正在分叉成品，而不是盯著樣板檔案。
+大多數入門範本都會為您提供一個空白的腳手架和一個很長的 TODO 清單。Agent-Native 翻轉了這一點。每個範例應用程式都是**完整的 SaaS 級產品** - 在第一天就已經可以執行，已經可以發貨，並且完全由您來定制、品牌化和部署。將它們視為可克隆的 SaaS，而不是入門工具包：您正在分叉成品，而不是盯著樣板檔案。
 
-## 可用範本 {#catalog}
+## 範例應用程式 {#catalog}
 
 每一個都是您今天可以使用的真實應用程式，以及您自己版本的啟動板。
 
-| 範本                                      | 它是什麼                                                                                        |
+| 應用程式                                  | 它是什麼                                                                                        |
 | ----------------------------------------- | ----------------------------------------------------------------------------------------------- |
 | [**Chat**](/docs/template-chat)           | 最小的聊天優先應用程式，具有持久對話串、actions、驗證以及通往自訂 UI 或您自己的後端的幹淨路徑。 |
 | [**Mail**](/docs/template-mail)           | Agent-Native 超人。收件箱、標籤、人工智慧分類、鍵盤優先、透過代理起草和傳送。                   |
@@ -35,16 +35,16 @@ description: "分叉一個可用的 SaaS 產品並使其成為您的產品 - 包
 
 ## 開箱即用的東西 {#what-you-get}
 
-每個範本都附帶通常需要數月才能建置的部件：
+每個範例應用程式都附帶通常需要數月才能建置的部件：
 
 - **工作代理** — 已經連線到應用程式，已經能夠在您的資料上取得 actions，已經能夠了解您正在檢視的內容。請參閱 [Messaging the agent](/docs/messaging) 了解其工作原理。
 - **Auth** — 登入、工作階段、組織、多租戶隔離。已經完成了。
-- **資料庫** — 每個範本都有其架構、查詢和遷移準備就緒。帶上您自己的 SQL 資料庫（Postgres、SQLite、Turso、D1）——框架會進行調整。
+- **資料庫** — 每個範例應用程式都有其架構、查詢和遷移準備就緒。帶上您自己的 SQL 資料庫（Postgres、SQLite、Turso、D1）——框架會進行調整。
 - **即時 UI** — 螢幕與代理的操作保持同步。在聊天中點選“草稿電子郵件”，草稿立即出現在您的收件箱中。
 - **部署就緒** — 推送到 Netlify、Vercel、Cloudflare、AWS 或執行 Node.js 的任何其他地方。沒有供應商鎖定。
 - **品牌掛鉤** - 名稱、顏色、徽標、文案都很容易更改。
 
-這不是理論上的主張。此框架的作者在郵件範本上執行他的實際收件箱，在行事曆範本上執行他的實際行事曆，在分析範本上執行他的實際分析。範本是日常驅動軟體。
+這不是理論上的主張。此框架的作者在 Mail 應用程式上執行他的實際收件箱，在 Calendar 應用程式上執行他的實際行事曆，在 Analytics 應用程式上執行他的實際分析。這些都是日常使用的應用程式。
 
 ## 你做什麼 {#what-you-do}
 
@@ -56,7 +56,7 @@ description: "分叉一個可用的 SaaS 產品並使其成為您的產品 - 包
 <div class="diagram-fork">
   <div class="diagram-card">
     <span class="diagram-pill">1</span><strong>Pick</strong
-    ><small class="diagram-muted">a complete template</small>
+    ><small class="diagram-muted">完整應用程式</small>
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
   <div class="diagram-card">
@@ -98,8 +98,8 @@ description: "分叉一個可用的 SaaS 產品並使其成為您的產品 - 包
 
 </Diagram>
 
-1. **選取一個範本。**使用 CLI 選取器，或瀏覽檔案並選取一個開始。
-2. **打造品牌。**更改名稱、顏色、徽標和文案。大多數範本都將其公開在單一設定檔案中。
+1. **選取一個範例應用程式。**使用 CLI 選取器，或瀏覽檔案並選取一個開始。
+2. **打造品牌。**更改名稱、顏色、徽標和文案。大多數範例應用程式都將其公開在單一設定檔案中。
 3. **自訂它。** 要求代理新增您需要的列，更改收件箱分組的方式，連線到您的內部 API，新增新檢視。代理編輯程式碼；您檢視差異。
 4. **發貨。**執行部署指令。您現在在自己的域中擁有自己的正式環境 SaaS。
 
@@ -157,7 +157,7 @@ description: "分叉一個可用的 SaaS 產品並使其成為您的產品 - 包
 
 ## 不想分叉？ {#hosted}
 
-你不必這樣做。每個範本還可以作為 `agent-native.com` 上的託管應用程式使用 - `mail.agent-native.com`、`calendar.agent-native.com` 等。免費或付費使用託管版本；僅當您想要更改託管版本未公開的內容時才進行分叉。
+你不必這樣做。每個範例應用程式還可以作為 `agent-native.com` 上的託管應用程式使用 - `mail.agent-native.com`、`calendar.agent-native.com` 等。免費或付費使用託管版本；僅當您想要更改託管版本未公開的內容時才進行分叉。
 
 ## 嘗試一下技巧 {#try-with-a-skill}
 
@@ -166,10 +166,10 @@ description: "分叉一個可用的 SaaS 產品並使其成為您的產品 - 包
 ## 在此基礎上建置
 
 - [**Getting Started**](/docs/getting-started) - 建立聊天優先應用程式，新增 action，渲染結構化結果，並擴展為頁面
-- [**Messaging the agent**](/docs/messaging) - 使用者（和您）如何與每個範本附帶的代理對話
-- [**Multi-App Workspace**](/docs/multi-app-workspace) — 將多個範本捆綁到一個共用驗證、品牌和代理的工作區
-- [**Dispatch**](/docs/template-dispatch) — 工作區控制平面範本
-- [**Creating Templates**](/docs/creating-templates) — 創作並發布您自己的範本
+- [**Messaging the agent**](/docs/messaging) - 使用者（和您）如何與每個應用程式附帶的代理對話
+- [**Multi-App Workspace**](/docs/multi-app-workspace) — 將多個應用程式捆綁到一個共用驗證、品牌和代理的工作區
+- [**Dispatch**](/docs/template-dispatch) — 工作區控制平面應用程式
+- [**Creating Templates**](/docs/creating-templates) — 創作並發布您自己的應用程式範本
 
 ### 對於開發者 {#dev-details}
 
@@ -179,10 +179,10 @@ description: "分叉一個可用的 SaaS 產品並使其成為您的產品 - 包
 npx @agent-native/core@latest create my-platform
 ```
 
-您將獲得一個多選選取器。選取一個應用程式（獨立）或多個應用程式（工作區 - 應用程式共用驗證、品牌、代理設定和資料庫）。每個挑選的範本都與您需要的每個檔案一起建置到 `apps/<name>/` 中。對於沒有瀏覽器 UI 的自動化應用程式，而不是範本 UI，請使用 `npx @agent-native/core@latest create my-agent --headless`。
+您將獲得一個多選選取器。選取一個應用程式（獨立）或多個應用程式（工作區 - 應用程式共用驗證、品牌、代理設定和資料庫）。每個挑選的應用程式都與您需要的每個檔案一起建置到 `apps/<name>/` 中。對於沒有瀏覽器 UI 的自動化應用程式，而不是應用程式 UI，請使用 `npx @agent-native/core@latest create my-agent --headless`。
 
 填寫`.env`（主要是`ANTHROPIC_API_KEY`和`DATABASE_URL`）、`pnpm install`、`pnpm dev`，就可以了。沒有“TODO：實現登入”，沒有預留位置路由。
 
 部署目標：任何 Nitro 相容主機（Node、Cloudflare、Netlify、Vercel、Deno、Lambda、Bun）和任何 Drizzle 相容 SQL 資料庫（SQLite、Postgres、Turso、D1、Supabase、Neon）。對於工作區，`npx @agent-native/core@latest deploy` 一次建置每個應用程式並將它們傳送到單一來源。參見[Deployment](/docs/deployment)。
 
-要創作和發布您自己的範本，請參閱 [Creating Templates](/docs/creating-templates)。
+要創作和發布您自己的應用程式範本，請參閱 [Creating Templates](/docs/creating-templates)。

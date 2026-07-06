@@ -287,14 +287,14 @@ explicit sync action.
 
 ### Notion Integration
 
-| Action                  | Args                                    | Purpose                                   |
-| ----------------------- | --------------------------------------- | ----------------------------------------- |
-| `connect-notion-status` |                                         | Check Notion connection                   |
-| `link-notion-page`      | `--documentId <id> --notionPageId <id>` | Link doc to Notion page                   |
-| `list-notion-links`     |                                         | List linked documents                     |
-| `pull-notion-page`      | `--documentId <id>`                     | Pull content from Notion                  |
-| `push-notion-page`      | `--documentId <id>`                     | Push content to Notion                    |
-| `sync-notion-comments`  | `--documentId <id>`                     | Sync comments with Notion (bidirectional) |
+| Action                  | Args                                     | Purpose                                   |
+| ----------------------- | ---------------------------------------- | ----------------------------------------- |
+| `connect-notion-status` |                                          | Check Notion connection                   |
+| `link-notion-page`      | `--documentId <id> --pageId <id-or-url>` | Link doc to Notion page                   |
+| `list-notion-links`     |                                          | List linked documents                     |
+| `pull-notion-page`      | `--documentId <id>`                      | Pull content from Notion                  |
+| `push-notion-page`      | `--documentId <id>`                      | Push content to Notion                    |
+| `sync-notion-comments`  | `--documentId <id>`                      | Sync comments with Notion (bidirectional) |
 
 Use `provider-api-catalog`, `provider-api-docs`, and `provider-api-request`
 for Notion endpoints, filters, pagination modes, payload shapes, or API

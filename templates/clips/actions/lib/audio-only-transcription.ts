@@ -15,7 +15,8 @@ export type AudioOnlyExtractionErrorCode =
   | "NO_AUDIO_TRACK"
   | "NO_SPEECH_DETECTED"
   | "FFMPEG_UNAVAILABLE"
-  | "EXTRACTION_FAILED";
+  | "EXTRACTION_FAILED"
+  | "TIMEOUT";
 
 export class AudioOnlyExtractionError extends Error {
   code: AudioOnlyExtractionErrorCode;
@@ -79,6 +80,16 @@ export function isFfmpegUnavailableError(err: unknown): boolean {
   return (
     err instanceof AudioOnlyExtractionError && err.code === "FFMPEG_UNAVAILABLE"
   );
+}
+
+/**
+ * True for extraction failures that are worth an automatic retry — an
+ * ffmpeg timeout is almost always transient (system under load, a slow
+ * disk/network read of the source media), unlike a permanently unusable
+ * input (no audio track, silent audio, ffmpeg missing from the runtime).
+ */
+export function isTransientExtractionError(err: unknown): boolean {
+  return err instanceof AudioOnlyExtractionError && err.code === "TIMEOUT";
 }
 
 export function audioExtensionForMimeType(
@@ -224,6 +235,12 @@ function mapFfmpegError(err: unknown): AudioOnlyExtractionError {
     return new AudioOnlyExtractionError(
       "NO_AUDIO_TRACK",
       "No speech was detected because this recording has no audio track.",
+    );
+  }
+  if (/ffmpeg timed out/i.test(message)) {
+    return new AudioOnlyExtractionError(
+      "TIMEOUT",
+      "ffmpeg timed out extracting audio for transcription.",
     );
   }
   return new AudioOnlyExtractionError(

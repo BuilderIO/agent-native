@@ -3,25 +3,12 @@ import {
   AgentToggleButton,
   DevDatabaseLink,
   FeedbackButton,
-  NotificationsBell,
   agentNativePath,
   useT,
 } from "@agent-native/core/client";
 import { appApiPath } from "@agent-native/core/client";
 import { ExtensionsSidebarSection } from "@agent-native/core/client/extensions";
 import { InvitationBanner, OrgSwitcher } from "@agent-native/core/client/org";
-import { Button } from "@agent-native/toolkit/ui/button";
-import {
-  Popover,
-  PopoverTrigger,
-  PopoverContent,
-} from "@agent-native/toolkit/ui/popover";
-import { Skeleton } from "@agent-native/toolkit/ui/skeleton";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@agent-native/toolkit/ui/tooltip";
 import { normalizeMailLabel } from "@shared/gmail-labels";
 import type { Label } from "@shared/types";
 import {
@@ -52,6 +39,18 @@ import { ComposeModal } from "@/components/email/ComposeModal";
 import { SnoozeModal } from "@/components/email/SnoozeModal";
 import { GoogleConnectBanner } from "@/components/GoogleConnectBanner";
 import { ThemeToggle } from "@/components/ThemeToggle";
+import { Button } from "@/components/ui/button";
+import {
+  Popover,
+  PopoverTrigger,
+  PopoverContent,
+} from "@/components/ui/popover";
+import { Skeleton } from "@/components/ui/skeleton";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { AccountFilterContext } from "@/hooks/use-account-filter";
 import { useComposeState } from "@/hooks/use-compose-state";
 import { useQueuedDraftCount } from "@/hooks/use-draft-queue";
@@ -1299,8 +1298,6 @@ function AppLayoutInner({ children }: AppLayoutProps) {
             <TooltipContent>{t("mail.toolbar.refreshInbox")}</TooltipContent>
           </Tooltip>
 
-          <NotificationsBell />
-
           {/* Compose — prominent outline button */}
           <Tooltip>
             <TooltipTrigger asChild>
@@ -1946,8 +1943,8 @@ function AppLayoutInner({ children }: AppLayoutProps) {
 
 /**
  * Slim chrome used on secondary pages. Renders a clean h-12 header (title +
- * AgentToggleButton + NotificationsBell) instead of the inbox-specific top bar
- * (tabs, search, account stack, compose pen, etc.).
+ * AgentToggleButton) instead of the inbox-specific top bar (tabs, search,
+ * account stack, compose pen, etc.).
  *
  * Pages can hoist a custom title or right-side actions via
  * `useSetPageTitle` / `useSetHeaderActions` from `./HeaderActions`.
@@ -1962,7 +1959,7 @@ function StandardLayout({ children }: AppLayoutProps) {
   const view = location.pathname.split("/").filter(Boolean)[0] || "";
 
   // Extensions (`/extensions` list and `/extensions/:id` viewer) render their own h-12
-  // toolbar with NotificationsBell + AgentToggleButton inside the shared
+  // toolbar inside the shared
   // ExtensionViewer / ExtensionsListPage components. Skip our header to avoid stacking.
   const pageOwnsToolbar =
     location.pathname === "/extensions" ||
@@ -2003,7 +2000,6 @@ function StandardLayout({ children }: AppLayoutProps) {
           </div>
           <div className="flex shrink-0 items-center gap-2">
             {headerActions}
-            <NotificationsBell />
             <AgentToggleButton />
           </div>
         </header>

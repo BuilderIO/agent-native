@@ -1,13 +1,4 @@
 import { useActionQuery, useT } from "@agent-native/core/client";
-import { Badge } from "@agent-native/toolkit/ui/badge";
-import { Button } from "@agent-native/toolkit/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogTitle,
-} from "@agent-native/toolkit/ui/dialog";
-import { Skeleton } from "@agent-native/toolkit/ui/skeleton";
 import type {
   FindTimeBusyBlock,
   FindTimeResult,
@@ -35,6 +26,15 @@ import {
   AttendeeAutocomplete,
   type AttendeeRecipient,
 } from "@/components/calendar/AttendeeAutocomplete";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Skeleton } from "@/components/ui/skeleton";
 import { dateTimeInTimezoneToIso } from "@/lib/event-form-utils";
 import { cn } from "@/lib/utils";
 

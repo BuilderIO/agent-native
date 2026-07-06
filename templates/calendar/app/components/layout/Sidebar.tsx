@@ -6,22 +6,6 @@ import {
 } from "@agent-native/core/client";
 import { ExtensionsSidebarSection } from "@agent-native/core/client/extensions";
 import { OrgSwitcher } from "@agent-native/core/client/org";
-import { Button } from "@agent-native/toolkit/ui/button";
-import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from "@agent-native/toolkit/ui/collapsible";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@agent-native/toolkit/ui/popover";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@agent-native/toolkit/ui/tooltip";
 import {
   IconCalendar,
   IconSettings,
@@ -63,6 +47,22 @@ import { Link, useLocation, useNavigate } from "react-router";
 import { toast } from "sonner";
 
 import { ThemeToggle } from "@/components/ThemeToggle";
+import { Button } from "@/components/ui/button";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import {
   useExternalCalendars,
   useRemoveExternalCalendar,
@@ -82,6 +82,7 @@ import {
 import { useViewPreferences } from "@/hooks/use-view-preferences";
 import {
   CALENDAR_COLORS,
+  defaultColorForAccount,
   type CalendarColorMode,
 } from "@/lib/calendar-view-preferences";
 import { EVENT_CATEGORY_COLORS } from "@/lib/event-colors";
@@ -434,9 +435,14 @@ function GoogleAccountsSection({
   const t = useT();
   const { toggleHiddenCalendar, isHiddenCalendar } = useCalendarContext();
   const {
-    prefs: { colorMode, singleColor },
-    update: updateViewPreferences,
+    prefs: { colorMode, singleColor, accountColorModes, accountColors },
+    updateAccountColor,
+    updateAccountColorMode,
   } = useViewPreferences();
+  const accountEmails = useMemo(
+    () => accounts.map((account) => account.email),
+    [accounts],
+  );
   const [wantAddAccount, setWantAddAccount] = useState(false);
   const addAccountUrl = useGoogleAddAccountUrl(wantAddAccount);
   const {
@@ -472,12 +478,24 @@ function GoogleAccountsSection({
     setWantAddAccount(true);
   }
 
-  function handlePickColor(color: string) {
-    updateViewPreferences({ colorMode: "single", singleColor: color });
+  function accountColorMode(email: string): CalendarColorMode {
+    return accountColorModes[email] ?? colorMode;
   }
 
-  function handleSetColorMode(mode: CalendarColorMode) {
-    updateViewPreferences({ colorMode: mode });
+  function accountColor(email: string): string {
+    return (
+      accountColors[email] ??
+      singleColor ??
+      defaultColorForAccount(email, accountEmails)
+    );
+  }
+
+  function handlePickColor(email: string, color: string) {
+    updateAccountColor(email, color);
+  }
+
+  function handleSetColorMode(email: string, mode: CalendarColorMode) {
+    updateAccountColorMode(email, mode);
   }
 
   return (
@@ -523,97 +541,106 @@ function GoogleAccountsSection({
         </div>
       </div>
 
-      {accounts.map((account) => (
-        <div
-          key={account.email}
-          className="group flex min-h-7 items-center gap-2 px-3"
-        >
-          <Popover>
-            <PopoverTrigger asChild>
-              <button
-                type="button"
-                className="shrink-0 cursor-pointer rounded-full p-0.5 hover:ring-2 hover:ring-border"
-              >
-                {colorMode === "multi" ? (
-                  <MultiColorDot
-                    className={cn(
-                      "h-2.5 w-2.5",
-                      isHiddenCalendar("accounts", account.email) &&
-                        "opacity-40",
-                    )}
-                  />
-                ) : (
-                  <span
-                    className={cn(
-                      "block h-2.5 w-2.5 rounded-full",
-                      isHiddenCalendar("accounts", account.email) &&
-                        "opacity-40",
-                    )}
-                    style={{ backgroundColor: singleColor }}
-                  />
-                )}
-              </button>
-            </PopoverTrigger>
-            <PopoverContent side="right" align="start" className="w-auto p-2">
-              <div className="flex flex-wrap gap-1.5" style={{ width: 132 }}>
-                {/* Multicolor "by type" option */}
-                <Tooltip delayDuration={700}>
-                  <TooltipTrigger asChild>
-                    <button
-                      type="button"
-                      onClick={() => handleSetColorMode("multi")}
-                      className="relative flex h-5 w-5 items-center justify-center rounded-full"
+      {accounts.map((account) => {
+        const mode = accountColorMode(account.email);
+        const color = accountColor(account.email);
+        return (
+          <div
+            key={account.email}
+            className="group flex min-h-7 items-center gap-2 px-3"
+          >
+            <Popover>
+              <PopoverTrigger asChild>
+                <button
+                  type="button"
+                  className="shrink-0 cursor-pointer rounded-full p-0.5 hover:ring-2 hover:ring-border"
+                >
+                  {mode === "multi" ? (
+                    <MultiColorDot
+                      className={cn(
+                        "h-2.5 w-2.5",
+                        isHiddenCalendar("accounts", account.email) &&
+                          "opacity-40",
+                      )}
+                    />
+                  ) : (
+                    <span
+                      className={cn(
+                        "block h-2.5 w-2.5 rounded-full",
+                        isHiddenCalendar("accounts", account.email) &&
+                          "opacity-40",
+                      )}
+                      style={{ backgroundColor: color }}
+                    />
+                  )}
+                </button>
+              </PopoverTrigger>
+              <PopoverContent side="right" align="start" className="w-auto p-2">
+                <div className="flex flex-wrap gap-1.5" style={{ width: 132 }}>
+                  {/* Multicolor "by type" option */}
+                  <Tooltip delayDuration={700}>
+                    <TooltipTrigger asChild>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          handleSetColorMode(account.email, "multi")
+                        }
+                        className="relative flex h-5 w-5 items-center justify-center rounded-full"
+                      >
+                        <MultiColorDot className="h-5 w-5" />
+                        {mode === "multi" && (
+                          <IconCheck className="absolute inset-0 m-auto h-3 w-3 text-white drop-shadow" />
+                        )}
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent
+                      side="top"
+                      className="max-w-[160px] text-xs"
                     >
-                      <MultiColorDot className="h-5 w-5" />
-                      {colorMode === "multi" && (
+                      {t("sidebar.colorByMeetingType")}
+                    </TooltipContent>
+                  </Tooltip>
+                  {/* Single color options */}
+                  {CALENDAR_COLORS.map((c) => (
+                    <button
+                      key={c}
+                      type="button"
+                      onClick={() => handlePickColor(account.email, c)}
+                      className="relative h-5 w-5 rounded-full"
+                      style={{ backgroundColor: c }}
+                    >
+                      {c === color && mode === "single" && (
                         <IconCheck className="absolute inset-0 m-auto h-3 w-3 text-white drop-shadow" />
                       )}
                     </button>
-                  </TooltipTrigger>
-                  <TooltipContent side="top" className="max-w-[160px] text-xs">
-                    {t("sidebar.colorByMeetingType")}
-                  </TooltipContent>
-                </Tooltip>
-                {/* Single color options */}
-                {CALENDAR_COLORS.map((c) => (
-                  <button
-                    key={c}
-                    type="button"
-                    onClick={() => handlePickColor(c)}
-                    className="relative h-5 w-5 rounded-full"
-                    style={{ backgroundColor: c }}
-                  >
-                    {c === singleColor && colorMode === "single" && (
-                      <IconCheck className="absolute inset-0 m-auto h-3 w-3 text-white drop-shadow" />
-                    )}
-                  </button>
-                ))}
-              </div>
-            </PopoverContent>
-          </Popover>
-          <p
-            className={cn(
-              "min-w-0 flex-1 truncate text-xs",
-              isHiddenCalendar("accounts", account.email)
-                ? "text-muted-foreground/40"
-                : "text-muted-foreground",
-            )}
-          >
-            {account.email}
-          </p>
-          <button
-            type="button"
-            onClick={() => toggleHiddenCalendar("accounts", account.email)}
-            className="flex h-6 w-6 shrink-0 items-center justify-center rounded text-muted-foreground/60 opacity-0 hover:text-foreground group-hover:opacity-100"
-          >
-            {isHiddenCalendar("accounts", account.email) ? (
-              <IconEyeOff className="h-3 w-3" />
-            ) : (
-              <IconEye className="h-3 w-3" />
-            )}
-          </button>
-        </div>
-      ))}
+                  ))}
+                </div>
+              </PopoverContent>
+            </Popover>
+            <p
+              className={cn(
+                "min-w-0 flex-1 truncate text-xs",
+                isHiddenCalendar("accounts", account.email)
+                  ? "text-muted-foreground/40"
+                  : "text-muted-foreground",
+              )}
+            >
+              {account.email}
+            </p>
+            <button
+              type="button"
+              onClick={() => toggleHiddenCalendar("accounts", account.email)}
+              className="flex h-6 w-6 shrink-0 items-center justify-center rounded text-muted-foreground/60 opacity-0 hover:text-foreground group-hover:opacity-100"
+            >
+              {isHiddenCalendar("accounts", account.email) ? (
+                <IconEyeOff className="h-3 w-3" />
+              ) : (
+                <IconEye className="h-3 w-3" />
+              )}
+            </button>
+          </div>
+        );
+      })}
     </div>
   );
 }

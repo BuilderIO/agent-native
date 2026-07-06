@@ -181,8 +181,17 @@ export async function resolveComposeAttachments(
   const resolved: ResolvedComposeAttachment[] = [];
   for (const raw of attachments) {
     const att = raw as Partial<ComposeAttachment>;
-    if (!att.filename || typeof att.filename !== "string") continue;
-    if (att.filename.includes("/") || att.filename.includes("..")) continue;
+    // Every other failure branch below throws and is surfaced to the user as
+    // "One or more attachments could not be read" by the send/save callers.
+    // A malformed entry must fail the same way instead of being silently
+    // dropped; otherwise the user believes the file was attached when the
+    // sent email has fewer attachments than they added.
+    if (!att.filename || typeof att.filename !== "string") {
+      throw new Error("Attachment is missing a filename and could not be read");
+    }
+    if (att.filename.includes("/") || att.filename.includes("..")) {
+      throw new Error(`Attachment filename is invalid: ${att.filename}`);
+    }
 
     if (att.source === "gmail" || att.gmailMessageId || att.gmailAttachmentId) {
       if (

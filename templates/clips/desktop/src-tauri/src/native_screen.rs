@@ -3210,6 +3210,96 @@ pub(crate) fn mp4_has_moov(path: &Path) -> Option<bool> {
     }
 }
 
+/// Scan an MP4/QuickTime file for a `soun` (audio) handler nested under the
+/// top-level `moov` box (i.e. `moov > trak > mdia > hdlr`). Used to verify
+/// that ffmpeg/avconvert actually preserved an audio track rather than
+/// silently dropping it — `-map 0:a?` and similar optional maps exit 0 and
+/// produce a valid, smaller, video-only MP4 when the source audio stream
+/// can't be mapped, so a successful exit status alone can't be trusted when
+/// audio is expected. Returns `Some(true)`/`Some(false)` once `moov` has
+/// been located and scanned, or `None` when the file could not be read or
+/// `moov` could not be found/parsed (transient I/O error or unexpected
+/// structure — callers must not treat this as a definite "no audio").
+pub(crate) fn mp4_has_audio_track(path: &Path) -> Option<bool> {
+    use std::io::{ErrorKind, Read, Seek, SeekFrom};
+    let mut f = match std::fs::File::open(path) {
+        Ok(f) => f,
+        Err(e) => {
+            eprintln!("[clips-tray] mp4_has_audio_track: could not open file for scan: {e}");
+            return None;
+        }
+    };
+
+    // Walk the top-level boxes (mirrors `mp4_has_moov`) until `moov` is
+    // found, then read its entire body into memory. `moov` holds only
+    // metadata (no sample data, which lives in `mdat`), so even for large
+    // recordings it is at most a few hundred KB — safe to buffer fully.
+    let moov = loop {
+        let mut buf = [0u8; 8];
+        match f.read_exact(&mut buf) {
+            Ok(()) => {}
+            Err(e) if e.kind() == ErrorKind::UnexpectedEof => return Some(false),
+            Err(_) => return None,
+        }
+        let box_size_raw = u32::from_be_bytes([buf[0], buf[1], buf[2], buf[3]]);
+        let box_type = &buf[4..8];
+        let body_size: u64 = match box_size_raw {
+            0 => return Some(false), // box extends to EOF — can't be moov and something after it
+            1 => {
+                let mut ext = [0u8; 8];
+                match f.read_exact(&mut ext) {
+                    Ok(()) => {}
+                    Err(e) if e.kind() == ErrorKind::UnexpectedEof => return Some(false),
+                    Err(_) => return None,
+                }
+                u64::from_be_bytes(ext).saturating_sub(16)
+            }
+            n if n < 8 => return Some(false),
+            n => (n as u64).saturating_sub(8),
+        };
+        if box_type == b"moov" {
+            if body_size > 64 * 1024 * 1024 {
+                // Implausibly large metadata box — bail rather than buffer
+                // tens of MB; treat as unparseable rather than "no audio".
+                eprintln!("[clips-tray] mp4_has_audio_track: moov box implausibly large ({body_size} bytes)");
+                return None;
+            }
+            let mut body = vec![0u8; body_size as usize];
+            if f.read_exact(&mut body).is_err() {
+                return None;
+            }
+            break body;
+        }
+        let offset = match i64::try_from(body_size) {
+            Ok(v) => v,
+            Err(_) => return Some(false),
+        };
+        if f.seek(SeekFrom::Current(offset)).is_err() {
+            return None;
+        }
+    };
+
+    // Linear scan for `hdlr` boxes within the buffered moov body. hdlr
+    // layout: size(4) + type(4) + version(1) + flags(3) + pre_defined(4) +
+    // handler_type(4) — so the 4-byte handler type sits 16 bytes after the
+    // box header starts (8 bytes header + 8 bytes version/flags/pre_defined).
+    let mut i = 0usize;
+    while i + 8 <= moov.len() {
+        let box_type = &moov[i + 4..i + 8];
+        if box_type == b"hdlr" && i + 20 <= moov.len() {
+            if &moov[i + 16..i + 20] == b"soun" {
+                return Some(true);
+            }
+        }
+        // Advance by one byte at a time rather than by parsed box size:
+        // `hdlr`/`mdia`/`trak` box sizes aren't otherwise tracked here, and
+        // scanning byte-by-byte for the 4-byte `hdlr` tag is simple, safe
+        // (can't run past the buffer), and cheap given moov's small size.
+        i += 1;
+    }
+    Some(false)
+}
+
 fn prepare_recording_file(
     app: &AppHandle,
     path: &Path,
@@ -3275,6 +3365,15 @@ fn prepare_recording_file(
                             .map_err(|e| format!("normalized recording file missing: {e}"))?
                             .len();
                         if normalized_bytes > 0 && normalized_bytes <= max_upload_bytes() {
+                            if mp4_has_audio_track(&normalized_path) == Some(false) {
+                                let _ = std::fs::remove_file(&normalized_path);
+                                eprintln!(
+                                    "[clips-tray] AUDIO LOST: ffmpeg audio normalization dropped the audio track \
+                                     (source had audio, normalized output did not) — uploading original instead of \
+                                     a silent smaller file"
+                                );
+                                return Ok(original);
+                            }
                             eprintln!(
                                 "[clips-tray] native recording audio normalized with ffmpeg: {} -> {} bytes",
                                 source_bytes, normalized_bytes
@@ -3337,6 +3436,16 @@ fn prepare_recording_file(
                         let _ = std::fs::remove_file(&compressed_path);
                         eprintln!(
                             "[clips-tray] ffmpeg produced an empty file with {}",
+                            preset.label
+                        );
+                        continue;
+                    }
+                    if has_audio && mp4_has_audio_track(&compressed_path) == Some(false) {
+                        let _ = std::fs::remove_file(&compressed_path);
+                        eprintln!(
+                            "[clips-tray] AUDIO LOST: ffmpeg {} dropped the audio track (source had \
+                             audio, compressed output did not) — rejecting this preset rather than \
+                             uploading a silent smaller file",
                             preset.label
                         );
                         continue;
@@ -3421,6 +3530,15 @@ fn prepare_recording_file(
                     if compressed_bytes == 0 {
                         let _ = std::fs::remove_file(&compressed_path);
                         eprintln!("[clips-tray] avconvert produced an empty file with {preset}");
+                        continue;
+                    }
+                    if has_audio && mp4_has_audio_track(&compressed_path) == Some(false) {
+                        let _ = std::fs::remove_file(&compressed_path);
+                        eprintln!(
+                            "[clips-tray] AUDIO LOST: avconvert {preset} dropped the audio track \
+                             (source had audio, compressed output did not) — rejecting this preset \
+                             rather than uploading a silent smaller file"
+                        );
                         continue;
                     }
                     smallest_attempt_bytes = Some(
@@ -4164,4 +4282,130 @@ fn concat_mp4_segments(segments: &[PathBuf], output: &Path) -> Result<(), String
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod audio_track_probe_tests {
+    use super::mp4_has_audio_track;
+    use std::io::Write;
+
+    /// Append an ISO BMFF box: 4-byte big-endian size (header + body) then
+    /// the 4-byte type tag, then the raw body bytes.
+    fn push_box(buf: &mut Vec<u8>, box_type: &[u8; 4], body: &[u8]) {
+        let size = (8 + body.len()) as u32;
+        buf.extend_from_slice(&size.to_be_bytes());
+        buf.extend_from_slice(box_type);
+        buf.extend_from_slice(body);
+    }
+
+    /// Build a minimal `hdlr` box body for the given handler type (e.g.
+    /// `soun` or `vide`): version(1) + flags(3) + pre_defined(4) +
+    /// handler_type(4), zero-padded further like a real hdlr's trailing
+    /// name/reserved fields.
+    fn hdlr_body(handler_type: &[u8; 4]) -> Vec<u8> {
+        let mut body = vec![0u8; 8]; // version+flags+pre_defined
+        body.extend_from_slice(handler_type);
+        body.extend_from_slice(&[0u8; 4]); // trailing reserved/name padding
+        body
+    }
+
+    fn write_temp_mp4(bytes: &[u8]) -> std::path::PathBuf {
+        let mut path = std::env::temp_dir();
+        path.push(format!(
+            "clips-audio-probe-test-{}-{}.mp4",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let mut f = std::fs::File::create(&path).unwrap();
+        f.write_all(bytes).unwrap();
+        path
+    }
+
+    #[test]
+    fn detects_audio_track_present() {
+        let mut moov_body = Vec::new();
+        // moov > trak > mdia > hdlr(soun)
+        let mut mdia_body = Vec::new();
+        push_box(&mut mdia_body, b"hdlr", &hdlr_body(b"soun"));
+        let mut trak_body = Vec::new();
+        push_box(&mut trak_body, b"mdia", &mdia_body);
+        push_box(&mut moov_body, b"trak", &trak_body);
+
+        let mut file = Vec::new();
+        push_box(&mut file, b"ftyp", b"isommp42");
+        push_box(&mut file, b"moov", &moov_body);
+        file.extend_from_slice(b"mdatSOMEFAKEVIDEODATA");
+
+        let path = write_temp_mp4(&file);
+        assert_eq!(mp4_has_audio_track(&path), Some(true));
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn detects_video_only_output_as_missing_audio() {
+        // Simulates exactly the bug: ffmpeg with `-map 0:a?` succeeds but
+        // only writes a video (`vide`) handler track, no `soun` track.
+        let mut moov_body = Vec::new();
+        let mut mdia_body = Vec::new();
+        push_box(&mut mdia_body, b"hdlr", &hdlr_body(b"vide"));
+        let mut trak_body = Vec::new();
+        push_box(&mut trak_body, b"mdia", &mdia_body);
+        push_box(&mut moov_body, b"trak", &trak_body);
+
+        let mut file = Vec::new();
+        push_box(&mut file, b"ftyp", b"isommp42");
+        push_box(&mut file, b"moov", &moov_body);
+        file.extend_from_slice(b"mdatSOMEFAKEVIDEODATA");
+
+        let path = write_temp_mp4(&file);
+        assert_eq!(mp4_has_audio_track(&path), Some(false));
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn detects_audio_track_among_multiple_tracks() {
+        // video trak first, then audio trak — order shouldn't matter.
+        let mut video_mdia = Vec::new();
+        push_box(&mut video_mdia, b"hdlr", &hdlr_body(b"vide"));
+        let mut video_trak = Vec::new();
+        push_box(&mut video_trak, b"mdia", &video_mdia);
+
+        let mut audio_mdia = Vec::new();
+        push_box(&mut audio_mdia, b"hdlr", &hdlr_body(b"soun"));
+        let mut audio_trak = Vec::new();
+        push_box(&mut audio_trak, b"mdia", &audio_mdia);
+
+        let mut moov_body = Vec::new();
+        push_box(&mut moov_body, b"trak", &video_trak);
+        push_box(&mut moov_body, b"trak", &audio_trak);
+
+        let mut file = Vec::new();
+        push_box(&mut file, b"ftyp", b"isommp42");
+        push_box(&mut file, b"moov", &moov_body);
+        file.extend_from_slice(b"mdatSOMEFAKEVIDEODATA");
+
+        let path = write_temp_mp4(&file);
+        assert_eq!(mp4_has_audio_track(&path), Some(true));
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn missing_file_returns_none() {
+        let path = std::env::temp_dir().join("clips-audio-probe-test-does-not-exist.mp4");
+        assert_eq!(mp4_has_audio_track(&path), None);
+    }
+
+    #[test]
+    fn no_moov_box_returns_false() {
+        let mut file = Vec::new();
+        push_box(&mut file, b"ftyp", b"isommp42");
+        file.extend_from_slice(b"mdatSOMEFAKEVIDEODATA");
+
+        let path = write_temp_mp4(&file);
+        assert_eq!(mp4_has_audio_track(&path), Some(false));
+        let _ = std::fs::remove_file(&path);
+    }
 }

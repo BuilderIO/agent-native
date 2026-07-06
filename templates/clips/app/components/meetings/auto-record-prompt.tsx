@@ -15,10 +15,10 @@
  */
 
 import { useT } from "@agent-native/core/client";
-import { Button } from "@agent-native/toolkit/ui/button";
 import { IconClock, IconPlayerPlayFilled, IconX } from "@tabler/icons-react";
 import { useEffect, useState } from "react";
 
+import { Button } from "@/components/ui/button";
 import { useAutoFireCountdown, useAutoRecord } from "@/hooks/use-auto-record";
 import { cn } from "@/lib/utils";
 

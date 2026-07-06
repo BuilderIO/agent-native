@@ -1,4 +1,8 @@
-import { listOAuthAccountsByOwner } from "@agent-native/core/oauth-tokens";
+import {
+  deleteOAuthTokens,
+  listOAuthAccountsByOwner,
+} from "@agent-native/core/oauth-tokens";
+import { getOAuthAccounts } from "@agent-native/core/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
@@ -7,7 +11,7 @@ import {
   gmailListMessages as gmailListMessagesApi,
   gmailListThreads,
 } from "./google-api.js";
-import { listGmailMessages } from "./google-auth.js";
+import { getClientsWithErrors, listGmailMessages } from "./google-auth.js";
 
 vi.mock("@agent-native/core/oauth-tokens", () => ({
   deleteOAuthTokens: vi.fn(),
@@ -452,6 +456,83 @@ describe("listGmailMessages", () => {
       q: "",
       maxResults: 3,
       pageToken: undefined,
+    });
+  });
+});
+
+describe("getClientsWithErrors with unusable token records", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("surfaces a reconnect error without deleting the row when a record parses to an empty object", async () => {
+    // A stored oauth_tokens row that fails to decrypt (key rotation / wrong
+    // key) parses to `{}` in core's parseStoredTokens. The account must fail
+    // with a reconnect-style error — but the row must NOT be deleted, because
+    // this process may simply hold the wrong key while the row is still
+    // decryptable by a correctly configured deployment.
+    vi.mocked(listOAuthAccountsByOwner).mockResolvedValue([
+      {
+        accountId: "connected@example.com",
+        owner: "owner@example.com",
+        tokens: {},
+      },
+    ] as any);
+
+    const { clients, errors } = await getClientsWithErrors("owner@example.com");
+
+    expect(clients).toEqual([]);
+    expect(errors).toEqual([
+      {
+        email: "connected@example.com",
+        error: expect.stringContaining("please reconnect"),
+      },
+    ]);
+    expect(deleteOAuthTokens).not.toHaveBeenCalled();
+  });
+});
+
+describe("getAuthStatus with unusable token records", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("does not report decrypt-failed OAuth rows as connected", async () => {
+    const { getAuthStatus } = await import("./google-auth.js");
+    vi.mocked(getOAuthAccounts).mockResolvedValue([
+      {
+        accountId: "broken@example.com",
+        tokens: {},
+      },
+    ] as any);
+
+    await expect(getAuthStatus("owner@example.com")).resolves.toEqual({
+      connected: false,
+      accounts: [],
+    });
+    expect(deleteOAuthTokens).not.toHaveBeenCalled();
+  });
+
+  it("keeps valid accounts connected when another row is unreadable", async () => {
+    const { getAuthStatus } = await import("./google-auth.js");
+    vi.mocked(getOAuthAccounts).mockResolvedValue([
+      {
+        accountId: "broken@example.com",
+        tokens: {},
+      },
+      {
+        accountId: "connected@example.com",
+        displayName: "Connected User",
+        tokens: {
+          access_token: "access-token",
+          expiry_date: Date.now() + 60 * 60 * 1000,
+        },
+      },
+    ] as any);
+
+    await expect(getAuthStatus("owner@example.com")).resolves.toMatchObject({
+      connected: true,
+      accounts: [{ email: "connected@example.com" }],
     });
   });
 });

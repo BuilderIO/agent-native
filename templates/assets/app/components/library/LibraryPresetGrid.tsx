@@ -1,7 +1,8 @@
 import { appPath } from "@agent-native/core/client";
-import { Badge } from "@agent-native/toolkit/ui/badge";
-import { Button } from "@agent-native/toolkit/ui/button";
 import { IconBox, IconBrush, IconLayersIntersect } from "@tabler/icons-react";
+
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 
 import type { LibraryPreset } from "../../../shared/library-presets";
 

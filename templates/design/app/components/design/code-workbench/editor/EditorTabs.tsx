@@ -1,3 +1,7 @@
+import { IconX } from "@tabler/icons-react";
+import { useCallback, useRef, useState } from "react";
+import { toast } from "sonner";
+
 import {
   AlertDialog,
   AlertDialogAction,
@@ -7,18 +11,14 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
-} from "@agent-native/toolkit/ui/alert-dialog";
+} from "@/components/ui/alert-dialog";
 import {
   ContextMenu,
   ContextMenuContent,
   ContextMenuItem,
   ContextMenuSeparator,
   ContextMenuTrigger,
-} from "@agent-native/toolkit/ui/context-menu";
-import { IconX } from "@tabler/icons-react";
-import { useCallback, useRef, useState } from "react";
-import { toast } from "sonner";
-
+} from "@/components/ui/context-menu";
 import { prettyScreenName } from "@/lib/screen-names";
 import { cn } from "@/lib/utils";
 

@@ -1099,6 +1099,9 @@ function createWindow(): BrowserWindow {
       contextIsolation: true,
       webviewTag: true,
       webSecurity: true,
+      additionalArguments: [
+        `--an-webview-preload=${path.join(__dirname, "../preload/webview.js")}`,
+      ],
     },
   });
   installSentryWebContentsInstrumentation(win.webContents, {
