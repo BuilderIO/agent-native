@@ -45,12 +45,56 @@ const ALLOW_LIST: Array<[string, string, string]> = [
     "analytics-specific: useChartTooltipFlip hook (only exists in analytics hooks/)",
   ],
 
+  // command.tsx — forms/mail still carry the local cmdk dialog wrapper while
+  // the canonical templates re-export the toolkit primitive.
+  ["command.tsx", "forms", "local cmdk dialog wrapper pending toolkit sync"],
+  ["command.tsx", "mail", "local cmdk dialog wrapper pending toolkit sync"],
+
+  // context-menu.tsx — forms/mail still carry the local Radix implementation
+  // while the canonical group re-exports the toolkit primitive.
+  [
+    "context-menu.tsx",
+    "forms",
+    "local Radix context-menu implementation pending toolkit sync",
+  ],
+  [
+    "context-menu.tsx",
+    "mail",
+    "local Radix context-menu implementation pending toolkit sync",
+  ],
+
+  // dropdown-menu.tsx — brain uses the newer shadcn data-slot implementation.
+  [
+    "dropdown-menu.tsx",
+    "brain",
+    "newer shadcn data-slot dropdown implementation",
+  ],
+
   // input.tsx — mail uses h-9 instead of h-10 for intentional compact sizing
   // in its dense UI.
   ["input.tsx", "mail", "intentional compact sizing: h-9 vs canonical h-10"],
 
+  // macros.tsx primitives — macros has a distinct visual system while the
+  // shared canonical primitives re-export toolkit UI.
+  ["button.tsx", "macros", "custom macros visual system"],
+  ["card.tsx", "macros", "custom macros visual system"],
+  ["dialog.tsx", "macros", "custom macros visual system"],
+  ["input.tsx", "macros", "custom macros visual system"],
   // menubar.tsx — macros uses a different trigger style.
   ["menubar.tsx", "macros", "custom-themed trigger style"],
+  ["progress.tsx", "macros", "custom macros visual system"],
+  ["tabs.tsx", "macros", "custom macros visual system"],
+
+  // scroll-area.tsx — content keeps the local horizontal scrollbar and
+  // viewport block override needed by editor/database surfaces.
+  [
+    "scroll-area.tsx",
+    "content",
+    "content editor needs horizontal scrollbar and viewport block override",
+  ],
+
+  // sonner.tsx — calendar uses responsive wide toast layout classes.
+  ["sonner.tsx", "calendar", "responsive wide toast layout classes"],
 
   // sonner.tsx — mail has heavily custom-styled toasts (bg-card, rounded-lg,
   // text-13px, custom action/cancel button styles).
@@ -69,8 +113,10 @@ const ALLOW_LIST: Array<[string, string, string]> = [
   ],
 
   // textarea.tsx — two intentional variants beyond the canonical version:
+  //   • assets: adds autoGrow behavior for asset prompt/editing forms
   //   • macros: adds transition-all hover:border-ring/50 custom visual polish
   //   • mail: minor whitespace/style difference; same functional behaviour
+  ["textarea.tsx", "assets", "autoGrow behavior for asset forms"],
   [
     "textarea.tsx",
     "macros",
