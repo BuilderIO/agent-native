@@ -1008,22 +1008,6 @@ function AgentPanelInner({
     (activeMode: PanelMode) => (
       <TooltipProvider delayDuration={200}>
         <div className="flex shrink-0 items-center gap-1">
-          {onCollapse && (
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <button
-                  type="button"
-                  onClick={onCollapse}
-                  aria-label={t("agentPanel.collapseSidebar")}
-                  className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:bg-accent/50 hover:text-foreground"
-                  style={AGENT_PANEL_CONTROL_STYLE}
-                >
-                  <IconX size={16} />
-                </button>
-              </TooltipTrigger>
-              <TooltipContent>{t("agentPanel.collapseSidebar")}</TooltipContent>
-            </Tooltip>
-          )}
           <Tooltip>
             <TooltipTrigger asChild>
               <button
@@ -1074,7 +1058,7 @@ function AgentPanelInner({
                 onClick={() => switchMode("resources")}
                 aria-label={t("agentPanel.workspaceMode")}
                 className={cn(
-                  "agent-sidebar-hover-reveal flex items-center gap-1 rounded-md px-2 py-1 text-[12px] leading-none",
+                  "flex items-center gap-1 rounded-md px-2 py-1 text-[12px] leading-none",
                   activeMode === "resources"
                     ? "bg-accent text-foreground"
                     : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
@@ -1090,7 +1074,7 @@ function AgentPanelInner({
         </div>
       </TooltipProvider>
     ),
-    [codeAccessEnabled, codeUnavailableDescription, onCollapse, showCliMode, t],
+    [codeAccessEnabled, codeUnavailableDescription, showCliMode, t],
   );
 
   const [headerMenuOpen, setHeaderMenuOpen] = useState(false);
@@ -1148,7 +1132,7 @@ function AgentPanelInner({
             <button
               onClick={addTab}
               aria-label={t("agentPanel.newChat")}
-              className="agent-sidebar-hover-reveal flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/50"
+              className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/50"
             >
               <IconPlus size={14} />
             </button>
@@ -1159,7 +1143,7 @@ function AgentPanelInner({
             <button
               onClick={addCliTab}
               aria-label={t("agentPanel.newTerminal")}
-              className="agent-sidebar-hover-reveal flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/50"
+              className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/50"
             >
               <IconPlus size={14} />
             </button>
@@ -1321,6 +1305,18 @@ function AgentPanelInner({
             )}
           </DropdownMenuContent>
         </DropdownMenu>
+        {onCollapse && (
+          <IconTooltip content={t("agentPanel.collapseSidebar")}>
+            <button
+              type="button"
+              onClick={onCollapse}
+              aria-label={t("agentPanel.collapseSidebar")}
+              className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/50"
+            >
+              <IconX size={14} />
+            </button>
+          </IconTooltip>
+        )}
       </div>
     ),
     [
@@ -1417,7 +1413,13 @@ function AgentPanelInner({
       showHistory,
       toggleHistory,
     }: MultiTabAssistantChatHeaderProps) => (
-      <div className="flex flex-col shrink-0">
+      <div
+        className="agent-sidebar-chat-header flex flex-col shrink-0"
+        data-agent-sidebar-chat-header={onCollapse ? "" : undefined}
+        data-agent-sidebar-chat-header-active={
+          headerMenuOpen || feedbackOpen ? "" : undefined
+        }
+      >
         {/* Top bar: mode buttons + actions */}
         <div
           className={AGENT_PANEL_HEADER_CLASS}
@@ -1651,6 +1653,9 @@ function AgentPanelInner({
       renderModeButtons,
       chatNotice,
       canUseCodeTools,
+      feedbackOpen,
+      headerMenuOpen,
+      onCollapse,
       showTabBar,
       cliTabs,
       activeCliTab,
@@ -1676,8 +1681,10 @@ function AgentPanelInner({
       <style
         dangerouslySetInnerHTML={{
           __html:
-            ".agent-sidebar-hover-reveal{opacity:0;pointer-events:none;transition:opacity 150ms ease-out;}" +
-            ".agent-panel-root:hover .agent-sidebar-hover-reveal,.agent-panel-root:focus-within .agent-sidebar-hover-reveal{opacity:1;pointer-events:auto;}" +
+            "@media (hover:hover) and (pointer:fine){" +
+            ".agent-sidebar-chat-header[data-agent-sidebar-chat-header]{opacity:0;pointer-events:none;transition:opacity 150ms ease-out;}" +
+            ".agent-panel-root:hover .agent-sidebar-chat-header[data-agent-sidebar-chat-header],.agent-panel-root:focus-within .agent-sidebar-chat-header[data-agent-sidebar-chat-header],.agent-sidebar-chat-header[data-agent-sidebar-chat-header][data-agent-sidebar-chat-header-active]{opacity:1;pointer-events:auto;}" +
+            "}" +
             ".agent-tab-close{opacity:0}.agent-tab:hover .agent-tab-close{opacity:1}" +
             ".agent-tabs-scroll{scrollbar-width:none;-ms-overflow-style:none;}" +
             ".agent-tabs-scroll::-webkit-scrollbar{display:none;}" +
