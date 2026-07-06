@@ -660,66 +660,46 @@ fn start_native_session_locked(
         || mic_device_label
             .as_deref()
             .is_some_and(|v| !v.trim().is_empty());
-    let session = if include_audio && !capture_system_audio {
-        if defer_recording_output {
-            return Err(
-                "Skipping microphone-only ScreenCaptureKit warmup; begin will use screencapture."
-                    .to_string(),
-            );
-        }
-        if has_specific_mic {
-            eprintln!(
-                "[clips-tray] using screencapture for microphone-only recording; selected mic cannot be pinned by this backend"
-            );
-        } else {
-            eprintln!(
-                "[clips-tray] using screencapture for microphone-only recording to avoid ScreenCaptureKit microphone finalization failures"
-            );
-        }
-        start_screencapture_recording(
-            app,
-            &safe_id,
-            include_audio,
-            capture_system_audio,
-            capture_region,
-        )?
-    } else {
-        match start_screencapturekit_recording(
-            app,
-            &safe_id,
-            include_audio,
-            capture_system_audio,
-            mic_device_id.as_deref(),
-            mic_device_label.as_deref(),
-            capture_region,
-            defer_recording_output,
-        ) {
-            Ok(session) => session,
-            Err(sck_err) => {
-                if defer_recording_output {
-                    return Err(sck_err);
-                }
-                if include_audio && has_specific_mic {
-                    return Err(format!(
-                        "ScreenCaptureKit recording failed before it could use the selected microphone ({sck_err}). Clips did not fall back to macOS screencapture because that would ignore your selected input."
-                    ));
-                }
-                eprintln!(
-                    "[clips-tray] ScreenCaptureKit recording unavailable; falling back to screencapture: {sck_err}"
-                );
-                start_screencapture_recording(
-                    app,
-                    &safe_id,
-                    include_audio,
-                    capture_system_audio,
-                    capture_region,
-                )
-                .map_err(|fallback_err| {
-                    format!(
-                        "ScreenCaptureKit recording failed ({sck_err}); screencapture fallback failed ({fallback_err})"
-                    )
-                })?
+    let session = match start_screencapturekit_recording(
+        app,
+        &safe_id,
+        include_audio,
+        capture_system_audio,
+        mic_device_id.as_deref(),
+        mic_device_label.as_deref(),
+        capture_region,
+        defer_recording_output,
+    ) {
+        Ok(session) => session,
+        Err(sck_err) => {
+            if defer_recording_output {
+                return Err(sck_err);
             }
+            if include_audio {
+                let mic_description = if has_specific_mic {
+                    "the selected microphone"
+                } else {
+                    "the resolved default microphone"
+                };
+                return Err(format!(
+                    "ScreenCaptureKit recording failed before it could use {mic_description} ({sck_err}). Clips did not fall back to macOS screencapture because that would ignore the requested input."
+                ));
+            }
+            eprintln!(
+                "[clips-tray] ScreenCaptureKit recording unavailable; falling back to screencapture: {sck_err}"
+            );
+            start_screencapture_recording(
+                app,
+                &safe_id,
+                include_audio,
+                capture_system_audio,
+                capture_region,
+            )
+            .map_err(|fallback_err| {
+                format!(
+                    "ScreenCaptureKit recording failed ({sck_err}); screencapture fallback failed ({fallback_err})"
+                )
+            })?
         }
     };
     let width = session.width;
@@ -1647,12 +1627,17 @@ fn start_segment_backend(
         ) {
             Ok((backend, w, h)) => return Ok((backend, w, h)),
             Err(sck_err) => {
-                if include_audio
-                    && (mic_device_id.is_some_and(|value| !value.trim().is_empty())
-                        || mic_device_label.is_some_and(|value| !value.trim().is_empty()))
-                {
+                if include_audio {
+                    let mic_description = if mic_device_id
+                        .is_some_and(|value| !value.trim().is_empty())
+                        || mic_device_label.is_some_and(|value| !value.trim().is_empty())
+                    {
+                        "the selected microphone"
+                    } else {
+                        "the resolved default microphone"
+                    };
                     return Err(format!(
-                        "ScreenCaptureKit resume failed before it could use the selected microphone ({sck_err}). Clips did not fall back to macOS screencapture because that would ignore your selected input."
+                        "ScreenCaptureKit resume failed before it could use {mic_description} ({sck_err}). Clips did not fall back to macOS screencapture because that would ignore the requested input."
                     ));
                 }
                 eprintln!(
