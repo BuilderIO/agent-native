@@ -50,6 +50,7 @@ import {
 } from "../shared/properties.js";
 import { sanitizeNormalizationFormula } from "../shared/properties.js";
 import {
+  readBuilderCmsContentEntry,
   readBuilderCmsContentEntries,
   readBuilderCmsModelFields,
   type BuilderCmsReadProgress,
@@ -759,6 +760,37 @@ function builderEntryFromSourceRow(args: {
   };
 }
 
+async function readBuilderEntryWithLiveBodyFromSourceRow(args: {
+  row: Pick<
+    ContentDatabaseSourceRecordRowDb,
+    "sourceRowId" | "sourceValuesJson"
+  >;
+  sourceTable: string;
+  fallbackTitle: string;
+}): Promise<BuilderCmsSourceEntry | null> {
+  const sourceValues =
+    parseObject<Record<string, DocumentPropertyValue>>(
+      args.row.sourceValuesJson,
+    ) ?? {};
+  const liveEntry = await readBuilderCmsContentEntry({
+    model: args.sourceTable,
+    entryId: args.row.sourceRowId,
+  }).catch(() => null);
+  if (!liveEntry || liveEntry.id !== args.row.sourceRowId) return null;
+  const entryWithStoredValues = {
+    ...liveEntry,
+    title: liveEntry.title || args.fallbackTitle,
+    sourceValues: {
+      ...sourceValues,
+      ...liveEntry.sourceValues,
+    },
+  };
+  const refreshedEntry = await refreshBuilderBodySourceValuesFromStoredLossless(
+    await withBuilderBodySourceValues(entryWithStoredValues),
+  );
+  return builderEntryHasBodyContent(refreshedEntry) ? refreshedEntry : null;
+}
+
 export async function enqueueBuilderBodyHydration(args: {
   sourceId: string;
   ownerEmail: string;
@@ -1033,6 +1065,46 @@ async function processBuilderBodyHydrationJob(
         nextContent = rebuiltContent;
       }
     }
+    if (!nextContent.trim() && sourceRow) {
+      const liveEntry = await readBuilderEntryWithLiveBodyFromSourceRow({
+        row: sourceRow,
+        sourceTable: row.sourceTable,
+        fallbackTitle: entry.title,
+      });
+      if (liveEntry) {
+        const liveValues = {
+          ...sourceValues,
+          ...liveEntry.sourceValues,
+        };
+        const liveContent =
+          stringSourceValue(liveValues, BUILDER_CMS_BODY_CONTENT_KEY) ?? "";
+        if (liveContent.trim()) {
+          const liveSourceEntryJson = JSON.stringify(liveEntry);
+          const [upgraded] = await db
+            .update(schema.contentDatabaseBodyHydrationQueue)
+            .set({
+              sourceEntryJson: liveSourceEntryJson,
+              lastError: null,
+              updatedAt: now,
+            })
+            .where(
+              and(
+                eq(schema.contentDatabaseBodyHydrationQueue.id, row.id),
+                eq(
+                  schema.contentDatabaseBodyHydrationQueue.sourceEntryJson,
+                  activeSourceEntryJson,
+                ),
+              ),
+            )
+            .returning({ id: schema.contentDatabaseBodyHydrationQueue.id });
+          if (!upgraded) return;
+          activeSourceEntryJson = liveSourceEntryJson;
+          entryWithBody = liveEntry;
+          nextValues = liveValues;
+          nextContent = liveContent;
+        }
+      }
+    }
     if (!nextContent.trim()) {
       const attempts = row.attempts + 1;
       await db.transaction(async (tx) => {
@@ -1051,7 +1123,7 @@ async function processBuilderBodyHydrationJob(
           await tx
             .update(schema.contentDatabaseItems)
             .set({
-              bodyHydrationStatus: "pending",
+              bodyHydrationStatus: "error",
               bodyHydrationAttemptedAt: now,
               bodyHydrationError: BUILDER_BODY_NOT_AVAILABLE_ERROR,
               updatedAt: now,

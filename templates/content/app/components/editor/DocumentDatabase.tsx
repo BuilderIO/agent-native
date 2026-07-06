@@ -171,6 +171,7 @@ import { cn } from "@/lib/utils";
 
 import { resolveBuilderCmsWriteEffect } from "../../../actions/_builder-cms-write-adapter.js";
 import {
+  builderBodyHydrationDisplayHydratedCount,
   databaseItemBodyHydrationIsPending,
   isEffectivelyEmptyDocumentContent,
   previewBodyHydrationIsPending,
@@ -5949,12 +5950,13 @@ function BuilderSourceContinuationBar({
         ? source.metadata.lastReadEntryCount
         : null;
   const hydratedCount = bodyHydration
-    ? Math.max(
-        bodyHydration.hydrated,
-        progressHighWater.sourceId === source.id
-          ? progressHighWater.hydratedCount
-          : 0,
-      )
+    ? builderBodyHydrationDisplayHydratedCount({
+        summary: bodyHydration,
+        highWaterCount:
+          progressHighWater.sourceId === source.id
+            ? progressHighWater.hydratedCount
+            : 0,
+      })
     : 0;
   const fetchedCount =
     rowsComplete && bodyHydration

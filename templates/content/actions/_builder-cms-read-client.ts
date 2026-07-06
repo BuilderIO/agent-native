@@ -744,6 +744,50 @@ export async function readBuilderCmsEntryLiveState(args: {
   return liveStateFromBuilderEntry(json);
 }
 
+export async function readBuilderCmsContentEntry(args: {
+  model: string;
+  entryId: string;
+  fetchImpl?: FetchLike;
+}): Promise<BuilderCmsSourceEntry | null> {
+  const publicKey = await resolveBuilderCredential("BUILDER_PUBLIC_KEY");
+  if (!publicKey) {
+    throw new Error(
+      "Builder CMS entry read skipped because BUILDER_PUBLIC_KEY is not configured.",
+    );
+  }
+
+  const url = new URL(
+    `/api/v3/content/${encodeURIComponent(args.model)}/${encodeURIComponent(
+      args.entryId,
+    )}`,
+    builderContentApiHost(),
+  );
+  url.searchParams.set("apiKey", publicKey);
+  url.searchParams.set("includeUnpublished", "true");
+  url.searchParams.set("enrich", "true");
+  url.searchParams.set("noCache", "true");
+  url.searchParams.set("cachebust", String(Date.now()));
+  url.searchParams.set("fields", BUILDER_CMS_ENTRY_FIELDS);
+
+  const response = await fetchBuilderContentPage({
+    fetchImpl: args.fetchImpl ?? fetch,
+    url,
+  });
+  if (response.status === 404) return null;
+  if (!response.ok) {
+    throw new Error(
+      `Builder CMS entry read failed with HTTP ${response.status}.`,
+    );
+  }
+
+  const json = (await response.json()) as unknown;
+  const rawEntry = Array.isArray(json)
+    ? json[0]
+    : (entryArrayFromResponse(json)[0] ?? json);
+  const entry = normalizeBuilderCmsApiEntry(rawEntry, args.model);
+  return entry?.id === args.entryId ? entry : null;
+}
+
 export async function listBuilderCmsModels(
   args: {
     fetchImpl?: FetchLike;

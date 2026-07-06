@@ -1,5 +1,6 @@
 import type {
   ContentDatabaseBodyHydration,
+  ContentDatabaseBodyHydrationSummary,
   ContentDatabaseItem,
   Document,
 } from "@shared/api";
@@ -17,6 +18,22 @@ export function builderBodyHydrationIsTerminalError(
   hydration: ContentDatabaseBodyHydration | null | undefined,
 ) {
   return hydration?.status === "error";
+}
+
+export function builderBodyHydrationDisplayHydratedCount(args: {
+  summary: ContentDatabaseBodyHydrationSummary;
+  highWaterCount?: number | null;
+}) {
+  const total = Math.max(0, args.summary.total);
+  const unresolved = Math.max(
+    0,
+    args.summary.pending + args.summary.hydrating + args.summary.error,
+  );
+  const maxResolved = Math.max(0, total - unresolved);
+  return Math.min(
+    Math.max(args.summary.hydrated, args.highWaterCount ?? 0),
+    unresolved > 0 ? maxResolved : total,
+  );
 }
 
 export function databaseItemBodyHydrationIsPending(

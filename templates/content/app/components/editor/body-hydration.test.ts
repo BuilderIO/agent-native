@@ -2,6 +2,7 @@ import type { ContentDatabaseItem, Document } from "@shared/api";
 import { describe, expect, it } from "vitest";
 
 import {
+  builderBodyHydrationDisplayHydratedCount,
   builderBodyHydrationIsTerminalError,
   databaseItemBodyHydrationIsPending,
   documentBodyHydrationIsPending,
@@ -68,6 +69,51 @@ describe("body hydration editing gates", () => {
         documentWithHydration("pending").databaseMembership?.bodyHydration,
       ),
     ).toBe(false);
+  });
+
+  it("does not let high-water progress make active body sync look complete", () => {
+    expect(
+      builderBodyHydrationDisplayHydratedCount({
+        summary: {
+          pending: 1,
+          hydrating: 0,
+          hydrated: 496,
+          error: 0,
+          total: 497,
+        },
+        highWaterCount: 497,
+      }),
+    ).toBe(496);
+  });
+
+  it("does not count failed Builder bodies as hydrated in retry states", () => {
+    expect(
+      builderBodyHydrationDisplayHydratedCount({
+        summary: {
+          pending: 0,
+          hydrating: 0,
+          hydrated: 496,
+          error: 1,
+          total: 497,
+        },
+        highWaterCount: 497,
+      }),
+    ).toBe(496);
+  });
+
+  it("does not count actively hydrating Builder bodies as complete", () => {
+    expect(
+      builderBodyHydrationDisplayHydratedCount({
+        summary: {
+          pending: 0,
+          hydrating: 1,
+          hydrated: 496,
+          error: 0,
+          total: 497,
+        },
+        highWaterCount: 497,
+      }),
+    ).toBe(496);
   });
 
   it("uses row-level body hydration before membership fallback", () => {

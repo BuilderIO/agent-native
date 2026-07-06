@@ -11,11 +11,15 @@ import { join } from "node:path";
 import { and, eq, ne } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
-import { BUILDER_CMS_BODY_CONTENT_KEY } from "./_builder-cms-source-adapter";
+import {
+  BUILDER_CMS_BODY_BLOCKS_HASH_KEY,
+  BUILDER_CMS_BODY_CONTENT_KEY,
+} from "./_builder-cms-source-adapter";
 
 const builderReadMock = vi.hoisted(() => ({
   mode: "full" as "full" | "paged",
   calls: [] as Array<{ model: string; maxPages?: number; offset?: number }>,
+  singleEntryCalls: [] as Array<{ model: string; entryId: string }>,
 }));
 
 // Mock the Builder read client so resync runs "live" with deterministic entries
@@ -27,6 +31,47 @@ vi.mock("./_builder-cms-read-client.js", async () => {
   return {
     ...actual,
     readBuilderCmsModelFields: vi.fn(async () => []),
+    readBuilderCmsContentEntry: vi.fn(
+      async ({ model, entryId }: { model: string; entryId: string }) => {
+        builderReadMock.singleEntryCalls.push({ model, entryId });
+        if (model !== "collection-open-hydration-live") return null;
+        return {
+          id: entryId,
+          model,
+          title: "Open live hydration",
+          urlPath: "/blog/open-live-hydration",
+          updatedAt: "2026-01-01T00:00:00.000Z",
+          sourceValues: {
+            "data.title": "Open live hydration",
+            "data.url": "/blog/open-live-hydration",
+            lastUpdated: "2026-01-01T00:00:00.000Z",
+          },
+          rawEntry: {
+            id: entryId,
+            model,
+            name: "Open live hydration",
+            lastUpdated: "2026-01-01T00:00:00.000Z",
+            data: {
+              title: "Open live hydration",
+              url: "/blog/open-live-hydration",
+              blocks: [
+                {
+                  "@type": "@builder.io/sdk:Element",
+                  "@version": 2,
+                  id: "text-open-live",
+                  component: {
+                    name: "Text",
+                    options: {
+                      text: "<p>Live opened row body from Builder.</p>",
+                    },
+                  },
+                },
+              ],
+            },
+          },
+        };
+      },
+    ),
     readBuilderCmsContentEntries: vi.fn(
       async ({
         model,
@@ -781,6 +826,7 @@ it("full Builder refresh reads every page in one resync call", async () => {
 it("does not let open-row hydration promotion downgrade a queued full Builder body", async () => {
   builderReadMock.mode = "full";
   builderReadMock.calls = [];
+  builderReadMock.singleEntryCalls = [];
   const db = getDb();
   const now = new Date().toISOString();
   const databaseId = "db_open_hydration_downgrade";
@@ -912,9 +958,142 @@ it("does not let open-row hydration promotion downgrade a queued full Builder bo
   expect(after.queued).toBeNull();
 });
 
+it("fetches a live Builder body when an opened row only has stored body metadata", async () => {
+  builderReadMock.mode = "full";
+  builderReadMock.calls = [];
+  builderReadMock.singleEntryCalls = [];
+  const db = getDb();
+  const now = new Date().toISOString();
+  const databaseId = "db_open_hydration_live_body";
+  const databaseDocId = "doc_db_open_hydration_live_body";
+  const documentId = "doc_open_hydration_live_body";
+  const itemId = "item_open_hydration_live_body";
+  const sourceId = "src_open_hydration_live_body";
+  const sourceRowId = "entry_open_hydration_live_body";
+
+  await db.insert(schema.documents).values([
+    {
+      id: databaseDocId,
+      ownerEmail: OWNER,
+      title: "DB open hydration live body",
+      createdAt: now,
+      updatedAt: now,
+    },
+    {
+      id: documentId,
+      ownerEmail: OWNER,
+      parentId: databaseDocId,
+      title: "Open live hydration",
+      content: "",
+      createdAt: now,
+      updatedAt: now,
+    },
+  ]);
+  await db.insert(schema.contentDatabases).values({
+    id: databaseId,
+    ownerEmail: OWNER,
+    documentId: databaseDocId,
+    title: "DB open hydration live body",
+    createdAt: now,
+    updatedAt: now,
+  });
+  await db.insert(schema.contentDatabaseSources).values({
+    id: sourceId,
+    ownerEmail: OWNER,
+    databaseId,
+    sourceType: "builder-cms",
+    sourceName: "collection-open-hydration-live",
+    sourceTable: "collection-open-hydration-live",
+    createdAt: now,
+    updatedAt: now,
+  });
+  await db.insert(schema.contentDatabaseItems).values({
+    id: itemId,
+    ownerEmail: OWNER,
+    databaseId,
+    documentId,
+    position: 0,
+    bodyHydrationStatus: "pending",
+    bodyHydrationError: null,
+    createdAt: now,
+    updatedAt: now,
+  });
+  await db.insert(schema.contentDatabaseSourceRows).values({
+    id: "row_open_hydration_live_body",
+    ownerEmail: OWNER,
+    sourceId,
+    databaseItemId: itemId,
+    documentId,
+    sourceRowId,
+    sourceQualifiedId: `builder-cms://collection-open-hydration-live/${sourceRowId}`,
+    sourceDisplayKey: "Open live hydration",
+    sourceValuesJson: JSON.stringify({
+      "data.title": "Open live hydration",
+      "data.url": "/blog/open-live-hydration",
+      lastUpdated: "2026-01-01T00:00:00.000Z",
+      [BUILDER_CMS_BODY_BLOCKS_HASH_KEY]: "stored-blocks-hash",
+    }),
+    provenance: "Builder CMS read adapter",
+    createdAt: now,
+    updatedAt: now,
+  });
+
+  const result = await hydrateQueuedBodies({ sourceId, documentId, limit: 1 });
+
+  const [after] = await db
+    .select({
+      content: schema.documents.content,
+      status: schema.contentDatabaseItems.bodyHydrationStatus,
+      error: schema.contentDatabaseItems.bodyHydrationError,
+      queued: schema.contentDatabaseBodyHydrationQueue.id,
+      sourceValuesJson: schema.contentDatabaseSourceRows.sourceValuesJson,
+    })
+    .from(schema.documents)
+    .innerJoin(
+      schema.contentDatabaseItems,
+      eq(schema.contentDatabaseItems.documentId, schema.documents.id),
+    )
+    .innerJoin(
+      schema.contentDatabaseSourceRows,
+      eq(
+        schema.contentDatabaseSourceRows.databaseItemId,
+        schema.contentDatabaseItems.id,
+      ),
+    )
+    .leftJoin(
+      schema.contentDatabaseBodyHydrationQueue,
+      eq(
+        schema.contentDatabaseBodyHydrationQueue.databaseItemId,
+        schema.contentDatabaseItems.id,
+      ),
+    )
+    .where(eq(schema.documents.id, documentId));
+  const sourceValues = JSON.parse(after.sourceValuesJson ?? "{}");
+
+  expect(result.processed).toBe(1);
+  expect(result.succeeded).toBe(1);
+  expect(after.content).toContain("Live opened row body from Builder.");
+  expect(after.status).toBe("hydrated");
+  expect(after.error).toBeNull();
+  expect(after.queued).toBeNull();
+  expect(sourceValues[BUILDER_CMS_BODY_CONTENT_KEY]).toContain(
+    "Live opened row body from Builder.",
+  );
+  expect(sourceValues[BUILDER_CMS_BODY_BLOCKS_HASH_KEY]).not.toBe(
+    "stored-blocks-hash",
+  );
+  expect(builderReadMock.singleEntryCalls).toEqual([
+    {
+      model: "collection-open-hydration-live",
+      entryId: sourceRowId,
+    },
+  ]);
+});
+
 it("rebuilds an empty queued Builder body from the current source row before giving up", async () => {
   builderReadMock.mode = "full";
   builderReadMock.calls = [];
+  builderReadMock.singleEntryCalls = [];
   const db = getDb();
   const now = new Date().toISOString();
   const databaseId = "db_hydration_rebuild_from_source";
@@ -1055,6 +1234,7 @@ it("rebuilds an empty queued Builder body from the current source row before giv
 it("terminates an unbuildable empty Builder body job at the hydration cap", async () => {
   builderReadMock.mode = "full";
   builderReadMock.calls = [];
+  builderReadMock.singleEntryCalls = [];
   const db = getDb();
   const now = new Date().toISOString();
   const databaseId = "db_hydration_empty_terminal";
@@ -1180,7 +1360,7 @@ it("terminates an unbuildable empty Builder body job at the hydration cap", asyn
     .where(eq(schema.documents.id, documentId));
 
   expect(after.content).toBe("");
-  expect(after.status).toBe("pending");
+  expect(after.status).toBe("error");
   expect(after.error).toBe("body not yet available from Builder");
   expect(after.queued).toBeNull();
   expect(after.attempts).toBeNull();
