@@ -46,7 +46,7 @@ describe("design import clipboard helpers", () => {
     ).toBeNull();
   });
 
-  it("does not treat generic data-buffer attributes as Figma payloads", () => {
+  it("ignores generic data-buffer attributes", () => {
     expect(
       getFigmaClipboardContent(
         clipboardData({
@@ -58,7 +58,7 @@ describe("design import clipboard helpers", () => {
     ).toBeNull();
   });
 
-  it("does not treat plain text Figma mentions as Figma payloads", () => {
+  it("ignores plain text Figma mentions", () => {
     expect(
       getFigmaClipboardContent(
         clipboardData({
@@ -69,7 +69,7 @@ describe("design import clipboard helpers", () => {
     ).toBeNull();
   });
 
-  it("recognizes standalone HTML separately from Figma payloads", () => {
+  it("recognizes standalone HTML separately from Figma clipboard markers", () => {
     expect(looksLikeStandaloneHtml("<section>Hero</section>")).toBe(true);
     expect(looksLikeStandaloneHtml("plain text")).toBe(false);
   });

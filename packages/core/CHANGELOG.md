@@ -933,7 +933,7 @@ currentVersionHash }` instead of overwriting concurrent changes, and
 
 ### Patch Changes
 
-- 1d77419: Route design-system indexing through Builder-managed design-system APIs while preserving the public Figma parser export.
+- 1d77419: Route design-system indexing through Builder-managed design-system APIs while preserving the legacy compatibility export.
 - 1d77419: Fix avatar lookup routes so profile photos load for users signed in through legacy Google OAuth sessions.
 - 1d77419: Keep shared app shell outlines visible around the top corners when app content fills the main surface.
 
@@ -4889,7 +4889,7 @@ alt? }>`. A self-contained ProseMirror plugin wires paste-image and
 
 ### Patch Changes
 
-- ce7f37c: Expose shared Brand Kit helpers for parsing Figma `.fig` local-copy files.
+- ce7f37c: Expose shared Brand Kit helpers for `.fig` local-copy compatibility.
 - ce7f37c: Add the visual-questions Plans skill to the installer and support compact share triggers.
 
 ## 0.37.1

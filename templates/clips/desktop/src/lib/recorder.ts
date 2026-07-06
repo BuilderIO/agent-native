@@ -2529,7 +2529,7 @@ async function startRecordingInner(
       ? getCameraStreamWithFallback(params.cameraId)
       : null;
   const audioStreamPromise: Promise<MediaStream> | null = wantsAudio
-    ? getAudioStreamWithFallback(params.micId)
+    ? getAudioStreamWithFallback(params.micId, params.micLabel)
     : null;
 
   // Use allSettled so a single rejection (e.g. user cancels the macOS screen

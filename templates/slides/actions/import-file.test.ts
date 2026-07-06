@@ -150,7 +150,9 @@ describe("import-file PDF source extraction", () => {
   });
 
   it("starts Builder indexing for .fig files", async () => {
-    const figBuffer = Buffer.from("fig-kiwi\0\0\0\0");
+    const figBuffer = Buffer.from([
+      0x66, 0x69, 0x67, 0x2d, 0x6b, 0x69, 0x77, 0x69, 0, 0, 0, 0,
+    ]);
     mockReadFile.mockResolvedValue(figBuffer);
 
     const result = (await action.run({

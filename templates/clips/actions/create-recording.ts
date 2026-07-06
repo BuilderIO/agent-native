@@ -88,7 +88,7 @@ export default defineAction({
     let uploadMode: UploadMode = "buffered";
     const uploadProvider = await getActiveFileUploadProviderForRequest();
     if (
-      args.requestStreaming &&
+      args.requestStreaming !== false &&
       shouldEnableStreamingUpload({
         client: args.streamingUploadClient,
         mimeType: args.mimeType,

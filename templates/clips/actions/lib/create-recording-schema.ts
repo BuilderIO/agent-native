@@ -74,7 +74,7 @@ export const createRecordingSchema = z.object({
     .boolean()
     .optional()
     .describe(
-      "Request the resumable streaming upload path. Send this only when the caller can produce sequential chunk uploads compatible with the active storage provider. Callers that omit this get the buffered path.",
+      "Request the resumable streaming upload path. Streaming is attempted by default for compatible recorder clients and storage providers; send false only when the caller cannot produce sequential chunk uploads.",
     ),
   streamingUploadClient: z
     .enum(["desktop-native"])

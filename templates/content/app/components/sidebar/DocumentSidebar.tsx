@@ -1047,7 +1047,7 @@ export function DocumentSidebar({
 
   if (collapsed) {
     return (
-      <div className="flex h-full w-12 flex-col items-center gap-1 border-e border-border bg-muted/30 py-3 transition-[width] duration-200 ease-out">
+      <div className="agent-layout-left-drawer flex h-full w-12 flex-col items-center gap-1 border-e border-border bg-sidebar py-3 transition-[width] duration-200 ease-out">
         <Tooltip>
           <TooltipTrigger asChild>
             <button
@@ -1099,7 +1099,7 @@ export function DocumentSidebar({
   return (
     <div
       className={cn(
-        "agent-layout-left-drawer relative flex h-full min-h-0 flex-col border-e border-border bg-muted/30 transition-[width] duration-200 ease-out",
+        "agent-layout-left-drawer relative flex h-full min-h-0 flex-col border-e border-border bg-sidebar transition-[width] duration-200 ease-out",
         width === undefined && "w-full",
       )}
       style={width === undefined ? undefined : { width, flexShrink: 0 }}

@@ -9,6 +9,13 @@ import {
 } from "react";
 
 import {
+  chooseFallbackAudioInput,
+  findAudioInputBySavedLabel,
+  isPseudoMediaDeviceId,
+  isSelectableAudioInputDevice,
+  normalizedMediaDeviceId,
+} from "../lib/media-device-selection";
+import {
   isHardCapturePermissionError,
   MACOS_CAPTURE_PERMISSION_MESSAGE,
 } from "../lib/permissions";
@@ -19,15 +26,6 @@ const MIC_KEY = "clips:last-mic-id";
 const CAM_LABEL_KEY = "clips:last-camera-label";
 const MIC_LABEL_KEY = "clips:last-mic-label";
 
-function normalizedMediaDeviceId(value: string | null | undefined): string {
-  return value?.trim() ?? "";
-}
-
-function isPseudoMediaDeviceId(value: string | null | undefined): boolean {
-  const id = normalizedMediaDeviceId(value).toLowerCase();
-  return id === "default" || id === "communications";
-}
-
 function concreteMediaDeviceId(value: string | null | undefined): string {
   const id = normalizedMediaDeviceId(value);
   return id && !isPseudoMediaDeviceId(id) ? id : "";
@@ -35,16 +33,6 @@ function concreteMediaDeviceId(value: string | null | undefined): string {
 
 function isSelectableMediaDevice(device: MediaDeviceInfo): boolean {
   return !!concreteMediaDeviceId(device.deviceId);
-}
-
-function isBuiltInMicDevice(device: MediaDeviceInfo): boolean {
-  const label = device.label.toLowerCase();
-  return (
-    label.includes("macbook") ||
-    label.includes("built-in") ||
-    label.includes("built in") ||
-    label.includes("internal microphone")
-  );
 }
 
 interface Props {
@@ -123,11 +111,7 @@ export function useMediaDevices({
           (d) => d.kind === "videoinput" && isSelectableMediaDevice(d),
         ),
       );
-      setMics(
-        list.filter(
-          (d) => d.kind === "audioinput" && isSelectableMediaDevice(d),
-        ),
-      );
+      setMics(list.filter((d) => isSelectableAudioInputDevice(d)));
     } catch {
       // ignore
     }
@@ -202,7 +186,12 @@ export function useMediaDevices({
         const stream = await navigator.mediaDevices.getUserMedia(
           kind === "camera"
             ? { video: true, audio: false }
-            : { audio: true, video: false },
+            : {
+                audio: selectedMicId
+                  ? { deviceId: { exact: selectedMicId } }
+                  : true,
+                video: false,
+              },
         );
         stream.getTracks().forEach((track) => track.stop());
         await loadDevices();
@@ -243,17 +232,25 @@ export function useMediaDevices({
   }, [loadDevices, unlockDeviceLabels, popoverVisible]);
 
   useEffect(() => {
-    if (!isPseudoMediaDeviceId(micId) || mics.length === 0) return;
-    const builtIn = mics.find(isBuiltInMicDevice);
-    setMicId(builtIn?.deviceId ?? "");
-  }, [micId, mics]);
+    if (!micId || !isPseudoMediaDeviceId(micId) || mics.length === 0) return;
+    const fallback = chooseFallbackAudioInput(mics, {
+      savedLabel: micLabel,
+      avoidDeviceIds: [micId],
+    });
+    if (!fallback) return;
+    console.warn("[clips-recorder] resolved pseudo mic id to concrete input", {
+      previousDeviceId: micId,
+      nextDeviceId: fallback.deviceId,
+      reason: fallback.reason,
+    });
+    setMicId(fallback.deviceId);
+    setMicLabel(fallback.label);
+  }, [micId, micLabel, mics]);
 
   // A stored device id that no longer matches anything enumerated (e.g. the
-  // webcam/mic was unplugged since the app last ran) must not keep being
-  // treated as a live selection — fall back to the default device instead of
-  // silently re-launching with a ghost id, which fails acquisition with
-  // OverconstrainedError ("Invalid constraint") and leaves a stale label in
-  // the picker until the user manually refreshes and reselects.
+  // webcam/mic was unplugged since the app last ran) must not be rewritten to
+  // the OS default. Keep the explicit choice unless we can rematch it by saved
+  // label, because macOS default can point at Continuity/iPhone.
   //
   // Only trust a NON-EMPTY list, though: enumeration legitimately returns an
   // empty list on a transient error or before permission is granted, and
@@ -268,9 +265,18 @@ export function useMediaDevices({
   useEffect(() => {
     if (isPseudoMediaDeviceId(micId) || !micId || mics.length === 0) return;
     if (mics.some((d) => d.deviceId === micId)) return;
-    setMicId("");
-    setMicLabel("");
-  }, [micId, mics]);
+    const rematch = findAudioInputBySavedLabel(mics, {
+      savedLabel: micLabel,
+      avoidDeviceIds: [micId],
+    });
+    if (!rematch) return;
+    console.warn(
+      "[clips-recorder] saved mic id was missing; rematched by label",
+      { previousDeviceId: micId, nextDeviceId: rematch.deviceId },
+    );
+    setMicId(rematch.deviceId);
+    setMicLabel(rematch.label);
+  }, [micId, micLabel, mics]);
 
   useEffect(() => saveString(CAM_KEY, cameraId), [cameraId]);
   useEffect(() => saveString(MIC_KEY, micId), [micId]);
