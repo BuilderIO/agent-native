@@ -93,9 +93,10 @@ Chaque modèle qui stocke le travail créé par l'utilisateur utilise ce modèle
 - **Diapositives** — présentations
 - **Conception** – conceptions et éléments
 - **Clips** – enregistrements d'écran (style Loom)
+- **Plan** — visual plans and PR recaps
 - **Formulaires** — définitions de formulaire
 - **Calendrier** — événements et liens de réservation
-- **Analytics** — tableaux de bord (déploiement — voir `AGENTS.md` du modèle d'analyse)
+- **Analytics** — dashboards, saved analyses, and tokenized session replays
 - **Extensions** – mini-applications en bac à sable (voir [Extensions](/docs/extensions#sharing))
 
 Chacun d'entre eux utilise le même assistant de schéma `ownableColumns()`, la même action `share-resource` et la même `<ShareButton>` UI. Passez d'un modèle à un autre et la boîte de dialogue de partage semble identique.
@@ -142,8 +143,15 @@ Le framework monte automatiquement ces actions dans chaque modèle : l'agent le
 | `unshare-resource`        | Révoquer l'accès d'un utilisateur ou d'une organisation.                                                                                   |
 | `list-resource-shares`    | Afficher la visibilité actuelle ainsi que toutes les autorisations explicites.                                                             |
 | `set-resource-visibility` | Passez à `private`, `org` ou `public`.                                                                                                     |
+| `create-agent-resource-link` | Mint a temporary read-only `agent_access` URL for a registered agent-readable resource.                                                  |
 
 Dites à l'agent "Partagez cette conception avec l'équipe marketing en tant qu'éditeurs" et il appellera `share-resource` sur le même point de terminaison que celui utilisé par UI. Le résultat apparaît dans la boîte de dialogue de partage lors du prochain rendu.
+
+## Agent-readable share links {#agent-readable-links}
+
+Human share links should also work for agents when the resource is a document-like artifact: plans, documents, decks, designs, analytics dashboards, saved analyses, clips, and similar "things you would send to a person." Public links expose a small SSR discovery script that points at structured JSON. Private resources use a short-lived `agent_access` token scoped to exactly one resource.
+
+Register the resource with `agentReadable`, add a read-only JSON context endpoint, inject the SSR discovery script with `renderAgentReadableResourceDiscoveryScript()`, and let agents call `create-agent-resource-link` when they need a temporary private URL. The endpoint must return data only when the row is `public` or `verifyScopedAgentAccessToken()` accepts the token for that exact `resourceKind` and `resourceId`.
 
 ## L'intégrer dans un nouveau modèle {#building}
 

@@ -40,6 +40,7 @@ const workspaceSkillIncludes = [
   "a2a-protocol",
   "actions",
   "agent-native-docs",
+  "agent-native-toolkit",
   "adding-a-feature",
   "address-feedback",
   "audit-log",
@@ -92,6 +93,7 @@ const workspaceSkillIncludes = [
 const templateSharedSkillIncludes = [
   "actions",
   "agent-native-docs",
+  "agent-native-toolkit",
   "adding-a-feature",
   "capture-learnings",
   "client-methods",

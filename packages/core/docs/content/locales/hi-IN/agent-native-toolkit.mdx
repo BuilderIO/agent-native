@@ -1,0 +1,74 @@
+---
+title: "Agent-Native Toolkit"
+description: "Collaboration, settings, sharing, navigation, presence, history, setup और Agent UX के लिए reusable kits."
+---
+
+# Agent-Native Toolkit
+
+Agent-Native apps को workspace की common plumbing बार-बार नहीं बनानी चाहिए।
+Apps अपने domain models, domain actions और product-specific views की owner होती
+हैं। Framework और `@agent-native/toolkit` उन reusable surfaces के owner हैं जो
+हर app को inherit करनी चाहिए: collaboration, sharing, settings, navigation,
+organization, setup, Agent UX, history और operational visibility.
+
+Users को sharing, API keys, agent editing presence, settings और change history
+के लिए हर app में नया pattern नहीं सीखना चाहिए।
+
+## Toolkit contract {#toolkit-contract}
+
+Behavior को toolkit में move करें जब वह:
+
+- **Workspace-wide** हो - users हर app में same behavior expect करते हैं।
+- **Agent-visible** हो - agent को actions, instructions या application state से
+  वही capability चाहिए।
+- **Governed** हो - permissions, audit, secrets, org policy, billing या sharing
+  rules apply होते हैं।
+- **Repeated** हो - दो apps similar UI या logic बना चुकी हैं।
+- **Non-domain-specific** हो - app resource names और actions देती है, लेकिन
+  interaction pattern generic है।
+
+जो behavior domain model या app-specific workflow से deeply जुड़ा है, उसे
+app-local रखें।
+
+## Reusable kits {#reusable-kits}
+
+- **Settings kit** - account, workspace, AI models, LLM keys, connections,
+  secrets, usage, notifications, changelog और app preferences के standard tabs.
+  Durable config Settings में रहे; agent sidebar contextual quick controls और
+  deep links रखे।
+- **Collaboration kit** - real-time editing, Yjs docs, presence, agent presence,
+  live cursors, remote selections, recent edit highlights और shared undo/redo.
+  देखें [Real-Time Collaboration](/docs/real-time-collaboration).
+- **Sharing kit** - private, workspace, org, public link, invites, roles,
+  expirations और agent-readable access के लिए एक privacy और permissions model.
+  देखें [Sharing & Privacy](/docs/sharing).
+- **Navigation and command kit** - app shell, nav, breadcrumbs, app switcher,
+  command palette, recents, pinned resources और search.
+- **Organization kit** - folders, tags, favorites, archive, trash, ownership,
+  membership और common metadata.
+- **Setup and connections kit** - API keys, OAuth, connections, model readiness,
+  missing secrets और declarative onboarding. देखें
+  [Workspace Connections](/docs/workspace-connections).
+- **Agent UX kit** - sidebar, composer, staged context, mentions, voice, human
+  approval, generative UI, progress और Agent-visible state.
+- **History and recovery kit** - audit log, activity feed, version history,
+  checkpoints, undo, redo, restore और proof-of-done. देखें
+  [Audit Log](/docs/audit-log).
+- **Comments and review kit** - anchored comments, pins, mentions, review
+  requests, resolved threads और Agent follow-up tasks.
+- **Workflow and observability kit** - notifications, approvals, background
+  runs, recurring jobs, traces, evals, feedback और run timelines. देखें
+  [Observability](/docs/observability).
+
+## Implementation order {#implementation-order}
+
+1. Durable configuration को standard Settings tabs में consolidate करें।
+2. collaboration, presence, agent presence, undo/redo और real-time editing को
+   shared adapters के पीछे normalize करें।
+3. navigation, commands, recents, favorites, folders, tags, archive और trash को
+   shared primitives में move करें।
+4. हर shareable resource को same permissions और agent-readable access model में
+   register करें।
+5. हर collaborative resource को activity, comments, review, restore और audit की
+   consistent story दें।
+6. notifications, approvals, run status, traces, evals और feedback unify करें।

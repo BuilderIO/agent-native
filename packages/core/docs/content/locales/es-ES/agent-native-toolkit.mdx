@@ -1,0 +1,77 @@
+---
+title: "Toolkit de Agent-Native"
+description: "Kits reutilizables para colaboración, ajustes, compartir, navegación, presencia, historial, configuración y UX del agente."
+---
+
+# Toolkit de Agent-Native
+
+Las apps de Agent-Native no deberían reconstruir la fontanería del workspace.
+Las apps son dueñas de sus modelos, acciones y vistas de producto. El framework
+y `@agent-native/toolkit` son dueños de las piezas reutilizables que todas las
+apps deberían heredar: colaboración, compartir, ajustes, navegación,
+organización, configuración, UX del agente, historial y visibilidad operativa.
+
+El objetivo es que los usuarios aprendan una sola forma de compartir, conectar
+claves, ver al agente editar junto a ellos, encontrar ajustes y entender qué
+cambió.
+
+## Contrato del toolkit {#toolkit-contract}
+
+Mueve comportamiento al toolkit cuando sea:
+
+- **De workspace** - los usuarios esperan que funcione igual en todas las apps.
+- **Visible para el agente** - el agente necesita la misma capacidad mediante
+  acciones, instrucciones o estado de aplicación.
+- **Gobernado** - aplican permisos, auditoría, secretos, política de org,
+  facturación o reglas de compartir.
+- **Repetido** - dos apps ya construyeron UI o lógica parecida.
+- **No específico del dominio** - la app aporta nombres y acciones de recursos,
+  pero el patrón de interacción es genérico.
+
+Mantén lo local cuando dependa de un modelo de dominio o de un flujo propio de
+la app.
+
+## Kits reutilizables {#reusable-kits}
+
+- **Settings kit** - pestañas estándar para cuenta, workspace, modelos de AI,
+  claves LLM, conexiones, secretos, uso, notificaciones, changelog y preferencias
+  de app. La configuración durable vive en Settings; la barra lateral del agente
+  conserva controles contextuales y enlaces profundos.
+- **Collaboration kit** - edición en tiempo real, documentos Yjs, presencia,
+  presencia del agente, cursores, selecciones remotas, resaltado de ediciones y
+  undo/redo compartido. Ver
+  [Real-Time Collaboration](/docs/real-time-collaboration).
+- **Sharing kit** - un solo modelo de privacidad y permisos para privado,
+  workspace, org, enlace público, invitaciones, roles, expiraciones y acceso
+  legible por agentes. Ver [Sharing & Privacy](/docs/sharing).
+- **Navigation and command kit** - app shell, navegación, breadcrumbs, app
+  switcher, command palette, recursos recientes, recursos fijados y búsqueda.
+- **Organization kit** - carpetas, tags, favoritos, archivo, papelera,
+  propietarios, membresía y metadata común.
+- **Setup and connections kit** - claves API, OAuth, conexiones, estado de
+  modelos, secretos faltantes y onboarding declarativo. Ver
+  [Workspace Connections](/docs/workspace-connections).
+- **Agent UX kit** - sidebar, composer, contexto preparado, menciones, voz,
+  aprobación humana, UI generativa, progreso y estado visible para el agente.
+- **History and recovery kit** - audit log, activity feed, version history,
+  checkpoints, undo, redo, restore y proof-of-done. Ver
+  [Audit Log](/docs/audit-log).
+- **Comments and review kit** - comentarios anclados, pines, menciones,
+  solicitudes de revisión, threads resueltos y tareas de seguimiento del agente.
+- **Workflow and observability kit** - notificaciones, aprobaciones, runs en
+  background, jobs recurrentes, traces, evals, feedback y líneas de tiempo. Ver
+  [Observability](/docs/observability).
+
+## Orden de implementación {#implementation-order}
+
+1. Consolidar la configuración durable en pestañas estándar de Settings.
+2. Normalizar colaboración, presence, agent presence, undo/redo y edición en
+   tiempo real detrás de adapters compartidos.
+3. Mover navegación, comandos, recientes, favoritos, carpetas, tags, archivo y
+   papelera a primitivas compartidas.
+4. Registrar todos los recursos compartibles en el mismo modelo de permisos y
+   acceso legible por agentes.
+5. Dar a cada recurso colaborativo una historia consistente de actividad,
+   comentarios, revisión, restore y auditoría.
+6. Unificar notificaciones, aprobaciones, estado de runs, traces, evals y
+   feedback.

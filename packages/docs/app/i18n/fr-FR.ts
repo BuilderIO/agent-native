@@ -1422,6 +1422,7 @@ const frFR = {
     whatIsAgentNative: "Qu'est-ce qu'Agent-Native ?",
     agentSurfaces: "Surfaces Agent",
     keyConcepts: "Concepts clés",
+    agentNativeToolkit: "Boîte à outils Agent-Native",
     templates: "Modèles",
     faq: "FAQ",
     server: "Serveur",

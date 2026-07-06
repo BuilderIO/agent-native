@@ -1,8 +1,17 @@
 import { agentNativePath, useT } from "@agent-native/core/client";
 import {
+  AGENT_ACCESS_PARAM,
+  verifyScopedAgentAccessToken,
+} from "@agent-native/core/server";
+import {
   getConfiguredAppBasePath,
   getRequestUserEmail,
 } from "@agent-native/core/server";
+import {
+  AGENT_READABLE_RESOURCE_SCRIPT_TYPE,
+  buildAgentReadableResourceDiscovery,
+  safeJsonForHtml,
+} from "@agent-native/core/shared";
 import { resolveAccess } from "@agent-native/core/sharing";
 import { buildPublicDocumentDescription } from "@shared/og-description";
 import { IconLock, IconMessageCircle } from "@tabler/icons-react";
@@ -14,10 +23,17 @@ import { redirect, useLoaderData } from "react-router";
 import { VisualEditor } from "@/components/editor/VisualEditor";
 
 import { getDb, schema } from "../../server/db";
+import {
+  DOCUMENT_AGENT_CONTEXT_ENDPOINT,
+  DOCUMENT_AGENT_RESOURCE_KIND,
+} from "../../shared/agent-readable";
 
-export async function loader({ params }: LoaderFunctionArgs) {
+export async function loader({ params, request }: LoaderFunctionArgs) {
   const id = params.id;
   if (!id) throw new Response("Not found", { status: 404 });
+  const agentAccessToken = new URL(request.url).searchParams.get(
+    AGENT_ACCESS_PARAM,
+  );
 
   // This is a server loader; use the server-side base-path helper
   // (reads APP_BASE_PATH / VITE_APP_BASE_PATH at request time)
@@ -45,7 +61,18 @@ export async function loader({ params }: LoaderFunctionArgs) {
     .limit(1);
 
   if (!doc) throw new Response("Not found", { status: 404 });
-  if (doc.visibility === "public") return { document: doc };
+  const tokenAccess = agentAccessToken
+    ? verifyScopedAgentAccessToken(agentAccessToken, {
+        resourceKind: DOCUMENT_AGENT_RESOURCE_KIND,
+        resourceId: id,
+      }).ok
+    : false;
+  if (doc.visibility === "public" || tokenAccess) {
+    return {
+      document: doc,
+      agentAccessToken: tokenAccess ? agentAccessToken : null,
+    };
+  }
 
   // Doc exists but isn't public. SSR renders impersonally (no session is read
   // server-side, so the page can be CDN-cached for everyone), which means we
@@ -178,6 +205,31 @@ function ReadOnlyMarkdownContent({ content }: { content: string }) {
   );
 }
 
+function AgentReadableDocumentDiscovery({
+  document,
+  token,
+}: {
+  document: { id: string; title: string };
+  token?: string | null;
+}) {
+  const discovery = buildAgentReadableResourceDiscovery({
+    resourceType: "document",
+    resourceId: document.id,
+    title: document.title,
+    path: `/p/${document.id}`,
+    contextEndpoint: DOCUMENT_AGENT_CONTEXT_ENDPOINT,
+    token,
+    instructions:
+      "Use contextUrl to read this shared Content document as structured JSON. The page is read-only for token and public viewers.",
+  });
+  return (
+    <script
+      type={AGENT_READABLE_RESOURCE_SCRIPT_TYPE}
+      dangerouslySetInnerHTML={{ __html: safeJsonForHtml(discovery) }}
+    />
+  );
+}
+
 function PrivateDocumentNotice({
   id,
   basePath,
@@ -231,6 +283,10 @@ export default function PublicDocumentPage() {
   return (
     <main className="min-h-screen bg-background text-foreground">
       <PublicDocumentContextSync document={document} />
+      <AgentReadableDocumentDiscovery
+        document={document}
+        token={data.agentAccessToken}
+      />
       <div className="mx-auto flex max-w-3xl justify-end px-6 pt-5 sm:px-8">
         <button
           type="button"

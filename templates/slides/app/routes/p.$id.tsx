@@ -1,4 +1,13 @@
-import { getConfiguredAppBasePath } from "@agent-native/core/server";
+import {
+  AGENT_ACCESS_PARAM,
+  getConfiguredAppBasePath,
+  verifyScopedAgentAccessToken,
+} from "@agent-native/core/server";
+import {
+  AGENT_READABLE_RESOURCE_SCRIPT_TYPE,
+  buildAgentReadableResourceDiscovery,
+  safeJsonForHtml,
+} from "@agent-native/core/shared";
 import {
   toSharedDeckSlide,
   type SharedDeckResponse,
@@ -12,9 +21,18 @@ import { useLoaderData } from "react-router";
 import SharedPresentation from "@/pages/SharedPresentation";
 
 import { getDb, schema } from "../../server/db";
+import {
+  DECK_AGENT_CONTEXT_ENDPOINT,
+  DECK_AGENT_RESOURCE_KIND,
+} from "../../shared/agent-readable";
 
 type LoaderData =
-  | { deck: SharedDeckResponse; error?: undefined }
+  | {
+      deck: SharedDeckResponse;
+      error?: undefined;
+      id: string;
+      agentAccessToken?: string | null;
+    }
   | {
       deck: null;
       error: string;
@@ -50,9 +68,13 @@ function toSharedDeck(row: {
 
 export async function loader({
   params,
+  request,
 }: LoaderFunctionArgs): Promise<LoaderData> {
   const id = params.id;
   if (!id) throw new Response("Not found", { status: 404 });
+  const agentAccessToken = new URL(request.url).searchParams.get(
+    AGENT_ACCESS_PARAM,
+  );
 
   // Access is checked on the deck, not the URL shape: `/p/<id>` (presentation)
   // and `/deck/<id>` (editor) share the same rules. SSR renders impersonally (no
@@ -76,7 +98,19 @@ export async function loader({
     .limit(1);
 
   if (!deck) throw new Response("Not found", { status: 404 });
-  if (deck.visibility === "public") return { deck: toSharedDeck(deck) };
+  const tokenAccess = agentAccessToken
+    ? verifyScopedAgentAccessToken(agentAccessToken, {
+        resourceKind: DECK_AGENT_RESOURCE_KIND,
+        resourceId: id,
+      }).ok
+    : false;
+  if (deck.visibility === "public" || tokenAccess) {
+    return {
+      deck: toSharedDeck(deck),
+      id,
+      agentAccessToken: tokenAccess ? agentAccessToken : null,
+    };
+  }
   return {
     deck: null,
     error: "restricted",
@@ -101,8 +135,47 @@ export default function PublicDeckRoute() {
 
   // Redirecting to the guarded editor to resolve per-user access client-side.
   if (restricted) return null;
+  if (data.deck === null) {
+    return (
+      <SharedPresentation initialDeck={data.deck} initialError={data.error} />
+    );
+  }
 
   return (
-    <SharedPresentation initialDeck={data.deck} initialError={data.error} />
+    <>
+      <AgentReadableDeckDiscovery
+        id={data.id}
+        title={data.deck.title}
+        token={data.agentAccessToken}
+      />
+      <SharedPresentation initialDeck={data.deck} initialError={data.error} />
+    </>
+  );
+}
+
+function AgentReadableDeckDiscovery({
+  id,
+  title,
+  token,
+}: {
+  id: string;
+  title?: string;
+  token?: string | null;
+}) {
+  const discovery = buildAgentReadableResourceDiscovery({
+    resourceType: "deck",
+    resourceId: id,
+    title,
+    path: `/p/${id}`,
+    contextEndpoint: DECK_AGENT_CONTEXT_ENDPOINT,
+    token,
+    instructions:
+      "Use contextUrl to read this shared Slides deck as JSON. Slide numbers are 1-based for users.",
+  });
+  return (
+    <script
+      type={AGENT_READABLE_RESOURCE_SCRIPT_TYPE}
+      dangerouslySetInnerHTML={{ __html: safeJsonForHtml(discovery) }}
+    />
   );
 }

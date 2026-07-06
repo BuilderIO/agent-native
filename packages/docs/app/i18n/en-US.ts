@@ -1413,6 +1413,7 @@ const enUS = {
     whatIsAgentNative: "What Is Agent-Native?",
     agentSurfaces: "Agent Surfaces",
     keyConcepts: "Key Concepts",
+    agentNativeToolkit: "Agent-Native Toolkit",
     templates: "Apps",
     faq: "FAQ",
     server: "Server",

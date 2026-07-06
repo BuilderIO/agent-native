@@ -1395,6 +1395,7 @@ const messages = {
     whatIsAgentNative: "什麼是 Agent-Native？",
     agentSurfaces: "Agent 介面",
     keyConcepts: "核心概念",
+    agentNativeToolkit: "Agent-Native 工具包",
     templates: "範本",
     faq: "常見問題",
     server: "伺服器",

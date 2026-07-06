@@ -93,9 +93,10 @@ Jede Vorlage, die vom Benutzer erstellte Arbeiten speichert, verwendet dieses Mo
 - **Folien** – Decks
 - **Design** – Designs und Assets
 - **Clips** – Bildschirmaufnahmen (Loom-Stil)
+- **Plan** — visual plans and PR recaps
 - **Formulare** – Formulardefinitionen
 - **Kalender** – Veranstaltungen und Buchungslinks
-- **Analytics** – Dashboards (Einführung – siehe `AGENTS.md` der Analytics-Vorlage)
+- **Analytics** – dashboards, saved analyses, and tokenized session replays
 - **Erweiterungen** – Sandbox-Mini-Apps (siehe [Extensions](/docs/extensions#sharing))
 
 Alle davon verwenden denselben `ownableColumns()`-Schema-Helfer, dieselbe `share-resource`-Aktion und denselben `<ShareButton>` UI. Wenn Sie von einer Vorlage zu einer anderen wechseln, sieht der Freigabedialog identisch aus.
@@ -142,8 +143,15 @@ Das Framework mountet diese actions automatisch in jeder Vorlage – der Agent n
 | `unshare-resource`        | Zugriff für einen Benutzer oder eine Organisation widerrufen.                                                                                |
 | `list-resource-shares`    | Aktuelle Sichtbarkeit sowie alle expliziten Gewährungen anzeigen.                                                                            |
 | `set-resource-visibility` | Wechseln Sie zu `private`, `org` oder `public`.                                                                                              |
+| `create-agent-resource-link` | Mint a temporary read-only `agent_access` URL for a registered agent-readable resource.                                                    |
 
 Sagen Sie dem Agenten: „Teilen Sie dieses Design mit dem Marketingteam als Redakteuren“, und er ruft `share-resource` für denselben Endpunkt auf, den UI verwendet. Das Ergebnis wird beim nächsten Rendern im Freigabedialog angezeigt.
+
+## Agent-readable share links {#agent-readable-links}
+
+Human share links should also work for agents when the resource is a document-like artifact: plans, documents, decks, designs, analytics dashboards, saved analyses, clips, and similar "things you would send to a person." Public links expose a small SSR discovery script that points at structured JSON. Private resources use a short-lived `agent_access` token scoped to exactly one resource.
+
+Register the resource with `agentReadable`, add a read-only JSON context endpoint, inject the SSR discovery script with `renderAgentReadableResourceDiscoveryScript()`, and let agents call `create-agent-resource-link` when they need a temporary private URL. The endpoint must return data only when the row is `public` or `verifyScopedAgentAccessToken()` accepts the token for that exact `resourceKind` and `resourceId`.
 
 ## In eine neue Vorlage einbauen {#building}
 

@@ -72,3 +72,12 @@ export {
   type AgentAccessResourceScope,
   type AgentAccessUrlOptions,
 } from "./agent-access.js";
+export {
+  AGENT_READABLE_RESOURCE_PAYLOAD_TYPE,
+  AGENT_READABLE_RESOURCE_SCRIPT_TYPE,
+  buildAgentReadableResourceDiscovery,
+  renderAgentReadableResourceDiscoveryScript,
+  safeJsonForHtml,
+  type AgentReadableResourceDiscovery,
+  type BuildAgentReadableResourceDiscoveryOptions,
+} from "./agent-readable-resource.js";
