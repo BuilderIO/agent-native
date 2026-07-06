@@ -1,5 +1,11 @@
 # @agent-native/dispatch
 
+## 0.13.7
+
+### Patch Changes
+
+- b24446e: Add `@agent-native/toolkit` for reusable app-building UI, move shared template primitives into it, and keep core UI shim imports working through compatibility re-exports.
+
 ## 0.13.6
 
 ### Patch Changes
