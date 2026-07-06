@@ -1536,6 +1536,7 @@ export async function builderBodyChangeForLocalContent(args: {
     stringSourceValue(sourceValues, BUILDER_CMS_BODY_SIDECARS_KEY) ?? "{}";
   const localContent = args.localContent ?? "";
   if (!currentHash && !currentContent && !localContent.trim()) return null;
+  if (!currentContent?.trim() && !losslessContent?.trim()) return null;
   const normalizedLocalContent =
     normalizeBuilderBodyBaselineContent(localContent);
   if (
@@ -3017,7 +3018,12 @@ export function sourceValuesForSeededSourceRow(args: {
   const existingSourceValues = parseObject<
     Record<string, DocumentPropertyValue>
   >(args.existingSourceValuesJson);
-  if (args.builderEntry?.sourceValues) return args.builderEntry.sourceValues;
+  if (args.builderEntry?.sourceValues) {
+    return builderSourceValuesWithPreservedBodyBaseline({
+      incoming: args.builderEntry.sourceValues,
+      existing: existingSourceValues,
+    });
+  }
   if (existingSourceValues) return existingSourceValues;
   if (args.sourceType !== "builder-cms") return {};
   return buildBuilderCmsFixtureEntry({
@@ -3025,6 +3031,51 @@ export function sourceValuesForSeededSourceRow(args: {
     sourceTable: args.sourceTable,
     now: args.now,
   }).sourceValues;
+}
+
+function builderSourceValuesWithPreservedBodyBaseline(args: {
+  incoming: Record<string, DocumentPropertyValue>;
+  existing?: Record<string, DocumentPropertyValue> | null;
+}) {
+  const existing = args.existing;
+  if (!existing) return args.incoming;
+  const incomingContent = stringSourceValue(
+    args.incoming,
+    BUILDER_CMS_BODY_CONTENT_KEY,
+  );
+  const existingContent = stringSourceValue(
+    existing,
+    BUILDER_CMS_BODY_CONTENT_KEY,
+  );
+  const incomingHash = stringSourceValue(
+    args.incoming,
+    BUILDER_CMS_BODY_BLOCKS_HASH_KEY,
+  );
+  const existingHash = stringSourceValue(
+    existing,
+    BUILDER_CMS_BODY_BLOCKS_HASH_KEY,
+  );
+  if (
+    incomingContent?.trim() ||
+    !existingContent?.trim() ||
+    (incomingHash && existingHash && incomingHash !== existingHash)
+  ) {
+    return args.incoming;
+  }
+
+  const next = { ...args.incoming };
+  for (const key of [
+    BUILDER_CMS_BODY_CONTENT_KEY,
+    BUILDER_CMS_BODY_LOSSLESS_CONTENT_KEY,
+    BUILDER_CMS_BODY_READABLE_MAP_KEY,
+    BUILDER_CMS_BODY_SIDECARS_KEY,
+    BUILDER_CMS_BODY_BLOCKS_HASH_KEY,
+  ]) {
+    if (next[key] === undefined && existing[key] !== undefined) {
+      next[key] = existing[key];
+    }
+  }
+  return next;
 }
 
 async function materializeSourceFieldPropertyValues(args: {

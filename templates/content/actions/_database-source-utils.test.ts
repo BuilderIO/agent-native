@@ -5,6 +5,7 @@ import {
   BUILDER_CMS_BODY_BLOCKS_HASH_KEY,
   BUILDER_CMS_BODY_CONTENT_KEY,
   BUILDER_CMS_BODY_LOSSLESS_CONTENT_KEY,
+  BUILDER_CMS_BODY_READABLE_MAP_KEY,
   BUILDER_CMS_BODY_SIDECARS_KEY,
 } from "./_builder-cms-source-adapter";
 import {
@@ -470,6 +471,19 @@ describe("database source helpers", () => {
       summary: "Builder body blocks changed.",
       proposedContent: "Readable Builder body with a local edit",
     });
+  });
+
+  it("does not report a local Builder body edit without a full body baseline", async () => {
+    const change = await builderBodyChangeForLocalContent({
+      row: {
+        sourceValuesJson: JSON.stringify({
+          [BUILDER_CMS_BODY_BLOCKS_HASH_KEY]: "builder-hash",
+        }),
+      },
+      localContent: "Hydrated local body that came from Builder.",
+    });
+
+    expect(change).toBeNull();
   });
 
   it("detects a changed mapped property field on an existing row (not just title)", () => {
@@ -1182,6 +1196,71 @@ describe("database source helpers", () => {
       }),
     ).toEqual({
       "data.url": "/blog/persisted-url",
+    });
+  });
+
+  it("preserves a hydrated Builder body baseline across metadata-only refreshes with the same hash", () => {
+    expect(
+      sourceValuesForSeededSourceRow({
+        sourceType: "builder-cms",
+        item: item("doc-1", "Same title"),
+        sourceTable: "blog_article",
+        now: "2026-06-08T13:00:00.000Z",
+        builderEntry: {
+          id: "entry-1",
+          model: "blog_article",
+          title: "Same title",
+          urlPath: "/blog/same-title",
+          updatedAt: "2026-06-08T13:00:00.000Z",
+          sourceValues: {
+            "data.title": "Same title",
+            [BUILDER_CMS_BODY_BLOCKS_HASH_KEY]: "same-body-hash",
+          },
+        },
+        existingSourceValuesJson: JSON.stringify({
+          [BUILDER_CMS_BODY_BLOCKS_HASH_KEY]: "same-body-hash",
+          [BUILDER_CMS_BODY_CONTENT_KEY]: "Readable hydrated baseline",
+          [BUILDER_CMS_BODY_LOSSLESS_CONTENT_KEY]: "Lossless baseline",
+          [BUILDER_CMS_BODY_READABLE_MAP_KEY]: '{"blocks":[]}',
+          [BUILDER_CMS_BODY_SIDECARS_KEY]: "{}",
+        }),
+      }),
+    ).toMatchObject({
+      "data.title": "Same title",
+      [BUILDER_CMS_BODY_BLOCKS_HASH_KEY]: "same-body-hash",
+      [BUILDER_CMS_BODY_CONTENT_KEY]: "Readable hydrated baseline",
+      [BUILDER_CMS_BODY_LOSSLESS_CONTENT_KEY]: "Lossless baseline",
+      [BUILDER_CMS_BODY_READABLE_MAP_KEY]: '{"blocks":[]}',
+      [BUILDER_CMS_BODY_SIDECARS_KEY]: "{}",
+    });
+  });
+
+  it("drops a hydrated Builder body baseline when metadata reports a different hash", () => {
+    expect(
+      sourceValuesForSeededSourceRow({
+        sourceType: "builder-cms",
+        item: item("doc-1", "Same title"),
+        sourceTable: "blog_article",
+        now: "2026-06-08T13:00:00.000Z",
+        builderEntry: {
+          id: "entry-1",
+          model: "blog_article",
+          title: "Same title",
+          urlPath: "/blog/same-title",
+          updatedAt: "2026-06-08T13:00:00.000Z",
+          sourceValues: {
+            "data.title": "Same title",
+            [BUILDER_CMS_BODY_BLOCKS_HASH_KEY]: "new-body-hash",
+          },
+        },
+        existingSourceValuesJson: JSON.stringify({
+          [BUILDER_CMS_BODY_BLOCKS_HASH_KEY]: "old-body-hash",
+          [BUILDER_CMS_BODY_CONTENT_KEY]: "Readable hydrated baseline",
+        }),
+      }),
+    ).toEqual({
+      "data.title": "Same title",
+      [BUILDER_CMS_BODY_BLOCKS_HASH_KEY]: "new-body-hash",
     });
   });
 
