@@ -60,12 +60,15 @@ details live in `.agents/skills/`.
   deals and is not valid proof that a specific property matched. For a fast
   server-side HubSpot CRM IN search on a deal property (bypassing the full deal
   catalog scan), pass `propertyValues` with `dealProperty`.
-- For ad hoc multi-source analysis, prefer `provider-api-catalog`,
-  `provider-api-docs`, and `provider-api-request` so the agent can discover and
-  call provider endpoints directly. For saved dashboard extensions that need a
-  bounded server-side join, pass caller-defined property bindings into
-  `hubspot-deals` and `build-secondary-cohort`; the extension owns the binding
-  JSON and actions stay generic.
+- For cross-source questions (HubSpot + Pylon, CRM + support, warehouse +
+  billing), follow `cross-source-analysis`: stage each provider with
+  `provider-api-request` (`stageAs` + pagination when responses are large),
+  aggregate with `query-staged-dataset`, stitch on shared join keys, and cite
+  per-source provenance. Do not add template actions for one dashboard join
+  recipe — the agent composes provider APIs directly.
+- Saved dashboard extensions may call generic shortcuts such as `hubspot-deals`
+  for a single-source tab. Multi-source tabs should load from agent-prepared
+  `extensionData` or prompt the user to ask the agent to refresh the join.
 - For BigQuery, Prometheus, or other external providers, use the provider skill
   and existing credential/integration flow.
 - For questions that span multiple sources, follow `cross-source-analysis`:
