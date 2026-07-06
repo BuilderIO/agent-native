@@ -1,3 +1,8 @@
+import { useT } from "@agent-native/core/client";
+import { Button } from "@agent-native/toolkit/ui/button";
+import { IconPlayerRecord } from "@tabler/icons-react";
+import { NavLink } from "react-router";
+
 import { LibraryGrid } from "@/components/library/library-grid";
 
 const SEO_TITLE =
@@ -18,5 +23,24 @@ export function meta() {
 }
 
 export default function LibraryIndexRoute() {
-  return <LibraryGrid view="library" folderId={null} title="Library" />;
+  const t = useT();
+  return (
+    <LibraryGrid
+      view="library"
+      folderId={null}
+      title="Library"
+      extraActions={
+        <Button
+          className="gap-1.5 bg-primary text-primary-foreground shadow-sm hover:bg-primary/90"
+          size="sm"
+          asChild
+        >
+          <NavLink to="/record">
+            <IconPlayerRecord className="h-4 w-4" />
+            {t("navigation.newRecording")}
+          </NavLink>
+        </Button>
+      }
+    />
+  );
 }
