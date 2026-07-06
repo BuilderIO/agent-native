@@ -155,6 +155,7 @@ const SIDEBAR_SKELETON_CLASS =
   "bg-sidebar-foreground/12 dark:bg-sidebar-foreground/10";
 
 type SidebarSortMode = "most-used" | "alphabetical" | "manual";
+type SidebarVisibilityFilter = "all" | "private" | "shared";
 
 import {
   DndContext,
@@ -241,25 +242,38 @@ function applyOrder<T extends { id: string }>(
   return ordered;
 }
 
+function matchesVisibilityFilter(
+  item: { visibility?: Visibility },
+  filter: SidebarVisibilityFilter,
+): boolean {
+  if (filter === "all") return true;
+  if (filter === "private") {
+    return item.visibility !== "org" && item.visibility !== "public";
+  }
+  return item.visibility === "org" || item.visibility === "public";
+}
+
 function SidebarSectionSettingsPopover({
   label,
   sortMode,
   onSortModeChange,
-  sharedOnly,
-  onSharedOnlyChange,
+  visibilityFilter,
+  onVisibilityFilterChange,
   showHidden,
   onShowHiddenChange,
 }: {
   label: string;
   sortMode: SidebarSortMode;
   onSortModeChange: (value: SidebarSortMode) => void;
-  sharedOnly: boolean;
-  onSharedOnlyChange: (value: boolean) => void;
+  visibilityFilter: SidebarVisibilityFilter;
+  onVisibilityFilterChange: (value: SidebarVisibilityFilter) => void;
   showHidden?: boolean;
   onShowHiddenChange?: (value: boolean) => void;
 }) {
   const t = useT();
   const settingsLabel = t("sidebar.sectionSettings", { label });
+  const segmentedItemClass =
+    "h-7 rounded px-2 text-[11px] text-muted-foreground hover:bg-sidebar-accent/60 hover:text-foreground data-[state=on]:bg-sidebar-accent data-[state=on]:text-foreground data-[state=on]:shadow-sm";
   return (
     <Popover>
       <Tooltip>
@@ -276,17 +290,58 @@ function SidebarSectionSettingsPopover({
         </TooltipTrigger>
         <TooltipContent side="right">{settingsLabel}</TooltipContent>
       </Tooltip>
-      <PopoverContent side="right" align="start" className="w-60 p-2">
+      <PopoverContent side="right" align="start" className="w-64 p-2">
         <div className="px-2 pb-2">
           <p className="text-xs font-medium text-foreground">{label}</p>
         </div>
         <div className="grid gap-3">
           <div className="grid gap-1.5">
             <p className="px-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-              {t("sidebar.sortBy")}
+              {t("sidebar.show")}
             </p>
-            <p className="px-2 text-[11px] leading-snug text-muted-foreground">
-              {t("sidebar.personalControlsNote")}
+            <ToggleGroup
+              type="single"
+              value={visibilityFilter}
+              onValueChange={(next) => {
+                if (next === "all" || next === "private" || next === "shared") {
+                  onVisibilityFilterChange(next);
+                }
+              }}
+              className="grid grid-cols-3 gap-1 rounded-lg border border-border/60 bg-background/50 p-1"
+            >
+              <ToggleGroupItem
+                value="all"
+                aria-label={t("sidebar.visibilityAllDescription")}
+                className={segmentedItemClass}
+              >
+                {t("sidebar.visibilityAll")}
+              </ToggleGroupItem>
+              <ToggleGroupItem
+                value="private"
+                aria-label={t("sidebar.visibilityPrivateOnlyDescription")}
+                className={segmentedItemClass}
+              >
+                {t("sidebar.visibilityPrivateOnly")}
+              </ToggleGroupItem>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <ToggleGroupItem
+                    value="shared"
+                    aria-label={t("sidebar.visibilitySharedOnlyDescription")}
+                    className={segmentedItemClass}
+                  >
+                    {t("sidebar.visibilitySharedOnly")}
+                  </ToggleGroupItem>
+                </TooltipTrigger>
+                <TooltipContent side="bottom">
+                  {t("sidebar.visibilitySharedOnlyDescription")}
+                </TooltipContent>
+              </Tooltip>
+            </ToggleGroup>
+          </div>
+          <div className="grid gap-1.5">
+            <p className="px-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+              {t("sidebar.sortBy")}
             </p>
             <ToggleGroup
               type="single"
@@ -300,14 +355,14 @@ function SidebarSectionSettingsPopover({
                   onSortModeChange(next);
                 }
               }}
-              className="grid grid-cols-3 gap-1 rounded-md bg-muted/40 p-1"
+              className="grid grid-cols-3 gap-1 rounded-lg border border-border/60 bg-background/50 p-1"
             >
               <Tooltip>
                 <TooltipTrigger asChild>
                   <ToggleGroupItem
                     value="most-used"
                     aria-label={t("sidebar.sortMostUsedPersonal")}
-                    className="h-7 px-2 text-[11px]"
+                    className={segmentedItemClass}
                   >
                     {t("sidebar.used")}
                   </ToggleGroupItem>
@@ -319,34 +374,23 @@ function SidebarSectionSettingsPopover({
               <ToggleGroupItem
                 value="alphabetical"
                 aria-label={t("sidebar.sortAlphabetically")}
-                className="h-7 px-2 text-[11px]"
+                className={segmentedItemClass}
               >
                 {t("sidebar.alphabetical")}
               </ToggleGroupItem>
               <ToggleGroupItem
                 value="manual"
                 aria-label={t("sidebar.sortManually")}
-                className="h-7 px-2 text-[11px]"
+                className={segmentedItemClass}
               >
                 {t("sidebar.manual")}
               </ToggleGroupItem>
             </ToggleGroup>
+            <p className="px-2 text-[11px] leading-snug text-muted-foreground">
+              {t("sidebar.personalControlsNote")}
+            </p>
           </div>
           <div className="grid gap-1">
-            <label
-              htmlFor={`${label.toLowerCase()}-shared-filter`}
-              className="flex items-center justify-between gap-3 rounded-md px-2 py-1.5 text-xs text-foreground hover:bg-sidebar-accent/60"
-            >
-              <span className="min-w-0 truncate">
-                {t("sidebar.orgSharedOnly")}
-              </span>
-              <Switch
-                id={`${label.toLowerCase()}-shared-filter`}
-                checked={sharedOnly}
-                onCheckedChange={onSharedOnlyChange}
-                aria-label={`${label} ${t("sidebar.orgSharedOnly")}`}
-              />
-            </label>
             {onShowHiddenChange && showHidden !== undefined && (
               <label
                 htmlFor={`${label.toLowerCase()}-hidden-filter`}
@@ -1589,12 +1633,13 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
     getStoredBoolean(DASHBOARDS_OPEN_KEY, true),
   );
   const [dashShowAll, setDashShowAll] = useState(false);
-  const [dashFilter, setDashFilter] = useState<"all" | "org">("all");
+  const [dashFilter, setDashFilter] = useState<SidebarVisibilityFilter>("all");
   const [analysesOpen, setAnalysesOpen] = useState(() =>
     getStoredBoolean(ANALYSES_OPEN_KEY, true),
   );
   const [analysesShowAll, setAnalysesShowAll] = useState(false);
-  const [analysisFilter, setAnalysisFilter] = useState<"all" | "org">("all");
+  const [analysisFilter, setAnalysisFilter] =
+    useState<SidebarVisibilityFilter>("all");
   const [analysisHiddenFilter, setAnalysisHiddenFilter] =
     useState<AnalysisHiddenFilter>("visible");
   const [dashboardSortMode, setDashboardSortModeState] =
@@ -1762,11 +1807,9 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
 
   const filteredAnalyses = useMemo(
     () =>
-      analysisFilter === "org"
-        ? sortedAnalyses.filter(
-            (a) => a.visibility === "org" || a.visibility === "public",
-          )
-        : sortedAnalyses,
+      sortedAnalyses.filter((analysis) =>
+        matchesVisibilityFilter(analysis, analysisFilter),
+      ),
     [sortedAnalyses, analysisFilter],
   );
 
@@ -1879,11 +1922,9 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
 
   const filteredDashboards = useMemo(
     () =>
-      dashFilter === "org"
-        ? visibleDashboards.filter(
-            (d) => d.visibility === "org" || d.visibility === "public",
-          )
-        : visibleDashboards,
+      visibleDashboards.filter((dashboard) =>
+        matchesVisibilityFilter(dashboard, dashFilter),
+      ),
     [visibleDashboards, dashFilter],
   );
 
@@ -2606,10 +2647,8 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
                     label={t("navigation.dashboards")}
                     sortMode={dashboardSortMode}
                     onSortModeChange={setDashboardSortMode}
-                    sharedOnly={dashFilter === "org"}
-                    onSharedOnlyChange={(checked) =>
-                      setDashFilter(checked ? "org" : "all")
-                    }
+                    visibilityFilter={dashFilter}
+                    onVisibilityFilterChange={setDashFilter}
                   />
                   <button
                     type="button"
@@ -2754,10 +2793,8 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
                     label={t("navigation.analyses")}
                     sortMode={analysisSortMode}
                     onSortModeChange={setAnalysisSortMode}
-                    sharedOnly={analysisFilter === "org"}
-                    onSharedOnlyChange={(checked) =>
-                      setAnalysisFilter(checked ? "org" : "all")
-                    }
+                    visibilityFilter={analysisFilter}
+                    onVisibilityFilterChange={setAnalysisFilter}
                     showHidden={analysisHiddenFilter === "hidden"}
                     onShowHiddenChange={(checked) =>
                       setAnalysisHiddenFilter(checked ? "hidden" : "visible")
