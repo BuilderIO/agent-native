@@ -55,9 +55,11 @@ export default defineAction({
     const current = normalizeCalendarViewPreferences(
       (await readAppState(CALENDAR_VIEW_PREFERENCES_KEY)) as any,
     );
+    const hasAccountColorReplacements =
+      args.accountColors && Object.keys(args.accountColors).length > 0;
     const colorMode =
       args.colorMode ??
-      (args.singleColor || args.accountColor || args.accountColors
+      (args.singleColor || args.accountColor || hasAccountColorReplacements
         ? "single"
         : undefined);
     const accountColors = {

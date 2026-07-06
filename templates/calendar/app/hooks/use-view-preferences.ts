@@ -1,5 +1,5 @@
 import { agentNativePath, callAction } from "@agent-native/core/client";
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 
 import {
   CALENDAR_COLOR_MODE_KEY,
@@ -64,6 +64,7 @@ function writeAppStatePreferences(prefs: CalendarViewPreferences) {
 
 export function useViewPreferences() {
   const [prefs, setPrefs] = useState<ViewPreferences>(load);
+  const accountColorRequestIds = useRef<Record<string, number>>({});
 
   // Sync across components in the same tab via custom event
   useEffect(() => {
@@ -125,6 +126,9 @@ export function useViewPreferences() {
 
   const updateAccountColor = useCallback(
     (accountEmail: string, accountColor: string) => {
+      const requestId = (accountColorRequestIds.current[accountEmail] ?? 0) + 1;
+      accountColorRequestIds.current[accountEmail] = requestId;
+
       setPrefs((prev) => {
         const next = normalizeCalendarViewPreferences({
           ...prev,
@@ -144,10 +148,23 @@ export function useViewPreferences() {
         accountColor,
       })
         .then((result) => {
+          if (accountColorRequestIds.current[accountEmail] !== requestId) {
+            return;
+          }
+
           const preferences = (result as { preferences?: unknown }).preferences;
           if (!preferences) return;
-          const next = normalizeCalendarViewPreferences(preferences);
+          const serverPrefs = normalizeCalendarViewPreferences(preferences);
           setPrefs((current) => {
+            const next = normalizeCalendarViewPreferences({
+              ...serverPrefs,
+              accountColors: {
+                ...serverPrefs.accountColors,
+                ...current.accountColors,
+                [accountEmail]:
+                  serverPrefs.accountColors[accountEmail] ?? accountColor,
+              },
+            });
             if (calendarViewPreferencesEqual(current, next)) return current;
             save(next);
             window.dispatchEvent(
