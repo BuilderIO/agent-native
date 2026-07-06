@@ -360,6 +360,20 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
             </>
           ) : (
             <>
+              <div className="px-3 py-3">
+                <Button
+                  className="w-full gap-1.5"
+                  variant="secondary"
+                  size="sm"
+                  asChild
+                >
+                  <NavLink to="/record">
+                    <IconPlayerRecord className="h-4 w-4" />
+                    {t("navigation.newRecording")}
+                  </NavLink>
+                </Button>
+              </div>
+
               <nav className="mt-3 space-y-0.5 px-2">
                 {navItems.map(({ to, label, icon: Icon, match, count }) => {
                   const active = match(location.pathname);
