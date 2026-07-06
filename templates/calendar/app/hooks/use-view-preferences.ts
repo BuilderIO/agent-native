@@ -9,6 +9,7 @@ import {
   DEFAULT_CALENDAR_VIEW_PREFERENCES,
   calendarViewPreferencesEqual,
   normalizeCalendarViewPreferences,
+  type CalendarColorMode,
   type CalendarViewPreferences,
 } from "@/lib/calendar-view-preferences";
 
@@ -19,6 +20,8 @@ const PENDING_ACCOUNT_COLORS_TTL_MS = 30_000;
 
 interface PendingAccountColors {
   colors: Record<string, string>;
+  colorMode?: CalendarColorMode;
+  singleColor?: string;
   expiresAt: number;
 }
 
@@ -38,21 +41,25 @@ function load(): CalendarViewPreferences {
   }
 }
 
-function loadPendingAccountColors(): Record<string, string> {
+function loadPendingAccountPreferences(): PendingAccountColors | null {
   try {
     const raw = localStorage.getItem(PENDING_ACCOUNT_COLORS_KEY);
-    if (!raw) return {};
+    if (!raw) return null;
     const pending = JSON.parse(raw) as PendingAccountColors;
     if (!pending.expiresAt || pending.expiresAt < Date.now()) {
       localStorage.removeItem(PENDING_ACCOUNT_COLORS_KEY);
-      return {};
+      return null;
     }
     return pending.colors && typeof pending.colors === "object"
-      ? pending.colors
-      : {};
+      ? pending
+      : null;
   } catch {
-    return {};
+    return null;
   }
+}
+
+function loadPendingAccountColors(): Record<string, string> {
+  return loadPendingAccountPreferences()?.colors ?? {};
 }
 
 function savePendingAccountColor(accountEmail: string, accountColor: string) {
@@ -64,6 +71,8 @@ function savePendingAccountColor(accountEmail: string, accountColor: string) {
           ...loadPendingAccountColors(),
           [accountEmail]: accountColor,
         },
+        colorMode: "single",
+        singleColor: accountColor,
         expiresAt: Date.now() + PENDING_ACCOUNT_COLORS_TTL_MS,
       } satisfies PendingAccountColors),
     );
@@ -78,10 +87,13 @@ function clearPendingAccountColor(accountEmail: string) {
       localStorage.removeItem(PENDING_ACCOUNT_COLORS_KEY);
       return;
     }
+    const colorValues = Object.values(colors);
+    const singleColor = colorValues[colorValues.length - 1];
     localStorage.setItem(
       PENDING_ACCOUNT_COLORS_KEY,
       JSON.stringify({
         colors,
+        ...(singleColor ? { colorMode: "single" as const, singleColor } : {}),
         expiresAt: Date.now() + PENDING_ACCOUNT_COLORS_TTL_MS,
       } satisfies PendingAccountColors),
     );
@@ -124,6 +136,7 @@ export function useViewPreferences() {
   const [prefs, setPrefs] = useState<ViewPreferences>(load);
   const accountColorRequestIds = useRef<Record<string, number>>({});
   const pendingAccountColors = useRef<Record<string, string>>({});
+  const pendingSingleColor = useRef<string | null>(null);
 
   // Sync across components in the same tab via custom event
   useEffect(() => {
@@ -150,14 +163,23 @@ export function useViewPreferences() {
         const remote = await readAppStatePreferences();
         if (!cancelled && remote) {
           setPrefs((current) => {
+            const pendingPreferences = loadPendingAccountPreferences();
             const pendingColors = {
-              ...loadPendingAccountColors(),
+              ...(pendingPreferences?.colors ?? {}),
               ...pendingAccountColors.current,
             };
+            const pendingFallback =
+              pendingSingleColor.current ?? pendingPreferences?.singleColor;
             const next =
-              Object.keys(pendingColors).length > 0
+              Object.keys(pendingColors).length > 0 || pendingFallback
                 ? normalizeCalendarViewPreferences({
                     ...remote,
+                    ...(pendingFallback
+                      ? {
+                          colorMode: "single" as const,
+                          singleColor: pendingFallback,
+                        }
+                      : {}),
                     accountColors: {
                       ...remote.accountColors,
                       ...pendingColors,
@@ -203,12 +225,16 @@ export function useViewPreferences() {
       const requestId = (accountColorRequestIds.current[accountEmail] ?? 0) + 1;
       accountColorRequestIds.current[accountEmail] = requestId;
       pendingAccountColors.current[accountEmail] = accountColor;
+      pendingSingleColor.current = accountColor;
       savePendingAccountColor(accountEmail, accountColor);
+      let rollbackPrefs: CalendarViewPreferences | null = null;
 
       setPrefs((prev) => {
+        rollbackPrefs = prev;
         const next = normalizeCalendarViewPreferences({
           ...prev,
           colorMode: "single",
+          singleColor: accountColor,
           accountColors: {
             ...prev.accountColors,
             [accountEmail]: accountColor,
@@ -222,12 +248,16 @@ export function useViewPreferences() {
       callAction("update-calendar-visual-preferences", {
         accountEmail,
         accountColor,
+        singleColor: accountColor,
       })
         .then((result) => {
           if (accountColorRequestIds.current[accountEmail] !== requestId) {
             return;
           }
           delete pendingAccountColors.current[accountEmail];
+          if (Object.keys(pendingAccountColors.current).length === 0) {
+            pendingSingleColor.current = null;
+          }
           clearPendingAccountColor(accountEmail);
 
           const preferences = (result as { preferences?: unknown }).preferences;
@@ -236,6 +266,16 @@ export function useViewPreferences() {
           setPrefs((current) => {
             const next = normalizeCalendarViewPreferences({
               ...current,
+              colorMode:
+                rollbackPrefs && current.colorMode === rollbackPrefs.colorMode
+                  ? serverPrefs.colorMode
+                  : current.colorMode,
+              singleColor:
+                current.singleColor === accountColor ||
+                (rollbackPrefs &&
+                  current.singleColor === rollbackPrefs.singleColor)
+                  ? (serverPrefs.singleColor ?? accountColor)
+                  : current.singleColor,
               accountColors: {
                 ...current.accountColors,
                 [accountEmail]:
@@ -253,7 +293,42 @@ export function useViewPreferences() {
         .catch(() => {
           if (accountColorRequestIds.current[accountEmail] === requestId) {
             delete pendingAccountColors.current[accountEmail];
+            if (Object.keys(pendingAccountColors.current).length === 0) {
+              pendingSingleColor.current = null;
+            }
             clearPendingAccountColor(accountEmail);
+            setPrefs((current) => {
+              if (!rollbackPrefs) return current;
+              const accountColors = { ...current.accountColors };
+              const previousAccountColor =
+                rollbackPrefs.accountColors[accountEmail];
+              if (current.accountColors[accountEmail] === accountColor) {
+                if (previousAccountColor) {
+                  accountColors[accountEmail] = previousAccountColor;
+                } else {
+                  delete accountColors[accountEmail];
+                }
+              }
+              const next = normalizeCalendarViewPreferences({
+                ...current,
+                colorMode:
+                  current.colorMode === "single" &&
+                  current.singleColor === accountColor
+                    ? rollbackPrefs.colorMode
+                    : current.colorMode,
+                singleColor:
+                  current.singleColor === accountColor
+                    ? rollbackPrefs.singleColor
+                    : current.singleColor,
+                accountColors,
+              });
+              if (calendarViewPreferencesEqual(current, next)) return current;
+              save(next);
+              window.dispatchEvent(
+                new Event(CALENDAR_VIEW_PREFERENCES_CHANGE_EVENT),
+              );
+              return next;
+            });
           }
         });
     },
