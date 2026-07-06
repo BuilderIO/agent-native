@@ -7,6 +7,7 @@ const limit = vi.hoisted(() =>
 const where = vi.hoisted(() => vi.fn(() => ({ limit })));
 const from = vi.hoisted(() => vi.fn(() => ({ where })));
 const select = vi.hoisted(() => vi.fn(() => ({ from })));
+const configuredBasePath = vi.hoisted(() => ({ current: "" }));
 
 vi.mock("@/pages/SharedPresentation", () => ({ default: () => null }));
 vi.mock("@agent-native/toolkit/ui/spinner", () => ({ Spinner: () => null }));
@@ -17,7 +18,7 @@ vi.mock("@agent-native/toolkit/ui/spinner", () => ({ Spinner: () => null }));
 // client-side redirect to the auth-guarded editor for restricted decks.
 vi.mock("@agent-native/core/server", () => ({
   AGENT_ACCESS_PARAM: "agent_access",
-  getConfiguredAppBasePath: () => "",
+  getConfiguredAppBasePath: () => configuredBasePath.current,
   verifyScopedAgentAccessToken: vi.fn(() => ({ ok: false })),
 }));
 
@@ -38,7 +39,7 @@ vi.mock("../../server/db", () => ({
   },
 }));
 
-import { loader } from "../routes/p.$id";
+import { buildDeckDiscovery, loader } from "../routes/p.$id";
 
 function requestFor(id = "deck-1") {
   return {
@@ -50,6 +51,7 @@ function requestFor(id = "deck-1") {
 describe("public deck route", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    configuredBasePath.current = "";
     resultQueue.current = [];
   });
 
@@ -58,7 +60,9 @@ describe("public deck route", () => {
 
     const result = await loader(requestFor());
 
+    if (result.deck === null) throw new Error("expected a public deck");
     expect(result.deck?.title).toBe("Launch review");
+    expect(result.basePath).toBe("");
     expect(result.deck?.aspectRatio).toBe("16:9");
     expect(result.deck?.slides).toEqual([
       {
@@ -82,6 +86,31 @@ describe("public deck route", () => {
     // SSR is impersonal: the deck is looked up by id alone, and visibility is
     // checked in JS — no per-user access filter is applied server-side.
     expect(where).toHaveBeenCalledWith({ column: "id_col", value: "deck-1" });
+  });
+
+  it("prefixes agent-readable deck context URLs with the app base path", () => {
+    const discovery = buildDeckDiscovery({
+      id: "deck-1",
+      title: "Launch review",
+      basePath: "/slides",
+    });
+
+    expect(discovery.url).toBe("/slides/p/deck-1");
+    expect(discovery.contextUrl).toBe(
+      "/slides/api/deck-agent-context.json?id=deck-1",
+    );
+  });
+
+  it("returns the configured app base path for public deck discovery", async () => {
+    configuredBasePath.current = "/slides";
+    resultQueue.current = [deckRows("public")];
+
+    const result = await loader(requestFor());
+
+    expect(result).toMatchObject({
+      id: "deck-1",
+      basePath: "/slides",
+    });
   });
 
   it("routes a restricted (non-public) deck to the guarded editor for client-side access resolution", async () => {

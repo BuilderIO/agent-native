@@ -32,19 +32,15 @@ export default defineEventHandler(async (event) => {
 
   const token = queryString(query[AGENT_ACCESS_PARAM]);
   try {
-    const bundle = token
+    const tokenAccess = token
       ? verifyScopedAgentAccessToken(token, {
           resourceKind: PLAN_AGENT_RESOURCE_KIND,
           resourceId: id,
         }).ok
-        ? await loadPlanBundleForAgentAccess(id)
-        : null
+      : false;
+    const bundle = tokenAccess
+      ? await loadPlanBundleForAgentAccess(id)
       : await loadPlanBundle(id);
-
-    if (!bundle) {
-      setResponseStatus(event, 403);
-      return { error: "Invalid or expired agent access token" };
-    }
 
     return {
       resourceType: "plan",

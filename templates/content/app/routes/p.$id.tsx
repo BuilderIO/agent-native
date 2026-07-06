@@ -9,7 +9,6 @@ import {
 } from "@agent-native/core/server";
 import {
   AGENT_READABLE_RESOURCE_SCRIPT_TYPE,
-  buildAgentReadableResourceDiscovery,
   safeJsonForHtml,
 } from "@agent-native/core/shared";
 import { resolveAccess } from "@agent-native/core/sharing";
@@ -24,7 +23,8 @@ import { VisualEditor } from "@/components/editor/VisualEditor";
 
 import { getDb, schema } from "../../server/db";
 import {
-  DOCUMENT_AGENT_CONTEXT_ENDPOINT,
+  buildContentDocumentAgentDiscovery,
+  buildContentPublicDocumentUrl,
   DOCUMENT_AGENT_RESOURCE_KIND,
 } from "../../shared/agent-readable";
 
@@ -71,6 +71,7 @@ export async function loader({ params, request }: LoaderFunctionArgs) {
     return {
       document: doc,
       agentAccessToken: tokenAccess ? agentAccessToken : null,
+      basePath,
     };
   }
 
@@ -85,6 +86,8 @@ export async function loader({ params, request }: LoaderFunctionArgs) {
   // else gets the standard sign-in / no-access handling).
   return {
     document: null,
+    agentAccessToken: null,
+    basePath,
     unavailable: { reason: "private" as const, id, basePath },
   };
 }
@@ -166,6 +169,7 @@ function renderMarkdownBlocks(content: string) {
 
 function PublicDocumentContextSync({
   document,
+  basePath,
 }: {
   document: {
     id: string;
@@ -173,6 +177,7 @@ function PublicDocumentContextSync({
     content: string;
     updatedAt: string;
   };
+  basePath?: string;
 }) {
   useEffect(() => {
     fetch(agentNativePath("/_agent-native/application-state/navigation"), {
@@ -183,10 +188,10 @@ function PublicDocumentContextSync({
         view: "public-document",
         documentId: document.id,
         title: document.title,
-        publicUrl: `/p/${document.id}`,
+        publicUrl: buildContentPublicDocumentUrl(document.id, { basePath }),
       }),
     }).catch(() => {});
-  }, [document.id, document.title]);
+  }, [basePath, document.id, document.title]);
 
   return null;
 }
@@ -208,19 +213,16 @@ function ReadOnlyMarkdownContent({ content }: { content: string }) {
 function AgentReadableDocumentDiscovery({
   document,
   token,
+  basePath,
 }: {
   document: { id: string; title: string };
   token?: string | null;
+  basePath?: string;
 }) {
-  const discovery = buildAgentReadableResourceDiscovery({
-    resourceType: "document",
-    resourceId: document.id,
-    title: document.title,
-    path: `/p/${document.id}`,
-    contextEndpoint: DOCUMENT_AGENT_CONTEXT_ENDPOINT,
+  const discovery = buildContentDocumentAgentDiscovery({
+    document,
     token,
-    instructions:
-      "Use contextUrl to read this shared Content document as structured JSON. The page is read-only for token and public viewers.",
+    basePath,
   });
   return (
     <script
@@ -282,10 +284,11 @@ export default function PublicDocumentPage() {
 
   return (
     <main className="min-h-screen bg-background text-foreground">
-      <PublicDocumentContextSync document={document} />
+      <PublicDocumentContextSync document={document} basePath={data.basePath} />
       <AgentReadableDocumentDiscovery
         document={document}
         token={data.agentAccessToken}
+        basePath={data.basePath}
       />
       <div className="mx-auto flex max-w-3xl justify-end px-6 pt-5 sm:px-8">
         <button

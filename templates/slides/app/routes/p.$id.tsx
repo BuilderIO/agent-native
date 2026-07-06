@@ -31,6 +31,7 @@ type LoaderData =
       deck: SharedDeckResponse;
       error?: undefined;
       id: string;
+      basePath: string;
       agentAccessToken?: string | null;
     }
   | {
@@ -75,6 +76,7 @@ export async function loader({
   const agentAccessToken = new URL(request.url).searchParams.get(
     AGENT_ACCESS_PARAM,
   );
+  const basePath = getConfiguredAppBasePath();
 
   // Access is checked on the deck, not the URL shape: `/p/<id>` (presentation)
   // and `/deck/<id>` (editor) share the same rules. SSR renders impersonally (no
@@ -108,13 +110,14 @@ export async function loader({
     return {
       deck: toSharedDeck(deck),
       id,
+      basePath,
       agentAccessToken: tokenAccess ? agentAccessToken : null,
     };
   }
   return {
     deck: null,
     error: "restricted",
-    restricted: { id, basePath: getConfiguredAppBasePath() },
+    restricted: { id, basePath },
   };
 }
 
@@ -146,6 +149,7 @@ export default function PublicDeckRoute() {
       <AgentReadableDeckDiscovery
         id={data.id}
         title={data.deck.title}
+        basePath={data.basePath}
         token={data.agentAccessToken}
       />
       <SharedPresentation initialDeck={data.deck} initialError={data.error} />
@@ -153,25 +157,42 @@ export default function PublicDeckRoute() {
   );
 }
 
-function AgentReadableDeckDiscovery({
+export function buildDeckDiscovery({
   id,
   title,
+  basePath,
   token,
 }: {
   id: string;
   title?: string;
+  basePath?: string;
   token?: string | null;
 }) {
-  const discovery = buildAgentReadableResourceDiscovery({
+  return buildAgentReadableResourceDiscovery({
     resourceType: "deck",
     resourceId: id,
     title,
     path: `/p/${id}`,
     contextEndpoint: DECK_AGENT_CONTEXT_ENDPOINT,
+    basePath,
     token,
     instructions:
       "Use contextUrl to read this shared Slides deck as JSON. Slide numbers are 1-based for users.",
   });
+}
+
+function AgentReadableDeckDiscovery({
+  id,
+  title,
+  basePath,
+  token,
+}: {
+  id: string;
+  title?: string;
+  basePath?: string;
+  token?: string | null;
+}) {
+  const discovery = buildDeckDiscovery({ id, title, basePath, token });
   return (
     <script
       type={AGENT_READABLE_RESOURCE_SCRIPT_TYPE}

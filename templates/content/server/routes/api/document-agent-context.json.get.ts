@@ -1,5 +1,6 @@
 import {
   AGENT_ACCESS_PARAM,
+  getConfiguredAppBasePath,
   verifyScopedAgentAccessToken,
 } from "@agent-native/core/server";
 import { eq } from "drizzle-orm";
@@ -10,7 +11,10 @@ import {
   setResponseStatus,
 } from "h3";
 
-import { DOCUMENT_AGENT_RESOURCE_KIND } from "../../../shared/agent-readable.js";
+import {
+  buildContentPublicDocumentUrl,
+  DOCUMENT_AGENT_RESOURCE_KIND,
+} from "../../../shared/agent-readable.js";
 import { getDb, schema } from "../../db/index.js";
 
 function queryString(value: unknown): string {
@@ -78,6 +82,9 @@ export default defineEventHandler(async (event) => {
     visibility: document.visibility,
     createdAt: document.createdAt,
     updatedAt: document.updatedAt,
-    url: `/p/${document.id}`,
+    url: buildContentPublicDocumentUrl(document.id, {
+      basePath: getConfiguredAppBasePath(),
+      token: tokenAccess ? token : null,
+    }),
   };
 });
