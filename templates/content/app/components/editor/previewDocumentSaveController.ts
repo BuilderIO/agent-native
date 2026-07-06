@@ -58,6 +58,7 @@ export interface PreviewDocumentPayload {
   title: string;
   content: string;
   loadedUpdatedAt?: string;
+  loadedContentWasEmpty?: boolean;
 }
 
 export interface PreviewDocumentSaveSkipped {

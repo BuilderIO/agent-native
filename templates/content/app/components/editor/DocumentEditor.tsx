@@ -52,7 +52,10 @@ import {
 } from "@/lib/local-content-source-files";
 import { cn } from "@/lib/utils";
 
-import { documentBodyHydrationIsPending } from "./body-hydration";
+import {
+  documentBodyHydrationIsPending,
+  isEffectivelyEmptyDocumentContent,
+} from "./body-hydration";
 import { BuilderBodySyncingNotice } from "./BuilderBodySyncingNotice";
 import type { CommentTextAnchor } from "./comment-anchors";
 import { CommentsSidebar } from "./CommentsSidebar";
@@ -624,7 +627,14 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
     const serverContent = document.content;
     const lastSaved = lastSavedContentRef.current;
     if (serverContent === lastSaved.content) return;
-    const adopt = localContent === lastSaved.content || contentExternalIsNewer;
+    const staleEmptyLocalOverFreshServer =
+      isEffectivelyEmptyDocumentContent(lastSaved.content) &&
+      isEffectivelyEmptyDocumentContent(localContent) &&
+      !isEffectivelyEmptyDocumentContent(serverContent);
+    const adopt =
+      localContent === lastSaved.content ||
+      contentExternalIsNewer ||
+      staleEmptyLocalOverFreshServer;
     if (adopt) {
       if (saveTimeoutRef.current) {
         clearTimeout(saveTimeoutRef.current);
@@ -716,6 +726,12 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
         return await updateDocument.mutateAsync({
           id: documentId,
           loadedUpdatedAt: documentUpdatedAtRef.current ?? undefined,
+          loadedContentWasEmpty:
+            updates.content !== undefined
+              ? isEffectivelyEmptyDocumentContent(
+                  lastSavedContentRef.current.content,
+                )
+              : undefined,
           ...updates,
         });
       } catch (error) {

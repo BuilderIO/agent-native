@@ -220,6 +220,39 @@ describe("previewDocumentSaveController", () => {
     expect(c.lastSaved).toEqual({ title: "T9", content: "C9" });
   });
 
+  it("mark() rebases stale empty pending content onto fresher server content", async () => {
+    const save = vi.fn().mockResolvedValue(undefined);
+    const c = makeController({
+      save,
+      init: {
+        title: "Builder row",
+        content: "",
+        loadedUpdatedAt: "2026-07-02T12:00:00.000Z",
+        loadedContentWasEmpty: true,
+      },
+    });
+
+    c.changeContent("<empty-block/>");
+    expect(c.hasPendingTimer).toBe(true);
+
+    c.mark({
+      title: "Builder row",
+      content: "Hydrated Builder body",
+      loadedUpdatedAt: "2026-07-02T12:00:00.000Z",
+      loadedContentWasEmpty: false,
+    });
+    vi.advanceTimersByTime(450);
+    await c.flush();
+
+    expect(save).not.toHaveBeenCalled();
+    expect(c.pending).toEqual({
+      title: "Builder row",
+      content: "Hydrated Builder body",
+      loadedUpdatedAt: "2026-07-02T12:00:00.000Z",
+      loadedContentWasEmpty: false,
+    });
+  });
+
   it("drops a skipped pending-row save so hydrated content can be adopted", async () => {
     const onSaved = vi.fn();
     const save = vi.fn().mockResolvedValue(skippedPreviewDocumentSave());

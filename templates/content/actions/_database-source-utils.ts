@@ -892,7 +892,11 @@ async function enqueueEmptyHydratedBuilderBodiesFromStoredRows(args: {
     )
     .where(eq(schema.contentDatabaseSourceRows.sourceId, args.source.id));
   for (const row of rows) {
-    if (row.item.bodyHydrationStatus !== "hydrated") continue;
+    if (
+      row.item.bodyHydrationStatus !== "hydrated" &&
+      row.item.bodyHydrationStatus !== "pending"
+    )
+      continue;
     if (!isEffectivelyEmptyDocumentContent(row.document.content)) continue;
     const entry = builderEntryFromSourceRow({
       row: row.sourceRow,
@@ -1010,6 +1014,7 @@ async function processBuilderBodyHydrationJob(
   const currentContent = document?.content ?? "";
   const shouldWriteBody =
     currentContent === "" ||
+    isEffectivelyEmptyDocumentContent(currentContent) ||
     currentContent === previousContent ||
     currentContent.trim() === "" ||
     builderBodyIsRawPlaceholderOnly(currentContent) ||
@@ -1021,15 +1026,15 @@ async function processBuilderBodyHydrationJob(
   let wroteBody = false;
   await db.transaction(async (tx) => {
     if (shouldWriteBody) {
+      const contentCas =
+        isEffectivelyEmptyDocumentContent(currentContent) &&
+        isEffectivelyEmptyDocumentContent(previousContent)
+          ? inArray(schema.documents.content, ["", "<empty-block/>"])
+          : eq(schema.documents.content, currentContent);
       const [updatedDocument] = await tx
         .update(schema.documents)
         .set({ content: nextContent, updatedAt: now })
-        .where(
-          and(
-            eq(schema.documents.id, row.documentId),
-            eq(schema.documents.content, currentContent),
-          ),
-        )
+        .where(and(eq(schema.documents.id, row.documentId), contentCas))
         .returning({ id: schema.documents.id });
       wroteBody = Boolean(updatedDocument);
     }

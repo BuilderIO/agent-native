@@ -75,10 +75,12 @@ export function shouldRejectStaleEmptyBodySave(args: {
   currentContent: string | null | undefined;
   loadedUpdatedAt: string | null | undefined;
   currentUpdatedAt: string | null | undefined;
+  loadedContentWasEmpty?: boolean | null | undefined;
 }) {
   if (!args.loadedUpdatedAt || !args.currentUpdatedAt) return false;
   if (!isEffectivelyEmptyDocumentContent(args.incomingContent)) return false;
   if (isEffectivelyEmptyDocumentContent(args.currentContent)) return false;
+  if (args.loadedContentWasEmpty === true) return true;
   return (
     new Date(args.currentUpdatedAt).getTime() >
     new Date(args.loadedUpdatedAt).getTime()
@@ -126,6 +128,10 @@ export default defineAction({
       .string()
       .optional()
       .describe("Document updatedAt value the client loaded before editing"),
+    loadedContentWasEmpty: z
+      .boolean()
+      .optional()
+      .describe("Whether the client-loaded content snapshot was empty"),
   }),
   run: async (args): Promise<DocumentUpdateResponse> => {
     const id = args.id;
@@ -204,6 +210,7 @@ export default defineAction({
           currentContent: existing.content,
           loadedUpdatedAt: args.loadedUpdatedAt,
           currentUpdatedAt: existing.updatedAt,
+          loadedContentWasEmpty: args.loadedContentWasEmpty,
         })
       ) {
         content = existing.content;

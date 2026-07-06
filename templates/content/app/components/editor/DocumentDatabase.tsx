@@ -172,6 +172,7 @@ import { cn } from "@/lib/utils";
 import { resolveBuilderCmsWriteEffect } from "../../../actions/_builder-cms-write-adapter.js";
 import {
   databaseItemBodyHydrationIsPending,
+  isEffectivelyEmptyDocumentContent,
   previewBodyHydrationIsPending,
   previewBodyHydrationIsTerminalError,
   shouldIgnorePreviewEmptyNormalization,
@@ -2523,15 +2524,30 @@ function isDatabasePreviewPortalInteraction(target: EventTarget | null) {
 }
 
 function previewPayloadsEqual(
-  a: { title: string; content: string; loadedUpdatedAt?: string },
-  b: { title: string; content: string; loadedUpdatedAt?: string },
+  a: {
+    title: string;
+    content: string;
+    loadedUpdatedAt?: string;
+    loadedContentWasEmpty?: boolean;
+  },
+  b: {
+    title: string;
+    content: string;
+    loadedUpdatedAt?: string;
+    loadedContentWasEmpty?: boolean;
+  },
 ) {
   return a.title === b.title && a.content === b.content;
 }
 
 function retainedPreviewPayload(
   documentId: string,
-  serverPayload: { title: string; content: string; loadedUpdatedAt?: string },
+  serverPayload: {
+    title: string;
+    content: string;
+    loadedUpdatedAt?: string;
+    loadedContentWasEmpty?: boolean;
+  },
 ) {
   const controller = peekPreviewDocumentSaveController(documentId);
   if (!controller) return null;
@@ -2645,6 +2661,9 @@ function DatabaseItemPreview({
         title: item.document.title,
         content: item.document.content,
         loadedUpdatedAt: item.document.updatedAt,
+        loadedContentWasEmpty: isEffectivelyEmptyDocumentContent(
+          item.document.content,
+        ),
       },
       save: (id, payload) =>
         new Promise((resolve, reject) => {
@@ -2663,6 +2682,7 @@ function DatabaseItemPreview({
               title: payload.title,
               content: payload.content,
               loadedUpdatedAt: payload.loadedUpdatedAt,
+              loadedContentWasEmpty: payload.loadedContentWasEmpty,
             },
             { onSuccess: () => resolve(undefined), onError: reject },
           );
@@ -2739,7 +2759,12 @@ function DatabaseItemPreview({
     // follow the server.
     setLocalIcon(nextIcon);
     const controller = peekPreviewDocumentSaveController(documentId);
-    const serverPayload = { title: nextTitle, content: nextContent };
+    const serverPayload = {
+      title: nextTitle,
+      content: nextContent,
+      loadedUpdatedAt: nextLoadedUpdatedAt,
+      loadedContentWasEmpty: isEffectivelyEmptyDocumentContent(nextContent),
+    };
     const dirty =
       !!controller &&
       !previewPayloadsEqual(controller.pending, controller.lastSaved);
@@ -2747,18 +2772,21 @@ function DatabaseItemPreview({
       !!controller &&
       controller.hasSavedLocally &&
       !previewPayloadsEqual(controller.lastSaved, serverPayload);
+    const staleEmptyPendingOverFreshServer =
+      !!controller &&
+      dirty &&
+      controller.lastSaved.loadedContentWasEmpty === true &&
+      isEffectivelyEmptyDocumentContent(controller.pending.content) &&
+      !isEffectivelyEmptyDocumentContent(nextContent);
     // Only adopt the server's title/content — into BOTH the displayed editor
     // state and the controller baseline — when the user hasn't typed something
     // newer on this row. If a dirty in-progress edit exists, preserve it: don't
     // clobber the visible text (the controller already holds the unsaved edit,
     // so nothing is lost, but the editor must keep showing what the user typed).
-    if (!dirty && !savedAheadOfServer) {
+    if (staleEmptyPendingOverFreshServer || (!dirty && !savedAheadOfServer)) {
       setLocalTitle(nextTitle);
       setLocalContent(nextContent);
-      controller?.mark({
-        ...serverPayload,
-        loadedUpdatedAt: nextLoadedUpdatedAt,
-      });
+      controller?.mark(serverPayload);
     } else if (controller) {
       // A dirty in-progress edit or a clean local save that the query has not
       // echoed yet is newer than stale server props.

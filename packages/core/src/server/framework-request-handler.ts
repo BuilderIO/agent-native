@@ -364,6 +364,22 @@ function installPluginReadyPlaceholders(
   }
 }
 
+function logFrameworkRouteError(args: {
+  method: string | undefined;
+  route: string;
+  status: number;
+  error: unknown;
+}): void {
+  const error = args.error as any;
+  const message = error?.message || String(args.error);
+  const prefix = `[agent-native] ${args.method ?? ""} ${args.route} failed (${args.status})`;
+  if (process.env.NODE_ENV === "production") {
+    console.error(`${prefix}: ${message}`);
+    return;
+  }
+  console.error(`${prefix}: ${message}`, error?.stack || args.error);
+}
+
 /**
  * Await all tracked plugin initializations. Called by the readiness gate
  * middleware before dispatching framework routes.
@@ -500,10 +516,12 @@ function registerMiddleware(
           : typeof e?.status === "number"
             ? e.status
             : 500;
-      console.error(
-        `[agent-native] ${event.method ?? ""} ${reqPath} failed (${status}):`,
-        e?.stack || e?.message || e,
-      );
+      logFrameworkRouteError({
+        method: event.method,
+        route: reqPath,
+        status,
+        error: err,
+      });
       // Forward 5xx to server-side Sentry — Nitro's own `error` hook may not
       // fire here because we convert the throw into a normal JSON response,
       // and a console.error alone is invisible in deployed environments.

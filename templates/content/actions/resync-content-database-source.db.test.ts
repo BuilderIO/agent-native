@@ -806,7 +806,7 @@ it("does not let open-row hydration promotion downgrade a queued full Builder bo
       ownerEmail: OWNER,
       parentId: databaseDocId,
       title: "Open hydration downgrade",
-      content: "",
+      content: "<empty-block/>",
       createdAt: now,
       updatedAt: now,
     },
@@ -979,6 +979,125 @@ it("re-enqueues hydrated Builder rows with empty document content on resync", as
     documentId,
     sourceRowId,
     sourceQualifiedId: `builder-cms://collection-hydration-repair-offline/${sourceRowId}`,
+    sourceDisplayKey: "Hydration One",
+    sourceValuesJson: JSON.stringify({
+      "data.title": "Hydration One",
+      "data.url": "/blog/hydration-one",
+      lastUpdated: "2026-01-01T00:00:00.000Z",
+      [BUILDER_CMS_BODY_CONTENT_KEY]: "Hydrated body One baseline.",
+    }),
+    provenance: "Builder CMS read adapter",
+    createdAt: now,
+    updatedAt: now,
+  });
+
+  const [database] = await db
+    .select()
+    .from(schema.contentDatabases)
+    .where(eq(schema.contentDatabases.id, databaseId));
+  const [source] = await db
+    .select()
+    .from(schema.contentDatabaseSources)
+    .where(eq(schema.contentDatabaseSources.id, sourceId));
+
+  await resync({
+    database,
+    source,
+    now: "2026-01-01T00:20:00.000Z",
+    runFullRefresh: true,
+  });
+
+  const queued = await db
+    .select({ id: schema.contentDatabaseBodyHydrationQueue.id })
+    .from(schema.contentDatabaseBodyHydrationQueue)
+    .where(eq(schema.contentDatabaseBodyHydrationQueue.databaseItemId, itemId));
+  expect(queued).toHaveLength(1);
+
+  await hydrateQueuedBodies({ sourceId, limit: 10 });
+
+  const [after] = await db
+    .select({
+      content: schema.documents.content,
+      status: schema.contentDatabaseItems.bodyHydrationStatus,
+    })
+    .from(schema.documents)
+    .innerJoin(
+      schema.contentDatabaseItems,
+      eq(schema.contentDatabaseItems.documentId, schema.documents.id),
+    )
+    .where(eq(schema.documents.id, documentId));
+
+  expect(after.status).toBe("hydrated");
+  expect(after.content).toBe("Hydrated body One baseline.");
+});
+
+it("re-enqueues pending Builder rows with empty document content on resync", async () => {
+  builderReadMock.mode = "full";
+  builderReadMock.calls = [];
+  const db = getDb();
+  const now = new Date().toISOString();
+  const databaseId = "db_hydration_pending_empty_repair";
+  const databaseDocId = "doc_db_hydration_pending_empty_repair";
+  const documentId = "doc_hydration_pending_empty_repair";
+  const itemId = "item_hydration_pending_empty_repair";
+  const sourceId = "src_hydration_pending_empty_repair";
+  const sourceRowId = "entry-hydration-1";
+  await db.insert(schema.documents).values([
+    {
+      id: databaseDocId,
+      ownerEmail: OWNER,
+      title: "DB hydration pending empty repair",
+      createdAt: now,
+      updatedAt: now,
+    },
+    {
+      id: documentId,
+      ownerEmail: OWNER,
+      parentId: databaseDocId,
+      title: "Hydration One",
+      content: "<empty-block/>",
+      createdAt: now,
+      updatedAt: now,
+    },
+  ]);
+  await db.insert(schema.contentDatabases).values({
+    id: databaseId,
+    ownerEmail: OWNER,
+    documentId: databaseDocId,
+    title: "DB hydration pending empty repair",
+    createdAt: now,
+    updatedAt: now,
+  });
+  await db.insert(schema.contentDatabaseSources).values({
+    id: sourceId,
+    ownerEmail: OWNER,
+    databaseId,
+    sourceType: "builder-cms",
+    sourceName: "collection-hydration-repair-pending",
+    sourceTable: "collection-hydration-repair-pending",
+    createdAt: now,
+    updatedAt: now,
+  });
+  await db.insert(schema.contentDatabaseItems).values({
+    id: itemId,
+    ownerEmail: OWNER,
+    databaseId,
+    documentId,
+    position: 0,
+    bodyHydrationStatus: "pending",
+    bodyHydrationError: null,
+    bodyHydrationVersion: "2026-01-01T00:00:00.000Z:readable-native-images-v5",
+    createdAt: now,
+    updatedAt: now,
+  });
+  await db.insert(schema.contentDatabaseSourceRows).values({
+    id: "row_hydration_pending_empty_repair",
+    ownerEmail: OWNER,
+    sourceId,
+    databaseItemId: itemId,
+    documentId,
+    sourceRowId,
+    sourceQualifiedId: `builder-cms://collection-hydration-repair-pending/${sourceRowId}`,
     sourceDisplayKey: "Hydration One",
     sourceValuesJson: JSON.stringify({
       "data.title": "Hydration One",

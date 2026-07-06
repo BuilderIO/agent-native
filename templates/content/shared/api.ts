@@ -99,6 +99,7 @@ export interface DocumentUpdateRequest {
   icon?: string | null;
   isFavorite?: boolean;
   loadedUpdatedAt?: string;
+  loadedContentWasEmpty?: boolean;
 }
 
 export interface DocumentUpdateResponse extends Document {
