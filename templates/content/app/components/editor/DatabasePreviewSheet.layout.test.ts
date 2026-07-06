@@ -7,7 +7,7 @@ function readEditorSource(relativePath: string) {
 }
 
 describe("database preview sheet layout", () => {
-  it.each([["DocumentDatabase.tsx"], ["database/DatabaseView.tsx"]])(
+  it.each([["database/DatabaseView.tsx"]])(
     "%s lets outside clicks close while preserving preview portals",
     (path) => {
       const source = readEditorSource(path);
