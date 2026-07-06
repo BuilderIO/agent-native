@@ -241,6 +241,12 @@ Analytics 템플릿은 리플레이 메타데이터를 SQL(`session_recordings`)
 
 프라이빗 녹화를 외부 에이전트에게 전달해야 할 때는 세션 상세 페이지의 **Copy for agent** 컨트롤을 사용하세요. 이는 두 시간 동안 유효한 녹화 범위의 `agent_access` 링크를 발급하고, `/sessions/:recordingId`에서 작은 디스커버리 페이로드를 SSR하며, 에이전트 컨텍스트/이벤트 JSON API만 노출합니다. 녹화의 공개 범위는 변경되지 않습니다.
 
+Implementation note: the reusable layer is the core agent-access URL contract,
+not a replay-specific UI abstraction. Use `createScopedAgentAccessGrant`,
+`verifyScopedAgentAccessToken`, `buildAgentAccessUrl`, and
+`buildAgentAccessApiUrl` for scoped SSR and JSON API links; keep replay storage,
+diagnostics shaping, and access policy inside the Analytics template.
+
 로컬 개발 환경에서만 Analytics는 프라이빗 blob 스토리지를 사용할 수 없을 때 용량이 제한된 SQL 인라인 청크로 대체할 수 있습니다. 프로덕션 배포에서는 리플레이 페이로드를 Postgres에 의존하기보다 프라이빗 또는 암호화된 blob 스토리지를 구성해야 합니다.
 
 ## 고급: 맞춤형 공급자 및 내부 {#advanced}

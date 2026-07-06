@@ -251,7 +251,12 @@ class AISDKEngine implements AgentEngine {
       opts.tools.length > 0
         ? engineToolsToAISDK(opts.tools, jsonSchema)
         : undefined;
-    const messages = engineMessagesToAISDK(opts.messages);
+    const messages = engineMessagesToAISDK(opts.messages, {
+      // Vision-capable provider translators (anthropic/openai/google/
+      // openrouter) map image parts to native blocks; the rest stringify
+      // tool-result content arrays, so images degrade to their text notes.
+      toolResultImages: this.capabilities.vision,
+    });
 
     // Build providerOptions for Anthropic-native features when using Anthropic provider
     const providerOpts: Record<string, unknown> = {};
@@ -320,6 +325,7 @@ class AISDKEngine implements AgentEngine {
         maxOutputTokens: resolveMaxOutputTokensForEngine(
           this.name,
           opts.maxOutputTokens,
+          opts.model,
         ),
         ...(opts.temperature !== undefined
           ? { temperature: opts.temperature }

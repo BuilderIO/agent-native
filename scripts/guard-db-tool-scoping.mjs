@@ -63,6 +63,7 @@ const INTENTIONAL_RAW_DB_DENYLIST = {
   "clips:recording_events": "audit/event rows scoped through recordings",
   "clips:recording_reactions": "child rows scoped through recordings",
   "clips:recording_tags": "child rows scoped through recordings",
+  "clips:recording_views": "append-only child rows scoped through recordings",
   "clips:recording_viewers": "viewer link rows scoped through recordings",
   "clips:space_members": "membership join rows scoped through spaces",
   "clips:spaces": "workspace child rows scoped through workspaces",

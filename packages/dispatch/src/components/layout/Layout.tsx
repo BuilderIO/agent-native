@@ -223,7 +223,7 @@ const EMPTY_NAV_ITEMS: readonly DispatchNavItem[] = [];
 const CHROMELESS_PATHS = ["/approval"];
 const SIDEBAR_COLLAPSE_KEY = "dispatch.sidebar.collapsed";
 
-// Routes whose page renders its own toolbar (with NotificationsBell + AgentToggleButton).
+// Routes whose page renders its own toolbar.
 // Layout still mounts the sidebar + AgentSidebar, but skips its own Header so
 // there's no double-header.
 function pageOwnsToolbar(pathname: string): boolean {

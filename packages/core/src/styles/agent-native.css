@@ -41,6 +41,16 @@
    zoom-in/out, slide-in-from-*, spin-in, etc.). */
 @import "tw-animate-css";
 
+:root {
+  --agent-native-viewport-height: 100vh;
+}
+
+@supports (height: 100dvh) {
+  :root {
+    --agent-native-viewport-height: 100dvh;
+  }
+}
+
 /* Shared shell depth.
    Use these classes on app layouts that have a persistent left nav:
 
@@ -63,6 +73,8 @@
     var(--agent-native-raised-border);
   --agent-native-raised-shadow-left: -1px 0 3px rgb(0 0 0 / 0.018);
   --agent-native-raised-shadow-right: 1px 0 3px rgb(0 0 0 / 0.018);
+  height: var(--agent-native-viewport-height);
+  min-height: 0;
   background: var(--agent-native-lower-surface);
 }
 
@@ -167,43 +179,45 @@
   container: agent-native-main / inline-size;
 }
 
-.agent-layout-shell
-  :where(.agent-layout-main-surface, .agent-sidebar-main-surface)
-  > :first-child
-  > :where(header, div).border-b,
-.agent-layout-shell
-  :where(.agent-layout-main-surface, .agent-sidebar-main-surface)
-  > :where(header, div).border-b,
-.agent-layout-shell
-  .agent-layout-left-drawer
-  > :where(header, div).border-b:first-child,
-.agent-layout-shell
-  .agent-layout-left-drawer
-  > :first-child
-  > :where(header, div).border-b,
-.agent-layout-shell .agent-native-shell-topbar {
-  border-bottom-color: transparent !important;
-}
+@media (min-width: 768px) {
+  .agent-layout-shell
+    :where(.agent-layout-main-surface, .agent-sidebar-main-surface)
+    > :first-child
+    > :where(header, div).border-b,
+  .agent-layout-shell
+    :where(.agent-layout-main-surface, .agent-sidebar-main-surface)
+    > :where(header, div).border-b,
+  .agent-layout-shell
+    .agent-layout-left-drawer
+    > :where(header, div).border-b:first-child,
+  .agent-layout-shell
+    .agent-layout-left-drawer
+    > :first-child
+    > :where(header, div).border-b,
+  .agent-layout-shell .agent-native-shell-topbar {
+    border-bottom-color: transparent !important;
+  }
 
-.agent-layout-shell
-  :where(.agent-layout-main-surface, .agent-sidebar-main-surface)
-  > :first-child
-  > :where(header, div).border-b,
-.agent-layout-shell
-  :where(.agent-layout-main-surface, .agent-sidebar-main-surface)
-  > :where(header, div).border-b {
-  background-color: var(--agent-native-raised-surface) !important;
-}
+  .agent-layout-shell
+    :where(.agent-layout-main-surface, .agent-sidebar-main-surface)
+    > :first-child
+    > :where(header, div).border-b,
+  .agent-layout-shell
+    :where(.agent-layout-main-surface, .agent-sidebar-main-surface)
+    > :where(header, div).border-b {
+    background-color: var(--agent-native-raised-surface) !important;
+  }
 
-.agent-layout-shell
-  :where(.agent-layout-main-surface, .agent-sidebar-main-surface)
-  > :first-child
-  > :where(header, div).border-b.h-12,
-.agent-layout-shell
-  :where(.agent-layout-main-surface, .agent-sidebar-main-surface)
-  > :where(header, div).border-b.h-12 {
-  min-height: 4rem;
-  height: 4rem;
+  .agent-layout-shell
+    :where(.agent-layout-main-surface, .agent-sidebar-main-surface)
+    > :first-child
+    > :where(header, div).border-b.h-12,
+  .agent-layout-shell
+    :where(.agent-layout-main-surface, .agent-sidebar-main-surface)
+    > :where(header, div).border-b.h-12 {
+    min-height: 4rem;
+    height: 4rem;
+  }
 }
 
 .dark
@@ -696,6 +710,14 @@
 }
 
 .agent-composer-setup-card {
+  width: 100%;
+}
+
+/* Plan-mode callout pill: lives inside .agent-composer-stack directly above
+   the composer. Matching .agent-composer-area's own width keeps the pill
+   visually attached to (and right-aligned with) the composer instead of the
+   full pane, whether the pane is a narrow sidebar or a wide centered page. */
+.agent-plan-mode-callout {
   width: 100%;
 }
 

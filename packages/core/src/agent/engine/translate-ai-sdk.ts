@@ -60,7 +60,55 @@ export function engineToolsToAISDK(
  * `{role: "tool"}` message, followed by the remaining text/image parts as a
  * `{role: "user"}` message.
  */
-export function engineMessageToAISDK(msg: EngineMessage): any[] {
+export interface EngineToAISDKOptions {
+  /**
+   * Emit tool-result images as AI SDK `content` output (`image-url` /
+   * `image-data` parts). Only enable for providers whose translators support
+   * image content parts (gate on the engine's `capabilities.vision`) —
+   * providers like groq JSON.stringify the whole content array, which would
+   * flood the prompt with base64. When off, images degrade to the text
+   * content alone; the `[image: …]` notes runToolCall appends to the content
+   * string keep the model informed of what it cannot see.
+   */
+  toolResultImages?: boolean;
+}
+
+/** AI SDK tool-result `output` for one engine tool-result part. */
+function toolResultOutputToAISDK(
+  part: Extract<EngineContentPart, { type: "tool-result" }>,
+  opts?: EngineToAISDKOptions,
+): any {
+  if (part.isError) return { type: "error-text", value: part.content };
+  if (
+    opts?.toolResultImages !== true ||
+    !part.images ||
+    part.images.length === 0
+  ) {
+    return { type: "text", value: part.content };
+  }
+  const imageParts: any[] = [];
+  for (const image of part.images) {
+    if (image.url) {
+      imageParts.push({ type: "image-url", url: image.url });
+    } else if (image.data && image.mediaType) {
+      imageParts.push({
+        type: "image-data",
+        data: image.data,
+        mediaType: image.mediaType,
+      });
+    }
+  }
+  if (imageParts.length === 0) return { type: "text", value: part.content };
+  return {
+    type: "content",
+    value: [{ type: "text", text: part.content }, ...imageParts],
+  };
+}
+
+export function engineMessageToAISDK(
+  msg: EngineMessage,
+  opts?: EngineToAISDKOptions,
+): any[] {
   // EngineMessage is `user | assistant` — both branches return below.
   if (msg.role === "user") {
     const userParts: any[] = [];
@@ -86,9 +134,7 @@ export function engineMessageToAISDK(msg: EngineMessage): any[] {
           type: "tool-result",
           toolCallId: part.toolCallId,
           toolName: part.toolName,
-          output: part.isError
-            ? { type: "error-text", value: part.content }
-            : { type: "text", value: part.content },
+          output: toolResultOutputToAISDK(part, opts),
         });
       }
     }
@@ -150,9 +196,12 @@ export function engineMessageToAISDK(msg: EngineMessage): any[] {
   throw new Error(`unknown EngineMessage role: ${(msg as any).role}`);
 }
 
-export function engineMessagesToAISDK(messages: EngineMessage[]): any[] {
-  return backfillEngineMessagesToolResults(messages).flatMap(
-    engineMessageToAISDK,
+export function engineMessagesToAISDK(
+  messages: EngineMessage[],
+  opts?: EngineToAISDKOptions,
+): any[] {
+  return backfillEngineMessagesToolResults(messages).flatMap((msg) =>
+    engineMessageToAISDK(msg, opts),
   );
 }
 

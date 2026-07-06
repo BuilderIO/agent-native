@@ -127,12 +127,19 @@ export async function restartTranscriptionEngine(
       micDeviceId: mic?.deviceId || null,
       micDeviceLabel: mic?.label || null,
       captureSystem,
+      owner: "meeting",
     });
   } else {
+    // This module is meetings-only (see file header) — always pass
+    // owner: "meeting" so a Fn/dictation press can't silently evict a
+    // meeting's native-speech fallback session (Rust-side priority rule
+    // in native_speech.rs). Dictation's own caller (voice-dictation.ts)
+    // omits `owner` and gets the "dictation" default.
     await invoke("native_speech_start", {
       locale: browserLocale(),
       micDeviceId: mic?.deviceId || null,
       micDeviceLabel: mic?.label || null,
+      owner: "meeting",
     });
   }
 }

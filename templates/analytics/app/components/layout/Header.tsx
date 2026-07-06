@@ -49,7 +49,7 @@ export function Header() {
   const fallbackTitle = resolveTitle(location.pathname, t);
 
   return (
-    <header className="flex h-12 items-center gap-3 border-b border-border bg-background px-4 lg:px-6 shrink-0">
+    <header className="hidden h-12 shrink-0 items-center gap-3 border-b border-border bg-background px-4 md:flex lg:px-6">
       <div className="flex items-center gap-3 flex-1 min-w-0">
         {title ??
           (typeof fallbackTitle === "string" ? (
@@ -62,7 +62,7 @@ export function Header() {
       </div>
       <div className="flex items-center gap-2 shrink-0">
         {actions}
-        <RunsTray pollMs={1500} />
+        <RunsTray />
         <AgentToggleButton />
       </div>
     </header>

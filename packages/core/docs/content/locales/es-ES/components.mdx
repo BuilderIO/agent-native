@@ -25,6 +25,24 @@ Evite importar componentes UI desde el paquete básico `@agent-native/core`. Usa
 `@agent-native/core/client` o una subruta `@agent-native/core/client/*` enfocada
 para que los paquetes elijan la entrada segura para el navegador.
 
+Use `@agent-native/toolkit` para piezas reutilizables de construcción de aplicaciones que no forman parte del contrato fundacional del runtime: primitivas UI estilo shadcn, hooks compartidos, ayudantes simples de shell de aplicación y otros módulos para componer plantillas. Core conserva reexports de compatibilidad durante la transición.
+
+Los paquetes reutilizables pueden importar módulos de Toolkit directamente:
+
+```tsx
+import { Button } from "@agent-native/toolkit/ui/button";
+import { Toaster } from "@agent-native/toolkit/ui/sonner";
+import { useToast } from "@agent-native/toolkit/hooks/use-toast";
+import { useSetHeaderActions } from "@agent-native/toolkit/app-shell";
+```
+
+Dentro de las apps de plantilla, prefiera adaptadores locales de la app para que los equipos puedan sustituir primitivas una vez y hacer que cada superficie reutilizada de Toolkit use la implementación local:
+
+```tsx
+import { Button } from "@/components/ui/button";
+import { useToast } from "@/hooks/use-toast";
+```
+
 <Diagram id="doc-block-1v79shu" title="Bajar una capa, no fuera del marco." summary={"Cada capa mantiene el mismo tiempo de ejecución (acciones, estado del subproceso y sincronización SQL-backed) al tiempo que le brinda más control sobre Chrome."}>
 
 ```html
@@ -434,7 +452,8 @@ function WorkspaceResources() {
 
 | Área               | APIs                                                                       | Ruta de importación                       |
 | ------------------ | -------------------------------------------------------------------------- | ----------------------------------------- |
-| Compartir          | `<ShareButton>`, `<ShareDialog>`, `<VisibilityBadge>`                      | `@agent-native/core/client/sharing`       |
+| Compartir          | `<ShareButton>`, `<ShareDialog>`                                           | `@agent-native/core/client/sharing`       |
+| Sharing UI         | `<VisibilityBadge>`                                                        | `@agent-native/toolkit/sharing`           |
 | Notificaciones     | `<NotificationsBell>`                                                      | `@agent-native/core/client/notifications` |
 | Progreso           | `<RunsTray>`, ganchos de progreso y tipos                                  | `@agent-native/core/client/progress`      |
 | Incorporación      | `useOnboarding()`, ganchos para panel de incorporación                     | `@agent-native/core/client/onboarding`    |

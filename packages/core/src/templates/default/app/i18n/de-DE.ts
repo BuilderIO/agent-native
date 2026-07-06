@@ -295,7 +295,6 @@ const messages = {
     whatShouldItDo: "Was soll es tun?",
     createPlaceholder:
       "Eine Aufgabenliste, ein API-Dashboard, ein Taschenrechner ...",
-    backToApp: "Zurück zur App",
     title: "Erweiterungen",
     hiddenShown: "Versteckt angezeigt",
     showHidden: "Ausgeblendete anzeigen",

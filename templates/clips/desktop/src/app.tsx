@@ -48,6 +48,10 @@ import {
   type BubbleWebrtcHandle,
 } from "./lib/bubble-webrtc";
 import {
+  getCameraStreamWithFallback,
+  isMediaConstraintFailure,
+} from "./lib/media-capture-constraints";
+import {
   isHardCapturePermissionError,
   MACOS_CAPTURE_PERMISSION_MESSAGE,
   MACOS_SPEECH_PERMISSION_MESSAGE,
@@ -156,6 +160,7 @@ const VOICE_SHORTCUT_KEY = "clips:voice-shortcut";
 const VOICE_SHORTCUT_CONFIGURED_KEY = "clips:voice-shortcut-configured";
 const VOICE_CUSTOM_SHORTCUT_KEY = "clips:voice-custom-shortcut";
 const POPOVER_CUSTOM_SHORTCUT_KEY = "clips:popover-custom-shortcut";
+const RECORD_CUSTOM_SHORTCUT_KEY = "clips:record-custom-shortcut";
 const VOICE_MODE_KEY = "clips:voice-mode";
 const VOICE_PROVIDER_KEY = "clips:voice-provider";
 const VOICE_INSTRUCTIONS_KEY = "clips:voice-instructions";
@@ -431,6 +436,11 @@ function normalizeVoiceProvider(value: string): VoiceProvider {
   if (value === "auto") return native;
   if (value === "builder") return "builder-gemini";
   if (value === "macos-native" && !isMacPlatform()) return "browser";
+  // Symmetric migration: a persisted "browser" preference from a non-Mac
+  // install (or an older build) silently ran native transcription on Mac
+  // via resolveProvider()'s mic-override branch with zero UI indication.
+  // Normalize the stale value at the source instead (D1).
+  if (value === "browser" && isMacPlatform()) return "macos-native";
   return value === "browser" ||
     value === "macos-native" ||
     value === "whisper" ||
@@ -596,6 +606,9 @@ export function App() {
   const [popoverCustomShortcut, setPopoverCustomShortcut] = useState<string>(
     () => loadStringAllowEmpty(POPOVER_CUSTOM_SHORTCUT_KEY, ""),
   );
+  const [recordCustomShortcut, setRecordCustomShortcut] = useState<string>(() =>
+    loadStringAllowEmpty(RECORD_CUSTOM_SHORTCUT_KEY, ""),
+  );
   const [voiceMode, setVoiceMode] = useState<VoiceMode>(() => {
     const saved = loadString(VOICE_MODE_KEY, "push-to-talk");
     return saved === "toggle" ? "toggle" : "push-to-talk";
@@ -656,6 +669,7 @@ export function App() {
   const isRecording = recorder !== null;
   // Whether the popover window is shown; driven by the visibility effect below.
   const [popoverVisible, setPopoverVisible] = useState(false);
+  const recordShortcutHandlerRef = useRef<() => void>(() => {});
   // Mirrors `bubbleActive` (assigned below once it is computed) so device
   // probes can synchronously tell whether the camera bubble owns the grant.
   const bubbleActiveRef = useRef(false);
@@ -779,6 +793,7 @@ export function App() {
     invoke("set_custom_shortcuts", {
       voice: voiceShortcut === "custom" ? voiceCustomShortcut : null,
       popover: popoverCustomShortcut.trim() ? popoverCustomShortcut : null,
+      record: recordCustomShortcut.trim() ? recordCustomShortcut : null,
     })
       .then(() => {
         if (!cancelled) setShortcutRegistrationError(null);
@@ -794,7 +809,12 @@ export function App() {
     return () => {
       cancelled = true;
     };
-  }, [popoverCustomShortcut, voiceCustomShortcut, voiceShortcut]);
+  }, [
+    popoverCustomShortcut,
+    recordCustomShortcut,
+    voiceCustomShortcut,
+    voiceShortcut,
+  ]);
 
   // ---- auth status --------------------------------------------------------
   // The Tauri WebView has its own cookie jar (separate from the user's
@@ -1347,15 +1367,15 @@ export function App() {
       "[clips-popover] bubble session start — acquiring camera + showing bubble",
     );
 
-    navigator.mediaDevices
-      .getUserMedia({
-        video: {
-          width: { ideal: 1280 },
-          height: { ideal: 720 },
-          ...(cameraId ? { deviceId: { exact: cameraId } } : {}),
-        },
-        audio: false,
-      })
+    // The saved camera id can go stale (webcam unplugged since last launch).
+    // The fallback helper retries once with the default camera on a
+    // constraint failure instead of leaving the ghost id to fail with
+    // OverconstrainedError; once `loadDevices()` refreshes the list below,
+    // the stale selection itself is cleared by `useMediaDevices`.
+    getCameraStreamWithFallback(cameraId, {
+      width: { ideal: 1280 },
+      height: { ideal: 720 },
+    })
       .then(async (s) => {
         if (cancelled) {
           // Effect re-ran before we resolved — throw this stream away.
@@ -1415,6 +1435,13 @@ export function App() {
           err?.name === "NotAllowedError"
         ) {
           setCameraError(MACOS_CAPTURE_PERMISSION_MESSAGE);
+        } else if (isMediaConstraintFailure(err)) {
+          // Even the default-camera retry inside getCameraStreamWithFallback
+          // failed, so no camera is usable right now. Say that plainly
+          // instead of surfacing constraint jargon like "Invalid constraint".
+          setCameraError(
+            "No camera found. Connect a camera, or pick one from the camera menu.",
+          );
         } else {
           setCameraError(`Camera unavailable: ${msg}`);
         }
@@ -1570,6 +1597,10 @@ export function App() {
   useEffect(
     () => saveString(POPOVER_CUSTOM_SHORTCUT_KEY, popoverCustomShortcut),
     [popoverCustomShortcut],
+  );
+  useEffect(
+    () => saveString(RECORD_CUSTOM_SHORTCUT_KEY, recordCustomShortcut),
+    [recordCustomShortcut],
   );
   useEffect(() => saveString(VOICE_MODE_KEY, voiceMode), [voiceMode]);
   useEffect(
@@ -1952,6 +1983,66 @@ export function App() {
     setRecError(message);
   }
 
+  recordShortcutHandlerRef.current = () => {
+    if (recorder) {
+      emit("clips:recorder-stop").catch(() => {});
+      return;
+    }
+    if (recordingFlowGateRef.current || recordingFlowActive) {
+      emit("clips:countdown-cancel").catch(() => {});
+      return;
+    }
+
+    setShowSettings(false);
+    if (authStatus === "anon" && localRecordingMode === "off") {
+      setRecError("Sign in to Clips before using the recording shortcut.");
+      invoke("show_popover").catch(() => {});
+      return;
+    }
+
+    const canStartFromGlobalShortcut =
+      mode === "camera" || nativeFullscreenRecordingActive;
+    if (!canStartFromGlobalShortcut) {
+      setRecError(
+        "Open Clips and click Start recording to use the selected source.",
+      );
+      invoke("show_popover").catch(() => {});
+      return;
+    }
+
+    void handleStartRecording({ ignoreActiveRecorder: true });
+  };
+
+  useEffect(() => {
+    let cancelled = false;
+    let unlisten: (() => void) | null = null;
+    listen("clips:record-shortcut", () => {
+      recordShortcutHandlerRef.current();
+    })
+      .then((u) => {
+        if (cancelled) {
+          try {
+            u();
+          } catch {
+            // ignore
+          }
+          return;
+        }
+        unlisten = u;
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+      if (unlisten) {
+        try {
+          unlisten();
+        } catch {
+          // ignore
+        }
+      }
+    };
+  }, []);
+
   function updateReadinessOpen(next: boolean) {
     setReadinessOpen(next);
     if (!next) saveBool(READINESS_REVIEWED_KEY, true);
@@ -2128,6 +2219,7 @@ export function App() {
           voiceShortcut={voiceShortcut}
           voiceCustomShortcut={voiceCustomShortcut}
           popoverCustomShortcut={popoverCustomShortcut}
+          recordCustomShortcut={recordCustomShortcut}
           voiceMode={voiceMode}
           voiceProvider={voiceProvider}
           voiceInstructions={voiceInstructions}
@@ -2135,6 +2227,7 @@ export function App() {
           onVoiceShortcutChange={updateVoiceShortcut}
           onVoiceCustomShortcutChange={setVoiceCustomShortcut}
           onPopoverCustomShortcutChange={setPopoverCustomShortcut}
+          onRecordCustomShortcutChange={setRecordCustomShortcut}
           onVoiceModeChange={setVoiceMode}
           onVoiceProviderChange={setVoiceProvider}
           onVoiceInstructionsChange={setVoiceInstructions}
@@ -3059,6 +3152,7 @@ function Setup({
   voiceShortcut,
   voiceCustomShortcut,
   popoverCustomShortcut,
+  recordCustomShortcut,
   voiceMode,
   voiceProvider,
   voiceInstructions,
@@ -3066,6 +3160,7 @@ function Setup({
   onVoiceShortcutChange,
   onVoiceCustomShortcutChange,
   onPopoverCustomShortcutChange,
+  onRecordCustomShortcutChange,
   onVoiceModeChange,
   onVoiceProviderChange,
   onVoiceInstructionsChange,
@@ -3079,6 +3174,7 @@ function Setup({
   voiceShortcut: VoiceShortcutPreference;
   voiceCustomShortcut: string;
   popoverCustomShortcut: string;
+  recordCustomShortcut: string;
   voiceMode: VoiceMode;
   voiceProvider: VoiceProvider;
   voiceInstructions: string;
@@ -3086,6 +3182,7 @@ function Setup({
   onVoiceShortcutChange: (value: VoiceShortcutPreference) => void;
   onVoiceCustomShortcutChange: (value: string) => void;
   onPopoverCustomShortcutChange: (value: string) => void;
+  onRecordCustomShortcutChange: (value: string) => void;
   onVoiceModeChange: (value: VoiceMode) => void;
   onVoiceProviderChange: (value: VoiceProvider) => void;
   onVoiceInstructionsChange: (value: string) => void;
@@ -3966,6 +4063,22 @@ function Setup({
           </div>
         </div>
       </details>
+
+      <div className="setup-section">
+        <SettingLabel
+          label="Start/stop recording shortcut"
+          hint="Optional global shortcut for starting full-screen, region, or camera recordings and stopping the active recording."
+        />
+        <ShortcutRecorder
+          value={recordCustomShortcut}
+          placeholder="Record shortcut"
+          onChange={onRecordCustomShortcutChange}
+        />
+        <p className="setup-hint">
+          Window and browser-tab sources still open Clips first so the picker
+          can use a click.
+        </p>
+      </div>
 
       <div className="setup-section">
         <SettingLabel

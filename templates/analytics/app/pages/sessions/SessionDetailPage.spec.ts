@@ -324,6 +324,11 @@ describe("session replay chunk loading", () => {
         search: "?agent_access=agent-token",
       },
     });
+    vi.stubGlobal("location", {
+      origin: "https://analytics.example.test",
+      pathname: "/sessions/sr_1",
+      search: "?agent_access=agent-token",
+    });
     const seenUrls: string[] = [];
     globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
@@ -345,7 +350,9 @@ describe("session replay chunk loading", () => {
       throw new Error(`Unexpected fetch: ${url}`);
     }) as typeof fetch;
 
-    await fetchSessionReplayPlayback("sr_1");
+    await fetchSessionReplayPlayback("sr_1", {
+      agentAccessToken: "agent-token",
+    });
 
     expect(seenUrls).toHaveLength(2);
     expect(seenUrls[0]).toContain("agent_access=agent-token");

@@ -30,20 +30,29 @@ interface EmailListItemProps {
   isSelected: boolean;
   isFocused: boolean;
   isMultiSelected?: boolean;
-  onSelect: () => void;
-  onToggleMultiSelect: (e: React.SyntheticEvent) => void;
-  onStar: (e: React.MouseEvent) => void;
-  onToggleRead?: (e: React.MouseEvent) => void;
-  onArchive?: (e: React.MouseEvent) => void;
-  onSnooze?: (e: React.MouseEvent) => void;
-  onTrash?: (e: React.MouseEvent) => void;
-  onSendNow?: (e: React.MouseEvent) => void;
-  onCancelSchedule?: (e: React.MouseEvent) => void;
-  onHover: () => void;
+  /** Whether archive/snooze/trash row actions apply in the current view
+   *  (e.g. hidden in the trash/sent/drafts views). Passed as booleans instead
+   *  of `undefined`-vs-closure so the handler props below stay referentially
+   *  stable across rows and renders. */
+  canArchive?: boolean;
+  canSnooze?: boolean;
+  canTrash?: boolean;
+  /** Present only for scheduled-send rows; drives the send-now/cancel actions. */
+  scheduledJobId?: string | null;
+  onSelect: (thread: ThreadSummary) => void;
+  onToggleMultiSelect: (e: React.SyntheticEvent, thread: ThreadSummary) => void;
+  onStar: (e: React.MouseEvent, thread: ThreadSummary) => void;
+  onToggleRead?: (e: React.MouseEvent, thread: ThreadSummary) => void;
+  onArchive?: (e: React.MouseEvent, thread: ThreadSummary) => void;
+  onSnooze?: (e: React.MouseEvent, thread: ThreadSummary) => void;
+  onTrash?: (e: React.MouseEvent, thread: ThreadSummary) => void;
+  onSendNow?: (e: React.MouseEvent, thread: ThreadSummary) => void;
+  onCancelSchedule?: (e: React.MouseEvent, thread: ThreadSummary) => void;
+  onHover: (thread: ThreadSummary) => void;
   /** Called after a left-swipe past the threshold (archive). */
-  onSwipeArchive?: () => void;
+  onSwipeArchive?: (thread: ThreadSummary) => void;
   /** Called after a right-swipe past the threshold (snooze). */
-  onSwipeSnooze?: () => void;
+  onSwipeSnooze?: (thread: ThreadSummary) => void;
   /** Optional search term to highlight in subject and snippet. */
   highlight?: string;
 }
@@ -146,6 +155,10 @@ export const EmailListItem = memo(function EmailListItem({
   isSelected,
   isFocused,
   isMultiSelected,
+  canArchive,
+  canSnooze,
+  canTrash,
+  scheduledJobId,
   onSelect,
   onToggleMultiSelect,
   onStar,
@@ -163,6 +176,12 @@ export const EmailListItem = memo(function EmailListItem({
   const t = useT();
   const { allAccounts } = useAccountFilter();
   const isMultiAccount = allAccounts.length > 1;
+
+  const showArchive = Boolean(onArchive && canArchive);
+  const showSnooze = Boolean(onSnooze && canSnooze);
+  const showTrash = Boolean(onTrash && canTrash);
+  const showSendNow = Boolean(onSendNow && scheduledJobId);
+  const showCancelSchedule = Boolean(onCancelSchedule && scheduledJobId);
 
   // ── Swipe state ─────────────────────────────────────────────────────────
   // `dragX` drives the row's translateX. `isDragging` disables the snap
@@ -251,7 +270,7 @@ export const EmailListItem = memo(function EmailListItem({
     }
 
     // Left swipe → archive.
-    if (dragX <= -SWIPE_COMMIT_THRESHOLD && onSwipeArchive) {
+    if (dragX <= -SWIPE_COMMIT_THRESHOLD && onSwipeArchive && thread) {
       g.committed = true;
       // Fly the row off-screen, then hand off to the parent to actually
       // remove it from the list. The snap transition makes this feel fluid
@@ -259,7 +278,7 @@ export const EmailListItem = memo(function EmailListItem({
       setIsDragging(false);
       setDragX(-window.innerWidth);
       setTimeout(() => {
-        onSwipeArchive();
+        onSwipeArchive(thread);
         // Parent will unmount us; reset defensively if it doesn't.
         resetSwipe();
       }, 180);
@@ -267,9 +286,9 @@ export const EmailListItem = memo(function EmailListItem({
     }
 
     // Right swipe → snooze. We don't remove the row — the modal takes over.
-    if (dragX >= SWIPE_COMMIT_THRESHOLD && onSwipeSnooze) {
+    if (dragX >= SWIPE_COMMIT_THRESHOLD && onSwipeSnooze && thread) {
       g.committed = true;
-      onSwipeSnooze();
+      onSwipeSnooze(thread);
       // Snap back so the row is in place when the modal closes.
       resetSwipe();
       return;
@@ -277,7 +296,7 @@ export const EmailListItem = memo(function EmailListItem({
 
     // Not enough — snap back.
     resetSwipe();
-  }, [dragX, onSwipeArchive, onSwipeSnooze, resetSwipe]);
+  }, [dragX, onSwipeArchive, onSwipeSnooze, resetSwipe, thread]);
 
   const handleTouchCancel = useCallback(() => {
     resetSwipe();
@@ -289,8 +308,80 @@ export const EmailListItem = memo(function EmailListItem({
       didSwipeRef.current = false;
       return;
     }
-    onSelect();
-  }, [onSelect]);
+    if (thread) onSelect(thread);
+  }, [onSelect, thread]);
+
+  const handleRowHover = useCallback(() => {
+    if (thread) onHover(thread);
+  }, [onHover, thread]);
+
+  const handleRowKeyDown = useCallback(
+    (e: React.KeyboardEvent) => {
+      if (!thread) return;
+      if (e.key === "Enter") onSelect(thread);
+      if (e.key === " ") {
+        e.preventDefault();
+        onToggleMultiSelect(e, thread);
+      }
+    },
+    [onSelect, onToggleMultiSelect, thread],
+  );
+
+  const handleToggleMultiSelectClick = useCallback(
+    (e: React.SyntheticEvent) => {
+      if (thread) onToggleMultiSelect(e, thread);
+    },
+    [onToggleMultiSelect, thread],
+  );
+
+  const handleStarClick = useCallback(
+    (e: React.MouseEvent) => {
+      if (thread) onStar(e, thread);
+    },
+    [onStar, thread],
+  );
+
+  const handleToggleReadClick = useCallback(
+    (e: React.MouseEvent) => {
+      if (thread) onToggleRead?.(e, thread);
+    },
+    [onToggleRead, thread],
+  );
+
+  const handleArchiveClick = useCallback(
+    (e: React.MouseEvent) => {
+      if (thread) onArchive?.(e, thread);
+    },
+    [onArchive, thread],
+  );
+
+  const handleSnoozeClick = useCallback(
+    (e: React.MouseEvent) => {
+      if (thread) onSnooze?.(e, thread);
+    },
+    [onSnooze, thread],
+  );
+
+  const handleTrashClick = useCallback(
+    (e: React.MouseEvent) => {
+      if (thread) onTrash?.(e, thread);
+    },
+    [onTrash, thread],
+  );
+
+  const handleSendNowClick = useCallback(
+    (e: React.MouseEvent) => {
+      if (thread) onSendNow?.(e, thread);
+    },
+    [onSendNow, thread],
+  );
+
+  const handleCancelScheduleClick = useCallback(
+    (e: React.MouseEvent) => {
+      if (thread) onCancelSchedule?.(e, thread);
+    },
+    [onCancelSchedule, thread],
+  );
 
   const isThread = thread && thread.messageCount > 1;
   const senderName = isThread
@@ -390,14 +481,8 @@ export const EmailListItem = memo(function EmailListItem({
         // `mouseenter` can fire when layout moves under a stationary cursor.
         // `mousemove` only follows the pointer after the user actually moves it,
         // so keyboard navigation keeps ownership during list/header changes.
-        onMouseMove={onHover}
-        onKeyDown={(e) => {
-          if (e.key === "Enter") onSelect();
-          if (e.key === " ") {
-            e.preventDefault();
-            onToggleMultiSelect(e);
-          }
-        }}
+        onMouseMove={handleRowHover}
+        onKeyDown={handleRowKeyDown}
         onTouchStart={canSwipe ? handleTouchStart : undefined}
         onTouchMove={canSwipe ? handleTouchMove : undefined}
         onTouchEnd={canSwipe ? handleTouchEnd : undefined}
@@ -443,7 +528,7 @@ export const EmailListItem = memo(function EmailListItem({
           <button
             type="button"
             aria-label={isMultiSelected ? "Deselect email" : "Select email"}
-            onClick={onToggleMultiSelect}
+            onClick={handleToggleMultiSelectClick}
             className={cn(
               "absolute inset-y-0 left-1/2 flex w-6 -translate-x-1/2 items-center justify-center rounded text-muted-foreground transition-opacity hover:text-foreground",
               isMultiSelected
@@ -546,7 +631,7 @@ export const EmailListItem = memo(function EmailListItem({
                 <TooltipTrigger asChild>
                   <button
                     type="button"
-                    onClick={onToggleRead}
+                    onClick={handleToggleReadClick}
                     className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
                   >
                     {isUnread ? (
@@ -561,12 +646,12 @@ export const EmailListItem = memo(function EmailListItem({
                 </TooltipContent>
               </Tooltip>
             )}
-            {onArchive && (
+            {showArchive && (
               <Tooltip>
                 <TooltipTrigger asChild>
                   <button
                     type="button"
-                    onClick={onArchive}
+                    onClick={handleArchiveClick}
                     className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-emerald-500/10 hover:text-emerald-600 dark:hover:text-emerald-400"
                   >
                     <IconArchive className="h-3.5 w-3.5" />
@@ -575,12 +660,12 @@ export const EmailListItem = memo(function EmailListItem({
                 <TooltipContent>Archive</TooltipContent>
               </Tooltip>
             )}
-            {onSnooze && (
+            {showSnooze && (
               <Tooltip>
                 <TooltipTrigger asChild>
                   <button
                     type="button"
-                    onClick={onSnooze}
+                    onClick={handleSnoozeClick}
                     className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-amber-500/10 hover:text-amber-600 dark:hover:text-amber-400"
                   >
                     <IconClock className="h-3.5 w-3.5" />
@@ -589,12 +674,12 @@ export const EmailListItem = memo(function EmailListItem({
                 <TooltipContent>Snooze</TooltipContent>
               </Tooltip>
             )}
-            {onSendNow && (
+            {showSendNow && (
               <Tooltip>
                 <TooltipTrigger asChild>
                   <button
                     type="button"
-                    onClick={onSendNow}
+                    onClick={handleSendNowClick}
                     className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
                   >
                     <IconSend className="h-3.5 w-3.5 rtl:-scale-x-100" />
@@ -603,12 +688,12 @@ export const EmailListItem = memo(function EmailListItem({
                 <TooltipContent>{t("mail.sendLater.sendNow")}</TooltipContent>
               </Tooltip>
             )}
-            {onCancelSchedule && (
+            {showCancelSchedule && (
               <Tooltip>
                 <TooltipTrigger asChild>
                   <button
                     type="button"
-                    onClick={onCancelSchedule}
+                    onClick={handleCancelScheduleClick}
                     className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
                   >
                     <IconX className="h-3.5 w-3.5" />
@@ -619,12 +704,12 @@ export const EmailListItem = memo(function EmailListItem({
                 </TooltipContent>
               </Tooltip>
             )}
-            {onTrash && (
+            {showTrash && (
               <Tooltip>
                 <TooltipTrigger asChild>
                   <button
                     type="button"
-                    onClick={onTrash}
+                    onClick={handleTrashClick}
                     className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
                   >
                     <IconTrash className="h-3.5 w-3.5" />
@@ -637,7 +722,7 @@ export const EmailListItem = memo(function EmailListItem({
               <TooltipTrigger asChild>
                 <button
                   type="button"
-                  onClick={onStar}
+                  onClick={handleStarClick}
                   className={cn(
                     "flex h-6 w-6 items-center justify-center rounded transition-colors",
                     isStarred

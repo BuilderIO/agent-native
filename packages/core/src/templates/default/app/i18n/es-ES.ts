@@ -300,7 +300,6 @@ const messages = {
     whatShouldItDo: "¿Qué debería hacer?",
     createPlaceholder:
       "Una lista de tareas pendientes, panel API, calculadora...",
-    backToApp: "Volver a la aplicación",
     title: "Extensiones",
     hiddenShown: "Ocultando mostrado",
     showHidden: "Mostrar ocultos",

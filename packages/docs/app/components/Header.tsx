@@ -12,6 +12,9 @@ const SearchModal = lazy(() =>
   import("./SearchModal").then((m) => ({ default: m.SearchModal })),
 );
 
+const feedbackTriggerClassName =
+  "h-8 items-center rounded-md border border-[var(--docs-border)] bg-transparent px-3 text-sm text-[var(--fg-secondary)] transition hover:border-[var(--fg-secondary)] hover:text-[var(--fg)]";
+
 function SearchTrigger({
   onClick,
   label,
@@ -149,6 +152,8 @@ export default function Header() {
   const showHeaderBg = !isHome || scrolled;
 
   const closeMobileMenu = () => setMobileMenuOpen(false);
+  const feedbackLabel = t("feedback.label");
+  const feedbackPlaceholder = t("feedback.placeholder");
 
   return (
     <>
@@ -241,10 +246,17 @@ export default function Header() {
 
           <div className="ms-auto flex min-w-0 items-center gap-2 sm:gap-3">
             <FeedbackButton
-              variant="outlined"
-              label={t("feedback.label")}
-              placeholder={t("feedback.placeholder")}
-              className="hidden lg:flex border-[var(--docs-border)] text-[var(--fg-secondary)] hover:border-[var(--fg-secondary)] hover:text-[var(--fg)]"
+              label={feedbackLabel}
+              placeholder={feedbackPlaceholder}
+              trigger={
+                <button
+                  type="button"
+                  aria-label={feedbackLabel}
+                  className={`${feedbackTriggerClassName} hidden lg:flex`}
+                >
+                  {feedbackLabel}
+                </button>
+              }
               align="end"
               side="bottom"
             />
@@ -337,10 +349,17 @@ export default function Header() {
               </span>
             </a>
             <FeedbackButton
-              variant="outlined"
-              label={t("feedback.label")}
-              placeholder={t("feedback.placeholder")}
-              className="self-start border-[var(--docs-border)] text-[var(--fg-secondary)] hover:border-[var(--fg-secondary)] hover:text-[var(--fg)]"
+              label={feedbackLabel}
+              placeholder={feedbackPlaceholder}
+              trigger={
+                <button
+                  type="button"
+                  aria-label={feedbackLabel}
+                  className={`${feedbackTriggerClassName} inline-flex self-start`}
+                >
+                  {feedbackLabel}
+                </button>
+              }
               align="start"
               side="bottom"
             />

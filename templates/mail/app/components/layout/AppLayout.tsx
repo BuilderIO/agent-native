@@ -3,7 +3,6 @@ import {
   AgentToggleButton,
   DevDatabaseLink,
   FeedbackButton,
-  NotificationsBell,
   agentNativePath,
   useT,
 } from "@agent-native/core/client";
@@ -1299,8 +1298,6 @@ function AppLayoutInner({ children }: AppLayoutProps) {
             <TooltipContent>{t("mail.toolbar.refreshInbox")}</TooltipContent>
           </Tooltip>
 
-          <NotificationsBell />
-
           {/* Compose — prominent outline button */}
           <Tooltip>
             <TooltipTrigger asChild>
@@ -1946,8 +1943,8 @@ function AppLayoutInner({ children }: AppLayoutProps) {
 
 /**
  * Slim chrome used on secondary pages. Renders a clean h-12 header (title +
- * AgentToggleButton + NotificationsBell) instead of the inbox-specific top bar
- * (tabs, search, account stack, compose pen, etc.).
+ * AgentToggleButton) instead of the inbox-specific top bar (tabs, search,
+ * account stack, compose pen, etc.).
  *
  * Pages can hoist a custom title or right-side actions via
  * `useSetPageTitle` / `useSetHeaderActions` from `./HeaderActions`.
@@ -1962,7 +1959,7 @@ function StandardLayout({ children }: AppLayoutProps) {
   const view = location.pathname.split("/").filter(Boolean)[0] || "";
 
   // Extensions (`/extensions` list and `/extensions/:id` viewer) render their own h-12
-  // toolbar with NotificationsBell + AgentToggleButton inside the shared
+  // toolbar inside the shared
   // ExtensionViewer / ExtensionsListPage components. Skip our header to avoid stacking.
   const pageOwnsToolbar =
     location.pathname === "/extensions" ||
@@ -2003,7 +2000,6 @@ function StandardLayout({ children }: AppLayoutProps) {
           </div>
           <div className="flex shrink-0 items-center gap-2">
             {headerActions}
-            <NotificationsBell />
             <AgentToggleButton />
           </div>
         </header>

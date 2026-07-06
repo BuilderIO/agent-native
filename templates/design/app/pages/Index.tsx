@@ -4,12 +4,15 @@ import {
   useT,
 } from "@agent-native/core/client";
 import type { PromptComposerSubmitOptions } from "@agent-native/core/client";
+import {
+  useSetHeaderActions,
+  useSetPageTitle,
+} from "@agent-native/toolkit/app-shell";
 import { FULL_APP_BUILDING_ENABLED } from "@shared/full-app";
 import { derivePromptTitle } from "@shared/prompt-title";
 import {
   IconChecks,
   IconPlus,
-  IconPalette,
   IconSearch,
   IconDots,
   IconTrash,
@@ -25,10 +28,6 @@ import { useNavigate, Link } from "react-router";
 
 import PromptPopover from "@/components/editor/PromptDialog";
 import type { UploadedFile } from "@/components/editor/PromptDialog";
-import {
-  useSetHeaderActions,
-  useSetPageTitle,
-} from "@/components/layout/HeaderActions";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -999,9 +998,6 @@ function EmptyState({
   const t = useT();
   return (
     <div className="flex flex-col items-center justify-center min-h-[60vh] text-center">
-      <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-[#609FF8]/20 to-[#4080E0]/20 border border-[#609FF8]/20 flex items-center justify-center mb-6">
-        <IconPalette className="w-7 h-7 text-[#609FF8]" />
-      </div>
       <h2 className="text-xl font-semibold text-foreground mb-2">
         {t("home.createFirstDesign")}
       </h2>

@@ -293,6 +293,25 @@ async function readDeviceIds(): Promise<{ video: string; audio: string }> {
   }
 }
 
+// Best-effort label lookup for the requested mic id, used only to soften audio
+// processing constraints for phone/Continuity-style mics (see
+// isLikelyPhoneMic). Device labels are only populated once permission has
+// already been granted, which is always true by the time acquire() runs.
+async function lookupAudioDeviceLabel(deviceId: string): Promise<string> {
+  if (!deviceId) return "";
+  try {
+    const devices = await navigator.mediaDevices.enumerateDevices();
+    return (
+      devices.find(
+        (device) =>
+          device.kind === "audioinput" && device.deviceId === deviceId,
+      )?.label ?? ""
+    );
+  } catch {
+    return "";
+  }
+}
+
 function cameraConstraints(deviceId: string): MediaTrackConstraints {
   const base: MediaTrackConstraints = {
     width: { ideal: 1280 },
@@ -303,19 +322,78 @@ function cameraConstraints(deviceId: string): MediaTrackConstraints {
   return base;
 }
 
-async function getMicStream(deviceId: string): Promise<MediaStream | null> {
+// Phones/Continuity-style mics already apply their own echo cancellation,
+// noise suppression, and gain control before the audio ever reaches Chrome.
+// Stacking Chrome's versions of the same processing on top double-processes
+// the signal and audibly degrades it. We can't detect "is this device doing
+// its own processing" directly, so we use the device label as a heuristic and
+// ask the browser to SKIP its own noise suppression / AGC for those devices
+// (`{ ideal: false }` — a best-effort request, not a hard requirement). Echo
+// cancellation stays on for everything.
+const PHONE_MIC_LABEL_RE = /iphone|ipad|android phone|continuity|handoff/i;
+
+function isLikelyPhoneMic(label: string): boolean {
+  return PHONE_MIC_LABEL_RE.test(label);
+}
+
+async function getMicStream(
+  deviceId: string,
+  deviceLabel = "",
+): Promise<MediaStream | null> {
+  const skipRedundantProcessing = isLikelyPhoneMic(deviceLabel);
   const audio: MediaTrackConstraints = {
     echoCancellation: true,
-    noiseSuppression: true,
-    autoGainControl: true,
+    noiseSuppression: skipRedundantProcessing ? { ideal: false } : true,
+    autoGainControl: skipRedundantProcessing ? { ideal: false } : true,
     channelCount: 1,
   };
   if (deviceId) audio.deviceId = { exact: deviceId };
   try {
-    return await navigator.mediaDevices.getUserMedia({ audio, video: false });
+    const stream = await navigator.mediaDevices.getUserMedia({
+      audio,
+      video: false,
+    });
+    warnIfTrackDeviceMismatch("mic", deviceId, stream.getAudioTracks()[0]);
+    return stream;
   } catch {
     return null;
   }
+}
+
+// Defense in depth against the popup/storage layer ever saving a "default" or
+// stale device id again (see popup.ts device-menu filtering): after acquiring
+// a stream, compare what was actually granted against what was requested, and
+// surface a loud warning + Sentry breadcrumb if they don't match. Chrome
+// resolves `deviceId: { exact: "<id>" }` against the device active AT CAPTURE
+// TIME, so a mismatch here means the OS silently switched inputs (e.g. macOS
+// Continuity promoting a nearby iPhone to system default).
+function warnIfTrackDeviceMismatch(
+  kind: "mic" | "camera",
+  requestedDeviceId: string,
+  track: MediaStreamTrack | undefined,
+): void {
+  if (!requestedDeviceId || !track) return;
+  const settings = track.getSettings?.();
+  const actualDeviceId = settings?.deviceId ?? "";
+  if (actualDeviceId && actualDeviceId === requestedDeviceId) return;
+  console.warn(
+    `[clips-offscreen] ${kind} device mismatch: requested`,
+    requestedDeviceId,
+    "but captured",
+    actualDeviceId || "(unknown)",
+    `label="${track.label}"`,
+  );
+  captureExtensionError(
+    new Error(`Captured ${kind} device did not match the requested device.`),
+    {
+      tags: { surface: "offscreen", mechanism: `${kind}-device-mismatch` },
+      extra: {
+        requestedDeviceId,
+        actualDeviceId,
+        trackLabel: track.label,
+      },
+    },
+  );
 }
 
 /* ----------------------------------------------------- camera compositing --- */
@@ -722,13 +800,27 @@ async function acquire(message: AcquireMessage): Promise<{
           : true
         : false,
     });
+    warnIfTrackDeviceMismatch(
+      "camera",
+      devices.video,
+      cameraStream.getVideoTracks()[0],
+    );
+    if (message.includeMicrophone) {
+      warnIfTrackDeviceMismatch(
+        "mic",
+        devices.audio,
+        cameraStream.getAudioTracks()[0],
+      );
+    }
   } else {
     // Native "Choose what to share" picker. This is the screenshot Steve showed.
     displayStream = await navigator.mediaDevices.getDisplayMedia(
       displayConstraints(message.surface),
     );
-    if (message.includeMicrophone)
-      micStream = await getMicStream(devices.audio);
+    if (message.includeMicrophone) {
+      const audioLabel = await lookupAudioDeviceLabel(devices.audio);
+      micStream = await getMicStream(devices.audio, audioLabel);
+    }
     // The screen+camera face comes from the on-page bubble (captured in the
     // display pixels), NOT composited here: canvas/requestAnimationFrame does
     // not run in a hidden offscreen document, so compositing produced an empty

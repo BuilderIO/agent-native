@@ -1,4 +1,9 @@
+import { AGENT_ACCESS_PARAM } from "@agent-native/core/server";
 import { createH3SSRHandler } from "@agent-native/core/server/ssr-handler";
+import {
+  buildAgentReadableResourceDiscovery,
+  renderAgentReadableResourceDiscoveryScript,
+} from "@agent-native/core/shared";
 import {
   defineEventHandler,
   getQuery,
@@ -6,6 +11,10 @@ import {
   setResponseHeader,
 } from "h3";
 
+import {
+  ANALYTICS_ANALYSIS_AGENT_CONTEXT_ENDPOINT,
+  ANALYTICS_DASHBOARD_AGENT_CONTEXT_ENDPOINT,
+} from "../../shared/resource-agent-access.js";
 import {
   buildSessionReplayAgentContext,
   safeJsonForHtml,
@@ -43,36 +52,92 @@ function sessionRecordingIdFromPath(pathname: string): string | null {
   }
 }
 
+function analyticsResourceFromPath(
+  pathname: string,
+): { type: "dashboard" | "analysis"; id: string } | null {
+  const stripped = stripAppBasePath(pathname);
+  const dashboard = stripped.match(/^\/dashboards\/([^/]+)\/?$/);
+  const analysis = stripped.match(/^\/analyses\/([^/]+)\/?$/);
+  const type = dashboard ? "dashboard" : analysis ? "analysis" : null;
+  const rawId = dashboard?.[1] ?? analysis?.[1];
+  if (!type || !rawId) return null;
+  try {
+    return { type, id: decodeURIComponent(rawId) };
+  } catch {
+    return { type, id: rawId };
+  }
+}
+
 function queryString(value: unknown): string {
   if (typeof value === "string") return value;
   if (Array.isArray(value) && typeof value[0] === "string") return value[0];
   return "";
 }
 
-async function buildAgentDiscoveryScript(event: any): Promise<string | null> {
+interface AgentDiscoveryInjection {
+  script: string;
+  privateResponse: boolean;
+}
+
+async function buildAgentDiscoveryScript(
+  event: any,
+): Promise<AgentDiscoveryInjection | null> {
   const requestUrl = getRequestURL(event);
   const recordingId = sessionRecordingIdFromPath(requestUrl.pathname);
-  if (!recordingId) return null;
-
   const query = getQuery(event);
-  const token = queryString(query[SESSION_REPLAY_AGENT_ACCESS_PARAM]);
-  if (!token) return null;
+  if (recordingId) {
+    const token = queryString(query[SESSION_REPLAY_AGENT_ACCESS_PARAM]);
+    if (!token) return null;
 
-  const context = await buildSessionReplayAgentContext({
-    recordingId,
-    token,
-    origin: requestUrl.origin,
-    includeTimeline: false,
-  }).catch(() => null);
-  if (!context) return null;
+    const context = await buildSessionReplayAgentContext({
+      recordingId,
+      token,
+      origin: requestUrl.origin,
+      includeTimeline: false,
+    }).catch(() => null);
+    if (!context) return null;
 
-  return `<script type="application/agent-native+json" id="analytics-session-replay-agent-context">${safeJsonForHtml(
-    context,
-  )}</script>`;
+    return {
+      script: `<script type="application/agent-native+json" id="analytics-session-replay-agent-context">${safeJsonForHtml(
+        context,
+      )}</script>`,
+      privateResponse: true,
+    };
+  }
+
+  const resource = analyticsResourceFromPath(requestUrl.pathname);
+  if (!resource) return null;
+
+  const token = queryString(query[AGENT_ACCESS_PARAM]);
+  const isDashboard = resource.type === "dashboard";
+  return {
+    script: renderAgentReadableResourceDiscoveryScript(
+      buildAgentReadableResourceDiscovery({
+        resourceType: isDashboard ? "dashboard" : "analysis",
+        resourceId: resource.id,
+        path: `/${isDashboard ? "dashboards" : "analyses"}/${encodeURIComponent(resource.id)}`,
+        contextEndpoint: isDashboard
+          ? ANALYTICS_DASHBOARD_AGENT_CONTEXT_ENDPOINT
+          : ANALYTICS_ANALYSIS_AGENT_CONTEXT_ENDPOINT,
+        origin: requestUrl.origin,
+        basePath: configuredAppBasePath(),
+        token,
+        instructions:
+          "Use contextUrl to read this Analytics artifact as structured JSON. Token links are read-only and do not grant edit access.",
+      }),
+      {
+        id: isDashboard
+          ? "analytics-dashboard-agent-context"
+          : "analytics-analysis-agent-context",
+      },
+    ),
+    privateResponse: Boolean(token),
+  };
 }
 
 function injectAgentDiscovery(html: string, script: string): string {
-  if (html.includes('id="analytics-session-replay-agent-context"')) {
+  const scriptId = script.match(/\sid="([^"]+)"/)?.[1];
+  if (scriptId && html.includes(`id="${scriptId}"`)) {
     return html;
   }
   if (html.includes("</head>")) {
@@ -86,8 +151,8 @@ function injectAgentDiscovery(html: string, script: string): string {
 
 export default defineEventHandler(async (event) => {
   const response = (await ssrHandler(event)) as Response;
-  const script = await buildAgentDiscoveryScript(event);
-  if (!script) return response;
+  const discovery = await buildAgentDiscoveryScript(event);
+  if (!discovery) return response;
 
   const contentType = response.headers.get("content-type") ?? "";
   if (!contentType.includes("text/html")) return response;
@@ -95,12 +160,14 @@ export default defineEventHandler(async (event) => {
   const html = await response.text();
   const headers = new Headers(response.headers);
   headers.delete("content-length");
-  headers.set("Cache-Control", "private, max-age=0, no-store");
-  headers.set("Referrer-Policy", "no-referrer");
-  setResponseHeader(event, "Cache-Control", "private, max-age=0, no-store");
-  setResponseHeader(event, "Referrer-Policy", "no-referrer");
+  if (discovery.privateResponse) {
+    headers.set("Cache-Control", "private, max-age=0, no-store");
+    headers.set("Referrer-Policy", "no-referrer");
+    setResponseHeader(event, "Cache-Control", "private, max-age=0, no-store");
+    setResponseHeader(event, "Referrer-Policy", "no-referrer");
+  }
 
-  return new Response(injectAgentDiscovery(html, script), {
+  return new Response(injectAgentDiscovery(html, discovery.script), {
     status: response.status,
     statusText: response.statusText,
     headers,

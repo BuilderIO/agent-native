@@ -258,11 +258,8 @@ export default createCollabPlugin({
 ### 4. 클라이언트 후크를 사용하세요
 
 ```ts
-import {
-  useCollaborativeDoc,
-  emailToColor,
-  emailToName,
-} from "@agent-native/core/client";
+import { useCollaborativeDoc } from "@agent-native/core/client";
+import { emailToColor, emailToName } from "@agent-native/toolkit/collab-ui";
 
 const TAB_ID = generateTabId(); // or Math.random().toString(36)
 
@@ -364,12 +361,14 @@ pnpm action edit-document --id doc123 --find "delete me" --replace ""
 
 ```ts
 import {
-  PresenceBar,
-  LiveCursorOverlay,
-  RemoteSelectionRings,
   useCollaborativeDoc,
   usePresence,
 } from "@agent-native/core/client/collab";
+import {
+  PresenceBar,
+  LiveCursorOverlay,
+  RemoteSelectionRings,
+} from "@agent-native/toolkit/collab-ui";
 ```
 
 서버 측 에이전트 존재 도우미는 하위 수준 공동 작업 패키지에 유지됩니다.
@@ -455,7 +454,7 @@ setPresence({ cursor: { x: 0.4, y: 0.7 }, selection: "#hero" });
 원격 커서를 컨테이너 요소 위에 절대 위치 레이블로 렌더링합니다.
 
 ```tsx
-import { LiveCursorOverlay } from "@agent-native/core/client";
+import { LiveCursorOverlay } from "@agent-native/toolkit/collab-ui";
 
 // cursor positions stored as { x, y } normalized 0–1 under presence.cursor
 <div ref={containerRef} style={{ position: "relative" }}>
@@ -475,7 +474,7 @@ import { LiveCursorOverlay } from "@agent-native/core/client";
 원격으로 선택된 요소 위에 색상 외곽선 링 + 이름 태그를 렌더링합니다.
 
 ```tsx
-import { RemoteSelectionRings } from "@agent-native/core/client";
+import { RemoteSelectionRings } from "@agent-native/toolkit/collab-ui";
 
 <div ref={containerRef} style={{ position: "relative" }}>
   {content}

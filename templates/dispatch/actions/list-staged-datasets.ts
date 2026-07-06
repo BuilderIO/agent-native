@@ -32,6 +32,9 @@ export default defineAction({
         updatedAt: new Date(d.updatedAt).toISOString(),
       })),
       total: datasets.length,
+      probeMarker: "fresh-v3",
     };
   },
 });
+
+// reload-probe-test: temporary line for HMR verification, remove me

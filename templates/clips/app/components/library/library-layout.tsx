@@ -153,9 +153,8 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
   const [headerSlot, setHeaderSlot] = useState<HTMLElement | null>(null);
   const showCollapsedSidebar = sidebarCollapsed && !isMobile;
 
-  // Routes whose page renders its own h-12 toolbar (with NotificationsBell +
-  // AgentToggleButton). Layout still mounts Sidebar + AgentSidebar, but skips
-  // its own header so there's no double-header.
+  // Routes whose page renders its own h-12 toolbar. Layout still mounts Sidebar
+  // + AgentSidebar, but skips its own header so there's no double-header.
   const pageOwnsToolbar =
     location.pathname === "/extensions" ||
     location.pathname.startsWith("/extensions/");

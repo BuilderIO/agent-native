@@ -4721,21 +4721,28 @@ export const editorChromeBridgeScript: string = `"use strict";
       var eventTarget = e && e.target && e.target.nodeType === 1 ? e.target : null;
       var programmaticFlag = !!e && e.agentNativeProgrammaticTextEdit === true;
       var rawTargetFallback = programmaticFlag && !isRejectedRawTextEditTarget(eventTarget) ? eventTarget : null;
-      var target = findTextEditTarget(elementFromEditorPoint(e.clientX, e.clientY)) || findTextEditTarget(eventTarget) || rawTargetFallback;
+      var target = programmaticFlag ? (
+        // Prefer the raw explicit node (rawTargetFallback === eventTarget) over
+        // findTextEditTarget, which climbs UP to the highest inline-editable
+        // ancestor (→ <main>) and would put the whole screen into edit mode.
+        rawTargetFallback || findTextEditTarget(eventTarget)
+      ) : findTextEditTarget(elementFromEditorPoint(e.clientX, e.clientY)) || findTextEditTarget(eventTarget) || rawTargetFallback;
       if (!target || target.nodeType !== 1) {
-        var descendHit = elementFromEditorPoint(e.clientX, e.clientY);
-        if (descendHit && descendHit !== document.body && descendHit !== document.documentElement && !isLayerInteractionBlocked(descendHit)) {
-          var previousSelectedElForDescend = selectedEl;
-          var descendTarget = selectionTargetForHit(descendHit);
-          if (descendTarget && !isLayerInteractionBlocked(descendTarget)) {
-            selectedEl = descendTarget;
-            positionOverlay(selectionOverlay, selectedEl);
-            preservePreviousSelectedElementForShiftClick(
-              previousSelectedElForDescend,
-              selectedEl,
-              e
-            );
-            postElementSelect(selectedEl, e);
+        if (!programmaticFlag) {
+          var descendHit = elementFromEditorPoint(e.clientX, e.clientY);
+          if (descendHit && descendHit !== document.body && descendHit !== document.documentElement && !isLayerInteractionBlocked(descendHit)) {
+            var previousSelectedElForDescend = selectedEl;
+            var descendTarget = selectionTargetForHit(descendHit);
+            if (descendTarget && !isLayerInteractionBlocked(descendTarget)) {
+              selectedEl = descendTarget;
+              positionOverlay(selectionOverlay, selectedEl);
+              preservePreviousSelectedElementForShiftClick(
+                previousSelectedElForDescend,
+                selectedEl,
+                e
+              );
+              postElementSelect(selectedEl, e);
+            }
           }
         }
         return;
@@ -4900,7 +4907,19 @@ export const editorChromeBridgeScript: string = `"use strict";
       target.addEventListener("mouseup", onSelectionChange, true);
       document.addEventListener("selectionchange", onSelectionChange);
       target.focus();
-      placeTextCaretFromPoint(target, e.clientX, e.clientY);
+      if (programmaticTextEdit) {
+        try {
+          var progRange = document.createRange();
+          progRange.selectNodeContents(target);
+          progRange.collapse(false);
+          var progSel = window.getSelection();
+          progSel.removeAllRanges();
+          progSel.addRange(progRange);
+        } catch {
+        }
+      } else {
+        placeTextCaretFromPoint(target, e.clientX, e.clientY);
+      }
     }
     shieldOverlay.addEventListener("dblclick", beginTextEditingFromEvent, true);
     selectionOverlay.addEventListener(
@@ -5048,7 +5067,7 @@ export const editorChromeBridgeScript: string = `"use strict";
           '[data-agent-native-node-id="' + nodeId.replace(/\\\\/g, "\\\\\\\\").replace(/"/g, '\\\\"') + '"]'
         );
         if (!nodeTarget || nodeTarget.nodeType !== 1) return;
-        var textTarget = findTextEditTarget(nodeTarget) || nodeTarget;
+        var textTarget = nodeTarget;
         if (!textTarget || textTarget.nodeType !== 1) return;
         if (activeTextEditEl && activeTextEditEl === textTarget) return;
         var bteRect = textTarget.getBoundingClientRect();

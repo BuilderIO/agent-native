@@ -158,6 +158,10 @@ struct RestartInfo {
     safe_id: String,
     include_audio: bool,
     capture_system_audio: bool,
+    /// True only when the final media file itself contains microphone audio.
+    /// ScreenCaptureKit microphone muxing is intentionally disabled on macOS
+    /// 15 because SCRecordingOutput can hang finalization and leave no moov.
+    mic_captured_in_file: bool,
     mic_device_id: Option<String>,
     mic_device_label: Option<String>,
     /// Monotonic counter feeding the per-segment filename suffix.
@@ -184,6 +188,24 @@ pub(crate) enum NativeFullscreenBackend {
         /// `None` when the recording has no microphone input.
         mic_ready: Option<Arc<AtomicBool>>,
     },
+}
+
+/// Safety net for the `screencapture` fallback: if a session carrying a live
+/// `screencapture` child is ever dropped without going through
+/// `stop_native_recording`/`stop_screencapture` (app quit, crash unwind, or an
+/// error path that discards the session), make sure the child process doesn't
+/// keep recording and writing to disk after we've lost track of it. This is a
+/// best-effort hard kill (no SIGINT grace period) since a `Drop` impl is not
+/// the place to block on graceful finalization.
+impl Drop for NativeFullscreenBackend {
+    fn drop(&mut self) {
+        if let NativeFullscreenBackend::Screencapture { child } = self {
+            if matches!(child.try_wait(), Ok(None)) {
+                let _ = child.kill();
+                let _ = child.wait();
+            }
+        }
+    }
 }
 
 /// `SCRecordingOutput` finalizes the MP4 *asynchronously*: after
@@ -523,41 +545,66 @@ fn start_native_session_locked(
         || mic_device_label
             .as_deref()
             .is_some_and(|v| !v.trim().is_empty());
-    let session = match start_screencapturekit_recording(
-        app,
-        &safe_id,
-        include_audio,
-        capture_system_audio,
-        mic_device_id.as_deref(),
-        mic_device_label.as_deref(),
-        capture_region,
-        defer_recording_output,
-    ) {
-        Ok(session) => session,
-        Err(sck_err) => {
-            if defer_recording_output {
-                return Err(sck_err);
-            }
-            if include_audio && has_specific_mic {
-                return Err(format!(
-                    "ScreenCaptureKit recording failed before it could use the selected microphone ({sck_err}). Clips did not fall back to macOS screencapture because that would ignore your selected input."
-                ));
-            }
-            eprintln!(
-                "[clips-tray] ScreenCaptureKit recording unavailable; falling back to screencapture: {sck_err}"
+    let session = if include_audio && !capture_system_audio {
+        if defer_recording_output {
+            return Err(
+                "Skipping microphone-only ScreenCaptureKit warmup; begin will use screencapture."
+                    .to_string(),
             );
-            start_screencapture_recording(
-                app,
-                &safe_id,
-                include_audio,
-                capture_system_audio,
-                capture_region,
-            )
-            .map_err(|fallback_err| {
-                format!(
-                    "ScreenCaptureKit recording failed ({sck_err}); screencapture fallback failed ({fallback_err})"
+        }
+        if has_specific_mic {
+            eprintln!(
+                "[clips-tray] using screencapture for microphone-only recording; selected mic cannot be pinned by this backend"
+            );
+        } else {
+            eprintln!(
+                "[clips-tray] using screencapture for microphone-only recording to avoid ScreenCaptureKit microphone finalization failures"
+            );
+        }
+        start_screencapture_recording(
+            app,
+            &safe_id,
+            include_audio,
+            capture_system_audio,
+            capture_region,
+        )?
+    } else {
+        match start_screencapturekit_recording(
+            app,
+            &safe_id,
+            include_audio,
+            capture_system_audio,
+            mic_device_id.as_deref(),
+            mic_device_label.as_deref(),
+            capture_region,
+            defer_recording_output,
+        ) {
+            Ok(session) => session,
+            Err(sck_err) => {
+                if defer_recording_output {
+                    return Err(sck_err);
+                }
+                if include_audio && !capture_system_audio && has_specific_mic {
+                    return Err(format!(
+                        "ScreenCaptureKit recording failed before it could use the selected microphone ({sck_err}). Clips did not fall back to macOS screencapture because that would ignore your selected input."
+                    ));
+                }
+                eprintln!(
+                    "[clips-tray] ScreenCaptureKit recording unavailable; falling back to screencapture: {sck_err}"
+                );
+                start_screencapture_recording(
+                    app,
+                    &safe_id,
+                    include_audio,
+                    capture_system_audio,
+                    capture_region,
                 )
-            })?
+                .map_err(|fallback_err| {
+                    format!(
+                        "ScreenCaptureKit recording failed ({sck_err}); screencapture fallback failed ({fallback_err})"
+                    )
+                })?
+            }
         }
     };
     let width = session.width;
@@ -710,7 +757,7 @@ pub async fn native_fullscreen_recording_begin(
         if let Some(ready) = mic_ready {
             let deadline = Instant::now() + Duration::from_millis(MIC_WARM_TIMEOUT_MS);
             while !ready.load(Ordering::Relaxed) && Instant::now() < deadline {
-                std::thread::sleep(Duration::from_millis(15));
+                tokio::time::sleep(Duration::from_millis(15)).await;
             }
         }
 
@@ -982,6 +1029,26 @@ pub async fn native_fullscreen_capture_thumbnail(
         }
     });
     Ok(())
+}
+
+/// Called from the app's exit path (tray Quit / Cmd+Q) so a live `screencapture`
+/// fallback process doesn't survive the app quitting. `app.exit()` triggers
+/// `std::process::exit` under the hood, which does not run Rust destructors,
+/// so this must run explicitly before exit rather than relying solely on
+/// `NativeFullscreenBackend`'s `Drop` impl. Synchronous and best-effort: no
+/// finalize/upload, just make sure nothing keeps recording after we're gone.
+pub(crate) fn kill_active_screencapture_child(state: &NativeFullscreenRecordingState) {
+    let Ok(mut guard) = state.inner.lock() else {
+        return;
+    };
+    if let Some(session) = guard.as_mut() {
+        if let Some(NativeFullscreenBackend::Screencapture { child }) = session.backend.as_mut() {
+            if matches!(child.try_wait(), Ok(None)) {
+                let _ = child.kill();
+                let _ = child.wait();
+            }
+        }
+    }
 }
 
 #[tauri::command]
@@ -1485,7 +1552,13 @@ pub(crate) fn start_screencapturekit_backend_at(
     } else {
         filter_builder.build()
     };
-    let selected_mic = if include_audio {
+    let capture_microphone_in_recording = false;
+    if include_audio {
+        eprintln!(
+            "[clips-tray] ScreenCaptureKit microphone recording disabled; microphone audio stays out of SCRecordingOutput to avoid macOS 15 finalize timeouts"
+        );
+    }
+    let selected_mic = if capture_microphone_in_recording {
         resolve_microphone_capture_device(mic_device_id, mic_device_label)?
     } else {
         None
@@ -1498,9 +1571,10 @@ pub(crate) fn start_screencapturekit_backend_at(
         .with_queue_depth(8)
         .with_shows_cursor(true)
         // Mic and system audio are independent toggles. SCK delivers them as
-        // separate inputs; SCRecordingOutput muxes them into the file.
+        // separate inputs. We intentionally do not hand microphone buffers to
+        // SCRecordingOutput because macOS 15 can fail to finalize those MP4s.
         .with_captures_audio(capture_system_audio)
-        .with_captures_microphone(include_audio)
+        .with_captures_microphone(capture_microphone_in_recording)
         .with_excludes_current_process_audio(true)
         .with_sample_rate(48000)
         .with_channel_count(2);
@@ -1533,7 +1607,7 @@ pub(crate) fn start_screencapturekit_backend_at(
     let mut stream = SCStream::new(&filter, &config);
     // Observe the microphone stream so `begin` can wait for the first sample
     // before attaching the recording output (avoids the silent-mic head).
-    let mic_ready = if include_audio {
+    let mic_ready = if capture_microphone_in_recording {
         let flag = Arc::new(AtomicBool::new(false));
         let flag_cb = Arc::clone(&flag);
         stream.add_output_handler(
@@ -1559,7 +1633,7 @@ pub(crate) fn start_screencapturekit_backend_at(
         return Err(format!("capture start failed: {err:?}"));
     }
     eprintln!(
-        "[clips-tray] ScreenCaptureKit recording started: {width}x{height} @ {NATIVE_CAPTURE_FPS}fps from {capture_width}x{capture_height} (display {source_width}x{source_height}), mic={include_audio} system_audio={capture_system_audio} deferred_output={defer_recording_output}"
+        "[clips-tray] ScreenCaptureKit recording started: {width}x{height} @ {NATIVE_CAPTURE_FPS}fps from {capture_width}x{capture_height} (display {source_width}x{source_height}), mic_requested={include_audio} mic_recorded={capture_microphone_in_recording} system_audio={capture_system_audio} deferred_output={defer_recording_output}"
     );
     Ok((
         NativeFullscreenBackend::ScreenCaptureKit {
@@ -2180,7 +2254,7 @@ fn saved_recording_from_session(
         height: session.height,
         bytes,
         has_audio,
-        mic_captured: session.restart.include_audio,
+        mic_captured: session.restart.mic_captured_in_file,
         has_camera,
         saved_at: now_iso(),
         last_attempt_at: None,
@@ -2355,6 +2429,7 @@ fn start_screencapturekit_recording(
             safe_id: safe_id.to_string(),
             include_audio,
             capture_system_audio,
+            mic_captured_in_file: false,
             mic_device_id: mic_device_id.map(str::to_string),
             mic_device_label: mic_device_label.map(str::to_string),
             segment_counter: 0,
@@ -2416,6 +2491,7 @@ fn start_screencapture_recording(
             // screencapture (fallback) can't capture system audio; tracked
             // for parity but only `-g` mic is honored by that backend.
             capture_system_audio,
+            mic_captured_in_file: include_audio,
             mic_device_id: None,
             mic_device_label: None,
             segment_counter: 0,
@@ -2717,7 +2793,7 @@ async fn upload_recording_file(
         session.height,
         Some(duration_ms),
         has_audio,
-        session.restart.include_audio,
+        session.restart.mic_captured_in_file,
     )?;
     let upload_result = upload_prepared_recording_file(
         app,
@@ -3134,6 +3210,96 @@ pub(crate) fn mp4_has_moov(path: &Path) -> Option<bool> {
     }
 }
 
+/// Scan an MP4/QuickTime file for a `soun` (audio) handler nested under the
+/// top-level `moov` box (i.e. `moov > trak > mdia > hdlr`). Used to verify
+/// that ffmpeg/avconvert actually preserved an audio track rather than
+/// silently dropping it — `-map 0:a?` and similar optional maps exit 0 and
+/// produce a valid, smaller, video-only MP4 when the source audio stream
+/// can't be mapped, so a successful exit status alone can't be trusted when
+/// audio is expected. Returns `Some(true)`/`Some(false)` once `moov` has
+/// been located and scanned, or `None` when the file could not be read or
+/// `moov` could not be found/parsed (transient I/O error or unexpected
+/// structure — callers must not treat this as a definite "no audio").
+pub(crate) fn mp4_has_audio_track(path: &Path) -> Option<bool> {
+    use std::io::{ErrorKind, Read, Seek, SeekFrom};
+    let mut f = match std::fs::File::open(path) {
+        Ok(f) => f,
+        Err(e) => {
+            eprintln!("[clips-tray] mp4_has_audio_track: could not open file for scan: {e}");
+            return None;
+        }
+    };
+
+    // Walk the top-level boxes (mirrors `mp4_has_moov`) until `moov` is
+    // found, then read its entire body into memory. `moov` holds only
+    // metadata (no sample data, which lives in `mdat`), so even for large
+    // recordings it is at most a few hundred KB — safe to buffer fully.
+    let moov = loop {
+        let mut buf = [0u8; 8];
+        match f.read_exact(&mut buf) {
+            Ok(()) => {}
+            Err(e) if e.kind() == ErrorKind::UnexpectedEof => return Some(false),
+            Err(_) => return None,
+        }
+        let box_size_raw = u32::from_be_bytes([buf[0], buf[1], buf[2], buf[3]]);
+        let box_type = &buf[4..8];
+        let body_size: u64 = match box_size_raw {
+            0 => return Some(false), // box extends to EOF — can't be moov and something after it
+            1 => {
+                let mut ext = [0u8; 8];
+                match f.read_exact(&mut ext) {
+                    Ok(()) => {}
+                    Err(e) if e.kind() == ErrorKind::UnexpectedEof => return Some(false),
+                    Err(_) => return None,
+                }
+                u64::from_be_bytes(ext).saturating_sub(16)
+            }
+            n if n < 8 => return Some(false),
+            n => (n as u64).saturating_sub(8),
+        };
+        if box_type == b"moov" {
+            if body_size > 64 * 1024 * 1024 {
+                // Implausibly large metadata box — bail rather than buffer
+                // tens of MB; treat as unparseable rather than "no audio".
+                eprintln!("[clips-tray] mp4_has_audio_track: moov box implausibly large ({body_size} bytes)");
+                return None;
+            }
+            let mut body = vec![0u8; body_size as usize];
+            if f.read_exact(&mut body).is_err() {
+                return None;
+            }
+            break body;
+        }
+        let offset = match i64::try_from(body_size) {
+            Ok(v) => v,
+            Err(_) => return Some(false),
+        };
+        if f.seek(SeekFrom::Current(offset)).is_err() {
+            return None;
+        }
+    };
+
+    // Linear scan for `hdlr` boxes within the buffered moov body. hdlr
+    // layout: size(4) + type(4) + version(1) + flags(3) + pre_defined(4) +
+    // handler_type(4) — so the 4-byte handler type sits 16 bytes after the
+    // box header starts (8 bytes header + 8 bytes version/flags/pre_defined).
+    let mut i = 0usize;
+    while i + 8 <= moov.len() {
+        let box_type = &moov[i + 4..i + 8];
+        if box_type == b"hdlr" && i + 20 <= moov.len() {
+            if &moov[i + 16..i + 20] == b"soun" {
+                return Some(true);
+            }
+        }
+        // Advance by one byte at a time rather than by parsed box size:
+        // `hdlr`/`mdia`/`trak` box sizes aren't otherwise tracked here, and
+        // scanning byte-by-byte for the 4-byte `hdlr` tag is simple, safe
+        // (can't run past the buffer), and cheap given moov's small size.
+        i += 1;
+    }
+    Some(false)
+}
+
 fn prepare_recording_file(
     app: &AppHandle,
     path: &Path,
@@ -3199,6 +3365,15 @@ fn prepare_recording_file(
                             .map_err(|e| format!("normalized recording file missing: {e}"))?
                             .len();
                         if normalized_bytes > 0 && normalized_bytes <= max_upload_bytes() {
+                            if mp4_has_audio_track(&normalized_path) == Some(false) {
+                                let _ = std::fs::remove_file(&normalized_path);
+                                eprintln!(
+                                    "[clips-tray] AUDIO LOST: ffmpeg audio normalization dropped the audio track \
+                                     (source had audio, normalized output did not) — uploading original instead of \
+                                     a silent smaller file"
+                                );
+                                return Ok(original);
+                            }
                             eprintln!(
                                 "[clips-tray] native recording audio normalized with ffmpeg: {} -> {} bytes",
                                 source_bytes, normalized_bytes
@@ -3261,6 +3436,16 @@ fn prepare_recording_file(
                         let _ = std::fs::remove_file(&compressed_path);
                         eprintln!(
                             "[clips-tray] ffmpeg produced an empty file with {}",
+                            preset.label
+                        );
+                        continue;
+                    }
+                    if has_audio && mp4_has_audio_track(&compressed_path) == Some(false) {
+                        let _ = std::fs::remove_file(&compressed_path);
+                        eprintln!(
+                            "[clips-tray] AUDIO LOST: ffmpeg {} dropped the audio track (source had \
+                             audio, compressed output did not) — rejecting this preset rather than \
+                             uploading a silent smaller file",
                             preset.label
                         );
                         continue;
@@ -3345,6 +3530,15 @@ fn prepare_recording_file(
                     if compressed_bytes == 0 {
                         let _ = std::fs::remove_file(&compressed_path);
                         eprintln!("[clips-tray] avconvert produced an empty file with {preset}");
+                        continue;
+                    }
+                    if has_audio && mp4_has_audio_track(&compressed_path) == Some(false) {
+                        let _ = std::fs::remove_file(&compressed_path);
+                        eprintln!(
+                            "[clips-tray] AUDIO LOST: avconvert {preset} dropped the audio track \
+                             (source had audio, compressed output did not) — rejecting this preset \
+                             rather than uploading a silent smaller file"
+                        );
                         continue;
                     }
                     smallest_attempt_bytes = Some(
@@ -3448,7 +3642,7 @@ struct FfmpegTranscodePreset {
 }
 
 /// Maximum total bytes a recording upload may be. Overridable per-deployment
-/// with the `CLIPS_MAX_UPLOAD_BYTES` env var; falls back to 256 MB.
+/// with the `CLIPS_MAX_UPLOAD_BYTES` env var; falls back to `DEFAULT_MAX_UPLOAD_BYTES` (2 GB).
 fn max_upload_bytes() -> u64 {
     std::env::var("CLIPS_MAX_UPLOAD_BYTES")
         .ok()
@@ -4088,4 +4282,130 @@ fn concat_mp4_segments(segments: &[PathBuf], output: &Path) -> Result<(), String
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod audio_track_probe_tests {
+    use super::mp4_has_audio_track;
+    use std::io::Write;
+
+    /// Append an ISO BMFF box: 4-byte big-endian size (header + body) then
+    /// the 4-byte type tag, then the raw body bytes.
+    fn push_box(buf: &mut Vec<u8>, box_type: &[u8; 4], body: &[u8]) {
+        let size = (8 + body.len()) as u32;
+        buf.extend_from_slice(&size.to_be_bytes());
+        buf.extend_from_slice(box_type);
+        buf.extend_from_slice(body);
+    }
+
+    /// Build a minimal `hdlr` box body for the given handler type (e.g.
+    /// `soun` or `vide`): version(1) + flags(3) + pre_defined(4) +
+    /// handler_type(4), zero-padded further like a real hdlr's trailing
+    /// name/reserved fields.
+    fn hdlr_body(handler_type: &[u8; 4]) -> Vec<u8> {
+        let mut body = vec![0u8; 8]; // version+flags+pre_defined
+        body.extend_from_slice(handler_type);
+        body.extend_from_slice(&[0u8; 4]); // trailing reserved/name padding
+        body
+    }
+
+    fn write_temp_mp4(bytes: &[u8]) -> std::path::PathBuf {
+        let mut path = std::env::temp_dir();
+        path.push(format!(
+            "clips-audio-probe-test-{}-{}.mp4",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let mut f = std::fs::File::create(&path).unwrap();
+        f.write_all(bytes).unwrap();
+        path
+    }
+
+    #[test]
+    fn detects_audio_track_present() {
+        let mut moov_body = Vec::new();
+        // moov > trak > mdia > hdlr(soun)
+        let mut mdia_body = Vec::new();
+        push_box(&mut mdia_body, b"hdlr", &hdlr_body(b"soun"));
+        let mut trak_body = Vec::new();
+        push_box(&mut trak_body, b"mdia", &mdia_body);
+        push_box(&mut moov_body, b"trak", &trak_body);
+
+        let mut file = Vec::new();
+        push_box(&mut file, b"ftyp", b"isommp42");
+        push_box(&mut file, b"moov", &moov_body);
+        file.extend_from_slice(b"mdatSOMEFAKEVIDEODATA");
+
+        let path = write_temp_mp4(&file);
+        assert_eq!(mp4_has_audio_track(&path), Some(true));
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn detects_video_only_output_as_missing_audio() {
+        // Simulates exactly the bug: ffmpeg with `-map 0:a?` succeeds but
+        // only writes a video (`vide`) handler track, no `soun` track.
+        let mut moov_body = Vec::new();
+        let mut mdia_body = Vec::new();
+        push_box(&mut mdia_body, b"hdlr", &hdlr_body(b"vide"));
+        let mut trak_body = Vec::new();
+        push_box(&mut trak_body, b"mdia", &mdia_body);
+        push_box(&mut moov_body, b"trak", &trak_body);
+
+        let mut file = Vec::new();
+        push_box(&mut file, b"ftyp", b"isommp42");
+        push_box(&mut file, b"moov", &moov_body);
+        file.extend_from_slice(b"mdatSOMEFAKEVIDEODATA");
+
+        let path = write_temp_mp4(&file);
+        assert_eq!(mp4_has_audio_track(&path), Some(false));
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn detects_audio_track_among_multiple_tracks() {
+        // video trak first, then audio trak — order shouldn't matter.
+        let mut video_mdia = Vec::new();
+        push_box(&mut video_mdia, b"hdlr", &hdlr_body(b"vide"));
+        let mut video_trak = Vec::new();
+        push_box(&mut video_trak, b"mdia", &video_mdia);
+
+        let mut audio_mdia = Vec::new();
+        push_box(&mut audio_mdia, b"hdlr", &hdlr_body(b"soun"));
+        let mut audio_trak = Vec::new();
+        push_box(&mut audio_trak, b"mdia", &audio_mdia);
+
+        let mut moov_body = Vec::new();
+        push_box(&mut moov_body, b"trak", &video_trak);
+        push_box(&mut moov_body, b"trak", &audio_trak);
+
+        let mut file = Vec::new();
+        push_box(&mut file, b"ftyp", b"isommp42");
+        push_box(&mut file, b"moov", &moov_body);
+        file.extend_from_slice(b"mdatSOMEFAKEVIDEODATA");
+
+        let path = write_temp_mp4(&file);
+        assert_eq!(mp4_has_audio_track(&path), Some(true));
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn missing_file_returns_none() {
+        let path = std::env::temp_dir().join("clips-audio-probe-test-does-not-exist.mp4");
+        assert_eq!(mp4_has_audio_track(&path), None);
+    }
+
+    #[test]
+    fn no_moov_box_returns_false() {
+        let mut file = Vec::new();
+        push_box(&mut file, b"ftyp", b"isommp42");
+        file.extend_from_slice(b"mdatSOMEFAKEVIDEODATA");
+
+        let path = write_temp_mp4(&file);
+        assert_eq!(mp4_has_audio_track(&path), Some(false));
+        let _ = std::fs::remove_file(&path);
+    }
 }

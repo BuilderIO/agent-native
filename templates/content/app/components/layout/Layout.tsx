@@ -1,5 +1,6 @@
 import { AgentSidebar, getBrowserTabId, useT } from "@agent-native/core/client";
 import { InvitationBanner } from "@agent-native/core/client/org";
+import { HeaderActionsProvider } from "@agent-native/toolkit/app-shell";
 import { IconMenu2 } from "@tabler/icons-react";
 import {
   type CSSProperties,
@@ -17,7 +18,6 @@ import { useCreatePage } from "@/hooks/use-create-page";
 import { useIsMobile } from "@/hooks/use-mobile";
 
 import { Header } from "./Header";
-import { HeaderActionsProvider } from "./HeaderActions";
 
 const SIDEBAR_WIDTH_KEY = "sidebar-width";
 const DEFAULT_SIDEBAR_WIDTH = 240;

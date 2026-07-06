@@ -6,6 +6,7 @@ import {
   useSession,
   useT,
 } from "@agent-native/core/client";
+import { HeaderActionsProvider } from "@agent-native/toolkit/app-shell";
 import { IconMenu2 } from "@tabler/icons-react";
 import {
   createContext,
@@ -22,7 +23,6 @@ import { DESIGN_CHAT_STORAGE_KEY } from "@/lib/agent-chat";
 import { cn } from "@/lib/utils";
 
 import { Header } from "./Header";
-import { HeaderActionsProvider } from "./HeaderActions";
 import { Sidebar } from "./Sidebar";
 
 interface LayoutProps {

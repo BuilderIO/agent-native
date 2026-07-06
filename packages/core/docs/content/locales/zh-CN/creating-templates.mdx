@@ -7,6 +7,8 @@ description: "如何创建和发布您自己的代理本机应用模板。"
 
 模板是完整的、可分叉的代理本机应用程序，可解决实际工作流程。第一方模板使用您使用的相同框架表面构建：用于 UI 的 React 路由、用于数据的 Drizzle SQL、用于操作的 actions、用于代理行为的工作区资源以及轮询同步，以便代理和 UI 保持一致。
 
+将 `@agent-native/core` 用于运行时契约：actions、server plugins、database helpers、app state、routing helpers 和 agent chat。将 `@agent-native/toolkit` 用于可复用的应用构建 UI 和 helpers，例如共享 primitives、toast/mobile hooks、date pickers 和简单 app shell slots。当变体承载产品行为或视觉身份时，请保留在模板本地。
+
 一个好的模板：
 
 - 使用有用的种子数据或空状态流端到端地解决一个工作流。

@@ -105,6 +105,25 @@ export interface ShareableResourceRegistration {
    * Default: `false`.
    */
   ownerAccessIgnoresOrg?: boolean;
+  /**
+   * Optional external-agent read handoff. When set, the framework-level
+   * `create-agent-resource-link` action can mint a short-lived, read-only
+   * `agent_access` URL for this resource. The context endpoint is owned by the
+   * template so it can expose the same intentionally shareable shape as the
+   * public page, not a generic raw database row.
+   */
+  agentReadable?:
+    | false
+    | {
+        /** Token scope. Include the app name to avoid cross-app collisions. */
+        resourceKind: string;
+        /** App-relative JSON endpoint that accepts `id` + `agent_access`. */
+        getContextPath: (resource: any) => string | undefined;
+        /** Optional override for the page URL. Defaults to getResourcePath. */
+        getPagePath?: (resource: any) => string | undefined;
+        /** Optional override for the default two-hour token lifetime. */
+        ttlSeconds?: number;
+      };
 }
 
 // Stash the registry on globalThis so it survives SSR bundle duplication.

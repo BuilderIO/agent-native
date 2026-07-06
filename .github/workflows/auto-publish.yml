@@ -30,6 +30,7 @@ on:
       - "packages/pinpoint/**"
       - "packages/scheduling/**"
       - "packages/skills/**"
+      - "packages/toolkit/**"
       # Ignored internal packages are not versioned by changesets, but changes
       # here should still exercise release preflight/publish no-op behavior.
       - "packages/code-agents-ui/**"
@@ -124,13 +125,18 @@ jobs:
           # package.json isn't honored everywhere, so set the env var —
           # both npm and pnpm read NPM_CONFIG_PROVENANCE.
           NPM_CONFIG_PROVENANCE: "true"
+          # Optional one-time escape hatch for brand-new public packages. The
+          # publish wrapper uses this only when npm returns 404 for the package
+          # name itself; existing packages still publish through OIDC/provenance.
+          AGENT_NATIVE_NPM_BOOTSTRAP_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Generate Builder downstream app token
         if: |
           steps.changesets.outputs.published == 'true' &&
           (
             contains(steps.changesets.outputs.publishedPackages, '@agent-native/core') ||
-            contains(steps.changesets.outputs.publishedPackages, '@agent-native/dispatch')
+            contains(steps.changesets.outputs.publishedPackages, '@agent-native/dispatch') ||
+            contains(steps.changesets.outputs.publishedPackages, '@agent-native/toolkit')
           )
         uses: actions/create-github-app-token@d72941d797fd3113feb6b93fd0dec494b13a2547 # v1
         id: builder-downstream-token
@@ -149,7 +155,8 @@ jobs:
           steps.changesets.outputs.published == 'true' &&
           (
             contains(steps.changesets.outputs.publishedPackages, '@agent-native/core') ||
-            contains(steps.changesets.outputs.publishedPackages, '@agent-native/dispatch')
+            contains(steps.changesets.outputs.publishedPackages, '@agent-native/dispatch') ||
+            contains(steps.changesets.outputs.publishedPackages, '@agent-native/toolkit')
           )
         env:
           GH_TOKEN: ${{ steps.builder-downstream-token.outputs.token }}
@@ -165,7 +172,10 @@ jobs:
       - name: Trigger Builder starter package update
         if: |
           steps.changesets.outputs.published == 'true' &&
-          contains(steps.changesets.outputs.publishedPackages, '@agent-native/core')
+          (
+            contains(steps.changesets.outputs.publishedPackages, '@agent-native/core') ||
+            contains(steps.changesets.outputs.publishedPackages, '@agent-native/toolkit')
+          )
         env:
           GH_TOKEN: ${{ steps.builder-downstream-token.outputs.token }}
           PUBLISHED_PACKAGES: ${{ steps.changesets.outputs.publishedPackages }}

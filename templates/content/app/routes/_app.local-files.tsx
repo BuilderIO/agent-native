@@ -1,4 +1,5 @@
 import { callAction, setClientAppState, useT } from "@agent-native/core/client";
+import { useSetPageTitle } from "@agent-native/toolkit/app-shell";
 import { CONTENT_SOURCE_ROOT } from "@shared/content-source";
 import {
   IconAlertCircle,
@@ -16,7 +17,6 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
-import { useSetPageTitle } from "@/components/layout/HeaderActions";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import {

@@ -177,6 +177,10 @@ details live in `.agents/skills/`.
   scoped to one recording for two hours; SSR embeds an agent discovery payload
   and the JSON APIs expose only summary/timeline metadata plus bounded event
   reads.
+- Use `@agent-native/core/server` and `@agent-native/core/shared` agent-access
+  helpers for scoped token mint/verify and bot-visible URL construction. Keep
+  replay chunk/blob authorization, diagnostics payloads, and the session detail
+  UI in Analytics.
 - Recordings also capture console logs and network request metadata (request
   bodies/headers never captured; response bodies captured only as bounded,
   redacted 5xx snippets; scrubbed URLs, truncated messages, per-session

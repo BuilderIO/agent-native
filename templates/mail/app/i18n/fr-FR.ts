@@ -42,6 +42,8 @@ const messages = {
       placeholder: "Rechercher...",
       clear: "Clear search (Esc)",
       noMatches: "Aucun résultat",
+      localResults: "Dans cette boîte de réception",
+      searchingGmail: "Recherche dans Gmail...",
     },
     tabSettings: {
       views: "Vues",
@@ -134,6 +136,7 @@ const messages = {
       blocks: "Blocs",
       media: "Médias",
       ai: "IA",
+      snippets: "Extraits",
     },
     mobileActions: {
       archive: "Archiver",
@@ -269,6 +272,7 @@ const messages = {
       scheduledCancelled: "Email programmé annulé.",
       scheduledCancelFailed: "Échec de l’annulation de l’email programmé",
       failedToAttachFile: "No se pudo adjuntar el archivo",
+      failedToUploadImage: "Échec du téléversement de l’image",
       failedToSendEmail: "No se pudo enviar el email",
       failedToScheduleEmailDraftKeptOpen:
         "No se pudo programar el email - borrador abierto",
@@ -542,6 +546,20 @@ const messages = {
     whatsNewDescription:
       "Changements recents visibles par les utilisateurs dans Agent-Native Mail.",
     drafting: "Redaction",
+    snippets: "Extraits",
+    snippetsDescription:
+      "Reponses enregistrees a inserer dans un brouillon en tapant / suivi du nom de l'extrait.",
+    newSnippet: "Nouvel extrait",
+    noSnippets: "Aucun extrait pour le moment. Creez-en un pour commencer.",
+    snippetName: "Nom de l'extrait",
+    snippetNamePlaceholder: "ex. Relance tarifaire",
+    snippetBody: "Contenu de l'extrait",
+    snippetBodyPlaceholder:
+      "Texte insere lors de l'utilisation de cet extrait...",
+    editSnippet: "Modifier l'extrait",
+    deleteSnippet: "Supprimer l'extrait",
+    deleteSnippetDescription:
+      'Supprimer l\'extrait "{{name}}" ? Cette action est irreversible.',
     automations: "Automatisations",
     gmailFilters: "Filtres Gmail",
     aliases: "Alias",

@@ -7,6 +7,8 @@ description: "如何建立和發布您自己的 Agent-Native 應用範本。"
 
 範本是完整的、可分叉的 Agent-Native 應用程式，可解決實際工作流程。第一方範本使用您使用的相同框架表面建置：用於 UI 的 React 路由、用於資料的 Drizzle SQL、用於操作的 actions、用於代理行為的工作區資源以及輪詢同步，以便代理和 UI 保持一致。
 
+將 `@agent-native/core` 用於執行階段合約：actions、server plugins、database helpers、app state、routing helpers 和 agent chat。將 `@agent-native/toolkit` 用於可重用的應用程式建構 UI 和 helpers，例如共享 primitives、toast/mobile hooks、date pickers 和簡單 app shell slots。當變體承載產品行為或視覺識別時，請保留在範本本地。
+
 一個好的範本：
 
 - 使用有用的種子資料或空狀態流端對端地解決一個工作流。

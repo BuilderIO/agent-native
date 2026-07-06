@@ -3,8 +3,8 @@ import {
   LanguagePicker,
   SettingsTabsPage,
   agentNativePath,
-  openAgentSettings,
   useActionQuery,
+  useAgentSettingsTabs,
   useBuilderConnectFlow,
   useBuilderStatus,
   useT,
@@ -75,6 +75,7 @@ type FormOnboardingMethod = Extract<OnboardingMethod, { kind: "form" }>;
 
 export default function SettingsPage() {
   const t = useT();
+  const agentSettingsTabs = useAgentSettingsTabs();
   const { data } = useActionQuery("list-libraries", { compact: true }) as {
     data?: { count?: number };
   };
@@ -87,6 +88,7 @@ export default function SettingsPage() {
     >
       <SettingsTabsPage
         teamLabel={t("team.title")}
+        extraTabs={agentSettingsTabs}
         general={
           <div className="mx-auto w-full max-w-2xl space-y-6">
             <div>
@@ -110,22 +112,6 @@ export default function SettingsPage() {
               <CardContent className="max-w-xs space-y-1.5">
                 <Label>{t("settings.languageLabel")}</Label>
                 <LanguagePicker label={t("settings.languageLabel")} />
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-base">
-                  {t("settings.agentTitle")}
-                </CardTitle>
-                <CardDescription>
-                  {t("settings.agentDescription")}
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <Button variant="outline" onClick={() => openAgentSettings()}>
-                  {t("settings.openAgentSettings")}
-                </Button>
               </CardContent>
             </Card>
 

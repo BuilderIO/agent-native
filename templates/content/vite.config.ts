@@ -317,12 +317,28 @@ function contentLocalComponentsPlugin(): Plugin {
         });
         return refreshPromise;
       };
+      // Coalesce rapid successive component-file writes (agents and editor
+      // atomic saves fire several add/unlink events per logical change) into
+      // a single full reload. Module invalidation stays immediate so the next
+      // request always sees fresh content.
+      let fullReloadTimer: ReturnType<typeof setTimeout> | null = null;
+      const scheduleFullReload = () => {
+        if (fullReloadTimer) clearTimeout(fullReloadTimer);
+        fullReloadTimer = setTimeout(() => {
+          fullReloadTimer = null;
+          server.ws.send({ type: "full-reload" });
+        }, 500);
+      };
+      server.httpServer?.once("close", () => {
+        if (fullReloadTimer) clearTimeout(fullReloadTimer);
+        fullReloadTimer = null;
+      });
       const invalidateComponents = (fullReload = false) => {
         const mod = server.moduleGraph.getModuleById(
           RESOLVED_LOCAL_COMPONENTS_MODULE_ID,
         );
         if (mod) server.moduleGraph.invalidateModule(mod);
-        if (fullReload) server.ws.send({ type: "full-reload" });
+        if (fullReload) scheduleFullReload();
       };
 
       await fs.promises.mkdir(registryDir, { recursive: true });

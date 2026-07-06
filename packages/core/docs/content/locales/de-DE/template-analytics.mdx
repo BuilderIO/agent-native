@@ -149,6 +149,12 @@ CLI gibt den lokalen Entwickler URL aus. Melden Sie sich bei Google an und öffn
 
 **Session replay agent handoff.** Session recordings stay private, but the session detail page can mint a temporary **Copy for agent** link. The two-hour `agent_access` URL lets an external agent read replay summaries, timelines, and bounded event details without exposing blob/provider URLs or making the recording public.
 
+Implementation note: use the shared core agent-access helpers
+(`createScopedAgentAccessGrant`, `verifyScopedAgentAccessToken`,
+`buildAgentAccessUrl`, and `buildAgentAccessApiUrl`) for the SSR/bot-visible
+URL contract. Keep replay chunk authorization, diagnostics payloads, and the
+session detail UI local to Analytics.
+
 ### Zusammenarbeit mit dem Agenten
 
 Der Agent weiß immer, was Sie sehen. Der aktuelle Bildschirmstatus wird als `<current-screen>`-Block in jede Nachricht eingefügt – er enthält die aktive Ansicht, das geöffnete Dashboard oder die geöffnete Analyse und alle ausgewählten Filter.

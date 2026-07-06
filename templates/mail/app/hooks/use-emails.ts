@@ -895,6 +895,193 @@ export function useTrashEmail() {
   });
 }
 
+export interface BulkEmailTarget {
+  id: string;
+  threadId?: string;
+  accountEmail?: string;
+}
+
+function bulkActionArgs(targets: BulkEmailTarget[]) {
+  return {
+    id: targets.map((t) => t.id).join(","),
+    threadIds: targets.map((t) => t.threadId ?? "").join(","),
+    accountEmails: targets.map((t) => t.accountEmail ?? "").join(","),
+  };
+}
+
+interface BulkArchiveVars {
+  targets: BulkEmailTarget[];
+  removeLabel?: string;
+}
+
+/**
+ * Bulk archive: one action call carrying every selected id (server batches
+ * into one Gmail call per account) plus one optimistic cache update, instead
+ * of N mutate() calls each racing their own cache write/rollback.
+ */
+export function useBulkArchiveEmails() {
+  const qc = useQueryClient();
+  const t = useT();
+  return useMutation({
+    mutationFn: ({ targets, removeLabel }: BulkArchiveVars) =>
+      callAction("archive-email", {
+        ...bulkActionArgs(targets),
+        removeLabel,
+      }).then(assertActionSuccess),
+    onMutate: async ({ targets }: BulkArchiveVars) => {
+      await qc.cancelQueries({ queryKey: ["emails"] });
+      const previous = qc.getQueriesData<InfiniteEmails>({
+        queryKey: ["emails"],
+      });
+      const allEmails = previous.flatMap(([, data]) =>
+        flattenInfiniteEmails(data),
+      );
+      const threadIds = targets.map((target) => {
+        const found = allEmails.find((e) => e.id === target.id);
+        return target.threadId || found?.threadId || target.id;
+      });
+      const threadIdSet = new Set(threadIds);
+      for (const threadId of threadIdSet) {
+        suppressThread(threadId, "archive");
+        invalidateCachedThread(threadId);
+      }
+      qc.setQueriesData<InfiniteEmails>({ queryKey: ["emails"] }, (old) =>
+        mapInfiniteEmails(old, (emails) =>
+          emails.filter((e) => !threadIdSet.has(e.threadId || e.id)),
+        ),
+      );
+      return { previous, threadIds: [...threadIdSet] };
+    },
+    onError: (err, _vars, context) => {
+      for (const threadId of context?.threadIds ?? []) {
+        unsuppressThread(threadId);
+      }
+      context?.previous.forEach(([key, data]) => qc.setQueryData(key, data));
+      toast.error(
+        archiveFailureToastMessage(err, t("mail.toasts.archiveFailed")),
+      );
+    },
+    onSettled: () => delayedInvalidate(qc, [["emails"], ["labels"]]),
+  });
+}
+
+/**
+ * Bulk trash: one action call for every selected id — the server fans the
+ * Gmail calls out with bounded concurrency (no Gmail batch endpoint exists
+ * for trash) — plus one optimistic cache update.
+ */
+export function useBulkTrashEmails() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (targets: BulkEmailTarget[]) =>
+      callAction("trash-email", bulkActionArgs(targets)).then(
+        assertActionSuccess,
+      ),
+    onMutate: async (targets: BulkEmailTarget[]) => {
+      await qc.cancelQueries({ queryKey: ["emails"] });
+      const previous = qc.getQueriesData<InfiniteEmails>({
+        queryKey: ["emails"],
+      });
+      const allEmails = previous.flatMap(([, data]) =>
+        flattenInfiniteEmails(data),
+      );
+      const threadIds = targets.map((target) => {
+        const found = allEmails.find((e) => e.id === target.id);
+        return target.threadId || found?.threadId || target.id;
+      });
+      const threadIdSet = new Set(threadIds);
+      for (const threadId of threadIdSet) suppressThread(threadId, "trash");
+      qc.setQueriesData<InfiniteEmails>({ queryKey: ["emails"] }, (old) =>
+        mapInfiniteEmails(old, (emails) =>
+          emails.filter((e) => !threadIdSet.has(e.threadId || e.id)),
+        ),
+      );
+      return { previous, threadIds: [...threadIdSet] };
+    },
+    onError: (_err, _vars, context) => {
+      for (const threadId of context?.threadIds ?? []) {
+        unsuppressThread(threadId);
+      }
+      context?.previous.forEach(([key, data]) => qc.setQueryData(key, data));
+    },
+    onSettled: () => delayedInvalidate(qc, [["emails"], ["labels"]]),
+  });
+}
+
+/** Bulk star/unstar: one action call, one optimistic override per message. */
+export function useBulkToggleStar() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      targets,
+      isStarred,
+    }: {
+      targets: BulkEmailTarget[];
+      isStarred: boolean;
+    }) =>
+      callAction("star-email", {
+        ...bulkActionArgs(targets),
+        unstar: !isStarred,
+      }).then(assertActionSuccess),
+    onMutate: async ({ targets, isStarred }) => {
+      await qc.cancelQueries({ queryKey: ["emails"] });
+      const previous = qc.getQueriesData<InfiniteEmails>({
+        queryKey: ["emails"],
+      });
+      const ids = new Set(targets.map((t) => t.id));
+      for (const id of ids) setOptimisticOverride(id, { isStarred });
+      qc.setQueriesData<InfiniteEmails>({ queryKey: ["emails"] }, (old) =>
+        mapInfiniteEmails(old, (emails) =>
+          emails.map((e) => (ids.has(e.id) ? { ...e, isStarred } : e)),
+        ),
+      );
+      return { previous, ids: [...ids] };
+    },
+    onError: (_err, _vars, context) => {
+      for (const id of context?.ids ?? []) clearOptimisticOverride(id);
+      context?.previous.forEach(([key, data]) => qc.setQueryData(key, data));
+    },
+    onSettled: () => delayedInvalidate(qc, [["emails"], ["labels"]]),
+  });
+}
+
+/** Bulk mark read/unread: one action call, one optimistic override per message. */
+export function useBulkMarkRead() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      targets,
+      isRead,
+    }: {
+      targets: BulkEmailTarget[];
+      isRead: boolean;
+    }) =>
+      callAction("mark-read", {
+        ...bulkActionArgs(targets),
+        unread: !isRead,
+      }).then(assertActionSuccess),
+    onMutate: async ({ targets, isRead }) => {
+      await qc.cancelQueries({ queryKey: ["emails"] });
+      const previous = qc.getQueriesData<InfiniteEmails>({
+        queryKey: ["emails"],
+      });
+      const ids = new Set(targets.map((t) => t.id));
+      for (const id of ids) setOptimisticOverride(id, { isRead });
+      qc.setQueriesData<InfiniteEmails>({ queryKey: ["emails"] }, (old) =>
+        mapInfiniteEmails(old, (emails) =>
+          emails.map((e) => (ids.has(e.id) ? { ...e, isRead } : e)),
+        ),
+      );
+      return { previous, ids: [...ids] };
+    },
+    onError: (_err, _vars, context) => {
+      for (const id of context?.ids ?? []) clearOptimisticOverride(id);
+      context?.previous.forEach(([key, data]) => qc.setQueryData(key, data));
+    },
+    onSettled: () => delayedInvalidate(qc, [["emails"], ["labels"]]),
+  });
+}
+
 export function useMoveEmail() {
   const qc = useQueryClient();
   return useMutation({

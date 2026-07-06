@@ -5,6 +5,7 @@ import {
   getMethod,
   getQuery,
   getHeader,
+  getRequestURL,
 } from "h3";
 
 import { isAgentActionStopError } from "../action.js";
@@ -282,7 +283,13 @@ export function mountActionRoutes(
         const timezone = readTimezoneHeader(event);
 
         return runWithRequestContext(
-          { userEmail, userName, orgId, timezone },
+          {
+            userEmail,
+            userName,
+            orgId,
+            timezone,
+            requestOrigin: getRequestURL(event).origin,
+          },
           async () => {
             // Reject oversize bodies from Content-Length before parsing, so a
             // public no-auth POST can't force parse work on a huge request.

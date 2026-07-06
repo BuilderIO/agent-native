@@ -261,11 +261,8 @@ export default createCollabPlugin({
 ### 4. Utilisez le hook client
 
 ```ts
-import {
-  useCollaborativeDoc,
-  emailToColor,
-  emailToName,
-} from "@agent-native/core/client";
+import { useCollaborativeDoc } from "@agent-native/core/client";
+import { emailToColor, emailToName } from "@agent-native/toolkit/collab-ui";
 
 const TAB_ID = generateTabId(); // or Math.random().toString(36)
 
@@ -367,12 +364,14 @@ Importer la présence côté client et l'éditeur UI à partir du sous-chemin du
 
 ```ts
 import {
-  PresenceBar,
-  LiveCursorOverlay,
-  RemoteSelectionRings,
   useCollaborativeDoc,
   usePresence,
 } from "@agent-native/core/client/collab";
+import {
+  PresenceBar,
+  LiveCursorOverlay,
+  RemoteSelectionRings,
+} from "@agent-native/toolkit/collab-ui";
 ```
 
 Les assistants de présence d'agent côté serveur restent dans le package de collaboration de niveau inférieur :
@@ -458,7 +457,7 @@ L'agent (AGENT_CLIENT_ID) apparaît comme un participant de première classe ave
 Rend les curseurs distants sous forme d'étiquettes positionnées de manière absolue sur un élément conteneur :
 
 ```tsx
-import { LiveCursorOverlay } from "@agent-native/core/client";
+import { LiveCursorOverlay } from "@agent-native/toolkit/collab-ui";
 
 // cursor positions stored as { x, y } normalized 0–1 under presence.cursor
 <div ref={containerRef} style={{ position: "relative" }}>
@@ -478,7 +477,7 @@ Le curseur de l'agent s'affiche distinctement avec une icône scintillante. Les 
 Rend les anneaux de contour colorés + les balises de nom sur les éléments sélectionnés à distance :
 
 ```tsx
-import { RemoteSelectionRings } from "@agent-native/core/client";
+import { RemoteSelectionRings } from "@agent-native/toolkit/collab-ui";
 
 <div ref={containerRef} style={{ position: "relative" }}>
   {content}

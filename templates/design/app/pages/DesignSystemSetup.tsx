@@ -5,6 +5,10 @@ import {
   useT,
 } from "@agent-native/core/client";
 import {
+  useSetPageTitle,
+  useSetHeaderActions,
+} from "@agent-native/toolkit/app-shell";
+import {
   IconArrowLeft,
   IconBrandGithub,
   IconBrandFigma,
@@ -22,10 +26,6 @@ import { useState, useCallback, useRef, useMemo, useEffect } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 import { toast } from "sonner";
 
-import {
-  useSetPageTitle,
-  useSetHeaderActions,
-} from "@/components/layout/HeaderActions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";

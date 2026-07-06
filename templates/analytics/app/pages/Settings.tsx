@@ -3,7 +3,7 @@ import {
   ChangelogSettingsCard,
   LanguagePicker,
   SettingsTabsPage,
-  openAgentSettings,
+  useAgentSettingsTabs,
   useBuilderConnectFlow,
   useBuilderStatus,
   useT,
@@ -119,6 +119,7 @@ async function saveS3StorageSettings(
 export default function Settings() {
   const { auth } = useAuth();
   const t = useT();
+  const agentSettingsTabs = useAgentSettingsTabs();
 
   const storageStatus = useReplayStorageStatus();
   const builderStatus = useBuilderStatus();
@@ -191,6 +192,7 @@ export default function Settings() {
     <SettingsTabsPage
       teamLabel={t("navigation.team")}
       whatsNewLabel={t("root.whatsNew")}
+      extraTabs={agentSettingsTabs}
       general={
         <div className="mx-auto w-full max-w-2xl space-y-6">
           <Card className="bg-card border-border/50">
@@ -430,26 +432,6 @@ export default function Settings() {
             <CardContent className="max-w-xs space-y-1.5">
               <Label>{t("settings.languageLabel")}</Label>
               <LanguagePicker label={t("settings.languageLabel")} />
-            </CardContent>
-          </Card>
-
-          <Card className="bg-card border-border/50">
-            <CardHeader>
-              <CardTitle className="text-base">
-                {t("settings.agentTitle")}
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <p className="text-sm text-muted-foreground mb-3">
-                {t("settings.agentDescription")}
-              </p>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => openAgentSettings()}
-              >
-                {t("settings.openAgentSettings")}
-              </Button>
             </CardContent>
           </Card>
 

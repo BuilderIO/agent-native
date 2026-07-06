@@ -1674,6 +1674,16 @@ function createAuthGuardFn(): (
       return;
     }
 
+    // Durable sandbox-execution processor (run-code background queue). The
+    // enqueueing request self-dispatches here so long compute runs in a fresh
+    // invocation with its own budget; the dispatch carries ONLY a Bearer HMAC
+    // internal token (verified by the route) and NO session cookie, plus an
+    // atomic SQL claim prevents double execution — same scheme as the
+    // agent-teams/_process-run bypass above. Exact path only.
+    if (p === "/_agent-native/sandbox/_process-execution") {
+      return;
+    }
+
     // Read-only agent chat share links. The random token is the bearer secret;
     // the route returns a sanitized transcript plus bounded run summaries and
     // exposes no write surface, live event stream, tool payloads, or owner APIs.

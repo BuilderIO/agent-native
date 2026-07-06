@@ -186,6 +186,28 @@ describe("dedupeReconnectContentAgainstMessages", () => {
     ).toEqual([repeatedCall]);
   });
 
+  it("drops stale pending tool-call copies inside the reconnect snapshot", () => {
+    const stalePending = {
+      type: "tool-call" as const,
+      toolCallId: "tc_stale",
+      toolName: "edit-screen",
+      argsText: '{"screen":"home"}',
+      args: { screen: "home" },
+    };
+    const completed = {
+      type: "tool-call" as const,
+      toolCallId: "toolu_1",
+      toolName: "edit-screen",
+      argsText: '{"screen":"home"}',
+      args: { screen: "home" },
+      result: "done",
+    };
+
+    expect(
+      dedupeReconnectContentAgainstMessages([stalePending, completed], []),
+    ).toEqual([completed]);
+  });
+
   it("drops a pending reconnect duplicate whose call already completed in messages (fingerprint fallback)", () => {
     // Two readers of the same run assign unrelated synthetic ids until the
     // server id converges — a pending copy of an already-completed call is a
@@ -228,7 +250,38 @@ describe("dedupeReconnectContentAgainstMessages", () => {
     ).toEqual([unrelatedPending]);
   });
 
-  it("never fingerprint-drops activity placeholders or completed parts", () => {
+  it("drops a pending reconnect duplicate while the rendered call is still pending", () => {
+    const persistedMessages = [
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "tool-call",
+            toolCallId: "toolu_1",
+            toolName: "update-extension",
+            argsText: '{"extensionId":"npm-downloads"}',
+            args: { extensionId: "npm-downloads" },
+          },
+        ],
+      },
+    ];
+    const pendingDuplicate = {
+      type: "tool-call" as const,
+      toolCallId: "tc_7",
+      toolName: "update-extension",
+      argsText: '{"extensionId":"npm-downloads"}',
+      args: { extensionId: "npm-downloads" },
+    };
+
+    expect(
+      dedupeReconnectContentAgainstMessages(
+        [pendingDuplicate],
+        persistedMessages,
+      ),
+    ).toEqual([]);
+  });
+
+  it("never fingerprint-drops activity placeholders or completed-vs-completed repeats", () => {
     const persistedMessages = [
       {
         role: "assistant",
@@ -273,7 +326,7 @@ describe("dedupeReconnectContentAgainstMessages", () => {
     ).toEqual([activityPlaceholder, completedRepeat]);
   });
 
-  it("keeps reconnect completions when the rendered tool call is still pending", () => {
+  it("drops reconnect completions when the rendered tool call is still pending", () => {
     const persistedMessages = [
       {
         role: "assistant",
@@ -299,7 +352,47 @@ describe("dedupeReconnectContentAgainstMessages", () => {
 
     expect(
       dedupeReconnectContentAgainstMessages([completedCall], persistedMessages),
-    ).toEqual([completedCall]);
+    ).toEqual([]);
+  });
+
+  it("does not fingerprint-drop reconnect tools against older assistant turns", () => {
+    const persistedMessages = [
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "tool-call",
+            toolCallId: "toolu_old",
+            toolName: "db-query",
+            argsText: '{"sql":"select 1"}',
+            args: { sql: "select 1" },
+            result: "1",
+          },
+        ],
+      },
+      {
+        role: "user",
+        content: [{ type: "text", text: "Run it again" }],
+      },
+      {
+        role: "assistant",
+        content: [{ type: "text", text: "Starting fresh." }],
+      },
+    ];
+    const repeatedPending = {
+      type: "tool-call" as const,
+      toolCallId: "toolu_new",
+      toolName: "db-query",
+      argsText: '{"sql":"select 1"}',
+      args: { sql: "select 1" },
+    };
+
+    expect(
+      dedupeReconnectContentAgainstMessages(
+        [repeatedPending],
+        persistedMessages,
+      ),
+    ).toEqual([repeatedPending]);
   });
 
   it("hides reconnect text that is already visible in the latest assistant message", () => {
@@ -385,13 +478,13 @@ describe("dedupeReconnectContentAgainstMessages", () => {
     ).toBe(reconnectContent);
   });
 
-  it("shows fallback activity when all reconnect content was already rendered", () => {
+  it("does not replace deduped reconnect content with fallback activity", () => {
     const source = readFileSync("src/client/AssistantChat.tsx", {
       encoding: "utf8",
     });
 
     expect(source).toContain("visibleReconnectContent.length === 0");
-    expect(source).not.toContain(
+    expect(source).toContain(
       "reconnectContent.length === 0 &&\n                        reconnectActivityContent.length > 0",
     );
   });
@@ -730,6 +823,7 @@ describe("waitForThreadRunToClear", () => {
     expect(end).toBeGreaterThan(start);
     expect(renderSource).toContain("visibleReconnectContent.length > 0");
     expect(renderSource).toContain("visibleReconnectContent.length === 0");
+    expect(renderSource).toContain("reconnectContent.length === 0");
     expect(renderSource).not.toContain("reconnectAfterSeq");
   });
 

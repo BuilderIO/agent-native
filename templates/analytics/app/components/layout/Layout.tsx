@@ -140,7 +140,7 @@ export function Layout({ children }: LayoutProps) {
       "The user skipped the guided analytics questions. Proceed with reasonable defaults, consult the data dictionary before writing SQL, and ask again only if a required source/table/metric is still genuinely ambiguous.",
   });
   // Extensions list (`/extensions`) and viewer (`/extensions/:id`) render their own h-12
-  // toolbar with NotificationsBell + AgentToggleButton. Skip the framework
+  // toolbar. Skip the framework
   // Header so there's no double-header.
   const isExtensionsRoute =
     location.pathname === "/extensions" ||
@@ -220,7 +220,7 @@ export function Layout({ children }: LayoutProps) {
 
   const contentFrame = (
     <div className="flex h-full flex-1 flex-col overflow-hidden">
-      <MobileNav />
+      <MobileNav showNewChat={isAskRoute} />
       {!isExtensionsRoute && !isAskRoute && <Header />}
       <InvitationBanner />
       <main

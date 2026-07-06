@@ -464,6 +464,10 @@ export {
 } from "./MultiTabAssistantChat.js";
 export { RunStuckBanner, type RunStuckBannerProps } from "./RunStuckBanner.js";
 export {
+  KeepTabOpenNotice,
+  type KeepTabOpenNoticeProps,
+} from "./KeepTabOpenNotice.js";
+export {
   useRunStuckDetection,
   useAbortRun,
   type RunStuckState,
@@ -635,6 +639,7 @@ export { AgentNativeIcon } from "./components/icons/AgentNativeIcon.js";
 export {
   SettingsPanel,
   SettingsTabsPage,
+  useAgentSettingsTabs,
   type SettingsPanelProps,
   type SettingsTabItem,
   type SettingsTabsPageProps,

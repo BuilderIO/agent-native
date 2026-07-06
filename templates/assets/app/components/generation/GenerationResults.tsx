@@ -65,7 +65,13 @@ export function GenerationResults({ threadId }: { threadId: string | null }) {
     queryFn: async ({ signal }) => {
       return readClientAppState<AssetVariantState>(stateKey, { signal });
     },
-    refetchInterval: 1000,
+    refetchInterval: (query) => {
+      const state = query.state.data as AssetVariantState | undefined;
+      const hasPendingSlot = (state?.slots ?? []).some(
+        (slot) => slot.status === "pending",
+      );
+      return hasPendingSlot ? 1000 : false;
+    },
   });
   const { data: librariesData } = useActionQuery("list-libraries", {
     compact: true,

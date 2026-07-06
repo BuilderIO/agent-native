@@ -4,6 +4,7 @@ import {
   useAgentChatHomeHandoffLinks,
   useT,
 } from "@agent-native/core/client";
+import { HeaderActionsProvider } from "@agent-native/toolkit/app-shell";
 import { IconMenu2 } from "@tabler/icons-react";
 import { useState, useEffect } from "react";
 import { useLocation } from "react-router";
@@ -16,7 +17,6 @@ import {
 } from "@/components/ui/sheet";
 
 import { Header } from "./Header";
-import { HeaderActionsProvider } from "./HeaderActions";
 import { Sidebar } from "./Sidebar";
 
 const PLAN_READER_VIEW_EVENT = "plans-reader-view-change";

@@ -1027,7 +1027,7 @@ graph TD
         </DropdownMenuContent>
       </DropdownMenu>
 
-      <RunsTray pollMs={1500} />
+      <RunsTray />
       <AgentToggleButton />
     </div>
   );

@@ -1,0 +1,48 @@
+---
+title: "Toolkit Collaboration UI"
+description: "Reusable presence, cursor, selection, and recent-edit UI for collaborative Agent-Native apps."
+---
+
+# Toolkit Collaboration UI
+
+`@agent-native/toolkit/collab-ui` contains the presentational collaboration
+pieces that do not own transport or storage:
+
+```tsx
+import {
+  AgentPresenceChip,
+  LiveCursorOverlay,
+  PresenceBar,
+  RecentEditHighlights,
+  RemoteSelectionRings,
+} from "@agent-native/toolkit/collab-ui";
+```
+
+Core still owns the live collaboration runtime: Yjs documents, awareness sync,
+presence hooks, recent edit publication, undo grouping, and server plugins. Use
+core for data and Toolkit for rendering.
+
+```tsx
+import { useCollaborativeDoc, usePresence } from "@agent-native/core/client";
+import { PresenceBar } from "@agent-native/toolkit/collab-ui";
+```
+
+Existing imports from `@agent-native/core/client` still work because core
+re-exports these Toolkit components as compatibility shims.
+
+## Responsibilities {#responsibilities}
+
+Toolkit owns:
+
+- Presence avatars and agent editing chips.
+- Live cursor overlays.
+- Remote selection rings.
+- Recent edit highlight overlays.
+- Display helpers such as collaborator color and display-name derivation.
+
+Core owns:
+
+- Yjs document creation and sync.
+- Awareness polling and SSE fast-path transport.
+- Collaboration server plugins and actions.
+- Recent edit publication and collection from awareness.

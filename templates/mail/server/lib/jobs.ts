@@ -8,7 +8,7 @@ import {
 import { getUserSetting, putUserSetting } from "@agent-native/core/settings";
 import { markdownPreviewSnippet } from "@shared/markdown.js";
 import type { ComposeAttachment, EmailMessage } from "@shared/types.js";
-import { and, eq, inArray, lte } from "drizzle-orm";
+import { and, eq, inArray, isNull, lte, or } from "drizzle-orm";
 import { nanoid } from "nanoid";
 
 import { db, schema } from "../db/index.js";
@@ -266,15 +266,31 @@ export async function listPendingJobs(
   // couldn't initialize) the query throws — return an empty list instead
   // of bubbling a 500 to the inbox endpoint.
   try {
+    // Scope to this owner at the SQL level (idx_scheduled_jobs_owner_status_run_at
+    // covers this). Legacy rows written before the owner_email backfill only have
+    // account_email set (or neither), so keep matching those the same way the old
+    // in-memory filter did: owner_email match, or owner_email is null and
+    // account_email matches, or both are null (unattributed legacy row).
     const jobs = await db
       .select()
       .from(schema.scheduledJobs)
-      .where(inArray(schema.scheduledJobs.status, ["pending", "processing"]));
+      .where(
+        and(
+          inArray(schema.scheduledJobs.status, ["pending", "processing"]),
+          or(
+            eq(schema.scheduledJobs.ownerEmail, ownerEmail),
+            and(
+              isNull(schema.scheduledJobs.ownerEmail),
+              or(
+                eq(schema.scheduledJobs.accountEmail, ownerEmail),
+                isNull(schema.scheduledJobs.accountEmail),
+              ),
+            ),
+          ),
+        ),
+      );
 
-    return jobs.filter((job: any) => {
-      const jobOwner = job.ownerEmail || job.accountEmail;
-      return !jobOwner || jobOwner === ownerEmail;
-    }) as ScheduledJobRecord[];
+    return jobs as ScheduledJobRecord[];
   } catch (err) {
     console.warn(
       "[mail] listPendingJobs failed (table may not exist yet):",

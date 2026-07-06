@@ -120,6 +120,106 @@ export function getContextWindowForModel(modelId: string): number {
   return DEFAULT_CONTEXT_WINDOW;
 }
 
+// ---------------------------------------------------------------------------
+// Per-model max output token table (documented output-token ceilings)
+//
+// Sources (July 2026):
+//  Anthropic  https://platform.claude.com/docs/en/docs/about-claude/models/overview
+//             (Fable 5 / Opus 4.8 / Opus 4.7 / Sonnet 5 / Sonnet 4.6 = 128K;
+//              Haiku 4.5 / Sonnet 4.5 / Opus 4.5 = 64K)
+//  OpenAI     https://developers.openai.com/api/docs/models/gpt-5.5
+//             https://developers.openai.com/api/docs/models/gpt-5.4
+//             https://developers.openai.com/api/docs/models/gpt-5.4-mini
+//             (GPT-5.5 / GPT-5.4 / GPT-5.4-mini = 128K)
+//
+// Family defaults (used when a model id isn't listed explicitly):
+//  claude flagship (fable-5 / opus-4.6+ / sonnet-5 / sonnet-4.6) → 128_000
+//  claude-* (Haiku 4.5, older/unknown Claude ids)                → 64_000
+//  gpt-5*                                                        → 128_000
+//  everything else                                               → 64_000
+//    (safe conservative ceiling that matches the previous global clamp)
+// ---------------------------------------------------------------------------
+
+const MODEL_MAX_OUTPUT_TOKENS: Record<string, number> = {
+  // ── Anthropic / Claude (via Builder gateway or Anthropic direct) ──────────
+  "claude-fable-5": 128_000,
+  "claude-opus-4-8": 128_000,
+  "claude-opus-4-7": 128_000,
+  "claude-sonnet-5": 128_000,
+  "claude-sonnet-4-6": 128_000,
+  "claude-haiku-4-5": 64_000,
+  "claude-haiku-4-5-20251001": 64_000,
+
+  // ── Builder gateway OpenAI IDs (dot→dash) ────────────────────────────────
+  "gpt-5-5": 128_000,
+  "gpt-5-4": 128_000,
+  "gpt-5-4-mini": 128_000,
+
+  // ── OpenRouter model IDs ──────────────────────────────────────────────────
+  "anthropic/claude-fable-5": 128_000,
+  "anthropic/claude-opus-4.8": 128_000,
+  "anthropic/claude-opus-4.7": 128_000,
+  "anthropic/claude-sonnet-5": 128_000,
+  "anthropic/claude-sonnet-4.6": 128_000,
+  "openai/gpt-5.5": 128_000,
+  "openai/gpt-5.4": 128_000,
+
+  // ── AI-SDK native OpenAI IDs ──────────────────────────────────────────────
+  "gpt-5.5": 128_000,
+  "gpt-5.4": 128_000,
+  "gpt-5.4-mini": 128_000,
+};
+
+/**
+ * Conservative safe ceiling when a model is not in the table (matches the
+ * previous global output-token clamp, and current Claude Haiku 4.5 limits).
+ */
+const DEFAULT_MAX_OUTPUT_TOKENS_CEILING = 64_000;
+
+/**
+ * Return the documented max output-token ceiling for the given model ID.
+ *
+ * Uses an exact-match table first, then falls back to family-prefix
+ * heuristics, then a conservative 64 K default. Never throws — always returns
+ * a positive integer.
+ */
+export function getMaxOutputTokensForModel(
+  modelId: string | undefined,
+): number {
+  if (!modelId) return DEFAULT_MAX_OUTPUT_TOKENS_CEILING;
+
+  const exact = MODEL_MAX_OUTPUT_TOKENS[modelId];
+  if (exact !== undefined) return exact;
+
+  // Family heuristics for unlisted model IDs
+  const id = modelId.toLowerCase();
+
+  // Anthropic Fable 5, Opus 4.6+, Sonnet 5, and Sonnet 4.6 = 128K output
+  if (
+    id.includes("claude-fable-5") ||
+    id.includes("claude-opus-4-6") ||
+    id.includes("claude-opus-4.6") ||
+    id.includes("claude-opus-4-7") ||
+    id.includes("claude-opus-4.7") ||
+    id.includes("claude-opus-4-8") ||
+    id.includes("claude-opus-4.8") ||
+    id.includes("claude-sonnet-5") ||
+    id.includes("claude-sonnet-4-6") ||
+    id.includes("claude-sonnet-4.6")
+  )
+    return 128_000;
+
+  // All other Claude models (Haiku 4.5, legacy) — 64K ceiling
+  if (id.startsWith("claude-") || id.includes("/claude-")) {
+    return DEFAULT_MAX_OUTPUT_TOKENS_CEILING;
+  }
+
+  // GPT-5.x family — 128K output
+  if (id.startsWith("gpt-5") || id.startsWith("openai/gpt-5")) return 128_000;
+
+  return DEFAULT_MAX_OUTPUT_TOKENS_CEILING;
+}
+
 const ENABLE_CLAUDE_SONNET_5 = true;
 
 export const CLAUDE_SONNET_MODEL_ID = ENABLE_CLAUDE_SONNET_5

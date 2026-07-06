@@ -15,6 +15,7 @@ import {
   CartesianGrid,
 } from "recharts";
 
+import { ViewedByPopover } from "@/components/sharing/viewed-by-popover";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 
 export interface InsightsPanelProps {
@@ -65,11 +66,21 @@ export function InsightsPanel({ recordingId, durationMs }: InsightsPanelProps) {
   return (
     <div className="p-4 space-y-6">
       <div className="grid grid-cols-2 gap-3">
-        <Stat
-          icon={<IconEye className="h-4 w-4" />}
-          label={t("recordingInsights.views")}
-          value={data.views}
-        />
+        {data.views > 0 ? (
+          <ViewedByPopover recordingId={recordingId} className="w-full">
+            <Stat
+              icon={<IconEye className="h-4 w-4" />}
+              label={t("recordingInsights.views")}
+              value={data.views}
+            />
+          </ViewedByPopover>
+        ) : (
+          <Stat
+            icon={<IconEye className="h-4 w-4" />}
+            label={t("recordingInsights.views")}
+            value={data.views}
+          />
+        )}
         <Stat
           icon={<IconUser className="h-4 w-4" />}
           label={t("recordingInsights.uniqueViewers")}

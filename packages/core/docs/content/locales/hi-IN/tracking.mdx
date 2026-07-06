@@ -241,6 +241,12 @@ Analytics टेम्पलेट replay मेटाडेटा को SQL (`
 
 जब आपको किसी बाहरी एजेंट को एक प्राइवेट रिकॉर्डिंग सौंपने की आवश्यकता हो, तो session डिटेल पेज के **Copy for agent** नियंत्रण का उपयोग करें। यह एक दो-घंटे का, रिकॉर्डिंग-स्कोप्ड `agent_access` लिंक बनाता है, `/sessions/:recordingId` पर एक छोटा डिस्कवरी पेलोड SSR करता है, और केवल एजेंट context/events JSON APIs को एक्सपोज़ करता है। रिकॉर्डिंग की visibility नहीं बदलती।
 
+Implementation note: the reusable layer is the core agent-access URL contract,
+not a replay-specific UI abstraction. Use `createScopedAgentAccessGrant`,
+`verifyScopedAgentAccessToken`, `buildAgentAccessUrl`, and
+`buildAgentAccessApiUrl` for scoped SSR and JSON API links; keep replay storage,
+diagnostics shaping, and access policy inside the Analytics template.
+
 केवल स्थानीय विकास के लिए, Analytics प्राइवेट blob storage उपलब्ध न होने पर capped SQL inline chunks पर फ़ॉलबैक कर सकता है। प्रोडक्शन डिप्लॉयमेंट्स को replay payloads के लिए Postgres पर निर्भर रहने के बजाय प्राइवेट या एन्क्रिप्टेड blob storage कॉन्फ़िगर करना चाहिए।
 
 ## उन्नत: कस्टम प्रदाता और आंतरिक {#advanced}

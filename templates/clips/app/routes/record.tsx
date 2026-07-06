@@ -1101,6 +1101,13 @@ export default function RecordRoute() {
           onWarning: (message) => {
             toast.warning(message);
           },
+          // Camera track ended mid-recording (unplugged, permission revoked,
+          // device asleep). The recorded composite already drops the bubble;
+          // clear the on-page preview stream too so it doesn't keep showing a
+          // frozen last frame that no longer matches the recorded output.
+          onCameraEnded: () => {
+            setCameraStream(null);
+          },
           // Track the surface the user actually chose (and any mid-recording
           // switch) so the live camera bubble is hidden only when the full
           // screen — including this tab's overlay — is being captured.
@@ -2123,10 +2130,18 @@ export default function RecordRoute() {
       // ignore
     }
     if (pendingId) {
+      // The recording may have already finished uploading server-side (the
+      // final chunk can land, and the row can flip to "ready", while we're
+      // still awaiting saveBrowserDiagnostics/finishSavedRecording on the
+      // client). A separate GET-status-then-POST-trash sequence would still
+      // race finalize between the two calls, so ask the server to trash
+      // atomically instead: `skipIfReady` makes the trash a conditional
+      // no-op if the row is already "ready" by the time the UPDATE runs, so a
+      // fully saved video is never silently discarded.
       fetch(agentNativePath("/_agent-native/actions/trash-recording"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id: pendingId }),
+        body: JSON.stringify({ id: pendingId, skipIfReady: true }),
       }).catch(() => {});
     }
     setCameraStream(null);

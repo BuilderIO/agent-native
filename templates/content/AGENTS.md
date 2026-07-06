@@ -216,12 +216,19 @@ Content has two file workflows:
   retargeting workflow is added.
 - **Builder source components:** Builder CMS database body hydration renders
   unsupported provider-native body blocks as `<SourceComponent ... />` markers.
-  Treat these as read-only preservation anchors, not editable local blocks.
-  Agents may edit surrounding prose, but must not delete, duplicate, move, or
-  rewrite `rawRef`, `rawHash`, or marker ids unless a dedicated provider
-  conversion workflow exists. Guarded Builder write-back refuses missing,
-  tampered, or structurally moved markers so source-native components are not
-  lost.
+  These markers include `mappingStatus` and `sourceEditState`: `mapped` /
+  `safe-to-edit` content has an explicit Markdown/NFM mapper, `preserved` /
+  `needs-review` content keeps a known Builder/source component intact for
+  review, and `unknown` / `preserved-only` content is an unmapped provider block
+  that must round-trip as-is. Treat source-component markers as read-only
+  preservation anchors, not editable local blocks. Agents may edit surrounding
+  prose, but must not delete, duplicate, move, or rewrite `rawRef`, `rawHash`,
+  mapping metadata, or marker ids unless a dedicated provider conversion
+  workflow exists. Guarded Builder write-back refuses missing, tampered, or
+  structurally moved markers so source-native components are not lost.
+  Readable bodies hydrated before source-component mapping may need a fresh
+  Builder body hydration pass before guarded push, because newly preserved
+  markers are intentionally treated as structure changes.
 - **Picked folders and components:** browser-picked folders can be the
   source of truth for `.md`/`.mdx` files, but the browser does not expose an
   absolute path that Vite can compile. Component previews from a picked
@@ -280,14 +287,14 @@ explicit sync action.
 
 ### Notion Integration
 
-| Action                  | Args                                    | Purpose                                   |
-| ----------------------- | --------------------------------------- | ----------------------------------------- |
-| `connect-notion-status` |                                         | Check Notion connection                   |
-| `link-notion-page`      | `--documentId <id> --notionPageId <id>` | Link doc to Notion page                   |
-| `list-notion-links`     |                                         | List linked documents                     |
-| `pull-notion-page`      | `--documentId <id>`                     | Pull content from Notion                  |
-| `push-notion-page`      | `--documentId <id>`                     | Push content to Notion                    |
-| `sync-notion-comments`  | `--documentId <id>`                     | Sync comments with Notion (bidirectional) |
+| Action                  | Args                                     | Purpose                                   |
+| ----------------------- | ---------------------------------------- | ----------------------------------------- |
+| `connect-notion-status` |                                          | Check Notion connection                   |
+| `link-notion-page`      | `--documentId <id> --pageId <id-or-url>` | Link doc to Notion page                   |
+| `list-notion-links`     |                                          | List linked documents                     |
+| `pull-notion-page`      | `--documentId <id>`                      | Pull content from Notion                  |
+| `push-notion-page`      | `--documentId <id>`                      | Push content to Notion                    |
+| `sync-notion-comments`  | `--documentId <id>`                      | Sync comments with Notion (bidirectional) |
 
 Use `provider-api-catalog`, `provider-api-docs`, and `provider-api-request`
 for Notion endpoints, filters, pagination modes, payload shapes, or API
