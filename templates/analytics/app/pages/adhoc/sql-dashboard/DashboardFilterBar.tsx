@@ -1,4 +1,26 @@
 import { useT } from "@agent-native/core/client";
+import { Button } from "@agent-native/toolkit/ui/button";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@agent-native/toolkit/ui/collapsible";
+import { DatePicker } from "@agent-native/toolkit/ui/date-picker";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@agent-native/toolkit/ui/dialog";
+import { Input } from "@agent-native/toolkit/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@agent-native/toolkit/ui/select";
 import {
   IconChevronDown,
   IconDeviceFloppy,
@@ -7,28 +29,6 @@ import {
 import { useCallback, useMemo, useState } from "react";
 import { useSearchParams } from "react-router";
 
-import { Button } from "@/components/ui/button";
-import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from "@/components/ui/collapsible";
-import { DatePicker } from "@/components/ui/date-picker";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogFooter,
-} from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 
 import type { DashboardFilter, FilterType } from "./types";
@@ -228,18 +228,25 @@ export function DashboardFilterBar({
       <Collapsible
         open={filtersOpen}
         onOpenChange={setFiltersOpen}
-        className="group rounded-lg border border-border bg-card p-3"
+        className="group rounded-lg border border-border bg-card px-3 py-2"
       >
-        <div className="flex items-center justify-between gap-3">
-          <div className="flex items-baseline gap-2">
-            <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-              {t("sqlDashboard.filters")}
-            </h3>
-            <span className="text-[10px] text-muted-foreground/60">
-              {t("sqlDashboard.autoApplied")}
-            </span>
-          </div>
-          <div className="flex items-center gap-1 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100 group-data-[state=closed]:opacity-100">
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          <CollapsibleContent className="min-w-0 flex-1">
+            <div className="flex flex-wrap gap-3 items-end">
+              {uniqueFilters.map((f) => (
+                <FilterControl
+                  key={f.id}
+                  filter={f}
+                  vars={vars}
+                  hasParam={(key) =>
+                    searchParams.has(FILTER_PARAM_PREFIX + key)
+                  }
+                  setValue={(updates) => setParam(updates)}
+                />
+              ))}
+            </div>
+          </CollapsibleContent>
+          <div className="flex shrink-0 items-center gap-1 self-center opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100 group-data-[state=closed]:opacity-100">
             {onSaveView && filtersActive && (
               <Button
                 variant="ghost"
@@ -284,19 +291,6 @@ export function DashboardFilterBar({
             </CollapsibleTrigger>
           </div>
         </div>
-        <CollapsibleContent className="pt-3">
-          <div className="flex flex-wrap gap-3 items-end">
-            {uniqueFilters.map((f) => (
-              <FilterControl
-                key={f.id}
-                filter={f}
-                vars={vars}
-                hasParam={(key) => searchParams.has(FILTER_PARAM_PREFIX + key)}
-                setValue={(updates) => setParam(updates)}
-              />
-            ))}
-          </div>
-        </CollapsibleContent>
       </Collapsible>
 
       <Dialog open={saveDialogOpen} onOpenChange={setSaveDialogOpen}>

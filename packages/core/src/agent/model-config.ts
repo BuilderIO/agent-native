@@ -120,7 +120,7 @@ export function getContextWindowForModel(modelId: string): number {
   return DEFAULT_CONTEXT_WINDOW;
 }
 
-const ENABLE_CLAUDE_SONNET_5 = false;
+const ENABLE_CLAUDE_SONNET_5 = true;
 
 export const CLAUDE_SONNET_MODEL_ID = ENABLE_CLAUDE_SONNET_5
   ? "claude-sonnet-5"

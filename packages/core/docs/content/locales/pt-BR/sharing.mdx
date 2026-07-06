@@ -5,7 +5,7 @@ description: "Compartilhamento no estilo Google Docs, integrado à estrutura. Ca
 
 # Compartilhamento e privacidade
 
-Cada recurso que um usuário cria em um aplicativo nativo do agente — um documento, um painel, um design, uma apresentação, uma edição de vídeo, uma gravação de tela, uma transcrição de reunião, um formulário, um link de reserva — é **privado para o criador por padrão**. Outras pessoas só o veem quando o criador o compartilha explicitamente ou altera sua visibilidade para `org` ou `public`.
+Cada recurso que um usuário cria em um aplicativo nativo do agente — um documento, um painel, um design, uma apresentação, uma gravação de tela, uma transcrição de reunião, um formulário, um link de reserva — é **privado para o criador por padrão**. Outras pessoas só o veem quando o criador o compartilha explicitamente ou altera sua visibilidade para `org` ou `public`.
 
 Parece e funciona como o Google Docs. O mesmo botão de compartilhamento, a mesma caixa de diálogo, o mesmo modelo de visibilidade de três níveis, as mesmas concessões por usuário/por organização, em todos os modelos, sem reinvenção por aplicativo.
 
@@ -92,11 +92,11 @@ Todo modelo que armazena trabalhos de autoria do usuário usa esse modelo. Concr
 - **Conteúdo** — documentos
 - **Apresentações** — apresentações
 - **Design** — designs e recursos
-- **Vídeo** — composições
 - **Clipes** — gravações de tela (estilo Loom)
+- **Plan** — visual plans and PR recaps
 - **Formulários** — definições de formulário
 - **Calendário** — links para eventos e reservas
-- **Analytics** — painéis (lançamento — veja o modelo de análise `AGENTS.md`)
+- **Analytics** — dashboards, saved analyses, and tokenized session replays
 - **Extensões** — miniaplicativos em sandbox (consulte [Extensions](/docs/extensions#sharing))
 
 Cada um deles usa o mesmo auxiliar de esquema `ownableColumns()`, a mesma ação `share-resource` e o mesmo `<ShareButton>` UI. Mude de um modelo para outro e a caixa de diálogo de compartilhamento parecerá idêntica.
@@ -137,14 +137,21 @@ Para listas, coloque um `<VisibilityBadge visibility={row.visibility} />` ao lad
 
 A estrutura monta automaticamente esses actions em cada modelo — o agente os chama como ferramentas e o UI os chama por meio de `useActionQuery` / `useActionMutation`:
 
-| Ação                      | O que faz                                                                                                                |
-| ------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
-| `share-resource`          | Conceda acesso a um usuário ou organização em uma função específica. `notify` opcional controla notificações por e-mail. |
-| `unshare-resource`        | Revogar o acesso de um usuário ou organização.                                                                           |
-| `list-resource-shares`    | Mostrar a visibilidade atual e todas as concessões explícitas.                                                           |
-| `set-resource-visibility` | Mude para `private`, `org` ou `public`.                                                                                  |
+| Ação                         | O que faz                                                                                                                |
+| ---------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| `share-resource`             | Conceda acesso a um usuário ou organização em uma função específica. `notify` opcional controla notificações por e-mail. |
+| `unshare-resource`           | Revogar o acesso de um usuário ou organização.                                                                           |
+| `list-resource-shares`       | Mostrar a visibilidade atual e todas as concessões explícitas.                                                           |
+| `set-resource-visibility`    | Mude para `private`, `org` ou `public`.                                                                                  |
+| `create-agent-resource-link` | Mint a temporary read-only `agent_access` URL for a registered agent-readable resource.                                  |
 
 Diga ao agente "compartilhe este design com a equipe de marketing como editores" e ele chamará `share-resource` no mesmo endpoint que UI usa. O resultado aparece na caixa de diálogo de compartilhamento na próxima renderização.
+
+## Agent-readable share links {#agent-readable-links}
+
+Human share links should also work for agents when the resource is a document-like artifact: plans, documents, decks, designs, analytics dashboards, saved analyses, clips, and similar "things you would send to a person." Public links expose a small SSR discovery script that points at structured JSON. Private resources use a short-lived `agent_access` token scoped to exactly one resource.
+
+Register the resource with `agentReadable`, add a read-only JSON context endpoint, inject the SSR discovery script with `renderAgentReadableResourceDiscoveryScript()`, and let agents call `create-agent-resource-link` when they need a temporary private URL. The endpoint must return data only when the row is `public` or `verifyScopedAgentAccessToken()` accepts the token for that exact `resourceKind` and `resourceId`.
 
 ## Construindo-o em um novo modelo {#building}
 

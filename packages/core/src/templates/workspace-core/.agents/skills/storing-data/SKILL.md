@@ -25,6 +25,14 @@ Agent-native apps use Drizzle ORM over the configured SQL backend. Local develop
 
 For app code, use Drizzle's schema/query DSL by default. Raw SQL is an escape hatch for additive migrations, health checks, or one-off maintenance, not the normal way to build features.
 
+### Naming migrations
+
+When you add an entry to a `runMigrations([...])` list (`@agent-native/core/db`), always give it a unique `name:` slug (e.g. `name: "analytics-alert-rules-table"`) alongside its `version`. Never renumber or reuse version numbers on existing entries.
+
+Why: version numbers alone are not a safe identity. Two branches that each independently extend the same migration list can ship different DDL under the same version numbers — whichever branch deploys first "claims" those version numbers in the bookkeeping table, and the other branch's DDL is silently treated as already applied even though it never ran. This exact collision took down analytics: parallel branches both extended their migration list through v75-v83 with different DDL, so `analytics_alert_rules`, `analytics_alert_incidents`, and `session_recordings.network_error_count` never made it to production despite the bookkeeping table showing every version as applied. A `name:` slug is tracked independently of version numbers, so it applies exactly once per database regardless of what any other branch already recorded.
+
+Existing unnamed migrations don't need to be renamed retroactively (the two gating strategies coexist), but any new entry should always carry a name.
+
 ### Core SQL Stores (auto-created, available in all templates)
 
 | Store               | Purpose                                              | Access                                     |

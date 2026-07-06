@@ -24,17 +24,30 @@ export interface RunStuckState {
   stuckSinceMs: number | null;
   /** Server timestamp (ms) of the last process-alive heartbeat. */
   heartbeatAt: number | null;
+  /** Milliseconds since `heartbeatAt`, computed against the server clock. */
+  heartbeatSinceMs: number | null;
+  /** How the run was dispatched, e.g. foreground or background-processing. */
+  dispatchMode: string | null;
 }
 
 export interface UseRunStuckDetectionOptions {
   /** The thread to monitor. Pass null/undefined to disable polling. */
   threadId: string | null | undefined;
   /**
-   * Threshold above which an in-flight run is considered stuck. The default
-   * sits comfortably above the adapter's 75s no-progress reconnect — by then
-   * automatic recovery has already had its chance.
+   * Threshold above which an in-flight FOREGROUND run is considered stuck.
+   * The default sits comfortably above the adapter's 75s no-progress
+   * reconnect — by then automatic recovery has already had its chance.
    */
   stuckThresholdMs?: number;
+  /**
+   * Threshold for BACKGROUND-dispatched runs (dispatchMode starts with
+   * "background"). The server owns recovery for these — its run-manager
+   * no-progress backstop (150s) and unclaimed-run sweep act first — so the
+   * user-facing "stuck" affordance is a late fallback, not a race against
+   * them. Selected inside the hook because the dispatch mode is only known
+   * from the same poll response that computes the elapsed time.
+   */
+  backgroundStuckThresholdMs?: number;
   /** Poll interval. Default 5_000ms. */
   pollIntervalMs?: number;
   /** API base path. Default `/_agent-native/agent-chat`. */
@@ -42,6 +55,7 @@ export interface UseRunStuckDetectionOptions {
 }
 
 const DEFAULT_STUCK_THRESHOLD_MS = 90_000;
+export const DEFAULT_BACKGROUND_STUCK_THRESHOLD_MS = 180_000;
 const DEFAULT_POLL_INTERVAL_MS = 5_000;
 const IDLE_BACKOFF_INTERVAL_MS = 15_000;
 
@@ -51,6 +65,7 @@ interface ActiveRunResponse {
   status?: string;
   heartbeatAt: number | null;
   lastProgressAt?: number | null;
+  dispatchMode?: string | null;
   /** Server clock at response time, used to compute elapsed server-relative. */
   serverNow?: number;
 }
@@ -62,11 +77,14 @@ const EMPTY_STATE: RunStuckState = {
   lastProgressAt: null,
   stuckSinceMs: null,
   heartbeatAt: null,
+  heartbeatSinceMs: null,
+  dispatchMode: null,
 };
 
 export function useRunStuckDetection({
   threadId,
   stuckThresholdMs = DEFAULT_STUCK_THRESHOLD_MS,
+  backgroundStuckThresholdMs = DEFAULT_BACKGROUND_STUCK_THRESHOLD_MS,
   pollIntervalMs = DEFAULT_POLL_INTERVAL_MS,
   apiUrl,
 }: UseRunStuckDetectionOptions): RunStuckState {
@@ -102,11 +120,22 @@ export function useRunStuckDetection({
           const nowMs = data.serverNow ?? Date.now();
           const stuckSinceMs =
             lastProgressAt != null ? nowMs - lastProgressAt : null;
+          const heartbeatAt = data.heartbeatAt ?? null;
+          const heartbeatSinceMs =
+            heartbeatAt != null ? nowMs - heartbeatAt : null;
+          const dispatchMode =
+            typeof data.dispatchMode === "string" ? data.dispatchMode : null;
+          // Background-dispatched runs get the wider threshold: the server's
+          // own recovery (150s no-progress backstop + chained continuations)
+          // must get its chance before the user sees a "stuck" affordance.
+          const effectiveThresholdMs = dispatchMode?.startsWith("background")
+            ? backgroundStuckThresholdMs
+            : stuckThresholdMs;
           const isStuck = Boolean(
             data.active &&
             data.status === "running" &&
             stuckSinceMs != null &&
-            stuckSinceMs > stuckThresholdMs,
+            stuckSinceMs > effectiveThresholdMs,
           );
           setState({
             isStuck,
@@ -114,7 +143,9 @@ export function useRunStuckDetection({
             status: data.status ?? null,
             lastProgressAt,
             stuckSinceMs,
-            heartbeatAt: data.heartbeatAt ?? null,
+            heartbeatAt,
+            heartbeatSinceMs,
+            dispatchMode,
           });
           // Back off polling when nothing is in flight — there's no point
           // hammering the endpoint while the chat is idle. We still poll
@@ -140,7 +171,13 @@ export function useRunStuckDetection({
       cancelled = true;
       if (timer) clearTimeout(timer);
     };
-  }, [threadId, stuckThresholdMs, pollIntervalMs, apiUrl]);
+  }, [
+    threadId,
+    stuckThresholdMs,
+    backgroundStuckThresholdMs,
+    pollIntervalMs,
+    apiUrl,
+  ]);
 
   return state;
 }

@@ -75,7 +75,11 @@ const PENDING_SELECTION_KEY = "pending-selection-context";
 // ─── displayableUserMessageText ───────────────────────────────────────────────
 
 export function displayableUserMessageText(text: string): string {
-  return text.replace(/<context>[\s\S]*?<\/context>\n?/g, "").trim();
+  return text
+    .replace(/<context\b[^>]*>[\s\S]*?<\/context>\n?/gi, "")
+    .replace(/<context\b[^>]*>[\s\S]*$/gi, "")
+    .replace(/<\/context>/gi, "")
+    .trim();
 }
 
 // ─── Message timestamp helpers ────────────────────────────────────────────────
@@ -214,7 +218,7 @@ export function SelectionAttachedPill() {
   if (length === null || length === 0) return null;
 
   return (
-    <div className="shrink-0 px-3 pt-1.5 -mb-1">
+    <div className="agent-selection-attached-pill shrink-0 px-3 pt-1.5 -mb-1">
       <div className="inline-flex items-center gap-1.5 rounded-full border border-border bg-muted/50 px-2 py-0.5 text-[11px] text-muted-foreground">
         <IconQuote size={11} />
         <span>{length.toLocaleString()} chars of selection attached</span>
@@ -784,19 +788,32 @@ function assistantMessageStatusIsTerminal(message: {
   return statusType === "complete" || statusType === "incomplete";
 }
 
+export function assistantMessageHasUnresolvedTool(content: unknown): boolean {
+  if (!Array.isArray(content)) return false;
+  return content.some((part): boolean => {
+    if (!part || typeof part !== "object") return false;
+    const record = part as { type?: unknown; result?: unknown };
+    return record.type === "tool-call" && record.result === undefined;
+  });
+}
+
 export function shouldShowAssistantMessageFooter({
   isLast,
   chatRunning,
   hasRenderableContent,
   statusIsTerminal,
+  hasUnresolvedTool,
 }: {
   isLast: boolean;
   chatRunning: boolean;
   hasRenderableContent: boolean;
   statusIsTerminal: boolean;
+  hasUnresolvedTool?: boolean;
 }): boolean {
   if (!hasRenderableContent) return false;
+  if (chatRunning) return false;
   if (!isLast) return true;
+  if (hasUnresolvedTool) return false;
   return !chatRunning && statusIsTerminal;
 }
 
@@ -813,11 +830,13 @@ export function AssistantMessage() {
     thread.messages.length > 0 &&
     thread.messages[thread.messages.length - 1].id === msg.id;
   const hasRenderableContent = assistantMessageHasRenderableContent(msg);
+  const hasUnresolvedTool = assistantMessageHasUnresolvedTool(msg.content);
   const isComplete = shouldShowAssistantMessageFooter({
     isLast,
     chatRunning,
     hasRenderableContent,
     statusIsTerminal: assistantMessageStatusIsTerminal(msg),
+    hasUnresolvedTool,
   });
   const cpCtx = React.useContext(CheckpointContext);
 
@@ -895,7 +914,7 @@ export function AssistantMessage() {
       className="group relative"
       style={{ contentVisibility: isComplete ? "auto" : "visible" }}
     >
-      <div className="max-w-[95%] text-sm leading-relaxed text-foreground">
+      <div className="w-full max-w-[95%] text-sm leading-relaxed text-foreground">
         <MessagePrimitive.Parts
           components={{
             Text: MarkdownText,
@@ -906,6 +925,9 @@ export function AssistantMessage() {
         />
         {isComplete && hasCodeAgentTools && msgContent && (
           <FilesChangedSummary parts={msgContent} />
+        )}
+        {isLast && hasUnresolvedTool && !chatRunning && (
+          <RunningActivityStatus label="Thinking" />
         )}
       </div>
       {isComplete && (

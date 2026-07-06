@@ -1,11 +1,11 @@
 import { useActionMutation, useT } from "@agent-native/core/client";
+import { Input } from "@agent-native/toolkit/ui/input";
+import { Skeleton } from "@agent-native/toolkit/ui/skeleton";
 import { IconEdit } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { toast } from "sonner";
 
-import { Input } from "@/components/ui/input";
-import { Skeleton } from "@/components/ui/skeleton";
 import { isDefaultTitle } from "@/hooks/use-auto-title";
 import { cn } from "@/lib/utils";
 

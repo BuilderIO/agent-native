@@ -139,20 +139,33 @@ export default defineAction({
     "`replace` adds the wrapper around the original text. For broad copy-only " +
     'changes such as translating all visible text, use `mode: "replace-file"` ' +
     "with `replacementContent`: the complete updated file content copied from " +
-    "the snapshot with only the requested copy changed. Use `generate-design` " +
-    "instead only for brand-new files or large structural rewrites.",
+    "the snapshot with only the requested copy changed. After a variant pick " +
+    "or any other selected-screen follow-up, pass the exact `fileId` from " +
+    '`get-design-snapshot` and use `mode: "replace-file"` when replacing ' +
+    "the representative placeholder with a complete but compact UI in the chosen " +
+    "direction; prioritize the primary workflow and render secondary details " +
+    "as visible controls, states, or affordances when needed. Use `generate-design` " +
+    "instead only for brand-new files.",
   schema: z
     .object({
       designId: z.string().describe("Design project ID"),
+      fileId: z
+        .string()
+        .optional()
+        .describe(
+          "Optional exact design file ID to edit. Use this after a variant pick or selected-screen snapshot; when provided, it wins over filename.",
+        ),
       filename: z
         .string()
-        .default("index.html")
-        .describe("File to edit (e.g. 'index.html')"),
+        .optional()
+        .describe(
+          "File to edit (e.g. 'index.html'). Defaults to index.html only when fileId is omitted.",
+        ),
       mode: z
         .enum(["search-replace", "replace-file"])
         .optional()
         .describe(
-          "Defaults to search-replace. Use replace-file for broad copy-only edits like translating the whole page after reading get-design-snapshot.",
+          "Defaults to search-replace. Use replace-file for selected variant expansion or broad copy-only edits after reading get-design-snapshot.",
         ),
       edits: editBlocksSchema
         .optional()
@@ -164,7 +177,7 @@ export default defineAction({
         .min(1)
         .optional()
         .describe(
-          "Complete updated file content. Use only with mode=replace-file for broad copy-only changes; preserve all HTML structure, CSS, scripts, and tweaks from get-design-snapshot.",
+          "Complete updated file content. Use only with mode=replace-file for selected variant expansion or broad copy-only changes; preserve all HTML structure, CSS, scripts, and tweaks from get-design-snapshot. For selected variants, keep the replacement complete but compact instead of expanding secondary details into an oversized payload.",
         ),
     })
     .superRefine((value, ctx) => {
@@ -201,16 +214,31 @@ export default defineAction({
         });
       }
     }),
-  run: async ({ designId, filename, edits, mode, replacementContent }) => {
+  run: async ({
+    designId,
+    fileId,
+    filename,
+    edits,
+    mode,
+    replacementContent,
+  }) => {
     await assertAccess("design", designId, "editor");
 
     const db = getDb();
     const now = new Date().toISOString();
+    const requestedFileId = fileId?.trim();
+    const targetFilename = requestedFileId
+      ? undefined
+      : filename?.trim() || "index.html";
+    const targetCondition = requestedFileId
+      ? eq(schema.designFiles.id, requestedFileId)
+      : eq(schema.designFiles.filename, targetFilename!);
 
-    // Resolve the target file (access-scoped) by design + filename.
+    // Resolve the target file (access-scoped) by design + fileId or filename.
     const [file] = await db
       .select({
         id: schema.designFiles.id,
+        filename: schema.designFiles.filename,
         content: schema.designFiles.content,
       })
       .from(schema.designFiles)
@@ -221,14 +249,18 @@ export default defineAction({
       .where(
         and(
           eq(schema.designFiles.designId, designId),
-          eq(schema.designFiles.filename, filename),
+          targetCondition,
           accessFilter(schema.designs, schema.designShares),
         ),
       )
       .limit(1);
 
     if (!file) {
-      throw new Error(`File "${filename}" not found in design ${designId}`);
+      throw new Error(
+        requestedFileId
+          ? `File id "${requestedFileId}" not found in design ${designId}`
+          : `File "${targetFilename}" not found in design ${designId}`,
+      );
     }
 
     // Prefer live collab content so we edit in-flight changes, not a stale
@@ -258,23 +290,20 @@ export default defineAction({
     if (changed) {
       // Mark agent presence + selection so live viewers can see where the
       // agent is working before the update arrives via collab.
+      //
+      // No resolvable DOM selector is available here (search-replace targets
+      // source text, not a stamped node), so we publish `selection: null`
+      // rather than a fabricated `[data-edit-target=...]` selector that could
+      // never resolve against the rendered iframe. Region attribution instead
+      // rides on the `{ kind: "text", quote }` recentEdits descriptor that
+      // `applyText(..., "agent")` auto-publishes from the content diff below —
+      // clients render a lingering highlight over the changed text.
       agentEnterDocument(file.id);
-      if (resolvedMode === "search-replace" && applied > 0) {
-        const firstSearch = edits?.[0]?.search;
-        agentUpdateSelection(file.id, {
-          selection: firstSearch
-            ? `[data-edit-target="${firstSearch.slice(0, 40)}"]`
-            : null,
-          editingFile: filename,
-          designId,
-        });
-      } else {
-        agentUpdateSelection(file.id, {
-          selection: null,
-          editingFile: filename,
-          designId,
-        });
-      }
+      agentUpdateSelection(file.id, {
+        selection: null,
+        editingFile: file.filename,
+        designId,
+      });
 
       try {
         await db
@@ -301,7 +330,7 @@ export default defineAction({
 
     return {
       designId,
-      filename,
+      filename: file.filename,
       fileId: file.id,
       mode: resolvedMode,
       editsApplied: applied,

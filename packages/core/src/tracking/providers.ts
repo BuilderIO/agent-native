@@ -134,16 +134,37 @@ function shouldSkipAgentNativeAnalyticsForLocalhost(): boolean {
 
 // ─── PostHog ───────────────────────────────────────────────────────────────
 
+function isPostHogAiObservabilityEvent(eventName: string): boolean {
+  return eventName.startsWith("$ai_");
+}
+
 function createPostHogProvider(apiKey: string, host: string): TrackingProvider {
   return {
     name: "posthog",
     track(event: TrackingEvent) {
+      const distinctId = event.userId || "anonymous";
+      if (isPostHogAiObservabilityEvent(event.name)) {
+        enqueue(
+          `${host}/i/v0/e/`,
+          JSON.stringify({
+            api_key: apiKey,
+            event: event.name,
+            properties: {
+              distinct_id: distinctId,
+              ...event.properties,
+              timestamp: event.timestamp,
+            },
+          }),
+        );
+        return;
+      }
+
       enqueue(
         `${host}/capture/`,
         JSON.stringify({
           api_key: apiKey,
           event: event.name,
-          distinct_id: event.userId || "anonymous",
+          distinct_id: distinctId,
           properties: {
             ...event.properties,
             timestamp: event.timestamp,

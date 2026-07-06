@@ -3,6 +3,36 @@ import {
   useActionQuery,
   useT,
 } from "@agent-native/core/client";
+import { Button } from "@agent-native/toolkit/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@agent-native/toolkit/ui/dropdown-menu";
+import { Input } from "@agent-native/toolkit/ui/input";
+import { Label } from "@agent-native/toolkit/ui/label";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@agent-native/toolkit/ui/popover";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@agent-native/toolkit/ui/select";
+import { Slider } from "@agent-native/toolkit/ui/slider";
+import { Switch } from "@agent-native/toolkit/ui/switch";
+import { Tabs, TabsList, TabsTrigger } from "@agent-native/toolkit/ui/tabs";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@agent-native/toolkit/ui/tooltip";
 import type { TweakDefinition } from "@shared/api";
 import {
   alphaToOpacity,
@@ -67,6 +97,7 @@ import {
 } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import {
+  memo,
   useCallback,
   useEffect,
   useMemo,
@@ -77,35 +108,6 @@ import {
 import { useParams } from "react-router";
 import { toast } from "sonner";
 
-import { Button } from "@/components/ui/button";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { Slider } from "@/components/ui/slider";
-import { Switch } from "@/components/ui/switch";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
 import {
@@ -129,6 +131,7 @@ import {
   type DesignGradientStopPatch,
   type DesignGradientType,
   type ImageFillValue,
+  type ScrubInputChangeMeta,
 } from "./inspector";
 import { IconLayoutSettings } from "./inspector/design-icons";
 import type { DesignPaintType } from "./inspector/DesignColorPicker";
@@ -139,6 +142,33 @@ import { TweaksPanelContent } from "./TweaksPanel";
 import type { ElementInfo } from "./types";
 
 export type InspectorTab = "design" | "tweaks";
+
+/**
+ * PF12: gesture-lifecycle metadata threaded alongside a style commit.
+ *
+ * - "preview": a live, in-progress tick (a ScrubInput scrub sample or a
+ *   DesignColorPicker drag tick) — cheap to show in the live iframe preview,
+ *   but must NOT trigger the expensive source commit (projection parse + HTML
+ *   patch + history entry) on every tick.
+ * - "commit" (or omitted, for callers that don't pass meta at all): the
+ *   gesture's authoritative final value — exactly one per gesture — which
+ *   DOES trigger the full source commit. Omitting meta entirely preserves
+ *   prior behavior (treated as "commit") for every non-scrub/color call site.
+ */
+export interface StyleChangeMeta {
+  phase?: "preview" | "commit";
+}
+
+export type StyleChangeHandler = (
+  property: string,
+  value: string,
+  meta?: StyleChangeMeta,
+) => void;
+
+export type StylesChangeHandler = (
+  styles: Record<string, string>,
+  meta?: StyleChangeMeta,
+) => void;
 
 const MIXED_VALUE = "Mixed";
 
@@ -152,7 +182,7 @@ function sameOrMixed(values: string[]): string {
   return values.every((value) => value === first) ? first : MIXED_VALUE;
 }
 
-function mixedElementFromSelection(
+export function mixedElementFromSelection(
   elements: ElementInfo[],
 ): ElementInfo | null {
   const base = elements[elements.length - 1];
@@ -167,6 +197,27 @@ function mixedElementFromSelection(
       sameOrMixed(elements.map((element) => element.computedStyles[key] ?? "")),
     ]),
   );
+  // Mix inlineStyles the same way as computedStyles so authoredStyleValue()
+  // sees a proper Mixed sentinel across a multi-selection instead of
+  // silently inheriting the last-selected element's raw inline value
+  // (spreading ...base alone would leak that stale single-element value).
+  const inlineStyleKeys = new Set<string>();
+  elements.forEach((element) => {
+    Object.keys(element.inlineStyles ?? {}).forEach((key) =>
+      inlineStyleKeys.add(key),
+    );
+  });
+  const inlineStyles =
+    inlineStyleKeys.size > 0
+      ? Object.fromEntries(
+          Array.from(inlineStyleKeys).map((key) => [
+            key,
+            sameOrMixed(
+              elements.map((element) => element.inlineStyles?.[key] ?? ""),
+            ),
+          ]),
+        )
+      : undefined;
   const minX = Math.min(...elements.map((element) => element.boundingRect.x));
   const minY = Math.min(...elements.map((element) => element.boundingRect.y));
   const maxX = Math.max(
@@ -187,6 +238,12 @@ function mixedElementFromSelection(
     selector: base.selector,
     classes: [],
     computedStyles,
+    inlineStyles,
+    // Mix like tagName above — otherwise isTextElement() would trust
+    // base.primitiveKind alone and misclassify a mixed text+shape selection.
+    primitiveKind: sameOrMixed(
+      elements.map((element) => element.primitiveKind ?? ""),
+    ),
     boundingRect: {
       x: minX,
       y: minY,
@@ -206,6 +263,7 @@ function mixedElementFromSelection(
 interface EditPanelProps {
   selectedElement: ElementInfo | null;
   selectedElements?: ElementInfo[];
+  selectedScreenGeometry?: ScreenGeometrySelection | null;
   pageStyles?: Record<string, string>;
   zoom?: number;
   headerTrailing?: ReactNode;
@@ -216,8 +274,8 @@ interface EditPanelProps {
   tweakValues?: Record<string, string | number | boolean>;
   onTweakChange?: (id: string, value: string | number | boolean) => void;
   onRequestTweaks?: (anchor: HTMLElement) => void;
-  onStyleChange: (property: string, value: string) => void;
-  onStylesChange?: (styles: Record<string, string>) => void;
+  onStyleChange: StyleChangeHandler;
+  onStylesChange?: StylesChangeHandler;
   onExport?: (settings: ExportSettingsValue[]) => void;
   exporting?: boolean;
   /** Active file id — used for component prop editing context. */
@@ -283,6 +341,17 @@ interface EditPanelProps {
   defaultComponentName?: string;
   /** Code-inspection data for the "Inspect code" popover. */
   inspectCode?: InspectCodeData;
+  /** Optional compact AI edit controls for selected/local source elements. */
+  aiActions?: ReactNode;
+}
+
+export interface ScreenGeometrySelection {
+  id: string;
+  title: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
 }
 
 /**
@@ -381,6 +450,9 @@ function PropInput({
 }) {
   const [draft, setDraft] = useState(value);
   const mixed = isMixedValue(value);
+  // Escape reverts and blurs; the blur handler must then skip its commit or it
+  // would re-commit the stale draft closure (mirrors ScrubInput's Escape path).
+  const skipNextBlurCommitRef = useRef(false);
 
   useEffect(() => {
     setDraft(value);
@@ -419,11 +491,26 @@ function PropInput({
           // defaultUnit) keep the responsive live-update behavior.
           if (defaultUnit === undefined) onChange(e.target.value);
         }}
-        onBlur={commit}
+        onBlur={() => {
+          if (skipNextBlurCommitRef.current) {
+            skipNextBlurCommitRef.current = false;
+            return;
+          }
+          commit();
+        }}
         onKeyDown={(e) => {
           if (e.key === "Enter") {
             e.preventDefault();
             commit();
+            (e.currentTarget as HTMLInputElement).blur();
+            return;
+          }
+          if (e.key === "Escape") {
+            e.preventDefault();
+            // Revert the draft to the last committed value and blur, matching
+            // ScrubInput's Escape behavior.
+            setDraft(value);
+            skipNextBlurCommitRef.current = true;
             (e.currentTarget as HTMLInputElement).blur();
           }
         }}
@@ -453,7 +540,7 @@ function ColorInput({
 }: {
   label: string;
   value: string;
-  onChange: (value: string) => void;
+  onChange: (value: string, meta?: StyleChangeMeta) => void;
   backgroundImage?: string;
   backgroundSize?: string;
   backgroundRepeat?: string;
@@ -521,9 +608,28 @@ function ColorInput({
     }
   }, [activeStopIds, selectedStopId]);
 
-  const setNext = (next: string) => {
+  // PF12: `phase` defaults to "commit" so every discrete/one-shot caller
+  // (swatch clicks, paint-type switches, hex commit, fill-row edits) keeps
+  // committing immediately as before. Only the raw per-tick `onChange` wired
+  // to DesignColorPicker below passes "preview" explicitly — the picker's own
+  // `onChangeComplete` re-invokes setNext with the same final value tagged
+  // "commit" once the gesture ends (see the DesignColorPicker render below).
+  const setNext = (next: string, phase: "preview" | "commit" = "commit") => {
+    // Guard rail for callers that don't wire onBackgroundImageChange (i.e.
+    // supportsLayeredFills is false, e.g. the text-fill "color" row): the
+    // picker manages gradient/image paint-type selection as *local* UI state
+    // independent of props (see DesignColorPicker's localPaintType), so a
+    // user can still open the Gradient/Image tab there even when this
+    // ColorInput never offered layered fills. When that happens,
+    // emitPaintValue falls back to this onChange with a full gradient/url()
+    // CSS string, which is invalid for a plain color property (color /
+    // backgroundColor) and gets silently dropped by the browser — but not
+    // before clobbering the last-known-good value in this component's own
+    // state. Reject anything that doesn't parse as a plain solid color in
+    // that case instead of forwarding it.
+    if (!supportsLayeredFills && !parseCssColor(next)) return;
     setDraft(next);
-    onChange(next);
+    onChange(next, { phase });
   };
 
   const replaceBackgroundLayer = (index: number, nextLayer: string) => {
@@ -782,7 +888,14 @@ function ColorInput({
       key={pickerKey}
       label={label}
       value={pickerValue}
-      onChange={setNext}
+      // PF12: `onChange` fires on every SV/hue/alpha drag tick — tag those as
+      // "preview" so the caller can skip the expensive source commit and only
+      // update the live iframe preview. `onChangeComplete` fires exactly once
+      // per gesture (drag-end, hex commit, keyboard nudge, swatch click,
+      // paint-type switch) with the same final value, tagged "commit" so the
+      // authoritative source write always happens exactly once.
+      onChange={(v) => setNext(v, "preview")}
+      onChangeComplete={(v) => setNext(v, "commit")}
       onPaintValueChange={
         supportsLayeredFills ? handlePaintValueChange : undefined
       }
@@ -897,6 +1010,46 @@ function averageGradientOpacity(stops: DesignGradientStop[]): number {
     return sum + (stop.opacity ?? (parsed ? alphaToOpacity(parsed.a) : 100));
   }, 0);
   return Math.round(total / stops.length);
+}
+
+/**
+ * Marker used to non-destructively hide a single backgroundImage layer
+ * (gradient or image). CSS strips comments from computed style values — a
+ * trailing comment appended to a backgroundImage layer does not survive
+ * getComputedStyle (verified: browsers normalize/serialize computed values
+ * without their source comments) — so we can't tag the layer text itself.
+ * Instead we pair the untouched original layer with a zero-size
+ * background-size entry at the same index: `background-size: 0px 0px` makes
+ * that layer render nothing while backgroundImage keeps the exact original
+ * CSS text. Both backgroundImage and backgroundSize are real, valid,
+ * positionally-paired CSS lists that DO round-trip through computed style,
+ * so hiding survives reselect/reload with no React state stash required.
+ */
+const HIDDEN_LAYER_SIZE_MARKER = "0px 0px";
+
+export function isLayerHiddenBySize(sizeEntry: string | undefined): boolean {
+  return (
+    (sizeEntry ?? "").trim().replace(/\s+/g, " ") === HIDDEN_LAYER_SIZE_MARKER
+  );
+}
+
+/**
+ * Rewrites the background-size list so `index` is hidden/shown via the
+ * zero-size marker, padding shorter lists with "auto" (the CSS default) so
+ * every other layer keeps rendering at its current/default size.
+ */
+export function withLayerSizeMarker(
+  sizeLayers: string[],
+  layerCount: number,
+  index: number,
+  hidden: boolean,
+): string {
+  const next = Array.from(
+    { length: layerCount },
+    (_, i) => sizeLayers[i] || "auto",
+  );
+  next[index] = hidden ? HIDDEN_LAYER_SIZE_MARKER : "auto";
+  return joinCssLayers(next);
 }
 
 function splitCssLayers(value: string): string[] {
@@ -1566,8 +1719,30 @@ function parseScaleValue(value: string | undefined): [number, number] {
   return [Number.isFinite(x) ? x : 1, Number.isFinite(y) ? y : 1];
 }
 
-function mergeRotationValue(transform: string | undefined, degrees: number) {
-  const nextRotate = `rotate(${Math.round(degrees * 10) / 10}deg)`;
+/**
+ * Normalize an angle in degrees into the (-180, 180] range the inspector
+ * displays and commits (design-tool convention: 270° reads as -90°, a full
+ * 360° turn reads as 0°). Exported for tests.
+ */
+export function normalizeRotationDegrees(degrees: number): number {
+  if (!Number.isFinite(degrees)) return 0;
+  let normalized = degrees % 360;
+  if (normalized > 180) normalized -= 360;
+  else if (normalized <= -180) normalized += 360;
+  return Object.is(normalized, -0) ? 0 : normalized;
+}
+
+/** Exported for tests. */
+export function mergeRotationValue(
+  transform: string | undefined,
+  degrees: number,
+) {
+  // Round first, then normalize, so a rounded -179.96 → -180 still lands
+  // inside (-180, 180] as +180.
+  const normalizedDegrees = normalizeRotationDegrees(
+    Math.round(degrees * 10) / 10,
+  );
+  const nextRotate = `rotate(${normalizedDegrees}deg)`;
   if (!transform || transform === "none") return nextRotate;
   // Replace an existing rotate()/rotateZ() in ANY unit so we don't append a
   // second rotate() (which would compound, e.g. "rotate(0.5turn) rotate(30deg)").
@@ -1616,7 +1791,7 @@ function ScrubStyleInput({
   label: string;
   value: string;
   placeholder?: number;
-  onChange: (value: number) => void;
+  onChange: (value: number, meta?: ScrubInputChangeMeta) => void;
   unit?: string;
   min?: number;
   max?: number;
@@ -1658,8 +1833,8 @@ function ScrubStyleInput({
 
 function commitStylePatch(
   styles: Record<string, string>,
-  onStyleChange: (property: string, value: string) => void,
-  onStylesChange?: (styles: Record<string, string>) => void,
+  onStyleChange: StyleChangeHandler,
+  onStylesChange?: StylesChangeHandler,
 ) {
   if (onStylesChange) {
     onStylesChange(styles);
@@ -1683,6 +1858,11 @@ function cssLengthNumber(value: string | undefined, fallback = 0): number {
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 
+/** Round to one decimal place — matches the `precision={1}` ScrubInput controls advertise (e.g. stroke weight, font size) so 0.5-unit values aren't silently floored to whole numbers. */
+export function roundToOneDecimal(value: number): number {
+  return Math.round(value * 10) / 10;
+}
+
 function cssColorOrFallback(value: string | undefined, fallback: string) {
   const normalized = value?.trim();
   if (
@@ -1697,6 +1877,17 @@ function cssColorOrFallback(value: string | undefined, fallback: string) {
 
 function strokeIsVisible(width: string | undefined, style: string | undefined) {
   return cssLengthNumber(width) > 0 && style !== "none";
+}
+
+/**
+ * True when a stroke's own color is the reason it's invisible (alpha
+ * zeroed) rather than its width/style. Used so the eye toggle can hide a
+ * stroke by zeroing color alpha — preserving the original border-style
+ * (solid/dashed/dotted/etc, which has no "unset" round-trip once written as
+ * "none") — instead of forcing borderStyle back to "solid" on every show.
+ */
+export function strokeHiddenByColor(color: string | undefined): boolean {
+  return Boolean(color) && !colorHasVisibleAlpha(color);
 }
 
 function swatchStyle(value: string | undefined) {
@@ -1882,8 +2073,29 @@ function parentFlexDirection(element: ElementInfo): AutoLayoutSizingAxis {
     : "horizontal";
 }
 
-function isTextElement(element: ElementInfo): boolean {
-  return TEXT_TAGS.has((element.tagName || "").toLowerCase());
+export function isTextElement(element: ElementInfo): boolean {
+  const tag = (element.tagName || "").toLowerCase();
+  if (TEXT_TAGS.has(tag)) return true;
+  // T-tool text primitives are plain `div`s stamped with
+  // data-an-primitive="text" (see DesignEditor primitive creation). The
+  // bridge now forwards that marker as ElementInfo.primitiveKind — prefer it
+  // when present since it's exact.
+  if (element.primitiveKind) return element.primitiveKind === "text";
+  // Fallback for older payloads that predate primitiveKind: approximate a
+  // T-tool text div with a content heuristic — a childless div that has its
+  // own text content and isn't already flagged as a layout container. This
+  // intentionally excludes empty frames/shapes (no text) and containers with
+  // element children.
+  if (
+    tag === "div" &&
+    !element.isFlexContainer &&
+    !element.isGridContainer &&
+    (element.childElementCount ?? 0) === 0 &&
+    Boolean(element.textContent?.trim())
+  ) {
+    return true;
+  }
+  return false;
 }
 
 /**
@@ -1960,7 +2172,7 @@ function commitElementMinMax(
   axis: AutoLayoutSizingAxis,
   kind: "min" | "max",
   value: number | null,
-  onStyleChange: (property: string, value: string) => void,
+  onStyleChange: StyleChangeHandler,
 ) {
   const isHorizontal = axis === "horizontal";
   const property =
@@ -2035,8 +2247,8 @@ function commitElementSizing(
   element: ElementInfo,
   axis: AutoLayoutSizingAxis,
   sizing: AutoLayoutSizing,
-  onStyleChange: (property: string, value: string) => void,
-  onStylesChange?: (styles: Record<string, string>) => void,
+  onStyleChange: StyleChangeHandler,
+  onStylesChange?: StylesChangeHandler,
 ) {
   const isHorizontal = axis === "horizontal";
   const sizeProperty = isHorizontal ? "width" : "height";
@@ -2956,6 +3168,79 @@ function SelectionHeader({
   );
 }
 
+function ScreenSelectionHeader({
+  screen,
+}: {
+  screen: ScreenGeometrySelection;
+}) {
+  return (
+    <div className="flex min-h-8 shrink-0 items-center justify-between gap-2 border-b border-border/90 px-3">
+      <div className="flex min-w-0 items-center gap-1.5 text-left text-[13px] font-semibold text-foreground">
+        <IconFrame className="size-3.5 shrink-0 text-muted-foreground" />
+        <span className="truncate">{screen.title}</span>
+      </div>
+    </div>
+  );
+}
+
+function ScreenGeometryProperties({
+  screen,
+}: {
+  screen: ScreenGeometrySelection;
+}) {
+  const t = useT();
+  const noop = useCallback(() => {}, []);
+
+  return (
+    <PanelSection title={t("editPanel.sections.positionLayout")}>
+      <div className="space-y-1.5">
+        <SubsectionLabel>{t("editPanel.labels.position")}</SubsectionLabel>
+        <div className="grid grid-cols-2 gap-2">
+          <ScrubInput
+            label="X"
+            value={Math.round(screen.x)}
+            onChange={noop}
+            unit="px"
+            disabled
+            inputClassName="h-6"
+          />
+          <ScrubInput
+            label="Y"
+            value={Math.round(screen.y)}
+            onChange={noop}
+            unit="px"
+            disabled
+            inputClassName="h-6"
+          />
+        </div>
+      </div>
+      <div className="space-y-1.5">
+        <SubsectionLabel>
+          {"Size" /* i18n-ignore design inspector label */}
+        </SubsectionLabel>
+        <div className="grid grid-cols-2 gap-2">
+          <ScrubInput
+            label="W"
+            value={Math.round(screen.width)}
+            onChange={noop}
+            unit="px"
+            disabled
+            inputClassName="h-6"
+          />
+          <ScrubInput
+            label="H"
+            value={Math.round(screen.height)}
+            onChange={noop}
+            unit="px"
+            disabled
+            inputClassName="h-6"
+          />
+        </div>
+      </div>
+    </PanelSection>
+  );
+}
+
 function InspectorTabsHeader({
   activeTab,
   onActiveTabChange,
@@ -3176,22 +3461,29 @@ function TypographyDetailsPopover({
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger asChild>
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon"
-          aria-label={"Typography details" /* i18n-ignore design action */}
-          aria-pressed={open}
-          className={cn(
-            "h-6 min-w-6 cursor-pointer rounded-md text-muted-foreground hover:bg-[var(--design-editor-panel-raised-bg)] hover:text-foreground",
-            open &&
-              "bg-[var(--design-editor-accent-color)]/20 text-[var(--design-editor-accent-color)] hover:text-[var(--design-editor-accent-color)]",
-          )}
-        >
-          <IconLayoutSettings className="size-3.5" />
-        </Button>
-      </PopoverTrigger>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <PopoverTrigger asChild>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              aria-label={"Typography details" /* i18n-ignore design action */}
+              aria-pressed={open}
+              className={cn(
+                "h-6 min-w-6 cursor-pointer rounded-md text-muted-foreground hover:bg-[var(--design-editor-panel-raised-bg)] hover:text-foreground",
+                open &&
+                  "bg-[var(--design-editor-accent-color)]/20 text-[var(--design-editor-accent-color)] hover:text-[var(--design-editor-accent-color)]",
+              )}
+            >
+              <IconLayoutSettings className="size-3.5" />
+            </Button>
+          </PopoverTrigger>
+        </TooltipTrigger>
+        <TooltipContent>
+          {"Typography details" /* i18n-ignore design action */}
+        </TooltipContent>
+      </Tooltip>
       <PopoverContent
         side="left"
         align="end"
@@ -3235,39 +3527,83 @@ function CornerRadiusControl({
   onStyleChange,
 }: {
   styles: Record<string, string>;
-  onStyleChange: (property: string, value: string) => void;
+  onStyleChange: StyleChangeHandler;
 }) {
   const t = useT();
   const independentCornersLabel = t("editPanel.labels.independentCorners");
-  const corners = {
-    topLeft: cssLengthNumber(styles.borderTopLeftRadius || styles.borderRadius),
-    topRight: cssLengthNumber(
-      styles.borderTopRightRadius || styles.borderRadius,
-    ),
-    bottomRight: cssLengthNumber(
-      styles.borderBottomRightRadius || styles.borderRadius,
-    ),
-    bottomLeft: cssLengthNumber(
-      styles.borderBottomLeftRadius || styles.borderRadius,
-    ),
+  const cornerSources = {
+    topLeft: styles.borderTopLeftRadius || styles.borderRadius,
+    topRight: styles.borderTopRightRadius || styles.borderRadius,
+    bottomRight: styles.borderBottomRightRadius || styles.borderRadius,
+    bottomLeft: styles.borderBottomLeftRadius || styles.borderRadius,
   };
-  const cornersDiffer =
-    corners.topLeft !== corners.topRight ||
-    corners.topLeft !== corners.bottomRight ||
-    corners.topLeft !== corners.bottomLeft;
+  const cornerMixed = {
+    topLeft: isMixedValue(cornerSources.topLeft),
+    topRight: isMixedValue(cornerSources.topRight),
+    bottomRight: isMixedValue(cornerSources.bottomRight),
+    bottomLeft: isMixedValue(cornerSources.bottomLeft),
+  };
+  // Guard cssLengthNumber against the Mixed sentinel — parseFloat("Mixed")
+  // would silently coerce it to 0 and render a concrete value.
+  const corners = {
+    topLeft: cornerMixed.topLeft ? 0 : cssLengthNumber(cornerSources.topLeft),
+    topRight: cornerMixed.topRight
+      ? 0
+      : cssLengthNumber(cornerSources.topRight),
+    bottomRight: cornerMixed.bottomRight
+      ? 0
+      : cssLengthNumber(cornerSources.bottomRight),
+    bottomLeft: cornerMixed.bottomLeft
+      ? 0
+      : cssLengthNumber(cornerSources.bottomLeft),
+  };
+  const anyCornerMixed =
+    cornerMixed.topLeft ||
+    cornerMixed.topRight ||
+    cornerMixed.bottomRight ||
+    cornerMixed.bottomLeft;
+  const allCornersMixed =
+    cornerMixed.topLeft &&
+    cornerMixed.topRight &&
+    cornerMixed.bottomRight &&
+    cornerMixed.bottomLeft;
+  // With mixed sentinels the parsed numbers are placeholders, so compare
+  // mixed-ness instead: all-mixed reads as uniform (each element may still be
+  // uniform), partially-mixed means at least one element has differing corners.
+  const cornersDiffer = anyCornerMixed
+    ? !allCornersMixed
+    : corners.topLeft !== corners.topRight ||
+      corners.topLeft !== corners.bottomRight ||
+      corners.topLeft !== corners.bottomLeft;
   const [showIndependentCorners, setShowIndependentCorners] =
     useState(cornersDiffer);
-  const radius = cornersDiffer
-    ? corners.topLeft
-    : cssLengthNumber(styles.borderRadius || String(corners.topLeft));
-  const commitRadius = (value: number) => {
+  const radiusMixed =
+    anyCornerMixed || (!cornersDiffer && isMixedValue(styles.borderRadius));
+  const radius = radiusMixed
+    ? 0
+    : cornersDiffer
+      ? corners.topLeft
+      : cssLengthNumber(styles.borderRadius || String(corners.topLeft));
+  const commitRadius = (value: number, meta?: ScrubInputChangeMeta) => {
     const next = `${Math.max(0, Math.round(value))}px`;
-    onStyleChange("borderRadius", next);
-    if (!showIndependentCorners) return;
-    onStyleChange("borderTopLeftRadius", next);
-    onStyleChange("borderTopRightRadius", next);
-    onStyleChange("borderBottomRightRadius", next);
-    onStyleChange("borderBottomLeftRadius", next);
+    // Always write the longhands along with the shorthand: stale inline
+    // longhand declarations serialize after the shorthand and would override
+    // it, turning uniform-radius commits into silent no-ops.
+    onStyleChange("borderRadius", next, meta);
+    onStyleChange("borderTopLeftRadius", next, meta);
+    onStyleChange("borderTopRightRadius", next, meta);
+    onStyleChange("borderBottomRightRadius", next, meta);
+    onStyleChange("borderBottomLeftRadius", next, meta);
+  };
+  const toggleIndependentCorners = () => {
+    // Collapsing while corners differ flattens them to the displayed uniform
+    // value; otherwise the stale longhands would keep overriding the shorthand
+    // and the single field would silently no-op. Mixed selections collapse the
+    // UI only — committing would stamp the placeholder 0 onto every object.
+    if (showIndependentCorners && cornersDiffer && !radiusMixed) {
+      commitRadius(radius);
+    }
+    setShowIndependentCorners(!showIndependentCorners);
   };
 
   useEffect(() => {
@@ -3281,8 +3617,9 @@ function CornerRadiusControl({
         icon={IconBorderRadius}
         value={radius}
         onChange={commitRadius}
+        mixed={radiusMixed}
         min={0}
-        precision={1}
+        precision={0}
       />
       <Tooltip>
         <TooltipTrigger asChild>
@@ -3297,7 +3634,7 @@ function CornerRadiusControl({
             )}
             aria-label={independentCornersLabel}
             aria-pressed={showIndependentCorners}
-            onClick={() => setShowIndependentCorners((value) => !value)}
+            onClick={toggleIndependentCorners}
           >
             <IconBorderCorners className="size-3.5" />
           </Button>
@@ -3308,54 +3645,66 @@ function CornerRadiusControl({
         <>
           <AppearanceScrubField
             label={t("editPanel.labels.topLeft")}
+            ariaLabel="Top left"
             icon={IconRadiusTopLeft}
             value={corners.topLeft}
-            onChange={(value) =>
+            onChange={(value, meta) =>
               onStyleChange(
                 "borderTopLeftRadius",
                 `${Math.max(0, Math.round(value))}px`,
+                meta,
               )
             }
+            mixed={cornerMixed.topLeft}
             min={0}
             precision={1}
           />
           <AppearanceScrubField
             label={t("editPanel.labels.topRight")}
+            ariaLabel="Top right"
             icon={IconRadiusTopRight}
             value={corners.topRight}
-            onChange={(value) =>
+            onChange={(value, meta) =>
               onStyleChange(
                 "borderTopRightRadius",
                 `${Math.max(0, Math.round(value))}px`,
+                meta,
               )
             }
+            mixed={cornerMixed.topRight}
             min={0}
             precision={1}
           />
           <span aria-hidden="true" />
           <AppearanceScrubField
             label={t("editPanel.labels.bottomLeft")}
+            ariaLabel="Bottom left"
             icon={IconRadiusBottomLeft}
             value={corners.bottomLeft}
-            onChange={(value) =>
+            onChange={(value, meta) =>
               onStyleChange(
                 "borderBottomLeftRadius",
                 `${Math.max(0, Math.round(value))}px`,
+                meta,
               )
             }
+            mixed={cornerMixed.bottomLeft}
             min={0}
             precision={1}
           />
           <AppearanceScrubField
             label={t("editPanel.labels.bottomRight")}
+            ariaLabel="Bottom right"
             icon={IconRadiusBottomRight}
             value={corners.bottomRight}
-            onChange={(value) =>
+            onChange={(value, meta) =>
               onStyleChange(
                 "borderBottomRightRadius",
                 `${Math.max(0, Math.round(value))}px`,
+                meta,
               )
             }
+            mixed={cornerMixed.bottomRight}
             min={0}
             precision={1}
           />
@@ -3368,6 +3717,7 @@ function CornerRadiusControl({
 
 function AppearanceScrubField({
   label,
+  ariaLabel,
   icon,
   value,
   onChange,
@@ -3379,9 +3729,10 @@ function AppearanceScrubField({
   precision,
 }: {
   label: string;
+  ariaLabel?: string;
   icon: (props: { className?: string }) => ReactNode;
   value: number;
-  onChange: (value: number) => void;
+  onChange: (value: number, meta?: ScrubInputChangeMeta) => void;
   mixed?: boolean;
   min?: number;
   max?: number;
@@ -3392,7 +3743,7 @@ function AppearanceScrubField({
   return (
     <ScrubInput
       label={label}
-      ariaLabel={label}
+      ariaLabel={ariaLabel ?? label}
       icon={icon}
       value={value}
       onChange={onChange}
@@ -3414,7 +3765,7 @@ function BlendModeMenu({
   onStyleChange,
 }: {
   styles: Record<string, string>;
-  onStyleChange: (property: string, value: string) => void;
+  onStyleChange: StyleChangeHandler;
 }) {
   const [open, setOpen] = useState(false);
   const blendMode = optionValue(
@@ -3422,8 +3773,16 @@ function BlendModeMenu({
     styles.mixBlendMode || "normal",
     "normal",
   );
-  const selectedBlendMode =
-    blendMode === "normal" && styles.isolation !== "isolate"
+  // Recognize the Mixed sentinel BEFORE optionValue's fallback maps it to
+  // "normal" — a mixed selection must not check a wrong concrete mode.
+  // Isolation only disambiguates pass-through vs normal, so it only makes the
+  // state mixed when the blend mode itself resolves to normal.
+  const blendModeMixed =
+    isMixedValue(styles.mixBlendMode) ||
+    (blendMode === "normal" && isMixedValue(styles.isolation));
+  const selectedBlendMode = blendModeMixed
+    ? MIXED_VALUE
+    : blendMode === "normal" && styles.isolation !== "isolate"
       ? "pass-through"
       : blendMode;
   const options = [
@@ -3467,6 +3826,20 @@ function BlendModeMenu({
         sideOffset={8}
         className="z-[100010] w-48 rounded-xl border-[var(--design-editor-control-border)] bg-[var(--design-editor-panel-bg)] p-1 text-[13px] text-foreground shadow-2xl"
       >
+        {blendModeMixed ? (
+          <>
+            {/* Placeholder state for a mixed selection: the check sits next to
+                "Mixed" instead of a wrong concrete mode. Picking any option
+                below applies it to every selected object. */}
+            <div className="flex h-9 items-center gap-3 rounded-md px-3 text-[13px] text-muted-foreground">
+              <span className="flex size-4 shrink-0 items-center justify-center">
+                <IconCheck className="size-4" />
+              </span>
+              <span>{MIXED_VALUE}</span>
+            </div>
+            <DropdownMenuSeparator />
+          </>
+        ) : null}
         {options.map((option) => (
           <DropdownMenuItem
             key={option.value}
@@ -3502,7 +3875,7 @@ function StrokeLayerControl({
   color: string;
   width: string;
   styleValue: string;
-  onStyleChange: (property: string, value: string) => void;
+  onStyleChange: StyleChangeHandler;
   onRemove: () => void;
 }) {
   const t = useT();
@@ -3533,7 +3906,9 @@ function StrokeLayerControl({
           <ColorInput
             label=""
             value={cssColorOrFallback(color, "#000000")}
-            onChange={(value) => onStyleChange(`${prefix}Color`, value)}
+            onChange={(value, meta) =>
+              onStyleChange(`${prefix}Color`, value, meta)
+            }
           />
         </div>
         <SectionIconButton
@@ -3543,11 +3918,25 @@ function StrokeLayerControl({
               : t("editPanel.labels.showLayer")
           }
           onClick={() => {
+            // Hide/show by zeroing the stroke color's alpha (preserving its
+            // RGB channels — same durable, comment-free technique as the
+            // fill visibility toggle) instead of forcing borderStyle to
+            // "none"/"solid". Writing "none" would lose a dashed/dotted
+            // style permanently, since there is no round-trippable "unset"
+            // for that keyword once it's overwritten.
+            const parsed = parseCssColor(color);
             if (visible) {
-              onStyleChange(`${prefix}Style`, "none");
+              onStyleChange(
+                `${prefix}Color`,
+                parsed ? rgbaToCss(withColorOpacity(parsed, 0)) : "transparent",
+              );
               return;
             }
-            onStyleChange(`${prefix}Style`, "solid");
+            const restoredColor = parsed
+              ? rgbaToCss(withColorOpacity(parsed, 100))
+              : "#000000";
+            onStyleChange(`${prefix}Color`, restoredColor);
+            if (styleValue === "none") onStyleChange(`${prefix}Style`, "solid");
             onStyleChange(
               `${prefix}Width`,
               width === "0px" ? "1px" : width || "1px",
@@ -3590,10 +3979,11 @@ function StrokeLayerControl({
           ariaLabel={t("editPanel.labels.weight")}
           icon={IconBorderStyle}
           value={cssLengthNumber(width)}
-          onChange={(value) =>
+          onChange={(value, meta) =>
             onStyleChange(
               `${prefix}Width`,
-              `${Math.max(0, Math.round(value))}px`,
+              `${Math.max(0, roundToOneDecimal(value))}px`,
+              meta,
             )
           }
           unit="px"
@@ -3691,7 +4081,9 @@ function serializeShadowLayers(layers: ShadowLayer[]) {
         `${Math.round(layer.x)}px`,
         `${Math.round(layer.y)}px`,
         `${Math.max(0, Math.round(layer.blur))}px`,
-        `${layer.inset ? Math.round(layer.spread) : Math.max(0, Math.round(layer.spread))}px`,
+        // Spread radius may legitimately be negative for either inset or
+        // drop shadows — only blur-radius is clamped to >= 0 in CSS.
+        `${Math.round(layer.spread)}px`,
         layer.color,
       ]
         .filter(Boolean)
@@ -3735,7 +4127,7 @@ function ShadowEffectRow({
 }: {
   layer: ShadowLayer;
   index: number;
-  onChange: (patch: Partial<ShadowLayer>) => void;
+  onChange: (patch: Partial<ShadowLayer>, meta?: StyleChangeMeta) => void;
   onRemove: () => void;
   onToggleVisibility: () => void;
 }) {
@@ -3814,7 +4206,9 @@ function ShadowEffectRow({
             <ScrubInput
               label="X"
               value={layer.x}
-              onChange={(value) => onChange({ x: value })}
+              onChange={(value, meta) =>
+                onChange({ x: value }, { phase: meta?.phase })
+              }
               unit="px"
               precision={1}
               inputClassName="h-6"
@@ -3822,7 +4216,9 @@ function ShadowEffectRow({
             <ScrubInput
               label="Y"
               value={layer.y}
-              onChange={(value) => onChange({ y: value })}
+              onChange={(value, meta) =>
+                onChange({ y: value }, { phase: meta?.phase })
+              }
               unit="px"
               precision={1}
               inputClassName="h-6"
@@ -3830,7 +4226,9 @@ function ShadowEffectRow({
             <ScrubInput
               label={t("editPanel.labels.blur")}
               value={layer.blur}
-              onChange={(value) => onChange({ blur: Math.max(0, value) })}
+              onChange={(value, meta) =>
+                onChange({ blur: Math.max(0, value) }, { phase: meta?.phase })
+              }
               unit="px"
               min={0}
               precision={1}
@@ -3839,11 +4237,14 @@ function ShadowEffectRow({
             <ScrubInput
               label={t("editPanel.labels.spread")}
               value={layer.spread}
-              onChange={(value) =>
-                onChange({ spread: layer.inset ? value : Math.max(0, value) })
+              // Spread radius is valid negative for both inset AND drop
+              // (non-inset) shadows in real CSS — negative spread shrinks
+              // the shadow smaller than the box before blurring, a common
+              // technique. Only blur-radius must stay >= 0.
+              onChange={(value, meta) =>
+                onChange({ spread: value }, { phase: meta?.phase })
               }
               unit="px"
-              min={layer.inset ? undefined : 0}
               precision={1}
               inputClassName="h-6"
             />
@@ -3851,7 +4252,7 @@ function ShadowEffectRow({
           <ColorInput
             label={t("editPanel.labels.color")}
             value={cssColorOrFallback(layer.color, "rgba(0, 0, 0, 0.25)")}
-            onChange={(value) => onChange({ color: value })}
+            onChange={(value, meta) => onChange({ color: value }, meta)}
           />
         </div>
       </PopoverContent>
@@ -3866,8 +4267,8 @@ function PageProperties({
   onStylesChange,
 }: {
   styles: Record<string, string>;
-  onStyleChange: (property: string, value: string) => void;
-  onStylesChange?: (styles: Record<string, string>) => void;
+  onStyleChange: StyleChangeHandler;
+  onStylesChange?: StylesChangeHandler;
 }) {
   const t = useT();
   const baseFontFamilyOptions = FONT_FAMILY_OPTIONS.map((option) => ({
@@ -3893,7 +4294,7 @@ function PageProperties({
         <ColorInput
           label={t("editPanel.labels.background")}
           value={styles.backgroundColor || ""}
-          onChange={(v) => onStyleChange("backgroundColor", v)}
+          onChange={(v, meta) => onStyleChange("backgroundColor", v, meta)}
           backgroundImage={styles.backgroundImage}
           backgroundSize={styles.backgroundSize}
           backgroundRepeat={styles.backgroundRepeat}
@@ -3934,7 +4335,7 @@ function TypographyProperties({
   onStyleChange,
 }: {
   element: ElementInfo;
-  onStyleChange: (property: string, value: string) => void;
+  onStyleChange: StyleChangeHandler;
 }) {
   const t = useT();
   const styles = element.computedStyles;
@@ -3960,16 +4361,48 @@ function TypographyProperties({
   }));
   const textAlign = styles.textAlign || "left";
 
-  // M1 · Text resizing mode (auto-width / auto-height / fixed). the design editor's text
-  // nodes always expose this segment. Infer the current mode from the live CSS:
-  // auto-width hugs both axes (width:auto + no wrapping), auto-height hugs the
-  // height only (fixed width, content wraps), fixed pins both width and height.
-  const widthIsAuto =
-    !styles.width || styles.width === "auto" || styles.width === "max-content";
-  const heightIsAuto = !styles.height || styles.height === "auto";
-  const noWrap = styles.whiteSpace === "nowrap";
+  // Mixed-selection guards: a multi-selection with differing values injects
+  // the MIXED_VALUE sentinel string into these computedStyles fields (see
+  // mixedElementFromSelection/sameOrMixed). Parsing that sentinel with
+  // parseNumericValue/Number() silently yields 0/NaN-fallback instead of
+  // reflecting "differs across selection", which previously showed a
+  // fabricated 0 (size), 1.2 (line-height), or blank (tracking) rather than
+  // the Mixed state ScrubInput already knows how to render — same pattern as
+  // the rotation field above.
+  const fontWeightIsMixed = isMixedValue(styles.fontWeight);
+  const fontSizeIsMixed = isMixedValue(styles.fontSize);
+  const lineHeightIsMixed = isMixedValue(styles.lineHeight);
+  const letterSpacingIsMixed = isMixedValue(styles.letterSpacing);
+
+  // M1 · Text resizing mode (auto-width / auto-height / fixed). the design
+  // editor's text nodes always expose this segment. Read authored
+  // (inlineStyles) values, not computed ones: an absolutely-positioned
+  // element's computed width/height always resolve to a real px value even
+  // when the author never set them, so "auto" and "a specific 200px" were
+  // indistinguishable before — every text node misread as "fixed". Falls
+  // back to the computed-style heuristic for older payloads that predate
+  // inlineStyles. Convention (matches DesignEditor primitive creation and
+  // setResizeMode below): auto-width = width unset/max-content + pre-wrap;
+  // auto-height = fixed width + height unset/auto; fixed = both fixed. A
+  // drag-created box (display:flex, explicit width+height, whiteSpace
+  // unset→normal) correctly falls through to "fixed".
+  const authoredResizeWidth = authoredStyleValue(element, "width");
+  const authoredResizeHeight = authoredStyleValue(element, "height");
+  const authoredWhiteSpace = authoredStyleValue(element, "whiteSpace");
+  const hasInlineStyleInfo = Boolean(element.inlineStyles);
+  const widthIsAuto = hasInlineStyleInfo
+    ? !authoredResizeWidth || authoredResizeWidth === "max-content"
+    : !styles.width ||
+      styles.width === "auto" ||
+      styles.width === "max-content";
+  const heightIsAuto = hasInlineStyleInfo
+    ? !authoredResizeHeight || authoredResizeHeight === "auto"
+    : !styles.height || styles.height === "auto";
+  const isPreWrapOrNoWrap = hasInlineStyleInfo
+    ? authoredWhiteSpace === "pre-wrap" || authoredWhiteSpace === "nowrap"
+    : styles.whiteSpace === "nowrap";
   const resizeMode: TextResizeMode =
-    widthIsAuto && noWrap
+    widthIsAuto && isPreWrapOrNoWrap
       ? "auto-width"
       : !heightIsAuto && !widthIsAuto
         ? "fixed"
@@ -3978,9 +4411,9 @@ function TypographyProperties({
   const currentHeight = styles.height && !heightIsAuto ? styles.height : "48px";
   const setResizeMode = (mode: TextResizeMode) => {
     if (mode === "auto-width") {
-      onStyleChange("width", "auto");
+      onStyleChange("width", "max-content");
       onStyleChange("height", "auto");
-      onStyleChange("whiteSpace", "nowrap");
+      onStyleChange("whiteSpace", "pre-wrap");
     } else if (mode === "auto-height") {
       onStyleChange("width", currentWidth);
       onStyleChange("height", "auto");
@@ -3992,36 +4425,44 @@ function TypographyProperties({
     }
   };
 
-  // M2 · Vertical text alignment (top / middle / bottom). For auto-layout text
-  // containers (display:flex) the design editor maps this to `justifyContent`; for normal
-  // text we fall back to `verticalAlign`, which is what an inline/grid text box
-  // honors. Read whichever the element currently expresses.
+  // M2 · Vertical text alignment (top / middle / bottom). For an auto-layout
+  // text container (display:flex) this maps to whichever flex property
+  // controls the vertical/cross axis — justifyContent when flex-direction is
+  // column, alignItems when row (the DesignEditor drag-created default; see
+  // primitive creation, which sets display:flex + alignItems:center with no
+  // explicit flex-direction, i.e. row). For any non-flex display,
+  // `verticalAlign` is a no-op: it only affects how an inline/inline-block/
+  // table-cell box sits relative to *sibling* line-box content, not how its
+  // own content sits within its own box — exactly the case for point text
+  // (inline-block). So instead of ever writing verticalAlign, convert the
+  // element to flex the same way a drag-created box is authored, then read/
+  // write through the row-axis property (alignItems) like that default.
   const display = (styles.display || "").toLowerCase();
   const isFlexText = display.includes("flex");
-  const verticalAlign = isFlexText
-    ? styles.justifyContent === "center"
+  const isColumnFlexText =
+    isFlexText && styles.flexDirection?.includes("column");
+  const verticalAlignSourceProp = isColumnFlexText
+    ? styles.justifyContent
+    : styles.alignItems;
+  const verticalAlign = !isFlexText
+    ? "top"
+    : verticalAlignSourceProp === "center"
       ? "middle"
-      : styles.justifyContent === "flex-end"
-        ? "bottom"
-        : "top"
-    : styles.verticalAlign === "middle"
-      ? "middle"
-      : styles.verticalAlign === "bottom"
+      : verticalAlignSourceProp === "flex-end"
         ? "bottom"
         : "top";
   const setVerticalAlign = (mode: "top" | "middle" | "bottom") => {
-    if (isFlexText) {
-      onStyleChange(
-        "justifyContent",
-        mode === "middle"
-          ? "center"
-          : mode === "bottom"
-            ? "flex-end"
-            : "flex-start",
-      );
-    } else {
-      onStyleChange("verticalAlign", mode);
-    }
+    // Converting a non-flex element matches the drag-created fixed-size text
+    // box exactly: display:flex, default (row) flex-direction — so the
+    // vertical axis is alignItems, same as the pre-existing row case below.
+    if (!isFlexText) onStyleChange("display", "flex");
+    const cssValue =
+      mode === "middle"
+        ? "center"
+        : mode === "bottom"
+          ? "flex-end"
+          : "flex-start";
+    onStyleChange(isColumnFlexText ? "justifyContent" : "alignItems", cssValue);
   };
 
   return (
@@ -4060,13 +4501,22 @@ function TypographyProperties({
       {/* Row 2: weight + size side by side */}
       <div className="grid grid-cols-2 gap-1.5">
         <Select
-          value={styles.fontWeight || "400"}
+          value={fontWeightIsMixed ? MIXED_VALUE : styles.fontWeight || "400"}
           onValueChange={(v) => onStyleChange("fontWeight", v)}
         >
           <SelectTrigger className="h-6 rounded-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-1.5 !text-[11px] shadow-none focus:ring-1 focus:ring-[var(--design-editor-accent-color)]">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
+            {fontWeightIsMixed ? (
+              <SelectItem
+                value={MIXED_VALUE}
+                disabled
+                className="!text-[11px] text-muted-foreground"
+              >
+                {MIXED_VALUE}
+              </SelectItem>
+            ) : null}
             {fontWeightOptions.map((opt) => (
               <SelectItem
                 key={opt.value}
@@ -4082,9 +4532,20 @@ function TypographyProperties({
           label={t("editPanel.labels.size")}
           ariaLabel={t("editPanel.labels.size")}
           icon={IconLetterCase}
-          value={styles.fontSize ? parseNumericValue(styles.fontSize) : 16}
-          onChange={(value) =>
-            onStyleChange("fontSize", `${Math.max(1, Math.round(value))}px`)
+          value={
+            fontSizeIsMixed
+              ? 0
+              : styles.fontSize
+                ? parseNumericValue(styles.fontSize)
+                : 16
+          }
+          mixed={fontSizeIsMixed}
+          onChange={(value, meta) =>
+            onStyleChange(
+              "fontSize",
+              `${Math.max(1, roundToOneDecimal(value))}px`,
+              meta,
+            )
           }
           unit="px"
           min={1}
@@ -4101,9 +4562,14 @@ function TypographyProperties({
           label={t("editPanel.labels.lineHeight")}
           ariaLabel={t("editPanel.labels.lineHeight")}
           icon={IconLineHeight}
-          value={resolveLineHeight(styles.lineHeight, styles.fontSize)}
-          onChange={(value) =>
-            onStyleChange("lineHeight", String(Math.max(0.1, value)))
+          value={
+            lineHeightIsMixed
+              ? 0
+              : resolveLineHeight(styles.lineHeight, styles.fontSize)
+          }
+          mixed={lineHeightIsMixed}
+          onChange={(value, meta) =>
+            onStyleChange("lineHeight", String(Math.max(0.1, value)), meta)
           }
           min={0.1}
           step={0.1}
@@ -4117,9 +4583,16 @@ function TypographyProperties({
           ariaLabel={t("editPanel.labels.tracking")}
           icon={IconLetterSpacing}
           value={
-            styles.letterSpacing ? parseNumericValue(styles.letterSpacing) : 0
+            letterSpacingIsMixed
+              ? 0
+              : styles.letterSpacing
+                ? parseNumericValue(styles.letterSpacing)
+                : 0
           }
-          onChange={(value) => onStyleChange("letterSpacing", `${value}px`)}
+          mixed={letterSpacingIsMixed}
+          onChange={(value, meta) =>
+            onStyleChange("letterSpacing", `${value}px`, meta)
+          }
           unit="px"
           precision={1}
           className="gap-0"
@@ -4201,8 +4674,8 @@ function FlexContainerControls({
   onStylesChange,
 }: {
   element: ElementInfo;
-  onStyleChange: (property: string, value: string) => void;
-  onStylesChange?: (styles: Record<string, string>) => void;
+  onStyleChange: StyleChangeHandler;
+  onStylesChange?: StylesChangeHandler;
 }) {
   const t = useT();
   const styles = element.computedStyles;
@@ -4386,7 +4859,7 @@ function FlexChildControls({
   onStyleChange,
 }: {
   element: ElementInfo;
-  onStyleChange: (property: string, value: string) => void;
+  onStyleChange: StyleChangeHandler;
 }) {
   const t = useT();
   const styles = element.computedStyles;
@@ -4438,7 +4911,7 @@ function GridChildControls({
   onStyleChange,
 }: {
   element: ElementInfo;
-  onStyleChange: (property: string, value: string) => void;
+  onStyleChange: StyleChangeHandler;
 }) {
   const t = useT();
   const styles = element.computedStyles;
@@ -4480,8 +4953,8 @@ function LayoutContextProperties({
   onStylesChange,
 }: {
   element: ElementInfo;
-  onStyleChange: (property: string, value: string) => void;
-  onStylesChange?: (styles: Record<string, string>) => void;
+  onStyleChange: StyleChangeHandler;
+  onStylesChange?: StylesChangeHandler;
 }) {
   const t = useT();
   const flexChild = isParentFlex(element);
@@ -4599,7 +5072,7 @@ function LayoutGuideProperties({
   onStyleChange,
 }: {
   element: ElementInfo;
-  onStyleChange: (property: string, value: string) => void;
+  onStyleChange: StyleChangeHandler;
 }) {
   const styles = element.computedStyles;
   const active = hasLayoutGuide(styles);
@@ -4703,43 +5176,96 @@ function ExportPreview({ element }: { element: ElementInfo | null }) {
   );
 }
 
+/**
+ * Reads an authored (as-written) offset/size style, preferring the bridge's
+ * `inlineStyles` capture (raw `el.style.<prop>` — "auto"/"" reliably means
+ * unset) over `computedStyles` (which always resolves to a px value for
+ * absolutely-positioned elements even when the author never set the
+ * property, making "unset" indistinguishable from "0px"). Falls back to the
+ * computed value for older payloads that predate `inlineStyles`.
+ */
+export function authoredStyleValue(
+  element: ElementInfo,
+  property: string,
+): string | undefined {
+  const inline = element.inlineStyles?.[property];
+  if (inline !== undefined) return inline === "auto" ? "" : inline;
+  return element.computedStyles[property];
+}
+
 /** Position, size, and spacing properties */
 function PositionLayoutProperties({
   element,
   onStyleChange,
 }: {
   element: ElementInfo;
-  onStyleChange: (property: string, value: string) => void;
+  onStyleChange: StyleChangeHandler;
 }) {
   const t = useT();
   const styles = element.computedStyles;
   const constrainedPosition =
     styles.position === "absolute" || styles.position === "fixed";
-  // Reflect the active packing in the alignment segments (the design editor highlights the
-  // current alignment). For a flex container the main axis is justifyContent.
-  const alignH = justifyToHorizontal(styles.justifyContent);
-  const alignV = alignToVertical(styles.alignItems);
+  // Reflect the active packing in the alignment segments (the design editor
+  // highlights the current alignment) — these buttons align the selected
+  // element's own children, the same operation FlexContainerControls' full
+  // AutoLayoutMatrix alignment grid performs. A column-direction flex
+  // container swaps which CSS axis is "horizontal"/"vertical" from the
+  // user's point of view: justifyContent packs the main (here: vertical)
+  // axis and alignItems packs the cross (horizontal) axis, so reading/
+  // writing must go through autoLayoutAlignmentFromStyles /
+  // horizontalToJustify / verticalToAlign like the matrix control does,
+  // instead of assuming justifyContent is always horizontal.
+  const positionFlexDirection: AutoLayoutMatrixValue["direction"] =
+    styles.flexDirection?.includes("column") ? "vertical" : "horizontal";
+  const positionAlignment = autoLayoutAlignmentFromStyles(
+    styles,
+    positionFlexDirection,
+  );
+  const alignH = positionAlignment.horizontal;
+  const alignV = positionAlignment.vertical;
+  const handlePositionAlignH = (value: AlignmentMatrixValue["horizontal"]) => {
+    onStyleChange(
+      positionFlexDirection === "vertical" ? "alignItems" : "justifyContent",
+      horizontalToJustify(value),
+    );
+  };
+  const handlePositionAlignV = (value: AlignmentMatrixValue["vertical"]) => {
+    onStyleChange(
+      positionFlexDirection === "vertical" ? "justifyContent" : "alignItems",
+      verticalToAlign(value),
+    );
+  };
+  // Authored (not computed) offsets: when inlineStyles is present, "auto"/absent
+  // is treated as truly unset instead of the computed px fallback, so a plain
+  // top-left-anchored element reads as "left" rather than always "left-right".
+  const authoredLeft = authoredStyleValue(element, "left");
+  const authoredRight = authoredStyleValue(element, "right");
+  const authoredTop = authoredStyleValue(element, "top");
+  const authoredBottom = authoredStyleValue(element, "bottom");
+  const authoredWidth = authoredStyleValue(element, "width");
+  const authoredHeight = authoredStyleValue(element, "height");
+  const authoredTransform = authoredStyleValue(element, "transform");
   const constraintsValue: ConstraintsValue = {
     horizontal:
       // Check scale before left+right: "scale" writes width:100% and clears
       // left/right to auto, but legacy data may have 0px values that are truthy.
-      styles.width === "100%"
+      authoredWidth === "100%"
         ? "scale"
-        : styles.left && styles.right
+        : authoredLeft && authoredRight
           ? "left-right"
-          : styles.right
+          : authoredRight
             ? "right"
-            : styles.transform?.includes("translateX(-50%)")
+            : authoredTransform?.includes("translateX(-50%)")
               ? "center"
               : "left",
     vertical:
-      styles.height === "100%"
+      authoredHeight === "100%"
         ? "scale"
-        : styles.top && styles.bottom
+        : authoredTop && authoredBottom
           ? "top-bottom"
-          : styles.bottom
+          : authoredBottom
             ? "bottom"
-            : styles.transform?.includes("translateY(-50%)")
+            : authoredTransform?.includes("translateY(-50%)")
               ? "center"
               : "top",
   };
@@ -4756,7 +5282,7 @@ function PositionLayoutProperties({
       const tyValue = value.vertical === "center" ? "-50%" : null;
       // Start from the current transform, apply X, then apply Y on top.
       const transformAfterX = mergeTranslateFunction(
-        styles.transform,
+        authoredTransform,
         "X",
         txValue,
       );
@@ -4769,7 +5295,7 @@ function PositionLayoutProperties({
       if (value.horizontal === "left") {
         onStyleChange(
           "left",
-          styles.left || `${Math.round(element.boundingRect.x)}px`,
+          authoredLeft || `${Math.round(element.boundingRect.x)}px`,
         );
         onStyleChange("right", "auto");
       } else if (value.horizontal === "right") {
@@ -4778,7 +5304,7 @@ function PositionLayoutProperties({
       } else if (value.horizontal === "left-right") {
         onStyleChange(
           "left",
-          styles.left || `${Math.round(element.boundingRect.x)}px`,
+          authoredLeft || `${Math.round(element.boundingRect.x)}px`,
         );
         onStyleChange("right", "0px");
       } else if (value.horizontal === "center") {
@@ -4795,7 +5321,7 @@ function PositionLayoutProperties({
       if (value.vertical === "top") {
         onStyleChange(
           "top",
-          styles.top || `${Math.round(element.boundingRect.y)}px`,
+          authoredTop || `${Math.round(element.boundingRect.y)}px`,
         );
         onStyleChange("bottom", "auto");
       } else if (value.vertical === "bottom") {
@@ -4804,7 +5330,7 @@ function PositionLayoutProperties({
       } else if (value.vertical === "top-bottom") {
         onStyleChange(
           "top",
-          styles.top || `${Math.round(element.boundingRect.y)}px`,
+          authoredTop || `${Math.round(element.boundingRect.y)}px`,
         );
         onStyleChange("bottom", "0px");
       } else if (value.vertical === "center") {
@@ -4824,9 +5350,9 @@ function PositionLayoutProperties({
       element.boundingRect.x,
       element.boundingRect.y,
       onStyleChange,
-      styles.left,
-      styles.top,
-      styles.transform,
+      authoredLeft,
+      authoredTop,
+      authoredTransform,
     ],
   );
 
@@ -4857,21 +5383,21 @@ function PositionLayoutProperties({
             <InspectorIconButton
               label={t("editPanel.textAligns.left")}
               active={alignH === "left"}
-              onClick={() => onStyleChange("justifyContent", "flex-start")}
+              onClick={() => handlePositionAlignH("left")}
             >
               <IconLayoutAlignLeft className="size-3.5" />
             </InspectorIconButton>
             <InspectorIconButton
               label={t("editPanel.textAligns.center")}
               active={alignH === "center"}
-              onClick={() => onStyleChange("justifyContent", "center")}
+              onClick={() => handlePositionAlignH("center")}
             >
               <IconLayoutAlignCenter className="size-3.5" />
             </InspectorIconButton>
             <InspectorIconButton
               label={t("editPanel.textAligns.right")}
               active={alignH === "right"}
-              onClick={() => onStyleChange("justifyContent", "flex-end")}
+              onClick={() => handlePositionAlignH("right")}
             >
               <IconLayoutAlignRight className="size-3.5" />
             </InspectorIconButton>
@@ -4880,21 +5406,21 @@ function PositionLayoutProperties({
             <InspectorIconButton
               label={t("editPanel.alignSelfOptions.start")}
               active={alignV === "top"}
-              onClick={() => onStyleChange("alignItems", "flex-start")}
+              onClick={() => handlePositionAlignV("top")}
             >
               <IconLayoutAlignTop className="size-3.5" />
             </InspectorIconButton>
             <InspectorIconButton
               label={t("editPanel.alignSelfOptions.center")}
               active={alignV === "middle"}
-              onClick={() => onStyleChange("alignItems", "center")}
+              onClick={() => handlePositionAlignV("middle")}
             >
               <IconLayoutAlignMiddle className="size-3.5" />
             </InspectorIconButton>
             <InspectorIconButton
               label={t("editPanel.alignSelfOptions.end")}
               active={alignV === "bottom"}
-              onClick={() => onStyleChange("alignItems", "flex-end")}
+              onClick={() => handlePositionAlignV("bottom")}
             >
               <IconLayoutAlignBottom className="size-3.5" />
             </InspectorIconButton>
@@ -4909,19 +5435,32 @@ function PositionLayoutProperties({
             label="X"
             ariaLabel="X-position"
             tooltipLabel="X-position"
-            value={styles.left || ""}
+            value={
+              isMixedValue(authoredLeft) ? MIXED_VALUE : authoredLeft || ""
+            }
             placeholder={element.boundingRect.x}
             inputClassName="h-6"
-            onChange={(v) => onStyleChange("left", `${Math.round(v)}px`)}
+            onChange={(v, meta) => {
+              // Typing X/Y on a static (non-positioned) element is a no-op on
+              // canvas unless we first give it a position to offset from —
+              // mirror handleConstraintsChange, which always sets
+              // position:absolute (the convention canvas drag/resize and
+              // primitive creation both use) before writing left/top.
+              if (!constrainedPosition) onStyleChange("position", "absolute");
+              onStyleChange("left", `${Math.round(v)}px`, meta);
+            }}
           />
           <ScrubStyleInput
             label="Y"
             ariaLabel="Y-position"
             tooltipLabel="Y-position"
-            value={styles.top || ""}
+            value={isMixedValue(authoredTop) ? MIXED_VALUE : authoredTop || ""}
             placeholder={element.boundingRect.y}
             inputClassName="h-6"
-            onChange={(v) => onStyleChange("top", `${Math.round(v)}px`)}
+            onChange={(v, meta) => {
+              if (!constrainedPosition) onStyleChange("position", "absolute");
+              onStyleChange("top", `${Math.round(v)}px`, meta);
+            }}
           />
           <Tooltip>
             <TooltipTrigger asChild>
@@ -4969,13 +5508,30 @@ function PositionLayoutProperties({
               hideIcon={false}
               icon={IconAngle}
               labelClassName="[&>span]:sr-only"
-              value={`${parseRotationValue(styles.transform)}deg`}
+              // Detect the Mixed sentinel BEFORE parsing: parseRotationValue
+              // would silently turn "Mixed" into 0 and render "0deg" instead
+              // of the mixed state (mirrors the opacity field's guard).
+              value={
+                isMixedValue(styles.transform)
+                  ? MIXED_VALUE
+                  : `${parseRotationValue(styles.transform)}deg`
+              }
               unit="deg"
               inputClassName="h-6"
-              onChange={(v) =>
+              onChange={(v, meta) =>
                 onStyleChange(
                   "transform",
-                  mergeRotationValue(styles.transform, v),
+                  // From a mixed selection the sentinel is not a transform —
+                  // treat it as absent so the typed value applies cleanly to
+                  // every selected object instead of producing
+                  // "Mixed rotate(…)".
+                  mergeRotationValue(
+                    isMixedValue(styles.transform)
+                      ? undefined
+                      : styles.transform,
+                    v,
+                  ),
+                  meta,
                 )
               }
             />
@@ -5012,26 +5568,26 @@ function FillProperties({
   onStylesChange,
 }: {
   element: ElementInfo;
-  onStyleChange: (property: string, value: string) => void;
-  onStylesChange?: (styles: Record<string, string>) => void;
+  onStyleChange: StyleChangeHandler;
+  onStylesChange?: StylesChangeHandler;
 }) {
   const t = useT();
   const styles = element.computedStyles;
-  const isTextElement = TEXT_TAGS.has(element.tagName);
-  const fillProperty = isTextElement ? "color" : "backgroundColor";
-  const fillValue = isTextElement
+  const isTextFillElement = isTextElement(element);
+  const fillProperty = isTextFillElement ? "color" : "backgroundColor";
+  const fillValue = isTextFillElement
     ? styles.color || ""
     : styles.backgroundColor || "";
-  const backgroundLayers = isTextElement
+  const backgroundLayers = isTextFillElement
     ? []
     : splitCssLayers(styles.backgroundImage || "");
-  const backgroundSizeLayers = isTextElement
+  const backgroundSizeLayers = isTextFillElement
     ? []
     : splitCssLayers(styles.backgroundSize || "");
-  const backgroundRepeatLayers = isTextElement
+  const backgroundRepeatLayers = isTextFillElement
     ? []
     : splitCssLayers(styles.backgroundRepeat || "");
-  const backgroundPositionLayers = isTextElement
+  const backgroundPositionLayers = isTextFillElement
     ? []
     : splitCssLayers(styles.backgroundPosition || "");
   const fillIsMixed =
@@ -5040,39 +5596,36 @@ function FillProperties({
     isMixedValue(styles.backgroundSize) ||
     isMixedValue(styles.backgroundRepeat) ||
     isMixedValue(styles.backgroundPosition);
-  const hasBackgroundLayer = !isTextElement && backgroundLayers.length > 0;
+  const hasBackgroundLayer = !isTextFillElement && backgroundLayers.length > 0;
   const hasVisibleFill =
-    isTextElement || colorHasVisibleAlpha(fillValue) || hasBackgroundLayer;
+    isTextFillElement || colorHasVisibleAlpha(fillValue) || hasBackgroundLayer;
 
-  // Non-destructive fill hide: stash the color before hiding so toggling
-  // visible again restores the exact original value (the design editor never loses color).
-  // Keyed by a stable selected-element identity so anonymous same-tag elements
-  // don't share stash slots.
-  const [hiddenFillStash, setHiddenFillStash] = useState<
-    Record<string, string>
-  >({});
-  // Same non-destructive idea for background gradient/image layers: stash the
-  // exact layer string on hide so per-stop opacity survives a hide→show toggle
-  // instead of being flattened to all-0 then all-100.
-  const [hiddenLayerStash, setHiddenLayerStash] = useState<
-    Record<string, string>
-  >({});
-  const stashKey = `${elementIdentityKey(element)}:${fillProperty}`;
+  // Non-destructive fill hide: instead of stashing the pre-hide color in
+  // React state (lost on unmount — e.g. deselect then reselect the same
+  // element, since FillProperties only mounts while something is selected),
+  // zero the alpha channel while preserving the RGB channels in the
+  // persisted CSS itself: rgba(r,g,b,0) renders identically to fully
+  // transparent, but getComputedStyle round-trips the r/g/b losslessly (CSS
+  // color-list channels are real data, unlike comments — verified
+  // separately: computed style strips comments but keeps rgba() channels).
+  // Showing again just restores alpha to 1 using those same channels, so no
+  // stash is required and the hide survives reselect/reload.
   const isHidden = !colorHasVisibleAlpha(fillValue);
   const handleFillVisibilityToggle = () => {
+    const parsed = parseCssColor(fillValue);
     if (isHidden) {
-      // Restore the stashed color, or fall back to a sensible default.
-      const restored =
-        hiddenFillStash[stashKey] ?? (isTextElement ? "#000000" : "#ffffff");
+      const restored = parsed
+        ? rgbaToCss(withColorOpacity(parsed, 100))
+        : isTextFillElement
+          ? "#000000"
+          : "#ffffff";
       onStyleChange(fillProperty, restored);
-      setHiddenFillStash((prev) => {
-        const next = { ...prev };
-        delete next[stashKey];
-        return next;
-      });
+    } else if (parsed) {
+      onStyleChange(fillProperty, rgbaToCss(withColorOpacity(parsed, 0)));
     } else {
-      // Stash the current color before going transparent.
-      setHiddenFillStash((prev) => ({ ...prev, [stashKey]: fillValue }));
+      // Value wasn't a parseable color (e.g. already the literal
+      // "transparent") — nothing to preserve, transparent is the best we
+      // can do.
       onStyleChange(fillProperty, "transparent");
     }
   };
@@ -5121,7 +5674,7 @@ function FillProperties({
                 );
                 return;
               }
-              if (isTextElement) {
+              if (isTextFillElement) {
                 onStyleChange(
                   "color",
                   cssColorOrFallback(styles.color, "#000000"),
@@ -5159,24 +5712,58 @@ function FillProperties({
         </p>
       ) : hasVisibleFill ? (
         <div className="space-y-1.5">
-          {isTextElement || colorHasVisibleAlpha(fillValue) ? (
+          {isTextFillElement || colorHasVisibleAlpha(fillValue) ? (
             /* design row: [swatch+hex trigger (flex-1)] [eye] [remove] */
             <div className="group flex items-center gap-1.5">
               <div className="min-w-0 flex-1">
                 <ColorInput
                   label=""
                   value={fillValue}
-                  onChange={(v) => onStyleChange(fillProperty, v)}
-                  backgroundImage=""
+                  onChange={(v, meta) => onStyleChange(fillProperty, v, meta)}
+                  // Pass the real layer stack (not "") so that switching this
+                  // swatch's paint type to gradient/image composes a new
+                  // layer on top of any existing backgroundImage layers
+                  // (rendered as their own rows below) instead of clobbering
+                  // them — ColorInput derives its add/replace-layer logic
+                  // from this prop.
+                  backgroundImage={
+                    isTextFillElement ? "" : styles.backgroundImage
+                  }
                   blendMode={
-                    isTextElement
+                    isTextFillElement
                       ? undefined
                       : styles.backgroundBlendMode || "normal"
                   }
                   onBlendModeChange={
-                    isTextElement
+                    isTextFillElement
                       ? undefined
                       : (v) => onStyleChange("backgroundBlendMode", v)
+                  }
+                  // Text fill ("color") can't hold a gradient/image paint —
+                  // there is no background-clip:text support here — so never
+                  // offer layered fills for it; the picker's Gradient/Image
+                  // tabs remain reachable as raw UI (it manages that tab
+                  // selection as local state independent of these props) but
+                  // ColorInput's setNext guard rejects non-color writes back
+                  // into `color` when supportsLayeredFills is false. For any
+                  // other element the base fill is a real backgroundImage
+                  // layer stack, so wire the same layered-fill handlers the
+                  // page background row uses (see PageProperties above).
+                  supportsLayeredFills={!isTextFillElement}
+                  onBackgroundImageChange={
+                    isTextFillElement
+                      ? undefined
+                      : (v) => onStyleChange("backgroundImage", v)
+                  }
+                  onImageFillChange={
+                    isTextFillElement
+                      ? undefined
+                      : (value) =>
+                          commitStylePatch(
+                            imageFillToBackgroundStyles(value),
+                            onStyleChange,
+                            onStylesChange,
+                          )
                   }
                   documentColors={documentColors}
                   pickerKey={[
@@ -5206,7 +5793,7 @@ function FillProperties({
               <SectionIconButton
                 label={t("editPanel.labels.removeLayer")}
                 onClick={() => {
-                  if (isTextElement) {
+                  if (isTextFillElement) {
                     onStyleChange(fillProperty, "transparent");
                     return;
                   }
@@ -5224,23 +5811,21 @@ function FillProperties({
               </SectionIconButton>
             </div>
           ) : null}
-          {!isTextElement
+          {!isTextFillElement
             ? backgroundLayers.map((layer, index) => {
                 const gradient = parseGradientLayer(layer);
+                // Hidden state lives in the real, persisted backgroundSize
+                // marker (see withLayerSizeMarker) rather than React state,
+                // so it survives deselect/reselect. Opacity still reflects
+                // the gradient's own stop opacities for display, but no
+                // longer drives hide/show — a layer can be a fully-opaque
+                // gradient and still be hidden via zero-size.
+                const hidden = isLayerHiddenBySize(backgroundSizeLayers[index]);
                 const opacity = gradient
                   ? averageGradientOpacity(gradient.stops)
                   : 100;
-                const layerStashKey = `${elementIdentityKey(element)}:layer:${index}`;
-                const stashedLayer = hiddenLayerStash[layerStashKey];
-                const hiddenImagePlaceholder = Boolean(
-                  stashedLayer && gradient && opacity <= 0,
-                );
                 const label = gradient
-                  ? hiddenImagePlaceholder
-                    ? `${"Image" /* i18n-ignore design inspector paint row */} ${
-                        index + 1
-                      }`
-                    : `${gradientLabel(gradient.type)} ${index + 1}`
+                  ? `${gradientLabel(gradient.type)} ${index + 1}`
                   : `${"Image" /* i18n-ignore design inspector paint row */} ${
                       index + 1
                     }`;
@@ -5256,6 +5841,25 @@ function FillProperties({
                       backgroundLayers.filter(
                         (_, layerIndex) => layerIndex !== index,
                       ),
+                    ),
+                  );
+                  onStyleChange(
+                    "backgroundSize",
+                    joinCssLayers(
+                      backgroundSizeLayers.filter(
+                        (_, layerIndex) => layerIndex !== index,
+                      ),
+                    ),
+                  );
+                };
+                const setLayerHidden = (nextHidden: boolean) => {
+                  onStyleChange(
+                    "backgroundSize",
+                    withLayerSizeMarker(
+                      backgroundSizeLayers,
+                      backgroundLayers.length,
+                      index,
+                      nextHidden,
                     ),
                   );
                 };
@@ -5280,7 +5884,7 @@ function FillProperties({
                             {label}
                           </span>
                           <span className="shrink-0 tabular-nums text-muted-foreground">
-                            {opacity}%
+                            {hidden ? 0 : opacity}%
                           </span>
                         </button>
                       </PopoverTrigger>
@@ -5291,7 +5895,7 @@ function FillProperties({
                         className="w-80 p-0"
                       >
                         <DesignColorPicker
-                          value={gradient?.stops[0]?.color ?? layer}
+                          value={layer}
                           onPaintValueChange={replaceLayer}
                           onChange={(nextColor) => {
                             if (!gradient) return;
@@ -5336,78 +5940,14 @@ function FillProperties({
                     </Popover>
                     <SectionIconButton
                       label={
-                        opacity <= 0
+                        hidden
                           ? t("editPanel.labels.showLayer")
                           : t("editPanel.labels.hideLayer")
                       }
-                      onClick={() => {
-                        if (opacity <= 0) {
-                          // Show: restore the exact pre-hide layer if stashed,
-                          // otherwise fall back to forcing every stop opaque.
-                          const stashed = hiddenLayerStash[layerStashKey];
-                          if (stashed !== undefined) {
-                            replaceLayer(stashed);
-                            setHiddenLayerStash((prev) => {
-                              const next = { ...prev };
-                              delete next[layerStashKey];
-                              return next;
-                            });
-                          } else if (gradient) {
-                            replaceLayer(
-                              buildGradientLayer(
-                                gradient.type,
-                                gradient.stops.map((stop) => ({
-                                  ...stop,
-                                  opacity: 100,
-                                })),
-                                gradient.prefix,
-                              ),
-                            );
-                          }
-                          return;
-                        }
-                        if (!gradient) {
-                          setHiddenLayerStash((prev) => ({
-                            ...prev,
-                            [layerStashKey]: layer,
-                          }));
-                          replaceLayer(
-                            buildGradientLayer("linear", [
-                              {
-                                id: "stop-0",
-                                color: "rgba(0, 0, 0, 0)",
-                                position: 0,
-                                opacity: 0,
-                              },
-                              {
-                                id: "stop-1",
-                                color: "rgba(0, 0, 0, 0)",
-                                position: 100,
-                                opacity: 0,
-                              },
-                            ]),
-                          );
-                        } else {
-                          // Hide: stash the current layer (with its real per-stop
-                          // opacities) before zeroing every stop's alpha.
-                          setHiddenLayerStash((prev) => ({
-                            ...prev,
-                            [layerStashKey]: layer,
-                          }));
-                          replaceLayer(
-                            buildGradientLayer(
-                              gradient.type,
-                              gradient.stops.map((stop) => ({
-                                ...stop,
-                                opacity: 0,
-                              })),
-                              gradient.prefix,
-                            ),
-                          );
-                        }
-                      }}
+                      onClick={() => setLayerHidden(!hidden)}
+                      activateOnPointerDown
                     >
-                      {opacity <= 0 ? (
+                      {hidden ? (
                         <IconEyeOff className="size-3.5" />
                       ) : (
                         <IconEye className="size-3.5" />
@@ -5435,16 +5975,19 @@ function StrokeProperties({
   onStylesChange,
 }: {
   element: ElementInfo;
-  onStyleChange: (property: string, value: string) => void;
-  onStylesChange?: (styles: Record<string, string>) => void;
+  onStyleChange: StyleChangeHandler;
+  onStylesChange?: StylesChangeHandler;
 }) {
   const t = useT();
   const styles = element.computedStyles;
-  const borderVisible = strokeIsVisible(styles.borderWidth, styles.borderStyle);
-  const outlineVisible = strokeIsVisible(
-    styles.outlineWidth,
-    styles.outlineStyle,
-  );
+  // Visible requires: real width, style not "none" (legacy hide path), and
+  // color not zero-alpha (current hide path — see strokeHiddenByColor).
+  const borderVisible =
+    strokeIsVisible(styles.borderWidth, styles.borderStyle) &&
+    !strokeHiddenByColor(styles.borderColor);
+  const outlineVisible =
+    strokeIsVisible(styles.outlineWidth, styles.outlineStyle) &&
+    !strokeHiddenByColor(styles.outlineColor);
   const strokeIsMixed = [
     styles.borderWidth,
     styles.borderStyle,
@@ -5482,8 +6025,17 @@ function StrokeProperties({
               return;
             }
             if (!borderVisible) {
+              // Restore full alpha before falling back to cssColorOrFallback
+              // — a border previously hidden via the eye toggle (zero-alpha,
+              // real RGB preserved) is not "transparent" by that helper's
+              // narrow literal check, so without this an "Add" click here
+              // could silently re-add an invisible border.
+              const existingBorderColor = styles.borderColor || styles.color;
+              const existingParsed = parseCssColor(existingBorderColor || "");
               const borderColor = cssColorOrFallback(
-                styles.borderColor || styles.color,
+                existingParsed
+                  ? rgbaToCss(withColorOpacity(existingParsed, 100))
+                  : existingBorderColor,
                 "#000000",
               );
               commitStylePatch(
@@ -5586,7 +6138,7 @@ function AppearanceProperties({
   onStyleChange,
 }: {
   element: ElementInfo;
-  onStyleChange: (property: string, value: string) => void;
+  onStyleChange: StyleChangeHandler;
 }) {
   const t = useT();
   const styles = element.computedStyles;
@@ -5636,7 +6188,9 @@ function AppearanceProperties({
               ? 0
               : parseNumericValue(styles.opacity || "1") * 100
           }
-          onChange={(v) => onStyleChange("opacity", String(v / 100))}
+          onChange={(v, meta) =>
+            onStyleChange("opacity", String(v / 100), meta)
+          }
           mixed={isMixedValue(styles.opacity)}
           min={0}
           max={100}
@@ -5644,7 +6198,15 @@ function AppearanceProperties({
           unit="%"
           precision={1}
         />
-        <CornerRadiusControl styles={styles} onStyleChange={onStyleChange} />
+        {/* Selection-stable key so per-selection UI state (the independent-
+            corners toggle, which ratchets open while corners differ) resets on
+            selection change instead of leaking to the next element — same
+            pattern as ExportSettingsPanel. */}
+        <CornerRadiusControl
+          key={elementIdentityKey(element)}
+          styles={styles}
+          onStyleChange={onStyleChange}
+        />
       </div>
     </PanelSection>
   );
@@ -5656,8 +6218,8 @@ function EffectsProperties({
   onStylesChange,
 }: {
   element: ElementInfo;
-  onStyleChange: (property: string, value: string) => void;
-  onStylesChange?: (styles: Record<string, string>) => void;
+  onStyleChange: StyleChangeHandler;
+  onStylesChange?: StylesChangeHandler;
 }) {
   const t = useT();
   const styles = element.computedStyles;
@@ -5676,10 +6238,10 @@ function EffectsProperties({
   const layerBlurStashKey = `${effectStashKey}:filter:blur`;
   const backdropBlurStashKey = `${effectStashKey}:backdrop-filter:blur`;
   const shadowLayers = parseShadowLayers(styles.boxShadow);
-  const setShadowLayers = (layers: ShadowLayer[]) => {
+  const setShadowLayers = (layers: ShadowLayer[], meta?: StyleChangeMeta) => {
     const boxShadow = serializeShadowLayers(layers);
-    if (onStylesChange) onStylesChange({ boxShadow });
-    else onStyleChange("boxShadow", boxShadow);
+    if (onStylesChange) onStylesChange({ boxShadow }, meta);
+    else onStyleChange("boxShadow", boxShadow, meta);
   };
   const addDropShadow = () =>
     setShadowLayers([
@@ -5738,13 +6300,13 @@ function EffectsProperties({
               key={layer.id}
               layer={layer}
               index={index}
-              onChange={(patch) => {
+              onChange={(patch, meta) => {
                 const next = shadowLayers.map((candidate) =>
                   candidate.id === layer.id
                     ? { ...candidate, ...patch }
                     : candidate,
                 );
-                setShadowLayers(next);
+                setShadowLayers(next, meta);
               }}
               onToggleVisibility={() => {
                 const visible = colorHasVisibleAlpha(layer.color);
@@ -5860,10 +6422,11 @@ function EffectsProperties({
             <ScrubInput
               label={t("editPanel.labels.blur")}
               value={blurValue}
-              onChange={(value) =>
+              onChange={(value, meta) =>
                 onStyleChange(
                   "filter",
                   setBlurFilterValue(styles.filter, value),
+                  meta,
                 )
               }
               unit="px"
@@ -5950,10 +6513,11 @@ function EffectsProperties({
             <ScrubInput
               label={t("editPanel.labels.blur")}
               value={backdropBlurValue}
-              onChange={(value) =>
+              onChange={(value, meta) =>
                 onStyleChange(
                   "backdropFilter",
                   setBlurFilterValue(backdropFilterValue, value),
+                  meta,
                 )
               }
               unit="px"
@@ -6010,7 +6574,7 @@ function SelectionColorsProperties({
   onStyleChange,
 }: {
   element: ElementInfo;
-  onStyleChange: (property: string, value: string) => void;
+  onStyleChange: StyleChangeHandler;
 }) {
   // M6 · the design editor's Selection colors collapses to a single "Show selection colors"
   // affordance, expanding to one editable [swatch · hex · opacity] row per
@@ -6056,7 +6620,19 @@ function SelectionColorsProperties({
                 >
                   <DesignColorPicker
                     value={cssColorOrFallback(color.value, "#000000")}
-                    onChange={(value) => onStyleChange(color.property, value)}
+                    // PF12: per-tick drag preview vs. one authoritative
+                    // commit on gesture-end — same split as ColorInput's
+                    // setNext (see its PF12 comment above).
+                    onChange={(value) =>
+                      onStyleChange(color.property, value, {
+                        phase: "preview",
+                      })
+                    }
+                    onChangeComplete={(value) =>
+                      onStyleChange(color.property, value, {
+                        phase: "commit",
+                      })
+                    }
                   />
                 </PopoverContent>
               </Popover>
@@ -6830,9 +7406,21 @@ export function ComponentSection({
   );
 }
 
-export function EditPanel({
+// PF8: EditPanel re-renders on every DesignEditor state change (drag,
+// hover, zoom) unless memoized. Nearly all props are already stabilized at
+// the call site (useMemo/useCallback — see DesignEditor.tsx's
+// selectedInspectorElements/selectedScreenGeometry/pageStyles/tweaks/
+// sourceCapabilities/statesPanelProps/reviewPanelProps and the onXxx
+// handlers passed to <EditPanel>). `headerTrailing` and `aiActions` are
+// legitimately-dynamic ReactNode slots (the zoom control repaints its own
+// live percentage every zoom tick; aiActions depends on the live
+// selection) — their identity is expected to change often and a custom
+// comparator that ignored them would hide real content changes, so this
+// uses the default shallow comparison rather than special-casing them.
+export const EditPanel = memo(function EditPanel({
   selectedElement,
   selectedElements,
+  selectedScreenGeometry,
   pageStyles = {},
   headerTrailing,
   width = 256,
@@ -6858,6 +7446,7 @@ export function EditPanel({
   selectedElementAlreadyComponent = false,
   defaultComponentName = "Component",
   inspectCode,
+  aiActions,
 }: EditPanelProps) {
   const t = useT();
   const [createComponentOpen, setCreateComponentOpen] = useState(false);
@@ -6970,6 +7559,9 @@ export function EditPanel({
                 : undefined
             }
           />
+          {!inspectorElement && selectedScreenGeometry ? (
+            <ScreenSelectionHeader screen={selectedScreenGeometry} />
+          ) : null}
 
           <div
             className="design-inspector-scroll min-h-0 flex-1 overflow-y-auto overscroll-contain"
@@ -7058,7 +7650,17 @@ export function EditPanel({
               />
             )}
 
-            {!inspectorElement && (
+            {aiActions ? (
+              <div className="border-b border-[var(--design-editor-control-border)] px-2 py-1.5">
+                {aiActions}
+              </div>
+            ) : null}
+
+            {!inspectorElement && selectedScreenGeometry ? (
+              <ScreenGeometryProperties screen={selectedScreenGeometry} />
+            ) : null}
+
+            {!inspectorElement && !selectedScreenGeometry && (
               <PageProperties
                 styles={pageStyles}
                 onStyleChange={onStyleChange}
@@ -7231,4 +7833,4 @@ export function EditPanel({
       ) : null}
     </div>
   );
-}
+});

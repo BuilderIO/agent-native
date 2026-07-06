@@ -27,12 +27,26 @@ function makeBody(bytes: Uint8Array, mimeType: string): BodyInit {
     : (bytes as unknown as BodyInit);
 }
 
+function shouldUseSignedUrlUpload(
+  bytes: Uint8Array,
+  mimeType: string,
+): boolean {
+  return (
+    bytes.byteLength > LARGE_FILE_THRESHOLD_BYTES || /^video\//i.test(mimeType)
+  );
+}
+
 function fetchWithTimeout(url: string, init: RequestInit): Promise<Response> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), UPLOAD_TIMEOUT_MS);
   return fetch(url, { ...init, signal: controller.signal }).finally(() =>
     clearTimeout(timer),
   );
+}
+
+function setSkipCompressionQueryParams(url: URL): void {
+  url.searchParams.set("skipCompressionWait", "true");
+  url.searchParams.set("skipCompression", "true");
 }
 
 async function assertOk(res: Response, label: string): Promise<void> {
@@ -86,6 +100,7 @@ async function uploadLargeFileViaSignedUrl(
     privateKey,
     assetId,
     input.filename,
+    { skipCompressionWait: input.skipCompressionWait },
   );
   console.log(`[builder-upload] done [${assetId}]: ${url}`);
   return { url, id, provider: "builder" };
@@ -139,19 +154,21 @@ async function completeBuilderUpload(
   privateKey: string,
   assetId: string,
   filename: string | undefined,
+  options?: { skipCompressionWait?: boolean },
 ): Promise<{ url: string; id?: string }> {
   const host = builderUploadHost();
-  const res = await fetchWithTimeout(
-    new URL("/api/v1/upload/complete", host).toString(),
-    {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${privateKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ assetId, name: filename }),
+  const url = new URL("/api/v1/upload/complete", host);
+  if (options?.skipCompressionWait) {
+    setSkipCompressionQueryParams(url);
+  }
+  const res = await fetchWithTimeout(url.toString(), {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${privateKey}`,
+      "Content-Type": "application/json",
     },
-  );
+    body: JSON.stringify({ assetId, name: filename }),
+  });
   await assertOk(res, "Builder.io upload complete failed");
   const json = (await res.json()) as { url?: string; id?: string };
   if (!json.url) throw new Error("Builder.io upload/complete returned no URL");
@@ -204,7 +221,8 @@ export const builderFileUploadProvider: FileUploadProvider = {
   id: "builder",
   name: "Builder.io",
   isConfigured: () => !!process.env.BUILDER_PRIVATE_KEY,
-  upload: async ({ data, filename, mimeType }: FileUploadInput) => {
+  upload: async (input: FileUploadInput) => {
+    const { data, filename, mimeType } = input;
     const { resolveBuilderPrivateKey } =
       await import("../server/credential-provider.js");
     const privateKey = await resolveBuilderPrivateKey();
@@ -226,9 +244,9 @@ export const builderFileUploadProvider: FileUploadProvider = {
       data instanceof Uint8Array ? data : new Uint8Array(data as any);
     const mb = (bytes.byteLength / (1024 * 1024)).toFixed(1);
 
-    if (bytes.byteLength > LARGE_FILE_THRESHOLD_BYTES) {
+    if (shouldUseSignedUrlUpload(bytes, bareMimeType)) {
       return uploadLargeFileViaSignedUrl(
-        { data, filename, mimeType },
+        input,
         privateKey,
         bareMimeType,
         bytes,
@@ -241,6 +259,9 @@ export const builderFileUploadProvider: FileUploadProvider = {
 
     const url = new URL("/api/v1/upload", builderUploadHost());
     if (filename) url.searchParams.set("name", filename);
+    if (input.skipCompressionWait) {
+      setSkipCompressionQueryParams(url);
+    }
 
     const response = await uploadSmallFile(url, {
       method: "POST",
@@ -366,7 +387,7 @@ export const builderFileUploadProvider: FileUploadProvider = {
         : new Error("GCS PUT failed after retries");
     },
 
-    async completeSession(session, filename) {
+    async completeSession(session, filename, options) {
       const { resolveBuilderPrivateKey } =
         await import("../server/credential-provider.js");
       const privateKey = await resolveBuilderPrivateKey();
@@ -378,6 +399,11 @@ export const builderFileUploadProvider: FileUploadProvider = {
         privateKey,
         assetId,
         filename,
+        {
+          skipCompressionWait:
+            options?.skipCompressionWait ||
+            session.meta.skipCompressionWait === true,
+        },
       );
       console.log(`[builder-resumable] upload complete: ${url}`);
       return url;

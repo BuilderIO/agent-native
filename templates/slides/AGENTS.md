@@ -19,9 +19,13 @@ Detailed deck, slide-editing, image, design-system, and export workflows live in
 - Preserve deck structure and visual consistency. Prefer focused slide edits over
   regenerating whole decks unless requested.
 - Follow linked design-system tokens and custom instructions.
-- For raw Figma `.fig` uploads, call `import-file --format fig` to start
-  Builder design-system indexing. Do not create a local design system from raw
-  `.fig` output.
+- For reusable design-system setup from Figma, connected code/GitHub, local
+  code/design files, or optional `design.md`, use Builder-backed DSI indexing
+  through `index-design-system-with-builder` or `import-file --format fig`.
+  Pass readable `design.md` content as `designMd`, use the returned local design
+  system id in Slides flows, and call `get-design-system` before generation to
+  hydrate Builder docs/tokens when available. Do not create a duplicate local
+  design system from raw Figma/code sources.
 - Treat import/export actions as shortcuts, not capability limits. When the
   exact Google Drive endpoint, file metadata field, export format, pagination
   mode, or API version matters, use `provider-api-catalog`,
@@ -51,6 +55,10 @@ extending the editor's save path, enqueue a granular op (`patch-slide`,
 ## Application State
 
 - `navigation` exposes the current deck, slide, selection, and editor view.
+- `slides-selection` exposes the active visual editing context: selected slide
+  element(s), tool mode, transient selectors, text/image hints, and compact
+  computed style data. Use `view-screen` before a visual/style edit so you can
+  act on the same object the user clicked.
 - `navigate` moves the UI to decks, slides, imports, and exports.
 - Use app actions for full deck/slide data instead of relying on ambient context.
 

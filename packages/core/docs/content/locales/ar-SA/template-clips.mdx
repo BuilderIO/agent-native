@@ -131,6 +131,15 @@ API، لذا فإن النماذج التي تقبل النص أو الصور ا
 | `/api/agent-transcript.json?id=<recordingId>`     | أجزاء النص ذات الطابع الزمني مع `startMs`، `endMs`، والطوابع الزمنية القابلة للقراءة، والنص، وتسميات المصدر الاختيارية        |
 | `/api/agent-frame.jpg?id=<recordingId>&atMs=<ms>` | إطار JPEG مستخرج من الفيديو بطابع زمني للفيديو الأصلي                                                                         |
 
+Temporary private agent links are also supported: the Share dialog can mint a two-hour `agent_access` URL for any recording the viewer can access. Agents use that token with the share page and JSON APIs, and the clip does not become public.
+
+Implementation note: use the shared core agent-access helpers
+(`createScopedAgentAccessGrant`, `verifyScopedAgentAccessToken`,
+`buildAgentAccessUrl`, and `buildAgentAccessApiUrl`) for the SSR/bot-visible
+URL contract. Keep Clips-specific visibility checks, transcript/frame payloads,
+and player UI local. New links use `agent_access`; routes should continue
+accepting the legacy `t` query where existing agent API URLs may already use it.
+
 تتبع نقاط النهاية نفس القواعد العامة/كلمة المرور/انتهاء الصلاحية مثل صفحة المشاركة.
 تتطلب المقاطع المحمية بكلمة مرور كلمة المرور مرة واحدة؛ تعود الاستجابات الناجحة
 روابط رمزية قصيرة العمر بحيث لا يحتاج وكلاء المراحل النهائية إلى النص العادي

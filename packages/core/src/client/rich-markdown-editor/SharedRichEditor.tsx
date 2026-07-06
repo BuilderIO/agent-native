@@ -19,6 +19,7 @@ import {
   useCollabReconcile,
   getEditorMarkdown,
   type UseCollabReconcileResult,
+  type UseCollabReconcileOptions,
 } from "./useCollabReconcile.js";
 
 export interface SharedRichEditorProps {
@@ -86,6 +87,12 @@ export interface SharedRichEditorProps {
     value: string,
     options: { emitUpdate?: boolean; addToHistory?: boolean },
   ) => void;
+  /**
+   * Optional parser for surgical reconcile. Custom value formats that already
+   * handle surgical writes inside `setContent` can pass `false` so the default
+   * markdown parser never treats their source bytes as literal markdown.
+   */
+  parseValue?: UseCollabReconcileOptions["parseValue"];
   /** Canonicalize `value` for the echo / already-in-sync equality checks. */
   normalizeValue?: (value: string) => string;
   /** Override the empty-doc seed predicate (see {@link useCollabReconcile}). */
@@ -142,6 +149,7 @@ export function SharedRichEditor({
   buildBubbleItems,
   getMarkdown,
   setContent,
+  parseValue,
   normalizeValue,
   shouldSeed,
   initialAppliedUpdatedAt,
@@ -196,40 +204,48 @@ export function SharedRichEditor({
   // holds the real guards.
   const guardsRef = useRef<UseCollabReconcileResult | null>(null);
 
-  const editor = useEditor({
-    extensions,
-    // With Collaboration active the prose is owned by the shared Y.XmlFragment.
-    // Seeding `content` here too would make the editor initialize from BOTH the
-    // prop and the Y.Doc, firing a spurious initial update that could autosave a
-    // stale value over newer SQL. The lead-client seed effect populates an empty
-    // doc instead. Non-collab editors keep initializing from `value`.
-    // With Collaboration the Y.Doc owns the prose (seeded by the lead client).
-    // With a custom `setContent` the reconcile seeds the editor too (the raw
-    // `value` is not directly settable content — e.g. the plan's blocks JSON),
-    // so only the plain markdown path seeds from `value` here.
-    content: collab || setContent ? null : value,
-    editable,
-    editorProps: {
-      attributes: {
-        class: cn("an-rich-md-prose", editorClassName),
-        ...(ariaLabel ? { role: "textbox", "aria-label": ariaLabel } : {}),
+  const editor = useEditor(
+    {
+      extensions,
+      // With Collaboration active the prose is owned by the shared Y.XmlFragment.
+      // Seeding `content` here too would make the editor initialize from BOTH the
+      // prop and the Y.Doc, firing a spurious initial update that could autosave a
+      // stale value over newer SQL. The lead-client seed effect populates an empty
+      // doc instead. Non-collab editors keep initializing from `value`.
+      // With Collaboration the Y.Doc owns the prose (seeded by the lead client).
+      // With a custom `setContent` the reconcile seeds the editor too (the raw
+      // `value` is not directly settable content — e.g. the plan's blocks JSON),
+      // so only the plain markdown path seeds from `value` here.
+      content: collab || setContent ? null : value,
+      editable,
+      editorProps: {
+        attributes: {
+          class: cn("an-rich-md-prose", editorClassName),
+          ...(ariaLabel ? { role: "textbox", "aria-label": ariaLabel } : {}),
+        },
       },
+      onUpdate: ({ editor, transaction }) => {
+        const guards = guardsRef.current;
+        if (!guards || guards.shouldIgnoreUpdate(transaction)) return;
+        try {
+          const markdown = readMarkdown(editor);
+          if (!guards.registerEmitted(markdown)) return;
+          queueMicrotask(() => onChangeRef.current(markdown));
+        } catch (error) {
+          console.error("Markdown serialization error:", error);
+        }
+      },
+      onBlur: () => {
+        onBlurRef.current?.();
+      },
+      // Recreate the editor when the shared Y.Doc identity changes — including
+      // null → doc. Extensions are baked in at creation, so a ydoc that arrives
+      // AFTER the first mount (fresh page load: the session/user resolves after
+      // the editor mounts) would otherwise never bind Collaboration: the editor
+      // looks fine but produces no Yjs updates and never receives peers' edits.
     },
-    onUpdate: ({ editor, transaction }) => {
-      const guards = guardsRef.current;
-      if (!guards || guards.shouldIgnoreUpdate(transaction)) return;
-      try {
-        const markdown = readMarkdown(editor);
-        if (!guards.registerEmitted(markdown)) return;
-        queueMicrotask(() => onChangeRef.current(markdown));
-      } catch (error) {
-        console.error("Markdown serialization error:", error);
-      }
-    },
-    onBlur: () => {
-      onBlurRef.current?.();
-    },
-  });
+    [ydoc],
+  );
 
   const collabState = useCollabReconcile({
     editor,
@@ -240,6 +256,7 @@ export function SharedRichEditor({
     editable,
     getMarkdown: readMarkdown,
     setContent,
+    parseValue,
     normalizeValue,
     shouldSeed,
     initialAppliedUpdatedAt,

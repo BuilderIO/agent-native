@@ -46,8 +46,10 @@ export interface ShareButtonProps {
   /** @deprecated No longer affects rendering — trigger always says
    *  "Share". Kept for callsite compatibility. */
   variant?: "compact" | "label";
-  /** Optional trigger style. Defaults to the Google-Docs-style "Share" label. */
-  trigger?: "label" | "icon";
+  /** Optional trigger style. Defaults to the Google-Docs-style "Share" label.
+   *  Use "label-icon" to render a leading share glyph alongside the label so
+   *  the trigger matches adjacent icon+label buttons; "icon" is icon-only. */
+  trigger?: "label" | "icon" | "label-icon";
   /** @deprecated Label triggers no longer render a visibility/share glyph. */
   hideTriggerIcon?: boolean;
   /** Optional className applied to the trigger button. */
@@ -355,7 +357,9 @@ export function ShareButton(props: ShareButtonProps) {
   };
 
   // The default trigger stays text-only; the icon trigger keeps the share glyph.
+  // "label-icon" renders the glyph alongside the label for icon+label parity.
   const iconOnly = props.trigger === "icon";
+  const showLabelIcon = props.trigger === "label-icon";
 
   return (
     <Popover open={open} onOpenChange={handleOpenChange}>
@@ -368,7 +372,9 @@ export function ShareButton(props: ShareButtonProps) {
           )}
           aria-label={iconOnly ? "Share" : undefined}
         >
-          {iconOnly ? <IconShare3 size={16} strokeWidth={1.75} /> : null}
+          {iconOnly || showLabelIcon ? (
+            <IconShare3 size={16} strokeWidth={1.75} />
+          ) : null}
           {!iconOnly && <span>Share</span>}
         </button>
       </PopoverTrigger>
@@ -687,6 +693,10 @@ function SharePanel(
 
   const handleVisibility = (next: Visibility) => {
     if (next === visibility) return;
+    if (!canManage) {
+      setShareError("Only owners and admins can change access.");
+      return;
+    }
     setShareError(null);
     void onVisibilityChange(next).catch((err) => {
       setShareError(extractShareErrorMessage(err));
@@ -1018,6 +1028,15 @@ function SharePanel(
           </div>
         </div>
       </div>
+
+      {shareError && !canManage ? (
+        <div
+          role="alert"
+          className="mb-4 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive"
+        >
+          {shareError}
+        </div>
+      ) : null}
 
       {props.accessNote ? (
         <div className="mb-4 rounded-md border border-border bg-muted/35 p-3 text-xs text-muted-foreground">
@@ -1583,14 +1602,20 @@ function VisibilitySelect(props: {
   onChange: (v: Visibility) => void;
   disabled?: boolean;
   visibilityCopy?: ShareButtonProps["visibilityCopy"];
+  /** When false, the "Private" option is omitted unless currently selected. */
+  allowPrivate?: boolean;
   /** When false, the "Public" option is omitted. Default: true. */
   allowPublic?: boolean;
 }) {
+  const allowPrivate = props.allowPrivate !== false;
   const allowPublic = props.allowPublic !== false;
   const current = visibilityMeta(props.value, props.visibilityCopy);
-  const options = (Object.keys(VIS_META) as Visibility[]).filter(
-    (k) => allowPublic || k !== "public",
-  );
+  const options = (Object.keys(VIS_META) as Visibility[]).filter((k) => {
+    if (k === props.value) return true;
+    if (k === "private" && !allowPrivate) return false;
+    if (k === "public" && !allowPublic) return false;
+    return true;
+  });
   return (
     <Select.Root
       value={props.value}

@@ -250,6 +250,84 @@ function higherShareRole(a: ShareRole, b: ShareRole | null): ShareRole {
   return ROLE_RANK[b] > ROLE_RANK[a] ? b : a;
 }
 
+function columnName(column: unknown): string | null {
+  const candidate = column as
+    | {
+        name?: unknown;
+        config?: { name?: unknown };
+        _: { name?: unknown };
+      }
+    | undefined;
+  const name = candidate?.name ?? candidate?.config?.name ?? candidate?._?.name;
+  return typeof name === "string" && name ? name : null;
+}
+
+function missingColumnName(err: unknown): string | null {
+  const error = err as { code?: string; message?: string } | undefined;
+  const message = error?.message ?? "";
+  if (
+    error?.code !== "42703" &&
+    !/no such column|does not exist/i.test(message)
+  ) {
+    return null;
+  }
+  const quoted = message.match(/column\s+"([^"]+)"\s+does not exist/i)?.[1];
+  if (quoted) return quoted;
+  const sqlite = message.match(/no such column:\s+["`]?([\w.]+)["`]?/i)?.[1];
+  if (sqlite) return sqlite.split(".").pop() ?? sqlite;
+  return null;
+}
+
+function selectAllExistingResourceColumns(
+  resourceTable: any,
+  omittedColumnNames: Set<string>,
+): Record<string, unknown> {
+  const selection: Record<string, unknown> = {};
+  for (const [key, column] of Object.entries(resourceTable)) {
+    const name = columnName(column);
+    if (!name || omittedColumnNames.has(name)) continue;
+    selection[key] = column;
+  }
+  return selection;
+}
+
+async function loadResourceForAccess(
+  reg: ShareableResourceRegistration,
+  resourceId: string,
+): Promise<any | null> {
+  const db = reg.getDb() as any;
+  const omittedColumnNames = new Set<string>();
+
+  for (let attempt = 0; attempt < 12; attempt++) {
+    try {
+      const query =
+        omittedColumnNames.size === 0
+          ? db.select()
+          : db.select(
+              selectAllExistingResourceColumns(
+                reg.resourceTable,
+                omittedColumnNames,
+              ),
+            );
+      const [resource] = await query
+        .from(reg.resourceTable)
+        .where(eq(reg.resourceTable.id, resourceId));
+      return resource ?? null;
+    } catch (err) {
+      const missing = missingColumnName(err);
+      if (!missing || omittedColumnNames.has(missing)) throw err;
+      omittedColumnNames.add(missing);
+      console.warn(
+        `[sharing] ${reg.type} access lookup omitted missing column ${missing}`,
+      );
+    }
+  }
+
+  throw new Error(
+    `Could not load ${reg.type} ${resourceId}: too many missing resource columns`,
+  );
+}
+
 /**
  * Return the effective role the current user has on a specific resource, or
  * null if they have no access. Loads the resource and relevant share rows.
@@ -261,12 +339,8 @@ export async function resolveAccess(
 ): Promise<ResolvedAccess | null> {
   const reg = requireShareableResource(resourceType);
   const ctx = resolveRegisteredAccessContext(reg, rawCtx);
-  const db = reg.getDb() as any;
 
-  const [resource] = await db
-    .select()
-    .from(reg.resourceTable)
-    .where(eq(reg.resourceTable.id, resourceId));
+  const resource = await loadResourceForAccess(reg, resourceId);
   if (!resource) return null;
 
   const { userEmail, orgId } = ctx;

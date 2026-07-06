@@ -104,7 +104,9 @@ describe("DesignCanvas spacing overlay bridge", () => {
 describe("DesignCanvas text editing bridge", () => {
   it("uses selection chrome instead of double outlines while text is focused", () => {
     expect(source).toContain("function updateTextEditingChrome");
-    expect(source).toContain('target.style.outline = ""');
+    expect(source).toContain('target.style.outline = "none"');
+    expect(source).toContain('target.style.outlineStyle = "none"');
+    expect(source).toContain('target.style.outlineWidth = "0px"');
     expect(source).toContain('selectionOverlay.style.display = "none"');
     expect(source).toContain("setSelectionOverlayResizeChromeVisible(false)");
     expect(source).toContain('target.addEventListener("input", onInput');

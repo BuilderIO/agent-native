@@ -6,12 +6,14 @@ import {
   isLocalPlanRuntime,
 } from "../server/lib/local-identity.js";
 import { promotePlanLocalFolder } from "../server/lib/local-plan-files.js";
+import {
+  localPlanKindSchema,
+  resolveLocalPlanKind,
+} from "../server/lib/local-plan-kind.js";
 import { exportPlanContentToMdxFolder } from "../server/plan-mdx.js";
 import { buildPlanHtml, nowIso } from "../server/plans.js";
 import type { PlanContent } from "../shared/plan-content.js";
 import type { PlanBundle, PlanKind } from "../shared/types.js";
-
-const localPlanKindSchema = z.enum(["plan", "recap"]);
 
 export default defineAction({
   description:
@@ -136,26 +138,6 @@ export default defineAction({
     view: "plan",
   }),
 });
-
-function resolveLocalPlanKind(
-  explicit: "plan" | "recap" | undefined,
-  mdx: { "plan.mdx": string; ".plan-state.json"?: string },
-): "plan" | "recap" {
-  if (explicit) return explicit;
-  const frontmatterMatch = mdx["plan.mdx"].match(
-    /^---[\s\S]*?^kind:\s*["']?(plan|recap)["']?\s*$/m,
-  );
-  if (frontmatterMatch) return frontmatterMatch[1] as "plan" | "recap";
-  try {
-    const state = mdx[".plan-state.json"]
-      ? (JSON.parse(mdx[".plan-state.json"]) as { kind?: unknown })
-      : null;
-    if (state?.kind === "plan" || state?.kind === "recap") return state.kind;
-  } catch {
-    // Optional state file.
-  }
-  return "plan";
-}
 
 function countLocalPlanBlocks(blocks: PlanContent["blocks"]) {
   const counts: Record<string, number> = {};

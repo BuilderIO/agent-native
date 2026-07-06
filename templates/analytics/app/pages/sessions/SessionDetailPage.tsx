@@ -1,11 +1,30 @@
 import {
+  appApiPath,
   PromptComposer,
+  useActionMutation,
   useActionQuery,
   useSendToAgentChat,
   useT,
 } from "@agent-native/core/client";
+import { Button } from "@agent-native/toolkit/ui/button";
+import { Card, CardContent } from "@agent-native/toolkit/ui/card";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@agent-native/toolkit/ui/popover";
+import { Skeleton } from "@agent-native/toolkit/ui/skeleton";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@agent-native/toolkit/ui/tooltip";
+import { SESSION_REPLAY_AGENT_ACCESS_PARAM } from "@shared/session-replay-agent-access";
 import {
   IconArrowLeft,
+  IconCheck,
+  IconCopy,
   IconExclamationCircle,
   IconKeyboard,
   IconMessageCircle,
@@ -16,8 +35,10 @@ import {
   IconPlayerSkipForward,
   IconPlayerTrackNext,
   IconRoute,
+  IconTerminal2,
   IconTimelineEvent,
 } from "@tabler/icons-react";
+import { useQuery } from "@tanstack/react-query";
 import {
   type ReactNode,
   useCallback,
@@ -28,21 +49,11 @@ import {
 } from "react";
 import { Link, useParams } from "react-router";
 
-import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover";
-import { Skeleton } from "@/components/ui/skeleton";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
+import { getIdToken } from "@/lib/auth";
 import { cn } from "@/lib/utils";
+
+import { extractReplayDiagnostics } from "./session-replay-devtools";
+import { SessionDevToolsPanel } from "./SessionDevToolsPanel";
 
 type SessionRecordingSummary = {
   id: string;
@@ -83,7 +94,20 @@ type ReplayChunkEvents = {
   unavailable?: boolean;
 };
 
-type SessionReplayEventsResponse = {
+type SessionReplayManifestResponse = {
+  recording: SessionRecordingSummary;
+  chunks: Array<{
+    seq: number;
+    checksum: string;
+    byteLength: number;
+    eventCount: number;
+    startedAt: string | null;
+    endedAt: string | null;
+    bytesPath: string;
+  }>;
+};
+
+type SessionReplayPlaybackResponse = {
   recording: SessionRecordingSummary;
   chunks: ReplayChunkEvents[];
   eventCount: number;
@@ -122,6 +146,8 @@ const SPEED_OPTIONS = [0.5, 1, 2, 4, 8];
 const SKIP_STEP_MS = 5000;
 const MIN_IDLE_SKIP_MS = 8000;
 const IDLE_EDGE_PAD_MS = 1200;
+const REPLAY_CHUNK_FETCH_CONCURRENCY = 6;
+const REPLAY_CHUNK_UNAVAILABLE_MESSAGE = "Session replay chunk is unavailable";
 
 const RRWEB_EVENT_TYPE = {
   FullSnapshot: 2,
@@ -155,12 +181,7 @@ export default function SessionDetailPage() {
   const t = useT();
   const { recordingId = "" } = useParams();
   const { codeRequiredDialog } = useSendToAgentChat();
-  const { data, isLoading, error } =
-    useActionQuery<SessionReplayEventsResponse>(
-      "get-session-replay-events",
-      { recordingId, limit: 10000 },
-      { enabled: Boolean(recordingId), staleTime: 30_000 },
-    );
+  const { data, isLoading, error } = useSessionReplayPlayback(recordingId);
   const recording = data?.recording;
 
   return (
@@ -189,14 +210,21 @@ export default function SessionDetailPage() {
             </div>
           ) : null}
         </div>
-        {recording ? <AskSessionPopover recording={recording} /> : null}
+        {recording ? (
+          <div className="flex shrink-0 items-center gap-2">
+            <CopySessionForAgentButton recordingId={recording.id} />
+            <AskSessionPopover recording={recording} />
+          </div>
+        ) : null}
       </div>
 
       {error ? (
         <Card>
           <CardContent className="flex items-center gap-3 p-6 text-sm text-destructive">
             <IconExclamationCircle className="h-5 w-5" />
-            {t("sessions.loadFailed", { message: error.message })}
+            {t("sessions.loadFailed", {
+              message: error instanceof Error ? error.message : String(error),
+            })}
           </CardContent>
         </Card>
       ) : isLoading ? (
@@ -207,6 +235,41 @@ export default function SessionDetailPage() {
         </div>
       ) : null}
     </div>
+  );
+}
+
+function CopySessionForAgentButton({ recordingId }: { recordingId: string }) {
+  const t = useT();
+  const [copied, setCopied] = useState(false);
+  const createLink = useActionMutation(
+    "create-session-replay-agent-link" as any,
+  );
+
+  async function handleCopy() {
+    if (createLink.isPending) return;
+    const result = (await createLink.mutateAsync({
+      recordingId,
+    })) as { url?: string };
+    if (!result?.url) return;
+    await navigator.clipboard.writeText(result.url).catch(() => {});
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1400);
+  }
+
+  return (
+    <Button
+      type="button"
+      variant="outline"
+      onClick={() => void handleCopy()}
+      disabled={createLink.isPending}
+    >
+      {copied ? (
+        <IconCheck className="h-4 w-4" />
+      ) : (
+        <IconCopy className="h-4 w-4" />
+      )}
+      {copied ? t("sessions.copiedForAgent") : t("sessions.copyForAgent")}
+    </Button>
   );
 }
 
@@ -268,7 +331,7 @@ function AskSessionPopover({
 function ReplayWorkbench({
   response,
 }: {
-  response: SessionReplayEventsResponse;
+  response: SessionReplayPlaybackResponse;
 }) {
   const events = useReplayEvents(response);
   const markers = useMemo(() => buildReplayMarkers(events), [events]);
@@ -318,7 +381,7 @@ function ReplayPlayer({
 }: {
   events: AnyReplayEvent[];
   markers: ReplayMarker[];
-  response: SessionReplayEventsResponse;
+  response: SessionReplayPlaybackResponse;
   onTimeUpdate: (ms: number) => void;
   registerSeek: (seek: (ms: number, autoplay?: boolean) => void) => void;
 }) {
@@ -334,6 +397,7 @@ function ReplayPlayer({
   const [totalTime, setTotalTime] = useState(0);
   const [speed, setSpeed] = useState(DEFAULT_SPEED);
   const [skipInactive, setSkipInactive] = useState(true);
+  const [devToolsOpen, setDevToolsOpen] = useState(false);
   const [streamedDims, setStreamedDims] = useState<{
     width: number;
     height: number;
@@ -355,6 +419,9 @@ function ReplayPlayer({
     () => currentUrlAt(events, currentTime),
     [events, currentTime],
   );
+  const diagnostics = useMemo(() => extractReplayDiagnostics(events), [events]);
+  const devToolsIssueCount =
+    diagnostics.consoleErrorCount + diagnostics.networkFailedCount;
 
   useEffect(() => {
     const el = stageAreaRef.current;
@@ -415,6 +482,11 @@ function ReplayPlayer({
       if (events.length < 2) {
         throw new Error(t("sessions.noReplayEvents"));
       }
+      if (
+        !events.some((event) => event.type === RRWEB_EVENT_TYPE.FullSnapshot)
+      ) {
+        throw new Error(t("sessions.noReplayEvents"));
+      }
       setStatus("loading");
       setError(null);
       await import("@rrweb/replay/dist/style.css");
@@ -430,7 +502,14 @@ function ReplayPlayer({
         showWarning: false,
         showDebug: false,
         triggerFocus: false,
-        mouseTail: false,
+        // Subtle FullStory-style trail behind the visitor cursor. The canvas
+        // is resized alongside the iframe in applyReplayFrameDimensions.
+        mouseTail: {
+          strokeStyle: "rgba(59, 130, 246, 0.35)",
+          lineWidth: 2,
+          duration: 600,
+          lineCap: "round",
+        },
         insertStyleRules: [
           "[data-radix-popper-content-wrapper], .Toastify, [class*='toast'], [class*='Toast'] { display: none !important; }",
         ],
@@ -729,6 +808,31 @@ function ReplayPlayer({
                   : t("sessions.skipInactiveOff")}
               </TooltipContent>
             </Tooltip>
+
+            <button
+              type="button"
+              className={cn(
+                "inline-flex h-8 items-center gap-1.5 rounded-md border px-2 text-xs font-medium transition-colors hover:bg-muted",
+                devToolsOpen && "border-primary/40 bg-primary/10 text-primary",
+              )}
+              onClick={() => setDevToolsOpen((value) => !value)}
+              aria-pressed={devToolsOpen}
+              aria-expanded={devToolsOpen}
+            >
+              <IconTerminal2 className="h-4 w-4" />
+              {t("sessions.devtools")}
+              {devToolsIssueCount > 0 ? (
+                <span
+                  className="inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-red-500 px-1 font-mono text-[10px] font-semibold leading-none text-white"
+                  aria-label={t("sessions.devtoolsIssueCount", {
+                    count: String(devToolsIssueCount),
+                  })}
+                >
+                  {devToolsIssueCount > 99 ? "99+" : devToolsIssueCount}
+                </span>
+              ) : null}
+            </button>
+
             <span className="ms-auto hidden text-xs text-muted-foreground lg:inline">
               {t("sessions.replayEventCount", {
                 events: String(response.eventCount),
@@ -736,6 +840,14 @@ function ReplayPlayer({
               {response.truncated ? ` ${t("sessions.truncated")}` : ""}
             </span>
           </div>
+
+          {devToolsOpen ? (
+            <SessionDevToolsPanel
+              diagnostics={diagnostics}
+              currentTime={currentTime}
+              onSeek={(ms) => seek(ms, true)}
+            />
+          ) : null}
 
           {response.unavailableChunks > 0 ? (
             <div className="border-t px-4 py-2 text-xs text-muted-foreground">
@@ -956,8 +1068,179 @@ function DetailSkeleton() {
   );
 }
 
+function useSessionReplayPlayback(recordingId: string) {
+  const agentAccessToken = currentSessionReplayAgentAccessToken();
+  return useQuery({
+    queryKey: ["session-replay-playback", recordingId, agentAccessToken],
+    enabled: Boolean(recordingId),
+    staleTime: 30_000,
+    gcTime: 60_000,
+    queryFn: () =>
+      fetchSessionReplayPlayback(recordingId, { agentAccessToken }),
+  });
+}
+
+interface FetchSessionReplayPlaybackOptions {
+  agentAccessToken?: string;
+}
+
+export async function fetchSessionReplayPlayback(
+  recordingId: string,
+  options: FetchSessionReplayPlaybackOptions = {},
+): Promise<SessionReplayPlaybackResponse> {
+  const manifest = await fetchReplayManifest(recordingId, options);
+  const chunks = await fetchReplayChunks(manifest.chunks, options);
+  const unavailableChunks = chunks.filter((chunk) => chunk.unavailable).length;
+  const eventCount = chunks.reduce(
+    (sum, chunk) => sum + chunk.events.length,
+    0,
+  );
+  return {
+    recording: manifest.recording,
+    chunks,
+    eventCount,
+    truncated: false,
+    unavailableChunks,
+  };
+}
+
+async function fetchReplayManifest(
+  recordingId: string,
+  options: FetchSessionReplayPlaybackOptions,
+): Promise<SessionReplayManifestResponse> {
+  const response = await fetchReplayApi(
+    `/api/session-replay/recordings/${encodeURIComponent(
+      recordingId,
+    )}/manifest`,
+    options.agentAccessToken,
+  );
+  if (!response.ok) throw await replayFetchError(response);
+  return (await response.json()) as SessionReplayManifestResponse;
+}
+
+async function fetchReplayChunks(
+  chunks: SessionReplayManifestResponse["chunks"],
+  options: FetchSessionReplayPlaybackOptions,
+): Promise<ReplayChunkEvents[]> {
+  const results = new Array<ReplayChunkEvents>(chunks.length);
+  let nextIndex = 0;
+
+  async function worker() {
+    while (nextIndex < chunks.length) {
+      const index = nextIndex;
+      nextIndex += 1;
+      results[index] = await fetchReplayChunk(chunks[index], options);
+    }
+  }
+
+  await Promise.all(
+    Array.from(
+      { length: Math.min(REPLAY_CHUNK_FETCH_CONCURRENCY, chunks.length) },
+      worker,
+    ),
+  );
+  return results;
+}
+
+async function fetchReplayChunk(
+  chunk: SessionReplayManifestResponse["chunks"][number],
+  options: FetchSessionReplayPlaybackOptions,
+): Promise<ReplayChunkEvents> {
+  const response = await fetchReplayApi(
+    chunk.bytesPath,
+    options.agentAccessToken,
+  );
+  if (!response.ok) {
+    const error = await replayFetchError(response);
+    if (isUnavailableReplayChunk(response, error)) {
+      return replayUnavailableChunk(chunk);
+    }
+    throw error;
+  }
+  const payload = await response.json();
+  return {
+    seq: chunk.seq,
+    checksum: chunk.checksum,
+    byteLength: chunk.byteLength,
+    eventCount: chunk.eventCount,
+    events: replayPayloadEvents(payload),
+  };
+}
+
+function isUnavailableReplayChunk(response: Response, error: Error): boolean {
+  return (
+    response.status === 404 &&
+    error.message === REPLAY_CHUNK_UNAVAILABLE_MESSAGE
+  );
+}
+
+function replayUnavailableChunk(
+  chunk: SessionReplayManifestResponse["chunks"][number],
+): ReplayChunkEvents {
+  return {
+    seq: chunk.seq,
+    checksum: chunk.checksum,
+    byteLength: chunk.byteLength,
+    eventCount: chunk.eventCount,
+    events: [],
+    unavailable: true,
+  };
+}
+
+function currentSessionReplayAgentAccessToken(): string {
+  const browserSearch =
+    globalThis.window?.location?.search ?? globalThis.location?.search ?? "";
+  return (
+    new URLSearchParams(browserSearch).get(SESSION_REPLAY_AGENT_ACCESS_PARAM) ??
+    ""
+  );
+}
+
+async function fetchReplayApi(
+  path: string,
+  explicitAgentAccessToken?: string,
+): Promise<Response> {
+  const token = await getIdToken();
+  const browserOrigin =
+    globalThis.window?.location?.origin ??
+    globalThis.location?.origin ??
+    "http://localhost";
+  const url = new URL(appApiPath(path), browserOrigin);
+  const agentAccessToken =
+    explicitAgentAccessToken ?? currentSessionReplayAgentAccessToken();
+  if (agentAccessToken) {
+    url.searchParams.set(SESSION_REPLAY_AGENT_ACCESS_PARAM, agentAccessToken);
+  }
+  return fetch(`${url.pathname}${url.search}${url.hash}`, {
+    headers: {
+      Accept: "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+  });
+}
+
+async function replayFetchError(response: Response): Promise<Error> {
+  try {
+    const payload = await response.json();
+    if (isRecord(payload) && typeof payload.error === "string") {
+      return new Error(payload.error);
+    }
+  } catch {
+    // Fall through to the status text.
+  }
+  return new Error(response.statusText || `HTTP ${response.status}`);
+}
+
+export function replayPayloadEvents(payload: unknown): unknown[] {
+  if (Array.isArray(payload)) return payload;
+  if (isRecord(payload) && Array.isArray(payload.events)) {
+    return payload.events;
+  }
+  return payload ? [payload] : [];
+}
+
 function useReplayEvents(
-  response: SessionReplayEventsResponse,
+  response: SessionReplayPlaybackResponse,
 ): AnyReplayEvent[] {
   return useMemo(
     () =>
@@ -1094,7 +1377,14 @@ function sanitizeCssText(value: string): string {
   if (!containsStylesheetNetworkLoad(value)) return value;
   return value
     .replace(/@import\s+(?:url\s*\()?[^;{}]+;?/gi, "")
-    .replace(/\burl\s*\((?:\\.|[^\\)])*\)/gi, "none");
+    .replace(/\burl\s*\(\s*((?:\\.|[^\\)])*)\)/gi, sanitizeCssUrlToken);
+}
+
+function sanitizeCssUrlToken(match: string, rawValue: string): string {
+  const urlValue = rawValue.trim();
+  const unquoted = urlValue.replace(/^(['"])(.*)\1$/, "$2").trim();
+  if (/^(?:data:|blob:|#)/i.test(unquoted)) return match;
+  return "none";
 }
 
 function sanitizeAttributes(attributes: AnyRecord): AnyRecord {
@@ -1107,6 +1397,11 @@ function sanitizeAttributes(attributes: AnyRecord): AnyRecord {
     if (normalized === "style") {
       const style = sanitizeCssText(String(value));
       if (style.trim()) next[key] = style;
+      continue;
+    }
+    if (normalized === "_csstext") {
+      const cssText = sanitizeCssText(String(value));
+      if (cssText.trim()) next[key] = cssText;
       continue;
     }
     next[key] = value;

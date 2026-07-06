@@ -52,7 +52,7 @@ vi.mock("@tanstack/react-query", () => ({
 }));
 
 // Fire `onValueChange` during render so the commit path runs without events.
-vi.mock("@/components/ui/select", () => ({
+vi.mock("@agent-native/toolkit/ui/select", () => ({
   Select: ({
     onValueChange,
   }: {
@@ -72,20 +72,20 @@ vi.mock("@/components/ui/select", () => ({
 // so it renders to static markup without Radix providers / `cn` styling helpers
 // in this lightweight (no-jsdom) test env. The hook arguments — what we assert
 // on — are unaffected by these stubs.
-vi.mock("@/components/ui/tooltip", () => ({
+vi.mock("@agent-native/toolkit/ui/tooltip", () => ({
   Tooltip: ({ children }: { children?: unknown }) => children as never,
   TooltipTrigger: ({ children }: { children?: unknown }) => children as never,
   TooltipContent: () => null,
   TooltipProvider: ({ children }: { children?: unknown }) => children as never,
 }));
-vi.mock("@/components/ui/button", () => ({
+vi.mock("@agent-native/toolkit/ui/button", () => ({
   Button: ({ children }: { children?: unknown }) => children as never,
 }));
-vi.mock("@/components/ui/label", () => ({
+vi.mock("@agent-native/toolkit/ui/label", () => ({
   Label: ({ children }: { children?: unknown }) => children as never,
 }));
-vi.mock("@/components/ui/input", () => ({ Input: () => null }));
-vi.mock("@/components/ui/switch", () => ({ Switch: () => null }));
+vi.mock("@agent-native/toolkit/ui/input", () => ({ Input: () => null }));
+vi.mock("@agent-native/toolkit/ui/switch", () => ({ Switch: () => null }));
 
 import { ComponentSection } from "./EditPanel";
 

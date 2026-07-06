@@ -147,6 +147,14 @@ CLI는 로컬 개발자 URL를 인쇄합니다. Google에 로그인한 다음 **
 
 **광범위한 커넥터 표면.** BigQuery, GA4, 제품 분석, CRM, 지원, 커뮤니티, GitHub/Jira, SEO 및 자사 `/track` 이벤트는 모두 에이전트가 호출할 수 있는 actions를 통해 제공됩니다.
 
+**Session replay agent handoff.** Session recordings stay private, but the session detail page can mint a temporary **Copy for agent** link. The two-hour `agent_access` URL lets an external agent read replay summaries, timelines, and bounded event details without exposing blob/provider URLs or making the recording public.
+
+Implementation note: use the shared core agent-access helpers
+(`createScopedAgentAccessGrant`, `verifyScopedAgentAccessToken`,
+`buildAgentAccessUrl`, and `buildAgentAccessApiUrl`) for the SSR/bot-visible
+URL contract. Keep replay chunk authorization, diagnostics payloads, and the
+session detail UI local to Analytics.
+
 ### 에이전트와 협력하기
 
 에이전트는 항상 귀하가 무엇을 보고 있는지 알고 있습니다. 현재 화면 상태는 모든 메시지에 `<current-screen>` 블록으로 삽입됩니다. 여기에는 활성 보기, 열려 있는 대시보드 또는 분석, 선택한 필터가 포함됩니다.

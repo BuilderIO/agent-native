@@ -3,8 +3,12 @@ import {
   oauthRedirectUri,
   useT,
 } from "@agent-native/core/client";
+import { Button } from "@agent-native/toolkit/ui/button";
+import { Input } from "@agent-native/toolkit/ui/input";
+import { Label } from "@agent-native/toolkit/ui/label";
 import {
   IconExternalLink,
+  IconAlertTriangle,
   IconCheck,
   IconCircle,
   IconLoader2,
@@ -12,9 +16,7 @@ import {
 } from "@tabler/icons-react";
 import { useState, useEffect, useCallback, useRef } from "react";
 
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import { shouldOfferGoogleOAuthSetup } from "@/lib/google-oauth-setup";
 
 interface EnvKeyStatus {
   key: string;
@@ -91,6 +93,26 @@ export function GoogleSetupWizard() {
 
   const allConfigured =
     envStatus.length > 0 && envStatus.every((k) => k.configured);
+
+  if (!shouldOfferGoogleOAuthSetup()) {
+    return (
+      <div className="rounded-lg border border-amber-500/25 bg-amber-500/[0.07] p-4 text-start">
+        <div className="flex items-start gap-3">
+          <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-amber-500/15 text-amber-300">
+            <IconAlertTriangle className="h-4 w-4" />
+          </div>
+          <div>
+            <p className="text-sm font-medium text-foreground">
+              {t("googleConnect.managedCredentialsUnavailable")}
+            </p>
+            <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+              {t("googleConnect.managedCredentialsUnavailableDescription")}
+            </p>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   async function handleJsonUpload(file: File) {
     setSaving(true);

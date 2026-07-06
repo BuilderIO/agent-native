@@ -1,13 +1,12 @@
 import { useT } from "@agent-native/core/client";
-import { IconUnlink, IconExternalLink, IconPencil } from "@tabler/icons-react";
-import type { Editor } from "@tiptap/react";
-import { useEffect, useState, useRef } from "react";
-
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
-} from "@/components/ui/tooltip";
+} from "@agent-native/toolkit/ui/tooltip";
+import { IconUnlink, IconExternalLink, IconPencil } from "@tabler/icons-react";
+import type { Editor } from "@tiptap/react";
+import { useEffect, useState, useRef } from "react";
 
 interface LinkHoverPreviewProps {
   editor: Editor;

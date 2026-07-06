@@ -44,6 +44,7 @@ vi.mock("./run-store.js", () => ({
   bumpRunProgress: vi.fn(),
   ensureTerminalRunEvent: vi.fn(),
   setRunError: vi.fn(),
+  setRunTerminalReason: vi.fn(),
   STALE_RUN_ERROR_EVENT: {
     type: "error",
     error: "stale",

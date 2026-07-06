@@ -17,6 +17,47 @@ function escapeHtml(str: string): string {
     .replace(/"/g, "&quot;");
 }
 
+// Layers toggled hidden in the editor are only visually suppressed by the
+// live editor bridge (which paints `display:none` on
+// `[data-agent-native-hidden="true"]` inside the canvas iframe). Exports never
+// go through that bridge, so without this rule hidden layers would leak back
+// into every exported artifact. Inject the same rule at export time so
+// hidden-in-editor stays hidden-in-export.
+export const HIDDEN_LAYER_EXPORT_STYLE_MARKER =
+  "data-agent-native-export-hidden";
+export const HIDDEN_LAYER_EXPORT_CSS = `[data-agent-native-hidden="true"]{display:none!important}`;
+
+/**
+ * Wraps the hidden-layer suppression rule in a marked <style> tag so callers
+ * can idempotently check whether it's already present (e.g. before injecting
+ * into HTML that may have already been through this pipeline).
+ */
+export function hiddenLayerExportStyleTag(): string {
+  return `<style ${HIDDEN_LAYER_EXPORT_STYLE_MARKER}>${HIDDEN_LAYER_EXPORT_CSS}</style>`;
+}
+
+/**
+ * Injects the hidden-layer suppression rule into a standalone HTML document,
+ * before `</head>` when present, otherwise prepended to the document. Safe to
+ * call more than once — re-injection is skipped if the marked style tag is
+ * already present.
+ */
+export function injectHiddenLayerExportStyle(html: string): string {
+  if (
+    new RegExp(`<style[^>]*${HIDDEN_LAYER_EXPORT_STYLE_MARKER}\\b`, "i").test(
+      html,
+    )
+  ) {
+    return html;
+  }
+  const styleTag = hiddenLayerExportStyleTag();
+  const closeHead = html.lastIndexOf("</head>");
+  if (closeHead !== -1) {
+    return `${html.slice(0, closeHead)}${styleTag}\n${html.slice(closeHead)}`;
+  }
+  return `${styleTag}\n${html}`;
+}
+
 function extractRenderableHtml(content: string): string {
   const bodyMatch = content.match(/<body\b[^>]*>([\s\S]*?)<\/body>/i);
   if (bodyMatch) return bodyMatch[1].trim();
@@ -90,7 +131,7 @@ export function buildStandaloneHtml(args: {
       }
     }
 
-    return html;
+    return injectHiddenLayerExportStyle(html);
   }
 
   const combinedBody = [...htmlFiles, ...jsxFiles]
@@ -108,6 +149,7 @@ export function buildStandaloneHtml(args: {
   <style>
     ${combinedCss}
   </style>
+  ${hiddenLayerExportStyleTag()}
 </head>
 <body>
   ${combinedBody}

@@ -1,4 +1,5 @@
 import { useActionQuery, useT } from "@agent-native/core/client";
+import { Avatar, AvatarFallback } from "@agent-native/toolkit/ui/avatar";
 import {
   IconEye,
   IconUser,
@@ -14,8 +15,6 @@ import {
   Tooltip as ReTooltip,
   CartesianGrid,
 } from "recharts";
-
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 
 export interface InsightsPanelProps {
   recordingId: string;

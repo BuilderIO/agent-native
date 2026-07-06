@@ -1,4 +1,10 @@
 import { useActionMutation } from "@agent-native/core/client";
+import { Input } from "@agent-native/toolkit/ui/input";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@agent-native/toolkit/ui/tooltip";
 import {
   Dithering,
   GodRays,
@@ -25,12 +31,6 @@ import {
 } from "@tabler/icons-react";
 import { Component, useMemo, useState, type ReactNode } from "react";
 
-import { Input } from "@/components/ui/input";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
 import { ShaderControls } from "./ShaderControls";

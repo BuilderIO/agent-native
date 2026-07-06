@@ -1,5 +1,7 @@
 import { useActionQuery, useActionMutation } from "@agent-native/core/client";
 
+import { isLiveRecordingUpload } from "@/lib/recording-status";
+
 export interface RecordingSummary {
   id: string;
   title: string;
@@ -72,16 +74,17 @@ export function useRecordings(args: ListRecordingsArgs = {}) {
           recordings: Array.isArray(data?.recordings) ? data.recordings : [],
         };
       },
-      // If any recording is still on a replaceable seed title, keep a 3s
-      // refetch cadence so the skeleton in `recording-card` upgrades to
-      // the real title promptly even if the refresh-signal poll is missed.
+      // Keep a short poll while uploads/processors are active so the library
+      // card does not get stuck if the global refresh signal is missed.
+      // Also poll for replaceable seed titles so the card upgrades promptly.
       refetchInterval: (q) => {
         const recs = (q.state.data as any)?.recordings as
           | RecordingSummary[]
           | undefined;
         if (!recs || recs.length === 0) return false;
+        const pendingUpload = recs.some((rec) => isLiveRecordingUpload(rec));
         const pendingTitle = recs.some(isAwaitingAutoTitle);
-        return pendingTitle ? 3000 : false;
+        return pendingUpload || pendingTitle ? 3000 : false;
       },
     },
   );

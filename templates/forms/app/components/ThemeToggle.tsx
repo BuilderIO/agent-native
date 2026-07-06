@@ -1,13 +1,13 @@
 import { useT } from "@agent-native/core/client";
-import { IconSun, IconMoon } from "@tabler/icons-react";
-import { useTheme } from "next-themes";
-
-import { Button } from "@/components/ui/button";
+import { Button } from "@agent-native/toolkit/ui/button";
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
-} from "@/components/ui/tooltip";
+} from "@agent-native/toolkit/ui/tooltip";
+import { IconSun, IconMoon } from "@tabler/icons-react";
+import { useTheme } from "next-themes";
+
 import { cn } from "@/lib/utils";
 
 export function ThemeToggle({ className }: { className?: string }) {

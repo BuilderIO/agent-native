@@ -1,13 +1,4 @@
 import { useT } from "@agent-native/core/client";
-import type { Weight } from "@shared/types";
-import {
-  IconTrash,
-  IconPencil,
-  IconLoader2,
-  IconScale,
-} from "@tabler/icons-react";
-import { useState } from "react";
-
 import {
   AlertDialog,
   AlertDialogAction,
@@ -18,7 +9,16 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
   AlertDialogTrigger,
-} from "@/components/ui/alert-dialog";
+} from "@agent-native/toolkit/ui/alert-dialog";
+import type { Weight } from "@shared/types";
+import {
+  IconTrash,
+  IconPencil,
+  IconLoader2,
+  IconScale,
+} from "@tabler/icons-react";
+import { useState } from "react";
+
 import { Button } from "@/components/ui/button";
 
 interface WeightCardProps {

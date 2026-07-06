@@ -5,12 +5,19 @@ import action from "./generate-design.js";
 describe("generate-design action tool schema", () => {
   it("exposes a lean native-tool schema while retaining Zod validation", () => {
     const parameters = action.tool.parameters as {
-      properties?: Record<string, { type?: string | readonly string[] }>;
+      properties?: Record<
+        string,
+        { type?: string | readonly string[]; description?: string }
+      >;
       required?: string[];
     };
 
     expect(parameters.required).toEqual(["designId", "prompt", "files"]);
     expect(parameters.properties?.files?.type).toBe("string");
+    expect(parameters.properties?.files?.description).toContain(
+      "Do not use generate-design to replace a selected variant screen",
+    );
+    expect(parameters.properties?.files?.description).toContain("edit-design");
     expect(parameters.properties?.designSystemId?.type).toEqual([
       "string",
       "null",

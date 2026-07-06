@@ -1,6 +1,25 @@
+import { Input } from "@agent-native/toolkit/ui/input";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@agent-native/toolkit/ui/popover";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@agent-native/toolkit/ui/select";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@agent-native/toolkit/ui/tooltip";
 import {
   alphaToOpacity,
   parseCssColor,
+  parseCssColorExtended,
   rgbaToCss,
   rgbaToHex,
   rgbaToHsl,
@@ -22,24 +41,6 @@ import {
   type PointerEvent,
 } from "react";
 
-import { Input } from "@/components/ui/input";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
 import {
@@ -137,6 +138,17 @@ export interface DesignColorPickerLabels {
 export interface DesignColorPickerProps {
   value: string;
   onChange: (value: string) => void;
+  /**
+   * Optional gesture-lifecycle signal, complementary to `onChange`. The SV
+   * field, hue slider, and alpha slider call `onChange` on every pointermove
+   * tick for live preview (cheap/throttleable), but only call
+   * `onChangeComplete` once per gesture — on pointerup/drag-end — with the
+   * final color. Discrete, already-final commits (hex entry, RGB/HSL/HSB
+   * field commits, keyboard nudges, document-color swatch clicks, paint-type
+   * switches) also fire it once, immediately. Omit this prop to keep the
+   * existing every-tick `onChange`-only behavior.
+   */
+  onChangeComplete?: (value: string) => void;
   onPaintValueChange?: (value: string) => void;
   onImageFillChange?: (value: ImageFillValue) => void;
   backgroundImage?: string;
@@ -204,86 +216,10 @@ interface HsvaColor {
 
 const FALLBACK_COLOR: RgbaColor = { r: 0, g: 0, b: 0, a: 1 };
 
-// ─── Extended CSS color parser ──────────────────────────────────────────────────
-//
-// `parseCssColor` from color-utils handles hex, comma-separated rgb/rgba, and
-// hsl/hsla. Browsers increasingly emit modern CSS Level 4 formats from
-// getComputedStyle: space-separated `rgb(R G B)`, `rgb(R G B / A)`, and
-// opaque formats like `oklch(...)` or `color(display-p3 ...)`.
-//
-// This local wrapper extends the parser to cover those cases so that colors
-// arriving from the canvas's computed-style bridge are always usable.
-
-const MODERN_RGB_PATTERN =
-  /^rgba?\(\s*([0-9.]+)\s+([0-9.]+)\s+([0-9.]+)(?:\s*\/\s*([0-9.]+%?))?\s*\)$/i;
-
-/** Canvas element reused across calls for DOM-based color resolution. */
-let _resolverCanvas: HTMLCanvasElement | null = null;
-let _resolverCtx: CanvasRenderingContext2D | null = null;
-
-/**
- * Parses a CSS color string into RgbaColor, extending the base parser with:
- *   - Modern space-separated `rgb(R G B)` / `rgb(R G B / A)` syntax
- *   - Opaque formats (oklch, color, etc.) resolved via a hidden canvas
- *
- * Falls back to null if the value is unparseable and the DOM is unavailable.
- */
-function parseCssColorExtended(value: string): RgbaColor | null {
-  // 1. Try the standard parser first (handles hex, comma rgb/rgba, hsl/hsla).
-  const standard = parseCssColor(value);
-  if (standard) return standard;
-
-  const trimmed = value.trim();
-  if (!trimmed || trimmed === "transparent" || trimmed === "none") return null;
-
-  // 2. Modern space-separated rgb/rgba — CSS Level 4.
-  const modernRgb = trimmed.match(MODERN_RGB_PATTERN);
-  if (modernRgb) {
-    const parseAlphaLocal = (v: string | undefined): number => {
-      if (!v) return 1;
-      if (v.endsWith("%"))
-        return Math.max(0, Math.min(1, Number(v.slice(0, -1)) / 100));
-      return Math.max(0, Math.min(1, Number(v)));
-    };
-    return {
-      r: Math.round(Math.max(0, Math.min(255, Number(modernRgb[1])))),
-      g: Math.round(Math.max(0, Math.min(255, Number(modernRgb[2])))),
-      b: Math.round(Math.max(0, Math.min(255, Number(modernRgb[3])))),
-      a: parseAlphaLocal(modernRgb[4]),
-    };
-  }
-
-  // 3. DOM-based resolver for oklch, color(display-p3 ...), hsl (modern), etc.
-  //    Uses a hidden 1×1 canvas to resolve any valid CSS color to rgb().
-  if (typeof document === "undefined") return null;
-  try {
-    if (!_resolverCanvas) {
-      _resolverCanvas = document.createElement("canvas");
-      _resolverCanvas.width = 1;
-      _resolverCanvas.height = 1;
-    }
-    if (!_resolverCtx) {
-      _resolverCtx = _resolverCanvas.getContext("2d", {
-        willReadFrequently: true,
-      });
-    }
-    const ctx = _resolverCtx;
-    if (!ctx) return null;
-    // Detect invalid color values: save fillStyle before and after assignment.
-    // If the browser rejects the value, fillStyle won't change.
-    const prev = ctx.fillStyle;
-    ctx.fillStyle = trimmed;
-    const next = ctx.fillStyle; // browser normalises to rgb/hex on accept
-    // If the value was rejected, fillStyle stays at the previous value.
-    if (next === prev) return null;
-    ctx.clearRect(0, 0, 1, 1);
-    ctx.fillRect(0, 0, 1, 1);
-    const [r, g, b, a] = ctx.getImageData(0, 0, 1, 1).data;
-    return { r, g, b, a: a / 255 };
-  } catch {
-    return null;
-  }
-}
+// `parseCssColorExtended` (from color-utils) extends `parseCssColor` with
+// modern CSS Level 4 syntax (space-separated rgb, `oklch(...)`,
+// `color(display-p3 ...)`) so that colors arriving from the canvas's
+// computed-style bridge are always usable.
 
 const DEFAULT_LABELS: DesignColorPickerLabels = {
   trigger: "Open color picker", // i18n-ignore fallback component label
@@ -686,6 +622,7 @@ const BLEND_MODE_OPTIONS = [
 export function DesignColorPicker({
   value,
   onChange,
+  onChangeComplete,
   onPaintValueChange,
   onImageFillChange,
   backgroundImage,
@@ -848,11 +785,24 @@ export function DesignColorPicker({
 
   // ── Emit helpers ────────────────────────────────────────────────────────────
 
+  // Tracks the last CSS value handed to onChange/onPaintValueChange, so a
+  // gesture-end (pointerup on the SV field / hue / alpha tracks) can re-emit
+  // that exact value once via onChangeComplete without recomputing it from
+  // pointer coordinates after the drag has already ended.
+  const lastEmittedValueRef = useRef(value);
+
+  const notifyChangeComplete = () => {
+    onChangeComplete?.(lastEmittedValueRef.current);
+  };
+
   const emitColor = (nextColor: RgbaColor, nextOpacity = effectiveOpacity) => {
-    onChange(rgbaToCss(withColorOpacity(nextColor, nextOpacity)));
+    const next = rgbaToCss(withColorOpacity(nextColor, nextOpacity));
+    lastEmittedValueRef.current = next;
+    onChange(next);
   };
 
   const emitPaintValue = (nextValue: string) => {
+    lastEmittedValueRef.current = nextValue;
     if (onPaintValueChange) onPaintValueChange(nextValue);
     else onChange(nextValue);
   };
@@ -865,18 +815,26 @@ export function DesignColorPicker({
     emitColor(hslToRgba({ ...nextHsl, a: opacityToAlpha(effectiveOpacity) }));
   };
 
+  // Shared by the invalid-commit path below and the Escape handler in the hex
+  // input: reverts the draft to the currently active color (the selected
+  // gradient stop while editing a gradient, otherwise the solid color).
+  const revertHexDraft = () => {
+    const reverted = toDisplayHex(activeGradient ? fieldColor : color);
+    hexDraftRef.current = reverted;
+    setHexDraft(reverted);
+  };
+
   const commitHex = () => {
-    const currentDraft = hexDraftRef.current;
+    const currentDraft = expandHexShorthand(hexDraftRef.current);
     const parsed = parseCssColor(`#${currentDraft.replace(/^#/, "")}`);
     if (!parsed) {
-      const reverted = toDisplayHex(activeGradient ? fieldColor : color);
-      hexDraftRef.current = reverted;
-      setHexDraft(reverted);
+      revertHexDraft();
       return;
     }
     if (activeGradient) {
       const hexIncludesAlpha = hasHexAlpha(currentDraft);
       emitStopColor(hexIncludesAlpha ? parsed : { ...parsed, a: fieldColor.a });
+      notifyChangeComplete();
       return;
     }
     const hexIncludesAlpha = hasHexAlpha(currentDraft);
@@ -885,11 +843,19 @@ export function DesignColorPicker({
       : effectiveOpacity;
     if (hexIncludesAlpha && onOpacityChange) onOpacityChange(nextOpacity);
     emitColor(parsed, nextOpacity);
+    notifyChangeComplete();
   };
 
   const setOpacity = (nextOpacity: number) => {
+    // Track the resulting CSS value even when the opacity itself is reported
+    // through the separate onOpacityChange prop, so a subsequent
+    // notifyChangeComplete() call still reports the current color+opacity —
+    // not a stale value from before this opacity edit.
+    lastEmittedValueRef.current = rgbaToCss(
+      withColorOpacity(color, nextOpacity),
+    );
     if (onOpacityChange) onOpacityChange(nextOpacity);
-    else onChange(rgbaToCss(withColorOpacity(color, nextOpacity)));
+    else onChange(lastEmittedValueRef.current);
   };
 
   // ── Gradient editing ─────────────────────────────────────────────────────────
@@ -913,9 +879,14 @@ export function DesignColorPicker({
     : color;
   const rawFieldHsv = rgbaToHsv(fieldColor);
   // Preserve the last non-zero hue so dragging through gray doesn't lose it.
-  if (rawFieldHsv.s > 0 && rawFieldHsv.v > 0) {
-    lastHueRef.current = rawFieldHsv.h;
-  }
+  // Recorded as an effect (not mutated during render) so the ref update is a
+  // render side-effect, not a render-body mutation.
+  useEffect(() => {
+    if (rawFieldHsv.s > 0 && rawFieldHsv.v > 0) {
+      lastHueRef.current = rawFieldHsv.h;
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rawFieldHsv.h, rawFieldHsv.s, rawFieldHsv.v]);
   const fieldHsv: HsvaColor =
     rawFieldHsv.s === 0
       ? { ...rawFieldHsv, h: lastHueRef.current }
@@ -998,12 +969,18 @@ export function DesignColorPicker({
 
     setLocalPaintType(nextType);
 
+    // Every branch below is a discrete, one-shot commit (a paint-type click),
+    // never a live drag tick — so each one notifies onChangeComplete once,
+    // immediately, right after the matching onChange/onPaintValueChange call.
     if (nextType === "none") {
+      lastEmittedValueRef.current = "transparent";
       onChange("transparent");
+      notifyChangeComplete();
       return;
     }
     if (nextType === "solid") {
       emitColor(color, effectiveOpacity > 0 ? effectiveOpacity : 100);
+      notifyChangeComplete();
       return;
     }
     if (GRADIENT_TYPES.has(nextType)) {
@@ -1016,6 +993,7 @@ export function DesignColorPicker({
       const next: GradientValue = { ...base, kind: nextType as GradientKind };
       setSelectedStopId(next.stops[0]?.id ?? "");
       emitGradient(next);
+      notifyChangeComplete();
       return;
     }
     if (nextType === "image") {
@@ -1027,20 +1005,24 @@ export function DesignColorPicker({
       emitPaintValue(
         nextImageFill.url ? imageFillToCss(nextImageFill) : "transparent",
       );
+      notifyChangeComplete();
       return;
     }
     if (nextType === "video") {
       // No standalone CSS for video; mark the fill type and keep a checker fill
       // until a source is wired. The agent can replace it with a <video> layer.
       emitPaintValue("transparent");
+      notifyChangeComplete();
       return;
     }
     if (nextType === "noise") {
       emitPaintValue(NOISE_FALLBACK_CSS);
+      notifyChangeComplete();
       return;
     }
     if (nextType === "pattern") {
       emitPaintValue(PATTERN_FALLBACK_CSS);
+      notifyChangeComplete();
       return;
     }
   };
@@ -1063,8 +1045,11 @@ export function DesignColorPicker({
           const parsed = parseCssColor(result.sRGBHex);
           if (parsed) emitStopColor({ ...parsed, a: fieldColor.a });
         } else {
+          lastEmittedValueRef.current = result.sRGBHex;
           onChange(result.sRGBHex);
         }
+        // The eyedropper pick is a single discrete commit, not a drag tick.
+        notifyChangeComplete();
       }
     } catch {
       // Browser cancels are expected; keep the current color.
@@ -1099,9 +1084,7 @@ export function DesignColorPicker({
               e.currentTarget.blur();
             }
             if (e.key === "Escape") {
-              const reverted = toDisplayHex(color);
-              hexDraftRef.current = reverted;
-              setHexDraft(reverted);
+              revertHexDraft();
               skipNextHexBlurCommitRef.current = true;
               e.currentTarget.blur();
             }
@@ -1235,12 +1218,12 @@ export function DesignColorPicker({
           // switch causes the canvas to re-project the element. Without this,
           // Radix treats the resulting focus shift as an "interact outside" event
           // and closes the popover before the type switch is visible.
-          onInteractOutside={(e) => {
-            // Allow closing only for genuine pointer clicks on the canvas area
-            // (the user clicked somewhere else). Programmatic focus changes from
-            // the canvas bridge (element re-projection) should not close the picker.
-            if (e.type === "focusoutside") e.preventDefault();
-          }}
+          // Radix fires a dedicated `onFocusOutside` (not `onInteractOutside`
+          // with e.type === "focusoutside" — that never matches) whenever focus
+          // moves outside the content; suppress it so canvas-driven focus
+          // re-projection can't close the popover. Genuine pointer clicks
+          // outside still close it via the default onInteractOutside behavior.
+          onFocusOutside={(e) => e.preventDefault()}
         >
           <div className="rounded-md bg-popover text-popover-foreground">
             {view === "shader" ? (
@@ -1420,6 +1403,7 @@ export function DesignColorPicker({
                           emitColorFromHsv(nextHsv);
                         }
                       }}
+                      onCommit={notifyChangeComplete}
                     />
                   </div>
                 )}
@@ -1475,6 +1459,13 @@ export function DesignColorPicker({
                         backgroundImage="linear-gradient(90deg, #ff0000, #ffff00, #00ff00, #00ffff, #0000ff, #ff00ff, #ff0000)"
                         onChange={(next) => {
                           const h = next === 360 ? 0 : next;
+                          // Record the dragged hue immediately so the slider
+                          // doesn't snap back to a stale hue on the next
+                          // render when the color is (or becomes) achromatic
+                          // — the round-tripped color's s/v may still be 0,
+                          // so the lastHueRef-sync effect's s>0&&v>0 guard
+                          // won't fire on its own.
+                          lastHueRef.current = h;
                           if (activeGradient) {
                             emitStopColor(
                               hsvToRgba({
@@ -1487,6 +1478,7 @@ export function DesignColorPicker({
                             emitColorFromHsv({ ...hsv, h });
                           }
                         }}
+                        onCommit={notifyChangeComplete}
                       />
 
                       {/* Current-color swatch left of alpha (matches the design editor's layout) */}
@@ -1520,6 +1512,7 @@ export function DesignColorPicker({
                                 setOpacity(next);
                               }
                             }}
+                            onCommit={notifyChangeComplete}
                           />
                         </div>
                       </div>
@@ -1627,7 +1620,7 @@ export function DesignColorPicker({
                       : [rgbaToCss(color)]
                     ).map((docColor) => {
                       const currentHex = rgbaToHex(
-                        parseCssColor(docColor) ?? color,
+                        parseCssColorExtended(docColor) ?? color,
                       );
                       const isActive =
                         rgbaToHex(color) === currentHex && !activeGradient;
@@ -1647,9 +1640,13 @@ export function DesignColorPicker({
                               )}
                               style={swatchStyle(docColor)}
                               onClick={() => {
-                                const parsed = parseCssColor(docColor) ?? color;
+                                const parsed =
+                                  parseCssColorExtended(docColor) ?? color;
                                 if (activeGradient) emitStopColor(parsed);
                                 else emitColor(parsed);
+                                // A swatch click is a discrete, one-shot
+                                // commit, not a drag tick.
+                                notifyChangeComplete();
                               }}
                             />
                           </TooltipTrigger>
@@ -1773,14 +1770,22 @@ function SaturationBrightnessField({
   label,
   disabled,
   onChange,
+  onCommit,
 }: {
   hsv: HsvaColor;
   label: string;
   disabled: boolean;
   onChange: (color: HsvaColor) => void;
+  /**
+   * Fired once per gesture with the final value already applied — on
+   * pointerup/pointercancel that ends a drag, and after every keyboard step
+   * (each arrow press is its own discrete, complete edit). Never fired per
+   * pointermove tick.
+   */
+  onCommit?: () => void;
 }) {
   const fieldRef = useRef<HTMLDivElement>(null);
-  const draggingRef = useRef(false);
+  const draggingRef = useRef<PointerGestureState>(POINTER_GESTURE_IDLE);
   const hueColor = rgbaToCss(hsvToRgba({ h: hsv.h, s: 100, v: 100, a: 1 }));
 
   const updateFromPointer = (event: PointerEvent<HTMLDivElement>) => {
@@ -1802,18 +1807,22 @@ function SaturationBrightnessField({
     if (event.key === "ArrowRight") {
       event.preventDefault();
       onChange({ ...hsv, s: clamp(hsv.s + step, 0, 100) });
+      onCommit?.();
     }
     if (event.key === "ArrowLeft") {
       event.preventDefault();
       onChange({ ...hsv, s: clamp(hsv.s - step, 0, 100) });
+      onCommit?.();
     }
     if (event.key === "ArrowUp") {
       event.preventDefault();
       onChange({ ...hsv, v: clamp(hsv.v + step, 0, 100) });
+      onCommit?.();
     }
     if (event.key === "ArrowDown") {
       event.preventDefault();
       onChange({ ...hsv, v: clamp(hsv.v - step, 0, 100) });
+      onCommit?.();
     }
   };
 
@@ -1825,7 +1834,7 @@ function SaturationBrightnessField({
       aria-disabled={disabled}
       onPointerDown={(event) => {
         if (disabled) return;
-        draggingRef.current = true;
+        draggingRef.current = startPointerGesture();
         event.currentTarget.setPointerCapture(event.pointerId);
         updateFromPointer(event);
       }}
@@ -1834,13 +1843,17 @@ function SaturationBrightnessField({
         updateFromPointer(event);
       }}
       onPointerUp={(event) => {
-        draggingRef.current = false;
+        const ended = endPointerGesture(draggingRef.current);
+        draggingRef.current = ended.state;
         if (event.currentTarget.hasPointerCapture(event.pointerId)) {
           event.currentTarget.releasePointerCapture(event.pointerId);
         }
+        if (ended.shouldCommit) onCommit?.();
       }}
       onPointerCancel={() => {
-        draggingRef.current = false;
+        const ended = endPointerGesture(draggingRef.current);
+        draggingRef.current = ended.state;
+        if (ended.shouldCommit) onCommit?.();
       }}
       onKeyDown={stepWithKeyboard}
       className={cn(
@@ -1875,6 +1888,7 @@ function ColorTrack({
   backgroundSize,
   backgroundPosition,
   onChange,
+  onCommit,
 }: {
   label: string;
   value: number;
@@ -1885,9 +1899,16 @@ function ColorTrack({
   backgroundSize?: string;
   backgroundPosition?: string;
   onChange: (value: number) => void;
+  /**
+   * Fired once per gesture with the final value already applied — on
+   * pointerup/pointercancel that ends a drag, and after every keyboard step
+   * (each arrow/Home/End press is its own discrete, complete edit). Never
+   * fired per pointermove tick.
+   */
+  onCommit?: () => void;
 }) {
   const trackRef = useRef<HTMLDivElement>(null);
-  const draggingRef = useRef(false);
+  const draggingRef = useRef<PointerGestureState>(POINTER_GESTURE_IDLE);
   const percent = ((value - min) / (max - min)) * 100;
 
   const updateFromPointer = (event: PointerEvent<HTMLDivElement>) => {
@@ -1903,18 +1924,22 @@ function ColorTrack({
     if (event.key === "ArrowRight" || event.key === "ArrowUp") {
       event.preventDefault();
       onChange(clamp(value + step, min, max));
+      onCommit?.();
     }
     if (event.key === "ArrowLeft" || event.key === "ArrowDown") {
       event.preventDefault();
       onChange(clamp(value - step, min, max));
+      onCommit?.();
     }
     if (event.key === "Home") {
       event.preventDefault();
       onChange(min);
+      onCommit?.();
     }
     if (event.key === "End") {
       event.preventDefault();
       onChange(max);
+      onCommit?.();
     }
   };
 
@@ -1931,7 +1956,7 @@ function ColorTrack({
       onKeyDown={stepWithKeyboard}
       onPointerDown={(event) => {
         if (disabled) return;
-        draggingRef.current = true;
+        draggingRef.current = startPointerGesture();
         event.currentTarget.setPointerCapture(event.pointerId);
         updateFromPointer(event);
       }}
@@ -1940,13 +1965,17 @@ function ColorTrack({
         updateFromPointer(event);
       }}
       onPointerUp={(event) => {
-        draggingRef.current = false;
+        const ended = endPointerGesture(draggingRef.current);
+        draggingRef.current = ended.state;
         if (event.currentTarget.hasPointerCapture(event.pointerId)) {
           event.currentTarget.releasePointerCapture(event.pointerId);
         }
+        if (ended.shouldCommit) onCommit?.();
       }}
       onPointerCancel={() => {
-        draggingRef.current = false;
+        const ended = endPointerGesture(draggingRef.current);
+        draggingRef.current = ended.state;
+        if (ended.shouldCommit) onCommit?.();
       }}
       className={cn(
         "relative h-3.5 cursor-pointer rounded-full border border-border/60 outline-none",
@@ -1999,8 +2028,8 @@ function ScrubbyNumberInput({
   }, [value]);
 
   const commit = () => {
-    const parsed = Number(draftRef.current);
-    if (!Number.isFinite(parsed)) {
+    const parsed = parseNumericDraft(draftRef.current);
+    if (parsed === null) {
       const reverted = String(value);
       draftRef.current = reverted;
       setDraft(reverted);
@@ -2068,6 +2097,37 @@ function ScrubbyNumberInput({
   );
 }
 
+// ─── Pointer-drag gesture-commit tracking ──────────────────────────────────────
+//
+// Pure helper shared by SaturationBrightnessField and ColorTrack: both fields
+// call onChange on every pointermove tick for live preview, and must call
+// onCommit exactly once when the gesture ends (pointerup/pointercancel),
+// covering both an actual drag and a single tap-no-move click. Extracted so
+// the "exactly once per gesture" contract is unit-testable without simulating
+// real DOM pointer events (this template has no jsdom/testing-library dep).
+
+/** True once a pointerdown has started a gesture that hasn't yet ended. */
+export type PointerGestureState = boolean;
+
+export const POINTER_GESTURE_IDLE: PointerGestureState = false;
+
+/** Call on pointerdown: starts tracking a new gesture. */
+export function startPointerGesture(): PointerGestureState {
+  return true;
+}
+
+/**
+ * Call on pointerup/pointercancel. Returns the next (idle) state and whether
+ * onCommit should fire — true iff a gesture was actually in progress, so a
+ * stray pointerup with no matching pointerdown is a no-op.
+ */
+export function endPointerGesture(state: PointerGestureState): {
+  state: PointerGestureState;
+  shouldCommit: boolean;
+} {
+  return { state: POINTER_GESTURE_IDLE, shouldCommit: state };
+}
+
 // ─── Utilities ─────────────────────────────────────────────────────────────────
 
 export function inferPaintType(
@@ -2095,7 +2155,7 @@ export function inferPaintType(
     return "linear";
   }
   if (lower.startsWith("url(")) return "image";
-  const parsed = parseCssColor(value);
+  const parsed = parseCssColorExtended(value);
   if (opacity <= 0 || parsed?.a === 0 || value.trim() === "transparent") {
     return "none";
   }
@@ -2189,13 +2249,19 @@ function triggerSwatchStyle(
   return swatchStyle(rgbaToCss(color));
 }
 
+/** Values that render their own background without needing color parsing. */
+function looksLikeImageOrGradient(value: string): boolean {
+  const lower = value.trim().toLowerCase();
+  return lower.includes("gradient(") || lower.startsWith("url(");
+}
+
 function swatchStyle(value: string): {
   backgroundColor?: string;
   backgroundImage?: string;
   backgroundSize?: string;
   backgroundPosition?: string;
 } {
-  const parsed = parseCssColor(value);
+  const parsed = parseCssColorExtended(value);
   if (parsed && parsed.a < 1) {
     return {
       backgroundImage: `${CHECKERBOARD_IMAGE}, linear-gradient(${rgbaToCss(parsed)}, ${rgbaToCss(parsed)})`,
@@ -2204,7 +2270,16 @@ function swatchStyle(value: string): {
     };
   }
   if (parsed) return { backgroundColor: rgbaToCss(parsed) };
-  return { backgroundImage: value || "none" };
+  if (value && looksLikeImageOrGradient(value)) {
+    return { backgroundImage: value };
+  }
+  // Unparseable and not a gradient/image value (e.g. a stale/invalid document
+  // color) — show a neutral checkerboard instead of an invalid `background-image`
+  // that would otherwise render as a blank swatch.
+  return {
+    backgroundImage: CHECKERBOARD_IMAGE,
+    backgroundSize: "8px 8px",
+  };
 }
 
 function alphaTrackBackground(color: RgbaColor): string {
@@ -2274,4 +2349,33 @@ function clampFloat(value: number, min: number, max: number): number {
 
 function hasHexAlpha(value: string): boolean {
   return /^#?(?:[0-9a-f]{4}|[0-9a-f]{8})$/i.test(value.trim());
+}
+
+/**
+ * Parses a `ScrubbyNumberInput` draft string into a finite number, or `null`
+ * when the draft should be treated as invalid (and thus reverted rather than
+ * committed). `Number("")` is `0`, not `NaN`, so an emptied field must be
+ * special-cased — otherwise clearing the input and blurring/pressing Enter
+ * would silently commit `0` instead of reverting to the last real value.
+ */
+export function parseNumericDraft(draft: string): number | null {
+  const trimmed = draft.trim();
+  if (trimmed === "") return null;
+  const parsed = Number(trimmed);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+/**
+ * Expands a bare 1-digit hex fragment (e.g. "F") into the standard 3-digit
+ * shorthand ("FFF", which `parseCssColor` then doubles up to "FFFFFF") so a
+ * single typed hex digit still commits instead of being rejected as
+ * unparseable. Standard 3/4/6/8-digit hex (already handled by
+ * `parseCssColor`) passes through unchanged.
+ */
+export function expandHexShorthand(value: string): string {
+  const trimmed = value.trim().replace(/^#/, "");
+  if (/^[0-9a-f]$/i.test(trimmed)) {
+    return trimmed.repeat(3);
+  }
+  return trimmed;
 }

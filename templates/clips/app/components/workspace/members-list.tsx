@@ -1,9 +1,4 @@
 import { useActionMutation, useT } from "@agent-native/core/client";
-import { IconCrown, IconUserX } from "@tabler/icons-react";
-import { useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
-import { toast } from "sonner";
-
 import {
   AlertDialog,
   AlertDialogAction,
@@ -13,17 +8,17 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
+} from "@agent-native/toolkit/ui/alert-dialog";
+import { Avatar, AvatarFallback } from "@agent-native/toolkit/ui/avatar";
+import { Badge } from "@agent-native/toolkit/ui/badge";
+import { Button } from "@agent-native/toolkit/ui/button";
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from "@/components/ui/select";
+} from "@agent-native/toolkit/ui/select";
 import {
   Table,
   TableBody,
@@ -31,7 +26,11 @@ import {
   TableHead,
   TableHeader,
   TableRow,
-} from "@/components/ui/table";
+} from "@agent-native/toolkit/ui/table";
+import { IconCrown, IconUserX } from "@tabler/icons-react";
+import { useQueryClient } from "@tanstack/react-query";
+import { useState } from "react";
+import { toast } from "sonner";
 
 export type MemberRole = "owner" | "admin" | "member";
 

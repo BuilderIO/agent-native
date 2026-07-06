@@ -1,10 +1,10 @@
-import { useState } from "react";
-
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
-} from "@/components/ui/tooltip";
+} from "@agent-native/toolkit/ui/tooltip";
+import { useState } from "react";
+
 import { cn } from "@/lib/utils";
 
 const EMOJIS = ["👍", "❤️", "🔥", "👏", "🎉", "😂", "🤯"] as const;
@@ -45,7 +45,7 @@ export function ReactionsTray({ onReact, disabled }: ReactionsTrayProps) {
               onClick={() => fire(emoji)}
               disabled={disabled}
               className={cn(
-                "flex h-8 w-8 items-center justify-center rounded-full text-lg sm:h-9 sm:w-9 sm:text-xl",
+                "flex h-7 w-7 items-center justify-center rounded-full text-base sm:h-9 sm:w-9 sm:text-xl",
                 disabled && "opacity-50 cursor-not-allowed",
               )}
             >

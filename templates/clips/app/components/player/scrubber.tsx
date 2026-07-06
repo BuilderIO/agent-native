@@ -153,11 +153,11 @@ export function Scrubber(props: ScrubberProps) {
       <div
         ref={barRef}
         data-player-scrubber-bar
-        className="relative w-full h-1.5 bg-white/20 rounded-full cursor-pointer group/bar"
+        className="relative w-full h-1.5 bg-white/35 rounded-full cursor-pointer group/bar shadow-[0_0_0_1px_rgba(0,0,0,0.16)]"
       >
         {/* Filled portion */}
         <div
-          className="absolute inset-y-0 left-0 bg-primary rounded-full"
+          className="absolute inset-y-0 left-0 bg-white rounded-full shadow-[0_0_10px_rgba(255,255,255,0.45)]"
           style={{ width: pct + "%" }}
         />
 

@@ -152,6 +152,79 @@ export function summarizePlanVersion(row: VersionRow): PlanVersionSummary {
   };
 }
 
+/** Derived summary fields computed from a snapshot, stored alongside the row at
+ * write time so list reads don't need to parse snapshot_json. */
+function summaryColumnsFromSnapshot(snapshot: PlanVersionSnapshot) {
+  return {
+    status: snapshot.plan.status,
+    source: snapshot.plan.source,
+    blockCount: blockCount(snapshot),
+    sectionCount: snapshot.sections.length,
+    hasCanvas: Boolean(snapshot.plan.content?.canvas),
+    hasPrototype: Boolean(snapshot.plan.content?.prototype),
+    previewText: snapshotPreview(snapshot),
+  };
+}
+
+/** Row shape needed by `summarizePlanVersionRow`: the small always-selected
+ * columns, the denormalized summary columns, and `snapshotJson` only as a
+ * fallback for legacy rows (see below). Callers project just this shape
+ * instead of the full `VersionRow` in the common case. */
+type SummaryRow = Pick<
+  VersionRow,
+  | "id"
+  | "planId"
+  | "title"
+  | "changeLabel"
+  | "createdBy"
+  | "createdAt"
+  | "status"
+  | "source"
+  | "blockCount"
+  | "sectionCount"
+  | "hasCanvas"
+  | "hasPrototype"
+  | "previewText"
+> & { snapshotJson?: string | null };
+
+/**
+ * Like `summarizePlanVersion`, but reads the denormalized summary columns
+ * instead of parsing `snapshotJson` when they're populated. Only rows written
+ * before this column set existed have `blockCount === null`; for those,
+ * `snapshotJson` must be provided so this can fall back to the legacy
+ * parse-on-read path.
+ */
+export function summarizePlanVersionRow(row: SummaryRow): PlanVersionSummary {
+  const base = {
+    id: row.id,
+    planId: row.planId,
+    title: row.title,
+    label: row.changeLabel,
+    createdBy: row.createdBy,
+    createdAt: row.createdAt,
+  };
+  if (row.blockCount == null) {
+    if (row.snapshotJson == null) {
+      throw new Error(
+        `Plan version ${row.id} has no summary columns and no snapshotJson to fall back to`,
+      );
+    }
+    const snapshot = parsePlanVersionSnapshot(row.snapshotJson);
+    const summary = summaryColumnsFromSnapshot(snapshot);
+    return { ...base, ...summary, preview: summary.previewText };
+  }
+  return {
+    ...base,
+    status: row.status ?? "draft",
+    source: row.source ?? "manual",
+    blockCount: row.blockCount,
+    sectionCount: row.sectionCount ?? 0,
+    hasCanvas: Boolean(row.hasCanvas),
+    hasPrototype: Boolean(row.hasPrototype),
+    preview: row.previewText ?? "",
+  };
+}
+
 export async function createPlanVersionSnapshot(
   planId: string,
   options: {
@@ -179,7 +252,9 @@ export async function createPlanVersionSnapshot(
       asc(schema.planSections.order),
       asc(schema.planSections.createdAt),
     );
-  const snapshotJson = JSON.stringify(snapshotFromRows(plan, sections));
+  const snapshot = snapshotFromRows(plan, sections);
+  const snapshotJson = JSON.stringify(snapshot);
+  const summaryColumns = summaryColumnsFromSnapshot(snapshot);
 
   const [latestVersion] = await db
     .select({
@@ -245,6 +320,13 @@ export async function createPlanVersionSnapshot(
     changeLabel: options.label,
     createdBy: options.createdBy ?? "agent",
     createdAt: new Date().toISOString(),
+    status: summaryColumns.status,
+    source: summaryColumns.source,
+    blockCount: summaryColumns.blockCount,
+    sectionCount: summaryColumns.sectionCount,
+    hasCanvas: summaryColumns.hasCanvas,
+    hasPrototype: summaryColumns.hasPrototype,
+    previewText: summaryColumns.previewText,
   });
 
   return { created: true, id };

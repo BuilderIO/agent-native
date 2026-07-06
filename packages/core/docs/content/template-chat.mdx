@@ -5,9 +5,9 @@ description: "A minimal chat-first agent-native app: durable chat threads, actio
 
 # Chat Template
 
-Chat is the basic agent-native app starting point. It gives you a clean ChatGPT-style shell with chat at the center, a threads list on the left, standard app navigation, auth, live sync, actions, and one example action. Start here when you want a real browser app you can build on without committing to a domain template.
+Chat is the basic agentic app starting point. It gives you a clean ChatGPT-style shell with chat at the center, a threads list on the left, standard app navigation, auth, live sync, actions, and one example action. Start here when you want a real browser app you can build on before committing to a domain template.
 
-If you want the smallest action-only runtime with no browser UI, start with [Pure-Agent Apps](/docs/pure-agent-apps). If you want a finished domain product shape, start from [Calendar](/docs/template-calendar), [Mail](/docs/template-mail), [Content](/docs/template-content), [Forms](/docs/template-forms), [Analytics](/docs/template-analytics), or another domain template.
+If you want a finished domain product shape, start from [Calendar](/docs/template-calendar), [Mail](/docs/template-mail), [Content](/docs/template-content), [Forms](/docs/template-forms), [Analytics](/docs/template-analytics), or another domain template. If you truly do not need a browser UI yet, see [Automation-First Apps](/docs/pure-agent-apps).
 
 <WireframeBlock id="doc-block-1qu69ww">
   <Screen
@@ -104,7 +104,7 @@ That's the point. Chat is a thin, useful default shell for your own agent, not a
 ## When to pick it {#when-to-pick}
 
 - **You want a basic app users can talk to immediately** and then extend with actions and UI.
-- **You have a headless app that needs chat** as the first browser surface.
+- **You want the default Agent-Native on-ramp**: chat first, then actions, native results, and app pages.
 - **You want to plug your own agent backend into a familiar chat UI** while keeping Agent-Native's actions, state, auth, and deployment shape.
 - **You are prototyping a custom internal tool** that does not match a domain template.
 
@@ -117,13 +117,13 @@ pnpm install
 pnpm dev
 ```
 
-Or start with no UI and add a chat surface later:
+The no-browser scaffold is still available for automation-first work, but it is not the main Chat template path:
 
 ```bash
 npx @agent-native/core@latest create my-agent --headless
 ```
 
-From there, copy the Chat template's `/` route and sidebar thread list into your app, or scaffold a Chat app and move the actions from your headless agent into its `actions/` directory. The key invariant stays the same: actions are the shared surface for chat, UI, HTTP, MCP, A2A, and CLI.
+Use it for scheduled jobs, queues, CLI loops, or external-agent workflows where chat and app pages are not useful yet. The key invariant stays the same: actions are the shared surface for chat, UI, HTTP, MCP, A2A, and CLI.
 
 ## First code to inspect {#first-code}
 
@@ -196,8 +196,8 @@ The agent should add a Drizzle schema, actions, route, navigation, and instructi
 
 ## What's next
 
-- [**Getting Started**](/docs) — choose between headless, chat, and domain templates
-- [**Agent Surfaces**](/docs/agent-surfaces) — headless, chat, embedded, and full-app patterns
+- [**Getting Started**](/docs) — build the chat-first path from action to inline result to app page
+- [**Agent Surfaces**](/docs/agent-surfaces) — chat, inline UI, app pages, embedded, automation, and external-agent patterns
 - [**Actions**](/docs/actions) — the action system chat and UI both call
 - [**Native Chat UI**](/docs/native-chat-ui) — chat surface primitives and runtime options
-- [**Pure-Agent Apps**](/docs/pure-agent-apps) — action-only apps that can grow into Chat later
+- [**Automation-First Apps**](/docs/pure-agent-apps) — no-browser workflows for jobs, queues, scripts, and external agents

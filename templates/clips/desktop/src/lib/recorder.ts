@@ -51,6 +51,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { emit, listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { open as openExternal } from "@tauri-apps/plugin-shell";
 
+import { waitForReadyRecordingAfterFinalizeError } from "../../../shared/finalize-recovery";
 import type { LocalRecordingMode } from "../shared/config";
 import { createAudioCue, type AudioCue } from "./audio-cue";
 import { createCameraCompositeStream } from "./camera-composite";
@@ -63,6 +64,11 @@ import {
   type LocalExportedFile,
   type LocalRecordingTarget,
 } from "./local-export";
+import {
+  buildDesktopDisplayMediaOptions,
+  getAudioStreamWithFallback,
+  getCameraStreamWithFallback,
+} from "./media-capture-constraints";
 import { buildCaptureTitle, type CaptureTitleResult } from "./recording-title";
 import {
   startTranscriptionCapture,
@@ -87,6 +93,17 @@ const DEV_SYNTHETIC_CAPTURE_FLAG = "clips:dev-synthetic-capture";
 const LEGACY_DEV_REAL_CAPTURE_FLAG = "clips:dev-real-capture";
 const LIVE_UPLOAD_CHUNK_MS = 1_000;
 const NATIVE_FULLSCREEN_SEGMENT_MS = 5 * 60_000;
+// GCS resumable uploads require every non-final chunk to be a multiple of
+// 256 KiB. MediaRecorder emits arbitrary blob sizes, so on the streaming path
+// we buffer raw blobs and only PUT aligned slices; the unaligned remainder is
+// held and sent as the final chunk on stop.
+const GCS_CHUNK_ALIGN_BYTES = 256 * 1024;
+const STREAM_CHUNK_BYTES = 15 * GCS_CHUNK_ALIGN_BYTES; // 3.75 MiB
+
+// How the client delivers recorded data to the server.
+//  - "streaming" — server has a resumable session; flush aligned chunks live.
+//  - "buffered"  — per-blob chunks staged server-side, assembled on finalize.
+type UploadMode = "streaming" | "buffered";
 const CLOUD_CAPTURE_FRAME_RATE = 24;
 const CLOUD_CAPTURE_MAX_WIDTH = 1920;
 const CLOUD_CAPTURE_MAX_HEIGHT = 1080;
@@ -372,22 +389,6 @@ function createCloudMediaRecorder(
   throw lastError instanceof Error ? lastError : new Error(String(lastError));
 }
 
-const VOICE_FOCUSED_AUDIO_CONSTRAINTS: MediaTrackConstraints = {
-  echoCancellation: { ideal: true },
-  noiseSuppression: { ideal: true },
-  autoGainControl: { ideal: true },
-  channelCount: { ideal: 1 },
-};
-
-function voiceFocusedAudioConstraints(
-  deviceId?: string | null,
-): MediaTrackConstraints {
-  return {
-    ...VOICE_FOCUSED_AUDIO_CONSTRAINTS,
-    ...(deviceId ? { deviceId: { exact: deviceId } } : {}),
-  };
-}
-
 interface RecordingAudio {
   tracks: MediaStreamTrack[];
   cleanup: () => void;
@@ -432,13 +433,13 @@ function localRecordingTargetsForMode({
   localRecordingMode,
   displayStream,
   bubbleCameraStream,
-  audioStream,
+  recordingAudio,
   combined,
 }: {
   localRecordingMode: Exclude<LocalRecordingMode, "off">;
   displayStream: MediaStream | null;
   bubbleCameraStream: MediaStream | null;
-  audioStream: MediaStream | null;
+  recordingAudio: RecordingAudio;
   combined: MediaStream;
 }): LocalRecordingTarget[] {
   if (localRecordingMode === "composed") {
@@ -449,7 +450,7 @@ function localRecordingTargetsForMode({
   if (displayStream) {
     const desktopTracks = [
       ...displayStream.getVideoTracks(),
-      ...(audioStream?.getAudioTracks() ?? displayStream.getAudioTracks()),
+      ...recordingAudio.tracks,
     ];
     targets.push({
       role: "desktop",
@@ -718,6 +719,28 @@ async function markBrowserRecordingBackupError(
   });
 }
 
+async function recoverReadyRecordingAfterFinalizeError({
+  serverUrl,
+  recordingId,
+  authToken,
+}: {
+  serverUrl: string;
+  recordingId: string;
+  authToken?: string;
+}): Promise<boolean> {
+  const recovered = await waitForReadyRecordingAfterFinalizeError({
+    uploadUrl: chunkUrl(serverUrl, recordingId, 0, false),
+    recordingId,
+    authToken,
+    preferAuthenticated: true,
+  });
+  if (!recovered) return false;
+  await deleteBrowserRecordingBackup(recordingId).catch((err) => {
+    console.warn("[clips-recorder] recovered backup cleanup failed:", err);
+  });
+  return true;
+}
+
 export async function listBrowserRecordingBackups(): Promise<
   PendingBrowserRecordingUpload[]
 > {
@@ -827,8 +850,12 @@ export async function retryBrowserRecordingBackup(input: {
       );
     }
 
-    await postBackupChunk(
-      chunkUrl(meta.serverUrl, meta.recordingId, validatedChunks.length, true, {
+    const finalChunkUrl = chunkUrl(
+      meta.serverUrl,
+      meta.recordingId,
+      validatedChunks.length,
+      true,
+      {
         total: String(totalPosts),
         mimeType: meta.mimeType,
         durationMs: String(Math.round(meta.durationMs || 0)),
@@ -836,10 +863,29 @@ export async function retryBrowserRecordingBackup(input: {
         ...(meta.height ? { height: String(meta.height) } : {}),
         hasAudio: meta.hasAudio ? "1" : "0",
         hasCamera: meta.hasCamera ? "1" : "0",
-      }),
-      new Blob([], { type: meta.mimeType }),
-      input.authToken,
+      },
     );
+    try {
+      await postBackupChunk(
+        finalChunkUrl,
+        new Blob([], { type: meta.mimeType }),
+        input.authToken,
+      );
+    } catch (err) {
+      if (
+        await recoverReadyRecordingAfterFinalizeError({
+          serverUrl: meta.serverUrl,
+          recordingId: meta.recordingId,
+          authToken: input.authToken,
+        })
+      ) {
+        return {
+          recordingId: meta.recordingId,
+          viewUrl: `/r/${meta.recordingId}`,
+        };
+      }
+      throw err;
+    }
 
     await deleteBrowserRecordingBackup(meta.recordingId);
     return { recordingId: meta.recordingId, viewUrl: `/r/${meta.recordingId}` };
@@ -857,12 +903,14 @@ async function createServerRecording(
   hasCamera: boolean,
   hasAudio: boolean,
   titleContext?: CaptureTitleResult,
+  options?: { mimeType?: string; requestStreaming?: boolean },
 ) {
   const url = `${serverUrl.replace(/\/+$/, "")}/_agent-native/actions/create-recording`;
   console.log("[clips-recorder] POST", url, {
     hasCamera,
     hasAudio,
     title: titleContext?.title,
+    requestStreaming: options?.requestStreaming ?? false,
   });
   let res: Response;
   try {
@@ -879,6 +927,9 @@ async function createServerRecording(
         hasAudio,
         spaceIds: [],
         visibility: "public",
+        ...(options?.requestStreaming
+          ? { requestStreaming: true, mimeType: options.mimeType }
+          : {}),
         ...(titleContext
           ? {
               title: titleContext.title,
@@ -901,12 +952,18 @@ async function createServerRecording(
     console.error("[clips-recorder] bad response:", url, res.status, body);
     throw new Error(`create-recording ${res.status}: ${body.slice(0, 200)}`);
   }
-  const data = (await res.json()) as { result?: { id: string }; id?: string };
+  const data = (await res.json()) as {
+    result?: { id: string; uploadMode?: string };
+    id?: string;
+    uploadMode?: string;
+  };
   const result = data.result ?? data;
   if (!result.id) {
     throw new Error("create-recording did not return an id");
   }
-  return { id: result.id };
+  const uploadMode: UploadMode =
+    result.uploadMode === "streaming" ? "streaming" : "buffered";
+  return { id: result.id, uploadMode };
 }
 
 interface ActiveWindowContext {
@@ -1188,48 +1245,95 @@ function decChunkBusy(): void {
   }
 }
 
+// Bounded retry for live chunk uploads. A brief network blip (Wi-Fi roam, DNS
+// hiccup, a single 5xx) should not fail the whole recording into the manual
+// backup-replay path when the very next attempt would land
+const CHUNK_UPLOAD_MAX_ATTEMPTS = 3;
+const CHUNK_UPLOAD_RETRY_BASE_MS = 250;
+
+// Only transient server responses are worth retrying inline; a 4xx (bad
+// request, auth, not found) won't fix itself on the next attempt.
+function isRetriableChunkStatus(status: number): boolean {
+  return status === 429 || status >= 500;
+}
+
 async function uploadChunk(url: string, blob: Blob): Promise<void> {
-  // Signal to the bubble frame pump that a chunk is being uploaded.
-  // The pump's tick loop checks this flag and yields its slot to the
-  // fetch for the ~150-300ms the POST takes to serialize and land.
-  // Cleared in `finally` below so a throw still releases the pump.
-  incChunkBusy();
-  let res: Response;
-  try {
-    res = await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": blob.type || "application/octet-stream" },
-      // Tauri webview runs on localhost:1420 (dev) or tauri://localhost (prod);
-      // the clips server is a different origin. The framework's dev CORS is
-      // permissive for "*" but won't accept credentialed requests without
-      // Allow-Credentials — and in dev auth is bypassed anyway, so we don't
-      // need cookies.
-      credentials: "include",
-      body: blob,
-    });
-  } finally {
-    decChunkBusy();
+  let lastError: Error | null = null;
+  for (let attempt = 1; attempt <= CHUNK_UPLOAD_MAX_ATTEMPTS; attempt++) {
+    // Signal to the bubble frame pump that a chunk is being uploaded, but only
+    // around the actual network call. The pump's tick loop checks this flag and
+    // yields its slot to the fetch for the ~150-300ms the POST takes to
+    // serialize and land. Released before any backoff wait so the pump can
+    // encode frames while we sit idle between attempts.
+    incChunkBusy();
+    let res: Response | null = null;
+    try {
+      res = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": blob.type || "application/octet-stream" },
+        // Tauri webview runs on localhost:1420 (dev) or tauri://localhost (prod);
+        // the clips server is a different origin. The framework's dev CORS is
+        // permissive for "*" but won't accept credentialed requests without
+        // Allow-Credentials — and in dev auth is bypassed anyway, so we don't
+        // need cookies.
+        credentials: "include",
+        body: blob,
+      });
+    } catch (err) {
+      // Network-level failure (offline, connection reset, DNS) — transient.
+      lastError = err instanceof Error ? err : new Error(String(err));
+    } finally {
+      decChunkBusy();
+    }
+
+    if (res) {
+      if (res.ok) {
+        // Drain the response body even on success. If we don't consume the
+        // body, WebKit can keep the network buffer resident until GC — that's
+        // extra retention on top of the ~1MB Blob we just uploaded. Reading
+        // and discarding is cheap (the body is usually tiny for a chunk ack)
+        // and makes the memory footprint predictable.
+        try {
+          await res.text();
+        } catch {
+          // ignore — body drain is best-effort
+        }
+        console.log(
+          "[clips-recorder] chunk ok:",
+          res.status,
+          blob.size,
+          "bytes",
+        );
+        return;
+      }
+      const body = await res.text().catch(() => "");
+      lastError = new Error(`chunk ${res.status}: ${body.slice(0, 200)}`);
+      if (!isRetriableChunkStatus(res.status)) {
+        console.error(
+          "[clips-recorder] chunk failed:",
+          res.status,
+          body.slice(0, 200),
+        );
+        throw lastError;
+      }
+      console.warn(
+        "[clips-recorder] chunk retriable failure:",
+        res.status,
+        `attempt ${attempt}/${CHUNK_UPLOAD_MAX_ATTEMPTS}`,
+      );
+    } else {
+      console.warn(
+        "[clips-recorder] chunk network error:",
+        lastError?.message,
+        `attempt ${attempt}/${CHUNK_UPLOAD_MAX_ATTEMPTS}`,
+      );
+    }
+
+    if (attempt < CHUNK_UPLOAD_MAX_ATTEMPTS) {
+      await wait(CHUNK_UPLOAD_RETRY_BASE_MS * 2 ** (attempt - 1));
+    }
   }
-  if (!res.ok) {
-    const body = await res.text().catch(() => "");
-    console.error(
-      "[clips-recorder] chunk failed:",
-      res.status,
-      body.slice(0, 200),
-    );
-    throw new Error(`chunk ${res.status}: ${body.slice(0, 200)}`);
-  }
-  // Drain the response body even on success. If we don't consume the
-  // body, WebKit can keep the network buffer resident until GC — that's
-  // extra retention on top of the ~1MB Blob we just uploaded. Reading
-  // and discarding is cheap (the body is usually tiny for a chunk ack)
-  // and makes the memory footprint predictable.
-  try {
-    await res.text();
-  } catch {
-    // ignore — body drain is best-effort
-  }
-  console.log("[clips-recorder] chunk ok:", res.status, blob.size, "bytes");
+  throw lastError ?? new Error("chunk upload failed");
 }
 
 async function abortRecordingUpload(
@@ -1276,6 +1380,18 @@ async function trashRecording(
   } catch (err) {
     console.warn("[clips-recorder] trash recording failed:", err);
   }
+}
+
+async function cleanupCancelledRemoteRecording(
+  serverUrl: string,
+  recordingId: string,
+): Promise<void> {
+  await abortRecordingUpload(
+    serverUrl,
+    recordingId,
+    "Recording cancelled by user",
+  );
+  await trashRecording(serverUrl, recordingId);
 }
 
 class CountdownCancelledError extends Error {
@@ -1571,8 +1687,10 @@ async function startNativeFullscreenRecording(
   // clock and the toolbar-enable behind the real recording start.
   let startedAt = 0;
   let nativeTranscriptFailureSaved = false;
+  const wantsSystemAudio = params.systemAudioOn !== false;
+  const wantsRecordedAudio = wantsAudio || wantsSystemAudio;
   const saveTranscriptFailure = async (failureReason: string) => {
-    if (!wantsAudio || nativeTranscriptFailureSaved || !id) return;
+    if (!wantsRecordedAudio || nativeTranscriptFailureSaved || !id) return;
     nativeTranscriptFailureSaved = true;
     await saveRecordingTranscriptFailure(
       params.serverUrl,
@@ -1597,12 +1715,7 @@ async function startNativeFullscreenRecording(
     if (localOnly && localRecordingMode === "separate" && wantsCamera) {
       localCameraStream =
         params.preAcquiredCameraStream ??
-        (await navigator.mediaDevices.getUserMedia({
-          video: params.cameraId
-            ? { deviceId: { exact: params.cameraId } }
-            : true,
-          audio: false,
-        }));
+        (await getCameraStreamWithFallback(params.cameraId));
       localOwnsCameraStream =
         localCameraStream !== params.preAcquiredCameraStream;
       localCameraExport = await prepareLocalRecordingExport(
@@ -1630,16 +1743,12 @@ async function startNativeFullscreenRecording(
         ? "[clips-recorder] invoking show_countdown for native local recording"
         : "[clips-recorder] invoking show_countdown + createServerRecording",
     );
-    const wantsSystemAudio = wantsAudio && params.systemAudioOn !== false;
-    // Resolve the mic's REAL device name for the native recorder. WebKit's
-    // deviceId is a salted hash that never equals ScreenCaptureKit's CoreAudio
-    // device UID, so the Rust side can only pin the input by NAME. The stored
-    // label can be stale or empty (device list locked when picked, or a rotated
-    // deviceId salt after an app update) — that's what makes "only Default
-    // works": the hash matches nothing and there's no name to fall back to.
-    // A one-shot getUserMedia gives the exact current device name, the same
-    // string ScreenCaptureKit exposes, so name resolution succeeds. Done before
-    // warming so both phases pin the same input.
+    // Resolve the mic's REAL device name before native setup. WebKit's deviceId
+    // is a salted hash that never equals CoreAudio's device UID, so any native
+    // path that needs a mic can only pin the input by NAME. The stored label can
+    // be stale or empty (device list locked when picked, or a rotated deviceId
+    // salt after an app update), so a one-shot getUserMedia gives the exact
+    // current device name.
     let micDeviceLabel = params.micLabel || null;
     if (wantsAudio && params.micId) {
       try {
@@ -1670,11 +1779,10 @@ async function startNativeFullscreenRecording(
       micDeviceLabel,
       captureRegion,
     };
-    // Warm the mic DURING the countdown. ScreenCaptureKit delivers its first
-    // mic sample ~1s after capture starts; warming now lets `begin` attach the
-    // recording output to an already-live mic, so the clip no longer starts
-    // with a silent second. No-op when there's nothing to pre-warm (mic off /
-    // SCK unavailable) — `begin` then does a normal immediate start.
+    // Warm ScreenCaptureKit DURING the countdown without recording frames yet.
+    // This keeps the capture start off the critical path while letting `begin`
+    // attach the recording output at the exact start moment. No-op when SCK is
+    // unavailable — `begin` then does a normal immediate start.
     const warmMic = (recordingId: string) =>
       invoke("native_fullscreen_recording_warm", {
         recordingId,
@@ -1695,13 +1803,13 @@ async function startNativeFullscreenRecording(
       const recordingPromise = createServerRecording(
         params.serverUrl,
         wantsCamera,
-        wantsAudio,
+        wantsRecordedAudio,
         captureTitle,
       ).finally(() => {
         console.timeEnd("[clips-recorder] createServerRecording duration");
       });
       // The recording id usually lands well before the countdown ends — warm
-      // the mic as soon as it does so the warm-up overlaps the 3-2-1.
+      // native capture as soon as it does so setup overlaps the 3-2-1.
       const warmAndId = (async () => {
         const createRes = await recordingPromise;
         await warmMic(createRes.id);
@@ -1922,7 +2030,7 @@ async function startNativeFullscreenRecording(
             recordingId: id,
             authToken: params.authToken ?? "",
             cookie: params.cookie ?? "",
-            hasAudio: wantsAudio,
+            hasAudio: wantsRecordedAudio,
             hasCamera: wantsCamera,
           },
         );
@@ -1947,9 +2055,9 @@ async function startNativeFullscreenRecording(
               capturedTranscript,
               params.authToken,
             );
-          } else if (wantsAudio) {
+          } else if (wantsRecordedAudio) {
             await saveTranscriptFailure(
-              "No speech was captured during this recording. If you spoke, check Microphone input, Speech Recognition permission, and the selected mic, then retry transcription.",
+              "No speech was captured during this recording. If you spoke or played system audio, check System Audio, Microphone input, Speech Recognition permission, and the selected mic, then retry transcription.",
             );
           }
 
@@ -1974,6 +2082,22 @@ async function startNativeFullscreenRecording(
           try {
             uploadResult = await uploadPromise;
           } catch (err) {
+            if (
+              await recoverReadyRecordingAfterFinalizeError({
+                serverUrl: params.serverUrl,
+                recordingId: id,
+                authToken: params.authToken,
+              })
+            ) {
+              try {
+                await openExternal(
+                  `${params.serverUrl.replace(/\/+$/, "")}${viewUrl}`,
+                );
+              } catch (openErr) {
+                console.error("[clips-recorder] openExternal failed:", openErr);
+              }
+              return { recordingId: id, viewUrl };
+            }
             await abortRecordingUpload(
               params.serverUrl,
               id,
@@ -2029,7 +2153,12 @@ async function startNativeFullscreenRecording(
         }
         stateUnlistens.forEach((u) => u());
         stateUnlistens = [];
-        await transcriptionCapture?.cancel().catch(() => {});
+        void transcriptionCapture?.cancel().catch((err) => {
+          console.warn(
+            "[clips-recorder] native transcription cancel failed:",
+            err,
+          );
+        });
         await localCameraExport?.cancel().catch(() => {});
         await invoke("native_fullscreen_recording_cancel").catch((err) =>
           console.warn(
@@ -2049,12 +2178,14 @@ async function startNativeFullscreenRecording(
         streamCleanups.forEach((cleanup) => cleanup());
         await invoke("hide_overlays").catch(() => {});
         if (!localOnly && id) {
-          await abortRecordingUpload(
-            params.serverUrl,
-            id,
-            "Recording cancelled by user",
+          void cleanupCancelledRemoteRecording(params.serverUrl, id).catch(
+            (err) => {
+              console.warn(
+                "[clips-recorder] cancelled recording cleanup failed:",
+                err,
+              );
+            },
           );
-          await trashRecording(params.serverUrl, id);
         }
       })();
       return cancelPromise;
@@ -2115,8 +2246,7 @@ async function startNativeFullscreenRecording(
 
   if (!localOnly) {
     await showRegionGuidesForRecording(true);
-    const wantsSystemAudio = wantsAudio && params.systemAudioOn !== false;
-    transcriptionCapture = wantsAudio
+    transcriptionCapture = wantsRecordedAudio
       ? await startTranscriptionCapture(
           {
             deviceId: params.micId,
@@ -2138,12 +2268,12 @@ async function startNativeFullscreenRecording(
       );
       void transcriptionCapture.pause().catch(() => {});
     } else if (
-      wantsAudio &&
+      wantsRecordedAudio &&
       !transcriptionCapture &&
       shouldSaveLocalTranscriptionStartupFailure()
     ) {
       void saveTranscriptFailure(
-        "macOS Speech recognition could not start for this recording. Check Speech Recognition and Microphone permissions, then retry transcription.",
+        "macOS Speech recognition could not start for this recording. Check Speech Recognition, System Audio, and Microphone permissions, then retry transcription.",
       );
     }
   }
@@ -2259,7 +2389,8 @@ async function startRecordingInner(
   const wantsScreen = params.mode !== "camera";
   const wantsCamera = params.mode !== "screen" && params.cameraOn;
   const wantsAudio = params.micOn;
-  const wantsSystemAudio = wantsAudio && params.systemAudioOn !== false;
+  const wantsSystemAudio = wantsScreen && params.systemAudioOn !== false;
+  const wantsRecordedAudio = wantsAudio || wantsSystemAudio;
   const audioCue = createAudioCue();
   const captureSource = params.source ?? "window";
   const localRecordingMode = params.localRecordingMode ?? "off";
@@ -2271,6 +2402,7 @@ async function startRecordingInner(
     wantsScreen,
     wantsCamera,
     wantsAudio,
+    wantsSystemAudio,
   });
 
   if (wantsScreen && shouldUseNativeFullscreenRecording(captureSource)) {
@@ -2316,21 +2448,18 @@ async function startRecordingInner(
   const displayStreamPromise: Promise<MediaStream> | null = wantsScreen
     ? (() => {
         if (!devSyntheticCapture) {
-          const displaySurface =
-            captureSource === "window" ? "window" : "monitor";
-          return navigator.mediaDevices.getDisplayMedia({
-            video: {
-              frameRate: {
-                ideal: CLOUD_CAPTURE_FRAME_RATE,
-                max: CLOUD_CAPTURE_FRAME_RATE,
-              },
-              width: { ideal: CLOUD_CAPTURE_MAX_WIDTH },
-              height: { ideal: CLOUD_CAPTURE_MAX_HEIGHT },
-              displaySurface,
-            },
-            // System/desktop audio is gated by the system-audio toggle, not mic.
-            audio: wantsSystemAudio,
-          });
+          // Do not pass displaySurface as an input constraint. Modern runtimes
+          // can reject it with "Invalid constraint", and it cannot reliably
+          // pre-filter the OS picker anyway; the selected track reports its
+          // actual surface through getSettings() after capture starts.
+          return navigator.mediaDevices.getDisplayMedia(
+            buildDesktopDisplayMediaOptions({
+              audio: wantsSystemAudio,
+              frameRate: CLOUD_CAPTURE_FRAME_RATE,
+              maxWidth: CLOUD_CAPTURE_MAX_WIDTH,
+              maxHeight: CLOUD_CAPTURE_MAX_HEIGHT,
+            }),
+          );
         }
         console.warn(
           "[clips-recorder] using opt-in dev synthetic screen capture; remove localStorage clips:dev-synthetic-capture to use the native picker",
@@ -2356,18 +2485,10 @@ async function startRecordingInner(
   }
   const bubbleCameraStreamPromise: Promise<MediaStream> | null =
     wantsCamera && !reusedCameraStream
-      ? navigator.mediaDevices.getUserMedia({
-          video: params.cameraId
-            ? { deviceId: { exact: params.cameraId } }
-            : true,
-          audio: false,
-        })
+      ? getCameraStreamWithFallback(params.cameraId)
       : null;
   const audioStreamPromise: Promise<MediaStream> | null = wantsAudio
-    ? navigator.mediaDevices.getUserMedia({
-        audio: voiceFocusedAudioConstraints(params.micId),
-        video: false,
-      })
+    ? getAudioStreamWithFallback(params.micId)
     : null;
 
   // Use allSettled so a single rejection (e.g. user cancels the macOS screen
@@ -2550,7 +2671,7 @@ async function startRecordingInner(
       localRecordingMode,
       displayStream,
       bubbleCameraStream,
-      audioStream,
+      recordingAudio,
       combined,
     });
 
@@ -2723,6 +2844,17 @@ async function startRecordingInner(
     .forEach((track) => uploadCombined.addTrack(track));
   recordingAudio.tracks.forEach((track) => uploadCombined.addTrack(track));
 
+  // MIME type is resolved up front so create-recording can initialize the
+  // resumable session with the correct content type when the server supports
+  // streaming uploads.
+  const mimeCandidates = [
+    "video/webm;codecs=vp9,opus",
+    "video/webm;codecs=vp8,opus",
+    "video/webm",
+  ];
+  const mimeType =
+    mimeCandidates.find((m) => MediaRecorder.isTypeSupported(m)) ?? "";
+
   // 2+3. Countdown + create-recording happen IN PARALLEL. The countdown is
   // pure visual feedback — gating it on a network round-trip makes the
   // 3-2-1 feel laggy after the user picks a screen. Kick both off and
@@ -2735,8 +2867,9 @@ async function startRecordingInner(
   const recordingPromise = createServerRecording(
     params.serverUrl,
     wantsCamera,
-    wantsAudio,
+    recordingAudio.tracks.length > 0,
     captureTitle,
+    { mimeType: mimeType || "video/webm", requestStreaming: true },
   ).finally(() => {
     console.timeEnd("[clips-recorder] createServerRecording duration");
   });
@@ -2752,15 +2885,15 @@ async function startRecordingInner(
     );
     throw err;
   }
-  const { id } = createRes;
+  const { id, uploadMode } = createRes;
   console.log(
     "[clips-recorder] countdown + createServerRecording both resolved, id=",
     id,
   );
-  console.log("[clips-recorder] recording row created", { id });
+  console.log("[clips-recorder] recording row created", { id, uploadMode });
   let nativeTranscriptFailureSaved = false;
   const saveTranscriptFailure = async (failureReason: string) => {
-    if (!wantsAudio || nativeTranscriptFailureSaved) return;
+    if (!wantsRecordedAudio || nativeTranscriptFailureSaved) return;
     nativeTranscriptFailureSaved = true;
     await saveRecordingTranscriptFailure(
       params.serverUrl,
@@ -2772,17 +2905,15 @@ async function startRecordingInner(
 
   // 4. Start MediaRecorder with a 2-second timeslice — each `ondataavailable`
   //    streams a chunk to the server, so we don't hold 5-min buffers in memory.
-  const mimeCandidates = [
-    "video/webm;codecs=vp9,opus",
-    "video/webm;codecs=vp8,opus",
-    "video/webm",
-  ];
-  const mimeType =
-    mimeCandidates.find((m) => MediaRecorder.isTypeSupported(m)) ?? "";
   const recorder = createCloudMediaRecorder(uploadCombined, mimeType);
   let chunkIndex = 0;
   let failed: Error | null = null;
   let backupBytes = 0;
+  // Backup chunks are indexed by raw MediaRecorder blob (one per
+  // `ondataavailable`), independent of `chunkIndex` — on the streaming path
+  // `chunkIndex` counts aligned upload slices, not raw blobs.
+  let backupChunkCount = 0;
+  const streamMimeType = mimeType || "video/webm";
   let backupMeta: BrowserRecordingBackupMeta = {
     recordingId: id,
     serverUrl: params.serverUrl.replace(/\/+$/, ""),
@@ -2808,6 +2939,41 @@ async function startRecordingInner(
   persistBackupMeta().catch((err) => {
     console.warn("[clips-recorder] local backup metadata failed:", err);
   });
+
+  // Every raw MediaRecorder blob is mirrored to IndexedDB on both upload paths.
+  // If uploads fail the recording can still be recovered locally — replayed to
+  // the server (the retry first resets any resumable session so replay routes
+  // through the buffered chunk path) or exported to a local file.
+  const backupWrites = new Set<Promise<void>>();
+  const backupChunkLocally = (blob: Blob): Promise<void> => {
+    const backupIdx = backupChunkCount++;
+    backupBytes += blob.size;
+    const chunkMimeType = blob.type || streamMimeType;
+    let w: Promise<void>;
+    w = (async () => {
+      try {
+        await putBrowserRecordingBackupChunk({
+          recordingId: id,
+          index: backupIdx,
+          blob,
+          bytes: blob.size,
+          mimeType: chunkMimeType,
+          createdAt: new Date().toISOString(),
+        });
+        await persistBackupMeta({
+          bytes: backupBytes,
+          chunkCount: backupChunkCount,
+          mimeType: chunkMimeType,
+        });
+      } catch (err) {
+        console.warn("[clips-recorder] local chunk backup failed:", err);
+      }
+    })().finally(() => {
+      backupWrites.delete(w);
+    });
+    backupWrites.add(w);
+    return w;
+  };
   // In-flight chunk uploads. We use a Set (not an array) so entries can be
   // removed as soon as each fetch settles — otherwise, for a 30-minute
   // recording the array grows to 900 Promises, and EACH promise closes over
@@ -2817,10 +2983,62 @@ async function startRecordingInner(
   // See `uploadChunk()` — it removes its own entry in `.finally()`.
   const inflight = new Set<Promise<void>>();
 
+  // Streaming-path state. When the server opened a resumable session, blobs
+  // accumulate here until at least STREAM_CHUNK_BYTES is available, then a
+  // 256 KiB-aligned slice is uploaded as a non-final chunk. Resumable sessions
+  // append by byte offset server-side, so streamed chunks MUST arrive in order
+  // — uploads are serialized through `streamQueue`. The unaligned remainder is
+  // sent as the final chunk on stop().
+  let pendingStreamBlobs: Blob[] = [];
+  let pendingStreamBytes = 0;
+  let streamQueue: Promise<void> = Promise.resolve();
+
+  const queueStreamChunk = (blob: Blob, idx: number) => {
+    const url = chunkUrl(params.serverUrl, id, idx, false, {
+      mimeType: streamMimeType,
+    });
+    streamQueue = streamQueue.then(async () => {
+      if (failed) return;
+      try {
+        await uploadChunk(url, blob);
+      } catch (err) {
+        failed ??= err instanceof Error ? err : new Error(String(err));
+      }
+    });
+  };
+
+  const flushAlignedStreamChunks = () => {
+    while (pendingStreamBytes >= STREAM_CHUNK_BYTES) {
+      const combined = new Blob(pendingStreamBlobs, { type: streamMimeType });
+      const head = combined.slice(0, STREAM_CHUNK_BYTES, streamMimeType);
+      const tail = combined.slice(
+        STREAM_CHUNK_BYTES,
+        combined.size,
+        streamMimeType,
+      );
+      pendingStreamBlobs = tail.size > 0 ? [tail] : [];
+      pendingStreamBytes = tail.size;
+      queueStreamChunk(head, chunkIndex++);
+    }
+  };
+
   recorder.ondataavailable = (ev) => {
     if (!ev.data || ev.data.size === 0) return;
+
+    // Always mirror the raw blob to the local backup first (disaster recovery).
+    void backupChunkLocally(ev.data);
+
+    if (uploadMode === "streaming") {
+      // Resumable session on the server: buffer and flush 256 KiB-aligned
+      // slices, uploaded in order. The unaligned remainder is sent as the
+      // final chunk on stop().
+      pendingStreamBlobs.push(ev.data);
+      pendingStreamBytes += ev.data.size;
+      flushAlignedStreamChunks();
+      return;
+    }
+
     const idx = chunkIndex++;
-    backupBytes += ev.data.size;
     const chunkMimeType = ev.data.type || mimeType || "video/webm";
     const url = chunkUrl(params.serverUrl, id, idx, false, {
       mimeType: chunkMimeType,
@@ -2831,26 +3049,7 @@ async function startRecordingInner(
     // constructing the promise body so `inflight.delete(p)` inside the
     // `.finally` can reference the same handle we added.
     let p: Promise<void>;
-    p = (async () => {
-      try {
-        await putBrowserRecordingBackupChunk({
-          recordingId: id,
-          index: idx,
-          blob: ev.data,
-          bytes: ev.data.size,
-          mimeType: chunkMimeType,
-          createdAt: new Date().toISOString(),
-        });
-        await persistBackupMeta({
-          bytes: backupBytes,
-          chunkCount: Math.max(backupMeta.chunkCount, idx + 1),
-          mimeType: chunkMimeType,
-        });
-      } catch (err) {
-        console.warn("[clips-recorder] local chunk backup failed:", err);
-      }
-      await uploadChunk(url, ev.data);
-    })()
+    p = uploadChunk(url, ev.data)
       .catch((err) => {
         failed ??= err instanceof Error ? err : new Error(String(err));
       })
@@ -2954,7 +3153,7 @@ async function startRecordingInner(
   // delaying capture, so the first ~1s the user expected to record was lost
   // (and the recording felt cut at the end). It's a separate capture from the
   // recorded audio tracks, so starting it slightly late is safe.
-  transcriptionCapture = wantsAudio
+  transcriptionCapture = wantsRecordedAudio
     ? await startTranscriptionCapture(
         {
           deviceId: params.micId,
@@ -2976,12 +3175,12 @@ async function startRecordingInner(
     );
     void transcriptionCapture.pause().catch(() => {});
   } else if (
-    wantsAudio &&
+    wantsRecordedAudio &&
     !transcriptionCapture &&
     shouldSaveLocalTranscriptionStartupFailure()
   ) {
     void saveTranscriptFailure(
-      "macOS Speech recognition could not start for this recording. Check Speech Recognition and Microphone permissions, then retry transcription.",
+      "macOS Speech recognition could not start for this recording. Check Speech Recognition, System Audio, and Microphone permissions, then retry transcription.",
     );
   }
 
@@ -3061,9 +3260,9 @@ async function startRecordingInner(
           capturedTranscript,
           params.authToken,
         );
-      } else if (wantsAudio) {
+      } else if (wantsRecordedAudio) {
         await saveTranscriptFailure(
-          "No speech was captured during this recording. If you spoke, check Microphone input, Speech Recognition permission, and the selected mic, then retry transcription.",
+          "No speech was captured during this recording. If you spoke or played system audio, check System Audio, Microphone input, Speech Recognition permission, and the selected mic, then retry transcription.",
         );
       }
       await thumbnailUploadPromise;
@@ -3101,7 +3300,7 @@ async function startRecordingInner(
         bytes: backupBytes,
         hasAudio: uploadCombined.getAudioTracks().length > 0,
         hasCamera: wantsCamera,
-        chunkCount: chunkIndex,
+        chunkCount: backupChunkCount,
         mimeType: finalMimeType,
         lastError: null,
       }).catch((err) => {
@@ -3154,11 +3353,19 @@ async function startRecordingInner(
 
       // Wait for any in-flight chunk uploads to settle before sending the
       // final chunk. Otherwise the server could finalize before the last
-      // few bytes land. Snapshot the current set — the `.finally` in each
-      // upload will have already removed settled entries from `inflight`.
+      // few bytes land. On the streaming path uploads are serialized through
+      // `streamQueue`; on the buffered path they run concurrently and each
+      // `.finally` has already removed settled entries from `inflight`.
       const pending = Array.from(inflight);
-      await Promise.allSettled(pending);
+      if (uploadMode === "streaming") {
+        await streamQueue;
+      } else {
+        await Promise.allSettled(pending);
+      }
       inflight.clear();
+      // Ensure the local backup is fully written before we either delete it
+      // (on success) or leave it in place for recovery (on failure).
+      await Promise.allSettled([...backupWrites]);
       if (failed) {
         console.error("[clips-recorder] chunk upload failed:", failed);
         await markBrowserRecordingBackupError(id, failed.message).catch(
@@ -3172,6 +3379,17 @@ async function startRecordingInner(
         throw failed;
       }
 
+      // Streaming: the closing bytes are whatever remains under the 256 KiB
+      // alignment boundary — send them as the final chunk so the resumable
+      // session can complete. Buffered: bytes are already staged server-side,
+      // so the final chunk is a 0-byte close sentinel.
+      const finalBody =
+        uploadMode === "streaming"
+          ? new Blob(pendingStreamBlobs, { type: finalMimeType })
+          : new Blob([], { type: finalMimeType });
+      pendingStreamBlobs = [];
+      pendingStreamBytes = 0;
+
       const finalizeUrl = chunkUrl(params.serverUrl, id, chunkIndex, true, {
         mimeType: finalMimeType,
         durationMs: String(durationMs),
@@ -3183,6 +3401,8 @@ async function startRecordingInner(
       console.log("[clips-recorder] finalize POST", finalizeUrl, {
         chunksSent: chunkIndex,
         inflightAtFinalize: pending.length,
+        finalBodyBytes: finalBody.size,
+        uploadMode,
         anyFailed: !!failed,
       });
       try {
@@ -3190,7 +3410,7 @@ async function startRecordingInner(
           method: "POST",
           headers: { "Content-Type": "application/octet-stream" },
           credentials: "include",
-          body: new Blob([], { type: finalMimeType }),
+          body: finalBody,
         });
         const bodyText = await finalRes.text().catch(() => "");
         console.log(
@@ -3206,6 +3426,26 @@ async function startRecordingInner(
       } catch (err) {
         console.error("[clips-recorder] finalize fetch failed:", err);
         const error = err instanceof Error ? err : new Error(String(err));
+        if (
+          await recoverReadyRecordingAfterFinalizeError({
+            serverUrl: params.serverUrl,
+            recordingId: id,
+            authToken: params.authToken,
+          })
+        ) {
+          const viewUrl = `/r/${id}`;
+          try {
+            await openExternal(
+              `${params.serverUrl.replace(/\/+$/, "")}${viewUrl}`,
+            );
+          } catch (openErr) {
+            console.error("[clips-recorder] openExternal failed:", openErr);
+          }
+          invoke("hide_finalizing").catch((hideErr) =>
+            console.error("[clips-recorder] hide_finalizing failed:", hideErr),
+          );
+          return { recordingId: id, viewUrl };
+        }
         await markBrowserRecordingBackupError(id, error.message).catch(
           () => {},
         );
@@ -3244,7 +3484,9 @@ async function startRecordingInner(
       if (tickHandle) clearInterval(tickHandle);
       stateUnlistens.forEach((u) => u());
       stateUnlistens = [];
-      transcriptionCapture?.cancel().catch(() => {});
+      void transcriptionCapture?.cancel().catch((err) => {
+        console.warn("[clips-recorder] transcription cancel failed:", err);
+      });
       // Remove MediaRecorder's data handler so any final `ondataavailable`
       // from the stop() below doesn't push a new Blob into `inflight`
       // after we've decided to discard everything.
@@ -3282,18 +3524,15 @@ async function startRecordingInner(
       inflight.clear();
       await invoke("hide_recording_chrome").catch(() => {});
       // Tell the server to abort the partial recording (drops chunks from
-      // application_state, flips the recording row to 'failed'). Fire and
-      // forget with a short-circuit on failure — we don't want to keep the
-      // user waiting on a network call to a dev server that may be down.
-      try {
-        await abortRecordingUpload(
-          params.serverUrl,
-          id,
-          "Recording cancelled by user",
+      // application_state, flips the recording row to 'failed'), then trash
+      // it. This is best-effort background cleanup: redo/cancel must release
+      // the desktop chrome immediately even if the server is slow or offline.
+      if (id) {
+        void cleanupCancelledRemoteRecording(params.serverUrl, id).catch(
+          (err) => {
+            console.warn("[clips-recorder] abort failed (non-fatal):", err);
+          },
         );
-        await trashRecording(params.serverUrl, id);
-      } catch (err) {
-        console.warn("[clips-recorder] abort failed (non-fatal):", err);
       }
       await deleteBrowserRecordingBackup(id).catch((err) => {
         console.warn("[clips-recorder] local backup cleanup failed:", err);

@@ -9,8 +9,7 @@ type TemplateLinkTarget = {
 };
 
 export function getTemplateDocsSlug(template: TemplateLinkTarget | string) {
-  const slug = typeof template === "string" ? template : template.slug;
-  return slug === "video" ? "videos" : slug;
+  return typeof template === "string" ? template : template.slug;
 }
 
 export function getTemplateDocsPath(template: TemplateLinkTarget | string) {

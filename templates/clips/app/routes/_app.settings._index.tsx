@@ -13,6 +13,40 @@ import {
 } from "@agent-native/core/client";
 import { TeamPage } from "@agent-native/core/client/org";
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@agent-native/toolkit/ui/alert-dialog";
+import { Badge } from "@agent-native/toolkit/ui/badge";
+import { Button } from "@agent-native/toolkit/ui/button";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@agent-native/toolkit/ui/card";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@agent-native/toolkit/ui/collapsible";
+import { Input } from "@agent-native/toolkit/ui/input";
+import { Label } from "@agent-native/toolkit/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@agent-native/toolkit/ui/select";
+import { Switch } from "@agent-native/toolkit/ui/switch";
+import {
   BUILDER_CREDITS_UPGRADE_URL,
   type BuilderCreditsStatus,
 } from "@shared/builder-credits";
@@ -34,40 +68,6 @@ import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 
 import { PageHeader } from "@/components/library/page-header";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
-import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from "@/components/ui/collapsible";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { Switch } from "@/components/ui/switch";
 import { useVideoStorageStatus } from "@/hooks/use-video-storage-status";
 import enMessages from "@/i18n/en-US";
 import { cn } from "@/lib/utils";
@@ -399,19 +399,23 @@ export default function SettingsIndexRoute() {
   const [transcriptCleanupEnabled, setTranscriptCleanupEnabled] =
     useState(true);
   const [s3Values, setS3Values] = useState<Record<string, string>>({});
+  const [s3Errors, setS3Errors] = useState<Record<string, string>>({});
+  const [clearingS3, setClearingS3] = useState(false);
   const [s3Expanded, setS3Expanded] = useState(false);
   const [apiKeysExpanded, setApiKeysExpanded] = useState(false);
   const [apiKeyValues, setApiKeyValues] = useState<Record<string, string>>({});
   const [apiKeyStatus, setApiKeyStatus] = useState<Record<string, boolean>>({});
+  const [secretLast4, setSecretLast4] = useState<Record<string, string>>({});
   const [apiKeyStatusLoading, setApiKeyStatusLoading] = useState(true);
   const [savingApiKey, setSavingApiKey] = useState<string | null>(null);
 
   const refreshApiKeyStatus = useCallback(async () => {
     setApiKeyStatusLoading(true);
     try {
-      const [envRes, secretsRes] = await Promise.all([
+      const [envRes, secretsRes, adhocRes] = await Promise.all([
         fetch(agentNativePath("/_agent-native/env-status")),
         fetch(agentNativePath("/_agent-native/secrets")),
+        fetch(agentNativePath("/_agent-native/secrets/adhoc")),
       ]);
       const envData = envRes.ok
         ? ((await envRes.json()) as Array<{
@@ -425,12 +429,24 @@ export default function SettingsIndexRoute() {
             status?: string;
           }>)
         : [];
+      const adhocData = adhocRes.ok
+        ? ((await adhocRes.json()) as Array<{
+            name: string;
+            last4?: string;
+          }>)
+        : [];
       const next = Object.fromEntries(
         envData.map((entry) => [entry.key, Boolean(entry.configured)]),
       );
       for (const entry of secretsData) {
         next[entry.key] = entry.status === "set";
       }
+      const nextLast4: Record<string, string> = {};
+      for (const entry of adhocData) {
+        next[entry.name] = true;
+        if (entry.last4) nextLast4[entry.name] = entry.last4;
+      }
+      setSecretLast4(nextLast4);
       setApiKeyStatus(next);
     } catch {
       setApiKeyStatus({});
@@ -477,7 +493,36 @@ export default function SettingsIndexRoute() {
     }
   }
 
+  function validateS3Values(
+    values: Record<string, string>,
+  ): Record<string, string> {
+    const errors: Record<string, string> = {};
+    const urlFields = ["S3_ENDPOINT", "S3_PUBLIC_BASE_URL"];
+    for (const key of urlFields) {
+      const val = (values[key] ?? "").trim();
+      if (!val) continue;
+      try {
+        const parsed = new URL(val);
+        if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
+          errors[key] = t("settings.s3UrlInvalid");
+        }
+      } catch {
+        errors[key] = t("settings.s3UrlInvalid");
+      }
+    }
+    const bucket = (values["S3_BUCKET"] ?? "").trim();
+    if (bucket && !/^[a-z0-9][a-z0-9\-.]{1,61}[a-z0-9]$/.test(bucket)) {
+      errors["S3_BUCKET"] = t("settings.s3BucketInvalid");
+    }
+    return errors;
+  }
+
   async function handleSaveS3Storage() {
+    const validationErrors = validateS3Values(s3Values);
+    if (Object.keys(validationErrors).length > 0) {
+      setS3Errors(validationErrors);
+      return;
+    }
     const s3Configured = storageStatus.data?.activeProvider?.id === "s3";
     const missing = s3Configured
       ? []
@@ -499,7 +544,7 @@ export default function SettingsIndexRoute() {
         ...current,
         S3_SECRET_ACCESS_KEY: "",
       }));
-      await storageStatus.refetch();
+      await Promise.all([storageStatus.refetch(), refreshApiKeyStatus()]);
       toast.success(t("settings.storageSaved"));
     } catch (err) {
       toast.error(
@@ -507,6 +552,51 @@ export default function SettingsIndexRoute() {
       );
     } finally {
       setSavingStorage(false);
+    }
+  }
+
+  async function handleClearAllS3() {
+    setClearingS3(true);
+    try {
+      const results = await Promise.all(
+        S3_STORAGE_FIELDS.filter((field) => apiKeyStatus[field.key]).map(
+          async (field) => {
+            const res = await fetch(
+              agentNativePath(
+                `/_agent-native/secrets/adhoc/${encodeURIComponent(field.key)}`,
+              ),
+              { method: "DELETE" },
+            );
+            if (!res.ok) {
+              const body = (await res.json().catch(() => null)) as {
+                error?: string;
+              } | null;
+              throw new Error(
+                body?.error ?? `Failed to clear ${field.key} (${res.status})`,
+              );
+            }
+            const body = (await res.json().catch(() => null)) as {
+              removed?: boolean;
+            } | null;
+            return { key: field.key, removed: body?.removed !== false };
+          },
+        ),
+      );
+      const failed = results.filter((r) => !r.removed).map((r) => r.key);
+      if (failed.length > 0) {
+        throw new Error(
+          `Could not remove: ${failed.join(", ")}. You may not have permission.`,
+        );
+      }
+      setS3Values({});
+      await Promise.all([refreshApiKeyStatus(), storageStatus.refetch()]);
+      toast.success(t("settings.keyCleared"));
+    } catch (err) {
+      toast.error(
+        err instanceof Error ? err.message : t("settings.saveFailed"),
+      );
+    } finally {
+      setClearingS3(false);
     }
   }
 
@@ -785,34 +875,90 @@ export default function SettingsIndexRoute() {
                       <CollapsibleContent>
                         <div className="space-y-4 border-t border-border px-3 py-4">
                           <div className="grid gap-4 sm:grid-cols-2">
-                            {S3_STORAGE_FIELDS.map((field) => (
-                              <div key={field.key} className="space-y-1.5">
-                                <Label htmlFor={field.key}>
-                                  {t(field.labelKey)}
-                                </Label>
-                                <Input
-                                  id={field.key}
-                                  type={
-                                    "secret" in field && field.secret
-                                      ? "password"
-                                      : "text"
-                                  }
-                                  value={s3Values[field.key] ?? ""}
-                                  onChange={(event) =>
-                                    setS3Values((current) => ({
-                                      ...current,
-                                      [field.key]: event.target.value,
-                                    }))
-                                  }
-                                  placeholder={field.placeholder}
-                                  autoComplete="off"
-                                  disabled={savingStorage}
-                                />
-                              </div>
-                            ))}
+                            {S3_STORAGE_FIELDS.map((field) => {
+                              const configured = Boolean(
+                                apiKeyStatus[field.key],
+                              );
+                              const last4 = secretLast4[field.key];
+                              return (
+                                <div key={field.key} className="space-y-1.5">
+                                  <div className="flex items-center justify-between gap-2">
+                                    <Label htmlFor={field.key}>
+                                      {t(field.labelKey)}
+                                    </Label>
+                                    {configured ? (
+                                      <span className="flex items-center gap-1 text-[10px] font-medium text-primary">
+                                        <IconCheck className="h-3 w-3" />
+                                        {last4
+                                          ? `••••${last4}`
+                                          : t("settings.keySet")}
+                                      </span>
+                                    ) : null}
+                                  </div>
+                                  <Input
+                                    id={field.key}
+                                    type={
+                                      "secret" in field && field.secret
+                                        ? "password"
+                                        : "text"
+                                    }
+                                    value={s3Values[field.key] ?? ""}
+                                    onChange={(event) => {
+                                      setS3Values((current) => ({
+                                        ...current,
+                                        [field.key]: event.target.value,
+                                      }));
+                                      if (s3Errors[field.key]) {
+                                        setS3Errors((current) => {
+                                          const next = { ...current };
+                                          delete next[field.key];
+                                          return next;
+                                        });
+                                      }
+                                    }}
+                                    placeholder={
+                                      configured
+                                        ? t("settings.replaceKey")
+                                        : field.placeholder
+                                    }
+                                    autoComplete="off"
+                                    disabled={savingStorage}
+                                    className={
+                                      s3Errors[field.key]
+                                        ? "border-destructive"
+                                        : undefined
+                                    }
+                                  />
+                                  {s3Errors[field.key] ? (
+                                    <p className="text-[11px] text-destructive">
+                                      {s3Errors[field.key]}
+                                    </p>
+                                  ) : null}
+                                </div>
+                              );
+                            })}
                           </div>
 
-                          <div className="flex justify-end">
+                          <div className="flex items-center justify-end gap-2">
+                            {S3_STORAGE_FIELDS.some(
+                              (field) => apiKeyStatus[field.key],
+                            ) ? (
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="sm"
+                                onClick={handleClearAllS3}
+                                disabled={clearingS3 || savingStorage}
+                                className="text-muted-foreground hover:text-destructive"
+                              >
+                                {clearingS3 ? (
+                                  <IconLoader2 className="h-4 w-4 animate-spin" />
+                                ) : (
+                                  <IconTrash className="h-4 w-4" />
+                                )}
+                                {t("settings.clearAllS3")}
+                              </Button>
+                            ) : null}
                             <Button
                               onClick={handleSaveS3Storage}
                               disabled={

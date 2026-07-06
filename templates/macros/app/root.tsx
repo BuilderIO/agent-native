@@ -10,6 +10,7 @@ import {
   useCommandMenuShortcut,
   useT,
 } from "@agent-native/core/client";
+import { Toaster } from "@agent-native/toolkit/ui/sonner";
 import { IconSun, IconMoon } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useTheme } from "next-themes";
@@ -18,7 +19,6 @@ import { Links, Meta, Outlet, Scripts, ScrollRestoration } from "react-router";
 import type { LinksFunction } from "react-router";
 
 import { AppLayout } from "@/components/layout/AppLayout";
-import { Toaster } from "@/components/ui/sonner";
 import { TAB_ID } from "@/lib/tab-id";
 
 import changelog from "../CHANGELOG.md?raw";

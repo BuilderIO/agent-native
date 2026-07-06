@@ -1,0 +1,73 @@
+---
+title: "مجموعة أدوات Agent-Native"
+description: "مجموعات قابلة لإعادة الاستخدام للتعاون والإعدادات والمشاركة والتنقل والحضور والسجل والإعداد وتجربة الوكيل."
+---
+
+# مجموعة أدوات Agent-Native
+
+لا ينبغي لتطبيقات Agent-Native إعادة بناء بنية الـ workspace المشتركة في كل
+مرة. تمتلك التطبيقات نماذج المجال و actions الخاصة بالمجال وواجهات المنتج. أما
+الإطار و `@agent-native/toolkit` فيمتلكان السطوح القابلة لإعادة الاستخدام التي
+ينبغي أن يرثها كل تطبيق: التعاون، المشاركة، الإعدادات، التنقل، التنظيم،
+الإعداد، تجربة Agent، السجل، والرؤية التشغيلية.
+
+يجب أن يتعلم المستخدمون طريقة واحدة للمشاركة، وطريقة واحدة لربط المفاتيح،
+ومكانا واحدا للإعدادات، وطريقة واحدة لرؤية Agent وهو يحرر معهم وفهم ما تغير.
+
+## عقد مجموعة الأدوات {#toolkit-contract}
+
+انقل السلوك إلى toolkit عندما يكون:
+
+- **على مستوى workspace** - يتوقع المستخدمون السلوك نفسه في كل التطبيقات.
+- **مرئيا للـ Agent** - يحتاج Agent إلى القدرة نفسها عبر actions أو instructions
+  أو application state.
+- **محكوما** - تنطبق عليه الصلاحيات أو audit أو secrets أو سياسة المؤسسة أو
+  billing أو قواعد المشاركة.
+- **متكررا** - بنى تطبيقان بالفعل UI أو logic متشابهين.
+- **غير خاص بالمجال** - يقدم التطبيق أسماء الموارد و actions، لكن نمط التفاعل
+  عام.
+
+أبق السلوك محليا عندما يكون مرتبطا بنموذج مجال أو workflow خاص بالتطبيق.
+
+## مجموعات قابلة لإعادة الاستخدام {#reusable-kits}
+
+- **Settings kit** - تبويبات قياسية للحساب، workspace، نماذج AI، مفاتيح LLM،
+  الاتصالات، secrets، الاستخدام، notifications، changelog وتفضيلات التطبيق.
+  تبقى الإعدادات الدائمة في Settings؛ وتبقى sidebar الخاصة بالـ Agent للروابط
+  العميقة والتحكم السياقي فقط.
+- **Collaboration kit** - تحرير فوري، مستندات Yjs، presence، agent presence،
+  live cursors، remote selections، recent edit highlights و undo/redo مشترك.
+  راجع [Real-Time Collaboration](/docs/real-time-collaboration).
+- **Sharing kit** - نموذج واحد للخصوصية والصلاحيات لـ private و workspace و org
+  و public link والدعوات والأدوار والانتهاء و agent-readable access. راجع
+  [Sharing & Privacy](/docs/sharing).
+- **Navigation and command kit** - app shell، nav، breadcrumbs، app switcher،
+  command palette، recents، pinned resources و search.
+- **Organization kit** - folders، tags، favorites، archive، trash، ownership،
+  membership و common metadata.
+- **Setup and connections kit** - API keys، OAuth، connections، model readiness،
+  missing secrets و declarative onboarding. راجع
+  [Workspace Connections](/docs/workspace-connections).
+- **Agent UX kit** - sidebar، composer، staged context، mentions، voice، human
+  approval، generative UI، progress و Agent-visible state.
+- **History and recovery kit** - audit log، activity feed، version history،
+  checkpoints، undo، redo، restore و proof-of-done. راجع
+  [Audit Log](/docs/audit-log).
+- **Comments and review kit** - anchored comments، pins، mentions، review
+  requests، resolved threads و Agent follow-up tasks.
+- **Workflow and observability kit** - notifications، approvals، background
+  runs، recurring jobs، traces، evals، feedback و run timelines. راجع
+  [Observability](/docs/observability).
+
+## ترتيب التنفيذ {#implementation-order}
+
+1. اجمع الإعدادات الدائمة في تبويبات Settings القياسية.
+2. وحّد collaboration و presence و agent presence و undo/redo و real-time editing
+   خلف adapters مشتركة.
+3. انقل navigation و commands و recents و favorites و folders و tags و archive
+   و trash إلى primitives مشتركة.
+4. سجّل كل resource قابل للمشاركة في نموذج permissions و agent-readable access
+   نفسه.
+5. امنح كل collaborative resource تجربة متسقة للنشاط والتعليقات والمراجعة
+   والاستعادة و audit.
+6. وحّد notifications و approvals و run status و traces و evals و feedback.

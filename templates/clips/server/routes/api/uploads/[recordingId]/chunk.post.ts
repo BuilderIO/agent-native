@@ -19,6 +19,7 @@ import {
 } from "@agent-native/core/application-state";
 import { getActiveFileUploadProvider } from "@agent-native/core/file-upload";
 import { runWithRequestContext } from "@agent-native/core/server";
+import { track } from "@agent-native/core/tracking";
 import { normalizeChunkUploadNumber } from "@shared/recording-core.js";
 import { MAX_UPLOAD_BYTES as MAX_RECORDING_UPLOAD_BYTES } from "@shared/upload-limits.js";
 import { and, eq } from "drizzle-orm";
@@ -46,6 +47,7 @@ import {
   setResumableSession,
   type StoredResumableSession,
 } from "../../../../lib/resumable-session.js";
+import { isStreamingUploadDisabled } from "../../../../lib/streaming-upload-mode.js";
 import {
   shouldRejectVideoUploadWithoutStorage,
   STORAGE_SETUP_REQUIRED_REASON,
@@ -94,6 +96,33 @@ function stateNumber(
   return typeof raw === "number" && Number.isFinite(raw) ? raw : undefined;
 }
 
+function expectedDataChunksForFinalPost(
+  index: number,
+  bodySize: number,
+): number {
+  return index + (bodySize > 0 ? 1 : 0);
+}
+
+function trackUploadBlockingFailure(
+  ownerEmail: string,
+  properties: Record<string, unknown>,
+): void {
+  try {
+    track(
+      "clips_upload_blocking_failure",
+      {
+        app: "clips",
+        template: "clips",
+        surface: "server_upload",
+        ...properties,
+      },
+      { userId: ownerEmail },
+    );
+  } catch {
+    // Best-effort analytics must never change upload behavior.
+  }
+}
+
 export default defineEventHandler(async (event: H3Event) => {
   const recordingId = getRouterParam(event, "recordingId");
   if (!recordingId) {
@@ -123,7 +152,7 @@ export default defineEventHandler(async (event: H3Event) => {
     mimeType,
   });
 
-  if (!Number.isFinite(index) || index < 0) {
+  if (!Number.isFinite(index) || !Number.isInteger(index) || index < 0) {
     throw createError({ statusCode: 400, message: "Invalid chunk index" });
   }
 
@@ -174,6 +203,11 @@ export default defineEventHandler(async (event: H3Event) => {
 
     // Resumable streaming path — forward chunks directly to the provider.
     const resumableSession = await getResumableSession(recordingId);
+    if (resumableSession && isStreamingUploadDisabled()) {
+      console.warn(
+        `[chunk] streaming uploads are disabled, but preserving existing resumable session for in-flight recording: ${recordingId}`,
+      );
+    }
     if (resumableSession) {
       return handleResumableChunk(
         event,
@@ -183,6 +217,7 @@ export default defineEventHandler(async (event: H3Event) => {
         isFinal,
         mimeType,
         query,
+        ownerEmail,
       );
     }
 
@@ -258,6 +293,9 @@ export default defineEventHandler(async (event: H3Event) => {
     // readRawBody(event, false) returns Uint8Array. Buffer is a Uint8Array
     // subclass on Node, so this is safe whether we're on Node or workerd.
     const bytes: Uint8Array = raw ?? new Uint8Array(0);
+    const expectedDataChunks = isFinal
+      ? expectedDataChunksForFinalPost(index, bytes.byteLength)
+      : undefined;
 
     const uploadStateRaw = await readAppState(
       `recording-upload-${recordingId}`,
@@ -381,6 +419,13 @@ export default defineEventHandler(async (event: H3Event) => {
         progress,
         chunksReceived: index + 1,
         totalChunks: total,
+        ...(expectedDataChunks !== undefined
+          ? {
+              expectedDataChunks,
+              finalChunkIndex: index,
+              finalChunkBytes: bytes.byteLength,
+            }
+          : {}),
         bytesReceived,
         maxBytes: MAX_RECORDING_UPLOAD_BYTES,
         mimeType,
@@ -398,13 +443,20 @@ export default defineEventHandler(async (event: H3Event) => {
             eq(schema.recordings.status, existing.status),
           ),
         );
-    } else if (bytes.byteLength > 0) {
+    } else if (bytes.byteLength > 0 || isFinal) {
       const failedResponse = await stopIfUploadFailed();
       if (failedResponse) return failedResponse;
       await writeAppState(`recording-upload-${recordingId}`, {
         recordingId,
-        status: "uploading",
+        status: isFinal ? "processing" : "uploading",
         chunksReceived: index + 1,
+        ...(expectedDataChunks !== undefined
+          ? {
+              expectedDataChunks,
+              finalChunkIndex: index,
+              finalChunkBytes: bytes.byteLength,
+            }
+          : {}),
         bytesReceived,
         maxBytes: MAX_RECORDING_UPLOAD_BYTES,
         mimeType,
@@ -501,6 +553,13 @@ export default defineEventHandler(async (event: H3Event) => {
             hasCamera: committed.hasCamera,
           };
         }
+        trackUploadBlockingFailure(ownerEmail, {
+          stage: "finalize_recording",
+          failureKind: "finalize_error",
+          recordingId,
+          uploadMode: "buffered",
+          errorMessage: err instanceof Error ? err.message : String(err),
+        });
         await db
           .update(schema.recordings)
           .set({
@@ -560,6 +619,7 @@ async function handleResumableChunk(
   isFinal: boolean,
   mimeType: string,
   query: Record<string, unknown>,
+  ownerEmail: string,
 ) {
   const uploadProvider = getActiveFileUploadProvider();
   console.log(
@@ -574,6 +634,13 @@ async function handleResumableChunk(
   }
 
   if (isFinal && bytes.byteLength === 0) {
+    if (session.bytesUploaded <= 0) {
+      setResponseStatus(event, 400);
+      return {
+        ok: false,
+        error: "Cannot finalize an empty resumable upload",
+      };
+    }
     // 0-byte sentinel from the recorder after stop(). All data chunks have
     // already been PUT to the provider; send Content-Range: bytes */<total>
     // to close the session before handing off to finalize-recording.
@@ -582,7 +649,7 @@ async function handleResumableChunk(
       `bytes */${session.bytesUploaded}`,
       new Uint8Array(0),
     );
-    if (!closeRes.ok) {
+    if (!closeRes.ok || closeRes.status === 308) {
       console.error(
         `[resumable-chunk-${recordingId}] session close failed (${closeRes.status})`,
       );
@@ -668,6 +735,13 @@ async function handleResumableChunk(
     return { ok: true, finalized: true, ...result };
   } catch (err) {
     console.error(`[resumable-chunk-${recordingId}] finalize failed:`, err);
+    trackUploadBlockingFailure(ownerEmail, {
+      stage: "finalize_recording",
+      failureKind: "finalize_error",
+      recordingId,
+      uploadMode: "resumable",
+      errorMessage: err instanceof Error ? err.message : String(err),
+    });
     setResponseStatus(event, 500);
     return {
       ok: false,

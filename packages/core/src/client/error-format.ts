@@ -90,6 +90,10 @@ function isProviderAuthenticationError(
   return (
     code === "authentication_error" ||
     code === "http_401" ||
+    /^401 status code(?:\s*\(no body\))?$/i.test(text) ||
+    /\b(?:http\s*)?401\b.*\b(?:status|unauthorized|authentication|auth|no body)\b/i.test(
+      text,
+    ) ||
     lower.includes("invalid x-api-key") ||
     lower.includes("invalid api key") ||
     lower.includes("incorrect api key") ||

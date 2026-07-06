@@ -203,7 +203,7 @@ describe("present-design-variants", () => {
       "guided-questions",
       expect.objectContaining({
         title: "Pick a calmer mobile direction",
-        submitMessage: "Use this design direction.",
+        submitMessage: expect.stringContaining("selected screen"),
         questions: [
           expect.objectContaining({
             id: "variant",
@@ -217,6 +217,60 @@ describe("present-design-variants", () => {
           }),
         ],
       }),
+    );
+    const guidedQuestions = mocks.writeAppStateForCurrentTab.mock
+      .calls[0]?.[1] as {
+      submitMessage: string;
+      questions: Array<{
+        options: Array<{ label: string; value: string }>;
+      }>;
+    };
+    expect(guidedQuestions.submitMessage).toContain("selected screen");
+    expect(guidedQuestions.submitMessage).toContain("same screen");
+    expect(guidedQuestions.submitMessage).toContain(
+      "clean up each other variant screen at most once",
+    );
+    expect(guidedQuestions.submitMessage).toContain(
+      "exact file ids and tool instructions in the selected answer",
+    );
+    expect(guidedQuestions.submitMessage).toContain("requested app/product UI");
+    expect(guidedQuestions.submitMessage).toContain("complete but compact");
+    expect(guidedQuestions.submitMessage).toContain("primary workflow");
+    expect(guidedQuestions.submitMessage).toContain(
+      "must not be a direction board",
+    );
+    expect(guidedQuestions.submitMessage).toContain(
+      "Do not repeat cleanup/read cycles",
+    );
+    expect(guidedQuestions.submitMessage).not.toContain("delete-file");
+    expect(guidedQuestions.submitMessage).toContain(
+      "stop after the first successful screen update",
+    );
+    const firstOption = guidedQuestions.questions[0]?.options[0];
+    expect(firstOption?.value).toContain("get-design-snapshot");
+    expect(firstOption?.value).toContain(
+      "Delete each other variant screen at most once",
+    );
+    expect(firstOption?.value).toContain("get-design-snapshot exactly once");
+    expect(firstOption?.value).toContain("fileId file-a");
+    expect(firstOption?.value).toContain("edit-design with fileId file-a");
+    expect(firstOption?.value).toContain('mode "replace-file"');
+    expect(firstOption?.value).toContain(
+      "replace the representative direction screen",
+    );
+    expect(firstOption?.value).toContain("complete but compact");
+    expect(firstOption?.value).toContain("primary workflow");
+    expect(firstOption?.value).toContain("actual usable UI requested");
+    expect(firstOption?.value).toContain("not a direction board");
+    expect(firstOption?.value).toContain("bounded single-file pass");
+    expect(firstOption?.value).toContain(
+      "do not repeat delete/snapshot cycles",
+    );
+    expect(firstOption?.value).toContain(
+      "Do not call generate-design after this variant pick",
+    );
+    expect(firstOption?.value).toContain(
+      "Stop after the first successful edit-design save",
     );
     expect(mocks.deleteAppState).toHaveBeenCalledWith("design-variants");
 
@@ -251,6 +305,28 @@ describe("present-design-variants", () => {
         }),
       ]),
     });
+    expect(result.nextRequiredAction).toContain("get-design-snapshot");
+    expect(result.nextRequiredAction).toContain(
+      "delete each unchosen variant screen with delete-file at most once",
+    );
+    expect(result.nextRequiredAction).toContain(
+      "call get-design-snapshot exactly once",
+    );
+    expect(result.nextRequiredAction).toContain("fileId");
+    expect(result.nextRequiredAction).toContain("edit-design");
+    expect(result.nextRequiredAction).toContain('mode "replace-file"');
+    expect(result.nextRequiredAction).toContain("complete but compact");
+    expect(result.nextRequiredAction).toContain("primary workflow");
+    expect(result.nextRequiredAction).toContain(
+      "Do not leave a direction board",
+    );
+    expect(result.nextRequiredAction).toContain(
+      "Do not repeat delete/snapshot cycles",
+    );
+    expect(result.nextRequiredAction).toContain(
+      "Do not call generate-design after a variant pick",
+    );
+    expect(result.nextRequiredAction).toContain("bounded pass");
   });
 
   it("keeps an existing screen intact when a generated filename collides", async () => {

@@ -1,10 +1,30 @@
 import {
-  appBasePath,
   appPath,
+  useActionMutation,
   useActionQuery,
   useSession,
   useT,
 } from "@agent-native/core/client";
+import { Button } from "@agent-native/toolkit/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogTitle,
+} from "@agent-native/toolkit/ui/dialog";
+import { Input } from "@agent-native/toolkit/ui/input";
+import { Label } from "@agent-native/toolkit/ui/label";
+import {
+  Popover,
+  PopoverTrigger,
+  PopoverContent,
+} from "@agent-native/toolkit/ui/popover";
+import { Switch } from "@agent-native/toolkit/ui/switch";
+import {
+  Tabs,
+  TabsList,
+  TabsTrigger,
+  TabsContent,
+} from "@agent-native/toolkit/ui/tabs";
 import {
   IconCode,
   IconExternalLink,
@@ -26,19 +46,7 @@ import {
   type Visibility,
 } from "@/components/sharing/share-ui";
 import { SlackShareHint } from "@/components/sharing/slack-share-hint";
-import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import {
-  Popover,
-  PopoverTrigger,
-  PopoverContent,
-} from "@/components/ui/popover";
-import { Switch } from "@/components/ui/switch";
-import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 
-import { buildAgentApiUrls } from "../../../shared/agent-context";
 import { isLoomEmbedUrl } from "../../../shared/loom";
 import { withShareAttribution } from "../../../shared/share-attribution";
 
@@ -284,46 +292,30 @@ function LinkTab({
     (data?.visibility as Visibility | null) ?? "private";
   const isPublic = visibility === "public";
   const isLoomRecording = isLoomRecordingProp || isLoomEmbedUrl(videoUrl);
-  const publicAgentContextUrl =
-    typeof window === "undefined"
-      ? ""
-      : buildAgentApiUrls(recordingId, {
-          origin: window.location.origin,
-          basePath: appBasePath(),
-        }).contextUrl;
-  const [tokenizedAgentContextUrl, setTokenizedAgentContextUrl] = useState("");
+  const createAgentLink = useActionMutation(
+    "create-recording-agent-link" as any,
+  );
+  const [agentContextUrl, setAgentContextUrl] = useState("");
 
   useEffect(() => {
-    if (!isPublic || !hasPassword || typeof window === "undefined") {
-      setTokenizedAgentContextUrl("");
-      return;
-    }
+    setAgentContextUrl("");
+  }, [recordingId, visibility]);
 
-    let cancelled = false;
-    async function loadTokenizedAgentContextUrl() {
-      setTokenizedAgentContextUrl("");
-      const res = await fetch(publicAgentContextUrl, {
-        credentials: "include",
-      }).catch(() => null);
-      if (!res?.ok) return;
-      const payload = await res.json().catch(() => null);
-      const contextUrl =
-        typeof payload?.apis?.context?.url === "string"
-          ? payload.apis.context.url
-          : "";
-      if (!cancelled) setTokenizedAgentContextUrl(contextUrl);
-    }
+  async function handleCreateAgentLink() {
+    if (createAgentLink.isPending) return;
+    const result = (await createAgentLink.mutateAsync({
+      recordingId,
+    })) as { url?: string };
+    if (!result?.url) return;
+    setAgentContextUrl(result.url);
+    copyToClipboard(result.url);
+  }
 
-    void loadTokenizedAgentContextUrl();
-    return () => {
-      cancelled = true;
-    };
-  }, [hasPassword, isPublic, publicAgentContextUrl]);
-
-  const agentContextUrl = hasPassword
-    ? tokenizedAgentContextUrl
-    : publicAgentContextUrl;
-  const agentShareDisabled = isPending || !isPublic || !agentContextUrl;
+  const agentShareDisabled =
+    isPending || createAgentLink.isPending || !agentContextUrl;
+  const agentPrompt = agentContextUrl
+    ? t("shareDialog.agentPrompt", { agentContextUrl })
+    : "";
 
   return (
     <div className="space-y-4">
@@ -345,13 +337,36 @@ function LinkTab({
           (and a connect link) instead of leaving it buried in Settings. */}
       {isPublic ? <SlackShareHint canManage={canManage} /> : null}
 
+      <div className="space-y-2">
+        <div className="flex items-end justify-between gap-2">
+          <div className="text-xs font-medium text-muted-foreground">
+            {t("shareDialog.shareWithAgents")}
+          </div>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="h-7"
+            onClick={() => void handleCreateAgentLink()}
+            disabled={isPending || createAgentLink.isPending}
+          >
+            {t("shareUi.copy")}
+          </Button>
+        </div>
+        <CopyField
+          label=""
+          value={agentContextUrl}
+          disabled={agentShareDisabled}
+        />
+      </div>
+
       <CopyField
-        label={t("shareDialog.shareWithAgents")}
-        value={agentContextUrl}
+        label={t("shareDialog.copyAgentPrompt")}
+        value={agentPrompt}
         disabled={agentShareDisabled}
       />
 
-      {isPublic && hasPassword ? (
+      {agentContextUrl || hasPassword || !isPublic ? (
         <p className="text-xs text-muted-foreground">
           {t("shareDialog.agentTokenDescription")}
         </p>
@@ -452,8 +467,8 @@ function ClipsEmbedConfigurator({
 
   const code =
     mode === "responsive"
-      ? `<div style="position:relative;padding-bottom:56.25%;height:0"><iframe src="${src}" frameborder="0" allowfullscreen allow="autoplay; picture-in-picture" style="position:absolute;inset:0;width:100%;height:100%"></iframe></div>`
-      : `<iframe src="${src}" width="${width}" height="${height}" frameborder="0" allowfullscreen allow="autoplay; picture-in-picture"></iframe>`;
+      ? `<div style="position:relative;padding-bottom:56.25%;height:0;background:#000;overflow:hidden"><iframe src="${src}" title="${t("shareDialog.embedIframeTitle")}" frameborder="0" scrolling="no" allowfullscreen allow="autoplay; fullscreen; picture-in-picture" style="position:absolute;inset:0;width:100%;height:100%;border:0;background:#000;overflow:hidden"></iframe></div>`
+      : `<iframe src="${src}" title="${t("shareDialog.embedIframeTitle")}" width="${width}" height="${height}" frameborder="0" scrolling="no" allowfullscreen allow="autoplay; fullscreen; picture-in-picture" style="display:block;max-width:100%;border:0;background:#000;overflow:hidden"></iframe>`;
 
   return (
     <div className="space-y-3">

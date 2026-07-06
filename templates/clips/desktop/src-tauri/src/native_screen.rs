@@ -158,6 +158,10 @@ struct RestartInfo {
     safe_id: String,
     include_audio: bool,
     capture_system_audio: bool,
+    /// True only when the final media file itself contains microphone audio.
+    /// ScreenCaptureKit microphone muxing is intentionally disabled on macOS
+    /// 15 because SCRecordingOutput can hang finalization and leave no moov.
+    mic_captured_in_file: bool,
     mic_device_id: Option<String>,
     mic_device_label: Option<String>,
     /// Monotonic counter feeding the per-segment filename suffix.
@@ -523,41 +527,66 @@ fn start_native_session_locked(
         || mic_device_label
             .as_deref()
             .is_some_and(|v| !v.trim().is_empty());
-    let session = match start_screencapturekit_recording(
-        app,
-        &safe_id,
-        include_audio,
-        capture_system_audio,
-        mic_device_id.as_deref(),
-        mic_device_label.as_deref(),
-        capture_region,
-        defer_recording_output,
-    ) {
-        Ok(session) => session,
-        Err(sck_err) => {
-            if defer_recording_output {
-                return Err(sck_err);
-            }
-            if include_audio && has_specific_mic {
-                return Err(format!(
-                    "ScreenCaptureKit recording failed before it could use the selected microphone ({sck_err}). Clips did not fall back to macOS screencapture because that would ignore your selected input."
-                ));
-            }
-            eprintln!(
-                "[clips-tray] ScreenCaptureKit recording unavailable; falling back to screencapture: {sck_err}"
+    let session = if include_audio && !capture_system_audio {
+        if defer_recording_output {
+            return Err(
+                "Skipping microphone-only ScreenCaptureKit warmup; begin will use screencapture."
+                    .to_string(),
             );
-            start_screencapture_recording(
-                app,
-                &safe_id,
-                include_audio,
-                capture_system_audio,
-                capture_region,
-            )
-            .map_err(|fallback_err| {
-                format!(
-                    "ScreenCaptureKit recording failed ({sck_err}); screencapture fallback failed ({fallback_err})"
+        }
+        if has_specific_mic {
+            eprintln!(
+                "[clips-tray] using screencapture for microphone-only recording; selected mic cannot be pinned by this backend"
+            );
+        } else {
+            eprintln!(
+                "[clips-tray] using screencapture for microphone-only recording to avoid ScreenCaptureKit microphone finalization failures"
+            );
+        }
+        start_screencapture_recording(
+            app,
+            &safe_id,
+            include_audio,
+            capture_system_audio,
+            capture_region,
+        )?
+    } else {
+        match start_screencapturekit_recording(
+            app,
+            &safe_id,
+            include_audio,
+            capture_system_audio,
+            mic_device_id.as_deref(),
+            mic_device_label.as_deref(),
+            capture_region,
+            defer_recording_output,
+        ) {
+            Ok(session) => session,
+            Err(sck_err) => {
+                if defer_recording_output {
+                    return Err(sck_err);
+                }
+                if include_audio && !capture_system_audio && has_specific_mic {
+                    return Err(format!(
+                        "ScreenCaptureKit recording failed before it could use the selected microphone ({sck_err}). Clips did not fall back to macOS screencapture because that would ignore your selected input."
+                    ));
+                }
+                eprintln!(
+                    "[clips-tray] ScreenCaptureKit recording unavailable; falling back to screencapture: {sck_err}"
+                );
+                start_screencapture_recording(
+                    app,
+                    &safe_id,
+                    include_audio,
+                    capture_system_audio,
+                    capture_region,
                 )
-            })?
+                .map_err(|fallback_err| {
+                    format!(
+                        "ScreenCaptureKit recording failed ({sck_err}); screencapture fallback failed ({fallback_err})"
+                    )
+                })?
+            }
         }
     };
     let width = session.width;
@@ -1485,7 +1514,13 @@ pub(crate) fn start_screencapturekit_backend_at(
     } else {
         filter_builder.build()
     };
-    let selected_mic = if include_audio {
+    let capture_microphone_in_recording = false;
+    if include_audio {
+        eprintln!(
+            "[clips-tray] ScreenCaptureKit microphone recording disabled; microphone audio stays out of SCRecordingOutput to avoid macOS 15 finalize timeouts"
+        );
+    }
+    let selected_mic = if capture_microphone_in_recording {
         resolve_microphone_capture_device(mic_device_id, mic_device_label)?
     } else {
         None
@@ -1498,9 +1533,10 @@ pub(crate) fn start_screencapturekit_backend_at(
         .with_queue_depth(8)
         .with_shows_cursor(true)
         // Mic and system audio are independent toggles. SCK delivers them as
-        // separate inputs; SCRecordingOutput muxes them into the file.
+        // separate inputs. We intentionally do not hand microphone buffers to
+        // SCRecordingOutput because macOS 15 can fail to finalize those MP4s.
         .with_captures_audio(capture_system_audio)
-        .with_captures_microphone(include_audio)
+        .with_captures_microphone(capture_microphone_in_recording)
         .with_excludes_current_process_audio(true)
         .with_sample_rate(48000)
         .with_channel_count(2);
@@ -1533,7 +1569,7 @@ pub(crate) fn start_screencapturekit_backend_at(
     let mut stream = SCStream::new(&filter, &config);
     // Observe the microphone stream so `begin` can wait for the first sample
     // before attaching the recording output (avoids the silent-mic head).
-    let mic_ready = if include_audio {
+    let mic_ready = if capture_microphone_in_recording {
         let flag = Arc::new(AtomicBool::new(false));
         let flag_cb = Arc::clone(&flag);
         stream.add_output_handler(
@@ -1559,7 +1595,7 @@ pub(crate) fn start_screencapturekit_backend_at(
         return Err(format!("capture start failed: {err:?}"));
     }
     eprintln!(
-        "[clips-tray] ScreenCaptureKit recording started: {width}x{height} @ {NATIVE_CAPTURE_FPS}fps from {capture_width}x{capture_height} (display {source_width}x{source_height}), mic={include_audio} system_audio={capture_system_audio} deferred_output={defer_recording_output}"
+        "[clips-tray] ScreenCaptureKit recording started: {width}x{height} @ {NATIVE_CAPTURE_FPS}fps from {capture_width}x{capture_height} (display {source_width}x{source_height}), mic_requested={include_audio} mic_recorded={capture_microphone_in_recording} system_audio={capture_system_audio} deferred_output={defer_recording_output}"
     );
     Ok((
         NativeFullscreenBackend::ScreenCaptureKit {
@@ -2180,7 +2216,7 @@ fn saved_recording_from_session(
         height: session.height,
         bytes,
         has_audio,
-        mic_captured: session.restart.include_audio,
+        mic_captured: session.restart.mic_captured_in_file,
         has_camera,
         saved_at: now_iso(),
         last_attempt_at: None,
@@ -2355,6 +2391,7 @@ fn start_screencapturekit_recording(
             safe_id: safe_id.to_string(),
             include_audio,
             capture_system_audio,
+            mic_captured_in_file: false,
             mic_device_id: mic_device_id.map(str::to_string),
             mic_device_label: mic_device_label.map(str::to_string),
             segment_counter: 0,
@@ -2416,6 +2453,7 @@ fn start_screencapture_recording(
             // screencapture (fallback) can't capture system audio; tracked
             // for parity but only `-g` mic is honored by that backend.
             capture_system_audio,
+            mic_captured_in_file: include_audio,
             mic_device_id: None,
             mic_device_label: None,
             segment_counter: 0,
@@ -2717,7 +2755,7 @@ async fn upload_recording_file(
         session.height,
         Some(duration_ms),
         has_audio,
-        session.restart.include_audio,
+        session.restart.mic_captured_in_file,
     )?;
     let upload_result = upload_prepared_recording_file(
         app,

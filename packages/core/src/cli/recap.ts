@@ -8,9 +8,9 @@
  * thin, deterministic glue around that:
  *
  *   gate          The security boundary: decide whether the recap runs at all
- *                 (skipping drafts, forks, bots, missing secrets, an invalid
- *                 agent/model, and PRs that touch recap-control files) and which
- *                 normalized backend agent to use.
+ *                 (skipping drafts, forks without secret access, bots, missing
+ *                 secrets, an invalid agent/model, and untrusted PRs that touch
+ *                 recap-control files) and which normalized backend agent to use.
  *   collect-diff  Collect the bounded base...head diff (excluding lockfiles,
  *                 build output, snapshots), cap it at ~600KB, and classify the
  *                 huge/tiny flags.
@@ -1634,12 +1634,40 @@ type GitHubComment = {
 
 type GitHubPullRequest = {
   head?: { sha?: string | null } | null;
+  user?: { login?: string | null; type?: string | null } | null;
+};
+
+type GitHubUserProfile = {
+  login?: string | null;
+  name?: string | null;
+  email?: string | null;
+};
+
+type GitHubPullRequestCommit = {
+  author?: { login?: string | null } | null;
+  commit?: {
+    author?: { name?: string | null; email?: string | null } | null;
+  } | null;
 };
 
 function repoParts(repoFullName: string): { owner: string; repo: string } {
   const [owner, repo] = repoFullName.split("/");
   if (!owner || !repo) throw new Error(`Invalid --repo: ${repoFullName}`);
   return { owner, repo };
+}
+
+function nonEmptyTrimmed(value: string | null | undefined): string | undefined {
+  const trimmed = value?.trim();
+  return trimmed || undefined;
+}
+
+function normalizeSourceAuthorEmail(
+  email: string | null | undefined,
+): string | undefined {
+  const trimmed = email?.trim().toLowerCase();
+  if (!trimmed || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed)) return undefined;
+  if (trimmed.endsWith("@users.noreply.github.com")) return undefined;
+  return trimmed;
 }
 
 async function githubRequest<T>(
@@ -1665,6 +1693,71 @@ async function githubRequest<T>(
   }
   if (res.status === 204) return undefined as T;
   return (await res.json()) as T;
+}
+
+export async function resolveGitHubPullRequestAuthor(input: {
+  token: string;
+  repo: string;
+  pr: string;
+  fetchFn?: typeof fetch;
+}): Promise<{
+  email?: string;
+  name?: string;
+  login?: string;
+}> {
+  const fn = input.fetchFn ?? fetch;
+  const { owner, repo } = repoParts(input.repo);
+  const pr = await githubRequest<GitHubPullRequest>(
+    input.token,
+    `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(
+      repo,
+    )}/pulls/${encodeURIComponent(input.pr)}`,
+    {},
+    fn,
+  );
+  const login = nonEmptyTrimmed(pr.user?.login);
+  const profile = login
+    ? await githubRequest<GitHubUserProfile>(
+        input.token,
+        `/users/${encodeURIComponent(login)}`,
+        {},
+        fn,
+      ).catch(() => null)
+    : null;
+  const profileEmail = normalizeSourceAuthorEmail(profile?.email);
+  const profileName = nonEmptyTrimmed(profile?.name);
+  let commitEmail: string | undefined;
+  let commitName: string | undefined;
+  if (!profileEmail) {
+    const commits = await githubRequest<GitHubPullRequestCommit[]>(
+      input.token,
+      `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(
+        repo,
+      )}/pulls/${encodeURIComponent(input.pr)}/commits?per_page=100`,
+      {},
+      fn,
+    ).catch(() => []);
+    for (const commit of commits) {
+      const commitLogin = nonEmptyTrimmed(commit.author?.login);
+      if (
+        login &&
+        commitLogin &&
+        commitLogin.toLowerCase() !== login.toLowerCase()
+      ) {
+        continue;
+      }
+      const email = normalizeSourceAuthorEmail(commit.commit?.author?.email);
+      if (!email) continue;
+      commitEmail = email;
+      commitName = nonEmptyTrimmed(commit.commit?.author?.name);
+      break;
+    }
+  }
+  return {
+    email: profileEmail ?? commitEmail,
+    name: profileName ?? commitName ?? login,
+    login,
+  };
 }
 
 export async function isPullRequestHeadCurrent(input: {
@@ -1995,14 +2088,15 @@ export function buildCommentBody(env: NodeJS.ProcessEnv = process.env): string {
 
   lines.push(`Here's a [visual recap](${safeUrl}) of what changed:`);
   lines.push("");
-  lines.push(`<picture>`);
+  const pictureParts = [`<picture>`];
   if (lightImageUrl && darkImageUrl) {
-    lines.push(
+    pictureParts.push(
       `  <source media="(prefers-color-scheme: dark)" srcset="${darkImageUrl}">`,
     );
   }
-  lines.push(`  <img alt="Visual recap" src="${fallbackImageUrl}">`);
-  lines.push(`</picture>`);
+  pictureParts.push(`  <img alt="Visual recap" src="${fallbackImageUrl}">`);
+  pictureParts.push(`</picture>`);
+  lines.push(`<a href="${safeUrl}">${pictureParts.join("")}</a>`);
   lines.push("");
   lines.push(`**Open the [full interactive recap](${safeUrl})**`);
   if (env.DIFF_HUGE === "true") {
@@ -2297,6 +2391,7 @@ function recapPublishIdempotencyKey(input: {
 export async function publishRecapSource(input: {
   appUrl: string;
   token: string;
+  githubToken?: string;
   sourcePath?: string;
   out?: string;
   prevPlanId?: string;
@@ -2308,6 +2403,9 @@ export async function publishRecapSource(input: {
   sourcePrNumber?: string;
   sourcePrState?: string;
   sourcePrMergedAt?: string;
+  sourceAuthorEmail?: string;
+  sourceAuthorName?: string;
+  sourceAuthorLogin?: string;
   fetchFn?: typeof fetch;
   cwd?: string;
 }): Promise<{ ok: true; url: string; out: string }> {
@@ -2330,6 +2428,34 @@ export async function publishRecapSource(input: {
     (sourceRepo && sourcePrNumber ? "pull-request" : undefined);
   const sourcePrState =
     input.sourcePrState ?? (input.sourcePrMergedAt ? "merged" : undefined);
+  const explicitSourceAuthor = {
+    email: normalizeSourceAuthorEmail(input.sourceAuthorEmail),
+    name: nonEmptyTrimmed(input.sourceAuthorName),
+    login: nonEmptyTrimmed(input.sourceAuthorLogin),
+  };
+  let resolvedSourceAuthor:
+    | Awaited<ReturnType<typeof resolveGitHubPullRequestAuthor>>
+    | undefined;
+  if (
+    input.githubToken &&
+    sourceRepo &&
+    sourcePrNumber &&
+    (!explicitSourceAuthor.email ||
+      !explicitSourceAuthor.name ||
+      !explicitSourceAuthor.login)
+  ) {
+    resolvedSourceAuthor = await resolveGitHubPullRequestAuthor({
+      token: input.githubToken,
+      repo: sourceRepo,
+      pr: sourcePrNumber,
+      fetchFn: input.fetchFn,
+    }).catch(() => undefined);
+  }
+  const sourceAuthor = {
+    email: explicitSourceAuthor.email ?? resolvedSourceAuthor?.email,
+    name: explicitSourceAuthor.name ?? resolvedSourceAuthor?.name,
+    login: explicitSourceAuthor.login ?? resolvedSourceAuthor?.login,
+  };
   const idempotencyKey = recapPublishIdempotencyKey({
     prevPlanId: input.prevPlanId,
     repo: input.repo,
@@ -2353,6 +2479,9 @@ export async function publishRecapSource(input: {
     ...(input.sourcePrMergedAt
       ? { sourcePrMergedAt: input.sourcePrMergedAt }
       : {}),
+    ...(sourceAuthor.email ? { sourceAuthorEmail: sourceAuthor.email } : {}),
+    ...(sourceAuthor.name ? { sourceAuthorName: sourceAuthor.name } : {}),
+    ...(sourceAuthor.login ? { sourceAuthorLogin: sourceAuthor.login } : {}),
     currentFocus: "visual recap review",
     status: "review",
     mdx: source.mdx,
@@ -2470,6 +2599,10 @@ async function runPublish(
     const result = await publishRecapSource({
       appUrl,
       token,
+      githubToken:
+        optionalArg(args, "github-token") ??
+        process.env.GH_TOKEN ??
+        process.env.GITHUB_TOKEN,
       sourcePath: optionalArg(args, "source") ?? RECAP_SOURCE_FILENAME,
       out,
       prevPlanId: optionalArg(args, "prev-plan-id"),
@@ -2481,6 +2614,14 @@ async function runPublish(
       sourcePrNumber: optionalArg(args, "source-pr-number"),
       sourcePrState: optionalArg(args, "source-pr-state"),
       sourcePrMergedAt: optionalArg(args, "source-pr-merged-at"),
+      sourceAuthorEmail:
+        optionalArg(args, "source-author-email") ?? process.env.PR_AUTHOR_EMAIL,
+      sourceAuthorName:
+        optionalArg(args, "source-author-name") ?? process.env.PR_AUTHOR_NAME,
+      sourceAuthorLogin:
+        optionalArg(args, "source-author-login") ??
+        process.env.PR_AUTHOR_LOGIN ??
+        process.env.GITHUB_ACTOR,
     });
     writeGitHubOutput("ok", "true");
     writeGitHubOutput("plan_url", result.url);
@@ -2846,7 +2987,14 @@ export async function runShot(
       });
     }
     const page = await context.newPage();
-    await page.goto(captureUrl, { waitUntil: "networkidle", timeout: 45_000 });
+    await page.goto(captureUrl, {
+      waitUntil: "domcontentloaded",
+      timeout: 45_000,
+    });
+    await page.waitForLoadState("load", { timeout: 15_000 }).catch(() => {
+      // The selectors below are the real readiness signal for screenshots.
+      // Some recap pages keep long-lived/background requests open.
+    });
     const selectors = [
       "[data-plan-document]",
       "[data-plan-block]",
@@ -3104,11 +3252,11 @@ export interface RecapGateInput {
 }
 
 /**
- * Files that, if a PR touches them, would let that PR rewrite repo-pinned skill
- * instructions or agent config the trusted recap job loads. The workflow runs
- * the recap CLI from trusted base-branch source (or an installed package), so
- * normal package code such as `packages/core/**` and recap workflow YAML can be
- * recapped without executing PR-modified CLI code.
+ * Files that, if an untrusted PR touches them, would let that PR rewrite
+ * repo-pinned skill instructions or root agent config the trusted recap job
+ * loads. The workflow runs the recap CLI from trusted base-branch source (or an
+ * installed package), so normal package code, template-local AGENTS.md files,
+ * and recap workflow YAML can be recapped without executing PR-modified CLI code.
  */
 function normalizeRecapSkillSourceMode(value: string | undefined): string {
   return (value || "auto").toLowerCase();
@@ -3124,10 +3272,10 @@ export function isRecapSensitivePath(
 ): boolean {
   const skillSource = options.skillSource;
   if (
-    /(^|\/)\.claude\//.test(p) ||
-    /(^|\/)CLAUDE\.md$/.test(p) ||
-    /(^|\/)AGENTS\.md$/.test(p) ||
-    /(^|\/)\.mcp\.json$/.test(p)
+    p.startsWith(".claude/") ||
+    p === "CLAUDE.md" ||
+    p === "AGENTS.md" ||
+    p === ".mcp.json"
   ) {
     return true;
   }
@@ -3227,16 +3375,18 @@ export function evaluateRecapGate(input: RecapGateInput): {
     );
   }
 
-  // Self-modifying guard: if this PR changes the visual-recap/visual-plan skill
-  // when CI is explicitly pinned to repo-local skill instructions, or any agent
-  // config the runner would load (.claude/**, CLAUDE.md, AGENTS.md, .mcp.json),
-  // skip the ENTIRE job — not just the agent — so a PR can never rewrite what
-  // the agent loads (skill, hooks, settings) and exfiltrate the publish/API
-  // secrets. In the default auto/latest modes the recap prompt comes from the
-  // trusted bundled skill, so visual skill and recap workflow files are ordinary
-  // reviewed content and may be recapped.
+  // Self-modifying guard: if an untrusted PR changes the visual-recap/visual-plan
+  // skill when CI is explicitly pinned to repo-local skill instructions, or root
+  // agent config the runner would load (.claude/**, CLAUDE.md, AGENTS.md,
+  // .mcp.json), skip the ENTIRE job — not just the agent — so a PR can never
+  // rewrite what the agent loads (skill, hooks, settings) and exfiltrate the
+  // publish/API secrets. In the default auto/latest modes the recap prompt comes
+  // from the trusted bundled skill, so visual skill and recap workflow files are
+  // ordinary reviewed content and may be recapped. Trusted write actors may edit
+  // recap-control files as reviewable content; running the recap is useful signal
+  // for those changes.
   const shouldApplySensitivePathGuard =
-    Boolean(pr) && (isFork || (!isPrivate && !isTrustedAuthor));
+    Boolean(pr) && !isTrustedAuthor && (isFork || !isPrivate);
   const hits = shouldApplySensitivePathGuard
     ? input.changedFiles.filter((p) => isRecapSensitivePath(p, { skillSource }))
     : [];
@@ -3458,13 +3608,13 @@ export function appendGateSkipLine(
   existingBody: string,
   skipLine: string,
 ): string {
-  // Remove any previous gate-skip line (pattern: `_Recap skipped for ...._`)
-  const withoutPrev = existingBody
-    .split("\n")
-    .filter((l) => !/_Recap skipped for .+_$/.test(l.trim()))
-    .join("\n")
-    .trimEnd();
-  return `${withoutPrev}\n\n${skipLine}`;
+  const planIdMatch = existingBody.match(
+    /<!--\s*plan-id:\s*([A-Za-z0-9_-]{1,64})\s*-->/,
+  );
+  const planIdMarker = planIdMatch
+    ? `\n\n<!-- plan-id: ${planIdMatch[1]} -->`
+    : "";
+  return `${buildGateSkipCommentBody()}${planIdMarker}\n\n${skipLine}`;
 }
 
 /* -------------------------------------------------------------------------- */
@@ -4072,7 +4222,7 @@ Usage:
   npx @agent-native/core@latest recap block-reference [--app-url <url>] [--out recap-blocks.md]
   npx @agent-native/core@latest recap scan --diff <path> [--mode off|high-confidence|strict]
   npx @agent-native/core@latest recap build-prompt --pr <n> [--repo owner/name] [--head <sha>] [--app-url <url>] [--diff <path>] [--stat <path>] [--block-reference recap-blocks.md] [--prev-plan-id <id>] [--huge] [--local-files] [--local-dir <folder>] [--skill-source auto|latest|repo] [--out <path>]
-  npx @agent-native/core@latest recap publish [--source recap-source.json] [--out recap-url.txt] [--repo owner/name] [--pr <n>] [--prev-plan-id <id>] [--source-pr-state open|closed|merged] [--source-pr-merged-at <iso>] [--app-url <url>] [--token <planToken>]
+  npx @agent-native/core@latest recap publish [--source recap-source.json] [--out recap-url.txt] [--repo owner/name] [--pr <n>] [--prev-plan-id <id>] [--source-pr-state open|closed|merged] [--source-pr-merged-at <iso>] [--source-author-email <email>] [--source-author-name <name>] [--source-author-login <login>] [--app-url <url>] [--token <planToken>] [--github-token <ghToken>]
   npx @agent-native/core@latest recap shot --url <planUrl> [--token <planToken>] [--app-url <url>] [--out recap.png] [--theme light|dark] [--image-cache-key <key>]
   npx @agent-native/core@latest recap usage --plan-url <planUrl> --result-file <path> --app-url <url> --token <planToken> [--agent claude|codex] [--model <id>]
   npx @agent-native/core@latest recap agent-summary --result-file <path> [--stderr-file <path>] [--exit-code-file <path>] [--agent claude|codex]
@@ -4095,11 +4245,11 @@ Usage:
     environment (HAS_PLAN / HAS_ANTHROPIC / HAS_OPENAI === 'true', AGENT,
     VISUAL_RECAP_MODEL), the repo from $GITHUB_REPOSITORY, and the PR's changed
     files from the GitHub REST API (paged, with GH_TOKEN/GITHUB_TOKEN). Skips
-    drafts, forks, bot authors, the missing-secret case, an invalid agent/model,
-    and any PR that touches recap-control files (repo-pinned skill instructions,
-    .claude/**, CLAUDE.md, AGENTS.md, .mcp.json) — failing CLOSED on any
-    file-list error. Writes run=<true|false> and agent=<claude|codex> to
-    $GITHUB_OUTPUT.
+    drafts, forks without secret access, bot authors, the missing-secret case, an
+    invalid agent/model, and any untrusted PR that touches recap-control files
+    (repo-pinned skill instructions, .claude/**, root CLAUDE.md, root AGENTS.md,
+    root .mcp.json) — failing CLOSED on any file-list error. Writes
+    run=<true|false> and agent=<claude|codex> to $GITHUB_OUTPUT.
   npx @agent-native/core@latest recap agent-summary
     Read the captured Claude/Codex result file and write a sanitized one-line
     summary to stdout and $GITHUB_OUTPUT (summary). Used only when no plan URL

@@ -1,23 +1,82 @@
 import { agentNativePath, useT } from "@agent-native/core/client";
 import {
+  AGENT_ACCESS_PARAM,
+  verifyScopedAgentAccessToken,
+} from "@agent-native/core/server";
+import {
   getConfiguredAppBasePath,
   getRequestUserEmail,
 } from "@agent-native/core/server";
+import {
+  AGENT_READABLE_RESOURCE_SCRIPT_TYPE,
+  safeJsonForHtml,
+} from "@agent-native/core/shared";
 import { resolveAccess } from "@agent-native/core/sharing";
 import { buildPublicDocumentDescription } from "@shared/og-description";
 import { IconLock, IconMessageCircle } from "@tabler/icons-react";
 import { eq } from "drizzle-orm";
 import { useEffect, useState } from "react";
-import type { LoaderFunctionArgs, MetaFunction } from "react-router";
-import { redirect, useLoaderData } from "react-router";
+import type {
+  HeadersArgs,
+  LoaderFunctionArgs,
+  MetaFunction,
+} from "react-router";
+import { data, redirect, useLoaderData } from "react-router";
 
 import { VisualEditor } from "@/components/editor/VisualEditor";
 
 import { getDb, schema } from "../../server/db";
+import {
+  buildContentDocumentAgentDiscovery,
+  buildContentPublicDocumentUrl,
+  DOCUMENT_AGENT_RESOURCE_KIND,
+} from "../../shared/agent-readable";
 
-export async function loader({ params }: LoaderFunctionArgs) {
+type PublicDocumentLoaderData =
+  | {
+      document: {
+        id: string;
+        title: string;
+        content: string;
+        updatedAt: string;
+        visibility: string;
+      };
+      agentAccessToken: string | null;
+      basePath: string;
+      unavailable?: undefined;
+    }
+  | {
+      document: null;
+      agentAccessToken: null;
+      basePath: string;
+      unavailable: { reason: "private"; id: string; basePath: string };
+    };
+
+const PRIVATE_AGENT_DOCUMENT_HEADERS = {
+  "Cache-Control": "private, max-age=0, no-store",
+  "Referrer-Policy": "no-referrer",
+};
+
+function publicDocumentLoaderData(
+  payload: PublicDocumentLoaderData,
+  privateAgentAccess = false,
+) {
+  if (!privateAgentAccess) return payload;
+  return data(payload, {
+    headers: PRIVATE_AGENT_DOCUMENT_HEADERS,
+  });
+}
+
+export function headers({ loaderHeaders }: HeadersArgs) {
+  return loaderHeaders;
+}
+
+export async function loader({ params, request }: LoaderFunctionArgs) {
   const id = params.id;
   if (!id) throw new Response("Not found", { status: 404 });
+  const agentAccessToken = new URL(request.url).searchParams.get(
+    AGENT_ACCESS_PARAM,
+  );
 
   // This is a server loader; use the server-side base-path helper
   // (reads APP_BASE_PATH / VITE_APP_BASE_PATH at request time)
@@ -45,7 +104,22 @@ export async function loader({ params }: LoaderFunctionArgs) {
     .limit(1);
 
   if (!doc) throw new Response("Not found", { status: 404 });
-  if (doc.visibility === "public") return { document: doc };
+  const tokenAccess = agentAccessToken
+    ? verifyScopedAgentAccessToken(agentAccessToken, {
+        resourceKind: DOCUMENT_AGENT_RESOURCE_KIND,
+        resourceId: id,
+      }).ok
+    : false;
+  if (doc.visibility === "public" || tokenAccess) {
+    return publicDocumentLoaderData(
+      {
+        document: doc,
+        agentAccessToken: tokenAccess ? agentAccessToken : null,
+        basePath,
+      },
+      tokenAccess,
+    );
+  }
 
   // Doc exists but isn't public. SSR renders impersonally (no session is read
   // server-side, so the page can be CDN-cached for everyone), which means we
@@ -56,10 +130,12 @@ export async function loader({ params }: LoaderFunctionArgs) {
   // routes the viewer to the auth-guarded `/page/<id>` editor, where the real
   // per-user access check runs (signed-in-with-access sees the doc; everyone
   // else gets the standard sign-in / no-access handling).
-  return {
+  return publicDocumentLoaderData({
     document: null,
+    agentAccessToken: null,
+    basePath,
     unavailable: { reason: "private" as const, id, basePath },
-  };
+  });
 }
 
 export const meta: MetaFunction<typeof loader> = ({ loaderData }) => {
@@ -139,6 +215,7 @@ function renderMarkdownBlocks(content: string) {
 
 function PublicDocumentContextSync({
   document,
+  basePath,
 }: {
   document: {
     id: string;
@@ -146,6 +223,7 @@ function PublicDocumentContextSync({
     content: string;
     updatedAt: string;
   };
+  basePath?: string;
 }) {
   useEffect(() => {
     fetch(agentNativePath("/_agent-native/application-state/navigation"), {
@@ -156,10 +234,10 @@ function PublicDocumentContextSync({
         view: "public-document",
         documentId: document.id,
         title: document.title,
-        publicUrl: `/p/${document.id}`,
+        publicUrl: buildContentPublicDocumentUrl(document.id, { basePath }),
       }),
     }).catch(() => {});
-  }, [document.id, document.title]);
+  }, [basePath, document.id, document.title]);
 
   return null;
 }
@@ -175,6 +253,28 @@ function ReadOnlyMarkdownContent({ content }: { content: string }) {
 
   return (
     <VisualEditor content={content} onChange={() => {}} editable={false} />
+  );
+}
+
+function AgentReadableDocumentDiscovery({
+  document,
+  token,
+  basePath,
+}: {
+  document: { id: string; title: string };
+  token?: string | null;
+  basePath?: string;
+}) {
+  const discovery = buildContentDocumentAgentDiscovery({
+    document,
+    token,
+    basePath,
+  });
+  return (
+    <script
+      type={AGENT_READABLE_RESOURCE_SCRIPT_TYPE}
+      dangerouslySetInnerHTML={{ __html: safeJsonForHtml(discovery) }}
+    />
   );
 }
 
@@ -230,7 +330,12 @@ export default function PublicDocumentPage() {
 
   return (
     <main className="min-h-screen bg-background text-foreground">
-      <PublicDocumentContextSync document={document} />
+      <PublicDocumentContextSync document={document} basePath={data.basePath} />
+      <AgentReadableDocumentDiscovery
+        document={document}
+        token={data.agentAccessToken}
+        basePath={data.basePath}
+      />
       <div className="mx-auto flex max-w-3xl justify-end px-6 pt-5 sm:px-8">
         <button
           type="button"

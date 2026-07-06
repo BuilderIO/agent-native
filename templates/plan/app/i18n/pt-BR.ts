@@ -651,6 +651,10 @@ const messages = {
       signIn: "Conecte-se",
       haveAccount: "Eu já tenho uma conta",
       retry: "Tente novamente",
+      sendFeedback: "Enviar feedback",
+      feedbackPlaceholder:
+        "Descreva o que aconteceu antes deste erro do plano aparecer.",
+      openGitHubIssue: "Abrir issue no GitHub",
       joinedOrg: "Inscreveu-se em {{orgName}}. Plano de abertura...",
       acceptingInvite: "Aceitando convite",
       joiningOrg: "Aderindo à organização",

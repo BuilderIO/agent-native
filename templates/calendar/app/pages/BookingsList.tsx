@@ -1,19 +1,13 @@
 import { useT } from "@agent-native/core/client";
-import type { Booking, CustomField } from "@shared/api";
-import { IconCircleX } from "@tabler/icons-react";
-import { format, parseISO } from "date-fns";
-import { useMemo, useState } from "react";
-import { toast } from "sonner";
-
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
+import { Badge } from "@agent-native/toolkit/ui/badge";
+import { Button } from "@agent-native/toolkit/ui/button";
 import {
   Dialog,
   DialogContent,
   DialogHeader,
   DialogTitle,
   DialogTrigger,
-} from "@/components/ui/dialog";
+} from "@agent-native/toolkit/ui/dialog";
 import {
   Table,
   TableBody,
@@ -21,13 +15,19 @@ import {
   TableHead,
   TableHeader,
   TableRow,
-} from "@/components/ui/table";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+} from "@agent-native/toolkit/ui/table";
+import { Tabs, TabsList, TabsTrigger } from "@agent-native/toolkit/ui/tabs";
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
-} from "@/components/ui/tooltip";
+} from "@agent-native/toolkit/ui/tooltip";
+import type { Booking, CustomField } from "@shared/api";
+import { IconCircleX } from "@tabler/icons-react";
+import { format, parseISO } from "date-fns";
+import { useMemo, useState } from "react";
+import { toast } from "sonner";
+
 import { useBookingLinks } from "@/hooks/use-booking-links";
 import { useBookings, useDeleteBooking } from "@/hooks/use-bookings";
 

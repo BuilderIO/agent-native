@@ -9,8 +9,10 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router";
 
 import { extensionPath } from "../../extensions/path.js";
+import { THEME_VAR_NAMES } from "../../extensions/theme.js";
 import { sendToAgentChat } from "../agent-chat.js";
 import { agentNativePath } from "../api-path.js";
+import { useAppearance } from "../appearance.js";
 import {
   Popover,
   PopoverContent,
@@ -51,6 +53,22 @@ interface Extension {
     mode?: "database" | "local-files";
     permissions?: BridgePolicyContext["permissions"];
   };
+}
+
+// Read the host app's *actual* computed theme values for the shared token set
+// (THEME_VAR_NAMES). The iframe ships with a generic baked palette
+// (getThemeVars); syncing the live values keeps embedded extensions visually
+// identical to the surrounding app even when a template overrides the default
+// palette (e.g. analytics uses a neutral-gray dark theme, not near-black).
+function readHostThemeVars(): Record<string, string> {
+  if (typeof document === "undefined") return {};
+  const computed = getComputedStyle(document.documentElement);
+  const vars: Record<string, string> = {};
+  for (const name of THEME_VAR_NAMES) {
+    const value = computed.getPropertyValue(name).trim();
+    if (value) vars[name] = value;
+  }
+  return vars;
 }
 
 function serializeChatValue(value: unknown): string | undefined {
@@ -112,7 +130,11 @@ export function EmbeddedExtension({
     onReadyRef.current?.();
   };
   const [height, setHeight] = useState<number>(initialHeight);
-  const [isDark, setIsDark] = useState(false);
+  const [isDark, setIsDark] = useState(
+    () =>
+      typeof document !== "undefined" &&
+      document.documentElement.classList.contains("dark"),
+  );
   // (audit H4) Mirror ExtensionViewer's role-aware gating; deny-by-default until
   // the iframe's render binding announcement arrives.
   const bridgeContextRef = useRef<BridgePolicyContext>({
@@ -200,11 +222,16 @@ export function EmbeddedExtension({
     readyFiredRef.current = false;
   }, [extensionId, extension?.updatedAt]);
 
+  const appearance = useAppearance();
+
   useEffect(() => {
     const win = iframeRef.current?.contentWindow;
     if (!win) return;
-    win.postMessage({ type: "agent-native-theme-update", isDark }, "*");
-  }, [isDark]);
+    win.postMessage(
+      { type: "agent-native-theme-update", isDark, vars: readHostThemeVars() },
+      "*",
+    );
+  }, [isDark, appearance]);
 
   // Forward slot context whenever it changes. The iframe's own load handler
   // posts the initial value once it's ready; this effect handles updates.
@@ -370,6 +397,17 @@ export function EmbeddedExtension({
         onLoad={() => {
           iframeRef.current?.contentWindow?.postMessage(
             { type: "agent-native-slot-context", context: context ?? {} },
+            "*",
+          );
+          // Re-assert theme once the iframe document is live. The src bakes in
+          // the initial dark state, but this covers the race where isDark
+          // settled before the iframe's message listener existed.
+          iframeRef.current?.contentWindow?.postMessage(
+            {
+              type: "agent-native-theme-update",
+              isDark,
+              vars: readHostThemeVars(),
+            },
             "*",
           );
           // Fallback readiness signal in case the extension never reports a

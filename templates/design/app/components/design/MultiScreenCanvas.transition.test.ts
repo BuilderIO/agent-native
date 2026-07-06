@@ -6,6 +6,7 @@ import {
   getPreviewDeviceFrameGeometry,
   getSelectionBoxTransition,
   isDirectScreenHoverTarget,
+  shouldShowFrameFullViewButton,
 } from "./MultiScreenCanvas";
 
 describe("MultiScreenCanvas selection chrome transitions", () => {
@@ -34,6 +35,15 @@ describe("MultiScreenCanvas selection chrome transitions", () => {
 
     expect(isDirectScreenHoverTarget(frame, frame)).toBe(true);
     expect(isDirectScreenHoverTarget(screenContentChild, frame)).toBe(false);
+  });
+
+  it("keeps the Full view button visible for hovered child content", () => {
+    expect(
+      shouldShowFrameFullViewButton({
+        emphasized: false,
+        childHoverActive: true,
+      }),
+    ).toBe(true);
   });
 
   it("keeps rectangle creation preview collapsed before the drag threshold", () => {

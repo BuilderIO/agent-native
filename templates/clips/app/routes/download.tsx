@@ -1,4 +1,6 @@
 import { appBasePath, appPath, useT } from "@agent-native/core/client";
+import { Button } from "@agent-native/toolkit/ui/button";
+import { Skeleton } from "@agent-native/toolkit/ui/skeleton";
 import {
   IconBrandChrome,
   IconBrandApple,
@@ -8,8 +10,6 @@ import {
 } from "@tabler/icons-react";
 import { useEffect, useState } from "react";
 
-import { Button } from "@/components/ui/button";
-import { Skeleton } from "@/components/ui/skeleton";
 import enMessages from "@/i18n/en-US";
 import {
   clipsChromeExtensionEnabled,

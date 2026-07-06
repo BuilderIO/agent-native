@@ -4,6 +4,9 @@ import {
   formatScrubValue,
   getScrubStepFromEvent,
   parseScrubExpression,
+  SCRUB_DRAG_THRESHOLD_PX,
+  startScrubDrag,
+  updateScrubDrag,
 } from "./scrub-input-utils";
 
 describe("scrub input expression parsing", () => {
@@ -68,5 +71,74 @@ describe("scrub input expression parsing", () => {
     expect(getScrubStepFromEvent({ shiftKey: false, altKey: true }, 2)).toBe(
       0.2,
     );
+  });
+
+  it("accepts a comma decimal separator", () => {
+    expect(parseScrubExpression("12,5", 0)?.value).toBe(12.5);
+    expect(parseScrubExpression("-12,5", 0)?.value).toBe(-12.5);
+    expect(parseScrubExpression("+2,5", 24)?.value).toBe(26.5);
+    // Still supports comma decimals inside a larger expression.
+    expect(parseScrubExpression("1,5 + 2,5", 0)?.value).toBe(4);
+    // Units are stripped before tokenizing, so this still works with a unit.
+    expect(
+      parseScrubExpression("12,5px", 0, { unit: "px", precision: 1 }),
+    ).toEqual({ value: 12.5, normalized: "12.5px" });
+  });
+
+  it("rejects a malformed number with more than one decimal separator", () => {
+    expect(parseScrubExpression("12,5,6", 0)).toBeNull();
+    expect(parseScrubExpression("12.5.6", 0)).toBeNull();
+    expect(parseScrubExpression("12,5.6", 0)).toBeNull();
+  });
+});
+
+// ─── Scrub-drag gesture-lifecycle state machine (PF12) ────────────────────────
+//
+// startScrubDrag/updateScrubDrag are the pure extraction of ScrubInput's
+// pointerdown/pointermove bookkeeping (see ScrubInput.tsx handlePointerMove).
+// The real contract this supports — "exactly one commit-phase onChange call
+// per gesture" — is exercised end-to-end in ScrubInput.gesture.test.ts by
+// driving a fake onChange through the same sequence these functions describe.
+
+describe("startScrubDrag / updateScrubDrag", () => {
+  it("ignores a move with zero net delta", () => {
+    const drag = startScrubDrag(100);
+    const tick = updateScrubDrag(drag, 100);
+    expect(tick.deltaX).toBeNull();
+    expect(tick.state.hasDragged).toBe(false);
+  });
+
+  it("ignores moves under the jitter threshold and does not mark hasDragged", () => {
+    const drag = startScrubDrag(100);
+    const tick = updateScrubDrag(drag, 100 + SCRUB_DRAG_THRESHOLD_PX - 1);
+    expect(tick.deltaX).toBeNull();
+    expect(tick.state.hasDragged).toBe(false);
+    // prevX still advances so the next tick's delta is measured incrementally.
+    expect(tick.state.prevX).toBe(100 + SCRUB_DRAG_THRESHOLD_PX - 1);
+  });
+
+  it("marks hasDragged and yields a delta once cumulative movement clears the threshold", () => {
+    const drag = startScrubDrag(100);
+    const tick = updateScrubDrag(drag, 100 + SCRUB_DRAG_THRESHOLD_PX);
+    expect(tick.deltaX).toBe(SCRUB_DRAG_THRESHOLD_PX);
+    expect(tick.state.hasDragged).toBe(true);
+  });
+
+  it("yields incremental (not cumulative) deltas across multiple ticks past the threshold", () => {
+    let drag = startScrubDrag(0);
+    const first = updateScrubDrag(drag, 5); // clears threshold, delta = 5
+    drag = first.state;
+    expect(first.deltaX).toBe(5);
+
+    const second = updateScrubDrag(drag, 8); // incremental delta = 3, not 8
+    expect(second.deltaX).toBe(3);
+    expect(second.state.hasDragged).toBe(true);
+  });
+
+  it("once hasDragged is true, even sub-threshold moves yield a delta", () => {
+    let drag = startScrubDrag(0);
+    drag = updateScrubDrag(drag, 5).state; // now hasDragged
+    const tiny = updateScrubDrag(drag, 6); // 1px, under the raw threshold
+    expect(tiny.deltaX).toBe(1);
   });
 });

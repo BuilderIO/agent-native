@@ -1,18 +1,32 @@
+import {
+  hitTestPenAnchor,
+  hitTestPenHandle,
+  type PenPath,
+} from "@shared/pen-path";
 import { beforeEach, describe, expect, it } from "vitest";
 
 import {
+  __clearPrimitiveParseCachesForTests,
+  getActiveScreenIframeId,
   getBoardContentKey,
   getBoardContentLayerSignature,
   getBoardSurfaceLayerStyle,
   getBoardSurfaceRenderContent,
+  getBreakpointIframeId,
   getCrossScreenDropGuideForHitTest,
+  getDraftPreviewGeometryForTool,
+  getPrimaryIframeId,
   getPrimitiveDropTargetForPoint,
   hasBoardSurfaceContent,
   ParsedScreenPrimitive,
+  parsePrimitivesFromScreen,
   primitiveLocalToBoardRect,
   primitiveParseCache,
   resolveNodeScreenId,
+  screenPxToCanvasPx,
   shouldBoardSurfaceCapturePointerEvents,
+  vectorEditCanvasToLocalPoint,
+  vectorEditLocalToCanvasPoint,
   type FrameGeometry,
 } from "./MultiScreenCanvas";
 
@@ -71,7 +85,7 @@ function seedCache(screen: ScreenStub, prims: ParsedScreenPrimitive[]) {
 // Setup: clear the module-level cache before every test so tests are isolated
 // ---------------------------------------------------------------------------
 beforeEach(() => {
-  primitiveParseCache.clear();
+  __clearPrimitiveParseCachesForTests();
 });
 
 describe("board surface pointer capture", () => {
@@ -456,6 +470,76 @@ describe("parsePrimitivesFromScreen cache key", () => {
 });
 
 // ---------------------------------------------------------------------------
+// parsePrimitivesFromScreen identity-first cache (PF17): repeated calls with
+// the *same* content reference (the common case for a drag/marquee mousemove
+// handler re-reading the active screen every frame) should skip re-hashing
+// the full content string and return the memoized result directly.
+// ---------------------------------------------------------------------------
+describe("parsePrimitivesFromScreen identity cache", () => {
+  it("returns the same result reference for repeated calls with unchanged content", () => {
+    const screen: ScreenStub = {
+      id: "identity-screen",
+      filename: "f.html",
+      content: "<div data-agent-native-node-id='a'></div>",
+    };
+    // Seed the hash-keyed cache directly (DOMParser isn't available in this
+    // jsdom-less vitest env — see the seedCache helper above) so the first
+    // call resolves through the normal cache-hit path and populates the
+    // identity cache, mirroring what a real parse would do.
+    const seeded = [
+      primEntry("a", "identity-screen", {
+        left: 0,
+        top: 0,
+        width: 10,
+        height: 10,
+      }),
+    ];
+    seedCache(screen, seeded);
+
+    const first = parsePrimitivesFromScreen(screen as never);
+    const second = parsePrimitivesFromScreen(screen as never);
+
+    // Same object reference in, same result reference out — the identity
+    // fast path returned the memoized array without re-parsing/re-hashing.
+    expect(first).toBe(seeded);
+    expect(second).toBe(first);
+  });
+
+  it("re-parses when content changes even if the screen id is reused", () => {
+    const screenId = "identity-screen-2";
+    const screenV1: ScreenStub = {
+      id: screenId,
+      filename: "f.html",
+      content: "A",
+    };
+    const screenV2: ScreenStub = {
+      id: screenId,
+      filename: "f.html",
+      content: "B",
+    };
+    const seededV1 = [
+      primEntry("v1", screenId, { left: 0, top: 0, width: 10, height: 10 }),
+    ];
+    const seededV2 = [
+      primEntry("v2", screenId, { left: 0, top: 0, width: 20, height: 20 }),
+    ];
+    seedCache(screenV1, seededV1);
+    seedCache(screenV2, seededV2);
+
+    const first = parsePrimitivesFromScreen(screenV1 as never);
+    const second = parsePrimitivesFromScreen(screenV2 as never);
+    // Calling again with the original (now stale) content reference must not
+    // incorrectly reuse screenV2's cached result.
+    const third = parsePrimitivesFromScreen(screenV1 as never);
+
+    expect(first).toBe(seededV1);
+    expect(second).toBe(seededV2);
+    expect(third).toBe(seededV1);
+    expect(second).not.toBe(first);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // getPrimitiveDropTargetForPoint
 // ---------------------------------------------------------------------------
 describe("getPrimitiveDropTargetForPoint", () => {
@@ -749,3 +833,266 @@ describe("cross-screen coord translation (iframeX → boardX consistency)", () =
     expect(boardY).toBe(80);
   });
 });
+
+// ---------------------------------------------------------------------------
+// getDraftPreviewGeometryForTool: shift/alt shape-draw modifiers (CV15)
+// ---------------------------------------------------------------------------
+describe("getDraftPreviewGeometryForTool shape-draw modifiers", () => {
+  it("draws a plain rect with no modifiers", () => {
+    const geometry = getDraftPreviewGeometryForTool(
+      "rect",
+      { x: 100, y: 100 },
+      { x: 180, y: 140 },
+      true,
+    );
+    expect(geometry).toEqual({ x: 100, y: 100, width: 80, height: 40 });
+  });
+
+  it("constrains rect to a square when shift is held", () => {
+    const geometry = getDraftPreviewGeometryForTool(
+      "rect",
+      { x: 100, y: 100 },
+      { x: 180, y: 140 },
+      true,
+      { shiftKey: true },
+    );
+    expect(geometry.width).toBe(geometry.height);
+    expect(geometry.width).toBe(80);
+  });
+
+  it("constrains ellipse to a circle when shift is held", () => {
+    const geometry = getDraftPreviewGeometryForTool(
+      "ellipse",
+      { x: 0, y: 0 },
+      { x: 30, y: 90 },
+      true,
+      { shiftKey: true },
+    );
+    expect(geometry.width).toBe(geometry.height);
+    expect(geometry.width).toBe(90);
+  });
+
+  it("draws outward from the start point as center when alt is held", () => {
+    const geometry = getDraftPreviewGeometryForTool(
+      "rect",
+      { x: 150, y: 150 },
+      { x: 190, y: 190 },
+      true,
+      { altKey: true },
+    );
+    expect(geometry).toEqual({ x: 110, y: 110, width: 80, height: 80 });
+  });
+
+  it("does not apply square/fromCenter to a line's bounding box, but does constrain its angle", () => {
+    // A line's preview geometry is a path bounding box; shift constrains the
+    // line's own angle (via the same 45deg pen-tool helper), not squareness.
+    // (100,15) is ~8.5deg from horizontal — closest to the 0deg increment —
+    // so shift should snap it flat, collapsing the bounding box height down
+    // to the tool's minimum hit-box size instead of the unconstrained ~15.
+    const unconstrained = getDraftPreviewGeometryForTool(
+      "line",
+      { x: 0, y: 0 },
+      { x: 100, y: 15 },
+      true,
+    );
+    const constrained = getDraftPreviewGeometryForTool(
+      "line",
+      { x: 0, y: 0 },
+      { x: 100, y: 15 },
+      true,
+      { shiftKey: true },
+    );
+    expect(unconstrained.height).toBeGreaterThan(constrained.height);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Breakpoint sub-frame iframe id resolution (B15)
+// ---------------------------------------------------------------------------
+describe("breakpoint sub-frame iframe id resolution", () => {
+  it("primary iframe id is the bare screen id", () => {
+    expect(getPrimaryIframeId("screen-1")).toBe("screen-1");
+  });
+
+  it("breakpoint sub-frame ids are distinct per width and never collide with the primary", () => {
+    const primary = getPrimaryIframeId("screen-1");
+    const bp390 = getBreakpointIframeId("screen-1", 390);
+    const bp768 = getBreakpointIframeId("screen-1", 768);
+    expect(bp390).not.toBe(primary);
+    expect(bp768).not.toBe(primary);
+    expect(bp390).not.toBe(bp768);
+  });
+
+  it("resolves to the primary iframe when no breakpoint is active", () => {
+    expect(
+      getActiveScreenIframeId({
+        id: "screen-1",
+        breakpointWidths: [390, 768],
+        activeBreakpointWidth: undefined,
+      }),
+    ).toBe("screen-1");
+  });
+
+  it("resolves to the active breakpoint sub-frame's own id when one is active", () => {
+    expect(
+      getActiveScreenIframeId({
+        id: "screen-1",
+        breakpointWidths: [390, 768],
+        activeBreakpointWidth: 768,
+      }),
+    ).toBe(getBreakpointIframeId("screen-1", 768));
+  });
+
+  it("falls back to the primary iframe when activeBreakpointWidth is stale (not in breakpointWidths)", () => {
+    // Defends against a screen whose activeBreakpointWidth points at a
+    // breakpoint that was since removed — should not resolve to a
+    // [data-screen-iframe-id] that no longer exists in the DOM.
+    expect(
+      getActiveScreenIframeId({
+        id: "screen-1",
+        breakpointWidths: [390],
+        activeBreakpointWidth: 1280,
+      }),
+    ).toBe("screen-1");
+  });
+
+  it("resolves to the primary iframe for a screen with no breakpoints at all", () => {
+    expect(getActiveScreenIframeId({ id: "screen-1" })).toBe("screen-1");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Vector edit mode (P-VE1): coordinate mapping + hit-test priority
+//
+// MultiScreenCanvas isn't render-testable in this vitest environment (no
+// jsdom `environment`, no @testing-library/react in this package — see the
+// harness-limitation note in the smoke test below), so these tests cover the
+// pure coordinate/hit-test logic that backs the interactive overlay:
+// local<->canvas point mapping (vectorEditLocalToCanvasPoint /
+// vectorEditCanvasToLocalPoint), the screen-px->canvas-px hit-radius
+// conversion (screenPxToCanvasPx), and — via the already-tested pen-path.ts
+// primitives — the "handles take priority over anchors when overlapping"
+// hit-test ordering the overlay's mousedown handler relies on.
+// ---------------------------------------------------------------------------
+describe("vector edit: local/canvas coordinate mapping", () => {
+  it("maps a local point to canvas space by adding the origin", () => {
+    expect(
+      vectorEditLocalToCanvasPoint({ x: 10, y: 20 }, { x: 100, y: 200 }),
+    ).toEqual({ x: 110, y: 220 });
+  });
+
+  it("maps a canvas point back to local space by subtracting the origin", () => {
+    expect(
+      vectorEditCanvasToLocalPoint({ x: 110, y: 220 }, { x: 100, y: 200 }),
+    ).toEqual({ x: 10, y: 20 });
+  });
+
+  it("round-trips local -> canvas -> local for arbitrary points/origins", () => {
+    const origin = { x: -37.5, y: 812.25 };
+    const local = { x: 4.5, y: -9 };
+    const canvas = vectorEditLocalToCanvasPoint(local, origin);
+    expect(vectorEditCanvasToLocalPoint(canvas, origin)).toEqual(local);
+  });
+
+  it("is a no-op when origin is (0,0)", () => {
+    const local = { x: 42, y: -7 };
+    expect(vectorEditLocalToCanvasPoint(local, { x: 0, y: 0 })).toEqual(local);
+    expect(vectorEditCanvasToLocalPoint(local, { x: 0, y: 0 })).toEqual(local);
+  });
+});
+
+describe("vector edit: screenPxToCanvasPx zoom conversion", () => {
+  it("is a no-op at 100% zoom", () => {
+    expect(screenPxToCanvasPx(8, 100)).toBe(8);
+  });
+
+  it("grows the canvas-space radius when zoomed out (matches a constant screen size)", () => {
+    // At 50% zoom, one canvas px covers half a screen px, so hitting the
+    // same *screen*-sized radius requires a larger canvas-space radius.
+    expect(screenPxToCanvasPx(8, 50)).toBe(16);
+  });
+
+  it("shrinks the canvas-space radius when zoomed in", () => {
+    expect(screenPxToCanvasPx(8, 200)).toBe(4);
+  });
+
+  it("falls back to the raw screen px for a non-positive zoom", () => {
+    expect(screenPxToCanvasPx(8, 0)).toBe(8);
+    expect(screenPxToCanvasPx(8, -10)).toBe(8);
+  });
+});
+
+describe("vector edit: hit-test priority (handles over anchors when overlapping)", () => {
+  // A node whose handleOut coincides exactly with the anchor point (e.g. a
+  // freshly-converted "smooth" node whose handle hasn't been dragged out
+  // yet) — both hitTestPenAnchor and hitTestPenHandle should match the same
+  // point, and the overlay's mousedown handler must check handles first so
+  // the handle wins.
+  const overlappingPath: PenPath = {
+    nodes: [
+      {
+        point: { x: 50, y: 50 },
+        handleOut: { x: 50, y: 50 },
+      },
+    ],
+    closed: false,
+  };
+
+  it("both an anchor and a handle can match the same point", () => {
+    const point = { x: 50, y: 50 };
+    expect(hitTestPenAnchor(overlappingPath, point, 8)).toEqual({
+      nodeIndex: 0,
+    });
+    expect(hitTestPenHandle(overlappingPath, point, 8)).toEqual({
+      nodeIndex: 0,
+      which: "out",
+    });
+  });
+
+  it("checking hitTestPenHandle before hitTestPenAnchor resolves the handle as the winner", () => {
+    const point = { x: 50, y: 50 };
+    // This mirrors MultiScreenCanvas's handleMouseDown vectorEdit branch:
+    // hitTestPenHandle is checked first, and only falls through to
+    // hitTestPenAnchor when no handle is in range.
+    const handleHit = hitTestPenHandle(overlappingPath, point, 8);
+    const winner = handleHit
+      ? { kind: "handle" as const, ...handleHit }
+      : (() => {
+          const anchorHit = hitTestPenAnchor(overlappingPath, point, 8);
+          return anchorHit ? { kind: "anchor" as const, ...anchorHit } : null;
+        })();
+    expect(winner).toEqual({ kind: "handle", nodeIndex: 0, which: "out" });
+  });
+
+  it("falls through to the anchor when no handle is in range", () => {
+    const cornerPath: PenPath = {
+      nodes: [{ point: { x: 0, y: 0 } }],
+      closed: false,
+    };
+    expect(hitTestPenHandle(cornerPath, { x: 0, y: 0 }, 8)).toBeNull();
+    expect(hitTestPenAnchor(cornerPath, { x: 0, y: 0 }, 8)).toEqual({
+      nodeIndex: 0,
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Smoke-test harness note (P-VE1):
+//
+// The task asked for a smoke test asserting the vector-edit overlay renders
+// the correct anchor/handle counts for a given path, if the harness supports
+// component rendering. It does not: this package's vitest.config has no
+// `test.environment` (defaults to "node", no DOM) and has no
+// @testing-library/react (or any React renderer) dependency — confirmed by
+// grepping every *.test.ts(x) file under app/components/design, none of
+// which render a component; MotionDock.test.tsx and friends all test pure
+// exported functions the same way this file does. Adding a DOM/render
+// environment is a package-wide harness change out of scope for this
+// overlay, so overlay rendering is instead covered indirectly: the anchor
+// count always equals path.nodes.length and the handle count always equals
+// the number of present handleIn/handleOut across all nodes (see
+// VectorEditOverlay's canvasPath.nodes.map / .flatMap in MultiScreenCanvas.tsx),
+// which is exactly what getPenPathGeometry/serializePenPath (already
+// exercised elsewhere) are computed over, so a positive assertion here would
+// only restate that mapping rather than exercise any DOM output.
+// ---------------------------------------------------------------------------

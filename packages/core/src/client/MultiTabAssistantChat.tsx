@@ -26,7 +26,9 @@ import {
   AGENT_CHAT_REMOVE_CONTEXT_MESSAGE_TYPE,
   AGENT_CHAT_SET_CONTEXT_MESSAGE_TYPE,
   appendAgentChatContextToMessage,
+  claimAgentChatOpenRequest,
   claimAgentChatSubmit,
+  drainBufferedAgentChatOpenRequests,
   drainBufferedAgentChatSubmits,
   normalizeAgentChatContextItem,
   parseSubmitChatMessage,
@@ -281,7 +283,7 @@ function ScopeBadge({
         <PopoverTrigger asChild>
           <button
             type="button"
-            className="inline-flex h-7 min-w-0 max-w-full cursor-pointer items-center gap-1.5 rounded-t-lg border border-b-0 border-input bg-background px-3 text-muted-foreground shadow-[0_-8px_24px_hsl(var(--background)/0.72)] transition-colors hover:bg-accent hover:text-foreground sm:max-w-72"
+            className="inline-flex h-7 min-w-0 max-w-full cursor-pointer items-center gap-1.5 rounded-t-lg border border-b-0 border-input bg-background px-3 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground sm:max-w-72"
             aria-label={heading}
           >
             <IconLink size={11} className="shrink-0 opacity-70" />
@@ -1118,10 +1120,14 @@ export function MultiTabAssistantChat({
   const postMessageSubmissionsDisabled = props.composerDisabled === true;
 
   const setContextInTab = useCallback(
-    (threadId: string, item: AgentChatContextItem) => {
+    (
+      threadId: string,
+      item: AgentChatContextItem,
+      options?: { focus?: boolean },
+    ) => {
       const ref = chatRefs.current.get(threadId);
       if (ref) {
-        ref.setComposerContextItem(item);
+        ref.setComposerContextItem(item, options);
         return;
       }
       const existing = pendingContextItems.current.get(threadId) ?? [];
@@ -1712,7 +1718,11 @@ export function MultiTabAssistantChat({
         if (postMessageSubmissionsDisabled) return;
         const currentTabId = activeThreadIdRef.current;
         if (!currentTabId) return;
-        setContextInTab(currentTabId, item);
+        // Focus defaults to true; a caller opts out with `focus: false` for
+        // passive context (e.g. a canvas selection) so staging never steals
+        // focus from an in-progress inline editor.
+        const focus = (event.data.data?.focus as boolean | undefined) !== false;
+        setContextInTab(currentTabId, item, { focus });
         return;
       }
       if (event.data?.type === AGENT_CHAT_REMOVE_CONTEXT_MESSAGE_TYPE) {
@@ -2079,11 +2089,12 @@ export function MultiTabAssistantChat({
   useEffect(() => {
     const handleOpenThread = (event: Event) => {
       const detail = (event as CustomEvent).detail as
-        | { threadId?: unknown; newThread?: unknown }
+        | { threadId?: unknown; newThread?: unknown; openRequestId?: unknown }
         | undefined;
       const threadId =
         typeof detail?.threadId === "string" ? detail.threadId : "";
-      if (!threadId) return;
+      if (!detail || !threadId) return;
+      if (!claimAgentChatOpenRequest(detail.openRequestId)) return;
 
       if (detail?.newThread === true) {
         newThreadIds.current.add(threadId);
@@ -2135,6 +2146,7 @@ export function MultiTabAssistantChat({
       const detail = (e as CustomEvent).detail;
       const threadId = detail?.threadId;
       if (!threadId) return;
+      if (!claimAgentChatOpenRequest(detail.openRequestId)) return;
       dismissedSubAgentTabsRef.current.delete(threadId);
       // Prefer an explicit parent (RunsTray/background hydration knows it);
       // inline task cards fall back to the active orchestrator thread.
@@ -2187,6 +2199,17 @@ export function MultiTabAssistantChat({
     window.addEventListener("agent-task-open", handleOpenTask);
     return () => window.removeEventListener("agent-task-open", handleOpenTask);
   }, [openTabIds, switchThread, refreshThreads, parentMap]);
+
+  // Replay thread/task opens requested before this lazy panel's listeners
+  // attached. Live events claim their id; replay drains only unclaimed requests.
+  useEffect(() => {
+    const buffered = drainBufferedAgentChatOpenRequests();
+    for (const request of buffered) {
+      window.dispatchEvent(
+        new CustomEvent(request.eventType, { detail: request.detail }),
+      );
+    }
+  }, []);
 
   // Watch for agent-issued chat-command in application-state
   const lastChatCommandRef = useRef(0);
@@ -2662,6 +2685,8 @@ export function MultiTabAssistantChat({
                 <RunStuckBanner
                   threadId={tabId}
                   apiUrl={apiUrl}
+                  autoRetry
+                  autoRetryOwnerId={browserTabId}
                   onRetry={() => {
                     const handle = chatRefs.current.get(tabId);
                     handle?.sendRecoveryMessage(

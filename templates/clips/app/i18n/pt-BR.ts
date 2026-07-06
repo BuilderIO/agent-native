@@ -425,8 +425,11 @@ const messages = {
     embed: "Incorporar",
     shareLink: "Link de compartilhamento",
     shareWithAgents: "Compartilhe com agentes",
+    copyAgentPrompt: "Copiar prompt para agente",
+    agentPrompt:
+      "Busque esta URL de contexto para agentes do Clips: {{agentContextUrl}}. Use transcript.segments para o contexto falado, busque recommendedFrames ou as URLs da API de quadros para ver a tela e confira browserDiagnostics, se presente, para logs de console redigidos e metadados de solicitações fetch/XHR.",
     agentTokenDescription:
-      "Este agente URL usa um token de curta duração, para que os agentes possam ler o clipe sem expor a senha.",
+      "Esta URL temporaria para agentes permite ler o clipe sem torna-lo publico. Ela expira em duas horas.",
     gifPreview: "visualização de GIF",
     openPlayer: "Jogador aberto",
     downloadMp4: "Baixar MP4",
@@ -438,6 +441,7 @@ const messages = {
     askOwnerPublic: "Peça ao proprietário para torná-lo público.",
     responsive: "Responsivo (16:9)",
     fixedSize: "Tamanho fixo",
+    embedIframeTitle: "Video do Clips",
     width: "Largura",
     height: "Altura",
     autoplay: "Reprodução automática",
@@ -648,6 +652,11 @@ Todas as mudanças visíveis para usuários do Clips são documentadas aqui. Voc
     s3SecretAccessKeyLabel: "Chave de acesso secreta",
     s3RegionLabel: "Região",
     s3PublicBaseUrlLabel: "URL base pública",
+    s3UrlInvalid:
+      "Deve ser uma URL válida (ex.: https://s3.us-east-1.amazonaws.com)",
+    s3BucketInvalid:
+      "O nome do bucket deve ter 3–63 letras minúsculas, números ou hifens",
+    s3RegionInvalid: 'Deve ser uma região válida (ex.: us-east-1) ou "auto"',
     apiSetup: "Configuração de IA",
     apiSetupDescription:
       "Conecte IA com créditos grátis da Builder.io ou suas próprias chaves LLM.",
@@ -662,6 +671,8 @@ Todas as mudanças visíveis para usuários do Clips são documentadas aqui. Voc
     providerKeysSet: "{{count}} configuradas",
     checkingProviderKeys: "Verificando chaves de provedor…",
     keySet: "Configurada",
+    keyCleared: "Credenciais de armazenamento limpas",
+    clearAllS3: "Limpar credenciais",
     replaceKey: "Substituir chave…",
     pasteProviderKey: "Cole primeiro uma chave de provedor.",
     apiKeySaved: "Chave de API salva",

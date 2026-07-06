@@ -37,6 +37,11 @@
       "action": "create-visual-recap",
       "path": "/plans",
       "description": "Create a visual recap plan from a PR, commit, branch, or git diff for high-altitude review."
+    },
+    {
+      "id": "visualize-repo",
+      "path": "/local-plans",
+      "description": "Open a local, repo-backed visual documentation workspace for APIs, components, models, flows, comments, and coding-agent handoff."
     }
   ],
   "skills": [
@@ -49,6 +54,11 @@
       "path": ".agents/skills/visual-recap",
       "visibility": "both",
       "exportAs": "visual-recap"
+    },
+    {
+      "path": ".agents/skills/visualize-repo",
+      "visibility": "both",
+      "exportAs": "visualize-repo"
     }
   ],
   "hostAdapters": [

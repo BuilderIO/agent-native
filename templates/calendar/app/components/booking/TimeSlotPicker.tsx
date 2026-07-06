@@ -1,14 +1,14 @@
 import { useT } from "@agent-native/core/client";
+import { Button } from "@agent-native/toolkit/ui/button";
+import { Skeleton } from "@agent-native/toolkit/ui/skeleton";
 import { format, parseISO } from "date-fns";
-
-import { Button } from "@/components/ui/button";
-import { Skeleton } from "@/components/ui/skeleton";
 
 interface TimeSlotPickerProps {
   slots: { start: string; end: string }[];
   selectedSlot: string | null;
   onSelect: (start: string) => void;
   loading?: boolean;
+  errorMessage?: string;
 }
 
 export function TimeSlotPicker({
@@ -16,6 +16,7 @@ export function TimeSlotPicker({
   selectedSlot,
   onSelect,
   loading,
+  errorMessage,
 }: TimeSlotPickerProps) {
   const t = useT();
 
@@ -26,6 +27,14 @@ export function TimeSlotPicker({
           <Skeleton key={i} className="h-10 rounded-md" />
         ))}
       </div>
+    );
+  }
+
+  if (errorMessage) {
+    return (
+      <p className="rounded-lg border border-destructive/30 bg-destructive/[0.06] px-3 py-3 text-sm text-destructive">
+        {errorMessage}
+      </p>
     );
   }
 

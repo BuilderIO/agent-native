@@ -1,4 +1,12 @@
 import { useT } from "@agent-native/core/client";
+import { Button } from "@agent-native/toolkit/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogTitle,
+} from "@agent-native/toolkit/ui/dialog";
+import { Spinner } from "@agent-native/toolkit/ui/spinner";
 import { BUILDER_CMS_SAFE_WRITE_MODEL } from "@shared/api";
 import type {
   BuilderCmsPublicationTransitionIntent,
@@ -16,15 +24,6 @@ import {
   IconX,
 } from "@tabler/icons-react";
 import { useEffect, useMemo, useState } from "react";
-
-import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import { Spinner } from "@/components/ui/spinner";
 
 export type BuilderReviewPublicationTransitionSelection = {
   publicationTransition: BuilderCmsPublicationTransitionIntent;

@@ -9,6 +9,18 @@ import {
   useT,
 } from "@agent-native/core/client";
 import { TeamPage } from "@agent-native/core/client/org";
+import { Button } from "@agent-native/toolkit/ui/button";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@agent-native/toolkit/ui/card";
+import { Input } from "@agent-native/toolkit/ui/input";
+import { Label } from "@agent-native/toolkit/ui/label";
+import { Separator } from "@agent-native/toolkit/ui/separator";
+import { Textarea } from "@agent-native/toolkit/ui/textarea";
 import {
   IconBrandZoom,
   IconExternalLink,
@@ -23,18 +35,6 @@ import { toast } from "sonner";
 
 import { GoogleSetupWizard } from "@/components/calendar/GoogleSetupWizard";
 import { TimezoneCombobox } from "@/components/TimezoneCombobox";
-import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Separator } from "@/components/ui/separator";
-import { Textarea } from "@/components/ui/textarea";
 import {
   useGoogleAuthStatus,
   useGoogleAuthUrl,
@@ -47,6 +47,7 @@ import {
   useDisconnectZoom,
   useZoomStatus,
 } from "@/hooks/use-zoom-auth";
+import { shouldOfferGoogleOAuthSetup } from "@/lib/google-oauth-setup";
 
 import changelog from "../../CHANGELOG.md?raw";
 
@@ -70,6 +71,7 @@ export default function Settings() {
   const disconnectZoom = useDisconnectZoom();
   const [wantAuthUrl, setWantAuthUrl] = useState(false);
   const authUrl = useGoogleAuthUrl(wantAuthUrl);
+  const canOfferGoogleOAuthSetup = shouldOfferGoogleOAuthSetup();
 
   const [timezone, setTimezone] = useState("");
   const [bookingTitle, setBookingTitle] = useState("");
@@ -333,7 +335,7 @@ export default function Settings() {
           </Card>
 
           {/* Google Setup Wizard */}
-          {!googleStatus.data?.connected && (
+          {!googleStatus.data?.connected && canOfferGoogleOAuthSetup && (
             <Card>
               <CardHeader>
                 <CardTitle className="text-lg">

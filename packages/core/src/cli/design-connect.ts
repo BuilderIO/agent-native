@@ -28,9 +28,17 @@ const BRIDGE_OPERATIONS = [
   "writeFile",
   "captureSnapshot",
   "captureState",
+  "listFiles",
 ] as const;
 
 type BridgeOperation = (typeof BRIDGE_OPERATIONS)[number];
+
+/** Additive manifest capability flags advertised alongside the operation list. */
+const MANIFEST_CAPABILITIES = {
+  listFiles: true,
+  readTextFiles: true,
+  writeTextFiles: true,
+} as const;
 
 export interface DesignConnectArgs {
   url?: string;
@@ -75,6 +83,12 @@ export interface DesignConnectManifest {
     status: "available" | "planned" | "disabled";
     reason?: string;
   }>;
+  /**
+   * Additive high-level capability flags beyond the low-level operation list.
+   * `connect-localhost` persists this so `list-design-source-capabilities` can
+   * reflect readFile/writeFile/listFiles availability for localhost sources.
+   */
+  manifestCapabilities: typeof MANIFEST_CAPABILITIES;
 }
 
 export interface DesignConnectBridge {
@@ -461,6 +475,7 @@ export async function prepareDesignConnectManifest(
     routes,
     routeCount: routes.length,
     generatedAt,
+    manifestCapabilities: MANIFEST_CAPABILITIES,
     capabilities: BRIDGE_OPERATIONS.map((operation) => ({
       operation,
       status: "available" as const,
@@ -578,6 +593,13 @@ async function readRequestBody(req: IncomingMessage): Promise<string> {
  * Resolve `targetDir` under `rootPath` with realpath so that symlinks and
  * traversal sequences (../../etc) cannot escape the root.  Throws if the
  * resolved path does not start with the resolved root.
+ *
+ * This also guards against a symlink LEAF inside root (e.g.
+ * `rootPath/link.css` -> `/Users/me/.ssh/id_rsa`): the parent-directory
+ * realpath check alone would pass confinement because the parent is inside
+ * root, letting reads/writes silently follow the symlink outside root. After
+ * the parent check we additionally lstat the target itself — if it exists and
+ * is a symlink, or if its realpath resolves outside `resolvedRoot`, we reject.
  */
 async function assertPathInside(
   rootPath: string,
@@ -611,18 +633,110 @@ async function assertPathInside(
   ) {
     throw new Error(`Path traversal detected: resolved target is outside root`);
   }
+
+  // Reject a symlink LEAF, even though its parent directory is confined to
+  // root. A pre-existing symlink at the target path (file or directory) could
+  // otherwise be followed straight out of root by the caller's subsequent
+  // fs.readFile/fs.writeFile call.
+  const targetAbsolute = path.resolve(rootPath, targetPath);
+  const lstat = await fs.lstat(targetAbsolute).catch(() => null);
+  if (lstat?.isSymbolicLink()) {
+    throw new Error(
+      `Path traversal detected: "${targetPath}" is a symlink, which is not allowed inside the connected root`,
+    );
+  }
+  if (lstat) {
+    const resolvedTarget = await fs.realpath(targetAbsolute).catch(() => null);
+    if (
+      resolvedTarget &&
+      resolvedTarget !== resolvedRoot &&
+      !resolvedTarget.startsWith(resolvedRoot + path.sep)
+    ) {
+      throw new Error(
+        `Path traversal detected: "${targetPath}" resolves outside the connected root`,
+      );
+    }
+  }
 }
 
 /** Allowed file extensions for write/apply-edit operations. */
-const ALLOWED_WRITE_EXTENSIONS = new Set([".html", ".htm", ".css"]);
+const ALLOWED_WRITE_EXTENSIONS = new Set([
+  ".html",
+  ".htm",
+  ".css",
+  ".scss",
+  ".less",
+  ".js",
+  ".jsx",
+  ".ts",
+  ".tsx",
+  ".mjs",
+  ".cjs",
+  ".json",
+  ".md",
+  ".mdx",
+  ".vue",
+  ".svelte",
+  ".astro",
+  ".txt",
+  ".yml",
+  ".yaml",
+  ".svg",
+]);
 
 function assertAllowedExtension(relPath: string): void {
   const ext = path.extname(relPath).toLowerCase();
   if (!ALLOWED_WRITE_EXTENSIONS.has(ext)) {
     throw new Error(
-      `Write rejected: only .html, .htm, and .css files may be written via the bridge (got ${ext || "(no extension)"})`,
+      `Write rejected: extension "${ext || "(no extension)"}" is not in the allowed text-file list for bridge writes.`,
     );
   }
+}
+
+/**
+ * Blocklist for secret-looking paths. Applied to /read-file, /write-file,
+ * /apply-edit, AND /list-files so secrets are never returned or served
+ * through the bridge, even to a caller holding a valid write grant. Reads of
+ * other dotfiles (.gitignore, .prettierrc, etc.) remain allowed.
+ *
+ * All comparisons are case-insensitive: macOS's default filesystem (and
+ * Windows) is case-insensitive, so ".ENV", "ID_RSA", or "KEY.PEM" refer to
+ * the exact same on-disk file as their lowercase form and must be blocked
+ * identically.
+ */
+function isBlockedSecretPath(relPath: string): boolean {
+  const normalized = normalizeSlash(relPath).replace(/^\/+/, "").toLowerCase();
+  const segments = normalized.split("/").filter(Boolean);
+  if (segments.some((segment) => segment === ".git")) return true;
+  const basename = segments[segments.length - 1] ?? normalized;
+  if (/^\.env/.test(basename)) return true;
+  if (/\.pem$/.test(basename)) return true;
+  if (/\.key$/.test(basename)) return true;
+  if (/^id_rsa/.test(basename)) return true;
+  return false;
+}
+
+function assertNotBlockedSecretPath(relPath: string): void {
+  if (isBlockedSecretPath(relPath)) {
+    throw new Error(
+      `Access rejected: "${relPath}" matches a blocked secret-file pattern.`,
+    );
+  }
+}
+
+/**
+ * Compute a cheap, stable version identifier for a file from its stat: mtime
+ * plus size. Not a content hash — it is only meant to detect "did this file
+ * change on disk since the caller last read it", the same tradeoff the inline
+ * (SQL-backed) workspace provider's versionHash already makes. Returns
+ * undefined when the file does not exist (new-file case).
+ */
+async function computeVersionHash(
+  absolutePath: string,
+): Promise<string | undefined> {
+  const stat = await fs.stat(absolutePath).catch(() => null);
+  if (!stat) return undefined;
+  return `${stat.mtimeMs}-${stat.size}`;
 }
 
 function countOccurrences(haystack: string, needle: string): number {
@@ -635,6 +749,293 @@ function countOccurrences(haystack: string, needle: string): number {
     index = haystack.indexOf(needle, index + 1);
   }
   return count;
+}
+
+// ── /list-files: recursive walk with .gitignore + always-ignore + size/binary
+// filtering ───────────────────────────────────────────────────────────────
+
+/** Directories always excluded from /list-files, regardless of .gitignore. */
+const ALWAYS_IGNORED_DIR_NAMES = new Set([
+  ".git",
+  "node_modules",
+  "dist",
+  "build",
+  ".next",
+  ".output",
+  ".nuxt",
+  "coverage",
+  ".cache",
+]);
+
+const ALWAYS_IGNORED_FILE_NAMES = new Set([".DS_Store"]);
+
+/** Binary-looking extensions skipped from /list-files results. */
+const BINARY_LOOKING_EXTENSIONS = new Set([
+  ".png",
+  ".jpg",
+  ".jpeg",
+  ".gif",
+  ".webp",
+  ".ico",
+  ".woff",
+  ".woff2",
+  ".ttf",
+  ".otf",
+  ".eot",
+  ".mp3",
+  ".mp4",
+  ".mov",
+  ".webm",
+  ".zip",
+  ".gz",
+  ".tar",
+  ".pdf",
+  ".wasm",
+  ".fig",
+  ".sketch",
+]);
+
+const LIST_FILES_MAX_ENTRIES = 20_000;
+const LIST_FILES_MAX_BYTES = 2 * 1024 * 1024;
+
+export interface GitignoreRule {
+  /** Raw pattern as read from .gitignore, already trimmed of comments/blank lines. */
+  pattern: string;
+  /** True when the pattern is anchored to the root (leading "/"). */
+  anchored: boolean;
+  /** True when the pattern only matches directories (trailing "/"). */
+  dirOnly: boolean;
+}
+
+/**
+ * Parse a simple subset of .gitignore syntax: exact names, `dir/`, `*.ext`,
+ * and leading-slash root-anchored patterns. This intentionally does not
+ * implement full gitignore glob semantics (double-star, negation, etc.) —
+ * good enough to keep obviously-ignored build output and local files out of
+ * the workbench file tree.
+ */
+export function parseGitignore(contents: string): GitignoreRule[] {
+  const rules: GitignoreRule[] = [];
+  for (const rawLine of contents.split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (!line || line.startsWith("#")) continue;
+    if (line.startsWith("!")) continue; // negation unsupported in this subset
+    const anchored = line.startsWith("/");
+    const withoutAnchor = anchored ? line.slice(1) : line;
+    const dirOnly = withoutAnchor.endsWith("/");
+    const pattern = dirOnly ? withoutAnchor.slice(0, -1) : withoutAnchor;
+    if (!pattern) continue;
+    rules.push({ pattern, anchored, dirOnly });
+  }
+  return rules;
+}
+
+function globToRegExp(pattern: string): RegExp {
+  let out = "";
+  for (const char of pattern) {
+    if (char === "*") out += "[^/]*";
+    else if (char === "?") out += "[^/]";
+    else out += char.replace(/[.+^${}()|[\]\\]/g, "\\$&");
+  }
+  return new RegExp(`^${out}$`);
+}
+
+/**
+ * Test one path segment (or full relative path, for anchored patterns)
+ * against a parsed gitignore rule.
+ */
+function ruleMatches(
+  rule: GitignoreRule,
+  relPath: string,
+  isDir: boolean,
+): boolean {
+  if (rule.dirOnly && !isDir) return false;
+  const regex = globToRegExp(rule.pattern);
+  if (rule.anchored) {
+    return regex.test(relPath);
+  }
+  // Unanchored: match against any path segment (basename) or the full path,
+  // mirroring gitignore's "matches at any depth" behavior for simple patterns.
+  const segments = relPath.split("/");
+  return segments.some((segment) => regex.test(segment)) || regex.test(relPath);
+}
+
+export function isIgnoredByGitignore(
+  rules: GitignoreRule[],
+  relPath: string,
+  isDir: boolean,
+): boolean {
+  return rules.some((rule) => ruleMatches(rule, relPath, isDir));
+}
+
+/**
+ * Pure predicate: should this file be excluded from /list-files results?
+ * Combines the always-ignored directory/file names, the parsed .gitignore
+ * rules, the binary-looking extension list, the secret-path blocklist, and
+ * the per-file size cap. `sizeBytes` may be omitted when unknown (the always/
+ * gitignore/binary/secret checks still apply).
+ */
+export function shouldExcludeFromListing(
+  relPath: string,
+  options: { gitignore: GitignoreRule[]; sizeBytes?: number },
+): boolean {
+  const normalized = normalizeSlash(relPath).replace(/^\/+/, "");
+  const segments = normalized.split("/").filter(Boolean);
+  if (segments.some((segment) => ALWAYS_IGNORED_DIR_NAMES.has(segment))) {
+    return true;
+  }
+  const basename = segments[segments.length - 1] ?? normalized;
+  if (ALWAYS_IGNORED_FILE_NAMES.has(basename)) return true;
+  if (isBlockedSecretPath(normalized)) return true;
+  if (isIgnoredByGitignore(options.gitignore, normalized, false)) return true;
+  // A `dir/` gitignore rule matches the file's ancestor directories too, not
+  // just the file itself (e.g. "build-output/" must ignore
+  // "build-output/index.html").
+  for (let depth = 1; depth < segments.length; depth += 1) {
+    const ancestorPath = segments.slice(0, depth).join("/");
+    if (isIgnoredByGitignore(options.gitignore, ancestorPath, true)) {
+      return true;
+    }
+  }
+  const ext = path.extname(basename).toLowerCase();
+  if (BINARY_LOOKING_EXTENSIONS.has(ext)) return true;
+  if (
+    typeof options.sizeBytes === "number" &&
+    options.sizeBytes > LIST_FILES_MAX_BYTES
+  ) {
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Should this directory be pruned entirely from the walk? Cheaper than
+ * checking every descendant file individually once a directory itself is
+ * ignored (always-ignored names, gitignore dir rules, or the .git/secret
+ * blocklist).
+ */
+function shouldPruneDirectory(
+  relPath: string,
+  gitignore: GitignoreRule[],
+): boolean {
+  const normalized = normalizeSlash(relPath).replace(/^\/+/, "");
+  const segments = normalized.split("/").filter(Boolean);
+  const basename = segments[segments.length - 1] ?? normalized;
+  if (ALWAYS_IGNORED_DIR_NAMES.has(basename)) return true;
+  if (basename === ".git") return true;
+  if (isIgnoredByGitignore(gitignore, normalized, true)) return true;
+  return false;
+}
+
+export interface ListedBridgeFile {
+  path: string;
+  size: number;
+}
+
+export interface ListFilesResult {
+  files: ListedBridgeFile[];
+  truncated: boolean;
+}
+
+/**
+ * Recursively walk `rootPath`, honoring .gitignore + the always-ignore list +
+ * binary/size/secret filtering, never following symlinks that would escape
+ * root (delegates to `assertPathInside`'s realpath confinement per-entry).
+ * Caps at `LIST_FILES_MAX_ENTRIES` and reports `truncated` when the cap is
+ * hit.
+ */
+async function walkBridgeFiles(rootPath: string): Promise<ListFilesResult> {
+  let gitignore: GitignoreRule[] = [];
+  try {
+    const raw = await fs.readFile(path.join(rootPath, ".gitignore"), "utf8");
+    gitignore = parseGitignore(raw);
+  } catch {
+    // No root .gitignore — proceed with only the always-ignore list.
+  }
+
+  const files: ListedBridgeFile[] = [];
+  let truncated = false;
+  const resolvedRoot = await fs.realpath(rootPath);
+
+  async function walk(absoluteDir: string, relDir: string): Promise<void> {
+    if (truncated) return;
+    let entries: fsSync.Dirent[];
+    try {
+      entries = await fs.readdir(absoluteDir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    // Sort for deterministic output.
+    entries.sort((a, b) => a.name.localeCompare(b.name));
+    for (const entry of entries) {
+      if (truncated) return;
+      const relPath = relDir ? `${relDir}/${entry.name}` : entry.name;
+      const absolutePath = path.join(absoluteDir, entry.name);
+
+      if (entry.isSymbolicLink()) {
+        // Never follow symlinks that escape root; resolve and re-check.
+        let real: string;
+        try {
+          real = await fs.realpath(absolutePath);
+        } catch {
+          continue;
+        }
+        if (
+          real !== resolvedRoot &&
+          !real.startsWith(resolvedRoot + path.sep)
+        ) {
+          continue;
+        }
+        const stat = await fs.stat(absolutePath).catch(() => null);
+        if (!stat) continue;
+        if (stat.isDirectory()) {
+          if (shouldPruneDirectory(relPath, gitignore)) continue;
+          await walk(absolutePath, relPath);
+        } else if (stat.isFile()) {
+          if (
+            !shouldExcludeFromListing(relPath, {
+              gitignore,
+              sizeBytes: stat.size,
+            })
+          ) {
+            files.push({ path: normalizeSlash(relPath), size: stat.size });
+            if (files.length >= LIST_FILES_MAX_ENTRIES) {
+              truncated = true;
+              return;
+            }
+          }
+        }
+        continue;
+      }
+
+      if (entry.isDirectory()) {
+        if (shouldPruneDirectory(relPath, gitignore)) continue;
+        await walk(absolutePath, relPath);
+        continue;
+      }
+
+      if (entry.isFile()) {
+        const stat = await fs.stat(absolutePath).catch(() => null);
+        if (!stat) continue;
+        if (
+          shouldExcludeFromListing(relPath, {
+            gitignore,
+            sizeBytes: stat.size,
+          })
+        ) {
+          continue;
+        }
+        files.push({ path: normalizeSlash(relPath), size: stat.size });
+        if (files.length >= LIST_FILES_MAX_ENTRIES) {
+          truncated = true;
+          return;
+        }
+      }
+    }
+  }
+
+  await walk(resolvedRoot, "");
+  return { files, truncated };
 }
 
 export async function startDesignConnectBridge(
@@ -716,7 +1117,8 @@ export async function startDesignConnectBridge(
       if (
         pathname === "/read-file" ||
         pathname === "/write-file" ||
-        pathname === "/apply-edit"
+        pathname === "/apply-edit" ||
+        pathname === "/list-files"
       ) {
         if (req.method !== "POST") {
           sendJson(res, 405, { ok: false, error: "method not allowed" });
@@ -751,6 +1153,24 @@ export async function startDesignConnectBridge(
           try {
             const raw = await readRequestBody(req);
             const body = JSON.parse(raw) as Record<string, unknown>;
+
+            if (pathname === "/list-files") {
+              try {
+                const result = await walkBridgeFiles(manifest.rootPath);
+                sendJson(res, 200, {
+                  ok: true,
+                  files: result.files,
+                  truncated: result.truncated,
+                });
+              } catch (err: unknown) {
+                sendJson(res, 500, {
+                  ok: false,
+                  error: `list-files failed: ${err instanceof Error ? err.message : String(err)}`,
+                });
+              }
+              return;
+            }
+
             const relPath =
               typeof body["relPath"] === "string" ? body["relPath"] : undefined;
 
@@ -760,10 +1180,13 @@ export async function startDesignConnectBridge(
             }
 
             await assertPathInside(manifest.rootPath, relPath);
+            assertNotBlockedSecretPath(relPath);
             const absolutePath = path.resolve(manifest.rootPath, relPath);
 
             if (pathname === "/read-file") {
-              // Read-file: no extension restriction — agents need to read any file.
+              // Read-file: no extension restriction (agents need to read any
+              // non-secret file), but the secret-path blocklist above still
+              // applies to .env*, *.pem, *.key, id_rsa*, and anything under .git/.
               let content: string;
               try {
                 content = await fs.readFile(absolutePath, "utf8");
@@ -782,12 +1205,36 @@ export async function startDesignConnectBridge(
                 }
                 return;
               }
-              sendJson(res, 200, { ok: true, content });
+              const versionHash = await computeVersionHash(absolutePath);
+              sendJson(res, 200, { ok: true, content, versionHash });
               return;
             }
 
-            // write-file and apply-edit only allow .html/.htm/.css.
+            // write-file and apply-edit only allow known text/code extensions.
             assertAllowedExtension(relPath);
+
+            // Optional optimistic-concurrency check: when the caller supplies
+            // expectedVersionHash, compare it against the file's CURRENT hash
+            // before writing. A missing file is treated as no-conflict (new
+            // file case) so first-time writes always succeed.
+            const expectedVersionHash =
+              typeof body["expectedVersionHash"] === "string"
+                ? body["expectedVersionHash"]
+                : undefined;
+            if (expectedVersionHash !== undefined) {
+              const currentVersionHash = await computeVersionHash(absolutePath);
+              if (
+                currentVersionHash !== undefined &&
+                currentVersionHash !== expectedVersionHash
+              ) {
+                sendJson(res, 409, {
+                  ok: false,
+                  error: "version conflict",
+                  currentVersionHash,
+                });
+                return;
+              }
+            }
 
             if (pathname === "/write-file") {
               const content =
@@ -803,7 +1250,8 @@ export async function startDesignConnectBridge(
               }
               await fs.mkdir(path.dirname(absolutePath), { recursive: true });
               await fs.writeFile(absolutePath, content, "utf8");
-              sendJson(res, 200, { ok: true, relPath });
+              const versionHash = await computeVersionHash(absolutePath);
+              sendJson(res, 200, { ok: true, relPath, versionHash });
               return;
             }
 
@@ -819,7 +1267,13 @@ export async function startDesignConnectBridge(
                 body["content"] as string,
                 "utf8",
               );
-              sendJson(res, 200, { ok: true, relPath, method: "replace" });
+              const versionHash = await computeVersionHash(absolutePath);
+              sendJson(res, 200, {
+                ok: true,
+                relPath,
+                method: "replace",
+                versionHash,
+              });
               return;
             }
 
@@ -885,7 +1339,13 @@ export async function startDesignConnectBridge(
 
             const updated = existing.replace(search, replace);
             await fs.writeFile(absolutePath, updated, "utf8");
-            sendJson(res, 200, { ok: true, relPath, method: "patch" });
+            const versionHash = await computeVersionHash(absolutePath);
+            sendJson(res, 200, {
+              ok: true,
+              relPath,
+              method: "patch",
+              versionHash,
+            });
           } catch (err: unknown) {
             sendJson(res, 500, {
               ok: false,

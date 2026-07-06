@@ -50,9 +50,17 @@ function insertBeforeClosingTag(
   return html.replace(pattern, `${snippet}\n</${closingTag}>`);
 }
 
-function nativeSnippet(kind: DesignNativeAssetKind): string {
+function createInsertedNodeId(prefix: string): string {
+  const random =
+    typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+      ? crypto.randomUUID().replace(/-/g, "").slice(0, 12)
+      : Math.random().toString(36).slice(2, 14);
+  return `inserted-${prefix}-${random}`;
+}
+
+function nativeSnippet(kind: DesignNativeAssetKind, nodeId: string): string {
   const attrs = (componentName: string) =>
-    `data-agent-native-native-asset data-agent-native-component="${componentName}" data-agent-native-layer-name="${componentName}"`;
+    `data-agent-native-native-asset data-agent-native-node-id="${nodeId}" data-agent-native-component="${componentName}" data-agent-native-layer-name="${componentName}"`;
   switch (kind) {
     case "section-frame":
       return `
@@ -137,8 +145,9 @@ function nativeSnippet(kind: DesignNativeAssetKind): string {
 function appendNativeAssetMarkup(
   html: string,
   kind: DesignNativeAssetKind,
+  nodeId: string,
 ): string {
-  const snippet = nativeSnippet(kind);
+  const snippet = nativeSnippet(kind, nodeId);
   return (
     insertBeforeClosingTag(html, "main", snippet) ??
     insertBeforeClosingTag(html, "body", snippet) ??
@@ -239,7 +248,8 @@ export default defineAction({
       // Collab read is best-effort; fall back to stored content.
     }
 
-    const content = appendNativeAssetMarkup(base, args.kind);
+    const insertedNodeId = createInsertedNodeId("native");
+    const content = appendNativeAssetMarkup(base, args.kind, insertedNodeId);
     const now = new Date().toISOString();
     await db
       .update(schema.designFiles)
@@ -261,6 +271,8 @@ export default defineAction({
       fileId: file.id,
       filename: file.filename,
       inserted: true,
+      insertedNodeId,
+      insertedSelector: `[data-agent-native-node-id="${insertedNodeId}"]`,
       source: "design-native",
       kind: args.kind,
     };

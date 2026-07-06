@@ -1,20 +1,20 @@
 ---
 title: "Planejar plug-in e mercado"
-description: "Instale o Plano Agent-Native skills (/visual-plan, /visual-recap) mais o conector do Plano MCP hospedado como um código Claude ou plug-in Codex, ou com o CLI universal. Como funcionam as atualizações e se você precisa enviar algo."
+description: "Instale as skills do Agent-Native Plan (/visual-plan, /visual-recap, /visualize-repo) mais o conector do Plan MCP hospedado como plug-in Claude Code ou Codex, ou com o CLI universal. Como funcionam as atualizações e se você precisa enviar algo."
 ---
 
 # Planejar plug-in e mercado
 
-O aplicativo Agent-Native **Plan** é enviado como um pacote instalável. Uma única instalação adiciona o comando de barra do Plano skills **e** conecta o conector do Plano MCP hospedado, para que o agente possa gerar planos e o skills possa publicá-los diretamente no aplicativo do Plano.
+O aplicativo Agent-Native **Plan** é enviado como um pacote instalável. Uma única instalação adiciona as skills de comando slash do Plan **e** conecta o conector do Plan MCP hospedado, para que o agente possa gerar planos e as skills possam publicá-los diretamente no aplicativo Plan.
 
 ## O que você ganha {#what-you-get}
 
 Uma instalação oferece:
 
-- **Dois skills** — `/visual-plan` (o ponto de entrada canônico) e `/visual-recap`.
+- **Três skills** — `/visual-plan` (o ponto de entrada canônico), `/visual-recap` e `/visualize-repo`.
 - **O conector do Plano MCP** — registrado no aplicativo hospedado em `https://plan.agent-native.com` (endpoint MCP `https://plan.agent-native.com/_agent-native/mcp`, nome do servidor `plan`).
 
-<Diagram id="doc-block-1uxomn4" title={"Três rotas, um pacote"} summary="Os plug-ins universais CLI, Claude Code e Codex instalam as mesmas duas habilidades mais o conector do Plano hospedado.">
+<Diagram id="doc-block-1uxomn4" title={"Três rotas, um pacote"} summary={"O CLI universal, o plug-in Claude Code e o plug-in Codex instalam as mesmas skills do Plan mais o conector do Plan hospedado."}>
 
 ```html
 <div class="diagram-routes">
@@ -37,7 +37,8 @@ Uma instalação oferece:
   <div class="diagram-panel center">
     <span class="diagram-pill accent">/visual-plan</span
     ><span class="diagram-pill accent">/visual-recap</span
-    ><small class="diagram-muted">two skills</small>
+    ><span class="diagram-pill accent">/visualize-repo</span
+    ><small class="diagram-muted">three skills</small>
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
   <div class="diagram-box">
@@ -78,7 +79,7 @@ Uma instalação oferece:
 
 </Diagram>
 
-Por padrão, ambos skills publicam no aplicativo Plan hospedado — eles criam um plano via
+Por padrão, `/visual-plan` e `/visual-recap` publicam no aplicativo Plan hospedado — eles criam um plano via
 o conector MCP e entregarei a você um link ou plano in-line para revisão. Eles nunca descartam
 um plano Markdown/ASCII embutido no chat como entrega. Se uma ferramenta de planejamento
 retorna `needs auth`, `Unauthorized` ou `Session terminated`, autenticar novamente
@@ -194,13 +195,13 @@ Existem três maneiras de entrar. A **rota universal CLI** é a que recomendamos
 
 ### Rota de habilidade universal (qualquer host MCP) {#universal}
 
-Funciona para qualquer host - Código Claude, Codex, Cursor, Cline, Goose, aplicativos ChatGPT personalizados MCP, Claude Cowork e qualquer outra coisa compatível com MCP. O Agent-Native CLI instala ambos os skills, registra o conector do Plano MCP hospedado, **e executa a autenticação para o(s) cliente(s) local(is) selecionado(s) na mesma etapa**, para que sua primeira chamada de ferramenta não atinja uma parede OAuth:
+Funciona para qualquer host — Claude Code, Codex, Cursor, Cline, Goose, aplicativos ChatGPT custom MCP, Claude Cowork e qualquer outra coisa compatível com MCP. O Agent-Native CLI instala as skills do Plan, registra o conector do Plan MCP hospedado **e executa a autenticação para os clientes locais selecionados na mesma etapa**, para que sua primeira chamada de ferramenta não encontre uma parede OAuth:
 
 ```bash
 npx @agent-native/core@latest skills add visual-plan
 ```
 
-Isso instala `visual-plan` mais a habilidade complementar `visual-recap`, registra o conector `plan` e executa a autenticação (prompt OAuth para compartilhamento hospedado/apoiado por conta). Sinalizadores úteis:
+Isso instala `visual-plan` mais as skills complementares `visual-recap` e `visualize-repo`, registra o conector `plan` e executa a autenticação (prompt OAuth para compartilhamento hospedado/apoiado por conta). Flags úteis:
 
 - `--client codex|claude-code|claude-code-cli|cowork|all` — para quais agentes locais gravar a configuração MCP (padrão `all`).
 - `--no-connect` — registre o conector sem autenticar; execute `npx @agent-native/core@latest connect https://plan.agent-native.com --client all` mais tarde ou escolha um `--client` mais estreito.
@@ -236,7 +237,7 @@ O repositório público `BuilderIO/agent-native` é em si um mercado de plug-ins
 /mcp        # authenticate the Plan connector (one OAuth approval)
 ```
 
-`/plugin install` adiciona o Plano skills e uma configuração MCP **somente URL** (sem segredos no pacote); `/mcp` → **Autenticar** conclui o handshake OAuth. Use a rota universal CLI quando quiser arquivos locais ou modo auto-hospedado.
+`/plugin install` adiciona as skills do Plan e uma configuração MCP **somente URL** (sem segredos no pacote); `/mcp` → **Authenticate** conclui o handshake OAuth. Use a rota CLI universal quando quiser arquivos locais ou modo auto-hospedado.
 
 > O catálogo do marketplace é denominado `agent-native-apps` e o plugin Plan é `agent-native-visual-plans`, portanto o destino da instalação é sempre `agent-native-visual-plans@agent-native-apps`.
 

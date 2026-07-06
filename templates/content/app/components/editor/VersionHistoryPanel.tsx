@@ -1,9 +1,4 @@
 import { useT, type CollabUser } from "@agent-native/core/client";
-import type { DocumentVersion } from "@shared/api";
-import { IconArrowLeft, IconRotate, IconLoader2 } from "@tabler/icons-react";
-import { useState } from "react";
-import { toast } from "sonner";
-
 import {
   AlertDialog,
   AlertDialogAction,
@@ -13,17 +8,22 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
-import { Button } from "@/components/ui/button";
-import { ScrollArea } from "@/components/ui/scroll-area";
-import { Separator } from "@/components/ui/separator";
+} from "@agent-native/toolkit/ui/alert-dialog";
+import { Button } from "@agent-native/toolkit/ui/button";
+import { Separator } from "@agent-native/toolkit/ui/separator";
 import {
   Sheet,
   SheetContent,
   SheetHeader,
   SheetTitle,
   SheetDescription,
-} from "@/components/ui/sheet";
+} from "@agent-native/toolkit/ui/sheet";
+import type { DocumentVersion } from "@shared/api";
+import { IconArrowLeft, IconRotate, IconLoader2 } from "@tabler/icons-react";
+import { useState } from "react";
+import { toast } from "sonner";
+
+import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   useDocumentVersions,
   useRestoreDocumentVersion,

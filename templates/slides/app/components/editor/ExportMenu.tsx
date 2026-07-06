@@ -1,4 +1,13 @@
 import { appBasePath, useT } from "@agent-native/core/client";
+import { toast } from "@agent-native/toolkit/hooks/use-toast";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@agent-native/toolkit/ui/dropdown-menu";
 import {
   IconDownload,
   IconFileTypePdf,
@@ -7,16 +16,6 @@ import {
   IconShare2,
   IconBrandGoogle,
 } from "@tabler/icons-react";
-
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import { toast } from "@/hooks/use-toast";
 
 interface ExportMenuProps {
   deckId: string;

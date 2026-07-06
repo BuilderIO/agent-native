@@ -6,97 +6,12 @@ import {
 } from "@agent-native/core/server";
 import { z } from "zod";
 
-import { buildDashboardPanelGroups } from "../app/pages/adhoc/sql-dashboard/dashboard-layout";
 import {
-  clampDashboardColumns,
-  type SqlPanel,
-} from "../app/pages/adhoc/sql-dashboard/types";
+  buildDashboardAgentContext,
+  buildDashboardSeedAgentContext,
+} from "../server/lib/agent-readable-resource-context";
 import { loadDashboardSeed } from "../server/lib/dashboard-seeds";
 import { getDashboard } from "../server/lib/dashboards-store";
-import { getPanelOrder } from "./dashboard-panel-order";
-
-function dashboardLayoutSummary(config: Record<string, unknown>) {
-  const panels = Array.isArray(config.panels)
-    ? (config.panels as SqlPanel[])
-    : [];
-  const columns = clampDashboardColumns(config.columns);
-  const groups = buildDashboardPanelGroups(panels, columns);
-  const panelOrder = getPanelOrder(config);
-  let visibleRowNumber = 1;
-
-  return {
-    panelCount: panelOrder.length,
-    panelOrder,
-    firstPanelIds: panelOrder.slice(0, 10),
-    groups: groups.map((group) => ({
-      key: group.key,
-      sectionId: group.section?.id ?? null,
-      sectionTitle: group.section?.title ?? null,
-      columns: group.columns,
-      rows: group.rows.map((row, rowIndex) => {
-        const rowNumber = visibleRowNumber++;
-        return {
-          rowNumber,
-          rowIndex,
-          panelIds: row.panels.map((panel) => panel.id),
-        };
-      }),
-    })),
-  };
-}
-
-function panelSummaries(config: Record<string, unknown>) {
-  const panels = Array.isArray(config.panels)
-    ? (config.panels as Array<Record<string, unknown>>)
-    : [];
-  return panels.map((panel, index) => {
-    const panelConfig =
-      panel.config &&
-      typeof panel.config === "object" &&
-      !Array.isArray(panel.config)
-        ? (panel.config as Record<string, unknown>)
-        : {};
-    return {
-      index,
-      id: typeof panel.id === "string" ? panel.id : "",
-      title: typeof panel.title === "string" ? panel.title : "",
-      chartType: typeof panel.chartType === "string" ? panel.chartType : "",
-      source: typeof panel.source === "string" ? panel.source : undefined,
-      width: typeof panel.width === "number" ? panel.width : undefined,
-      columns: typeof panel.columns === "number" ? panel.columns : undefined,
-      tab: typeof panel.tab === "string" ? panel.tab : undefined,
-      description:
-        typeof panelConfig.description === "string"
-          ? panelConfig.description
-          : undefined,
-    };
-  });
-}
-
-function seededResponse(
-  id: string,
-  seed: Record<string, unknown>,
-  includeConfig: boolean,
-): Record<string, unknown> {
-  const base = {
-    id,
-    name: typeof seed.name === "string" ? seed.name : id,
-    description:
-      typeof seed.description === "string" ? seed.description : undefined,
-    filters: seed.filters,
-    variables: seed.variables,
-    columns: seed.columns,
-    panels: panelSummaries(seed),
-    layout: dashboardLayoutSummary(seed),
-    ownerEmail: null,
-    orgId: null,
-    visibility: "org",
-    archivedAt: null,
-    hiddenAt: null,
-    hiddenBy: null,
-  };
-  return includeConfig ? { ...base, ...seed } : base;
-}
 
 export default defineAction({
   description:
@@ -149,34 +64,15 @@ export default defineAction({
     if (!dash || dash.kind !== "sql") {
       const seed = loadDashboardSeed(args.id);
       if (seed)
-        return seededResponse(args.id, seed, args.includeConfig === true);
+        return buildDashboardSeedAgentContext(args.id, seed, {
+          includeConfig: args.includeConfig === true,
+        });
       throw Object.assign(new Error("Dashboard not found"), {
         statusCode: 404,
       });
     }
-    const config = dash.config as Record<string, unknown>;
-    const base = {
-      id: args.id,
-      name: typeof config.name === "string" ? config.name : args.id,
-      description:
-        typeof config.description === "string" ? config.description : undefined,
-      filters: config.filters,
-      variables: config.variables,
-      columns: config.columns,
-      panels: panelSummaries(config),
-      layout: dashboardLayoutSummary(config),
-      ownerEmail: dash.ownerEmail,
-      orgId: dash.orgId,
-      visibility: dash.visibility,
-      role: dash.role,
-      canEdit: dash.canEdit,
-      canManage: dash.canManage,
-      archivedAt: dash.archivedAt,
-      hiddenAt: dash.hiddenAt,
-      hiddenBy: dash.hiddenBy,
-      createdAt: dash.createdAt,
-      updatedAt: dash.updatedAt,
-    };
-    return args.includeConfig === true ? { ...base, ...config } : base;
+    return buildDashboardAgentContext(dash, {
+      includeConfig: args.includeConfig === true,
+    });
   },
 });

@@ -15,6 +15,7 @@ import {
   getLocaleInitScript,
   getThemeInitScript,
 } from "@agent-native/core/client";
+import { Toaster } from "@agent-native/toolkit/ui/toaster";
 import { IconSun, IconMoon } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useTheme } from "next-themes";
@@ -30,7 +31,6 @@ import {
 import type { LinksFunction } from "react-router";
 
 import { Layout as AppLayout } from "@/components/layout/Layout";
-import { Toaster } from "@/components/ui/toaster";
 import { DeckProvider } from "@/context/DeckContext";
 import { useNavigationState } from "@/hooks/use-navigation-state";
 import { TAB_ID } from "@/lib/tab-id";
@@ -247,8 +247,8 @@ export default function Root() {
       i18n={{ catalog: i18nCatalog }}
     >
       <AppContent />
-      {/* useToast-based Toaster — separate from AppProviders' sonner Toaster.
-          Components throughout the app call toast() from @/hooks/use-toast,
+      {/* useToast-based Toaster - separate from AppProviders' sonner Toaster.
+          Components throughout the app call toast() from @agent-native/toolkit,
           which requires this Toaster to be mounted. */}
       <Toaster />
     </AppProviders>

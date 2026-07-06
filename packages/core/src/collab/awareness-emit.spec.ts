@@ -33,6 +33,21 @@ function event(params: Record<string, string> = {}) {
   return { _params: params, _status: 200 } as unknown;
 }
 
+function scopedEvent(params: Record<string, string> = {}) {
+  return {
+    _params: params,
+    _status: 200,
+    context: {
+      _collabAwarenessScope: {
+        owner: "owner@example.com",
+        orgId: "org-1",
+        resourceType: "deck",
+        resourceId: "deck-1",
+      },
+    },
+  } as unknown;
+}
+
 describe("postAwareness SSE fast-path", () => {
   beforeEach(() => {
     getDocAwareness("emit-doc").clear();
@@ -64,6 +79,28 @@ describe("postAwareness SSE fast-path", () => {
     expect(received[0].docId).toBe("emit-doc");
     expect(received[0].states).toHaveLength(1);
     expect(received[0].states[0].clientId).toBe(10);
+  });
+
+  it("copies collab resource scope onto awareness events", async () => {
+    const received: AwarenessChangeEvent[] = [];
+    getAwarenessEmitter().on(AWARENESS_CHANGE_EVENT, (evt) => {
+      received.push(evt);
+    });
+
+    mockReadBody.mockResolvedValue({
+      clientId: 10,
+      state: JSON.stringify({ user: { name: "Alice", email: "alice@ex.com" } }),
+    });
+
+    await postAwareness(scopedEvent({ docId: "emit-doc" }) as any);
+    getAwarenessEmitter().removeAllListeners(AWARENESS_CHANGE_EVENT);
+
+    expect(received[0]).toMatchObject({
+      owner: "owner@example.com",
+      orgId: "org-1",
+      resourceType: "deck",
+      resourceId: "deck-1",
+    });
   });
 
   it("emits event with all current clients (including the sender)", async () => {

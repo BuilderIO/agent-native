@@ -432,8 +432,11 @@ const messages = {
     embed: "Einbetten",
     shareLink: "Teillink",
     shareWithAgents: "Mit Agenten teilen",
+    copyAgentPrompt: "Agent-Prompt kopieren",
+    agentPrompt:
+      "Rufe diese Clips-Agent-Kontext-URL ab: {{agentContextUrl}}. Verwende transcript.segments fuer den gesprochenen Kontext, rufe recommendedFrames oder die Frame-API-URLs ab, um den Bildschirm zu sehen, und pruefe browserDiagnostics, falls vorhanden, fuer redigierte Konsolenprotokolle und fetch/XHR-Anfragemetadaten.",
     agentTokenDescription:
-      "Dieser Agent URL verwendet ein kurzlebiges Token, sodass Agenten den Clip lesen können, ohne das Passwort preiszugeben.",
+      "Diese temporare Agent-URL lasst Agenten den Clip lesen, ohne ihn offentlich zu machen. Sie lauft nach zwei Stunden ab.",
     gifPreview: "GIF-Vorschau",
     openPlayer: "Spieler öffnen",
     downloadMp4: "Laden Sie MP4 herunter",
@@ -445,6 +448,7 @@ const messages = {
     askOwnerPublic: "Bitten Sie den Eigentümer, es öffentlich zu machen.",
     responsive: "Responsiv (16:9)",
     fixedSize: "Feste Größe",
+    embedIframeTitle: "Clips-Video",
     width: "Breite",
     height: "Höhe",
     autoplay: "Übersetzt: Autoplay",
@@ -658,6 +662,12 @@ Alle sichtbaren Änderungen für Clips-Nutzer werden hier dokumentiert. Du kanns
     s3SecretAccessKeyLabel: "Geheimer Zugriffsschlüssel",
     s3RegionLabel: "Übersetzt: Region",
     s3PublicBaseUrlLabel: "Öffentliche Basis-URL",
+    s3UrlInvalid:
+      "Muss eine gültige URL sein (z. B. https://s3.us-east-1.amazonaws.com)",
+    s3BucketInvalid:
+      "Bucket-Name muss 3–63 Kleinbuchstaben, Zahlen oder Bindestriche enthalten",
+    s3RegionInvalid:
+      'Muss eine gültige Region sein (z. B. us-east-1) oder "auto"',
     apiSetup: "KI-Einrichtung",
     apiSetupDescription:
       "Verbinde KI mit kostenlosen Builder.io-Credits oder deinen eigenen LLM-Schlüsseln.",
@@ -672,6 +682,8 @@ Alle sichtbaren Änderungen für Clips-Nutzer werden hier dokumentiert. Du kanns
     providerKeysSet: "{{count}} gesetzt",
     checkingProviderKeys: "Anbieter-Schlüssel werden geprüft…",
     keySet: "Gesetzt",
+    keyCleared: "Speicher-Anmeldedaten gelöscht",
+    clearAllS3: "Anmeldedaten löschen",
     replaceKey: "Schlüssel ersetzen…",
     pasteProviderKey: "Füge zuerst einen Anbieter-Schlüssel ein.",
     apiKeySaved: "API-Schlüssel gespeichert",

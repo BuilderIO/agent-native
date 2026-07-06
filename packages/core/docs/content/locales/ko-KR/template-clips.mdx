@@ -131,6 +131,15 @@ API, 텍스트나 정지 이미지만 허용하는 모델도 여전히 무엇을
 | `/api/agent-transcript.json?id=<recordingId>`     | `startMs`, `endMs`, 읽을 수 있는 타임스탬프, 텍스트 및 선택적 소스 라벨이 포함된 타임스탬프 기록 세그먼트 |
 | `/api/agent-frame.jpg?id=<recordingId>&atMs=<ms>` | 원본 비디오 타임스탬프의 비디오에서 추출된 JPEG 프레임                                                    |
 
+Temporary private agent links are also supported: the Share dialog can mint a two-hour `agent_access` URL for any recording the viewer can access. Agents use that token with the share page and JSON APIs, and the clip does not become public.
+
+Implementation note: use the shared core agent-access helpers
+(`createScopedAgentAccessGrant`, `verifyScopedAgentAccessToken`,
+`buildAgentAccessUrl`, and `buildAgentAccessApiUrl`) for the SSR/bot-visible
+URL contract. Keep Clips-specific visibility checks, transcript/frame payloads,
+and player UI local. New links use `agent_access`; routes should continue
+accepting the legacy `t` query where existing agent API URLs may already use it.
+
 엔드포인트는 공유 페이지와 동일한 공개/비밀번호/만료 규칙을 따릅니다.
 비밀번호로 보호된 클립에는 비밀번호가 한 번만 필요합니다. 성공적인 응답 반환
 다운스트림 에이전트에 일반 텍스트가 필요하지 않도록 단기 토큰화된 링크

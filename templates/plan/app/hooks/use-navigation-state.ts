@@ -106,7 +106,16 @@ export function useNavigationState() {
     const path = planNavigateCommandPath(cmd);
     void prewarmPlanRoutePath(path);
     if (path !== "/") markAgentChatHomeHandoff("plans");
-    navigate(path, { replace: true, flushSync: true });
+    const commitNavigation = () =>
+      navigate(path, { replace: true, flushSync: true });
+    if (
+      typeof window !== "undefined" &&
+      typeof window.queueMicrotask === "function"
+    ) {
+      window.queueMicrotask(commitNavigation);
+    } else {
+      window.setTimeout(commitNavigation, 0);
+    }
     qc.setQueryData(["navigate-command"], null);
   }, [navCommand, navigate, qc]);
 }

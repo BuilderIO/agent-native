@@ -415,8 +415,11 @@ const messages = {
     embed: "Embed",
     shareLink: "Share link",
     shareWithAgents: "Share with agents",
+    copyAgentPrompt: "Copy agent prompt",
+    agentPrompt:
+      "Fetch this Clips agent context URL: {{agentContextUrl}}. Use transcript.segments for spoken context, fetch recommendedFrames or the frame API URLs to see the screen, and check browserDiagnostics if present for redacted console logs and fetch/XHR request metadata.",
     agentTokenDescription:
-      "This agent URL uses a short-lived token, so agents can read the clip without exposing the password.",
+      "This temporary agent URL lets agents read the clip without making it public. It expires after two hours.",
     gifPreview: "GIF preview",
     openPlayer: "Open player",
     downloadMp4: "Download MP4",
@@ -428,6 +431,7 @@ const messages = {
     askOwnerPublic: "Ask the owner to make it public.",
     responsive: "Responsive (16:9)",
     fixedSize: "Fixed size",
+    embedIframeTitle: "Clips video",
     width: "Width",
     height: "Height",
     autoplay: "Autoplay",
@@ -633,6 +637,11 @@ All notable user-facing changes to Clips are documented here. Open it any time f
     s3SecretAccessKeyLabel: "Secret access key",
     s3RegionLabel: "Region",
     s3PublicBaseUrlLabel: "Public base URL",
+    s3UrlInvalid:
+      "Must be a valid URL (e.g. https://s3.us-east-1.amazonaws.com)",
+    s3BucketInvalid:
+      "Bucket name must be 3–63 lowercase letters, numbers, or hyphens",
+    s3RegionInvalid: 'Must be a valid region (e.g. us-east-1) or "auto"',
     apiSetup: "AI setup",
     apiSetupDescription:
       "Connect AI with Builder.io free credits or your own LLM keys.",
@@ -647,6 +656,8 @@ All notable user-facing changes to Clips are documented here. Open it any time f
     providerKeysSet: "{{count}} set",
     checkingProviderKeys: "Checking provider keys…",
     keySet: "Set",
+    keyCleared: "Storage credentials cleared",
+    clearAllS3: "Clear credentials",
     replaceKey: "Replace key…",
     pasteProviderKey: "Paste a provider key first.",
     apiKeySaved: "API key saved",

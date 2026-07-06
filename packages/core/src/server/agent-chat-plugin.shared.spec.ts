@@ -92,6 +92,9 @@ const run: AgentRunSummary = {
   lastProgressAt: 150,
   errorCode: null,
   abortReason: null,
+  dispatchMode: null,
+  terminalReason: "done",
+  diagStage: null,
 };
 
 describe("recurring jobs runtime startup", () => {
@@ -154,6 +157,7 @@ describe("agent chat process-run failure finalization", () => {
       })),
       recordRunDiagnostic: vi.fn(async () => {}),
       setRunError: vi.fn(async () => {}),
+      setRunTerminalReason: vi.fn(async () => {}),
       updateRunStatusIfRunning: vi.fn(async () => true),
       ensureTerminalRunEvent: vi.fn(async () => {}),
     };
@@ -184,6 +188,10 @@ describe("agent chat process-run failure finalization", () => {
       "run-claimed",
       "errored",
     );
+    expect(d.setRunTerminalReason).toHaveBeenCalledWith(
+      "run-claimed",
+      "background_worker_failed",
+    );
     expect(d.ensureTerminalRunEvent).toHaveBeenCalledWith(
       "run-claimed",
       CLAIMED_BACKGROUND_WORKER_FAILED_ERROR_EVENT,
@@ -207,6 +215,7 @@ describe("agent chat process-run failure finalization", () => {
       "pre-claim failure",
     );
     expect(d.setRunError).not.toHaveBeenCalled();
+    expect(d.setRunTerminalReason).not.toHaveBeenCalled();
     expect(d.updateRunStatusIfRunning).not.toHaveBeenCalled();
     expect(d.ensureTerminalRunEvent).not.toHaveBeenCalled();
   });

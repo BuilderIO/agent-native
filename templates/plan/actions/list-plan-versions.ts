@@ -1,15 +1,10 @@
 import { defineAction } from "@agent-native/core";
-import {
-  ForbiddenError,
-  currentAccess,
-  resolveAccess,
-} from "@agent-native/core/sharing";
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
-import { resolvePlanAccessContext } from "../server/lib/local-identity.js";
-import { summarizePlanVersion } from "../server/lib/plan-versions.js";
+import { summarizePlanVersionRow } from "../server/lib/plan-versions.js";
+import { assertPlanEditor } from "../server/plans.js";
 
 export default defineAction({
   description:
@@ -28,19 +23,31 @@ export default defineAction({
     description: "List saved version history for a visual plan.",
   },
   run: async ({ planId, limit }) => {
-    const access = await resolveAccess(
-      "plan",
-      planId,
-      resolvePlanAccessContext(currentAccess()),
-    );
-    if (!access) throw new ForbiddenError(`Plan ${planId} not found`);
-    if ((access.resource as typeof schema.plans.$inferSelect).deletedAt) {
-      throw new ForbiddenError(`Plan ${planId} not found`);
-    }
+    const access = await assertPlanEditor(planId);
 
     const ownerEmail = access.resource.ownerEmail as string;
-    const versions = await getDb()
-      .select()
+    const db = getDb();
+    // Project only the small columns + denormalized summary columns instead of
+    // `.select()`-ing every row's full `snapshot_json` (the entire plan +
+    // sections blob) just to JSON.parse it for a list view. Rows written
+    // before the summary columns existed have `blockCount === null`; for
+    // those (and only those) we fetch + parse `snapshot_json` below.
+    const versions = await db
+      .select({
+        id: schema.planVersions.id,
+        planId: schema.planVersions.planId,
+        title: schema.planVersions.title,
+        changeLabel: schema.planVersions.changeLabel,
+        createdBy: schema.planVersions.createdBy,
+        createdAt: schema.planVersions.createdAt,
+        status: schema.planVersions.status,
+        source: schema.planVersions.source,
+        blockCount: schema.planVersions.blockCount,
+        sectionCount: schema.planVersions.sectionCount,
+        hasCanvas: schema.planVersions.hasCanvas,
+        hasPrototype: schema.planVersions.hasPrototype,
+        previewText: schema.planVersions.previewText,
+      })
       .from(schema.planVersions)
       .where(
         and(
@@ -51,10 +58,31 @@ export default defineAction({
       .orderBy(desc(schema.planVersions.createdAt))
       .limit(limit);
 
+    const legacyIds = versions
+      .filter((version) => version.blockCount == null)
+      .map((version) => version.id);
+    const legacySnapshots = legacyIds.length
+      ? await db
+          .select({
+            id: schema.planVersions.id,
+            snapshotJson: schema.planVersions.snapshotJson,
+          })
+          .from(schema.planVersions)
+          .where(inArray(schema.planVersions.id, legacyIds))
+      : [];
+    const legacySnapshotById = new Map(
+      legacySnapshots.map((row) => [row.id, row.snapshotJson]),
+    );
+
     return {
       planId,
       count: versions.length,
-      versions: versions.map(summarizePlanVersion),
+      versions: versions.map((version) =>
+        summarizePlanVersionRow({
+          ...version,
+          snapshotJson: legacySnapshotById.get(version.id) ?? null,
+        }),
+      ),
     };
   },
 });

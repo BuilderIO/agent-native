@@ -1,4 +1,9 @@
-import { runMigrations, getDbExec, isPostgres } from "@agent-native/core/db";
+import {
+  runMigrations,
+  getDbExec,
+  isPostgres,
+  ensureAdditiveColumns,
+} from "@agent-native/core/db";
 import { registerEvent } from "@agent-native/core/event-bus";
 import { z } from "zod";
 
@@ -8,6 +13,25 @@ import { z } from "zod";
 // are loaded in a separate Vite SSR bundle from user actions, so we trigger
 // the registration eagerly from the always-loaded db plugin.
 import "../db/index.js";
+import * as schema from "../db/schema.js";
+
+/**
+ * Every Drizzle table exported from schema.ts. Filters out type-only and
+ * helper exports the same way db.spec.ts's `isDrizzleTable` regression guard
+ * does: a real table carries a Symbol-keyed drizzle metadata bag, plain
+ * exports don't.
+ */
+function isDrizzleTable(value: unknown): value is object {
+  return (
+    !!value &&
+    typeof value === "object" &&
+    Object.getOwnPropertySymbols(value).some((s) =>
+      s.toString().includes("drizzle"),
+    )
+  );
+}
+
+const schemaTables = Object.values(schema).filter(isDrizzleTable);
 
 /**
  * Post-migration fixup for Postgres: retype boolean-mode columns from bigint
@@ -63,6 +87,10 @@ async function retypeBooleanColumnsOnPostgres(): Promise<void> {
   }
 }
 
+// Convention: every new migration below MUST set a unique `name:` slug (see
+// packages/core/src/db/migrations.ts for the full rationale). Version numbers
+// alone are not a safe identity across parallel branches that each extend
+// this list independently — see the v41 incident documented on v41 below.
 const migrations = runMigrations(
   [
     // ---------------------------------------------------------------------------
@@ -648,9 +676,19 @@ const migrations = runMigrations(
     // and `dictation_shares` (v25) are NOT on any access path — the schema and
     // every `accessFilter` callsite use the `clips_*` prefixed tables — so they
     // are intentionally skipped.
+    //
+    // v41 was recorded as applied in `clips_migrations` on the shared Neon
+    // database, but none of its 8 indexes actually existed live (confirmed via
+    // `pg_indexes` — the exact "recorded but never ran" collision class
+    // `runMigrations` name-based tracking exists to fix; see
+    // packages/core/src/db/migrations.ts). All statements here are
+    // `CREATE INDEX IF NOT EXISTS` (unchanged, still idempotent), so it is
+    // named to re-apply by name regardless of this database's recorded
+    // MAX(version).
     // -------------------------------------------------------------------------
     {
       version: 41,
+      name: "recordings-comments-shares-hot-path-indexes",
       sql: [
         // recordings list: library view filters owner_email + workspace_id and
         // sorts by created_at; the accessFilter owner branch also scopes by
@@ -1402,6 +1440,15 @@ async function backfillLegacyClipsTables(): Promise<void> {
   }
 }
 
+/**
+ * The migration list above is the authoritative source for tables, indexes,
+ * and data transforms. `ensureAdditiveColumns` runs after it (and after the
+ * other startup backfills) as a belt-and-braces safety net: a column added to
+ * schema.ts without a matching hand-written ALTER migration silently 500s
+ * every query touching a pre-existing production table. It only ever adds
+ * missing columns — never drops, renames, or retypes anything — and any
+ * failure here is logged and swallowed so it can never fail boot.
+ */
 export default async (nitroApp: any): Promise<void> => {
   await migrations(nitroApp);
   await retypeBooleanColumnsOnPostgres();
@@ -1412,6 +1459,26 @@ export default async (nitroApp: any): Promise<void> => {
   sweepOrphanedRecordingChunks().catch((err) => {
     console.warn("[db] chunk sweep failed:", (err as Error)?.message ?? err);
   });
+
+  try {
+    const summary = await ensureAdditiveColumns({
+      db: getDbExec(),
+      tables: schemaTables,
+    });
+    if (summary.errors.length > 0) {
+      console.warn(
+        "[db] ensureAdditiveColumns completed with errors:",
+        summary.errors,
+      );
+    }
+  } catch (err) {
+    // Never fail boot over the safety net itself — the authoritative
+    // migrations above already ran.
+    console.warn(
+      "[db] ensureAdditiveColumns failed (non-fatal):",
+      err instanceof Error ? err.message : err,
+    );
+  }
 
   // ---------------------------------------------------------------------------
   // Register Clips template events for the automations system.

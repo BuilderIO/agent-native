@@ -7,6 +7,7 @@ import {
 } from "@tabler/icons-react";
 import { ReactNode, useState } from "react";
 
+import { ErrorReportActions } from "../ErrorReportActions.js";
 import { useT } from "../i18n.js";
 import {
   useAcceptInvitation,
@@ -115,6 +116,17 @@ function ErrorPane({
         >
           {t("org.tryAgain")}
         </button>
+        <ErrorReportActions
+          appName="Organization"
+          title={t("org.loadErrorTitle")}
+          details={message}
+          issueTitle="Organization load error"
+          feedbackLabel={t("org.sendFeedback")}
+          feedbackPlaceholder={t("org.feedbackPlaceholder")}
+          githubLabel={t("org.openGitHubIssue")}
+          className="mt-4 justify-start"
+          align="start"
+        />
       </div>
     </div>
   );

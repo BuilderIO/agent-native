@@ -226,11 +226,19 @@ export function buildExtensionHtml(
   </style>
 	  <style>
 	    *, *::before, *::after { border-color: hsl(var(--border)); }
+	    html, body {
+	      /* Transparent so the iframe inherits the host surface (dashboard panel,
+	         sidebar, chat) instead of painting the browser's default white canvas.
+	         The dark class still flips the theme vars; content paints its own
+	         bg-background / bg-card surfaces. */
+	      background: transparent;
+	    }
 	    body {
 	      --agent-native-extension-padding: clamp(16px, 2vw, 24px);
 	      /* Legacy alias for pre-rename extension content (do not remove). */
 	      --agent-native-tool-padding: var(--agent-native-extension-padding);
 	      box-sizing: border-box;
+	      color: hsl(var(--foreground));
 	      font-family: 'Inter', sans-serif;
 	      margin: 0;
 	      min-height: 100vh;
@@ -403,8 +411,14 @@ export function buildExtensionHtml(
 	      }
 
 	      if (!res.ok) {
-	        var err = res.body || { error: res.statusText };
-	        throw new Error(err.error || 'Action failed: ' + res.status);
+	        var err = res.body || {};
+	        var rawError = typeof err === 'string' ? err : err.error;
+	        var message = (typeof rawError === 'string' && rawError.trim())
+	          ? rawError
+	          : (res.status === 404
+	            ? "Action '" + name + "' is not available over HTTP (404). It may be agent-only (http: false); expose it with an HTTP-mounted action to call it from an extension."
+	            : "Action '" + name + "' failed (" + (res.status || 'network error') + ")");
+	        throw new Error(message);
 	      }
 	      return res.body;
 	    }
@@ -730,7 +744,7 @@ export function buildExtensionHtml(
 	    });
 	  </script>
 	</head>
-	<body${extensionId ? ` data-extension-id="${extensionIdAttr}" data-tool-id="${extensionIdAttr}"` : ""} class="bg-background text-foreground">
+	<body${extensionId ? ` data-extension-id="${extensionIdAttr}" data-tool-id="${extensionIdAttr}"` : ""} class="text-foreground">
 	${content}
 	<div id="__extension-error-toast">
 	  <div style="display:flex;align-items:flex-start;gap:8px;">

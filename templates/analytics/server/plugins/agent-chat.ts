@@ -7,6 +7,7 @@ import {
 } from "@agent-native/core/server";
 
 import actionsRegistry from "../../.generated/actions-registry.js";
+import { applyAnalyticsPlanModePolicy } from "../lib/agent-chat-plan-mode";
 import { renderDataDictionary } from "../lib/data-dictionary-context";
 import {
   failedDataQueryAttemptMessage,
@@ -28,6 +29,7 @@ import {
 } from "../lib/scoped-settings";
 
 const DATA_DICT_PREFIX = "data-dict-";
+const ANALYTICS_BACKGROUND_RUN_SOFT_TIMEOUT_MS = 13 * 60_000;
 
 const INITIAL_TOOL_NAMES = [
   "view-screen",
@@ -63,6 +65,11 @@ const INITIAL_TOOL_NAMES = [
   "save-data-dictionary-entry",
   "navigate",
 ];
+
+export {
+  applyAnalyticsPlanModePolicy,
+  PLAN_MODE_ACT_ONLY_TOOLS,
+} from "../lib/agent-chat-plan-mode";
 
 function latestUserText(
   messages: AgentLoopFinalResponseGuardContext["messages"],
@@ -159,7 +166,9 @@ function realDataFinalGuard(context: AgentLoopFinalResponseGuardContext) {
 
 export default createAgentChatPlugin({
   appId: "analytics",
-  actions: loadActionsFromStaticRegistry(actionsRegistry),
+  actions: applyAnalyticsPlanModePolicy(
+    loadActionsFromStaticRegistry(actionsRegistry),
+  ),
   initialToolNames: INITIAL_TOOL_NAMES,
   finalResponseGuard: realDataFinalGuard,
   // Enable sandboxed JavaScript execution for analytics data processing.
@@ -170,6 +179,8 @@ export default createAgentChatPlugin({
   // Operators deploying to trusted internal environments can set
   // AGENT_PROD_CODE_EXECUTION=trusted to also enable bash/read/edit/write.
   codeExecution: { production: "sandboxed" },
+  durableBackgroundRuns: true,
+  runSoftTimeoutMs: ANALYTICS_BACKGROUND_RUN_SOFT_TIMEOUT_MS,
   resolveOrgId: async (event) => {
     const ctx = await getOrgContext(event);
     return ctx.orgId;

@@ -28,6 +28,7 @@ fn numpad_enter_shortcut() -> Shortcut {
 
 static CUSTOM_VOICE_SHORTCUT: OnceLock<Mutex<Option<Shortcut>>> = OnceLock::new();
 static CUSTOM_POPOVER_SHORTCUT: OnceLock<Mutex<Option<Shortcut>>> = OnceLock::new();
+static CUSTOM_RECORD_SHORTCUT: OnceLock<Mutex<Option<Shortcut>>> = OnceLock::new();
 static FN_TAP_ENABLED: AtomicBool = AtomicBool::new(false);
 static FN_TAP_INSTALL_STARTED: AtomicBool = AtomicBool::new(false);
 static POPOVER_DISMISS_SHORTCUT_ACTIVE: AtomicBool = AtomicBool::new(false);
@@ -41,12 +42,20 @@ fn custom_popover_shortcut() -> &'static Mutex<Option<Shortcut>> {
     CUSTOM_POPOVER_SHORTCUT.get_or_init(|| Mutex::new(None))
 }
 
+fn custom_record_shortcut() -> &'static Mutex<Option<Shortcut>> {
+    CUSTOM_RECORD_SHORTCUT.get_or_init(|| Mutex::new(None))
+}
+
 fn current_custom_voice_shortcut() -> Option<Shortcut> {
     custom_voice_shortcut().lock().ok().and_then(|g| *g)
 }
 
 fn current_custom_popover_shortcut() -> Option<Shortcut> {
     custom_popover_shortcut().lock().ok().and_then(|g| *g)
+}
+
+fn current_custom_record_shortcut() -> Option<Shortcut> {
+    custom_record_shortcut().lock().ok().and_then(|g| *g)
 }
 
 fn parse_optional_shortcut(value: Option<String>) -> Result<Option<Shortcut>, String> {
@@ -109,21 +118,39 @@ pub async fn set_custom_shortcuts(
     app: AppHandle,
     voice: Option<String>,
     popover: Option<String>,
+    record: Option<String>,
 ) -> Result<(), String> {
     let voice = parse_optional_shortcut(voice)?;
     let popover = parse_optional_shortcut(popover)?;
-    if voice.is_some() && voice == popover {
-        return Err("Voice dictation and Open Clips need different shortcuts.".to_string());
+    let record = parse_optional_shortcut(record)?;
+    if (voice.is_some() && voice == popover)
+        || (voice.is_some() && voice == record)
+        || (popover.is_some() && popover == record)
+    {
+        return Err(
+            "Voice dictation, Open Clips, and Start/stop recording need different shortcuts."
+                .to_string(),
+        );
     }
     let gs = app.global_shortcut();
 
     let prev_voice = swap_custom_shortcut(gs, custom_voice_shortcut(), voice, "voice")?;
-    if let Err(err) = swap_custom_shortcut(gs, custom_popover_shortcut(), popover, "Clips") {
-        // Popover registration failed after voice already mutated — roll the
-        // voice slot back to its previous value so callers see all-or-nothing
-        // behaviour. If the rollback itself fails we surface only the
-        // original popover error to the user; the local state always
-        // reflects whatever actually got registered.
+    let prev_popover = match swap_custom_shortcut(gs, custom_popover_shortcut(), popover, "Clips") {
+        Ok(prev_popover) => prev_popover,
+        Err(err) => {
+            // Popover registration failed after voice already mutated — roll
+            // the voice slot back to its previous value so callers see
+            // all-or-nothing behaviour. If the rollback itself fails we
+            // surface only the original popover error to the user; local
+            // state always reflects whatever actually got registered.
+            let _ = swap_custom_shortcut(gs, custom_voice_shortcut(), prev_voice, "voice");
+            return Err(err);
+        }
+    };
+    if let Err(err) = swap_custom_shortcut(gs, custom_record_shortcut(), record, "recording") {
+        // Recording registration failed after earlier slots already mutated —
+        // roll them back so callers see all-or-nothing behaviour.
+        let _ = swap_custom_shortcut(gs, custom_popover_shortcut(), prev_popover, "Clips");
         let _ = swap_custom_shortcut(gs, custom_voice_shortcut(), prev_voice, "voice");
         return Err(err);
     }
@@ -273,6 +300,9 @@ pub fn build_shortcut_plugin() -> tauri_plugin_global_shortcut::Builder<tauri::W
         let is_custom_popover = current_custom_popover_shortcut()
             .map(|custom| custom == *shortcut)
             .unwrap_or(false);
+        let is_custom_record = current_custom_record_shortcut()
+            .map(|custom| custom == *shortcut)
+            .unwrap_or(false);
         let is_escape = shortcut.matches(Modifiers::empty(), Code::Escape);
         let is_enter = shortcut.matches(Modifiers::empty(), Code::Enter);
         let is_numpad_enter = shortcut.matches(Modifiers::empty(), Code::NumpadEnter);
@@ -347,6 +377,15 @@ pub fn build_shortcut_plugin() -> tauri_plugin_global_shortcut::Builder<tauri::W
         if event.state() != tauri_plugin_global_shortcut::ShortcutState::Pressed {
             return;
         }
+        if is_custom_record {
+            wake_popover_for_recording_shortcut(app);
+            let app = app.clone();
+            thread::spawn(move || {
+                thread::sleep(Duration::from_millis(80));
+                let _ = app.emit("clips:record-shortcut", ());
+            });
+            return;
+        }
         if is_cmd || is_ctrl || is_custom_popover {
             // Loom-style: if a recording is already active, the
             // global shortcut stops it rather than re-opening the
@@ -359,6 +398,19 @@ pub fn build_shortcut_plugin() -> tauri_plugin_global_shortcut::Builder<tauri::W
             }
         }
     })
+}
+
+fn wake_popover_for_recording_shortcut(app: &tauri::AppHandle) {
+    let Some(window) = app.get_webview_window("popover") else {
+        return;
+    };
+    if window.is_visible().unwrap_or(false) {
+        return;
+    }
+    let _ = window.set_position(PhysicalPosition::new(2_i32, 2_i32));
+    let _ = window.set_size(tauri::Size::Physical(PhysicalSize::new(2_u32, 2_u32)));
+    show_without_activation(&window);
+    let _ = app.emit("clips:popover-visible", false);
 }
 
 fn emit_voice_shortcut(

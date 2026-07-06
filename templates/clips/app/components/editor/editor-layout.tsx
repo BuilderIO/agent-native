@@ -83,6 +83,26 @@ export interface EditorLayoutProps {
 }
 
 const WAVEFORM_HEIGHT = 120;
+const MIN_TIMELINE_ZOOM = 1;
+const MAX_TIMELINE_ZOOM = 50;
+
+function clampTimelineZoom(value: number): number {
+  if (!Number.isFinite(value)) return MIN_TIMELINE_ZOOM;
+  const clamped = Math.max(
+    MIN_TIMELINE_ZOOM,
+    Math.min(MAX_TIMELINE_ZOOM, value),
+  );
+  return Math.round(clamped * 10) / 10;
+}
+
+function normalizeWheelDeltaY(
+  event: WheelEvent,
+  viewportWidth: number,
+): number {
+  if (event.deltaMode === 1) return event.deltaY * 16;
+  if (event.deltaMode === 2) return event.deltaY * viewportWidth;
+  return event.deltaY;
+}
 
 function shouldProxyWaveformUrl(videoUrl: string): boolean {
   try {
@@ -210,6 +230,12 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
   const [chaptersOpen, setChaptersOpen] = useState(false);
 
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const trackpadGestureRef = useRef<{
+    zoom: number;
+    scrollLeft: number;
+    anchorRatio: number;
+    viewportX: number;
+  } | null>(null);
 
   // Measure viewport so waveform + timeline stay responsive.
   useEffect(() => {
@@ -228,11 +254,148 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
     Math.floor(viewportWidth * Math.max(1, zoom)),
   );
 
+  const calculateAnchoredScrollLeft = useCallback(
+    (
+      nextZoom: number,
+      anchor?: { anchorRatio?: number; viewportX?: number },
+    ) => {
+      const nextTotalWidth = Math.max(
+        viewportWidth,
+        Math.floor(viewportWidth * Math.max(1, nextZoom)),
+      );
+      const maxScrollLeft = Math.max(0, nextTotalWidth - viewportWidth);
+      const anchorMs = selectionRange
+        ? (selectionRange.startMs + selectionRange.endMs) / 2
+        : playheadMs;
+      const fallbackAnchorRatio =
+        durationMs > 0
+          ? Math.max(0, Math.min(durationMs, anchorMs)) / durationMs
+          : 0;
+      const anchorRatio = Math.max(
+        0,
+        Math.min(1, anchor?.anchorRatio ?? fallbackAnchorRatio),
+      );
+      const viewportX =
+        typeof anchor?.viewportX === "number"
+          ? Math.max(0, Math.min(viewportWidth, anchor.viewportX))
+          : viewportWidth / 2;
+      const anchorX = anchorRatio * nextTotalWidth;
+      return Math.max(0, Math.min(maxScrollLeft, anchorX - viewportX));
+    },
+    [durationMs, playheadMs, selectionRange, viewportWidth],
+  );
+
+  const setAnchoredZoom = useCallback(
+    (
+      nextZoom: number,
+      anchor?: { anchorRatio?: number; viewportX?: number },
+    ) => {
+      const clamped = clampTimelineZoom(nextZoom);
+      setZoom(clamped);
+      setScrollLeft(calculateAnchoredScrollLeft(clamped, anchor));
+    },
+    [calculateAnchoredScrollLeft],
+  );
+
+  const handleZoomChange = useCallback(
+    (nextZoom: number) => setAnchoredZoom(nextZoom),
+    [setAnchoredZoom],
+  );
+
   useEffect(() => {
     setScrollLeft((current) =>
       Math.min(current, Math.max(0, totalWidth - viewportWidth)),
     );
   }, [totalWidth, viewportWidth]);
+
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+
+    const getViewportX = (clientX?: number) => {
+      if (typeof clientX !== "number") return viewportWidth / 2;
+      const rect = el.getBoundingClientRect();
+      return Math.max(0, Math.min(viewportWidth, clientX - rect.left));
+    };
+
+    const getAnchorRatio = (
+      sourceZoom: number,
+      sourceScrollLeft: number,
+      viewportX: number,
+    ) => {
+      const sourceTotalWidth = Math.max(
+        viewportWidth,
+        Math.floor(viewportWidth * Math.max(1, sourceZoom)),
+      );
+      return Math.max(
+        0,
+        Math.min(
+          1,
+          (sourceScrollLeft + viewportX) / Math.max(1, sourceTotalWidth),
+        ),
+      );
+    };
+
+    const handleWheel = (event: WheelEvent) => {
+      if (!event.ctrlKey) return;
+      event.preventDefault();
+      const deltaY = normalizeWheelDeltaY(event, viewportWidth);
+      if (Math.abs(deltaY) < 0.01) return;
+      const viewportX = getViewportX(event.clientX);
+      const anchorRatio = getAnchorRatio(zoom, scrollLeft, viewportX);
+      const nextZoom = clampTimelineZoom(zoom * Math.exp(-deltaY * 0.006));
+      if (nextZoom === zoom) return;
+      setAnchoredZoom(nextZoom, { anchorRatio, viewportX });
+    };
+
+    const handleGestureStart = (event: Event) => {
+      event.preventDefault();
+      const gesture = event as Event & { clientX?: number };
+      const viewportX = getViewportX(gesture.clientX);
+      trackpadGestureRef.current = {
+        zoom,
+        scrollLeft,
+        anchorRatio: getAnchorRatio(zoom, scrollLeft, viewportX),
+        viewportX,
+      };
+    };
+
+    const handleGestureChange = (event: Event) => {
+      const start = trackpadGestureRef.current;
+      if (!start) return;
+      event.preventDefault();
+      const gesture = event as Event & { scale?: number };
+      const scale =
+        typeof gesture.scale === "number" && Number.isFinite(gesture.scale)
+          ? gesture.scale
+          : 1;
+      const nextZoom = clampTimelineZoom(start.zoom * scale);
+      if (nextZoom === zoom) return;
+      setAnchoredZoom(nextZoom, {
+        anchorRatio: start.anchorRatio,
+        viewportX: start.viewportX,
+      });
+    };
+
+    const handleGestureEnd = () => {
+      trackpadGestureRef.current = null;
+    };
+
+    el.addEventListener("wheel", handleWheel, { passive: false });
+    el.addEventListener("gesturestart", handleGestureStart, {
+      passive: false,
+    });
+    el.addEventListener("gesturechange", handleGestureChange, {
+      passive: false,
+    });
+    el.addEventListener("gestureend", handleGestureEnd);
+    return () => {
+      el.removeEventListener("wheel", handleWheel);
+      el.removeEventListener("gesturestart", handleGestureStart);
+      el.removeEventListener("gesturechange", handleGestureChange);
+      el.removeEventListener("gestureend", handleGestureEnd);
+    };
+  }, [scrollLeft, setAnchoredZoom, viewportWidth, zoom]);
 
   // Sync the <video> to play state.
   useEffect(() => {
@@ -457,7 +620,7 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
         playbackSpeed={playbackSpeed}
         onPlaybackSpeedChange={handlePlaybackSpeedChange}
         zoom={zoom}
-        onZoomChange={setZoom}
+        onZoomChange={handleZoomChange}
         edits={edits}
         selectionRange={selectionRange}
         video={{ videoUrl, videoFormat, title: recording.title }}
@@ -524,6 +687,7 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
                 selectionRange={selectionRange}
                 activityRanges={transcriptSegments}
                 onSeek={seek}
+                scrollLeft={scrollLeft}
                 onScroll={(s) => setScrollLeft(s)}
               />
               <div
@@ -543,7 +707,6 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
                     value={effectiveSelection}
                     onChange={setSelectionRange}
                     durationMs={durationMs}
-                    scrollLeft={scrollLeft}
                   />
                 </div>
               </div>
@@ -566,7 +729,6 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
                   chapters={chapters}
                   excludedRanges={excludedRanges}
                   splitPoints={splitPoints}
-                  scrollLeft={scrollLeft}
                   onSeek={seek}
                   onClickChapter={(c) => seek(c.startMs)}
                 />

@@ -5,6 +5,62 @@ export interface ScrubExpressionOptions {
   precision?: number;
 }
 
+// ─── Scrub-drag gesture-lifecycle state machine ───────────────────────────────
+//
+// Pure mirror of the pointerdown/pointermove/pointerup bookkeeping in
+// ScrubInput's dragRef, extracted so the "exactly one commit-phase emission
+// per gesture" contract can be unit tested without simulating real DOM
+// pointer events (this template has no jsdom/testing-library dependency).
+
+/** Cumulative pointer movement (px) required before a drag start is treated
+ * as a real scrub rather than jitter during a plain click. Mirrors
+ * ScrubInput's DRAG_THRESHOLD_PX. */
+export const SCRUB_DRAG_THRESHOLD_PX = 3;
+
+export interface ScrubDragState {
+  startX: number;
+  prevX: number;
+  hasDragged: boolean;
+}
+
+/** Begins tracking a new scrub gesture at the given starting pointer X. */
+export function startScrubDrag(startX: number): ScrubDragState {
+  return { startX, prevX: startX, hasDragged: false };
+}
+
+export interface ScrubDragTick {
+  /** The updated drag state after this pointermove sample. */
+  state: ScrubDragState;
+  /** The incremental delta (px) to apply this tick, or null when the move
+   * should be ignored (no movement, or still under the jitter threshold). */
+  deltaX: number | null;
+}
+
+/**
+ * Processes one pointermove sample against the in-progress drag state.
+ * Mirrors ScrubInput's handlePointerMove threshold/hasDragged logic exactly:
+ * a move is ignored until cumulative movement clears SCRUB_DRAG_THRESHOLD_PX,
+ * after which every subsequent move (including this one) yields an
+ * incremental delta and marks the gesture as a real drag.
+ */
+export function updateScrubDrag(
+  state: ScrubDragState,
+  clientX: number,
+): ScrubDragTick {
+  const incr = clientX - state.prevX;
+  if (incr === 0) {
+    return { state, deltaX: null };
+  }
+  const cumulativeDelta = Math.abs(clientX - state.startX);
+  if (!state.hasDragged && cumulativeDelta < SCRUB_DRAG_THRESHOLD_PX) {
+    return { state: { ...state, prevX: clientX }, deltaX: null };
+  }
+  return {
+    state: { ...state, prevX: clientX, hasDragged: true },
+    deltaX: incr,
+  };
+}
+
 export interface ParsedScrubExpression {
   value: number;
   normalized: string;
@@ -17,6 +73,11 @@ type Token =
   | { type: "operator"; value: MathOperator };
 
 const NUMBER_CHAR_PATTERN = /[0-9.]/;
+// Comma is only treated as a digit character while scanning a number token
+// (see tokenizeExpression) so a locale-style decimal comma ("12,5") parses as
+// 12.5, without swallowing the "," that a caller might use to separate
+// distinct expressions elsewhere.
+const NUMBER_OR_COMMA_CHAR_PATTERN = /[0-9.,]/;
 
 export function parseScrubExpression(
   input: string,
@@ -157,8 +218,12 @@ function tokenizeExpression(expression: string): Token[] {
     if (NUMBER_CHAR_PATTERN.test(char) || signedNumber) {
       const start = index;
       index += 1;
-      while (NUMBER_CHAR_PATTERN.test(expression[index] ?? "")) index += 1;
-      const value = Number(expression.slice(start, index));
+      // Allow a single comma decimal separator within this number token
+      // ("12,5" → 12.5), matching common European locale input. A second
+      // comma/period is left for the caller's Number() parse to reject.
+      while (NUMBER_OR_COMMA_CHAR_PATTERN.test(expression[index] ?? ""))
+        index += 1;
+      const value = Number(expression.slice(start, index).replace(",", "."));
       if (!Number.isFinite(value)) return [];
       tokens.push({ type: "number", value });
       previousWasOperator = false;

@@ -1,4 +1,7 @@
 import { useT } from "@agent-native/core/client";
+import { Badge } from "@agent-native/toolkit/ui/badge";
+import { Button } from "@agent-native/toolkit/ui/button";
+import { Card, CardContent } from "@agent-native/toolkit/ui/card";
 import {
   IconCheck,
   IconClock,
@@ -14,9 +17,6 @@ import {
  */
 import { NavLink } from "react-router";
 
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 
 import { AttendeeStack, type AttendeeStackParticipant } from "./attendee-stack";

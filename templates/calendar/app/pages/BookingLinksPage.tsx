@@ -4,6 +4,56 @@ import {
   CustomFieldsEditor as SharedCustomFieldsEditor,
   SlugEditor,
 } from "@agent-native/scheduling/react/components";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@agent-native/toolkit/ui/alert-dialog";
+import { Badge } from "@agent-native/toolkit/ui/badge";
+import { Button } from "@agent-native/toolkit/ui/button";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@agent-native/toolkit/ui/card";
+import { Checkbox } from "@agent-native/toolkit/ui/checkbox";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@agent-native/toolkit/ui/dropdown-menu";
+import { Input } from "@agent-native/toolkit/ui/input";
+import { Label } from "@agent-native/toolkit/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+} from "@agent-native/toolkit/ui/select";
+import { Skeleton } from "@agent-native/toolkit/ui/skeleton";
+import { Switch } from "@agent-native/toolkit/ui/switch";
+import {
+  Tabs,
+  TabsList,
+  TabsTrigger,
+  TabsContent,
+} from "@agent-native/toolkit/ui/tabs";
+import { Textarea } from "@agent-native/toolkit/ui/textarea";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@agent-native/toolkit/ui/tooltip";
 import type {
   AvailabilityConfig,
   BookingHost,
@@ -55,51 +105,6 @@ import { CloudUpgrade } from "@/components/CloudUpgrade";
 import { useAppHeaderControls } from "@/components/layout/AppLayout";
 import { TimezoneCombobox } from "@/components/TimezoneCombobox";
 import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AlertDialogTrigger,
-} from "@/components/ui/alert-dialog";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
-import { Checkbox } from "@/components/ui/checkbox";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-} from "@/components/ui/select";
-import { Skeleton } from "@/components/ui/skeleton";
-import { Switch } from "@/components/ui/switch";
-import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import { Textarea } from "@/components/ui/textarea";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
-import {
   useAvailability,
   useUpdateAvailability,
 } from "@/hooks/use-availability";
@@ -135,6 +140,7 @@ const BRAND_ICON_LINK_CLASS =
 const BRAND_PILL_LINK_CLASS =
   "border-[#00B5FF]/35 bg-[#00B5FF]/10 font-semibold text-[#00B5FF] hover:border-[#00B5FF]/55 hover:bg-[#00B5FF]/15 hover:text-[#33C4FF]";
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const BOOKING_SLOT_STEP_MINUTES = 30;
 
 type DraftLink = {
   id?: string;
@@ -1993,7 +1999,14 @@ function BookingPreview({
     const startMin = startH * 60 + startM;
     const endMin = endH * 60 + endM;
     const slots: string[] = [];
-    for (let m = startMin; m + dur <= endMin; m += dur) {
+    const firstStart =
+      Math.ceil(startMin / BOOKING_SLOT_STEP_MINUTES) *
+      BOOKING_SLOT_STEP_MINUTES;
+    for (
+      let m = firstStart;
+      m + dur <= endMin;
+      m += BOOKING_SLOT_STEP_MINUTES
+    ) {
       const h = Math.floor(m / 60);
       const mm = m % 60;
       const ampm = h >= 12 ? "PM" : "AM";

@@ -17,14 +17,14 @@ import {
   useT,
   type RichMarkdownCollabUser,
 } from "@agent-native/core/client";
-import type { PlanBlock } from "@shared/plan-content";
-import { lazy, Suspense, useEffect, useRef, useState } from "react";
-
 import {
   Popover,
   PopoverContent,
   PopoverTrigger,
-} from "@/components/ui/popover";
+} from "@agent-native/toolkit/ui/popover";
+import type { PlanBlock } from "@shared/plan-content";
+import { lazy, Suspense, useEffect, useRef, useState } from "react";
+
 import { cn } from "@/lib/utils";
 
 import { PlanBlockView } from "./DocumentArea";
@@ -165,10 +165,12 @@ export function createPlanBlockRenderContext(options: {
   editingDisabled?: boolean;
   showCodeAnnotationOverlays?: boolean;
   codeAnnotationLayout?: BlockRenderContext["codeAnnotationLayout"];
+  visualFrame?: BlockRenderContext["visualFrame"];
 }): BlockRenderContext {
   const ctx: BlockRenderContext & PlanBlockRenderContextExtras = {
     dialect: "gfm",
     textDirection: options.textDirection,
+    visualFrame: options.visualFrame ?? "show",
     showCodeAnnotationOverlays: options.showCodeAnnotationOverlays,
     codeAnnotationLayout: options.codeAnnotationLayout,
     onQuestionFormSubmit: options.onVisualQuestionsSubmit,

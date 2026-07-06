@@ -1,4 +1,5 @@
 import { usePinchZoom, useT } from "@agent-native/core/client";
+import { getDraftGeometryFromPoints } from "@shared/canvas-math";
 import { ensureCodeLayerNodeIdsInHtml } from "@shared/code-layer";
 import { useRef, useEffect, useCallback, useMemo, useState } from "react";
 
@@ -12,6 +13,7 @@ import {
   type CanvasPin,
 } from "@/components/visual-editor";
 import { sendToDesignAgentChat } from "@/lib/agent-chat";
+import { cn } from "@/lib/utils";
 
 import { editorChromeBridgeScript } from "../../../.generated/bridge/editor-chrome.generated";
 import { embeddedWheelBridgeScript } from "../../../.generated/bridge/embedded-wheel.generated";
@@ -373,6 +375,7 @@ interface DesignCanvasProps {
   }) => void;
   onElementDblClickText?: (info: ElementInfo) => void;
   onIframeHotkey?: (event: IframeHotkeyPayload) => void;
+  onFigmaClipboardPaste?: (event: IframeFigmaClipboardPastePayload) => void;
   onIframeContextMenu?: (event: IframeContextMenuPayload) => void;
   onEditorDragStateChange?: (active: boolean) => void;
   onVisualStructureChange?: (
@@ -447,6 +450,14 @@ interface DesignCanvasProps {
    */
   motionTracks?: MotionTrackWire[];
   /**
+   * Timeline-level default easing applied to any keyframe that omits its own
+   * `ease`. Threaded to the motion-preview bridge alongside the tracks so the
+   * scrub/playback preview matches the persisted CSS (the compiler uses the
+   * same `defaultEase` fallback when emitting `animation-timing-function`).
+   * When omitted the bridge falls back to "ease".
+   */
+  motionDefaultEase?: string;
+  /**
    * Explicit iframe width in pixels.  When provided it overrides the width
    * derived from `deviceFrame`, enabling per-breakpoint preview (e.g. Mobile
    * 390 / Tablet 768 / Desktop 1280 side-by-side frames in the overview).
@@ -484,6 +495,88 @@ interface DesignCanvasProps {
     nodeId: string;
     componentName: string;
   }) => void;
+  /**
+   * Figma-style click-to-place primitive creation while focused on a single
+   * screen. When set to a non-null tool, DesignCanvas mounts a transparent
+   * capture overlay above the iframe so pointer gestures draw a new
+   * primitive instead of reaching the iframe's own content/editor-chrome
+   * bridge. `null`/`undefined` fully restores prior (pre-creation-tool)
+   * behavior — the overlay never mounts.
+   */
+  activeCreationTool?: CreationTool | null;
+  /**
+   * Fired once per completed click or drag gesture while `activeCreationTool`
+   * is set. Geometry is in SCREEN-CONTENT coordinates — the screen's own
+   * pixel coordinate system, matching what `getDraftGeometryFromPoints` and
+   * `draftPrimitiveToInsert` already use in MultiScreenCanvas — NOT viewport
+   * pixels. The parent (DesignEditor) is responsible for turning this into a
+   * persisted primitive (see `appendCanvasPrimitiveToHtml` /
+   * `draftPrimitiveToInsert` on the overview side).
+   */
+  onCreatePrimitive?: (spec: CreatePrimitiveSpec) => void;
+}
+
+/** Creation tools supported by the single-screen click-to-place overlay. */
+export type CreationTool =
+  | "rectangle"
+  | "ellipse"
+  | "line"
+  | "arrow"
+  | "text"
+  | "pen";
+
+/**
+ * Geometry payload emitted by the single-screen creation overlay. Coordinates
+ * are always in screen-content space (see `activeCreationTool` doc above).
+ *
+ * - `rect` is present for rectangle/ellipse/text (a click uses a sensible
+ *   default size; a drag uses the dragged bounds via
+ *   `getDraftGeometryFromPoints`, matching MultiScreenCanvas).
+ * - `points` is present for line/arrow (always exactly 2 points) and for a
+ *   pen click (a single start point — see the deferred multi-click pen note
+ *   on the overlay component itself).
+ * - `fromClick` distinguishes a negligible-movement click (true) from a
+ *   drag past the movement threshold (false), mirroring MultiScreenCanvas's
+ *   own click-vs-drag draft creation semantics.
+ */
+export interface CreatePrimitiveSpec {
+  tool: CreationTool;
+  rect?: { x: number; y: number; width: number; height: number };
+  points?: Array<{ x: number; y: number }>;
+  fromClick: boolean;
+}
+
+/**
+ * Converts a pointer position in viewport (client) coordinates into
+ * screen-content coordinates — the screen's own pixel coordinate system, as
+ * used by `getDraftGeometryFromPoints` / `draftPrimitiveToInsert` in
+ * MultiScreenCanvas.
+ *
+ * The iframe's rendered rect (`getBoundingClientRect()`) already reflects any
+ * outer zoom `transform: scale(...)` wrapper, while `iframe.clientWidth` /
+ * `iframe.clientHeight` are the raw (unscaled) layout size that equals the
+ * screen's own content pixel dimensions. Dividing out that ratio undoes the
+ * zoom scale, matching the scaleX/scaleY convention already used by the
+ * `element-contextmenu` bridge handler below.
+ */
+export function getScreenContentPointFromClient(
+  clientX: number,
+  clientY: number,
+  iframeRect: { left: number; top: number; width: number; height: number },
+  iframeContentSize: { width: number; height: number },
+): { x: number; y: number } {
+  const scaleX =
+    iframeContentSize.width > 0
+      ? iframeRect.width / iframeContentSize.width
+      : 1;
+  const scaleY =
+    iframeContentSize.height > 0
+      ? iframeRect.height / iframeContentSize.height
+      : 1;
+  return {
+    x: (clientX - iframeRect.left) / (scaleX || 1),
+    y: (clientY - iframeRect.top) / (scaleY || 1),
+  };
 }
 
 function getExternalPreviewUrl(content: string): string | null {
@@ -612,6 +705,10 @@ export interface IframeHotkeyPayload {
   repeat: boolean;
 }
 
+export interface IframeFigmaClipboardPastePayload {
+  content: string;
+}
+
 export interface IframeContextMenuPayload {
   clientX: number;
   clientY: number;
@@ -653,6 +750,7 @@ export function DesignCanvas({
   onTextEditingStateChange,
   onElementDblClickText,
   onIframeHotkey,
+  onFigmaClipboardPaste,
   onIframeContextMenu,
   onEditorDragStateChange,
   onVisualStructureChange,
@@ -677,9 +775,12 @@ export function DesignCanvas({
   commentContextLabel,
   onPrototypeNavigate,
   motionTracks,
+  motionDefaultEase,
   previewWidthPx,
   onComponentSourceJump,
   shaderFillPreview,
+  activeCreationTool = null,
+  onCreatePrimitive,
 }: DesignCanvasProps) {
   const t = useT();
   const iframeRef = useRef<HTMLIFrameElement>(null);
@@ -689,6 +790,40 @@ export function DesignCanvas({
   const runtimeReplacementContentRef = useRef(runtimeReplacementContent);
   const runtimeReplacementKeyRef = useRef(runtimeReplacementKey);
   const lastRuntimeReplacementKeyRef = useRef(runtimeReplacementKey);
+  // Bridge-ready handshake (see EDITOR_CHROME_BRIDGE_SCRIPT's
+  // agent-native:editor-chrome-ready post on install). One-shot commands —
+  // begin-text-edit, set-editor-chrome-scale, style-change, delete-element,
+  // replace-document-content — are fire-and-forget postMessages with no retry:
+  // if the iframe document is still loading (fresh srcdoc, screen switch, or a
+  // mid-flight reload) the bridge script hasn't attached its message listener
+  // yet and the command is silently dropped. replayIframeEditorState only
+  // re-sends steady-state selection/hover/tweak/motion values, never these
+  // one-shot commands, so a dropped one-shot never recovers on its own.
+  // Queue them here until ready fires (or the iframe finishes loading, as a
+  // fallback for older/interact-mode documents that never inject the chrome
+  // bridge and thus never post ready) and flush in order.
+  const bridgeReadyRef = useRef(false);
+  const pendingOneShotMessagesRef = useRef<unknown[]>([]);
+  const flushPendingOneShotMessages = useCallback(() => {
+    const iframe = iframeRef.current;
+    const win = iframe?.contentWindow;
+    if (!win) return;
+    const queued = pendingOneShotMessagesRef.current;
+    if (queued.length === 0) return;
+    pendingOneShotMessagesRef.current = [];
+    queued.forEach((message) => win.postMessage(message, "*"));
+  }, []);
+  const postOneShotBridgeMessage = useCallback((message: unknown) => {
+    const iframe = iframeRef.current;
+    const win = iframe?.contentWindow;
+    if (!win) return false;
+    if (!bridgeReadyRef.current) {
+      pendingOneShotMessagesRef.current.push(message);
+      return true;
+    }
+    win.postMessage(message, "*");
+    return true;
+  }, []);
   const [renderedContent, setRenderedContent] = useState(content);
   const [annotationPins, setAnnotationPins] = useState<CanvasPin[]>([]);
   const [pinSubmitSignal, setPinSubmitSignal] = useState(0);
@@ -859,6 +994,15 @@ export function DesignCanvas({
     if (previousContentKeyRef.current !== contentKey) {
       previousContentKeyRef.current = contentKey;
       lastRuntimeReplacementKeyRef.current = runtimeReplacementKey;
+      // A content-key change rebuilds srcdoc, which reloads the iframe with a
+      // brand-new document. The previous document's ready handshake (and any
+      // one-shot commands still queued against it) no longer apply — reset
+      // synchronously here rather than on the iframe's `load` event, since
+      // `load` fires AFTER the freshly (re)injected editor-chrome bridge script
+      // has already run and posted its own new ready message; resetting on
+      // `load` would incorrectly clobber that just-arrived ready signal.
+      bridgeReadyRef.current = false;
+      pendingOneShotMessagesRef.current = [];
       setRenderedContent(content);
     }
     // Same-screen visual edits are already applied optimistically inside the
@@ -882,11 +1026,14 @@ export function DesignCanvas({
   // outside Edit mode. The editor chrome bridge is omitted for Interact mode
   // so preview/app users can interact with the app normally.
   //
-  // readOnly is intentionally NOT a dep here: the bridge is injected whenever
-  // !interactMode and the initial __READ_ONLY__ placeholder is baked from the
-  // *first* render only. After that, live readOnly changes flow through the
-  // set-read-only postMessage (see the useEffect below) so switching the active
-  // surface (board ↔ screen) never rebuilds srcdoc / reloads the iframe.
+  // readOnly and editMode are intentionally NOT deps here: the bridge is
+  // injected whenever !interactMode and the initial __READ_ONLY__ /
+  // __TEXT_EDITING_ENABLED__ placeholders are baked from the *first* render
+  // only (so first paint never flashes the wrong mode). After that, live
+  // readOnly / editMode changes flow through the set-read-only and
+  // set-text-editing-enabled postMessages (see the useEffects below) so
+  // switching the active surface (board ↔ screen) or toggling Edit ⇄ Preview
+  // never rebuilds srcdoc / reloads every screen iframe.
   const srcdoc = useMemo(() => {
     if (externalPreviewUrl) return undefined;
     const editorChromeBridge = interactMode
@@ -911,12 +1058,20 @@ export function DesignCanvas({
       "__EMBEDDED_WHEEL_FORWARDING_ENABLED__",
       isEmbeddedFrame ? "true" : "false",
     );
+    // ALWAYS injected (like the other always-on bridges above) so
+    // MultiScreenCanvas's cross-screen drag hit-testing
+    // (agent-native:hit-test / agent-native:hit-test-result) resolves an
+    // anchor+placement against this screen's live DOM too, not only the
+    // static-fallback board thumbnails that call appendHitTestResponder.
+    // Without this, a drop onto a live/active screen has no responder and
+    // always falls through to the 50ms request timeout.
     const bridgeToInject =
       MOTION_PREVIEW_BRIDGE_SCRIPT +
       SHADER_FILL_PREVIEW_BRIDGE_SCRIPT +
       TWEAK_BRIDGE_SCRIPT +
       ZOOM_BRIDGE_SCRIPT +
       NAV_BRIDGE_SCRIPT +
+      LIGHTWEIGHT_HIT_TEST_BRIDGE_SCRIPT +
       embeddedWheelBridge +
       editorChromeBridge;
     const frameContent = getEmbeddedFrameDocumentContent({
@@ -948,10 +1103,10 @@ export function DesignCanvas({
     // baked chrome scale. Live zoom updates flow through the set-editor-chrome-scale
     // postMessage above. Including them here rebuilds srcdoc on every zoom commit,
     // which reloads the iframe and flashes the screen content white.
-    // readOnly is intentionally NOT a dep: live changes flow through set-read-only.
+    // readOnly and editMode are intentionally NOT deps: live changes flow
+    // through set-read-only / set-text-editing-enabled.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
-    editMode,
     boardSurface,
     externalPreviewUrl,
     interactMode,
@@ -990,6 +1145,11 @@ export function DesignCanvas({
         return;
       }
       if (!e.data || !e.data.type) return;
+      if (e.data.type === "agent-native:editor-chrome-ready") {
+        bridgeReadyRef.current = true;
+        flushPendingOneShotMessages();
+        return;
+      }
       if (e.data.type === "clear-selection") {
         onClearSelection?.();
         return;
@@ -1168,6 +1328,12 @@ export function DesignCanvas({
         });
         return;
       }
+      if (e.data.type === "figma-clipboard-paste") {
+        const content =
+          typeof e.data.content === "string" ? e.data.content : "";
+        if (content) onFigmaClipboardPaste?.({ content });
+        return;
+      }
       if (e.data.type === "element-contextmenu") {
         const clientX = Number(e.data.clientX);
         const clientY = Number(e.data.clientY);
@@ -1244,17 +1410,30 @@ export function DesignCanvas({
         const iframe = iframeRef.current;
         const scroll = scrollContainerRef.current;
         if (!iframe || !scroll) return;
+        // Guard against non-finite values (NaN/undefined/string) before they
+        // reach Math.max/Math.min/Math.exp — an unguarded NaN here would
+        // propagate through nextZoom and silently break zoom (mirrors the
+        // Number.isFinite-style validation the embedded-canvas-wheel sibling
+        // handler above applies to its own wheel deltas/coordinates).
+        const rawDeltaY = Number(e.data.deltaY);
+        if (!Number.isFinite(rawDeltaY)) return;
         // Mirror usePinchZoom's algorithm here. We can't reliably re-dispatch
         // a synthetic WheelEvent to trigger the hook's listener — untrusted
         // events are inconsistent across browsers — so just compute the
         // next zoom directly using the same exponential factor + cursor-anchor
         // math. Clamp range matches the usePinchZoom call above (10–500).
         const currentZoom = zoomRef.current;
-        const clampedDelta = Math.max(-50, Math.min(50, e.data.deltaY));
+        const clampedDelta = Math.max(-50, Math.min(50, rawDeltaY));
         const factor = Math.exp(-clampedDelta * 0.01);
         const nextZoom = Math.max(10, Math.min(500, currentZoom * factor));
-        if (nextZoom === currentZoom) return;
+        if (!Number.isFinite(nextZoom) || nextZoom === currentZoom) return;
         if (deviceFrame === "none") {
+          const rawClientX = Number(e.data.clientX);
+          const rawClientY = Number(e.data.clientY);
+          if (!Number.isFinite(rawClientX) || !Number.isFinite(rawClientY)) {
+            onZoomChange(nextZoom);
+            return;
+          }
           // The iframe lives inside a `transform: scale(zoom/100)` wrapper, so
           // its visual scale relative to viewport is currentZoom / 100. Convert
           // the iframe-document point under the cursor → viewport point →
@@ -1262,8 +1441,8 @@ export function DesignCanvas({
           const iframeRect = iframe.getBoundingClientRect();
           const scrollRect = scroll.getBoundingClientRect();
           const scale = currentZoom / 100;
-          const viewportX = iframeRect.left + e.data.clientX * scale;
-          const viewportY = iframeRect.top + e.data.clientY * scale;
+          const viewportX = iframeRect.left + rawClientX * scale;
+          const viewportY = iframeRect.top + rawClientY * scale;
           const cx = viewportX - scrollRect.left + scroll.scrollLeft;
           const cy = viewportY - scrollRect.top + scroll.scrollTop;
           const ratio = nextZoom / currentZoom;
@@ -1291,6 +1470,7 @@ export function DesignCanvas({
     onTextEditingStateChange,
     onElementDblClickText,
     onIframeHotkey,
+    onFigmaClipboardPaste,
     onIframeContextMenu,
     onEditorDragStateChange,
     onVisualStructureChange,
@@ -1302,6 +1482,7 @@ export function DesignCanvas({
     isEmbeddedFrame,
     sourceType,
     fusionUrl,
+    flushPendingOneShotMessages,
   ]);
 
   const replayIframeEditorState = useCallback(() => {
@@ -1349,7 +1530,11 @@ export function DesignCanvas({
     // Re-send motion tracks so the preview bridge is ready after a reload.
     if (motionTracks && motionTracks.length > 0) {
       iframe.contentWindow?.postMessage(
-        { type: "motion-load-tracks", tracks: motionTracks },
+        {
+          type: "motion-load-tracks",
+          tracks: motionTracks,
+          defaultEase: motionDefaultEase,
+        },
         "*",
       );
     } else {
@@ -1379,6 +1564,7 @@ export function DesignCanvas({
     hiddenSelectors,
     lockedSelectors,
     motionTracks,
+    motionDefaultEase,
     scaleMode,
     selectedSelector,
     selectedSelectorCandidates,
@@ -1398,6 +1584,27 @@ export function DesignCanvas({
     return () => iframe.removeEventListener("load", replayIframeEditorState);
   }, [replayIframeEditorState]);
 
+  // Fallback for documents that never inject the editor-chrome bridge (e.g.
+  // interactMode, or an external-preview iframe where srcdoc is undefined):
+  // those never post agent-native:editor-chrome-ready, so nothing would ever
+  // flush a queued one-shot command. Treat the iframe's `load` event as an
+  // implicit ready in that case — the queued commands (begin-text-edit,
+  // style-change, delete-element, replace-document-content) target the
+  // editor-chrome bridge's own message handlers, so with no chrome bridge
+  // present there is nothing that would have handled them regardless; this
+  // just prevents the queue from growing unbounded across repeated reloads.
+  useEffect(() => {
+    const iframe = iframeRef.current;
+    if (!iframe) return;
+    function handleLoadReadyFallback() {
+      if (bridgeReadyRef.current) return;
+      bridgeReadyRef.current = true;
+      flushPendingOneShotMessages();
+    }
+    iframe.addEventListener("load", handleLoadReadyFallback);
+    return () => iframe.removeEventListener("load", handleLoadReadyFallback);
+  }, [flushPendingOneShotMessages]);
+
   useEffect(() => {
     if (clearSelectionRequest === undefined) return;
     iframeRef.current?.contentWindow?.postMessage(
@@ -1416,11 +1623,15 @@ export function DesignCanvas({
       win.postMessage({ type: "motion-preview-clear" }, "*");
     } else {
       win.postMessage(
-        { type: "motion-load-tracks", tracks: motionTracks },
+        {
+          type: "motion-load-tracks",
+          tracks: motionTracks,
+          defaultEase: motionDefaultEase,
+        },
         "*",
       );
     }
-  }, [motionTracks]);
+  }, [motionTracks, motionDefaultEase]);
 
   // Sync shader-fill preview to the iframe whenever the prop changes.
   // When cleared (null / undefined) send a clear message so the bridge
@@ -1448,16 +1659,16 @@ export function DesignCanvas({
   // overview zoom settles. This is intentionally separate from the srcdoc build so
   // a scale change never rebuilds srcdoc / reloads the iframe (which flashes the
   // content white). The baked __EDITOR_CHROME_SCALE__ values cover first paint.
+  // Routed through the one-shot queue too: a zoom settle that lands while the
+  // iframe is mid-reload would otherwise be silently dropped, leaving the
+  // chrome at a stale scale until the next zoom change.
   useEffect(() => {
-    iframeRef.current?.contentWindow?.postMessage(
-      {
-        type: "set-editor-chrome-scale",
-        scaleX: editorChromeScaleX,
-        scaleY: editorChromeScaleY,
-      },
-      "*",
-    );
-  }, [editorChromeScaleX, editorChromeScaleY]);
+    postOneShotBridgeMessage({
+      type: "set-editor-chrome-scale",
+      scaleX: editorChromeScaleX,
+      scaleY: editorChromeScaleY,
+    });
+  }, [editorChromeScaleX, editorChromeScaleY, postOneShotBridgeMessage]);
 
   // Sync readOnly to the bridge IN-PLACE via postMessage so switching the active
   // surface (board ↔ screen) does not rebuild srcdoc / reload the iframe.
@@ -1482,6 +1693,34 @@ export function DesignCanvas({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [readOnly]);
 
+  // Sync editMode to the bridge IN-PLACE via postMessage so toggling Edit ⇄
+  // Preview does not rebuild srcdoc / reload every screen iframe (which was
+  // PF21: __TEXT_EDITING_ENABLED__ used to be baked into srcdoc, so flipping
+  // edit/preview mode reloaded every iframe — white flash + lost in-iframe
+  // Alpine state). The initial baked __TEXT_EDITING_ENABLED__ placeholder
+  // covers first paint; subsequent changes arrive here. Also re-send on
+  // iframe load so the bridge is in sync after any content-key-driven reload.
+  const editModeRef = useRef(editMode);
+  editModeRef.current = editMode;
+  useEffect(() => {
+    const iframe = iframeRef.current;
+    if (!iframe) return;
+    function sendTextEditingEnabled() {
+      iframe!.contentWindow?.postMessage(
+        {
+          type: "set-text-editing-enabled",
+          enabled: editModeRef.current,
+        },
+        "*",
+      );
+    }
+    sendTextEditingEnabled();
+    iframe.addEventListener("load", sendTextEditingEnabled);
+    return () => iframe.removeEventListener("load", sendTextEditingEnabled);
+    // Only re-run when editMode changes; iframe identity is stable.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editMode]);
+
   /**
    * Trigger immediate text-editing mode for a specific node inside the iframe,
    * identified by its data-agent-native-node-id value.  Call this after
@@ -1491,14 +1730,18 @@ export function DesignCanvas({
    * Posts { type: 'begin-text-edit', nodeId } to the iframe bridge.
    * The bridge enters the same contenteditable text-editing path used on dblclick.
    */
-  const beginTextEdit = useCallback((nodeId: string) => {
-    const iframe = iframeRef.current;
-    if (!iframe?.contentWindow || !nodeId) return;
-    iframe.contentWindow.postMessage(
-      { type: "begin-text-edit", nodeId, force: true },
-      "*",
-    );
-  }, []);
+  const beginTextEdit = useCallback(
+    (nodeId: string) => {
+      const iframe = iframeRef.current;
+      if (!iframe?.contentWindow || !nodeId) return;
+      postOneShotBridgeMessage({
+        type: "begin-text-edit",
+        nodeId,
+        force: true,
+      });
+    },
+    [postOneShotBridgeMessage],
+  );
 
   const sendStyleChange = useCallback(
     (
@@ -1509,19 +1752,16 @@ export function DesignCanvas({
     ) => {
       const iframe = iframeRef.current;
       if (!iframe?.contentWindow) return;
-      iframe.contentWindow.postMessage(
-        {
-          type: "style-change",
-          selector,
-          property,
-          value,
-          selectorCandidates: options?.selectorCandidates ?? [],
-          nodeId: options?.nodeId ?? "",
-        },
-        "*",
-      );
+      postOneShotBridgeMessage({
+        type: "style-change",
+        selector,
+        property,
+        value,
+        selectorCandidates: options?.selectorCandidates ?? [],
+        nodeId: options?.nodeId ?? "",
+      });
     },
-    [],
+    [postOneShotBridgeMessage],
   );
 
   /**
@@ -1588,19 +1828,15 @@ export function DesignCanvas({
     ) => {
       const iframe = iframeRef.current;
       if (!iframe?.contentWindow) return false;
-      iframe.contentWindow.postMessage(
-        {
-          type: "replace-document-content",
-          content: nextContent,
-          selectedSelector: selector ?? "",
-          selectorCandidates: candidates ?? [],
-          forceFullDocument: options?.forceFullDocument === true,
-        },
-        "*",
-      );
-      return true;
+      return postOneShotBridgeMessage({
+        type: "replace-document-content",
+        content: nextContent,
+        selectedSelector: selector ?? "",
+        selectorCandidates: candidates ?? [],
+        forceFullDocument: options?.forceFullDocument === true,
+      });
     },
-    [],
+    [postOneShotBridgeMessage],
   );
 
   const replaceRuntimeContentInPlace = useCallback(
@@ -1667,17 +1903,13 @@ export function DesignCanvas({
     (selector?: string | null, candidates?: string[]) => {
       const iframe = iframeRef.current;
       if (!iframe?.contentWindow) return false;
-      iframe.contentWindow.postMessage(
-        {
-          type: "delete-element",
-          selector: selector ?? "",
-          selectorCandidates: candidates ?? [],
-        },
-        "*",
-      );
-      return true;
+      return postOneShotBridgeMessage({
+        type: "delete-element",
+        selector: selector ?? "",
+        selectorCandidates: candidates ?? [],
+      });
     },
-    [],
+    [postOneShotBridgeMessage],
   );
 
   // Expose iframe runtime mutations for the editor orchestrator.
@@ -1775,6 +2007,11 @@ export function DesignCanvas({
   // explicit viewport width (e.g. 390 / 768 / 1280 side-by-side breakpoints).
   const resolvedWidth =
     previewWidthPx != null ? `${previewWidthPx}px` : iframeWidth;
+  const focusScrollSurface = useCallback(() => {
+    const surface = scrollContainerRef.current;
+    if (!surface || document.activeElement === surface) return;
+    surface.focus({ preventScroll: true });
+  }, []);
 
   // Wrap the iframe in a positioned container so DrawOverlay /
   // CanvasCommentPins can absolutely-position themselves on top of the
@@ -1808,17 +2045,40 @@ export function DesignCanvas({
         sandbox={
           externalPreviewUrl
             ? "allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox allow-same-origin"
-            : "allow-scripts allow-popups allow-popups-to-escape-sandbox allow-same-origin"
+            : // NOTE(security): allow-same-origin is still present on this
+              // branch (the inline srcdoc iframe, where agent/user-generated
+              // design HTML executes) even though allow-scripts +
+              // allow-same-origin together defeat the sandbox in principle.
+              // This is a deliberate, currently-blocked tradeoff, not an
+              // oversight — see the long comment above DesignCanvasProps /
+              // sourceType for the security model, and the PNG/SVG export
+              // handlers in DesignEditor.tsx (handleDownloadPng /
+              // handleDownloadSvg). Those handlers read this same iframe's
+              // `contentDocument` directly and hand the LIVE document element
+              // to html2canvas, and read live CSSOM (getComputedStyle,
+              // doc.styleSheets) for SVG serialization. That cannot be
+              // expressed over the postMessage bridge without moving
+              // html2canvas execution and CSSOM-dependent serialization logic
+              // INTO the sandboxed iframe itself — a separate, larger rewrite,
+              // not a bridge-handler addition. All other former
+              // `contentDocument`/`contentWindow.document` reads on this
+              // iframe (e.g. text-edit-status) now go through bridge
+              // request/response postMessage handlers in
+              // editor-chrome.bridge.ts and no longer need allow-same-origin.
+              // Do not remove this flag until PNG/SVG export is rebuilt to run
+              // inside the iframe.
+              "allow-scripts allow-popups allow-popups-to-escape-sandbox allow-same-origin"
         }
         data-design-preview-iframe
-        data-screen-iframe-id={screenId ?? undefined}
+        data-screen-iframe-id={
+          boardSurface ? undefined : (screenId ?? undefined)
+        }
         data-design-source-type={
           sourceType ??
           (externalPreviewUrl
             ? "localhost" // inferred — content is a URL
             : "inline")
         }
-        allowTransparency={transparentBackground || undefined}
         className="block h-full w-full border-0 bg-transparent"
         style={{
           background: iframeBackgroundColor,
@@ -1826,6 +2086,18 @@ export function DesignCanvas({
         }}
         title={t("designEditor.designPreview")}
       />
+      {/* Single-screen click-to-place creation overlay — sits over the
+          iframe, NOT inside it, mirroring the SharedDrawOverlay pattern
+          below. Only mounts while a creation tool is active so it never
+          changes existing behavior otherwise (T14: single-screen mode
+          previously had no creation capability at all). */}
+      {activeCreationTool ? (
+        <SingleScreenCreationOverlay
+          tool={activeCreationTool}
+          iframeRef={iframeRef}
+          onCreatePrimitive={onCreatePrimitive}
+        />
+      ) : null}
       {waitingForEditableExternalSnapshot ? (
         <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center bg-background/85 px-4 text-center text-sm text-muted-foreground">
           <div className="max-w-[28rem] rounded-md border bg-card px-4 py-3 shadow-sm">
@@ -1900,6 +2172,9 @@ export function DesignCanvas({
       return (
         <div
           ref={scrollContainerRef}
+          tabIndex={-1}
+          onPointerEnter={focusScrollSurface}
+          onMouseEnter={focusScrollSurface}
           className="relative h-full w-full overflow-hidden"
         >
           {iframeElement}
@@ -1914,6 +2189,9 @@ export function DesignCanvas({
     return (
       <div
         ref={scrollContainerRef}
+        tabIndex={-1}
+        onPointerEnter={focusScrollSurface}
+        onMouseEnter={focusScrollSurface}
         className="relative h-full w-full overflow-hidden"
         style={{
           width: embeddedFrame.displayWidth,
@@ -1944,6 +2222,9 @@ export function DesignCanvas({
   return (
     <div
       ref={scrollContainerRef}
+      tabIndex={-1}
+      onPointerEnter={focusScrollSurface}
+      onMouseEnter={focusScrollSurface}
       className="relative flex-1 h-full overflow-auto"
     >
       {/* Canvas area. "none" mode fills the canvas (responsive preview);
@@ -1989,6 +2270,287 @@ export function DesignCanvas({
           commentContextLabel || designTitle || commentContextId || designId
         }
       />
+    </div>
+  );
+}
+
+/** Minimum pointer movement (in viewport/client px) before a pointerdown→up
+ *  gesture counts as a drag instead of a click. Matches the small-threshold
+ *  click-vs-drag convention used elsewhere in the editor (e.g. marquee-vs-
+ *  click hit-testing) rather than MultiScreenCanvas's own canvas-space
+ *  threshold, since this overlay only ever sees viewport-space pointer
+ *  events. */
+const CREATION_CLICK_MOVE_THRESHOLD_PX = 4;
+
+/** Default click-to-place sizes, in screen-content px, for tools that need a
+ *  sensible size when the user clicks instead of drags. Mirrors
+ *  MultiScreenCanvas's own DRAFT_*_WIDTH/HEIGHT defaults closely enough for
+ *  single-screen placement (kept local — those constants aren't exported). */
+const CREATION_DEFAULT_SIZE: Record<
+  Exclude<CreationTool, "line" | "arrow" | "pen">,
+  { width: number; height: number }
+> = {
+  rectangle: { width: 160, height: 100 },
+  ellipse: { width: 120, height: 120 },
+  text: { width: 160, height: 32 },
+};
+
+/** Default line/arrow length (screen-content px) for a click (no drag). */
+const CREATION_DEFAULT_LINE_LENGTH = 120;
+
+interface CreationDragState {
+  tool: CreationTool;
+  /** Screen-content coordinates of the initial pointerdown. */
+  startContent: { x: number; y: number };
+  /** Screen-content coordinates of the latest pointer position. */
+  currentContent: { x: number; y: number };
+  /** Viewport (client) coordinates of the initial pointerdown — kept
+   *  alongside startContent so the click-vs-drag movement threshold can be
+   *  measured in client space (a constant visual distance regardless of
+   *  zoom) without re-deriving it from content-space coordinates. */
+  startClient: { x: number; y: number };
+  pointerId: number;
+  moved: boolean;
+}
+
+interface SingleScreenCreationOverlayProps {
+  tool: CreationTool;
+  iframeRef: React.RefObject<HTMLIFrameElement | null>;
+  onCreatePrimitive?: (spec: CreatePrimitiveSpec) => void;
+}
+
+/**
+ * Figma-style click-to-place creation overlay for single-screen mode.
+ *
+ * Mounts a transparent, `pointer-events: auto` surface above the iframe
+ * (matching the `SharedDrawOverlay` mount pattern) that intercepts pointer
+ * gestures instead of letting them reach the iframe's own content/editor-
+ * chrome bridge. A pointerdown→move→up past `CREATION_CLICK_MOVE_THRESHOLD_PX`
+ * is treated as a drag (draws a rect/line via `getDraftGeometryFromPoints`,
+ * the same helper MultiScreenCanvas uses for overview drafts); a
+ * pointerdown→up with negligible movement is treated as a click (places a
+ * default-sized primitive, or for pen, starts a path at that point).
+ *
+ * Deferred: multi-click pen path authoring. In single-screen mode a single
+ * click emits `points: [point], fromClick: true` so the parent can start a
+ * pen path (matching MultiScreenCanvas's click-to-start behavior), but there
+ * is no in-overlay support yet for adding further anchor points before
+ * committing — that's a follow-up once the parent's pen-path commit flow is
+ * wired for single-screen. This intentionally never force-switches to
+ * overview to get full pen authoring.
+ */
+function SingleScreenCreationOverlay({
+  tool,
+  iframeRef,
+  onCreatePrimitive,
+}: SingleScreenCreationOverlayProps) {
+  const [drag, setDrag] = useState<CreationDragState | null>(null);
+  const dragRef = useRef<CreationDragState | null>(null);
+
+  const toContentPoint = useCallback(
+    (clientX: number, clientY: number) => {
+      const iframe = iframeRef.current;
+      const rect = iframe?.getBoundingClientRect();
+      if (!iframe || !rect) return { x: clientX, y: clientY };
+      return getScreenContentPointFromClient(clientX, clientY, rect, {
+        width: iframe.clientWidth,
+        height: iframe.clientHeight,
+      });
+    },
+    [iframeRef],
+  );
+
+  const emit = useCallback(
+    (state: CreationDragState) => {
+      if (!onCreatePrimitive) return;
+      const { tool: activeTool, startContent, currentContent, moved } = state;
+
+      if (activeTool === "line" || activeTool === "arrow") {
+        const end = moved
+          ? currentContent
+          : {
+              x: startContent.x + CREATION_DEFAULT_LINE_LENGTH,
+              y: startContent.y,
+            };
+        onCreatePrimitive({
+          tool: activeTool,
+          points: [startContent, end],
+          fromClick: !moved,
+        });
+        return;
+      }
+
+      if (activeTool === "pen") {
+        // Deferred: multi-click pen authoring (see component doc comment).
+        // A click starts a path; a drag is treated the same as a click for
+        // now — only the start point is emitted.
+        onCreatePrimitive({
+          tool: "pen",
+          points: [startContent],
+          fromClick: true,
+        });
+        return;
+      }
+
+      if (!moved) {
+        const size = CREATION_DEFAULT_SIZE[activeTool];
+        onCreatePrimitive({
+          tool: activeTool,
+          rect: {
+            x: startContent.x,
+            y: startContent.y,
+            width: size.width,
+            height: size.height,
+          },
+          fromClick: true,
+        });
+        return;
+      }
+
+      const geometry = getDraftGeometryFromPoints(
+        startContent,
+        currentContent,
+        {
+          minWidth: activeTool === "text" ? 24 : 8,
+          minHeight: activeTool === "text" ? 18 : 8,
+          defaultWidth: CREATION_DEFAULT_SIZE[activeTool].width,
+          defaultHeight: CREATION_DEFAULT_SIZE[activeTool].height,
+        },
+      );
+      onCreatePrimitive({
+        tool: activeTool,
+        rect: geometry,
+        fromClick: false,
+      });
+    },
+    [onCreatePrimitive],
+  );
+
+  const handlePointerDown = useCallback(
+    (e: React.PointerEvent<HTMLDivElement>) => {
+      if (e.button !== 0) return;
+      const point = toContentPoint(e.clientX, e.clientY);
+      const next: CreationDragState = {
+        tool,
+        startContent: point,
+        currentContent: point,
+        startClient: { x: e.clientX, y: e.clientY },
+        pointerId: e.pointerId,
+        moved: false,
+      };
+      dragRef.current = next;
+      setDrag(next);
+      (e.target as HTMLElement).setPointerCapture(e.pointerId);
+    },
+    [tool, toContentPoint],
+  );
+
+  const handlePointerMove = useCallback(
+    (e: React.PointerEvent<HTMLDivElement>) => {
+      const current = dragRef.current;
+      if (!current || current.pointerId !== e.pointerId) return;
+      // Movement threshold measured in client (viewport) space — a constant
+      // visual distance regardless of zoom — rather than screen-content
+      // space, which would need dividing by scale to mean the same thing at
+      // every zoom level.
+      const movedPastThreshold =
+        Math.hypot(
+          e.clientX - current.startClient.x,
+          e.clientY - current.startClient.y,
+        ) > CREATION_CLICK_MOVE_THRESHOLD_PX;
+      const point = toContentPoint(e.clientX, e.clientY);
+      const next: CreationDragState = {
+        ...current,
+        currentContent: point,
+        moved: current.moved || movedPastThreshold,
+      };
+      dragRef.current = next;
+      setDrag(next);
+    },
+    [toContentPoint],
+  );
+
+  const handlePointerUp = useCallback(
+    (e: React.PointerEvent<HTMLDivElement>) => {
+      const current = dragRef.current;
+      if (!current || current.pointerId !== e.pointerId) return;
+      dragRef.current = null;
+      setDrag(null);
+      emit(current);
+    },
+    [emit],
+  );
+
+  const handlePointerCancel = useCallback(
+    (e: React.PointerEvent<HTMLDivElement>) => {
+      const current = dragRef.current;
+      if (!current || current.pointerId !== e.pointerId) return;
+      dragRef.current = null;
+      setDrag(null);
+    },
+    [],
+  );
+
+  const cursorClass = tool === "text" ? "cursor-text" : "cursor-crosshair";
+  const isLineTool = tool === "line" || tool === "arrow";
+
+  // Live drag preview, converted back from screen-content space to the
+  // overlay's own (unscaled, layout-space) coordinates. The overlay div is
+  // sized to the iframe's layout box (via inset-0 on a wrapper that already
+  // matches iframe.clientWidth/Height 1:1 before the outer zoom transform),
+  // so screen-content coordinates ARE this overlay's local coordinates —
+  // no extra scale conversion is needed for the preview's own CSS position.
+  const previewRect =
+    drag && drag.moved && !isLineTool && tool !== "pen"
+      ? getDraftGeometryFromPoints(drag.startContent, drag.currentContent, {
+          minWidth: tool === "text" ? 24 : 8,
+          minHeight: tool === "text" ? 18 : 8,
+        })
+      : null;
+  const previewLine =
+    drag && drag.moved && isLineTool
+      ? { start: drag.startContent, end: drag.currentContent }
+      : null;
+
+  return (
+    <div
+      data-design-canvas-creation-overlay
+      data-creation-tool={tool}
+      className={cn("absolute inset-0 z-20 pointer-events-auto", cursorClass)}
+      onPointerDown={handlePointerDown}
+      onPointerMove={handlePointerMove}
+      onPointerUp={handlePointerUp}
+      onPointerCancel={handlePointerCancel}
+    >
+      {previewRect ? (
+        <div
+          data-creation-preview-rect
+          className="pointer-events-none absolute rounded-[2px] border-[1.5px] border-[var(--design-editor-accent-color)] bg-[var(--design-editor-accent-color)]/10"
+          style={{
+            left: previewRect.x,
+            top: previewRect.y,
+            width: Math.max(1, previewRect.width),
+            height: Math.max(1, previewRect.height),
+            borderRadius: tool === "ellipse" ? "9999px" : undefined,
+          }}
+        />
+      ) : null}
+      {previewLine ? (
+        <svg
+          data-creation-preview-line
+          className="pointer-events-none absolute inset-0 h-full w-full overflow-visible"
+        >
+          <line
+            x1={previewLine.start.x}
+            y1={previewLine.start.y}
+            x2={previewLine.end.x}
+            y2={previewLine.end.y}
+            stroke="var(--design-editor-accent-color)"
+            strokeWidth={2}
+            strokeDasharray="4 3"
+          />
+        </svg>
+      ) : null}
     </div>
   );
 }
