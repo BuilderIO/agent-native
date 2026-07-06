@@ -16,12 +16,23 @@
  * lets readers distinguish ciphertext from legacy plaintext during migration.
  */
 
-const nodeCrypto =
-  typeof window === "undefined" &&
-  typeof process !== "undefined" &&
-  process.versions?.node
-    ? await import("node:crypto")
-    : undefined;
+type NodeCryptoModule = typeof import("node:crypto");
+
+function getNodeCrypto(): NodeCryptoModule | undefined {
+  if (
+    typeof window !== "undefined" ||
+    typeof process === "undefined" ||
+    !process.versions?.node ||
+    typeof process.getBuiltinModule !== "function"
+  ) {
+    return undefined;
+  }
+  return process.getBuiltinModule("node:crypto") as
+    | NodeCryptoModule
+    | undefined;
+}
+
+const nodeCrypto = getNodeCrypto();
 
 let _warnedFallback = false;
 

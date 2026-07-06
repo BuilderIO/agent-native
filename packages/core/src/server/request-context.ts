@@ -21,6 +21,8 @@ type AsyncLocalStorageLike<T> = {
   run<R>(store: T, callback: () => R): R;
 };
 
+type AsyncLocalStorageCtor = new <T>() => AsyncLocalStorageLike<T>;
+
 class StackAsyncLocalStorage<T> implements AsyncLocalStorageLike<T> {
   private readonly stack: T[] = [];
 
@@ -49,12 +51,21 @@ class StackAsyncLocalStorage<T> implements AsyncLocalStorageLike<T> {
   }
 }
 
-const AsyncLocalStorageCtor =
-  typeof window === "undefined" &&
-  typeof process !== "undefined" &&
-  process.versions?.node
-    ? (await import("node:async_hooks")).AsyncLocalStorage
-    : undefined;
+function getAsyncLocalStorageCtor(): AsyncLocalStorageCtor | undefined {
+  if (
+    typeof window !== "undefined" ||
+    typeof process === "undefined" ||
+    !process.versions?.node ||
+    typeof process.getBuiltinModule !== "function"
+  ) {
+    return undefined;
+  }
+  return process.getBuiltinModule("node:async_hooks")?.AsyncLocalStorage as
+    | AsyncLocalStorageCtor
+    | undefined;
+}
+
+const AsyncLocalStorageCtor = getAsyncLocalStorageCtor();
 
 function processEnv(name: string): string | undefined {
   if (typeof process === "undefined") return undefined;
