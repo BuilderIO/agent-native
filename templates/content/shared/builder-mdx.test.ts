@@ -8,6 +8,7 @@ import {
   builderMdxToBuilderBlocks,
   type BuilderContentEntry,
 } from "./builder-mdx";
+import { builderSourceComponentMappingFor } from "./builder-source-component-registry";
 import { parseRegistryBlockData } from "./nfm-registry";
 
 const entry: BuilderContentEntry = {
@@ -154,6 +155,99 @@ function testBlocks(entry: BuilderContentEntry): unknown[] {
 }
 
 describe("Builder MDX conversion", () => {
+  it("classifies Builder source components through an explicit mapping registry", () => {
+    expect(builderSourceComponentMappingFor("Text")).toMatchObject({
+      id: "builder-text-markdown",
+      readableMode: "editable-markdown",
+      mappingStatus: "mapped",
+      sourceEditState: "safe-to-edit",
+    });
+    expect(builderSourceComponentMappingFor("Material Table")).toMatchObject({
+      id: "builder-table-preserved",
+      readableMode: "source-component",
+      mappingStatus: "preserved",
+      sourceEditState: "needs-review",
+    });
+    expect(builderSourceComponentMappingFor(" material_table ")).toMatchObject({
+      id: "builder-table-preserved",
+    });
+    expect(builderSourceComponentMappingFor("PricingTable")).toMatchObject({
+      id: "builder-table-preserved",
+    });
+    expect(builderSourceComponentMappingFor("Portable Text")).toMatchObject({
+      id: "builder-unknown-preserved",
+    });
+    expect(builderSourceComponentMappingFor("Timetable Widget")).toMatchObject({
+      id: "builder-unknown-preserved",
+    });
+    expect(builderSourceComponentMappingFor("Preferences Panel")).toMatchObject(
+      {
+        id: "builder-unknown-preserved",
+      },
+    );
+    expect(
+      builderSourceComponentMappingFor("Internal Reference"),
+    ).toMatchObject({
+      id: "builder-reference-preserved",
+      readableMode: "source-component",
+      mappingStatus: "preserved",
+      sourceEditState: "needs-review",
+    });
+    expect(
+      builderSourceComponentMappingFor("CustomerOnlyWidget"),
+    ).toMatchObject({
+      id: "builder-unknown-preserved",
+      readableMode: "source-component",
+      mappingStatus: "unknown",
+      sourceEditState: "preserved-only",
+    });
+    expect(builderSourceComponentMappingFor(null)).toMatchObject({
+      id: "builder-nameless-preserved",
+      mappingStatus: "unknown",
+      sourceEditState: "preserved-only",
+    });
+  });
+
+  it("parses legacy and malformed source-component mapping attrs safely", async () => {
+    const legacy = await parseRegistryBlockData(
+      '<SourceComponent id="legacy-source-component" provider="builder" componentName="LegacyWidget" rawRef="content/builder/.raw/legacy.json" rawHash="legacy-hash" />',
+    );
+    expect(legacy?.data).toMatchObject({
+      provider: "builder",
+      componentName: "LegacyWidget",
+      rawRef: "content/builder/.raw/legacy.json",
+      rawHash: "legacy-hash",
+    });
+    expect(
+      (legacy?.data as { mappingStatus?: unknown }).mappingStatus,
+    ).toBeUndefined();
+    expect(
+      (legacy?.data as { sourceEditState?: unknown }).sourceEditState,
+    ).toBeUndefined();
+
+    const malformed = await parseRegistryBlockData(
+      '<SourceComponent id="bad-source-component" provider="builder" componentName="BadWidget" rawRef="content/builder/.raw/bad.json" rawHash="bad-hash" mappingStatus="delete-me" sourceEditState="editable-maybe" previewStatus="fine" previewKind="thing" />',
+    );
+    expect(malformed?.data).toMatchObject({
+      provider: "builder",
+      componentName: "BadWidget",
+      rawRef: "content/builder/.raw/bad.json",
+      rawHash: "bad-hash",
+    });
+    expect(
+      (malformed?.data as { mappingStatus?: unknown }).mappingStatus,
+    ).toBeUndefined();
+    expect(
+      (malformed?.data as { sourceEditState?: unknown }).sourceEditState,
+    ).toBeUndefined();
+    expect(
+      (malformed?.data as { previewStatus?: unknown }).previewStatus,
+    ).toBeUndefined();
+    expect(
+      (malformed?.data as { previewKind?: unknown }).previewKind,
+    ).toBeUndefined();
+  });
+
   it("pulls Builder blocks into .builder.mdx with raw sidecars", async () => {
     const bundle = await builderEntryToMdxBundle(entry);
 
@@ -468,6 +562,80 @@ describe("Builder MDX conversion", () => {
     expect(bundle.mdx.body).not.toContain("<BuilderRawBlock");
   });
 
+  it("preserves known Builder reference blocks instead of flattening nested children", async () => {
+    const article: BuilderContentEntry = {
+      id: "article-reference-block",
+      model: "blog-article",
+      name: "Article Reference Block",
+      data: {
+        title: "Article Reference Block",
+        blocks: [
+          {
+            "@type": "@builder.io/sdk:Element",
+            "@version": 2,
+            id: "reference-1",
+            component: {
+              name: "Reference Block",
+              options: {
+                entry: "shared-doc",
+                model: "docs-content",
+              },
+            },
+            children: [
+              {
+                "@type": "@builder.io/sdk:Element",
+                "@version": 2,
+                id: "reference-child-text",
+                component: {
+                  name: "Text",
+                  options: {
+                    text: "<p>This child text belongs to the source reference.</p>",
+                  },
+                },
+              },
+            ],
+          },
+        ],
+      },
+    };
+    const [readable, lossless] = await Promise.all([
+      builderEntryToReadableMdxBundle(article),
+      builderEntryToMdxBundle(article),
+    ]);
+
+    expect(readable.mdx.body).toContain("<SourceComponent");
+    expect(readable.mdx.body).toContain('componentName="Reference Block"');
+    expect(readable.mdx.body).not.toContain(
+      "This child text belongs to the source reference.",
+    );
+    const marker = readable.mdx.body
+      .split("\n\n")
+      .find((unit) => unit.includes("<SourceComponent"));
+    expect(marker).toBeDefined();
+    const parsedMarker = await parseRegistryBlockData(marker!);
+    expect(parsedMarker?.data).toMatchObject({
+      provider: "builder",
+      componentName: "Reference Block",
+      mappingId: "builder-reference-preserved",
+      mappingStatus: "preserved",
+      sourceEditState: "needs-review",
+    });
+    const sidecars = Object.fromEntries(
+      Object.entries(lossless.files).filter(
+        ([path]) => path !== lossless.mdx.path,
+      ),
+    );
+
+    const result = await builderReadableBodyToBuilderBlocks({
+      localContent: readable.mdx.body,
+      losslessContent: lossless.mdx.body,
+      sidecars,
+    });
+
+    expect(result.warnings).toEqual([]);
+    expect(result.blocks).toEqual(lossless.blocks);
+  });
+
   it("hydrates database bodies as clean readable markdown", async () => {
     const bundle = await builderEntryToReadableMdxBundle(entry);
 
@@ -475,6 +643,18 @@ describe("Builder MDX conversion", () => {
     expect(bundle.mdx.body).toContain("Welcome to docs.");
     expect(bundle.mdx.body).toContain("<SourceComponent");
     expect(bundle.mdx.body).toContain('componentName="Symbol"');
+    const marker = bundle.mdx.body
+      .split("\n\n")
+      .find((unit) => unit.includes('componentName="Symbol"'));
+    expect(marker).toBeDefined();
+    const parsedMarker = await parseRegistryBlockData(marker!);
+    expect(parsedMarker?.data).toMatchObject({
+      componentName: "Symbol",
+      mappingId: "builder-symbol-preserved",
+      mappingStatus: "preserved",
+      sourceEditState: "needs-review",
+      previewKind: "symbol",
+    });
     expect(bundle.mdx.body).not.toContain("<BuilderText");
     expect(bundle.mdx.body).not.toContain("<BuilderRawBlock");
   });
@@ -632,6 +812,9 @@ describe("Builder MDX conversion", () => {
     expect(parsedMarker?.data).toMatchObject({
       provider: "builder",
       componentName: "Embed",
+      mappingId: "builder-embed-preserved",
+      mappingStatus: "preserved",
+      sourceEditState: "needs-review",
       previewStatus: "available",
       previewKind: "embed",
       previewUrl: "https://example.com/embed",
@@ -976,9 +1159,13 @@ describe("Builder MDX conversion", () => {
     expect(parsedMarker?.data).toMatchObject({
       provider: "builder",
       componentName: "CustomerOnlyWidget",
+      mappingId: "builder-unknown-preserved",
+      mappingStatus: "unknown",
+      sourceEditState: "preserved-only",
+      previewStatus: "warning",
       previewKind: "component",
       preview: {
-        status: "available",
+        status: "warning",
         kind: "component",
         label: "Builder CustomerOnlyWidget",
       },
@@ -997,6 +1184,44 @@ describe("Builder MDX conversion", () => {
 
     expect(result.warnings).toEqual([]);
     expect(result.blocks).toEqual(lossless.blocks);
+  });
+
+  it("does not label mapped-name variants as safe-to-edit markers", async () => {
+    const article: BuilderContentEntry = {
+      id: "article-mapped-name-variant",
+      model: "blog-article",
+      name: "Article Mapped Name Variant",
+      data: {
+        title: "Article Mapped Name Variant",
+        blocks: [
+          {
+            "@type": "@builder.io/sdk:Element",
+            "@version": 2,
+            id: "lowercase-text-1",
+            component: {
+              name: "text",
+              options: { text: "<p>Lowercase mapped name.</p>" },
+            },
+          },
+        ],
+      },
+    };
+
+    const readable = await builderEntryToReadableMdxBundle(article);
+    const marker = readable.mdx.body
+      .split("\n\n")
+      .find((unit) => unit.includes("<SourceComponent"));
+    expect(marker).toBeDefined();
+    const parsedMarker = await parseRegistryBlockData(marker!);
+    expect(parsedMarker?.data).toMatchObject({
+      provider: "builder",
+      componentName: "text",
+      mappingId: "builder-unknown-preserved",
+      mappingStatus: "unknown",
+      sourceEditState: "preserved-only",
+      previewStatus: "warning",
+      title: "Builder text",
+    });
   });
 
   it("renders Builder Material Table components as structured source table previews", async () => {
@@ -1075,6 +1300,9 @@ describe("Builder MDX conversion", () => {
     expect(parsedTable?.data).toMatchObject({
       provider: "builder",
       componentName: "Material Table",
+      mappingId: "builder-table-preserved",
+      mappingStatus: "preserved",
+      sourceEditState: "needs-review",
       previewKind: "table",
       previewItems: ["1 row", "2 columns"],
       preview: {
@@ -1099,6 +1327,9 @@ describe("Builder MDX conversion", () => {
     const parsedNameless = await parseRegistryBlockData(markers[1]!);
     expect(parsedNameless?.data).toMatchObject({
       componentName: "Builder component",
+      mappingId: "builder-nameless-preserved",
+      mappingStatus: "unknown",
+      sourceEditState: "preserved-only",
       previewStatus: "unavailable",
     });
     const sidecars = Object.fromEntries(
