@@ -1,22 +1,21 @@
 import { useActionMutation, useT } from "@agent-native/core/client";
-import type { SlideGenerateResponse } from "@shared/api";
-import { IconLoader2, IconPhoto } from "@tabler/icons-react";
-import { useState } from "react";
-
 import {
   Dialog,
   DialogContent,
   DialogHeader,
   DialogTitle,
   DialogDescription,
-} from "@/components/ui/dialog";
+} from "@agent-native/toolkit/ui/dialog";
 import {
   Select,
   SelectTrigger,
   SelectValue,
   SelectContent,
   SelectItem,
-} from "@/components/ui/select";
+} from "@agent-native/toolkit/ui/select";
+import type { SlideGenerateResponse } from "@shared/api";
+import { IconLoader2, IconPhoto } from "@tabler/icons-react";
+import { useState } from "react";
 
 interface GenerateSlidesDialogProps {
   open: boolean;

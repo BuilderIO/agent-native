@@ -34,6 +34,19 @@ import { useChangeVersions } from "../use-change-version.js";
 
 export const dbAdminBasePath = agentNativePath("/_agent-native/db-admin");
 
+export interface DbAdminRequestConfig {
+  basePath?: string;
+  scopeKey?: string;
+}
+
+function requestBasePath(config?: DbAdminRequestConfig): string {
+  return (config?.basePath ?? dbAdminBasePath).replace(/\/+$/, "");
+}
+
+function requestScopeKey(config?: DbAdminRequestConfig): string {
+  return config?.scopeKey ?? requestBasePath(config);
+}
+
 // ─── Tab id (request source) ───────────────────────────────────────────────
 
 let cachedTabId: string | null = null;
@@ -104,8 +117,11 @@ async function parseEnvelope<T>(res: Response): Promise<T> {
   return json;
 }
 
-export async function dbAdminGet<T>(subpath: string): Promise<T> {
-  const res = await fetch(`${dbAdminBasePath}${subpath}`, {
+export async function dbAdminGet<T>(
+  subpath: string,
+  config?: DbAdminRequestConfig,
+): Promise<T> {
+  const res = await fetch(`${requestBasePath(config)}${subpath}`, {
     method: "GET",
     credentials: "include",
     headers: baseHeaders(),
@@ -116,8 +132,9 @@ export async function dbAdminGet<T>(subpath: string): Promise<T> {
 export async function dbAdminPost<T>(
   subpath: string,
   body: unknown,
+  config?: DbAdminRequestConfig,
 ): Promise<T> {
-  const res = await fetch(`${dbAdminBasePath}${subpath}`, {
+  const res = await fetch(`${requestBasePath(config)}${subpath}`, {
     method: "POST",
     credentials: "include",
     headers: baseHeaders({ "Content-Type": "application/json" }),
@@ -159,12 +176,18 @@ interface OverviewResponse {
   tables: DbAdminTableSummary[];
 }
 
-export function useOverview(): DbAdminQueryState<DbAdminOverview> {
-  const version = useChangeVersions(["db-admin", "action"]);
+export function useOverview(
+  config?: DbAdminRequestConfig,
+): DbAdminQueryState<DbAdminOverview> {
+  const version = useChangeVersions([
+    "db-admin",
+    "analytics-db-admin",
+    "action",
+  ]);
   const query = useQuery<DbAdminOverview, Error>({
-    queryKey: ["db-admin", "overview", version],
+    queryKey: ["db-admin", requestScopeKey(config), "overview", version],
     queryFn: async () => {
-      const res = await dbAdminGet<OverviewResponse>("/overview");
+      const res = await dbAdminGet<OverviewResponse>("/overview", config);
       return { dialect: res.dialect, tables: res.tables };
     },
     placeholderData: keepPreviousData,
@@ -182,14 +205,20 @@ interface SchemaResponse {
 
 export function useTableSchema(
   table: string | null,
+  config?: DbAdminRequestConfig,
 ): DbAdminQueryState<DbAdminTableSchema> {
-  const version = useChangeVersions(["db-admin", "action"]);
+  const version = useChangeVersions([
+    "db-admin",
+    "analytics-db-admin",
+    "action",
+  ]);
   const query = useQuery<DbAdminTableSchema, Error>({
-    queryKey: ["db-admin", "schema", table, version],
+    queryKey: ["db-admin", requestScopeKey(config), "schema", table, version],
     enabled: !!table,
     queryFn: async () => {
       const res = await dbAdminGet<SchemaResponse>(
         `/table/${encodeURIComponent(table!)}/schema`,
+        config,
       );
       return res.table;
     },
@@ -204,15 +233,28 @@ export function useTableSchema(
 export function useTableRows(
   table: string | null,
   req: DbAdminRowsRequest,
+  config?: DbAdminRequestConfig,
 ): DbAdminQueryState<DbAdminRowsResult> {
-  const version = useChangeVersions(["db-admin", "action"]);
+  const version = useChangeVersions([
+    "db-admin",
+    "analytics-db-admin",
+    "action",
+  ]);
   const query = useQuery<DbAdminRowsResult, Error>({
-    queryKey: ["db-admin", "rows", table, req, version],
+    queryKey: [
+      "db-admin",
+      requestScopeKey(config),
+      "rows",
+      table,
+      req,
+      version,
+    ],
     enabled: !!table,
     queryFn: () =>
       dbAdminPost<DbAdminRowsResult>(
         `/table/${encodeURIComponent(table!)}/rows`,
         req,
+        config,
       ),
     placeholderData: keepPreviousData,
     staleTime: 2000,
@@ -225,10 +267,12 @@ export function useTableRows(
 export async function mutateTable(
   table: string,
   mutation: DbAdminMutation,
+  config?: DbAdminRequestConfig,
 ): Promise<DbAdminMutationResult> {
   return dbAdminPost<DbAdminMutationResult>(
     `/table/${encodeURIComponent(table)}/mutate`,
     mutation,
+    config,
   );
 }
 
@@ -236,10 +280,15 @@ export async function runQuery(
   sql: string,
   params?: unknown[],
   confirmDestructive?: boolean,
+  config?: DbAdminRequestConfig,
 ): Promise<DbAdminQueryResult> {
-  return dbAdminPost<DbAdminQueryResult>("/query", {
-    sql,
-    params,
-    confirmDestructive,
-  });
+  return dbAdminPost<DbAdminQueryResult>(
+    "/query",
+    {
+      sql,
+      params,
+      confirmDestructive,
+    },
+    config,
+  );
 }

@@ -118,9 +118,7 @@ O domínio skills segue o mesmo formato do framework skills. Eles codificam padr
 
 ## skills com suporte de aplicativo {#app-backed-skills}
 
-As skills com suporte de app atuais incluem `visual-plan` e `visual-recap` do
-Plan, `visual-edit` do Design, `assets` do Assets e `content` para editar
-docs/blog/MDX a partir do repositório.
+As skills com suporte de app atuais incluem `visual-plan`, `visual-recap` e `visualize-repo` do Plan, `visual-edit` do Design, `assets` do Assets e `content` para edição docs/blog/MDX apoiada pelo repositório.
 
 O skills apoiado por aplicativo empacota um aplicativo nativo do agente como um artefato do mercado de habilidades. O pacote pode incluir instruções do agente, metadados exportados do conector skills, MCP, instruções de inicialização hospedadas/locais e superfícies UI, como aplicativos MCP.
 
@@ -332,6 +330,7 @@ trabalho off-line ou uso sensível à privacidade.
 ```bash
 # Caminho feliz: instruções exportadas mais conector MCP hospedado.
 npx @agent-native/core@latest skills add visual-plan
+npx @agent-native/core@latest skills add visualize-repo
 npx @agent-native/core@latest skills add visual-edit
 npx @agent-native/core@latest skills add assets
 

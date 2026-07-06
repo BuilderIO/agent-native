@@ -1,0 +1,19 @@
+/*
+ * Registers @agent-native/toolkit's compiled components with Tailwind so apps
+ * that render toolkit UI (dropdowns, dialogs, popovers, etc.) generate the
+ * classes those components use. Without this, classes that appear ONLY inside
+ * toolkit components (e.g. the dropdown content's `z-[250]` and enter/exit
+ * animations) are never generated, and the components render unstyled/invisible.
+ *
+ * Import in an app's `app/global.css` AFTER `@import "tailwindcss";`, alongside
+ * the core stylesheet:
+ *
+ *   @import "tailwindcss";
+ *   @import "@agent-native/core/styles/agent-native.css";
+ *   @import "@agent-native/toolkit/styles.css";
+ *
+ * The @source path is self-relative to this file's shipped location in `dist/`,
+ * so it is robust to install layout — mirroring @agent-native/core's
+ * agent-native.css. Do NOT reach into node_modules from app CSS instead.
+ */
+@source "./**/*.js";

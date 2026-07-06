@@ -3,7 +3,7 @@ import {
   getRequestOrgId,
   getRequestUserEmail,
 } from "@agent-native/core/server/request-context";
-import { and, eq } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { z } from "zod";
 
@@ -159,19 +159,25 @@ export default defineAction({
         status: "available" as const,
       }));
 
+    // The id may already be taken by a DIFFERENT user (legacy ids were derived
+    // from devServerUrl + rootPath without user scoping, so two users on the
+    // same devcontainer image collide). Detect that up front and fail with a
+    // clear error instead of crashing on the primary-key insert below.
     const existing = await db
       .select({
-        id: schema.designLocalhostConnections.id,
+        ownerEmail: schema.designLocalhostConnections.ownerEmail,
         bridgeToken: schema.designLocalhostConnections.bridgeToken,
       })
       .from(schema.designLocalhostConnections)
-      .where(
-        and(
-          eq(schema.designLocalhostConnections.id, id),
-          eq(schema.designLocalhostConnections.ownerEmail, ownerEmail),
-        ),
-      )
+      .where(eq(schema.designLocalhostConnections.id, id))
       .limit(1);
+
+    if (existing[0] && existing[0].ownerEmail !== ownerEmail) {
+      throw new Error(
+        `Connection id "${id}" already belongs to another user. ` +
+          "Omit id so a per-user connection id is derived instead.",
+      );
+    }
 
     const nextBridgeToken = args.bridgeToken?.trim() || undefined;
     const values = {
@@ -191,17 +197,18 @@ export default defineAction({
       updatedAt: now,
     };
 
-    if (existing[0]) {
-      await db
-        .update(schema.designLocalhostConnections)
-        .set(values)
-        .where(eq(schema.designLocalhostConnections.id, id));
-    } else {
-      await db.insert(schema.designLocalhostConnections).values({
-        ...values,
-        createdAt: now,
+    // Atomic upsert keyed on the id primary key — no check-then-insert race.
+    // setWhere keeps a concurrent insert by another user (TOCTOU on the
+    // ownership check above) from being overwritten: on a cross-user conflict
+    // the update filters to a no-op instead of hijacking the other row.
+    await db
+      .insert(schema.designLocalhostConnections)
+      .values({ ...values, createdAt: now })
+      .onConflictDoUpdate({
+        target: schema.designLocalhostConnections.id,
+        set: values,
+        setWhere: eq(schema.designLocalhostConnections.ownerEmail, ownerEmail),
       });
-    }
 
     return {
       id,

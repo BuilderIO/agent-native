@@ -42,6 +42,7 @@ import {
   parseSkillsArgs,
   VISUAL_PLANS_SKILL_MD,
   VISUAL_RECAP_SKILL_MD,
+  VISUALIZE_REPO_SKILL_MD,
   WIREFRAME_REFERENCE_MD,
 } from "./skills.js";
 import { getTemplate, allTemplateNames, TEMPLATES } from "./templates-meta.js";
@@ -52,6 +53,7 @@ let origCwd: string;
 const PLANS_INSTALL_SKILLS: Array<[string, string]> = [
   ["visual-plan", VISUAL_PLANS_SKILL_MD],
   ["visual-recap", VISUAL_RECAP_SKILL_MD],
+  ["visualize-repo", VISUALIZE_REPO_SKILL_MD],
 ];
 
 const PLANS_INSTALL_SKILL_NAMES = PLANS_INSTALL_SKILLS.map(([name]) => name);
@@ -72,8 +74,8 @@ const PLANS_INSTALL_REFERENCES: Record<string, Record<string, string>> = {
   },
 };
 
-// Bundle aliases install BOTH plan skills. The single-skill names visual-plan
-// and visual-recap install only their own skill and are covered separately.
+// Bundle aliases install every Plan skill. The single-skill names install only
+// their own skill and are covered separately.
 const PLANS_INSTALL_ALIASES = [
   "visual-plans",
   "code-review-recap",
@@ -138,9 +140,8 @@ describe("Plans template — allow-list & metadata", () => {
     expect(meta?.prodUrl).toBe("https://plan.agent-native.com");
   });
 
-  it("resolves legacy aliases (visual-plans, contracts) to the plan template", () => {
+  it("resolves the visual-plans legacy alias to the plan template", () => {
     expect(getTemplate("visual-plans")?.name).toBe("plan");
-    expect(getTemplate("contracts")?.name).toBe("plan");
   });
 
   it("declares no first-party workspace package deps that need scaffolding", () => {
@@ -219,7 +220,7 @@ describe(
       async () => {
         await createApp("plan", { template: "plan" });
         const skillsDir = path.join(tmpDir, "plan", ".agents", "skills");
-        for (const name of ["visual-plan", "visual-recap"]) {
+        for (const name of ["visual-plan", "visual-recap", "visualize-repo"]) {
           expect(
             fs.existsSync(path.join(skillsDir, name, "SKILL.md")),
             `expected scaffolded skill ${name}/SKILL.md`,
@@ -474,7 +475,7 @@ describe("Plans skills install — materialized output", () => {
     }
   });
 
-  it("installs only the named skill for visual-plan / visual-recap", async () => {
+  it("installs only the named skill for visual-plan / visual-recap / visualize-repo", async () => {
     const plan = await materializeViaAlias("visual-plan");
     expect(plan.result.id).toBe("visual-plans");
     expect(plan.result.skillNames).toEqual(["visual-plan"]);
@@ -483,7 +484,7 @@ describe("Plans skills install — materialized output", () => {
       "npx @agent-native/core@latest skills add visual-plans",
     );
     expect(plan.captured["visual-plan"]).toContain(
-      "use `skills add visual-plan` or\n`skills add visual-recap` instead",
+      "use\n`skills add visual-plan`, `skills add visual-recap`, or\n`skills add visualize-repo` instead",
     );
 
     const recap = await materializeViaAlias("visual-recap");
@@ -497,6 +498,25 @@ describe("Plans skills install — materialized output", () => {
     expect(recap.result.commands).toContain(
       "npx @agent-native/core@latest connect https://plan.agent-native.com --client codex --scope project",
     );
+
+    const repo = await materializeViaAlias("visualize-repo");
+    expect(repo.result.id).toBe("visual-plans");
+    expect(repo.result.skillNames).toEqual(["visualize-repo"]);
+    expect(Object.keys(repo.captured)).toEqual(["visualize-repo"]);
+    expect(repo.captured["visualize-repo"]).toContain(
+      "npx @agent-native/core@latest visualize-repo --open",
+    );
+
+    for (const alias of ["visualize", "repo-visualizer", "visual-docs"]) {
+      const aliasResult = await materializeViaAlias(alias);
+      expect(aliasResult.result.id, `alias ${alias}`).toBe("visual-plans");
+      expect(aliasResult.result.skillNames, `alias ${alias}`).toEqual([
+        "visualize-repo",
+      ]);
+      expect(Object.keys(aliasResult.captured), `alias ${alias}`).toEqual([
+        "visualize-repo",
+      ]);
+    }
   });
 
   it("materialized visual-plan handles existing plan text and avoids legacy HTML", async () => {
@@ -523,6 +543,11 @@ describe("Plans skill three-copy sync (deep)", () => {
       constant: VISUAL_RECAP_SKILL_MD,
       templateDir: "visual-recap",
       exportedDir: "visual-recap",
+    },
+    {
+      constant: VISUALIZE_REPO_SKILL_MD,
+      templateDir: "visualize-repo",
+      exportedDir: "visualize-repo",
     },
   ];
 
@@ -568,6 +593,8 @@ describe("Plans skill three-copy sync (deep)", () => {
   it("the canonical headline skill declares name: visual-plan and the slash command", () => {
     expect(VISUAL_PLANS_SKILL_MD).toMatch(/^---\nname: visual-plan\n/);
     expect(VISUAL_PLANS_SKILL_MD).toContain("`/visual-plan`");
+    expect(VISUALIZE_REPO_SKILL_MD).toMatch(/^---\nname: visualize-repo\n/);
+    expect(VISUALIZE_REPO_SKILL_MD).toContain("`/visualize-repo`");
   });
 });
 
@@ -641,30 +668,6 @@ describe("Plans first-run — adversarial inputs", { timeout: 60000 }, () => {
       expect(fs.existsSync(path.join(tmpDir, "trav", "package.json"))).toBe(
         false,
       );
-    }
-  });
-
-  it("does not silently accept a stray 'contracts' skill dir as a real skill", () => {
-    // templates/plan/.agents/skills/contracts is an empty leftover dir; it must
-    // not masquerade as a shipped skill (no SKILL.md).
-    const root = workspaceRoot();
-    const contractsSkill = path.join(
-      root,
-      "templates",
-      "plan",
-      ".agents",
-      "skills",
-      "contracts",
-      "SKILL.md",
-    );
-    // If a real contracts skill is ever added this assertion can flip; today an
-    // empty dir with no SKILL.md should not exist as a half-shipped skill.
-    if (fs.existsSync(path.dirname(contractsSkill))) {
-      const entries = fs.readdirSync(path.dirname(contractsSkill));
-      expect(
-        entries.length === 0 || entries.includes("SKILL.md"),
-        "contracts skill dir is non-empty but has no SKILL.md (half-shipped skill)",
-      ).toBe(true);
     }
   });
 });

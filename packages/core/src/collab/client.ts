@@ -30,12 +30,15 @@ import { Awareness } from "y-protocols/awareness";
 import * as Y from "yjs";
 
 import { agentNativePath } from "../client/api-path.js";
+import { subscribeSyncEvents, type SyncEvent } from "../client/use-db-sync.js";
 import { AGENT_CLIENT_ID } from "./agent-identity.js";
 
 export interface CollabUser {
   name: string;
   email: string;
   color: string;
+  /** Profile image shown in presence avatars, cursor flags, and edit tags. */
+  avatarUrl?: string;
 }
 
 export interface UseCollaborativeDocOptions {
@@ -524,92 +527,60 @@ export function useCollaborativeDoc(
 
     // SSE connection state. When SSE is healthy, poll interval is relaxed.
     let sseActive = false;
-    let sseEventSource: EventSource | null = null;
 
     // ── SSE fast-path ────────────────────────────────────────────────
-    // Wire into the framework /_agent-native/events SSE stream.
+    // Subscribe to the SHARED framework transport for /_agent-native/events
+    // instead of opening a dedicated EventSource per collab doc. A tab holds
+    // exactly one SSE connection regardless of how many docs are mounted —
+    // extra streams eat the browser's per-origin connection budget and can
+    // starve regular data fetches (worst on HTTP/1.1 dev servers).
     // Collab update events arrive push-style; we apply them immediately,
     // avoiding ~2s polling latency for peer edits.
     //
     // NOTE: SSE events are subject to the same server-side access scoping as
     // polling — the server only pushes events that canSeeChangeForUser allows.
     // The server tags collab events with owner/orgId (security commit).
-    function initSSE() {
-      if (typeof EventSource === "undefined") return;
-      try {
-        const es = new EventSource(agentNativePath("/_agent-native/events"));
-        sseEventSource = es;
+    const handleSharedEvent = (change: SyncEvent) => {
+      if (
+        change.source === "collab" &&
+        change.docId === docId &&
+        typeof change.update === "string"
+      ) {
+        if (requestSource && change.requestSource === requestSource) return;
+        try {
+          Y.applyUpdate(doc, base64ToUint8Array(change.update), "remote");
+        } catch {
+          // Malformed update — trigger state-vector fetch on next poll
+        }
 
-        es.onopen = () => {
-          sseActive = true;
-          consecutiveErrors = 0;
-        };
-
-        es.onmessage = (ev) => {
-          try {
-            const change = JSON.parse(ev.data) as {
-              source?: string;
-              docId?: string;
-              update?: string;
-              requestSource?: string;
-              version?: number;
-            };
-
-            if (
-              change.source === "collab" &&
-              change.docId === docId &&
-              change.update
-            ) {
-              if (requestSource && change.requestSource === requestSource)
-                return;
-              try {
-                Y.applyUpdate(doc, base64ToUint8Array(change.update), "remote");
-              } catch {
-                // Malformed update — trigger state-vector fetch on next poll
-              }
-
-              if (change.requestSource === "agent") {
-                setAgentActive(true);
-                if (agentTimerRef.current) clearTimeout(agentTimerRef.current);
-                agentTimerRef.current = setTimeout(
-                  () => setAgentActive(false),
-                  3000,
-                );
-              }
-            }
-
-            // Keep pollVersionRef updated from SSE events so the poll loop
-            // starts from the right version when SSE drops.
-            if (typeof change.version === "number") {
-              pollVersionRef.current = Math.max(
-                pollVersionRef.current,
-                change.version,
-              );
-            }
-          } catch {
-            // Ignore malformed events
-          }
-        };
-
-        es.onerror = () => {
-          sseActive = false;
-          es.close();
-          sseEventSource = null;
-          // Retry SSE after a short delay
-          if (!stopped) {
-            setTimeout(initSSE, 5_000 + Math.random() * 5_000);
-          }
-        };
-      } catch {
-        // SSE not available (edge runtime, etc.) — fall back to polling only
-        sseActive = false;
+        if (change.requestSource === "agent") {
+          setAgentActive(true);
+          if (agentTimerRef.current) clearTimeout(agentTimerRef.current);
+          agentTimerRef.current = setTimeout(() => setAgentActive(false), 3000);
+        }
       }
-    }
 
-    // Only set up SSE in browser environments that support it.
-    if (typeof EventSource !== "undefined") {
-      initSSE();
-    }
+      // Keep pollVersionRef updated from shared-transport events so the poll
+      // loop starts from the right version when SSE drops.
+      if (typeof change.version === "number") {
+        pollVersionRef.current = Math.max(
+          pollVersionRef.current,
+          change.version,
+        );
+      }
+    };
+
+    const unsubscribeSharedEvents = subscribeSyncEvents({
+      onEvents: (events) => {
+        if (stopped) return;
+        for (const change of events) handleSharedEvent(change);
+      },
+      onSseStateChange: (connected) => {
+        sseActive = connected;
+        if (connected) consecutiveErrors = 0;
+      },
+      pauseWhenHidden,
+    });
 
     // ── Poll loop ───────────────────────────────────────────────────
     function getActivePollInterval(): number {
@@ -831,10 +802,7 @@ export function useCollaborativeDoc(
     return () => {
       stopped = true;
       if (timer) clearTimeout(timer);
-      if (sseEventSource) {
-        sseEventSource.close();
-        sseEventSource = null;
-      }
+      unsubscribeSharedEvents();
       window.removeEventListener("focus", pollNow);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
@@ -850,91 +818,66 @@ export function useCollaborativeDoc(
     docMissing,
   ]);
 
-  // SSE fast-path for awareness: subscribe to the framework events stream and
+  // SSE fast-path for awareness: listen on the SHARED framework transport and
   // apply any awareness-change events immediately so peers receive cursor
   // moves push-style without waiting for the next poll cycle.
-  // Polling fallback keeps working when SSE is unavailable.
+  // Polling fallback keeps working when SSE is unavailable. Reconnection and
+  // focus/visibility handling live inside the shared transport.
   useEffect(() => {
-    if (!ydoc || !docId || !awareness || typeof EventSource === "undefined") {
+    if (!ydoc || !docId || !awareness) {
       return;
     }
     // Non-null captures for closures: null branches returned early above.
     const capturedYdoc = ydoc;
     const capturedAwareness = awareness;
-    const sseUrl = agentNativePath("/_agent-native/events");
-    let source: EventSource | null = null;
     let stopped = false;
 
-    function connect() {
-      if (stopped || source) return;
-      source = new EventSource(sseUrl);
-      source.onmessage = (msg) => {
-        if (stopped) return;
-        try {
-          const data = JSON.parse(msg.data as string) as {
-            source?: string;
-            type?: string;
-            docId?: string;
-            states?: Array<{ clientId: number; state: string }>;
-          };
-          if (
-            data.source !== "awareness" ||
-            data.type !== "awareness-change" ||
-            data.docId !== docId
-          ) {
-            return;
-          }
-          const remoteStates: RemoteAwarenessSnapshot[] = [];
-          for (const remote of data.states ?? []) {
-            try {
-              remoteStates.push({
-                clientId: Number(remote.clientId),
-                state: JSON.parse(remote.state),
-              });
-            } catch {
-              // Invalid state entry — skip
-            }
-          }
-          const changes = reconcileRemoteAwarenessStates(
-            capturedAwareness.getStates() as Map<number, unknown>,
-            capturedYdoc.clientID,
-            remoteStates,
-          );
-          if (
-            changes.added.length ||
-            changes.updated.length ||
-            changes.removed.length
-          ) {
-            capturedAwareness.emit("change", [changes, "remote"]);
-          }
-        } catch {
-          // Ignore malformed SSE frames; poll cycle is the safety net.
-        }
-      };
-      source.onerror = () => {
-        // On permanent close let go of the ref so re-focus can reconnect.
-        if (source && source.readyState === EventSource.CLOSED) {
-          source = null;
-        }
-      };
-    }
-
-    connect();
-
-    function onFocus() {
-      if (!source || source.readyState === EventSource.CLOSED) {
-        source?.close();
-        source = null;
-        connect();
+    const applyAwarenessEvent = (data: SyncEvent) => {
+      if (
+        data.source !== "awareness" ||
+        data.type !== "awareness-change" ||
+        data.docId !== docId
+      ) {
+        return;
       }
-    }
+      const states = Array.isArray(data.states)
+        ? (data.states as Array<{ clientId: number; state: string }>)
+        : [];
+      const remoteStates: RemoteAwarenessSnapshot[] = [];
+      for (const remote of states) {
+        try {
+          remoteStates.push({
+            clientId: Number(remote.clientId),
+            state: JSON.parse(remote.state),
+          });
+        } catch {
+          // Invalid state entry — skip
+        }
+      }
+      const changes = reconcileRemoteAwarenessStates(
+        capturedAwareness.getStates() as Map<number, unknown>,
+        capturedYdoc.clientID,
+        remoteStates,
+      );
+      if (
+        changes.added.length ||
+        changes.updated.length ||
+        changes.removed.length
+      ) {
+        capturedAwareness.emit("change", [changes, "remote"]);
+      }
+    };
 
-    window.addEventListener("focus", onFocus);
+    const unsubscribe = subscribeSyncEvents({
+      onEvents: (events) => {
+        if (stopped) return;
+        for (const data of events) applyAwarenessEvent(data);
+      },
+    });
+
     return () => {
       stopped = true;
-      source?.close();
-      source = null;
-      window.removeEventListener("focus", onFocus);
+      unsubscribe();
     };
   }, [ydoc, docId, awareness]);
 

@@ -368,6 +368,41 @@ describe("normalizeCodeAgentTranscript", () => {
     }
   });
 
+  it("clears rejected assistant text while preserving completed tool events", () => {
+    const events = [
+      event("evt-tool-start", "status", "Running query.", {
+        type: "tool_start",
+        tool: "query",
+        input: { sql: "select 1" },
+      }),
+      event("evt-tool-done", "status", "Finished query.", {
+        type: "tool_done",
+        tool: "query",
+        result: "1",
+      }),
+      event("evt-draft", "system", "Rejected draft", { role: "assistant" }),
+      event("evt-clear", "status", "", { agentChatEventType: "clear" }),
+      event("evt-final", "system", "Corrected answer", { role: "assistant" }),
+    ];
+
+    const transcript = normalizeCodeAgentTranscript(events);
+
+    expect(transcript.items).toEqual([
+      expect.objectContaining({
+        type: "tool",
+        state: "completed",
+        result: "1",
+      }),
+      expect.objectContaining({
+        type: "assistant",
+        text: "Corrected answer",
+      }),
+    ]);
+    expect(transcript.hiddenEvents.map((item) => item.id)).toContain(
+      "evt-clear",
+    );
+  });
+
   it("retains note and artifact events in the normal output", () => {
     const events = [
       event("evt-artifact", "artifact", "Migration dossier created.", {

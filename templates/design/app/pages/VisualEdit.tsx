@@ -1,4 +1,5 @@
 import { agentNativePath, useSession, useT } from "@agent-native/core/client";
+import { Button } from "@agent-native/toolkit/ui/button";
 import {
   IconArrowUpRight,
   IconBrush,
@@ -7,8 +8,6 @@ import {
   IconLayoutGrid,
 } from "@tabler/icons-react";
 import { Link } from "react-router";
-
-import { Button } from "@/components/ui/button";
 
 function buildSignInHref(): string {
   const ret = "/visual-edit?intent=save";

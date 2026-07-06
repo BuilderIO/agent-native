@@ -1,8 +1,7 @@
 import { useT } from "@agent-native/core/client";
+import { Button } from "@agent-native/toolkit/ui/button";
 import { IconBarrierBlock } from "@tabler/icons-react";
 import { Link, useLocation } from "react-router";
-
-import { Button } from "@/components/ui/button";
 
 export default function Placeholder() {
   const t = useT();

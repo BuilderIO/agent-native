@@ -15,6 +15,7 @@ vi.mock("h3", () => ({
 }));
 
 vi.mock("../../lib/public-agent-context.js", () => ({
+  CLIPS_AGENT_ACCESS_PARAM: "agent_access",
   loadPublicAgentAccess: (...args: unknown[]) =>
     mockLoadPublicAgentAccess(...args),
   loadRecordingMediaBytes: (...args: unknown[]) =>

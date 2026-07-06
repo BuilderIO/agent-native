@@ -1,0 +1,77 @@
+---
+title: "Toolkit do Agent-Native"
+description: "Kits reutilizáveis para colaboração, configurações, compartilhamento, navegação, presença, histórico, setup e UX do agente."
+---
+
+# Toolkit do Agent-Native
+
+Apps Agent-Native não devem reconstruir a infraestrutura comum do workspace.
+Apps são donas dos modelos de domínio, ações de domínio e telas específicas do
+produto. O framework e `@agent-native/toolkit` são donos das superfícies
+reutilizáveis que toda app deve herdar: colaboração, compartilhamento,
+configurações, navegação, organização, setup, UX do agente, histórico e
+visibilidade operacional.
+
+O objetivo é que usuários aprendam uma única forma de compartilhar, conectar
+chaves, ver o agente editando junto, encontrar configurações e entender o que
+mudou.
+
+## Contrato do toolkit {#toolkit-contract}
+
+Mova comportamento para o toolkit quando ele for:
+
+- **Do workspace** - usuários esperam o mesmo comportamento em todas as apps.
+- **Visível ao agente** - o agente precisa da mesma capacidade por ações,
+  instruções ou estado da aplicação.
+- **Governado** - permissões, auditoria, secrets, política da org, cobrança ou
+  regras de compartilhamento se aplicam.
+- **Repetido** - duas apps já criaram UI ou lógica parecida.
+- **Não específico de domínio** - a app fornece nomes e ações de recursos, mas o
+  padrão de interação é genérico.
+
+Mantenha local quando o comportamento depender do modelo de domínio ou de um
+fluxo específico da app.
+
+## Kits reutilizáveis {#reusable-kits}
+
+- **Settings kit** - abas padrão para conta, workspace, modelos de AI, chaves
+  LLM, conexões, secrets, uso, notificações, changelog e preferências da app.
+  Configuração durável fica em Settings; a sidebar do agente mantém controles
+  contextuais e deep links.
+- **Collaboration kit** - edição em tempo real, documentos Yjs, presença,
+  presença do agente, cursores, seleções remotas, destaques de edição e
+  undo/redo compartilhado. Veja
+  [Real-Time Collaboration](/docs/real-time-collaboration).
+- **Sharing kit** - um modelo de privacidade e permissões para privado,
+  workspace, org, link público, convites, roles, expiração e acesso legível pelo
+  agente. Veja [Sharing & Privacy](/docs/sharing).
+- **Navigation and command kit** - app shell, navegação, breadcrumbs, app
+  switcher, command palette, recursos recentes, fixados e busca.
+- **Organization kit** - pastas, tags, favoritos, arquivo, lixeira, ownership,
+  membros e metadados comuns.
+- **Setup and connections kit** - chaves API, OAuth, conexões, prontidão de
+  modelos, secrets ausentes e onboarding declarativo. Veja
+  [Workspace Connections](/docs/workspace-connections).
+- **Agent UX kit** - sidebar, composer, contexto preparado, menções, voz,
+  aprovação humana, UI generativa, progresso e estado visível ao agente.
+- **History and recovery kit** - audit log, activity feed, version history,
+  checkpoints, undo, redo, restore e proof-of-done. Veja
+  [Audit Log](/docs/audit-log).
+- **Comments and review kit** - comentários ancorados, pins, menções, pedidos de
+  review, threads resolvidas e follow-ups do agente.
+- **Workflow and observability kit** - notificações, aprovações, background
+  runs, jobs recorrentes, traces, evals, feedback e timelines. Veja
+  [Observability](/docs/observability).
+
+## Ordem de implementação {#implementation-order}
+
+1. Consolidar configuração durável em abas padrão de Settings.
+2. Normalizar colaboração, presença, presença do agente, undo/redo e edição em
+   tempo real por adapters compartilhados.
+3. Mover navegação, comandos, recentes, favoritos, pastas, tags, arquivo e
+   lixeira para primitivas compartilhadas.
+4. Registrar todo recurso compartilhável no mesmo modelo de permissões e acesso
+   legível pelo agente.
+5. Dar a cada recurso colaborativo uma história consistente de atividade,
+   comentários, review, restore e auditoria.
+6. Unificar notificações, aprovações, status de runs, traces, evals e feedback.

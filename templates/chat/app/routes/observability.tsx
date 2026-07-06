@@ -1,6 +1,6 @@
 import { ObservabilityDashboard, useT } from "@agent-native/core/client";
+import { useSetPageTitle } from "@agent-native/toolkit/app-shell";
 
-import { useSetPageTitle } from "@/components/layout/HeaderActions";
 import enUS from "@/i18n/en-US";
 
 export function meta() {

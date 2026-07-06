@@ -42,6 +42,16 @@ export default defineAction({
       .where(eq(schema.recordingTranscripts.recordingId, args.recordingId))
       .limit(1);
 
+    if (transcript?.status !== "ready" || !transcript.fullText?.trim()) {
+      return {
+        updated: false,
+        skipped: true,
+        reason: "transcript_not_ready",
+        recordingId: args.recordingId,
+        transcriptStatus: transcript?.status ?? "missing",
+      };
+    }
+
     const request = {
       kind: "regenerate-summary" as const,
       recordingId: args.recordingId,

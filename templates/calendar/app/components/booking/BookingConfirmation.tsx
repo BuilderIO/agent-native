@@ -1,10 +1,9 @@
 import { useT } from "@agent-native/core/client";
+import { Button } from "@agent-native/toolkit/ui/button";
 import type { Booking, CustomField } from "@shared/api";
 import { IconCircleCheck, IconVideo } from "@tabler/icons-react";
 import { format, parseISO } from "date-fns";
 import { Link } from "react-router";
-
-import { Button } from "@/components/ui/button";
 
 interface BookingConfirmationProps {
   booking: Booking;

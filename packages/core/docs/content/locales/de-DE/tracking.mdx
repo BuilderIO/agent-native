@@ -188,6 +188,67 @@ Hauptunterschiede zum [server `track()`](#track):
 
 Dies unterscheidet sich von der internen Browser-Telemetrie des Frameworks (`trackEvent()` / automatische Seitenaufrufe – siehe [Browser defaults](#browser-defaults) unten), die die eigene Produktanalyse von Agent Native unterstützt. Verwenden Sie `track()` für die eigenen Analyseereignisse Ihrer App, die Ihre konfigurierten Anbieter erreichen sollen.
 
+## Session Replay {#session-replay}
+
+Agent-Native-Apps können sich für erstklassiges browserseitiges Session Replay entscheiden, ohne ein zweites Analytics-SDK hinzuzufügen. Rufen Sie `configureTracking()` einmal im Browser-Root auf und übergeben Sie den öffentlichen Analytics-Schlüssel sowie den Collector-Endpunkt:
+
+```ts
+import { configureTracking } from "@agent-native/core/client";
+
+configureTracking({
+  key: "anpk_...",
+  endpoint: "https://analytics.example.com/api/analytics/track",
+  sessionReplay: {
+    enabled: true,
+    sampleRate: 0.1,
+  },
+  getDefaultProps: (_event, props) => ({
+    ...props,
+    app: "my-app",
+    template: "my-template",
+  }),
+});
+```
+
+Wenn `sessionReplay.enabled` einen truthy Wert hat, importiert der Client nach dem Start dynamisch `@rrweb/record` und sendet Replay-Chunks an den Replay-Endpunkt. Wenn `endpoint` auf `/api/analytics/track` oder `/track` endet, wird der Replay-Endpunkt automatisch als `/api/analytics/replay` abgeleitet. Überschreiben Sie ihn explizit mit `sessionReplay.endpoint`, wenn der Replay-Collector an anderer Stelle liegt.
+
+Agent-Native-Template-Roots rufen `configureTracking()` bereits auf. Gehostete Template-Deployments können Replay über Vite-/Netlify-Umgebungsvariablen aktivieren, während Bibliotheks-Konsumenten die explizite Form `configureTracking({ key, endpoint, sessionReplay })` von oben bevorzugen sollten:
+
+```bash
+VITE_AGENT_NATIVE_ANALYTICS_PUBLIC_KEY=anpk_...
+VITE_AGENT_NATIVE_ANALYTICS_ENDPOINT=https://analytics.example.com/api/analytics/track
+VITE_AGENT_NATIVE_SESSION_REPLAY_ENABLED=true
+VITE_AGENT_NATIVE_SESSION_REPLAY_SAMPLE_RATE=0.1
+```
+
+Der Browser-Helfer führt außerdem einen nach bestem Bemühen erfolgenden, nicht blockierenden Lesevorgang der aktuellen Agent-Native-Auth-Sitzung durch. Replay ist standardmäßig nur für angemeldete Benutzer verfügbar: Wenn `sessionReplay` aktiviert ist, startet die Aufzeichnung nur, wenn die Sitzung zu einer Benutzer-E-Mail-Adresse aufgelöst werden kann. Replays angemeldeter Benutzer enthalten E-Mail-basierte `userId`/`userEmail` sowie `orgId`.
+
+Setzen Sie `sessionReplay.requireSignedInUser: false` oder `VITE_AGENT_NATIVE_SESSION_REPLAY_REQUIRE_AUTH=false` nur für ein absichtlich anonymes Replay-Deployment. Wenn die Auth-Prüfung deaktiviert ist, bleiben anonyme Aufzeichnungen nach anonymem Besucher, Sitzung, App/Template, Hostname und Pfad abfragbar.
+
+Session Replay wird deterministisch pro Browser-Sitzung gesampelt. Eine `sampleRate` von `0.1` zeichnet etwa 10 % der infrage kommenden Sitzungen auf; verwenden Sie `1`, wenn die infrage kommende Population absichtlich klein ist, etwa beim Dogfooding nur für angemeldete Benutzer.
+
+Die Datenschutz-Standardeinstellungen sind bewusst konservativ, aber für die Wiedergabe weiterhin nützlich:
+
+- Eingaben werden standardmäßig maskiert (`maskAllInputs: true`).
+- Seitentext bleibt sichtbar, sofern ein Element nicht mit `.an-mask` oder `data-an-mask` markiert ist.
+- Sensible Bereiche werden mit Selektoren wie `[data-sensitive]`, `.an-block`, `.an-private`, `data-an-block`, `data-an-private` sowie kreditkarten-/passwort-/sozialversicherungsnummerähnlichen Feldern blockiert.
+- URLs werden mit demselben `scrubUrl()`-Helfer bereinigt, der auch von der Browser-Analyse verwendet wird.
+- Die Replay-Aufzeichnung ist ausschließlich webbasiert und opt-in; native Desktop-Bildschirme werden nicht aufgezeichnet.
+
+Während der Aufzeichnung erfasst Session Replay außerdem die Browser-Konsolenausgabe (`log`, `info`, `warn`, `error`, `debug`, sowie die Fenster-Ereignisse `error` / `unhandledrejection`) und Netzwerkanfrage-Metadaten (`fetch` und XHR) als getaggte rrweb-Custom-Events, damit Agenten und der Replay-Viewer von Nutzern gemeldete Probleme debuggen können. Die Erfassung ist standardmäßig aktiviert, wenn Replay aktiviert ist; passen Sie sie mit den Optionen `sessionReplay.console` und `sessionReplay.network` an oder deaktivieren Sie sie, wobei jede Option entweder einen booleschen Wert oder ein Optionsobjekt akzeptiert (`{ maxEvents?: number }`, wobei `network` zusätzlich `captureErrorBodies` und `maxErrorBodyLength` akzeptiert). Request-Bodies und -Header sowie Response-Header werden nie erfasst; Response-Bodies werden nur als begrenzter, redigierter Ausschnitt für 5xx-Antworten (Serverfehler) erfasst (`captureErrorBodies`, Standard true, begrenzt auf `maxErrorBodyLength` Zeichen, Standard 2048) — bei Antworten außerhalb des 5xx-Bereichs sowie bei Netzwerkfehlern wird nie ein Body mitgeführt. URLs werden bereinigt, Nachrichten werden gekürzt, der eigene Ingest-/Tracking-Traffic des Recorders wird ausgeschlossen, und sitzungsbezogene Budgets (1000 Konsolen- / 2000 Netzwerkereignisse) fügen bei Überschreitung einen Kürzungshinweis hinzu.
+
+Das Analytics-Template speichert Replay-Metadaten in SQL (`session_recordings`) und Chunks über private Blob-Referenzen (`session_replay_chunks`). Browser und Agenten erhalten niemals Anbieter-URLs. Die Wiedergabe läuft über zugriffsbeschränkte Server-Routen, und die Standard-Agent-Tools liefern Zusammenfassungen oder begrenzte Replay-Ereignisse zurück, keinen Rohzugriff auf die Chunk-Tabelle.
+
+Wenn Sie eine private Aufzeichnung an einen externen Agenten übergeben müssen, verwenden Sie auf der Sitzungsdetailseite die Funktion **Copy for agent**. Sie erzeugt einen zwei Stunden gültigen, aufzeichnungsgebundenen `agent_access`-Link, rendert eine kleine Discovery-Payload per SSR unter `/sessions/:recordingId` und stellt ausschließlich die JSON-APIs für Agent-Kontext/-Ereignisse bereit. Die Sichtbarkeit der Aufzeichnung ändert sich dadurch nicht.
+
+Implementation note: the reusable layer is the core agent-access URL contract,
+not a replay-specific UI abstraction. Use `createScopedAgentAccessGrant`,
+`verifyScopedAgentAccessToken`, `buildAgentAccessUrl`, and
+`buildAgentAccessApiUrl` for scoped SSR and JSON API links; keep replay storage,
+diagnostics shaping, and access policy inside the Analytics template.
+
+Nur für die lokale Entwicklung kann Analytics auf begrenzte SQL-Inline-Chunks zurückgreifen, wenn kein privater Blob-Speicher verfügbar ist. Produktions-Deployments sollten privaten oder verschlüsselten Blob-Speicher konfigurieren, anstatt sich für Replay-Payloads auf Postgres zu verlassen.
+
 ## Erweitert: benutzerdefinierte Anbieter und Interna {#advanced}
 
 Die meisten Apps benötigen nur `track()` / `identify()` und einen integrierten Anbieter. Der Rest der Oberfläche – Registrierung benutzerdefinierter Anbieter, die `TrackingProvider`-Schnittstelle, Batch-Interna und die eigene Browser-Telemetrie des Frameworks – finden Sie unten.

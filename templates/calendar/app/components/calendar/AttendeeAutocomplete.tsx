@@ -1,4 +1,10 @@
 import { useT } from "@agent-native/core/client";
+import { Button } from "@agent-native/toolkit/ui/button";
+import {
+  Popover,
+  PopoverAnchor,
+  PopoverContent,
+} from "@agent-native/toolkit/ui/popover";
 import {
   IconAddressBook,
   IconBuilding,
@@ -17,12 +23,6 @@ import {
   type KeyboardEvent,
 } from "react";
 
-import { Button } from "@/components/ui/button";
-import {
-  Popover,
-  PopoverAnchor,
-  PopoverContent,
-} from "@/components/ui/popover";
 import {
   filterPeopleResults,
   usePeopleContacts,

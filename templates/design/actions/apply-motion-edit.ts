@@ -97,6 +97,18 @@ export function canPatchManagedMotionCss(content: string): boolean {
   return /<\s*(?:!doctype|[a-z][a-z0-9:-]*(?:\s|>|\/>))/i.test(content);
 }
 
+// Composite key for detecting duplicate (targetNodeId, property) track pairs.
+// Uses the ASCII Unit Separator (U+001F) — an escape in source, so the file
+// stays plain text (a literal NUL made tooling treat it as binary). U+001F
+// cannot appear in a valid data-agent-native-node-id or CSS property name
+// (both are validated to CSS-safe identifiers), so it can never collide with
+// real content and remains an unambiguous field delimiter.
+const MOTION_TRACK_KEY_SEPARATOR = "\x1f";
+
+export function motionTrackKey(targetNodeId: string, property: string): string {
+  return `${targetNodeId}${MOTION_TRACK_KEY_SEPARATOR}${property}`;
+}
+
 async function persistFileContent(
   fileId: string,
   designId: string,
@@ -168,7 +180,10 @@ export default defineAction({
       .number()
       .int()
       .positive()
-      .default(300)
+      // Keep in sync with the MotionDock default (DesignEditor
+      // motionDurationMs) and get-motion-timeline's CSS-recovery fallback so
+      // an omitted duration means the same thing on every surface.
+      .default(1000)
       .describe("Total animation duration in milliseconds."),
     defaultEase: z
       .string()
@@ -254,9 +269,21 @@ export default defineAction({
 
     // Reject CSS-injection vectors in caller-supplied track properties,
     // keyframe values, and easing strings before they are compiled into the
-    // managed <style> block.
+    // managed <style> block. Also reject duplicate (targetNodeId, property)
+    // pairs: the compiler derives the animation name from that pair, so a
+    // duplicate would silently overwrite the earlier track's keyframes.
+    const seenTrackKeys = new Set<string>();
     for (const track of typedTracks) {
       assertSafeMotionCssProperty(track.property, "track.property");
+      const trackKey = motionTrackKey(track.targetNodeId, track.property);
+      if (seenTrackKeys.has(trackKey)) {
+        throw new Error(
+          `Duplicate motion track for targetNodeId "${track.targetNodeId}" ` +
+            `and property "${track.property}". Each (targetNodeId, property) ` +
+            "pair may appear at most once — merge the keyframes into a single track.",
+        );
+      }
+      seenTrackKeys.add(trackKey);
       for (const kf of track.keyframes) {
         assertSafeMotionCssToken(kf.value, "keyframe value");
         if (kf.ease !== undefined) {

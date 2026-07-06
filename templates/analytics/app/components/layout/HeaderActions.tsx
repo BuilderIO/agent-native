@@ -1,12 +1,11 @@
 import { useT } from "@agent-native/core/client";
+import { Skeleton } from "@agent-native/toolkit/ui/skeleton";
 import {
   useEffect,
   useSyncExternalStore,
   type ReactNode,
   type FC,
 } from "react";
-
-import { Skeleton } from "@/components/ui/skeleton";
 
 /**
  * External store for the page's header title + actions. We use an external

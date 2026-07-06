@@ -45,6 +45,13 @@ type NitroPluginDef = (nitroApp: any) => void | Promise<void>;
 /** Default maximum body size in bytes for collab write operations (2 MB). */
 const DEFAULT_MAX_PAYLOAD_BYTES = 2 * 1024 * 1024;
 
+type CollabAwarenessScope = {
+  owner?: string;
+  orgId?: string;
+  resourceType?: string;
+  resourceId?: string;
+};
+
 /**
  * Whether the no-resourceType warning has already been logged once per server
  * process. Avoids flooding logs on every request in templates that deliberately
@@ -111,16 +118,17 @@ export function createCollabPlugin(
     // Security: when resourceType is configured, resolve the resource's
     // owner/org so getChangesSinceForUser can scope delivery. We use
     // resolveAccess to obtain the resource row — it already handles ownership,
-    // visibility, and share rows. Rather than trying to enumerate every sharee
-    // (which would require querying the shares table for every update), the
-    // conservative strategy is:
-    //   • tag the event with the resource owner's email and org (owner-scoped).
-    //   • non-owner sharees who have explicit viewer+ access will NOT receive
-    //     the push event; they fall back to the state-vector catch-up via the
-    //     poll loop.  This is safe (never delivers to someone without access)
-    //     at the cost of sharees seeing slightly higher latency (state-vector
-    //     fetch on the next poll cycle) rather than the push path.
-    // See also: SECURITY comment in poll.ts on getChangesSinceForUser.
+    // visibility, and share rows. In addition to the owner/org tags we also
+    // tag the event with `resourceType` + `resourceId` so the per-user
+    // delivery filter (canSeeChangeForUser) can evaluate resource access
+    // directly for non-owner sharees:
+    //   • tag the event with the resource owner's email and org (owner-scoped)
+    //     for backward compatibility with the conservative owner/org fast path.
+    //   • ALSO tag with resourceType/resourceId so canSeeChangeForUser can run
+    //     an access-aware (cached) check and push to explicit viewer+ sharees
+    //     who don't match owner/org — instead of only degrading them to the
+    //     poll fallback.
+    // See also: SECURITY comment in poll.ts on canSeeChangeForUser.
     if (!resourceType && !_unscoped_warning_logged) {
       _unscoped_warning_logged = true;
       console.warn(
@@ -180,12 +188,15 @@ export function createCollabPlugin(
         const orgId =
           typeof resource.orgId === "string" ? resource.orgId : undefined;
 
-        // Tag the event with owner/org. Non-owner sharees fall back to poll;
-        // this is acceptable (see comment above).
+        // Tag the event with owner/org (backward-compat fast path) AND with
+        // resourceType/resourceId so canSeeChangeForUser can run an
+        // access-aware check for non-owner sharees (see poll.ts).
         recordChange({
           ...event,
           ...(ownerEmail ? { owner: ownerEmail } : {}),
           ...(orgId ? { orgId } : {}),
+          resourceType,
+          resourceId,
         });
       } catch {
         // If we fail to resolve the resource (DB not ready, etc.) we skip
@@ -244,13 +255,45 @@ export function createCollabPlugin(
 
             if (isWrite) {
               // assertAccess throws ForbiddenError (→ 403) if no editor access
-              await assertAccess(resourceType, resourceId, "editor");
+              const access = await assertAccess(
+                resourceType,
+                resourceId,
+                "editor",
+              );
+              const resource = access.resource as Record<string, unknown>;
+              const awarenessScope: CollabAwarenessScope = {
+                resourceType,
+                resourceId,
+                ...(typeof resource.ownerEmail === "string"
+                  ? { owner: resource.ownerEmail }
+                  : {}),
+                ...(typeof resource.orgId === "string"
+                  ? { orgId: resource.orgId }
+                  : {}),
+              };
+              if (event.context) {
+                event.context._collabAwarenessScope = awarenessScope;
+              }
             } else {
               // resolveAccess returns null when no access; return 404 to avoid leaking existence
               const access = await resolveAccess(resourceType, resourceId);
               if (!access) {
                 setResponseStatus(event, 404);
                 return { error: "Not found" };
+              }
+              const resource = access.resource as Record<string, unknown>;
+              const awarenessScope: CollabAwarenessScope = {
+                resourceType,
+                resourceId,
+                ...(typeof resource.ownerEmail === "string"
+                  ? { owner: resource.ownerEmail }
+                  : {}),
+                ...(typeof resource.orgId === "string"
+                  ? { orgId: resource.orgId }
+                  : {}),
+              };
+              if (event.context) {
+                event.context._collabAwarenessScope = awarenessScope;
               }
             }
           }

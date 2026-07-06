@@ -13,6 +13,7 @@ import {
   EMBED_MODE_QUERY_PARAM,
   EMBED_TOKEN_QUERY_PARAM,
 } from "@agent-native/core/shared";
+import { HeaderActionsProvider } from "@agent-native/toolkit/app-shell";
 import { IconMenu2 } from "@tabler/icons-react";
 import { useState, useEffect } from "react";
 import { useLocation, useNavigate } from "react-router";
@@ -24,7 +25,6 @@ import { ASSETS_CHAT_STORAGE_KEY } from "@/lib/chat";
 import { cn } from "@/lib/utils";
 
 import { Header } from "./Header";
-import { HeaderActionsProvider } from "./HeaderActions";
 import { Sidebar } from "./Sidebar";
 
 interface LayoutProps {

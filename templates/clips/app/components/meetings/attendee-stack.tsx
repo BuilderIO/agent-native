@@ -5,13 +5,17 @@
  * gets a shadcn Tooltip showing name/email. Used on both list cards and
  * detail headers.
  */
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import {
+  Avatar,
+  AvatarFallback,
+  AvatarImage,
+} from "@agent-native/toolkit/ui/avatar";
 import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
   TooltipTrigger,
-} from "@/components/ui/tooltip";
+} from "@agent-native/toolkit/ui/tooltip";
 
 export interface AttendeeStackParticipant {
   id?: string;

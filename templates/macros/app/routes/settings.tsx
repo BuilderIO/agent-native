@@ -6,8 +6,9 @@ import {
   useT,
 } from "@agent-native/core/client";
 import { TeamPage } from "@agent-native/core/client/org";
+import { useSetPageTitle } from "@agent-native/toolkit/app-shell";
+import { Label } from "@agent-native/toolkit/ui/label";
 
-import { useSetPageTitle } from "@/components/layout/HeaderActions";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -16,7 +17,6 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { Label } from "@/components/ui/label";
 import messages from "@/i18n/en-US";
 
 import changelog from "../../CHANGELOG.md?raw";

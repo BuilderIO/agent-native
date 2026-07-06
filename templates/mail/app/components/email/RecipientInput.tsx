@@ -1,4 +1,17 @@
 import { useT } from "@agent-native/core/client";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from "@agent-native/toolkit/ui/dialog";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@agent-native/toolkit/ui/tooltip";
 import type { Alias } from "@shared/types";
 import {
   IconX,
@@ -17,20 +30,7 @@ import {
 import { createPortal } from "react-dom";
 import { useNavigate } from "react-router";
 
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-  DialogFooter,
-} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
 import { useAliases, useCreateAlias } from "@/hooks/use-aliases";
 import { useContacts, type Contact } from "@/hooks/use-emails";
 import {

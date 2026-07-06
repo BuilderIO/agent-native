@@ -3,6 +3,24 @@ import {
   useActionQuery,
   useT,
 } from "@agent-native/core/client";
+import { Badge } from "@agent-native/toolkit/ui/badge";
+import { Button } from "@agent-native/toolkit/ui/button";
+import { Card } from "@agent-native/toolkit/ui/card";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@agent-native/toolkit/ui/select";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@agent-native/toolkit/ui/table";
 import {
   IconAlertTriangle,
   IconChecks,
@@ -22,24 +40,6 @@ import {
   MetricCard,
   PageHeader,
 } from "@/components/brain/Surface";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
 import {
   type BrainDistillationQueueStatus,
   type BrainOpsQueueItem,

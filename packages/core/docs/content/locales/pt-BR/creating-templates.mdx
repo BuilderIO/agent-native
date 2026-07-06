@@ -7,6 +7,8 @@ description: "Como criar e publicar seus próprios modelos de aplicativos nativo
 
 Os modelos são aplicativos nativos do agente completos e bifurcáveis que resolvem um fluxo de trabalho real. Os modelos primários são criados com a mesma superfície de estrutura que você usa: rotas React para UI, Drizzle SQL para dados, actions para operações, recursos de espaço de trabalho para comportamento do agente e sincronização de sondagem para que o agente e UI permaneçam alinhados.
 
+Use `@agent-native/core` para o contrato de runtime: actions, plugins de servidor, helpers de banco de dados, estado do app, helpers de rotas e chat do agente. Use `@agent-native/toolkit` para UI reutilizável e helpers de construção de apps, como primitivas compartilhadas, hooks de toast/mobile, seletores de data e slots simples de shell do app. Mantenha variantes específicas do template locais quando elas codificarem comportamento de produto ou identidade visual.
+
 Um bom modelo:
 
 - Resolve um fluxo de trabalho de ponta a ponta, com dados iniciais úteis ou um fluxo de estado vazio.

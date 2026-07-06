@@ -12,7 +12,7 @@
 import { defineAction } from "@agent-native/core";
 import { writeAppState } from "@agent-native/core/application-state";
 import { assertAccess } from "@agent-native/core/sharing";
-import { eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
 
 import {
@@ -22,6 +22,8 @@ import {
 } from "../app/lib/timestamp-mapping.js";
 import { getDb, schema } from "../server/db/index.js";
 import { assertNativeRecordingMedia } from "./lib/native-media.js";
+
+const MAX_CAS_ATTEMPTS = 5;
 
 export default defineAction({
   description:
@@ -48,36 +50,55 @@ export default defineAction({
 
     const db = getDb();
 
-    const [existing] = await db
-      .select()
-      .from(schema.recordings)
-      .where(eq(schema.recordings.id, args.recordingId));
-    if (!existing) {
-      throw new Error(`Recording not found: ${args.recordingId}`);
+    let next: ReturnType<typeof mergeExcluded> | undefined;
+
+    for (let attempt = 0; attempt < MAX_CAS_ATTEMPTS; attempt++) {
+      const [existing] = await db
+        .select()
+        .from(schema.recordings)
+        .where(eq(schema.recordings.id, args.recordingId));
+      if (!existing) {
+        throw new Error(`Recording not found: ${args.recordingId}`);
+      }
+      assertNativeRecordingMedia(existing);
+
+      const previousEditsJson = existing.editsJson;
+      const edits = parseEdits(previousEditsJson);
+      next = mergeExcluded(edits, args.startMs, args.endMs);
+
+      const result = await db
+        .update(schema.recordings)
+        .set({
+          editsJson: serializeEdits(next),
+          updatedAt: new Date().toISOString(),
+        })
+        .where(
+          and(
+            eq(schema.recordings.id, args.recordingId),
+            previousEditsJson == null
+              ? isNull(schema.recordings.editsJson)
+              : eq(schema.recordings.editsJson, previousEditsJson),
+          ),
+        )
+        .returning({ id: schema.recordings.id });
+
+      if (result.length > 0) {
+        await writeAppState("refresh-signal", { ts: Date.now() });
+        console.log(
+          `Trimmed ${args.recordingId}: ${args.startMs}–${args.endMs} ms (now ${next.trims.filter((t) => t.excluded).length} excluded ranges)`,
+        );
+        return {
+          id: args.recordingId,
+          editsJson: next,
+          trimCount: next.trims.filter((t) => t.excluded).length,
+        };
+      }
+      // Someone else changed editsJson between our read and write — retry
+      // against the now-current value.
     }
-    assertNativeRecordingMedia(existing);
 
-    const edits = parseEdits(existing.editsJson);
-    const next = mergeExcluded(edits, args.startMs, args.endMs);
-
-    await db
-      .update(schema.recordings)
-      .set({
-        editsJson: serializeEdits(next),
-        updatedAt: new Date().toISOString(),
-      })
-      .where(eq(schema.recordings.id, args.recordingId));
-
-    await writeAppState("refresh-signal", { ts: Date.now() });
-
-    console.log(
-      `Trimmed ${args.recordingId}: ${args.startMs}–${args.endMs} ms (now ${next.trims.filter((t) => t.excluded).length} excluded ranges)`,
+    throw new Error(
+      `Could not trim recording ${args.recordingId} after ${MAX_CAS_ATTEMPTS} concurrent attempts.`,
     );
-
-    return {
-      id: args.recordingId,
-      editsJson: next,
-      trimCount: next.trims.filter((t) => t.excluded).length,
-    };
   },
 });

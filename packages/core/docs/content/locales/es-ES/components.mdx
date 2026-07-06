@@ -25,6 +25,15 @@ Evite importar componentes UI desde el paquete básico `@agent-native/core`. Usa
 `@agent-native/core/client` o una subruta `@agent-native/core/client/*` enfocada
 para que los paquetes elijan la entrada segura para el navegador.
 
+Use `@agent-native/toolkit` para piezas reutilizables de construcción de aplicaciones que no forman parte del contrato fundacional del runtime: primitivas UI estilo shadcn, hooks compartidos, ayudantes simples de shell de aplicación y otros módulos para componer plantillas. Core conserva reexports de compatibilidad durante la transición, pero el código nuevo de plantillas y aplicaciones debe importar módulos de toolkit directamente:
+
+```tsx
+import { Button } from "@agent-native/toolkit/ui/button";
+import { Toaster } from "@agent-native/toolkit/ui/sonner";
+import { useToast } from "@agent-native/toolkit/hooks/use-toast";
+import { useSetHeaderActions } from "@agent-native/toolkit/app-shell";
+```
+
 <Diagram id="doc-block-1v79shu" title="Bajar una capa, no fuera del marco." summary={"Cada capa mantiene el mismo tiempo de ejecución (acciones, estado del subproceso y sincronización SQL-backed) al tiempo que le brinda más control sobre Chrome."}>
 
 ```html

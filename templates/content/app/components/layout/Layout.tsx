@@ -1,5 +1,8 @@
 import { AgentSidebar, getBrowserTabId, useT } from "@agent-native/core/client";
 import { InvitationBanner } from "@agent-native/core/client/org";
+import { HeaderActionsProvider } from "@agent-native/toolkit/app-shell";
+import { useIsMobile } from "@agent-native/toolkit/hooks/use-mobile";
+import { Sheet, SheetContent } from "@agent-native/toolkit/ui/sheet";
 import { IconMenu2 } from "@tabler/icons-react";
 import {
   type CSSProperties,
@@ -12,12 +15,9 @@ import {
 import { useLocation } from "react-router";
 
 import { DocumentSidebar } from "@/components/sidebar/DocumentSidebar";
-import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { useCreatePage } from "@/hooks/use-create-page";
-import { useIsMobile } from "@/hooks/use-mobile";
 
 import { Header } from "./Header";
-import { HeaderActionsProvider } from "./HeaderActions";
 
 const SIDEBAR_WIDTH_KEY = "sidebar-width";
 const DEFAULT_SIDEBAR_WIDTH = 240;

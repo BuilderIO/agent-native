@@ -21,7 +21,10 @@ import {
   hasConfiguredA2ASecret,
   isA2AProductionRuntime,
 } from "../a2a/auth-policy.js";
-import { collectFinalResponseTextFromAgentEvents } from "../a2a/response-text.js";
+import {
+  applyAgentTextEventToBuffer,
+  collectFinalResponseTextFromAgentEvents,
+} from "../a2a/response-text.js";
 import { updateTaskStatusMessage } from "../a2a/task-store.js";
 import { ACTION_CHAT_UI_DATA_WIDGET_RENDERER } from "../action-ui.js";
 import type { ActionHttpConfig } from "../action.js";
@@ -2578,6 +2581,8 @@ export interface AgentChatPluginOptions {
    * timeout. When reached, long runs continue through the hidden continuation
    * path instead of surfacing a timeout warning. */
   runSoftTimeoutMs?: number;
+  /** Optional per-app run-manager no-progress watchdog in milliseconds. */
+  runNoProgressTimeoutMs?: number;
   /**
    * Opt this app into Netlify durable background-function agent-chat runs. This
    * gives hosted agent turns the 15-minute async-function budget when the app's
@@ -5179,7 +5184,10 @@ export function createAgentChatPlugin(
                 ],
                 actions: mcpActions,
                 send: (event) => {
-                  if (event.type === "text") accumulatedText += event.text;
+                  accumulatedText = applyAgentTextEventToBuffer(
+                    accumulatedText,
+                    event,
+                  );
                 },
                 signal: controller.signal,
               },
@@ -5866,6 +5874,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
         appId: options?.appId,
         apiKey: options?.apiKey,
         runSoftTimeoutMs: options?.runSoftTimeoutMs,
+        runNoProgressTimeoutMs: options?.runNoProgressTimeoutMs,
         durableBackgroundRuns: options?.durableBackgroundRuns,
         finalResponseGuard: options?.finalResponseGuard,
         prepareRequest: async (details) => {
@@ -5957,6 +5966,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               appId: options?.appId,
               apiKey: options?.apiKey,
               runSoftTimeoutMs: options?.runSoftTimeoutMs,
+              runNoProgressTimeoutMs: options?.runNoProgressTimeoutMs,
               durableBackgroundRuns: options?.durableBackgroundRuns,
               finalResponseGuard: options?.finalResponseGuard,
               prepareRequest: options?.prepareRequest,
@@ -6088,6 +6098,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           appId: options?.appId,
           apiKey: options?.apiKey,
           runSoftTimeoutMs: options?.runSoftTimeoutMs,
+          runNoProgressTimeoutMs: options?.runNoProgressTimeoutMs,
           durableBackgroundRuns: options?.durableBackgroundRuns,
           finalResponseGuard: options?.finalResponseGuard,
           prepareRequest: options?.prepareRequest,
@@ -7118,11 +7129,15 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             setResponseStatus(event, 400);
             return { error: "message is required" };
           }
-          // Strip mention markup: @[Name|type] → @Name
-          const cleanMessage = message.replace(
-            /@\[([^\]|]+)\|[^\]]*\]/g,
-            "@$1",
-          );
+          // Strip hidden context and mention markup before title generation.
+          // Fallback titles are often direct truncations, so never let injected
+          // prompt context become a visible tab label.
+          const cleanMessage = message
+            .replace(/<context\b[^>]*>[\s\S]*?<\/context>\n?/gi, "")
+            .replace(/<context\b[^>]*>[\s\S]*$/gi, "")
+            .replace(/<\/context>/gi, "")
+            .replace(/@\[([^\]|]+)\|[^\]]*\]/g, "@$1")
+            .trim();
           // Mirror the chat-run resolution so BYO-key users have title
           // generation billed to their own key instead of the platform key.
           const { getOwnerActiveApiKey } =
@@ -7272,8 +7287,11 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             let reason = "user";
             try {
               const body = await readBody(event);
-              if (body?.reason === "no_progress") {
-                reason = "no_progress";
+              if (
+                typeof body?.reason === "string" &&
+                /^[a-z0-9_-]{1,64}$/i.test(body.reason)
+              ) {
+                reason = body.reason;
               }
             } catch {
               // Empty/invalid body — keep the default user abort reason.
@@ -7337,6 +7355,9 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               setResponseStatus(event, 404);
               return { error: "Run not found" };
             }
+            const runClaim = await readBackgroundRunClaim(runId).catch(
+              () => null,
+            );
             const query = getQuery(event);
             const after = parseInt(String(query.after ?? "0"), 10) || 0;
 
@@ -7349,6 +7370,11 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             setResponseHeader(event, "Content-Type", "text/event-stream");
             setResponseHeader(event, "Cache-Control", "no-cache");
             setResponseHeader(event, "Connection", "keep-alive");
+            setResponseHeader(
+              event,
+              "X-Dispatch-Mode",
+              runClaim?.dispatchMode ?? "foreground",
+            );
             return stream;
           }
 
@@ -7724,16 +7750,20 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             // queued messages durable across reloads without piggybacking
             // on full-thread saves.
             if (method === "POST" && isThreadSubroute("queued")) {
-              const thread = await getThread(threadId);
-              if (!thread || thread.ownerEmail !== owner) {
-                setResponseStatus(event, 404);
-                return { error: "Thread not found" };
-              }
               const body = await readBody(event);
               const queued = Array.isArray(body?.queuedMessages)
                 ? body.queuedMessages
                 : [];
-              await setThreadQueuedMessages(threadId, queued);
+              // Ownership is checked inside setThreadQueuedMessages (under
+              // the thread-data lock) — no separate getThread pre-read on
+              // this debounced hot path.
+              const saved = await setThreadQueuedMessages(threadId, queued, {
+                ownerEmail: owner,
+              });
+              if (!saved) {
+                setResponseStatus(event, 404);
+                return { error: "Thread not found" };
+              }
               return { ok: true };
             }
 
@@ -8067,6 +8097,9 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 stages: m.RUN_DIAG_STAGE,
               }))
               .catch(() => null);
+            const runtimeDetail = await import("../db/runtime-diagnostics.js")
+              .then((m) => m.formatRuntimeDebugFingerprint())
+              .catch(() => "");
 
             // Record "the route handler was entered" against the run after auth
             // succeeds. This is the proof the bg-fn invocation actually reached
@@ -8076,14 +8109,74 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 .record(prepared.runId, diag.stages.routeEntered)
                 .catch(() => {});
               await diag
-                .record(prepared.runId, diag.stages.authPassed)
+                .record(prepared.runId, diag.stages.authPassed, runtimeDetail)
                 .catch(() => {});
+            }
+
+            // PAYLOAD REHYDRATION: a `payloadRef` marker means the dispatch
+            // carried ONLY the marker (Netlify caps background-function request
+            // bodies at 256KB — a large chat history silently exceeded it) and
+            // the full request body is persisted on the run row. Rehydrate it
+            // here. The payload is NOT cleared on read: a Netlify at-least-once
+            // retry of a failed invocation must be able to rehydrate again (the
+            // claim CAS still dedupes execution); terminal status writes clear it.
+            let workerBody: Record<string, unknown> = prepared.body;
+            const preparedMarkerRecord =
+              preparedMarker && typeof preparedMarker === "object"
+                ? (preparedMarker as Record<string, unknown>)
+                : null;
+            if (preparedMarkerRecord?.payloadRef === true) {
+              const runStore = await import("../agent/run-store.js");
+              const rawPayload = await runStore
+                .readRunDispatchPayload(prepared.runId)
+                .catch(() => null);
+              let parsedPayload: Record<string, unknown> | null = null;
+              if (rawPayload) {
+                try {
+                  const candidate = JSON.parse(rawPayload);
+                  if (candidate && typeof candidate === "object") {
+                    parsedPayload = candidate as Record<string, unknown>;
+                  }
+                } catch {
+                  // Corrupt payload — treated as missing below.
+                }
+              }
+              if (!parsedPayload) {
+                // Row missing / reaped / already terminal — there is nothing to
+                // run. Fail the run loudly (if it is still running) and ack the
+                // dispatch with a 200 so Netlify does not retry a dead handoff.
+                if (diag) {
+                  await diag
+                    .record(
+                      prepared.runId,
+                      diag.stages.workerThrew,
+                      "dispatch payload missing — cannot rehydrate background run body",
+                    )
+                    .catch(() => {});
+                }
+                const statusUpdated = await runStore
+                  .updateRunStatusIfRunning(prepared.runId, "errored")
+                  .catch(() => false);
+                if (statusUpdated) {
+                  await runStore
+                    .setRunTerminalReason(
+                      prepared.runId,
+                      "dispatch_payload_missing",
+                    )
+                    .catch(() => {});
+                }
+                return { ok: false, skipped: "dispatch-payload-missing" };
+              }
+              workerBody = {
+                ...parsedPayload,
+                [AGENT_CHAT_BACKGROUND_RUN_FIELD]: preparedMarker,
+              };
             }
 
             // Stash the verified+augmented body for the handler — the body stream
             // is already consumed, so the handler reads this instead.
             (event as any).context = (event as any).context ?? {};
-            (event as any).context.__agentChatBackgroundBody = prepared.body;
+            (event as any).context.__agentChatBackgroundBody = workerBody;
 
             // Durable owner context: this self-dispatch is cookieless (HMAC-only).
             // Resolve the owner from the persisted run row, never the request
@@ -8264,6 +8357,56 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             });
           }, 30_000); // Check every 30s but only sweep once per 2min
         }, 15_000); // Start 15s after init (after the scheduler)
+      })();
+
+      // ─── Unclaimed background-run sweep ────────────────────────────────
+      // Backstop for LOST background handoffs. The foreground circuit-breaker
+      // covers the initial dispatch (a connected client is polling the claim),
+      // but a server-chained CONTINUATION handoff has no foreground watching
+      // it: if the dispatch is lost after the successor row was inserted, the
+      // row would sit at dispatch_mode='background' forever and the turn hangs
+      // silently. This sweep reaps such rows into a loud, attributable error
+      // (`background_worker_never_started`) that the client renders, instead
+      // of an idle spinner. Cheap: one indexed-ish query per 2-min window.
+      (() => {
+        let lastSweep = 0;
+        const SWEEP_INTERVAL_MS = 2 * 60 * 1000;
+
+        setTimeout(() => {
+          setInterval(() => {
+            const now = Date.now();
+            if (now - lastSweep < SWEEP_INTERVAL_MS) return;
+            lastSweep = now;
+
+            (async () => {
+              const {
+                listUnclaimedBackgroundRunIds,
+                reapUnclaimedBackgroundRun,
+              } = await import("../agent/run-store.js");
+              let runIds: string[];
+              try {
+                runIds = await listUnclaimedBackgroundRunIds();
+              } catch {
+                return; // Table may not exist yet on first boot
+              }
+              for (const staleRunId of runIds) {
+                try {
+                  const reaped = await reapUnclaimedBackgroundRun(staleRunId);
+                  if (reaped) {
+                    console.error(
+                      "[agent-chat] swept unclaimed background run (handoff lost):",
+                      staleRunId,
+                    );
+                  }
+                } catch {
+                  // best-effort per run
+                }
+              }
+            })().catch(() => {
+              // best-effort — never break the server
+            });
+          }, 30_000); // Check every 30s but only sweep once per 2min
+        }, 20_000); // Start 20s after init (after the agent-teams sweep)
       })();
 
       // ─── Trigger Dispatcher (event-based automations) ─────────────────

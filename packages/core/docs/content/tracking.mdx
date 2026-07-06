@@ -235,7 +235,17 @@ Privacy defaults are intentionally conservative but still useful for playback:
 - URLs are scrubbed with the same `scrubUrl()` helper used by browser analytics.
 - Replay capture is web-only and opt-in; it does not record native desktop screens.
 
+While recording, session replay also captures browser console output (`log`, `info`, `warn`, `error`, `debug`, plus window `error` / `unhandledrejection`) and network request metadata (`fetch` and XHR) as tagged rrweb custom events, so agents and the replay viewer can debug user-reported issues. Capture is on by default when replay is enabled; tune or disable it with the `sessionReplay.console` and `sessionReplay.network` options, each accepting a boolean or an options object (`{ maxEvents?: number }`, with `network` additionally accepting `captureErrorBodies` and `maxErrorBodyLength`). Request bodies and headers are never captured; response bodies are captured only as a bounded, redacted snippet for 5xx (server error) responses (`captureErrorBodies`, default true, capped at `maxErrorBodyLength` chars, default 2048) — non-5xx and network-failure responses never carry a body. URLs are scrubbed, messages are truncated, the recorder's own ingest/tracking traffic is excluded, and per-session budgets (1000 console / 2000 network events) add a truncation notice when exceeded.
+
 The Analytics template stores replay metadata in SQL (`session_recordings`) and stores chunks through private blob refs (`session_replay_chunks`). Browsers and agents never receive provider URLs. Playback goes through scoped server routes and the default agent tools return summaries or bounded replay events, not raw chunk table access.
+
+When you need to hand a private recording to an external agent, use the session detail page's **Copy for agent** control. It mints a two-hour, recording-scoped `agent_access` link, SSRs a small discovery payload on `/sessions/:recordingId`, and exposes only the agent context/events JSON APIs. The recording's visibility does not change.
+
+Implementation note: the reusable layer is the core agent-access URL contract,
+not a replay-specific UI abstraction. Use `createScopedAgentAccessGrant`,
+`verifyScopedAgentAccessToken`, `buildAgentAccessUrl`, and
+`buildAgentAccessApiUrl` for scoped SSR and JSON API links; keep replay storage,
+diagnostics shaping, and access policy inside the Analytics template.
 
 For local development only, Analytics can fall back to capped SQL inline chunks when private blob storage is unavailable. Production deployments should configure private or encrypted blob storage rather than relying on Postgres for replay payloads.
 

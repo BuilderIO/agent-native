@@ -1,13 +1,13 @@
 import { useT } from "@agent-native/core/client";
-import { IconScissors } from "@tabler/icons-react";
-import { useMemo, useRef, useState } from "react";
-
-import { Button } from "@/components/ui/button";
+import { Button } from "@agent-native/toolkit/ui/button";
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
-} from "@/components/ui/tooltip";
+} from "@agent-native/toolkit/ui/tooltip";
+import { IconScissors } from "@tabler/icons-react";
+import { useMemo, useRef, useState } from "react";
+
 import { formatMs, isExcluded, type EditsJson } from "@/lib/timestamp-mapping";
 import { cn } from "@/lib/utils";
 

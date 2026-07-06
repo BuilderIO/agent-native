@@ -10,6 +10,9 @@ import {
 } from "@agent-native/core/client";
 import { useOrg } from "@agent-native/core/client/org";
 import type { PinpointProps } from "@agent-native/pinpoint/react";
+import { toast } from "@agent-native/toolkit/hooks/use-toast";
+import { Button } from "@agent-native/toolkit/ui/button";
+import { ToastAction } from "@agent-native/toolkit/ui/toast";
 import {
   DndContext,
   closestCenter,
@@ -50,8 +53,6 @@ import LogoSearchPanel from "@/components/editor/LogoSearchPanel";
 import { QuestionFlow } from "@/components/editor/QuestionFlow";
 import SlideEditor from "@/components/editor/SlideEditor";
 import { TweaksPanel } from "@/components/editor/TweaksPanel";
-import { Button } from "@/components/ui/button";
-import { ToastAction } from "@/components/ui/toast";
 import { useDecks } from "@/context/DeckContext";
 import { useAgentGenerating } from "@/hooks/use-agent-generating";
 import { useDeckDesignSystem } from "@/hooks/use-deck-design-system";
@@ -61,7 +62,6 @@ import {
   useSlideComments,
   type CommentThread,
 } from "@/hooks/use-slide-comments";
-import { toast } from "@/hooks/use-toast";
 import type { AspectRatio } from "@/lib/aspect-ratios";
 import { getPreset } from "@/lib/design-systems";
 import { exportDeckAsPdf } from "@/lib/export-pdf-client";
@@ -174,7 +174,6 @@ export default function DeckEditor() {
   // Track new-deck-creation intent: set once on mount if ?generating=1.
   // The editor reveals partial slides as soon as the first one lands.
   const wasNewDeckCreation = useRef(searchParams.get("generating") === "1");
-  const [activeTab, setActiveTab] = useState<"visual" | "code">("visual");
   const [sidebarOpen, setSidebarOpen] = useState(
     () => typeof window !== "undefined" && window.innerWidth >= 768,
   );
@@ -681,29 +680,45 @@ export default function DeckEditor() {
       }
     : undefined;
 
-  // Slide-level collab: one Yjs doc per slide.
+  // Slide-level collab: one Yjs doc per slide. This tracks HUMAN collaborators
+  // editing the active slide's content (slideActiveUsers) and any agent edits
+  // that flow through the slide-content Yjs doc.
   // Uses activeSlideId (state) so it's stable before deck loads.
   // useCollaborativeDoc handles null docId gracefully (returns empty state).
   const slideDocId =
     id && activeSlideId ? `deck-${id}-slide-${activeSlideId}` : null;
   const {
-    ydoc,
-    awareness,
     activeUsers: slideActiveUsers,
-    agentActive,
-    agentPresent,
+    agentActive: slideAgentActive,
+    agentPresent: slideAgentPresent,
   } = useCollaborativeDoc({
     docId: slideDocId,
     requestSource: TAB_ID,
     user: currentUser,
   });
 
-  // Deck-level presence: tracks which slide each user is viewing
-  const { slidePresence } = useDeckPresence({
+  // Deck-level presence: which slide each participant (human OR agent) is on.
+  // The slide-editing actions write agent presence + lingering "AI edited"
+  // highlights to THIS doc (`deck-<id>`) via agentTouchDocument, so the agent's
+  // per-slide presence and recent edits come from here.
+  const {
+    slidePresence,
+    agentPresent: deckAgentPresent,
+    agentActive: deckAgentActive,
+    agentSlideId,
+    recentEdits: deckRecentEdits,
+    awareness: deckPresenceAwareness,
+  } = useDeckPresence({
     deckId: id ?? null,
     activeSlideId: activeSlideId,
     user: currentUser,
   });
+
+  // The agent is "present"/"active" if EITHER the deck presence doc (action
+  // edits) or the slide-content doc (Yjs edits) says so — a single unified
+  // signal for the toolbar/slide chips.
+  const agentPresent = deckAgentPresent || slideAgentPresent;
+  const agentActive = deckAgentActive || slideAgentActive;
 
   // Comments for the current slide (for badge count)
   const currentSlideCommentsQuery = useSlideComments(id ?? null, activeSlideId);
@@ -761,7 +776,7 @@ export default function DeckEditor() {
 
   return (
     <div
-      className="flex-1 flex flex-col overflow-hidden bg-background"
+      className="flex h-full min-h-0 flex-1 flex-col overflow-hidden bg-background"
       onDragOver={editorDragOver}
       onDrop={editorDrop}
     >
@@ -771,8 +786,6 @@ export default function DeckEditor() {
         deckTitle={deck.title}
         canEdit={canEdit}
         onTitleChange={(title) => updateDeck(id, { title })}
-        activeTab={activeTab}
-        onTabChange={setActiveTab}
         slideCount={deck.slides.length}
         currentSlideIndex={currentIndex >= 0 ? currentIndex : 0}
         sidebarOpen={sidebarOpen}
@@ -865,14 +878,14 @@ export default function DeckEditor() {
         }}
       />
 
-      <div className="flex-1 flex overflow-hidden relative">
+      <div className="relative flex min-h-0 flex-1 overflow-hidden">
         {sidebarOpen && (
           <>
             <div
               className="md:hidden fixed inset-0 bg-black/50 z-30"
               onClick={() => setSidebarOpen(false)}
             />
-            <div className="absolute md:relative z-40 h-full">
+            <div className="absolute z-40 h-full min-h-0 md:relative">
               <DndContext
                 sensors={sensors}
                 collisionDetection={closestCenter}
@@ -907,6 +920,7 @@ export default function DeckEditor() {
                     if (nextSlide) setActiveSlideId(nextSlide.id);
                   }}
                   slidePresence={slidePresence}
+                  recentEdits={deckRecentEdits}
                   aspectRatio={deck.aspectRatio}
                 />
               </DndContext>
@@ -951,7 +965,6 @@ export default function DeckEditor() {
                 updateSlide(id, slideIdOverride ?? currentSlide.id, updates)
               }
               onInlineEditStart={() => markDeckDirty(id)}
-              activeTab={activeTab}
               onGenerateImage={() => setImageGenOpen(true)}
               onOpenAssetLibrary={(src) => {
                 setReplaceImageSrc(src);
@@ -975,14 +988,13 @@ export default function DeckEditor() {
               slideCount={deck.slides.length}
               designSystem={designSystem}
               aspectRatio={deck.aspectRatio}
-              ydoc={ydoc}
-              awareness={awareness}
               collabUser={
                 currentUser
                   ? { name: currentUser.name, color: currentUser.color }
                   : undefined
               }
               agentActive={agentActive}
+              recentEdits={deckRecentEdits}
               onComment={(quotedText) => {
                 setPendingComment({ quotedText });
                 setCommentsOpen(true);

@@ -9,6 +9,38 @@ import {
   useT,
 } from "@agent-native/core/client";
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@agent-native/toolkit/ui/alert-dialog";
+import { Badge } from "@agent-native/toolkit/ui/badge";
+import { Button } from "@agent-native/toolkit/ui/button";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@agent-native/toolkit/ui/card";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@agent-native/toolkit/ui/dropdown-menu";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@agent-native/toolkit/ui/popover";
+import { Skeleton } from "@agent-native/toolkit/ui/skeleton";
+import {
   IconCheck,
   IconChevronDown,
   IconChevronUp,
@@ -29,38 +61,6 @@ import {
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover";
-import { Skeleton } from "@/components/ui/skeleton";
 import { getIdToken } from "@/lib/auth";
 import {
   getOptionalCredentialKeys,
@@ -1607,6 +1607,15 @@ export default function DataSources() {
   };
 
   const searchLower = search.toLowerCase();
+  const firstPartyAnalyticsSearchText = [
+    t("dataSources.firstPartyAnalytics"),
+    t("dataSources.firstPartyDescription"),
+    "first-party analytics tracking observability llm ai generation $ai_generation posthog agent native analytics AGENT_NATIVE_ANALYTICS_PUBLIC_KEY VITE_AGENT_NATIVE_ANALYTICS_PUBLIC_KEY",
+  ]
+    .join(" ")
+    .toLowerCase();
+  const firstPartyAnalyticsMatchesSearch =
+    search.length > 0 && firstPartyAnalyticsSearchText.includes(searchLower);
   const filteredSources = search
     ? dataSources.filter(
         (s) =>
@@ -1648,8 +1657,9 @@ export default function DataSources() {
 
       {/* Filtered results */}
       {filteredSources !== null ? (
-        filteredSources.length > 0 ? (
+        filteredSources.length > 0 || firstPartyAnalyticsMatchesSearch ? (
           <div className="data-sources-grid">
+            {firstPartyAnalyticsMatchesSearch && <FirstPartyAnalyticsCard />}
             {filteredSources.map((source) => (
               <DataSourceCard
                 key={source.id}

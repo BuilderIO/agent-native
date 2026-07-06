@@ -1,4 +1,11 @@
 import { useT } from "@agent-native/core/client";
+import { Button } from "@agent-native/toolkit/ui/button";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@agent-native/toolkit/ui/collapsible";
+import { Textarea } from "@agent-native/toolkit/ui/textarea";
 import {
   IconClipboard,
   IconChevronDown,
@@ -6,13 +13,6 @@ import {
 } from "@tabler/icons-react";
 import { useState } from "react";
 
-import { Button } from "@/components/ui/button";
-import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from "@/components/ui/collapsible";
-import { Textarea } from "@/components/ui/textarea";
 import { useAgentEditRequest } from "@/hooks/useAgentEditRequest";
 import { cn } from "@/lib/utils";
 
@@ -63,7 +63,8 @@ export function InspectorAiActions({
     routeSourceFile,
     designId,
   };
-  const disabled = !canEdit || !request.trim();
+  const copyDisabled = !request.trim();
+  const askDisabled = !canEdit || copyDisabled;
 
   return (
     <Collapsible open={open} onOpenChange={setOpen} className="w-full">
@@ -97,9 +98,12 @@ export function InspectorAiActions({
                 : t("designEditor.localSourceEdit.describeChange")
             }
             className="min-h-[64px] resize-none text-xs"
-            disabled={!canEdit}
             onKeyDown={(e) => {
-              if (e.key === "Enter" && (e.metaKey || e.ctrlKey) && !disabled) {
+              if (
+                e.key === "Enter" &&
+                (e.metaKey || e.ctrlKey) &&
+                !askDisabled
+              ) {
                 e.preventDefault();
                 void sendEdit(args);
                 setRequest("");
@@ -112,7 +116,7 @@ export function InspectorAiActions({
               size="sm"
               variant="default"
               className="flex-1 gap-1.5 text-xs"
-              disabled={disabled}
+              disabled={askDisabled}
               onClick={() => {
                 void sendEdit(args);
                 setRequest("");
@@ -126,7 +130,7 @@ export function InspectorAiActions({
               size="sm"
               variant="outline"
               className="gap-1.5 text-xs"
-              disabled={disabled}
+              disabled={copyDisabled}
               onClick={() => {
                 void copyPrompt(args);
               }}

@@ -1,3 +1,4 @@
+import { Skeleton } from "@agent-native/toolkit/ui/skeleton";
 import DOMPurify from "dompurify";
 import {
   useEffect,
@@ -7,8 +8,6 @@ import {
   lazy,
   Suspense,
 } from "react";
-
-import { Skeleton } from "@/components/ui/skeleton";
 
 const Excalidraw = lazy(async () => {
   await import("@excalidraw/excalidraw/index.css");

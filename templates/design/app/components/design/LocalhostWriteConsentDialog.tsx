@@ -1,8 +1,5 @@
 import { callAction } from "@agent-native/core/client";
-import { IconDeviceFloppy, IconFolderOpen } from "@tabler/icons-react";
-import { useState } from "react";
-
-import { Button } from "@/components/ui/button";
+import { Button } from "@agent-native/toolkit/ui/button";
 import {
   Dialog,
   DialogContent,
@@ -10,8 +7,10 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from "@/components/ui/dialog";
-import { Spinner } from "@/components/ui/spinner";
+} from "@agent-native/toolkit/ui/dialog";
+import { Spinner } from "@agent-native/toolkit/ui/spinner";
+import { IconDeviceFloppy, IconFolderOpen } from "@tabler/icons-react";
+import { useState } from "react";
 
 export interface LocalhostWriteConsentPayload {
   /** The path being granted write access. */
@@ -133,7 +132,7 @@ export function LocalhostWriteConsentDialog({
 
           <p className="text-xs text-muted-foreground">
             {
-              "Only .html and .css files can be written. Paths outside the root folder are always blocked." /* i18n-ignore */
+              "Only text and code files can be written — never secrets like .env or key files. Paths outside the root folder are always blocked." /* i18n-ignore */
             }
           </p>
         </div>

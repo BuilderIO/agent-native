@@ -1,14 +1,5 @@
 import { useT } from "@agent-native/core/client";
 import {
-  IconChevronDown,
-  IconDeviceFloppy,
-  IconTrash,
-  IconLayoutGrid,
-} from "@tabler/icons-react";
-import { useMemo, useState } from "react";
-import { useSearchParams } from "react-router";
-
-import {
   AlertDialog,
   AlertDialogAction,
   AlertDialogCancel,
@@ -17,15 +8,15 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
-import { Button } from "@/components/ui/button";
+} from "@agent-native/toolkit/ui/alert-dialog";
+import { Button } from "@agent-native/toolkit/ui/button";
 import {
   Dialog,
   DialogContent,
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from "@/components/ui/dialog";
+} from "@agent-native/toolkit/ui/dialog";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -33,13 +24,22 @@ import {
   DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import { Input } from "@/components/ui/input";
+} from "@agent-native/toolkit/ui/dropdown-menu";
+import { Input } from "@agent-native/toolkit/ui/input";
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
-} from "@/components/ui/tooltip";
+} from "@agent-native/toolkit/ui/tooltip";
+import {
+  IconChevronDown,
+  IconDeviceFloppy,
+  IconTrash,
+  IconLayoutGrid,
+} from "@tabler/icons-react";
+import { useMemo, useState } from "react";
+import { useSearchParams } from "react-router";
+
 import {
   useDashboardViews,
   type DashboardView,

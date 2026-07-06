@@ -59,6 +59,7 @@ const APP_BUNDLES: MarketplaceApp[] = [
     skillSources: [
       { sourceDir: "visual-plans", exportAs: "visual-plan" },
       { sourceDir: "visual-recap", exportAs: "visual-recap" },
+      { sourceDir: "visualize-repo", exportAs: "visualize-repo" },
     ],
     brandColor: "#2563EB",
   },

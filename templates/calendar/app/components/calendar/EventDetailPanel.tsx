@@ -1,4 +1,11 @@
 import { useT } from "@agent-native/core/client";
+import { Button } from "@agent-native/toolkit/ui/button";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+  TooltipProvider,
+} from "@agent-native/toolkit/ui/tooltip";
 import type { CalendarEvent } from "@shared/api";
 import {
   IconX,
@@ -23,13 +30,6 @@ import {
 } from "@/components/calendar/EventDescription";
 import { useGuestNotificationPrompt } from "@/components/calendar/GuestNotificationDialog";
 import { useCalendarContext } from "@/components/layout/AppLayout";
-import { Button } from "@/components/ui/button";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-  TooltipProvider,
-} from "@/components/ui/tooltip";
 import { useUpdateEvent } from "@/hooks/use-events";
 import { useViewPreferences } from "@/hooks/use-view-preferences";
 import { cn } from "@/lib/utils";

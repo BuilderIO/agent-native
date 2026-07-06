@@ -13,13 +13,16 @@ import {
   type LocaleCode,
 } from "../localization/shared.js";
 import { appPath } from "./api-path.js";
+import { ErrorReportActions } from "./ErrorReportActions.js";
 import {
   isDynamicImportFailureMessage,
   recoverFromStaleChunkError,
 } from "./route-chunk-recovery.js";
 
-const homeLinkClassName =
-  "mt-6 inline-flex items-center gap-1.5 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground shadow-sm hover:bg-primary/90 cursor-pointer";
+const primaryActionClassName =
+  "inline-flex h-9 items-center gap-1.5 rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground shadow-sm hover:bg-primary/90 cursor-pointer";
+const secondaryActionClassName =
+  "inline-flex h-9 cursor-pointer items-center gap-1.5 rounded-md border border-border bg-background px-4 text-sm font-medium text-foreground shadow-sm hover:bg-accent";
 
 const errorCopy: Record<
   LocaleCode,
@@ -32,6 +35,9 @@ const errorCopy: Record<
     statusTitle: (status: number) => string;
     goHome: string;
     reload: string;
+    sendFeedback: string;
+    feedbackPlaceholder: string;
+    openGitHubIssue: string;
   }
 > = {
   "en-US": {
@@ -43,6 +49,9 @@ const errorCopy: Record<
     statusTitle: (status) => `${status} Error`,
     goHome: "Go home",
     reload: "Reload",
+    sendFeedback: "Send feedback",
+    feedbackPlaceholder: "Describe what happened before this error appeared.",
+    openGitHubIssue: "Open GitHub issue",
   },
   "zh-CN": {
     loadingLatest: "正在加载最新版本...",
@@ -53,6 +62,9 @@ const errorCopy: Record<
     statusTitle: (status) => `${status} 错误`,
     goHome: "回到首页",
     reload: "重新加载",
+    sendFeedback: "发送反馈",
+    feedbackPlaceholder: "描述此错误出现前发生了什么。",
+    openGitHubIssue: "打开 GitHub issue",
   },
   "zh-TW": {
     loadingLatest: "正在載入最新版本...",
@@ -63,6 +75,9 @@ const errorCopy: Record<
     statusTitle: (status) => `${status} 錯誤`,
     goHome: "回首頁",
     reload: "重新載入",
+    sendFeedback: "傳送意見回饋",
+    feedbackPlaceholder: "描述此錯誤出現前發生了什麼。",
+    openGitHubIssue: "開啟 GitHub issue",
   },
   "es-ES": {
     loadingLatest: "Cargando la versión más reciente...",
@@ -73,6 +88,10 @@ const errorCopy: Record<
     statusTitle: (status) => `Error ${status}`,
     goHome: "Ir al inicio",
     reload: "Recargar",
+    sendFeedback: "Enviar comentarios",
+    feedbackPlaceholder:
+      "Describe qué pasó antes de que apareciera este error.",
+    openGitHubIssue: "Abrir issue en GitHub",
   },
   "fr-FR": {
     loadingLatest: "Chargement de la dernière version...",
@@ -83,6 +102,9 @@ const errorCopy: Record<
     statusTitle: (status) => `Erreur ${status}`,
     goHome: "Accueil",
     reload: "Recharger",
+    sendFeedback: "Envoyer un retour",
+    feedbackPlaceholder: "Décrivez ce qui s'est passé avant cette erreur.",
+    openGitHubIssue: "Ouvrir une issue GitHub",
   },
   "de-DE": {
     loadingLatest: "Neueste Version wird geladen...",
@@ -93,6 +115,9 @@ const errorCopy: Record<
     statusTitle: (status) => `Fehler ${status}`,
     goHome: "Zur Startseite",
     reload: "Neu laden",
+    sendFeedback: "Feedback senden",
+    feedbackPlaceholder: "Beschreiben Sie, was vor diesem Fehler passiert ist.",
+    openGitHubIssue: "GitHub-Issue öffnen",
   },
   "ja-JP": {
     loadingLatest: "最新バージョンを読み込み中...",
@@ -103,6 +128,9 @@ const errorCopy: Record<
     statusTitle: (status) => `${status} エラー`,
     goHome: "ホームへ",
     reload: "再読み込み",
+    sendFeedback: "フィードバックを送信",
+    feedbackPlaceholder: "このエラーの直前に起きたことを説明してください。",
+    openGitHubIssue: "GitHub issue を開く",
   },
   "ko-KR": {
     loadingLatest: "최신 버전을 불러오는 중...",
@@ -113,6 +141,10 @@ const errorCopy: Record<
     statusTitle: (status) => `${status} 오류`,
     goHome: "홈으로 이동",
     reload: "새로고침",
+    sendFeedback: "피드백 보내기",
+    feedbackPlaceholder:
+      "이 오류가 나타나기 전에 무슨 일이 있었는지 적어 주세요.",
+    openGitHubIssue: "GitHub issue 열기",
   },
   "pt-BR": {
     loadingLatest: "Carregando a versão mais recente...",
@@ -123,6 +155,9 @@ const errorCopy: Record<
     statusTitle: (status) => `Erro ${status}`,
     goHome: "Ir para início",
     reload: "Recarregar",
+    sendFeedback: "Enviar feedback",
+    feedbackPlaceholder: "Descreva o que aconteceu antes deste erro aparecer.",
+    openGitHubIssue: "Abrir issue no GitHub",
   },
   "hi-IN": {
     loadingLatest: "नवीनतम संस्करण लोड हो रहा है...",
@@ -133,6 +168,9 @@ const errorCopy: Record<
     statusTitle: (status) => `${status} त्रुटि`,
     goHome: "होम पर जाएं",
     reload: "रीलोड करें",
+    sendFeedback: "फ़ीडबैक भेजें",
+    feedbackPlaceholder: "इस त्रुटि से पहले क्या हुआ, उसका वर्णन करें।",
+    openGitHubIssue: "GitHub issue खोलें",
   },
   "ar-SA": {
     loadingLatest: "جار تحميل أحدث إصدار...",
@@ -143,6 +181,9 @@ const errorCopy: Record<
     statusTitle: (status) => `خطأ ${status}`,
     goHome: "العودة للرئيسية",
     reload: "إعادة التحميل",
+    sendFeedback: "إرسال الملاحظات",
+    feedbackPlaceholder: "صف ما حدث قبل ظهور هذا الخطأ.",
+    openGitHubIssue: "فتح مشكلة في GitHub",
   },
 };
 
@@ -273,16 +314,30 @@ function ErrorScreen({ error }: { error: unknown }) {
         )}
         <h1 className="mt-3 text-2xl font-semibold">{title}</h1>
         <p className="mt-2 text-muted-foreground text-sm">{details}</p>
-        <a href={appPath("/")} className={homeLinkClassName}>
-          {copy.goHome}
-        </a>
-        <button
-          type="button"
-          onClick={() => window.location.reload()}
-          className="mt-3 inline-flex cursor-pointer items-center gap-1.5 rounded-md border border-border bg-background px-4 py-2 text-sm font-medium text-foreground shadow-sm hover:bg-accent"
-        >
-          {copy.reload}
-        </button>
+        <div className="mt-6 flex flex-wrap justify-center gap-2">
+          <a href={appPath("/")} className={primaryActionClassName}>
+            {copy.goHome}
+          </a>
+          <button
+            type="button"
+            onClick={() => window.location.reload()}
+            className={secondaryActionClassName}
+          >
+            {copy.reload}
+          </button>
+          <ErrorReportActions
+            appName="Agent Native"
+            title={title}
+            details={details}
+            status={status}
+            issueTitle={`Error screen: ${title}`}
+            feedbackLabel={copy.sendFeedback}
+            feedbackPlaceholder={copy.feedbackPlaceholder}
+            githubLabel={copy.openGitHubIssue}
+            feedbackClassName="h-9"
+            githubClassName="h-9"
+          />
+        </div>
         {stack && (
           <pre className="mt-6 w-full text-start text-xs overflow-auto p-4 bg-muted rounded">
             <code>{stack}</code>

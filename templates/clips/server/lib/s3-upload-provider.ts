@@ -32,6 +32,39 @@ function cleanValue(value: string | null | undefined): string | undefined {
   return cleaned ? cleaned : undefined;
 }
 
+// A hung S3-compatible endpoint (flaky VPN, misconfigured security group that
+// accepts the TCP connection but never responds, etc.) would otherwise leave
+// finalize-recording — and the request that triggered it — waiting forever.
+// PUT gets a generous budget since it uploads the full recording; DELETE is a
+// small best-effort cleanup call and can fail fast.
+const S3_PUT_TIMEOUT_MS = 120_000;
+const S3_DELETE_TIMEOUT_MS = 30_000;
+
+async function fetchWithTimeout(
+  url: string,
+  init: RequestInit,
+  timeoutMs: number,
+): Promise<Response> {
+  try {
+    return await fetch(url, {
+      ...init,
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+  } catch (err) {
+    if (err instanceof Error && err.name === "TimeoutError") {
+      throw new Error(
+        `S3 request timed out after ${timeoutMs}ms: ${init.method ?? "GET"} ${url}`,
+      );
+    }
+    if (err instanceof Error && err.name === "AbortError") {
+      throw new Error(
+        `S3 request aborted (timeout ${timeoutMs}ms): ${init.method ?? "GET"} ${url}`,
+      );
+    }
+    throw err;
+  }
+}
+
 function buildS3Config(values: {
   bucket?: string;
   accessKeyId?: string;
@@ -202,18 +235,22 @@ async function putObject(
     `SignedHeaders=${signedHeaders}, Signature=${signature}`;
 
   const url = `${cfg.endpoint}${canonicalUri}`;
-  const res = await fetch(url, {
-    method: "PUT",
-    headers: {
-      ...headers,
-      Authorization: authorization,
-      "Content-Length": String(body.byteLength),
+  const res = await fetchWithTimeout(
+    url,
+    {
+      method: "PUT",
+      headers: {
+        ...headers,
+        Authorization: authorization,
+        "Content-Length": String(body.byteLength),
+      },
+      body: body.buffer.slice(
+        body.byteOffset,
+        body.byteOffset + body.byteLength,
+      ) as BodyInit,
     },
-    body: body.buffer.slice(
-      body.byteOffset,
-      body.byteOffset + body.byteLength,
-    ) as BodyInit,
-  });
+    S3_PUT_TIMEOUT_MS,
+  );
 
   if (!res.ok) {
     const text = await res.text().catch(() => "");
@@ -225,6 +262,136 @@ async function putObject(
   return cfg.publicBaseUrl
     ? `${cfg.publicBaseUrl}/${key}`
     : `${cfg.endpoint}/${cfg.bucket}/${key}`;
+}
+
+function withTrailingSlash(value: string): string {
+  return value.endsWith("/") ? value : `${value}/`;
+}
+
+function decodeUrlPathSegment(value: string): string | null {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return null;
+  }
+}
+
+function keyFromUrlPrefix(rawUrl: URL, rawBase: string): string | null {
+  const base = new URL(withTrailingSlash(rawBase));
+  if (rawUrl.origin !== base.origin) return null;
+  const basePath = withTrailingSlash(base.pathname);
+  if (!rawUrl.pathname.startsWith(basePath)) return null;
+  const encodedKey = rawUrl.pathname.slice(basePath.length);
+  if (!encodedKey) return null;
+  return decodeUrlPathSegment(encodedKey);
+}
+
+function objectKeyFromUrl(cfg: S3Config, rawUrl: string): string | null {
+  let url: URL;
+  try {
+    url = new URL(rawUrl);
+  } catch {
+    return null;
+  }
+  if (url.protocol !== "http:" && url.protocol !== "https:") return null;
+
+  if (cfg.publicBaseUrl) {
+    const key = keyFromUrlPrefix(url, cfg.publicBaseUrl);
+    if (key) return key;
+  }
+
+  const endpoint = new URL(withTrailingSlash(cfg.endpoint));
+  if (url.origin !== endpoint.origin) return null;
+  const endpointPath = withTrailingSlash(endpoint.pathname);
+  const bucketPath = `${endpointPath}${rfc3986(cfg.bucket)}/`;
+  if (!url.pathname.startsWith(bucketPath)) return null;
+  const encodedKey = url.pathname.slice(bucketPath.length);
+  if (!encodedKey) return null;
+  return decodeUrlPathSegment(encodedKey);
+}
+
+async function deleteObject(cfg: S3Config, key: string): Promise<void> {
+  const now = new Date();
+  const amzDate =
+    now
+      .toISOString()
+      .replace(/[:-]|\.\d{3}/g, "")
+      .slice(0, 15) + "Z";
+  const dateStamp = amzDate.slice(0, 8);
+  const credentialScope = `${dateStamp}/${cfg.region}/s3/aws4_request`;
+
+  const hostUrl = new URL(cfg.endpoint);
+  const host = hostUrl.host;
+  const canonicalUri = `/${cfg.bucket}/${key.split("/").map(rfc3986).join("/")}`;
+  const payloadHash = await sha256(new Uint8Array(0));
+
+  const headers: Record<string, string> = {
+    host,
+    "x-amz-content-sha256": payloadHash,
+    "x-amz-date": amzDate,
+  };
+
+  const signedHeaderKeys = Object.keys(headers).sort();
+  const signedHeaders = signedHeaderKeys.join(";");
+  const canonicalHeaders =
+    signedHeaderKeys.map((k) => `${k}:${headers[k]}`).join("\n") + "\n";
+
+  const canonicalRequest = [
+    "DELETE",
+    canonicalUri,
+    "",
+    canonicalHeaders,
+    signedHeaders,
+    payloadHash,
+  ].join("\n");
+
+  const crHash = await sha256(new TextEncoder().encode(canonicalRequest));
+  const stringToSign = [
+    "AWS4-HMAC-SHA256",
+    amzDate,
+    credentialScope,
+    crHash,
+  ].join("\n");
+
+  const signingKey = await deriveSigningKey(
+    cfg.secretAccessKey,
+    dateStamp,
+    cfg.region,
+  );
+  const signature = toHex(await hmac(signingKey, stringToSign));
+
+  const authorization =
+    `AWS4-HMAC-SHA256 Credential=${cfg.accessKeyId}/${credentialScope}, ` +
+    `SignedHeaders=${signedHeaders}, Signature=${signature}`;
+
+  const url = `${cfg.endpoint}${canonicalUri}`;
+  const res = await fetchWithTimeout(
+    url,
+    {
+      method: "DELETE",
+      headers: {
+        ...headers,
+        Authorization: authorization,
+      },
+    },
+    S3_DELETE_TIMEOUT_MS,
+  );
+
+  if (!res.ok && res.status !== 404) {
+    const text = await res.text().catch(() => "");
+    throw new Error(
+      `S3 DeleteObject failed (${res.status}): ${text || res.statusText}`,
+    );
+  }
+}
+
+export async function deleteS3ObjectByUrl(url: string): Promise<boolean> {
+  const cfg = await readS3Config();
+  if (!cfg) return false;
+  const key = objectKeyFromUrl(cfg, url);
+  if (!key) return false;
+  await deleteObject(cfg, key);
+  return true;
 }
 
 // ── Provider ──────────────────────────────────────────────────────────

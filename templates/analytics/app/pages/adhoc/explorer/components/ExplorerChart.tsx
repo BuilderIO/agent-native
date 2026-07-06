@@ -1,4 +1,12 @@
 import { useT } from "@agent-native/core/client";
+import { Button } from "@agent-native/toolkit/ui/button";
+import {
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+} from "@agent-native/toolkit/ui/card";
+import { Skeleton } from "@agent-native/toolkit/ui/skeleton";
 import { IconChevronLeft, IconChevronRight } from "@tabler/icons-react";
 import { useMemo, useState } from "react";
 import {
@@ -14,9 +22,6 @@ import {
   Legend,
 } from "recharts";
 
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Skeleton } from "@/components/ui/skeleton";
 import type { QueryMetricsResult } from "@/lib/query-metrics";
 
 import type { ExplorerConfig } from "../types";

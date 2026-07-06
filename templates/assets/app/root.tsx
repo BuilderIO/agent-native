@@ -11,6 +11,7 @@ import {
   useCommandMenuShortcut,
   useT,
 } from "@agent-native/core/client";
+import { Toaster } from "@agent-native/toolkit/ui/sonner";
 import { IconSun, IconMoon } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useTheme } from "next-themes";
@@ -19,7 +20,6 @@ import { Links, Meta, Outlet, Scripts, ScrollRestoration } from "react-router";
 import type { LinksFunction } from "react-router";
 
 import { Layout as AppLayout } from "@/components/layout/Layout";
-import { Toaster } from "@/components/ui/sonner";
 
 import changelog from "../CHANGELOG.md?raw";
 import { i18nCatalog } from "./i18n";

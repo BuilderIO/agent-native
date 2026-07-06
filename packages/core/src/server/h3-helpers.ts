@@ -1,5 +1,4 @@
 import type { ReadStream } from "node:fs";
-import { Readable } from "node:stream";
 
 /**
  * Small helpers around h3 v2 that polish ergonomics for templates.
@@ -158,5 +157,18 @@ export async function readBodyWithSizeLimit<T = any>(
  *   return streamFile(fs.createReadStream(filePath));
  */
 export function streamFile(stream: ReadStream): ReadableStream {
-  return Readable.toWeb(stream) as ReadableStream;
+  return new ReadableStream<Uint8Array>({
+    start(controller) {
+      stream.on("data", (chunk: string | Uint8Array) => {
+        controller.enqueue(
+          typeof chunk === "string" ? new TextEncoder().encode(chunk) : chunk,
+        );
+      });
+      stream.on("end", () => controller.close());
+      stream.on("error", (error) => controller.error(error));
+    },
+    cancel() {
+      stream.destroy();
+    },
+  });
 }

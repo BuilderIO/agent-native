@@ -121,7 +121,8 @@ async function ensureRunTables(): Promise<void> {
           error_detail TEXT,
           terminal_reason TEXT,
           dispatch_mode TEXT,
-          diag_stage TEXT
+          diag_stage TEXT,
+          dispatch_payload TEXT
         )
       `;
       const agentRunEventsCreateSql = `
@@ -196,6 +197,13 @@ async function ensureRunTables(): Promise<void> {
           ["dispatch_mode", "TEXT"],
           ["diag_stage", "TEXT"],
           ["worker_stage", "TEXT"],
+          // dispatch_payload holds the JSON request body for a background
+          // dispatch so the self-POST to the Netlify background function can
+          // stay tiny (Netlify caps background-function request bodies at
+          // 256KB — a large chat history silently exceeded it). The worker
+          // rehydrates the body from this column via the marker's payloadRef.
+          // Cleared on terminal status writes.
+          ["dispatch_payload", "TEXT"],
         ] as const) {
           await ensureColumnExists(
             "agent_runs",
@@ -280,6 +288,7 @@ async function ensureRunTables(): Promise<void> {
         "dispatch_mode",
         "diag_stage",
         "worker_stage",
+        "dispatch_payload",
       ] as const) {
         try {
           await client.execute(`ALTER TABLE agent_runs ADD COLUMN ${col} TEXT`);
@@ -410,13 +419,22 @@ export async function insertRun(
   id: string,
   threadId: string,
   turnId?: string,
-  options?: { dispatchMode?: "foreground" | "background" },
+  options?: {
+    dispatchMode?: "foreground" | "background";
+    /**
+     * JSON-serialized request body for a background dispatch. Persisted on the
+     * run row so the self-POST to the background function carries only the
+     * tiny `__backgroundRun` marker (Netlify caps background-function request
+     * bodies at 256KB); the worker rehydrates the body from this column.
+     */
+    dispatchPayload?: string;
+  },
 ): Promise<void> {
   await ensureRunTables();
   const client = getDbExec();
   const now = Date.now();
   await client.execute({
-    sql: `INSERT INTO agent_runs (id, thread_id, status, started_at, heartbeat_at, last_progress_at, turn_id, dispatch_mode) VALUES (?, ?, 'running', ?, ?, ?, ?, ?)`,
+    sql: `INSERT INTO agent_runs (id, thread_id, status, started_at, heartbeat_at, last_progress_at, turn_id, dispatch_mode, dispatch_payload) VALUES (?, ?, 'running', ?, ?, ?, ?, ?, ?) ON CONFLICT (id) DO NOTHING`,
     args: [
       id,
       threadId,
@@ -425,6 +443,7 @@ export async function insertRun(
       now,
       turnId ?? id,
       options?.dispatchMode ?? null,
+      options?.dispatchPayload ?? null,
     ],
   });
 }
@@ -555,6 +574,95 @@ export async function readBackgroundRunClaim(runId: string): Promise<{
     // started_at)), so the foreground can decide to recover BEFORE the reaper.
     lastLivenessAt: row.heartbeat_at ?? row.started_at ?? null,
   };
+}
+
+/**
+ * Read the persisted dispatch payload for a background-dispatched run. The
+ * worker rehydrates its request body from this column when the dispatch marker
+ * carries `payloadRef: true` (the self-POST itself stays under Netlify's 256KB
+ * background-function body cap). Returns null when the row is missing or the
+ * payload was already cleared (terminal run).
+ */
+export async function readRunDispatchPayload(
+  runId: string,
+): Promise<string | null> {
+  await ensureRunTables();
+  const client = getDbExec();
+  const { rows } = await client.execute({
+    sql: `SELECT dispatch_payload FROM agent_runs WHERE id = ? LIMIT 1`,
+    args: [runId],
+  });
+  const row = rows?.[0] as { dispatch_payload?: string | null } | undefined;
+  if (!row) return null;
+  const payload = row.dispatch_payload;
+  return typeof payload === "string" && payload.length > 0 ? payload : null;
+}
+
+/**
+ * Clear a run's persisted dispatch payload once the worker has claimed and
+ * rehydrated it — the payload can be large (full chat history) and has no use
+ * after the handoff. Best-effort; terminal status writes also clear it.
+ */
+export async function clearRunDispatchPayload(runId: string): Promise<void> {
+  await ensureRunTables();
+  const client = getDbExec();
+  await client.execute({
+    sql: `UPDATE agent_runs SET dispatch_payload = NULL WHERE id = ?`,
+    args: [runId],
+  });
+}
+
+/**
+ * List background-dispatched runs that were never claimed by a worker within
+ * the unclaimed grace window. These are handoffs that were lost in flight —
+ * the async 202 (or the dispatching worker) died before any worker reached
+ * `claimBackgroundRun`. The periodic sweeper reaps them via
+ * `reapUnclaimedBackgroundRun` so a lost handoff becomes a loud, attributable
+ * error instead of a silent forever-hang. The foreground circuit-breaker
+ * already covers initial dispatches while the client is connected; this sweep
+ * exists for server-chained continuation handoffs, which have no foreground
+ * watching them.
+ */
+export async function listUnclaimedBackgroundRunIds(): Promise<string[]> {
+  await ensureRunTables();
+  const client = getDbExec();
+  const { rows } = await client.execute({
+    // CAST keeps the ms-epoch param 64-bit on Postgres (see
+    // backgroundAwareStaleCutoffSql for the int4-inference failure mode).
+    sql: `SELECT id FROM agent_runs
+          WHERE status = 'running'
+            AND dispatch_mode = 'background'
+            AND COALESCE(heartbeat_at, started_at) < (CAST(? AS BIGINT) - ${UNCLAIMED_BACKGROUND_RUN_GRACE_MS})`,
+    args: [Date.now()],
+  });
+  const ids: string[] = [];
+  for (const row of rows ?? []) {
+    const id = (row as { id?: unknown }).id;
+    if (typeof id === "string" && id) ids.push(id);
+  }
+  return ids;
+}
+
+/**
+ * Count how many runs (chunks) a logical turn has consumed so far. This is the
+ * durable per-turn recovery ledger: unlike the in-marker `continuationCount`
+ * (which resets whenever a fresh client POST starts a new chain for the same
+ * turn), the SQL count survives every recovery path, so it bounds pathological
+ * turn loops regardless of which layer initiated each chunk.
+ */
+export async function countRunsForTurn(
+  threadId: string,
+  turnId: string,
+): Promise<number> {
+  await ensureRunTables();
+  const client = getDbExec();
+  const { rows } = await client.execute({
+    sql: `SELECT COUNT(*) AS run_count FROM agent_runs WHERE thread_id = ? AND turn_id = ?`,
+    args: [threadId, turnId],
+  });
+  const raw = (rows?.[0] as { run_count?: unknown } | undefined)?.run_count;
+  const count = Number(raw);
+  return Number.isFinite(count) ? count : 0;
 }
 
 /**
@@ -763,9 +871,9 @@ export async function reconcileTerminalRunFromEvents(
     sql: `UPDATE agent_runs
           SET status = ?,
               completed_at = COALESCE(completed_at, ?, ${livenessBasisSql()}),
-              error_code = CASE WHEN ? IS NOT NULL THEN ? ELSE error_code END,
-              error_detail = CASE WHEN ? IS NOT NULL THEN ? ELSE error_detail END,
-              terminal_reason = COALESCE(terminal_reason, ?)
+              error_code = ?,
+              error_detail = ?,
+              terminal_reason = ?
           WHERE id = ?
             AND (
               status = 'running'
@@ -775,8 +883,6 @@ export async function reconcileTerminalRunFromEvents(
       status,
       latest.eventAt,
       errorCode,
-      errorCode,
-      errorDetail,
       errorDetail,
       terminalReason,
       runId,
@@ -1029,7 +1135,9 @@ export async function updateRunStatus(
   await ensureRunTables();
   const client = getDbExec();
   await client.execute({
-    sql: `UPDATE agent_runs SET status = ?, completed_at = ? WHERE id = ?`,
+    // Terminal writes also drop the (potentially large) dispatch payload —
+    // it only exists to rehydrate a not-yet-claimed background worker.
+    sql: `UPDATE agent_runs SET status = ?, completed_at = ?, dispatch_payload = NULL WHERE id = ?`,
     args: [status, Date.now(), runId],
   });
 }
@@ -1049,7 +1157,9 @@ export async function updateRunStatusIfRunning(
   await ensureRunTables();
   const client = getDbExec();
   const { rowsAffected } = await client.execute({
-    sql: `UPDATE agent_runs SET status = ?, completed_at = ? WHERE id = ? AND status = 'running'`,
+    // Terminal writes also drop the (potentially large) dispatch payload —
+    // it only exists to rehydrate a not-yet-claimed background worker.
+    sql: `UPDATE agent_runs SET status = ?, completed_at = ?, dispatch_payload = NULL WHERE id = ? AND status = 'running'`,
     args: [status, Date.now(), runId],
   });
   return (rowsAffected ?? 0) > 0;
@@ -1073,11 +1183,13 @@ export async function markRunAborted(
 ): Promise<void> {
   await ensureRunTables();
   const client = getDbExec();
-  await client.execute({
-    sql: `UPDATE agent_runs SET status = 'aborted', abort_reason = ?, completed_at = ?, terminal_reason = ? WHERE id = ?`,
+  const { rowsAffected } = await client.execute({
+    sql: `UPDATE agent_runs SET status = 'aborted', abort_reason = ?, completed_at = ?, terminal_reason = ? WHERE id = ? AND status = 'running'`,
     args: [reason ?? "user", Date.now(), `aborted:${reason ?? "user"}`, runId],
   });
-  await safeAppendTerminalRunEvent(runId, { type: "done" }, "mark-aborted");
+  if ((rowsAffected ?? 0) > 0) {
+    await safeAppendTerminalRunEvent(runId, { type: "done" }, "mark-aborted");
+  }
 }
 
 export async function isRunAborted(runId: string): Promise<boolean> {
@@ -1248,7 +1360,7 @@ export async function listRunsForThread(
   await ensureRunTables();
   const limit = Math.min(Math.max(options.limit ?? 10, 1), 50);
   const client = getDbExec();
-  const { rows } = await client.execute({
+  let { rows } = await client.execute({
     sql: `SELECT id, thread_id, turn_id, status, started_at, heartbeat_at, completed_at, last_progress_at, error_code, abort_reason, dispatch_mode, terminal_reason, diag_stage
           FROM agent_runs
           WHERE thread_id = ?
@@ -1256,6 +1368,35 @@ export async function listRunsForThread(
           LIMIT ?`,
     args: [threadId, limit],
   });
+  let repairedTerminalRow = false;
+  for (const r of rows) {
+    const row = r as {
+      id?: string;
+      status?: string;
+      error_code?: string | null;
+    };
+    const runId = row.id;
+    if (!runId) continue;
+    const canReconcileFromEvents =
+      row.status === "running" ||
+      (row.status === "errored" &&
+        row.error_code === STALE_RUN_ERROR_EVENT.errorCode);
+    if (!canReconcileFromEvents) continue;
+    repairedTerminalRow =
+      (await reconcileTerminalRunFromEvents(runId).catch(() => false)) ||
+      repairedTerminalRow;
+  }
+  if (repairedTerminalRow) {
+    const refreshed = await client.execute({
+      sql: `SELECT id, thread_id, turn_id, status, started_at, heartbeat_at, completed_at, last_progress_at, error_code, abort_reason, dispatch_mode, terminal_reason, diag_stage
+            FROM agent_runs
+            WHERE thread_id = ?
+            ORDER BY started_at DESC
+            LIMIT ?`,
+      args: [threadId, limit],
+    });
+    rows = refreshed.rows;
+  }
   return rows.map((r) => {
     const row = r as {
       id: string;

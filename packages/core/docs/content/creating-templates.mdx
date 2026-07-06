@@ -7,6 +7,13 @@ description: "How to create and publish your own agent-native app templates."
 
 Templates are complete, forkable agent-native apps that solve a real workflow. The first-party templates are built with the same framework surface you use: React routes for the UI, Drizzle SQL for data, actions for operations, workspace resources for agent behavior, and polling sync so the agent and UI stay aligned.
 
+Use `@agent-native/core` for the runtime contract: actions, server plugins,
+database helpers, app state, routing helpers, and agent chat. Use
+`@agent-native/toolkit` for reusable app-building UI and helpers such as shared
+shadcn-style primitives, toast/mobile hooks, date pickers, and simple app shell
+slots. Keep template-specific variants local when they encode product behavior
+or visual identity.
+
 A good template:
 
 - Solves one workflow end-to-end, with useful seed data or an empty-state flow.

@@ -5,6 +5,7 @@ import {
   type SourceComponentData,
 } from "@shared/source-component-block";
 import {
+  IconAlertTriangle,
   IconBox,
   IconDatabase,
   IconExternalLink,
@@ -16,6 +17,19 @@ import {
 function providerLabel(provider: string) {
   if (provider === "builder") return "Builder";
   return provider.trim() || "Source";
+}
+
+function sourceEditStateLabel(
+  state: SourceComponentData["sourceEditState"] | undefined,
+  t: ReturnType<typeof useT>,
+) {
+  if (state === "needs-review") {
+    return t("editor.sourceComponent.needsAttention");
+  }
+  if (state === "safe-to-edit") {
+    return t("editor.sourceComponent.previewAvailable");
+  }
+  return t("editor.properties.readOnly");
 }
 
 function safeHttpUrl(value: string | undefined) {
@@ -226,6 +240,9 @@ export function SourceComponentRead({
       : status === "warning"
         ? t("editor.sourceComponent.needsAttention")
         : t("editor.sourceComponent.previewUnavailable");
+  const sourceStateLabel = sourceEditStateLabel(data.sourceEditState, t);
+  const needsReview =
+    data.sourceEditState === "needs-review" || data.mappingStatus === "unknown";
 
   return (
     <section
@@ -252,13 +269,24 @@ export function SourceComponentRead({
             </div>
           </div>
         </div>
-        <span className="shrink-0 rounded-full border bg-background px-2 py-0.5 text-[11px] text-muted-foreground">
-          {statusLabel}
-        </span>
+        <div className="flex shrink-0 flex-col items-end gap-1">
+          <span className="rounded-full border bg-background px-2 py-0.5 text-[11px] text-muted-foreground">
+            {sourceStateLabel}
+          </span>
+          <span className="inline-flex items-center gap-1 rounded-full border bg-background px-2 py-0.5 text-[11px] text-muted-foreground">
+            {needsReview ? <IconAlertTriangle className="size-3" /> : null}
+            {statusLabel}
+          </span>
+        </div>
       </div>
       {data.summary ? (
         <div className="mt-2 text-sm leading-6 text-muted-foreground">
           {data.summary}
+        </div>
+      ) : null}
+      {data.mappingReason ? (
+        <div className="mt-2 text-xs leading-5 text-muted-foreground">
+          {data.mappingReason}
         </div>
       ) : null}
       <SourceComponentPreview data={data} />

@@ -16,10 +16,11 @@ import { describe, expect, it } from "vitest";
 function loadBridge(): {
   lerp: (a: string, b: string, ratio: number) => string;
   interpolate: (
-    keyframes: Array<{ t: number; value: string }>,
+    keyframes: Array<{ t: number; value: string; ease?: string }>,
     t: number,
   ) => string;
   parseColor: (value: string) => number[] | null;
+  evalEase: (ease: string | undefined, x: number) => number;
 } {
   // Import the compiled bridge string from the generated module. Using
   // require() so the import is synchronous and the function can be called
@@ -56,17 +57,21 @@ function loadBridge(): {
   const factory = new Function(
     "window",
     "document",
-    body + "\n; return { lerp, interpolate, parseColor };",
+    body + "\n; return { lerp, interpolate, parseColor, evalEase };",
   );
   return factory({ addEventListener() {} }, { querySelector: () => null });
 }
 
 const bridge = loadBridge();
-const at = (from: string, to: string, t: number) =>
+// Value-interpolation tests pin ease to "linear" so they assert exact
+// midpoints; easing behavior itself is covered separately below. Keyframes
+// without an ease fall back to the CSS "ease" curve (the compiled
+// stylesheet's defaultEase default), not linear.
+const at = (from: string, to: string, t: number, ease = "linear") =>
   bridge.interpolate(
     [
-      { t: 0, value: from },
-      { t: 1, value: to },
+      { t: 0, value: from, ease },
+      { t: 1, value: to, ease },
     ],
     t,
   );
@@ -139,5 +144,90 @@ describe("motion-preview bridge interpolation", () => {
         expect(mid).not.toBe(to);
       }
     }
+  });
+
+  it("maps a `none` endpoint to the identity of the other endpoint", () => {
+    // transform: none -> translateY(16px) lerps from translateY(0px)
+    // instead of midpoint-snapping.
+    expect(at("none", "translateY(16px)", 0.5)).toBe("translateY(8px)");
+    expect(at("translateY(16px)", "none", 0.5)).toBe("translateY(8px)");
+    expect(at("none", "blur(8px)", 0.5)).toBe("blur(4px)");
+    expect(at("none", "translateY(20px) scale(0.5)", 0.5)).toBe(
+      "translateY(10px) scale(0.75)",
+    );
+  });
+});
+
+describe("motion-preview bridge easing", () => {
+  it("applies the CSS `ease` curve when a keyframe omits ease", () => {
+    const eased = bridge.interpolate(
+      [
+        { t: 0, value: "0" },
+        { t: 1, value: "1" },
+      ],
+      0.5,
+    );
+    // ease(0.5) ≈ 0.8 — decisively NOT the linear midpoint.
+    expect(parseFloat(eased)).toBeGreaterThan(0.7);
+    expect(parseFloat(eased)).toBeLessThan(0.9);
+  });
+
+  it("evaluates keywords, cubic-bezier, and steps", () => {
+    expect(bridge.evalEase("linear", 0.25)).toBeCloseTo(0.25, 6);
+    expect(bridge.evalEase("ease-in", 0.25)).toBeLessThan(0.25);
+    expect(bridge.evalEase("ease-out", 0.25)).toBeGreaterThan(0.25);
+    expect(bridge.evalEase("ease-in-out", 0.5)).toBeCloseTo(0.5, 3);
+    expect(bridge.evalEase("step-start", 0.01)).toBe(1);
+    expect(bridge.evalEase("step-end", 0.99)).toBe(0);
+    expect(bridge.evalEase("steps(4, end)", 0.3)).toBeCloseTo(0.25, 6);
+    expect(bridge.evalEase("steps(4, start)", 0.3)).toBeCloseTo(0.5, 6);
+    // Endpoints always pin for every supported form.
+    for (const ease of [
+      "linear",
+      "ease",
+      "ease-in-out",
+      "cubic-bezier(0.4, 0, 0.2, 1)",
+      "steps(3, end)",
+      "spring",
+    ]) {
+      expect(bridge.evalEase(ease, 0)).toBe(0);
+      expect(bridge.evalEase(ease, 1)).toBe(1);
+    }
+  });
+
+  it("supports overshoot beziers (Spring preset) past 1", () => {
+    const values = [0.5, 0.6, 0.7, 0.8].map((x) =>
+      bridge.evalEase("cubic-bezier(0.34,1.56,0.64,1)", x),
+    );
+    expect(Math.max(...values)).toBeGreaterThan(1);
+    // Overshoot flows through numeric interpolation (extrapolates past `to`).
+    const mid = bridge.interpolate(
+      [
+        {
+          t: 0,
+          value: "translateY(100px)",
+          ease: "cubic-bezier(0.34,1.56,0.64,1)",
+        },
+        { t: 1, value: "translateY(0px)", ease: "linear" },
+      ],
+      0.7,
+    );
+    const px = parseFloat(mid.replace("translateY(", ""));
+    expect(px).toBeLessThan(0);
+  });
+
+  it("holds the from value across the interval for step-end easing", () => {
+    const held = bridge.interpolate(
+      [
+        { t: 0, value: "0", ease: "step-end" },
+        { t: 1, value: "1", ease: "linear" },
+      ],
+      0.9,
+    );
+    expect(held).toBe("0");
+  });
+
+  it("falls back to linear for unknown easing strings", () => {
+    expect(bridge.evalEase("totally-unknown", 0.4)).toBeCloseTo(0.4, 6);
   });
 });

@@ -25,6 +25,15 @@ Vermeiden Sie den Import von UI-Komponenten aus dem bloßen `@agent-native/core`
 `@agent-native/core/client` oder ein fokussierter `@agent-native/core/client/*`-Unterpfad
 daher wählen Bundler den browsersicheren Eintrag.
 
+Verwenden Sie `@agent-native/toolkit` für wiederverwendbare App-Bausteine, die nicht Teil des grundlegenden Laufzeitvertrags sind: shadcn-artige UI-Primitives, gemeinsame Hooks, einfache App-Shell-Helfer und weitere Template-Kompositionsmodule. Core behält während der Umstellung Kompatibilitäts-Reexports, aber neuer Template- und App-Code sollte Toolkit-Module direkt importieren:
+
+```tsx
+import { Button } from "@agent-native/toolkit/ui/button";
+import { Toaster } from "@agent-native/toolkit/ui/sonner";
+import { useToast } from "@agent-native/toolkit/hooks/use-toast";
+import { useSetHeaderActions } from "@agent-native/toolkit/app-shell";
+```
+
 <Diagram id="doc-block-6bst90" title="Lassen Sie eine Ebene nach unten fallen, nicht aus dem Framework heraus" summary={"Jede Ebene behält die gleiche Laufzeit bei – Aktionen, Thread-Status und SQL-backed-Synchronisierung – und gibt Ihnen gleichzeitig mehr Kontrolle über Chrome."}>
 
 ```html

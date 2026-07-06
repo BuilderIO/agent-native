@@ -1,5 +1,10 @@
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Skeleton } from "@/components/ui/skeleton";
+import {
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+} from "@agent-native/toolkit/ui/card";
+import { Skeleton } from "@agent-native/toolkit/ui/skeleton";
 
 interface MetricCardProps {
   title: string;

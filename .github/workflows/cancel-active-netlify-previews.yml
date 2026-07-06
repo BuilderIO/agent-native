@@ -1,0 +1,201 @@
+name: Cancel active Netlify previews
+
+# Manual queue drain for the shared Netlify build pool. Preview deploy fan-out
+# can starve production deploys across the hosted template fleet; this cancels
+# active deploy-preview builds only, leaving production deploys untouched.
+
+on:
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: Optional preview branch to cancel. Leave blank to cancel all active previews.
+        required: false
+        type: string
+      max_age_minutes:
+        description: Only cancel previews at least this old. Use 0 to cancel any age.
+        required: false
+        type: string
+        default: "0"
+      dry_run:
+        description: List matching previews without canceling them
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cancel-active-netlify-previews
+  cancel-in-progress: false
+
+jobs:
+  cancel:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          sparse-checkout: scripts/netlify-sites.json
+          sparse-checkout-cone-mode: false
+
+      - uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
+        env:
+          NETLIFY_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+          BRANCH: ${{ inputs.branch }}
+          MAX_AGE_MINUTES: ${{ inputs.max_age_minutes }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        with:
+          script: |
+            const fs = require('fs');
+            const sites = Object.entries(
+              JSON.parse(fs.readFileSync('scripts/netlify-sites.json', 'utf8'))
+            );
+
+            const token = process.env.NETLIFY_TOKEN;
+            if (!token) {
+              core.setFailed('NETLIFY_AUTH_TOKEN secret not set; cannot cancel Netlify previews.');
+              return;
+            }
+
+            const branch = (process.env.BRANCH || '').trim();
+            const dryRun = process.env.DRY_RUN === 'true';
+            const maxAgeMinutesRaw = (process.env.MAX_AGE_MINUTES || '0').trim();
+            const maxAgeMinutes = Number(maxAgeMinutesRaw);
+            if (!Number.isFinite(maxAgeMinutes) || maxAgeMinutes < 0) {
+              core.setFailed(`max_age_minutes must be a non-negative number, got ${JSON.stringify(maxAgeMinutesRaw)}.`);
+              return;
+            }
+
+            const headers = { Authorization: `Bearer ${token}` };
+            const activeStates = new Set([
+              'new',
+              'enqueued',
+              'building',
+              'uploading',
+              'uploaded',
+              'preparing',
+              'prepared',
+              'processing',
+            ]);
+
+            function oldEnough(deploy) {
+              if (maxAgeMinutes === 0) return true;
+              const createdAt = Date.parse(deploy.created_at || '');
+              if (!Number.isFinite(createdAt)) return false;
+              return Date.now() - createdAt >= maxAgeMinutes * 60 * 1000;
+            }
+
+            async function listDeploys(siteId) {
+              const deploys = [];
+              for (let page = 1; page <= 10; page++) {
+                const url = new URL(`https://api.netlify.com/api/v1/sites/${siteId}/deploys`);
+                url.searchParams.set('per_page', '100');
+                url.searchParams.set('page', String(page));
+                if (branch) url.searchParams.set('branch', branch);
+                const response = await fetch(url, { headers });
+                if (!response.ok) {
+                  throw new Error(`list ${response.status}: ${await response.text()}`);
+                }
+                const pageDeploys = await response.json();
+                deploys.push(...pageDeploys);
+                if (pageDeploys.length < 100) break;
+              }
+              return deploys;
+            }
+
+            async function cancelDeploy(deploy) {
+              if (dryRun) {
+                return { ok: true, status: 'dry-run' };
+              }
+              const response = await fetch(
+                `https://api.netlify.com/api/v1/deploys/${deploy.id}/cancel`,
+                { method: 'POST', headers },
+              );
+              if (response.ok) return { ok: true, status: response.status };
+
+              const body = await response.text();
+              // Deploys can finish between listing and cancellation. Treat
+              // terminal-state races as non-fatal, but fail auth/server errors.
+              if ([400, 404, 409, 422].includes(response.status)) {
+                core.warning(`[${deploy.id}] cancel skipped after race: ${response.status} ${body}`);
+                return { ok: true, status: response.status, raced: true };
+              }
+              return { ok: false, status: response.status, body };
+            }
+
+            const siteResults = await Promise.all(sites.map(async ([name, id]) => {
+              try {
+                const deploys = await listDeploys(id);
+                const activePreviews = deploys.filter(deploy =>
+                  deploy.context === 'deploy-preview' &&
+                  activeStates.has(deploy.state) &&
+                  oldEnough(deploy)
+                );
+                const cancelled = [];
+                for (const deploy of activePreviews) {
+                  const result = await cancelDeploy(deploy);
+                  cancelled.push({
+                    id: deploy.id,
+                    ok: result.ok,
+                    status: result.status,
+                    raced: result.raced || false,
+                    branch: deploy.branch || '',
+                    sha: (deploy.commit_ref || '').slice(0, 7),
+                    state: deploy.state,
+                    title: deploy.title || '',
+                  });
+                }
+                return { name, activePreviews, cancelled };
+              } catch (err) {
+                return { name, error: err?.message || String(err) };
+              }
+            }));
+
+            let matched = 0;
+            let succeeded = 0;
+            let failed = 0;
+            const summaryRows = [];
+
+            for (const result of siteResults) {
+              if (result.error) {
+                failed++;
+                core.warning(`[${result.name}] ${result.error}`);
+                summaryRows.push([result.name, 'error', '', '', result.error]);
+                continue;
+              }
+              matched += result.activePreviews.length;
+              const ok = result.cancelled.filter(item => item.ok).length;
+              const bad = result.cancelled.length - ok;
+              succeeded += ok;
+              failed += bad;
+              if (!result.activePreviews.length) continue;
+
+              core.info(`[${result.name}] ${dryRun ? 'matched' : 'cancelled'} ${ok}/${result.activePreviews.length}`);
+              for (const item of result.cancelled) {
+                const action = dryRun ? 'MATCH' : item.ok ? 'OK' : 'FAIL';
+                core.info(`  ${action} ${item.id} ${item.branch}@${item.sha} (${item.state})`);
+                summaryRows.push([
+                  result.name,
+                  item.branch,
+                  item.sha,
+                  item.state,
+                  `${action} ${item.status}`,
+                ]);
+              }
+            }
+
+            await core.summary
+              .addHeading(dryRun ? 'Active Netlify preview deploys' : 'Canceled Netlify preview deploys')
+              .addRaw(`Branch filter: ${branch || '(all branches)'}\n\n`)
+              .addRaw(`Minimum age: ${maxAgeMinutes} minute(s)\n\n`)
+              .addRaw(`Matched: ${matched}; ${dryRun ? 'listed' : 'canceled'}: ${succeeded}; failed: ${failed}\n\n`)
+              .addTable([
+                [{ data: 'Site', header: true }, { data: 'Branch', header: true }, { data: 'Commit', header: true }, { data: 'State', header: true }, { data: 'Result', header: true }],
+                ...summaryRows,
+              ])
+              .write();
+
+            core.info(`${dryRun ? 'Matched' : 'Canceled'} ${succeeded}/${matched} active preview deploys (branch=${branch || 'all'}, max_age_minutes=${maxAgeMinutes}).`);
+            if (failed) {
+              core.setFailed(`${failed} site(s) or cancellation(s) failed.`);
+            }

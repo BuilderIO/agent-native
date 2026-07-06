@@ -76,6 +76,15 @@ const GENERATED_SKILLS: GeneratedSkill[] = [
     ],
   },
   {
+    skill: "visualize-repo",
+    body: planEntry.extraSkills?.["visualize-repo"] ?? "",
+    references: planEntry.extraFiles?.["visualize-repo"] ?? {},
+    targetDirs: [
+      join("templates", "plan", ".agents", "skills", "visualize-repo"),
+      join("skills", "visualize-repo"),
+    ],
+  },
+  {
     skill: "design-exploration",
     body: designEntry.skillMarkdown,
     references: designEntry.extraFiles?.["design-exploration"] ?? {},
@@ -103,6 +112,10 @@ const REPO_SKILL_SYMLINKS: ExpectedSymlink[] = [
   {
     rel: join(".agents", "skills", "visual-recap"),
     target: "../../skills/visual-recap",
+  },
+  {
+    rel: join(".agents", "skills", "visualize-repo"),
+    target: "../../skills/visualize-repo",
   },
   {
     rel: join(".agents", "skills", "design-exploration"),

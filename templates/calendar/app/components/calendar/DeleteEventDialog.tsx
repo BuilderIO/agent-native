@@ -1,8 +1,4 @@
 import { useT } from "@agent-native/core/client";
-import type { CalendarEvent, DeleteEventScope } from "@shared/api";
-import { useEffect, useMemo, useState } from "react";
-
-import { getGuestAttendeeCount } from "@/components/calendar/GuestNotificationDialog";
 import {
   AlertDialog,
   AlertDialogContent,
@@ -11,11 +7,18 @@ import {
   AlertDialogDescription,
   AlertDialogFooter,
   AlertDialogCancel,
-} from "@/components/ui/alert-dialog";
-import { Button } from "@/components/ui/button";
-import { Label } from "@/components/ui/label";
-import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
-import { Textarea } from "@/components/ui/textarea";
+} from "@agent-native/toolkit/ui/alert-dialog";
+import { Button } from "@agent-native/toolkit/ui/button";
+import { Label } from "@agent-native/toolkit/ui/label";
+import {
+  RadioGroup,
+  RadioGroupItem,
+} from "@agent-native/toolkit/ui/radio-group";
+import { Textarea } from "@agent-native/toolkit/ui/textarea";
+import type { CalendarEvent, DeleteEventScope } from "@shared/api";
+import { useEffect, useMemo, useState } from "react";
+
+import { getGuestAttendeeCount } from "@/components/calendar/GuestNotificationDialog";
 
 interface DeleteEventDialogProps {
   event: CalendarEvent | null;

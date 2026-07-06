@@ -86,7 +86,6 @@ const INTENTIONAL_RAW_DB_DENYLIST = {
   "mail:email_link_tracking": "tracking rows scoped through owning draft/job",
   "slides:deck_share_links": "public share-token rows scoped through decks",
   "slides:slide_comments": "child rows scoped through decks",
-  "videos:folder_memberships": "membership join rows scoped through folders",
 };
 
 async function* walk(dir) {

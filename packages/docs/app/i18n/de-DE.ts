@@ -73,6 +73,10 @@ const deDE = {
     readDocs: "Docs lesen",
     genericTitle: "Etwas ist schiefgelaufen",
     genericBody: "Ein unerwarteter Fehler ist aufgetreten.",
+    sendFeedback: "Feedback senden",
+    feedbackPlaceholder:
+      "Beschreiben Sie, was vor diesem Docs-Fehler passiert ist.",
+    openGitHubIssue: "GitHub-Issue öffnen",
   },
   home: {
     hero: {
@@ -80,8 +84,8 @@ const deDE = {
       titleLine1: "Das Framework für",
       titleAccent: "agentic Apps",
       body: "Starte mit einer Chat-first app und dem app-agent loop. Füge actions, Screens, jobs und workflows hinzu, während dein agent wächst.",
-      primaryCta: "Mit dem Bauen starten",
-      secondaryCta: "Docs ansehen",
+      primaryCta: "App ausprobieren",
+      secondaryCta: "Docs lesen",
     },
     code: {
       quickStartComment: "Erstelle eine App mit einem Befehl",
@@ -95,8 +99,7 @@ const deDE = {
       eyebrow: "Wirklich agentisch, nicht nur KI daneben",
       title: "Eine Aktion öffnet die ganze App-Oberfläche",
       body: "Definiere eine Operation einmal. Agent-Native macht daraus UI-Aktion, Agent-Tool, HTTP-Endpunkt, MCP/A2A-Oberfläche, CLI-Befehl, Berechtigungsprüfung und Audit-Trail.",
-      seeActions: "Aktionen ansehen",
-      frameworkGuide: "Framework-Leitfaden lesen",
+      buildAction: "Eine Aktion erstellen",
       benefits: {
         oneActionDefinition: {
           title: "Eine Aktionsdefinition",
@@ -107,8 +110,8 @@ const deDE = {
           body: "Auth, Sharing, Governance und Audit-Logs begleiten die Arbeit.",
         },
         headedOrHeadless: {
-          title: "Mit UI oder headless",
-          body: "Läuft als App, Agent-Workflow, Queue oder geplanter Task.",
+          title: "Apps, Automationen und Agents",
+          body: "Führe dieselbe Operation aus Chat, UI, geplanten Jobs, Queues, externen Agents oder Skripten aus.",
         },
         contextRichInput: {
           title: "Kontextreiche Eingabe",
@@ -179,7 +182,7 @@ const deDE = {
         },
         workspaces: {
           title: "Arbeitsbereiche",
-          body: "Apps mit UI oder headless, die einander entdecken und über A2A koordinieren.",
+          body: "Komponierbare agentic apps, die einander entdecken und über A2A koordinieren.",
         },
         sourceOwnership: {
           title: "Eigentum am Source",
@@ -194,7 +197,7 @@ const deDE = {
     framework: {
       title: "Das Framework für agent-native apps",
       body1:
-        "Agent-Native ist ein Open-Source-Framework, um agents als echte Software zu bauen: Starte mit Chat oder headless agents und ergänze dann UI, jobs und Zusammenarbeit rund um dieselben actions.",
+        "Agent-Native ist ein Open-Source-Framework zum Bau von agentic applications: Starte mit Chat, definiere gemeinsame actions und ergänze dann UI, jobs und Zusammenarbeit rund um denselben state.",
       body2:
         "Bring deine eigene Datenbank, deinen Hosting-Anbieter, deinen Model-Stack und deinen app-Code mit.",
       cta: "Framework-Guide lesen",
@@ -223,7 +226,8 @@ const deDE = {
     },
     templates: {
       title: "Teste eine Agent-Native-App",
-      eyebrow: "100 % kostenlos und Open Source",
+      eyebrow:
+        "Forke eine funktionierende App und lass sie vom Agenten weiterentwickeln.",
       cta: "Apps ansehen",
     },
     skills: {
@@ -296,12 +300,12 @@ const deDE = {
     },
     quickStart: {
       title: "Mit einem Befehl starten",
-      body: "Ein Befehl erstellt eine lokale App mit actions, durable threads und SQLite. Nutze stattdessen `--headless`, wenn du noch keine Browser-UI willst.",
+      body: "Ein Befehl erstellt eine chat-first lokale App mit actions, durable threads und SQLite. Nutze `--headless` nur für automation-first Workflows ohne Browser-UI.",
     },
     finalCta: {
       title: "Software, gebaut für die agentic era",
       body: "Starte mit einem Befehl oder einem durable action, führe es durch den app-agent loop und erweitere es dann zu UI, jobs und Zusammenarbeit, ohne die Operation neu zu schreiben. Open Source. Forkable. Deins.",
-      primaryCta: "Mit einem Action starten",
+      primaryCta: "App ausprobieren",
       secondaryCta: "Docs lesen",
       githubCta: "Auf GitHub ansehen",
     },
@@ -410,8 +414,9 @@ const deDE = {
   },
   templatesPage: {
     title: "Open-Source-Agent-native Apps, die Sie besitzen",
-    eyebrow: "100 % kostenlos und Open Source",
-    body: "Forken Sie eine Vorlage, führen Sie sie lokal aus und lassen Sie sie vom Agenten weiterentwickeln. Sie besitzen den Code und können alles anpassen.",
+    eyebrow:
+      "Forke eine funktionierende App und lass sie vom Agenten weiterentwickeln.",
+    body: "Du kannst alles anpassen.",
     community:
       "Du möchtest lieber eine leere App? Starte von Grund auf mit dem Framework-Guide.",
     createYourOwn: "Von Grund auf starten",
@@ -455,11 +460,6 @@ const deDE = {
       replaces: "Ersetzt oder erweitert Google Slides, Pitch",
       description:
         "Generieren Sie vollständige Präsentationen aus einer Eingabeaufforderung. Bearbeiten Sie visuell oder im Gespräch. AI Bildgenerierung, 8 Layouts und integrierter Präsentationsmodus.",
-    },
-    video: {
-      replaces: "Ersetzt oder erweitert die Videobearbeitung",
-      description:
-        "Erstellen Sie reaktionsbasierte Videokompositionen mit Remotion. Keyframe-Animation, 30+ Beschleunigungskurven, Kamerasteuerung und agentengestützte Bearbeitung.",
     },
     analytics: {
       replaces: "Ersetzt oder erweitert Amplitude, Mixpanel, Looker",
@@ -1137,73 +1137,6 @@ const deDE = {
       s057: "Lesen Sie die Dokumente",
       s058: "Alle Vorlagen anzeigen",
     },
-    video: {
-      s001: "Screenshot der Vorlage Video",
-      s002: "Lockere Kurven",
-      s003: "Beispielkompositionen",
-      s004: "Spurtypen",
-      s005: "Kamerasteuerung",
-      s006: "Alle Vorlagen",
-      s007: "Ein quelloffener, agentennativer Videoeditor",
-      s008: "Ein komplettes Kompositionsstudio, das auf Remotion basiert – Keyframe-Animation, 30+ Lockerungskurven und ein Agent, der mit Ihnen zusammenarbeitet.",
-      s009: "Ausprobieren",
-      s010: "Professionelles Animationssystem",
-      s011: "Jede Animation ist eine Spur in der Zeitleiste – sichtbar, bearbeitbar und neu anordenbar.",
-      s012: "Dauerspuren",
-      s013: "Ziehen Sie die Griffe, um Anfang/Ende festzulegen. Visuelle Balken in der Timeline.",
-      s014: "Keyframe-Spuren",
-      s015: "Diamantmarkierungen an beliebigen Rahmen. Pro-Eigenschaft mit unabhängiger Lockerung.",
-      s016: "Ausdrucksspuren",
-      s017: "Programmatische Animationen – Tipp-Enthüllungen, Partikelausbrüche, Staffelungseffekte.",
-      s018: "30+ Lockerungskurven",
-      s019: "Der visuelle Kurvenwähler zeigt die Form jeder Lockerung.",
-      s020: "6D-Kamerasteuerung",
-      s021: "Schwenken, Zoomen und 3D-Neigung mit perspektivischer Tiefe.",
-      s022: "X/Y schwenken, zoomen, X/Y drehen",
-      s023: "3-fache interne Skala für gestochen scharfe Ausgabe bei hohem Zoom",
-      s024: "Animierte Kamera-Keyframes",
-      s025: "Interaktives Cursorsystem",
-      s026: "Drei Cursorstile mit Schwebezonenerkennung, sanften Übergängen und Klickanimationen. Perfekt für Produktdemos.",
-      s027: "Pfeil",
-      s028: "Zeiger",
-      s029: "Ich-Strahl",
-      s030: "Bearbeitung mehrerer Keyframes",
-      s031: "Wählen Sie mehrere Keyframes mit einem Kästchen aus, klicken Sie bei gedrückter Umschalttaste, um sie hinzuzufügen/zu entfernen, und ziehen Sie Gruppen unter Beibehaltung des relativen Timings.",
-      s032: "Keyframes pro Eigenschaft bei beliebigen Frames",
-      s033: "Unabhängige Beschleunigung pro Keyframe",
-      s034: "Gruppenziehen mit Beibehaltung des relativen Timings",
-      s035: "Komponenten reagieren",
-      s036: "Videos sind React mit 1920 x 1080, 30 fps",
-      s037: "In MP4/WebM rendern",
-      s038: "Export über Remotion CLI",
-      s039: "12 Kompositionen",
-      s040: "Kinetischer Text, Logos, UI-Demos und mehr",
-      s041: "Wie es im Vergleich aussieht",
-      s042: "AI Video Werkzeuge",
-      s043: "Timeline-Editor",
-      s044: "Professionell",
-      s045: "Keine / einfach",
-      s046: "Visuelle Spuren + Keyframes",
-      s047: "AI Hilfe",
-      s048: "Nur Generation",
-      s049: "Vollständig erstellen + bearbeiten + iterieren",
-      s050: "Programmatisch",
-      s051: "ExtendScript",
-      s052: "Nur API",
-      s053: "Komponenten reagieren",
-      s054: "Anpassung",
-      s055: "Plug-ins",
-      s056: "Nur Vorlagen",
-      s057: "Vollständiger Quellcode",
-      s058: "Preise",
-      s059: "$55+/mo-Abonnement",
-      s060: "Pro Rendering",
-      s061: "Kostenlos und Open Source",
-      s062: "Beginnen Sie in wenigen Minuten",
-      s063: "Forken Sie die Vorlage und beginnen Sie mit der Erstellung von Videokompositionen mit AI.",
-      s064: "Lesen Sie die Dokumente",
-      s065: "Alle Vorlagen anzeigen",
-    },
   },
   skillsPage: {
     metaTitle:
@@ -1488,6 +1421,7 @@ const deDE = {
     whatIsAgentNative: "Was ist Agent-Native?",
     agentSurfaces: "Agent-Oberflächen",
     keyConcepts: "Schlüsselkonzepte",
+    agentNativeToolkit: "Agent-Native-Toolkit",
     templates: "Vorlagen",
     faq: "FAQ",
     server: "Server",
@@ -1560,7 +1494,6 @@ const deDE = {
     prVisualRecap: "Visuelle PR-Zusammenfassung",
     planPluginMarketplace: "Plan-Plugin und Marketplace",
     slides: "Folien",
-    video: "Video",
     analytics: "Analysen",
     mail: "Mail",
     clips: "Clips",

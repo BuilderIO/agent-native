@@ -356,5 +356,13 @@ pub fn run() {
             if let tauri::RunEvent::Reopen { .. } = _event {
                 toggle_popover(_app_handle);
             }
+            // The app is quitting (tray Quit, Cmd+Q, or OS shutdown). `Exit`
+            // fires just before the process actually terminates, which
+            // otherwise skips Rust destructors — make sure a live
+            // `screencapture` fallback child doesn't survive us.
+            if let tauri::RunEvent::Exit = _event {
+                let state = _app_handle.state::<native_screen::NativeFullscreenRecordingState>();
+                native_screen::kill_active_screencapture_child(&state);
+            }
         });
 }

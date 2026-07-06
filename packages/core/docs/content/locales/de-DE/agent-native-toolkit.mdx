@@ -1,0 +1,77 @@
+---
+title: "Agent-Native-Toolkit"
+description: "Wiederverwendbare Kits für Zusammenarbeit, Einstellungen, Teilen, Navigation, Präsenz, Verlauf, Einrichtung und Agent-UX."
+---
+
+# Agent-Native-Toolkit
+
+Agent-Native-Apps sollten Workspace-Infrastruktur nicht neu bauen. Apps besitzen
+ihre Domänenmodelle, Domänenaktionen und produktspezifischen Ansichten. Das
+Framework und `@agent-native/toolkit` besitzen die wiederverwendbare
+Produktoberfläche, die jede App erben sollte: Zusammenarbeit, Teilen,
+Einstellungen, Navigation, Organisation, Einrichtung, Agent-UX, Verlauf und
+operative Sichtbarkeit.
+
+Nutzer sollen eine einzige Art lernen, Ressourcen zu teilen, Schlüssel zu
+verbinden, den Agenten beim Bearbeiten zu sehen, Einstellungen zu finden und
+Änderungen zu verstehen.
+
+## Toolkit-Vertrag {#toolkit-contract}
+
+Verschiebe Verhalten in das Toolkit, wenn es:
+
+- **Workspace-weit** ist - Nutzer erwarten dasselbe Verhalten in allen Apps.
+- **Für den Agenten sichtbar** ist - der Agent braucht dieselbe Fähigkeit über
+  Aktionen, Anweisungen oder Application State.
+- **Governed** ist - Berechtigungen, Audit, Secrets, Org-Policy, Billing oder
+  Sharing-Regeln gelten.
+- **Wiederholt** ist - zwei Apps haben bereits ähnliche UI oder Logik gebaut.
+- **Nicht domänenspezifisch** ist - die App liefert Ressourcennamen und
+  Aktionen, aber das Interaktionsmuster ist generisch.
+
+Behalte Verhalten lokal, wenn es an ein Domänenmodell oder einen
+app-spezifischen Workflow gebunden ist.
+
+## Wiederverwendbare Kits {#reusable-kits}
+
+- **Settings kit** - Standard-Tabs für Account, Workspace, AI-Modelle,
+  LLM-Schlüssel, Connections, Secrets, Usage, Notifications, Changelog und
+  App-Präferenzen. Dauerhafte Konfiguration gehört in Settings; die
+  Agent-Sidebar behält Kontextkontrollen und Deep Links.
+- **Collaboration kit** - Echtzeitbearbeitung, Yjs-Dokumente, Presence,
+  Agent-Presence, Cursor, Remote-Auswahlen, Edit-Highlights und gemeinsames
+  Undo/Redo. Siehe [Real-Time Collaboration](/docs/real-time-collaboration).
+- **Sharing kit** - ein Modell für Datenschutz und Berechtigungen: private,
+  workspace, org, public link, Einladungen, Rollen, Ablaufzeiten und
+  agent-readable access. Siehe [Sharing & Privacy](/docs/sharing).
+- **Navigation and command kit** - App-Shell, Navigation, Breadcrumbs, App
+  Switcher, Command Palette, aktuelle Ressourcen, angeheftete Ressourcen und
+  Suche.
+- **Organization kit** - Ordner, Tags, Favoriten, Archiv, Papierkorb,
+  Eigentümer, Mitgliedschaft und gemeinsame Metadaten.
+- **Setup and connections kit** - API-Schlüssel, OAuth, Connections,
+  Modellbereitschaft, fehlende Secrets und deklaratives Onboarding. Siehe
+  [Workspace Connections](/docs/workspace-connections).
+- **Agent UX kit** - Sidebar, Composer, staged context, Mentions, Voice, Human
+  Approval, generative UI, Fortschritt und für den Agenten sichtbarer Zustand.
+- **History and recovery kit** - Audit Log, Activity Feed, Version History,
+  Checkpoints, Undo, Redo, Restore und Proof-of-Done. Siehe
+  [Audit Log](/docs/audit-log).
+- **Comments and review kit** - verankerte Kommentare, Pins, Mentions,
+  Review-Anfragen, gelöste Threads und Agent-Follow-ups.
+- **Workflow and observability kit** - Notifications, Approvals,
+  Background-Runs, recurring jobs, traces, evals, feedback und Run-Timelines.
+  Siehe [Observability](/docs/observability).
+
+## Implementierungsreihenfolge {#implementation-order}
+
+1. Dauerhafte Konfiguration in Standard-Settings-Tabs konsolidieren.
+2. Collaboration, Presence, Agent-Presence, Undo/Redo und Echtzeitbearbeitung
+   hinter gemeinsamen Adaptern normalisieren.
+3. Navigation, Commands, Recents, Favoriten, Ordner, Tags, Archiv und Papierkorb
+   in gemeinsame Primitive verschieben.
+4. Jede teilbare Ressource im selben Berechtigungs- und agent-readable
+   Access-Modell registrieren.
+5. Kollaborativen Ressourcen eine konsistente Story für Aktivität, Kommentare,
+   Review, Restore und Audit geben.
+6. Notifications, Approvals, Run-Status, Traces, Evals und Feedback vereinheitlichen.

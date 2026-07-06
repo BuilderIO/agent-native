@@ -1,6 +1,8 @@
 import { PoweredByBadge, appPath, useT } from "@agent-native/core/client";
 import { getRequestUserEmail } from "@agent-native/core/server";
 import { resolveAccess } from "@agent-native/core/sharing";
+import { Button } from "@agent-native/toolkit/ui/button";
+import { Spinner } from "@agent-native/toolkit/ui/spinner";
 import {
   IconCalendar,
   IconExternalLink,
@@ -16,8 +18,6 @@ import {
   AttendeeStack,
   type AttendeeStackParticipant,
 } from "@/components/meetings/attendee-stack";
-import { Button } from "@/components/ui/button";
-import { Spinner } from "@/components/ui/spinner";
 import enMessages from "@/i18n/en-US";
 
 import { getDb, schema } from "../../server/db";

@@ -1,19 +1,18 @@
 import { Turnstile, useT } from "@agent-native/core/client";
-import type { CustomField } from "@shared/api";
-import { useState } from "react";
-
-import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import { Button } from "@agent-native/toolkit/ui/button";
+import { Checkbox } from "@agent-native/toolkit/ui/checkbox";
+import { Input } from "@agent-native/toolkit/ui/input";
+import { Label } from "@agent-native/toolkit/ui/label";
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from "@/components/ui/select";
-import { Textarea } from "@/components/ui/textarea";
+} from "@agent-native/toolkit/ui/select";
+import { Textarea } from "@agent-native/toolkit/ui/textarea";
+import type { CustomField } from "@shared/api";
+import { useState } from "react";
 
 export interface BookingFormValue {
   name: string;

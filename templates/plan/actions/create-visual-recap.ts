@@ -44,12 +44,24 @@ const sourceTypeSchema = z
 
 const sourcePrStateSchema = z.enum(["open", "closed", "merged", "unknown"]);
 
+const sourceAuthorEmailSchema = z
+  .string()
+  .trim()
+  .email()
+  .transform((email) => email.toLowerCase())
+  .optional();
+
+const sourceAuthorTextSchema = z.string().trim().min(1).optional();
+
 type RecapSourceMetadata = {
   sourceType?: string;
   sourceRepo?: string;
   sourcePrNumber?: number;
   sourcePrState?: "open" | "closed" | "merged" | "unknown";
   sourcePrMergedAt?: string;
+  sourceAuthorEmail?: string;
+  sourceAuthorName?: string;
+  sourceAuthorLogin?: string;
 };
 
 type RecapVisibility = "private" | "org" | "public";
@@ -82,17 +94,26 @@ function normalizeRecapSourceMetadata(args: {
   sourcePrNumber?: number;
   sourcePrState?: "open" | "closed" | "merged" | "unknown";
   sourcePrMergedAt?: string;
+  sourceAuthorEmail?: string;
+  sourceAuthorName?: string;
+  sourceAuthorLogin?: string;
 }): RecapSourceMetadata {
   const inferred = inferGithubPullRequestSource(args.sourceUrl);
   const sourcePrMergedAt = args.sourcePrMergedAt?.trim();
   const sourcePrState =
     args.sourcePrState ?? (sourcePrMergedAt ? "merged" : undefined);
+  const sourceAuthorEmail = args.sourceAuthorEmail?.trim().toLowerCase();
+  const sourceAuthorName = args.sourceAuthorName?.trim();
+  const sourceAuthorLogin = args.sourceAuthorLogin?.trim();
   return {
     sourceType: args.sourceType ?? inferred.sourceType,
     sourceRepo: args.sourceRepo ?? inferred.sourceRepo,
     sourcePrNumber: args.sourcePrNumber ?? inferred.sourcePrNumber,
     sourcePrState,
     sourcePrMergedAt: sourcePrMergedAt || undefined,
+    sourceAuthorEmail: sourceAuthorEmail || undefined,
+    sourceAuthorName: sourceAuthorName || undefined,
+    sourceAuthorLogin: sourceAuthorLogin || undefined,
   };
 }
 
@@ -178,7 +199,7 @@ async function runWithRecapOrgContext<T>(
 
 export default defineAction({
   description:
-    "Create a visual code-review recap from an existing PR, commit, branch, or git diff. For a forward plan before implementation use create-visual-plan; for a UI-first plan use create-ui-plan; for a running prototype use create-prototype-plan. Derive all content from the real diff — never invent schema, API, file, or contract facts. Publish via this tool; never deliver the recap as inline chat text.",
+    "Create a visual code-review recap from an existing PR, commit, branch, or git diff. Also the way to regenerate or rewrite an existing recap: pass planId to replace a recap you own in place. For a forward plan before implementation use create-visual-plan; for a UI-first plan use create-ui-plan; for a running prototype use create-prototype-plan. Derive all content from the real diff — never invent schema, API, file, or contract facts. Publish via this tool; never deliver the recap as inline chat text.",
   schema: z.object({
     planId: z
       .string()
@@ -229,6 +250,15 @@ export default defineAction({
       .min(1)
       .optional()
       .describe("ISO timestamp for when the source pull request was merged."),
+    sourceAuthorEmail: sourceAuthorEmailSchema.describe(
+      "Email address for the human author of the source PR, used as the default human comment target for recap feedback.",
+    ),
+    sourceAuthorName: sourceAuthorTextSchema.describe(
+      "Display name for the human author of the source PR.",
+    ),
+    sourceAuthorLogin: sourceAuthorTextSchema.describe(
+      "GitHub login for the human author of the source PR.",
+    ),
     idempotencyKey: z
       .string()
       .trim()
@@ -245,7 +275,7 @@ export default defineAction({
       .describe("Current focus for the review surface."),
     status: planStatusSchema.optional().default("review"),
     mdx: planMdxFileSchema.describe(
-      "Recap source files. Call the get-plan-blocks tool FIRST for the authoritative block catalog, authoring rules, and style tokens — do not author from memory. Key rules: derive all blocks from the real diff only; use diff blocks with line-anchored annotations on key hunks; for UI changes include realistic, non-empty WireframeBlock before/after in a Columns block (labels: Before / After) with visible product text/controls; if canvas.mdx is present, DesignBoard artboards must use Screen html/data.html wireframes, never fresh nested kit-tree children such as FrameScreen/Card/Row/Btn; use .diagram-* primitives and --wf-* tokens in diagrams (no hex/rgb/hsl, no custom fonts); keep API endpoint blocks in single-column flow unless it is an explicit before/after contract comparison.",
+      "Recap source files. Call the get-plan-blocks tool FIRST for the authoritative block catalog, visual frame guidance, authoring rules, and style tokens — do not author from memory. Key rules: derive all blocks from the real diff only; use diff blocks with line-anchored annotations on key hunks; for UI changes include realistic, non-empty WireframeBlock before/after in a Columns block (labels: Before / After) with visible product text/controls; if canvas.mdx is present, DesignBoard artboards must use Screen html/data.html wireframes, never fresh nested kit-tree children such as FrameScreen/Card/Row/Btn; use .diagram-* primitives and --wf-* tokens in diagrams (no hex/rgb/hsl, no custom fonts); keep API endpoint blocks in single-column flow unless it is an explicit before/after contract comparison.",
     ),
   }),
   publicAgent: {
@@ -327,6 +357,15 @@ export default defineAction({
             : {}),
           ...(sourceMetadata.sourcePrMergedAt !== undefined
             ? { sourcePrMergedAt: sourceMetadata.sourcePrMergedAt }
+            : {}),
+          ...(sourceMetadata.sourceAuthorEmail !== undefined
+            ? { sourceAuthorEmail: sourceMetadata.sourceAuthorEmail }
+            : {}),
+          ...(sourceMetadata.sourceAuthorName !== undefined
+            ? { sourceAuthorName: sourceMetadata.sourceAuthorName }
+            : {}),
+          ...(sourceMetadata.sourceAuthorLogin !== undefined
+            ? { sourceAuthorLogin: sourceMetadata.sourceAuthorLogin }
             : {}),
           ...(idempotencyKey ? { recapIdempotencyKey: idempotencyKey } : {}),
         };

@@ -9,6 +9,21 @@ import {
 } from "@agent-native/core/client";
 import { ExtensionsSidebarSection } from "@agent-native/core/client/extensions";
 import { OrgSwitcher } from "@agent-native/core/client/org";
+import { useIsMobile } from "@agent-native/toolkit/hooks/use-mobile";
+import { Button } from "@agent-native/toolkit/ui/button";
+import {
+  Popover,
+  PopoverTrigger,
+  PopoverContent,
+} from "@agent-native/toolkit/ui/popover";
+import { ScrollArea } from "@agent-native/toolkit/ui/scroll-area";
+import { Textarea } from "@agent-native/toolkit/ui/textarea";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@agent-native/toolkit/ui/tooltip";
 import {
   IconArrowUp,
   IconPlus,
@@ -24,23 +39,8 @@ import { useState, useRef, useEffect, type MouseEvent } from "react";
 import { Link, useLocation, useNavigate } from "react-router";
 
 import { ThemeToggle } from "@/components/ThemeToggle";
-import { Button } from "@/components/ui/button";
-import {
-  Popover,
-  PopoverTrigger,
-  PopoverContent,
-} from "@/components/ui/popover";
-import { ScrollArea } from "@/components/ui/scroll-area";
-import { Textarea } from "@/components/ui/textarea";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
 import { useAgentPromptRun } from "@/hooks/use-agent-prompt-run";
 import { useCreateForm } from "@/hooks/use-forms";
-import { useIsMobile } from "@/hooks/use-mobile";
 import { cn } from "@/lib/utils";
 
 const SIDEBAR_COLLAPSE_KEY = "forms.sidebar.collapsed";

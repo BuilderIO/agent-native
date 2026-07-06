@@ -1,20 +1,20 @@
 ---
 title: "Plugin de planification et place de marché"
-description: "Installez le Plan Agent-Native skills (/visual-plan, /visual-recap) ainsi que le connecteur Plan MCP hébergé en tant que code Claude ou plugin Codex, ou avec le CLI universel. Comment fonctionnent les mises à jour et si vous devez soumettre quelque chose."
+description: "Installez les skills Agent-Native Plan (/visual-plan, /visual-recap, /visualize-repo) ainsi que le connecteur Plan MCP hébergé comme plugin Claude Code ou Codex, ou avec le CLI universel. Comment fonctionnent les mises à jour et si vous devez soumettre quelque chose."
 ---
 
 # Plugin et place de marché du plan
 
-L'application Agent-Native **Plan** est livrée sous la forme d'un ensemble installable. Une seule installation ajoute à la fois la commande slash Plan skills **et** connecte le connecteur Plan MCP hébergé, afin que l'agent puisse générer des plans et que le skills puisse les publier directement dans l'application Plan.
+L'application Agent-Native **Plan** est livrée comme un bundle installable. Une seule installation ajoute les skills de commandes slash Plan **et** connecte le connecteur Plan MCP hébergé, afin que l'agent puisse générer des plans et que les skills puissent les publier directement dans l'application Plan.
 
 ## Ce que vous obtenez {#what-you-get}
 
 Une installation vous offre :
 
-- **Deux skills** — `/visual-plan` (le point d'entrée canonique) et `/visual-recap`.
+- **Trois skills** — `/visual-plan` (le point d'entrée canonique), `/visual-recap` et `/visualize-repo`.
 - **Le connecteur Plan MCP** — enregistré auprès de l'application hébergée sur `https://plan.agent-native.com` (point de terminaison MCP `https://plan.agent-native.com/_agent-native/mcp`, nom de serveur `plan`).
 
-<Diagram id="doc-block-1il4uk9" title={"Trois itinéraires, un forfait"} summary={"Les plugins universels CLI, Claude Code et Codex installent tous les mêmes deux compétences plus le connecteur Plan hébergé."}>
+<Diagram id="doc-block-1il4uk9" title={"Trois itinéraires, un forfait"} summary={"Le CLI universel, le plugin Claude Code et le plugin Codex installent les mêmes skills Plan ainsi que le connecteur Plan hébergé."}>
 
 ```html
 <div class="diagram-routes">
@@ -37,7 +37,8 @@ Une installation vous offre :
   <div class="diagram-panel center">
     <span class="diagram-pill accent">/visual-plan</span
     ><span class="diagram-pill accent">/visual-recap</span
-    ><small class="diagram-muted">two skills</small>
+    ><span class="diagram-pill accent">/visualize-repo</span
+    ><small class="diagram-muted">three skills</small>
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
   <div class="diagram-box">
@@ -78,7 +79,7 @@ Une installation vous offre :
 
 </Diagram>
 
-Par défaut, les deux skills publient sur l'application Plan hébergée : ils créent un plan via
+Par défaut, `/visual-plan` et `/visual-recap` publient dans l'application Plan hébergée — ils créent un plan via
 le connecteur MCP et vous remettra un lien ou un plan en ligne à examiner. Ils ne jettent jamais
 un plan Markdown/ASCII en ligne dans le chat comme livrable. Si un outil Planifier
 renvoie `needs auth`, `Unauthorized` ou `Session terminated`, ré-authentifier
@@ -194,13 +195,13 @@ Il existe trois façons d'y accéder. La **route universelle CLI** est celle que
 
 ### Itinéraire de compétences universel (n'importe quel hôte MCP) {#universal}
 
-Fonctionne pour n'importe quel hôte : code Claude, Codex, Cursor, Cline, Goose, applications ChatGPT personnalisées MCP, Claude Cowork et tout ce qui est compatible avec MCP. Le Agent-Native CLI installe les deux skills, enregistre le connecteur Plan MCP hébergé et **et exécute l'authentification pour le(s) client(s) local(s) sélectionné(s) au cours de la même étape**, afin que votre premier appel d'outil ne heurte pas un mur OAuth :
+Fonctionne avec n'importe quel hôte — Claude Code, Codex, Cursor, Cline, Goose, apps MCP personnalisées ChatGPT, Claude Cowork et tout autre hôte compatible MCP. Le CLI Agent-Native installe les skills Plan, enregistre le connecteur Plan MCP hébergé **et exécute l'authentification pour les clients locaux sélectionnés dans la même étape**, afin que votre premier appel d'outil ne rencontre pas de mur OAuth :
 
 ```bash
 npx @agent-native/core@latest skills add visual-plan
 ```
 
-Cela installe `visual-plan` ainsi que la compétence associée `visual-recap`, puis enregistre le connecteur `plan`, puis exécute l'authentification (invite OAuth pour le partage hébergé/soutenu par un compte). Indicateurs utiles :
+Cela installe `visual-plan` ainsi que les skills compagnons `visual-recap` et `visualize-repo`, puis enregistre le connecteur `plan` et lance l'authentification (invite OAuth pour le partage hébergé/lié au compte). Flags utiles :
 
 - `--client codex|claude-code|claude-code-cli|cowork|all` — pour quels agents locaux écrire la configuration MCP (`all` par défaut).
 - `--no-connect` : enregistre le connecteur sans authentification ; exécutez `npx @agent-native/core@latest connect https://plan.agent-native.com --client all` plus tard ou choisissez un `--client` plus étroit.
@@ -236,7 +237,7 @@ Le référentiel public `BuilderIO/agent-native` est lui-même un marché de plu
 /mcp        # authenticate the Plan connector (one OAuth approval)
 ```
 
-`/plugin install` ajoute à la fois le plan skills et une configuration MCP **URL uniquement** (aucun secret dans le package) ; `/mcp` → **Authentifier** termine la négociation OAuth. Utilisez plutôt la route universelle CLI lorsque vous souhaitez des fichiers locaux ou un mode auto-hébergé.
+`/plugin install` ajoute les skills Plan et une configuration MCP **URL uniquement** (aucun secret dans le paquet) ; `/mcp` → **Authenticate** termine la poignée de main OAuth. Utilisez plutôt la route CLI universelle lorsque vous voulez le mode fichiers locaux ou auto-hébergé.
 
 > Le catalogue Marketplace s'appelle `agent-native-apps` et le plug-in Plan est `agent-native-visual-plans`, la cible d'installation est donc toujours `agent-native-visual-plans@agent-native-apps`.
 

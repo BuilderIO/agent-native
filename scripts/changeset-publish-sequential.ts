@@ -48,6 +48,7 @@ const npmPublishAllowlist = new Set([
   "@agent-native/pinpoint",
   "@agent-native/scheduling",
   "@agent-native/skills",
+  "@agent-native/toolkit",
 ]);
 
 async function readJson<T>(filePath: string): Promise<T> {
@@ -57,12 +58,12 @@ async function readJson<T>(filePath: string): Promise<T> {
 function run(
   command: string,
   args: string[],
-  options: { cwd?: string; stream?: boolean } = {},
+  options: { cwd?: string; stream?: boolean; env?: NodeJS.ProcessEnv } = {},
 ): Promise<RunResult> {
   return new Promise((resolve, reject) => {
     const child = spawn(command, args, {
       cwd: options.cwd ?? rootDir,
-      env: process.env,
+      env: { ...process.env, ...options.env },
       stdio: ["ignore", "pipe", "pipe"],
     });
     let stdout = "";
@@ -87,6 +88,14 @@ function run(
       resolve({ code: code ?? 1, stdout, stderr });
     });
   });
+}
+
+function isRegistryNotFound(output: string): boolean {
+  return (
+    output.includes("E404") ||
+    output.includes("404 Not Found") ||
+    output.includes("No match found")
+  );
 }
 
 function parseJsonOutput(output: string, context: string): unknown {
@@ -274,15 +283,34 @@ async function isPublished(pkg: PublishPackage): Promise<boolean> {
     return true;
   }
   const output = `${result.stdout}\n${result.stderr}`;
-  if (
-    output.includes("E404") ||
-    output.includes("404 Not Found") ||
-    output.includes("No match found")
-  ) {
+  if (isRegistryNotFound(output)) {
     return false;
   }
   throw new Error(
     `Unable to check whether ${pkg.name}@${pkg.version} is published:\n${output}`,
+  );
+}
+
+async function packageExistsOnRegistry(pkg: PublishPackage): Promise<boolean> {
+  const result = await run(
+    "npm",
+    ["view", pkg.name, "version", `--registry=${registry}`, "--json"],
+    { stream: false },
+  );
+  if (result.code === 0) return true;
+  const output = `${result.stdout}\n${result.stderr}`;
+  if (isRegistryNotFound(output)) return false;
+  throw new Error(
+    `Unable to check whether ${pkg.name} exists on npm:\n${output}`,
+  );
+}
+
+function firstPublishToken(): string | null {
+  return (
+    process.env.AGENT_NATIVE_NPM_BOOTSTRAP_TOKEN ||
+    process.env.NODE_AUTH_TOKEN ||
+    process.env.NPM_TOKEN ||
+    null
   );
 }
 
@@ -443,8 +471,22 @@ async function publishPackage(pkg: PublishPackage): Promise<boolean> {
     pkg.packageJson.publishConfig?.directory ?? ".",
   );
   const access = pkg.packageJson.publishConfig?.access ?? "public";
+  const packageExists = await packageExistsOnRegistry(pkg);
+  const bootstrapToken = packageExists ? null : firstPublishToken();
+
+  if (!packageExists && !bootstrapToken) {
+    throw makePublishError(
+      `${pkg.name} does not exist on npm yet, and no first-publish token is configured. Set AGENT_NATIVE_NPM_BOOTSTRAP_TOKEN, NODE_AUTH_TOKEN, or NPM_TOKEN for the one-time package creation publish.`,
+      true,
+    );
+  }
 
   console.log(`Publishing \"${pkg.name}\" at \"${pkg.version}\"`);
+  if (bootstrapToken) {
+    console.log(
+      `${pkg.name} does not exist on npm yet; bootstrapping the first publish with a token and --no-provenance.`,
+    );
+  }
   const packDir = await mkdtemp(path.join(os.tmpdir(), "agent-native-pack-"));
   let result: RunResult | undefined;
   try {
@@ -464,7 +506,7 @@ async function publishPackage(pkg: PublishPackage): Promise<boolean> {
 
     const tarballPath = parsePackJson(packResult.stdout, pkg);
     await assertPackedManifestIsPublishable(tarballPath, pkg);
-    result = await run("npm", [
+    const publishArgs = [
       "publish",
       tarballPath,
       "--access",
@@ -472,9 +514,21 @@ async function publishPackage(pkg: PublishPackage): Promise<boolean> {
       "--tag",
       "latest",
       `--registry=${registry}`,
-      "--provenance",
+      bootstrapToken ? "--no-provenance" : "--provenance",
       "--json",
-    ]);
+    ];
+    result = await run(
+      "npm",
+      publishArgs,
+      bootstrapToken
+        ? {
+            env: {
+              NODE_AUTH_TOKEN: bootstrapToken,
+              NPM_CONFIG_PROVENANCE: "false",
+            },
+          }
+        : undefined,
+    );
   } finally {
     await rm(packDir, { recursive: true, force: true });
   }
@@ -559,11 +613,12 @@ async function main() {
       if ((error as { isMissingPackage?: boolean }).isMissingPackage) {
         console.error(
           `${pkg.name} does not exist on npm yet, and OIDC trusted publishing ` +
-            `cannot create a brand-new package (npm/cli#8544). Bootstrap it ` +
-            `once: publish its first version manually with a token ` +
-            `(\`cd ${path.relative(rootDir, pkg.dir)} && npm publish --access public --no-provenance\`), ` +
-            `then add a Trusted Publisher for it on npmjs.com matching the other ` +
-            `@agent-native packages (repo BuilderIO/agent-native, workflow ` +
+            `cannot create a brand-new package (npm/cli#8544). Configure ` +
+            `AGENT_NATIVE_NPM_BOOTSTRAP_TOKEN, NODE_AUTH_TOKEN, or NPM_TOKEN ` +
+            `for a one-time token publish, or bootstrap it manually ` +
+            `(\`cd ${path.relative(rootDir, pkg.dir)} && npm publish --access public --no-provenance\`). ` +
+            `Then add a Trusted Publisher for it on npmjs.com matching the ` +
+            `other @agent-native packages (repo BuilderIO/agent-native, workflow ` +
             `auto-publish.yml, environment npm-publish). After that, OIDC ` +
             `publishes every future version automatically.`,
         );

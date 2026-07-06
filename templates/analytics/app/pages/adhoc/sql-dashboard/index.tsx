@@ -14,6 +14,39 @@ import {
   type CollabUser,
 } from "@agent-native/core/client";
 import {
+  Alert,
+  AlertDescription,
+  AlertTitle,
+} from "@agent-native/toolkit/ui/alert";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@agent-native/toolkit/ui/alert-dialog";
+import { Button } from "@agent-native/toolkit/ui/button";
+import { Card, CardContent } from "@agent-native/toolkit/ui/card";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@agent-native/toolkit/ui/dropdown-menu";
+import { Input } from "@agent-native/toolkit/ui/input";
+import { Tabs, TabsList, TabsTrigger } from "@agent-native/toolkit/ui/tabs";
+import { Textarea } from "@agent-native/toolkit/ui/textarea";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@agent-native/toolkit/ui/tooltip";
+import {
   useDroppable,
   DndContext,
   DragOverlay,
@@ -27,17 +60,20 @@ import {
 } from "@dnd-kit/core";
 import {
   IconArchive,
+  IconBuilding,
   IconClock,
   IconDotsVertical,
   IconEye,
   IconEyeOff,
   IconGripVertical,
   IconInfoCircle,
+  IconLock,
   IconMail,
   IconPencil,
   IconPlus,
   IconTrash,
   IconUser,
+  IconWorld,
   IconX,
 } from "@tabler/icons-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -58,35 +94,6 @@ import {
   useSetPageTitle,
   useSetHeaderActions,
 } from "@/components/layout/HeaderActions";
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import { Input } from "@/components/ui/input";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Textarea } from "@/components/ui/textarea";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
 import { useDashboardViews } from "@/hooks/use-dashboard-views";
 import { useUserPref } from "@/hooks/use-user-pref";
 import { incrementItemView } from "@/lib/item-popularity";
@@ -1422,24 +1429,14 @@ export default function SqlDashboardPage() {
                   </span>
                 )}
                 {dashboardVisibility ? (
-                  <span
-                    className={`flex items-center gap-1.5 font-medium ${
-                      dashboardVisibility === "public"
-                        ? "text-green-600"
-                        : dashboardVisibility === "org"
-                          ? "text-blue-600"
-                          : "text-yellow-600"
-                    }`}
-                  >
-                    <span
-                      className={`h-1.5 w-1.5 rounded-full ${
-                        dashboardVisibility === "public"
-                          ? "bg-green-500"
-                          : dashboardVisibility === "org"
-                            ? "bg-blue-500"
-                            : "bg-yellow-500"
-                      }`}
-                    />
+                  <span className="flex items-center gap-1.5">
+                    {dashboardVisibility === "public" ? (
+                      <IconWorld className="h-3 w-3" />
+                    ) : dashboardVisibility === "org" ? (
+                      <IconBuilding className="h-3 w-3" />
+                    ) : (
+                      <IconLock className="h-3 w-3" />
+                    )}
                     {dashboardVisibility === "public"
                       ? t("sqlDashboard.public")
                       : dashboardVisibility === "org"

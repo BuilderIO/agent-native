@@ -1,259 +1,193 @@
 ---
 title: "الخطوات الأولى"
-description: "قم بإنشاء تطبيق وكيل، وافهم التعليمات، وskills، وactions، ثم شاهد الوكيل وهو يستدعي الإجراء الأول."
+description: "أنشئ agentic app تبدأ بالدردشة، أضف action، اعرض النتائج المنظمة داخل الدردشة، ثم وسعها إلى صفحة دائمة يستطيع agent فتحها."
 ---
 
-# البدء
+# الخطوات الأولى
 
-توفر تطبيقات Agent-Native لوكيل الذكاء الاصطناعي وUI نفس actions والبيانات
-الحالة. يتم إنشاء الوكيل الأساسي من التعليمات التي ترشده، skills التي تعلم
-السلوك القابل للتكرار، وactions الذي يتيح له القيام بعمل حقيقي.
+Agent-Native مخصص لبناء agentic applications: يشترك AI agent وواجهة UI في نفس [actions](/docs/actions) وبيانات SQL و application state. المسار الأساسي يبدأ من Chat app كي يستطيع المستخدمون التحدث مع agent فورًا، ثم يضيف أسطح التطبيق التي يحتاجها سير العمل.
 
-**هل تريد تطبيقًا كاملاً للبدء منه؟** استنساخ أحد نماذجنا الغنية —
-[Chat](/docs/template-chat), [Mail](/docs/template-mail),
-[Calendar](/docs/template-calendar), [Content](/docs/template-content),
-[Analytics](/docs/template-analytics)، و[many more](/docs/cloneable-saas) —
-كل تطبيق كامل المواصفات تقوم بتخصيصه.
+المسار المفيد:
 
-هل تريد البناء من الصفر؟ الخيار الوحيد أمامك هو ما إذا كنت تريد UI —
-كل شيء بعد (كتابة التعليمات، إضافة skills، تعريف actions، التشغيل
-الوكيل) هو نفسه في كلتا الحالتين.
+1. إنشاء Chat app.
+2. إضافة action.
+3. عرض نتيجة action داخل الدردشة كواجهة أصلية.
+4. حفظ البيانات في SQL.
+5. إضافة صفحة يستطيع agent فتحها عندما يكون الفحص البصري أنسب.
 
-<FileTree
-  id="doc-block-x4p7u4"
-  title={"agent أساسي من Agent-Native"}
-  entries={[
-    {
-      path: "AGENTS.md",
-      note: "تعليمات دائمة: الهدف، القواعد، النبرة، وخريطة ما يستطيع agent فعله",
-    },
-    {
-      path: ".agents/skills/customer-research/SKILL.md",
-      note: "playbook قابل لإعادة الاستخدام يحمّله agent عندما تطابق المهمة",
-    },
-    {
-      path: "actions/summarize-week.ts",
-      note: "code typed يمكن لل agent و UI و CLI و HTTP و MCP و A2A و jobs و webhooks تشغيله",
-    },
-  ]}
-/>
+## 1. أنشئ Chat app {#create-your-app}
 
-هذا صحيح سواء بدأت بالدردشة UI، أو وكيل بلا رأس، أو تطبيق كامل.
-يغير UI السطح؛ التعليمات، skills، وactions تعطي الوكيل
-التوجيه والسلوك.
-
-## 1. أنشئ تطبيقك
-
-ستحتاج إلى [Node.js 22+](https://nodejs.org) و[pnpm](https://pnpm.io).
-
-قم بتشغيل `create` بدون أي علامات وسيسألك عن الطريقة التي تريد البدء بها (قالب كامل،
-الدردشة أو مقطوعة الرأس) قبل أي شيء آخر:
-
-```bash
-npx @agent-native/core@latest create my-app
-```
-
-أو قم بتمرير علامة لتخطي المطالبة:
-
-**هل تريد UI؟** ابدأ من قالب الدردشة. تحصل على وكيل عامل بالإضافة إلى
-دردشة قابلة للتخصيص UI، وكل إجراء تضيفه يظهر فيها تلقائيًا:
+تحتاج إلى [Node.js 22+](https://nodejs.org) و[pnpm](https://pnpm.io).
 
 ```bash
 npx @agent-native/core@latest create my-app --template chat
-```
-
-**فقط البدائي بلا رأس؟** ابدأ بلا رأس — نفس actions والوكيل
-حلقة، بدون غلاف UI:
-
-```bash
-npx @agent-native/core@latest create my-agent --headless
-```
-
-ثم قم بالتثبيت من المجلد الذي قمت بإنشائه:
-
-```bash
-cd my-agent # أو تطبيقي إذا اخترت قالب الدردشة
+cd my-app
 pnpm install
-```
-
-من الآن فصاعدًا، أصبح الاثنان متطابقين.
-
-## 2. أضف إجراءً
-
-الإجراء هو عملية واحدة يمكن لوكيلك — وUI — الاتصال بها. كلا السقالات
-اشحن بهذا المثال:
-
-<AnnotatedCode
-  id="doc-block-pxjqe1"
-  title={"أول action لك"}
-  filename="actions/hello.ts"
-  language="ts"
-  code={
-    'import { defineAction } from "@agent-native/core/action";\nimport { z } from "zod";\n\nexport default defineAction({\n  description: "قل مرحبًا من الوكيل المحلي.",\n  schema: z.object({\n    name: z.string().default("world"),\n  }),\n  http: { method: "GET" },\n  readOnly: true,\n  run: async ({ name }) => {\n    return { message: `Hello, ${name}!` };\n  },\n});'
-  }
-  annotations={[
-    {
-      lines: "5",
-      label: "وصف الأداة",
-      note: "يقرأ الوكيل `description` ليقرر متى يستدعيه كأداة.",
-    },
-    {
-      lines: "6-8",
-      label: "عقد typed",
-      note: "يتحقق zod `schema` واحد من الإدخال من كل سطح: الوكيل، UI، HTTP، MCP وA2A.",
-    },
-    {
-      lines: "9",
-      label: "فعل HTTP",
-      note: "اجعل هذا الإجراء متاحًا كنقطة نهاية HTTP تُركّب تلقائيًا.",
-    },
-    {
-      lines: "10",
-      label: "للقراءة فقط",
-      note: "تشير `readOnly` إلى أن الإجراء آمن للاستدعاء دون موافقة وقابل للتخزين المؤقت للاستعلامات.",
-    },
-    {
-      lines: "11-13",
-      label: "تنفيذ واحد",
-      note: "جسم `run` هو مصدر الحقيقة الوحيد الذي تنفذه كل الواجهات.",
-    },
-  ]}
-/>
-
-استبدل `hello` بالعملية الحقيقية الأولى في مجالك. قمت بتعريفه مرة واحدة؛
-يلتقطه كل سطح.
-
-استخدم `AGENTS.md` للحصول على إرشادات يجب تطبيقها في كل دورة. استخدم مهارة عندما
-إلى سير عمل أو إجراء مجال قابل لإعادة الاستخدام. استخدم الإجراء عندما يكون
-يحتاج الوكيل إلى طريقة مكتوبة وقابلة للاختبار لقراءة البيانات أو كتابتها أو الاتصال بـ API أو
-إجراء الموافقة.
-
-## 3. قم بتشغيله
-
-استدعاء الإجراء مباشرة:
-
-```bash
-pnpm action hello --name Steve
-```
-
-أو اطلب من الوكيل أن يتصل بك:
-
-```bash
-pnpm agent "Call the hello action for Steve and explain what happened."
-```
-
-إذا بدأت من قالب الدردشة، فقم بتشغيل التطبيق واستخدم نفس الوكيل في
-المتصفح - يمكنه بالفعل استدعاء كل إجراء تحدده:
-
-```bash
 pnpm dev
 ```
 
-يمكن الآن الوصول إلى هذا الإجراء الواحد من خلال الدردشة UI، وCLI، وHTTP، وMCP، وA2A،
-المهام المجدولة، وwebhooks. حدد مرة واحدة، اتصل من أي مكان.
+يتضمن القالب durable chat threads و auth و live sync ومجلد `actions/` و actions القياسية `view-screen` و `navigate` وتطبيق React يمكن توسيعه.
 
-<Diagram id="doc-block-xp12gz" title={"إجراء واحد، على كل سطح"} summary={"يتم إرسال ملف defineAction واحد إلى كل مستهلك بدون أي أسلاك إضافية."}>
+## 2. أضف action {#add-an-action}
 
-```html
-<div class="diagram-fan">
-  <div class="diagram-box" data-rough>defineAction</div>
-  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
-  <div class="diagram-surfaces">
-    <span class="diagram-pill">واجهة الدردشة</span
-    ><span class="diagram-pill">CLI</span><span class="diagram-pill">HTTP</span
-    ><span class="diagram-pill">MCP</span><span class="diagram-pill">A2A</span
-    ><span class="diagram-pill">مهام مجدولة</span
-    ><span class="diagram-pill">Webhooks</span>
-  </div>
-</div>
+Action هي عملية typed operation مشتركة بين agent و UI. في هذا المسار أنشئ `actions/analyze-responses.ts`: تحلل ردود النماذج وتعيد شكلاً موثقًا لرسم مخصص داخل الدردشة.
+
+<!-- prettier-ignore -->
+```ts
+// actions/analyze-responses.ts
+import { defineAction } from "@agent-native/core/action";
+import { z } from "zod";
+
+const responseChartResultSchema = z.object({
+  title: z.string(),
+  points: z.array(z.object({ day: z.string(), responses: z.number() })),
+});
+
+export default defineAction({
+  description: "Analyze recent form responses and render a custom chart.",
+  schema: z.object({ 
+    formId: z.string().default("demo") 
+  }),
+  outputSchema: responseChartResultSchema,
+  chatUI: { 
+    renderer: "responses.response-chart", 
+    title: "مخطط الردود" 
+  },
+  readOnly: true,
+  run: async ({ formId }) => ({
+    title: `Responses for ${formId}`,
+    points: [{ day: "Mon", responses: 12 }, { day: "Tue", responses: 18 }, { day: "Wed", responses: 24 }, { day: "Thu", responses: 21 }],
+  }),
+});
 ```
 
-```css
-.diagram-fan {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  flex-wrap: wrap;
-}
-.diagram-fan .diagram-surfaces {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  max-width: 420px;
-}
-.diagram-fan .diagram-arrow {
-  font-size: 22px;
-  line-height: 1;
-}
+شغلها مباشرة:
+
+```bash
+pnpm action analyze-responses --formId demo
 ```
 
-</Diagram>
+أو اسأل agent في المتصفح:
 
-## تم بناء الحالة في
+> حلّل الردود الأخيرة لنموذج العرض.
 
-لا يعني مقطوع الرأس أنه عديم الجنسية. Actions، الجلسات، حالة التطبيق، المواضيع،
-سجل التشغيل وبيانات الاعتماد كلها موجودة في SQL. محليًا، هذا هو SQLite في
-`data/app.db`; in production you set `DATABASE_URL`. See
-[Deployment](/docs/deployment).
+## 3. اعرض النتيجة داخل الدردشة {#render-inline}
 
-<Callout id="doc-block-afa3pw" tone="info">
+لأن action تعلن `outputSchema` و `chatUI.renderer` خاصًا بالمنتج، لا يحول transcript البيانات المنظمة إلى نص عادي. سجّل مكون React لذلك المعرّف نفسه عند بدء التطبيق، مثل استيراد `app/chat-renderers.tsx` مرة واحدة من `app/root.tsx`:
 
-**لا يزال تطبيق Headless تطبيقًا حقيقيًا.** تستمر حلقة وكيل التطبيق في الجلسات والسلاسل وعمليات التشغيل والإعدادات وبيانات الاعتماد في SQL — وهي ليست مطالبة عديمة الحالة. يمكنك إضافة UI لاحقًا دون لمس أفعالك أو حالتك.
-
-</Callout>
-
-## تخصيص UI
-
-إذا بدأت من قالب الدردشة، فإن UI متاح لك لتحريره. الدردشة نفسها
-هو مسار صغير مبني على مكون `<AgentChatSurface>`:
-
+<!-- prettier-ignore -->
 ```tsx
-// app/routes/_index.tsx
-import { AgentChatSurface } from "@agent-native/core/client";
+import { registerActionChatRenderer, type ToolRendererProps,} from "@agent-native/core/client/chat";
 
-export default function ChatRoute() {
-  return <AgentChatSurface mode="page" className="h-full" />;
+type ResponseChartResult = {
+  title: string;
+  points: Array<{ day: string; responses: number }>;
+};
+
+function ResponseChart({ context }: ToolRendererProps) {
+  const result = context.resultJson as ResponseChartResult;
+  const max = Math.max(...result.points.map((point) => point.responses), 1);
+  return (
+    <section className="rounded-lg border bg-card p-4">
+      <h3 className="text-sm font-medium">{result.title}</h3>
+      <div className="mt-4 flex h-32 items-end gap-2">
+        {result.points.map((point) => (
+          <div key={point.day} className="flex flex-1 flex-col items-center gap-2">
+            <div className="w-full rounded-t bg-primary" style={{ height: `${(point.responses / max) * 100}%` }} />
+            <span className="text-xs text-muted-foreground">{point.day}</span>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
 }
+
+registerActionChatRenderer({
+  id: "responses.response-chart",
+  renderer: "responses.response-chart",
+  Component: ResponseChart,
+});
 ```
 
-- **`app/routes/_index.tsx`** — صفحة الدردشة. تغيير الاقتراحات، فارغ
-  الحالة والتخطيط.
-- **`app/root.tsx`** — غلاف التطبيق. أضف مساراتك وشاشاتك الخاصة حول
-  الوكيل.
-- أسقط الوكيل في أي شاشة باستخدام `<AgentSidebar>`، واعمل عليه يدويًا من
-  مع `sendToAgentChat()`، أو قم بتشغيل الإجراء مباشرة باستخدام
-  `useActionMutation()`.
+للمخرجات العامة القابلة لإعادة الاستخدام، يوفّر framework أيضًا renderers مدمجة هي `data-chart` و `data-table`، إضافة إلى `data-insights` لبطاقات تجمع الملخص والرسم والجدول. راجع [Native Chat UI](/docs/native-chat-ui).
 
-راجع [Drop-in Agent](/docs/drop-in-agent) للتعرف على مجموعة المكونات الكاملة، و
-[Native واجهة الدردشة](/docs/native-chat-ui) لعرض نتائج الإجراء على هيئة جداول
-المخططات والبطاقات المكتوبة بدلاً من النص العادي.
+<WireframeBlock id="doc-block-inline-result-wireframe-ar">
+  <Screen
+    surface="desktop"
+    html={
+      "<div style='min-height:340px;box-sizing:border-box;padding:24px;display:flex;justify-content:center;align-items:center;background:var(--wf-bg)'><div style='width:min(530px,100%);display:flex;flex-direction:column;gap:14px'><div class='wf-card' data-rough style='align-self:flex-end;max-width:70%;padding:12px 14px'><strong>User</strong><p style='margin:6px 0 0'>حلّل ردود العرض.</p></div><div class='wf-card' data-rough style='align-self:flex-start;width:min(370px,100%);padding:14px'><strong>Agent</strong><p class='wf-muted' style='margin:6px 0 12px'>تم العرض باستخدام responses.response-chart.</p><section class='wf-card' data-rough style='padding:14px'><h3 style='margin:0 0 12px;font-size:14px'>مخطط الردود</h3><div data-rough='line:bottom' style='height:104px;display:flex;align-items:end;gap:8px;border-bottom:1.4px solid var(--wf-line);padding-bottom:4px'><div style='flex:1;display:flex;flex-direction:column;align-items:center;gap:6px'><div data-rough style='height:38px;width:100%;background:color-mix(in srgb, var(--wf-accent) 24%, transparent);border:1.4px solid var(--wf-accent);border-radius:8px 8px 3px 3px'></div><span class='wf-muted'>إث</span></div><div style='flex:1;display:flex;flex-direction:column;align-items:center;gap:6px'><div data-rough style='height:62px;width:100%;background:color-mix(in srgb, var(--wf-accent) 30%, transparent);border:1.4px solid var(--wf-accent);border-radius:8px 8px 3px 3px'></div><span class='wf-muted'>ثل</span></div><div style='flex:1;display:flex;flex-direction:column;align-items:center;gap:6px'><div data-rough style='height:86px;width:100%;background:color-mix(in srgb, var(--wf-accent) 36%, transparent);border:1.4px solid var(--wf-accent);border-radius:8px 8px 3px 3px'></div><span class='wf-muted'>أر</span></div><div style='flex:1;display:flex;flex-direction:column;align-items:center;gap:6px'><div data-rough style='height:54px;width:100%;background:color-mix(in srgb, var(--wf-accent) 42%, transparent);border:1.4px solid var(--wf-accent);border-radius:8px 8px 3px 3px'></div><span class='wf-muted'>خم</span></div></div></section></div></div></div>"
+    }
+  />
+</WireframeBlock>
 
-**بدأت بدون رأس وتريد UI لاحقًا؟** قالب الدردشة _هو_ UI على الطريق المنحدر —
-طبقة `app/` (جهاز التوجيه React + Vite) هي بالضبط ما تمثله السقالة مقطوعة الرأس
-يترك. أنظف خطوة هي البدء (أو إعادة السقالة) من الدردشة
-قالب; يتم ترحيل حالة `actions/` والوكيل وحالة SQL دون تغيير. انظر
-[Agent Surfaces](/docs/agent-surfaces) لكل سطح بينهما.
+## 4. احفظ البيانات في SQL {#persist-data}
 
-## بنية المشروع
+عندما تحتاج النتيجة إلى المراجعة أو المقارنة أو التحديث، احفظها في SQL واجعل القراءة والكتابة خلف actions:
+
+عرّف الجدول باستخدام helpers المحمولة من framework، وليس عبر imports من `drizzle-orm/sqlite-core` أو `drizzle-orm/pg-core`:
+
+```ts
+// server/db/schema.ts
+import { integer, now, table, text } from "@agent-native/core/db/schema";
+
+export const responseInsights = table("response_insights", {
+  id: text("id").primaryKey(),
+  formId: text("form_id").notNull(),
+  title: text("title").notNull(),
+  summary: text("summary").notNull(),
+  responseCount: integer("response_count").notNull(),
+  createdAt: text("created_at").notNull().default(now()),
+  updatedAt: text("updated_at").notNull().default(now()),
+});
+```
+
+تختار هذه helpers backend SQL المضبوط، لذلك يعمل schema نفسه على SQLite محليًا وفي الإنتاج على Postgres أو Turso/libSQL أو D1 أو أي provider SQL مدعوم.
+
+- `create-response-insight` يكتب insight جديدًا.
+- `list-response-insights` يقرأ بيانات الصفحة.
+- `update-response-insight` يحدث السجل.
+- `analyze-responses` يستمر في إعادة widget الدردشة الأصلي.
+
+لا تنشئ REST route مكررة للمتصفح فقط؛ يجب أن تشترك UI و agent في actions.
+
+## 5. أضف صفحة يستطيع agent فتحها {#add-a-page}
+
+أضف route باسم `/response-insights` واستخدم `useActionQuery("list-response-insights")` و `useActionMutation("create-response-insight")`. هذه الصفحة عرض لحالة SQL؛ وتظل البيانات مكتوبة عبر نفس actions.
+
+<WireframeBlock id="doc-block-response-insights-page-wireframe-ar">
+  <Screen
+    surface="desktop"
+    html={
+      "<main style='min-height:440px;box-sizing:border-box;padding:28px;background:var(--wf-bg)'><section style='max-width:960px;margin:0 auto;display:grid;grid-template-columns:minmax(0,1fr) 260px;gap:16px;align-items:stretch'><section class='wf-card' data-rough style='display:flex;flex-direction:column;gap:16px'><header><h2 style='margin:0 0 4px;font-size:28px'>رؤى الردود</h2><p class='wf-muted' style='margin:0'>رؤى أنشأها الوكيل من ردود النموذج.</p></header><button class='primary' data-rough style='align-self:flex-start'>حلّل نموذج العرض</button><section style='display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px'><article class='wf-box' data-rough style='padding:12px'><strong>موضوع التسعير</strong><p class='wf-muted' style='margin:8px 0 0'>المستخدمون يطلبون خطة للفرق.</p></article><article class='wf-box' data-rough style='padding:12px'><strong>تراجع في الإعداد</strong><p class='wf-muted' style='margin:8px 0 0'>تحتاج ثلاث خطوات إلى نص أوضح.</p></article></section><section class='wf-card' data-rough style='display:flex;flex-direction:column;gap:10px'><div class='wf-row wf-box' data-rough style='padding:10px 12px;gap:12px;justify-content:space-between'><strong>نموذج العرض</strong><span class='wf-muted'>تم تحليل 42 ردًا</span></div><div class='wf-row wf-box' data-rough style='padding:10px 12px;gap:12px;justify-content:space-between'><strong>الخطوة التالية</strong><span class='wf-muted'>راجع مسودتي رؤى</span></div></section></section><aside class='wf-card' data-rough style='height:100%;box-sizing:border-box;display:flex;flex-direction:column;gap:12px'><strong>الدردشة</strong><div class='wf-box' data-rough style='align-self:flex-end;max-width:210px;padding:10px 12px'><span class='wf-muted'>أنت</span><p style='margin:4px 0 0'>افتح رؤى الردود.</p></div><div class='wf-box' data-rough style='align-self:flex-start;max-width:210px;padding:10px 12px'><span class='wf-muted'>Agent</span><p style='margin:4px 0 0'>تم فتح رؤى الردود.</p></div></aside></section></main>"
+    }
+  />
+</WireframeBlock>
+
+وسع `view-screen` و `navigate` كي يعرف agent المسار الحالي ويستطيع فتح `/response-insights`. يمكن للنتائج أيضًا تضمين `href: "/response-insights"` لعرض زر "افتح رؤى الردود" في الدردشة.
+
+عندما تفتح الدردشة الكاملة صفحة تطبيق، استخدم `AgentChatSurface` و `AgentSidebar` و `useAgentChatHomeHandoff` و `useAgentChatHomeHandoffLinks` و `chatViewTransition` من [Agent Surfaces](/docs/agent-surfaces#rich-chat) كي تنتقل الدردشة إلى اللوحة الجانبية مع الحفاظ على نفس thread.
+
+## بنية المشروع {#project-structure}
 
 ```text
 my-app/
-  actions/         # إجراءات يمكن للوكيل استدعاؤها
-  app/             # واجهة React أمامية (لقوالب UI فقط؛ تُحذف في وضع headless)
-  server/          # خادم Nitro API (مسارات، إضافات)
-  AGENTS.md        # تعليمات الوكيل الدائمة
-  .agents/         # مهارات يمكن للوكيل جلبها عند الحاجة
-  data/app.db      # حالة SQLite محلية عند عدم ضبط DATABASE_URL
+  actions/         # عمليات يمكن للوكيل وواجهة المستخدم استدعاؤها
+  app/             # مسارات React وصفحاته وواجهات الدردشة
+  server/          # خادم Nitro ومخطط SQL
+  AGENTS.md        # تعليمات دائمة لوكيل التطبيق
+  .agents/         # المهارات التي يحمّلها الوكيل عند الحاجة
+  data/app.db      # حالة SQLite المحلية عند عدم ضبط DATABASE_URL
 ```
 
-## إلى أين ستتجه بعد ذلك
+## هل تريد نقطة بداية كاملة للتحليلات؟ {#analytics-starting-point}
 
-- **[Key Concepts](/docs/key-concepts)** — البنية الأساسية: SQL، actions،
-  المزامنة والوعي بالسياق.
-- **[Actions](/docs/actions)** — الإجراء الكامل API: المخططات، وHTTP، والمصادقة، و
-  الموافقة.
-- **[Agent Surfaces](/docs/agent-surfaces)** — بدون رأس، دردشة، عربة جانبية مدمجة،
-  والتطبيق الكامل.
-- **[Drop-in Agent](/docs/drop-in-agent)** — أضف دردشة الوكيل إلى أي تطبيق React.
-- **[Deployment](/docs/deployment)** — ضع تطبيقك على نطاقك الخاص.
-- **[FAQ](/docs/faq)** — أسئلة حول الإعداد والمنتج.
+مثال رؤى الردود أعلاه صغير عمدًا كي ترى أجزاء framework بوضوح. إذا كنت تبني منتج analytics حقيقيًا، فابدأ من [Analytics](/docs/template-analytics). إنه نقطة بداية قوية: صل providers الخاصة بك، استخدم dashboards و agent actions الموجودة، ثم خصص التطبيق من هناك.
+
+## الخطوات التالية {#next}
+
+- **[Actions](/docs/actions)** — schemas و auth و approvals و hooks و transport.
+- **[Native Chat UI](/docs/native-chat-ui)** — عرض نتائج actions كجداول ورسوم و typed cards.
+- **[Chat Template](/docs/template-chat)** — أصغر chat-first app.
+- **[Analytics Template](/docs/template-analytics)** — نقطة بداية قوية لتطبيق analytics؛ صل providers ثم خصص من هناك.
+- **[Context Awareness](/docs/context-awareness)** — `view-screen` و `navigate` و route state والعناصر المحددة.
+- **[Agent Surfaces](/docs/agent-surfaces)** — chat و inline UI و app pages و embedded sidecars و automation و agents الخارجية.

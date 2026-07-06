@@ -21,7 +21,7 @@ import {
 } from "@agent-native/core/file-upload";
 import { captureRouteError } from "@agent-native/core/server";
 import { MAX_UPLOAD_BYTES as MAX_RECORDING_UPLOAD_BYTES } from "@shared/upload-limits.js";
-import { and, eq } from "drizzle-orm";
+import { and, eq, isNull, ne } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -30,7 +30,10 @@ import {
   applyFaststart,
   hasPlayableMp4Metadata,
 } from "../server/lib/faststart.js";
-import { listRecordingChunkKeys } from "../server/lib/recording-upload-state.js";
+import {
+  listRecordingChunkKeys,
+  validateRecordingChunkKeys,
+} from "../server/lib/recording-upload-state.js";
 import {
   getCurrentOwnerEmail,
   ownerEmailMatches,
@@ -40,11 +43,26 @@ import {
   getResumableSession,
 } from "../server/lib/resumable-session.js";
 import { isStreamingUploadDisabled } from "../server/lib/streaming-upload-mode.js";
+import { remuxWebmToSeekable } from "../server/lib/video-remux.js";
 import {
   requiresConfiguredVideoStorage,
   STORAGE_SETUP_REQUIRED_REASON,
 } from "../server/lib/video-storage.js";
+import {
+  ensureRecordingSeekable,
+  markRecordingSeekable,
+} from "./lib/ensure-seekable-video.js";
 import requestTranscript from "./request-transcript.js";
+
+// Recordings up to this size get their seekable rewrite applied inline during
+// finalize (we already hold the assembled bytes). Larger recordings are handed
+// off to the background/reprocess path so we don't stretch the finalize
+// request or exhaust serverless /tmp. Override with CLIPS_INLINE_REMUX_MAX_BYTES.
+function inlineRemuxMaxBytes(): number {
+  const raw = Number(process.env.CLIPS_INLINE_REMUX_MAX_BYTES ?? "");
+  if (Number.isFinite(raw) && raw > 0) return Math.floor(raw);
+  return 200 * 1024 * 1024;
+}
 
 /**
  * Decode a base64 string back into a Uint8Array.
@@ -72,10 +90,6 @@ function concatBytes(parts: Uint8Array[]): Uint8Array {
     offset += p.byteLength;
   }
   return out;
-}
-
-function chunkIndexFromKey(key: string): number {
-  return Number(key.split("-").pop() || 0);
 }
 
 const RECORDING_TOO_LARGE_REASON =
@@ -118,6 +132,10 @@ async function markRecordingReady(params: {
   finalHasAudio: boolean;
   finalHasCamera: boolean;
   existingTitle: string;
+  // Whether a seekable rewrite (MP4 faststart / WebM Cues remux) was already
+  // applied to the uploaded bytes. When false, a best-effort background repair
+  // is triggered so streamed/raw uploads still become seekable.
+  seekableApplied: boolean;
 }) {
   const {
     id,
@@ -131,6 +149,7 @@ async function markRecordingReady(params: {
     finalHasAudio,
     finalHasCamera,
     existingTitle,
+    seekableApplied,
   } = params;
   const db = getDb();
   const now = new Date().toISOString();
@@ -155,8 +174,51 @@ async function markRecordingReady(params: {
       and(
         eq(schema.recordings.id, id),
         ownerEmailMatches(schema.recordings.ownerEmail, ownerEmail),
+        // Guard against a slow/racing finalize resurrecting a recording the
+        // user already aborted (abort.post.ts flips status to 'failed'). If
+        // the row was aborted after this call started, the WHERE clause
+        // excludes it and the UPDATE becomes a no-op instead of silently
+        // flipping 'failed' back to 'ready'.
+        ne(schema.recordings.status, "failed"),
+        // Guard against the other direction of the cancel/finalize race:
+        // trash-recording's skipIfReady only blocks trashing a row that is
+        // ALREADY 'ready'. If cancel lands while this finalize is still
+        // 'processing'/'streaming', trashedAt gets set before this UPDATE
+        // runs. Excluding trashed rows here stops us from flipping status to
+        // 'ready' underneath a recording the user just trashed.
+        isNull(schema.recordings.trashedAt),
       ),
     );
+
+  // Re-select to see whether the guarded UPDATE above actually landed. If the
+  // row is not 'ready' now, the status guard blocked the write (the recording
+  // was aborted concurrently) — stop here without seeding a transcript,
+  // writing 'ready' app-state, emitting clip.created, or kicking off
+  // background transcription for a recording the user already saw fail.
+  const [postUpdate] = await db
+    .select({
+      status: schema.recordings.status,
+    })
+    .from(schema.recordings)
+    .where(
+      and(
+        eq(schema.recordings.id, id),
+        ownerEmailMatches(schema.recordings.ownerEmail, ownerEmail),
+      ),
+    );
+  if (!postUpdate || postUpdate.status !== "ready") {
+    debugLog(
+      "[finalize] markRecordingReady blocked — recording was aborted concurrently",
+      { id, status: postUpdate?.status },
+    );
+    return {
+      id,
+      status: "failed" as const,
+      videoUrl,
+      videoSizeBytes,
+      durationMs: finalDurationMs,
+    };
+  }
 
   const [existingTranscript] = await db
     .select({ recordingId: schema.recordingTranscripts.recordingId })
@@ -180,6 +242,30 @@ async function markRecordingReady(params: {
     finishedAt: now,
   });
   await writeAppState("refresh-signal", { ts: Date.now() });
+
+  if (seekableApplied) {
+    // Uploaded bytes are already start-playable and seekable — remember it so
+    // later reprocess sweeps skip this clip.
+    await markRecordingSeekable(id, videoUrl).catch((err) => {
+      console.warn("[finalize] failed to write seekable marker", {
+        id,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    });
+  } else {
+    // Streaming/resumable (or oversized) uploads shipped raw MediaRecorder
+    // bytes with no seekable rewrite: an MP4 with a trailing moov or a WebM
+    // without a Cues index buffers on load and re-buffers on every seek. Fix
+    // it in the background so playback is smooth without blocking finalize.
+    void Promise.resolve(
+      ensureRecordingSeekable({ recordingId: id, ownerEmail }),
+    ).catch((err: unknown) => {
+      console.warn("[finalize] background seekable remux failed", {
+        id,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    });
+  }
 
   // Kick off transcription in the background — fire-and-forget so the chunk
   // endpoint gets a quick response. The request context (user email via
@@ -375,6 +461,10 @@ export default defineAction({
             ...readyParams,
             videoUrl,
             videoSizeBytes: resumableSession.bytesUploaded,
+            // Streaming path forwards raw MediaRecorder bytes straight to the
+            // provider — no faststart/Cues rewrite happened. Repair in the
+            // background.
+            seekableApplied: false,
           });
           // Delete only after durable state is written — so a retry before
           // this point can still find the session and re-enter this path.
@@ -437,39 +527,9 @@ export default defineAction({
         updatedAt: new Date().toISOString(),
       });
 
-      // Pull chunk keys first, then fetch values one at a time. A single
-      // SELECT key,value over many base64 chunks can exceed Neon's 8s op
-      // timeout before we even start assembling the recording.
-      const chunkKeys = await listRecordingChunkKeys(ownerEmail, id);
-      chunkKeys.sort((a, b) => chunkIndexFromKey(a) - chunkIndexFromKey(b));
-      debugLog("[finalize] chunks found", {
-        id,
-        count: chunkKeys.length,
-      });
-      // Commit to deleting these keys in the finally below. We collect
-      // the keys NOW (not after success) because a throw in uploadFile
-      // or the drizzle update would otherwise bypass the delete and
-      // orphan the chunks.
-      chunkKeysToPurge = chunkKeys;
-
-      if (chunkKeys.length === 0) {
-        await db
-          .update(schema.recordings)
-          .set({
-            status: "failed",
-            failureReason: "No chunks found for recording",
-            updatedAt: new Date().toISOString(),
-          })
-          .where(eq(schema.recordings.id, id));
-        await writeAppState(`recording-upload-${id}`, {
-          recordingId: id,
-          status: "failed",
-          failureReason: "No chunks found for recording",
-        });
-        throw new Error(`No chunks found for recording ${id}`);
-      }
-
-      const failChunkAssembly = async (failureReason: string) => {
+      const failChunkAssembly = async (
+        failureReason: string,
+      ): Promise<never> => {
         const now = new Date().toISOString();
         await db
           .update(schema.recordings)
@@ -488,14 +548,55 @@ export default defineAction({
         throw new Error(failureReason);
       };
 
+      // Pull chunk keys first, then fetch values one at a time. A single
+      // SELECT key,value over many base64 chunks can exceed Neon's 8s op
+      // timeout before we even start assembling the recording.
+      const chunkKeys = await listRecordingChunkKeys(ownerEmail, id);
+      const expectedDataChunks = stateNumber(uploadState, "expectedDataChunks");
+      debugLog("[finalize] chunks found", {
+        id,
+        count: chunkKeys.length,
+        expectedDataChunks,
+      });
+      // Commit to deleting these keys in the finally below. We collect
+      // the keys NOW (not after success) because a throw in uploadFile
+      // or the drizzle update would otherwise bypass the delete and
+      // orphan the chunks.
+      chunkKeysToPurge = chunkKeys;
+
+      if (chunkKeys.length === 0) {
+        await failChunkAssembly(`No chunks found for recording ${id}`);
+      }
+
+      let chunkSequence: ReturnType<typeof validateRecordingChunkKeys>;
+      try {
+        chunkSequence = validateRecordingChunkKeys(
+          chunkKeys,
+          expectedDataChunks,
+        );
+      } catch (err) {
+        await failChunkAssembly(
+          err instanceof Error
+            ? err.message
+            : "Recording upload is incomplete. Please retry the recording.",
+        );
+        throw new Error("Unreachable chunk validation failure");
+      }
+
       const parts: Uint8Array[] = [];
-      for (const key of chunkKeys) {
+      for (const { key, index } of chunkSequence) {
         const entry = await readAppState(key);
         const b64 = typeof entry?.data === "string" ? entry.data : null;
-        const index = chunkIndexFromKey(key);
         if (!b64) {
           await failChunkAssembly(
             `Recording chunk ${index} is missing upload data. Please retry the recording.`,
+          );
+        }
+
+        const entryIndex = stateNumber(entry, "index");
+        if (entryIndex !== undefined && entryIndex !== index) {
+          await failChunkAssembly(
+            `Recording chunk metadata mismatch for chunk ${index}. Please retry the recording.`,
           );
         }
 
@@ -521,9 +622,14 @@ export default defineAction({
       // recordings.
       parts.length = 0;
 
-      // Apply faststart to MP4 files — moves the moov atom before mdat so
-      // browsers can begin playback immediately via HTTP range requests.
+      // Make the assembled recording seekable before upload — we already hold
+      // the full bytes, so a viewer never has to wait through a non-seekable
+      // first play. MP4: relocate moov ahead of mdat (pure TS). WebM: remux to
+      // add a Cues index + real duration (ffmpeg -c copy). When neither runs
+      // (unknown format, oversized, or ffmpeg unavailable) `seekableApplied`
+      // stays false and markRecordingReady schedules a background repair.
       let uploadData = assembled;
+      let seekableApplied = false;
       if (videoFormat === "mp4") {
         try {
           uploadData = applyFaststart(assembled);
@@ -560,6 +666,32 @@ export default defineAction({
             // Sentry must never mask the real validation error.
           }
           throw err;
+        }
+        // moov is present and validated — the MP4 is start-playable/seekable.
+        seekableApplied = true;
+      } else if (videoFormat === "webm") {
+        // MediaRecorder WebM has no Cues index and an unknown duration, so
+        // Chrome buffers on load and re-buffers on every seek. A lossless
+        // `ffmpeg -c copy` remux rewrites it with a SeekHead + Cues + real
+        // duration. Bounded by size so finalize stays fast; larger clips get a
+        // background pass. Best-effort: on any failure we upload the original.
+        if (assembled.byteLength <= inlineRemuxMaxBytes()) {
+          try {
+            const seekable = await remuxWebmToSeekable(uploadData);
+            if (seekable.changed) {
+              uploadData = seekable.bytes;
+              seekableApplied = true;
+              debugLog("[finalize] webm remux applied", {
+                id,
+                bytes: uploadData.byteLength,
+              });
+            }
+          } catch (err) {
+            console.warn("[finalize] webm remux failed, uploading as-is", {
+              id,
+              err: err instanceof Error ? err.message : String(err),
+            });
+          }
         }
       }
 
@@ -721,12 +853,13 @@ export default defineAction({
       debugLog("[finalize] done", {
         id,
         videoUrl: upload.url,
-        bytes: assembled.byteLength,
+        bytes: uploadData.byteLength,
       });
       return markRecordingReady({
         ...readyParams,
         videoUrl: upload.url,
-        videoSizeBytes: assembled.byteLength,
+        videoSizeBytes: uploadData.byteLength,
+        seekableApplied,
       });
     } finally {
       // Unconditional chunk scratch-space cleanup. Runs on success AND on

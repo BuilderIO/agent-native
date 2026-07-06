@@ -12,10 +12,17 @@ import { describe, expect, it } from "vitest";
 
 import { compile } from "./motion-compiler";
 import {
+  MOTION_KEYFRAME_TIME_EPSILON,
   MOTION_PROPERTY_PRESETS,
   createMotionTrack,
   createMotionTrackFromPreset,
+  evaluateMotionEase,
   hasTrackFor,
+  lerpMotionValues,
+  sampleMotionKeyframesAt,
+  sortMotionKeyframes,
+  upsertMotionKeyframeAtTime,
+  type MotionKeyframe,
   type MotionTimeline,
   type MotionTrack,
 } from "./motion-timeline";
@@ -178,5 +185,167 @@ describe("first-track flow → CSS compile", () => {
     expect(css).toContain("0% {");
     expect(css).toContain("50% {");
     expect(css).toContain("100% {");
+  });
+});
+
+// ─── sortMotionKeyframes ──────────────────────────────────────────────────────
+
+describe("sortMotionKeyframes", () => {
+  it("returns a sorted copy without mutating the input", () => {
+    const keyframes: MotionKeyframe[] = [
+      { t: 1, value: "1" },
+      { t: 0, value: "0" },
+      { t: 0.5, value: "0.5" },
+    ];
+    const sorted = sortMotionKeyframes(keyframes);
+    expect(sorted.map((k) => k.t)).toEqual([0, 0.5, 1]);
+    expect(keyframes.map((k) => k.t)).toEqual([1, 0, 0.5]);
+  });
+});
+
+// ─── upsertMotionKeyframeAtTime (epsilon dedupe) ─────────────────────────────
+
+describe("upsertMotionKeyframeAtTime", () => {
+  const base: MotionKeyframe[] = [
+    { t: 0, value: "0" },
+    { t: 1, value: "1" },
+  ];
+
+  it("inserts a new keyframe in sorted position", () => {
+    const next = upsertMotionKeyframeAtTime(base, { t: 0.5, value: "0.5" });
+    expect(next.map((k) => k.t)).toEqual([0, 0.5, 1]);
+    expect(base).toHaveLength(2);
+  });
+
+  it("replaces an existing keyframe within the epsilon window instead of duplicating", () => {
+    const withMid = upsertMotionKeyframeAtTime(base, { t: 0.5, value: "0.5" });
+    const replaced = upsertMotionKeyframeAtTime(withMid, {
+      t: 0.5 + MOTION_KEYFRAME_TIME_EPSILON / 2,
+      value: "0.75",
+    });
+    expect(replaced).toHaveLength(3);
+    expect(replaced[1].value).toBe("0.75");
+  });
+
+  it("repeated adds at the same playhead never accumulate", () => {
+    let keyframes = base;
+    for (let i = 0; i < 5; i++) {
+      keyframes = upsertMotionKeyframeAtTime(keyframes, {
+        t: 0.25,
+        value: String(i),
+      });
+    }
+    expect(keyframes).toHaveLength(3);
+    expect(keyframes[1]).toMatchObject({ t: 0.25, value: "4" });
+  });
+});
+
+// ─── evaluateMotionEase ───────────────────────────────────────────────────────
+
+describe("evaluateMotionEase", () => {
+  it("is identity for linear", () => {
+    expect(evaluateMotionEase("linear", 0.25)).toBeCloseTo(0.25, 6);
+    expect(evaluateMotionEase("linear", 0)).toBe(0);
+    expect(evaluateMotionEase("linear", 1)).toBe(1);
+  });
+
+  it("pins endpoints for every supported form", () => {
+    for (const ease of [
+      "linear",
+      "ease",
+      "ease-in",
+      "ease-out",
+      "ease-in-out",
+      "cubic-bezier(0.4, 0, 0.2, 1)",
+      "cubic-bezier(0.34,1.56,0.64,1)",
+      "steps(4, end)",
+      "spring",
+    ]) {
+      expect(evaluateMotionEase(ease, 0)).toBe(0);
+      expect(evaluateMotionEase(ease, 1)).toBe(1);
+    }
+  });
+
+  it("matches known cubic-bezier midpoints", () => {
+    // ease-in-out is symmetric: midpoint maps to 0.5.
+    expect(evaluateMotionEase("ease-in-out", 0.5)).toBeCloseTo(0.5, 3);
+    // ease-in starts slow: below linear early on.
+    expect(evaluateMotionEase("ease-in", 0.25)).toBeLessThan(0.25);
+    // ease-out starts fast: above linear early on.
+    expect(evaluateMotionEase("ease-out", 0.25)).toBeGreaterThan(0.25);
+  });
+
+  it("supports overshoot cubic-bezier (spring preset) beyond 1", () => {
+    const values = [0.5, 0.6, 0.7, 0.8].map((x) =>
+      evaluateMotionEase("cubic-bezier(0.34,1.56,0.64,1)", x),
+    );
+    expect(Math.max(...values)).toBeGreaterThan(1);
+  });
+
+  it("holds steps() and step keywords", () => {
+    expect(evaluateMotionEase("step-start", 0.01)).toBe(1);
+    expect(evaluateMotionEase("step-end", 0.99)).toBe(0);
+    expect(evaluateMotionEase("steps(4, end)", 0.3)).toBeCloseTo(0.25, 6);
+    expect(evaluateMotionEase("steps(4, start)", 0.3)).toBeCloseTo(0.5, 6);
+    expect(evaluateMotionEase("steps(4, end)", 1)).toBe(1);
+  });
+
+  it("falls back to linear for unknown strings and missing ease", () => {
+    expect(evaluateMotionEase("bouncy-nonsense", 0.4)).toBeCloseTo(0.4, 6);
+    expect(evaluateMotionEase(undefined, 0.4)).not.toBeNaN();
+  });
+});
+
+// ─── lerpMotionValues + sampleMotionKeyframesAt ──────────────────────────────
+
+describe("sampleMotionKeyframesAt", () => {
+  it("lerps plain numeric values linearly", () => {
+    const keyframes: MotionKeyframe[] = [
+      { t: 0, value: "0", ease: "linear" },
+      { t: 1, value: "1", ease: "linear" },
+    ];
+    expect(sampleMotionKeyframesAt(keyframes, 0.5)).toBe("0.5");
+  });
+
+  it("lerps unit values inside a matching skeleton", () => {
+    const keyframes: MotionKeyframe[] = [
+      { t: 0, value: "translateY(16px)", ease: "linear" },
+      { t: 1, value: "translateY(0px)", ease: "linear" },
+    ];
+    expect(sampleMotionKeyframesAt(keyframes, 0.5)).toBe("translateY(8px)");
+  });
+
+  it("honours per-keyframe easing between stops", () => {
+    const keyframes: MotionKeyframe[] = [
+      { t: 0, value: "0", ease: "steps(1, end)" },
+      { t: 1, value: "1" },
+    ];
+    // step-end style hold: value stays at the FROM value until the end.
+    expect(sampleMotionKeyframesAt(keyframes, 0.9)).toBe("0");
+  });
+
+  it("clamps outside the keyframe range and handles unsorted input", () => {
+    const keyframes: MotionKeyframe[] = [
+      { t: 1, value: "1", ease: "linear" },
+      { t: 0.5, value: "0.5", ease: "linear" },
+      { t: 0, value: "0", ease: "linear" },
+    ];
+    expect(sampleMotionKeyframesAt(keyframes, -1)).toBe("0");
+    expect(sampleMotionKeyframesAt(keyframes, 2)).toBe("1");
+    expect(sampleMotionKeyframesAt(keyframes, 0.75)).toBe("0.75");
+  });
+
+  it("holds the from value for non-interpolable values", () => {
+    const keyframes: MotionKeyframe[] = [
+      { t: 0, value: "none", ease: "linear" },
+      { t: 1, value: "block", ease: "linear" },
+    ];
+    expect(sampleMotionKeyframesAt(keyframes, 0.4)).toBe("none");
+  });
+
+  it("lerps hex colors channel-wise", () => {
+    expect(lerpMotionValues("#000000", "#ffffff", 0.5)).toBe(
+      "rgb(128, 128, 128)",
+    );
   });
 });

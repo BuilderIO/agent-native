@@ -322,6 +322,7 @@ type PollingFileWatcherMode = "enable" | "disable-explicit" | "disable-default";
 function pollingFileWatcherMode(
   env: NodeJS.ProcessEnv,
   root: string,
+  options: { multiTemplateWatchLoad?: boolean } = {},
 ): PollingFileWatcherMode {
   const explicit =
     readBooleanEnv(env.AGENT_NATIVE_DEV_USE_POLLING) ??
@@ -341,12 +342,15 @@ function pollingFileWatcherMode(
     env.GITPOD_WORKSPACE_ID ||
     env.REMOTE_CONTAINERS ||
     env.DEVCONTAINER ||
-    root.startsWith("/root/app/"),
+    root.startsWith("/root/app/") ||
+    options.multiTemplateWatchLoad,
   );
   return autoEnable ? "enable" : "disable-default";
 }
 
-const pollingMode = pollingFileWatcherMode(process.env, ROOT);
+const pollingMode = pollingFileWatcherMode(process.env, ROOT, {
+  multiTemplateWatchLoad: apps.length > 1 && (eager || prewarmEnabled),
+});
 const usePollingFileWatcher = pollingMode === "enable";
 
 function devWatcherEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
@@ -1425,15 +1429,16 @@ execSync("node scripts/prebuild-workspace-packages.ts dev", {
 
 if (usePollingFileWatcher) {
   console.log(
-    `[dev-lazy] Using polling file watchers (${POLLING_WATCH_INTERVAL_MS}ms) to avoid remote-container inotify limits.`,
+    `[dev-lazy] Using polling file watchers (${POLLING_WATCH_INTERVAL_MS}ms) to avoid file watcher descriptor limits.`,
   );
 }
 
+const coreWatchCompiler = usePollingFileWatcher ? "tsc" : "tsgo";
 startBackgroundProcess("core", "pnpm", [
   "--filter",
   "@agent-native/core",
   "exec",
-  "tsgo",
+  coreWatchCompiler,
   "--watch",
   "--preserveWatchOutput",
 ]);

@@ -8,24 +8,35 @@
  * jump and the B6 ellipse border-radius jump.
  *
  * Design decisions:
- * - Fill: `hsl(var(--primary, 213 91% 67%) / 0.24)` — theme-adaptive when the
- *   document defines `--primary`, but still visibly blue inside standalone
- *   iframe documents such as the overview board.
- * - Stroke: `hsl(var(--primary, 213 91% 67%) / 0.95)` — same CSS-var approach
- *   with a fallback so committed shapes do not become invisible.
+ * - Fill (rect/ellipse): `rgb(218 218 218)` — a plain, theme-independent
+ *   neutral gray, not a CSS custom property. This is intentional: a shape
+ *   drawn with no explicit color should look the same (a soft Figma-like
+ *   gray) regardless of which document theme it lands in, rather than
+ *   silently tinting to whatever `--primary` resolves to there.
+ * - Stroke (rect/ellipse): `rgb(168 168 168)` — a slightly darker plain gray,
+ *   same rationale as fill above.
+ * - Frame fill: the one default that *is* theme-adaptive —
+ *   `hsl(var(--primary) / 0.05)`, a very faint tint of the editor's accent
+ *   color so a layout frame's interior reads as "structural chrome" rather
+ *   than a fixed gray. Its border stays a plain dashed gray, same as
+ *   rect/ellipse's border.
  * - Stroke width: 1px for div-based shapes.
  * - Ellipse: borderRadius "50%" in both paths — no more "oval on commit" jump.
  * - Rect: borderRadius "2px" (small, matches the previous committed value; the
  *   preview used Tailwind `rounded-sm` which resolves to 2px).
- * - Frame: dashed border, slightly lighter fill (matches preview semantics).
- * - Text: inherits current color. Selection/edit chrome owns outlines so text
- *   does not carry a persistent border that double-stacks with focused states.
+ * - Text: inherits current color by default. Selection/edit chrome owns
+ *   outlines so text does not carry a persistent border that double-stacks
+ *   with focused states.
  *
- * CSS custom properties (`hsl(var(--primary) / …)`) work in the committed HTML
- * because the iframe inherits the design-editor stylesheet that defines
- * `--primary`.  When a `fill` / `stroke` override is already present on the
- * primitive those are passed through unchanged so user-chosen colors are never
- * clobbered.
+ * Overrides: when a caller passes a `fill` override, it becomes the
+ * `background` for every kind EXCEPT text — a text primitive's `fill` maps to
+ * `color` instead (text has no fillable background box; DesignEditor's
+ * `appendCanvasPrimitiveToHtml` does the same `primitive.fill ?? "currentColor"`
+ * mapping for the committed element). Getting this wrong here previously
+ * meant a text primitive's chosen color rendered in the preview but was
+ * silently dropped, then jumped to the correct color only once committed.
+ * `stroke` / `strokeWidth` overrides are passed through unchanged for every
+ * kind.
  */
 
 import type * as React from "react";
@@ -152,18 +163,23 @@ export function canvasPrimitiveStyleString(
   overrides?: { fill?: string; stroke?: string; strokeWidth?: number },
 ): string {
   const v = canvasPrimitiveVisual(kind);
+  const isText = kind === "text";
 
   // Apply caller overrides so user-chosen colours are preserved.
   let background = v.background;
   let border = v.border;
 
-  if (overrides?.fill) {
+  // Text primitives render their fill as `color`, not `background` (see the
+  // matching note in canvasPrimitiveReactStyle) — otherwise a caller-chosen
+  // text color would paint a filled background box instead of tinting the
+  // glyphs, and would disagree with the committed HTML output.
+  if (overrides?.fill && !isText) {
     background = overrides.fill;
   }
   if (overrides?.stroke || overrides?.strokeWidth !== undefined) {
     const stroke = overrides.stroke ?? DEFAULT_STROKE;
     const width = overrides.strokeWidth ?? DEFAULT_STROKE_WIDTH_PX;
-    const style = kind === "frame" || kind === "text" ? "dashed" : "solid";
+    const style = kind === "frame" || isText ? "dashed" : "solid";
     border = `${width}px ${style} ${stroke}`;
   }
 
@@ -173,8 +189,9 @@ export function canvasPrimitiveStyleString(
     `border-radius:${v.borderRadius}`,
   ];
 
-  if (v.color) {
-    parts.push(`color:${v.color}`);
+  const color = isText ? overrides?.fill || v.color || "currentColor" : v.color;
+  if (color) {
+    parts.push(`color:${color}`);
   }
 
   return parts.join(";");
@@ -198,26 +215,30 @@ export function canvasPrimitiveReactStyle(
   overrides?: { fill?: string; stroke?: string; strokeWidth?: number },
 ): React.CSSProperties {
   const v = canvasPrimitiveVisual(kind);
+  const isText = kind === "text";
 
   let background = v.background as string | undefined;
   let borderColor: string | undefined;
   let borderWidth: number | string | undefined = DEFAULT_STROKE_WIDTH_PX;
   let borderStyle: string | undefined = "solid";
 
-  if (kind === "frame" || kind === "text") {
+  if (kind === "frame" || isText) {
     borderStyle = "dashed";
   }
 
-  if (
-    kind === "text" &&
-    !overrides?.stroke &&
-    overrides?.strokeWidth === undefined
-  ) {
+  if (isText && !overrides?.stroke && overrides?.strokeWidth === undefined) {
     borderWidth = 0;
     borderStyle = "solid";
   }
 
-  if (overrides?.fill) {
+  // Text primitives render their fill as `color`, not `background` — the
+  // element itself stays transparent so it doesn't paint a filled box behind
+  // the glyphs. Committed HTML output (DesignEditor's
+  // appendCanvasPrimitiveToHtml) already maps `primitive.fill` to
+  // `element.style.color`; this must match exactly or a text primitive with
+  // a custom fill shows the wrong color in the draft preview and visibly
+  // jumps to the correct color the moment it commits.
+  if (overrides?.fill && !isText) {
     background = overrides.fill;
   }
   if (overrides?.stroke) {
@@ -245,11 +266,14 @@ export function canvasPrimitiveReactStyle(
     style.color = v.color;
   }
 
-  // For text kind, clear fill-as-background since text uses `color`
-  if (kind === "text") {
+  if (isText) {
     style.background = "transparent";
     style.outline = "none";
     style.outlineOffset = 0;
+    // Matches DesignEditor's `primitive.fill ?? "currentColor"` convention
+    // for the committed element, so the preview and the commit never
+    // disagree on text color.
+    style.color = overrides?.fill || "currentColor";
   }
 
   return style;

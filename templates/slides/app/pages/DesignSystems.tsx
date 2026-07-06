@@ -1,14 +1,14 @@
 import { callAction, useT } from "@agent-native/core/client";
+import {
+  useSetHeaderActions,
+  useSetPageTitle,
+} from "@agent-native/toolkit/app-shell";
+import { Button } from "@agent-native/toolkit/ui/button";
 import { IconPlus, IconPalette } from "@tabler/icons-react";
 import { useMemo, useState } from "react";
 
 import { DesignSystemCard } from "@/components/design-system/DesignSystemCard";
 import { DesignSystemSetup } from "@/components/design-system/DesignSystemSetup";
-import {
-  useSetHeaderActions,
-  useSetPageTitle,
-} from "@/components/layout/HeaderActions";
-import { Button } from "@/components/ui/button";
 import { useDesignSystems } from "@/hooks/use-design-systems";
 
 import type { DesignSystemData } from "../../shared/api";

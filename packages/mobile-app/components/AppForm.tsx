@@ -19,7 +19,6 @@ const ICON_PRESETS: { name: string; icon: keyof typeof Feather.glyphMap }[] = [
   { name: "Calendar", icon: "calendar" },
   { name: "FileText", icon: "file-text" },
   { name: "BarChart2", icon: "bar-chart-2" },
-  { name: "Video", icon: "video" },
   { name: "Image", icon: "image" },
   { name: "Code", icon: "code" },
   { name: "Database", icon: "database" },

@@ -67,11 +67,6 @@ const cli = parseTemplateMetaFile(path.join(repoRoot, CLI_DUPLICATE));
 const allowed = new Set(
   [...truth.entries()].filter(([, meta]) => !meta.hidden).map(([slug]) => slug),
 );
-// Tolerate the legacy "video" alias for "videos" — multiple surfaces
-// link to /templates/video and that alias is documented in
-// `getTemplate()` in templates.ts. Whitelist it here so the guard
-// doesn't punish that established URL.
-if (allowed.has("videos")) allowed.add("video");
 
 const errors = [];
 
@@ -170,7 +165,6 @@ const DOCS_CONTENT_DIR = "packages/core/docs/content";
 // config. The shared Vite plugin bakes this public value into the SSR bundle so
 // the serverless runtime does not depend on netlify.toml env visibility.
 for (const slug of allowed) {
-  if (slug === "video") continue;
   const relPath = path.join("templates", slug, "netlify.toml");
   const absPath = path.join(repoRoot, relPath);
   if (!fs.existsSync(absPath)) {
@@ -210,9 +204,7 @@ if (errors.length > 0) {
   process.exit(1);
 }
 
-const publicTemplateSlugs = [...allowed]
-  .filter((slug) => slug !== "video")
-  .sort();
+const publicTemplateSlugs = [...allowed].sort();
 const allowedList = publicTemplateSlugs.join(", ");
 console.log(
   `guard-template-list: clean (${publicTemplateSlugs.length} public templates: ${allowedList}).`,

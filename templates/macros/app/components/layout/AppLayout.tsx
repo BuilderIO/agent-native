@@ -8,6 +8,17 @@ import {
 } from "@agent-native/core/client";
 import { ExtensionsSidebarSection } from "@agent-native/core/client/extensions";
 import { OrgSwitcher } from "@agent-native/core/client/org";
+import { HeaderActionsProvider } from "@agent-native/toolkit/app-shell";
+import {
+  Sheet,
+  SheetContent,
+  SheetTitle,
+} from "@agent-native/toolkit/ui/sheet";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@agent-native/toolkit/ui/tooltip";
 import {
   IconFlame,
   IconLoader2,
@@ -26,17 +37,10 @@ import { useState, useEffect } from "react";
 import { Link, useLocation, useNavigate } from "react-router";
 
 import { Button } from "@/components/ui/button";
-import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
 import { apiFetch } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
 import { Header } from "./Header";
-import { HeaderActionsProvider } from "./HeaderActions";
 
 const navItems = [
   { icon: IconFlame, labelKey: "navigation.entry", href: "/" },

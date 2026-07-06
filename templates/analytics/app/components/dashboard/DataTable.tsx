@@ -1,21 +1,19 @@
 import { useT } from "@agent-native/core/client";
+import { Button } from "@agent-native/toolkit/ui/button";
 import {
-  IconArrowsUpDown,
-  IconChevronLeft,
-  IconChevronRight,
-} from "@tabler/icons-react";
-import { useState, useMemo } from "react";
-
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+} from "@agent-native/toolkit/ui/card";
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from "@/components/ui/select";
-import { Skeleton } from "@/components/ui/skeleton";
+} from "@agent-native/toolkit/ui/select";
+import { Skeleton } from "@agent-native/toolkit/ui/skeleton";
 import {
   Table,
   TableBody,
@@ -23,7 +21,14 @@ import {
   TableHead,
   TableHeader,
   TableRow,
-} from "@/components/ui/table";
+} from "@agent-native/toolkit/ui/table";
+import {
+  IconArrowsUpDown,
+  IconChevronLeft,
+  IconChevronRight,
+} from "@tabler/icons-react";
+import { useState, useMemo } from "react";
+
 import { cn } from "@/lib/utils";
 
 const PAGE_SIZE_OPTIONS = [10, 25, 50, 100];

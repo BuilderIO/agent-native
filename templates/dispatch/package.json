@@ -27,8 +27,8 @@
     "zod": "^4.3.6"
   },
   "devDependencies": {
-    "@react-router/dev": "^8.0.1",
-    "@react-router/fs-routes": "^8.0.1",
+    "@react-router/dev": "^8.1.0",
+    "@react-router/fs-routes": "^8.1.0",
     "@tailwindcss/typography": "^0.5.20",
     "@tailwindcss/vite": "catalog:",
     "@types/node": "^24.2.1",
@@ -38,7 +38,7 @@
     "oxfmt": "catalog:",
     "react": "catalog:",
     "react-dom": "catalog:",
-    "react-router": "^8.0.1",
+    "react-router": "^8.1.0",
     "tailwindcss": "catalog:",
     "tsx": "^4.20.3",
     "typescript": "^6.0.3",

@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { SOURCE_AUTHOR_COMMENT_MENTION_EMAIL } from "../../shared/comment-context.js";
 import type { PlanBundle, PlanComment } from "../../shared/types.js";
 
 const sendEmailMock = vi.hoisted(() => vi.fn());
@@ -29,6 +30,7 @@ vi.mock("../db/index.js", () => ({
       id: "plans.id",
       title: "plans.title",
       ownerEmail: "plans.owner_email",
+      sourceAuthorEmail: "plans.source_author_email",
     },
   },
 }));
@@ -153,6 +155,24 @@ describe("plan comment notification recipients", () => {
     ]);
   });
 
+  it("routes source-author placeholder mentions to the private source author email", () => {
+    const newComment = comment("reviewer", {
+      authorEmail: "reviewer@example.com",
+      message: `Please check @[Sami](mailto:${encodeURIComponent(
+        SOURCE_AUTHOR_COMMENT_MENTION_EMAIL,
+      )}).`,
+    });
+
+    expect(
+      planCommentNotificationRecipients({
+        comment: newComment,
+        comments: [newComment],
+        planOwnerEmail: "svc-pr-recap@builder.io",
+        sourceAuthorEmail: "sami@builder.io",
+      }),
+    ).toEqual([{ email: "sami@builder.io", reason: "mention" }]);
+  });
+
   it("notifies prior human thread participants for replies", () => {
     const root = comment("root", { authorEmail: "root@example.com" });
     const participant = comment("participant", {
@@ -211,6 +231,7 @@ describe("plan comment notification recipients", () => {
         id: "plan_1",
         title: "Launch Plan",
         ownerEmail: "owner@example.com",
+        sourceAuthorEmail: null,
       },
     ]);
 
@@ -262,6 +283,7 @@ describe("plan comment notification recipients", () => {
         id: "plan_1",
         title: "Launch Plan",
         ownerEmail: "owner@example.com",
+        sourceAuthorEmail: null,
       },
     ]);
 

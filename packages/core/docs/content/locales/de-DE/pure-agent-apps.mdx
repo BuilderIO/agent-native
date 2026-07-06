@@ -1,16 +1,11 @@
 ---
-title: "Pure-Agent-Apps"
-description: "Apps, bei denen der Agent das gesamte Produkt darstellt: Die App-Agent-Schleife ist die Eingangstür, und UI wird nur hinzugefügt, wenn Menschen sie benötigen."
+title: "Automation-First Apps"
+description: "Agent-Native Apps ohne Browser für scheduled jobs, Queues, Skripte, integration workers und externe Agents."
 ---
 
-# Pure-Agent-Apps
+# Automation-First Apps
 
-Eine reine Agent-App ist das minimale Ende von Agent-Native: Die App-Agent-Schleife ist die
-Produkt, kein Dashboard. Sie senden eine Anfrage vom Terminal, Slack, E-Mail, a
-geplanter Job, ein anderer Agent oder Chat – „meine ungelesenen E-Mails zusammenfassen“, „veröffentlichen
-tägliche Metriken an Slack“ – und der Agent handelt und gibt das Ergebnis zurück, wo immer es ist
-gehört. Es ist immer noch eine echte App: actions, Sitzungen, App-Status, Verlauf,
-Einstellungen, Anmeldeinformationen und Freigabedatensätze sind alle live in SQL.
+Eine automation-first app ist eine Agent-Native App ohne Browser für scheduled jobs, Queues, Skripte, integration workers und externe Agents. Sie ist nicht der Standardpfad im Getting Started, aber nützlich, wenn der Workflow noch keine Seite braucht. Es ist immer noch eine echte App: actions, sessions, application state, run history, settings, credentials und Freigabedatensätze leben in SQL.
 
 <Diagram id="doc-block-vbpp1d" title={"Die App-Agent-Schleife ist die Eingangstür"} summary={"Viele Einstiegspunkte erreichen eine Agentenschleife über SQL-backed-Aktionen und -Status; Die Ergebnisse kehren dorthin zurück, woher die Anfrage kam. Die Benutzeroberfläche wird nur dann hinzugefügt, wenn eine Überwachung durch Menschen erforderlich ist."}>
 

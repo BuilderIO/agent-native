@@ -41,6 +41,7 @@ type ChatThreadRow = {
   scope_label?: string | null;
   pinned_at?: number | null;
   archived_at?: number | null;
+  share_token_hash?: string | null;
 };
 
 const userMessage = {
@@ -93,6 +94,19 @@ describe("chat thread store", () => {
           rows: row && row.thread_data.includes(pattern) ? [row] : [],
           rowsAffected: 0,
         };
+      }
+      if (/WHERE share_token_hash = \?/i.test(sql)) {
+        return {
+          rows: row && row.share_token_hash === args[0] ? [row] : [],
+          rowsAffected: 0,
+        };
+      }
+      if (/UPDATE chat_threads SET share_token_hash/i.test(sql)) {
+        if (row && row.id === args[1]) {
+          row = { ...row, share_token_hash: args[0] as string | null };
+          return { rows: [], rowsAffected: 1 };
+        }
+        return { rows: [], rowsAffected: 0 };
       }
       if (/SELECT id, owner_email/i.test(sql)) {
         return {

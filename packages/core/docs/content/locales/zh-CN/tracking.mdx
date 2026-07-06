@@ -188,6 +188,67 @@ track("checkout.completed", { total: 49.99, items: 3 });
 
 这与框架的内部浏览器遥测（`trackEvent()` /自动页面浏览量 - 请参阅下面的 [Browser defaults](#browser-defaults)）不同，后者为 Agent Native 自己的产品分析提供支持。将 `track()` 用于您的应用自己的分析事件，这些事件应到达您配置的提供商。
 
+## 会话重放 {#session-replay}
+
+Agent Native 应用无需添加第二个分析 SDK，即可接入第一方浏览器会话重放功能。在浏览器根部调用一次 `configureTracking()`，并传入 Analytics 公钥和采集端点：
+
+```ts
+import { configureTracking } from "@agent-native/core/client";
+
+configureTracking({
+  key: "anpk_...",
+  endpoint: "https://analytics.example.com/api/analytics/track",
+  sessionReplay: {
+    enabled: true,
+    sampleRate: 0.1,
+  },
+  getDefaultProps: (_event, props) => ({
+    ...props,
+    app: "my-app",
+    template: "my-template",
+  }),
+});
+```
+
+当 `sessionReplay.enabled` 为真值时，客户端会在启动后动态导入 `@rrweb/record`，并将重放数据块发送到重放端点。如果 `endpoint` 以 `/api/analytics/track` 或 `/track` 结尾，重放端点会自动推导为 `/api/analytics/replay`。当重放采集器位于其他位置时，可通过 `sessionReplay.endpoint` 显式覆盖。
+
+Agent Native 模板根已经调用了 `configureTracking()`。托管模板部署可以通过 Vite/Netlify 环境变量开启重放，而库使用者则应优先使用上面显式的 `configureTracking({ key, endpoint, sessionReplay })` 形式：
+
+```bash
+VITE_AGENT_NATIVE_ANALYTICS_PUBLIC_KEY=anpk_...
+VITE_AGENT_NATIVE_ANALYTICS_ENDPOINT=https://analytics.example.com/api/analytics/track
+VITE_AGENT_NATIVE_SESSION_REPLAY_ENABLED=true
+VITE_AGENT_NATIVE_SESSION_REPLAY_SAMPLE_RATE=0.1
+```
+
+浏览器端辅助函数还会尽力地、非阻塞地读取当前 Agent Native 认证会话。默认情况下，重放仅限已登录用户：启用 `sessionReplay` 后，除非会话解析出用户邮箱地址，否则不会开始录制。已登录用户的重放会包含基于邮箱的 `userId`/`userEmail` 以及 `orgId`。
+
+仅在有意进行匿名重放部署时，才设置 `sessionReplay.requireSignedInUser: false` 或 `VITE_AGENT_NATIVE_SESSION_REPLAY_REQUIRE_AUTH=false`。禁用认证门控后，匿名录制仍可按匿名访客、会话、应用/模板、主机名和路径进行查询。
+
+会话重放按浏览器会话确定性采样。`sampleRate` 为 `0.1` 时，会记录约 10% 的符合条件的会话；当符合条件的用户群体本就很小时（例如仅限登录用户的内部测试），可使用 `1`。
+
+隐私默认设置刻意保持保守，但仍能满足回放的可用性：
+
+- 默认屏蔽输入内容（`maskAllInputs: true`）。
+- 页面文本默认保持可见，除非元素被标记为 `.an-mask` 或 `data-an-mask`。
+- 敏感区域会通过诸如 `[data-sensitive]`、`.an-block`、`.an-private`、`data-an-block`、`data-an-private` 等选择器以及类似信用卡/密码/社会安全号码的字段进行屏蔽。
+- URL 会使用与浏览器分析相同的 `scrubUrl()` 辅助函数进行清理。
+- 重放采集仅限 Web 端且为选择性加入（opt-in）；不会录制原生桌面屏幕。
+
+录制期间，会话重放还会捕获浏览器控制台输出（`log`、`info`、`warn`、`error`、`debug`，以及 window 的 `error` / `unhandledrejection`）和网络请求元数据（`fetch` 和 XHR），并将其作为带标签的 rrweb 自定义事件记录下来，以便代理和重放查看器调试用户报告的问题。启用重放后，此项捕获默认开启；可通过 `sessionReplay.console` 和 `sessionReplay.network` 选项进行调整或禁用，两者均可接受布尔值或选项对象（`{ maxEvents?: number }`，其中 `network` 还可接受 `captureErrorBodies` 和 `maxErrorBodyLength`）。请求正文和请求头永远不会被捕获；响应正文仅在 5xx（服务器错误）响应下才会被捕获，且只捕获一段有边界、经过脱敏处理的片段（`captureErrorBodies`，默认值为 `true`，长度上限为 `maxErrorBodyLength` 个字符，默认 2048）——非 5xx 响应以及网络失败（状态码 0）的响应永远不会携带正文。URL 会被清理，消息会被截断，录制器自身的上报/跟踪流量会被排除，并且每个会话的配额（1000 条控制台事件 / 2000 条网络事件）在超出时会附加截断提示。
+
+Analytics 模板将重放元数据存储在 SQL（`session_recordings`）中，并通过私有 blob 引用（`session_replay_chunks`）存储数据块。浏览器和代理永远不会收到提供商的 URL。回放通过受限的服务器路由进行，默认的代理工具返回的是摘要或有限范围的重放事件，而非原始数据块表的直接访问权限。
+
+当需要将私有录制内容提供给外部代理时，可使用会话详情页面的**复制给代理**控件。它会生成一个两小时有效期、仅限该录制的 `agent_access` 链接，在 `/sessions/:recordingId` 上以服务器端渲染方式生成一个小型发现载荷，并只暴露代理上下文/事件的 JSON API。该录制本身的可见性不会改变。
+
+Implementation note: the reusable layer is the core agent-access URL contract,
+not a replay-specific UI abstraction. Use `createScopedAgentAccessGrant`,
+`verifyScopedAgentAccessToken`, `buildAgentAccessUrl`, and
+`buildAgentAccessApiUrl` for scoped SSR and JSON API links; keep replay storage,
+diagnostics shaping, and access policy inside the Analytics template.
+
+仅在本地开发环境下，当私有 blob 存储不可用时，Analytics 可以回退为使用有上限的 SQL 内联数据块。生产部署应配置私有或加密的 blob 存储，而不是依赖 Postgres 来存放重放数据。
+
 ## 高级：自定义提供程序和内部结构 {#advanced}
 
 大多数应用程序只需要 `track()` / `identify()` 和内置提供程序。表面的其余部分 - 注册自定义提供程序、`TrackingProvider` 接口、批处理内部结构以及框架自己的浏览器遥测 - 如下。

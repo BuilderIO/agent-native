@@ -147,6 +147,14 @@ Le CLI imprime le développement local URL. Connectez-vous avec Google, puis ouv
 
 **Large surface de connecteur.** Les événements BigQuery, GA4, analyses de produits, CRM, support, communauté, GitHub/Jira, SEO et `/track` propriétaires passent tous par actions que l'agent peut appeler.
 
+**Session replay agent handoff.** Session recordings stay private, but the session detail page can mint a temporary **Copy for agent** link. The two-hour `agent_access` URL lets an external agent read replay summaries, timelines, and bounded event details without exposing blob/provider URLs or making the recording public.
+
+Implementation note: use the shared core agent-access helpers
+(`createScopedAgentAccessGrant`, `verifyScopedAgentAccessToken`,
+`buildAgentAccessUrl`, and `buildAgentAccessApiUrl`) for the SSR/bot-visible
+URL contract. Keep replay chunk authorization, diagnostics payloads, and the
+session detail UI local to Analytics.
+
 ### Travailler avec l'agent
 
 L'agent sait toujours ce que vous regardez. L'état actuel de l'écran est injecté dans chaque message sous forme de bloc `<current-screen>` : il contient la vue active, le tableau de bord ou l'analyse ouvert et tous les filtres sélectionnés.

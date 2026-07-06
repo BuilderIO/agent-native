@@ -1,16 +1,11 @@
 ---
-title: "純代理應用"
-description: "代理是整個產品的應用程式：應用程式代理迴圈是前門，僅在人們需要時才新增 UI。"
+title: "Automation-First Apps"
+description: "用於 scheduled jobs、queues、scripts、integration workers 和外部 agents 的無瀏覽器 Agent-Native apps。"
 ---
 
-# 純代理應用
+# Automation-First Apps
 
-純代理應用程式是 Agent-Native 的最小端：應用程式代理迴圈是
-產品，而不是儀表板。您從終端、Slack、電子郵件、
-預定的工作、另一個代理或聊天 - “總結我未讀的電子郵件”、“發布
-每日指標為 Slack” - 代理會在任何地方執行操作並返回結果
-屬於。它仍然是一個真實的應用程式：actions、工作階段、應用程式狀態、歷史紀錄，
-設定、憑證和共用紀錄均位於 SQL 中。
+Automation-first app 是無瀏覽器的 Agent-Native app，用於 scheduled jobs、queues、scripts、integration workers 和外部 agents。它不是預設入門路徑，但在工作流程暫時不需要頁面時很有用。它仍然是一個真實的應用程式：actions、sessions、application state、run history、settings、credentials 和共享紀錄均位於 SQL 中。
 
 <Diagram id="doc-block-1yekfb" title={"應用程式代理迴圈是前門"} summary={"許多入口點透過 SQL-backed 操作和狀態到達一個代理迴圈；結果返回到請求來自的地方。僅當需要人類監督時才新增 UI。"}>
 

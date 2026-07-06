@@ -1,5 +1,20 @@
 import { useT } from "@agent-native/core/client";
 import { EmbeddedExtension } from "@agent-native/core/client/extensions";
+import { Button } from "@agent-native/toolkit/ui/button";
+import {
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+} from "@agent-native/toolkit/ui/card";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@agent-native/toolkit/ui/select";
+import { Skeleton } from "@agent-native/toolkit/ui/skeleton";
 import {
   IconArrowsSort,
   IconSortAscending,
@@ -41,17 +56,6 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { Skeleton } from "@/components/ui/skeleton";
 
 const PAGE_SIZE_OPTIONS = [10, 25, 50, 100];
 import { useSqlQuery } from "@/lib/sql-query";

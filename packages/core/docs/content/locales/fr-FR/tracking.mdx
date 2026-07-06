@@ -188,6 +188,67 @@ Principales différences par rapport au [server `track()`](#track) :
 
 Ceci est distinct de la télémétrie interne du navigateur du framework (`trackEvent()` / pages vues automatiques – voir [Browser defaults](#browser-defaults) ci-dessous), qui alimente les propres analyses de produits de Agent Native. Utilisez `track()` pour les événements d'analyse de votre application qui doivent atteindre vos fournisseurs configurés.
 
+## Relecture de session {#session-replay}
+
+Les applications Agent Native peuvent activer la relecture de session (session replay) côté navigateur en mode propriétaire, sans ajouter un second SDK d'analyse. Appelez `configureTracking()` une fois à la racine du navigateur et transmettez la clé publique Analytics ainsi que le point de terminaison du collecteur :
+
+```ts
+import { configureTracking } from "@agent-native/core/client";
+
+configureTracking({
+  key: "anpk_...",
+  endpoint: "https://analytics.example.com/api/analytics/track",
+  sessionReplay: {
+    enabled: true,
+    sampleRate: 0.1,
+  },
+  getDefaultProps: (_event, props) => ({
+    ...props,
+    app: "my-app",
+    template: "my-template",
+  }),
+});
+```
+
+Lorsque `sessionReplay.enabled` est vrai, le client importe dynamiquement `@rrweb/record` après le démarrage et transmet les blocs de relecture au point de terminaison de relecture. Si `endpoint` se termine par `/api/analytics/track` ou `/track`, le point de terminaison de relecture est dérivé automatiquement en `/api/analytics/replay`. Remplacez-le explicitement avec `sessionReplay.endpoint` lorsque le collecteur de relecture se trouve ailleurs.
+
+Les racines des modèles Agent Native appellent déjà `configureTracking()`. Les déploiements de modèles hébergés peuvent activer la relecture avec des variables d'environnement Vite/Netlify, tandis que les consommateurs de bibliothèque devraient privilégier la forme explicite `configureTracking({ key, endpoint, sessionReplay })` ci-dessus :
+
+```bash
+VITE_AGENT_NATIVE_ANALYTICS_PUBLIC_KEY=anpk_...
+VITE_AGENT_NATIVE_ANALYTICS_ENDPOINT=https://analytics.example.com/api/analytics/track
+VITE_AGENT_NATIVE_SESSION_REPLAY_ENABLED=true
+VITE_AGENT_NATIVE_SESSION_REPLAY_SAMPLE_RATE=0.1
+```
+
+L'assistant navigateur effectue également une lecture non bloquante et au mieux de la session d'authentification Agent Native actuelle. La relecture est réservée aux utilisateurs connectés par défaut : lorsque `sessionReplay` est activé, l'enregistrement ne démarre pas tant que la session ne se résout pas en une adresse e-mail utilisateur. Les relectures des utilisateurs connectés incluent un `userId`/`userEmail` basé sur l'e-mail ainsi que `orgId`.
+
+Définissez `sessionReplay.requireSignedInUser: false` ou `VITE_AGENT_NATIVE_SESSION_REPLAY_REQUIRE_AUTH=false` uniquement pour un déploiement de relecture anonyme intentionnel. Lorsque le contrôle d'authentification est désactivé, les enregistrements anonymes restent interrogeables par visiteur anonyme, session, application/modèle, nom d'hôte et chemin.
+
+La relecture de session est échantillonnée de manière déterministe par session de navigateur. Un `sampleRate` de `0.1` enregistre environ 10 % des sessions éligibles ; utilisez `1` lorsque la population éligible est intentionnellement restreinte, par exemple pour du dogfooding réservé aux utilisateurs connectés.
+
+Les paramètres de confidentialité par défaut sont volontairement prudents tout en restant utiles pour la relecture :
+
+- Les champs de saisie sont masqués par défaut (`maskAllInputs: true`).
+- Le texte de la page reste visible sauf si un élément est marqué avec `.an-mask` ou `data-an-mask`.
+- Les zones sensibles sont bloquées avec des sélecteurs tels que `[data-sensitive]`, `.an-block`, `.an-private`, `data-an-block`, `data-an-private`, ainsi que les champs de type carte bancaire/mot de passe/numéro de sécurité sociale.
+- Les URL sont nettoyées avec le même assistant `scrubUrl()` utilisé par les analyses du navigateur.
+- La capture de relecture est réservée au web et opt-in ; elle n'enregistre pas les écrans natifs du bureau.
+
+Pendant l'enregistrement, la relecture de session capture également la sortie de la console du navigateur (`log`, `info`, `warn`, `error`, `debug`, ainsi que les événements globaux `error` / `unhandledrejection`) et les métadonnées des requêtes réseau (`fetch` et XHR) sous forme d'événements personnalisés rrweb balisés, afin que les agents et la visionneuse de relecture puissent déboguer les problèmes signalés par les utilisateurs. La capture est activée par défaut lorsque la relecture est activée ; ajustez-la ou désactivez-la avec les options `sessionReplay.console` et `sessionReplay.network`, chacune acceptant un booléen ou un objet d'options (`{ maxEvents?: number }`, `network` acceptant en plus `captureErrorBodies` et `maxErrorBodyLength`). Les corps et en-têtes des requêtes ne sont jamais capturés ; les corps des réponses ne sont capturés que sous forme d'extrait borné et expurgé pour les réponses 5xx (erreur serveur) (`captureErrorBodies`, activé par défaut, plafonné à `maxErrorBodyLength` caractères, 2048 par défaut) — les réponses hors 5xx et les échecs réseau ne comportent jamais de corps. Les URL sont nettoyées, les messages sont tronqués, le trafic d'ingestion/de suivi propre à l'enregistreur est exclu, et des budgets par session (1000 événements console / 2000 événements réseau) ajoutent une notice de troncature en cas de dépassement.
+
+Le modèle Analytics stocke les métadonnées de relecture en SQL (`session_recordings`) et stocke les blocs via des références blob privées (`session_replay_chunks`). Les navigateurs et les agents ne reçoivent jamais les URL du fournisseur. La lecture passe par des routes serveur à portée limitée, et les outils d'agent par défaut renvoient des résumés ou des événements de relecture bornés, et non un accès brut à la table des blocs.
+
+Lorsque vous devez transmettre un enregistrement privé à un agent externe, utilisez le contrôle **Copy for agent** de la page de détail de session. Il génère un lien `agent_access` limité à l'enregistrement, valide deux heures, effectue le rendu SSR d'une petite charge utile de découverte sur `/sessions/:recordingId`, et n'expose que les API JSON de contexte/événements de l'agent. La visibilité de l'enregistrement ne change pas.
+
+Implementation note: the reusable layer is the core agent-access URL contract,
+not a replay-specific UI abstraction. Use `createScopedAgentAccessGrant`,
+`verifyScopedAgentAccessToken`, `buildAgentAccessUrl`, and
+`buildAgentAccessApiUrl` for scoped SSR and JSON API links; keep replay storage,
+diagnostics shaping, and access policy inside the Analytics template.
+
+Pour le développement local uniquement, Analytics peut se replier sur des blocs SQL en ligne plafonnés lorsque le stockage blob privé n'est pas disponible. Les déploiements en production doivent configurer un stockage blob privé ou chiffré plutôt que de s'appuyer sur Postgres pour les charges utiles de relecture.
+
 ## Avancé : fournisseurs personnalisés et éléments internes {#advanced}
 
 La plupart des applications n'ont besoin que de `track()` / `identify()` et d'un fournisseur intégré. Le reste de la surface (enregistrement des fournisseurs personnalisés, de l'interface `TrackingProvider`, des éléments internes de traitement par lots et de la propre télémétrie du navigateur du framework) se trouve ci-dessous.

@@ -3,6 +3,19 @@ import {
   useActionQuery,
   useT,
 } from "@agent-native/core/client";
+import { Badge } from "@agent-native/toolkit/ui/badge";
+import { Button } from "@agent-native/toolkit/ui/button";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@agent-native/toolkit/ui/collapsible";
+import { Skeleton } from "@agent-native/toolkit/ui/skeleton";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@agent-native/toolkit/ui/tooltip";
 import {
   IconArrowsExchange,
   IconChevronDown,
@@ -24,19 +37,6 @@ import { toast } from "sonner";
 import { CaptureInstallButton } from "@/components/capture-install-options";
 import { PageHeader } from "@/components/library/page-header";
 import { DayHeader } from "@/components/meetings/day-header";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from "@/components/ui/collapsible";
-import { Skeleton } from "@/components/ui/skeleton";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
 import { useDesktopPromo } from "@/hooks/use-desktop-promo";
 import enMessages from "@/i18n/en-US";
 import { cn, shortcutLabel, shortcutModifierLabel } from "@/lib/utils";

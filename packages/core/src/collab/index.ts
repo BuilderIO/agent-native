@@ -79,9 +79,43 @@ export {
   agentEnterDocument,
   agentLeaveDocument,
   agentUpdateSelection,
+  agentTouchDocument,
   agentApplyEditsIncrementally,
   agentApplyPatchesIncrementally,
+  AGENT_PRESENCE_LINGER_MS,
+  type AgentLeaveOptions,
+  type AgentTouchOptions,
 } from "./agent-presence.js";
+
+// Recent-edit attribution (lingering highlights)
+export {
+  appendRecentEdit,
+  collectRecentEdits,
+  publishRecentEdit,
+  useRecentEdits,
+  RECENT_EDITS_MAX,
+  RECENT_EDIT_TTL_MS,
+  type RecentEdit,
+  type RecentEditDescriptor,
+  type AttributedRecentEdit,
+  type UseRecentEditsOptions,
+} from "./recent-edits.js";
+
+// Per-user undo/redo
+export {
+  useCollabUndo,
+  useLocalOpUndo,
+  createLocalOpUndoController,
+  type UseCollabUndoOptions,
+  type UseCollabUndoResult,
+  type CollabUndoScope,
+  type UseLocalOpUndoOptions,
+  type UseLocalOpUndoResult,
+  type LocalOpUndoEntry,
+  type LocalOpUndoController,
+  type CreateLocalOpUndoOptions,
+  type UndoKeyboardOptions,
+} from "./undo.js";
 
 // Awareness (re-export for agent-presence consumers)
 export {

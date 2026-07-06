@@ -336,12 +336,12 @@ describe("@agent-native/skills", () => {
     });
 
     const selected = await (options as any).promptSkills({
-      initialTargets: ["visual-plan", "visual-recap"],
+      initialTargets: ["visual-plan", "visual-recap", "visualize-repo"],
       options: [{ value: "quick-recap", label: "quick-recap", hint: "Recap" }],
     });
     expect(selected).toEqual(["quick-recap"]);
     expect(skillContext).toMatchObject({
-      initialSkills: ["visual-plan", "visual-recap"],
+      initialSkills: ["visual-plan", "visual-recap", "visualize-repo"],
       options: [{ value: "quick-recap" }],
     });
   });

@@ -611,7 +611,7 @@ describe("listDreamCandidates", () => {
 
   it("ignores injected context when detecting user corrections", async () => {
     mocks.searchAgentThreads.mockResolvedValue({
-      source: { id: "videos" },
+      source: { id: "clips" },
       access: { mode: "local" },
       query: null,
       threads: [{ id: "thread-context" }],
@@ -629,7 +629,7 @@ describe("listDreamCandidates", () => {
       messages: [
         {
           role: "user",
-          text: "einstein shaking head\n\n<context>\nUse the Videos app flow. Do not route this as source-code generation.</context>",
+          text: "einstein shaking head\n\n<context>\nUse the Clips app flow. Do not route this as source-code generation.</context>",
           index: 0,
           createdAt: 1,
         },
@@ -642,7 +642,7 @@ describe("listDreamCandidates", () => {
     });
 
     const result = await listDreamCandidates({
-      sourceId: "videos",
+      sourceId: "clips",
       limit: 5,
     });
 

@@ -145,9 +145,7 @@ export function buildAgentWebPages(rootDir: string): AgentWebPage[] {
         `- Replaces or augments: ${copy.replaces}`,
         `- CLI: \`${template.cliCommand}\``,
         template.demoUrl ? `- Demo: ${template.demoUrl}` : undefined,
-        `- Source: https://github.com/BuilderIO/agent-native/tree/main/templates/${
-          template.slug === "video" ? "videos" : template.slug
-        }`,
+        `- Source: https://github.com/BuilderIO/agent-native/tree/main/templates/${template.slug}`,
         "",
       ]
         .filter((line): line is string => typeof line === "string")

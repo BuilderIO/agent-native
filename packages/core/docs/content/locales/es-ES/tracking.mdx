@@ -188,6 +188,67 @@ Diferencias clave con respecto al [server `track()`](#track):
 
 Esto es distinto de la telemetría interna del navegador del marco (`trackEvent()` / vistas de página automáticas; consulte [Browser defaults](#browser-defaults) a continuación), que impulsa el propio análisis de productos de Agent Native. Utilice `track()` para los eventos de análisis propios de su aplicación que deberían llegar a sus proveedores configurados.
 
+## Repetición de sesión {#session-replay}
+
+Las aplicaciones de Agent Native pueden habilitar la repetición de sesión del navegador de origen sin agregar un segundo SDK de análisis. Llame a `configureTracking()` una vez en la raíz del navegador y pase la clave pública de Analytics más el endpoint del recolector:
+
+```ts
+import { configureTracking } from "@agent-native/core/client";
+
+configureTracking({
+  key: "anpk_...",
+  endpoint: "https://analytics.example.com/api/analytics/track",
+  sessionReplay: {
+    enabled: true,
+    sampleRate: 0.1,
+  },
+  getDefaultProps: (_event, props) => ({
+    ...props,
+    app: "my-app",
+    template: "my-template",
+  }),
+});
+```
+
+Cuando `sessionReplay.enabled` es verdadero, el cliente importa dinámicamente `@rrweb/record` después del inicio y publica fragmentos de repetición en el endpoint de repetición. Si `endpoint` termina en `/api/analytics/track` o `/track`, el endpoint de repetición se deriva automáticamente como `/api/analytics/replay`. Anúlelo explícitamente con `sessionReplay.endpoint` cuando el recolector de repetición se encuentre en otro lugar.
+
+Las raíces de las plantillas de Agent Native ya llaman a `configureTracking()`. Las implementaciones de plantillas alojadas pueden activar la repetición con variables de entorno de Vite/Netlify, mientras que los consumidores de la biblioteca deberían preferir la forma explícita `configureTracking({ key, endpoint, sessionReplay })` anterior:
+
+```bash
+VITE_AGENT_NATIVE_ANALYTICS_PUBLIC_KEY=anpk_...
+VITE_AGENT_NATIVE_ANALYTICS_ENDPOINT=https://analytics.example.com/api/analytics/track
+VITE_AGENT_NATIVE_SESSION_REPLAY_ENABLED=true
+VITE_AGENT_NATIVE_SESSION_REPLAY_SAMPLE_RATE=0.1
+```
+
+El ayudante del navegador también realiza una lectura sin bloqueo y de mejor esfuerzo de la sesión de autenticación actual de Agent Native. La repetición es solo para usuarios con sesión iniciada de forma predeterminada: cuando `sessionReplay` está habilitado, la grabación no se inicia a menos que la sesión se resuelva en una dirección de correo electrónico de usuario. Las repeticiones de usuarios con sesión iniciada incluyen `userId`/`userEmail` respaldados por correo electrónico más `orgId`.
+
+Configure `sessionReplay.requireSignedInUser: false` o `VITE_AGENT_NATIVE_SESSION_REPLAY_REQUIRE_AUTH=false` solo para una implementación de repetición anónima intencional. Cuando la restricción de autenticación está deshabilitada, las grabaciones anónimas siguen siendo consultables por visitante anónimo, sesión, aplicación/plantilla, nombre de host y ruta.
+
+La repetición de sesión se muestrea de forma determinista por sesión de navegador. Un `sampleRate` de `0.1` graba aproximadamente el 10% de las sesiones elegibles; use `1` cuando la población elegible sea intencionalmente pequeña, como en pruebas internas solo para usuarios con sesión iniciada.
+
+Los valores predeterminados de privacidad son intencionalmente conservadores pero siguen siendo útiles para la reproducción:
+
+- Las entradas están enmascaradas de forma predeterminada (`maskAllInputs: true`).
+- El texto de la página permanece visible a menos que un elemento esté marcado con `.an-mask` o `data-an-mask`.
+- Las zonas sensibles están bloqueadas con selectores como `[data-sensitive]`, `.an-block`, `.an-private`, `data-an-block`, `data-an-private`, y campos similares a tarjetas de crédito/contraseñas/SSN.
+- Las URL se depuran con el mismo ayudante `scrubUrl()` que utiliza el análisis del navegador.
+- La captura de repetición es solo para web y opcional; no graba pantallas de escritorio nativas.
+
+Durante la grabación, la repetición de sesión también captura la salida de la consola del navegador (`log`, `info`, `warn`, `error`, `debug`, además de `error`/`unhandledrejection` de la ventana) y los metadatos de solicitudes de red (`fetch` y XHR) como eventos personalizados de rrweb etiquetados, para que los agentes y el visor de repeticiones puedan depurar los problemas reportados por los usuarios. La captura está habilitada de forma predeterminada cuando la repetición está activada; ajuste o desactive con las opciones `sessionReplay.console` y `sessionReplay.network`, cada una acepta un booleano o un objeto de opciones (`{ maxEvents?: number }`, y `network` acepta además `captureErrorBodies` y `maxErrorBodyLength`). Los cuerpos y encabezados de solicitud nunca se capturan; los cuerpos de respuesta solo se capturan como un fragmento acotado y redactado para respuestas 5xx (error del servidor) (`captureErrorBodies`, predeterminado true, limitado a `maxErrorBodyLength` caracteres, predeterminado 2048) — las respuestas que no son 5xx y los fallos de red nunca incluyen un cuerpo. Las URL se depuran, los mensajes se truncan, el propio tráfico de ingesta/seguimiento del grabador se excluye, y los presupuestos por sesión (1000 eventos de consola / 2000 eventos de red) agregan un aviso de truncamiento cuando se superan.
+
+La plantilla de Analytics almacena los metadatos de repetición en SQL (`session_recordings`) y almacena los fragmentos mediante referencias de blob privadas (`session_replay_chunks`). Los navegadores y los agentes nunca reciben las URL del proveedor. La reproducción pasa por rutas del servidor con alcance limitado y las herramientas del agente predeterminadas devuelven resúmenes o eventos de repetición acotados, no acceso sin procesar a la tabla de fragmentos.
+
+Cuando necesite entregar una grabación privada a un agente externo, use el control **Copiar para el agente** de la página de detalle de la sesión. Este genera un enlace `agent_access` de dos horas con alcance limitado a la grabación, renderiza en el servidor (SSR) una pequeña carga útil de descubrimiento en `/sessions/:recordingId`, y expone únicamente las API JSON de contexto/eventos del agente. La visibilidad de la grabación no cambia.
+
+Implementation note: the reusable layer is the core agent-access URL contract,
+not a replay-specific UI abstraction. Use `createScopedAgentAccessGrant`,
+`verifyScopedAgentAccessToken`, `buildAgentAccessUrl`, and
+`buildAgentAccessApiUrl` for scoped SSR and JSON API links; keep replay storage,
+diagnostics shaping, and access policy inside the Analytics template.
+
+Solo para desarrollo local, Analytics puede recurrir a fragmentos en línea de SQL limitados cuando el almacenamiento de blob privado no está disponible. Las implementaciones de producción deberían configurar almacenamiento de blob privado o cifrado en lugar de depender de Postgres para las cargas útiles de repetición.
+
 ## Avanzado: proveedores personalizados e internos {#advanced}
 
 La mayoría de las aplicaciones solo necesitan `track()` / `identify()` y un proveedor integrado. El resto de la superficie (registro de proveedores personalizados, la interfaz `TrackingProvider`, componentes internos de procesamiento por lotes y la propia telemetría del navegador del marco) se encuentra a continuación.

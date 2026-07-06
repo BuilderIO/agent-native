@@ -29,7 +29,7 @@
 
 import { defineAction } from "@agent-native/core";
 import { writeAppState } from "@agent-native/core/application-state";
-import { and, eq, inArray } from "drizzle-orm";
+import { and, inArray } from "drizzle-orm";
 import { z } from "zod";
 
 import { parseEdits, serializeEdits } from "../app/lib/timestamp-mapping.js";
@@ -92,7 +92,10 @@ export default defineAction({
       throw new Error("stitch-recordings needs at least 2 sourceRecordingIds");
     }
 
-    // Load sources so we can copy workspace + validate ownership.
+    // Stitch creates a brand-new recording owned by the caller that defaults
+    // to public visibility, so every source must be OWNED by the caller (not
+    // just editor-shared) — otherwise a user with editor access to a
+    // private/org clip could reshare it as a new public recording they own.
     const sources = await db
       .select()
       .from(schema.recordings)
@@ -104,7 +107,7 @@ export default defineAction({
       );
     if (sources.length !== ids.length) {
       throw new Error(
-        `Not all source recordings were found (or not owned): asked for ${ids.length}, got ${sources.length}`,
+        `Not all source recordings were found: asked for ${ids.length}, got ${sources.length}`,
       );
     }
 
@@ -130,7 +133,7 @@ export default defineAction({
 
     // Seed editsJson with provenance so the editor/player can link back.
     const edits = parseEdits("{}");
-    (edits as any).stitchedFrom = ids;
+    edits.stitchedFrom = ids;
 
     await db.insert(schema.recordings).values({
       id,

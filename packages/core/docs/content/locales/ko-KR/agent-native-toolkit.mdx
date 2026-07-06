@@ -1,0 +1,63 @@
+---
+title: "Agent-Native 툴킷"
+description: "협업, 설정, 공유, 탐색, presence, 기록, 설정 준비, Agent UX를 위한 재사용 가능한 키트."
+---
+
+# Agent-Native 툴킷
+
+Agent-Native 앱은 workspace 공통 기능을 매번 다시 만들면 안 됩니다. 앱은 도메인 모델,
+도메인 action, 제품별 화면을 소유합니다. Framework와 `@agent-native/toolkit`은 모든 앱이
+상속해야 하는 재사용 가능한 표면을 소유합니다: 협업, 공유, 설정, 탐색, 정리, 설정 준비,
+Agent UX, 기록, 운영 가시성입니다.
+
+사용자는 공유, 키 연결, Agent의 공동 편집, 설정 위치, 변경 내역을 앱마다 새로 배우지 않아야 합니다.
+
+## 툴킷 계약 {#toolkit-contract}
+
+다음에 해당하면 동작을 toolkit으로 옮깁니다.
+
+- **Workspace 전체** - 모든 앱에서 같은 방식으로 동작해야 합니다.
+- **Agent-visible** - Agent가 actions, instructions, application state를 통해 같은 기능을 써야 합니다.
+- **Governed** - 권한, audit, secrets, org policy, billing, sharing rules가 적용됩니다.
+- **Repeated** - 두 앱 이상이 비슷한 UI나 로직을 이미 만들었습니다.
+- **Not domain-specific** - 앱은 resource 이름과 action을 제공하지만 interaction pattern은 일반적입니다.
+
+도메인 모델이나 앱 고유 workflow에 깊게 묶인 동작은 app-local로 둡니다.
+
+## 재사용 가능한 키트 {#reusable-kits}
+
+- **Settings kit** - account, workspace, AI models, LLM keys, connections,
+  secrets, usage, notifications, changelog, app preferences의 표준 tabs입니다. 지속 설정은
+  Settings에 두고 Agent sidebar는 contextual quick controls와 deep links만 유지합니다.
+- **Collaboration kit** - real-time editing, Yjs docs, presence, agent presence,
+  live cursors, remote selections, recent edit highlights, shared undo/redo입니다. 자세한 내용은
+  [Real-Time Collaboration](/docs/real-time-collaboration)을 보세요.
+- **Sharing kit** - private, workspace, org, public link, invites, roles,
+  expirations, agent-readable access를 하나의 권한 모델로 다룹니다. 자세한 내용은
+  [Sharing & Privacy](/docs/sharing)을 보세요.
+- **Navigation and command kit** - app shell, nav, breadcrumbs, app switcher,
+  command palette, recents, pinned resources, search입니다.
+- **Organization kit** - folders, tags, favorites, archive, trash, ownership,
+  membership, common metadata입니다.
+- **Setup and connections kit** - API keys, OAuth, connections, model readiness,
+  missing secrets, declarative onboarding입니다. 자세한 내용은
+  [Workspace Connections](/docs/workspace-connections)을 보세요.
+- **Agent UX kit** - sidebar, composer, staged context, mentions, voice, human
+  approval, generative UI, progress, Agent-visible state입니다.
+- **History and recovery kit** - audit log, activity feed, version history,
+  checkpoints, undo, redo, restore, proof-of-done입니다. 자세한 내용은
+  [Audit Log](/docs/audit-log)를 보세요.
+- **Comments and review kit** - anchored comments, pins, mentions, review requests,
+  resolved threads, Agent follow-up tasks입니다.
+- **Workflow and observability kit** - notifications, approvals, background runs,
+  recurring jobs, traces, evals, feedback, run timelines입니다. 자세한 내용은
+  [Observability](/docs/observability)를 보세요.
+
+## 구현 순서 {#implementation-order}
+
+1. 지속 설정을 표준 Settings tabs로 통합합니다.
+2. collaboration, presence, agent presence, undo/redo, real-time editing을 공유 adapters 뒤로 정규화합니다.
+3. navigation, commands, recents, favorites, folders, tags, archive, trash를 공유 primitives로 이동합니다.
+4. 모든 공유 가능한 resource를 같은 permissions와 agent-readable access 모델에 등록합니다.
+5. collaborative resource마다 activity, comments, review, restore, audit 경험을 일관되게 만듭니다.
+6. notifications, approvals, run status, traces, evals, feedback을 통합합니다.

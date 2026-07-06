@@ -1,7 +1,6 @@
 import { useT } from "@agent-native/core/client";
+import { Button } from "@agent-native/toolkit/ui/button";
 import { IconCloudUpload } from "@tabler/icons-react";
-
-import { Button } from "@/components/ui/button";
 
 /**
  * Slim, non-modal "you're a guest" strip for unauthenticated hosted visitors.

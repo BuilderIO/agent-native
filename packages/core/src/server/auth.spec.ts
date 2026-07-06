@@ -3154,6 +3154,18 @@ describe("server/auth", () => {
         "__anFinishOAuthExchange(ret, flowId, data.token)",
       );
       expect(html).toContain("__anWaitForOAuthExchange(flowId, ret, btn, err)");
+      const recoverStart = html.indexOf(
+        "function __anRecoverGoogleSignInAfterReturn()",
+      );
+      const recoverEnd = html.indexOf(
+        "function __anBindGoogleRecover()",
+        recoverStart,
+      );
+      expect(recoverStart).toBeGreaterThan(-1);
+      expect(recoverEnd).toBeGreaterThan(recoverStart);
+      const recoverScript = html.slice(recoverStart, recoverEnd);
+      expect(recoverScript).toContain("Keep the desktop-exchange poll alive");
+      expect(recoverScript).not.toContain("clearInterval(__anOAuthPollTimer)");
       expect(html).toContain("window.location.reload()");
       expect(html).not.toContain(
         "__anWaitForOAuthExchange(flowId, target, btn, err)",

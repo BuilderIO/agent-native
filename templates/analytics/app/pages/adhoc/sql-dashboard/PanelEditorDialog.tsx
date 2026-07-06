@@ -3,34 +3,42 @@ import {
   useSendToAgentChat,
   useT,
 } from "@agent-native/core/client";
-import { IconAlertTriangle, IconAlignLeft } from "@tabler/icons-react";
-import { useEffect, useState, type ReactElement, type ReactNode } from "react";
-import { toast } from "sonner";
-
-import { SqlEditor } from "@/components/SqlEditor";
-import { Button } from "@/components/ui/button";
+import { Button } from "@agent-native/toolkit/ui/button";
 import {
   Dialog,
   DialogContent,
   DialogHeader,
   DialogTitle,
-} from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+} from "@agent-native/toolkit/ui/dialog";
+import { Input } from "@agent-native/toolkit/ui/input";
+import { Label } from "@agent-native/toolkit/ui/label";
 import {
   Popover,
   PopoverContent,
   PopoverTrigger,
-} from "@/components/ui/popover";
+} from "@agent-native/toolkit/ui/popover";
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from "@/components/ui/select";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+} from "@agent-native/toolkit/ui/select";
+import {
+  Tabs,
+  TabsContent,
+  TabsList,
+  TabsTrigger,
+} from "@agent-native/toolkit/ui/tabs";
+import {
+  ToggleGroup,
+  ToggleGroupItem,
+} from "@agent-native/toolkit/ui/toggle-group";
+import { IconAlertTriangle, IconAlignLeft } from "@tabler/icons-react";
+import { useEffect, useState, type ReactElement, type ReactNode } from "react";
+import { toast } from "sonner";
+
+import { SqlEditor } from "@/components/SqlEditor";
 import { canFormatPanelSql, formatPanelSql } from "@/lib/format-sql";
 
 import {

@@ -1,4 +1,8 @@
 import { useFormatters, useT } from "@agent-native/core/client";
+import { Badge } from "@agent-native/toolkit/ui/badge";
+import { Button } from "@agent-native/toolkit/ui/button";
+import { Input } from "@agent-native/toolkit/ui/input";
+import { Skeleton } from "@agent-native/toolkit/ui/skeleton";
 import type { FormField } from "@shared/types";
 import {
   IconArrowLeft,
@@ -13,10 +17,6 @@ import { format } from "date-fns";
 import { useMemo, useState } from "react";
 import { useParams, Link } from "react-router";
 
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Skeleton } from "@/components/ui/skeleton";
 import { useForm } from "@/hooks/use-forms";
 import { useFormResponses } from "@/hooks/use-responses";
 import { normalizeFields } from "@/lib/normalize-fields";

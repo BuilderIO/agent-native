@@ -13,7 +13,12 @@
  * the authenticated player route).
  */
 
-import { getSession, signShortLivedToken } from "@agent-native/core/server";
+import {
+  getSession,
+  signScopedAgentAccessToken,
+  signShortLivedToken,
+  verifyScopedAgentAccessToken,
+} from "@agent-native/core/server";
 import { asc, eq } from "drizzle-orm";
 import {
   defineEventHandler,
@@ -26,14 +31,21 @@ import {
   type H3Event,
 } from "h3";
 
-import { buildAgentApiUrls } from "../../../shared/agent-context.js";
+import {
+  buildAgentApiUrls,
+  CLIP_AGENT_ACCESS_TOKEN_PREFIX,
+} from "../../../shared/agent-context.js";
 import {
   normalizeTranscriptSegments,
   parseTranscriptSegments,
 } from "../../../shared/transcript-segments.js";
 import { getDb, schema } from "../../db/index.js";
 import { resolvePlayerVideoUrl } from "../../lib/player-video-url.js";
-import { parseSpaceIds, sameOwnerEmail } from "../../lib/recordings.js";
+import {
+  getOrganizationRoleForEmail,
+  parseSpaceIds,
+  sameOwnerEmail,
+} from "../../lib/recordings.js";
 import { verifySharePassword } from "../../lib/share-password.js";
 
 function appPath(path: string): string {
@@ -96,6 +108,52 @@ function setProtectedMediaAccessCookie(
   return token;
 }
 
+// Best-effort, per-instance (not distributed) throttle on wrong-password
+// attempts against a password-protected share. Keyed by IP + recordingId so
+// one abusive client/recording pair can't brute-force unlimited guesses
+// against a single server instance. Mirrors the limiter in view-event.post.ts.
+const PASSWORD_ATTEMPT_WINDOW_MS = 60_000;
+const PASSWORD_ATTEMPT_MAX = 10;
+// Cap on the number of tracked IP+recording buckets. This is a process-local,
+// best-effort limiter (not distributed), so we only need to keep it from
+// growing unbounded over the life of an instance — not enforce the cap
+// precisely. When we cross it, sweep once and drop every expired bucket.
+const PASSWORD_ATTEMPT_MAX_BUCKETS = 5000;
+const passwordAttemptBuckets = new Map<
+  string,
+  { count: number; reset: number }
+>();
+
+function pruneExpiredPasswordAttemptBuckets(now: number): void {
+  for (const [key, bucket] of passwordAttemptBuckets) {
+    if (bucket.reset < now) passwordAttemptBuckets.delete(key);
+  }
+}
+
+function passwordAttemptAllowed(key: string): boolean {
+  const now = Date.now();
+  const existing = passwordAttemptBuckets.get(key);
+  if (!existing || existing.reset < now) {
+    if (passwordAttemptBuckets.size >= PASSWORD_ATTEMPT_MAX_BUCKETS) {
+      pruneExpiredPasswordAttemptBuckets(now);
+    }
+    passwordAttemptBuckets.set(key, {
+      count: 1,
+      reset: now + PASSWORD_ATTEMPT_WINDOW_MS,
+    });
+    return true;
+  }
+  if (existing.count >= PASSWORD_ATTEMPT_MAX) return false;
+  existing.count += 1;
+  return true;
+}
+
+function requestIp(event: H3Event): string {
+  const xff = getHeader(event, "x-forwarded-for");
+  if (xff) return String(xff).split(",")[0].trim();
+  return event.node?.req?.socket?.remoteAddress || "unknown";
+}
+
 function appendQueryParam(url: string, key: string, value: string): string {
   const sep = url.includes("?") ? "&" : "?";
   return `${url}${sep}${encodeURIComponent(key)}=${encodeURIComponent(value)}`;
@@ -119,9 +177,20 @@ function addProtectedMediaTokenFallback(
 }
 
 export default defineEventHandler(async (event) => {
-  const q = getQuery(event) as { id?: string; password?: string };
+  const q = getQuery(event) as {
+    id?: string;
+    password?: string;
+    agent_access?: string;
+    t?: string;
+  };
   const recordingId = q.id;
   const password = typeof q.password === "string" ? q.password : "";
+  const suppliedAgentAccessToken =
+    typeof q.agent_access === "string"
+      ? q.agent_access
+      : typeof q.t === "string"
+        ? q.t
+        : "";
 
   if (!recordingId) {
     setResponseStatus(event, 400);
@@ -144,8 +213,34 @@ export default defineEventHandler(async (event) => {
   const viewerIsOwner = Boolean(
     session?.email && sameOwnerEmail(session.email, rec.ownerEmail),
   );
+  const tokenAllowsAgentAccess = suppliedAgentAccessToken
+    ? verifyScopedAgentAccessToken(suppliedAgentAccessToken, {
+        resourceKind: CLIP_AGENT_ACCESS_TOKEN_PREFIX,
+        resourceId: rec.id,
+      }).ok
+    : false;
 
-  if (rec.visibility !== "public" && !viewerIsOwner) {
+  let viewerIsOrgMember = false;
+  if (session?.email && rec.visibility === "org" && rec.organizationId) {
+    try {
+      const role = await getOrganizationRoleForEmail(
+        rec.organizationId,
+        session.email,
+      );
+      viewerIsOrgMember = Boolean(role);
+    } catch {
+      // Never fail the request for anonymous/unauthenticated viewers or if
+      // org lookup is unavailable — just fall through to the existing gate.
+      viewerIsOrgMember = false;
+    }
+  }
+
+  if (
+    rec.visibility !== "public" &&
+    !viewerIsOwner &&
+    !viewerIsOrgMember &&
+    !tokenAllowsAgentAccess
+  ) {
     setResponseStatus(event, 404);
     return { error: "Not found" };
   }
@@ -162,10 +257,29 @@ export default defineEventHandler(async (event) => {
   // Password check
   let protectedMediaToken: string | null = null;
   if (rec.password && !viewerIsOwner) {
-    if (!password || !verifySharePassword(password, rec.password)) {
-      setResponseStatus(event, 401);
-      return { error: "Password required", passwordRequired: true };
+    if (!tokenAllowsAgentAccess) {
+      if (!password) {
+        // No password supplied at all — this is the initial load or a
+        // background poll sitting on the password prompt, not a guess. Don't
+        // touch the throttle, or a viewer who never submits anything would
+        // eventually get 429'd just for polling.
+        setResponseStatus(event, 401);
+        return { error: "Password required", passwordRequired: true };
+      }
+      if (!verifySharePassword(password, rec.password)) {
+        // Only a supplied-and-wrong password counts against the throttle, so
+        // a viewer who supplies the correct password is never rate-limited.
+        const attemptKey = `${requestIp(event)}:${recordingId}`;
+        if (!passwordAttemptAllowed(attemptKey)) {
+          setResponseStatus(event, 429);
+          return { error: "Too many attempts, try again later" };
+        }
+        setResponseStatus(event, 401);
+        return { error: "Password required", passwordRequired: true };
+      }
     }
+    protectedMediaToken = setProtectedMediaAccessCookie(event, recordingId);
+  } else if (tokenAllowsAgentAccess && !viewerIsOwner) {
     protectedMediaToken = setProtectedMediaAccessCookie(event, recordingId);
   }
 
@@ -245,11 +359,18 @@ export default defineEventHandler(async (event) => {
   );
 
   const canExposeAgentContext =
-    rec.visibility === "public" && !rec.archivedAt && !rec.trashedAt;
+    (rec.visibility === "public" || tokenAllowsAgentAccess || viewerIsOwner) &&
+    !rec.archivedAt &&
+    !rec.trashedAt;
   const agentToken =
-    canExposeAgentContext && rec.password
-      ? signShortLivedToken({ resourceId: recordingId })
-      : undefined;
+    canExposeAgentContext && tokenAllowsAgentAccess
+      ? suppliedAgentAccessToken
+      : canExposeAgentContext && rec.password
+        ? signScopedAgentAccessToken({
+            resourceKind: CLIP_AGENT_ACCESS_TOKEN_PREFIX,
+            resourceId: recordingId,
+          })
+        : undefined;
   const agentContextUrl = canExposeAgentContext
     ? buildAgentApiUrls(recordingId, {
         origin: getRequestURL(event).origin,

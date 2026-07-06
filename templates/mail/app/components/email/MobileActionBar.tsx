@@ -1,4 +1,17 @@
 import { useT } from "@agent-native/core/client";
+import {
+  Drawer,
+  DrawerContent,
+  DrawerHeader,
+  DrawerTitle,
+  DrawerClose,
+} from "@agent-native/toolkit/ui/drawer";
+import { Switch } from "@agent-native/toolkit/ui/switch";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@agent-native/toolkit/ui/tooltip";
 import type { MobileActionId } from "@shared/types";
 import {
   IconArchive,
@@ -14,19 +27,6 @@ import {
 } from "@tabler/icons-react";
 import { useState } from "react";
 
-import {
-  Drawer,
-  DrawerContent,
-  DrawerHeader,
-  DrawerTitle,
-  DrawerClose,
-} from "@/components/ui/drawer";
-import { Switch } from "@/components/ui/switch";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
 export const ALL_MOBILE_ACTIONS: MobileActionId[] = [
