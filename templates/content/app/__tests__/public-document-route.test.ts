@@ -50,7 +50,7 @@ vi.mock("../../server/db", () => ({
   },
 }));
 
-import { loader } from "./p.$id";
+import { loader } from "../routes/p.$id";
 
 function requestFor(id = "doc-1", token?: string) {
   const url = new URL(`https://content.example.test/p/${id}`);
