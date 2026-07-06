@@ -598,14 +598,20 @@ function pruneThreadCandidatePages(
   return Object.fromEntries(entries.slice(0, THREAD_CANDIDATE_PAGE_MAX));
 }
 
-async function readThreadCandidatePageStore(
-  ownerEmail: string,
-): Promise<Record<string, ThreadCandidatePageEntry>> {
+async function readThreadCandidatePageStore(ownerEmail: string): Promise<{
+  pages: Record<string, ThreadCandidatePageEntry>;
+  prunedCount: number;
+}> {
   const stored = (await getUserSetting(
     ownerEmail,
     THREAD_CANDIDATE_PAGE_SETTING,
   )) as ThreadCandidatePageStore | null;
-  return pruneThreadCandidatePages(stored?.pages ?? {});
+  const rawPages = stored?.pages ?? {};
+  const pages = pruneThreadCandidatePages(rawPages);
+  return {
+    pages,
+    prunedCount: Object.keys(rawPages).length - Object.keys(pages).length,
+  };
 }
 
 async function writeThreadCandidatePageStore(
@@ -621,10 +627,16 @@ async function getStoredThreadCandidatePage(
   ownerEmail: string,
   key: string,
 ): Promise<ThreadCandidatePageEntry | null> {
-  const pages = await readThreadCandidatePageStore(ownerEmail);
+  const { pages, prunedCount } = await readThreadCandidatePageStore(ownerEmail);
   const page = pages[key];
   if (!page) {
-    await writeThreadCandidatePageStore(ownerEmail, pages);
+    // Cache miss: only pay for the write-back if pruning actually removed
+    // stale entries. A plain miss (e.g. a synthetic token minted on another
+    // process, or a legitimately expired/evicted key) has nothing new to
+    // persist, so skip the SQL write and let this be a pure read.
+    if (prunedCount > 0) {
+      await writeThreadCandidatePageStore(ownerEmail, pages);
+    }
     return null;
   }
   page.updatedAt = Date.now();
@@ -637,7 +649,7 @@ async function deleteStoredThreadCandidatePage(
   ownerEmail: string,
   key: string,
 ): Promise<void> {
-  const pages = await readThreadCandidatePageStore(ownerEmail);
+  const { pages } = await readThreadCandidatePageStore(ownerEmail);
   if (pages[key]) {
     delete pages[key];
     await writeThreadCandidatePageStore(ownerEmail, pages);
@@ -667,7 +679,7 @@ async function storeThreadCandidatePage(
   ids: string[],
   nextPageToken: string | undefined,
 ): Promise<string> {
-  const pages = await readThreadCandidatePageStore(ownerEmail);
+  const { pages } = await readThreadCandidatePageStore(ownerEmail);
   const key = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
   pages[key] = {
     email,

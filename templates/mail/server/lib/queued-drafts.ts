@@ -485,12 +485,29 @@ export type QueuedDraftClaim =
  * owner-or-admin access check as requireQueuedDraft first, then uses a
  * single conditional UPDATE + RETURNING so two concurrent callers (a
  * double-click, two open tabs, or a retried agent tool call) can't both
- * observe a sendable status and both dispatch the real send.
+ * observe a sendable status and both dispatch the real send. RETURNING is
+ * used only to detect whether the update affected the row (`claimed.length
+ * > 0`), and it yields post-update values on both Postgres and SQLite, so the
+ * prior status returned to callers is derived from the pre-claim read
+ * (`requireQueuedDraft`) instead, which is the only portable witness of the
+ * status this call transitioned away from.
  */
 export async function claimQueuedDraftForSending(
   id: string,
 ): Promise<QueuedDraftClaim> {
-  const { ctx } = await requireQueuedDraft(id, { ownerOnly: true });
+  const { ctx, draft: preClaimDraft } = await requireQueuedDraft(id, {
+    ownerOnly: true,
+  });
+  // Best portable witness of the pre-claim status: UPDATE ... RETURNING
+  // yields POST-update values on both Postgres and SQLite, so it can never
+  // be used to recover the prior status. The WHERE clause below guarantees
+  // this row was "queued" or "in_review" at claim time if the update
+  // affects it, so the pre-read status (when it's one of those two) is
+  // exactly that prior status; otherwise default to "queued".
+  const priorStatus: QueuedDraftStatus =
+    preClaimDraft.status === "queued" || preClaimDraft.status === "in_review"
+      ? preClaimDraft.status
+      : "queued";
 
   const claimed = await getDb()
     .update(schema.queuedEmailDrafts)
@@ -508,7 +525,6 @@ export async function claimQueuedDraftForSending(
     .returning({ status: schema.queuedEmailDrafts.status });
 
   if (claimed.length > 0) {
-    const priorStatus = claimed[0]!.status as QueuedDraftStatus;
     const draft = await getQueuedDraft(id, ctx);
     if (!draft) throw new Error("Queued draft not found after claim.");
     return { claimed: true, ctx, draft, priorStatus };
