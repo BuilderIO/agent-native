@@ -1253,7 +1253,9 @@ function rowNumber(value: unknown): number {
  * `resumable-session-<recordingId>` and deletes them after finalize commits a
  * ready recording. Crashes between those two steps can strand small session
  * rows forever. We only delete sessions whose recording row is gone, or whose
- * recording reached a terminal status more than an hour ago.
+ * recording reached a terminal status more than an hour ago. Abandoned browser
+ * uploads can leave the recording stuck in `uploading`, so those are swept only
+ * after a much longer grace window.
  */
 async function sweepOrphanedResumableSessions(): Promise<void> {
   const exec = getDbExec();
@@ -1294,6 +1296,9 @@ async function sweepOrphanedResumableSessions(): Promise<void> {
 
   const prefix = "resumable-session-";
   const oneHourAgoIso = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+  const staleInProgressIso = new Date(
+    Date.now() - 24 * 60 * 60 * 1000,
+  ).toISOString();
   let totalDeleted = 0;
 
   for (const row of sessionRows) {
@@ -1319,6 +1324,34 @@ async function sweepOrphanedResumableSessions(): Promise<void> {
         (recording.status === "ready" || recording.status === "failed") &&
         (recording.updated_at ?? "") < oneHourAgoIso
       ) {
+        shouldSweep = true;
+      } else if (
+        (recording.status === "uploading" ||
+          recording.status === "processing") &&
+        (recording.updated_at ?? "") < staleInProgressIso
+      ) {
+        try {
+          await exec.execute({
+            sql: pg
+              ? `UPDATE recordings SET status = 'failed', failure_reason = $1, updated_at = $2 WHERE id = $3 AND status = $4`
+              : `UPDATE recordings SET status = 'failed', failure_reason = ?, updated_at = ? WHERE id = ? AND status = ?`,
+            args: [
+              "Upload did not finish before the resumable upload cleanup window.",
+              new Date().toISOString(),
+              recordingId,
+              recording.status,
+            ],
+          });
+        } catch (err) {
+          console.warn(
+            "[db] resumable-session sweep: stale upload mark failed failed",
+            {
+              recordingId,
+              status: recording.status,
+              err: (err as Error)?.message ?? err,
+            },
+          );
+        }
         shouldSweep = true;
       }
     } catch (err) {

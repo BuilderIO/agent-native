@@ -1459,6 +1459,7 @@ const enUS = {
     recurringJobs: "Recurring Jobs",
     automations: "Automations",
     extensions: "Extensions",
+    dataPrograms: "Data Programs",
     multiAppWorkspaces: "Multi-App Workspaces",
     onboardingApiKeys: "Onboarding & API Keys",
     messaging: "Messaging (Slack, Email...)",

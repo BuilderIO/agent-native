@@ -71,6 +71,7 @@ describe("builder-media-compression", () => {
     vi.unstubAllGlobals();
     mockReadAppState.mockResolvedValue(null);
     delete process.env.CLIPS_BUILDER_BACKGROUND_COMPRESSION_MAX_BYTES;
+    delete process.env.CLIPS_DISABLE_BUILDER_COMPRESSION;
     delete process.env.CLIPS_MEDIA_WORKER_ENABLED;
     delete process.env.CLIPS_MEDIA_WORKER_URL;
     delete process.env.CLIPS_MEDIA_WORKER_SECRET;
@@ -144,6 +145,25 @@ describe("builder-media-compression", () => {
         sourceSizeBytes: 101,
       }),
     );
+  });
+
+  it("does not queue Builder compression while the kill switch is enabled", async () => {
+    process.env.CLIPS_DISABLE_BUILDER_COMPRESSION = "true";
+    vi.stubGlobal("fetch", vi.fn());
+
+    const result = await queueBuilderMediaCompression({
+      recordingId: "rec-disabled",
+      ownerEmail: "owner@example.com",
+      videoUrl:
+        "https://cdn.builder.io/o/assets%2Forg-probe%2Fasset-disabled?apiKey=org-probe&token=asset-disabled&alt=media",
+      mimeType: "video/webm",
+      providerId: "builder",
+      sourceSizeBytes: 50,
+    });
+
+    expect(result).toEqual({ queued: false, reason: "disabled" });
+    expect(mockWriteAppState).not.toHaveBeenCalled();
+    expect(fetch).not.toHaveBeenCalled();
   });
 
   it("does not enqueue the media worker while the worker flag is off", async () => {
