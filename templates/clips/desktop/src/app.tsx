@@ -42,6 +42,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "./components/Tooltip";
 import { UpdateBanner } from "./components/UpdateBanner";
 import { useMediaDevices } from "./hooks/useMediaDevices";
 import { useMeetingTranscription } from "./hooks/useMeetingTranscription";
+import { stopAllMicMeters } from "./hooks/useMicMeter";
 import { startBubbleFramePump } from "./lib/bubble-pump";
 import {
   startBubbleWebrtc,
@@ -1797,6 +1798,8 @@ export function App() {
       }
     }
 
+    stopAllMicMeters();
+
     // Latch BEFORE the async work so the popover stays in "recording
     // flow" during the macOS screen-picker focus dance. The bubble
     // session effect also keys off this flag (via `bubbleActive`) so
@@ -2380,7 +2383,7 @@ export function App() {
           onToggle={setMicOn}
           systemAudio={systemAudioOn}
           onSystemAudioToggle={setSystemAudioOn}
-          meterActive={popoverVisible && !isRecording}
+          meterActive={popoverVisible && !isRecording && !recordingFlowActive}
         />
       </div>
 
