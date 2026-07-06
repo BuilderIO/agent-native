@@ -436,6 +436,8 @@ const messages = {
       "Obtén esta URL de contexto para agentes de Clips: {{agentContextUrl}}. Usa transcript.segments para el contexto hablado, obtén recommendedFrames o las URLs de la API de fotogramas para ver la pantalla y revisa browserDiagnostics si está presente para ver registros de consola redactados y metadatos de solicitudes fetch/XHR.",
     agentTokenDescription:
       "Esta URL temporal para agentes permite leer el clip sin hacerlo publico. Caduca en dos horas.",
+    agentLinkUnavailable: "No se pudo crear el enlace para agentes.",
+    retryAgentLink: "Reintentar",
     gifPreview: "vista previa de GIF",
     openPlayer: "jugador abierto",
     downloadMp4: "Descargar MP4",
