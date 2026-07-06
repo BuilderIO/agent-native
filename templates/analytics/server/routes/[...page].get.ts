@@ -74,7 +74,14 @@ function queryString(value: unknown): string {
   return "";
 }
 
-async function buildAgentDiscoveryScript(event: any): Promise<string | null> {
+interface AgentDiscoveryInjection {
+  script: string;
+  privateResponse: boolean;
+}
+
+async function buildAgentDiscoveryScript(
+  event: any,
+): Promise<AgentDiscoveryInjection | null> {
   const requestUrl = getRequestURL(event);
   const recordingId = sessionRecordingIdFromPath(requestUrl.pathname);
   const query = getQuery(event);
@@ -90,9 +97,12 @@ async function buildAgentDiscoveryScript(event: any): Promise<string | null> {
     }).catch(() => null);
     if (!context) return null;
 
-    return `<script type="application/agent-native+json" id="analytics-session-replay-agent-context">${safeJsonForHtml(
-      context,
-    )}</script>`;
+    return {
+      script: `<script type="application/agent-native+json" id="analytics-session-replay-agent-context">${safeJsonForHtml(
+        context,
+      )}</script>`,
+      privateResponse: true,
+    };
   }
 
   const resource = analyticsResourceFromPath(requestUrl.pathname);
@@ -100,26 +110,29 @@ async function buildAgentDiscoveryScript(event: any): Promise<string | null> {
 
   const token = queryString(query[AGENT_ACCESS_PARAM]);
   const isDashboard = resource.type === "dashboard";
-  return renderAgentReadableResourceDiscoveryScript(
-    buildAgentReadableResourceDiscovery({
-      resourceType: isDashboard ? "dashboard" : "analysis",
-      resourceId: resource.id,
-      path: `/${isDashboard ? "dashboards" : "analyses"}/${encodeURIComponent(resource.id)}`,
-      contextEndpoint: isDashboard
-        ? ANALYTICS_DASHBOARD_AGENT_CONTEXT_ENDPOINT
-        : ANALYTICS_ANALYSIS_AGENT_CONTEXT_ENDPOINT,
-      origin: requestUrl.origin,
-      basePath: configuredAppBasePath(),
-      token,
-      instructions:
-        "Use contextUrl to read this Analytics artifact as structured JSON. Token links are read-only and do not grant edit access.",
-    }),
-    {
-      id: isDashboard
-        ? "analytics-dashboard-agent-context"
-        : "analytics-analysis-agent-context",
-    },
-  );
+  return {
+    script: renderAgentReadableResourceDiscoveryScript(
+      buildAgentReadableResourceDiscovery({
+        resourceType: isDashboard ? "dashboard" : "analysis",
+        resourceId: resource.id,
+        path: `/${isDashboard ? "dashboards" : "analyses"}/${encodeURIComponent(resource.id)}`,
+        contextEndpoint: isDashboard
+          ? ANALYTICS_DASHBOARD_AGENT_CONTEXT_ENDPOINT
+          : ANALYTICS_ANALYSIS_AGENT_CONTEXT_ENDPOINT,
+        origin: requestUrl.origin,
+        basePath: configuredAppBasePath(),
+        token,
+        instructions:
+          "Use contextUrl to read this Analytics artifact as structured JSON. Token links are read-only and do not grant edit access.",
+      }),
+      {
+        id: isDashboard
+          ? "analytics-dashboard-agent-context"
+          : "analytics-analysis-agent-context",
+      },
+    ),
+    privateResponse: Boolean(token),
+  };
 }
 
 function injectAgentDiscovery(html: string, script: string): string {
@@ -138,8 +151,8 @@ function injectAgentDiscovery(html: string, script: string): string {
 
 export default defineEventHandler(async (event) => {
   const response = (await ssrHandler(event)) as Response;
-  const script = await buildAgentDiscoveryScript(event);
-  if (!script) return response;
+  const discovery = await buildAgentDiscoveryScript(event);
+  if (!discovery) return response;
 
   const contentType = response.headers.get("content-type") ?? "";
   if (!contentType.includes("text/html")) return response;
@@ -147,12 +160,14 @@ export default defineEventHandler(async (event) => {
   const html = await response.text();
   const headers = new Headers(response.headers);
   headers.delete("content-length");
-  headers.set("Cache-Control", "private, max-age=0, no-store");
-  headers.set("Referrer-Policy", "no-referrer");
-  setResponseHeader(event, "Cache-Control", "private, max-age=0, no-store");
-  setResponseHeader(event, "Referrer-Policy", "no-referrer");
+  if (discovery.privateResponse) {
+    headers.set("Cache-Control", "private, max-age=0, no-store");
+    headers.set("Referrer-Policy", "no-referrer");
+    setResponseHeader(event, "Cache-Control", "private, max-age=0, no-store");
+    setResponseHeader(event, "Referrer-Policy", "no-referrer");
+  }
 
-  return new Response(injectAgentDiscovery(html, script), {
+  return new Response(injectAgentDiscovery(html, discovery.script), {
     status: response.status,
     statusText: response.statusText,
     headers,

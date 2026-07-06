@@ -16,7 +16,9 @@ vi.mock("@agent-native/toolkit/ui/spinner", () => ({ Spinner: () => null }));
 // reads the request user — it only needs the app base path to build the
 // client-side redirect to the auth-guarded editor for restricted decks.
 vi.mock("@agent-native/core/server", () => ({
+  AGENT_ACCESS_PARAM: "agent_access",
   getConfiguredAppBasePath: () => "",
+  verifyScopedAgentAccessToken: vi.fn(() => ({ ok: false })),
 }));
 
 vi.mock("drizzle-orm", () => ({
