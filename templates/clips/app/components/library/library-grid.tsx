@@ -290,7 +290,7 @@ export function LibraryGrid({
                 <Skeleton key={i} />
               ))}
             </div>
-          ) : isError ? (
+          ) : isError && recordings.length === 0 ? (
             <div className="flex flex-1 flex-col items-center justify-center py-20 px-8 text-center">
               <div className="relative mb-6 flex h-20 w-20 items-center justify-center rounded-2xl bg-destructive/10">
                 <IconAlertTriangle className="h-10 w-10 text-destructive" />

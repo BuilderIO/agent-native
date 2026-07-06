@@ -114,15 +114,29 @@ function setProtectedMediaAccessCookie(
 // against a single server instance. Mirrors the limiter in view-event.post.ts.
 const PASSWORD_ATTEMPT_WINDOW_MS = 60_000;
 const PASSWORD_ATTEMPT_MAX = 10;
+// Cap on the number of tracked IP+recording buckets. This is a process-local,
+// best-effort limiter (not distributed), so we only need to keep it from
+// growing unbounded over the life of an instance — not enforce the cap
+// precisely. When we cross it, sweep once and drop every expired bucket.
+const PASSWORD_ATTEMPT_MAX_BUCKETS = 5000;
 const passwordAttemptBuckets = new Map<
   string,
   { count: number; reset: number }
 >();
 
+function pruneExpiredPasswordAttemptBuckets(now: number): void {
+  for (const [key, bucket] of passwordAttemptBuckets) {
+    if (bucket.reset < now) passwordAttemptBuckets.delete(key);
+  }
+}
+
 function passwordAttemptAllowed(key: string): boolean {
   const now = Date.now();
   const existing = passwordAttemptBuckets.get(key);
   if (!existing || existing.reset < now) {
+    if (passwordAttemptBuckets.size >= PASSWORD_ATTEMPT_MAX_BUCKETS) {
+      pruneExpiredPasswordAttemptBuckets(now);
+    }
     passwordAttemptBuckets.set(key, {
       count: 1,
       reset: now + PASSWORD_ATTEMPT_WINDOW_MS,
@@ -244,8 +258,16 @@ export default defineEventHandler(async (event) => {
   let protectedMediaToken: string | null = null;
   if (rec.password && !viewerIsOwner) {
     if (!tokenAllowsAgentAccess) {
-      if (!password || !verifySharePassword(password, rec.password)) {
-        // Only wrong/missing-password attempts count against the throttle, so
+      if (!password) {
+        // No password supplied at all — this is the initial load or a
+        // background poll sitting on the password prompt, not a guess. Don't
+        // touch the throttle, or a viewer who never submits anything would
+        // eventually get 429'd just for polling.
+        setResponseStatus(event, 401);
+        return { error: "Password required", passwordRequired: true };
+      }
+      if (!verifySharePassword(password, rec.password)) {
+        // Only a supplied-and-wrong password counts against the throttle, so
         // a viewer who supplies the correct password is never rate-limited.
         const attemptKey = `${requestIp(event)}:${recordingId}`;
         if (!passwordAttemptAllowed(attemptKey)) {
