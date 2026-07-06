@@ -14,6 +14,14 @@ import {
 
 export type ViewPreferences = CalendarViewPreferences;
 
+const PENDING_ACCOUNT_COLORS_KEY = `${CALENDAR_VIEW_PREFERENCES_KEY}:pending-account-colors`;
+const PENDING_ACCOUNT_COLORS_TTL_MS = 30_000;
+
+interface PendingAccountColors {
+  colors: Record<string, string>;
+  expiresAt: number;
+}
+
 function load(): CalendarViewPreferences {
   try {
     const raw = localStorage.getItem(CALENDAR_VIEW_PREFERENCES_KEY);
@@ -28,6 +36,56 @@ function load(): CalendarViewPreferences {
   } catch {
     return DEFAULT_CALENDAR_VIEW_PREFERENCES;
   }
+}
+
+function loadPendingAccountColors(): Record<string, string> {
+  try {
+    const raw = localStorage.getItem(PENDING_ACCOUNT_COLORS_KEY);
+    if (!raw) return {};
+    const pending = JSON.parse(raw) as PendingAccountColors;
+    if (!pending.expiresAt || pending.expiresAt < Date.now()) {
+      localStorage.removeItem(PENDING_ACCOUNT_COLORS_KEY);
+      return {};
+    }
+    return pending.colors && typeof pending.colors === "object"
+      ? pending.colors
+      : {};
+  } catch {
+    return {};
+  }
+}
+
+function savePendingAccountColor(accountEmail: string, accountColor: string) {
+  try {
+    localStorage.setItem(
+      PENDING_ACCOUNT_COLORS_KEY,
+      JSON.stringify({
+        colors: {
+          ...loadPendingAccountColors(),
+          [accountEmail]: accountColor,
+        },
+        expiresAt: Date.now() + PENDING_ACCOUNT_COLORS_TTL_MS,
+      } satisfies PendingAccountColors),
+    );
+  } catch {}
+}
+
+function clearPendingAccountColor(accountEmail: string) {
+  try {
+    const colors = loadPendingAccountColors();
+    delete colors[accountEmail];
+    if (Object.keys(colors).length === 0) {
+      localStorage.removeItem(PENDING_ACCOUNT_COLORS_KEY);
+      return;
+    }
+    localStorage.setItem(
+      PENDING_ACCOUNT_COLORS_KEY,
+      JSON.stringify({
+        colors,
+        expiresAt: Date.now() + PENDING_ACCOUNT_COLORS_TTL_MS,
+      } satisfies PendingAccountColors),
+    );
+  } catch {}
 }
 
 function save(prefs: CalendarViewPreferences) {
@@ -92,13 +150,14 @@ export function useViewPreferences() {
         const remote = await readAppStatePreferences();
         if (!cancelled && remote) {
           setPrefs((current) => {
-            const pendingColors = pendingAccountColors.current;
+            const pendingColors = {
+              ...loadPendingAccountColors(),
+              ...pendingAccountColors.current,
+            };
             const next =
               Object.keys(pendingColors).length > 0
                 ? normalizeCalendarViewPreferences({
                     ...remote,
-                    colorMode: current.colorMode,
-                    singleColor: current.singleColor,
                     accountColors: {
                       ...remote.accountColors,
                       ...pendingColors,
@@ -144,6 +203,7 @@ export function useViewPreferences() {
       const requestId = (accountColorRequestIds.current[accountEmail] ?? 0) + 1;
       accountColorRequestIds.current[accountEmail] = requestId;
       pendingAccountColors.current[accountEmail] = accountColor;
+      savePendingAccountColor(accountEmail, accountColor);
 
       setPrefs((prev) => {
         const next = normalizeCalendarViewPreferences({
@@ -168,6 +228,7 @@ export function useViewPreferences() {
             return;
           }
           delete pendingAccountColors.current[accountEmail];
+          clearPendingAccountColor(accountEmail);
 
           const preferences = (result as { preferences?: unknown }).preferences;
           if (!preferences) return;
@@ -192,6 +253,7 @@ export function useViewPreferences() {
         .catch(() => {
           if (accountColorRequestIds.current[accountEmail] === requestId) {
             delete pendingAccountColors.current[accountEmail];
+            clearPendingAccountColor(accountEmail);
           }
         });
     },
