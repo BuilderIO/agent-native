@@ -1,5 +1,53 @@
 # @agent-native/core
 
+## 0.89.0
+
+### Minor Changes
+
+- 9d8c83c: Add durable background executions to the sandboxed `run-code` tool so long compute survives the hosted serverless run ceiling: pass `background: true` (or set `AGENT_NATIVE_SANDBOX=background`) and the code is enqueued to a new additive, Postgres/SQLite-portable `sandbox_executions` table and executed out-of-band with a generous budget — self-dispatched to the new HMAC-verified `/_agent-native/sandbox/_process-execution` route on serverless, in-process on long-lived Node — with atomic single-claimer leasing, heartbeats, lease-expiry retries, owner-scoped status polling via `run-code {executionId}` (plus an exported `createGetCodeExecutionEntry` tool factory), opportunistic poll-time re-drives, and a warm-instance sweep so lost dispatches and dead executors are recovered instead of hanging; foreground `run-code` behavior is unchanged and the executor reuses the existing local sandbox adapter, bridge, and env-scrub machinery.
+- 9d8c83c: Make long foreground agent-chat turns survivable without a durable-background deploy: add an opt-in, default-OFF `AGENT_CHAT_FOREGROUND_SELF_CHAIN` flag (same hosted + `A2A_SECRET` gating as durable background) that lets a foreground turn hitting its soft-timeout chunk boundary continue via a server-side self-dispatch to the `_process-run` route on the regular function — with the successor run row pre-inserted before the dispatch so `/runs/active` never shows an idle gap, the dispatch fully awaited with retry and the successor's atomic claim treated as acknowledgment, loud diag-stage + terminal-reason marking on failure that falls back to the existing client `auto_continue` path, ids-only dispatch payloads, and coverage by the existing unclaimed-background-run sweep; the thread-slot atomic claim makes a racing client continuation reconnect to the successor instead of double-running. Also show a subtle "Keep this tab open" notice (new `KeepTabOpenNotice` component mounted beside the run-stuck banner) while a long foreground turn is depending on the client for its next continuation chunk, and register the `get-code-execution` background-execution poll tool alongside `run-code` in every registry that gets it.
+- 9d8c83c: Let the embedded agent see images in tool results. Actions can attach screenshots or previews by returning a well-known optional `_agentImages` field (`{ url | data, mediaType, label }[]`, stripped from the JSON the model reads), and images returned by external MCP tools are converted instead of being collapsed to `[image: <mime>]` placeholders. Attached images ride the tool result as real vision blocks on the native Anthropic API and vision-capable AI-SDK providers (anthropic, openai, google, openrouter), and degrade to compact text notes everywhere else (Builder gateway, non-vision providers). Caps apply per result (max 4 images, ~2MB base64 each; oversize entries become explanatory notes), and the run ledger only ever stores the string result plus `[image: …]` notes — never base64 payloads. Also thread the model id into the direct-Anthropic max-output-token ceiling so 128K-capable models are no longer clamped to 64K on BYO-key deployments.
+
+### Patch Changes
+
+- 9d8c83c: Stabilize the system-prompt prefix for Anthropic prompt caching: the runtime-context block now carries only day-granular date info (precise current time moved to a per-turn <current-time> block in the user message), system prompts assemble stable-first with runtime context appended last, and the direct Anthropic engine now sets a moving cache breakpoint on the last user message so growing conversation history is cached turn-over-turn.
+- 9d8c83c: Seed the shared LEARNINGS.md prompt resource from the project-root learnings.md on first boot (and point migrate-learnings at the shared LEARNINGS.md path the prompt actually reads), make the max-output-token ceiling model-aware (128K for Claude flagship and GPT-5.x models, 64K otherwise), and make the default navigate action throw on missing arguments instead of returning an error string.
+- 9d8c83c: Fix the agent sidebar's resize handle sometimes leaving the whole page unable
+  to select or copy text.
+
+  The resize handle set `document.body.style.userSelect = "none"` on mousedown
+  (so a drag doesn't select page text) and only cleared it on `mouseup`. If the
+  drag ended abnormally -- the mouse button released outside the browser
+  window/iframe, or the effect unmounted/re-ran mid-drag (sidebar layout
+  change, fullscreen toggle) -- `mouseup` never fired and `userSelect` stayed
+  stuck at `"none"` for the rest of the session, silently breaking selection and
+  copy everywhere in the app, including agent chat responses. Now a
+  `window` `blur` listener and the effect cleanup both unconditionally restore
+  `userSelect`, so a stuck state can no longer persist. The DB admin SQL
+  editor's splitter drag had the same defect and gets the same fix.
+
+- 9d8c83c: Allow app-provided LLM deploy environment keys to power signed-in hosted apps while keeping identity-bearing deploy credentials scoped.
+- 9d8c83c: Fix agent chat starter suggestions so clicking them submits through the normal chat queue.
+- 9d8c83c: Collaborative docs now share one connection per document per tab (ref-counted registry), eliminating duplicate poll/state/awareness traffic when multiple components mount the same doc.
+- 9d8c83c: Reduce full-page reload churn while an agent (e.g. Builder Fusion) is editing app source in dev: coalesce the AGENTS.md / SKILL.md watcher's dev-server full-reload into a single reload per write burst (module invalidation still happens per event), and add a 2s cooldown to the host-bridge `hardReload` / `hard-reload` postMessage commands so an embedding host cannot keep the page permanently mid-reload.
+- 9d8c83c: Keep the shared Extensions create popover above raised app surfaces and within the viewport.
+- 9d8c83c: Prevent reconnect replay from showing duplicate agent tool-call rows while a run is still streaming.
+- 9d8c83c: Fix Vite dev i18n context sharing, self-hosted SQLite native SSR externalization, and rich editor collab seeding after initial Yjs sync.
+- 9d8c83c: Sync the headless scaffold's `agent-native-docs` skill with the canonical copy (restores the packaged source-corpus guidance and `source-search` usage it had missed), and extend the workspace-skills sync guard to cover `packages/core/src/templates/headless/.agents/skills` so it can no longer drift silently.
+- 9d8c83c: Keep shared app-shell header normalization scoped to tablet and desktop, and use dynamic viewport height for mobile shells so mobile top bars and content areas stay compact and stable.
+- 9d8c83c: `isOAuthConnected` no longer reports an account as connected when its stored token bundle parses to an empty object — the signature of an `oauth_tokens` row that failed to decrypt after a `SECRETS_ENCRYPTION_KEY` / `BETTER_AUTH_SECRET` rotation. Previously such rows kept the provider looking "connected" while every API call failed with an undefined bearer token, hiding the reconnect banner. Unusable rows are deliberately not deleted, since a decrypt failure can also mean the current process holds the wrong key (e.g. a dev server sharing a prod database) while the row is still decryptable by a correctly configured deployment.
+- 9d8c83c: Keep the Plan mode pill attached to the composer instead of floating against the pane edge in wide centered chat layouts.
+- 9d8c83c: Move the agent sidebar close button beside the header overflow menu and fade the whole sidebar chat header in only on hover or focus.
+- 9d8c83c: Move reusable agent/workspace settings into full-page settings tabs and disable the right sidebar settings mode in the shared AgentSidebar.
+- 9d8c83c: Reduce background polling: dynamic suggestions now event-driven with a slow safety net, run-stuck detection only polls the active chat tab, runs tray polls at 3s.
+- 9d8c83c: Remove the redundant Back to app control from shared extension pages.
+- 9d8c83c: Remove the global notification bell from template app chrome and move the Extensions hidden-items control into a three-dot menu.
+- 9d8c83c: Add Toolkit provider overrides, collaboration UI, and sharing UI entrypoints while preserving core client compatibility re-exports. The core re-exports are temporary migration shims; the long-term dependency direction is Toolkit composing core runtime APIs, not core permanently owning reusable app-building UI. Future behaviorful kits should be extracted one at a time, with Sharing as the first candidate to validate access checks, action-backed data, and share-link UI together.
+- 9d8c83c: transcribe-voice reliability: raise the dictation-cleanup text cap from 40k to 150k chars, truncate the middle (with a visible marker and a server-side warning) instead of silently dropping the tail when the cap is still exceeded, and abort in-flight provider fetches (Whisper-compatible, Gemini, Builder cleanup, chat-provider cleanup) when the client disconnects mid-request so abandoned dictation attempts stop burning provider time.
+- Updated dependencies [9d8c83c]
+- Updated dependencies [9d8c83c]
+  - @agent-native/toolkit@0.4.0
+
 ## 0.88.1
 
 ### Patch Changes
