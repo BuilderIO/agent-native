@@ -14,7 +14,7 @@ const StringListSchema = z.preprocess((value) => {
 
 export default defineAction({
   readOnly: true,
-  timeoutMs: 90_000,
+  timeoutMs: 180_000,
   description:
     "Load a bounded cohort of Pylon accounts. Pass sentimentValues + sentimentField to filter by custom-field sentiment, or query for a text search. Property names are caller-defined.",
   schema: z.object({

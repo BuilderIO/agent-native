@@ -310,8 +310,12 @@ function accountsToSentimentMap(
 async function searchPylonAccountsWithFilters(
   filters: Record<string, unknown>[],
   cacheKeyPrefix: string,
-  options?: { maxPages?: number },
+  options?: {
+    maxPages?: number;
+    match?: (accounts: PylonAccount[]) => PylonAccount[];
+  },
 ): Promise<PylonAccount[]> {
+  let best: PylonAccount[] = [];
   for (const filter of filters) {
     try {
       const accounts = await searchPylonAccounts({
@@ -319,13 +323,14 @@ async function searchPylonAccountsWithFilters(
         cacheKey: `${cacheKeyPrefix}:${JSON.stringify(filter)}`,
         maxPages: options?.maxPages ?? 5,
       });
-      if (accounts.length) return accounts;
+      const matched = options?.match ? options.match(accounts) : accounts;
+      if (matched.length > best.length) best = matched;
     } catch (error) {
       if (isRateLimitError(error)) throw error;
       // Try the next filter shape supported by the tenant's Pylon workspace.
     }
   }
-  return [];
+  return best;
 }
 
 const listAccountsInflight = new Map<string, Promise<PylonAccount[]>>();
@@ -374,24 +379,66 @@ async function fetchPylonAccountsBySentiment(
       return sentiment ? normalized.includes(sentiment) : false;
     });
 
-  // Structured search on the sentiment custom field first. Text query search
+  const mergeUniqueAccounts = (batches: PylonAccount[][]) => {
+    const seenIds = new Set<string>();
+    const merged: PylonAccount[] = [];
+    for (const batch of batches) {
+      for (const account of batch) {
+        if (seenIds.has(account.id)) continue;
+        seenIds.add(account.id);
+        merged.push(account);
+      }
+    }
+    return merged;
+  };
+
+  const sentimentFieldCandidates = Array.from(
+    new Set([fields.sentimentField, `custom_fields.${fields.sentimentField}`]),
+  );
+
+  // Fast path: parallel equals search per sentiment value (typically seconds).
+  try {
+    const parallelTasks: Promise<PylonAccount[]>[] = [];
+    for (const field of sentimentFieldCandidates) {
+      for (const value of normalized) {
+        parallelTasks.push(
+          searchPylonAccounts({
+            filter: { field, operator: "equals", value },
+            cacheKey: `pylon-sentiment-equals:${field}:${value}`,
+            maxPages: 10,
+          })
+            .then(matchAccounts)
+            .catch((error) => {
+              if (isRateLimitError(error)) throw error;
+              return [];
+            }),
+        );
+      }
+    }
+    const parallelMatched = mergeUniqueAccounts(
+      await Promise.all(parallelTasks),
+    );
+    if (parallelMatched.length) return parallelMatched;
+  } catch (error) {
+    if (isRateLimitError(error)) throw error;
+  }
+
+  // Structured search on the sentiment custom field. Text query search
   // (`GET /accounts?query=`) matches account names, not custom-field values,
   // and misses most of the early-warning cohort.
   try {
-    const searchFilters: Record<string, unknown>[] = [
-      { field: fields.sentimentField, operator: "in", values: normalized },
-      ...normalized.map((value) => ({
-        field: fields.sentimentField,
-        operator: "equals",
-        value,
-      })),
-    ];
-    const searched = await searchPylonAccountsWithFilters(
+    const searchFilters: Record<string, unknown>[] = [];
+    for (const field of sentimentFieldCandidates) {
+      searchFilters.push({ field, operator: "in", values: normalized });
+      for (const value of normalized) {
+        searchFilters.push({ field, operator: "equals", value });
+      }
+    }
+    const matched = await searchPylonAccountsWithFilters(
       searchFilters,
       "pylon-sentiment-search",
-      { maxPages: 10 },
+      { maxPages: 10, match: matchAccounts },
     );
-    const matched = matchAccounts(searched);
     if (matched.length) return matched;
   } catch (error) {
     if (isRateLimitError(error)) throw error;

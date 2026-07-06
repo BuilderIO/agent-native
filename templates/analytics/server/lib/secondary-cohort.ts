@@ -3,15 +3,14 @@ import { z } from "zod";
 import { scopedCredentialCacheKey } from "./credentials-context";
 import {
   batchGetAssociations,
+  getAllDeals,
   getDealOwners,
   readHubSpotObjects,
-  searchHubSpotCompaniesByProperty,
-  searchHubSpotDealsByPropertyValues,
   type Deal,
   type HubSpotObjectRecord,
 } from "./hubspot";
 import {
-  getPylonSentimentMapForCohort,
+  getPylonSentimentMap,
   isRiskSentiment,
   type PylonSentimentEntry,
   type PylonSentimentMap,
@@ -26,6 +25,8 @@ function normalizeSecondaryCohortInput(input: unknown): unknown {
     dealProperty: raw.dealProperty ?? raw.statusProperty,
     dealPropertyValues: raw.dealPropertyValues ?? raw.activeStatusValues,
     pylonSentimentValues: raw.pylonSentimentValues ?? raw.pylonRiskSentiments,
+    excludePastCloseDateForRollup:
+      raw.excludePastCloseDateForRollup ?? raw.excludePastCloseDate,
   };
 }
 
@@ -44,6 +45,8 @@ export const secondaryCohortConfigSchema = z.preprocess(
     pylonSentimentValues: z.array(z.string().min(1)).min(1),
     ownerProperty: z.string().min(1),
     arrProperty: z.string().min(1),
+    /** When true, ARR/dealCount/close-date rollups use only future-dated deals. */
+    excludePastCloseDateForRollup: z.boolean().optional(),
   }),
 );
 
@@ -154,10 +157,10 @@ function isSegmentMatch(
   return info?.accountProfile === config.companySegmentValue;
 }
 
-function uniqueMatchingPylonEntries(
+function badSentimentAccountsById(
   pylonSentimentMap: PylonSentimentMap,
   config: SecondaryCohortConfig,
-): PylonSentimentEntry[] {
+): Map<string, PylonSentimentEntry> {
   const byAccountId = new Map<string, PylonSentimentEntry>();
   for (const entry of pylonSentimentMap.values()) {
     if (!isRiskSentiment(entry.sentiment, config.pylonSentimentValues))
@@ -166,87 +169,203 @@ function uniqueMatchingPylonEntries(
       byAccountId.set(entry.pylonAccountId, entry);
     }
   }
-  return Array.from(byAccountId.values());
+  return byAccountId;
 }
 
-async function fetchDealsByPropertyValues(
-  config: SecondaryCohortConfig,
-): Promise<Deal[]> {
-  const deals: Deal[] = [];
-  let after: string | undefined;
-  for (let page = 0; page < 10; page++) {
-    const result = await searchHubSpotDealsByPropertyValues({
-      propertyValues: config.dealPropertyValues,
-      propertyName: config.dealProperty,
-      limit: 100,
-      after,
-      extraProperties: [config.dealProperty],
-    });
-    deals.push(...result.deals);
-    after = result.nextAfter ?? undefined;
-    if (!after) break;
+const ALL_DEAL_CONTEXT_CACHE_TTL_MS = 10 * 60 * 1000;
+const allDealContextCache = new Map<
+  string,
+  {
+    data: { allDeals: Deal[]; companyMap: Map<string, CompanyInfo> };
+    ts: number;
   }
-  return deals;
+>();
+const allDealContextInflight = new Map<
+  string,
+  Promise<{ allDeals: Deal[]; companyMap: Map<string, CompanyInfo> }>
+>();
+
+async function getAllDealContext(config: SecondaryCohortConfig): Promise<{
+  allDeals: Deal[];
+  companyMap: Map<string, CompanyInfo>;
+}> {
+  const cacheKey = scopedCredentialCacheKey(
+    [
+      "all-deal-context",
+      config.companyRootOrgIdProperty,
+      config.companyDomainProperty,
+      config.companySegmentProperty,
+      config.dealProperty,
+      config.ownerProperty,
+      config.arrProperty,
+    ].join(":"),
+    "HUBSPOT_ACCESS_TOKEN",
+  );
+  const cached = allDealContextCache.get(cacheKey);
+  if (cached && Date.now() - cached.ts < ALL_DEAL_CONTEXT_CACHE_TTL_MS) {
+    return cached.data;
+  }
+
+  const inflight = allDealContextInflight.get(cacheKey);
+  if (inflight) return inflight;
+
+  const promise = (async () => {
+    const allDeals = await getAllDeals([
+      config.dealProperty,
+      config.ownerProperty,
+      config.arrProperty,
+      "closedate",
+      "hubspot_owner_id",
+    ]);
+    const companyMap = await buildDealCompanyMap(
+      allDeals.map((deal) => deal.id),
+      config,
+    );
+    const data = { allDeals, companyMap };
+    allDealContextCache.set(cacheKey, { data, ts: Date.now() });
+    return data;
+  })().finally(() => {
+    allDealContextInflight.delete(cacheKey);
+  });
+  allDealContextInflight.set(cacheKey, promise);
+  return promise;
 }
 
-async function findEnterpriseCompaniesForJoinKeys(
-  entries: PylonSentimentEntry[],
-  config: SecondaryCohortConfig,
-): Promise<Map<string, CompanyInfo>> {
-  const companyById = new Map<string, CompanyInfo>();
-  const rootOrgIds = Array.from(
-    new Set(
-      entries
-        .map((entry) => entry.rootOrgId)
-        .filter((value): value is string => Boolean(value)),
-    ),
-  );
-  const domains = Array.from(
-    new Set(
-      entries
-        .map((entry) => entry.domain)
-        .filter((value): value is string => Boolean(value)),
-    ),
-  );
-  const companyProps = [
-    config.companyRootOrgIdProperty,
-    config.companyDomainProperty,
-    config.companySegmentProperty,
-  ];
+function isFutureCloseDate(
+  closedate: string | null | undefined,
+  today: Date,
+): boolean {
+  if (!closedate) return true;
+  return new Date(closedate) >= today;
+}
 
-  const ingest = (records: HubSpotObjectRecord[]) => {
-    for (const company of records) {
-      const info = companyInfoFromRecord(company, config);
-      if (!isSegmentMatch(info, config)) continue;
-      companyById.set(company.id, info);
-    }
+async function computeSecondaryCohort(
+  config: SecondaryCohortConfig,
+): Promise<SecondaryCohortAccount[]> {
+  const excludePastCloseDate = config.excludePastCloseDateForRollup !== false;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  const pylonFields = {
+    sentimentField: config.pylonSentimentField,
+    rootOrgIdField: config.pylonRootOrgIdField,
+    domainField: config.pylonDomainField,
   };
 
-  for (let i = 0; i < rootOrgIds.length; i += 50) {
-    ingest(
-      await searchHubSpotCompaniesByProperty({
-        propertyName: config.companyRootOrgIdProperty,
-        operator: "IN",
-        values: rootOrgIds.slice(i, i + 50),
-        properties: companyProps,
-        limit: 100,
-      }),
+  const [pylonSentimentMap, dealContext, owners] = await Promise.all([
+    // Full map (all sentiments) — join lookups must resolve Pylon accounts even
+    // when sentiment is not in the secondary cohort filter (e.g. already flagged).
+    getPylonSentimentMap(pylonFields),
+    getAllDealContext(config),
+    getDealOwners(),
+  ]);
+  const { allDeals, companyMap: allDealCompanyMap } = dealContext;
+
+  const badSentimentAccounts = badSentimentAccountsById(
+    pylonSentimentMap,
+    config,
+  );
+  if (!badSentimentAccounts.size) return [];
+
+  // Scan all HubSpot deals for primary-property matches — not only a bounded
+  // CRM search page — so secondary cohort excludes accounts already flagged.
+  const hubspotFlaggedPylonIds = new Set<string>();
+  for (const deal of allDeals) {
+    const status = strOrNull(deal.properties[config.dealProperty]);
+    if (!status || !config.dealPropertyValues.includes(status)) continue;
+    const entry = lookupPylon(
+      allDealCompanyMap.get(deal.id),
+      pylonSentimentMap,
     );
+    if (entry) hubspotFlaggedPylonIds.add(entry.pylonAccountId);
   }
 
-  for (let i = 0; i < domains.length; i += 50) {
-    ingest(
-      await searchHubSpotCompaniesByProperty({
-        propertyName: config.companyDomainProperty,
-        operator: "IN",
-        values: domains.slice(i, i + 50),
-        properties: companyProps,
-        limit: 100,
-      }),
-    );
+  const enterprisePylonIds = new Set<string>();
+  for (const deal of allDeals) {
+    const company = allDealCompanyMap.get(deal.id);
+    if (!isSegmentMatch(company, config)) continue;
+    const entry = lookupPylon(company, pylonSentimentMap);
+    if (entry) enterprisePylonIds.add(entry.pylonAccountId);
   }
 
-  return companyById;
+  type DealRollup = {
+    closedate: string | null;
+    arr: number | null;
+    csmName: string | null;
+  };
+
+  const accountDeals = new Map<string, DealRollup[]>();
+  for (const deal of allDeals) {
+    const company = allDealCompanyMap.get(deal.id);
+    if (!isSegmentMatch(company, config)) continue;
+    const entry = lookupPylon(company, pylonSentimentMap);
+    if (
+      !entry ||
+      !isRiskSentiment(entry.sentiment, config.pylonSentimentValues) ||
+      hubspotFlaggedPylonIds.has(entry.pylonAccountId)
+    ) {
+      continue;
+    }
+    if (
+      excludePastCloseDate &&
+      !isFutureCloseDate(deal.properties.closedate, today)
+    ) {
+      continue;
+    }
+
+    const ownerId = String(
+      deal.properties[config.ownerProperty] ??
+        deal.properties.hubspot_owner_id ??
+        "",
+    );
+    const existing = accountDeals.get(entry.pylonAccountId) ?? [];
+    existing.push({
+      closedate: deal.properties.closedate ?? null,
+      arr: toNumber(deal.properties[config.arrProperty]),
+      csmName: ownerId ? (owners[ownerId] ?? null) : null,
+    });
+    accountDeals.set(entry.pylonAccountId, existing);
+  }
+
+  const results: SecondaryCohortAccount[] = [];
+  for (const [pylonAccountId, entry] of badSentimentAccounts) {
+    if (hubspotFlaggedPylonIds.has(pylonAccountId)) continue;
+    if (!enterprisePylonIds.has(pylonAccountId)) continue;
+
+    const deals = accountDeals.get(pylonAccountId) ?? [];
+    deals.sort((a, b) => {
+      if (!a.closedate && !b.closedate) return 0;
+      if (!a.closedate) return 1;
+      if (!b.closedate) return -1;
+      return new Date(a.closedate).getTime() - new Date(b.closedate).getTime();
+    });
+
+    const soonest = deals[0] ?? null;
+    const totalArr =
+      deals.reduce((sum, deal) => sum + (deal.arr ?? 0), 0) || null;
+
+    results.push({
+      pylonAccountId,
+      accountName: entry.accountName || pylonAccountId,
+      pylonSentiment: entry.sentiment,
+      csmName: soonest?.csmName ?? null,
+      totalArr,
+      earliestClosedate: soonest?.closedate ?? null,
+      dealCount: deals.length,
+    });
+  }
+
+  results.sort((a, b) => {
+    if (!a.earliestClosedate && !b.earliestClosedate) return 0;
+    if (!a.earliestClosedate) return 1;
+    if (!b.earliestClosedate) return -1;
+    return (
+      new Date(a.earliestClosedate).getTime() -
+      new Date(b.earliestClosedate).getTime()
+    );
+  });
+
+  return results;
 }
 
 const SECONDARY_COHORT_CACHE_TTL_MS = 10 * 60 * 1000;
@@ -262,149 +381,16 @@ const secondaryCohortInflight = new Map<
 function secondaryCohortCacheKey(config: SecondaryCohortConfig): string {
   return scopedCredentialCacheKey(
     [
-      "secondary-cohort:v3",
+      "secondary-cohort:v6",
       config.pylonSentimentField,
       config.pylonSentimentValues.join(","),
       config.companySegmentValue,
       config.dealProperty,
       config.dealPropertyValues.join(","),
+      String(config.excludePastCloseDateForRollup !== false),
     ].join(":"),
     "HUBSPOT_ACCESS_TOKEN",
   );
-}
-
-async function computeSecondaryCohort(
-  config: SecondaryCohortConfig,
-): Promise<SecondaryCohortAccount[]> {
-  const [pylonSentimentMap, flaggedDeals, owners] = await Promise.all([
-    getPylonSentimentMapForCohort(
-      {
-        sentimentField: config.pylonSentimentField,
-        rootOrgIdField: config.pylonRootOrgIdField,
-        domainField: config.pylonDomainField,
-      },
-      config.pylonSentimentValues,
-    ),
-    fetchDealsByPropertyValues(config),
-    getDealOwners(),
-  ]);
-
-  const riskEntries = uniqueMatchingPylonEntries(pylonSentimentMap, config);
-  if (!riskEntries.length) return [];
-
-  const flaggedCompanyMap = await buildDealCompanyMap(
-    flaggedDeals.map((deal) => deal.id),
-    config,
-  );
-  const flaggedPylonAccountIds = new Set<string>();
-  for (const deal of flaggedDeals) {
-    const entry = lookupPylon(
-      flaggedCompanyMap.get(deal.id),
-      pylonSentimentMap,
-    );
-    if (entry) flaggedPylonAccountIds.add(entry.pylonAccountId);
-  }
-
-  const candidateEntries = riskEntries.filter(
-    (entry) => !flaggedPylonAccountIds.has(entry.pylonAccountId),
-  );
-  if (!candidateEntries.length) return [];
-
-  const companyById = await findEnterpriseCompaniesForJoinKeys(
-    candidateEntries,
-    config,
-  );
-  if (!companyById.size) return [];
-
-  const companyToDeals = await batchGetAssociations({
-    fromObjectType: "companies",
-    toObjectType: "deals",
-    fromObjectIds: Array.from(companyById.keys()),
-  });
-
-  const dealIds = Array.from(
-    new Set(Array.from(companyToDeals.values()).flat()),
-  );
-  if (!dealIds.length) return [];
-
-  const dealRecords = await readHubSpotObjects({
-    objectType: "deals",
-    ids: dealIds,
-    properties: [
-      config.ownerProperty,
-      config.arrProperty,
-      "closedate",
-      "hubspot_owner_id",
-    ],
-  });
-  const dealById = new Map(
-    dealRecords.map((record) => [
-      record.id,
-      {
-        id: record.id,
-        properties: record.properties as Deal["properties"],
-      } satisfies Deal,
-    ]),
-  );
-
-  interface Accumulator extends SecondaryCohortAccount {
-    earliestCloseMs: number;
-  }
-
-  const byAccountId = new Map<string, Accumulator>();
-
-  for (const [companyId, company] of companyById) {
-    const entry = lookupPylon(company, pylonSentimentMap);
-    if (
-      !entry ||
-      !isRiskSentiment(entry.sentiment, config.pylonSentimentValues) ||
-      flaggedPylonAccountIds.has(entry.pylonAccountId)
-    ) {
-      continue;
-    }
-
-    for (const dealId of companyToDeals.get(companyId) ?? []) {
-      const deal = dealById.get(dealId);
-      if (!deal) continue;
-
-      const props = deal.properties;
-      const ownerId = String(
-        props[config.ownerProperty] ?? props.hubspot_owner_id ?? "",
-      );
-      const arr = toNumber(props[config.arrProperty]) ?? 0;
-      const closedate = props.closedate ?? null;
-      const closeMs = closedate ? Date.parse(closedate) : NaN;
-
-      const existing = byAccountId.get(entry.pylonAccountId);
-      if (!existing) {
-        byAccountId.set(entry.pylonAccountId, {
-          pylonAccountId: entry.pylonAccountId,
-          accountName: entry.accountName,
-          pylonSentiment: entry.sentiment,
-          csmName: ownerId ? (owners[ownerId] ?? null) : null,
-          totalArr: arr,
-          earliestClosedate: closedate,
-          dealCount: 1,
-          earliestCloseMs: Number.isFinite(closeMs) ? closeMs : Infinity,
-        });
-        continue;
-      }
-
-      existing.totalArr = (existing.totalArr ?? 0) + arr;
-      existing.dealCount += 1;
-      if (!existing.csmName && ownerId) {
-        existing.csmName = owners[ownerId] ?? null;
-      }
-      if (Number.isFinite(closeMs) && closeMs < existing.earliestCloseMs) {
-        existing.earliestCloseMs = closeMs;
-        existing.earliestClosedate = closedate;
-      }
-    }
-  }
-
-  const results = Array.from(byAccountId.values());
-  results.sort((a, b) => a.earliestCloseMs - b.earliestCloseMs);
-  return results.map(({ earliestCloseMs: _earliestCloseMs, ...rest }) => rest);
 }
 
 /** Join a secondary provider cohort to HubSpot deals; exclude primary-property matches. */

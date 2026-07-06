@@ -378,6 +378,7 @@ export function buildExtensionHtml(
 	    var EXTENSION_ACTION_TIMEOUT_MS = {
 	      'build-secondary-cohort': 360000,
 	      'hubspot-deals': 90000,
+	      'pylon-accounts': 180000,
 	    };
 
 	    function actionRequestTimeoutMs(name, callOptions) {
