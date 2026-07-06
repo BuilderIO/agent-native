@@ -31,7 +31,14 @@ import {
   IconLink,
   IconMail,
 } from "@tabler/icons-react";
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 
 import {
   CopyField,
@@ -291,25 +298,55 @@ function LinkTab({
   const visibility: Visibility =
     (data?.visibility as Visibility | null) ?? "private";
   const isPublic = visibility === "public";
+  const sharesLoaded = data !== undefined;
   const isLoomRecording = isLoomRecordingProp || isLoomEmbedUrl(videoUrl);
   const createAgentLink = useActionMutation(
     "create-recording-agent-link" as any,
   );
+  const createAgentLinkAsyncRef = useRef(createAgentLink.mutateAsync);
+  const agentLinkRequestIdRef = useRef(0);
   const [agentContextUrl, setAgentContextUrl] = useState("");
+  const [agentLinkError, setAgentLinkError] = useState(false);
+
+  useEffect(() => {
+    createAgentLinkAsyncRef.current = createAgentLink.mutateAsync;
+  });
+
+  const loadAgentContextUrl = useCallback(async () => {
+    const requestId = agentLinkRequestIdRef.current + 1;
+    agentLinkRequestIdRef.current = requestId;
+
+    setAgentContextUrl("");
+    setAgentLinkError(false);
+
+    try {
+      const result = (await createAgentLinkAsyncRef.current({
+        recordingId,
+      })) as { url?: string };
+      if (agentLinkRequestIdRef.current !== requestId) return;
+      if (result?.url) {
+        setAgentContextUrl(result.url);
+      } else {
+        setAgentLinkError(true);
+      }
+    } catch {
+      if (agentLinkRequestIdRef.current === requestId) {
+        setAgentLinkError(true);
+      }
+    }
+  }, [recordingId]);
 
   useEffect(() => {
     setAgentContextUrl("");
-  }, [recordingId, visibility]);
+    setAgentLinkError(false);
+    if (!sharesLoaded) return;
 
-  async function handleCreateAgentLink() {
-    if (createAgentLink.isPending) return;
-    const result = (await createAgentLink.mutateAsync({
-      recordingId,
-    })) as { url?: string };
-    if (!result?.url) return;
-    setAgentContextUrl(result.url);
-    copyToClipboard(result.url);
-  }
+    void loadAgentContextUrl();
+
+    return () => {
+      agentLinkRequestIdRef.current += 1;
+    };
+  }, [recordingId, visibility, sharesLoaded, loadAgentContextUrl]);
 
   const agentShareDisabled =
     isPending || createAgentLink.isPending || !agentContextUrl;
@@ -338,26 +375,28 @@ function LinkTab({
       {isPublic ? <SlackShareHint canManage={canManage} /> : null}
 
       <div className="space-y-2">
-        <div className="flex items-end justify-between gap-2">
-          <div className="text-xs font-medium text-muted-foreground">
-            {t("shareDialog.shareWithAgents")}
-          </div>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            className="h-7"
-            onClick={() => void handleCreateAgentLink()}
-            disabled={isPending || createAgentLink.isPending}
-          >
-            {t("shareUi.copy")}
-          </Button>
-        </div>
         <CopyField
-          label=""
+          label={t("shareDialog.shareWithAgents")}
           value={agentContextUrl}
           disabled={agentShareDisabled}
         />
+        {agentLinkError ? (
+          <div className="flex items-center justify-between gap-2 rounded-md border border-border bg-muted/40 px-3 py-2">
+            <p className="text-xs text-muted-foreground">
+              {t("shareDialog.agentLinkUnavailable")}
+            </p>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="h-7"
+              onClick={() => void loadAgentContextUrl()}
+              disabled={createAgentLink.isPending}
+            >
+              {t("shareDialog.retryAgentLink")}
+            </Button>
+          </div>
+        ) : null}
       </div>
 
       <CopyField
