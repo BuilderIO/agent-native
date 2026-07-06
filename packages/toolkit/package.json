@@ -69,14 +69,15 @@
       "types": "./dist/utils.d.ts",
       "import": "./dist/utils.js",
       "default": "./dist/utils.js"
-    }
+    },
+    "./styles.css": "./dist/styles.css"
   },
   "publishConfig": {
     "access": "public",
     "provenance": true
   },
   "scripts": {
-    "build": "tsgo",
+    "build": "tsgo && node scripts/finalize-build.mjs",
     "prepublishOnly": "npm run build",
     "typecheck": "tsgo --noEmit"
   },
