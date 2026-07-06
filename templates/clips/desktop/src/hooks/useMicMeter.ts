@@ -14,6 +14,22 @@ const VIEW_H = 24;
 const CENTER_Y = VIEW_H / 2;
 const MAX_AMP = 11; // peak deflection from center, leaves a little headroom
 const FLAT_LINE = `M 0 ${CENTER_Y} L ${VIEW_W} ${CENTER_Y}`;
+const activeMeterCleanups = new Set<() => void>();
+
+function meterAudioConstraints(deviceId: string): MediaTrackConstraints {
+  return {
+    ...(deviceId ? { deviceId: { exact: deviceId } } : {}),
+    echoCancellation: false,
+    noiseSuppression: false,
+    autoGainControl: false,
+  };
+}
+
+export function stopAllMicMeters(): void {
+  for (const stop of Array.from(activeMeterCleanups)) {
+    stop();
+  }
+}
 
 // Build a smooth wave path from 0..1 levels. Points alternate above/below the
 // center line so the result reads as an oscillating waveform (not a one-sided
@@ -87,16 +103,32 @@ export function useMicMeter({
   const pathRef = useRef<SVGPathElement | null>(null);
 
   useEffect(() => {
-    if (!active) return;
+    if (!active) {
+      flatten(pathRef.current);
+      return;
+    }
     let stream: MediaStream | null = null;
     let audioCtx: AudioContext | null = null;
     let timer: ReturnType<typeof setInterval> | null = null;
     let cancelled = false;
+    let cleaned = false;
+
+    const cleanup = () => {
+      if (cleaned) return;
+      cleaned = true;
+      cancelled = true;
+      if (timer) clearInterval(timer);
+      if (audioCtx) audioCtx.close().catch(() => {});
+      if (stream) stream.getTracks().forEach((t) => t.stop());
+      activeMeterCleanups.delete(cleanup);
+      flatten(pathRef.current);
+    };
+    activeMeterCleanups.add(cleanup);
 
     const start = async () => {
       try {
         stream = await navigator.mediaDevices.getUserMedia({
-          audio: deviceId ? { deviceId: { exact: deviceId } } : true,
+          audio: meterAudioConstraints(deviceId),
           video: false,
         });
         if (cancelled) {
@@ -118,14 +150,7 @@ export function useMicMeter({
     };
 
     void start();
-
-    return () => {
-      cancelled = true;
-      if (timer) clearInterval(timer);
-      if (audioCtx) audioCtx.close().catch(() => {});
-      if (stream) stream.getTracks().forEach((t) => t.stop());
-      flatten(pathRef.current);
-    };
+    return cleanup;
   }, [active, deviceId]);
 
   return pathRef;
