@@ -1411,10 +1411,9 @@ pub async fn paste_last_dictation(app: AppHandle) -> Result<(), String> {
 }
 
 /// Shared insertion path for both a fresh dictation completion and the
-/// paste-last-dictation recall. Targets whatever app is frontmost *now*
-/// (not necessarily the app that was frontmost during the original
-/// dictation) — simplest and safest since the remembered voice-target
-/// bundle can be stale by the time the user invokes recall.
+/// paste-last-dictation recall. Recall can fire long after the original
+/// dictation, so it always targets the live frontmost app. Only same-session
+/// completion is allowed to reactivate the remembered voice target.
 fn insert_text_for_frontmost(
     app: &AppHandle,
     trimmed: &str,
@@ -1423,7 +1422,11 @@ fn insert_text_for_frontmost(
     #[cfg(target_os = "macos")]
     let frontmost_bundle_id = frontmost_bundle_identifier();
     #[cfg(target_os = "macos")]
-    let voice_target_bundle_id = remembered_voice_target_bundle(app);
+    let voice_target_bundle_id = if caller == "paste_last_dictation" {
+        None
+    } else {
+        remembered_voice_target_bundle(app)
+    };
     #[cfg(target_os = "macos")]
     let trimmed = strip_trailing_period_for_messaging(
         trimmed,
@@ -1905,11 +1908,20 @@ pub static QUIT_TEARDOWN_STATE: std::sync::atomic::AtomicU8 = std::sync::atomic:
 /// asks Tauri to exit again — this second `app.exit(0)` is the one that
 /// actually terminates the process, since the `ExitRequested` handler only
 /// calls `prevent_exit()` on the FIRST pass (gated on this same atomic).
+///
+/// compare_exchange (not load-then-store) so this and lib.rs's 3s watchdog
+/// can't both observe state==1 and both call `app.exit()` — only whichever
+/// wins the CAS proceeds. If this loses the race (watchdog already fired),
+/// there's nothing left to do: the process is already exiting.
 #[tauri::command]
 pub async fn quit_teardown_done(app: AppHandle) -> Result<(), String> {
-    eprintln!("[clips-tray] quit_teardown_done — meeting teardown finished, exiting");
-    QUIT_TEARDOWN_STATE.store(2, Ordering::SeqCst);
-    app.exit(0);
+    if QUIT_TEARDOWN_STATE
+        .compare_exchange(1, 2, Ordering::SeqCst, Ordering::SeqCst)
+        .is_ok()
+    {
+        eprintln!("[clips-tray] quit_teardown_done — meeting teardown finished, exiting");
+        app.exit(0);
+    }
     Ok(())
 }
 

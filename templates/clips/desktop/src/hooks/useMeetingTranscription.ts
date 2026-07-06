@@ -206,14 +206,22 @@ export function useMeetingTranscription({
             console.warn("[clips-popover] open meeting in web failed:", err);
           });
         }
-        await invoke("recording_pill_hide").catch(() => {});
-        await invoke("set_recording_state", { active: false }).catch(() => {});
-        await invoke("set_meeting_active", { active: false }).catch(() => {});
+        // Guard the shared Rust-side state writes and sessionRef null-out by
+        // identity. App quit and other callers can still race a stop against a
+        // new start that slips in between awaits, and stale teardown must not
+        // clobber the session that has since taken over.
+        if (sessionRef.current === session) {
+          await invoke("recording_pill_hide").catch(() => {});
+          await invoke("set_recording_state", { active: false }).catch(
+            () => {},
+          );
+          await invoke("set_meeting_active", { active: false }).catch(() => {});
+          sessionRef.current = null;
+        }
         emit("meetings:transcription-stopped", {
           meetingId: session.meetingId,
           reason,
         }).catch(() => {});
-        sessionRef.current = null;
       })();
       stopInFlightRef.current = run;
       try {
@@ -235,11 +243,15 @@ export function useMeetingTranscription({
       if (!meetingId) return;
 
       const existing = sessionRef.current;
-      if (existing && !existing.stopping) {
-        if (existing.meetingId === meetingId) {
+      if (existing) {
+        if (!existing.stopping && existing.meetingId === meetingId) {
           emit("meetings:hide-notification", { meetingId }).catch(() => {});
           return;
         }
+        // Always await the existing teardown before starting a new session,
+        // even if it is already stopping. stopTranscription coalesces through
+        // stopInFlightRef, so awaiting an already-stopping session joins the
+        // in-flight promise instead of running teardown twice.
         await stopTranscription("replaced");
       }
 

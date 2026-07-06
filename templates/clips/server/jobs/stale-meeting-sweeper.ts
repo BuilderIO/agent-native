@@ -25,6 +25,13 @@
  * whether transcript text exists, and flip the linked recording out of
  * 'uploading'. Exported so `actions/delete-meeting.ts` can reuse the same
  * close-out logic when trashing a meeting that's still live.
+ *
+ * A second, independent pass (`sweepStalePendingFinalizes`) reconciles
+ * meetings stranded in transcriptStatus='pending' by a server crash
+ * mid-finalize. This predicate deliberately does not require `actualEnd IS
+ * NULL`: a meeting reaching the finalize CAS already has `actualEnd` stamped,
+ * so gating on live-meeting shape would never match. Restoring to 'failed'
+ * unblocks both manual "Regenerate notes" and an ordinary finalize retry.
  */
 
 import { runWithRequestContext } from "@agent-native/core/server/request-context";
@@ -34,6 +41,9 @@ import { getDb, schema } from "../db/index.js";
 
 const SWEEP_INTERVAL_MS = 5 * 60 * 1000; // 5 min
 const STALE_THRESHOLD_MS = 60 * 60 * 1000; // 60 min of zero transcript activity
+// A finalize claim with no update in this long is presumed crashed, not merely
+// a slow Gemini call. Mirrors finalize-meeting.ts's force-takeover window.
+const PENDING_STALE_MS = 2 * 60 * 1000; // 2 min
 let skippingLogged = false;
 
 /**
@@ -82,6 +92,52 @@ export async function closeOutStaleMeeting(args: {
           eq(schema.recordings.status, "uploading"),
         ),
       );
+  }
+}
+
+/**
+ * Restore any meeting stuck in transcriptStatus='pending' for longer than
+ * PENDING_STALE_MS back to 'failed'. Deliberately independent of `actualEnd`
+ * because meetings reach the finalize CAS only after `actualEnd` is already
+ * stamped. CAS-guarded on transcriptStatus='pending' so this can't race a
+ * finalize call that completes concurrently.
+ */
+async function sweepStalePendingFinalizes(db: ReturnType<typeof getDb>) {
+  const staleBefore = new Date(Date.now() - PENDING_STALE_MS).toISOString();
+  const stuck = await db
+    .select({ id: schema.meetings.id, updatedAt: schema.meetings.updatedAt })
+    .from(schema.meetings)
+    .where(
+      and(
+        eq(schema.meetings.transcriptStatus, "pending"),
+        lt(schema.meetings.updatedAt, staleBefore),
+      ),
+    );
+
+  for (const meeting of stuck) {
+    try {
+      const nowIso = new Date().toISOString();
+      const restored = await db
+        .update(schema.meetings)
+        .set({ transcriptStatus: "failed", updatedAt: nowIso })
+        .where(
+          and(
+            eq(schema.meetings.id, meeting.id),
+            eq(schema.meetings.transcriptStatus, "pending"),
+          ),
+        )
+        .returning({ id: schema.meetings.id });
+      if (restored.length) {
+        console.log(
+          `[stale-meeting-sweeper] restored crash-stranded pending finalize ${meeting.id} (stuck since ${meeting.updatedAt})`,
+        );
+      }
+    } catch (err: any) {
+      console.warn(
+        `[stale-meeting-sweeper] failed to restore stuck-pending ${meeting.id}:`,
+        err?.message ?? err,
+      );
+    }
   }
 }
 
@@ -151,6 +207,16 @@ export async function runStaleMeetingSweepOnce(): Promise<void> {
     } catch (err: any) {
       // Best-effort — must never crash the host process.
       console.warn(`[stale-meeting-sweeper] tick failed:`, err?.message ?? err);
+    }
+
+    try {
+      await sweepStalePendingFinalizes(db);
+    } catch (err: any) {
+      // Best-effort — must never crash the host process.
+      console.warn(
+        `[stale-meeting-sweeper] pending-finalize sweep failed:`,
+        err?.message ?? err,
+      );
     }
   });
 }

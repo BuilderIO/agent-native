@@ -281,6 +281,17 @@ pub fn set_dictation_active_and_sync_escape(app: &AppHandle, active: bool) {
     sync_dictation_escape_shortcut(app.clone(), active);
 }
 
+/// Hands-free dictation outlives the physical key press that started it, while
+/// the physical key-edge handlers disarm Escape as soon as the triggering key
+/// is released. The webview calls this command when hands-free mode starts or
+/// ends so Escape stays armed for the whole hands-free session. `hide_flow_bar`
+/// remains the final safety net and unconditionally disarms on teardown.
+#[tauri::command]
+pub fn set_dictation_escape_active(app: AppHandle, active: bool) -> Result<(), String> {
+    set_dictation_active_and_sync_escape(&app, active);
+    Ok(())
+}
+
 /// Register/unregister the global Escape shortcut so it only intercepts Esc
 /// while a dictation session is actually active — mirrors
 /// `install_popover_dismiss_handler`'s register-on-demand pattern (same

@@ -561,6 +561,22 @@ export function installDesktopVoiceDictation(
   const HANDS_FREE_UPGRADE_WINDOW_MS = 400;
   const unlistens: Array<() => void> = [];
 
+  // Hands-free sessions outlive the physical key press that started them, but
+  // Rust's Escape registration is otherwise driven by physical key edges and
+  // disarms when the triggering key is released. Route every hands-free state
+  // transition through this helper so Escape remains armed for the whole
+  // hands-free session and disarms on every exit path.
+  const setHandsFreeActive = (active: boolean) => {
+    if (handsFreeActive === active) return;
+    handsFreeActive = active;
+    invoke("set_dictation_escape_active", { active }).catch((err) => {
+      console.warn(
+        "[voice-dictation] set_dictation_escape_active failed:",
+        err,
+      );
+    });
+  };
+
   const acceptsShortcut = (source: VoiceShortcutSource | undefined) => {
     if (!source) return shortcut === "both";
     if (shortcut === "both") return true;
@@ -750,6 +766,9 @@ export function installDesktopVoiceDictation(
       console.error("[voice-dictation] start failed", err);
       startInFlight = false;
       stopRequestedBeforeReady = false;
+      // A failed start must not leave hands-free mode latched without a
+      // session; the next shortcut would otherwise try to stop a null session.
+      setHandsFreeActive(false);
       setFlowState("error");
       window.setTimeout(() => {
         if (disposed || session) return;
@@ -815,6 +834,13 @@ export function installDesktopVoiceDictation(
   ): Promise<string> => {
     const original = rawText.trim();
     if (!original) return "";
+    // Install the late-final hook before any await below. Native final text can
+    // arrive while cleanup or paste completion is still in flight, and the
+    // hook lets it update history before the first save wins.
+    target.onLateFinalText = (lateText) => {
+      if (target.historySaved) return;
+      saveDictationHistory(target, lateText, lateText);
+    };
     let text = original;
     if (target.cleanupProvider) {
       setFlowState("processing");
@@ -863,17 +889,9 @@ export function installDesktopVoiceDictation(
       console.warn("[voice-dictation] vocab learn-monitor failed:", err);
     }
     saveDictationHistory(target, original, text);
-    // D3: if the safety-timeout already pasted a partial and a late final
-    // subsequently lands, let it improve the just-saved history row instead
-    // of silently being dropped. Simplest-correct: only fires once, and
-    // only if we haven't already saved a (necessarily better/equal) row —
-    // saveDictationHistory's own guard makes this a no-op after the first
-    // call, so skipping an update here on the rare double-late-final case
-    // is acceptable per the spec's "simplest correct behavior wins".
-    target.onLateFinalText = (lateText) => {
-      if (target.historySaved) return;
-      saveDictationHistory(target, lateText, lateText);
-    };
+    // onLateFinalText is wired up at the top of this function so a late final
+    // that lands mid-cleanup or mid-paste can still improve the just-saved
+    // history row instead of being dropped.
     if (target.cleanupProvider) setFlowState("idle");
     return text;
   };
@@ -1097,6 +1115,9 @@ export function installDesktopVoiceDictation(
       // when session is null (and any concurrent start would have
       // bailed on `startInFlight`).
       session = null;
+      // Same wedge as start()'s outer catch: a failed hands-free upgrade must
+      // not leave handsFreeActive stuck true.
+      setHandsFreeActive(false);
       setFlowState("error");
       window.setTimeout(() => {
         if (disposed || session) return;
@@ -1196,6 +1217,10 @@ export function installDesktopVoiceDictation(
       startInFlight = false;
       stopRequestedBeforeReady = false;
       session = null;
+      // Clear the hands-free flag alongside session so a failed
+      // native start (mic permission denial, engine-busy) can't wedge every
+      // future press into a no-op stop() branch.
+      setHandsFreeActive(false);
       setFlowState("error");
       window.setTimeout(() => {
         if (disposed || session) return;
@@ -1277,6 +1302,8 @@ export function installDesktopVoiceDictation(
       startInFlight = false;
       stopRequestedBeforeReady = false;
       session = null;
+      // See startNative's catch: must clear alongside session.
+      setHandsFreeActive(false);
       setFlowState("error");
       window.setTimeout(() => {
         if (disposed || session) return;
@@ -1477,9 +1504,11 @@ export function installDesktopVoiceDictation(
       console.error("[voice-dictation] startBrowser failed", err);
       startInFlight = false;
       stopRequestedBeforeReady = false;
-      // See note in startServer's catch — clear leaked session so the
+      // See note in startServer's catch: clear leaked session so the
       // next Fn press isn't blocked on a stale `if (session) return`.
       session = null;
+      // See startNative's catch: must clear alongside session.
+      setHandsFreeActive(false);
       setFlowState("error");
       window.setTimeout(() => {
         if (disposed || session) return;
@@ -1495,7 +1524,7 @@ export function installDesktopVoiceDictation(
     // P4: Esc (or the flow-bar X button) always exits hands-free, even if
     // there's no live session to tear down (e.g. cancel arriving in the
     // narrow gap between the terminating tap's stop() and this call).
-    handsFreeActive = false;
+    setHandsFreeActive(false);
     pendingHandsFreeTapAt = null;
     const current = session ?? lingeringSession;
     const isLingeringOnly = !!current && session !== current;
@@ -1585,6 +1614,13 @@ export function installDesktopVoiceDictation(
       if (mode === "push-to-talk" && !handsFreeActive) {
         pendingHandsFreeTapAt = Date.now();
       }
+      // If this is re-stopping a session that was just upgraded to hands-free
+      // (release-before-500ms of the upgrading press), this discard tears the
+      // session down like any other accidental tap. handsFreeActive must come
+      // down with it, or later shortcuts keep trying to stop a null session.
+      if (handsFreeActive) {
+        setHandsFreeActive(false);
+      }
       current.cancelled = true;
       if (current.kind === "browser") {
         try {
@@ -1601,10 +1637,10 @@ export function installDesktopVoiceDictation(
       return;
     }
     // P4: this stop() call is a deliberate finalize (past the accidental-tap
-    // discard above) — if it's ending a hands-free session, clear the flag
+    // discard above). If it's ending a hands-free session, clear the flag
     // now so the very next fresh press starts an ordinary push-to-talk
     // session rather than being misread as hands-free's own release.
-    handsFreeActive = false;
+    setHandsFreeActive(false);
     try {
       if (current.kind === "server") {
         current.recorder?.stop();
@@ -2066,9 +2102,22 @@ export function installDesktopVoiceDictation(
       Date.now() - pendingHandsFreeTapAt < HANDS_FREE_UPGRADE_WINDOW_MS;
     pendingHandsFreeTapAt = null;
     if (upgradeToHandsFree) {
-      handsFreeActive = true;
+      setHandsFreeActive(true);
     }
-    start(event.payload?.source);
+    void start(event.payload?.source).then(() => {
+      // Race guard: the physical key-up of this same upgrade press (a
+      // hands-free tap is typically brief) independently calls
+      // Rust's `set_dictation_active_and_sync_escape(false)` and can land
+      // after our arm-on-upgrade invoke above, disarming Escape for a
+      // session that's actually still live. Re-assert once start() has
+      // settled (by then the key-edge noise from this press is over) so
+      // the two writers can't leave Escape stuck disarmed. No-op unless
+      // still hands-free (start failed / was superseded clears the flag
+      // via setHandsFreeActive(false) already).
+      if (upgradeToHandsFree && handsFreeActive) {
+        invoke("set_dictation_escape_active", { active: true }).catch(() => {});
+      }
+    });
   })
     .then((u) => unlistens.push(u))
     .catch(() => {});
@@ -2163,7 +2212,7 @@ export function installDesktopVoiceDictation(
     shortcut = "both";
     mode = "push-to-talk";
     provider = "auto";
-    handsFreeActive = false;
+    setHandsFreeActive(false);
     pendingHandsFreeTapAt = null;
     unlistens.forEach((u) => {
       try {

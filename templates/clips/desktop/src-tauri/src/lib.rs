@@ -171,6 +171,7 @@ pub fn run() {
             // custom global shortcuts configured from Settings
             shortcuts::set_custom_shortcuts,
             shortcuts::set_fn_shortcut_enabled,
+            shortcuts::set_dictation_escape_active,
             // whisper model management
             whisper_model::whisper_model_status,
             whisper_model::whisper_model_download,
@@ -401,13 +402,23 @@ pub fn run() {
                         // If the JS side never called `quit_teardown_done`
                         // (dead webview, hung network call, etc.) force the
                         // exit anyway — quit must never hang indefinitely.
-                        if clips::QUIT_TEARDOWN_STATE.load(std::sync::atomic::Ordering::SeqCst) != 2
+                        // compare_exchange (not load-then-store) so this
+                        // watchdog and a concurrent `quit_teardown_done` call
+                        // can't both observe state==1, both transition to 2,
+                        // and both call app.exit(); only whichever wins the
+                        // CAS proceeds.
+                        if clips::QUIT_TEARDOWN_STATE
+                            .compare_exchange(
+                                1,
+                                2,
+                                std::sync::atomic::Ordering::SeqCst,
+                                std::sync::atomic::Ordering::SeqCst,
+                            )
+                            .is_ok()
                         {
                             eprintln!(
                                 "[clips-tray] quit-teardown watchdog fired — forcing exit after 3s"
                             );
-                            clips::QUIT_TEARDOWN_STATE
-                                .store(2, std::sync::atomic::Ordering::SeqCst);
                             watchdog_handle.exit(0);
                         }
                     });
