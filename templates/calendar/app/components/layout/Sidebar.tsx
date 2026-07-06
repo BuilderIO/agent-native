@@ -436,6 +436,7 @@ function GoogleAccountsSection({
   const {
     prefs: { accountColors, colorMode, singleColor },
     update: updateViewPreferences,
+    updateAccountColor,
   } = useViewPreferences();
   const [wantAddAccount, setWantAddAccount] = useState(false);
   const addAccountUrl = useGoogleAddAccountUrl(wantAddAccount);
@@ -477,13 +478,7 @@ function GoogleAccountsSection({
   }
 
   function handlePickColor(accountEmail: string, color: string) {
-    updateViewPreferences({
-      colorMode: "single",
-      accountColors: {
-        ...accountColors,
-        [accountEmail]: color,
-      },
-    });
+    updateAccountColor(accountEmail, color);
   }
 
   function handleSetColorMode(mode: CalendarColorMode) {

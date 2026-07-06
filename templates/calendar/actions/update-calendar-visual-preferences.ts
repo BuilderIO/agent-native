@@ -40,7 +40,7 @@ export default defineAction({
         .record(z.string(), hexColor)
         .optional()
         .describe(
-          "Map of connected Google Calendar account email to hex color",
+          "Replacement map of connected Google Calendar account email to hex color. Pass an empty object to clear account color overrides.",
         ),
       hideWeekends: z
         .boolean()
@@ -61,8 +61,7 @@ export default defineAction({
         ? "single"
         : undefined);
     const accountColors = {
-      ...current.accountColors,
-      ...(args.accountColors ?? {}),
+      ...(args.accountColors ?? current.accountColors),
       ...(args.accountEmail && args.accountColor
         ? { [args.accountEmail]: args.accountColor }
         : {}),

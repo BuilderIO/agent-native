@@ -1,4 +1,4 @@
-import { agentNativePath } from "@agent-native/core/client";
+import { agentNativePath, callAction } from "@agent-native/core/client";
 import { useState, useCallback, useEffect } from "react";
 
 import {
@@ -123,5 +123,43 @@ export function useViewPreferences() {
     });
   }, []);
 
-  return { prefs, update };
+  const updateAccountColor = useCallback(
+    (accountEmail: string, accountColor: string) => {
+      setPrefs((prev) => {
+        const next = normalizeCalendarViewPreferences({
+          ...prev,
+          colorMode: "single",
+          accountColors: {
+            ...prev.accountColors,
+            [accountEmail]: accountColor,
+          },
+        });
+        save(next);
+        window.dispatchEvent(new Event(CALENDAR_VIEW_PREFERENCES_CHANGE_EVENT));
+        return next;
+      });
+
+      callAction("update-calendar-visual-preferences", {
+        accountEmail,
+        accountColor,
+      })
+        .then((result) => {
+          const preferences = (result as { preferences?: unknown }).preferences;
+          if (!preferences) return;
+          const next = normalizeCalendarViewPreferences(preferences);
+          setPrefs((current) => {
+            if (calendarViewPreferencesEqual(current, next)) return current;
+            save(next);
+            window.dispatchEvent(
+              new Event(CALENDAR_VIEW_PREFERENCES_CHANGE_EVENT),
+            );
+            return next;
+          });
+        })
+        .catch(() => {});
+    },
+    [],
+  );
+
+  return { prefs, update, updateAccountColor };
 }
