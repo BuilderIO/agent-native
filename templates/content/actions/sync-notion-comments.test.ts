@@ -11,6 +11,7 @@ type Row = {
   authorEmail: string;
   authorName: string | null;
   notionCommentId: string | null;
+  notionDiscussionId: string | null;
   resolved: number;
 };
 
@@ -73,6 +74,7 @@ vi.mock("../server/db/index.js", () => {
       authorEmail: col("documentComments", "authorEmail"),
       authorName: col("documentComments", "authorName"),
       notionCommentId: col("documentComments", "notionCommentId"),
+      notionDiscussionId: col("documentComments", "notionDiscussionId"),
       resolved: col("documentComments", "resolved"),
     },
   };
