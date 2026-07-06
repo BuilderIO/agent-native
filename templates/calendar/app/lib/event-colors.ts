@@ -127,6 +127,10 @@ export function getEventDisplayColor(
   event: CalendarEvent,
   preferences?: CalendarColorPreferences,
 ): string {
+  if (event.overlayEmail && event.ownerColor) {
+    return event.ownerColor;
+  }
+
   if (
     preferences?.colorMode === "single" &&
     event.source === "google" &&

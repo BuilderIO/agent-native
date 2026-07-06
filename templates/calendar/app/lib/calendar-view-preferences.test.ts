@@ -46,7 +46,7 @@ describe("calendar view preferences", () => {
     });
   });
 
-  it("uses the single local display color without changing overlay colors", () => {
+  it("uses the single local display color without changing overlay event colors", () => {
     const preferences = {
       hideWeekends: false,
       colorMode: "single" as const,
@@ -90,13 +90,51 @@ describe("calendar view preferences", () => {
     ).toBe("#B07CC6");
   });
 
-  it("keeps overlay owner color separate from event color", () => {
+  it("uses overlay person colors for their visible event blocks", () => {
     expect(
       getEventDisplayColor({
         ...googleEvent,
         overlayEmail: "teammate@example.com",
         ownerColor: "#4ECDC4",
       }),
-    ).toBe("#5B9BD5");
+    ).toBe("#4ECDC4");
+  });
+
+  it("falls back to the event color for overlay events without a person color", () => {
+    expect(
+      getEventDisplayColor(
+        {
+          ...googleEvent,
+          overlayEmail: "teammate@example.com",
+          color: "#CD6B6B",
+        },
+        {
+          colorMode: "single",
+          singleColor: "#B07CC6",
+          accountColors: {
+            "steve@builder.io": "#4ECDC4",
+          },
+        },
+      ),
+    ).toBe("#CD6B6B");
+  });
+
+  it("keeps overlay person colors independent from connected account colors", () => {
+    expect(
+      getEventDisplayColor(
+        {
+          ...googleEvent,
+          overlayEmail: "teammate@example.com",
+          ownerColor: "#B07CC6",
+        },
+        {
+          colorMode: "single",
+          singleColor: "#CD6B6B",
+          accountColors: {
+            "steve@builder.io": "#4ECDC4",
+          },
+        },
+      ),
+    ).toBe("#B07CC6");
   });
 });
