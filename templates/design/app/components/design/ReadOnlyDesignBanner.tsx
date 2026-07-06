@@ -9,7 +9,7 @@ import { IconInfoCircle } from "@tabler/icons-react";
 export function ReadOnlyDesignBanner() {
   return (
     <div className="pointer-events-none absolute inset-x-0 bottom-0 z-30 flex items-center justify-center px-3 pb-2">
-      <div className="pointer-events-auto flex items-center gap-2 rounded-full border border-blue-500/30 bg-blue-500/10 px-3 py-1.5 text-xs text-blue-600 shadow-sm backdrop-blur-sm dark:text-blue-400">
+      <div className="flex items-center gap-2 rounded-full border border-blue-500/30 bg-blue-500/10 px-3 py-1.5 text-xs text-blue-600 shadow-sm backdrop-blur-sm dark:text-blue-400">
         <IconInfoCircle className="size-3.5 shrink-0" />
         <span className="truncate">
           {
