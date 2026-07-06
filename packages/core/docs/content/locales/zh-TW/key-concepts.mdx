@@ -237,21 +237,16 @@ export const forms = table("forms", {
 ```
 
 ```bash
-# 資料庫快速檢查和一次性維護的核心動作
+# 資料庫快速檢查的核心動作
 pnpm action db-schema                                       # show all tables
 pnpm action db-query --sql "SELECT * FROM forms"
-pnpm action db-exec --sql "UPDATE forms SET status = ? WHERE id = ?" --args '["closed","form-1"]'
-# 大型文字列上的 Surgical find/replace — 傳送差異，而不是整個值
-pnpm action db-patch --table documents --column content \
-  --where "id='doc-1'" --find "old heading" --replace "new heading"
 ```
 
-正式環境代理聊天外掛預設啟用原始資料庫寫入
-(`databaseTools: "write"`)，以便代理可以修復應用程式擁有的資料，而無需等待
-新型別的動作。這些寫入的範圍僅限於經過驗證的使用者/組織。設定
-`databaseTools: "read"` 僅保留 `db-schema` / `db-query` 檢查，或
-`databaseTools: "off"` / `false` 要求型別化應用程式 actions 取得所有資料
-存取。
+正式環境代理聊天外掛預設將原始 SQL 工具設為唯讀
+(`databaseTools: "read"`)，因此代理使用 `db-schema` / `db-query` 檢查應用程式擁有的資料，
+並透過型別化應用程式 actions 執行寫入。只有在刻意的維護介面也需要公開具範圍限制的
+`db-exec` / `db-patch` 時，才設定 `databaseTools: "write"`（或 `true`）；
+設定 `databaseTools: "off"` / `false` 可要求所有資料存取都透過型別化應用程式 actions。
 
 ## 代理聊天橋 {#agent-chat-bridge}
 

@@ -186,6 +186,34 @@ describe("document sidebar layout", () => {
     );
   });
 
+  it("persists tree section collapse state and exposes local file actions", () => {
+    const sidebar = readSidebarSource("./DocumentSidebar.tsx");
+    const localFilesRoute = readSidebarSource(
+      "../../routes/_app.local-files.tsx",
+    );
+    const messages = readSidebarSource("../../i18n-data.ts");
+    const agents = readSidebarSource("../../../AGENTS.md");
+
+    expect(sidebar).toContain("useLocalStorage");
+    expect(sidebar).toContain("content-sidebar-collapsed-sections");
+    expect(sidebar).toContain("normalizeCollapsedSections");
+    expect(sidebar).toContain("renderLocalFilesSectionActions");
+    expect(sidebar).toContain('t("sidebar.localFilesActions")');
+    expect(sidebar).toContain('t("sidebar.manageLocalFolders")');
+    expect(sidebar).toContain('t("sidebar.removeLocalFilesFromSidebar")');
+    expect(sidebar).toContain('"remove-local-file-source"');
+    expect(sidebar).toContain("setRemoveLocalFilesDialogOpen(true)");
+    expect(localFilesRoute).toContain("localSourceDirectoriesFromDocuments");
+    expect(localFilesRoute).toContain("useDocuments()");
+    expect(localFilesRoute).toContain('"remove-local-file-source"');
+    expect(localFilesRoute).toContain('t("localFiles.importedFiles"');
+    expect(localFilesRoute).toContain('t("localFiles.remove")');
+    expect(messages).toContain('localFilesActions: "Local files actions"');
+    expect(messages).toContain('manageLocalFolders: "Manage folders"');
+    expect(messages).toContain('importedSource: "Imported source"');
+    expect(agents).toContain("remove-local-file-source");
+  });
+
   it("keeps favorite rows constrained so long titles ellipsize", () => {
     const sidebar = readSidebarSource("./DocumentSidebar.tsx");
 

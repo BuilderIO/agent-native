@@ -384,24 +384,23 @@ Faites-les pivoter en remplaçant la variable d'environnement sur chaque instanc
 ## Outils d'agent de production {#production-agent-tools}
 
 Les agents de production obtiennent les outils actions enregistrés ainsi que les outils-cadres de l'application
-le plugin de chat d'agent. Les écritures de base de données sont activées par défaut car la base de données brute
-les outils sont limités à l'utilisateur/à l'organisation authentifié, mais les propriétaires d'applications peuvent restreindre l'accès
-faire surface lorsqu'un déploiement devrait être plus opiniâtre :
+le plugin de chat d'agent. L’inspection SQL est activée par défaut; les écritures
+passent par des actions d’application typées, sauf si l’application active explicitement les outils d’écriture SQL bruts :
 
 ```ts
 // server/plugins/agent-chat.ts
 export default createAgentChatPlugin({
-  // Default: "write" (also true)
+  // Default: "read"
   databaseTools: "read", // "write" | "read" | "off"
   extensionTools: false,
 });
 ```
 
-- `databaseTools: "write"` — par défaut. Registres `db-schema`, `db-query`,
-  `db-exec` et `db-patch`. Les écritures sont limitées à l'utilisateur/à l'organisation actuelle et
-  les modifications de schéma sont bloquées.
-- `databaseTools: "read"` — enregistre uniquement `db-schema` et `db-query` ; agents
-  inspectez les données avec SQL mais devez utiliser l'application typée actions pour les écritures.
+- `databaseTools: "read"` — par défaut. Enregistre uniquement `db-schema` et `db-query`;
+  les agents inspectent les données avec SQL, mais doivent utiliser les actions typées de l’application pour écrire.
+- `databaseTools: "write"` ou `true` — enregistre aussi `db-exec` et `db-patch`
+  pour une maintenance SQL brute délibérée. Les écritures sont limitées à
+  l’utilisateur/l’organisation actuel(le) et les modifications de schéma sont bloquées.
 - `databaseTools: "off"` ou `false` : supprime les outils de base de données brutes du
   surface de l'agent afin que les actions de l'application soient le seul chemin d'accès aux données.
 - `extensionTools: false` — supprime la gestion des extensions de framework actions et

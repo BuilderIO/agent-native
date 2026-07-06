@@ -29,4 +29,16 @@ describe("create-recording schema", () => {
 
     expect(parsed.success).toBe(true);
   });
+
+  it("accepts the desktop native streaming client marker", () => {
+    const parsed = createRecordingSchema.safeParse({
+      hasCamera: false,
+      hasAudio: true,
+      mimeType: "video/mp4",
+      requestStreaming: true,
+      streamingUploadClient: "desktop-native",
+    });
+
+    expect(parsed.success).toBe(true);
+  });
 });

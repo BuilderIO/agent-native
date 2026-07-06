@@ -40,7 +40,7 @@ app agent intact.
     <div class="ext-helpers">
       <span class="diagram-pill">appAction</span
       ><span class="diagram-pill">appFetch</span
-      ><span class="diagram-pill">dbQuery / dbExec</span
+      ><span class="diagram-pill">dbQuery</span
       ><span class="diagram-pill">extensionData</span
       ><span class="diagram-pill">extensionFetch</span>
     </div>
@@ -230,10 +230,10 @@ Inside the iframe sandbox, every extension has these helpers on `window`:
 
 | Helper                                           | Purpose                                                   | Example                                                   |
 | ------------------------------------------------ | --------------------------------------------------------- | --------------------------------------------------------- |
-| `appAction(name, params)`                        | Call any of the host template's actions                   | `appAction('list-emails', { view: 'inbox' })`             |
+| `appAction(name, params)`                        | Call any of the host template's actions, including writes | `appAction('list-emails', { view: 'inbox' })`             |
 | `appFetch(path, options)`                        | Call allowed framework endpoints under `/_agent-native/*` | `appFetch('/_agent-native/application-state/navigation')` |
-| `dbQuery(sql, args)`                             | Read from SQL (auto-scoped to the user)                   | `dbQuery('SELECT id, name FROM tools')`                   |
-| `dbExec(sql, args)`                              | Write to SQL                                              | `dbExec('INSERT INTO ...')`                               |
+| `dbQuery(sql, args)`                             | Read from SQL (auto-scoped to the user; never for writes) | `dbQuery('SELECT id, name FROM tools')`                   |
+| `dbExec(sql, args)`                              | Legacy trusted SQL writes for editor/admin extensions     | Prefer `appAction` for app data writes                    |
 | `extensionFetch(url, options)`                   | Hit external APIs through a secure proxy with secrets     | `extensionFetch('https://api.github.com/user')`           |
 | `extensionData.set(collection, id, data, opts?)` | Persist data per-extension (user / org scoping)           | `extensionData.set('notes', id, { text: '...' })`         |
 | `extensionData.list(collection, opts?)`          | List persisted items                                      | `extensionData.list('notes', { scope: 'all' })`           |
@@ -245,7 +245,7 @@ Inside the iframe sandbox, every extension has these helpers on `window`:
 
 Three rules of thumb:
 
-- **Prefer `appAction` over `dbQuery`.** Actions are the template's official surface — they handle access control, scoping, and validation for you. Reach for raw SQL only when no action fits.
+- **Prefer `appAction` over raw SQL.** Actions are the template's official surface — they handle access control, scoping, and validation for you. `dbQuery` is read-only; `dbExec` remains for legacy trusted editor/admin extensions, but new app data writes should go through actions.
 - **Use `appAction` for template data.** Extension `appFetch` is limited to framework `/_agent-native/*` endpoints; template `/api/*` routes are blocked by the iframe bridge.
 - **Prefer `extensionData` over making new tables.** Each extension gets its own isolated key-value store. No schema, no migration. Set `{ scope: 'org' }` to share with the user's org, `'user'` (default) for private.
 - **Use `agentNative.ui.output` for inline control values the agent should read later.** It writes `inline-ui:<extensionId>:output` to application state; `agentNative.chat.send` is for visible submit/apply messages.
@@ -581,7 +581,7 @@ Local extensions have a tighter v1 permission model:
 
 - `extensionData` is available for small runtime state unless disabled.
 - `appAction` calls must be explicitly listed in `permissions.appActions`.
-- `dbQuery`, `dbExec`, and `extensionFetch` are blocked for now.
+- `dbQuery` and `extensionFetch` are blocked for now.
 - SQL-backed update, delete, share, and history actions return a message that
   points back to the local entry file.
 
@@ -628,7 +628,8 @@ Extensions run in a sandboxed iframe:
 - **Server-side secret injection** via the `${keys.NAME}` template — the actual key value never reaches the browser.
 - **Domain-locked secrets** — each key is bound to a URL allowlist; the proxy refuses requests to other hosts.
 - **Private-network protection** — extensions can't reach internal addresses.
-- **Auth required** — extensions only run for logged-in users, and `dbQuery` / `dbExec` calls are auto-scoped.
+- **Auth required** — extensions only run for logged-in users, and `dbQuery`
+  calls are auto-scoped.
 
 ## A few things to know about naming {#naming-back-compat}
 

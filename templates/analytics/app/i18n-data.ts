@@ -798,6 +798,14 @@ const enUS = {
     sectionColumns: "Section columns",
     format: "Format",
     filterInterpolation: "Use {{example}} to interpolate filter values.",
+    dataProgram: "Data program",
+    loadingDataPrograms: "Loading data programs...",
+    selectDataProgram: "Select a data program",
+    noDataPrograms:
+      "No data programs yet. Ask the agent to save one with save-data-program, then pick it here.",
+    programParamsOptionalJson: "Params (optional JSON)",
+    programParamsHelp:
+      "Passed to the program as its frozen params global. Leave blank to use the program's saved default params.",
     descriptionOptional: "Description (optional)",
     descriptionPlaceholder: "Short description shown under the panel title",
     cancel: "Cancel",
@@ -1225,6 +1233,14 @@ const analyticsSliceTranslations: {
       sectionColumns: "剖面列",
       format: "格式",
       filterInterpolation: "使用 {{example}} 插值滤波器值。",
+      dataProgram: "数据程序",
+      loadingDataPrograms: "正在加载数据程序...",
+      selectDataProgram: "选择数据程序",
+      noDataPrograms:
+        "还没有数据程序。请代理使用 save-data-program 保存一个，然后在此选择。",
+      programParamsOptionalJson: "参数（可选 JSON）",
+      programParamsHelp:
+        "以冻结的 params 全局变量形式传递给程序。留空则使用程序已保存的默认参数。",
       descriptionOptional: "说明（可选）",
       descriptionPlaceholder: "面板标题下显示的简短说明",
       cancel: "取消",
@@ -1493,6 +1509,14 @@ const analyticsSliceTranslations: {
       format: "Formato",
       filterInterpolation:
         "Utilice {{example}} para interpolar valores de filtro.",
+      dataProgram: "Programa de datos",
+      loadingDataPrograms: "Cargando programas de datos...",
+      selectDataProgram: "Seleccionar un programa de datos",
+      noDataPrograms:
+        "Aún no hay programas de datos. Pide al agente que guarde uno con save-data-program y luego selecciónalo aquí.",
+      programParamsOptionalJson: "Parámetros (JSON opcional)",
+      programParamsHelp:
+        "Se pasa al programa como su variable global params congelada. Déjelo en blanco para usar los parámetros predeterminados guardados del programa.",
       descriptionOptional: "Descripción (opcional)",
       descriptionPlaceholder:
         "Breve descripción que se muestra debajo del título del panel.",
@@ -1776,6 +1800,14 @@ const analyticsSliceTranslations: {
       format: "Mettre en forme",
       filterInterpolation:
         "Utilisez {{example}} pour interpoler les valeurs de filtre.",
+      dataProgram: "Programme de données",
+      loadingDataPrograms: "Chargement des programmes de données...",
+      selectDataProgram: "Sélectionner un programme de données",
+      noDataPrograms:
+        "Aucun programme de données pour le moment. Demandez à l'agent d'en enregistrer un avec save-data-program, puis sélectionnez-le ici.",
+      programParamsOptionalJson: "Paramètres (JSON facultatif)",
+      programParamsHelp:
+        "Transmis au programme en tant que variable globale params figée. Laissez vide pour utiliser les paramètres par défaut enregistrés du programme.",
       descriptionOptional: "Description (facultatif)",
       descriptionPlaceholder:
         "Brève description affichée sous le titre du panneau",
@@ -2057,6 +2089,14 @@ const analyticsSliceTranslations: {
       format: "Formatieren",
       filterInterpolation:
         "Verwenden Sie {{example}}, um Filterwerte zu interpolieren.",
+      dataProgram: "Datenprogramm",
+      loadingDataPrograms: "Datenprogramme werden geladen...",
+      selectDataProgram: "Datenprogramm auswählen",
+      noDataPrograms:
+        "Noch keine Datenprogramme. Bitten Sie den Agenten, eines mit save-data-program zu speichern, und wählen Sie es dann hier aus.",
+      programParamsOptionalJson: "Parameter (optionales JSON)",
+      programParamsHelp:
+        "Wird dem Programm als eingefrorene globale params-Variable übergeben. Leer lassen, um die gespeicherten Standardparameter des Programms zu verwenden.",
       descriptionOptional: "Beschreibung (optional)",
       descriptionPlaceholder:
         "Eine kurze Beschreibung wird unter dem Paneltitel angezeigt",
@@ -2334,6 +2374,14 @@ const analyticsSliceTranslations: {
       format: "形式",
       filterInterpolation:
         "フィルタ値を補間するには、{{example}} を使用します。",
+      dataProgram: "データプログラム",
+      loadingDataPrograms: "データプログラムを読み込み中...",
+      selectDataProgram: "データプログラムを選択",
+      noDataPrograms:
+        "データプログラムはまだありません。エージェントに save-data-program で保存するよう依頼し、ここで選択してください。",
+      programParamsOptionalJson: "パラメータ (任意の JSON)",
+      programParamsHelp:
+        "固定された params グローバル変数としてプログラムに渡されます。空欄のままにするとプログラムの保存済みデフォルトパラメータが使用されます。",
       descriptionOptional: "説明 (オプション)",
       descriptionPlaceholder: "パネルのタイトルの下に短い説明が表示されます",
       cancel: "キャンセル",
@@ -2604,6 +2652,14 @@ const analyticsSliceTranslations: {
       sectionColumns: "섹션 열",
       format: "체재",
       filterInterpolation: "{{example}}를 사용하여 필터 값을 보간합니다.",
+      dataProgram: "데이터 프로그램",
+      loadingDataPrograms: "데이터 프로그램 로드 중...",
+      selectDataProgram: "데이터 프로그램 선택",
+      noDataPrograms:
+        "아직 데이터 프로그램이 없습니다. 에이전트에게 save-data-program으로 저장하도록 요청한 다음 여기에서 선택하세요.",
+      programParamsOptionalJson: "매개변수(선택적 JSON)",
+      programParamsHelp:
+        "고정된 params 전역 변수로 프로그램에 전달됩니다. 비워두면 프로그램에 저장된 기본 매개변수를 사용합니다.",
       descriptionOptional: "설명(선택사항)",
       descriptionPlaceholder: "패널 제목 아래에 간단한 설명이 표시됩니다.",
       cancel: "취소",
@@ -2874,6 +2930,14 @@ const analyticsSliceTranslations: {
       sectionColumns: "Colunas de seção",
       format: "Formatar",
       filterInterpolation: "Use {{example}} para interpolar valores de filtro.",
+      dataProgram: "Programa de dados",
+      loadingDataPrograms: "Carregando programas de dados...",
+      selectDataProgram: "Selecionar um programa de dados",
+      noDataPrograms:
+        "Ainda não há programas de dados. Peça ao agente para salvar um com save-data-program e depois selecione-o aqui.",
+      programParamsOptionalJson: "Parâmetros (JSON opcional)",
+      programParamsHelp:
+        "Passado ao programa como sua variável global params congelada. Deixe em branco para usar os parâmetros padrão salvos do programa.",
       descriptionOptional: "Descrição (opcional)",
       descriptionPlaceholder:
         "Breve descrição mostrada abaixo do título do painel",
@@ -3148,6 +3212,14 @@ const analyticsSliceTranslations: {
       format: "प्रारूप",
       filterInterpolation:
         "फ़िल्टर मानों को प्रक्षेपित करने के लिए {{example}} का उपयोग करें।",
+      dataProgram: "डेटा प्रोग्राम",
+      loadingDataPrograms: "डेटा प्रोग्राम लोड हो रहे हैं...",
+      selectDataProgram: "एक डेटा प्रोग्राम चुनें",
+      noDataPrograms:
+        "अभी तक कोई डेटा प्रोग्राम नहीं है। एजेंट से save-data-program के साथ एक सहेजने को कहें, फिर उसे यहां चुनें।",
+      programParamsOptionalJson: "पैरामीटर (वैकल्पिक JSON)",
+      programParamsHelp:
+        "इसे प्रोग्राम के जमे हुए params ग्लोबल के रूप में पास किया जाता है। प्रोग्राम के सहेजे गए डिफ़ॉल्ट पैरामीटर उपयोग करने के लिए खाली छोड़ दें।",
       descriptionOptional: "विवरण (वैकल्पिक)",
       descriptionPlaceholder: "पैनल शीर्षक के अंतर्गत संक्षिप्त विवरण दिखाया गया है",
       cancel: "रद्द करना",
@@ -3414,6 +3486,14 @@ const analyticsSliceTranslations: {
       sectionColumns: "أعمدة القسم",
       format: "شكل",
       filterInterpolation: "استخدم {{example}} لاستكمال قيم التصفية.",
+      dataProgram: "برنامج البيانات",
+      loadingDataPrograms: "جارٍ تحميل برامج البيانات...",
+      selectDataProgram: "اختر برنامج بيانات",
+      noDataPrograms:
+        "لا توجد برامج بيانات بعد. اطلب من الوكيل حفظ واحد باستخدام save-data-program، ثم اخترها هنا.",
+      programParamsOptionalJson: "المعلمات (JSON اختياري)",
+      programParamsHelp:
+        "يتم تمريرها إلى البرنامج كمتغير params عام مجمّد. اتركها فارغة لاستخدام المعلمات الافتراضية المحفوظة للبرنامج.",
       descriptionOptional: "الوصف (اختياري)",
       descriptionPlaceholder: "وصف مختصر يظهر تحت عنوان اللوحة",
       cancel: "يلغي",

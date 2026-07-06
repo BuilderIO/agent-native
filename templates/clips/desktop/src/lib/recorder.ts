@@ -93,6 +93,7 @@ const DEV_SYNTHETIC_CAPTURE_FLAG = "clips:dev-synthetic-capture";
 const LEGACY_DEV_REAL_CAPTURE_FLAG = "clips:dev-real-capture";
 const LIVE_UPLOAD_CHUNK_MS = 1_000;
 const NATIVE_FULLSCREEN_SEGMENT_MS = 5 * 60_000;
+const NATIVE_FULLSCREEN_MIME_TYPE = "video/mp4";
 // GCS resumable uploads require every non-final chunk to be a multiple of
 // 256 KiB. MediaRecorder emits arbitrary blob sizes, so on the streaming path
 // we buffer raw blobs and only PUT aligned slices; the unaligned remainder is
@@ -104,6 +105,7 @@ const STREAM_CHUNK_BYTES = 15 * GCS_CHUNK_ALIGN_BYTES; // 3.75 MiB
 //  - "streaming" — server has a resumable session; flush aligned chunks live.
 //  - "buffered"  — per-blob chunks staged server-side, assembled on finalize.
 type UploadMode = "streaming" | "buffered";
+type StreamingUploadClient = "desktop-native";
 const CLOUD_CAPTURE_FRAME_RATE = 24;
 const CLOUD_CAPTURE_MAX_WIDTH = 1920;
 const CLOUD_CAPTURE_MAX_HEIGHT = 1080;
@@ -903,7 +905,11 @@ async function createServerRecording(
   hasCamera: boolean,
   hasAudio: boolean,
   titleContext?: CaptureTitleResult,
-  options?: { mimeType?: string; requestStreaming?: boolean },
+  options?: {
+    mimeType?: string;
+    requestStreaming?: boolean;
+    streamingUploadClient?: StreamingUploadClient;
+  },
 ) {
   const url = `${serverUrl.replace(/\/+$/, "")}/_agent-native/actions/create-recording`;
   console.log("[clips-recorder] POST", url, {
@@ -928,7 +934,11 @@ async function createServerRecording(
         spaceIds: [],
         visibility: "public",
         ...(options?.requestStreaming
-          ? { requestStreaming: true, mimeType: options.mimeType }
+          ? {
+              requestStreaming: true,
+              mimeType: options.mimeType,
+              streamingUploadClient: options.streamingUploadClient,
+            }
           : {}),
         ...(titleContext
           ? {
@@ -1255,6 +1265,7 @@ const CHUNK_UPLOAD_RETRY_BASE_MS = 250;
 // awaits all in-flight chunks — indefinitely. Bound each attempt so a stall
 // is treated as a retryable failure instead.
 const CHUNK_UPLOAD_TIMEOUT_MS = 60_000;
+const FINALIZE_UPLOAD_TIMEOUT_MS = 180_000;
 
 // Only transient server responses are worth retrying inline; a 4xx (bad
 // request, auth, not found) won't fix itself on the next attempt.
@@ -1653,6 +1664,24 @@ function showFinalizingFeedback() {
   );
 }
 
+async function claimNativeUploadOpen(recordingId: string): Promise<boolean> {
+  return invoke<boolean>("native_fullscreen_claim_upload_open", {
+    recordingId,
+  }).catch(() => true);
+}
+
+async function openNativeUploadUrl(
+  recordingId: string,
+  url: string,
+): Promise<void> {
+  if (!(await claimNativeUploadOpen(recordingId))) return;
+  try {
+    await openExternal(url);
+  } catch (err) {
+    console.error("[clips-recorder] openExternal failed:", err);
+  }
+}
+
 function abortCreatedRecordingOnCountdownCancel(
   err: unknown,
   recordingPromise: Promise<{ id: string }>,
@@ -1682,6 +1711,7 @@ async function startNativeFullscreenRecording(
   const localFolderName = localOnly ? createLocalRecordingFolderName() : "";
   const streamCleanups: Array<() => void> = [audioCue.cleanup];
   let id = "";
+  let uploadMode: UploadMode = "buffered";
   let localCameraExport: LocalRecordingExportHandle | null = null;
   let localCameraStream: MediaStream | null = null;
   let localOwnsCameraStream = false;
@@ -1812,6 +1842,11 @@ async function startNativeFullscreenRecording(
         wantsCamera,
         wantsRecordedAudio,
         captureTitle,
+        {
+          mimeType: NATIVE_FULLSCREEN_MIME_TYPE,
+          requestStreaming: true,
+          streamingUploadClient: "desktop-native",
+        },
       ).finally(() => {
         console.timeEnd("[clips-recorder] createServerRecording duration");
       });
@@ -1819,6 +1854,7 @@ async function startNativeFullscreenRecording(
       // native capture as soon as it does so setup overlaps the 3-2-1.
       const warmAndId = (async () => {
         const createRes = await recordingPromise;
+        uploadMode = createRes.uploadMode;
         await warmMic(createRes.id);
         return createRes.id;
       })();
@@ -2037,6 +2073,7 @@ async function startNativeFullscreenRecording(
             recordingId: id,
             authToken: params.authToken ?? "",
             cookie: params.cookie ?? "",
+            uploadMode,
             hasAudio: wantsRecordedAudio,
             hasCamera: wantsCamera,
           },
@@ -2048,6 +2085,9 @@ async function startNativeFullscreenRecording(
             new Promise<void>((resolve) => window.setTimeout(resolve, 15000)),
           ]);
           unlistenFinalized();
+          await invoke("set_recording_state", { active: false }).catch(
+            () => {},
+          );
 
           const capturedTranscript = await transcriptionCapture
             ?.stop()
@@ -2096,13 +2136,10 @@ async function startNativeFullscreenRecording(
                 authToken: params.authToken,
               })
             ) {
-              try {
-                await openExternal(
-                  `${params.serverUrl.replace(/\/+$/, "")}${viewUrl}`,
-                );
-              } catch (openErr) {
-                console.error("[clips-recorder] openExternal failed:", openErr);
-              }
+              await openNativeUploadUrl(
+                id,
+                `${params.serverUrl.replace(/\/+$/, "")}${viewUrl}`,
+              );
               return { recordingId: id, viewUrl };
             }
             await abortRecordingUpload(
@@ -2127,13 +2164,10 @@ async function startNativeFullscreenRecording(
             throw err;
           }
 
-          try {
-            await openExternal(
-              `${params.serverUrl.replace(/\/+$/, "")}${viewUrl}`,
-            );
-          } catch (err) {
-            console.error("[clips-recorder] openExternal failed:", err);
-          }
+          await openNativeUploadUrl(
+            uploadResult.recordingId,
+            `${params.serverUrl.replace(/\/+$/, "")}${viewUrl}`,
+          );
           return {
             recordingId: uploadResult.recordingId,
             viewUrl,
@@ -3357,6 +3391,7 @@ async function startRecordingInner(
       await invoke("hide_recording_chrome").catch((err) =>
         console.error(`[clips-recorder] hide_recording_chrome failed:`, err),
       );
+      await invoke("set_recording_state", { active: false }).catch(() => {});
 
       // Wait for any in-flight chunk uploads to settle before sending the
       // final chunk. Otherwise the server could finalize before the last
@@ -3418,6 +3453,7 @@ async function startRecordingInner(
           headers: { "Content-Type": "application/octet-stream" },
           credentials: "include",
           body: finalBody,
+          signal: AbortSignal.timeout(FINALIZE_UPLOAD_TIMEOUT_MS),
         });
         const bodyText = await finalRes.text().catch(() => "");
         console.log(

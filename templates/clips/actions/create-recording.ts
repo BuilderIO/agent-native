@@ -23,7 +23,7 @@ import {
   stringifySpaceIds,
 } from "../server/lib/recordings.js";
 import { setResumableSession } from "../server/lib/resumable-session.js";
-import { isStreamingUploadDisabled } from "../server/lib/streaming-upload-mode.js";
+import { shouldEnableStreamingUpload } from "../server/lib/streaming-upload-mode.js";
 import { createRecordingSchema } from "./lib/create-recording-schema.js";
 import { DEFAULT_RECORDING_TITLE } from "./lib/title-source.js";
 
@@ -89,7 +89,10 @@ export default defineAction({
     const uploadProvider = await getActiveFileUploadProviderForRequest();
     if (
       args.requestStreaming &&
-      !isStreamingUploadDisabled() &&
+      shouldEnableStreamingUpload({
+        client: args.streamingUploadClient,
+        mimeType: args.mimeType,
+      }) &&
       uploadProvider?.resumable
     ) {
       try {

@@ -57,10 +57,12 @@ fn build_menu_with_meetings(
         guides.always_visible,
         None::<&str>,
     )?;
+    #[cfg(debug_assertions)]
     let devtools_item =
         MenuItem::with_id(app, "devtools", "Toggle DevTools", true, Some("Cmd+Alt+I"))?;
     let quit_item = MenuItem::with_id(app, "quit", "Quit Clips", true, None::<&str>)?;
     let separator = PredefinedMenuItem::separator(app)?;
+    #[cfg(debug_assertions)]
     let menu = Menu::with_items(
         app,
         &[
@@ -71,6 +73,19 @@ fn build_menu_with_meetings(
             &paste_last_dictation_item,
             &region_guides_item,
             &devtools_item,
+            &quit_item,
+        ],
+    )?;
+    #[cfg(not(debug_assertions))]
+    let menu = Menu::with_items(
+        app,
+        &[
+            &meetings_submenu,
+            &separator,
+            &show_item,
+            &stop_item,
+            &paste_last_dictation_item,
+            &region_guides_item,
             &quit_item,
         ],
     )?;
@@ -171,15 +186,13 @@ pub fn build_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
                     // reflects the new state without waiting on the async save.
                     rebuild_tray_menu(app);
                 }
+                #[cfg(debug_assertions)]
                 "devtools" => {
-                    #[cfg(debug_assertions)]
-                    {
-                        if let Some(w) = app.get_webview_window("popover") {
-                            if w.is_devtools_open() {
-                                w.close_devtools();
-                            } else {
-                                w.open_devtools();
-                            }
+                    if let Some(w) = app.get_webview_window("popover") {
+                        if w.is_devtools_open() {
+                            w.close_devtools();
+                        } else {
+                            w.open_devtools();
                         }
                     }
                 }

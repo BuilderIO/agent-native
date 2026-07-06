@@ -457,6 +457,14 @@ const messages = {
     sectionColumns: "剖面列",
     format: "格式",
     filterInterpolation: "使用 {{example}} 插值濾波器值。",
+    dataProgram: "資料程式",
+    loadingDataPrograms: "正在載入資料程式...",
+    selectDataProgram: "選擇資料程式",
+    noDataPrograms:
+      "尚無資料程式。請代理使用 save-data-program 儲存一個，然後在此選取。",
+    programParamsOptionalJson: "參數（可選 JSON）",
+    programParamsHelp:
+      "以凍結的 params 全域變數形式傳遞給程式。留空則使用程式已儲存的預設參數。",
     descriptionOptional: "說明（可選）",
     descriptionPlaceholder: "面板標題下顯示的簡短說明",
     cancel: "取消",
