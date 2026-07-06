@@ -50,7 +50,21 @@ const CODE_AGENTS_SUBSCRIBE_TRANSCRIPT_CHANNEL =
 const CODE_AGENTS_UNSUBSCRIBE_TRANSCRIPT_CHANNEL =
   "code-agents:unsubscribe-transcript";
 const CODE_AGENTS_TRANSCRIPT_EVENTS_CHANNEL = "code-agents:transcript-events";
-const WEBVIEW_PRELOAD_PATH = `${__dirname.replace(/[/\\]$/, "")}/webview.js`;
+// Sandboxed preloads have no `__dirname` (a ReferenceError at module scope
+// kills the whole preload, so window.electronAPI never appears). Main passes
+// the preload dir via webPreferences.additionalArguments; `process.argv` is
+// available in sandboxed preloads. Fall back to `__dirname` for unsandboxed
+// contexts.
+const PRELOAD_DIR_ARG = "--agent-native-preload-dir=";
+const preloadDirFromArgv = (globalThis.process?.argv ?? [])
+  .find((arg) => arg.startsWith(PRELOAD_DIR_ARG))
+  ?.slice(PRELOAD_DIR_ARG.length);
+const preloadDir =
+  preloadDirFromArgv ??
+  (typeof __dirname !== "undefined" ? __dirname : "");
+const WEBVIEW_PRELOAD_PATH = preloadDir
+  ? `${preloadDir.replace(/[/\\]$/, "")}/webview.js`
+  : "";
 
 type CodeAgentTranscriptSubscriptionBatch = CodeAgentTranscriptResult & {
   subscriptionId?: string;

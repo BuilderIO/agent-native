@@ -1099,6 +1099,11 @@ function createWindow(): BrowserWindow {
       contextIsolation: true,
       webviewTag: true,
       webSecurity: true,
+      // Sandboxed preloads cannot use `__dirname`; hand them the preload dir
+      // so the shell preload can compute the webview preload path.
+      additionalArguments: [
+        `--agent-native-preload-dir=${path.join(__dirname, "../preload")}`,
+      ],
     },
   });
   installSentryWebContentsInstrumentation(win.webContents, {
