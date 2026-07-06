@@ -23,6 +23,7 @@
     "@libsql/client": "^0.15.0",
     "@resvg/resvg-js": "^2.6.2",
     "@tabler/icons-react": "catalog:",
+    "chrono-node": "2.9.1",
     "dotenv": "^17.2.1",
     "drizzle-orm": "^0.45.2",
     "h3": "^2.0.1-rc.20",

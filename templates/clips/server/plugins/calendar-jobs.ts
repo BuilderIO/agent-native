@@ -7,6 +7,7 @@
 
 import registerMeetingRemindersJob from "../jobs/meeting-reminders.js";
 import registerPollCalendarsJob from "../jobs/poll-calendars.js";
+import registerStaleMeetingSweeperJob from "../jobs/stale-meeting-sweeper.js";
 
 export default () => {
   // The reminder job registers the `meeting-reminder` event on every
@@ -14,4 +15,5 @@ export default () => {
   // background loop is off.
   registerMeetingRemindersJob();
   registerPollCalendarsJob();
+  registerStaleMeetingSweeperJob();
 };

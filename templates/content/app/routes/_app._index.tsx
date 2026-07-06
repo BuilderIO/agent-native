@@ -1,9 +1,9 @@
-import { Skeleton } from "@agent-native/toolkit/ui/skeleton";
 import type { Document } from "@shared/api";
 import { useEffect } from "react";
 import { useNavigate } from "react-router";
 
 import { EmptyState } from "@/components/EmptyState";
+import { Skeleton } from "@/components/ui/skeleton";
 import { useDocuments } from "@/hooks/use-documents";
 
 const SEO_TITLE =

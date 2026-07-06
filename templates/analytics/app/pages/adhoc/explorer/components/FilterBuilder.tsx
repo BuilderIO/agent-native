@@ -1,14 +1,15 @@
 import { useT } from "@agent-native/core/client";
-import { Button } from "@agent-native/toolkit/ui/button";
+import { IconPlus, IconX } from "@tabler/icons-react";
+import { useState } from "react";
+
+import { Button } from "@/components/ui/button";
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from "@agent-native/toolkit/ui/select";
-import { IconPlus, IconX } from "@tabler/icons-react";
-import { useState } from "react";
+} from "@/components/ui/select";
 
 import type { ExplorerFilter } from "../types";
 import { PropertyCombobox } from "./PropertyCombobox";

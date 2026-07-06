@@ -121,7 +121,6 @@ export function useNavigationState() {
     getCommandPath: (cmd) => {
       return formsNavigateCommandPath(cmd);
     },
-    refetchInterval: 500,
     // The agent fires navigate commands mid-response, while chat tokens are
     // still streaming. React Router wraps navigate() in React.startTransition
     // by default, and the high-frequency streaming re-renders starve that

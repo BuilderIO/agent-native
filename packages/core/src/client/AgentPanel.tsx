@@ -121,6 +121,34 @@ const AgentTerminal = lazy(() =>
 const AGENT_PANEL_PREPARE_EVENT = "agent-panel:prepare";
 const AGENT_PANEL_SET_MODE_EVENT = "agent-panel:set-mode";
 const AGENT_PANEL_OPEN_SETTINGS_EVENT = "agent-panel:open-settings";
+
+function settingsRouteHashForSection(section?: string | null): string {
+  const normalized = section?.replace(/^#/, "").toLowerCase() ?? "";
+  if (
+    normalized.startsWith("secrets") ||
+    normalized.includes("api") ||
+    normalized === "integrations" ||
+    normalized === "email" ||
+    normalized === "browser"
+  ) {
+    return "#connections";
+  }
+  if (
+    normalized === "account" ||
+    normalized === "workspace" ||
+    normalized === "workspace-settings" ||
+    normalized === "organization" ||
+    normalized === "org" ||
+    normalized === "hosting" ||
+    normalized === "database" ||
+    normalized === "uploads" ||
+    normalized === "auth" ||
+    normalized === "demo-mode"
+  ) {
+    return "#workspace";
+  }
+  return "#agent";
+}
 const AGENT_CHAT_RUNNING_EVENT = "agentNative.chatRunning";
 
 function parentFrameTargetOrigin(): string {
@@ -687,6 +715,7 @@ function AgentPanelInner({
   ...assistantChatProps
 }: AgentPanelProps) {
   const t = useT();
+  const navigate = useNavigate();
   const mounted = useClientOnly();
   const keyPrefix = storageKey ? `:${storageKey}` : "";
   const execModeKey = `${EXEC_MODE_KEY}${keyPrefix}`;
@@ -822,6 +851,10 @@ function AgentPanelInner({
         requestKey: prev.requestKey + 1,
       }));
       if (!allowSettingsMode) {
+        navigate({
+          pathname: "/settings",
+          hash: settingsRouteHashForSection(section),
+        });
         switchMode("chat");
         return;
       }
@@ -836,7 +869,7 @@ function AgentPanelInner({
         AGENT_PANEL_OPEN_SETTINGS_EVENT,
         handleOpenSettings,
       );
-  }, [allowSettingsMode, switchMode]);
+  }, [allowSettingsMode, navigate, switchMode]);
 
   // CLI terminal tabs (ephemeral — not persisted to SQL)
   const [cliTabs, setCliTabs] = useState<string[]>(["cli-1"]);
@@ -1650,7 +1683,8 @@ function AgentPanelInner({
             ".agent-tabs-scroll::-webkit-scrollbar{display:none;}" +
             `[data-agent-fullscreen='true'] .agent-thread-content,` +
             `[data-agent-fullscreen='true'] .agent-running-activity,` +
-            `[data-agent-fullscreen='true'] .agent-composer-area{` +
+            `[data-agent-fullscreen='true'] .agent-composer-area,` +
+            `[data-agent-fullscreen='true'] .agent-plan-mode-callout{` +
             `max-width:${FULLSCREEN_CONTENT_MAX_PX}px;` +
             `margin-left:auto;margin-right:auto;width:100%;}`,
         }}
@@ -1881,21 +1915,36 @@ function ResizeHandle({
       }
     }
 
-    function onMouseUp() {
+    function endDrag() {
       if (!dragging.current) return;
       dragging.current = false;
       document.body.style.cursor = "";
       document.body.style.userSelect = "";
     }
 
+    // mouseup covers the normal release-inside-the-page case; window blur
+    // covers releasing the button outside the browser window/iframe (e.g.
+    // dragging the sidebar wide and letting go over the OS chrome), which
+    // never delivers a mouseup to this document. Without both, a drag that
+    // ends abnormally — or this effect re-running/unmounting mid-drag —
+    // could leave `document.body.style.userSelect` stuck at "none",
+    // silently breaking text selection/copy everywhere in the app.
     document.addEventListener("mousedown", onMouseDown);
     document.addEventListener("mousemove", onMouseMove);
-    document.addEventListener("mouseup", onMouseUp);
+    document.addEventListener("mouseup", endDrag);
+    window.addEventListener("blur", endDrag);
     return () => {
       document.removeEventListener("mousedown", onMouseDown);
       document.removeEventListener("mousemove", onMouseMove);
-      document.removeEventListener("mouseup", onMouseUp);
+      document.removeEventListener("mouseup", endDrag);
+      window.removeEventListener("blur", endDrag);
       if (cursorActive) document.body.style.cursor = "";
+      // Always clear regardless of `dragging`/`cursorActive` state — this
+      // effect can unmount or re-run (position change, sidebar layout
+      // change) while a drag is in flight, and a stuck "none" here disables
+      // selection app-wide until reload.
+      document.body.style.userSelect = "";
+      dragging.current = false;
     };
   }, [position]);
 
@@ -2879,7 +2928,7 @@ export function AgentSidebar({
       height: "100%",
       width,
       maxWidth: "85vw",
-      maxHeight: "100vh",
+      maxHeight: "var(--agent-native-viewport-height, 100vh)",
       zIndex: SIDEBAR_OVERLAY_Z_INDEX,
       "--agent-sidebar-background":
         "var(--agent-native-lower-surface, hsl(var(--background)))",
@@ -2896,7 +2945,7 @@ export function AgentSidebar({
       position: "fixed",
       inset: 0,
       width: "100%",
-      maxHeight: "100vh",
+      maxHeight: "var(--agent-native-viewport-height, 100vh)",
       zIndex: SIDEBAR_FULLSCREEN_Z_INDEX,
       background: "hsl(var(--background))",
       display: open ? "flex" : "none",
@@ -2910,7 +2959,7 @@ export function AgentSidebar({
         "var(--agent-native-lower-surface, hsl(var(--background)))",
       background: "var(--agent-sidebar-background)",
       width: desktopAnimationEnabled ? undefined : width,
-      maxHeight: "100vh",
+      maxHeight: "var(--agent-native-viewport-height, 100vh)",
       borderLeft:
         !panelOpen || isLeft || showResizeHandle
           ? "none"
@@ -2975,6 +3024,7 @@ export function AgentSidebar({
             showScopeBadge={showScopeBadge}
             browserTabId={browserTabId}
             threadUrlSync={threadUrlSync}
+            allowSettingsMode={false}
           />
         </div>
       </div>

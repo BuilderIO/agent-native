@@ -1,12 +1,13 @@
 import { useActionMutation, useT } from "@agent-native/core/client";
-import { Button } from "@agent-native/toolkit/ui/button";
+import { IconCut } from "@tabler/icons-react";
+import { toast } from "sonner";
+
+import { Button } from "@/components/ui/button";
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
-} from "@agent-native/toolkit/ui/tooltip";
-import { IconCut } from "@tabler/icons-react";
-import { toast } from "sonner";
+} from "@/components/ui/tooltip";
 
 export interface SplitButtonProps {
   recordingId: string;

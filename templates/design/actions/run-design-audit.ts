@@ -381,6 +381,93 @@ function checkContrastHint(html: string): A11yFinding[] {
 }
 
 // ---------------------------------------------------------------------------
+// Multi-screen token-drift check
+// ---------------------------------------------------------------------------
+//
+// design-generation/SKILL.md's "Multi-screen consistency contract" requires
+// every screen's `:root` token block to match index.html's byte-for-byte, but
+// nothing enforced it — an agent could silently let a screen's palette drift.
+// This extracts each screen's `:root { --name: value; ... }` custom-property
+// map and flags any screen whose property VALUES diverge from the design's
+// reference screen (index.html, or the first screen when index.html is
+// absent). Screens that legitimately have no `:root` block (e.g. a bare
+// fragment) are skipped, not flagged — there is nothing to reconcile.
+
+/** One screen's parsed `:root` custom-property map (property name → value). */
+export interface RootTokenMap {
+  filename: string;
+  tokens: Record<string, string>;
+}
+
+/**
+ * Extract the FIRST `:root { ... }` block's custom properties from a screen's
+ * HTML. Returns an empty map (not an error) when no `:root` block is present —
+ * callers treat that as "nothing to compare" rather than a finding.
+ */
+export function extractRootTokens(html: string): Record<string, string> {
+  const tokens: Record<string, string> = {};
+  const rootMatch = html.match(/:root\s*\{([^}]*)\}/i);
+  if (!rootMatch) return tokens;
+  const body = rootMatch[1] ?? "";
+  const declPattern = /(--[a-zA-Z0-9-]+)\s*:\s*([^;]+);/g;
+  let m: RegExpExecArray | null;
+  while ((m = declPattern.exec(body)) !== null) {
+    const name = m[1]?.trim();
+    const value = m[2]?.trim();
+    if (name && value !== undefined) tokens[name] = value;
+  }
+  return tokens;
+}
+
+/**
+ * Compare every non-reference screen's `:root` token map against the
+ * reference screen's (normally `index.html`) and return one finding per
+ * diverging property per screen. Screens with no `:root` block are skipped.
+ * Pure and dependency-free so it can be unit tested without a DB.
+ */
+export function checkTokenDrift(
+  screens: Array<{ filename: string; html: string }>,
+  referenceFilename = "index.html",
+): A11yFinding[] {
+  const findings: A11yFinding[] = [];
+  if (screens.length < 2) return findings;
+
+  const reference =
+    screens.find((s) => s.filename === referenceFilename) ?? screens[0];
+  const referenceTokens = extractRootTokens(reference.html);
+  if (Object.keys(referenceTokens).length === 0) return findings;
+
+  let idx = 0;
+  for (const screen of screens) {
+    if (screen.filename === reference.filename) continue;
+    const screenTokens = extractRootTokens(screen.html);
+    // No :root block on this screen — nothing to reconcile, not a finding.
+    if (Object.keys(screenTokens).length === 0) continue;
+
+    for (const [property, referenceValue] of Object.entries(referenceTokens)) {
+      const screenValue = screenTokens[property];
+      if (screenValue === undefined || screenValue === referenceValue) {
+        continue;
+      }
+      findings.push({
+        id: `token-drift:${screen.filename}:${property}-${idx}`,
+        severity: "warning" as A11ySeverity,
+        category: "token-drift" as A11yFindingCategory,
+        message: `"${property}" diverges from ${reference.filename} on ${screen.filename}.`,
+        detail:
+          `${reference.filename} defines ${property}: ${referenceValue}; ` +
+          `${screen.filename} defines ${property}: ${screenValue}. Reconcile ` +
+          `the :root token block so every screen shares one design system.`,
+        selector: ":root",
+        fixAvailable: false,
+      });
+      idx++;
+    }
+  }
+  return findings;
+}
+
+// ---------------------------------------------------------------------------
 // Live-content helper (matches the pattern in other actions)
 // ---------------------------------------------------------------------------
 
@@ -407,7 +494,9 @@ export default defineAction({
   description:
     "Run a read-only accessibility audit over a design's rendered HTML. " +
     "Checks contrast hints, tap-target sizes, missing alt attributes, missing " +
-    "form labels, focus-visibility gaps, and reduced-motion coverage. " +
+    "form labels, focus-visibility gaps, reduced-motion coverage, and — for " +
+    "multi-screen designs — token drift (the audited screen's :root custom " +
+    "properties diverging from index.html's). " +
     "Returns A11yFinding[] that can be shown in the Review panel or persisted " +
     "via create-design-review-snapshot. No writes are performed.",
   schema: z.object({
@@ -465,6 +554,42 @@ export default defineAction({
 
     const html = await liveContent(file.id, file.content ?? "");
 
+    // Load every other HTML screen in the design (id + filename only) so the
+    // token-drift check can compare :root blocks across the whole design, not
+    // just the audited screen. Cheap: same table, no content fetched twice.
+    const otherHtmlFiles = await db
+      .select({
+        id: schema.designFiles.id,
+        filename: schema.designFiles.filename,
+        content: schema.designFiles.content,
+      })
+      .from(schema.designFiles)
+      .where(
+        and(
+          eq(schema.designFiles.designId, designId),
+          eq(schema.designFiles.fileType, "html"),
+        ),
+      );
+
+    const screens = await Promise.all(
+      otherHtmlFiles.map(async (f) => ({
+        filename: f.filename,
+        html:
+          f.id === file.id ? html : await liveContent(f.id, f.content ?? ""),
+      })),
+    );
+
+    // Token drift is inherently cross-screen. When the audited screen IS the
+    // reference (index.html), surface drift for every other screen; otherwise
+    // scope findings to just the audited screen so a per-screen audit call
+    // doesn't report unrelated screens' drift.
+    const isReferenceScreen = file.filename === "index.html";
+    const tokenDriftFindings = checkTokenDrift(screens).filter(
+      (finding) =>
+        isReferenceScreen ||
+        finding.id.includes(`token-drift:${file.filename}:`),
+    );
+
     // Run all audit checks over the static HTML.
     const findings: A11yFinding[] = [
       ...checkMissingAlt(html),
@@ -473,6 +598,7 @@ export default defineAction({
       ...checkReducedMotion(html),
       ...checkFocusVisibility(html),
       ...checkContrastHint(html),
+      ...tokenDriftFindings,
     ];
 
     // Summarise by severity for the agent context.

@@ -1,67 +1,103 @@
 ---
-title: "Agent-Native ツールキット"
-description: "コラボレーション、設定、共有、ナビゲーション、プレゼンス、履歴、セットアップ、Agent UX の再利用可能なキット。"
+title: "Toolkit"
+description: "Reusable app-building primitives that sit between @agent-native/core and template apps."
 ---
 
-# Agent-Native ツールキット
+# Toolkit
 
-Agent-Native のアプリは、workspace の共通機能を毎回作り直すべきではありません。
-アプリはドメインモデル、ドメイン action、固有のビューを持ちます。Framework と
-`@agent-native/toolkit` は、すべてのアプリが継承すべき再利用可能な面を持ちます:
-コラボレーション、共有、設定、ナビゲーション、整理、セットアップ、Agent UX、履歴、
-運用の可視性です。
+`@agent-native/core` owns the foundational runtime: actions, app state, auth,
+SQL, server plugins, agent chat, sharing access checks, and collaboration
+transport. `@agent-native/toolkit` owns reusable app-building pieces that sit on
+top of that runtime: UI primitives, app-local adapters, shell helpers, sharing
+badges, and collaboration UI.
 
-ユーザーが覚える共有方法、キー接続、Agent の共同編集表示、設定の場所、変更履歴の見方は
-ひとつであるべきです。
+Apps should compose those pieces through local adapters. That keeps app UI easy
+to customize without copying Toolkit implementation code.
 
-## ツールキットの契約 {#toolkit-contract}
+<WireframeBlock id="doc-block-toolkit-layering">
+  <Screen
+    surface="desktop"
+    html={
+      "<div style='min-height:520px;box-sizing:border-box;padding:48px 36px;display:flex;align-items:center;justify-content:center'><div style='width:min(900px,100%);display:grid;grid-template-columns:1fr;gap:18px'><div class='wf-card' style='padding:22px 24px'><div style='display:flex;align-items:center;justify-content:space-between;gap:16px'><div><strong>App</strong><p class='wf-muted' style='margin:6px 0 0'>Domain routes, actions, local UI adapters, product-specific views</p></div><span class='wf-pill'>@/components/ui/button</span></div></div><div class='wf-card' style='padding:22px 24px;border-color:hsl(var(--primary))'><div style='display:flex;align-items:center;justify-content:space-between;gap:16px'><div><strong>Toolkit</strong><p class='wf-muted' style='margin:6px 0 0'>Reusable primitives, collab UI, sharing UI, app shell hooks</p></div><span class='wf-pill'>ToolkitProvider</span></div><div style='display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin-top:16px'><span class='wf-pill'>UI</span><span class='wf-pill'>Collab UI</span><span class='wf-pill'>Sharing UI</span><span class='wf-pill'>Shell</span></div></div><div class='wf-card' style='padding:22px 24px'><div style='display:flex;align-items:center;justify-content:space-between;gap:16px'><div><strong>Core</strong><p class='wf-muted' style='margin:6px 0 0'>Actions, SQL, auth, sharing runtime, Yjs transport, app state</p></div><span class='wf-pill'>@agent-native/core</span></div></div></div></div>"
+    }
+  />
+</WireframeBlock>
 
-次の条件に当てはまる動作は toolkit に移します。
+## What Ships Today {#what-ships-today}
 
-- **Workspace 全体** - すべてのアプリで同じ挙動が期待される。
-- **Agent から見える** - action、instructions、application state を通じて Agent も使う。
-- **Governed** - 権限、audit、secrets、org policy、billing、sharing rules が関係する。
-- **繰り返される** - 2 つ以上のアプリが似た UI やロジックを持つ。
-- **ドメイン固有ではない** - アプリはリソース名と action を渡し、操作パターンは汎用。
+- **UI primitives**: shadcn-style components under
+  `@agent-native/toolkit/ui/*`.
+- **App adapters**: template-local wrappers such as
+  `@/components/ui/button` that re-export Toolkit primitives until an app wants
+  to customize them.
+- **ToolkitProvider**: an override layer that lets reusable Toolkit UI use an
+  app's local primitives, starting with `Button`.
+- **Collaboration UI**: presence avatars, live cursors, remote selection rings,
+  recent edit highlights, and agent presence chips under
+  `@agent-native/toolkit/collab-ui`.
+- **Sharing UI**: the reusable `VisibilityBadge` under
+  `@agent-native/toolkit/sharing`.
+- **Shell and hooks**: app-shell header actions plus shared hooks such as
+  `useIsMobile` and `useToast`.
 
-ドメインモデルやアプリ固有の workflow に強く結びつくものは app-local に残します。
+## Compatibility {#compatibility}
 
-## 再利用可能なキット {#reusable-kits}
+Existing imports from `@agent-native/core/client` keep working. Core now exposes
+thin re-export shims for Toolkit-owned visual pieces while keeping runtime
+behavior in core.
 
-- **Settings kit** - account、workspace、AI models、LLM keys、connections、
-  secrets、usage、notifications、changelog、app preferences の標準 tabs。永続設定は
-  Settings に置き、Agent sidebar は文脈上の quick controls と deep links に絞ります。
-- **Collaboration kit** - リアルタイム編集、Yjs docs、presence、agent presence、live
-  cursors、remote selections、recent edit highlights、共有 undo/redo。詳しくは
-  [Real-Time Collaboration](/docs/real-time-collaboration)。
-- **Sharing kit** - private、workspace、org、public link、invites、roles、
-  expirations、agent-readable access をひとつの権限モデルで扱います。詳しくは
-  [Sharing & Privacy](/docs/sharing)。
-- **Navigation and command kit** - app shell、nav、breadcrumbs、app switcher、
-  command palette、recents、pinned resources、search。
-- **Organization kit** - folders、tags、favorites、archive、trash、ownership、
-  membership、共通 metadata。
-- **Setup and connections kit** - API keys、OAuth、connections、model readiness、
-  missing secrets、declarative onboarding。詳しくは
-  [Workspace Connections](/docs/workspace-connections)。
-- **Agent UX kit** - sidebar、composer、staged context、mentions、voice、human
-  approval、generative UI、progress、Agent-visible state。
-- **History and recovery kit** - audit log、activity feed、version history、
-  checkpoints、undo、redo、restore、proof-of-done。詳しくは
-  [Audit Log](/docs/audit-log)。
-- **Comments and review kit** - anchored comments、pins、mentions、review requests、
-  resolved threads、Agent follow-up tasks。
-- **Workflow and observability kit** - notifications、approvals、background runs、
-  recurring jobs、traces、evals、feedback、run timelines。詳しくは
-  [Observability](/docs/observability)。
+Those core shims are temporary migration support, not the long-term dependency
+direction. The next major can remove them; after that, reusable app-building
+packages should import Toolkit directly, and behaviorful Toolkit kits may compose
+core runtime APIs as peer/runtime dependencies instead of pushing more UI back
+into core.
 
-## 実装順序 {#implementation-order}
+Extract future behaviorful kits one at a time before broadening the split.
+Sharing is the first candidate to validate that model because it exercises
+access checks, action-backed data, and share-link UI together.
 
-1. 永続設定を標準 Settings tabs に集約します。
-2. collaboration、presence、agent presence、undo/redo、real-time editing を共有
-   adapters の後ろに揃えます。
-3. navigation、commands、recents、favorites、folders、tags、archive、trash を共有
-   primitives に移します。
-4. 共有可能なすべての resource を同じ permissions と agent-readable access モデルに登録します。
-5. collaborative resource に activity、comments、review、restore、audit の一貫した体験を持たせます。
-6. notifications、approvals、run status、traces、evals、feedback を統一します。
+That means this keeps working:
+
+```tsx
+import { PresenceBar, VisibilityBadge } from "@agent-native/core/client";
+```
+
+New reusable app code should prefer Toolkit or app-local adapters:
+
+```tsx
+import { PresenceBar } from "@agent-native/toolkit/collab-ui";
+import { Button } from "@/components/ui/button";
+```
+
+## Boundary {#boundary}
+
+Move code into Toolkit when it is reusable app-building UI or a pure UI contract.
+Keep code in core when it owns access control, SQL, actions, request context,
+Yjs transport, auth, or other runtime guarantees.
+
+Good Toolkit candidates:
+
+- Components that render the same interaction across apps.
+- Display-only helpers and structural prop types.
+- Base components that receive data and callbacks from an app or core wrapper.
+- App-shell hooks and adapters that do not own domain data.
+
+Keep app-local:
+
+- Domain-specific workflows.
+- Resource-specific mutations and routes.
+- Custom visual systems an app intentionally owns.
+
+Keep core-owned:
+
+- Sharing actions and access checks.
+- Collaboration storage, awareness transport, and Yjs document sync.
+- Auth, sessions, app state, SQL, and server plugins.
+
+## Pages {#pages}
+
+- [UI Primitives](/docs/toolkit-ui)
+- [App Adapters](/docs/toolkit-app-adapters)
+- [Collaboration UI](/docs/toolkit-collaboration-ui)
+- [Sharing UI](/docs/toolkit-sharing-ui)
+- [Shell & Hooks](/docs/toolkit-shell-hooks)

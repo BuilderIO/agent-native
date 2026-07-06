@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 import type { ActionEntry } from "../agent/production-agent.js";
 import {
+  extractMcpToolResultImages,
   isMcpActionResult,
   mcpToolsToActionEntries,
   syncMcpActionEntries,
@@ -301,5 +302,60 @@ describe("mcpToolsToActionEntries", () => {
         },
       ],
     });
+  });
+});
+
+describe("extractMcpToolResultImages", () => {
+  it("converts MCP image content parts into engine image parts", () => {
+    const images = extractMcpToolResultImages({
+      content: [
+        { type: "text", text: "Here is the screenshot" },
+        { type: "image", data: "aGVsbG8=", mimeType: "image/png" },
+        { type: "image", data: "d29ybGQ=", mimeType: "image/jpeg" },
+      ],
+    });
+    expect(images).toEqual([
+      { data: "aGVsbG8=", mediaType: "image/png" },
+      { data: "d29ybGQ=", mediaType: "image/jpeg" },
+    ]);
+  });
+
+  it("applies the shared caps (count and base64 size)", () => {
+    const oversize = "A".repeat(2_000_001);
+    const many = Array.from({ length: 6 }, () => ({
+      type: "image",
+      data: "aGVsbG8=",
+      mimeType: "image/png",
+    }));
+    expect(
+      extractMcpToolResultImages({
+        content: [{ type: "image", data: oversize, mimeType: "image/png" }],
+      }),
+    ).toEqual([]);
+    expect(extractMcpToolResultImages({ content: many })).toHaveLength(4);
+  });
+
+  it("skips unsupported mime types and malformed parts", () => {
+    expect(
+      extractMcpToolResultImages({
+        content: [
+          { type: "image", data: "aGVsbG8=", mimeType: "image/tiff" },
+          { type: "image" },
+          { type: "text", text: "no image" },
+        ],
+      }),
+    ).toEqual([]);
+  });
+
+  it("returns nothing for error results and non-result values", () => {
+    expect(
+      extractMcpToolResultImages({
+        isError: true,
+        content: [{ type: "image", data: "aGVsbG8=", mimeType: "image/png" }],
+      }),
+    ).toEqual([]);
+    expect(extractMcpToolResultImages("text")).toEqual([]);
+    expect(extractMcpToolResultImages(null)).toEqual([]);
+    expect(extractMcpToolResultImages({})).toEqual([]);
   });
 });

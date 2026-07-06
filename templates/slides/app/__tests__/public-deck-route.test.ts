@@ -13,7 +13,7 @@ const mockVerifyScopedAgentAccessToken = vi.hoisted(() =>
 );
 
 vi.mock("@/pages/SharedPresentation", () => ({ default: () => null }));
-vi.mock("@agent-native/toolkit/ui/spinner", () => ({ Spinner: () => null }));
+vi.mock("@/components/ui/spinner", () => ({ Spinner: () => null }));
 
 // The presentation page renders impersonally on the server (SSR reads no
 // session so the public page stays CDN-cacheable), so the loader no longer

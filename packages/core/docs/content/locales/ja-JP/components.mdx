@@ -25,13 +25,22 @@ import { ResourcesPanel } from "@agent-native/core/client/resources";
 `@agent-native/core/client` またはフォーカスされた `@agent-native/core/client/*` サブパス
 そのため、バンドラーはブラウザーセーフなエントリを選択します。
 
-`@agent-native/toolkit` は、基盤ランタイム契約ではない再利用可能なアプリ構築部品に使用します: shadcn 風 UI プリミティブ、共有 hooks、シンプルなアプリ shell ヘルパー、その他のテンプレート合成モジュールです。移行中、Core は互換性 re-export を保持しますが、新しいテンプレートとアプリのコードは toolkit モジュールを直接 import してください:
+`@agent-native/toolkit` は、基盤ランタイム契約ではない再利用可能なアプリ構築部品に使用します: shadcn 風 UI プリミティブ、共有 hooks、シンプルなアプリ shell ヘルパー、その他のテンプレート合成モジュールです。移行中、Core は互換性 re-export を保持します。
+
+再利用可能な packages は Toolkit modules を直接 import できます:
 
 ```tsx
 import { Button } from "@agent-native/toolkit/ui/button";
 import { Toaster } from "@agent-native/toolkit/ui/sonner";
 import { useToast } from "@agent-native/toolkit/hooks/use-toast";
 import { useSetHeaderActions } from "@agent-native/toolkit/app-shell";
+```
+
+テンプレートアプリ内では app-local adapters を優先してください。チームが primitive を一度置き換えるだけで、再利用されるすべての Toolkit surface がローカル実装を使えます:
+
+```tsx
+import { Button } from "@/components/ui/button";
+import { useToast } from "@/hooks/use-toast";
 ```
 
 <Diagram id="doc-block-9epcij" title={"フレームワークの外ではなく、レイヤーをドロップダウンします"} summary={"各レイヤーは同じランタイム (アクション、スレッド状態、SQL-backed 同期) を維持しながら、クロムをより詳細に制御できます。"}>
@@ -441,7 +450,8 @@ function WorkspaceResources() {
 
 | エリア           | APIs                                                              | インポートパス                            |
 | ---------------- | ----------------------------------------------------------------- | ----------------------------------------- |
-| 共有             | `<ShareButton>`, `<ShareDialog>`, `<VisibilityBadge>`             | `@agent-native/core/client/sharing`       |
+| 共有             | `<ShareButton>`, `<ShareDialog>`                                  | `@agent-native/core/client/sharing`       |
+| Sharing UI       | `<VisibilityBadge>`                                               | `@agent-native/toolkit/sharing`           |
 | 通知             | `<NotificationsBell>`                                             | `@agent-native/core/client/notifications` |
 | 進捗状況         | `<RunsTray>`、進行フックとタイプ                                  | `@agent-native/core/client/progress`      |
 | オンボーディング | `useOnboarding()`、オンボーディング パネル フック                 | `@agent-native/core/client/onboarding`    |

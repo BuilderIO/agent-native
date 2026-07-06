@@ -100,6 +100,7 @@ export function SettingsTabsPage({
         content: general,
       },
     ];
+    next.push(...extraTabs);
     if (team) {
       next.push({
         id: "team",
@@ -116,7 +117,6 @@ export function SettingsTabsPage({
         content: whatsNew,
       });
     }
-    next.push(...extraTabs);
     return next;
   }, [
     extraTabs,

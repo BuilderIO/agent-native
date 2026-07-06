@@ -515,8 +515,6 @@ async function detectUsageEngineName(
       { userEmail, orgId },
       () => detectEngineFromUserSecrets(),
     );
-    if (detectedFromUser?.name === "builder") return detectedFromUser.name;
-
     if (stored && typeof stored.engine === "string") {
       const entry = getAgentEngineEntry(stored.engine);
       if (
@@ -528,13 +526,13 @@ async function detectUsageEngineName(
         return stored.engine;
       }
     }
+    if (detectedFromUser?.name === "builder") return detectedFromUser.name;
     if (detectedFromUser) return detectedFromUser.name;
 
-    const canUseDeployEnv = await runWithRequestContext(
+    return await runWithRequestContext(
       { userEmail, orgId },
-      () => canUseDeployCredentialFallbackForRequest(),
+      () => detectEngineFromEnv()?.name ?? null,
     );
-    return canUseDeployEnv ? (detectEngineFromEnv()?.name ?? null) : null;
   } catch {
     return null;
   }
@@ -1114,6 +1112,95 @@ export function createCoreRoutesPlugin(
           })),
         );
       }
+
+      // ─── Durable sandbox execution processor ─────────────────────────
+      // Self-fired by run-code's background queue (see
+      // coding-tools/sandbox/background.ts): the enqueueing request POSTs here
+      // so the code executes in a FRESH invocation with its own budget instead
+      // of riding the ~40s agent-loop wall. Authenticity is verified via the
+      // shared HMAC internal-token scheme (same as the A2A / integration /
+      // agent-teams processors) plus the atomic SQL claim inside
+      // processQueuedSandboxExecution, which prevents double execution.
+      getH3App(nitroApp).use(
+        `${P}/sandbox/_process-execution`,
+        defineEventHandler(async (event) => {
+          if (getMethod(event) !== "POST") {
+            setResponseStatus(event, 405);
+            return { error: "Method not allowed" };
+          }
+          const body = (await readBody(event).catch(() => null)) as {
+            executionId?: unknown;
+            taskId?: unknown;
+          } | null;
+          const executionId =
+            body && typeof body.executionId === "string" && body.executionId
+              ? body.executionId
+              : body && typeof body.taskId === "string"
+                ? body.taskId
+                : "";
+          if (!executionId) {
+            setResponseStatus(event, 400);
+            return { error: "executionId required" };
+          }
+
+          const { hasConfiguredA2ASecret, isA2AProductionRuntime } =
+            await import("../a2a/auth-policy.js");
+          if (hasConfiguredA2ASecret()) {
+            const { verifyInternalToken, extractBearerToken } =
+              await import("../integrations/internal-token.js");
+            const token = extractBearerToken(getHeader(event, "authorization"));
+            if (!verifyInternalToken(executionId, token ?? "")) {
+              setResponseStatus(event, 401);
+              return { error: "Invalid or expired processor token" };
+            }
+          } else if (isA2AProductionRuntime()) {
+            setResponseStatus(event, 503);
+            return {
+              error:
+                "Sandbox execution processor not configured — set A2A_SECRET on this deployment.",
+            };
+          }
+
+          try {
+            const { processQueuedSandboxExecution } =
+              await import("../coding-tools/sandbox/background.js");
+            const result = await processQueuedSandboxExecution(executionId);
+            return { ok: true, ...result };
+          } catch (err) {
+            console.error("[sandbox] _process-execution failed:", err);
+            setResponseStatus(event, 500);
+            return { error: "process-execution failed" };
+          }
+        }),
+      );
+
+      // ─── Durable sandbox execution sweep ──────────────────────────────
+      // Backstop for lost dispatches and dead executors: re-drives queued rows
+      // whose enqueue-time dispatch never landed and reclaims/reaps running
+      // rows whose lease expired. Cheap (one indexed query per 2-min window;
+      // a missing table short-circuits to a no-op) and best-effort — the
+      // poll-time drain in run-code covers deployments where warm-instance
+      // timers rarely fire.
+      (() => {
+        let lastSweep = 0;
+        const SWEEP_INTERVAL_MS = 2 * 60 * 1000;
+
+        setTimeout(() => {
+          setInterval(() => {
+            const now = Date.now();
+            if (now - lastSweep < SWEEP_INTERVAL_MS) return;
+            lastSweep = now;
+
+            (async () => {
+              const { drainDueSandboxExecutions } =
+                await import("../coding-tools/sandbox/background.js");
+              await drainDueSandboxExecutions({ limit: 5 });
+            })().catch(() => {
+              // best-effort — never break the server
+            });
+          }, 30_000); // Check every 30s but only sweep once per 2min
+        }, 25_000); // Start 25s after init (after the agent sweeps)
+      })();
 
       // Health + DB warmup — liveness probe that touches the database so
       // uptime monitors and the keep-warm cron prevent a scale-to-zero
@@ -2498,8 +2585,9 @@ export function createCoreRoutesPlugin(
                   /* fall through to deployment env when allowed */
                 }
                 return (
-                  canUseDeployCredentialFallbackForRequest() &&
-                  !!readDeployCredentialEnv(OPENAI_BASE_URL_ENV_VAR)
+                  canUseDeployCredentialFallbackForRequest(
+                    OPENAI_BASE_URL_ENV_VAR,
+                  ) && !!readDeployCredentialEnv(OPENAI_BASE_URL_ENV_VAR)
                 );
               },
             );
@@ -2544,22 +2632,12 @@ export function createCoreRoutesPlugin(
             }
             // Per-user app_secrets — a user who connected Builder (or pasted
             // their own provider key) may not have any deploy-level env vars
-            // set, so check their per-user secret store before reporting "no
-            // engine configured" and re-showing the onboarding gate.
+            // set. Stored provider selections are checked first so saving a
+            // BYOK engine can override an existing Builder connection.
             const detectedFromUser = await runWithRequestContext(
               { userEmail, orgId },
               () => detectEngineFromUserSecrets(),
             );
-            if (detectedFromUser?.name === "builder") {
-              return {
-                configured: true,
-                engine: detectedFromUser.name,
-                model: detectedFromUser.defaultModel ?? DEFAULT_MODEL,
-                source: "app_secrets" as const,
-                envVar: detectedFromUser.requiredEnvVars[0],
-                openAiBaseUrlConfigured,
-              };
-            }
             if (stored && typeof stored.engine === "string") {
               const entry = getAgentEngineEntry(stored.engine);
               if (
@@ -2578,6 +2656,16 @@ export function createCoreRoutesPlugin(
                 };
               }
             }
+            if (detectedFromUser?.name === "builder") {
+              return {
+                configured: true,
+                engine: detectedFromUser.name,
+                model: detectedFromUser.defaultModel ?? DEFAULT_MODEL,
+                source: "app_secrets" as const,
+                envVar: detectedFromUser.requiredEnvVars[0],
+                openAiBaseUrlConfigured,
+              };
+            }
             if (detectedFromUser) {
               return {
                 configured: true,
@@ -2588,11 +2676,10 @@ export function createCoreRoutesPlugin(
                 openAiBaseUrlConfigured,
               };
             }
-            const canUseDeployEnv = await runWithRequestContext(
+            const detected = await runWithRequestContext(
               { userEmail, orgId },
-              () => canUseDeployCredentialFallbackForRequest(),
+              () => detectEngineFromEnv(),
             );
-            const detected = canUseDeployEnv ? detectEngineFromEnv() : null;
             if (detected) {
               return {
                 configured: true,

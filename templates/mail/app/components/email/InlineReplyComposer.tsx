@@ -1,15 +1,4 @@
 import { useAgentChatGenerating, useT } from "@agent-native/core/client";
-import { Button } from "@agent-native/toolkit/ui/button";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@agent-native/toolkit/ui/popover";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@agent-native/toolkit/ui/tooltip";
 import {
   appendSignatureToBody,
   splitAppendedSignature,
@@ -37,6 +26,17 @@ import {
 } from "react";
 import { toast } from "sonner";
 
+import { Button } from "@/components/ui/button";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { useAliases } from "@/hooks/use-aliases";
 import {
   useSendEmail,
@@ -45,7 +45,7 @@ import {
 } from "@/hooks/use-emails";
 import { canUseAgentGenerate } from "@/lib/agent-generate";
 import { expandAliasTokens } from "@/lib/alias-utils";
-import { openFilePicker, uploadFiles } from "@/lib/upload";
+import { openFilePicker, uploadFile, uploadFiles } from "@/lib/upload";
 import { cn } from "@/lib/utils";
 
 import { AttachmentStrip } from "./AttachmentStrip";
@@ -412,6 +412,16 @@ export const InlineReplyComposer = forwardRef<
     }
   };
 
+  const handleUploadImage = async (file: File) => {
+    try {
+      const result = await uploadFile(file);
+      return result.url;
+    } catch (err) {
+      toast.error(t("mail.toasts.failedToUploadImage"));
+      throw err;
+    }
+  };
+
   const handleAttach = async () => {
     const file = await openFilePicker("*/*");
     if (!file) return;
@@ -428,6 +438,17 @@ export const InlineReplyComposer = forwardRef<
   const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
     const files = Array.from(e.dataTransfer.files ?? []);
     if (files.length === 0) return;
+    // All-image drops landing inside the editor are left alone here so
+    // ComposeEditor's own handleDrop (bubble phase) can insert them inline;
+    // everything else (non-image or mixed drops) still goes to attachments.
+    const target = e.target as HTMLElement;
+    const droppedOnEditor = target.closest(".compose-editor") != null;
+    if (
+      droppedOnEditor &&
+      files.every((file) => file.type.startsWith("image/"))
+    ) {
+      return;
+    }
     e.preventDefault();
     e.stopPropagation();
     void handleAttachFiles(files);
@@ -536,6 +557,7 @@ export const InlineReplyComposer = forwardRef<
             })
           }
           sendToAgent={sendToAgent}
+          onUploadImage={handleUploadImage}
         />
         {hasQuote && (
           <>

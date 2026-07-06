@@ -3,7 +3,7 @@ import { and, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
-import { getCurrentOwnerEmail } from "../server/lib/documents.js";
+import { getNotionDocumentOwner } from "./_notion-action-utils.js";
 
 export default defineAction({
   description:
@@ -23,7 +23,7 @@ export default defineAction({
       addNotionComment,
     } = await import("../server/lib/notion.js");
     const { getSyncLink } = await import("../server/lib/notion-sync.js");
-    const owner = getCurrentOwnerEmail();
+    const owner = await getNotionDocumentOwner(documentId);
 
     // Check if document is linked to Notion
     const syncLink = await getSyncLink(documentId, owner);
@@ -56,6 +56,7 @@ export default defineAction({
           and(
             eq(schema.documentComments.notionCommentId, nc.id),
             eq(schema.documentComments.ownerEmail, ownerEmail),
+            eq(schema.documentComments.documentId, documentId),
           ),
         )
         .limit(1);

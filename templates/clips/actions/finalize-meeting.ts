@@ -14,7 +14,7 @@ import { defineAction } from "@agent-native/core";
 import { writeAppState } from "@agent-native/core/application-state";
 import { assertAccess } from "@agent-native/core/sharing";
 import type { VoiceContextPack } from "@agent-native/core/voice";
-import { eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -38,6 +38,12 @@ export default defineAction({
       .optional()
       .describe(
         "Use this transcript text instead of the linked recording's transcript (rarely needed — for tests / replays).",
+      ),
+    force: z
+      .boolean()
+      .default(false)
+      .describe(
+        "Bypass the in-flight compare-and-swap guard. Used by the manual 'Regenerate notes' flow, which intentionally reruns finalize while transcriptStatus is already 'ready'.",
       ),
   }),
   run: async (args) => {
@@ -74,11 +80,50 @@ export default defineAction({
       );
     }
 
-    // Mark pending so the UI shows a spinner during the LLM call.
-    await db
-      .update(schema.meetings)
-      .set({ transcriptStatus: "pending", updatedAt: nowIso })
-      .where(eq(schema.meetings.id, args.meetingId));
+    // Mark pending so the UI shows a spinner during the LLM call. This is
+    // also the compare-and-swap that prevents two concurrent finalize calls
+    // (e.g. the desktop stop-path and the web route's auto-finalize effect)
+    // from both running Gemini and clobbering meeting_action_items: only a
+    // call that observes 'ready' or 'failed' (or passes force=true, for the
+    // manual "Regenerate notes" flow which intentionally reruns while
+    // already 'ready') gets to flip the row to 'pending' and proceed.
+    const claimed = args.force
+      ? await db
+          .update(schema.meetings)
+          .set({ transcriptStatus: "pending", updatedAt: nowIso })
+          .where(eq(schema.meetings.id, args.meetingId))
+          .returning({ id: schema.meetings.id })
+      : await db
+          .update(schema.meetings)
+          .set({ transcriptStatus: "pending", updatedAt: nowIso })
+          .where(
+            and(
+              eq(schema.meetings.id, args.meetingId),
+              inArray(schema.meetings.transcriptStatus, ["ready", "failed"]),
+            ),
+          )
+          .returning({ id: schema.meetings.id });
+
+    if (!claimed.length) {
+      // Another finalize is already in flight (status is 'pending') — no-op
+      // quietly instead of re-running Gemini and re-writing action items.
+      const [current] = await db
+        .select()
+        .from(schema.meetings)
+        .where(eq(schema.meetings.id, args.meetingId))
+        .limit(1);
+      const bulletsJson = current?.bulletsJson ?? meeting.bulletsJson ?? "[]";
+      const actionItemsJson =
+        current?.actionItemsJson ?? meeting.actionItemsJson ?? "[]";
+      return {
+        meetingId: args.meetingId,
+        summaryMd: current?.summaryMd ?? meeting.summaryMd,
+        bullets: JSON.parse(bulletsJson),
+        actionItems: JSON.parse(actionItemsJson),
+        provider: null,
+        skipped: "already-in-progress",
+      };
+    }
 
     const [participants, recordingRows, agentsContext] = await Promise.all([
       db
@@ -180,34 +225,40 @@ export default defineAction({
     const bullets = result.bullets ?? [];
     const actionItems = result.actionItems ?? [];
 
-    await db
-      .update(schema.meetings)
-      .set({
-        transcriptStatus: "ready",
-        summaryMd,
-        bulletsJson: JSON.stringify(bullets),
-        actionItemsJson: JSON.stringify(actionItems),
-        updatedAt: new Date().toISOString(),
-      })
-      .where(eq(schema.meetings.id, args.meetingId));
+    // Single transaction so the meetings write and the action-items
+    // delete+insert can't interleave with a second concurrent finalize call
+    // (the CAS above prevents two calls from reaching here for the same
+    // meeting at once, but this keeps the write set atomic regardless).
+    await db.transaction(async (tx) => {
+      await tx
+        .update(schema.meetings)
+        .set({
+          transcriptStatus: "ready",
+          summaryMd,
+          bulletsJson: JSON.stringify(bullets),
+          actionItemsJson: JSON.stringify(actionItems),
+          updatedAt: new Date().toISOString(),
+        })
+        .where(eq(schema.meetings.id, args.meetingId));
 
-    // Replace the per-row action items so the dedicated table mirrors the
-    // JSON column. Best-effort.
-    await db
-      .delete(schema.meetingActionItems)
-      .where(eq(schema.meetingActionItems.meetingId, args.meetingId));
-    if (actionItems.length) {
-      await db.insert(schema.meetingActionItems).values(
-        actionItems.map((item) => ({
-          id: nanoid(),
-          meetingId: args.meetingId,
-          assigneeEmail: item.assigneeEmail ?? null,
-          text: item.text,
-          dueDate: item.dueDate ?? null,
-          completedAt: null,
-        })),
-      );
-    }
+      // Replace the per-row action items so the dedicated table mirrors the
+      // JSON column.
+      await tx
+        .delete(schema.meetingActionItems)
+        .where(eq(schema.meetingActionItems.meetingId, args.meetingId));
+      if (actionItems.length) {
+        await tx.insert(schema.meetingActionItems).values(
+          actionItems.map((item) => ({
+            id: nanoid(),
+            meetingId: args.meetingId,
+            assigneeEmail: item.assigneeEmail ?? null,
+            text: item.text,
+            dueDate: item.dueDate ?? null,
+            completedAt: null,
+          })),
+        );
+      }
+    });
 
     await writeAppState("refresh-signal", { ts: Date.now() });
 

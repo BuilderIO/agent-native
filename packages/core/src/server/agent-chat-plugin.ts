@@ -76,7 +76,10 @@ import {
   setRunTerminalReason,
   updateRunStatusIfRunning,
 } from "../agent/run-store.js";
-import { buildRuntimeContextPrompt } from "../agent/runtime-context.js";
+import {
+  buildCurrentTimeUserContext,
+  buildRuntimeContextPrompt,
+} from "../agent/runtime-context.js";
 import {
   buildAssistantMessage,
   buildUserMessage,
@@ -3804,6 +3807,35 @@ export function shouldBlockInProductCodeEditingSurface(input: {
   );
 }
 
+/**
+ * Load the sandboxed code-execution tool entries for one action registry:
+ * `run-code` plus its `get-code-execution` poll companion. The poll tool is
+ * registered ALONGSIDE run-code everywhere run-code appears, so the durable
+ * background-execution guidance run-code emits ("check it with
+ * get-code-execution") always points at a callable tool. Returns an empty
+ * registry when the coding module is unavailable (e.g. bundled browser
+ * build), mirroring the prior silent-skip behavior.
+ *
+ * Exported for tests — the plugin init calls this for the prod, lean, and dev
+ * tool bags, so a spec on this helper pins the real registration wiring.
+ */
+export async function loadRunCodeToolEntries(
+  supplier: () => Record<string, ActionEntry>,
+  runCodeOptions?: { bridgeTools?: string[] },
+): Promise<Record<string, ActionEntry>> {
+  try {
+    const { createRunCodeEntry, createGetCodeExecutionEntry } =
+      await import("../coding-tools/run-code.js");
+    return {
+      "run-code": createRunCodeEntry(supplier, runCodeOptions),
+      "get-code-execution": createGetCodeExecutionEntry(),
+    };
+  } catch {
+    // Module unavailable (e.g. bundled browser build) — skip silently.
+    return {};
+  }
+}
+
 type RecurringJobsRuntimeEnvKey =
   | "AGENT_NATIVE_DISABLE_RECURRING_JOBS"
   | "AGENT_NATIVE_ENABLE_LOCAL_RECURRING_JOBS"
@@ -4507,28 +4539,23 @@ export function createAgentChatPlugin(
       let prodRunCodeToolActions: Record<string, ActionEntry> = {};
       let leanRunCodeToolActions: Record<string, ActionEntry> = {};
 
-      // Sandboxed run-code tool: available in "sandboxed" or "trusted" prod
-      // modes and always in dev mode.
-      const runCodeTool: Record<string, ActionEntry> = {};
-      const leanRunCodeTool: Record<string, ActionEntry> = {};
-      try {
-        const { createRunCodeEntry } =
-          await import("../coding-tools/run-code.js");
-        runCodeTool["run-code"] = createRunCodeEntry(
+      // Sandboxed run-code tool (+ its get-code-execution poll companion):
+      // available in "sandboxed" or "trusted" prod modes and always in dev
+      // mode. See loadRunCodeToolEntries for the registration contract.
+      const runCodeTool: Record<string, ActionEntry> =
+        await loadRunCodeToolEntries(
           // Supplier is evaluated at invocation time so runtime additions to
           // prodActions (e.g. MCP sync) are visible to the bridge.
           () => prodRunCodeToolActions,
           { bridgeTools: options?.codeExecution?.bridgeTools },
         );
-        leanRunCodeTool["run-code"] = createRunCodeEntry(
+      const leanRunCodeTool: Record<string, ActionEntry> =
+        await loadRunCodeToolEntries(
           // Lean prompt mode intentionally exposes a much smaller action
           // surface; keep sandbox appAction() calls scoped to that same surface.
           () => leanRunCodeToolActions,
           { bridgeTools: options?.codeExecution?.bridgeTools },
         );
-      } catch {
-        // Module unavailable (e.g. bundled browser build) — skip silently.
-      }
 
       // Full coding tool registry (bash/read/edit/write) for "trusted" prod.
       // In dev mode this is handled separately via devHandler below.
@@ -4555,21 +4582,15 @@ export function createAgentChatPlugin(
       // Must be declared before devRunCodeTool so the closure can close over it.
       let devRunCodeToolActions: Record<string, ActionEntry> = {};
 
-      // Always register run-code in dev mode (when the coding module loads).
-      const devRunCodeTool: Record<string, ActionEntry> = {};
-      if (canToggle) {
-        try {
-          const { createRunCodeEntry } =
-            await import("../coding-tools/run-code.js");
-          // devActions is not yet defined at this point; we use a late-binding
-          // supplier so devRunCodeTool can reference the devActions registry
-          // once it is built below (see devHandler block).
-          devRunCodeTool["run-code"] = createRunCodeEntry(
-            () => devRunCodeToolActions,
-            { bridgeTools: options?.codeExecution?.bridgeTools },
-          );
-        } catch {}
-      }
+      // Always register run-code (+ get-code-execution) in dev mode (when the
+      // coding module loads). devActions is not yet defined at this point; we
+      // use a late-binding supplier so devRunCodeTool can reference the
+      // devActions registry once it is built below (see devHandler block).
+      const devRunCodeTool: Record<string, ActionEntry> = canToggle
+        ? await loadRunCodeToolEntries(() => devRunCodeToolActions, {
+            bridgeTools: options?.codeExecution?.bridgeTools,
+          })
+        : {};
 
       const resolveExtraContext = async (
         event: any,
@@ -4858,10 +4879,14 @@ export function createAgentChatPlugin(
             ? ""
             : await buildSchemaBlock(owner, databaseToolsMode);
           const extra = await resolveExtraContext(context.event, owner);
+          // Stable content first, most-volatile-per-day last: the
+          // runtime-context block is appended after resources/schema/extra so
+          // a day rollover (or the resources/extra content changing) only
+          // invalidates the cached prompt prefix as late as possible.
           const runtimeContext = runtimeContextForEvent(context.event);
           const systemPrompt = devActive
-            ? devPrompt + runtimeContext + resources + schemaBlock + extra
-            : basePrompt + runtimeContext + resources + schemaBlock + extra;
+            ? devPrompt + resources + schemaBlock + extra + runtimeContext
+            : basePrompt + resources + schemaBlock + extra + runtimeContext;
 
           const a2aModelCandidate =
             options?.model ??
@@ -4920,8 +4945,15 @@ export function createAgentChatPlugin(
 
           const a2aTools = actionsToEngineTools(a2aActions);
 
+          // Precise current time rides the user message (not the cached
+          // system-prompt prefix) — same pattern as the interactive handler.
           const a2aMessages: EngineMessage[] = [
-            { role: "user", content: [{ type: "text", text }] },
+            {
+              role: "user",
+              content: [
+                { type: "text", text: text + buildCurrentTimeUserContext() },
+              ],
+            },
           ];
 
           // Run the SAME agent loop, then extract the final answer from the
@@ -5160,15 +5192,19 @@ export function createAgentChatPlugin(
                 : lazyContext
                   ? DEV_FRAMEWORK_PROMPT_COMPACT
                   : DEV_FRAMEWORK_PROMPT) + devActionsPrompt;
+            // Stable-first ordering: runtime-context (which changes daily)
+            // goes last so the cached prompt prefix survives as long as
+            // possible — same pattern as the other prompt-assembly sites in
+            // this plugin (A2A above, prod/anonymous/dev handlers below).
             const systemPrompt = devActiveMcp
               ? mcpDevPrompt +
-                buildRuntimeContextPrompt() +
                 resources +
-                schemaBlock
+                schemaBlock +
+                buildRuntimeContextPrompt()
               : basePrompt +
-                buildRuntimeContextPrompt() +
                 resources +
-                schemaBlock;
+                schemaBlock +
+                buildRuntimeContextPrompt();
 
             let accumulatedText = "";
             const controller = new AbortController();
@@ -5180,7 +5216,17 @@ export function createAgentChatPlugin(
                 systemPrompt,
                 tools: mcpTools,
                 messages: [
-                  { role: "user", content: [{ type: "text", text: message }] },
+                  {
+                    role: "user",
+                    content: [
+                      {
+                        type: "text",
+                        // Precise time rides the user message, not the cached
+                        // system-prompt prefix.
+                        text: message + buildCurrentTimeUserContext(),
+                      },
+                    ],
+                  },
                 ],
                 actions: mcpActions,
                 send: (event) => {
@@ -5838,14 +5884,20 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             : "";
           // Per-model overlay: nudge GPT/Gemini engines toward our behavioral norms.
           const modelOverlay = resolveModelOverlay();
+          // Stable-first ordering: base prompt / schema / extra come before
+          // the runtime-context block, which is appended LAST. runtimeContext
+          // only changes once per calendar day, but placing it after any
+          // less-stable content would still invalidate the cached prefix for
+          // everything that follows it — putting it last means a day
+          // rollover invalidates as little of the prefix as possible.
           if (leanPrompt) {
             return setSystemPromptOnContext(
               leanBasePrompt +
-                runtimeContext +
                 codeEditingSurfaceRestriction +
                 prodCodeExecPromptNote +
                 extra +
-                modelOverlay,
+                modelOverlay +
+                runtimeContext,
             );
           }
           const resources = await loadResourcesForPrompt(
@@ -5861,13 +5913,13 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           return setSystemPromptOnContext(
             basePrompt +
               personalizationBlock +
-              runtimeContext +
               resources +
               schemaBlock +
               codeEditingSurfaceRestriction +
               prodCodeExecPromptNote +
               extra +
-              modelOverlay,
+              modelOverlay +
+              runtimeContext,
           );
         },
         model: options?.model,
@@ -5958,8 +6010,8 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 const { extra } = await prepareRun(event);
                 return setSystemPromptOnContext(
                   anonymousReadOnlyPrompt +
-                    runtimeContextForEvent(event) +
-                    extra,
+                    extra +
+                    runtimeContextForEvent(event),
                 );
               },
               model: options?.model,
@@ -6070,9 +6122,13 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               ? FIRST_SESSION_PERSONALIZATION
               : "";
             const modelOverlay = resolveModelOverlay();
+            // Stable-first ordering: runtimeContext (day-granular) is
+            // appended LAST so a day rollover invalidates as little of the
+            // cached prompt prefix as possible. See the prod handler above
+            // for the same pattern.
             if (leanPrompt) {
               return setSystemPromptOnContext(
-                leanBasePrompt + runtimeContext + extra + modelOverlay,
+                leanBasePrompt + extra + modelOverlay + runtimeContext,
               );
             }
             const resources = await loadResourcesForPrompt(
@@ -6087,11 +6143,11 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             return setSystemPromptOnContext(
               devPrompt +
                 personalizationBlock +
-                runtimeContext +
                 resources +
                 schemaBlock +
                 extra +
-                modelOverlay,
+                modelOverlay +
+                runtimeContext,
             );
           },
           model: options?.model,

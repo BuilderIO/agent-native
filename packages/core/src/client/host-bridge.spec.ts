@@ -2,9 +2,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
+  _resetHostHardReloadCooldownForTests,
   AGENT_NATIVE_HOST_MESSAGE_TYPES,
   announceAgentNativeFrameReady,
   createAgentNativeHostBridge,
+  defaultAgentNativeHostCommands,
   readAgentNativeScreenContext,
   requestAgentNativeHostActions,
   requestAgentNativeHostContext,
@@ -528,5 +530,68 @@ describe("readAgentNativeScreenContext", () => {
       }),
     });
     expect(context.screen?.html).toContain("<body>");
+  });
+});
+
+describe("defaultAgentNativeHostCommands hard-reload cooldown", () => {
+  const commandRequest = (command: string) => ({
+    command,
+    origin: "https://host.example",
+  });
+  const fakeEvent = new MessageEvent("message");
+
+  beforeEach(() => {
+    _resetHostHardReloadCooldownForTests();
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  function mockReload() {
+    const reload = vi.fn();
+    Object.defineProperty(window.location, "reload", {
+      configurable: true,
+      value: reload,
+    });
+    return reload;
+  }
+
+  it("reloads on the first command and swallows repeats inside the cooldown", async () => {
+    const reload = mockReload();
+
+    expect(
+      defaultAgentNativeHostCommands.hardReload?.(
+        commandRequest("hardReload"),
+        fakeEvent,
+      ),
+    ).toEqual({ reloading: true });
+    // Both command aliases share a single guard.
+    expect(
+      defaultAgentNativeHostCommands["hard-reload"]?.(
+        commandRequest("hard-reload"),
+        fakeEvent,
+      ),
+    ).toEqual({ reloading: true });
+
+    expect(reload).toHaveBeenCalledTimes(1);
+  });
+
+  it("reloads again once the cooldown has elapsed", async () => {
+    const reload = mockReload();
+
+    await defaultAgentNativeHostCommands.hardReload?.(
+      commandRequest("hardReload"),
+      fakeEvent,
+    );
+    vi.advanceTimersByTime(2_100);
+    await defaultAgentNativeHostCommands.hardReload?.(
+      commandRequest("hardReload"),
+      fakeEvent,
+    );
+
+    expect(reload).toHaveBeenCalledTimes(2);
   });
 });

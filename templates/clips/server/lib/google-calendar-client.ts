@@ -158,7 +158,14 @@ export async function refreshAccessToken(args: {
   return (await res.json()) as GoogleTokenResponse;
 }
 
-function isPermanentRefreshFailure(error: unknown): boolean {
+/**
+ * True when a refresh-token-endpoint failure is permanent (the refresh token
+ * itself is dead — revoked, expired, or the OAuth client is wrong) rather
+ * than transient (network error, 429, 5xx, timeout). Only permanent
+ * failures should ever flip a calendar account to "needs-reauth"; transient
+ * ones should be recorded as a sync error and retried on the next poll.
+ */
+export function isPermanentRefreshFailure(error: unknown): boolean {
   const message = error instanceof Error ? error.message : String(error || "");
   const lower = message.toLowerCase();
   return (

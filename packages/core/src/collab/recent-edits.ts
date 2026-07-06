@@ -16,42 +16,23 @@
  *   - `{ kind: "doc" }`                 whole-document change (no region)
  */
 
+import {
+  RECENT_EDITS_MAX,
+  RECENT_EDIT_TTL_MS,
+  type AttributedRecentEdit,
+  type RecentEdit,
+} from "@agent-native/toolkit/collab-ui";
 import { useEffect, useRef, useState } from "react";
 
 import type { OtherPresence } from "./presence.js";
 
-export type RecentEditDescriptor =
-  | { kind: "text"; quote: string }
-  | { kind: "selector"; selector: string }
-  | { kind: "paths"; paths: string[] }
-  | { kind: "doc" }
-  | { kind: string; [key: string]: unknown };
-
-export interface RecentEdit {
-  descriptor: RecentEditDescriptor;
-  /** Short human-readable label, e.g. "Rewrote intro" or "Slide 3". */
-  label?: string;
-  /** Epoch ms when the edit landed. */
-  at: number;
-}
-
-/** A recent edit attributed to the participant who made it. */
-export interface AttributedRecentEdit extends RecentEdit {
-  clientId: number;
-  user: OtherPresence["user"];
-  isAgent: boolean;
-}
-
-/** Max entries kept in a participant's recentEdits ring. */
-export const RECENT_EDITS_MAX = 5;
-
-/**
- * Default time a recent-edit highlight stays visible, measured from the
- * edit's `at` timestamp. Awareness delivery adds up to ~3s (poll cadence),
- * and some actions do post-write work before a viewer looks, so this is
- * deliberately generous — the fade consumes the final 40% of the window.
- */
-export const RECENT_EDIT_TTL_MS = 10_000;
+export {
+  RECENT_EDITS_MAX,
+  RECENT_EDIT_TTL_MS,
+  type AttributedRecentEdit,
+  type RecentEdit,
+  type RecentEditDescriptor,
+} from "@agent-native/toolkit/collab-ui";
 
 /**
  * Append an edit to a recentEdits ring, keeping the newest

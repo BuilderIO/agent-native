@@ -6,18 +6,18 @@ import {
   useAgentChatHomeHandoffLinks,
   useT,
 } from "@agent-native/core/client";
-import { Button } from "@agent-native/toolkit/ui/button";
-import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetTitle,
-} from "@agent-native/toolkit/ui/sheet";
 import { IconMenu2 } from "@tabler/icons-react";
 import { useEffect, useState } from "react";
 import { useLocation, useNavigate } from "react-router";
 
 import { Sidebar } from "@/components/layout/Sidebar";
+import { Button } from "@/components/ui/button";
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetTitle,
+} from "@/components/ui/sheet";
 import { TAB_ID } from "@/lib/tab-id";
 
 const SIDEBAR_COLLAPSE_KEY = "brain.sidebar.collapsed";

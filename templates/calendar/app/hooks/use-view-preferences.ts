@@ -1,4 +1,5 @@
 import { agentNativePath } from "@agent-native/core/client";
+import { useQuery } from "@tanstack/react-query";
 import { useState, useCallback, useEffect } from "react";
 
 import {
@@ -81,37 +82,25 @@ export function useViewPreferences() {
     };
   }, []);
 
+  // Shared across every mounted instance of this hook via the react-query
+  // cache — only one poller runs regardless of how many components call
+  // useViewPreferences() concurrently.
+  const { data: remote } = useQuery({
+    queryKey: ["agent-native", CALENDAR_VIEW_PREFERENCES_KEY],
+    queryFn: readAppStatePreferences,
+    refetchInterval: 4_000,
+    staleTime: 2_000,
+  });
+
   useEffect(() => {
-    let cancelled = false;
-    let timeout: number | undefined;
-
-    async function refresh() {
-      try {
-        const remote = await readAppStatePreferences();
-        if (!cancelled && remote) {
-          setPrefs((current) => {
-            if (calendarViewPreferencesEqual(current, remote)) return current;
-            save(remote);
-            window.dispatchEvent(
-              new Event(CALENDAR_VIEW_PREFERENCES_CHANGE_EVENT),
-            );
-            return remote;
-          });
-        }
-      } catch {
-        // Preferences are a UI convenience; keep the local copy if app-state
-        // is temporarily unavailable.
-      } finally {
-        if (!cancelled) timeout = window.setTimeout(refresh, 2_000);
-      }
-    }
-
-    void refresh();
-    return () => {
-      cancelled = true;
-      if (timeout) window.clearTimeout(timeout);
-    };
-  }, []);
+    if (!remote) return;
+    setPrefs((current) => {
+      if (calendarViewPreferencesEqual(current, remote)) return current;
+      save(remote);
+      window.dispatchEvent(new Event(CALENDAR_VIEW_PREFERENCES_CHANGE_EVENT));
+      return remote;
+    });
+  }, [remote]);
 
   const update = useCallback((patch: Partial<ViewPreferences>) => {
     setPrefs((prev) => {

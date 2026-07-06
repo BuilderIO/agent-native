@@ -30,8 +30,9 @@ patterns live in `.agents/skills/`.
   screens, linked design systems, tokens, and component language before
   inventing a new direction. Use realistic content/copy and one signature choice
   per direction; avoid lorem ipsum, generic SaaS filler, and decorative
-  placeholders. Include expected responsive/accessibility states and visually
-  inspect the result before calling it ready.
+  placeholders. Include expected responsive/accessibility states, run
+  `run-design-audit`, and call `take-design-screenshot` on each changed screen
+  before calling it ready — see the `design-generation` skill's Phase 5.
 - For editable reusable building blocks inside Design, use
   `list-design-native-assets` first, then `insert-design-native-asset` with the
   chosen kind. These are Design-native HTML primitives/components, not external

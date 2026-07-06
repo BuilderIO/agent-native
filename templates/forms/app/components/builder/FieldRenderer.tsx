@@ -1,22 +1,19 @@
-import { Checkbox } from "@agent-native/toolkit/ui/checkbox";
-import { Input } from "@agent-native/toolkit/ui/input";
-import { Label } from "@agent-native/toolkit/ui/label";
-import {
-  RadioGroup,
-  RadioGroupItem,
-} from "@agent-native/toolkit/ui/radio-group";
+import type { FormField } from "@shared/types";
+import { IconStar, IconStarFilled } from "@tabler/icons-react";
+
+import { Checkbox } from "@/components/ui/checkbox";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from "@agent-native/toolkit/ui/select";
-import { Slider } from "@agent-native/toolkit/ui/slider";
-import { Textarea } from "@agent-native/toolkit/ui/textarea";
-import type { FormField } from "@shared/types";
-import { IconStar, IconStarFilled } from "@tabler/icons-react";
-
+} from "@/components/ui/select";
+import { Slider } from "@/components/ui/slider";
+import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 
 interface FieldRendererProps {

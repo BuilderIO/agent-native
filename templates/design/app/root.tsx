@@ -12,7 +12,6 @@ import {
   useSession,
   useT,
 } from "@agent-native/core/client";
-import { Toaster } from "@agent-native/toolkit/ui/sonner";
 import { IconSun, IconMoon } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useTheme } from "next-themes";
@@ -28,6 +27,8 @@ import {
 import type { LinksFunction } from "react-router";
 
 import { Layout as AppLayout } from "@/components/layout/Layout";
+import { Toaster } from "@/components/ui/sonner";
+import { AppToolkitProvider } from "@/components/ui/toolkit-provider";
 
 import changelog from "../CHANGELOG.md?raw";
 import { i18nCatalog } from "./i18n";
@@ -175,9 +176,11 @@ function RootContent() {
 export default function Root() {
   const [queryClient] = useState(() => createAgentNativeQueryClient());
   return (
-    <AppProviders queryClient={queryClient} i18n={{ catalog: i18nCatalog }}>
-      <RootContent />
-    </AppProviders>
+    <AppToolkitProvider>
+      <AppProviders queryClient={queryClient} i18n={{ catalog: i18nCatalog }}>
+        <RootContent />
+      </AppProviders>
+    </AppToolkitProvider>
   );
 }
 

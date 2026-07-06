@@ -373,6 +373,122 @@ describe("engineMessagesToAnthropic", () => {
   });
 });
 
+describe("tool-result images", () => {
+  const withImages = (
+    images: import("./types.js").EngineToolResultImagePart[] | undefined,
+    extra?: Partial<
+      Extract<import("./types.js").EngineContentPart, { type: "tool-result" }>
+    >,
+  ): EngineMessage[] => [
+    { role: "user", content: [{ type: "text", text: "go" }] },
+    {
+      role: "assistant",
+      content: [
+        { type: "tool-call", id: "tc-1", name: "screenshot", input: {} },
+      ],
+    },
+    {
+      role: "user",
+      content: [
+        {
+          type: "tool-result",
+          toolCallId: "tc-1",
+          toolName: "screenshot",
+          toolInput: "{}",
+          content: "Captured the dashboard",
+          ...(images ? { images } : {}),
+          ...extra,
+        },
+      ],
+    },
+  ];
+
+  it("emits a text + image content array for url images on the native API", () => {
+    const result = engineMessagesToAnthropic(
+      withImages([{ url: "https://cdn.example.com/shot.png" }]),
+    );
+    const tr = (result[2].content as any[]).find(
+      (p: any) => p.type === "tool_result",
+    );
+    expect(tr.content).toEqual([
+      { type: "text", text: "Captured the dashboard" },
+      {
+        type: "image",
+        source: { type: "url", url: "https://cdn.example.com/shot.png" },
+      },
+    ]);
+  });
+
+  it("emits base64 image blocks with media_type on the native API", () => {
+    const result = engineMessagesToAnthropic(
+      withImages([{ data: "aGVsbG8=", mediaType: "image/png" }]),
+    );
+    const tr = (result[2].content as any[]).find(
+      (p: any) => p.type === "tool_result",
+    );
+    expect(tr.content[1]).toEqual({
+      type: "image",
+      source: { type: "base64", media_type: "image/png", data: "aGVsbG8=" },
+    });
+  });
+
+  it("keeps plain string content when there are no images", () => {
+    const result = engineMessagesToAnthropic(withImages(undefined));
+    const tr = (result[2].content as any[]).find(
+      (p: any) => p.type === "tool_result",
+    );
+    expect(tr.content).toBe("Captured the dashboard");
+  });
+
+  it("keeps plain string content when image entries are malformed", () => {
+    const result = engineMessagesToAnthropic(
+      withImages([{ label: "no url or data" } as any]),
+    );
+    const tr = (result[2].content as any[]).find(
+      (p: any) => p.type === "tool_result",
+    );
+    expect(tr.content).toBe("Captured the dashboard");
+  });
+
+  it("keeps plain string content for error results even with images", () => {
+    const result = engineMessagesToAnthropic(
+      withImages([{ url: "https://cdn.example.com/shot.png" }], {
+        isError: true,
+      }),
+    );
+    const tr = (result[2].content as any[]).find(
+      (p: any) => p.type === "tool_result",
+    );
+    expect(tr.content).toBe("Captured the dashboard");
+    expect(tr.is_error).toBe(true);
+  });
+
+  it("degrades to string content on the Builder gateway path", () => {
+    const result = engineMessagesToBuilderGatewayAnthropic(
+      withImages([{ url: "https://cdn.example.com/shot.png" }]),
+    );
+    const tr = (result[2].content as any[]).find(
+      (p: any) => p.type === "tool_result",
+    );
+    expect(tr.content).toBe("Captured the dashboard");
+  });
+
+  it("preserves images through the tool-result backfill", () => {
+    const messages = withImages([
+      { url: "https://cdn.example.com/shot.png", label: "tab" },
+    ]);
+    // Blank the toolName so the backfill rebuilds the part.
+    (messages[2].content[0] as any).toolName = "";
+    (messages[2].content[0] as any).toolInput = "";
+    const filled = backfillEngineMessagesToolResults(messages);
+    const tr = (filled[2] as any).content[0];
+    expect(tr.toolName).toBe("screenshot");
+    expect(tr.images).toEqual([
+      { url: "https://cdn.example.com/shot.png", label: "tab" },
+    ]);
+  });
+});
+
 describe("anthropicContentToEngine", () => {
   it("converts text block", () => {
     const result = anthropicContentToEngine([{ type: "text", text: "hello" }]);

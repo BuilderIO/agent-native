@@ -1,5 +1,8 @@
 import { useT } from "@agent-native/core/client";
-import { Button } from "@agent-native/toolkit/ui/button";
+import { IconCheck, IconSelector, IconLoader2 } from "@tabler/icons-react";
+import { useState } from "react";
+
+import { Button } from "@/components/ui/button";
 import {
   Command,
   CommandEmpty,
@@ -7,16 +10,13 @@ import {
   CommandInput,
   CommandItem,
   CommandList,
-} from "@agent-native/toolkit/ui/command";
+} from "@/components/ui/command";
 import {
   Popover,
   PopoverContent,
   PopoverTrigger,
-} from "@agent-native/toolkit/ui/popover";
-import { Skeleton } from "@agent-native/toolkit/ui/skeleton";
-import { IconCheck, IconSelector, IconLoader2 } from "@tabler/icons-react";
-import { useState } from "react";
-
+} from "@/components/ui/popover";
+import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 
 import { usePropertyValues } from "../use-dynamic-schema";

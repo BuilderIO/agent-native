@@ -159,6 +159,19 @@ const runMailMigrations = runMigrations(
 CREATE INDEX IF NOT EXISTS idx_contact_frequency_owner ON contact_frequency(owner_email);
 CREATE INDEX IF NOT EXISTS idx_automation_rules_owner ON automation_rules(owner_email)`,
     },
+    {
+      name: "snippets-table",
+      version: 15,
+      sql: `CREATE TABLE IF NOT EXISTS snippets (
+    id TEXT PRIMARY KEY,
+    owner_email TEXT NOT NULL,
+    name TEXT NOT NULL,
+    body TEXT NOT NULL,
+    created_at ${intType()} NOT NULL,
+    updated_at ${intType()} NOT NULL
+  );
+CREATE INDEX IF NOT EXISTS idx_snippets_owner_name ON snippets(owner_email, name)`,
+    },
   ],
   { table: "mail_migrations" },
 );

@@ -15,6 +15,66 @@
         "3100"
       ],
       "port": 3100
+    },
+    {
+      "name": "analytics",
+      "runtimeExecutable": "env",
+      "runtimeArgs": [
+        "DATABASE_URL=file:/private/tmp/claude-501/-Users-steve-Projects-builder-agent-native-framework/335b0436-2f6f-418c-97ad-57e7bc1c7727/scratchpad/analytics-verify.sqlite",
+        "PORT=3101",
+        "pnpm",
+        "--dir",
+        "templates/analytics",
+        "dev",
+        "--port",
+        "3101"
+      ],
+      "port": 3101
+    },
+    {
+      "name": "dispatch",
+      "runtimeExecutable": "env",
+      "runtimeArgs": [
+        "DATABASE_URL=file:/private/tmp/claude-501/-Users-steve-Projects-builder-agent-native-framework/335b0436-2f6f-418c-97ad-57e7bc1c7727/scratchpad/dispatch-verify.sqlite",
+        "PORT=3103",
+        "pnpm",
+        "--dir",
+        "templates/dispatch",
+        "dev",
+        "--port",
+        "3103"
+      ],
+      "port": 3103
+    },
+    {
+      "name": "clips",
+      "runtimeExecutable": "env",
+      "runtimeArgs": [
+        "DATABASE_URL=file:/private/tmp/claude-501/-Users-steve-Projects-builder-agent-native-framework/335b0436-2f6f-418c-97ad-57e7bc1c7727/scratchpad/clips-verify.sqlite",
+        "PORT=3102",
+        "pnpm",
+        "--dir",
+        "templates/clips",
+        "dev",
+        "--port",
+        "3102"
+      ],
+      "port": 3102
+    },
+    {
+      "name": "calendar",
+      "runtimeExecutable": "env",
+      "runtimeArgs": [
+        "DATABASE_URL=file:/private/tmp/claude-501/-Users-steve-Projects-builder-agent-native-framework/f1b077ae-49b6-4397-bbfe-c77261a89c70/scratchpad/calendar-verify.sqlite",
+        "PORT=3104",
+        "pnpm",
+        "--dir",
+        "templates/calendar",
+        "dev",
+        "--port",
+        "3104"
+      ],
+      "port": 3104
     }
   ]
 }

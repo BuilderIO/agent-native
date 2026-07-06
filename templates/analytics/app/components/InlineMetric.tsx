@@ -1,5 +1,5 @@
-import { Card, CardContent } from "@agent-native/toolkit/ui/card";
-import { Skeleton } from "@agent-native/toolkit/ui/skeleton";
+import { Card, CardContent } from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
 
 interface InlineMetricProps {
   title: string;

@@ -1,10 +1,11 @@
 import { ShareButton, VisibilityBadge } from "@agent-native/core/client";
+import { IconPalette, IconStar, IconStarFilled } from "@tabler/icons-react";
+
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
-} from "@agent-native/toolkit/ui/tooltip";
-import { IconPalette, IconStar, IconStarFilled } from "@tabler/icons-react";
+} from "@/components/ui/tooltip";
 
 import type { DesignSystemData } from "../../../shared/api";
 

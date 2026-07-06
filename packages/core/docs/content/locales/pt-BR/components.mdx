@@ -25,13 +25,22 @@ Evite importar componentes UI do pacote `@agent-native/core` simples. Usar
 `@agent-native/core/client` ou um subcaminho `@agent-native/core/client/*` em foco
 para que os empacotadores escolham a entrada segura para o navegador.
 
-Use `@agent-native/toolkit` para peças reutilizáveis de construção de aplicativos que não fazem parte do contrato fundamental do runtime: primitivas UI no estilo shadcn, hooks compartilhados, helpers simples de shell do app e outros módulos de composição de templates. Core mantém reexports de compatibilidade durante a transição, mas novo código de templates e apps deve importar módulos do toolkit diretamente:
+Use `@agent-native/toolkit` para peças reutilizáveis de construção de aplicativos que não fazem parte do contrato fundamental do runtime: primitivas UI no estilo shadcn, hooks compartilhados, helpers simples de shell do app e outros módulos de composição de templates. Core mantém reexports de compatibilidade durante a transição.
+
+Pacotes reutilizáveis podem importar módulos do Toolkit diretamente:
 
 ```tsx
 import { Button } from "@agent-native/toolkit/ui/button";
 import { Toaster } from "@agent-native/toolkit/ui/sonner";
 import { useToast } from "@agent-native/toolkit/hooks/use-toast";
 import { useSetHeaderActions } from "@agent-native/toolkit/app-shell";
+```
+
+Dentro de apps de template, prefira adaptadores locais do app para que equipes possam substituir primitivas uma vez e fazer toda superfície reutilizada do Toolkit usar a implementação local:
+
+```tsx
+import { Button } from "@/components/ui/button";
+import { useToast } from "@/hooks/use-toast";
 ```
 
 <Diagram id="doc-block-smqhxh" title={"Desça uma camada, não fora da estrutura"} summary={"Cada camada mantém o mesmo tempo de execução – ações, estado do thread e sincronização SQL-backed – enquanto oferece mais controle sobre o cromo."}>
@@ -443,7 +452,8 @@ function WorkspaceResources() {
 
 | Área             | APIs                                                            | Caminho de importação                     |
 | ---------------- | --------------------------------------------------------------- | ----------------------------------------- |
-| Compartilhamento | `<ShareButton>`, `<ShareDialog>`, `<VisibilityBadge>`           | `@agent-native/core/client/sharing`       |
+| Compartilhamento | `<ShareButton>`, `<ShareDialog>`                                | `@agent-native/core/client/sharing`       |
+| Sharing UI       | `<VisibilityBadge>`                                             | `@agent-native/toolkit/sharing`           |
 | Notificações     | `<NotificationsBell>`                                           | `@agent-native/core/client/notifications` |
 | Progresso        | `<RunsTray>`, ganchos e tipos de progresso                      | `@agent-native/core/client/progress`      |
 | Integração       | `useOnboarding()`, ganchos de painel integrados                 | `@agent-native/core/client/onboarding`    |

@@ -48,6 +48,10 @@ import {
   type BubbleWebrtcHandle,
 } from "./lib/bubble-webrtc";
 import {
+  getCameraStreamWithFallback,
+  isMediaConstraintFailure,
+} from "./lib/media-capture-constraints";
+import {
   isHardCapturePermissionError,
   MACOS_CAPTURE_PERMISSION_MESSAGE,
   MACOS_SPEECH_PERMISSION_MESSAGE,
@@ -432,6 +436,11 @@ function normalizeVoiceProvider(value: string): VoiceProvider {
   if (value === "auto") return native;
   if (value === "builder") return "builder-gemini";
   if (value === "macos-native" && !isMacPlatform()) return "browser";
+  // Symmetric migration: a persisted "browser" preference from a non-Mac
+  // install (or an older build) silently ran native transcription on Mac
+  // via resolveProvider()'s mic-override branch with zero UI indication.
+  // Normalize the stale value at the source instead (D1).
+  if (value === "browser" && isMacPlatform()) return "macos-native";
   return value === "browser" ||
     value === "macos-native" ||
     value === "whisper" ||
@@ -1358,15 +1367,15 @@ export function App() {
       "[clips-popover] bubble session start — acquiring camera + showing bubble",
     );
 
-    navigator.mediaDevices
-      .getUserMedia({
-        video: {
-          width: { ideal: 1280 },
-          height: { ideal: 720 },
-          ...(cameraId ? { deviceId: { exact: cameraId } } : {}),
-        },
-        audio: false,
-      })
+    // The saved camera id can go stale (webcam unplugged since last launch).
+    // The fallback helper retries once with the default camera on a
+    // constraint failure instead of leaving the ghost id to fail with
+    // OverconstrainedError; once `loadDevices()` refreshes the list below,
+    // the stale selection itself is cleared by `useMediaDevices`.
+    getCameraStreamWithFallback(cameraId, {
+      width: { ideal: 1280 },
+      height: { ideal: 720 },
+    })
       .then(async (s) => {
         if (cancelled) {
           // Effect re-ran before we resolved — throw this stream away.
@@ -1426,6 +1435,13 @@ export function App() {
           err?.name === "NotAllowedError"
         ) {
           setCameraError(MACOS_CAPTURE_PERMISSION_MESSAGE);
+        } else if (isMediaConstraintFailure(err)) {
+          // Even the default-camera retry inside getCameraStreamWithFallback
+          // failed, so no camera is usable right now. Say that plainly
+          // instead of surfacing constraint jargon like "Invalid constraint".
+          setCameraError(
+            "No camera found. Connect a camera, or pick one from the camera menu.",
+          );
         } else {
           setCameraError(`Camera unavailable: ${msg}`);
         }

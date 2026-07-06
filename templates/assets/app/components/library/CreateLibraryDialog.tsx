@@ -3,7 +3,10 @@ import {
   useActionQuery,
   useT,
 } from "@agent-native/core/client";
-import { Button } from "@agent-native/toolkit/ui/button";
+import { useState } from "react";
+import { toast } from "sonner";
+
+import { Button } from "@/components/ui/button";
 import {
   Dialog,
   DialogContent,
@@ -11,13 +14,10 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from "@agent-native/toolkit/ui/dialog";
-import { Input } from "@agent-native/toolkit/ui/input";
-import { Label } from "@agent-native/toolkit/ui/label";
-import { Separator } from "@agent-native/toolkit/ui/separator";
-import { useState } from "react";
-import { toast } from "sonner";
-
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Separator } from "@/components/ui/separator";
 import { Textarea } from "@/components/ui/textarea";
 
 import type { LibraryPreset } from "../../../shared/library-presets";

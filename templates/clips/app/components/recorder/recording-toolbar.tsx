@@ -1,16 +1,17 @@
 import { useT } from "@agent-native/core/client";
 import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@agent-native/toolkit/ui/tooltip";
-import {
   IconPlayerPause,
   IconPlayerPlay,
   IconPlayerStop,
   IconX,
 } from "@tabler/icons-react";
 import { useEffect, useRef, useState } from "react";
+
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 import { clampRectToViewport, type BubblePosition } from "./camera-positioner";
 

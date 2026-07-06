@@ -67,4 +67,29 @@ describe("SettingsTabsPage", () => {
     expect(container.textContent).toContain("Recent updates");
     expect(container.textContent).not.toContain("General content");
   });
+
+  it("places extra settings tabs between general and team", () => {
+    act(() => {
+      root.render(
+        <SettingsTabsPage
+          general={<div>General content</div>}
+          team={<div>Team members</div>}
+          whatsNew={<div>Recent updates</div>}
+          extraTabs={[
+            {
+              id: "agent",
+              label: "Agent",
+              content: <div>Agent settings</div>,
+            },
+          ]}
+        />,
+      );
+    });
+
+    const tabLabels = Array.from(
+      container.querySelectorAll('[role="tab"]'),
+      (tab) => tab.textContent,
+    );
+    expect(tabLabels).toEqual(["General", "Agent", "Team", "What's new"]);
+  });
 });

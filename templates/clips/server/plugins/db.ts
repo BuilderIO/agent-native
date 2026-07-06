@@ -787,6 +787,32 @@ const migrations = runMigrations(
         `CREATE INDEX IF NOT EXISTS recording_bug_reports_project_idx ON recording_bug_reports (project_id, updated_at)`,
       ].join("; "),
     },
+    {
+      version: 45,
+      name: "recording-transcripts-retry-count",
+      sql: `ALTER TABLE recording_transcripts ADD COLUMN IF NOT EXISTS retry_count INTEGER NOT NULL DEFAULT 0`,
+    },
+    // ---------------------------------------------------------------------------
+    // Per-view records — append-only log of counted views (who viewed a clip
+    // and when), backing the owner-facing "Viewed by" popover and the
+    // `list-clip-views` action. One row per viewer, inserted at the moment
+    // `recording_viewers.counted_view` flips true.
+    // ---------------------------------------------------------------------------
+    {
+      version: 46,
+      name: "recording-views-per-view-log",
+      sql: [
+        `CREATE TABLE IF NOT EXISTS recording_views (
+          id TEXT PRIMARY KEY,
+          recording_id TEXT NOT NULL,
+          viewer_id TEXT NOT NULL,
+          viewer_email TEXT,
+          viewer_name TEXT,
+          viewed_at TEXT NOT NULL DEFAULT (datetime('now'))
+        )`,
+        `CREATE INDEX IF NOT EXISTS recording_views_recording_idx ON recording_views (recording_id, viewed_at)`,
+      ].join("; "),
+    },
   ],
   { table: "clips_migrations" },
 );

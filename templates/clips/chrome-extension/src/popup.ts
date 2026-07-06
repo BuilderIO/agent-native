@@ -190,6 +190,19 @@ async function loadFeedbackSchema(
   return pending;
 }
 
+// Chrome (and some OSes) surface synthetic aliases alongside real hardware:
+// a "default" device that mirrors whatever the OS currently considers its
+// default input, and sometimes a "communications" variant. Both re-resolve to
+// a possibly-different physical device at capture time (e.g. macOS Continuity
+// can silently promote a nearby iPhone's mic to system default), so picking
+// one of these rows does not pin recording to the hardware the label implies.
+// Filter them out and only ever list/persist stable hardware device ids.
+const VIRTUAL_DEVICE_ID_RE = /^(default|communications)$/i;
+
+function isVirtualDefaultDevice(device: MediaDeviceInfo): boolean {
+  return VIRTUAL_DEVICE_ID_RE.test(device.deviceId);
+}
+
 // Enumerate the user's input devices for the camera/mic pickers. Labels only
 // populate after camera/mic permission is granted (the extension's permission
 // onboarding page handles that), so fall back to a generic label otherwise.
@@ -203,6 +216,7 @@ async function enumerateInputDevices(): Promise<{
     const microphones: InputDevice[] = [];
     for (const device of devices) {
       if (!device.deviceId) continue;
+      if (isVirtualDefaultDevice(device)) continue;
       if (device.kind === "videoinput") {
         cameras.push({
           deviceId: device.deviceId,
@@ -563,6 +577,11 @@ let inputDevices: { cameras: InputDevice[]; microphones: InputDevice[] } = {
   microphones: [],
 };
 
+// Distinguishes "the user explicitly picked the OS default" from "the id we
+// have on file doesn't match any enumerated device anymore" (e.g. the device
+// was unplugged, or it was a stale/virtual id saved before this fix). The two
+// cases must not collapse into the same label — that's what let a stored id
+// silently re-resolve to something other than what the UI implied.
 function deviceLabel(
   devices: InputDevice[],
   deviceId: string,
@@ -570,7 +589,7 @@ function deviceLabel(
 ): string {
   if (!deviceId) return fallback;
   const match = devices.find((device) => device.deviceId === deviceId);
-  return match ? match.label : fallback;
+  return match ? match.label : `${fallback} (device disconnected)`;
 }
 
 function renderDeviceMenu(
@@ -622,13 +641,13 @@ function renderDevicePickers(settings: ExtensionSettings): void {
     cameraLabel.textContent = deviceLabel(
       inputDevices.cameras,
       settings.videoDeviceId,
-      "Default camera",
+      "System default",
     );
     renderDeviceMenu(
       cameraMenu,
       inputDevices.cameras,
       settings.videoDeviceId,
-      "Default camera",
+      "System default",
     );
   } else {
     cameraMenu.hidden = true;
@@ -643,13 +662,13 @@ function renderDevicePickers(settings: ExtensionSettings): void {
     micLabel.textContent = deviceLabel(
       inputDevices.microphones,
       settings.audioDeviceId,
-      "Default mic",
+      "System default",
     );
     renderDeviceMenu(
       micMenu,
       inputDevices.microphones,
       settings.audioDeviceId,
-      "Default mic",
+      "System default",
     );
   } else {
     micMenu.hidden = true;
@@ -848,7 +867,37 @@ async function init(): Promise<void> {
   // this is also re-run when the device list changes.
   const refreshDevices = async (): Promise<void> => {
     inputDevices = await enumerateInputDevices();
+    // A stored device id that no longer matches anything enumerated (unplugged
+    // hardware, or a stale virtual "default" id saved before this fix) must not
+    // keep being treated as a real selection — clear it so capture honestly
+    // falls back to the OS default instead of trying to `exact`-match a ghost id.
+    // Only trust a NON-empty list, though: enumeration yields empty lists on
+    // transient errors or before permission is granted, and wiping a valid
+    // saved selection over that would destroy the user's choice for no reason
+    // (the label already renders a fallback while the list is empty).
+    let settingsChanged = false;
+    if (
+      settings.videoDeviceId &&
+      inputDevices.cameras.length > 0 &&
+      !inputDevices.cameras.some(
+        (device) => device.deviceId === settings.videoDeviceId,
+      )
+    ) {
+      settings.videoDeviceId = "";
+      settingsChanged = true;
+    }
+    if (
+      settings.audioDeviceId &&
+      inputDevices.microphones.length > 0 &&
+      !inputDevices.microphones.some(
+        (device) => device.deviceId === settings.audioDeviceId,
+      )
+    ) {
+      settings.audioDeviceId = "";
+      settingsChanged = true;
+    }
     renderDevicePickers(settings);
+    if (settingsChanged) void saveSettings(settings);
   };
 
   const closeDeviceMenus = (): void => {

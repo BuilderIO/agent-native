@@ -1,11 +1,11 @@
 import { useT } from "@agent-native/core/client";
+
 import {
   Dialog,
   DialogContent,
   DialogHeader,
   DialogTitle,
-} from "@agent-native/toolkit/ui/dialog";
-
+} from "@/components/ui/dialog";
 import { shortcutModifierLabel } from "@/lib/utils";
 
 interface KeyboardShortcutsHelpProps {

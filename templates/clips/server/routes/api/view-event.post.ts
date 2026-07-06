@@ -162,7 +162,8 @@ export default defineEventHandler(async (event) => {
       });
 
       let viewerId: string;
-      let countedView = existing?.countedView ?? false;
+      const wasCountedBefore = existing?.countedView ?? false;
+      let countedView = wasCountedBefore;
       const newTotalWatchMs = Math.max(
         existing?.totalWatchMs ?? 0,
         Math.floor(totalWatchMs),
@@ -224,6 +225,23 @@ export default defineEventHandler(async (event) => {
         payload: JSON.stringify(payload ?? {}),
         createdAt: now,
       });
+
+      // Record a per-viewer view row exactly when this viewer first crosses
+      // the counting threshold — one row per viewer, consistent with the
+      // existing aggregate `views = count(countedView)` in
+      // get-recording-insights. This gives the owner a "who viewed and when"
+      // timeline on top of the aggregate count, without double-counting a
+      // returning viewer who is already counted.
+      if (!wasCountedBefore && countedView) {
+        await db.insert(schema.recordingViews).values({
+          id: nanoid(),
+          recordingId,
+          viewerId,
+          viewerEmail,
+          viewerName: viewerEmail ? viewerName : viewerKey,
+          viewedAt: now,
+        });
+      }
 
       // Only broadcast a refresh signal on "meaningful" events to avoid
       // spamming the polling clients every 2s with watch-progress

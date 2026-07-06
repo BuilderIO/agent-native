@@ -1,0 +1,46 @@
+---
+title: "Toolkit App Adapters"
+description: "Use app-local wrappers so Toolkit components are reusable without forcing one visual system."
+---
+
+# Toolkit App Adapters
+
+Every template can expose local UI adapters under `@/components/ui/*` and local
+hook adapters under `@/hooks/*`. Most adapters are intentionally tiny:
+
+```tsx
+export * from "@agent-native/toolkit/ui/button";
+```
+
+This pattern gives apps a stable customization point. Reusable Toolkit code can
+ship once, while app owners can replace `Button`, `Input`, or `Dialog` locally
+without rewriting every callsite.
+
+## Import Rule {#import-rule}
+
+Inside an app, prefer:
+
+```tsx
+import { Button } from "@/components/ui/button";
+```
+
+Inside Toolkit or other reusable packages, use:
+
+```tsx
+import { Button } from "@agent-native/toolkit/ui/button";
+```
+
+For reusable kit components that render app chrome, prefer `ToolkitProvider`
+over direct imports for primitives that apps commonly customize.
+
+Provider wiring can import from the focused provider subpath:
+
+```tsx
+import { ToolkitProvider } from "@agent-native/toolkit/provider";
+```
+
+## Compatibility {#compatibility}
+
+Existing template code that used direct Toolkit imports has been migrated to
+local adapters. Existing external apps can keep their old imports while they
+migrate, because the Toolkit package still exports every primitive directly.

@@ -219,7 +219,7 @@ export function PlanContentRenderer({
         : undefined,
     [collabUser?.email, collabUser?.name, collabUser?.color],
   );
-  const { activeUsers, agentPresent, agentActive, recentEdits } =
+  const { activeUsers, agentPresent, agentActive, recentEdits, collabDoc } =
     usePlanPresence({
       planId,
       enabled: !!planId && !isRecap,
@@ -893,6 +893,11 @@ export function PlanContentRenderer({
                           editable
                           onBlocksChange={replaceBlocks}
                           onVisualQuestionsSubmit={onVisualQuestionsSubmit}
+                          // Reuse the `plan:<planId>` connection `usePlanPresence`
+                          // already opened above for the header PresenceBar,
+                          // instead of opening a second independent one (see
+                          // `usePlanPresence`'s `collabDoc` doc comment).
+                          sharedCollabDoc={collabDoc}
                         />
                       </Suspense>
                     ) : (

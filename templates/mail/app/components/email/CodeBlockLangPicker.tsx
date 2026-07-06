@@ -1,13 +1,14 @@
 import { useT } from "@agent-native/core/client";
+import type { Editor } from "@tiptap/react";
+import { useEffect, useState, useRef } from "react";
+
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from "@agent-native/toolkit/ui/select";
-import type { Editor } from "@tiptap/react";
-import { useEffect, useState, useRef } from "react";
+} from "@/components/ui/select";
 
 const LANGUAGES = [
   { value: "", label: "" },

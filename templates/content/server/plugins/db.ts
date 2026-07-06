@@ -596,6 +596,16 @@ const runContentMigrations = runMigrations(
         CREATE UNIQUE INDEX IF NOT EXISTS content_database_body_hydration_queue_item_idx ON content_database_body_hydration_queue (database_item_id);
         CREATE INDEX IF NOT EXISTS content_database_items_body_hydration_idx ON content_database_items (database_id, body_hydration_status)`,
     },
+    {
+      version: 61,
+      name: "document-sync-links-claim-column",
+      // Best-effort cross-instance serialization for Notion pull/push: a
+      // conditional UPDATE claims this column before making Notion API calls
+      // so two concurrent syncs for the same document (different tabs,
+      // different serverless instances) don't race Notion mutations against
+      // each other. See server/lib/notion-sync.ts's use of this column.
+      sql: `ALTER TABLE document_sync_links ADD COLUMN IF NOT EXISTS sync_claimed_at TEXT`,
+    },
   ],
   { table: "content_migrations" },
 );

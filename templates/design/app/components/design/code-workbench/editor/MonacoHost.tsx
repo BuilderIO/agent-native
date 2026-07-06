@@ -1,6 +1,7 @@
-import { Spinner } from "@agent-native/toolkit/ui/spinner";
 import type * as monaco from "monaco-editor";
 import { useEffect, useRef, useState, type MutableRefObject } from "react";
+
+import { Spinner } from "@/components/ui/spinner";
 
 import {
   readCodeWorkbenchTheme,

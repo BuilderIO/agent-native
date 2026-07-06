@@ -59,6 +59,15 @@ export const emailLinkTracking = table("email_link_tracking", {
   lastClickedAt: integer("last_clicked_at"),
 });
 
+export const snippets = table("snippets", {
+  id: text("id").primaryKey(),
+  ownerEmail: text("owner_email").notNull(),
+  name: text("name").notNull(),
+  body: text("body").notNull(),
+  createdAt: integer("created_at").notNull(),
+  updatedAt: integer("updated_at").notNull(),
+});
+
 export const queuedEmailDrafts = table("queued_email_drafts", {
   id: text("id").primaryKey(),
   orgId: text("org_id").notNull(),

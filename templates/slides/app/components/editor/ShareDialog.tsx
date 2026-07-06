@@ -1,15 +1,5 @@
 import { appBasePath, useT } from "@agent-native/core/client";
 import {
-  Popover,
-  PopoverTrigger,
-  PopoverContent,
-} from "@agent-native/toolkit/ui/popover";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@agent-native/toolkit/ui/tooltip";
-import {
   IconShare2,
   IconCopy,
   IconCheck,
@@ -19,6 +9,16 @@ import {
 import { useState, type ReactNode } from "react";
 
 import { CloudUpgrade } from "@/components/CloudUpgrade";
+import {
+  Popover,
+  PopoverTrigger,
+  PopoverContent,
+} from "@/components/ui/popover";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import type { Deck } from "@/context/DeckContext";
 import { useDbStatus } from "@/hooks/use-db-status";
 

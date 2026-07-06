@@ -16,6 +16,12 @@ import { getDb, schema } from "../db/index.js";
 
 export type QueuedDraftStatus = "queued" | "in_review" | "sent" | "dismissed";
 
+// Transient claim marker used only inside claimQueuedDraftForSending /
+// releaseQueuedDraftClaim below. Not part of the public QueuedDraftStatus
+// union — callers never observe a draft sitting in this state through the
+// normal read/list paths for longer than a single send attempt.
+const SENDING_STATUS = "sending";
+
 export type QueueScope = "review" | "requested" | "all";
 export type QueueStatusFilter = QueuedDraftStatus | "active" | "all";
 
@@ -463,13 +469,109 @@ export async function openQueuedDraftInComposer(
   return { draft: updated, composeId };
 }
 
+export type QueuedDraftClaim =
+  | {
+      claimed: true;
+      ctx: QueueContext;
+      draft: QueuedEmailDraft;
+      priorStatus: QueuedDraftStatus;
+    }
+  | { claimed: false; reason: "sent" | "sending" | "dismissed" };
+
+/**
+ * Atomically flips a queued draft from a sendable state ("queued" or
+ * "in_review") to a transient "sending" marker so that only one caller can
+ * proceed to actually send the underlying email. Enforces the same
+ * owner-or-admin access check as requireQueuedDraft first, then uses a
+ * single conditional UPDATE + RETURNING so two concurrent callers (a
+ * double-click, two open tabs, or a retried agent tool call) can't both
+ * observe a sendable status and both dispatch the real send.
+ */
+export async function claimQueuedDraftForSending(
+  id: string,
+): Promise<QueuedDraftClaim> {
+  const { ctx } = await requireQueuedDraft(id, { ownerOnly: true });
+
+  const claimed = await getDb()
+    .update(schema.queuedEmailDrafts)
+    .set({ status: SENDING_STATUS as any, updatedAt: Date.now() })
+    .where(
+      and(
+        eq(schema.queuedEmailDrafts.id, id),
+        eq(schema.queuedEmailDrafts.orgId, ctx.orgId),
+        or(
+          eq(schema.queuedEmailDrafts.status, "queued"),
+          eq(schema.queuedEmailDrafts.status, "in_review"),
+        ),
+      ),
+    )
+    .returning({ status: schema.queuedEmailDrafts.status });
+
+  if (claimed.length > 0) {
+    const priorStatus = claimed[0]!.status as QueuedDraftStatus;
+    const draft = await getQueuedDraft(id, ctx);
+    if (!draft) throw new Error("Queued draft not found after claim.");
+    return { claimed: true, ctx, draft, priorStatus };
+  }
+
+  // Lost the race (or nothing to claim) — report the real current status so
+  // callers can distinguish "someone else is sending this right now" from
+  // "this was already sent" instead of silently re-sending or erroring.
+  const current = await getQueuedDraft(id, ctx);
+  const currentStatus = (current?.status ?? "dismissed") as
+    | QueuedDraftStatus
+    | typeof SENDING_STATUS;
+  if (currentStatus === SENDING_STATUS)
+    return { claimed: false, reason: "sending" };
+  if (currentStatus === "sent") return { claimed: false, reason: "sent" };
+  return { claimed: false, reason: "dismissed" };
+}
+
+/**
+ * Releases a failed send back to its pre-claim status so the draft is
+ * retryable instead of stuck in the transient "sending" state forever.
+ */
+export async function releaseQueuedDraftClaim(
+  id: string,
+  ctx: QueueContext,
+  priorStatus: QueuedDraftStatus,
+): Promise<void> {
+  await getDb()
+    .update(schema.queuedEmailDrafts)
+    .set({ status: priorStatus, updatedAt: Date.now() })
+    .where(
+      and(
+        eq(schema.queuedEmailDrafts.id, id),
+        eq(schema.queuedEmailDrafts.orgId, ctx.orgId),
+        eq(schema.queuedEmailDrafts.status, SENDING_STATUS as any),
+      ),
+    );
+}
+
 export async function markQueuedDraftSent(
   id: string,
+  ctx: QueueContext,
   sentMessageId?: string,
 ): Promise<QueuedEmailDraft> {
-  await requireQueuedDraft(id, { ownerOnly: true });
-  return updateQueuedDraft(id, {
+  const updates: Record<string, unknown> = {
     status: "sent",
-    sentMessageId,
-  });
+    sentAt: Date.now(),
+    updatedAt: Date.now(),
+  };
+  if (sentMessageId !== undefined) {
+    updates.sentMessageId = sentMessageId.trim() || null;
+  }
+  await getDb()
+    .update(schema.queuedEmailDrafts)
+    .set(updates)
+    .where(
+      and(
+        eq(schema.queuedEmailDrafts.id, id),
+        eq(schema.queuedEmailDrafts.orgId, ctx.orgId),
+        eq(schema.queuedEmailDrafts.status, SENDING_STATUS as any),
+      ),
+    );
+  const updated = await getQueuedDraft(id, ctx);
+  if (!updated) throw new Error("Queued draft not found after send.");
+  return updated;
 }

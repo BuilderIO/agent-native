@@ -1,7 +1,4 @@
 import { appApiPath, useActionMutation, useT } from "@agent-native/core/client";
-import { Badge } from "@agent-native/toolkit/ui/badge";
-import { Button } from "@agent-native/toolkit/ui/button";
-import { Textarea } from "@agent-native/toolkit/ui/textarea";
 import {
   IconBrandFigma,
   IconBrandGithub,
@@ -17,6 +14,9 @@ import { useCallback, useRef, useState, type ReactNode } from "react";
 import { useNavigate } from "react-router";
 import { toast } from "sonner";
 
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Textarea } from "@/components/ui/textarea";
 import {
   importResultSummary,
   looksLikeStandaloneHtml,

@@ -1,5 +1,4 @@
 import { useActionMutation, useT } from "@agent-native/core/client";
-import { Label } from "@agent-native/toolkit/ui/label";
 import { zodResolver } from "@hookform/resolvers/zod";
 import type { Meal } from "@shared/types";
 import { IconPlus, IconChevronDown } from "@tabler/icons-react";
@@ -18,6 +17,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { formatLocalDate } from "@/lib/utils";
 
 const formSchema = z.object({

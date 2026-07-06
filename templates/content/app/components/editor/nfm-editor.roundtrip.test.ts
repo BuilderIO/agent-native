@@ -207,6 +207,19 @@ const HARD_CASES: Array<{ name: string; nfm: string }> = [
       "</synced_block_reference>",
     ),
   },
+  {
+    // n1 regression: unrecognized raw containers (parsed to a notionBlockAtom
+    // with the source preserved in __raw) must survive a full editor
+    // load/save cycle byte-exact, not collapse to the bare tag name.
+    name: "raw container (meeting-notes) preserves body through the editor",
+    nfm: L(
+      "<meeting-notes>",
+      "Attendees: Steve, Alex",
+      "Notes: discussed the roadmap",
+      "Decisions: ship it",
+      "</meeting-notes>",
+    ),
+  },
 ];
 
 /**

@@ -3,9 +3,10 @@ import {
   useSession,
   useT,
 } from "@agent-native/core/client";
-import { Button } from "@agent-native/toolkit/ui/button";
 import { IconArrowLeft, IconLogin2 } from "@tabler/icons-react";
 import { Link } from "react-router";
+
+import { Button } from "@/components/ui/button";
 
 export default function NotFound() {
   const t = useT();

@@ -2,7 +2,7 @@ import {
   ChangelogSettingsCard,
   LanguagePicker,
   SettingsTabsPage,
-  openAgentSettings,
+  useAgentSettingsTabs,
   useT,
 } from "@agent-native/core/client";
 import { TeamPage } from "@agent-native/core/client/org";
@@ -27,9 +27,11 @@ export function meta() {
 
 export default function SettingsRoute() {
   const t = useT();
+  const agentSettingsTabs = useAgentSettingsTabs();
 
   return (
     <SettingsTabsPage
+      extraTabs={agentSettingsTabs}
       general={
         <div className="mx-auto w-full max-w-3xl space-y-6">
           <p className="text-sm leading-6 text-muted-foreground">
@@ -65,22 +67,6 @@ export default function SettingsRoute() {
                 <Link to="/workspace">
                   {t("settings.openResourceSettings")}
                 </Link>
-              </Button>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base">
-                {t("settings.agentTitle")}
-              </CardTitle>
-              <CardDescription>
-                {t("settings.agentDescription")}
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <Button variant="outline" onClick={() => openAgentSettings()}>
-                {t("settings.openAgentSettings")}
               </Button>
             </CardContent>
           </Card>

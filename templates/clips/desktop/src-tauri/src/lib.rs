@@ -90,7 +90,10 @@ pub fn run() {
             clips::show_flow_bar,
             clips::hide_flow_bar,
             clips::complete_voice_dictation,
+            clips::paste_last_dictation,
             clips::set_recording_state,
+            clips::set_meeting_active,
+            clips::quit_teardown_done,
             clips::reset_state,
             clips::save_bubble_position,
             clips::bubble_drag_start,
@@ -355,6 +358,50 @@ pub fn run() {
             #[cfg(target_os = "macos")]
             if let tauri::RunEvent::Reopen { .. } = _event {
                 toggle_popover(_app_handle);
+            }
+            // `app.exit()` (tray Quit, Cmd+Q, OS shutdown) delivers
+            // `ExitRequested` first, then `Exit` unless prevented. A live
+            // meeting session lives entirely in JS/React state
+            // (`useMeetingTranscription`) that Rust has no direct access to,
+            // so if a meeting is active we briefly hold the process open and
+            // let the popover webview run its normal stop/flush/finalize
+            // path before actually exiting — otherwise the last ~1.5s of
+            // transcript is lost and the recording is stuck "uploading"
+            // forever (nothing else ever stamps `meetings.actualEnd`).
+            if let tauri::RunEvent::ExitRequested { api, .. } = &_event {
+                let meeting_active = _app_handle
+                    .try_state::<MeetingActive>()
+                    .and_then(|s| s.0.lock().ok().map(|g| *g))
+                    .unwrap_or(false);
+                let teardown_state =
+                    clips::QUIT_TEARDOWN_STATE.load(std::sync::atomic::Ordering::SeqCst);
+                // Gate on MeetingActive so quitting with no active meeting
+                // stays instant — zero added latency, no event emitted, no
+                // watchdog spawned. teardown_state != 0 means either the
+                // teardown handshake is already underway (first pass already
+                // ran) or already done (the watchdog's own forced exit —
+                // must NOT prevent_exit again, or quit would hang forever).
+                if meeting_active && teardown_state == 0 {
+                    clips::QUIT_TEARDOWN_STATE.store(1, std::sync::atomic::Ordering::SeqCst);
+                    api.prevent_exit();
+                    let _ = _app_handle.emit("meetings:quit-requested", ());
+                    let watchdog_handle = _app_handle.clone();
+                    std::thread::spawn(move || {
+                        std::thread::sleep(std::time::Duration::from_secs(3));
+                        // If the JS side never called `quit_teardown_done`
+                        // (dead webview, hung network call, etc.) force the
+                        // exit anyway — quit must never hang indefinitely.
+                        if clips::QUIT_TEARDOWN_STATE.load(std::sync::atomic::Ordering::SeqCst) != 2
+                        {
+                            eprintln!(
+                                "[clips-tray] quit-teardown watchdog fired — forcing exit after 3s"
+                            );
+                            clips::QUIT_TEARDOWN_STATE
+                                .store(2, std::sync::atomic::Ordering::SeqCst);
+                            watchdog_handle.exit(0);
+                        }
+                    });
+                }
             }
             // The app is quitting (tray Quit, Cmd+Q, or OS shutdown). `Exit`
             // fires just before the process actually terminates, which

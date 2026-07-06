@@ -1,15 +1,4 @@
 import { useT } from "@agent-native/core/client";
-import { Badge } from "@agent-native/toolkit/ui/badge";
-import { Button } from "@agent-native/toolkit/ui/button";
-import { Skeleton } from "@agent-native/toolkit/ui/skeleton";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@agent-native/toolkit/ui/table";
 import type { ResponseInsightsWidgetResult } from "@shared/types";
 import {
   IconArrowLeft,
@@ -19,6 +8,17 @@ import {
 } from "@tabler/icons-react";
 import { Link, useSearchParams } from "react-router";
 
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import { useResponseInsights } from "@/hooks/use-responses";
 import { cn } from "@/lib/utils";
 

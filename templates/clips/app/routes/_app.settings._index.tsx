@@ -8,44 +8,10 @@ import {
   useBuilderStatus,
   ChangelogSettingsCard,
   SettingsTabsPage,
-  openAgentSettings,
+  useAgentSettingsTabs,
   useT,
 } from "@agent-native/core/client";
 import { TeamPage } from "@agent-native/core/client/org";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@agent-native/toolkit/ui/alert-dialog";
-import { Badge } from "@agent-native/toolkit/ui/badge";
-import { Button } from "@agent-native/toolkit/ui/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@agent-native/toolkit/ui/card";
-import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from "@agent-native/toolkit/ui/collapsible";
-import { Input } from "@agent-native/toolkit/ui/input";
-import { Label } from "@agent-native/toolkit/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@agent-native/toolkit/ui/select";
-import { Switch } from "@agent-native/toolkit/ui/switch";
 import {
   BUILDER_CREDITS_UPGRADE_URL,
   type BuilderCreditsStatus,
@@ -68,6 +34,40 @@ import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 
 import { PageHeader } from "@/components/library/page-header";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
 import { useVideoStorageStatus } from "@/hooks/use-video-storage-status";
 import enMessages from "@/i18n/en-US";
 import { cn } from "@/lib/utils";
@@ -129,12 +129,14 @@ const AI_PROVIDER_FIELDS = [
     label: "Anthropic",
     placeholder: "sk-ant-...",
     storage: "agent-engine",
+    engine: "anthropic",
   },
   {
     key: "OPENAI_API_KEY",
     label: "OpenAI",
     placeholder: "sk-...",
     storage: "agent-engine",
+    engine: "ai-sdk:openai",
   },
   {
     key: "GEMINI_API_KEY",
@@ -147,12 +149,14 @@ const AI_PROVIDER_FIELDS = [
     label: "Groq",
     placeholder: "gsk_...",
     storage: "secret",
+    engine: "ai-sdk:groq",
   },
   {
     key: "OPENROUTER_API_KEY",
     label: "OpenRouter",
     placeholder: "sk-or-...",
     storage: "agent-engine",
+    engine: "ai-sdk:openrouter",
   },
 ] as const;
 
@@ -342,6 +346,35 @@ async function saveAgentEngineApiKey(
   }
 }
 
+async function applyAgentEngine(engine: string): Promise<void> {
+  const res = await fetch(
+    agentNativePath("/_agent-native/actions/manage-agent-engine"),
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "set", engine }),
+    },
+  );
+
+  const body = (await res.json().catch(() => null)) as {
+    error?: string;
+    result?: unknown;
+  } | null;
+  if (!res.ok) {
+    throw new Error(body?.error ?? `Engine switch failed (${res.status})`);
+  }
+  const result = body?.result ?? body;
+  const text =
+    typeof result === "string"
+      ? result.trim()
+      : result && typeof result === "object"
+        ? JSON.stringify(result)
+        : "";
+  if (/^(Error|Warning):/i.test(text)) {
+    throw new Error(text);
+  }
+}
+
 async function saveRegisteredSecret(key: string, value: string): Promise<void> {
   const res = await fetch(
     agentNativePath(`/_agent-native/secrets/${encodeURIComponent(key)}`),
@@ -363,6 +396,7 @@ async function saveRegisteredSecret(key: string, value: string): Promise<void> {
 export default function SettingsIndexRoute() {
   const { session } = useSession();
   const t = useT();
+  const agentSettingsTabs = useAgentSettingsTabs();
   const email = session?.email ?? "";
   const storageStatus = useVideoStorageStatus();
   const builderStatus = useBuilderStatus();
@@ -615,6 +649,9 @@ export default function SettingsIndexRoute() {
       } else {
         await saveAgentEngineApiKey(key, value);
       }
+      if (field && "engine" in field) {
+        await applyAgentEngine(field.engine);
+      }
       setApiKeyValues((current) => ({ ...current, [key]: "" }));
       setApiKeyStatus((current) => ({ ...current, [key]: true }));
       window.dispatchEvent(new CustomEvent("agent-engine:configured-changed"));
@@ -627,6 +664,20 @@ export default function SettingsIndexRoute() {
     } finally {
       setSavingApiKey(null);
     }
+  }
+
+  function openAiProviderSetup() {
+    setApiKeysExpanded(true);
+    window.requestAnimationFrame(() => {
+      const section = document.getElementById("ai-provider-keys");
+      section?.scrollIntoView({ behavior: "smooth", block: "start" });
+      const firstEmptyField =
+        AI_PROVIDER_FIELDS.find((field) => !apiKeyStatus[field.key]) ??
+        AI_PROVIDER_FIELDS[0];
+      window.setTimeout(() => {
+        document.getElementById(firstEmptyField.key)?.focus();
+      }, 150);
+    });
   }
 
   async function handleConnectSlack() {
@@ -708,6 +759,7 @@ export default function SettingsIndexRoute() {
       </PageHeader>
       <SettingsTabsPage
         whatsNewLabel={t("settings.whatsNew")}
+        extraTabs={agentSettingsTabs}
         general={
           <div className="mx-auto w-full max-w-4xl space-y-6">
             <div className="min-w-0 space-y-6">
@@ -727,22 +779,6 @@ export default function SettingsIndexRoute() {
                 <CardContent className="max-w-xs space-y-1.5">
                   <Label>{t("settings.languageLabel")}</Label>
                   <LanguagePicker label={t("settings.languageLabel")} />
-                </CardContent>
-              </Card>
-
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-base">
-                    {t("settings.agentTitle")}
-                  </CardTitle>
-                  <CardDescription>
-                    {t("settings.agentDescription")}
-                  </CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <Button variant="outline" onClick={() => openAgentSettings()}>
-                    {t("settings.openAgentSettings")}
-                  </Button>
                 </CardContent>
               </Card>
 
@@ -1193,7 +1229,7 @@ export default function SettingsIndexRoute() {
                             variant="outline"
                             size="sm"
                             className="h-8 border-amber-300/80 bg-white/70 text-amber-950 hover:bg-amber-100 dark:border-amber-400/40 dark:bg-amber-950/30 dark:text-amber-100 dark:hover:bg-amber-900/40"
-                            onClick={() => setApiKeysExpanded(true)}
+                            onClick={openAiProviderSetup}
                           >
                             {t("builderCredits.openAiSetup")}
                           </Button>
@@ -1209,6 +1245,7 @@ export default function SettingsIndexRoute() {
                     <div className="rounded-md border border-border">
                       <CollapsibleTrigger asChild>
                         <button
+                          id="ai-provider-keys"
                           type="button"
                           className="flex w-full items-center justify-between gap-3 px-3 py-3 text-start"
                         >

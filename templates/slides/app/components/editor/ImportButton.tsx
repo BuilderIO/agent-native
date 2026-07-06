@@ -1,11 +1,12 @@
 import { agentNativePath, appBasePath, useT } from "@agent-native/core/client";
+import { IconUpload } from "@tabler/icons-react";
+import { useRef } from "react";
+
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
-} from "@agent-native/toolkit/ui/tooltip";
-import { IconUpload } from "@tabler/icons-react";
-import { useRef } from "react";
+} from "@/components/ui/tooltip";
 
 interface ImportButtonProps {
   deckId?: string;

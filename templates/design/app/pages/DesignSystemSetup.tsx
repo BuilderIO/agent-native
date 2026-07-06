@@ -8,10 +8,6 @@ import {
   useSetPageTitle,
   useSetHeaderActions,
 } from "@agent-native/toolkit/app-shell";
-import { Button } from "@agent-native/toolkit/ui/button";
-import { Input } from "@agent-native/toolkit/ui/input";
-import { Spinner } from "@agent-native/toolkit/ui/spinner";
-import { Textarea } from "@agent-native/toolkit/ui/textarea";
 import {
   IconArrowLeft,
   IconBrandGithub,
@@ -30,6 +26,10 @@ import { useState, useCallback, useRef, useMemo, useEffect } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 import { toast } from "sonner";
 
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Spinner } from "@/components/ui/spinner";
+import { Textarea } from "@/components/ui/textarea";
 import { sendToDesignAgentChat } from "@/lib/agent-chat";
 
 interface GitHubLink {

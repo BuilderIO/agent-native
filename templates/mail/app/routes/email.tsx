@@ -1,11 +1,11 @@
 import { postNavigate, isInAgentEmbed, useT } from "@agent-native/core/client";
-import { Button } from "@agent-native/toolkit/ui/button";
-import { Skeleton } from "@agent-native/toolkit/ui/skeleton";
 import type { EmailMessage } from "@shared/types";
 import { IconExternalLink } from "@tabler/icons-react";
 import { useMemo } from "react";
 import { useSearchParams } from "react-router";
 
+import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
 import { useThreadMessages } from "@/hooks/use-emails";
 import messages from "@/i18n/en-US";
 import { sanitizeHtml } from "@/lib/sanitize-html";

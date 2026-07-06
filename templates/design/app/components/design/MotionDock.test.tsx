@@ -1,7 +1,8 @@
-import { TooltipProvider } from "@agent-native/toolkit/ui/tooltip";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
+
+import { TooltipProvider } from "@/components/ui/tooltip";
 
 import { MotionDock } from "./MotionDock";
 

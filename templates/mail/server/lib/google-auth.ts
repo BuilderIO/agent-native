@@ -27,6 +27,7 @@ import {
   gmailListLabels,
   gmailWatch,
   gmailStopWatch,
+  googleFetch,
   peopleGetProfile,
 } from "./google-api.js";
 import { resolveGoogleSenderIdentity } from "./sender-identity.js";
@@ -109,6 +110,20 @@ async function getValidAccessToken(
   tokens: GoogleTokens,
   owner?: string,
 ): Promise<string> {
+  if (!tokens.access_token && !tokens.refresh_token) {
+    // The stored record has no usable credentials at all — typically a row
+    // that failed to decrypt after a SECRETS_ENCRYPTION_KEY /
+    // BETTER_AUTH_SECRET rotation (core's parseStoredTokens returns `{}`
+    // instead of throwing). Unlike the missing-refresh-token path below, do
+    // NOT delete the row: a failed decrypt can also mean THIS process holds
+    // the wrong key (e.g. a dev server sharing a prod DB), and deleting
+    // would destroy tokens a correctly configured deployment can still
+    // decrypt. Throw so callers surface a reconnect instead of retrying.
+    throw new Error(
+      `No usable OAuth tokens for ${accountId} — please reconnect.`,
+    );
+  }
+
   // If token is not expired (with 5-minute buffer), return it directly
   if (
     tokens.expiry_date &&
@@ -1702,6 +1717,100 @@ export async function fetchGmailLabelMap(
     }
   }
   return map;
+}
+
+// Gmail's real messages.batchModify endpoint (distinct from the multipart
+// /batch/gmail/v1 endpoint used by gmailBatchGetMessages/Threads) takes up to
+// 1000 message ids and one label add/remove set in a single JSON POST. Used
+// by bulk archive/star/mark-read so selecting many rows costs one Gmail call
+// instead of one per message.
+const GMAIL_BATCH_MODIFY_MAX_IDS = 1000;
+
+async function gmailBatchModify(
+  accessToken: string,
+  ids: string[],
+  addLabelIds?: string[],
+  removeLabelIds?: string[],
+): Promise<void> {
+  if (ids.length === 0) return;
+  for (let i = 0; i < ids.length; i += GMAIL_BATCH_MODIFY_MAX_IDS) {
+    const chunk = ids.slice(i, i + GMAIL_BATCH_MODIFY_MAX_IDS);
+    await googleFetch(
+      "https://gmail.googleapis.com/gmail/v1/users/me/messages/batchModify",
+      accessToken,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ids: chunk, addLabelIds, removeLabelIds }),
+      },
+    );
+  }
+}
+
+export interface BatchModifyTarget {
+  /** Gmail message id to modify. */
+  id: string;
+  /** Thread id, when known, so callers can invalidate the right thread cache. */
+  threadId?: string;
+  /** Account that owns this message; falls back to ownerEmail's primary account. */
+  accountEmail?: string;
+}
+
+export interface BatchModifyByAccountResult {
+  succeeded: string[];
+  failed: Array<{ id: string; error: string }>;
+}
+
+/**
+ * Apply the same label add/remove to many Gmail messages for one owner,
+ * grouped into one messages.batchModify call per connected account instead
+ * of one modify call per message. Falls back to per-account partial failure
+ * reporting so callers can surface which ids didn't make it (e.g. a token
+ * that failed to refresh for one secondary account).
+ */
+export async function gmailBatchModifyByAccount(
+  ownerEmail: string,
+  targets: BatchModifyTarget[],
+  addLabelIds: string[] | undefined,
+  removeLabelIds: string[] | undefined,
+): Promise<BatchModifyByAccountResult> {
+  const byAccount = new Map<string, BatchModifyTarget[]>();
+  for (const target of targets) {
+    const key = target.accountEmail || ownerEmail;
+    const list = byAccount.get(key);
+    if (list) list.push(target);
+    else byAccount.set(key, [target]);
+  }
+
+  const succeeded: string[] = [];
+  const failed: Array<{ id: string; error: string }> = [];
+
+  for (const [accountEmail, accountTargets] of byAccount) {
+    const client = await getClient(accountEmail);
+    if (!client) {
+      for (const t of accountTargets) {
+        failed.push({
+          id: t.id,
+          error: `Account ${accountEmail} not connected`,
+        });
+      }
+      continue;
+    }
+    try {
+      await gmailBatchModify(
+        client.accessToken,
+        accountTargets.map((t) => t.id),
+        addLabelIds,
+        removeLabelIds,
+      );
+      for (const t of accountTargets) succeeded.push(t.id);
+    } catch (err: any) {
+      const message = err?.message ?? "batchModify failed";
+      for (const t of accountTargets) failed.push({ id: t.id, error: message });
+    }
+  }
+
+  return { succeeded, failed };
 }
 
 /** Extract regular (non-inline) attachments from a Gmail message payload */

@@ -1,8 +1,9 @@
 import { useT } from "@agent-native/core/client";
-import { Button } from "@agent-native/toolkit/ui/button";
-import { Input } from "@agent-native/toolkit/ui/input";
 import { IconLock } from "@tabler/icons-react";
 import { useState } from "react";
+
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 
 export interface AccessPasswordPromptProps {
   onSubmit: (password: string) => void;

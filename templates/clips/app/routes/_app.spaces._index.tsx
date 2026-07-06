@@ -1,5 +1,4 @@
 import { useT } from "@agent-native/core/client";
-import { Button } from "@agent-native/toolkit/ui/button";
 import { IconPlus, IconUsersGroup } from "@tabler/icons-react";
 import { useState } from "react";
 
@@ -7,6 +6,7 @@ import { CreateSpaceDialog } from "@/components/library/create-space-dialog";
 import { EmptyState } from "@/components/library/empty-state";
 import { PageHeader } from "@/components/library/page-header";
 import { SpaceCard, type SpaceCardData } from "@/components/library/space-card";
+import { Button } from "@/components/ui/button";
 import { useSpaces, useOrganizations } from "@/hooks/use-library";
 import enMessages from "@/i18n/en-US";
 

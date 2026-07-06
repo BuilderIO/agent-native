@@ -1,10 +1,10 @@
+import { IconFiles, IconSearch } from "@tabler/icons-react";
+
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
-} from "@agent-native/toolkit/ui/tooltip";
-import { IconFiles, IconSearch } from "@tabler/icons-react";
-
+} from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
 import { formatKeybinding } from "./commands";

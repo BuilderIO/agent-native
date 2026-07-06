@@ -74,6 +74,15 @@ export const documentSyncLinks = table("document_sync_links", {
   warningsJson: text("warnings_json"),
   hasConflict: integer("has_conflict").notNull().default(0),
   syncComments: integer("sync_comments").notNull().default(0),
+  // Best-effort cross-instance claim: set to "now" (ISO) by pull/push right
+  // before making Notion API calls, cleared afterward. A conditional UPDATE
+  // (claim only succeeds if unset or stale) keeps two concurrent syncs for
+  // the same document — different tabs, different serverless instances —
+  // from racing Notion mutations against each other and corrupting the
+  // stored baseline. Best-effort because it does not serialize writes from
+  // hosts that skip the claim (e.g. legacy in-flight calls); it narrows the
+  // race window rather than eliminating it outright.
+  syncClaimedAt: text("sync_claimed_at"),
   createdAt: text("created_at").notNull().default(now()),
   updatedAt: text("updated_at").notNull().default(now()),
 });

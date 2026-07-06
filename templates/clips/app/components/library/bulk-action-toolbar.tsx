@@ -1,5 +1,7 @@
 import { useT } from "@agent-native/core/client";
-import { Button } from "@agent-native/toolkit/ui/button";
+import { IconArchive, IconFolder, IconTrash, IconX } from "@tabler/icons-react";
+
+import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -7,9 +9,7 @@ import {
   DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
-} from "@agent-native/toolkit/ui/dropdown-menu";
-import { IconArchive, IconFolder, IconTrash, IconX } from "@tabler/icons-react";
-
+} from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
 
 export interface BulkMoveTarget {

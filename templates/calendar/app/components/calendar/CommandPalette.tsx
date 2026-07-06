@@ -10,12 +10,19 @@ import {
   IconLink,
   IconExternalLink,
 } from "@tabler/icons-react";
+import * as chrono from "chrono-node";
 import { format, parseISO, parse, isValid } from "date-fns";
 import { useState, useMemo, useEffect } from "react";
 
 import { cn } from "@/lib/utils";
 
 type ViewMode = "month" | "week" | "day";
+
+export interface QuickCreateEvent {
+  title: string;
+  start: Date;
+  hasExplicitTime: boolean;
+}
 
 interface CommandPaletteProps {
   open: boolean;
@@ -24,6 +31,7 @@ interface CommandPaletteProps {
   onGoToDate: (date: Date) => void;
   onEventClick: (event: CalendarEvent) => void;
   onCreateEvent: () => void;
+  onCreateEventFromText?: (quickCreate: QuickCreateEvent) => void;
   onViewChange: (view: ViewMode) => void;
   onToday: () => void;
   selectedEvent?: CalendarEvent | null;
@@ -42,6 +50,32 @@ const DATE_FORMATS = [
   "MMMM d, yyyy",
 ];
 
+// Trailing connector words chrono-node can leave dangling on the title when
+// the matched date phrase doesn't consume them (e.g. "call mom for" if the
+// date phrase only matched a single word after "for").
+const TRAILING_CONNECTOR_WORDS = /[\s,-]*\b(?:on|at|for|by)$/i;
+
+function parseQuickCreateEvent(query: string): QuickCreateEvent | null {
+  const trimmed = query.trim();
+  if (!trimmed) return null;
+  const [result] = chrono.parse(trimmed, new Date());
+  if (!result) return null;
+
+  const title = (
+    trimmed.slice(0, result.index) +
+    trimmed.slice(result.index + result.text.length)
+  )
+    .replace(TRAILING_CONNECTOR_WORDS, "")
+    .trim();
+  if (!title) return null;
+
+  return {
+    title,
+    start: result.date(),
+    hasExplicitTime: result.start.isCertain("hour"),
+  };
+}
+
 export function CommandPalette({
   open,
   onClose,
@@ -49,6 +83,7 @@ export function CommandPalette({
   onGoToDate,
   onEventClick,
   onCreateEvent,
+  onCreateEventFromText,
   onViewChange,
   onToday,
   selectedEvent,
@@ -86,6 +121,16 @@ export function CommandPalette({
       .slice(0, 6);
   }, [query, events]);
 
+  // Only offer a natural-language quick-create when the query doesn't
+  // already resolve to a plain date jump or match existing events — those
+  // take priority since the user is more likely searching, not creating.
+  const quickCreate = useMemo(() => {
+    if (!onCreateEventFromText || parsedDate || matchingEvents.length > 0) {
+      return null;
+    }
+    return parseQuickCreateEvent(query);
+  }, [query, parsedDate, matchingEvents, onCreateEventFromText]);
+
   function handleOpenChange(isOpen: boolean) {
     if (!isOpen) {
       setQuery("");
@@ -118,6 +163,30 @@ export function CommandPalette({
             <CommandMenu.Shortcut>
               <IconArrowRight className="h-3 w-3" />
             </CommandMenu.Shortcut>
+          </CommandMenu.Item>
+        </CommandMenu.Group>
+      )}
+
+      {/* Natural-language quick create - only offered when the query looks
+          like "<title> <when>" and doesn't already resolve to a date jump
+          or an existing event */}
+      {quickCreate && onCreateEventFromText && (
+        <CommandMenu.Group heading={t("eventForm.quickCreate")}>
+          <CommandMenu.Item
+            onSelect={() => onCreateEventFromText(quickCreate)}
+            keywords={["create", "new", "add", "event", quickCreate.title]}
+          >
+            <IconPlus className="h-4 w-4" />
+            <span className="min-w-0 flex-1 truncate">
+              {t("eventForm.createEventWithTitle", {
+                title: quickCreate.title,
+              })}
+            </span>
+            <span className="ml-2 shrink-0 text-xs text-muted-foreground">
+              {quickCreate.hasExplicitTime
+                ? format(quickCreate.start, "MMM d, h:mm a")
+                : format(quickCreate.start, "MMM d")}
+            </span>
           </CommandMenu.Item>
         </CommandMenu.Group>
       )}
@@ -174,9 +243,10 @@ export function CommandPalette({
         </CommandMenu.Group>
       )}
 
-      {(parsedDate || matchingEvents.length > 0 || selectedGoogleEvent) && (
-        <CommandMenu.Separator />
-      )}
+      {(parsedDate ||
+        quickCreate ||
+        matchingEvents.length > 0 ||
+        selectedGoogleEvent) && <CommandMenu.Separator />}
 
       <CommandMenu.Group heading={t("root.commandActions")}>
         <CommandMenu.Item

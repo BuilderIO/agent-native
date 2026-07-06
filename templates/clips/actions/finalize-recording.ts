@@ -43,7 +43,10 @@ import {
   getResumableSession,
 } from "../server/lib/resumable-session.js";
 import { isStreamingUploadDisabled } from "../server/lib/streaming-upload-mode.js";
-import { remuxWebmToSeekable } from "../server/lib/video-remux.js";
+import {
+  probeHasAudioStream,
+  remuxWebmToSeekable,
+} from "../server/lib/video-remux.js";
 import {
   requiresConfiguredVideoStorage,
   STORAGE_SETUP_REQUIRED_REASON,
@@ -695,6 +698,104 @@ export default defineAction({
         }
       }
 
+      // Audio sanity checks. `finalHasAudio` is a CLAIM from the client about
+      // capture intent, not proof the bytes we're about to upload actually
+      // contain an audio track — e.g. the desktop native recorder can report
+      // `hasAudio: true` for a screen recording whose ScreenCaptureKit output
+      // has no audio stream at all (mic audio isn't muxed into that file by
+      // design; see native_screen.rs). Two distinct failure modes, handled
+      // differently:
+      //
+      //   1. PIPELINE DROP — the assembled bytes had audio before our own
+      //      faststart/remux rewrite and don't after. That would be a bug in
+      //      this file, should be unreachable, and is cheap insurance against
+      //      a future regression — fail loud exactly like the existing mp4
+      //      validation failure so the recording is retryable instead of
+      //      silently publishing a video that lost audio in our own pipeline.
+      //   2. CAPTURE-LEVEL MISMATCH — the client claimed audio but the
+      //      ASSEMBLED bytes (before any rewrite of ours) never had an audio
+      //      stream to begin with. This is a capture-side gap upstream of
+      //      finalize, not something a retry here can fix, so hard-failing
+      //      would just turn every affected recording into a lost upload
+      //      instead of a silent-but-watchable one. Log it loudly and correct
+      //      the stored `hasAudio` metadata so it matches reality, but let
+      //      finalize proceed.
+      //
+      // Best-effort throughout: only acts when the probe can actually answer
+      // (skips silently if ffmpeg is unavailable), never blocks a legitimate
+      // upload on missing tooling.
+      let correctedHasAudio = finalHasAudio;
+      if (finalHasAudio) {
+        const assembledHasAudio = await probeHasAudioStream(
+          assembled,
+          videoFormat,
+        ).catch(() => null);
+
+        if (assembledHasAudio === false) {
+          console.warn(
+            "[finalize] recording claimed audio but assembled bytes have none; correcting hasAudio",
+            { id, videoFormat },
+          );
+          try {
+            captureRouteError(
+              new Error(
+                "Recording was reported to have audio, but the assembled upload has no audio track.",
+              ),
+              {
+                route: "finalize-recording",
+                tags: {
+                  uploadStep: "audio-claimed-but-missing",
+                  videoFormat,
+                },
+                extra: {
+                  recordingId: id,
+                  dataBytes: assembled.byteLength,
+                  mimeType,
+                  ownerEmail,
+                },
+              },
+            );
+          } catch {
+            // Sentry must never mask the real capture-side issue.
+          }
+          correctedHasAudio = false;
+        } else if (assembledHasAudio === true && uploadData !== assembled) {
+          // A rewrite ran (faststart/webm remux) AND we positively confirmed
+          // the pre-rewrite source had audio — re-probe the REWRITTEN bytes.
+          // Gated strictly on `=== true` (not just "not false"): when the
+          // source probe was inconclusive (`null`, e.g. ffmpeg unavailable),
+          // we have no proof audio ever existed, so we must not hard-fail a
+          // recording that may simply be a Tier-2 capture-level mismatch.
+          const uploadHasAudio = await probeHasAudioStream(
+            uploadData,
+            videoFormat,
+          ).catch(() => null);
+          if (uploadHasAudio === false) {
+            const err = new Error(
+              "Recording had an audio track before the seekable rewrite, but the rewritten video has no audio track. Please record again.",
+            );
+            try {
+              captureRouteError(err, {
+                route: "finalize-recording",
+                tags: {
+                  uploadStep: "audio-dropped-by-remux",
+                  videoFormat,
+                },
+                extra: {
+                  recordingId: id,
+                  dataBytes: uploadData.byteLength,
+                  mimeType,
+                  ownerEmail,
+                },
+              });
+            } catch {
+              // Sentry must never mask the real validation error.
+            }
+            await failChunkAssembly(err.message);
+          }
+        }
+      }
+
       let upload: Awaited<ReturnType<typeof uploadFile>>;
       try {
         upload = await uploadFile({
@@ -857,6 +958,9 @@ export default defineAction({
       });
       return markRecordingReady({
         ...readyParams,
+        // Use the audio-probe-corrected value, not the raw client claim in
+        // `readyParams` — see the audio sanity check above.
+        finalHasAudio: correctedHasAudio,
         videoUrl: upload.url,
         videoSizeBytes: uploadData.byteLength,
         seekableApplied,

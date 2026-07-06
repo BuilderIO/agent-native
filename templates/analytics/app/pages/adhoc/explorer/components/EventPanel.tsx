@@ -1,6 +1,7 @@
 import { useT } from "@agent-native/core/client";
-import { Button } from "@agent-native/toolkit/ui/button";
 import { IconPlus } from "@tabler/icons-react";
+
+import { Button } from "@/components/ui/button";
 
 import type { ExplorerEvent } from "../types";
 import { createDefaultEvent } from "../types";

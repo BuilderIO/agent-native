@@ -91,12 +91,18 @@ interface LocaleContextValue {
 }
 
 declare global {
+  var __AGENT_NATIVE_LOCALE_CONTEXT__:
+    | React.Context<LocaleContextValue | null>
+    | undefined;
   interface Window {
     __AGENT_NATIVE_LOCALE__?: LocaleHydrationPayload;
   }
 }
 
-const LocaleContext = createContext<LocaleContextValue | null>(null);
+const LocaleContext =
+  globalThis.__AGENT_NATIVE_LOCALE_CONTEXT__ ??
+  (globalThis.__AGENT_NATIVE_LOCALE_CONTEXT__ =
+    createContext<LocaleContextValue | null>(null));
 
 const LANGUAGE_PICKER_COPY: Record<
   LocaleCode,

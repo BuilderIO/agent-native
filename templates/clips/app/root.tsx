@@ -15,16 +15,6 @@ import {
 } from "@agent-native/core/client";
 import { configureTracking } from "@agent-native/core/client";
 import { resolveLocaleFromRequest } from "@agent-native/core/server";
-import { Button } from "@agent-native/toolkit/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@agent-native/toolkit/ui/dialog";
-import { Toaster } from "@agent-native/toolkit/ui/sonner";
 import { IconCheck, IconSun, IconMoon } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useTheme } from "next-themes";
@@ -41,6 +31,17 @@ import {
 } from "react-router";
 import type { LinksFunction, LoaderFunctionArgs } from "react-router";
 
+import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Toaster } from "@/components/ui/sonner";
+import { AppToolkitProvider } from "@/components/ui/toolkit-provider";
 import { useNavigationState } from "@/hooks/use-navigation-state";
 
 import { i18nCatalog, loadI18nMessages } from "./i18n";
@@ -381,19 +382,21 @@ export default function Root() {
   const loaderData = useLoaderData<typeof loader>();
   const [queryClient] = useState(() => createAgentNativeQueryClient());
   return (
-    <AppProviders
-      queryClient={queryClient}
-      isPublicPath={isStandalonePublicPath(location.pathname)}
-      i18n={{
-        catalog: i18nCatalog,
-        initialLocale: loaderData.locale,
-        initialPreference: loaderData.preference,
-        initialMessages: loaderData.messages,
-        persistPreference: !isStandalonePublicPath(location.pathname),
-      }}
-    >
-      <AppContent />
-    </AppProviders>
+    <AppToolkitProvider>
+      <AppProviders
+        queryClient={queryClient}
+        isPublicPath={isStandalonePublicPath(location.pathname)}
+        i18n={{
+          catalog: i18nCatalog,
+          initialLocale: loaderData.locale,
+          initialPreference: loaderData.preference,
+          initialMessages: loaderData.messages,
+          persistPreference: !isStandalonePublicPath(location.pathname),
+        }}
+      >
+        <AppContent />
+      </AppProviders>
+    </AppToolkitProvider>
   );
 }
 

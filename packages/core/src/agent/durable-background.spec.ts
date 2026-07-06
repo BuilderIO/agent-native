@@ -11,6 +11,7 @@ import {
   dispatchPathTargetsNetlifyBackgroundFunction,
   extractProcessRunId,
   isAgentChatDurableBackgroundEnabled,
+  isAgentChatForegroundSelfChainEnabled,
   isHostedRuntimeForDurableBackground,
   isInBackgroundFunctionRuntime,
   prepareProcessRunRequest,
@@ -29,6 +30,7 @@ import {
 // Env keys the gate reads, snapshotted/cleared so each case is isolated.
 const ENV_KEYS = [
   "AGENT_CHAT_DURABLE_BACKGROUND",
+  "AGENT_CHAT_FOREGROUND_SELF_CHAIN",
   "AGENT_CHAT_FORCE_BACKGROUND_RUNTIME",
   "A2A_SECRET",
   "NETLIFY",
@@ -155,6 +157,65 @@ describe("isAgentChatDurableBackgroundEnabled (default-off opt-in gate)", () => 
     process.env.NETLIFY_LOCAL = "true";
     expect(isHostedRuntimeForDurableBackground()).toBe(false);
     expect(isAgentChatDurableBackgroundEnabled()).toBe(false);
+  });
+});
+
+describe("isAgentChatForegroundSelfChainEnabled (default-off opt-in gate)", () => {
+  it("is OFF with nothing configured", () => {
+    expect(isAgentChatForegroundSelfChainEnabled()).toBe(false);
+  });
+
+  it("is OFF BY DEFAULT (flag unset) even when hosted + secret are present", () => {
+    // GUARDRAIL: default-off is deliberate — durable/server-driven chat run
+    // paths were default-on twice in June 2026 and broke real users twice.
+    // The default must never flip without an explicit product decision.
+    makeHosted();
+    process.env.A2A_SECRET = "shhh";
+    delete process.env.AGENT_CHAT_FOREGROUND_SELF_CHAIN;
+    expect(isAgentChatForegroundSelfChainEnabled()).toBe(false);
+  });
+
+  it("is ON only when explicitly opted in via a truthy flag (hosted + secret)", () => {
+    makeHosted();
+    process.env.A2A_SECRET = "shhh";
+    for (const val of ["1", "true", "yes", "on", " TRUE "]) {
+      process.env.AGENT_CHAT_FOREGROUND_SELF_CHAIN = val;
+      expect(isAgentChatForegroundSelfChainEnabled()).toBe(true);
+    }
+  });
+
+  it("is OFF for falsy, unrecognized, or empty flag values (default-off)", () => {
+    makeHosted();
+    process.env.A2A_SECRET = "shhh";
+    for (const val of ["0", "false", "no", "off", "FALSE", "", "maybe"]) {
+      process.env.AGENT_CHAT_FOREGROUND_SELF_CHAIN = val;
+      expect(isAgentChatForegroundSelfChainEnabled()).toBe(false);
+    }
+  });
+
+  it("stays OFF when opted in but NOT hosted (local dev keeps the inline path)", () => {
+    process.env.AGENT_CHAT_FOREGROUND_SELF_CHAIN = "true";
+    process.env.A2A_SECRET = "shhh";
+    expect(isAgentChatForegroundSelfChainEnabled()).toBe(false);
+  });
+
+  it("stays OFF when opted in + hosted but A2A_SECRET is missing (HMAC required)", () => {
+    process.env.AGENT_CHAT_FOREGROUND_SELF_CHAIN = "true";
+    makeHosted();
+    expect(isAgentChatForegroundSelfChainEnabled()).toBe(false);
+  });
+
+  it("is independent of AGENT_CHAT_DURABLE_BACKGROUND (neither implies the other)", () => {
+    makeHosted();
+    process.env.A2A_SECRET = "shhh";
+    process.env.AGENT_CHAT_FOREGROUND_SELF_CHAIN = "true";
+    expect(isAgentChatForegroundSelfChainEnabled()).toBe(true);
+    expect(isAgentChatDurableBackgroundEnabled()).toBe(false);
+
+    Reflect.deleteProperty(process.env, "AGENT_CHAT_FOREGROUND_SELF_CHAIN");
+    process.env.AGENT_CHAT_DURABLE_BACKGROUND = "true";
+    expect(isAgentChatForegroundSelfChainEnabled()).toBe(false);
+    expect(isAgentChatDurableBackgroundEnabled()).toBe(true);
   });
 });
 

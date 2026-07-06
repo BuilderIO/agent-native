@@ -1,15 +1,5 @@
 import { useT } from "@agent-native/core/client";
 import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@agent-native/toolkit/ui/popover";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@agent-native/toolkit/ui/tooltip";
-import {
   IconBold,
   IconItalic,
   IconStrikethrough,
@@ -31,6 +21,16 @@ import type { Editor } from "@tiptap/react";
 import { BubbleMenu } from "@tiptap/react/menus";
 import { useState } from "react";
 
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { cn, shortcutLabel } from "@/lib/utils";
 
 import { getBrandPalette, setBrandPalette } from "./style-clipboard";

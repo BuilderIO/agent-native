@@ -579,6 +579,7 @@ const CORE_CLIENT_SUBPATHS = [
   "@agent-native/core/client/composer",
   "@agent-native/core/client/conversation",
   "@agent-native/core/client/editor",
+  "@agent-native/core/client/i18n",
   "@agent-native/core/client/resources",
   // Dedicated subpath that exports ONLY appBasePath/agentNativePath/appPath.
   // entry.client.tsx imports from here so it never pulls the full client barrel
@@ -598,6 +599,8 @@ const CORE_CLIENT_SUBPATHS = [
   "@agent-native/core/client/transcription/use-live-transcription",
   "@agent-native/core/voice",
 ];
+
+const NODE_SSR_NATIVE_EXTERNALS = ["better-sqlite3", "bindings"];
 
 function getDefaultOptimizeDeps(cwd: string): string[] {
   const inMonorepo = findCoreSrcDir(cwd) !== null;
@@ -631,6 +634,10 @@ function getDefaultOptimizeDeps(cwd: string): string[] {
           },
           {
             specifier: "@agent-native/core/client/editor",
+            packageName: "@agent-native/core",
+          },
+          {
+            specifier: "@agent-native/core/client/i18n",
             packageName: "@agent-native/core",
           },
           {
@@ -853,6 +860,7 @@ function getCoreSourceAliases(
       coreSrc,
       "client/editor/index.ts",
     ),
+    "@agent-native/core/client/i18n": path.join(coreSrc, "client/i18n.tsx"),
     "@agent-native/core/client/resources": path.join(
       coreSrc,
       "client/resources/index.ts",
@@ -2003,6 +2011,28 @@ function createNitroDevPlugin(
       ...((options.nitro as { routeRules?: Record<string, any> })?.routeRules ??
         {}),
     },
+    experimental: {
+      ...((options.nitro as { experimental?: Record<string, any> })
+        ?.experimental ?? {}),
+      vite: {
+        // Nitro 3's Vite plugin full-reloads the BROWSER on every edit to a
+        // server-only module (actions/, server/) — its hotUpdate hook sends
+        // `server.ws.send({ type: "full-reload" })` whenever no client-shared
+        // module changed. Agent editing sessions (self-modifying code, Builder
+        // Fusion) write those files constantly, so the app looks like it
+        // "keeps auto-refreshing" while the agent works. Opting out skips only
+        // that custom hook; Vite's default hotUpdate still invalidates changed
+        // server modules in the nitro environment, so the next request
+        // re-imports fresh server code — verified: action edits show up on the
+        // next invocation with no browser reload.
+        serverReload: false,
+        ...((
+          options.nitro as {
+            experimental?: { vite?: Record<string, any> };
+          }
+        )?.experimental?.vite ?? {}),
+      },
+    },
   } as any);
 }
 
@@ -2304,6 +2334,10 @@ function createAgentNativeConfig(
       ? {
           ...(userConfig.ssr ?? {}),
           noExternal: /^(?!node:)/,
+          external: [
+            ...NODE_SSR_NATIVE_EXTERNALS,
+            ...arrayFrom((userConfig.ssr as { external?: any })?.external),
+          ],
           // Pick the workspace-core's compiled `dist/` exports in prod —
           // Node-style `default` condition matches what edge runtimes (CF
           // Workers, Deno) can actually load. Without this, Vite's prod
