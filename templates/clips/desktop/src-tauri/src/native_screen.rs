@@ -2898,44 +2898,23 @@ pub(crate) fn stop_native_recording(
     match backend {
         NativeFullscreenBackend::Screencapture { child } => stop_screencapture(child),
         #[cfg(target_os = "macos")]
-        NativeFullscreenBackend::ScreenCaptureKit {
-            stream,
-            recording,
-            finish,
-            ..
-        } => {
-            // Removing the recording output is the clean "stop recording" path.
-            // It lets SCRecordingOutput finish while the stream is still alive;
-            // stopping the stream first can make ReplayKit report -5814 while
-            // writing the MP4's final metadata.
-            let remove_result = stream
-                .remove_recording_output(recording)
-                .map_err(|e| format!("ScreenCaptureKit recording finalize failed: {e:?}"));
-            let remove_result = match remove_result {
-                Ok(v) => Ok(v),
-                Err(first_err) => {
-                    eprintln!("[clips-tray] waiting 200ms for SCK frame buffer to drain before remove_recording_output retry");
-                    std::thread::sleep(Duration::from_millis(200));
-                    stream.remove_recording_output(recording).map_err(|e| {
-                        format!(
-                            "ScreenCaptureKit recording finalize failed (retry): {e:?}; first attempt: {first_err}"
-                        )
-                    })
-                }
-            };
-            // remove_recording_output()/stop_capture() only *trigger* the
-            // async finalize; the MP4 isn't complete until the delegate's
-            // recording_did_finish fires. Prefer waiting after removal while
-            // the stream is alive, then stop the stream after the output has
-            // had a chance to flush.
-            let remove_ok = remove_result.is_ok();
+        NativeFullscreenBackend::ScreenCaptureKit { stream, finish, .. } => {
+            // `remove_recording_output()` looks like the clean stop path, but
+            // on real machines it can block synchronously forever when the
+            // underlying SCStream connection is interrupted. `stop_capture()`
+            // returns control to us, then the delegate callback is bounded by
+            // `SCK_FINALIZE_TIMEOUT`; the moov/audio guards below decide
+            // whether the resulting file is uploadable or recoverable.
+            let stop_result = stream
+                .stop_capture()
+                .map_err(|e| format!("ScreenCaptureKit stop failed: {e:?}"));
             let mut waited_for_finalize = false;
-            let mut finalize_outcome = if wait_for_finalize && remove_ok {
+            let finalize_outcome = if wait_for_finalize {
                 waited_for_finalize = true;
                 let outcome = finish.wait(SCK_FINALIZE_TIMEOUT);
                 if outcome.is_none() {
                     eprintln!(
-                        "[clips-tray] SCRecordingOutput finalize callback did not fire within {}s after remove_recording_output; saving file as-is",
+                        "[clips-tray] SCRecordingOutput finalize callback did not fire within {}s after stop_capture; saving file as-is",
                         SCK_FINALIZE_TIMEOUT.as_secs()
                     );
                 }
@@ -2943,21 +2922,6 @@ pub(crate) fn stop_native_recording(
             } else {
                 None
             };
-
-            let stop_result = stream
-                .stop_capture()
-                .map_err(|e| format!("ScreenCaptureKit stop failed: {e:?}"));
-
-            if wait_for_finalize && !waited_for_finalize && stop_result.is_ok() {
-                waited_for_finalize = true;
-                finalize_outcome = finish.wait(SCK_FINALIZE_TIMEOUT);
-                if finalize_outcome.is_none() {
-                    eprintln!(
-                        "[clips-tray] SCRecordingOutput finalize callback did not fire within {}s after stop_capture; saving file as-is",
-                        SCK_FINALIZE_TIMEOUT.as_secs()
-                    );
-                }
-            }
 
             // Check the delegate outcome BEFORE returning on stop_result. When
             // stop_capture() fails AND recording_did_fail fires, callers must see
@@ -2979,25 +2943,10 @@ pub(crate) fn stop_native_recording(
                 );
             }
 
-            let remove_recoverable = matches!(finalize_outcome.as_ref(), Some(Ok(())))
-                || (waited_for_finalize && finalize_outcome.is_none());
-            match remove_result {
-                Ok(()) => {}
-                Err(remove_err) => {
-                    if remove_recoverable {
-                        eprintln!(
-                            "[clips-tray] ScreenCaptureKit recording output removal reported an error after finalize completed or timed out; continuing upload: {remove_err}"
-                        );
-                    } else {
-                        return Err(remove_err);
-                    }
-                }
-            }
-
             if let Err(stop_err) = stop_result {
-                if remove_ok || matches!(finalize_outcome.as_ref(), Some(Ok(()))) {
+                if matches!(finalize_outcome.as_ref(), Some(Ok(()))) {
                     eprintln!(
-                        "[clips-tray] ScreenCaptureKit stop_capture reported an error after recording output teardown; continuing upload: {stop_err}"
+                        "[clips-tray] ScreenCaptureKit stop_capture reported an error after finalize completed; continuing upload: {stop_err}"
                     );
                 } else {
                     return Err(stop_err);
