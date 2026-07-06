@@ -121,6 +121,10 @@ const messages = {
     restoreFailed: "Restore failed",
     permanentlyDeleted: "Permanently deleted",
     deleteFailed: "Delete failed",
+    clipsRestored: "{{count}} clips restored",
+    clipsRestoreFailed: "{{count}} clips could not be restored",
+    clipsPermanentlyDeleted: "{{count}} clips permanently deleted",
+    clipsDeleteFailed: "{{count}} clips could not be deleted",
   },
   recordingRoute: {
     pageTitle: "Clip recording · Clips",
@@ -773,6 +777,10 @@ All notable user-facing changes to Clips are documented here. Open it any time f
     clipsArchiveFailed: "{{count}} clips could not be archived",
     clipsMovedToTrash: "{{count}} clips moved to trash",
     clipsTrashFailed: "{{count}} clips could not be moved to trash",
+    loadFailedTitle: "Couldn't load your recordings",
+    loadFailedBody:
+      "Something went wrong while loading this list. Your recordings are safe — try again.",
+    retry: "Retry",
   },
   notificationsRoute: {
     pageTitle: "Notifications · Clips",

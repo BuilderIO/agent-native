@@ -122,6 +122,10 @@ const messages = {
     restoreFailed: "Échec de la restauration",
     permanentlyDeleted: "Supprimé définitivement",
     deleteFailed: "Échec de la suppression",
+    clipsRestored: "{{count}} clips restaurés",
+    clipsRestoreFailed: "{{count}} clips n’ont pas pu être restaurés",
+    clipsPermanentlyDeleted: "{{count}} clips supprimés définitivement",
+    clipsDeleteFailed: "{{count}} clips n’ont pas pu être supprimés",
   },
   recordingRoute: {
     pageTitle: "Enregistrement du clip · Clips",
@@ -794,6 +798,10 @@ Tous les changements visibles par les utilisateurs de Clips sont documentés ici
     clipsMovedToTrash: "{{count}} clips déplacés vers la corbeille",
     clipsTrashFailed:
       "{{count}} clips n’ont pas pu être déplacés vers la corbeille",
+    loadFailedTitle: "Impossible de charger vos enregistrements",
+    loadFailedBody:
+      "Une erreur s’est produite lors du chargement de cette liste. Vos enregistrements sont en sécurité — réessayez.",
+    retry: "Réessayer",
   },
   notificationsRoute: {
     pageTitle: "Alertes · Clips",

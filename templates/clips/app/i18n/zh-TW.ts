@@ -117,6 +117,10 @@ const messages = {
     restoreFailed: "恢復失敗",
     permanentlyDeleted: "已永久刪除",
     deleteFailed: "刪除失敗",
+    clipsRestored: "已恢復 {{count}} 個剪輯",
+    clipsRestoreFailed: "{{count}} 個剪輯無法恢復",
+    clipsPermanentlyDeleted: "已永久刪除 {{count}} 個剪輯",
+    clipsDeleteFailed: "{{count}} 個剪輯無法刪除",
   },
   recordingRoute: {
     pageTitle: "剪輯錄製 · Clips",
@@ -735,6 +739,9 @@ const messages = {
     clipsArchiveFailed: "{{count}} 個剪輯無法封存",
     clipsMovedToTrash: "已將 {{count}} 個剪輯移至廢紙簍",
     clipsTrashFailed: "{{count}} 個剪輯無法移至廢紙簍",
+    loadFailedTitle: "無法載入你的錄製",
+    loadFailedBody: "載入此清單時發生問題。你的錄製是安全的 —— 請重試。",
+    retry: "重試",
   },
   notificationsRoute: {
     pageTitle: "通知 · Clips",

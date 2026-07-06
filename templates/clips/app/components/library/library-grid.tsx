@@ -3,6 +3,8 @@ import {
   setClientAppState,
   useT,
 } from "@agent-native/core/client";
+import { Button } from "@agent-native/toolkit/ui/button";
+import { IconAlertTriangle } from "@tabler/icons-react";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
@@ -112,7 +114,8 @@ export function LibraryGrid({
     [view, folderId, spaceId, tagFilter, sort],
   );
 
-  const { data, isLoading } = useRecordings(args);
+  const { data, isLoading, isError, refetch, isRefetching } =
+    useRecordings(args);
   const recordings = data?.recordings ?? [];
 
   const trashRecording = useTrashRecording();
@@ -286,6 +289,25 @@ export function LibraryGrid({
               {Array.from({ length: 8 }).map((_, i) => (
                 <Skeleton key={i} />
               ))}
+            </div>
+          ) : isError && recordings.length === 0 ? (
+            <div className="flex flex-1 flex-col items-center justify-center py-20 px-8 text-center">
+              <div className="relative mb-6 flex h-20 w-20 items-center justify-center rounded-2xl bg-destructive/10">
+                <IconAlertTriangle className="h-10 w-10 text-destructive" />
+              </div>
+              <h2 className="text-base font-semibold text-foreground mb-1">
+                {t("libraryGrid.loadFailedTitle")}
+              </h2>
+              <p className="text-sm text-muted-foreground max-w-sm mb-5">
+                {t("libraryGrid.loadFailedBody")}
+              </p>
+              <Button
+                onClick={() => refetch()}
+                disabled={isRefetching}
+                size="sm"
+              >
+                {t("libraryGrid.retry")}
+              </Button>
             </div>
           ) : recordings.length === 0 ? (
             <EmptyState

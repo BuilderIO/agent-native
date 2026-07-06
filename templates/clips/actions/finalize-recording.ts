@@ -21,7 +21,7 @@ import {
 } from "@agent-native/core/file-upload";
 import { captureRouteError } from "@agent-native/core/server";
 import { MAX_UPLOAD_BYTES as MAX_RECORDING_UPLOAD_BYTES } from "@shared/upload-limits.js";
-import { and, eq } from "drizzle-orm";
+import { and, eq, isNull, ne } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -174,8 +174,51 @@ async function markRecordingReady(params: {
       and(
         eq(schema.recordings.id, id),
         ownerEmailMatches(schema.recordings.ownerEmail, ownerEmail),
+        // Guard against a slow/racing finalize resurrecting a recording the
+        // user already aborted (abort.post.ts flips status to 'failed'). If
+        // the row was aborted after this call started, the WHERE clause
+        // excludes it and the UPDATE becomes a no-op instead of silently
+        // flipping 'failed' back to 'ready'.
+        ne(schema.recordings.status, "failed"),
+        // Guard against the other direction of the cancel/finalize race:
+        // trash-recording's skipIfReady only blocks trashing a row that is
+        // ALREADY 'ready'. If cancel lands while this finalize is still
+        // 'processing'/'streaming', trashedAt gets set before this UPDATE
+        // runs. Excluding trashed rows here stops us from flipping status to
+        // 'ready' underneath a recording the user just trashed.
+        isNull(schema.recordings.trashedAt),
       ),
     );
+
+  // Re-select to see whether the guarded UPDATE above actually landed. If the
+  // row is not 'ready' now, the status guard blocked the write (the recording
+  // was aborted concurrently) — stop here without seeding a transcript,
+  // writing 'ready' app-state, emitting clip.created, or kicking off
+  // background transcription for a recording the user already saw fail.
+  const [postUpdate] = await db
+    .select({
+      status: schema.recordings.status,
+    })
+    .from(schema.recordings)
+    .where(
+      and(
+        eq(schema.recordings.id, id),
+        ownerEmailMatches(schema.recordings.ownerEmail, ownerEmail),
+      ),
+    );
+  if (!postUpdate || postUpdate.status !== "ready") {
+    debugLog(
+      "[finalize] markRecordingReady blocked — recording was aborted concurrently",
+      { id, status: postUpdate?.status },
+    );
+    return {
+      id,
+      status: "failed" as const,
+      videoUrl,
+      videoSizeBytes,
+      durationMs: finalDurationMs,
+    };
+  }
 
   const [existingTranscript] = await db
     .select({ recordingId: schema.recordingTranscripts.recordingId })

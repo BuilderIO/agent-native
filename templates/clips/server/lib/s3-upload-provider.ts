@@ -32,6 +32,39 @@ function cleanValue(value: string | null | undefined): string | undefined {
   return cleaned ? cleaned : undefined;
 }
 
+// A hung S3-compatible endpoint (flaky VPN, misconfigured security group that
+// accepts the TCP connection but never responds, etc.) would otherwise leave
+// finalize-recording — and the request that triggered it — waiting forever.
+// PUT gets a generous budget since it uploads the full recording; DELETE is a
+// small best-effort cleanup call and can fail fast.
+const S3_PUT_TIMEOUT_MS = 120_000;
+const S3_DELETE_TIMEOUT_MS = 30_000;
+
+async function fetchWithTimeout(
+  url: string,
+  init: RequestInit,
+  timeoutMs: number,
+): Promise<Response> {
+  try {
+    return await fetch(url, {
+      ...init,
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+  } catch (err) {
+    if (err instanceof Error && err.name === "TimeoutError") {
+      throw new Error(
+        `S3 request timed out after ${timeoutMs}ms: ${init.method ?? "GET"} ${url}`,
+      );
+    }
+    if (err instanceof Error && err.name === "AbortError") {
+      throw new Error(
+        `S3 request aborted (timeout ${timeoutMs}ms): ${init.method ?? "GET"} ${url}`,
+      );
+    }
+    throw err;
+  }
+}
+
 function buildS3Config(values: {
   bucket?: string;
   accessKeyId?: string;
@@ -202,18 +235,22 @@ async function putObject(
     `SignedHeaders=${signedHeaders}, Signature=${signature}`;
 
   const url = `${cfg.endpoint}${canonicalUri}`;
-  const res = await fetch(url, {
-    method: "PUT",
-    headers: {
-      ...headers,
-      Authorization: authorization,
-      "Content-Length": String(body.byteLength),
+  const res = await fetchWithTimeout(
+    url,
+    {
+      method: "PUT",
+      headers: {
+        ...headers,
+        Authorization: authorization,
+        "Content-Length": String(body.byteLength),
+      },
+      body: body.buffer.slice(
+        body.byteOffset,
+        body.byteOffset + body.byteLength,
+      ) as BodyInit,
     },
-    body: body.buffer.slice(
-      body.byteOffset,
-      body.byteOffset + body.byteLength,
-    ) as BodyInit,
-  });
+    S3_PUT_TIMEOUT_MS,
+  );
 
   if (!res.ok) {
     const text = await res.text().catch(() => "");
@@ -328,13 +365,17 @@ async function deleteObject(cfg: S3Config, key: string): Promise<void> {
     `SignedHeaders=${signedHeaders}, Signature=${signature}`;
 
   const url = `${cfg.endpoint}${canonicalUri}`;
-  const res = await fetch(url, {
-    method: "DELETE",
-    headers: {
-      ...headers,
-      Authorization: authorization,
+  const res = await fetchWithTimeout(
+    url,
+    {
+      method: "DELETE",
+      headers: {
+        ...headers,
+        Authorization: authorization,
+      },
     },
-  });
+    S3_DELETE_TIMEOUT_MS,
+  );
 
   if (!res.ok && res.status !== 404) {
     const text = await res.text().catch(() => "");

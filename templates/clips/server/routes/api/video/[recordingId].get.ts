@@ -64,10 +64,12 @@ import {
   loomEmbedUrlForRecording,
 } from "../../../../shared/loom.js";
 import { getDb, schema } from "../../../db/index.js";
+import { getOrganizationRoleForEmail } from "../../../lib/recordings.js";
 import { verifySharePassword } from "../../../lib/share-password.js";
 
 interface RecordingRow {
   expiresAt?: string | null;
+  organizationId?: string | null;
   password?: string | null;
   sourceAppName?: string | null;
   sourceWindowTitle?: string | null;
@@ -404,7 +406,26 @@ export default defineEventHandler(async (event: H3Event) => {
           setResponseStatus(event, 404);
           return { error: "Not found" };
         }
-        if (row.visibility !== "public") {
+        // Org-visibility clips are playable by any signed-in member of the
+        // recording's org, mirroring the allowance in
+        // `/api/public-recording.get.ts` so the metadata endpoint and this
+        // media endpoint never disagree about who can play a clip. Never
+        // throw here — this route is anonymous-reachable, so an org-lookup
+        // failure (or no session at all) must fall through to the existing
+        // public-only gate instead of surfacing a 500.
+        let viewerIsOrgMember = false;
+        if (session?.email && row.visibility === "org" && row.organizationId) {
+          try {
+            const orgRole = await getOrganizationRoleForEmail(
+              row.organizationId,
+              session.email,
+            );
+            viewerIsOrgMember = Boolean(orgRole);
+          } catch {
+            viewerIsOrgMember = false;
+          }
+        }
+        if (row.visibility !== "public" && !viewerIsOrgMember) {
           setResponseStatus(event, 403);
           return { error: "Forbidden" };
         }

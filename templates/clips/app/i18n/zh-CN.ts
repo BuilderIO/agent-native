@@ -117,6 +117,10 @@ const messages = {
     restoreFailed: "恢复失败",
     permanentlyDeleted: "已永久删除",
     deleteFailed: "删除失败",
+    clipsRestored: "已恢复 {{count}} 个剪辑",
+    clipsRestoreFailed: "{{count}} 个剪辑无法恢复",
+    clipsPermanentlyDeleted: "已永久删除 {{count}} 个剪辑",
+    clipsDeleteFailed: "{{count}} 个剪辑无法删除",
   },
   recordingRoute: {
     pageTitle: "剪辑录制 · Clips",
@@ -742,6 +746,9 @@ Clips 中所有面向用户的重要更改都会记录在这里。你可以随�
     clipsArchiveFailed: "{{count}} 个剪辑无法归档",
     clipsMovedToTrash: "已将 {{count}} 个剪辑移至废纸篓",
     clipsTrashFailed: "{{count}} 个剪辑无法移至废纸篓",
+    loadFailedTitle: "无法加载你的录制",
+    loadFailedBody: "加载此列表时出了点问题。你的录制是安全的 —— 请重试。",
+    retry: "重试",
   },
   notificationsRoute: {
     pageTitle: "通知 · Clips",

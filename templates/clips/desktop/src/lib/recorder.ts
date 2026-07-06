@@ -1250,6 +1250,11 @@ function decChunkBusy(): void {
 // backup-replay path when the very next attempt would land
 const CHUNK_UPLOAD_MAX_ATTEMPTS = 3;
 const CHUNK_UPLOAD_RETRY_BASE_MS = 250;
+// A hung connection (server accepts the TCP connection but never responds)
+// would otherwise stall a chunk upload — and the stop()/finalize flow that
+// awaits all in-flight chunks — indefinitely. Bound each attempt so a stall
+// is treated as a retryable failure instead.
+const CHUNK_UPLOAD_TIMEOUT_MS = 60_000;
 
 // Only transient server responses are worth retrying inline; a 4xx (bad
 // request, auth, not found) won't fix itself on the next attempt.
@@ -1278,9 +1283,11 @@ async function uploadChunk(url: string, blob: Blob): Promise<void> {
         // need cookies.
         credentials: "include",
         body: blob,
+        signal: AbortSignal.timeout(CHUNK_UPLOAD_TIMEOUT_MS),
       });
     } catch (err) {
-      // Network-level failure (offline, connection reset, DNS) — transient.
+      // Network-level failure (offline, connection reset, DNS) or a timeout
+      // abort from AbortSignal.timeout — both transient.
       lastError = err instanceof Error ? err : new Error(String(err));
     } finally {
       decChunkBusy();
