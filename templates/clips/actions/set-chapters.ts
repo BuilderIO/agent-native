@@ -12,7 +12,7 @@
 import { defineAction } from "@agent-native/core";
 import { writeAppState } from "@agent-native/core/application-state";
 import { assertAccess } from "@agent-native/core/sharing";
-import { eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -21,6 +21,8 @@ const ChapterSchema = z.object({
   startMs: z.coerce.number().int().min(0),
   title: z.string().min(1),
 });
+
+const MAX_CAS_ATTEMPTS = 5;
 
 export default defineAction({
   description:
@@ -56,26 +58,44 @@ export default defineAction({
       .filter((c) => c.title.length > 0)
       .sort((a, b) => a.startMs - b.startMs);
 
-    const [existing] = await db
-      .select()
-      .from(schema.recordings)
-      .where(eq(schema.recordings.id, args.recordingId));
-    if (!existing) {
-      throw new Error(`Recording not found: ${args.recordingId}`);
+    for (let attempt = 0; attempt < MAX_CAS_ATTEMPTS; attempt++) {
+      const [existing] = await db
+        .select()
+        .from(schema.recordings)
+        .where(eq(schema.recordings.id, args.recordingId));
+      if (!existing) {
+        throw new Error(`Recording not found: ${args.recordingId}`);
+      }
+
+      const previousChaptersJson = existing.chaptersJson;
+
+      const result = await db
+        .update(schema.recordings)
+        .set({
+          chaptersJson: JSON.stringify(chapters),
+          updatedAt: new Date().toISOString(),
+        })
+        .where(
+          and(
+            eq(schema.recordings.id, args.recordingId),
+            previousChaptersJson == null
+              ? isNull(schema.recordings.chaptersJson)
+              : eq(schema.recordings.chaptersJson, previousChaptersJson),
+          ),
+        )
+        .returning({ id: schema.recordings.id });
+
+      if (result.length > 0) {
+        await writeAppState("refresh-signal", { ts: Date.now() });
+        console.log(`Set ${chapters.length} chapter(s) on ${args.recordingId}`);
+        return { id: args.recordingId, chapters };
+      }
+      // Someone else changed chaptersJson between our read and write — retry
+      // against the now-current value.
     }
 
-    await db
-      .update(schema.recordings)
-      .set({
-        chaptersJson: JSON.stringify(chapters),
-        updatedAt: new Date().toISOString(),
-      })
-      .where(eq(schema.recordings.id, args.recordingId));
-
-    await writeAppState("refresh-signal", { ts: Date.now() });
-
-    console.log(`Set ${chapters.length} chapter(s) on ${args.recordingId}`);
-
-    return { id: args.recordingId, chapters };
+    throw new Error(
+      `Could not set chapters on recording ${args.recordingId} after ${MAX_CAS_ATTEMPTS} concurrent attempts.`,
+    );
   },
 });

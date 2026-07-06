@@ -484,6 +484,16 @@ export default defineEventHandler(async (event: H3Event) => {
           recordingId,
           videoUrl: (result as any)?.videoUrl,
         });
+        if ((result as any)?.status === "failed") {
+          setResponseStatus(event, 409);
+          return {
+            ok: false,
+            finalized: false,
+            aborted: true,
+            status: "failed",
+            error: "Recording was cancelled before it finished saving.",
+          };
+        }
         const waitingForStorage =
           (result as any)?.status === "waiting_storage" ||
           (result as any)?.storageSetupRequired === true;
@@ -736,6 +746,16 @@ async function handleResumableChunk(
     const result = await finalizeRecording.run(
       buildFinalizeArgs(recordingId, mimeType, query),
     );
+    if ((result as any)?.status === "failed") {
+      setResponseStatus(event, 409);
+      return {
+        ok: false,
+        finalized: false,
+        aborted: true,
+        status: "failed",
+        error: "Recording was cancelled before it finished saving.",
+      };
+    }
     return { ok: true, finalized: true, ...result };
   } catch (err) {
     console.error(`[resumable-chunk-${recordingId}] finalize failed:`, err);

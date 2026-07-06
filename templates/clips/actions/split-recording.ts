@@ -12,7 +12,7 @@
 import { defineAction } from "@agent-native/core";
 import { writeAppState } from "@agent-native/core/application-state";
 import { assertAccess } from "@agent-native/core/sharing";
-import { eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
 
 import {
@@ -22,6 +22,8 @@ import {
 } from "../app/lib/timestamp-mapping.js";
 import { getDb, schema } from "../server/db/index.js";
 import { assertNativeRecordingMedia } from "./lib/native-media.js";
+
+const MAX_CAS_ATTEMPTS = 5;
 
 export default defineAction({
   description:
@@ -39,34 +41,53 @@ export default defineAction({
 
     const db = getDb();
 
-    const [existing] = await db
-      .select()
-      .from(schema.recordings)
-      .where(eq(schema.recordings.id, args.recordingId));
-    if (!existing) {
-      throw new Error(`Recording not found: ${args.recordingId}`);
+    let next: ReturnType<typeof appendSplit> | undefined;
+
+    for (let attempt = 0; attempt < MAX_CAS_ATTEMPTS; attempt++) {
+      const [existing] = await db
+        .select()
+        .from(schema.recordings)
+        .where(eq(schema.recordings.id, args.recordingId));
+      if (!existing) {
+        throw new Error(`Recording not found: ${args.recordingId}`);
+      }
+      assertNativeRecordingMedia(existing);
+
+      const previousEditsJson = existing.editsJson;
+      const edits = parseEdits(previousEditsJson);
+      next = appendSplit(edits, args.atMs);
+
+      const result = await db
+        .update(schema.recordings)
+        .set({
+          editsJson: serializeEdits(next),
+          updatedAt: new Date().toISOString(),
+        })
+        .where(
+          and(
+            eq(schema.recordings.id, args.recordingId),
+            previousEditsJson == null
+              ? isNull(schema.recordings.editsJson)
+              : eq(schema.recordings.editsJson, previousEditsJson),
+          ),
+        )
+        .returning({ id: schema.recordings.id });
+
+      if (result.length > 0) {
+        await writeAppState("refresh-signal", { ts: Date.now() });
+        console.log(`Split ${args.recordingId} at ${args.atMs} ms`);
+        return {
+          id: args.recordingId,
+          atMs: args.atMs,
+          editsJson: next,
+        };
+      }
+      // Someone else changed editsJson between our read and write — retry
+      // against the now-current value.
     }
-    assertNativeRecordingMedia(existing);
 
-    const edits = parseEdits(existing.editsJson);
-    const next = appendSplit(edits, args.atMs);
-
-    await db
-      .update(schema.recordings)
-      .set({
-        editsJson: serializeEdits(next),
-        updatedAt: new Date().toISOString(),
-      })
-      .where(eq(schema.recordings.id, args.recordingId));
-
-    await writeAppState("refresh-signal", { ts: Date.now() });
-
-    console.log(`Split ${args.recordingId} at ${args.atMs} ms`);
-
-    return {
-      id: args.recordingId,
-      atMs: args.atMs,
-      editsJson: next,
-    };
+    throw new Error(
+      `Could not split recording ${args.recordingId} after ${MAX_CAS_ATTEMPTS} concurrent attempts.`,
+    );
   },
 });

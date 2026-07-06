@@ -29,13 +29,16 @@
 
 import { defineAction } from "@agent-native/core";
 import { writeAppState } from "@agent-native/core/application-state";
-import { assertAccess } from "@agent-native/core/sharing";
-import { inArray } from "drizzle-orm";
+import { and, inArray } from "drizzle-orm";
 import { z } from "zod";
 
 import { parseEdits, serializeEdits } from "../app/lib/timestamp-mapping.js";
 import { getDb, schema } from "../server/db/index.js";
-import { getCurrentOwnerEmail, nanoid } from "../server/lib/recordings.js";
+import {
+  getCurrentOwnerEmail,
+  nanoid,
+  ownerEmailMatches,
+} from "../server/lib/recordings.js";
 import { assertNativeRecordingMedia } from "./lib/native-media.js";
 
 export default defineAction({
@@ -89,16 +92,19 @@ export default defineAction({
       throw new Error("stitch-recordings needs at least 2 sourceRecordingIds");
     }
 
-    // Every source recording must be editable by the current user.
-    for (const sourceId of ids) {
-      await assertAccess("recording", sourceId, "editor");
-    }
-
-    // Load sources so we can copy workspace + validate ownership.
+    // Stitch creates a brand-new recording owned by the caller that defaults
+    // to public visibility, so every source must be OWNED by the caller (not
+    // just editor-shared) — otherwise a user with editor access to a
+    // private/org clip could reshare it as a new public recording they own.
     const sources = await db
       .select()
       .from(schema.recordings)
-      .where(inArray(schema.recordings.id, ids));
+      .where(
+        and(
+          inArray(schema.recordings.id, ids),
+          ownerEmailMatches(schema.recordings.ownerEmail, ownerEmail),
+        ),
+      );
     if (sources.length !== ids.length) {
       throw new Error(
         `Not all source recordings were found: asked for ${ids.length}, got ${sources.length}`,
