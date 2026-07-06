@@ -56,6 +56,8 @@ let skippingLogged = false;
 export async function closeOutStaleMeeting(args: {
   meetingId: string;
   recordingId: string | null;
+  ownerEmail: string;
+  orgId: string | null;
   /** Estimated end timestamp — pass the transcript's last updatedAt when
    * available so actualEnd reflects when activity actually stopped, not
    * "now" (which could be hours after the crash). */
@@ -74,6 +76,16 @@ export async function closeOutStaleMeeting(args: {
     hasTranscript = Boolean(transcript?.fullText?.trim());
   }
 
+  const meetingOwnershipScope = args.orgId
+    ? and(
+        eq(schema.meetings.ownerEmail, args.ownerEmail),
+        eq(schema.meetings.orgId, args.orgId),
+      )
+    : and(
+        eq(schema.meetings.ownerEmail, args.ownerEmail),
+        isNull(schema.meetings.orgId),
+      );
+
   await db
     .update(schema.meetings)
     .set({
@@ -81,9 +93,19 @@ export async function closeOutStaleMeeting(args: {
       updatedAt: nowIso,
       transcriptStatus: hasTranscript ? "ready" : "failed",
     })
-    .where(eq(schema.meetings.id, args.meetingId));
+    .where(and(eq(schema.meetings.id, args.meetingId), meetingOwnershipScope));
 
   if (args.recordingId) {
+    const recordingOwnershipScope = args.orgId
+      ? and(
+          eq(schema.recordings.ownerEmail, args.ownerEmail),
+          eq(schema.recordings.orgId, args.orgId),
+        )
+      : and(
+          eq(schema.recordings.ownerEmail, args.ownerEmail),
+          isNull(schema.recordings.orgId),
+        );
+
     await db
       .update(schema.recordings)
       .set({ status: "ready", updatedAt: nowIso })
@@ -91,6 +113,7 @@ export async function closeOutStaleMeeting(args: {
         and(
           eq(schema.recordings.id, args.recordingId),
           eq(schema.recordings.status, "uploading"),
+          recordingOwnershipScope,
         ),
       );
   }
@@ -107,6 +130,7 @@ export async function closeOutStaleMeeting(args: {
  */
 async function sweepStalePendingFinalizes(db: ReturnType<typeof getDb>) {
   const staleBefore = new Date(Date.now() - PENDING_STALE_MS).toISOString();
+  // guard:allow-unscoped — background recovery scans all owners for crash-stranded finalize claims.
   const stuck = await db
     .select({ id: schema.meetings.id, updatedAt: schema.meetings.updatedAt })
     .from(schema.meetings)
@@ -197,6 +221,8 @@ export async function runStaleMeetingSweepOnce(): Promise<void> {
           const closed = await closeOutStaleMeeting({
             meetingId: meeting.id,
             recordingId: meeting.recordingId,
+            ownerEmail: meeting.ownerEmail,
+            orgId: meeting.orgId,
             endedAtIso: lastActivityIso,
           });
           if (closed.hasTranscript) {

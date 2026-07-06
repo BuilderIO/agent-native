@@ -31,6 +31,8 @@ export default defineAction({
         actualStart: schema.meetings.actualStart,
         actualEnd: schema.meetings.actualEnd,
         recordingId: schema.meetings.recordingId,
+        ownerEmail: schema.meetings.ownerEmail,
+        orgId: schema.meetings.orgId,
       })
       .from(schema.meetings)
       .where(eq(schema.meetings.id, args.id))
@@ -43,6 +45,8 @@ export default defineAction({
       await closeOutStaleMeeting({
         meetingId: args.id,
         recordingId: meeting.recordingId,
+        ownerEmail: meeting.ownerEmail,
+        orgId: meeting.orgId,
       });
     }
 

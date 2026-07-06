@@ -55,6 +55,8 @@ vi.mock("../db/index.js", () => {
     },
     recordings: {
       id: "recordings.id",
+      ownerEmail: "recordings.ownerEmail",
+      orgId: "recordings.orgId",
       status: "recordings.status",
       updatedAt: "recordings.updatedAt",
     },
