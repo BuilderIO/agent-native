@@ -363,7 +363,7 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
               <div className="px-3 py-3">
                 <Button
                   className="w-full gap-1.5"
-                  variant="secondary"
+                  variant="outline"
                   size="sm"
                   asChild
                 >
