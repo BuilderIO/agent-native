@@ -223,6 +223,9 @@ Content has two file workflows:
   mapping metadata, or marker ids unless a dedicated provider conversion
   workflow exists. Guarded Builder write-back refuses missing, tampered, or
   structurally moved markers so source-native components are not lost.
+  Readable bodies hydrated before source-component mapping may need a fresh
+  Builder body hydration pass before guarded push, because newly preserved
+  markers are intentionally treated as structure changes.
 - **Picked folders and components:** browser-picked folders can be the
   source of truth for `.md`/`.mdx` files, but the browser does not expose an
   absolute path that Vite can compile. Component previews from a picked

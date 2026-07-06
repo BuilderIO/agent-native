@@ -174,6 +174,17 @@ describe("Builder MDX conversion", () => {
     expect(builderSourceComponentMappingFor("PricingTable")).toMatchObject({
       id: "builder-table-preserved",
     });
+    expect(builderSourceComponentMappingFor("Portable Text")).toMatchObject({
+      id: "builder-unknown-preserved",
+    });
+    expect(builderSourceComponentMappingFor("Timetable Widget")).toMatchObject({
+      id: "builder-unknown-preserved",
+    });
+    expect(builderSourceComponentMappingFor("Preferences Panel")).toMatchObject(
+      {
+        id: "builder-unknown-preserved",
+      },
+    );
     expect(
       builderSourceComponentMappingFor("Internal Reference"),
     ).toMatchObject({
@@ -1173,6 +1184,44 @@ describe("Builder MDX conversion", () => {
 
     expect(result.warnings).toEqual([]);
     expect(result.blocks).toEqual(lossless.blocks);
+  });
+
+  it("does not label mapped-name variants as safe-to-edit markers", async () => {
+    const article: BuilderContentEntry = {
+      id: "article-mapped-name-variant",
+      model: "blog-article",
+      name: "Article Mapped Name Variant",
+      data: {
+        title: "Article Mapped Name Variant",
+        blocks: [
+          {
+            "@type": "@builder.io/sdk:Element",
+            "@version": 2,
+            id: "lowercase-text-1",
+            component: {
+              name: "text",
+              options: { text: "<p>Lowercase mapped name.</p>" },
+            },
+          },
+        ],
+      },
+    };
+
+    const readable = await builderEntryToReadableMdxBundle(article);
+    const marker = readable.mdx.body
+      .split("\n\n")
+      .find((unit) => unit.includes("<SourceComponent"));
+    expect(marker).toBeDefined();
+    const parsedMarker = await parseRegistryBlockData(marker!);
+    expect(parsedMarker?.data).toMatchObject({
+      provider: "builder",
+      componentName: "text",
+      mappingId: "builder-unknown-preserved",
+      mappingStatus: "unknown",
+      sourceEditState: "preserved-only",
+      previewStatus: "warning",
+      title: "Builder text",
+    });
   });
 
   it("renders Builder Material Table components as structured source table previews", async () => {

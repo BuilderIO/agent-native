@@ -24,6 +24,15 @@ function normalizeComponentName(value: string | null | undefined) {
     .replace(/[\s:_-]+/g, "");
 }
 
+function componentNameTokens(value: string | null | undefined) {
+  return (value ?? "")
+    .trim()
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+    .toLowerCase()
+    .split(/[\s:_-]+/g)
+    .filter(Boolean);
+}
+
 export const builderSourceComponentMappings: BuilderSourceComponentMapping[] = [
   {
     id: "builder-text-markdown",
@@ -131,20 +140,9 @@ const mappingsByName = new Map(
   ),
 );
 
-export function builderSourceComponentMappingFor(
+export function unknownBuilderSourceComponentMappingFor(
   componentName: string | null | undefined,
 ): BuilderSourceComponentMapping {
-  const normalized = normalizeComponentName(componentName);
-  const direct = mappingsByName.get(normalized);
-  if (direct) return direct;
-  const tableMapping = mappingsByName.get("materialtable");
-  if (normalized.includes("table") && tableMapping) {
-    return tableMapping;
-  }
-  const referenceMapping = mappingsByName.get("reference");
-  if (normalized.includes("reference") && referenceMapping) {
-    return referenceMapping;
-  }
   return {
     id: componentName
       ? "builder-unknown-preserved"
@@ -158,4 +156,22 @@ export function builderSourceComponentMappingFor(
       ? "No source-component mapper is registered for this Builder component yet, so Content preserves the raw block for review."
       : "Builder returned a block without a component name, so Content preserves the raw block for review.",
   };
+}
+
+export function builderSourceComponentMappingFor(
+  componentName: string | null | undefined,
+): BuilderSourceComponentMapping {
+  const normalized = normalizeComponentName(componentName);
+  const direct = mappingsByName.get(normalized);
+  if (direct) return direct;
+  const tokens = componentNameTokens(componentName);
+  const tableMapping = mappingsByName.get("materialtable");
+  if (tokens.includes("table") && tableMapping) {
+    return tableMapping;
+  }
+  const referenceMapping = mappingsByName.get("reference");
+  if (tokens.includes("reference") && referenceMapping) {
+    return referenceMapping;
+  }
+  return unknownBuilderSourceComponentMappingFor(componentName);
 }

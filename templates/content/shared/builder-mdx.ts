@@ -10,6 +10,7 @@ import type {
 import {
   builderSourceComponentMappingFor,
   type BuilderSourceComponentMapping,
+  unknownBuilderSourceComponentMappingFor,
 } from "./builder-source-component-registry";
 import {
   parseRegistryBlockData,
@@ -841,7 +842,7 @@ function builderSourceComponentPreview(
       summary,
     };
   }
-  if (name === "Table" || name?.toLowerCase().includes("table")) {
+  if (mapping.id === "builder-table-preserved") {
     const shape = tableShapeFromOptions(options);
     const items = shape
       ? [pluralize(shape.rows, "row"), pluralize(shape.columns, "column")]
@@ -1176,9 +1177,14 @@ async function builderBlockToReadableMdx(
     if (childBody) return childBody;
   }
 
+  const markerMapping =
+    mapping.readableMode === "editable-markdown"
+      ? unknownBuilderSourceComponentMappingFor(name)
+      : mapping;
+
   if (name) {
     ctx.warnings.push(
-      `${mapping.label} is preserved in the Builder raw sidecar and shown as a read-only source component.`,
+      `${markerMapping.label} is preserved in the Builder raw sidecar and shown as a read-only source component.`,
     );
   }
   const data: SourceComponentData = {
@@ -1187,20 +1193,20 @@ async function builderBlockToReadableMdx(
     rawRef,
     rawHash: stableHash(block),
     sourceLabel: "Builder body",
-    mappingId: mapping.id,
-    mappingStatus: mapping.mappingStatus,
-    mappingReason: mapping.reason,
-    sourceEditState: mapping.sourceEditState,
+    mappingId: markerMapping.id,
+    mappingStatus: markerMapping.mappingStatus,
+    mappingReason: markerMapping.reason,
+    sourceEditState: markerMapping.sourceEditState,
     previewStatus:
-      mapping.mappingStatus === "unknown"
+      markerMapping.mappingStatus === "unknown"
         ? name
           ? "warning"
           : "unavailable"
         : name
           ? "available"
           : "unavailable",
-    title: mapping.label,
-    ...builderSourceComponentPreview(block, mapping),
+    title: markerMapping.label,
+    ...builderSourceComponentPreview(block, markerMapping),
   };
   const id = sourceComponentMarkerIdForBlock(block);
   return serializeRegistryBlockToMdx("source-component", { id, data });
