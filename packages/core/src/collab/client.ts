@@ -371,7 +371,12 @@ export function useCollaborativeDoc(
   useEffect(() => {
     if (!awareness) return;
 
-    const updateUsers = () => {
+    let cancelled = false;
+    let updateTimer: ReturnType<typeof setTimeout> | null = null;
+
+    const applyUsers = () => {
+      updateTimer = null;
+      if (cancelled) return;
       const users: CollabUser[] = [];
       let hasAgent = false;
       awareness.getStates().forEach((state, clientId) => {
@@ -386,9 +391,15 @@ export function useCollaborativeDoc(
       setActiveUsers(dedupeCollabUsersByEmail(users));
       setAgentPresent(hasAgent);
     };
+    const updateUsers = () => {
+      if (updateTimer) clearTimeout(updateTimer);
+      updateTimer = setTimeout(applyUsers, 0);
+    };
 
     awareness.on("change", updateUsers);
     return () => {
+      cancelled = true;
+      if (updateTimer) clearTimeout(updateTimer);
       awareness.off("change", updateUsers);
     };
   }, [awareness, ydoc]);
