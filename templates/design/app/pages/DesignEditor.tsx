@@ -246,6 +246,7 @@ import {
   type StyleChangeMeta,
 } from "@/components/design/EditPanel";
 import { FusionAppBanner } from "@/components/design/FusionAppBanner";
+import { ReadOnlyDesignBanner } from "@/components/design/ReadOnlyDesignBanner";
 import type { ExportSettingsValue } from "@/components/design/inspector";
 import { InspectorAiActions } from "@/components/design/inspector/InspectorAiActions";
 import {
@@ -22024,6 +22025,10 @@ ${serializedHtml}
                       }}
                     />
                   )}
+                  {/* Figma-style notice for viewers who can't edit this
+                      design. Only shown once accessRole has actually
+                      resolved to "viewer" to avoid flashing during load. */}
+                  {designAccessRole === "viewer" && <ReadOnlyDesignBanner />}
                   {/* Full-app building status/controls. Renders only for
                       designs backed by a fusion app (see readFusionApp) and
                       only while the flag is on — the fusion actions the
