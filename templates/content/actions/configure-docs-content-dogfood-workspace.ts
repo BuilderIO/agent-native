@@ -87,6 +87,22 @@ type DogfoodPropertyKey =
   | "unsupportedBlockNotes";
 
 type PropertyIdMap = Record<DogfoodPropertyKey, string>;
+type DogfoodPropertyConflict = {
+  requestedName: string;
+  requestedType: DocumentPropertyType;
+  existingPropertyId: string;
+  existingType: string;
+  dogfoodName: string;
+  dogfoodPropertyId: string;
+};
+type DogfoodRowStatusSummary = {
+  updatedRows: number;
+  skippedRows: number;
+  sourceId: string | null;
+  sourceTable: string | null;
+  refreshed: boolean;
+  skipped?: boolean;
+};
 
 const sourceStatusOptions = [
   option("fresh", "Fresh", "green"),
@@ -216,10 +232,11 @@ export async function configureDocsContentDogfoodWorkspace(args: {
   await assertAccess("document", database.documentId, "editor");
 
   const now = new Date().toISOString();
-  const propertyIds = await upsertDogfoodProperties({
+  const propertySetup = await upsertDogfoodProperties({
     database,
     now,
   });
+  const propertyIds = propertySetup.ids;
 
   const dogfoodViewConfig = buildDocsContentDogfoodViewConfig(propertyIds);
   const viewConfig = mergeDogfoodViews(
@@ -236,7 +253,14 @@ export async function configureDocsContentDogfoodWorkspace(args: {
 
   const rowStatusSummary =
     args.updateRowStatusFields === false
-      ? { updatedRows: 0, skipped: true }
+      ? {
+          updatedRows: 0,
+          skippedRows: 0,
+          sourceId: null,
+          sourceTable: null,
+          refreshed: false,
+          skipped: true,
+        }
       : await refreshDogfoodRowStatuses({
           database,
           propertyIds,
@@ -247,6 +271,7 @@ export async function configureDocsContentDogfoodWorkspace(args: {
     ...(await getContentDatabaseResponse(database.id)),
     dogfoodWorkspace: {
       propertyIds,
+      propertyConflicts: propertySetup.conflicts,
       views: viewConfig.views.map((view) => ({
         id: view.id,
         name: view.name,
@@ -298,7 +323,7 @@ async function resolveDogfoodDatabase(args: {
 async function upsertDogfoodProperties(args: {
   database: ContentDatabaseRow;
   now: string;
-}): Promise<PropertyIdMap> {
+}): Promise<{ ids: PropertyIdMap; conflicts: DogfoodPropertyConflict[] }> {
   const db = getDb();
   const existing = await db
     .select()
@@ -312,13 +337,16 @@ async function upsertDogfoodProperties(args: {
     .where(eq(schema.documentPropertyDefinitions.databaseId, args.database.id));
   let nextPosition = (maxPosition?.max ?? -1) + 1;
   const ids = {} as PropertyIdMap;
+  const conflicts: DogfoodPropertyConflict[] = [];
 
   for (const spec of docsContentDogfoodPropertySpecs) {
-    const optionsJson = optionsForSpec(
-      spec,
-      byName.get(spec.name)?.optionsJson,
-    );
-    const existingProperty = byName.get(spec.name);
+    const requestedNameMatch = byName.get(spec.name);
+    const propertyName =
+      requestedNameMatch && requestedNameMatch.type !== spec.type
+        ? dogfoodPropertyNameForTypeConflict(spec, byName)
+        : spec.name;
+    const existingProperty = byName.get(propertyName);
+    const optionsJson = optionsForSpec(spec, existingProperty?.optionsJson);
     if (existingProperty) {
       ids[spec.key] = existingProperty.id;
       await db
@@ -330,6 +358,20 @@ async function upsertDogfoodProperties(args: {
           updatedAt: args.now,
         })
         .where(eq(schema.documentPropertyDefinitions.id, existingProperty.id));
+      if (
+        requestedNameMatch &&
+        requestedNameMatch.id !== existingProperty.id &&
+        requestedNameMatch.type !== spec.type
+      ) {
+        conflicts.push({
+          requestedName: spec.name,
+          requestedType: spec.type,
+          existingPropertyId: requestedNameMatch.id,
+          existingType: requestedNameMatch.type,
+          dogfoodName: propertyName,
+          dogfoodPropertyId: existingProperty.id,
+        });
+      }
       continue;
     }
 
@@ -340,7 +382,7 @@ async function upsertDogfoodProperties(args: {
       ownerEmail: args.database.ownerEmail,
       orgId: args.database.orgId ?? null,
       databaseId: args.database.id,
-      name: spec.name,
+      name: propertyName,
       type: spec.type,
       visibility: spec.visibility ?? "always_show",
       optionsJson,
@@ -348,10 +390,35 @@ async function upsertDogfoodProperties(args: {
       createdAt: args.now,
       updatedAt: args.now,
     });
+    if (requestedNameMatch && requestedNameMatch.type !== spec.type) {
+      conflicts.push({
+        requestedName: spec.name,
+        requestedType: spec.type,
+        existingPropertyId: requestedNameMatch.id,
+        existingType: requestedNameMatch.type,
+        dogfoodName: propertyName,
+        dogfoodPropertyId: id,
+      });
+    }
     nextPosition += 1;
   }
 
-  return ids;
+  return { ids, conflicts };
+}
+
+export function dogfoodPropertyNameForTypeConflict(
+  spec: Pick<DogfoodPropertySpec, "name" | "type">,
+  byName: Map<string, { type: string }>,
+) {
+  const baseName = `${spec.name} (dogfood)`;
+  let candidate = baseName;
+  let suffix = 2;
+  while (true) {
+    const existing = byName.get(candidate);
+    if (!existing || existing.type === spec.type) return candidate;
+    candidate = `${baseName} ${suffix}`;
+    suffix += 1;
+  }
 }
 
 async function findExistingDogfoodDatabase(title: string) {
@@ -572,7 +639,7 @@ async function refreshDogfoodRowStatuses(args: {
   database: ContentDatabaseRow;
   propertyIds: PropertyIdMap;
   now: string;
-}) {
+}): Promise<DogfoodRowStatusSummary> {
   const db = getDb();
   const items = await db
     .select()
@@ -672,6 +739,7 @@ async function refreshDogfoodRowStatuses(args: {
     skippedRows,
     sourceId: source?.id ?? null,
     sourceTable: source?.sourceTable ?? null,
+    refreshed: true,
   };
 }
 
@@ -744,7 +812,7 @@ function sourceStatusForRow(
     return "error";
   }
   if (row.freshness === "stale" || source.freshness === "stale") return "stale";
-  if (row.freshness === "fresh" || source.freshness === "fresh") return "fresh";
+  if (row.freshness === "fresh") return "fresh";
   return "unknown";
 }
 

@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildDocsContentDogfoodViewConfig,
   deriveDogfoodRowStatus,
+  dogfoodPropertyNameForTypeConflict,
   mergeDogfoodViews,
 } from "./configure-docs-content-dogfood-workspace";
 
@@ -20,6 +21,33 @@ const propertyIds = {
 };
 
 describe("configure docs/content dogfood workspace", () => {
+  it("keeps existing same-name properties when their type conflicts", () => {
+    expect(
+      dogfoodPropertyNameForTypeConflict(
+        { name: "Owner", type: "person" },
+        new Map([["Owner", { type: "text" }]]),
+      ),
+    ).toBe("Owner (dogfood)");
+    expect(
+      dogfoodPropertyNameForTypeConflict(
+        { name: "Owner", type: "person" },
+        new Map([
+          ["Owner", { type: "text" }],
+          ["Owner (dogfood)", { type: "text" }],
+        ]),
+      ),
+    ).toBe("Owner (dogfood) 2");
+    expect(
+      dogfoodPropertyNameForTypeConflict(
+        { name: "Owner", type: "person" },
+        new Map([
+          ["Owner", { type: "text" }],
+          ["Owner (dogfood)", { type: "person" }],
+        ]),
+      ),
+    ).toBe("Owner (dogfood)");
+  });
+
   it("builds practical views for docs/blog operations", () => {
     const config = buildDocsContentDogfoodViewConfig(propertyIds);
 
@@ -256,6 +284,67 @@ describe("configure docs/content dogfood workspace", () => {
       needsReview: true,
       unsupportedBlocks: true,
       unsupportedBlockNotes: "Unsupported Builder MDX component: <Symbol>.",
+    });
+  });
+
+  it("requires row-level freshness before marking source rows safe", () => {
+    expect(
+      deriveDogfoodRowStatus({
+        item: {
+          document: { id: "doc-3" },
+          bodyHydration: { status: "hydrated", error: null },
+        },
+        source: {
+          id: "source-1",
+          databaseId: "database",
+          sourceType: "builder-cms",
+          sourceName: "Builder CMS",
+          sourceTable: "blog-article",
+          syncState: "linked",
+          freshness: "fresh",
+          lastRefreshedAt: null,
+          lastSourceUpdatedAt: null,
+          lastError: null,
+          capabilities: {
+            canRefresh: true,
+            canCreateChangeSets: true,
+            canWriteFields: false,
+            canWriteBody: false,
+            canPush: false,
+            canPull: false,
+            canPublish: false,
+            canDelete: false,
+            canStageLocalRevision: false,
+            liveWritesEnabled: false,
+            readOnlyRefresh: true,
+          },
+          metadata: {
+            primaryKey: "id",
+            titleField: "name",
+          },
+          fields: [],
+          rows: [
+            {
+              id: "row-3",
+              databaseItemId: "item-3",
+              documentId: "doc-3",
+              sourceRowId: "entry-3",
+              sourceQualifiedId: "blog-article:entry-3",
+              sourceDisplayKey: "Unknown freshness",
+              provenance: "source",
+              syncState: "linked",
+              freshness: "unknown",
+              lastSyncedAt: null,
+              lastSourceUpdatedAt: null,
+            },
+          ],
+          changeSets: [],
+        },
+      }),
+    ).toMatchObject({
+      sourceStatus: "unknown",
+      safeToEdit: "review-first",
+      needsReview: false,
     });
   });
 });

@@ -436,7 +436,7 @@ export const parityMatrix: ParityRow[] = [
     reliabilityRisk:
       "Depends on separate scale, bulk-update, and source-component mapping lanes for broader docs/blog operational guarantees.",
     spinePriority: "P1",
-    testCoverage: "covered",
+    testCoverage: "seeded",
     followUpPR: null,
     coverageRefs: ["actions/configure-docs-content-dogfood-workspace.test.ts"],
   },

@@ -593,8 +593,11 @@ fields and views. It creates or upgrades a practical content-operations
 workspace with persona, topic, use case, SEO angle, owner, source status,
 safe-to-edit, needs-review, and unsupported-block fields. The action can
 backfill row status fields from the current Builder source snapshot and saved
-change-set/body hydration signals, but it does not imply the separate scale,
-bulk-update, or source-component mapping lanes have landed.
+change-set/body hydration signals. Treat source status, safe-to-edit,
+needs-review, unsupported blocks, and unsupported block notes as derived fields
+when `updateRowStatusFields` is enabled; rerunning the action refreshes them
+from source state. The action does not imply the separate scale, bulk-update, or
+source-component mapping lanes have landed.
 
 ## UI Components
 
