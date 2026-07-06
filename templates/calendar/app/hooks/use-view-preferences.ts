@@ -65,6 +65,7 @@ function writeAppStatePreferences(prefs: CalendarViewPreferences) {
 export function useViewPreferences() {
   const [prefs, setPrefs] = useState<ViewPreferences>(load);
   const accountColorRequestIds = useRef<Record<string, number>>({});
+  const pendingAccountColors = useRef<Record<string, string>>({});
 
   // Sync across components in the same tab via custom event
   useEffect(() => {
@@ -91,12 +92,26 @@ export function useViewPreferences() {
         const remote = await readAppStatePreferences();
         if (!cancelled && remote) {
           setPrefs((current) => {
-            if (calendarViewPreferencesEqual(current, remote)) return current;
-            save(remote);
+            const pendingColors = pendingAccountColors.current;
+            const next =
+              Object.keys(pendingColors).length > 0
+                ? normalizeCalendarViewPreferences({
+                    ...remote,
+                    colorMode: current.colorMode,
+                    singleColor: current.singleColor,
+                    accountColors: {
+                      ...remote.accountColors,
+                      ...pendingColors,
+                    },
+                  })
+                : remote;
+
+            if (calendarViewPreferencesEqual(current, next)) return current;
+            save(next);
             window.dispatchEvent(
               new Event(CALENDAR_VIEW_PREFERENCES_CHANGE_EVENT),
             );
-            return remote;
+            return next;
           });
         }
       } catch {
@@ -128,6 +143,7 @@ export function useViewPreferences() {
     (accountEmail: string, accountColor: string) => {
       const requestId = (accountColorRequestIds.current[accountEmail] ?? 0) + 1;
       accountColorRequestIds.current[accountEmail] = requestId;
+      pendingAccountColors.current[accountEmail] = accountColor;
 
       setPrefs((prev) => {
         const next = normalizeCalendarViewPreferences({
@@ -151,6 +167,7 @@ export function useViewPreferences() {
           if (accountColorRequestIds.current[accountEmail] !== requestId) {
             return;
           }
+          delete pendingAccountColors.current[accountEmail];
 
           const preferences = (result as { preferences?: unknown }).preferences;
           if (!preferences) return;
@@ -173,7 +190,11 @@ export function useViewPreferences() {
             return next;
           });
         })
-        .catch(() => {});
+        .catch(() => {
+          if (accountColorRequestIds.current[accountEmail] === requestId) {
+            delete pendingAccountColors.current[accountEmail];
+          }
+        });
     },
     [],
   );
