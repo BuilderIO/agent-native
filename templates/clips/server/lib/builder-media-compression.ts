@@ -13,6 +13,7 @@ import { and, eq } from "drizzle-orm";
 
 import type { MediaWorkerCallback } from "../../shared/media-worker-contract.js";
 import { getDb, schema } from "../db/index.js";
+import { enabledFlag } from "./env-flags.js";
 import {
   enqueueMediaWorkerJob,
   mediaWorkerCompressionJobId,
@@ -31,6 +32,8 @@ const TRIGGERED_POLL_DELAY_MS = 5 * 60 * 1000;
 const TRIGGERED_RETRY_AFTER_MS = 15 * 60 * 1000;
 const MEDIA_WORKER_STUCK_MS = 30 * 60 * 1000;
 const MEDIA_WORKER_MAX_ENQUEUE_ATTEMPTS = 2;
+export const CLIPS_DISABLE_BUILDER_COMPRESSION =
+  "CLIPS_DISABLE_BUILDER_COMPRESSION";
 
 export const BUILDER_MEDIA_COMPRESSION_STATE_PREFIX =
   "recording-builder-compression-";
@@ -111,6 +114,10 @@ function maxSourceBytes(): number {
     "CLIPS_BUILDER_BACKGROUND_COMPRESSION_MAX_BYTES",
     DEFAULT_MAX_SOURCE_BYTES,
   );
+}
+
+function builderCompressionDisabled(): boolean {
+  return enabledFlag(process.env[CLIPS_DISABLE_BUILDER_COMPRESSION]);
 }
 
 function retryDelayMs(attempts: number): number {
@@ -538,8 +545,31 @@ async function swapRecordingToCompressed(
       and(
         eq(schema.recordings.id, state.recordingId),
         ownerEmailMatches(schema.recordings.ownerEmail, state.ownerEmail),
+        eq(schema.recordings.videoUrl, state.sourceUrl),
       ),
     );
+
+  const [afterUpdate] = await db
+    .select({ videoUrl: schema.recordings.videoUrl })
+    .from(schema.recordings)
+    .where(
+      and(
+        eq(schema.recordings.id, state.recordingId),
+        ownerEmailMatches(schema.recordings.ownerEmail, state.ownerEmail),
+      ),
+    )
+    .limit(1);
+  if (!afterUpdate) {
+    return markCompressionFailed(state, "Recording row no longer exists");
+  }
+  if (afterUpdate.videoUrl !== compressedUrl) {
+    return writeCompressionState(state, {
+      status: "skipped-source-changed",
+      detail: "Recording media URL changed before compression finished",
+      nextAttemptAt: null,
+    });
+  }
+
   await writeAppState("refresh-signal", { ts: Date.now() });
   return writeCompressionState(state, {
     status: "ready",
@@ -713,6 +743,9 @@ export async function queueBuilderMediaCompression(args: {
   | { queued: true; compressedUrl: string }
   | { queued: false; reason: string; compressedUrl?: string }
 > {
+  if (builderCompressionDisabled()) {
+    return { queued: false, reason: "disabled" };
+  }
   if (args.locallyTranscoded) {
     return { queued: false, reason: "locally-transcoded" };
   }
@@ -887,15 +920,8 @@ export async function applyMediaWorkerCallback(
         };
       }
 
-      if (
-        recording.videoUrl !== state.sourceUrl &&
-        recording.videoUrl !== outputUrl
-      ) {
-        await writeCompressionState(state, {
-          status: "skipped-source-changed",
-          detail: "Recording media URL changed before media worker completed",
-          nextAttemptAt: null,
-        });
+      const next = await swapRecordingToCompressed(state, outputUrl);
+      if (next.status !== "ready") {
         return {
           ok: false,
           status: 409,
@@ -903,30 +929,6 @@ export async function applyMediaWorkerCallback(
           recordingId,
         };
       }
-
-      await db
-        .update(schema.recordings)
-        .set({
-          videoUrl: outputUrl,
-          ...(typeof callback.durationMs === "number"
-            ? { durationMs: Math.max(0, Math.round(callback.durationMs)) }
-            : {}),
-          updatedAt: new Date().toISOString(),
-        })
-        .where(
-          and(
-            eq(schema.recordings.id, recordingId),
-            ownerEmailMatches(schema.recordings.ownerEmail, state.ownerEmail),
-          ),
-        );
-      await writeAppState("refresh-signal", { ts: Date.now() });
-      await writeCompressionState(state, {
-        status: "ready",
-        compressedUrl: outputUrl,
-        completedAt: new Date().toISOString(),
-        nextAttemptAt: null,
-        detail: null,
-      });
       return { ok: true, status: 200, recordingId };
     },
   );

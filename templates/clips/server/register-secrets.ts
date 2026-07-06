@@ -225,6 +225,25 @@ registerRequiredSecret({
 // Builder's existing compress-media endpoint.
 
 registerRequiredSecret({
+  key: "CLIPS_DISABLE_BUILDER_COMPRESSION",
+  label: "Disable Builder media compression",
+  description:
+    "Emergency kill switch for Clips background calls to Builder's compress-media endpoint.",
+  scope: "workspace",
+  kind: "api-key",
+  required: false,
+  validator: (value) => {
+    if (!value) return true;
+    const normalized = value.trim().toLowerCase();
+    return ["true", "1", "yes", "on", "false", "0", "no", "off"].includes(
+      normalized,
+    )
+      ? true
+      : { ok: false, error: "Use true/1/yes/on or false/0/no/off." };
+  },
+});
+
+registerRequiredSecret({
   key: "CLIPS_MEDIA_WORKER_ENABLED",
   label: "Clips media worker enabled",
   description:

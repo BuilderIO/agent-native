@@ -1459,6 +1459,7 @@ const hiIN = {
     recurringJobs: "आवर्ती नौकरियाँ",
     automations: "स्वचालन",
     extensions: "एक्सटेंशन",
+    dataPrograms: "डेटा प्रोग्राम",
     multiAppWorkspaces: "Multi-app workspaces",
     onboardingApiKeys: "Onboarding और API Keys",
     messaging: "Messaging (Slack, Email...)",
