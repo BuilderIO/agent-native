@@ -447,6 +447,12 @@ function SortableRow({
           owner: ownerName,
         })
       : visibilityLabel;
+  const VisibilityIcon =
+    visibility === "public"
+      ? IconWorld
+      : visibility === "org"
+        ? IconBuilding
+        : IconLock;
 
   useEffect(() => {
     if (!isRenaming) setRenameValue(name);
@@ -612,37 +618,39 @@ function SortableRow({
                 onFocus={onPrefetch}
                 onMouseEnter={onPrefetch}
                 onTouchStart={onPrefetch}
+                aria-label={
+                  visibilityTooltip ? `${name} - ${visibilityTooltip}` : name
+                }
                 className="min-w-0 flex-1 px-2 py-1.5 pe-16 text-xs transition-[padding] md:pe-8 md:group-hover/item:pe-16 md:group-focus-within/item:pe-16"
               >
-                <span className="block truncate">{name}</span>
+                <span className="block truncate leading-4">{name}</span>
+                {visibility && visibilityTooltip && (
+                  <span
+                    className={cn(
+                      "mt-0.5 flex min-w-0 items-center gap-1 text-[10px] leading-3",
+                      isActive
+                        ? "text-sidebar-accent-foreground/70"
+                        : "text-muted-foreground/70",
+                    )}
+                  >
+                    <VisibilityIcon className="h-3 w-3 shrink-0" />
+                    <span className="truncate">{visibilityTooltip}</span>
+                  </span>
+                )}
               </Link>
             </TooltipTrigger>
-            <TooltipContent side="right">{name}</TooltipContent>
-          </Tooltip>
-        )}
-        {visibility && visibilityTooltip && (
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <span
-                tabIndex={0}
-                className={cn(
-                  "absolute end-9 top-1/2 flex h-5 w-5 -translate-y-1/2 items-center justify-center rounded-full text-muted-foreground/60 outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring",
-                  visibility === "private"
-                    ? "text-muted-foreground/45"
-                    : "text-foreground/70",
-                )}
-                aria-label={visibilityTooltip}
-              >
-                {visibility === "public" ? (
-                  <IconWorld className="h-3 w-3" />
-                ) : visibility === "org" ? (
-                  <IconBuilding className="h-3 w-3" />
-                ) : (
-                  <IconLock className="h-3 w-3" />
-                )}
-              </span>
-            </TooltipTrigger>
-            <TooltipContent side="right">{visibilityTooltip}</TooltipContent>
+            <TooltipContent side="right">
+              {visibilityTooltip ? (
+                <span className="grid gap-0.5">
+                  <span>{name}</span>
+                  <span className="text-muted-foreground">
+                    {visibilityTooltip}
+                  </span>
+                </span>
+              ) : (
+                name
+              )}
+            </TooltipContent>
           </Tooltip>
         )}
         <div className="pointer-events-none absolute end-1 top-1/2 flex -translate-y-1/2 items-center gap-0.5 opacity-100 transition-opacity md:opacity-0 md:group-hover/item:opacity-100 md:group-focus-within/item:opacity-100">
