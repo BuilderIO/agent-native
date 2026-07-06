@@ -5507,10 +5507,22 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
       programmaticFlag && !isRejectedRawTextEditTarget(eventTarget)
         ? eventTarget
         : null;
-    var target =
-      findTextEditTarget(elementFromEditorPoint(e.clientX, e.clientY)) ||
-      findTextEditTarget(eventTarget) ||
-      rawTargetFallback;
+    // Programmatic edits (e.g. begin-text-edit on a just-created text node)
+    // already carry the exact node to edit as e.target. A freshly-created text
+    // node is 0×0, so elementFromEditorPoint at its synthesized edge point
+    // resolves to whatever is underneath — the parent screen container
+    // (<main>) — and editing would bind to the ENTIRE screen instead of the new
+    // node (keystrokes land in the wrong element, the node stays empty, focus is
+    // lost). So for the programmatic path, honor the explicit target first and
+    // never re-resolve from a point.
+    var target = programmaticFlag
+      ? // Prefer the raw explicit node (rawTargetFallback === eventTarget) over
+        // findTextEditTarget, which climbs UP to the highest inline-editable
+        // ancestor (→ <main>) and would put the whole screen into edit mode.
+        rawTargetFallback || findTextEditTarget(eventTarget)
+      : findTextEditTarget(elementFromEditorPoint(e.clientX, e.clientY)) ||
+        findTextEditTarget(eventTarget) ||
+        rawTargetFallback;
     if (!target || target.nodeType !== 1) return;
     // Anchor the selection identity to the nearest source-backed element. Text
     // editing still operates on the actual target text node, but a later
@@ -5708,7 +5720,23 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
     target.addEventListener("mouseup", onSelectionChange, true);
     document.addEventListener("selectionchange", onSelectionChange);
     target.focus();
-    placeTextCaretFromPoint(target, e.clientX, e.clientY);
+    if (programmaticTextEdit) {
+      // The synthesized point sits at the (0×0) node's edge and resolves to the
+      // parent element, so caretRangeFromPoint would drop the caret OUTSIDE the
+      // editable node. Collapse to the end of the target's own contents instead.
+      try {
+        var progRange = document.createRange();
+        progRange.selectNodeContents(target);
+        progRange.collapse(false);
+        var progSel = window.getSelection();
+        progSel.removeAllRanges();
+        progSel.addRange(progRange);
+      } catch {
+        /* selection APIs unavailable — focus() alone still enables typing */
+      }
+    } else {
+      placeTextCaretFromPoint(target, e.clientX, e.clientY);
+    }
   }
 
   shieldOverlay.addEventListener("dblclick", beginTextEditingFromEvent, true);
@@ -5897,10 +5925,12 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
           '"]',
       );
       if (!nodeTarget || nodeTarget.nodeType !== 1) return;
-      // Resolve the actual editable text leaf (same logic as findTextEditTarget).
-      var textTarget: HTMLElement | null =
-        (findTextEditTarget(nodeTarget) as HTMLElement | null) ||
-        (nodeTarget as HTMLElement);
+      // Edit the EXACT node identified by nodeId. Do NOT run it through
+      // findTextEditTarget here — that helper climbs UP to the highest
+      // inline-editable ancestor, which for a text node inside a text-heavy
+      // screen resolves all the way to <main>, putting the ENTIRE screen into
+      // edit mode instead of this node (keystrokes land in the wrong element).
+      var textTarget: HTMLElement | null = nodeTarget as HTMLElement;
       if (!textTarget || textTarget.nodeType !== 1) return;
       // If we are already editing this element, do nothing.
       if (activeTextEditEl && activeTextEditEl === textTarget) return;
