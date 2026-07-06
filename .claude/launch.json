@@ -128,6 +128,54 @@
       "port": 9319
     },
     {
+      "name": "design-padfix",
+      "runtimeExecutable": "env",
+      "runtimeArgs": [
+        "DATABASE_URL=file:/Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/hungry-mahavira-9ef02f/templates/design/data/padfix.db",
+        "PORT=9325",
+        "AUTH_MODE=local",
+        "pnpm",
+        "--dir",
+        "templates/design",
+        "dev",
+        "--port",
+        "9325"
+      ],
+      "port": 9325
+    },
+    {
+      "name": "design-dndfix",
+      "runtimeExecutable": "env",
+      "runtimeArgs": [
+        "DATABASE_URL=file:/Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/hungry-mahavira-9ef02f/templates/design/data/dndfix.db",
+        "PORT=9323",
+        "AUTH_MODE=local",
+        "pnpm",
+        "--dir",
+        "templates/design",
+        "dev",
+        "--port",
+        "9323"
+      ],
+      "port": 9323
+    },
+    {
+      "name": "design-finalwave",
+      "runtimeExecutable": "env",
+      "runtimeArgs": [
+        "DATABASE_URL=file:/Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/hungry-mahavira-9ef02f/templates/design/data/finalwave.db",
+        "PORT=9321",
+        "AUTH_MODE=local",
+        "pnpm",
+        "--dir",
+        "templates/design",
+        "dev",
+        "--port",
+        "9321"
+      ],
+      "port": 9321
+    },
+    {
       "name": "dispatch",
       "runtimeExecutable": "env",
       "runtimeArgs": [

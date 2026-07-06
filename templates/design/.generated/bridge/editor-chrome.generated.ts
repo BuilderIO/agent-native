@@ -1019,6 +1019,7 @@ export const editorChromeBridgeScript: string = `"use strict";
     var lastSpacingPointerPoint = null;
     var spacingHandleStateByKey = {};
     var spacingHandleNodesByKey = {};
+    var spacingHatchNodesByKey = {};
     var spacingOverlayRenderKey = "";
     var activeDragCancel = null;
     var activeCrossScreenStyleSnapshot = void 0;
@@ -1331,6 +1332,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       spacingOverlay.innerHTML = "";
       spacingHandleStateByKey = {};
       spacingHandleNodesByKey = {};
+      spacingHatchNodesByKey = {};
       spacingOverlayRenderKey = "";
       if (!spacingDrag) spacingBadge.style.display = "none";
     }
@@ -1366,9 +1368,38 @@ export const editorChromeBridgeScript: string = `"use strict";
       if (!Number.isFinite(rounded)) return 0;
       return Math.max(0, Math.min(999, rounded));
     }
+    var PADDING_HANDLE_HIT_TOLERANCE_BASE = 4;
+    function hitRectForPaddingHandle(line, region, tolerance) {
+      if (!line) return region;
+      var minX = Math.min(line.x, region.x);
+      var minY = Math.min(line.y, region.y);
+      var maxX = Math.max(line.x + line.width, region.x + region.width);
+      var maxY = Math.max(line.y + line.height, region.y + region.height);
+      var hitX = Math.max(minX, line.x - tolerance);
+      var hitY = Math.max(minY, line.y - tolerance);
+      var hitRight = Math.min(maxX, line.x + line.width + tolerance);
+      var hitBottom = Math.min(maxY, line.y + line.height + tolerance);
+      return {
+        x: hitX,
+        y: hitY,
+        width: Math.max(1, hitRight - hitX),
+        height: Math.max(1, hitBottom - hitY)
+      };
+    }
     function makeSpacingHandle(config) {
       var region = config.region;
       if (!region || region.width <= 0 || region.height <= 0) return null;
+      var roundedRegion = {
+        x: Math.round(region.x),
+        y: Math.round(region.y),
+        width: Math.max(1, Math.round(region.width)),
+        height: Math.max(1, Math.round(region.height))
+      };
+      var hit = config.kind === "padding" ? hitRectForPaddingHandle(
+        config.line,
+        roundedRegion,
+        PADDING_HANDLE_HIT_TOLERANCE_BASE * Math.max(1, chromeLineScale())
+      ) : roundedRegion;
       return {
         key: config.key,
         groupKey: config.groupKey || config.key,
@@ -1378,12 +1409,8 @@ export const editorChromeBridgeScript: string = `"use strict";
         side: config.side || "",
         orientation: config.orientation,
         value: clampSpacingValue(config.value),
-        region: {
-          x: Math.round(region.x),
-          y: Math.round(region.y),
-          width: Math.max(1, Math.round(region.width)),
-          height: Math.max(1, Math.round(region.height))
-        },
+        region: roundedRegion,
+        hit,
         line: config.line
       };
     }
@@ -1621,25 +1648,34 @@ export const editorChromeBridgeScript: string = `"use strict";
         buildGapSpacingHandles(el, rect, cs)
       );
     }
-    function showSpacingBadgeForHandle(handle, value) {
+    function showSpacingBadgeForHandle(handle, value, cursorPoint) {
       if (!selectedEl || !handle) {
         spacingBadge.style.display = "none";
         return;
       }
-      var rect = selectedEl.getBoundingClientRect();
-      var x = rect.left + handle.region.x + handle.region.width / 2;
-      var y = rect.top + handle.region.y + handle.region.height / 2;
-      spacingBadge.textContent = String(clampSpacingValue(value));
+      var point = cursorPoint || lastSpacingPointerPoint;
+      var x;
+      var y;
+      if (point) {
+        x = point.x + 12;
+        y = point.y - 12;
+      } else {
+        var rect = selectedEl.getBoundingClientRect();
+        x = rect.left + handle.region.x + handle.region.width / 2;
+        y = rect.top + handle.region.y + handle.region.height / 2;
+      }
+      spacingBadge.textContent = String(clampSpacingValue(value)) + "px";
       spacingBadge.style.display = "block";
       spacingBadge.style.background = spacingColor(handle.kind);
       spacingBadge.style.left = x + "px";
       spacingBadge.style.top = y + "px";
-      spacingBadge.style.transform = "translate(-50%, -50%)";
+      spacingBadge.style.transform = point ? "translateY(-100%)" : "translate(-50%, -50%)";
     }
-    function renderSpacingHandle(handle, activeGroupKeys) {
+    function renderSpacingHandle(handle, activeGroupKeys, hoverGroupKeys) {
       if (!handle) return;
       spacingHandleStateByKey[handle.key] = handle;
-      var highlighted = Boolean(activeGroupKeys[handle.groupKey]);
+      var active = Boolean(activeGroupKeys[handle.groupKey]);
+      var hovered = Boolean(hoverGroupKeys[handle.groupKey]);
       var lineNode = document.createElement("span");
       lineNode.setAttribute("data-agent-native-spacing-line", handle.kind);
       lineNode.style.position = "absolute";
@@ -1652,6 +1688,22 @@ export const editorChromeBridgeScript: string = `"use strict";
       lineNode.style.height = Math.max(1, handle.line.height) + "px";
       lineNode.style.background = spacingColor(handle.kind);
       spacingOverlay.appendChild(lineNode);
+      if (handle.kind === "padding") {
+        var hatchNode = document.createElement("span");
+        hatchNode.setAttribute("data-agent-native-spacing-hatch", handle.kind);
+        hatchNode.style.position = "absolute";
+        hatchNode.style.display = "block";
+        hatchNode.style.boxSizing = "border-box";
+        hatchNode.style.pointerEvents = "none";
+        hatchNode.style.backgroundSize = "6px 6px";
+        hatchNode.style.left = handle.region.x + "px";
+        hatchNode.style.top = handle.region.y + "px";
+        hatchNode.style.width = handle.region.width + "px";
+        hatchNode.style.height = handle.region.height + "px";
+        hatchNode.style.background = hovered ? spacingFill(handle.kind, handle.orientation) : "transparent";
+        spacingHatchNodesByKey[handle.key] = hatchNode;
+        spacingOverlay.appendChild(hatchNode);
+      }
       var regionNode = document.createElement("span");
       regionNode.setAttribute("data-agent-native-spacing-region", handle.kind);
       regionNode.setAttribute("data-orientation", handle.orientation);
@@ -1662,12 +1714,13 @@ export const editorChromeBridgeScript: string = `"use strict";
       regionNode.style.pointerEvents = "auto";
       regionNode.style.backgroundSize = "6px 6px";
       regionNode.style.cursor = handle.orientation === "vertical" ? "ew-resize" : "ns-resize";
-      regionNode.style.left = handle.region.x + "px";
-      regionNode.style.top = handle.region.y + "px";
-      regionNode.style.width = handle.region.width + "px";
-      regionNode.style.height = handle.region.height + "px";
-      regionNode.style.background = highlighted ? spacingFill(handle.kind, handle.orientation) : "transparent";
-      regionNode.style.outline = highlighted ? "1px solid " + spacingColor(handle.kind) : "0";
+      var hitRect = handle.kind === "padding" ? handle.hit : handle.region;
+      regionNode.style.left = hitRect.x + "px";
+      regionNode.style.top = hitRect.y + "px";
+      regionNode.style.width = hitRect.width + "px";
+      regionNode.style.height = hitRect.height + "px";
+      regionNode.style.background = handle.kind !== "padding" && active ? spacingFill(handle.kind, handle.orientation) : "transparent";
+      regionNode.style.outline = handle.kind !== "padding" && active ? "1px solid " + spacingColor(handle.kind) : "0";
       regionNode.style.outlineOffset = "-1px";
       regionNode.addEventListener(
         "pointerdown",
@@ -1687,14 +1740,21 @@ export const editorChromeBridgeScript: string = `"use strict";
       spacingHandleNodesByKey[handle.key] = regionNode;
       spacingOverlay.appendChild(regionNode);
     }
-    function updateSpacingHandleHighlights(handles, activeGroupKeys) {
+    function updateSpacingHandleHighlights(handles, activeGroupKeys, hoverGroupKeys) {
       handles.forEach(function(handle) {
         if (!handle) return;
+        var active = Boolean(activeGroupKeys[handle.groupKey]);
+        var hovered = Boolean(hoverGroupKeys[handle.groupKey]);
         var regionNode = spacingHandleNodesByKey[handle.key];
-        if (!regionNode) return;
-        var highlighted = Boolean(activeGroupKeys[handle.groupKey]);
-        regionNode.style.background = highlighted ? spacingFill(handle.kind, handle.orientation) : "transparent";
-        regionNode.style.outline = highlighted ? "1px solid " + spacingColor(handle.kind) : "0";
+        if (regionNode) {
+          var gapHighlighted = handle.kind !== "padding" && active;
+          regionNode.style.background = gapHighlighted ? spacingFill(handle.kind, handle.orientation) : "transparent";
+          regionNode.style.outline = gapHighlighted ? "1px solid " + spacingColor(handle.kind) : "0";
+        }
+        var hatchNode = spacingHatchNodesByKey[handle.key];
+        if (hatchNode) {
+          hatchNode.style.background = hovered ? spacingFill(handle.kind, handle.orientation) : "transparent";
+        }
       });
     }
     function activeSpacingGroupKeys(handles, activeHandle) {
@@ -1710,6 +1770,20 @@ export const editorChromeBridgeScript: string = `"use strict";
         });
       }
       return activeGroupKeys;
+    }
+    function hoverSpacingGroupKeys(handles) {
+      var hoverGroupKeys = {};
+      if (spacingDrag) return hoverGroupKeys;
+      var hoveredKey = hoveredSpacingHandleKey;
+      if (!hoveredKey) return hoverGroupKeys;
+      var handleByKey = {};
+      handles.forEach(function(handle) {
+        if (!handle) return;
+        handleByKey[handle.key] = handle;
+      });
+      var hoveredHandle = handleByKey[hoveredKey];
+      if (hoveredHandle) hoverGroupKeys[hoveredHandle.groupKey] = true;
+      return hoverGroupKeys;
     }
     function updateSpacingOverlay(el) {
       if (el && el !== selectedEl) {
@@ -1727,6 +1801,8 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       var activeHandle = spacingDrag ? spacingDrag.handle : null;
       var activeGroupKeys = activeSpacingGroupKeys(handles, activeHandle);
+      var hoverGroupKeys = hoverSpacingGroupKeys(handles);
+      var badgeHandle = activeHandle || (spacingDrag ? null : hoveredHandleFor(handles));
       var nextRenderKey = handles.map(function(handle) {
         return [
           handle.key,
@@ -1742,11 +1818,11 @@ export const editorChromeBridgeScript: string = `"use strict";
         ].join(",");
       }).join("|");
       if (spacingOverlay.style.display === "block" && spacingOverlayRenderKey === nextRenderKey) {
-        updateSpacingHandleHighlights(handles, activeGroupKeys);
-        if (activeHandle) {
+        updateSpacingHandleHighlights(handles, activeGroupKeys, hoverGroupKeys);
+        if (badgeHandle) {
           showSpacingBadgeForHandle(
-            activeHandle,
-            spacingDrag ? spacingDrag.currentValue : activeHandle.value
+            badgeHandle,
+            activeHandle && spacingDrag ? spacingDrag.currentValue : badgeHandle.value
           );
         } else {
           spacingBadge.style.display = "none";
@@ -1758,17 +1834,28 @@ export const editorChromeBridgeScript: string = `"use strict";
       spacingOverlay.innerHTML = "";
       spacingHandleStateByKey = {};
       spacingHandleNodesByKey = {};
+      spacingHatchNodesByKey = {};
       handles.forEach(function(handle) {
-        renderSpacingHandle(handle, activeGroupKeys);
+        renderSpacingHandle(handle, activeGroupKeys, hoverGroupKeys);
       });
-      if (activeHandle) {
+      if (badgeHandle) {
         showSpacingBadgeForHandle(
-          activeHandle,
-          spacingDrag ? spacingDrag.currentValue : activeHandle.value
+          badgeHandle,
+          activeHandle && spacingDrag ? spacingDrag.currentValue : badgeHandle.value
         );
       } else {
         spacingBadge.style.display = "none";
       }
+    }
+    function hoveredHandleFor(handles) {
+      var hoveredKey = hoveredSpacingHandleKey;
+      if (!hoveredKey) return null;
+      var handleByKey = {};
+      handles.forEach(function(handle) {
+        if (!handle) return;
+        handleByKey[handle.key] = handle;
+      });
+      return handleByKey[hoveredKey] || null;
     }
     function spacingKeyFromTarget(target) {
       var region = target && target.closest ? target.closest("[data-agent-native-spacing-region]") : null;
@@ -3096,6 +3183,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         currentValue: originValue,
         mirrorOpposite: !!e.altKey
       };
+      updateSpacingOverlay(selectedEl);
       showSpacingBadgeForHandle(handle, originValue);
       function updateSpacingDragMirrorState(mirrorOpposite) {
         if (!spacingDrag) return;
@@ -3628,6 +3716,8 @@ export const editorChromeBridgeScript: string = `"use strict";
         hideInsertionGuide();
         return;
       }
+      var line = Math.max(1, 2 * chromeLineScale());
+      var insideBorder = Math.max(1, 2 * chromeLineScale());
       var rect = target.anchor.getBoundingClientRect();
       insertionGuide.style.display = "block";
       insertionGuide.style.background = "var(--design-editor-accent-color)";
@@ -3640,23 +3730,23 @@ export const editorChromeBridgeScript: string = `"use strict";
         insertionGuide.style.width = rect.width + "px";
         insertionGuide.style.height = rect.height + "px";
         insertionGuide.style.background = "color-mix(in srgb, var(--design-editor-accent-color) 14%, transparent)";
-        insertionGuide.style.border = "2px solid var(--design-editor-accent-color)";
+        insertionGuide.style.border = insideBorder + "px solid var(--design-editor-accent-color)";
         insertionGuide.style.borderRadius = "2px";
         insertionGuide.style.boxShadow = "none";
         return;
       }
       if (target.axis === "x") {
         var x = target.placement === "before" ? rect.left : rect.right;
-        insertionGuide.style.left = x + "px";
+        insertionGuide.style.left = x - line / 2 + "px";
         insertionGuide.style.top = rect.top + "px";
-        insertionGuide.style.width = "2px";
+        insertionGuide.style.width = line + "px";
         insertionGuide.style.height = rect.height + "px";
       } else {
         var y = target.placement === "before" ? rect.top : rect.bottom;
         insertionGuide.style.left = rect.left + "px";
-        insertionGuide.style.top = y + "px";
+        insertionGuide.style.top = y - line / 2 + "px";
         insertionGuide.style.width = rect.width + "px";
-        insertionGuide.style.height = "2px";
+        insertionGuide.style.height = line + "px";
       }
     }
     function applyRuntimeReorder(el, target) {

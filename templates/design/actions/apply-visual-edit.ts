@@ -3,16 +3,17 @@ import {
   agentEnterDocument,
   agentLeaveDocument,
   agentUpdateSelection,
-  applyText,
-  getText,
-  hasCollabState,
-  seedFromText,
 } from "@agent-native/core/collab";
 import { accessFilter, assertAccess } from "@agent-native/core/sharing";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import {
+  readLiveSourceFile,
+  writeInlineSourceFile,
+  type SourceWorkspaceFile,
+} from "../server/source-workspace.js";
 import {
   applyVisualEdit,
   type AutoLayoutEditIntent,
@@ -453,28 +454,15 @@ const intentSchema = z.preprocess(
   ]),
 );
 
-async function liveContent(
-  fileId: string,
-  storedContent: string,
-): Promise<string> {
-  try {
-    if (await hasCollabState(fileId)) {
-      const live = await getText(fileId, "content");
-      if (typeof live === "string") return live;
-    }
-  } catch {
-    // Collab reads are best-effort; SQL content remains the fallback.
-  }
-  return storedContent;
-}
-
 async function resolveEditableDesignFile(
   source: VisualEditActionSource,
 ): Promise<{
   id: string;
   designId: string;
   filename: string;
+  fileType: string;
   content: string;
+  versionHash: string;
   designData: string | null;
   codeLayerSource: CodeLayerSource;
 }> {
@@ -533,11 +521,31 @@ async function resolveEditableDesignFile(
 
   await assertAccess("design", file.designId, "editor");
 
+  // Read the live (collab-authoritative, not just SQL-stored) content and
+  // capture its versionHash so the eventual persist can be conditioned on
+  // this exact base still being current — see persistDesignFileEdit below.
+  // Same read helper the 8 sibling actions (insert-design-native-asset.ts,
+  // insert-asset.ts, etc.) migrated to, closing the write-race window where
+  // a concurrent editor's change landed between this read and the raw
+  // unconditional write this action used to do.
+  const workspaceFile: SourceWorkspaceFile = {
+    id: file.id,
+    designId: file.designId,
+    filename: file.filename,
+    fileType: file.fileType,
+    content: file.content,
+    createdAt: null,
+    updatedAt: null,
+  };
+  const live = await readLiveSourceFile(workspaceFile);
+
   return {
     id: file.id,
     designId: file.designId,
     filename: file.filename,
-    content: await liveContent(file.id, file.content ?? ""),
+    fileType: file.fileType,
+    content: live.content,
+    versionHash: live.versionHash,
     designData: file.designData ?? null,
     codeLayerSource: {
       kind: "design-file",
@@ -552,30 +560,27 @@ async function resolveEditableDesignFile(
 async function persistDesignFileEdit(file: {
   id: string;
   designId: string;
+  filename: string;
+  fileType: string;
   content: string;
+  expectedVersionHash: string;
 }): Promise<void> {
-  await assertAccess("design", file.designId, "editor");
-
-  const db = getDb();
-  const now = new Date().toISOString();
-
   agentEnterDocument(file.id);
   try {
-    await db
-      .update(schema.designFiles)
-      .set({ content: file.content, updatedAt: now })
-      .where(eq(schema.designFiles.id, file.id));
-
-    if (await hasCollabState(file.id)) {
-      await applyText(file.id, file.content, "content", "agent");
-    } else {
-      await seedFromText(file.id, file.content);
-    }
-
-    await db
-      .update(schema.designs)
-      .set({ updatedAt: now })
-      .where(eq(schema.designs.id, file.designId));
+    await writeInlineSourceFile({
+      designId: file.designId,
+      file: {
+        id: file.id,
+        designId: file.designId,
+        filename: file.filename,
+        fileType: file.fileType,
+        content: file.content,
+        createdAt: null,
+        updatedAt: null,
+      },
+      content: file.content,
+      expectedVersionHash: file.expectedVersionHash,
+    });
   } finally {
     agentLeaveDocument(file.id);
   }
@@ -754,7 +759,10 @@ export default defineAction({
       await persistDesignFileEdit({
         id: file.id,
         designId: file.designId,
+        filename: file.filename,
+        fileType: file.fileType,
         content: patch.content,
+        expectedVersionHash: file.versionHash,
       });
     }
 

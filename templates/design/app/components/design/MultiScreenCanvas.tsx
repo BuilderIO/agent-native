@@ -2347,6 +2347,23 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     [],
   );
 
+  // PERF9: ref-only geometry write used by beginFrameDrag's live mousemove
+  // tick. Mirrors the pan/zoom gesture's applyViewToDom/scheduleViewCommit
+  // split — mutate the source of truth other reads depend on
+  // (frameGeometryRef, so snap-against-stationary-entries and the
+  // allCommitted/dropTarget checks keep seeing live positions) WITHOUT
+  // setFrameGeometry, so a drag doesn't force a MultiScreenCanvas re-render
+  // (and the canvasFrames/screenContentById/etc. useMemos it would
+  // recompute) on every single rAF tick. React state is reconciled with one
+  // real updateFrameGeometry call at gesture end (see beginFrameDrag's
+  // handleMouseUp) — same "commit once" contract as the wheel/pinch path.
+  const updateFrameGeometryRefOnly = useCallback(
+    (updater: (current: FrameGeometryById) => FrameGeometryById) => {
+      frameGeometryRef.current = updater(frameGeometryRef.current);
+    },
+    [],
+  );
+
   const updateSelectedIds = useCallback(
     (updater: (current: string[]) => string[]) => {
       setSelectedIds((current) => {
@@ -2369,6 +2386,17 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         draftPrimitivesRef.current = next;
         return next;
       });
+    },
+    [],
+  );
+
+  // PERF9: ref-only counterpart to updateDraftPrimitives, used by
+  // beginDraftDrag's live mousemove tick — see updateFrameGeometryRefOnly's
+  // comment for the full rationale (same "mutate the ref/DOM now, commit
+  // React state once at gesture end" discipline as the pan/zoom path).
+  const updateDraftPrimitivesRefOnly = useCallback(
+    (updater: (current: DraftPrimitive[]) => DraftPrimitive[]) => {
+      draftPrimitivesRef.current = updater(draftPrimitivesRef.current);
     },
     [],
   );
@@ -5118,6 +5146,20 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       // space-pan gestures (see the isPanning/hand-tool branches in
       // surfaceCursor below). Do not setDragCursor here.
 
+      // PERF9: cache each dragged draft's DOM node (and the selection-box
+      // overlay tracking it) once, up front — see beginFrameDrag's matching
+      // comment for the full rationale.
+      const draggedDraftEls = new Map<string, HTMLElement>();
+      targetIds.forEach((targetId) => {
+        const el = surfaceRef.current?.querySelector<HTMLElement>(
+          `[data-draft-id="${CSS.escape(targetId)}"]`,
+        );
+        if (el) draggedDraftEls.set(targetId, el);
+      });
+      const selectionBoxEl = surfaceRef.current?.querySelector<HTMLElement>(
+        "[data-frame-selection-box]",
+      );
+
       const handleMouseMove = (ev: MouseEvent) => {
         const state = dragState.current;
         if (!state || state.type !== "draft-move") return;
@@ -5168,13 +5210,59 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           bypass: ev.metaKey || ev.ctrlKey,
         });
 
-        updateDraftPrimitives((current) =>
+        // PERF9: ref-only geometry write (no setDraftPrimitives) + direct DOM
+        // mutation, same "imperative now, commit once" discipline as
+        // beginFrameDrag above — this is the other half of the laggy
+        // overview-drag fix (a freshly drawn/moved rectangle is a draft
+        // primitive, not yet a committed screen).
+        updateDraftPrimitivesRefOnly((current) =>
           current.map((draft) => {
             const origin = state.originDrafts[draft.id];
             if (!origin) return draft;
             return moveDraftPrimitive(origin, dx + snap.dx, dy + snap.dy);
           }),
         );
+        state.targetIds.forEach((targetId) => {
+          const draft = draftPrimitivesRef.current.find(
+            (candidate) => candidate.id === targetId,
+          );
+          const el = draggedDraftEls.get(targetId);
+          if (!draft || !el) return;
+          const { left, top } = frameStyleLeftTop(draft.geometry);
+          el.style.left = `${left}px`;
+          el.style.top = `${top}px`;
+        });
+        if (selectionBoxEl) {
+          const targetGeometries = state.targetIds
+            .map(
+              (targetId) =>
+                draftPrimitivesRef.current.find(
+                  (candidate) => candidate.id === targetId,
+                )?.geometry,
+            )
+            .filter((geometry): geometry is FrameGeometry => Boolean(geometry));
+          const bounds =
+            targetGeometries.length === 1
+              ? targetGeometries[0]
+              : (() => {
+                  const groupBounds = getFrameGroupBounds(
+                    targetGeometries.map((geometry) => ({ id: "", geometry })),
+                  );
+                  return groupBounds
+                    ? {
+                        x: groupBounds.left,
+                        y: groupBounds.top,
+                        width: groupBounds.width,
+                        height: groupBounds.height,
+                      }
+                    : null;
+                })();
+          if (bounds) {
+            const { left, top } = frameStyleLeftTop(bounds);
+            selectionBoxEl.style.left = `${left}px`;
+            selectionBoxEl.style.top = `${top}px`;
+          }
+        }
         setAlignmentGuides(snap.guides);
 
         // Primitive drop-into-container detection: check if the dragged draft
@@ -5188,6 +5276,17 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         const state = dragState.current;
         const dropTarget = primitiveDropTargetRef.current;
         if (state?.type === "draft-move" && state.hasMoved) {
+          // PERF9: the live drag above only wrote draftPrimitivesRef (no
+          // setDraftPrimitives per tick), so reconcile React state with the
+          // ref's final positions here — once, matching beginFrameDrag's
+          // same end-of-gesture commit. The persist calls below already read
+          // fresh data straight from draftPrimitivesRef (so what gets
+          // persisted is always correct either way), but the subsequent
+          // updateDraftPrimitives(current => current.filter(...)) calls
+          // filter React's OWN state array — without this sync that array
+          // (and any draft NOT persisted this drop, e.g. a partial
+          // multi-select persist) would still hold stale pre-drag positions.
+          updateDraftPrimitives(() => draftPrimitivesRef.current);
           if (dropTarget) {
             // Drop into a container primitive: persist the draft into the
             // target's screen, then call onPrimitiveReparent to nest it.
@@ -5279,6 +5378,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       installDragListeners,
       persistDraftPrimitive,
       updateDraftPrimitives,
+      updateDraftPrimitivesRefOnly,
       updatePrimitiveDropTarget,
       updateSelectedDraftIds,
       updateSelectedIds,
@@ -5480,6 +5580,25 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       // Figma parity: object drags keep the default arrow cursor, never a
       // grabbing hand — see the matching comment in beginDraftDrag above.
 
+      // PERF9: cache each dragged screen's DOM node (and the selection-box
+      // overlay tracking it) once, up front, instead of querying the DOM on
+      // every rAF tick. onStartFrameDrag only ever fires with screen.id
+      // (Screen's own mousedown handlers below), never a primitive nodeId —
+      // see frameStyleLeftTop's doc comment — so every target here has a
+      // real `[data-frame-id]` node with a label row.
+      const frameLabelHeight =
+        FRAME_LABEL_HEIGHT * chromeScaleFromZoom(zoomRef.current);
+      const draggedFrameEls = new Map<string, HTMLElement>();
+      targetIds.forEach((targetId) => {
+        const el = surfaceRef.current?.querySelector<HTMLElement>(
+          `[data-frame-id="${CSS.escape(targetId)}"]`,
+        );
+        if (el) draggedFrameEls.set(targetId, el);
+      });
+      const selectionBoxEl = surfaceRef.current?.querySelector<HTMLElement>(
+        "[data-frame-selection-box]",
+      );
+
       const handleMouseMove = (ev: MouseEvent) => {
         const state = dragState.current;
         if (!state || state.type !== "move") return;
@@ -5533,7 +5652,17 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           bypass: ev.metaKey || ev.ctrlKey,
         });
 
-        updateFrameGeometry((current) => {
+        // PERF9: mutate the dragged frame(s)' DOM position directly (ref-only
+        // geometry write, no setFrameGeometry) instead of committing React
+        // state every rAF tick — mirrors applyViewToDom's "imperative now,
+        // commit once" discipline for the pan/zoom gesture. This is the fix
+        // for the laggy overview object-drag: setFrameGeometry forced a full
+        // MultiScreenCanvas re-render (canvasFrames/screenContentById/etc.
+        // useMemos) on every tick even though only the dragged screen's own
+        // position actually changed. React state is reconciled with ONE real
+        // updateFrameGeometry call at gesture end (see handleMouseUp below).
+        let nextGeometryById: FrameGeometryById | null = null;
+        updateFrameGeometryRefOnly((current) => {
           const next = { ...current };
           state.targetIds.forEach((targetId) => {
             const origin = state.originFrames[targetId];
@@ -5543,8 +5672,54 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
               y: origin.y + dy + snap.dy,
             };
           });
+          nextGeometryById = next;
           return next;
         });
+        const settledGeometryById: FrameGeometryById | null = nextGeometryById;
+        if (settledGeometryById) {
+          state.targetIds.forEach((targetId) => {
+            const geometry = settledGeometryById[targetId];
+            const el = draggedFrameEls.get(targetId);
+            if (!geometry || !el) return;
+            const { left, top } = frameStyleLeftTop(geometry, frameLabelHeight);
+            el.style.left = `${left}px`;
+            el.style.top = `${top}px`;
+          });
+          // Keep the selection outline + resize/rotate handles glued to the
+          // dragged frame — SelectionBox's own `geometry` prop only updates
+          // on the next real React render, which this tick intentionally
+          // skips (see above), so without this it would visually detach and
+          // trail behind during the drag.
+          if (selectionBoxEl) {
+            const targetGeometries = state.targetIds.map(
+              (targetId) => settledGeometryById[targetId],
+            );
+            const bounds =
+              targetGeometries.length === 1
+                ? targetGeometries[0]
+                : (() => {
+                    const groupBounds = getFrameGroupBounds(
+                      targetGeometries.map((geometry) => ({
+                        id: "",
+                        geometry,
+                      })),
+                    );
+                    return groupBounds
+                      ? {
+                          x: groupBounds.left,
+                          y: groupBounds.top,
+                          width: groupBounds.width,
+                          height: groupBounds.height,
+                        }
+                      : null;
+                  })();
+            if (bounds) {
+              const { left, top } = frameStyleLeftTop(bounds);
+              selectionBoxEl.style.left = `${left}px`;
+              selectionBoxEl.style.top = `${top}px`;
+            }
+          }
+        }
         setAlignmentGuides(snap.guides);
 
         // Smart-spacing guides (CV11) — only meaningful for a single moving
@@ -5641,8 +5816,17 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
             }
           }
 
-          // Normal screen-frame geometry commit.
+          // Normal screen-frame geometry commit. PERF9: the live drag above
+          // only wrote frameGeometryRef (no setFrameGeometry per tick), so
+          // React state must be reconciled with the ref's final values here
+          // — exactly once, matching scheduleViewCommit's "one commit at
+          // gesture end" contract for the pan/zoom path. Without this, the
+          // next render (e.g. from setIsDragging(false) below) would paint
+          // the frame back at its stale pre-drag React position for one
+          // frame before the ref value re-synced.
           const after = cloneFrameGeometryById(frameGeometryRef.current);
+          setFrameGeometry(after);
+          onGeometryChangeRef.current?.(after);
           onGeometryCommitRef.current?.(
             frameGeometryWithOverrides(after, state.originFrames),
             after,
@@ -5665,6 +5849,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       resolvePrimitiveScreenId,
       showTransformFeedback,
       updateFrameGeometry,
+      updateFrameGeometryRefOnly,
       updatePrimitiveDropTarget,
       updateSelectedDraftIds,
       updateSelectedIds,
@@ -7990,14 +8175,19 @@ function DraftPrimitiveLayer({
     <button
       data-frame-shell
       data-screen-shell
+      // PERF9: stable per-draft lookup key so beginDraftDrag can grab this
+      // exact DOM node once at drag-start and mutate its style.left/top
+      // directly on every rAF tick instead of committing React state
+      // (setDraftPrimitives) every frame — see beginFrameDrag's matching
+      // data-frame-id comment above.
+      data-draft-id={draft.id}
       type="button"
       className={cn(
         "group/artboard pointer-events-auto absolute block overflow-visible text-left outline-none",
         preview || penActive ? "cursor-crosshair" : "cursor-pointer",
       )}
       style={{
-        left: SURFACE_PADDING + geometry.x,
-        top: SURFACE_PADDING + geometry.y,
+        ...frameStyleLeftTop(geometry),
         width: geometry.width,
         height: geometry.height,
         zIndex: geometry.z ?? 40,
@@ -8959,10 +9149,14 @@ const Screen = memo(function Screen({
     <div
       data-frame-shell
       data-screen-shell
+      // PERF9: stable per-screen lookup key so beginFrameDrag can grab this
+      // exact DOM node once at drag-start and mutate its style.left/top
+      // directly on every rAF tick (see frameStyleLeftTop), instead of
+      // committing React state (setFrameGeometry) every frame.
+      data-frame-id={screen.id}
       className="group/frame pointer-events-auto absolute"
       style={{
-        left: SURFACE_PADDING + geometry.x,
-        top: SURFACE_PADDING + geometry.y - frameLabelHeight,
+        ...frameStyleLeftTop(geometry, frameLabelHeight),
         width: geometry.width,
         transform: geometry.rotation
           ? `rotate(${geometry.rotation}deg)`
@@ -11436,6 +11630,28 @@ export function parsePrimitivesFromScreen(
     result,
   });
   return result;
+}
+
+/**
+ * Surface-space `left`/`top` for a dragged frame's wrapper element, matching
+ * the inline style Screen/DraftPrimitiveLayer compute from `geometry`
+ * (`SURFACE_PADDING + geometry.x` / `SURFACE_PADDING + geometry.y -
+ * labelHeight`). Used by beginFrameDrag/beginDraftDrag (PERF9 — see their
+ * mousemove comments) to mutate a dragged node's DOM style directly every
+ * rAF tick instead of committing React state, so the pan/zoom path's
+ * "imperative transform now, commit state once on release" discipline
+ * (applyViewToDom/scheduleViewCommit) also applies to object drags. Screens
+ * pass their scaled label-row height; draft primitives (no label row) omit
+ * it (default 0).
+ */
+export function frameStyleLeftTop(
+  geometry: { x: number; y: number },
+  labelHeight = 0,
+): { left: number; top: number } {
+  return {
+    left: SURFACE_PADDING + geometry.x,
+    top: SURFACE_PADDING + geometry.y - labelHeight,
+  };
 }
 
 /**

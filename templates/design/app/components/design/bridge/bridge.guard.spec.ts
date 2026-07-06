@@ -62,6 +62,21 @@ function hydratedEditorChromeBridgeScript(): string {
     .replace("__DESIGN_CANVAS_BOARD_SURFACE__", "false");
 }
 
+// Same hydration but with a caller-supplied editor-chrome scale, for the
+// zoomed-overview regression tests below (the host shrinks the iframe via
+// CSS transform at low canvas zoom and sends the compensating scale so the
+// bridge can keep its own chrome — borders, handles, insertion guide — at a
+// constant on-screen size; see chromeLineScale()).
+function hydratedEditorChromeBridgeScriptWithScale(scale: number): string {
+  return editorChromeBridgeScript
+    .replace("__READ_ONLY__", "false")
+    .replace("__TEXT_EDITING_ENABLED__", "false")
+    .replace("__EDITOR_CHROME_SCALE_X__", String(scale))
+    .replace("__EDITOR_CHROME_SCALE_Y__", String(scale))
+    .replace("__DESIGN_CANVAS_SCREEN_ID__", JSON.stringify("bridge-guard"))
+    .replace("__DESIGN_CANVAS_BOARD_SURFACE__", "false");
+}
+
 // Same hydration but with text editing enabled, for the text-editing-session
 // behavioral tests below (T2/T3/T5/T11/T12/T19/T20/T21).
 function hydratedEditorChromeBridgeScriptWithTextEditing(): string {
@@ -1544,6 +1559,328 @@ it(
         .locator("#first")
         .getAttribute("data-an-state-preview");
       expect(firstAttrAfterHandoff).toBeNull();
+      expect(pageErrors).toEqual([]);
+    } finally {
+      await browser.close();
+    }
+  },
+);
+
+// ── padding-handle hit-area / hover-hatch / value-box (Steve test batch 3,
+// item 6) and the restored drop-insertion line (item 4) ────────────────────
+
+it(
+  "editor chrome bridge padding handle: only the handle line drags padding, elsewhere in the padding band moves the element",
+  { timeout: 30_000 },
+  async () => {
+    const browser = await chromium.launch({ headless: true });
+    const pageErrors: string[] = [];
+
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 900, height: 700 },
+      });
+      page.on("pageerror", (err) => pageErrors.push(err.message));
+
+      await page.setContent(`<!doctype html>
+<html>
+  <head>
+    <style>
+      html, body { margin: 0; width: 100%; height: 100%; }
+      body { background: #0b0b0f; }
+      #card {
+        position: absolute; left: 200px; top: 150px;
+        width: 360px; height: 220px;
+        padding: 48px;
+        background: #17181d;
+        box-sizing: border-box;
+      }
+      #card .inner { background: #26272d; height: 100%; }
+    </style>
+  </head>
+  <body>
+    <div id="card" data-agent-native-node-id="card">
+      <div class="inner" data-agent-native-node-id="inner">inner</div>
+    </div>
+  </body>
+</html>`);
+      await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
+      await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+
+      // Select #card via a click inside its padding band (not inside .inner,
+      // so #card itself — the element with a resizable-padding child — is
+      // the hit target).
+      await page.mouse.click(220, 170);
+      await page.waitForFunction(() => {
+        const sel = document.querySelector(
+          '[data-agent-native-edit-overlay="selection"]',
+        ) as HTMLElement | null;
+        return !!sel && sel.style.display === "block";
+      });
+
+      // Pointerdown far from the handle line (near the corner of the
+      // padding-top band) must MOVE the element, not resize padding.
+      const beforeMoveRect = await page.evaluate(() => {
+        const r = document.getElementById("card")!.getBoundingClientRect();
+        return { left: r.left, top: r.top };
+      });
+      await page.mouse.move(210, 170);
+      await page.mouse.down();
+      await page.mouse.move(250, 175, { steps: 5 });
+      await page.mouse.up();
+
+      const afterMoveStyle = await page.locator("#card").getAttribute("style");
+      // The element must not have resized any padding from this drag.
+      expect(afterMoveStyle).not.toMatch(/padding/);
+      const afterMoveRect = await page.evaluate(() => {
+        const r = document.getElementById("card")!.getBoundingClientRect();
+        return { left: r.left, top: r.top };
+      });
+      // It must actually have moved (a real move-drag happened, not a no-op).
+      expect(afterMoveRect.left).not.toBe(beforeMoveRect.left);
+      expect(afterMoveRect.top).not.toBe(beforeMoveRect.top);
+
+      // Recompute the handle-line position for the now-moved element and
+      // pointerdown exactly on it — this must resize padding, not move.
+      const cardRect = await page.evaluate(() => {
+        const r = document.getElementById("card")!.getBoundingClientRect();
+        return { left: r.left, top: r.top, width: r.width, height: r.height };
+      });
+      const midX = cardRect.left + cardRect.width / 2;
+      const lineY = cardRect.top + 24; // padding-top / 2
+
+      await page.mouse.move(midX, lineY);
+      await page.waitForTimeout(80);
+      await page.mouse.down();
+      await page.mouse.move(midX, lineY + 20, { steps: 5 });
+      await page.mouse.up();
+
+      const afterPaddingDragStyle = await page
+        .locator("#card")
+        .getAttribute("style");
+      expect(afterPaddingDragStyle).toMatch(/padding-top:\s*68px/);
+      // The element itself must not have moved from the padding drag (its
+      // left/top must stay exactly where the earlier move-drag left them).
+      const afterPaddingDragRect = await page.evaluate(() => {
+        const r = document.getElementById("card")!.getBoundingClientRect();
+        return { left: r.left, top: r.top };
+      });
+      expect(afterPaddingDragRect.left).toBe(afterMoveRect.left);
+      expect(afterPaddingDragRect.top).toBe(afterMoveRect.top);
+
+      expect(pageErrors).toEqual([]);
+    } finally {
+      await browser.close();
+    }
+  },
+);
+
+it(
+  "editor chrome bridge padding handle: hatch + value box show on hover, hatch hides while dragging",
+  { timeout: 30_000 },
+  async () => {
+    const browser = await chromium.launch({ headless: true });
+    const pageErrors: string[] = [];
+
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 900, height: 700 },
+      });
+      page.on("pageerror", (err) => pageErrors.push(err.message));
+
+      await page.setContent(`<!doctype html>
+<html>
+  <head>
+    <style>
+      html, body { margin: 0; width: 100%; height: 100%; }
+      body { background: #0b0b0f; }
+      #card {
+        position: absolute; left: 200px; top: 150px;
+        width: 360px; height: 220px;
+        padding: 48px;
+        background: #17181d;
+        box-sizing: border-box;
+      }
+      #card .inner { background: #26272d; height: 100%; }
+    </style>
+  </head>
+  <body>
+    <div id="card" data-agent-native-node-id="card">
+      <div class="inner" data-agent-native-node-id="inner">inner</div>
+    </div>
+  </body>
+</html>`);
+      await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
+      await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+
+      await page.mouse.click(220, 170);
+      await page.waitForFunction(() => {
+        const sel = document.querySelector(
+          '[data-agent-native-edit-overlay="selection"]',
+        ) as HTMLElement | null;
+        return !!sel && sel.style.display === "block";
+      });
+
+      const midX = 200 + 360 / 2;
+      const lineY = 150 + 24;
+
+      await page.mouse.move(midX, lineY);
+      await page.waitForTimeout(150);
+
+      const hoverState = await page.evaluate(() => {
+        const hatch = document.querySelector(
+          '[data-agent-native-spacing-hatch="padding"]',
+        ) as HTMLElement | null;
+        const badge = document.querySelector(
+          "[data-agent-native-spacing-badge]",
+        ) as HTMLElement | null;
+        return {
+          hatchHasFill:
+            !!hatch && hatch.style.background.indexOf("repeating") !== -1,
+          badgeDisplay: badge ? getComputedStyle(badge).display : null,
+          badgeText: badge ? badge.textContent : null,
+        };
+      });
+      expect(hoverState.hatchHasFill).toBe(true);
+      expect(hoverState.badgeDisplay).toBe("block");
+      expect(hoverState.badgeText).toBe("48px");
+
+      // Start the padding drag — hatch must disappear immediately, badge
+      // must keep updating live with the in-progress value.
+      await page.mouse.down();
+      await page.mouse.move(midX, lineY + 20, { steps: 5 });
+      await page.waitForTimeout(80);
+
+      const dragState = await page.evaluate(() => {
+        const hatch = document.querySelector(
+          '[data-agent-native-spacing-hatch="padding"]',
+        ) as HTMLElement | null;
+        const badge = document.querySelector(
+          "[data-agent-native-spacing-badge]",
+        ) as HTMLElement | null;
+        return {
+          hatchHasFill:
+            !!hatch && hatch.style.background.indexOf("repeating") !== -1,
+          badgeDisplay: badge ? getComputedStyle(badge).display : null,
+          badgeText: badge ? badge.textContent : null,
+        };
+      });
+      expect(dragState.hatchHasFill).toBe(false);
+      expect(dragState.badgeDisplay).toBe("block");
+      expect(dragState.badgeText).toBe("68px");
+
+      await page.mouse.up();
+      expect(pageErrors).toEqual([]);
+    } finally {
+      await browser.close();
+    }
+  },
+);
+
+it(
+  "editor chrome bridge restores the drop-insertion line for in-screen flow reorder, scaled for zoomed-out overview",
+  { timeout: 30_000 },
+  async () => {
+    const browser = await chromium.launch({ headless: true });
+    const pageErrors: string[] = [];
+
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 900, height: 700 },
+      });
+      page.on("pageerror", (err) => pageErrors.push(err.message));
+
+      await page.setContent(`<!doctype html>
+<html>
+  <head>
+    <style>
+      html, body { margin: 0; width: 100%; height: 100%; }
+      body { background: #0b0b0f; }
+      #list {
+        position: absolute; left: 100px; top: 100px;
+        display: flex; flex-direction: column; gap: 12px;
+        width: 300px;
+      }
+      .item { height: 60px; background: #1d1e24; box-sizing: border-box; }
+    </style>
+  </head>
+  <body>
+    <div id="list" data-agent-native-node-id="list">
+      <div class="item" id="item1" data-agent-native-node-id="item1">One</div>
+      <div class="item" id="item2" data-agent-native-node-id="item2">Two</div>
+      <div class="item" id="item3" data-agent-native-node-id="item3">Three</div>
+    </div>
+  </body>
+</html>`);
+      // Scale 0.3 simulates a zoomed-out overview: the host shrinks this
+      // iframe to 30% via CSS transform, so any hardcoded (unscaled) chrome
+      // thickness would render at 30% of its already-thin size on screen —
+      // this is the actual regression (a bright line that renders sub-pixel
+      // and reads as "missing" at typical overview zoom).
+      await page.addScriptTag({
+        content: hydratedEditorChromeBridgeScriptWithScale(0.3),
+      });
+      await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+
+      const item1Rect = await page.evaluate(() => {
+        const r = document.getElementById("item1")!.getBoundingClientRect();
+        return { left: r.left, top: r.top, width: r.width, height: r.height };
+      });
+      const startX = item1Rect.left + item1Rect.width / 2;
+      const startY = item1Rect.top + item1Rect.height / 2;
+      await page.mouse.click(startX, startY);
+      await page.waitForFunction(() => {
+        const sel = document.querySelector(
+          '[data-agent-native-edit-overlay="selection"]',
+        ) as HTMLElement | null;
+        return !!sel && sel.style.display === "block";
+      });
+
+      const item3Rect = await page.evaluate(() => {
+        const r = document.getElementById("item3")!.getBoundingClientRect();
+        return { left: r.left, top: r.top, width: r.width, height: r.height };
+      });
+
+      await page.mouse.move(startX, startY);
+      await page.mouse.down();
+      await page.mouse.move(startX, item3Rect.top + item3Rect.height - 5, {
+        steps: 10,
+      });
+      await page.waitForTimeout(100);
+
+      const guideState = await page.evaluate(() => {
+        const guide = document.querySelector(
+          "[data-agent-native-insertion-guide]",
+        ) as HTMLElement | null;
+        return {
+          display: guide ? getComputedStyle(guide).display : null,
+          heightPx: guide ? parseFloat(guide.style.height || "0") : 0,
+        };
+      });
+      expect(guideState.display).toBe("block");
+      // At chromeLineScale() ≈ 1/0.3 ≈ 3.33, the guide thickness must scale
+      // up proportionally (2 * 3.33 ≈ 6.67px) so that once the host shrinks
+      // the iframe back down by 0.3, the on-screen line stays a constant,
+      // clearly visible ~2px — not the pre-fix hardcoded 2px, which would
+      // have rendered at an illegible ~0.6px on screen at this zoom.
+      expect(guideState.heightPx).toBeGreaterThan(5);
+
+      await page.mouse.up();
+      await page.waitForTimeout(100);
+
+      const finalOrder = await page.evaluate(() =>
+        Array.from(document.getElementById("list")!.children).map((c) => c.id),
+      );
+      expect(finalOrder).toEqual(["item2", "item3", "item1"]);
+
+      const guideAfterDrop = await page.evaluate(() => {
+        const guide = document.querySelector(
+          "[data-agent-native-insertion-guide]",
+        ) as HTMLElement | null;
+        return guide ? getComputedStyle(guide).display : null;
+      });
+      expect(guideAfterDrop).toBe("none");
+
       expect(pageErrors).toEqual([]);
     } finally {
       await browser.close();

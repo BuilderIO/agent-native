@@ -8,6 +8,7 @@ import {
   getNextZoomStepUp,
   MAX_SANE_SCREEN_ENTRY_ZOOM,
   resolveScreenEntryZoom,
+  shouldPopToOverviewOnZoomChange,
 } from "./DesignEditor";
 
 describe("clampZoom", () => {
@@ -212,6 +213,89 @@ describe("resolveScreenEntryZoom — per-screen zoom memory", () => {
     // Below DEFAULT_CANVAS_MIN_ZOOM (2) but still finite/positive — clamped up
     // to the shared minimum rather than falling back to the default.
     expect(resolveScreenEntryZoom("screen-a", screenZoomById, 100)).toBe(2);
+  });
+});
+
+describe("shouldPopToOverviewOnZoomChange — explicit zoom-to-N% presets never pop to overview", () => {
+  const threshold = 60;
+
+  it("reproduces the reported bug: 'Zoom to 50%' from the default 100% single-view zoom must NOT pop to overview when unsuppressed (documents why suppression is required)", () => {
+    // FOCUSED_SCREEN_ZOOM is 100; the "Zoom to 50%" menu preset sets zoom to
+    // 50, which is below OVERVIEW_ZOOM_THRESHOLD (60) and previousZoom (100)
+    // was at/above it — the raw edge-trigger heuristic alone says "pop".
+    expect(
+      shouldPopToOverviewOnZoomChange({
+        previousZoom: 100,
+        zoom: 50,
+        threshold,
+        suppressExplicitZoom: false,
+      }),
+    ).toBe(true);
+  });
+
+  it("stays in single view at 50% when the explicit-zoom preset suppresses the pop (the actual fix)", () => {
+    expect(
+      shouldPopToOverviewOnZoomChange({
+        previousZoom: 100,
+        zoom: 50,
+        threshold,
+        suppressExplicitZoom: true,
+      }),
+    ).toBe(false);
+  });
+
+  it("suppresses regardless of starting zoom (e.g. 200% -> Zoom to 50%)", () => {
+    expect(
+      shouldPopToOverviewOnZoomChange({
+        previousZoom: 200,
+        zoom: 50,
+        threshold,
+        suppressExplicitZoom: true,
+      }),
+    ).toBe(false);
+  });
+
+  it("still pops for a genuine continuous zoom-out gesture (unsuppressed)", () => {
+    // handleZoomOut / scroll / pinch never set the suppression flag — the
+    // Figma-style pop-on-zoom-out-past-threshold behavior must be preserved.
+    expect(
+      shouldPopToOverviewOnZoomChange({
+        previousZoom: 62,
+        zoom: 48,
+        threshold,
+        suppressExplicitZoom: false,
+      }),
+    ).toBe(true);
+  });
+
+  it("never pops on entry regardless of suppression (previousZoom null)", () => {
+    expect(
+      shouldPopToOverviewOnZoomChange({
+        previousZoom: null,
+        zoom: 16,
+        threshold,
+        suppressExplicitZoom: false,
+      }),
+    ).toBe(false);
+    expect(
+      shouldPopToOverviewOnZoomChange({
+        previousZoom: null,
+        zoom: 16,
+        threshold,
+        suppressExplicitZoom: true,
+      }),
+    ).toBe(false);
+  });
+
+  it("does not pop when the explicit destination stays at/above the threshold", () => {
+    expect(
+      shouldPopToOverviewOnZoomChange({
+        previousZoom: 50,
+        zoom: 100,
+        threshold,
+        suppressExplicitZoom: false,
+      }),
+    ).toBe(false);
   });
 });
 

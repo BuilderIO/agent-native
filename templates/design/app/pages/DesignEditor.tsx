@@ -30,6 +30,7 @@ import {
   useChangeVersion,
   setAgentChatContextItem,
   removeAgentChatContextItem,
+  useAgentChatContext,
   useAvatarUrl,
   type CollabUser,
   type AttributedRecentEdit,
@@ -1406,6 +1407,29 @@ export function shouldPopToOverviewOnZoomOut(args: {
   if (!Number.isFinite(args.zoom)) return false;
   if (args.zoom >= args.threshold) return false;
   return args.previousZoom !== null && args.previousZoom >= args.threshold;
+}
+
+/**
+ * Fix-wave (zoom presets) — an explicit destination zoom (a "Zoom to
+ * 50/100/200%" menu preset, or a typed zoom-% commit) crosses
+ * OVERVIEW_ZOOM_THRESHOLD from above just as easily as a real zoom-out
+ * gesture does (e.g. the default single-view zoom is 100%, and "Zoom to 50%"
+ * lands under the 60% threshold) — `shouldPopToOverviewOnZoomOut` alone can't
+ * tell the two apart from the raw before/after zoom numbers. Callers that
+ * fire an explicit destination zoom mark the NEXT zoom-change observation as
+ * suppressed; this combines that one-shot flag with the edge-trigger check so
+ * "Zoom to 50%" always stays in single view regardless of the zoom it
+ * started from, while continuous zoom-out (scroll/pinch/the zoom-out button)
+ * is untouched and still pops at the threshold like Figma.
+ */
+export function shouldPopToOverviewOnZoomChange(args: {
+  previousZoom: number | null;
+  zoom: number;
+  threshold: number;
+  suppressExplicitZoom: boolean;
+}): boolean {
+  if (args.suppressExplicitZoom) return false;
+  return shouldPopToOverviewOnZoomOut(args);
 }
 
 export function shouldLimitEditorChromeUntilContentReady(args: {
@@ -9294,11 +9318,26 @@ export default function DesignEditor() {
     },
     [],
   );
+  // Fix-wave: resolve the target view from `viewMode` React state directly,
+  // not `viewModeRef.current`. The ref is a useEffect-synced mirror (see the
+  // `viewModeRef.current = viewMode` effect above) — useEffect runs AFTER
+  // commit, so any zoom trigger that can fire synchronously in the same tick
+  // as (or a tick before the next paint after) a view-mode change risked
+  // reading a one-render-stale ref value and routing the zoom write to the
+  // WRONG view's zoom state entirely (this was the "Zoom to 50%" → overview
+  // bug). `setZoom` is a plain useCallback depending on `viewMode`, so it's
+  // always recreated with the current value the instant `viewMode` changes —
+  // there is no window where a caller can observe a stale target view.
+  // viewModeRef itself is left in place for the many *other* consumers deep
+  // in canvas/gesture handlers that read it off the render path (e.g. native
+  // event listeners) where a state dependency isn't practical; those are
+  // audited separately and each pairs a synchronous ref write with its
+  // setViewMode call.
   const setZoom = useCallback(
     (update: SetStateAction<number>) => {
-      setZoomForView(viewModeRef.current, update);
+      setZoomForView(viewMode, update);
     },
-    [setZoomForView],
+    [setZoomForView, viewMode],
   );
 
   // Record the active screen's zoom into the per-screen memory map on every
@@ -11702,7 +11741,13 @@ export default function DesignEditor() {
       const nodeId = selectedElementLayerId ?? undefined;
       const selector = selectedCanvasSelector ?? selectedElement.selector;
       createComponentMutation.mutate(
-        { designId: id, nodeId, selector, name } as any,
+        {
+          designId: id,
+          nodeId,
+          selector,
+          name,
+          fileId: activeFileId ?? undefined,
+        } as any,
         {
           onSuccess: () => {
             queryClient.invalidateQueries({
@@ -11741,6 +11786,7 @@ export default function DesignEditor() {
       selectedElement,
       selectedElementLayerId,
       selectedCanvasSelector,
+      activeFileId,
       createComponentMutation,
       queryClient,
       t,
@@ -13427,12 +13473,67 @@ export default function DesignEditor() {
     selectedStateId,
   ]);
 
+  // R69: once the composer sends this selection as context, the chip must
+  // stay cleared — not silently reappear. The composer's own clear-on-send
+  // (AssistantChat's addToQueue) only clears its local + published context
+  // state; it can't know to stop this effect from re-asserting the SAME
+  // selection, which re-fires on every get-design poll during the resulting
+  // agent run (selectedCodeLayerNode gets a new reference as the file
+  // content changes) even though selectedElement itself never changed. Track
+  // the identity of the selection we most recently published; if the shared
+  // context store no longer has our key for that same identity (i.e. a send
+  // cleared it) we must not republish until the user actually selects
+  // something else. Selecting a new element (or re-selecting after
+  // deselecting) always clears sentSelectionIdRef via the identity check
+  // below, so the attachment reattaches normally for the next edit.
+  //
+  // IMPORTANT: this effect must NOT depend on the live `items` array from
+  // useAgentChatContext(). setAgentChatContextItem always publishes a brand
+  // new array reference (even for byte-identical content), so an effect that
+  // both reads that array in its deps AND unconditionally calls
+  // setAgentChatContextItem would re-fire itself every commit — an infinite
+  // render loop (caught live: "Maximum update depth exceeded" in overview
+  // mode). Instead, only the narrow "was our key removed" check reads the
+  // store, via a ref updated by a SEPARATE effect below whose only job is
+  // bookkeeping (it never calls setAgentChatContextItem itself, so it cannot
+  // feed back into this one).
+  const mirroredSelectionIdRef = useRef<string | null>(null);
+  const sentSelectionIdRef = useRef<string | null>(null);
+  const composerContextHasOurKeyRef = useRef(true);
   useEffect(() => {
     const key = "design:selected-element";
     if (!id || !shouldMirrorSelectedElementToAgentChat(selectedElement)) {
+      mirroredSelectionIdRef.current = null;
+      sentSelectionIdRef.current = null;
       removeAgentChatContextItem(key);
       return;
     }
+
+    const selectionId = `${activeFile?.id ?? ""}::${selectedElement.sourceId ?? selectedElement.selector}`;
+    if (selectionId !== mirroredSelectionIdRef.current) {
+      // A genuinely new/changed selection always (re)attaches, regardless of
+      // whether the previous one was marked sent.
+      sentSelectionIdRef.current = null;
+    } else if (
+      sentSelectionIdRef.current === selectionId ||
+      !composerContextHasOurKeyRef.current
+    ) {
+      // Same selection as before, and either it was already marked sent, or
+      // the shared store no longer carries our key (a send just cleared it,
+      // observed by the bookkeeping effect below) — stay cleared. Critically:
+      // do nothing else here, so this branch never calls
+      // setAgentChatContextItem for a selection that hasn't changed.
+      if (!composerContextHasOurKeyRef.current) {
+        sentSelectionIdRef.current = selectionId;
+      }
+      return;
+    } else {
+      // Same selection, still present in the shared store, nothing to do —
+      // avoid republishing (and thus avoid the feedback loop above) when
+      // nothing about the selection actually changed.
+      return;
+    }
+    mirroredSelectionIdRef.current = selectionId;
 
     const labelSource =
       selectedElement.textContent?.trim() ||
@@ -13469,7 +13570,21 @@ export default function DesignEditor() {
       // tear down) an in-progress inline text edit on the canvas.
       focus: false,
     });
+    composerContextHasOurKeyRef.current = true;
   }, [activeFile, design?.title, id, selectedCodeLayerNode, selectedElement]);
+
+  // Bookkeeping only — mirrors "does the shared composer context still carry
+  // our key" into a ref for the effect above to read. This is intentionally
+  // NOT a dependency of that effect (see its comment): this effect only ever
+  // writes a ref, never calls setAgentChatContextItem or any other state
+  // setter, so it can run on every store change without feeding back into a
+  // re-render loop.
+  const composerContextItemsForBookkeeping = useAgentChatContext().items;
+  useEffect(() => {
+    const key = "design:selected-element";
+    composerContextHasOurKeyRef.current =
+      composerContextItemsForBookkeeping.some((item) => item.key === key);
+  }, [composerContextItemsForBookkeeping]);
 
   const handleAssetInserted = useCallback(
     (selection: {
@@ -19875,6 +19990,16 @@ export default function DesignEditor() {
   // single-view state and resets to null whenever single view isn't active,
   // so the first observation after entry can never pop.
   const lastSettledSingleZoomRef = useRef<number | null>(null);
+  // Fix-wave: an explicit destination zoom (a "Zoom to 50/100/200%" preset or
+  // a typed zoom-% commit) is a deliberate "go to exactly this zoom" action,
+  // not a continuous zoom-out gesture — it must never trigger the Figma-style
+  // pop-to-overview heuristic above, even when it crosses
+  // OVERVIEW_ZOOM_THRESHOLD from above (e.g. 100% -> "Zoom to 50%"). Only
+  // stepped zoom-out (handleZoomOut / scroll / pinch, all of which change
+  // `zoom` without touching this ref) should ever pop. Set immediately before
+  // the zoom write and consumed (reset) the next time this effect runs, so it
+  // only ever suppresses the one update it was set for.
+  const suppressOverviewPopForExplicitZoomRef = useRef(false);
   useEffect(() => {
     if (!activeFile || viewMode !== "single" || mode !== "edit") {
       lastSettledSingleZoomRef.current = null;
@@ -19882,11 +20007,14 @@ export default function DesignEditor() {
     }
     const previousZoom = lastSettledSingleZoomRef.current;
     lastSettledSingleZoomRef.current = zoom;
+    const suppressPop = suppressOverviewPopForExplicitZoomRef.current;
+    suppressOverviewPopForExplicitZoomRef.current = false;
     if (
-      shouldPopToOverviewOnZoomOut({
+      shouldPopToOverviewOnZoomChange({
         previousZoom,
         zoom,
         threshold: OVERVIEW_ZOOM_THRESHOLD,
+        suppressExplicitZoom: suppressPop,
       })
     ) {
       enterOverviewFromZoom();
@@ -24015,6 +24143,9 @@ ${serializedHtml}
       setZoomInputValue(zoomLabel);
       return;
     }
+    // A typed zoom % is an explicit destination, not a zoom-out gesture — see
+    // suppressOverviewPopForExplicitZoomRef's doc comment.
+    suppressOverviewPopForExplicitZoomRef.current = true;
     setZoom(clampZoom(next));
     setOpenZoomControl(null);
   }, [setZoom, zoomInputValue, zoomLabel]);
@@ -24646,7 +24777,6 @@ ${serializedHtml}
   // handleBreakpointBarSelect scope-switching the old chips used.
   const deviceFrameControl = (
     <BreakpointDeviceControl
-      className="ml-1"
       breakpoints={designBreakpoints}
       activeWidthPx={activeBreakpointWidthState}
       baseWidthPx={activeScreenBaseWidthPx}
@@ -24925,7 +25055,16 @@ ${serializedHtml}
         {[50, 100, 200].map((preset) => (
           <DropdownMenuItem
             key={preset}
-            onClick={() => setZoom(preset)}
+            onClick={() => {
+              // "Zoom to N%" is an explicit destination, not a zoom-out
+              // gesture — see suppressOverviewPopForExplicitZoomRef's doc
+              // comment. Without this, "Zoom to 50%" from the default 100%
+              // single-view zoom crosses OVERVIEW_ZOOM_THRESHOLD (60) and the
+              // edge-triggered pop-to-overview guard would kick the editor
+              // back to overview instead of zooming the focused screen.
+              suppressOverviewPopForExplicitZoomRef.current = true;
+              setZoom(preset);
+            }}
             className="h-6 px-2 py-0 text-[12px]"
           >
             <span className="flex-1">
@@ -24990,7 +25129,6 @@ ${serializedHtml}
             label={t("designEditor.collaborators")}
             onAvatarClick={handleAvatarClick}
           />
-          {deviceFrameControl}
         </div>
 
         <div className="flex shrink-0 items-center gap-1">
@@ -25135,6 +25273,13 @@ ${serializedHtml}
           ) : null}
         </div>
       </div>
+      {/* BP-DEEP v2 items 4/6/7 — the unified breakpoint/device segmented
+          control gets its own slim row under the actions row: it needs
+          ~130px+ (growing with each breakpoint) and the actions row above
+          (collaborators + play + share in a ~300px panel) cannot spare that
+          without overlapping — squeezing both into one line collapsed the
+          collaborators menu to a sliver behind the segments. */}
+      <div className="mt-1 flex min-w-0 items-center">{deviceFrameControl}</div>
     </div>
   );
 

@@ -183,20 +183,24 @@ export function BreakpointDeviceControl({
         className,
       )}
     >
-      {/* Base segment — the primary/widest editing context. */}
+      {/* Base segment — the primary/widest editing context. Icon-only with
+          the label in the tooltip: this control shares one cramped
+          inspector-header row with the collaborators menu and play/share
+          actions (~300px total), so every segment stays as narrow as it
+          can. */}
       <button
         type="button"
         className={segmentClass(baseActive)}
         aria-pressed={baseActive}
+        aria-label={t("designEditor.breakpointBar.base")}
         onClick={() => onSelect(undefined)}
         title={
           baseWidthPx != null
             ? `${t("designEditor.breakpointBar.base")} · ${Math.round(baseWidthPx)}px`
-            : t("designEditor.breakpointBar.editBaseWidth")
+            : t("designEditor.breakpointBar.base")
         }
       >
         <IconViewportWide className="size-3.5" />
-        <span>{t("designEditor.breakpointBar.base")}</span>
       </button>
 
       {/* One segment per breakpoint, widest → narrowest. Clicking always
@@ -218,7 +222,9 @@ export function BreakpointDeviceControl({
               onClick={() => onSelect(breakpoint.widthPx)}
               title={`${breakpoint.label} · ${breakpoint.widthPx}px`}
             >
-              <DeviceIcon widthPx={breakpoint.widthPx} />
+              {/* Width number only — the device icon + label live in the
+                  tooltip and the "+" popover; icons per segment overflowed
+                  the ~300px inspector-header row next to play/share. */}
               <span>{breakpoint.widthPx}</span>
             </button>
             {/* "…" — per-breakpoint options (Change width / Remove). Shown

@@ -21,6 +21,7 @@ import {
   getOutsideFrameDraftFallback,
   getPrimaryIframeId,
   isBreakpointSelectionTarget,
+  frameStyleLeftTop,
   getPrimitiveDropTargetForPoint,
   hasBoardSurfaceContent,
   ParsedScreenPrimitive,
@@ -30,6 +31,7 @@ import {
   resolveNodeScreenId,
   screenPxToCanvasPx,
   shouldBoardSurfaceCapturePointerEvents,
+  SURFACE_PADDING,
   vectorEditCanvasToLocalPoint,
   vectorEditLocalToCanvasPoint,
   type FrameGeometry,
@@ -336,6 +338,46 @@ describe("primitiveLocalToBoardRect", () => {
         height: 0,
       }),
     ).not.toThrow();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// frameStyleLeftTop (PERF9)
+// ---------------------------------------------------------------------------
+describe("frameStyleLeftTop", () => {
+  it("matches Screen's inline style formula: SURFACE_PADDING + x / y - labelHeight", () => {
+    const result = frameStyleLeftTop({ x: 100, y: 200 }, 28);
+    expect(result).toEqual({
+      left: SURFACE_PADDING + 100,
+      top: SURFACE_PADDING + 200 - 28,
+    });
+  });
+
+  it("defaults labelHeight to 0, matching DraftPrimitiveLayer's inline style (no label row)", () => {
+    const result = frameStyleLeftTop({ x: 50, y: 75 });
+    expect(result).toEqual({
+      left: SURFACE_PADDING + 50,
+      top: SURFACE_PADDING + 75,
+    });
+  });
+
+  it("handles negative geometry (frames left/above the surface origin)", () => {
+    const result = frameStyleLeftTop({ x: -500, y: -300 }, 14);
+    expect(result).toEqual({
+      left: SURFACE_PADDING - 500,
+      top: SURFACE_PADDING - 300 - 14,
+    });
+  });
+
+  it("is a pure function of x/y/labelHeight — ignores extra geometry fields", () => {
+    const result = frameStyleLeftTop(
+      { x: 10, y: 20, width: 999, height: 999 } as FrameGeometry,
+      0,
+    );
+    expect(result).toEqual({
+      left: SURFACE_PADDING + 10,
+      top: SURFACE_PADDING + 20,
+    });
   });
 });
 

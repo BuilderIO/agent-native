@@ -1416,6 +1416,7 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
   var lastSpacingPointerPoint: { x: number; y: number } | null = null;
   var spacingHandleStateByKey: Record<string, { value: number }> = {};
   var spacingHandleNodesByKey: Record<string, Element> = {};
+  var spacingHatchNodesByKey: Record<string, Element> = {};
   var spacingOverlayRenderKey = "";
   var activeDragCancel: (() => boolean) | null = null;
   var activeCrossScreenStyleSnapshot: unknown | undefined = undefined;
@@ -1839,6 +1840,7 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
     spacingOverlay.innerHTML = "";
     spacingHandleStateByKey = {};
     spacingHandleNodesByKey = {};
+    spacingHatchNodesByKey = {};
     spacingOverlayRenderKey = "";
     if (!spacingDrag) spacingBadge.style.display = "none";
   }
@@ -1899,6 +1901,43 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
     return Math.max(0, Math.min(999, rounded));
   }
 
+  // Figma-style handle hit area: only the small handle *line* itself (plus a
+  // few px of pointer tolerance) should start a padding drag. The rest of the
+  // padding band must fall through to normal element move/select — dragging
+  // anywhere else inside the element (even inside the padding region) moves
+  // the element, it does not resize padding. Gap handles keep the previous
+  // full-region hit area (out of scope for this fix; not covered by the
+  // reported UX regression). Base tolerance is in editor-chrome (unscaled)
+  // pixels; callers multiply by chromeLineScale() so the hit area keeps a
+  // constant on-screen size regardless of canvas zoom, matching how the
+  // handle line's own thickness (chromeLineScale()) is derived.
+  var PADDING_HANDLE_HIT_TOLERANCE_BASE = 4;
+
+  function hitRectForPaddingHandle(
+    line: { x: number; y: number; width: number; height: number } | undefined,
+    region: { x: number; y: number; width: number; height: number },
+    tolerance: number,
+  ): { x: number; y: number; width: number; height: number } {
+    if (!line) return region;
+    var minX = Math.min(line.x, region.x);
+    var minY = Math.min(line.y, region.y);
+    var maxX = Math.max(line.x + line.width, region.x + region.width);
+    var maxY = Math.max(line.y + line.height, region.y + region.height);
+    // Only the line itself matters for hit-testing; expand just the line's own
+    // rect by the tolerance, then clamp to the padding region bounds so the
+    // hit area never spills outside the visual padding band.
+    var hitX = Math.max(minX, line.x - tolerance);
+    var hitY = Math.max(minY, line.y - tolerance);
+    var hitRight = Math.min(maxX, line.x + line.width + tolerance);
+    var hitBottom = Math.min(maxY, line.y + line.height + tolerance);
+    return {
+      x: hitX,
+      y: hitY,
+      width: Math.max(1, hitRight - hitX),
+      height: Math.max(1, hitBottom - hitY),
+    };
+  }
+
   function makeSpacingHandle(config: {
     key: string;
     groupKey?: string;
@@ -1909,10 +1948,24 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
     orientation: string;
     value: number;
     region: { x: number; y: number; width: number; height: number };
-    line?: unknown;
+    line?: { x: number; y: number; width: number; height: number };
   }): unknown {
     var region = config.region;
     if (!region || region.width <= 0 || region.height <= 0) return null;
+    var roundedRegion = {
+      x: Math.round(region.x),
+      y: Math.round(region.y),
+      width: Math.max(1, Math.round(region.width)),
+      height: Math.max(1, Math.round(region.height)),
+    };
+    var hit =
+      config.kind === "padding"
+        ? hitRectForPaddingHandle(
+            config.line,
+            roundedRegion,
+            PADDING_HANDLE_HIT_TOLERANCE_BASE * Math.max(1, chromeLineScale()),
+          )
+        : roundedRegion;
     return {
       key: config.key,
       groupKey: config.groupKey || config.key,
@@ -1922,12 +1975,8 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
       side: config.side || "",
       orientation: config.orientation,
       value: clampSpacingValue(config.value),
-      region: {
-        x: Math.round(region.x),
-        y: Math.round(region.y),
-        width: Math.max(1, Math.round(region.width)),
-        height: Math.max(1, Math.round(region.height)),
-      },
+      region: roundedRegion,
+      hit: hit,
       line: config.line,
     };
   }
@@ -2209,6 +2258,14 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
     );
   }
 
+  // Figma-style live value readout for the padding handle: shown while
+  // hovering OR dragging the handle line, positioned ~12px above and to the
+  // right of the pointer (matching showTransformBadge's cursor-relative
+  // offset idiom, but anchored to the badge's bottom-left corner via
+  // translateY(-100%) so the box actually sits above the cursor instead of
+  // growing downward through it) and live-updating as the value changes.
+  // Falls back to the handle-region center when no cursor point is known yet
+  // (e.g. a hover activated programmatically rather than by a pointer move).
   function showSpacingBadgeForHandle(
     handle: {
       key: string;
@@ -2223,20 +2280,31 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
       line: { x: number; y: number; width: number; height: number } | undefined;
     } | null,
     value: number,
+    cursorPoint?: { x: number; y: number } | null,
   ): void {
     if (!selectedEl || !handle) {
       spacingBadge.style.display = "none";
       return;
     }
-    var rect = selectedEl.getBoundingClientRect();
-    var x = rect.left + handle.region.x + handle.region.width / 2;
-    var y = rect.top + handle.region.y + handle.region.height / 2;
-    spacingBadge.textContent = String(clampSpacingValue(value));
+    var point = cursorPoint || lastSpacingPointerPoint;
+    var x: number;
+    var y: number;
+    if (point) {
+      x = point.x + 12;
+      y = point.y - 12;
+    } else {
+      var rect = selectedEl.getBoundingClientRect();
+      x = rect.left + handle.region.x + handle.region.width / 2;
+      y = rect.top + handle.region.y + handle.region.height / 2;
+    }
+    spacingBadge.textContent = String(clampSpacingValue(value)) + "px";
     spacingBadge.style.display = "block";
     spacingBadge.style.background = spacingColor(handle.kind);
     spacingBadge.style.left = x + "px";
     spacingBadge.style.top = y + "px";
-    spacingBadge.style.transform = "translate(-50%, -50%)";
+    spacingBadge.style.transform = point
+      ? "translateY(-100%)"
+      : "translate(-50%, -50%)";
   }
 
   function renderSpacingHandle(
@@ -2250,13 +2318,16 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
       orientation: string;
       value: number;
       region: { x: number; y: number; width: number; height: number };
+      hit: { x: number; y: number; width: number; height: number };
       line: { x: number; y: number; width: number; height: number } | undefined;
     } | null,
     activeGroupKeys: Record<string, boolean>,
+    hoverGroupKeys: Record<string, boolean>,
   ): void {
     if (!handle) return;
     spacingHandleStateByKey[handle.key] = handle;
-    var highlighted = Boolean(activeGroupKeys[handle.groupKey]);
+    var active = Boolean(activeGroupKeys[handle.groupKey]);
+    var hovered = Boolean(hoverGroupKeys[handle.groupKey]);
     var lineNode = document.createElement("span");
     lineNode.setAttribute("data-agent-native-spacing-line", handle.kind);
     lineNode.style.position = "absolute";
@@ -2270,6 +2341,31 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
     lineNode.style.background = spacingColor(handle.kind);
     spacingOverlay.appendChild(lineNode);
 
+    // Visual-only hatch band over the full padding region. Purely decorative
+    // (pointer-events: none) — it must never intercept clicks, since only the
+    // small hit node below is allowed to start a padding drag. Hatch is a
+    // hover affordance only: it shows the band the user is about to resize,
+    // and disappears the instant a drag starts (kind === "padding" only, per
+    // the reported regression; gap handles are out of scope for this fix).
+    if (handle.kind === "padding") {
+      var hatchNode = document.createElement("span");
+      hatchNode.setAttribute("data-agent-native-spacing-hatch", handle.kind);
+      hatchNode.style.position = "absolute";
+      hatchNode.style.display = "block";
+      hatchNode.style.boxSizing = "border-box";
+      hatchNode.style.pointerEvents = "none";
+      hatchNode.style.backgroundSize = "6px 6px";
+      hatchNode.style.left = handle.region.x + "px";
+      hatchNode.style.top = handle.region.y + "px";
+      hatchNode.style.width = handle.region.width + "px";
+      hatchNode.style.height = handle.region.height + "px";
+      hatchNode.style.background = hovered
+        ? spacingFill(handle.kind, handle.orientation)
+        : "transparent";
+      spacingHatchNodesByKey[handle.key] = hatchNode;
+      spacingOverlay.appendChild(hatchNode);
+    }
+
     var regionNode = document.createElement("span");
     regionNode.setAttribute("data-agent-native-spacing-region", handle.kind);
     regionNode.setAttribute("data-orientation", handle.orientation);
@@ -2281,16 +2377,23 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
     regionNode.style.backgroundSize = "6px 6px";
     regionNode.style.cursor =
       handle.orientation === "vertical" ? "ew-resize" : "ns-resize";
-    regionNode.style.left = handle.region.x + "px";
-    regionNode.style.top = handle.region.y + "px";
-    regionNode.style.width = handle.region.width + "px";
-    regionNode.style.height = handle.region.height + "px";
-    regionNode.style.background = highlighted
-      ? spacingFill(handle.kind, handle.orientation)
-      : "transparent";
-    regionNode.style.outline = highlighted
-      ? "1px solid " + spacingColor(handle.kind)
-      : "0";
+    var hitRect = handle.kind === "padding" ? handle.hit : handle.region;
+    regionNode.style.left = hitRect.x + "px";
+    regionNode.style.top = hitRect.y + "px";
+    regionNode.style.width = hitRect.width + "px";
+    regionNode.style.height = hitRect.height + "px";
+    // The gap-handle band keeps its previous always-tintable full-region
+    // background (unaffected by this fix); padding handles no longer paint
+    // the hatch on this node — buildSpacingHandles' dedicated hatchNode above
+    // owns that so it can stay outside the (now much smaller) hit area.
+    regionNode.style.background =
+      handle.kind !== "padding" && active
+        ? spacingFill(handle.kind, handle.orientation)
+        : "transparent";
+    regionNode.style.outline =
+      handle.kind !== "padding" && active
+        ? "1px solid " + spacingColor(handle.kind)
+        : "0";
     regionNode.style.outlineOffset = "-1px";
     regionNode.addEventListener(
       "pointerdown",
@@ -2320,18 +2423,28 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
       orientation: string;
     } | null)[],
     activeGroupKeys: Record<string, boolean>,
+    hoverGroupKeys: Record<string, boolean>,
   ): void {
     handles.forEach(function (handle) {
       if (!handle) return;
+      var active = Boolean(activeGroupKeys[handle.groupKey]);
+      var hovered = Boolean(hoverGroupKeys[handle.groupKey]);
       var regionNode = spacingHandleNodesByKey[handle.key];
-      if (!regionNode) return;
-      var highlighted = Boolean(activeGroupKeys[handle.groupKey]);
-      (regionNode as HTMLElement).style.background = highlighted
-        ? spacingFill(handle.kind, handle.orientation)
-        : "transparent";
-      (regionNode as HTMLElement).style.outline = highlighted
-        ? "1px solid " + spacingColor(handle.kind)
-        : "0";
+      if (regionNode) {
+        var gapHighlighted = handle.kind !== "padding" && active;
+        (regionNode as HTMLElement).style.background = gapHighlighted
+          ? spacingFill(handle.kind, handle.orientation)
+          : "transparent";
+        (regionNode as HTMLElement).style.outline = gapHighlighted
+          ? "1px solid " + spacingColor(handle.kind)
+          : "0";
+      }
+      var hatchNode = spacingHatchNodesByKey[handle.key];
+      if (hatchNode) {
+        (hatchNode as HTMLElement).style.background = hovered
+          ? spacingFill(handle.kind, handle.orientation)
+          : "transparent";
+      }
     });
   }
 
@@ -2366,6 +2479,39 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
     return activeGroupKeys;
   }
 
+  // Figma-parity: the diagonal hatch fill over the padding band is a
+  // hover-only VISUAL affordance layered on top of handles that are always
+  // mounted and hit-testable for the selected element (mounting itself is
+  // never gated on hover — see buildSpacingHandles/renderSpacingHandle, which
+  // render every handle unconditionally). The hatch must be visible while the
+  // pointer rests over the handle line (so the user can see the full padding
+  // band they are about to resize) and hidden the instant an actual drag
+  // starts — during the drag only the live value badge communicates the
+  // current amount. This is intentionally a separate concept from
+  // activeSpacingGroupKeys (which mirrors the opposite side during an
+  // alt-drag and still applies while dragging) — hover-hatch and drag-mirror
+  // never overlap in time because a drag suppresses hover state (see
+  // startSpacingDrag).
+  function hoverSpacingGroupKeys(
+    handles: ({
+      key: string;
+      groupKey: string;
+    } | null)[],
+  ): Record<string, boolean> {
+    var hoverGroupKeys: Record<string, boolean> = {};
+    if (spacingDrag) return hoverGroupKeys;
+    var hoveredKey = hoveredSpacingHandleKey;
+    if (!hoveredKey) return hoverGroupKeys;
+    var handleByKey: Record<string, { groupKey: string }> = {};
+    handles.forEach(function (handle) {
+      if (!handle) return;
+      handleByKey[handle.key] = handle;
+    });
+    var hoveredHandle = handleByKey[hoveredKey];
+    if (hoveredHandle) hoverGroupKeys[hoveredHandle.groupKey] = true;
+    return hoverGroupKeys;
+  }
+
   function updateSpacingOverlay(el: Element | null): void {
     if (el && el !== selectedEl) {
       hideSpacingOverlay();
@@ -2382,6 +2528,9 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
     }
     var activeHandle = spacingDrag ? spacingDrag.handle : null;
     var activeGroupKeys = activeSpacingGroupKeys(handles, activeHandle);
+    var hoverGroupKeys = hoverSpacingGroupKeys(handles);
+    var badgeHandle =
+      activeHandle || (spacingDrag ? null : hoveredHandleFor(handles));
     var nextRenderKey = handles
       .map(function (handle) {
         return [
@@ -2402,11 +2551,13 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
       spacingOverlay.style.display === "block" &&
       spacingOverlayRenderKey === nextRenderKey
     ) {
-      updateSpacingHandleHighlights(handles, activeGroupKeys);
-      if (activeHandle) {
+      updateSpacingHandleHighlights(handles, activeGroupKeys, hoverGroupKeys);
+      if (badgeHandle) {
         showSpacingBadgeForHandle(
-          activeHandle,
-          spacingDrag ? spacingDrag.currentValue : activeHandle.value,
+          badgeHandle,
+          activeHandle && spacingDrag
+            ? spacingDrag.currentValue
+            : badgeHandle.value,
         );
       } else {
         spacingBadge.style.display = "none";
@@ -2418,17 +2569,39 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
     spacingOverlay.innerHTML = "";
     spacingHandleStateByKey = {};
     spacingHandleNodesByKey = {};
+    spacingHatchNodesByKey = {};
     handles.forEach(function (handle) {
-      renderSpacingHandle(handle, activeGroupKeys);
+      renderSpacingHandle(handle, activeGroupKeys, hoverGroupKeys);
     });
-    if (activeHandle) {
+    if (badgeHandle) {
       showSpacingBadgeForHandle(
-        activeHandle,
-        spacingDrag ? spacingDrag.currentValue : activeHandle.value,
+        badgeHandle,
+        activeHandle && spacingDrag
+          ? spacingDrag.currentValue
+          : badgeHandle.value,
       );
     } else {
       spacingBadge.style.display = "none";
     }
+  }
+
+  // Resolves the handle object matching hoveredSpacingHandleKey, if any — used
+  // to keep the value badge visible on hover (not just during an active drag)
+  // per the padding-handle UX fix: hovering the handle line shows the live
+  // "Npx" readout, dragging keeps showing it with the in-progress value. Note
+  // this only affects which handle drives the *badge* — every handle stays
+  // mounted/hit-testable regardless of hover (see buildSpacingHandles).
+  function hoveredHandleFor(
+    handles: ({ key: string } | null)[],
+  ): { key: string } | null {
+    var hoveredKey = hoveredSpacingHandleKey;
+    if (!hoveredKey) return null;
+    var handleByKey: Record<string, { key: string }> = {};
+    handles.forEach(function (handle) {
+      if (!handle) return;
+      handleByKey[handle.key] = handle;
+    });
+    return handleByKey[hoveredKey] || null;
   }
 
   function spacingKeyFromTarget(target: Element | null): string {
@@ -4242,6 +4415,10 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
       currentValue: originValue,
       mirrorOpposite: !!e.altKey,
     };
+    // Hide the hover-only hatch fill the instant the drag begins (Figma-style:
+    // hatch communicates "this is the resizable band" on hover; once dragging,
+    // only the live value badge should be visible over the padding band).
+    updateSpacingOverlay(selectedEl);
     showSpacingBadgeForHandle(handle, originValue);
 
     function updateSpacingDragMirrorState(mirrorOpposite: boolean) {
@@ -4984,6 +5161,16 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
       hideInsertionGuide();
       return;
     }
+    // Compensate for the host's inverse-scale chrome model (see
+    // applyEditorChromeScale / chromeLineScale): the host shrinks this iframe
+    // via a CSS transform at low canvas zoom, so a hardcoded "2px" line here
+    // would render sub-pixel (effectively invisible) at typical overview zoom
+    // levels — this was the actual regression, not a missing code path. Every
+    // other chrome line/border in this file (selection border, spacing lines,
+    // handle borders) already scales by chromeLineScale(); the insertion
+    // guide must match so it stays a visible bright line at any zoom.
+    var line = Math.max(1, 2 * chromeLineScale());
+    var insideBorder = Math.max(1, 2 * chromeLineScale());
     var rect = target.anchor.getBoundingClientRect();
     insertionGuide.style.display = "block";
     insertionGuide.style.background = "var(--design-editor-accent-color)";
@@ -4999,23 +5186,23 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
       insertionGuide.style.background =
         "color-mix(in srgb, var(--design-editor-accent-color) 14%, transparent)";
       insertionGuide.style.border =
-        "2px solid var(--design-editor-accent-color)";
+        insideBorder + "px solid var(--design-editor-accent-color)";
       insertionGuide.style.borderRadius = "2px";
       insertionGuide.style.boxShadow = "none";
       return;
     }
     if (target.axis === "x") {
       var x = target.placement === "before" ? rect.left : rect.right;
-      insertionGuide.style.left = x + "px";
+      insertionGuide.style.left = x - line / 2 + "px";
       insertionGuide.style.top = rect.top + "px";
-      insertionGuide.style.width = "2px";
+      insertionGuide.style.width = line + "px";
       insertionGuide.style.height = rect.height + "px";
     } else {
       var y = target.placement === "before" ? rect.top : rect.bottom;
       insertionGuide.style.left = rect.left + "px";
-      insertionGuide.style.top = y + "px";
+      insertionGuide.style.top = y - line / 2 + "px";
       insertionGuide.style.width = rect.width + "px";
-      insertionGuide.style.height = "2px";
+      insertionGuide.style.height = line + "px";
     }
   }
 
