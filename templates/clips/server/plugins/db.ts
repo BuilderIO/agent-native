@@ -1344,7 +1344,7 @@ async function sweepOrphanedResumableSessions(): Promise<void> {
           });
         } catch (err) {
           console.warn(
-            "[db] resumable-session sweep: stale upload mark failed failed",
+            "[db] resumable-session sweep: stale upload mark-failed failed",
             {
               recordingId,
               status: recording.status,
