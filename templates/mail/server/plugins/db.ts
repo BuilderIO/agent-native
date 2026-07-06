@@ -182,6 +182,12 @@ CREATE INDEX IF NOT EXISTS idx_snippets_owner_name ON snippets(owner_email, name
       name: "scheduled-jobs-owner-status-run-at-idx",
       sql: `CREATE INDEX IF NOT EXISTS idx_scheduled_jobs_owner_status_run_at ON scheduled_jobs(owner_email, status, run_at)`,
     },
+    {
+      version: 17,
+      name: "queued-draft-send-claim",
+      sql: `ALTER TABLE queued_email_drafts ADD COLUMN IF NOT EXISTS send_claim_id TEXT;
+ALTER TABLE queued_email_drafts ADD COLUMN IF NOT EXISTS send_claimed_at ${intType()}`,
+    },
   ],
   { table: "mail_migrations" },
 );

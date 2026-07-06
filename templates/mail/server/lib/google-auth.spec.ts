@@ -2,6 +2,7 @@ import {
   deleteOAuthTokens,
   listOAuthAccountsByOwner,
 } from "@agent-native/core/oauth-tokens";
+import { getOAuthAccounts } from "@agent-native/core/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
@@ -488,5 +489,50 @@ describe("getClientsWithErrors with unusable token records", () => {
       },
     ]);
     expect(deleteOAuthTokens).not.toHaveBeenCalled();
+  });
+});
+
+describe("getAuthStatus with unusable token records", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("does not report decrypt-failed OAuth rows as connected", async () => {
+    const { getAuthStatus } = await import("./google-auth.js");
+    vi.mocked(getOAuthAccounts).mockResolvedValue([
+      {
+        accountId: "broken@example.com",
+        tokens: {},
+      },
+    ] as any);
+
+    await expect(getAuthStatus("owner@example.com")).resolves.toEqual({
+      connected: false,
+      accounts: [],
+    });
+    expect(deleteOAuthTokens).not.toHaveBeenCalled();
+  });
+
+  it("keeps valid accounts connected when another row is unreadable", async () => {
+    const { getAuthStatus } = await import("./google-auth.js");
+    vi.mocked(getOAuthAccounts).mockResolvedValue([
+      {
+        accountId: "broken@example.com",
+        tokens: {},
+      },
+      {
+        accountId: "connected@example.com",
+        displayName: "Connected User",
+        tokens: {
+          access_token: "access-token",
+          expiry_date: Date.now() + 60 * 60 * 1000,
+        },
+      },
+    ] as any);
+
+    await expect(getAuthStatus("owner@example.com")).resolves.toMatchObject({
+      connected: true,
+      accounts: [{ email: "connected@example.com" }],
+    });
   });
 });

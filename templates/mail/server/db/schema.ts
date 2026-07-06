@@ -85,6 +85,8 @@ export const queuedEmailDrafts = table("queued_email_drafts", {
   accountEmail: text("account_email"),
   composeId: text("compose_id"),
   sentMessageId: text("sent_message_id"),
+  sendClaimId: text("send_claim_id"),
+  sendClaimedAt: integer("send_claimed_at"),
   status: text("status", {
     enum: ["queued", "in_review", "sent", "dismissed"],
   })

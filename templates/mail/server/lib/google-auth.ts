@@ -479,8 +479,18 @@ export async function getAuthStatus(
       .displayName;
     let displayName =
       accountDisplayName ?? getAccountDisplayName(account.accountId);
+    let accessToken: string;
     try {
-      const accessToken = await getValidAccessToken(email, tokens);
+      accessToken = await getValidAccessToken(email, tokens);
+    } catch (err) {
+      console.warn(
+        `[mail] skipping unusable Google OAuth row for ${email}:`,
+        err instanceof Error ? err.message : err,
+      );
+      continue;
+    }
+
+    try {
       const identity = await resolveGoogleSenderIdentity({
         accessToken,
         email,

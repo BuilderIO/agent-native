@@ -48,7 +48,7 @@ async function sendOne(id: string): Promise<SendOutcome> {
     return { outcome: "skipped", id, reason: "No longer active." };
   }
 
-  const { ctx, draft, priorStatus } = claim;
+  const { ctx, draft, claimId, priorStatus } = claim;
   try {
     const result = await (sendEmailAction as any).run({
       to: draft.to,
@@ -64,12 +64,12 @@ async function sendOne(id: string): Promise<SendOutcome> {
     }
 
     const sentMessageId = extractSentMessageId(result);
-    const updated = await markQueuedDraftSent(id, ctx, sentMessageId);
+    const updated = await markQueuedDraftSent(id, ctx, claimId, sentMessageId);
     return { outcome: "sent", id, sentMessageId, draft: updated };
   } catch (err) {
     // Release the claim so the draft goes back to a sendable state instead
     // of being stuck as "sending" forever after a failed send attempt.
-    await releaseQueuedDraftClaim(id, ctx, priorStatus);
+    await releaseQueuedDraftClaim(id, ctx, claimId, priorStatus);
     return {
       outcome: "failed",
       id,

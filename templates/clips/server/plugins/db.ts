@@ -795,8 +795,9 @@ const migrations = runMigrations(
     // ---------------------------------------------------------------------------
     // Per-view records — append-only log of counted views (who viewed a clip
     // and when), backing the owner-facing "Viewed by" popover and the
-    // `list-clip-views` action. One row per viewer, inserted at the moment
-    // `recording_viewers.counted_view` flips true.
+    // `list-clip-views` action. Newer rows include a per-player-open
+    // view_session_id so returning viewers can appear again while duplicate
+    // threshold posts for the same open are idempotent.
     // ---------------------------------------------------------------------------
     {
       version: 46,
@@ -806,11 +807,22 @@ const migrations = runMigrations(
           id TEXT PRIMARY KEY,
           recording_id TEXT NOT NULL,
           viewer_id TEXT NOT NULL,
+          viewer_key TEXT,
+          view_session_id TEXT,
           viewer_email TEXT,
           viewer_name TEXT,
           viewed_at TEXT NOT NULL DEFAULT (datetime('now'))
         )`,
         `CREATE INDEX IF NOT EXISTS recording_views_recording_idx ON recording_views (recording_id, viewed_at)`,
+      ].join("; "),
+    },
+    {
+      version: 47,
+      name: "recording-views-session-idempotency",
+      sql: [
+        `ALTER TABLE recording_views ADD COLUMN IF NOT EXISTS viewer_key TEXT`,
+        `ALTER TABLE recording_views ADD COLUMN IF NOT EXISTS view_session_id TEXT`,
+        `CREATE UNIQUE INDEX IF NOT EXISTS recording_views_session_unique_idx ON recording_views (recording_id, viewer_key, view_session_id)`,
       ].join("; "),
     },
   ],

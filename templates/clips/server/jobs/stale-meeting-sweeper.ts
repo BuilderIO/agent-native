@@ -37,6 +37,7 @@
 import { runWithRequestContext } from "@agent-native/core/server/request-context";
 import { and, eq, isNotNull, isNull, lt, or } from "drizzle-orm";
 
+import finalizeMeeting from "../../actions/finalize-meeting.js";
 import { getDb, schema } from "../db/index.js";
 
 const SWEEP_INTERVAL_MS = 5 * 60 * 1000; // 5 min
@@ -59,7 +60,7 @@ export async function closeOutStaleMeeting(args: {
    * available so actualEnd reflects when activity actually stopped, not
    * "now" (which could be hours after the crash). */
   endedAtIso?: string;
-}): Promise<void> {
+}): Promise<{ hasTranscript: boolean }> {
   const db = getDb();
   const nowIso = new Date().toISOString();
 
@@ -93,6 +94,8 @@ export async function closeOutStaleMeeting(args: {
         ),
       );
   }
+
+  return { hasTranscript };
 }
 
 /**
@@ -155,6 +158,8 @@ export async function runStaleMeetingSweepOnce(): Promise<void> {
         .select({
           id: schema.meetings.id,
           recordingId: schema.meetings.recordingId,
+          ownerEmail: schema.meetings.ownerEmail,
+          orgId: schema.meetings.orgId,
           updatedAt: schema.meetings.updatedAt,
           scheduledEnd: schema.meetings.scheduledEnd,
         })
@@ -189,11 +194,29 @@ export async function runStaleMeetingSweepOnce(): Promise<void> {
           }
           if (!lastActivityIso || lastActivityIso > staleBefore) continue;
 
-          await closeOutStaleMeeting({
+          const closed = await closeOutStaleMeeting({
             meetingId: meeting.id,
             recordingId: meeting.recordingId,
             endedAtIso: lastActivityIso,
           });
+          if (closed.hasTranscript) {
+            try {
+              await runWithRequestContext(
+                {
+                  userEmail: meeting.ownerEmail,
+                  orgId: meeting.orgId ?? undefined,
+                },
+                async () => {
+                  await finalizeMeeting.run({ meetingId: meeting.id });
+                },
+              );
+            } catch (err: any) {
+              console.warn(
+                `[stale-meeting-sweeper] failed to finalize recovered meeting ${meeting.id}:`,
+                err?.message ?? err,
+              );
+            }
+          }
           console.log(
             `[stale-meeting-sweeper] closed out stranded-live meeting ${meeting.id} (last activity ${lastActivityIso})`,
           );

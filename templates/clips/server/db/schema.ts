@@ -360,6 +360,10 @@ export const recordingViews = table("recording_views", {
   recordingId: text("recording_id").notNull(),
   // FK to recording_viewers.id — the viewer/session this view belongs to.
   viewerId: text("viewer_id").notNull(),
+  // Stable key for this viewer (email or anonymous session key), used to
+  // collapse duplicate threshold posts for a single player-open session.
+  viewerKey: text("viewer_key"),
+  viewSessionId: text("view_session_id"),
   // Denormalized for cheap reads without joining recording_viewers.
   viewerEmail: text("viewer_email"), // null = anonymous
   viewerName: text("viewer_name"),

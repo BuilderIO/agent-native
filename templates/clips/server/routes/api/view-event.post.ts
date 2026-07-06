@@ -14,6 +14,7 @@
  *     viewerEmail?: string,      // server falls back to session when present
  *     viewerName?: string,
  *     sessionId: string,         // anonymous-viewer key (persisted in browser)
+ *     viewSessionId?: string,    // per-player-open key for counted visits
  *     totalWatchMs?: number,     // current session's accumulated watch time
  *     completedPct?: number,     // 0–100, derived client-side
  *     scrubbedToEnd?: boolean,
@@ -49,6 +50,7 @@ interface ViewEventBody {
   viewerEmail?: string;
   viewerName?: string;
   sessionId?: string;
+  viewSessionId?: string;
   totalWatchMs?: number;
   completedPct?: number;
   scrubbedToEnd?: boolean;
@@ -96,6 +98,7 @@ export default defineEventHandler(async (event) => {
     timestampMs = 0,
     payload = {},
     sessionId,
+    viewSessionId,
     totalWatchMs = 0,
     completedPct = 0,
     scrubbedToEnd = false,
@@ -149,6 +152,10 @@ export default defineEventHandler(async (event) => {
       // present) else sessionId. We store the session id in the viewer_name
       // column as a best-effort fallback so anon sessions don't conflate.
       const viewerKey = viewerEmail ?? `anon:${sessionId}`;
+      const countedViewSessionId =
+        typeof viewSessionId === "string" && viewSessionId.trim()
+          ? viewSessionId.trim()
+          : `legacy:${sessionId}`;
 
       // Try to find an existing row for this viewer.
       // (Using a simple scan is acceptable here — indexes are per-DB-dialect.)
@@ -226,21 +233,24 @@ export default defineEventHandler(async (event) => {
         createdAt: now,
       });
 
-      // Record a per-viewer view row exactly when this viewer first crosses
-      // the counting threshold — one row per viewer, consistent with the
-      // existing aggregate `views = count(countedView)` in
-      // get-recording-insights. This gives the owner a "who viewed and when"
-      // timeline on top of the aggregate count, without double-counting a
-      // returning viewer who is already counted.
-      if (!wasCountedBefore && countedView) {
-        await db.insert(schema.recordingViews).values({
-          id: nanoid(),
-          recordingId,
-          viewerId,
-          viewerEmail,
-          viewerName: viewerEmail ? viewerName : viewerKey,
-          viewedAt: now,
-        });
+      // Record a per-open counted view when this request itself satisfies the
+      // count threshold. Returning viewers can therefore appear again in the
+      // owner-facing timeline, while repeated threshold/progress posts from the
+      // same player-open session collapse through the unique index.
+      if (meetsThreshold) {
+        await db
+          .insert(schema.recordingViews)
+          .values({
+            id: nanoid(),
+            recordingId,
+            viewerId,
+            viewerKey,
+            viewSessionId: countedViewSessionId,
+            viewerEmail,
+            viewerName: viewerEmail ? viewerName : viewerKey,
+            viewedAt: now,
+          })
+          .onConflictDoNothing();
       }
 
       // Only broadcast a refresh signal on "meaningful" events to avoid

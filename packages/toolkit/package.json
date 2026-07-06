@@ -55,6 +55,16 @@
       "import": "./dist/hooks/*.js",
       "default": "./dist/hooks/*.js"
     },
+    "./onboarding": {
+      "types": "./dist/onboarding/index.d.ts",
+      "import": "./dist/onboarding/index.js",
+      "default": "./dist/onboarding/index.js"
+    },
+    "./onboarding/*": {
+      "types": "./dist/onboarding/*.d.ts",
+      "import": "./dist/onboarding/*.js",
+      "default": "./dist/onboarding/*.js"
+    },
     "./provider": {
       "types": "./dist/provider.d.ts",
       "import": "./dist/provider.js",
