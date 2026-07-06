@@ -22,6 +22,7 @@ export type EventCategory = keyof typeof EVENT_CATEGORY_COLORS;
 export interface CalendarColorPreferences {
   colorMode?: CalendarColorMode;
   singleColor?: string;
+  accountColors?: Record<string, string>;
 }
 
 // ─── Free email providers (skip internal/external when user is on one) ───────
@@ -128,11 +129,16 @@ export function getEventDisplayColor(
 ): string {
   if (
     preferences?.colorMode === "single" &&
-    preferences.singleColor &&
     event.source === "google" &&
     !event.overlayEmail
   ) {
-    return preferences.singleColor;
+    return (
+      (event.accountEmail
+        ? preferences.accountColors?.[event.accountEmail]
+        : undefined) ??
+      preferences.singleColor ??
+      getEventAutoColor(event)
+    );
   }
   return getEventAutoColor(event);
 }

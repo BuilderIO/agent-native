@@ -20,12 +20,14 @@ export interface CalendarViewPreferences {
   hideWeekends: boolean;
   colorMode: CalendarColorMode;
   singleColor: string;
+  accountColors: Record<string, string>;
 }
 
 export const DEFAULT_CALENDAR_VIEW_PREFERENCES: CalendarViewPreferences = {
   hideWeekends: false,
   colorMode: "multi",
   singleColor: CALENDAR_COLORS[0],
+  accountColors: {},
 };
 
 export function isValidCalendarColorMode(
@@ -53,6 +55,14 @@ export function normalizeCalendarViewPreferences(
   if (isValidCalendarColor(input.singleColor)) {
     next.singleColor = input.singleColor.trim();
   }
+  if (input.accountColors && typeof input.accountColors === "object") {
+    next.accountColors = Object.fromEntries(
+      Object.entries(input.accountColors).flatMap(([accountEmail, color]) => {
+        if (!accountEmail || !isValidCalendarColor(color)) return [];
+        return [[accountEmail, color.trim()]];
+      }),
+    );
+  }
   return next;
 }
 
@@ -63,6 +73,16 @@ export function calendarViewPreferencesEqual(
   return (
     a.hideWeekends === b.hideWeekends &&
     a.colorMode === b.colorMode &&
-    a.singleColor === b.singleColor
+    a.singleColor === b.singleColor &&
+    recordEqual(a.accountColors, b.accountColors)
   );
+}
+
+function recordEqual(
+  a: Record<string, string>,
+  b: Record<string, string>,
+): boolean {
+  const aEntries = Object.entries(a);
+  if (aEntries.length !== Object.keys(b).length) return false;
+  return aEntries.every(([key, value]) => b[key] === value);
 }
