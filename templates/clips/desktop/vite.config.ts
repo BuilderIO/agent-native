@@ -85,6 +85,9 @@ export default defineConfig({
       resolveSentryEnvironment(),
     ),
     __CLIPS_DESKTOP_VERSION__: JSON.stringify(packageJson.version ?? "0.0.0"),
+    __CLIPS_DESKTOP_LOCAL_BUILD__: JSON.stringify(
+      process.env.CLIPS_DESKTOP_LOCAL_BUILD === "1",
+    ),
   },
   server: {
     port: 1420,

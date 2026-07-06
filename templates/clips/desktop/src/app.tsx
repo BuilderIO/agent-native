@@ -54,6 +54,7 @@ import {
 import {
   isHardCapturePermissionError,
   MACOS_CAPTURE_PERMISSION_MESSAGE,
+  MACOS_SCREEN_PERMISSION_MESSAGE,
   MACOS_SPEECH_PERMISSION_MESSAGE,
 } from "./lib/permissions";
 import { isMacPlatform, isWindowsPlatform } from "./lib/platform";
@@ -1785,7 +1786,7 @@ export function App() {
         );
         if (!granted) {
           setReadinessOpen(true);
-          setRecError(MACOS_CAPTURE_PERMISSION_MESSAGE);
+          setRecError(MACOS_SCREEN_PERMISSION_MESSAGE);
           openPrivacySettings("screen");
           return;
         }
@@ -2410,11 +2411,16 @@ export function App() {
             : "Start local recording"}
       </button>
       {recError ? (
-        recError === MACOS_CAPTURE_PERMISSION_MESSAGE ? (
+        recError === MACOS_CAPTURE_PERMISSION_MESSAGE ||
+        recError === MACOS_SCREEN_PERMISSION_MESSAGE ? (
           <PermissionRecoveryBanner
             kind="recording"
             message={recError}
-            panes={permissionPanesForRecording(mode, cameraOn, micOn)}
+            panes={
+              recError === MACOS_SCREEN_PERMISSION_MESSAGE
+                ? ["screen"]
+                : permissionPanesForRecording(mode, cameraOn, micOn)
+            }
             onRetry={handleStartRecording}
           />
         ) : recError === MACOS_SPEECH_PERMISSION_MESSAGE ? (

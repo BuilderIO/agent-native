@@ -2,6 +2,8 @@ import { relaunch } from "@tauri-apps/plugin-process";
 import { check, Update } from "@tauri-apps/plugin-updater";
 import { useEffect, useState } from "react";
 
+declare const __CLIPS_DESKTOP_LOCAL_BUILD__: boolean;
+
 export type UpdateStatus =
   | { state: "idle" }
   | { state: "checking" }
@@ -70,6 +72,10 @@ function startUpdateLoop() {
   started = true;
   // Skip update checks in dev — there's no release endpoint to check.
   if (import.meta.env.DEV) return;
+  // Local release builds are for testing the current checkout. Do not replace
+  // them with the published auto-update channel just because package.json has
+  // a lower development version.
+  if (__CLIPS_DESKTOP_LOCAL_BUILD__) return;
   // Check 3s after launch (let the popover finish first paint), then every
   // 4 hours. Matches the cadence used by the Electron app.
   setTimeout(runCheck, 3000);
