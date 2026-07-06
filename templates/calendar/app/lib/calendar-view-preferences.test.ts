@@ -32,10 +32,17 @@ describe("calendar view preferences", () => {
         hideWeekends: true,
         colorMode: "rainbow" as any,
         singleColor: "blue",
+        accountColors: {
+          "alice@example.com": "#4ECDC4",
+          "bad@example.com": "green",
+        },
       }),
     ).toEqual({
       ...DEFAULT_CALENDAR_VIEW_PREFERENCES,
       hideWeekends: true,
+      accountColors: {
+        "alice@example.com": "#4ECDC4",
+      },
     });
   });
 
@@ -57,6 +64,30 @@ describe("calendar view preferences", () => {
         preferences,
       ),
     ).toBe("#4ECDC4");
+  });
+
+  it("uses connected account colors independently in single-color mode", () => {
+    const preferences = {
+      hideWeekends: false,
+      colorMode: "single" as const,
+      singleColor: "#CD6B6B",
+      accountColors: {
+        "steve@builder.io": "#4ECDC4",
+        "alice@builder.io": "#B07CC6",
+      },
+    };
+
+    expect(getEventDisplayColor(googleEvent, preferences)).toBe("#4ECDC4");
+    expect(
+      getEventDisplayColor(
+        {
+          ...googleEvent,
+          id: "google-2",
+          accountEmail: "alice@builder.io",
+        },
+        preferences,
+      ),
+    ).toBe("#B07CC6");
   });
 
   it("keeps overlay owner color separate from event color", () => {

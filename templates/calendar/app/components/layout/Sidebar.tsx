@@ -434,7 +434,7 @@ function GoogleAccountsSection({
   const t = useT();
   const { toggleHiddenCalendar, isHiddenCalendar } = useCalendarContext();
   const {
-    prefs: { colorMode, singleColor },
+    prefs: { accountColors, colorMode, singleColor },
     update: updateViewPreferences,
   } = useViewPreferences();
   const [wantAddAccount, setWantAddAccount] = useState(false);
@@ -472,8 +472,18 @@ function GoogleAccountsSection({
     setWantAddAccount(true);
   }
 
-  function handlePickColor(color: string) {
-    updateViewPreferences({ colorMode: "single", singleColor: color });
+  function getAccountColor(accountEmail: string) {
+    return accountColors?.[accountEmail] ?? singleColor;
+  }
+
+  function handlePickColor(accountEmail: string, color: string) {
+    updateViewPreferences({
+      colorMode: "single",
+      accountColors: {
+        ...accountColors,
+        [accountEmail]: color,
+      },
+    });
   }
 
   function handleSetColorMode(mode: CalendarColorMode) {
@@ -549,7 +559,7 @@ function GoogleAccountsSection({
                       isHiddenCalendar("accounts", account.email) &&
                         "opacity-40",
                     )}
-                    style={{ backgroundColor: singleColor }}
+                    style={{ backgroundColor: getAccountColor(account.email) }}
                   />
                 )}
               </button>
@@ -579,13 +589,14 @@ function GoogleAccountsSection({
                   <button
                     key={c}
                     type="button"
-                    onClick={() => handlePickColor(c)}
+                    onClick={() => handlePickColor(account.email, c)}
                     className="relative h-5 w-5 rounded-full"
                     style={{ backgroundColor: c }}
                   >
-                    {c === singleColor && colorMode === "single" && (
-                      <IconCheck className="absolute inset-0 m-auto h-3 w-3 text-white drop-shadow" />
-                    )}
+                    {c === getAccountColor(account.email) &&
+                      colorMode === "single" && (
+                        <IconCheck className="absolute inset-0 m-auto h-3 w-3 text-white drop-shadow" />
+                      )}
                   </button>
                 ))}
               </div>
