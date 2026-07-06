@@ -78,6 +78,8 @@ type AcquireMessage = {
   // Screen+camera: capture the camera here and composite it into the recording
   // (the on-page bubble can be blocked by the page's Permissions-Policy).
   includeCamera: boolean;
+  videoDeviceId?: string;
+  audioDeviceId?: string;
 };
 
 type BeginMessage = {
@@ -281,15 +283,31 @@ function displayConstraints(
 }
 
 // The user's chosen camera/mic devices (set in the popup, saved to storage).
-async function readDeviceIds(): Promise<{ video: string; audio: string }> {
+async function readDeviceIds(overrides?: {
+  video?: string;
+  audio?: string;
+}): Promise<{ video: string; audio: string }> {
   try {
     const v = await chrome.storage.sync.get(["videoDeviceId", "audioDeviceId"]);
     return {
-      video: typeof v.videoDeviceId === "string" ? v.videoDeviceId : "",
-      audio: typeof v.audioDeviceId === "string" ? v.audioDeviceId : "",
+      video:
+        typeof overrides?.video === "string"
+          ? overrides.video
+          : typeof v.videoDeviceId === "string"
+            ? v.videoDeviceId
+            : "",
+      audio:
+        typeof overrides?.audio === "string"
+          ? overrides.audio
+          : typeof v.audioDeviceId === "string"
+            ? v.audioDeviceId
+            : "",
     };
   } catch {
-    return { video: "", audio: "" };
+    return {
+      video: typeof overrides?.video === "string" ? overrides.video : "",
+      audio: typeof overrides?.audio === "string" ? overrides.audio : "",
+    };
   }
 }
 
@@ -322,6 +340,38 @@ function cameraConstraints(deviceId: string): MediaTrackConstraints {
   return base;
 }
 
+async function getCameraStream(deviceId: string): Promise<MediaStream> {
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: cameraConstraints(deviceId),
+      audio: false,
+    });
+    warnIfTrackDeviceMismatch("camera", deviceId, stream.getVideoTracks()[0]);
+    return stream;
+  } catch (error) {
+    if (!deviceId || !isDeviceUnavailableError(error)) throw error;
+
+    captureExtensionError(
+      new Error("Selected Clips camera was unavailable; using default camera."),
+      {
+        tags: { surface: "offscreen", mechanism: "camera-device-fallback" },
+        extra: {
+          requestedDeviceId: deviceId,
+          originalError:
+            error instanceof Error
+              ? { name: error.name, message: error.message }
+              : String(error),
+        },
+      },
+    );
+
+    return navigator.mediaDevices.getUserMedia({
+      video: cameraConstraints(""),
+      audio: false,
+    });
+  }
+}
+
 // Phones/Continuity-style mics already apply their own echo cancellation,
 // noise suppression, and gain control before the audio ever reaches Chrome.
 // Stacking Chrome's versions of the same processing on top double-processes
@@ -336,10 +386,10 @@ function isLikelyPhoneMic(label: string): boolean {
   return PHONE_MIC_LABEL_RE.test(label);
 }
 
-async function getMicStream(
+function voiceFocusedAudioConstraints(
   deviceId: string,
   deviceLabel = "",
-): Promise<MediaStream | null> {
+): MediaTrackConstraints {
   const skipRedundantProcessing = isLikelyPhoneMic(deviceLabel);
   const audio: MediaTrackConstraints = {
     echoCancellation: true,
@@ -348,6 +398,26 @@ async function getMicStream(
     channelCount: 1,
   };
   if (deviceId) audio.deviceId = { exact: deviceId };
+  return audio;
+}
+
+function isDeviceUnavailableError(error: unknown): boolean {
+  const name =
+    error && typeof error === "object" && "name" in error
+      ? String((error as { name?: unknown }).name)
+      : "";
+  return (
+    name === "OverconstrainedError" ||
+    name === "NotFoundError" ||
+    name === "DevicesNotFoundError"
+  );
+}
+
+async function getMicStream(
+  deviceId: string,
+  deviceLabel = "",
+): Promise<MediaStream> {
+  const audio = voiceFocusedAudioConstraints(deviceId, deviceLabel);
   try {
     const stream = await navigator.mediaDevices.getUserMedia({
       audio,
@@ -355,8 +425,30 @@ async function getMicStream(
     });
     warnIfTrackDeviceMismatch("mic", deviceId, stream.getAudioTracks()[0]);
     return stream;
-  } catch {
-    return null;
+  } catch (error) {
+    if (!deviceId || !isDeviceUnavailableError(error)) throw error;
+
+    captureExtensionError(
+      new Error(
+        "Selected Clips microphone was unavailable; using default mic.",
+      ),
+      {
+        tags: { surface: "offscreen", mechanism: "mic-device-fallback" },
+        extra: {
+          requestedDeviceId: deviceId,
+          requestedDeviceLabel: deviceLabel,
+          originalError:
+            error instanceof Error
+              ? { name: error.name, message: error.message }
+              : String(error),
+        },
+      },
+    );
+
+    return navigator.mediaDevices.getUserMedia({
+      audio: voiceFocusedAudioConstraints(""),
+      video: false,
+    });
   }
 }
 
@@ -789,72 +881,66 @@ async function acquire(message: AcquireMessage): Promise<{
   let displayStream: MediaStream | null = null;
   let micStream: MediaStream | null = null;
   let cameraStream: MediaStream | null = null;
-  const devices = await readDeviceIds();
+  const devices = await readDeviceIds({
+    video: message.videoDeviceId,
+    audio: message.audioDeviceId,
+  });
 
-  if (message.mode === "camera") {
-    cameraStream = await navigator.mediaDevices.getUserMedia({
-      video: cameraConstraints(devices.video),
-      audio: message.includeMicrophone
-        ? devices.audio
-          ? { deviceId: { exact: devices.audio } }
-          : true
-        : false,
-    });
-    warnIfTrackDeviceMismatch(
-      "camera",
-      devices.video,
-      cameraStream.getVideoTracks()[0],
-    );
-    if (message.includeMicrophone) {
-      warnIfTrackDeviceMismatch(
-        "mic",
-        devices.audio,
-        cameraStream.getAudioTracks()[0],
+  try {
+    if (message.mode === "camera") {
+      cameraStream = await getCameraStream(devices.video);
+      if (message.includeMicrophone) {
+        const audioLabel = await lookupAudioDeviceLabel(devices.audio);
+        micStream = await getMicStream(devices.audio, audioLabel);
+      }
+    } else {
+      // Native "Choose what to share" picker. This is the screenshot Steve showed.
+      displayStream = await navigator.mediaDevices.getDisplayMedia(
+        displayConstraints(message.surface),
       );
+      if (message.includeMicrophone) {
+        const audioLabel = await lookupAudioDeviceLabel(devices.audio);
+        micStream = await getMicStream(devices.audio, audioLabel);
+      }
+      // The screen+camera face comes from the on-page bubble (captured in the
+      // display pixels), NOT composited here: canvas/requestAnimationFrame does
+      // not run in a hidden offscreen document, so compositing produced an empty
+      // recording ("No chunks found"). We record the display stream directly.
+      void message.includeCamera;
     }
-  } else {
-    // Native "Choose what to share" picker. This is the screenshot Steve showed.
-    displayStream = await navigator.mediaDevices.getDisplayMedia(
-      displayConstraints(message.surface),
-    );
-    if (message.includeMicrophone) {
-      const audioLabel = await lookupAudioDeviceLabel(devices.audio);
-      micStream = await getMicStream(devices.audio, audioLabel);
-    }
-    // The screen+camera face comes from the on-page bubble (captured in the
-    // display pixels), NOT composited here: canvas/requestAnimationFrame does
-    // not run in a hidden offscreen document, so compositing produced an empty
-    // recording ("No chunks found"). We record the display stream directly.
-    void message.includeCamera;
-  }
 
-  const videoStream = displayStream ?? cameraStream;
-  if (!videoStream) throw new Error("No media stream was available to record.");
-  const { width, height } = await streamDimensions(videoStream);
+    const videoStream = displayStream ?? cameraStream;
+    if (!videoStream)
+      throw new Error("No media stream was available to record.");
+    const { width, height } = await streamDimensions(videoStream);
 
-  // If the user stops sharing via Chrome's native control, tell the worker so it
-  // can run the normal stop/finalize flow.
-  const endedTrack = videoStream.getVideoTracks()[0] ?? null;
-  const endedListener = () => {
-    chrome.runtime.sendMessage({
-      type: "CLIPS_NATIVE_ENDED",
+    // If the user stops sharing via Chrome's native control, tell the worker so it
+    // can run the normal stop/finalize flow.
+    const endedTrack = videoStream.getVideoTracks()[0] ?? null;
+    const endedListener = () => {
+      chrome.runtime.sendMessage({
+        type: "CLIPS_NATIVE_ENDED",
+        sessionId: message.sessionId,
+      });
+    };
+    endedTrack?.addEventListener("ended", endedListener);
+
+    prepared = {
       sessionId: message.sessionId,
-    });
-  };
-  endedTrack?.addEventListener("ended", endedListener);
-
-  prepared = {
-    sessionId: message.sessionId,
-    mode: message.mode,
-    displayStream,
-    micStream,
-    cameraStream,
-    width,
-    height,
-    endedListener,
-    endedTrack,
-  };
-  return { ok: true, width, height };
+      mode: message.mode,
+      displayStream,
+      micStream,
+      cameraStream,
+      width,
+      height,
+      endedListener,
+      endedTrack,
+    };
+    return { ok: true, width, height };
+  } catch (error) {
+    stopStreams([displayStream, micStream, cameraStream]);
+    throw error;
+  }
 }
 
 function stopPreparedStreams(): void {

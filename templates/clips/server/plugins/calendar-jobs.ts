@@ -5,6 +5,7 @@
  * pattern).
  */
 
+import registerBuilderMediaCompressionJob from "../jobs/builder-media-compression.js";
 import registerMeetingRemindersJob from "../jobs/meeting-reminders.js";
 import registerPollCalendarsJob from "../jobs/poll-calendars.js";
 import registerStaleMeetingSweeperJob from "../jobs/stale-meeting-sweeper.js";
@@ -14,6 +15,7 @@ export default () => {
   // boot (idempotent), so other consumers can subscribe even when the
   // background loop is off.
   registerMeetingRemindersJob();
+  registerBuilderMediaCompressionJob();
   registerPollCalendarsJob();
   registerStaleMeetingSweeperJob();
 };

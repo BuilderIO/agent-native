@@ -10,13 +10,25 @@ import { loadRunCodeToolEntries } from "./agent-chat-plugin.js";
  * background executions exported by `createGetCodeExecutionEntry` — is
  * registered ALONGSIDE `run-code`, so the enqueue guidance run-code emits
  * ("check it with get-code-execution") always points at a callable tool.
+ *
+ * The data-programs actions (`save-data-program`, `preview-data-program`,
+ * `run-data-program`, `list-data-programs`, `get-data-program`,
+ * `delete-data-program`) are registered identically to run-code — same
+ * try/dynamic-import guard — so every registry that gets run-code also gets
+ * the data-programs primitive without per-template wiring.
  */
 describe("loadRunCodeToolEntries (run-code + get-code-execution registration)", () => {
-  it("registers get-code-execution alongside run-code", async () => {
+  it("registers get-code-execution and the data-programs actions alongside run-code", async () => {
     const entries = await loadRunCodeToolEntries(() => ({}));
     expect(Object.keys(entries).sort()).toEqual([
+      "delete-data-program",
       "get-code-execution",
+      "get-data-program",
+      "list-data-programs",
+      "preview-data-program",
       "run-code",
+      "run-data-program",
+      "save-data-program",
     ]);
   });
 

@@ -237,21 +237,16 @@ export const forms = table("forms", {
 ```
 
 ```bash
-# 数据库快速检查和一次性维护的核心动作
+# 数据库快速检查的核心动作
 pnpm action db-schema                                       # show all tables
 pnpm action db-query --sql "SELECT * FROM forms"
-pnpm action db-exec --sql "UPDATE forms SET status = ? WHERE id = ?" --args '["closed","form-1"]'
-# 大型文本列上的 Surgical find/replace — 发送差异，而不是整个值
-pnpm action db-patch --table documents --column content \
-  --where "id='doc-1'" --find "old heading" --replace "new heading"
 ```
 
-生产代理聊天插件默认启用原始数据库写入
-(`databaseTools: "write"`)，以便代理可以修复应用程序拥有的数据，而无需等待
-新类型的动作。这些写入的范围仅限于经过身份验证的用户/组织。设置
-`databaseTools: "read"` 仅保留 `db-schema` / `db-query` 检查，或
-`databaseTools: "off"` / `false` 要求类型化应用程序 actions 获取所有数据
-访问。
+生产代理聊天插件默认将原始 SQL 工具设为只读
+(`databaseTools: "read"`)，因此代理使用 `db-schema` / `db-query` 检查应用拥有的数据，
+并通过类型化应用 actions 执行写入。只有在刻意的维护界面也需要公开带范围限制的
+`db-exec` / `db-patch` 时，才设置 `databaseTools: "write"`（或 `true`）；
+设置 `databaseTools: "off"` / `false` 可要求所有数据访问都通过类型化应用 actions。
 
 ## 代理聊天桥 {#agent-chat-bridge}
 

@@ -240,21 +240,18 @@ export const forms = table("forms", {
 ```
 
 ```bash
-# 迅速なデータベース検査と 1 回限りのメンテナンスのための主要なアクション
+# 迅速なデータベース検査のための主要なアクション
 pnpm action db-schema                                       # show all tables
 pnpm action db-query --sql "SELECT * FROM forms"
-pnpm action db-exec --sql "UPDATE forms SET status = ? WHERE id = ?" --args '["closed","form-1"]'
-# 大きなテキスト列の Surgical find/replace — 値全体ではなく差分を送信します
-pnpm action db-patch --table documents --column content \
-  --where "id='doc-1'" --find "old heading" --replace "new heading"
 ```
 
-実稼働エージェントのチャット プラグインにより、デフォルトで生のデータベースへの書き込みが有効になります
-(`databaseTools: "write"`) エージェントがアプリ所有のデータを待機せずに修正できるようにする
-新しい型のアクション。これらの書き込みは、認証されたユーザー/組織に限定されます。セット
-`databaseTools: "read"` で `db-schema` / `db-query` 検査のみを維持するか、
-`databaseTools: "off"` / `false` は、すべてのデータに対して型付きアプリ actions を要求します
-アクセス
+実稼働エージェントのチャット プラグインは raw SQL ツールをデフォルトで読み取り専用にします
+(`databaseTools: "read"`)。エージェントは `db-schema` / `db-query` で
+アプリ所有データを検査し、書き込みは型付きアプリ actions 経由で行います。
+スコープ付きの `db-exec` / `db-patch` も公開する必要がある意図的な
+メンテナンス面だけで `databaseTools: "write"` (または `true`) を設定します。
+すべてのデータアクセスに型付きアプリ actions を要求するには
+`databaseTools: "off"` / `false` を設定します。
 
 ## エージェント チャット ブリッジ {#agent-chat-bridge}
 

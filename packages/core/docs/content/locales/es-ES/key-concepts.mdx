@@ -239,20 +239,17 @@ export const forms = table("forms", {
 ```
 
 ```bash
-# Acciones principales para una inspección rápida de la base de datos y un mantenimiento único
+# Acciones principales para una inspección rápida de la base de datos
 pnpm action db-schema                                       # show all tables
 pnpm action db-query --sql "SELECT * FROM forms"
-pnpm action db-exec --sql "UPDATE forms SET status = ? WHERE id = ?" --args '["closed","form-1"]'
-# find/replace quirúrgico en una columna de texto grande: envía una diferencia, no el valor completo
-pnpm action db-patch --table documents --column content \
-  --where "id='doc-1'" --find "old heading" --replace "new heading"
 ```
 
-El complemento de chat del agente de producción permite escrituras sin formato en bases de datos de forma predeterminada
-(`databaseTools: "write"`) para que los agentes puedan corregir datos propiedad de la aplicación sin esperar a
-nueva acción escrita. Esas escrituras están dirigidas al usuario/organización autenticado. Establecer
-`databaseTools: "read"` para mantener solo la inspección de `db-schema` / `db-query`, o
-`databaseTools: "off"` / `false` requerirá la aplicación escrita actions para todos los datos
+El complemento de chat del agente de producción deja las herramientas SQL sin formato en modo lectura por defecto
+(`databaseTools: "read"`), por lo que los agentes inspeccionan datos de la app con `db-schema` /
+`db-query` y escriben mediante actions tipadas de la app. Establece
+`databaseTools: "write"` (o `true`) solo para superficies de mantenimiento que
+también deban exponer `db-exec` / `db-patch` con alcance; usa
+`databaseTools: "off"` / `false` para requerir actions tipadas para todos los datos
 acceso.
 
 ## Puente de chat del agente {#agent-chat-bridge}
