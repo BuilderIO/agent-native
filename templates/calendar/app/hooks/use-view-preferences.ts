@@ -174,9 +174,8 @@ export function useViewPreferences() {
           const serverPrefs = normalizeCalendarViewPreferences(preferences);
           setPrefs((current) => {
             const next = normalizeCalendarViewPreferences({
-              ...serverPrefs,
+              ...current,
               accountColors: {
-                ...serverPrefs.accountColors,
                 ...current.accountColors,
                 [accountEmail]:
                   serverPrefs.accountColors[accountEmail] ?? accountColor,
