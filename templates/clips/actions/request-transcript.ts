@@ -44,7 +44,7 @@ import {
   getRequestUserEmail,
   getCredentialContext,
 } from "@agent-native/core/server/request-context";
-import { getSetting } from "@agent-native/core/settings";
+import { getSetting, getUserSetting } from "@agent-native/core/settings";
 import { transcribeWithBuilder } from "@agent-native/core/transcription/builder";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
@@ -537,6 +537,17 @@ async function failAudioOnlyPreparation({
 }
 
 async function transcriptCleanupEnabled(): Promise<boolean> {
+  const userEmail = getRequestUserEmail();
+  if (userEmail) {
+    const userSettings = await getUserSetting(
+      userEmail,
+      CLIPS_USER_PREFS_KEY,
+    ).catch(() => null);
+    if (userSettings && "transcriptCleanupEnabled" in userSettings) {
+      return userSettings.transcriptCleanupEnabled !== false;
+    }
+  }
+
   const settings = await getSetting(CLIPS_USER_PREFS_KEY).catch(() => null);
   return settings?.transcriptCleanupEnabled !== false;
 }
