@@ -70,6 +70,12 @@ export default defineEventHandler(async (event) => {
   }
 
   const token = queryString(query[AGENT_ACCESS_PARAM]);
+  const tokenAccess = token
+    ? verifyScopedAgentAccessToken(token, {
+        resourceKind: ANALYTICS_DASHBOARD_AGENT_RESOURCE_KIND,
+        resourceId: id,
+      }).ok
+    : false;
   const db = getDb() as any;
   // guard:allow-unscoped -- this endpoint returns dashboard context only when the dashboard is public or a dashboard-scoped agent_access token verifies for this id.
   const [row] = await db
@@ -80,6 +86,10 @@ export default defineEventHandler(async (event) => {
 
   const seed = row ? null : loadDashboardSeed(id);
   if (!row && seed) {
+    if (!tokenAccess) {
+      setResponseStatus(event, 403);
+      return { error: "Invalid or expired agent access token" };
+    }
     return buildDashboardSeedAgentContext(id, seed, { includeConfig: true });
   }
 
@@ -88,12 +98,6 @@ export default defineEventHandler(async (event) => {
     return { error: "Dashboard not found" };
   }
 
-  const tokenAccess = token
-    ? verifyScopedAgentAccessToken(token, {
-        resourceKind: ANALYTICS_DASHBOARD_AGENT_RESOURCE_KIND,
-        resourceId: id,
-      }).ok
-    : false;
   if (row.visibility !== "public" && !tokenAccess) {
     setResponseStatus(event, 403);
     return { error: "Invalid or expired agent access token" };

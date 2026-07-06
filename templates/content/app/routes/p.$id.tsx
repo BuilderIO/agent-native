@@ -16,8 +16,12 @@ import { buildPublicDocumentDescription } from "@shared/og-description";
 import { IconLock, IconMessageCircle } from "@tabler/icons-react";
 import { eq } from "drizzle-orm";
 import { useEffect, useState } from "react";
-import type { LoaderFunctionArgs, MetaFunction } from "react-router";
-import { redirect, useLoaderData } from "react-router";
+import type {
+  HeadersArgs,
+  LoaderFunctionArgs,
+  MetaFunction,
+} from "react-router";
+import { data, redirect, useLoaderData } from "react-router";
 
 import { VisualEditor } from "@/components/editor/VisualEditor";
 
@@ -27,6 +31,45 @@ import {
   buildContentPublicDocumentUrl,
   DOCUMENT_AGENT_RESOURCE_KIND,
 } from "../../shared/agent-readable";
+
+type PublicDocumentLoaderData =
+  | {
+      document: {
+        id: string;
+        title: string;
+        content: string;
+        updatedAt: string;
+        visibility: string;
+      };
+      agentAccessToken: string | null;
+      basePath: string;
+      unavailable?: undefined;
+    }
+  | {
+      document: null;
+      agentAccessToken: null;
+      basePath: string;
+      unavailable: { reason: "private"; id: string; basePath: string };
+    };
+
+const PRIVATE_AGENT_DOCUMENT_HEADERS = {
+  "Cache-Control": "private, max-age=0, no-store",
+  "Referrer-Policy": "no-referrer",
+};
+
+function publicDocumentLoaderData(
+  payload: PublicDocumentLoaderData,
+  privateAgentAccess = false,
+) {
+  if (!privateAgentAccess) return payload;
+  return data(payload, {
+    headers: PRIVATE_AGENT_DOCUMENT_HEADERS,
+  });
+}
+
+export function headers({ loaderHeaders }: HeadersArgs) {
+  return loaderHeaders;
+}
 
 export async function loader({ params, request }: LoaderFunctionArgs) {
   const id = params.id;
@@ -68,11 +111,14 @@ export async function loader({ params, request }: LoaderFunctionArgs) {
       }).ok
     : false;
   if (doc.visibility === "public" || tokenAccess) {
-    return {
-      document: doc,
-      agentAccessToken: tokenAccess ? agentAccessToken : null,
-      basePath,
-    };
+    return publicDocumentLoaderData(
+      {
+        document: doc,
+        agentAccessToken: tokenAccess ? agentAccessToken : null,
+        basePath,
+      },
+      tokenAccess,
+    );
   }
 
   // Doc exists but isn't public. SSR renders impersonally (no session is read
@@ -84,12 +130,12 @@ export async function loader({ params, request }: LoaderFunctionArgs) {
   // routes the viewer to the auth-guarded `/page/<id>` editor, where the real
   // per-user access check runs (signed-in-with-access sees the doc; everyone
   // else gets the standard sign-in / no-access handling).
-  return {
+  return publicDocumentLoaderData({
     document: null,
     agentAccessToken: null,
     basePath,
     unavailable: { reason: "private" as const, id, basePath },
-  };
+  });
 }
 
 export const meta: MetaFunction<typeof loader> = ({ loaderData }) => {

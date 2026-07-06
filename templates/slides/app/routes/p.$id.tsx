@@ -15,8 +15,12 @@ import {
 } from "@shared/api";
 import { eq } from "drizzle-orm";
 import { useEffect } from "react";
-import type { LoaderFunctionArgs, MetaFunction } from "react-router";
-import { useLoaderData } from "react-router";
+import type {
+  HeadersArgs,
+  LoaderFunctionArgs,
+  MetaFunction,
+} from "react-router";
+import { data, useLoaderData } from "react-router";
 
 import SharedPresentation from "@/pages/SharedPresentation";
 
@@ -53,6 +57,22 @@ type DeckData = {
   aspectRatio?: SharedDeckResponse["aspectRatio"];
 };
 
+const PRIVATE_AGENT_DECK_HEADERS = {
+  "Cache-Control": "private, max-age=0, no-store",
+  "Referrer-Policy": "no-referrer",
+};
+
+function publicDeckLoaderData(payload: LoaderData, privateAgentAccess = false) {
+  if (!privateAgentAccess) return payload;
+  return data(payload, {
+    headers: PRIVATE_AGENT_DECK_HEADERS,
+  });
+}
+
+export function headers({ loaderHeaders }: HeadersArgs) {
+  return loaderHeaders;
+}
+
 function toSharedDeck(row: {
   title: string | null;
   data: string;
@@ -67,10 +87,7 @@ function toSharedDeck(row: {
   };
 }
 
-export async function loader({
-  params,
-  request,
-}: LoaderFunctionArgs): Promise<LoaderData> {
+export async function loader({ params, request }: LoaderFunctionArgs) {
   const id = params.id;
   if (!id) throw new Response("Not found", { status: 404 });
   const agentAccessToken = new URL(request.url).searchParams.get(
@@ -107,18 +124,21 @@ export async function loader({
       }).ok
     : false;
   if (deck.visibility === "public" || tokenAccess) {
-    return {
-      deck: toSharedDeck(deck),
-      id,
-      basePath,
-      agentAccessToken: tokenAccess ? agentAccessToken : null,
-    };
+    return publicDeckLoaderData(
+      {
+        deck: toSharedDeck(deck),
+        id,
+        basePath,
+        agentAccessToken: tokenAccess ? agentAccessToken : null,
+      },
+      tokenAccess,
+    );
   }
-  return {
+  return publicDeckLoaderData({
     deck: null,
     error: "restricted",
     restricted: { id, basePath },
-  };
+  });
 }
 
 export const meta: MetaFunction<typeof loader> = ({ loaderData }) => {

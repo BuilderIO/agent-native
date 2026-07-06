@@ -8,6 +8,9 @@ const where = vi.hoisted(() => vi.fn(() => ({ limit })));
 const from = vi.hoisted(() => vi.fn(() => ({ where })));
 const select = vi.hoisted(() => vi.fn(() => ({ from })));
 const configuredBasePath = vi.hoisted(() => ({ current: "" }));
+const mockVerifyScopedAgentAccessToken = vi.hoisted(() =>
+  vi.fn((_token: unknown, _options: unknown) => ({ ok: false })),
+);
 
 vi.mock("@/pages/SharedPresentation", () => ({ default: () => null }));
 vi.mock("@agent-native/toolkit/ui/spinner", () => ({ Spinner: () => null }));
@@ -19,7 +22,8 @@ vi.mock("@agent-native/toolkit/ui/spinner", () => ({ Spinner: () => null }));
 vi.mock("@agent-native/core/server", () => ({
   AGENT_ACCESS_PARAM: "agent_access",
   getConfiguredAppBasePath: () => configuredBasePath.current,
-  verifyScopedAgentAccessToken: vi.fn(() => ({ ok: false })),
+  verifyScopedAgentAccessToken: (token: unknown, options: unknown) =>
+    mockVerifyScopedAgentAccessToken(token, options),
 }));
 
 vi.mock("drizzle-orm", () => ({
@@ -41,10 +45,19 @@ vi.mock("../../server/db", () => ({
 
 import { buildDeckDiscovery, loader } from "../routes/p.$id";
 
-function requestFor(id = "deck-1") {
+function unwrapLoaderData(result: Awaited<ReturnType<typeof loader>>) {
+  const maybeWrapped = result as any;
+  return maybeWrapped.type === "DataWithResponseInit"
+    ? maybeWrapped.data
+    : maybeWrapped;
+}
+
+function requestFor(id = "deck-1", token?: string) {
+  const url = new URL(`https://slides.example.test/p/${id}`);
+  if (token) url.searchParams.set("agent_access", token);
   return {
     params: { id },
-    request: new Request(`https://slides.example.test/p/${id}`),
+    request: new Request(url),
   } as any;
 }
 
@@ -53,12 +66,13 @@ describe("public deck route", () => {
     vi.clearAllMocks();
     configuredBasePath.current = "";
     resultQueue.current = [];
+    mockVerifyScopedAgentAccessToken.mockReturnValue({ ok: false });
   });
 
   it("serves a public deck for every viewer without speaker notes", async () => {
     resultQueue.current = [deckRows("public")];
 
-    const result = await loader(requestFor());
+    const result = unwrapLoaderData(await loader(requestFor()));
 
     if (result.deck === null) throw new Error("expected a public deck");
     expect(result.deck?.title).toBe("Launch review");
@@ -105,7 +119,7 @@ describe("public deck route", () => {
     configuredBasePath.current = "/slides";
     resultQueue.current = [deckRows("public")];
 
-    const result = await loader(requestFor());
+    const result = unwrapLoaderData(await loader(requestFor()));
 
     expect(result).toMatchObject({
       id: "deck-1",
@@ -116,11 +130,31 @@ describe("public deck route", () => {
   it("routes a restricted (non-public) deck to the guarded editor for client-side access resolution", async () => {
     resultQueue.current = [deckRows("private")];
 
-    const result = await loader(requestFor());
+    const result = unwrapLoaderData(await loader(requestFor()));
 
     if (result.deck !== null) throw new Error("expected a restricted deck");
     expect(result.error).toBe("restricted");
     expect(result.restricted).toEqual({ id: "deck-1", basePath: "" });
+  });
+
+  it("marks tokenized deck pages private and no-store", async () => {
+    mockVerifyScopedAgentAccessToken.mockReturnValue({ ok: true });
+    resultQueue.current = [deckRows("private")];
+
+    const result = (await loader(requestFor("deck-1", "tok+1"))) as any;
+
+    expect(mockVerifyScopedAgentAccessToken).toHaveBeenCalledWith("tok+1", {
+      resourceKind: "slides:deck",
+      resourceId: "deck-1",
+    });
+    expect(result.type).toBe("DataWithResponseInit");
+    expect(result.init.headers).toEqual({
+      "Cache-Control": "private, max-age=0, no-store",
+      "Referrer-Policy": "no-referrer",
+    });
+    expect(result.data.agentAccessToken).toBe("tok+1");
+    if (result.data.deck === null) throw new Error("expected tokenized deck");
+    expect(result.data.deck.title).toBe("Launch review");
   });
 
   it("404s when the deck does not exist", async () => {
