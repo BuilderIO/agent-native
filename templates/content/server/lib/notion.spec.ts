@@ -705,14 +705,60 @@ describe("addNotionComment", () => {
 
   it("still returns the created comment id on success", async () => {
     vi.mocked(global.fetch).mockResolvedValue(
-      new Response(JSON.stringify({ id: "comment-1" }), {
-        status: 200,
-        headers: { "Content-Type": "application/json" },
-      }),
+      new Response(
+        JSON.stringify({ id: "comment-1", discussion_id: "discussion-1" }),
+        {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        },
+      ),
     );
 
-    await expect(addNotionComment("page-1", "hello", "token")).resolves.toBe(
-      "comment-1",
+    await expect(addNotionComment("page-1", "hello", "token")).resolves.toEqual(
+      { id: "comment-1", discussionId: "discussion-1" },
     );
+  });
+
+  it("sends parent (not discussion_id) for a new top-level comment", async () => {
+    vi.mocked(global.fetch).mockResolvedValue(
+      new Response(
+        JSON.stringify({ id: "comment-1", discussion_id: "discussion-1" }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      ),
+    );
+
+    await addNotionComment("page-1", "hello", "token");
+
+    const request = vi.mocked(global.fetch).mock.calls[0];
+    const body = JSON.parse(String(request[1]?.body));
+    expect(body).toEqual({
+      parent: { page_id: "page-1" },
+      rich_text: [{ text: { content: "hello" } }],
+    });
+  });
+
+  it("sends discussion_id (not parent) for a reply, so it threads under the existing discussion", async () => {
+    vi.mocked(global.fetch).mockResolvedValue(
+      new Response(
+        JSON.stringify({ id: "comment-2", discussion_id: "discussion-1" }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      ),
+    );
+
+    const result = await addNotionComment(
+      "page-1",
+      "a reply",
+      "token",
+      "discussion-1",
+    );
+
+    const request = vi.mocked(global.fetch).mock.calls[0];
+    const body = JSON.parse(String(request[1]?.body));
+    expect(body).toEqual({
+      discussion_id: "discussion-1",
+      rich_text: [{ text: { content: "a reply" } }],
+    });
+    expect(body.parent).toBeUndefined();
+    expect(result).toEqual({ id: "comment-2", discussionId: "discussion-1" });
   });
 });

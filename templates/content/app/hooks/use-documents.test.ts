@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildDocumentTree,
   filterDocumentTreeDocuments,
+  isDocumentUpdateConflict,
   mergeDocumentIntoDocumentCache,
   mergeDocumentIntoListDocumentsCache,
 } from "./use-documents";
@@ -158,5 +159,27 @@ describe("mergeDocumentIntoDocumentCache", () => {
         updated,
       ),
     ).toEqual({ ...updated, database });
+  });
+});
+
+describe("isDocumentUpdateConflict", () => {
+  it("recognizes a conflict result", () => {
+    expect(
+      isDocumentUpdateConflict({
+        conflict: true,
+        id: "doc-1",
+        document: { ...doc("doc-1", null), urlPath: "/page/doc-1" } as any,
+      }),
+    ).toBe(true);
+  });
+
+  it("does not treat a normal saved document as a conflict", () => {
+    expect(
+      isDocumentUpdateConflict({
+        ...doc("doc-1", null),
+        urlPath: "/page/doc-1",
+        softDeletedDatabaseIds: [],
+      } as any),
+    ).toBe(false);
   });
 });

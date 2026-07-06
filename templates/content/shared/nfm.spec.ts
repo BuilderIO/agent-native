@@ -1141,4 +1141,80 @@ describe("bug fixes — reliability sweep", () => {
       expect(docToNfm(doc2)).toBe(nfm);
     });
   });
+
+  // n25: inline-code space padding must be symmetric between serialize and
+  // parse. The serializer must pad with a space on each side whenever the
+  // content starts OR ends with a backtick OR a space (not just backtick),
+  // and the parser must strip exactly one pad space per side only when both
+  // ends are padded and the content isn't entirely spaces — otherwise a
+  // leading/trailing space in the actual content is indistinguishable from
+  // serializer-added padding and gets silently deleted on round trip.
+  describe("n25: inline-code space padding symmetry", () => {
+    const codeDoc = (text: string): any => ({
+      type: "doc",
+      content: [
+        {
+          type: "paragraph",
+          content: [{ type: "text", text, marks: [{ type: "code" }] }],
+        },
+      ],
+    });
+
+    it("round-trips code text with a leading space and an interior backtick", () => {
+      const doc = codeDoc(" `x ");
+      const nfm = docToNfm(doc);
+      const doc2 = nfmToDoc(nfm);
+      const textNode = doc2.content[0].content?.[0];
+      expect(textNode?.marks?.[0]?.type).toBe("code");
+      expect(textNode?.text).toBe(" `x ");
+      expect(docToNfm(doc2)).toBe(nfm);
+    });
+
+    it("round-trips code text with only a leading space", () => {
+      const doc = codeDoc(" x");
+      const nfm = docToNfm(doc);
+      const doc2 = nfmToDoc(nfm);
+      const textNode = doc2.content[0].content?.[0];
+      expect(textNode?.text).toBe(" x");
+    });
+
+    it("round-trips code text with only a trailing space", () => {
+      const doc = codeDoc("x ");
+      const nfm = docToNfm(doc);
+      const doc2 = nfmToDoc(nfm);
+      const textNode = doc2.content[0].content?.[0];
+      expect(textNode?.text).toBe("x ");
+    });
+
+    it("still round-trips a plain code span with no padding needed", () => {
+      const doc = codeDoc("x");
+      const nfm = docToNfm(doc);
+      expect(nfm).toBe("`x`");
+      const doc2 = nfmToDoc(nfm);
+      expect(doc2.content[0].content?.[0]?.text).toBe("x");
+    });
+
+    it("still round-trips code text starting and ending with a backtick", () => {
+      const doc = codeDoc("`x`");
+      const nfm = docToNfm(doc);
+      const doc2 = nfmToDoc(nfm);
+      expect(doc2.content[0].content?.[0]?.text).toBe("`x`");
+      expect(docToNfm(doc2)).toBe(nfm);
+    });
+
+    it("still round-trips a code span containing its own backtick (no leading/trailing space)", () => {
+      const doc = codeDoc("a`b");
+      const nfm = docToNfm(doc);
+      const doc2 = nfmToDoc(nfm);
+      expect(doc2.content[0].content?.[0]?.text).toBe("a`b");
+      expect(docToNfm(doc2)).toBe(nfm);
+    });
+
+    it("is stable under a second round trip", () => {
+      const doc = codeDoc(" `x ");
+      const nfm1 = docToNfm(doc);
+      const nfm2 = docToNfm(nfmToDoc(nfm1));
+      expect(nfm2).toBe(nfm1);
+    });
+  });
 });

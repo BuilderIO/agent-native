@@ -53,6 +53,12 @@ export const documentComments = table("document_comments", {
   createdAt: text("created_at").notNull().default(now()),
   updatedAt: text("updated_at").notNull().default(now()),
   notionCommentId: text("notion_comment_id"),
+  // Notion's grouping id for a comment thread (a top-level comment and all
+  // its replies share one discussion_id). Stored on the local comment so
+  // sync-notion-comments can create replies with `discussion_id` instead of
+  // `parent`, which is what makes Notion thread them under the existing
+  // discussion instead of creating unrelated top-level comments.
+  notionDiscussionId: text("notion_discussion_id"),
 });
 
 export const documentSyncLinks = table("document_sync_links", {

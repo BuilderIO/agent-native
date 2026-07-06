@@ -606,6 +606,16 @@ const runContentMigrations = runMigrations(
       // each other. See server/lib/notion-sync.ts's use of this column.
       sql: `ALTER TABLE document_sync_links ADD COLUMN IF NOT EXISTS sync_claimed_at TEXT`,
     },
+    {
+      version: 62,
+      name: "document-comments-notion-discussion-id-column",
+      // Notion groups a top-level comment and its replies under one
+      // discussion_id. Storing it locally lets sync-notion-comments create
+      // replies with `discussion_id` (instead of `parent`) so they thread
+      // under the existing Notion discussion in both directions instead of
+      // becoming unrelated top-level comments. See actions/sync-notion-comments.ts.
+      sql: `ALTER TABLE document_comments ADD COLUMN IF NOT EXISTS notion_discussion_id TEXT`,
+    },
   ],
   { table: "content_migrations" },
 );
