@@ -47,6 +47,17 @@ export interface ScrubInputChangeMeta {
    *   change, since those are already discrete, complete edits.
    */
   phase: "preview" | "commit";
+  /**
+   * Set when an arrow-key nudge fires on a `mixed` selection (see
+   * `handleKeyDown`): there is no single current value to step from across a
+   * mixed selection, so `onChange`'s `value` arg is the step delta itself
+   * (not a new absolute value) and consumers that support per-target relative
+   * application should add this delta to each selected target's own current
+   * value instead of overwriting every target with `value`. Omitted for
+   * every other change — existing consumers that don't check for it keep
+   * receiving absolute values exactly as before.
+   */
+  relativeDelta?: number;
 }
 
 export interface ScrubInputProps extends ScrubExpressionOptions {
@@ -161,16 +172,33 @@ export function ScrubInput({
   const handleKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
     if (event.key === "ArrowUp" || event.key === "ArrowDown") {
       event.preventDefault();
-      // Mixed selection: the `value` prop is only a placeholder (typically 0),
-      // so stepping from it would snap every selected object to a value the
-      // user never chose. Require an explicit typed value first — typing then
-      // committing applies to all, which is the design-editor convention.
-      if (mixed) return;
       const direction = event.key === "ArrowUp" ? 1 : -1;
       // getScrubStepFromEvent handles shiftKey (×10) and altKey (÷10).
       // Cmd (metaKey) mirrors Shift for ×10 — editor convention on macOS.
       const baseStep = getScrubStepFromEvent(event, step);
       const cmdMultiplier = event.metaKey && !event.shiftKey ? 10 : 1;
+      const delta = direction * baseStep * cmdMultiplier;
+      // Mixed selection: the `value` prop is only a placeholder (typically 0)
+      // — there's no single current value to step from, and there's no
+      // typed draft either (mixed keeps the draft as the literal "Mixed"
+      // string, see commitDraft's guard). Figma's behavior here is a
+      // *relative* nudge: apply the same +/-delta to each selected object's
+      // own value rather than snapping every object to one absolute number.
+      // ScrubInput itself can't resolve each target's individual value, so
+      // emit the delta via `onChange` (as both `value` and
+      // `meta.relativeDelta`) and let the consumer apply it per-target. Do
+      // NOT route through setNextValue: that formats/displays one absolute
+      // number in the draft, which would incorrectly replace the "Mixed"
+      // placeholder text with a single value that was never actually common
+      // to the whole selection.
+      if (mixed) {
+        onChange(delta, {
+          source: "keyboard",
+          phase: "commit",
+          relativeDelta: delta,
+        });
+        return;
+      }
       // Step from the currently typed draft, not the last-committed `value`
       // prop — otherwise an in-progress, uncommitted edit (typed but not yet
       // blurred/entered) is silently discarded the moment an arrow key is
@@ -182,7 +210,7 @@ export function ScrubInput({
         options,
       );
       const base = draftParsed ? draftParsed.value : value;
-      setNextValue(base + direction * baseStep * cmdMultiplier, {
+      setNextValue(base + delta, {
         source: "keyboard",
         phase: "commit",
       });

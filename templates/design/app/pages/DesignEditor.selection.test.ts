@@ -35,8 +35,11 @@ import {
   replaceDataScreenReferences,
   getSidebarCodeLayerSelectionState,
   applyGeometryHistoryDiff,
+  applyRelativeDeltaToStyleValue,
   collectCodeLayerSubtreeDataNodeIds,
+  findScreenFrameAtCanvasPoint,
   geometryHistoryEntryTouchesFrameIds,
+  geometrySnapshotsEqual,
   hydrateMotionDockTracks,
   isScreenRootElementInfo,
   mergeLocalContentHistoryFallback,
@@ -1573,6 +1576,51 @@ describe("U2: geometry history pruning on screen deletion", () => {
       pruneGeometryHistoryEntryForDeletedFiles(entry, new Set(["screen-z"])),
     ).toBe(entry);
   });
+
+  it("preserves selectionBefore/selectionAfter through a prune that keeps the entry", () => {
+    const entry = {
+      before: { "screen-a": { x: 0, y: 0 }, "screen-b": { x: 10, y: 10 } },
+      after: { "screen-a": { x: 5, y: 5 }, "screen-b": { x: 10, y: 10 } },
+      selectionBefore: {
+        overviewSelectedScreenIds: ["screen-a"],
+        selectedLayerIds: [],
+        activeFileId: "screen-a",
+      },
+      selectionAfter: {
+        overviewSelectedScreenIds: ["screen-a"],
+        selectedLayerIds: [],
+        activeFileId: "screen-a",
+      },
+    };
+    const pruned = pruneGeometryHistoryEntryForDeletedFiles(
+      entry,
+      new Set(["screen-b"]),
+    );
+    expect(pruned).toEqual({
+      before: { "screen-a": { x: 0, y: 0 } },
+      after: { "screen-a": { x: 5, y: 5 } },
+      selectionBefore: entry.selectionBefore,
+      selectionAfter: entry.selectionAfter,
+    });
+  });
+
+  it("does not add selection keys to an entry that never carried them", () => {
+    const entry = {
+      before: { "screen-a": { x: 0, y: 0 }, "screen-b": { x: 10, y: 10 } },
+      after: { "screen-a": { x: 5, y: 5 }, "screen-b": { x: 10, y: 10 } },
+    };
+    const pruned = pruneGeometryHistoryEntryForDeletedFiles(
+      entry,
+      new Set(["screen-b"]),
+    );
+    expect(pruned).not.toBeNull();
+    expect(
+      Object.prototype.hasOwnProperty.call(pruned, "selectionBefore"),
+    ).toBe(false);
+    expect(Object.prototype.hasOwnProperty.call(pruned, "selectionAfter")).toBe(
+      false,
+    );
+  });
 });
 
 describe("U11: geometry undo/redo merges a per-frame diff onto the live map", () => {
@@ -1836,5 +1884,119 @@ describe("replaceDataScreenReferences", () => {
     expect(replaceDataScreenReferences(html, "a+b.html", "c.html")).toBe(
       '<a data-screen="c.html">Link</a>',
     );
+  });
+});
+
+describe("geometrySnapshotsEqual", () => {
+  it("returns true for two empty maps", () => {
+    expect(geometrySnapshotsEqual({}, {})).toBe(true);
+  });
+
+  it("returns true for structurally identical maps with different object identity", () => {
+    const a = { "screen-a": { x: 0, y: 0, width: 100, height: 100 } };
+    const b = { "screen-a": { x: 0, y: 0, width: 100, height: 100 } };
+    expect(geometrySnapshotsEqual(a, b)).toBe(true);
+  });
+
+  it("returns false when a frame's geometry differs", () => {
+    const a = { "screen-a": { x: 0, y: 0 } };
+    const b = { "screen-a": { x: 5, y: 0 } };
+    expect(geometrySnapshotsEqual(a, b)).toBe(false);
+  });
+
+  it("returns false when key counts differ", () => {
+    const a = { "screen-a": { x: 0, y: 0 } };
+    const b = {
+      "screen-a": { x: 0, y: 0 },
+      "screen-b": { x: 1, y: 1 },
+    };
+    expect(geometrySnapshotsEqual(a, b)).toBe(false);
+  });
+
+  it("returns false when the same key count has different keys", () => {
+    const a = { "screen-a": { x: 0, y: 0 } };
+    const b = { "screen-b": { x: 0, y: 0 } };
+    expect(geometrySnapshotsEqual(a, b)).toBe(false);
+  });
+});
+
+describe("findScreenFrameAtCanvasPoint", () => {
+  const frames = [
+    { id: "screen-a", geometry: { x: 0, y: 0, width: 100, height: 100 } },
+    { id: "screen-b", geometry: { x: 200, y: 200, width: 100, height: 100 } },
+  ];
+
+  it("returns the frame containing the point", () => {
+    expect(findScreenFrameAtCanvasPoint({ x: 50, y: 50 }, frames)).toEqual(
+      frames[0],
+    );
+    expect(findScreenFrameAtCanvasPoint({ x: 250, y: 250 }, frames)).toEqual(
+      frames[1],
+    );
+  });
+
+  it("returns null when the point lands outside every frame", () => {
+    expect(findScreenFrameAtCanvasPoint({ x: 500, y: 500 }, frames)).toBeNull();
+  });
+
+  it("treats frame bounds as inclusive at the edges", () => {
+    expect(findScreenFrameAtCanvasPoint({ x: 0, y: 0 }, frames)).toEqual(
+      frames[0],
+    );
+    expect(findScreenFrameAtCanvasPoint({ x: 100, y: 100 }, frames)).toEqual(
+      frames[0],
+    );
+  });
+
+  it("excludes a given file id (e.g. the board file) even if the point lands on it", () => {
+    expect(
+      findScreenFrameAtCanvasPoint({ x: 50, y: 50 }, frames, "screen-a"),
+    ).toBeNull();
+  });
+
+  it("picks the LAST matching frame when frames overlap (topmost by render order)", () => {
+    const overlapping = [
+      { id: "back", geometry: { x: 0, y: 0, width: 100, height: 100 } },
+      { id: "front", geometry: { x: 0, y: 0, width: 100, height: 100 } },
+    ];
+    expect(findScreenFrameAtCanvasPoint({ x: 50, y: 50 }, overlapping)).toEqual(
+      overlapping[1],
+    );
+  });
+});
+
+describe("applyRelativeDeltaToStyleValue", () => {
+  it("applies a positive delta to a px value, preserving the unit", () => {
+    expect(applyRelativeDeltaToStyleValue("12px", 4)).toBe("16px");
+  });
+
+  it("applies a negative delta to a deg value", () => {
+    expect(applyRelativeDeltaToStyleValue("45deg", -10)).toBe("35deg");
+  });
+
+  it("applies a delta to a unitless value (e.g. opacity/line-height)", () => {
+    expect(applyRelativeDeltaToStyleValue("0.5", 0.25)).toBe("0.75");
+  });
+
+  it("preserves each value's own unit rather than assuming a shared one", () => {
+    expect(applyRelativeDeltaToStyleValue("100%", 10)).toBe("110%");
+  });
+
+  it("returns null for a non-numeric keyword value", () => {
+    expect(applyRelativeDeltaToStyleValue("auto", 5)).toBeNull();
+    expect(applyRelativeDeltaToStyleValue("none", 5)).toBeNull();
+  });
+
+  it("returns null for undefined input", () => {
+    expect(applyRelativeDeltaToStyleValue(undefined, 5)).toBeNull();
+  });
+
+  it("collapses floating point noise from repeated addition", () => {
+    const result = applyRelativeDeltaToStyleValue("0.1px", 0.2);
+    expect(result).toBe("0.3px");
+  });
+
+  it("handles negative current values", () => {
+    expect(applyRelativeDeltaToStyleValue("-10px", 5)).toBe("-5px");
   });
 });

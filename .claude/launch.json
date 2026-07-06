@@ -15,6 +15,102 @@
         "3100"
       ],
       "port": 3100
+    },
+    {
+      "name": "design",
+      "runtimeExecutable": "env",
+      "runtimeArgs": [
+        "DATABASE_URL=file:/private/tmp/claude-501/-Users-steve-Projects-builder-agent-native-framework--claude-worktrees-hungry-mahavira-9ef02f/b9fa688f-d1aa-4122-a63f-ba992a6d8770/scratchpad/design-verify.sqlite",
+        "PORT=3101",
+        "AUTH_MODE=local",
+        "pnpm",
+        "--dir",
+        "templates/design",
+        "dev",
+        "--port",
+        "3101"
+      ],
+      "port": 3101
+    },
+    {
+      "name": "design-truncfix",
+      "runtimeExecutable": "env",
+      "runtimeArgs": [
+        "DATABASE_URL=file:/Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/hungry-mahavira-9ef02f/templates/design/data/truncfix.db",
+        "PORT=9307",
+        "AUTH_MODE=local",
+        "pnpm",
+        "--dir",
+        "templates/design",
+        "dev",
+        "--port",
+        "9307"
+      ],
+      "port": 9307
+    },
+    {
+      "name": "design-flashfix",
+      "runtimeExecutable": "env",
+      "runtimeArgs": [
+        "DATABASE_URL=file:/Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/hungry-mahavira-9ef02f/templates/design/data/flashfix.db",
+        "PORT=9309",
+        "AUTH_MODE=local",
+        "pnpm",
+        "--dir",
+        "templates/design",
+        "dev",
+        "--port",
+        "9309"
+      ],
+      "port": 9309
+    },
+    {
+      "name": "design-trunc2",
+      "runtimeExecutable": "env",
+      "runtimeArgs": [
+        "DATABASE_URL=file:/Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/hungry-mahavira-9ef02f/templates/design/data/trunc2.db",
+        "PORT=9308",
+        "AUTH_MODE=local",
+        "pnpm",
+        "--dir",
+        "templates/design",
+        "dev",
+        "--port",
+        "9308"
+      ],
+      "port": 9308
+    },
+    {
+      "name": "design-dialogfix",
+      "runtimeExecutable": "env",
+      "runtimeArgs": [
+        "DATABASE_URL=file:/Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/hungry-mahavira-9ef02f/templates/design/data/dialogfix.db",
+        "PORT=9317",
+        "AUTH_MODE=local",
+        "pnpm",
+        "--dir",
+        "templates/design",
+        "dev",
+        "--port",
+        "9317"
+      ],
+      "port": 9317
+    },
+    {
+      "name": "design-strokefix",
+      "runtimeExecutable": "env",
+      "runtimeArgs": [
+        "DATABASE_URL=file:/Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/hungry-mahavira-9ef02f/templates/design/data/strokefix.db",
+        "PORT=9319",
+        "AUTH_MODE=local",
+        "pnpm",
+        "--dir",
+        "templates/design",
+        "dev",
+        "--port",
+        "9319"
+      ],
+      "port": 9319
     }
   ]
 }

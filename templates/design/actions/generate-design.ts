@@ -4,8 +4,6 @@ import {
   writeAppState,
 } from "@agent-native/core/application-state";
 import {
-  hasCollabState,
-  applyText,
   seedFromText,
   agentEnterDocument,
   agentLeaveDocument,
@@ -18,6 +16,11 @@ import { nanoid } from "nanoid";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import {
+  readLiveSourceFile,
+  writeInlineSourceFile,
+  type SourceWorkspaceFile,
+} from "../server/source-workspace.js";
 import {
   mergeCanvasFramePlacements,
   type CanvasFramePlacement,
@@ -298,22 +301,44 @@ const generateDesignAction = defineAction({
         });
 
         try {
-          // Update existing file
-          await db
-            .update(schema.designFiles)
-            .set({
-              content: file.content,
-              fileType: file.fileType ?? "html",
-              updatedAt: now,
-            })
-            .where(eq(schema.designFiles.id, existing.id));
+          // `file.content` here is LLM-generated content produced upstream of
+          // this action call, so there can be a large async window (the full
+          // generation time) between whenever this file's content was last
+          // known and this write. Read the LIVE base (collab text when
+          // present, else the SQL row) right before persisting and carry its
+          // versionHash through to writeInlineSourceFile, which re-reads the
+          // live text immediately before its own applyText/DB write and
+          // rejects if it no longer matches — closing the race window where a
+          // concurrent editor/agent write lands mid-generation. See
+          // insert-design-native-asset.ts and insert-asset.ts for the
+          // identical pattern.
+          const workspaceFile: SourceWorkspaceFile = {
+            id: existing.id,
+            designId: existing.designId,
+            filename: existing.filename ?? "",
+            fileType: existing.fileType ?? "html",
+            content: existing.content,
+            createdAt: null,
+            updatedAt: null,
+          };
+          const live = await readLiveSourceFile(workspaceFile);
 
-          // Push content through collab layer for live editors
-          const collabExists = await hasCollabState(existing.id);
-          if (collabExists) {
-            await applyText(existing.id, file.content, "content", "agent");
-          } else {
-            await seedFromText(existing.id, file.content);
+          await writeInlineSourceFile({
+            designId: existing.designId,
+            file: workspaceFile,
+            content: file.content,
+            expectedVersionHash: live.versionHash,
+          });
+
+          // writeInlineSourceFile only persists content/updatedAt; keep
+          // fileType in sync separately when the caller changed it (e.g.
+          // html -> jsx), matching the original update behavior.
+          const nextFileType = file.fileType ?? "html";
+          if (nextFileType !== (existing.fileType ?? "html")) {
+            await db
+              .update(schema.designFiles)
+              .set({ fileType: nextFileType, updatedAt: now })
+              .where(eq(schema.designFiles.id, existing.id));
           }
         } finally {
           agentLeaveDocument(existing.id);

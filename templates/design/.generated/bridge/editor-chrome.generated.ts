@@ -14,6 +14,7 @@ export const editorChromeBridgeScript: string = `"use strict";
     var designCanvasScreenId = __DESIGN_CANVAS_SCREEN_ID__ || "";
     var designCanvasBoardSurface = !!__DESIGN_CANVAS_BOARD_SURFACE__;
     var scaleToolEnabled = false;
+    var statePreviewNodeId = null;
     var editorChromeScaleX = Math.max(
       0.05,
       Number(__EDITOR_CHROME_SCALE_X__) || 1
@@ -605,6 +606,12 @@ export const editorChromeBridgeScript: string = `"use strict";
           outlineStyle: cs.outlineStyle,
           outlineColor: cs.outlineColor,
           outlineOffset: cs.outlineOffset,
+          // Text glyph outline (Figma-parity text "Stroke") — CSS has no
+          // unprefixed alias, so this is read via the vendor-prefixed
+          // longhands directly. See applyStyleEdit/normalizeStyleProperty in
+          // shared/code-layer.ts for the matching write-side allow-list entry.
+          webkitTextStrokeWidth: cs.webkitTextStrokeWidth,
+          webkitTextStrokeColor: cs.webkitTextStrokeColor,
           boxShadow: cs.boxShadow,
           textShadow: cs.textShadow,
           filter: cs.filter,
@@ -809,6 +816,50 @@ export const editorChromeBridgeScript: string = `"use strict";
     spacingOverlay.style.cssText = "position:absolute;inset:0;display:none;pointer-events:none;";
     selectionOverlay.appendChild(spacingOverlay);
     document.body.appendChild(selectionOverlay);
+    var gradientOverlay = document.createElement("div");
+    gradientOverlay.setAttribute("data-agent-native-edit-overlay", "gradient");
+    gradientOverlay.style.cssText = "position:fixed;z-index:99998;pointer-events:none;display:none;box-sizing:border-box;";
+    var gradientOverlaySvg = document.createElementNS(
+      "http://www.w3.org/2000/svg",
+      "svg"
+    );
+    gradientOverlaySvg.setAttribute("data-gradient-edit-line", "");
+    gradientOverlaySvg.style.cssText = "position:absolute;inset:0;width:100%;height:100%;overflow:visible;pointer-events:none;";
+    var gradientOverlayLineOutline = document.createElementNS(
+      "http://www.w3.org/2000/svg",
+      "line"
+    );
+    gradientOverlayLineOutline.setAttribute("stroke", "rgba(255,255,255,0.95)");
+    var gradientOverlayLine = document.createElementNS(
+      "http://www.w3.org/2000/svg",
+      "line"
+    );
+    gradientOverlayLine.setAttribute(
+      "stroke",
+      "var(--design-editor-accent-color)"
+    );
+    gradientOverlaySvg.appendChild(gradientOverlayLineOutline);
+    gradientOverlaySvg.appendChild(gradientOverlayLine);
+    gradientOverlay.appendChild(gradientOverlaySvg);
+    var gradientOverlayStartHandle = document.createElement("span");
+    gradientOverlayStartHandle.setAttribute("data-gradient-endpoint", "start");
+    gradientOverlayStartHandle.setAttribute("role", "slider");
+    gradientOverlayStartHandle.setAttribute(
+      "aria-label",
+      "Gradient start"
+    );
+    gradientOverlayStartHandle.style.cssText = "position:absolute;pointer-events:auto;cursor:move;border-radius:2px;box-sizing:border-box;background:var(--design-editor-accent-contrast-color);border:1px solid var(--design-editor-accent-color);box-shadow:0 1px 2px rgba(0,0,0,0.3);";
+    var gradientOverlayEndHandle = document.createElement("span");
+    gradientOverlayEndHandle.setAttribute("data-gradient-endpoint", "end");
+    gradientOverlayEndHandle.setAttribute("role", "slider");
+    gradientOverlayEndHandle.setAttribute(
+      "aria-label",
+      "Gradient end"
+    );
+    gradientOverlayEndHandle.style.cssText = gradientOverlayStartHandle.style.cssText;
+    gradientOverlay.appendChild(gradientOverlayStartHandle);
+    gradientOverlay.appendChild(gradientOverlayEndHandle);
+    document.body.appendChild(gradientOverlay);
     var transformBadge = document.createElement("div");
     transformBadge.setAttribute("data-agent-native-transform-badge", "");
     transformBadge.style.cssText = "position:fixed;z-index:100000;display:none;pointer-events:none;border:1px solid hsl(var(--border));border-radius:4px;background:hsl(var(--background) / 0.96);color:hsl(var(--foreground));font:11px/1.4 ui-monospace,SFMono-Regular,Menlo,monospace;padding:3px 5px;box-shadow:0 8px 20px color-mix(in srgb, hsl(var(--foreground)) 16%, transparent);";
@@ -821,6 +872,14 @@ export const editorChromeBridgeScript: string = `"use strict";
     insertionGuide.setAttribute("data-agent-native-insertion-guide", "");
     insertionGuide.style.cssText = "position:fixed;z-index:100000;display:none;pointer-events:none;background:var(--design-editor-accent-color);border-radius:999px;box-shadow:0 0 0 1px var(--design-editor-accent-color);";
     document.body.appendChild(insertionGuide);
+    var snapGuideV = document.createElement("div");
+    snapGuideV.setAttribute("data-agent-native-edit-overlay", "snap-guide");
+    snapGuideV.style.cssText = "position:fixed;z-index:100000;display:none;pointer-events:none;width:1px;background:hsl(var(--destructive) / 0.9);";
+    document.body.appendChild(snapGuideV);
+    var snapGuideH = document.createElement("div");
+    snapGuideH.setAttribute("data-agent-native-edit-overlay", "snap-guide");
+    snapGuideH.style.cssText = "position:fixed;z-index:100000;display:none;pointer-events:none;height:1px;background:hsl(var(--destructive) / 0.9);";
+    document.body.appendChild(snapGuideH);
     var measurementOverlay = document.createElement("div");
     measurementOverlay.setAttribute("data-agent-native-measurement-overlay", "");
     measurementOverlay.style.cssText = "position:fixed;inset:0;z-index:100001;display:none;pointer-events:none;color:var(--design-editor-measure-color);font:11px/1.2 ui-monospace,SFMono-Regular,Menlo,monospace;";
@@ -868,7 +927,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       } catch (_err) {
       }
     });
-    function updateComponentTag(el) {
+    function updateComponentTag(el, knownRect) {
       if (!el) {
         clearComponentTag();
         return;
@@ -882,7 +941,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       componentTagOverlay.textContent = compName + " \\u2192";
       componentTagOverlay.setAttribute("data-component-node-id", nodeId);
       componentTagOverlay.setAttribute("data-component-name", compName);
-      var rect = el.getBoundingClientRect();
+      var rect = knownRect || el.getBoundingClientRect();
       var tagHeight = 22;
       var tagTop = rect.top - tagHeight - 4;
       if (tagTop < 4) tagTop = rect.top + 4;
@@ -1806,7 +1865,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       var sx = chromeScaleX();
       var sy = chromeScaleY();
       var line = chromeLineScale();
-      highlightOverlay.style.borderWidth = 1.5 * line + "px";
+      highlightOverlay.style.borderWidth = Math.max(1, 1 * line) + "px";
       parentAutoLayoutOverlay.style.borderWidth = Math.max(1, 1 * line) + "px";
       selectionOverlay.style.borderWidth = 1.5 * line + "px";
       passiveSelectionOverlays.forEach(scalePassiveSelectionOverlay);
@@ -1880,7 +1939,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       if (overlay === selectionOverlay) {
         applySelectionChrome(el);
         updateSpacingOverlay(el);
-        updateComponentTag(el);
+        updateComponentTag(el, rect);
         updateParentAutoLayoutOverlay(el);
       } else {
         applyElementOverlayChrome(overlay, el);
@@ -1915,6 +1974,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         var overlay = passiveSelectionOverlays[index];
         if (overlay) positionOverlay(overlay, el);
       });
+      positionGradientOverlay();
       syncOverlayObservers();
     }
     var refreshOverlaysScheduled = false;
@@ -2200,7 +2260,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       var didScroll = scrollElementByWheelDelta(scrollTarget, delta.x, delta.y);
       if (!didScroll) return;
       stopNativeInteraction(e);
-      window.requestAnimationFrame(refreshOverlays);
+      scheduleRefreshOverlays();
     }
     function isEditorTypingTarget(target) {
       if (!target || !target.closest) return false;
@@ -2216,6 +2276,9 @@ export const editorChromeBridgeScript: string = `"use strict";
       var normalized = key && key.length === 1 ? key.toLowerCase() : key;
       var primary = e.metaKey || e.ctrlKey;
       if (key === "Escape" || key === "Enter") return true;
+      if (key === " " && e.code === "Space") {
+        return !primary && !e.altKey && !e.shiftKey;
+      }
       if (key === "Tab") return !!selectedEl;
       if (key === "Delete" || key === "Backspace") return !primary;
       if (/^Arrow/.test(key || "")) return !e.altKey;
@@ -2635,6 +2698,323 @@ export const editorChromeBridgeScript: string = `"use strict";
       var num = parseFloat(value);
       return Number.isFinite(num) ? num : null;
     }
+    function clampGradientT(t) {
+      if (!Number.isFinite(t)) return 0;
+      return Math.max(0, Math.min(1, t));
+    }
+    function gradientLineEndpoints(angleDeg, width, height) {
+      var rad = angleDeg * Math.PI / 180;
+      var dx = Math.sin(rad);
+      var dy = -Math.cos(rad);
+      var halfLength = Math.abs(width / 2 * dx) + Math.abs(height / 2 * dy);
+      var center = { x: width / 2, y: height / 2 };
+      return {
+        start: { x: center.x - dx * halfLength, y: center.y - dy * halfLength },
+        end: { x: center.x + dx * halfLength, y: center.y + dy * halfLength }
+      };
+    }
+    function gradientStopPoints(angleDeg, width, height, stops) {
+      var line = gradientLineEndpoints(angleDeg, width, height);
+      return stops.map(function(stop) {
+        var t = clampGradientT(stop.position / 100);
+        return {
+          x: line.start.x + (line.end.x - line.start.x) * t,
+          y: line.start.y + (line.end.y - line.start.y) * t,
+          position: stop.position
+        };
+      });
+    }
+    function angleFromDraggedEndpoint(point, width, height, which) {
+      var center = { x: width / 2, y: height / 2 };
+      var dx = point.x - center.x;
+      var dy = point.y - center.y;
+      if (dx === 0 && dy === 0) return 0;
+      var deg = Math.atan2(dy, dx) * 180 / Math.PI + 90;
+      if (which === "start") deg += 180;
+      deg = (deg % 360 + 360) % 360;
+      return deg;
+    }
+    function stopPercentFromDraggedPoint(point, angleDeg, width, height) {
+      var line = gradientLineEndpoints(angleDeg, width, height);
+      var lineDx = line.end.x - line.start.x;
+      var lineDy = line.end.y - line.start.y;
+      var lengthSquared = lineDx * lineDx + lineDy * lineDy;
+      if (lengthSquared === 0) return 0;
+      var t = ((point.x - line.start.x) * lineDx + (point.y - line.start.y) * lineDy) / lengthSquared;
+      return clampGradientT(t) * 100;
+    }
+    var GRADIENT_LINEAR_RE = /^linear-gradient\\s*\\(([\\s\\S]*)\\)\\s*$/i;
+    var GRADIENT_ANGLE_RE = /(-?\\d+(?:\\.\\d+)?)deg/;
+    function splitGradientTopLevel(input) {
+      var parts = [];
+      var depth = 0;
+      var current = "";
+      for (var i = 0; i < input.length; i += 1) {
+        var char = input.charAt(i);
+        if (char === "(") depth += 1;
+        if (char === ")") depth -= 1;
+        if (char === "," && depth === 0) {
+          parts.push(current.trim());
+          current = "";
+          continue;
+        }
+        current += char;
+      }
+      if (current.trim()) parts.push(current.trim());
+      return parts;
+    }
+    function parseLinearGradientCss(value) {
+      var match = String(value || "").trim().match(GRADIENT_LINEAR_RE);
+      if (!match) return null;
+      var segments = splitGradientTopLevel(match[1]);
+      if (segments.length === 0) return null;
+      var angle = 90;
+      var stopStart = 0;
+      var first = segments[0];
+      var angleMatch = first.match(GRADIENT_ANGLE_RE);
+      if (angleMatch) {
+        angle = Number(angleMatch[1]);
+        stopStart = 1;
+      } else if (/to\\s+/i.test(first)) {
+        stopStart = 1;
+      }
+      var stopSegments = segments.slice(stopStart);
+      var stops = [];
+      stopSegments.forEach(function(seg, index) {
+        var posMatch = seg.match(/(-?\\d+(?:\\.\\d+)?)%\\s*$/);
+        var color = posMatch ? seg.slice(0, posMatch.index).trim() : seg.trim();
+        if (!color) return;
+        var position = posMatch ? Math.max(0, Math.min(100, Number(posMatch[1]))) : index / Math.max(1, stopSegments.length - 1) * 100;
+        stops.push({ id: "gstop-" + index, color, position });
+      });
+      if (stops.length < 2) return null;
+      return { angle, stops };
+    }
+    function linearGradientToCss(gradient) {
+      var sorted = gradient.stops.slice().sort(function(a, b) {
+        return a.position - b.position;
+      });
+      var stopsCss = sorted.map(function(stop) {
+        return stop.color + " " + Math.round(stop.position * 100) / 100 + "%";
+      }).join(", ");
+      return "linear-gradient(" + Math.round(gradient.angle * 100) / 100 + "deg, " + stopsCss + ")";
+    }
+    var gradientEditTarget = null;
+    var gradientDrag = null;
+    function gradientEditTargetElement() {
+      if (!gradientEditTarget) return null;
+      return document.querySelector(
+        '[data-agent-native-node-id="' + String(gradientEditTarget.nodeId).replace(/\\\\/g, "\\\\\\\\").replace(/"/g, '\\\\"') + '"]'
+      );
+    }
+    function hideGradientOverlay() {
+      gradientOverlay.style.display = "none";
+      while (gradientOverlay.querySelectorAll("[data-gradient-stop]").length) {
+        var stopEl = gradientOverlay.querySelector("[data-gradient-stop]");
+        if (stopEl && stopEl.parentNode) stopEl.parentNode.removeChild(stopEl);
+      }
+    }
+    function positionGradientOverlay() {
+      var target = gradientEditTarget;
+      if (!target) {
+        hideGradientOverlay();
+        return;
+      }
+      var el = gradientEditTargetElement();
+      if (!el || !document.documentElement.contains(el)) {
+        hideGradientOverlay();
+        return;
+      }
+      var gradient = parseLinearGradientCss(target.cssValue);
+      if (!gradient) {
+        hideGradientOverlay();
+        return;
+      }
+      var rect = el.getBoundingClientRect();
+      var width = Math.max(1, rect.width);
+      var height = Math.max(1, rect.height);
+      gradientOverlay.style.display = "block";
+      gradientOverlay.style.left = rect.left + "px";
+      gradientOverlay.style.top = rect.top + "px";
+      gradientOverlay.style.width = width + "px";
+      gradientOverlay.style.height = height + "px";
+      var line = gradientLineEndpoints(gradient.angle, width, height);
+      var stopPoints = gradientStopPoints(
+        gradient.angle,
+        width,
+        height,
+        gradient.stops
+      );
+      var line1 = chromeLineScale();
+      var lineStrokeWidth = Math.max(1, 1.5 * line1);
+      gradientOverlaySvg.setAttribute("viewBox", "0 0 " + width + " " + height);
+      [gradientOverlayLineOutline, gradientOverlayLine].forEach(
+        function(lineEl, index) {
+          lineEl.setAttribute("x1", String(line.start.x));
+          lineEl.setAttribute("y1", String(line.start.y));
+          lineEl.setAttribute("x2", String(line.end.x));
+          lineEl.setAttribute("y2", String(line.end.y));
+          lineEl.setAttribute(
+            "stroke-width",
+            String(index === 0 ? lineStrokeWidth + 1.5 * line1 : lineStrokeWidth)
+          );
+        }
+      );
+      var endpointSize = 10 * line1;
+      var endpointBorderWidth = Math.max(1, 1.5 * line1);
+      [
+        { el: gradientOverlayStartHandle, point: line.start, which: "start" },
+        { el: gradientOverlayEndHandle, point: line.end, which: "end" }
+      ].forEach(function(entry) {
+        entry.el.style.left = entry.point.x - endpointSize / 2 + "px";
+        entry.el.style.top = entry.point.y - endpointSize / 2 + "px";
+        entry.el.style.width = endpointSize + "px";
+        entry.el.style.height = endpointSize + "px";
+        entry.el.style.borderWidth = endpointBorderWidth + "px";
+        entry.el.setAttribute(
+          "aria-valuenow",
+          String(Math.round(gradient.angle))
+        );
+      });
+      hideGradientOverlayStops();
+      var stopSize = 12 * line1;
+      var stopBorderWidth = Math.max(1, 2 * line1);
+      stopPoints.forEach(function(point, index) {
+        var stop = gradient.stops[index];
+        if (!stop) return;
+        var stopEl = document.createElement("span");
+        stopEl.setAttribute("data-gradient-stop", stop.id);
+        stopEl.setAttribute("role", "slider");
+        stopEl.setAttribute(
+          "aria-label",
+          stop.color + " at " + Math.round(stop.position) + "%"
+        );
+        stopEl.setAttribute("aria-valuenow", String(Math.round(stop.position)));
+        stopEl.style.cssText = "position:absolute;pointer-events:auto;cursor:grab;border-radius:999px;box-sizing:border-box;border:1px solid white;box-shadow:0 0 0 1px rgba(0,0,0,0.25);";
+        stopEl.style.left = point.x - stopSize / 2 + "px";
+        stopEl.style.top = point.y - stopSize / 2 + "px";
+        stopEl.style.width = stopSize + "px";
+        stopEl.style.height = stopSize + "px";
+        stopEl.style.borderWidth = stopBorderWidth + "px";
+        stopEl.style.backgroundColor = stop.color;
+        stopEl.addEventListener("pointerdown", function(ev) {
+          beginGradientDrag(ev, { kind: "stop", stopId: stop.id });
+        });
+        gradientOverlay.appendChild(stopEl);
+      });
+    }
+    function hideGradientOverlayStops() {
+      Array.prototype.slice.call(gradientOverlay.querySelectorAll("[data-gradient-stop]")).forEach(function(node) {
+        if (node.parentNode) node.parentNode.removeChild(node);
+      });
+    }
+    function gradientOverlayLocalPoint(event) {
+      var rect = gradientOverlay.getBoundingClientRect();
+      return { x: event.clientX - rect.left, y: event.clientY - rect.top };
+    }
+    function emitGradientChange(gradient, phase) {
+      if (!gradientEditTarget) return;
+      window.parent.postMessage(
+        {
+          type: "gradient-edit-change",
+          nodeId: gradientEditTarget.nodeId,
+          cssValue: linearGradientToCss(gradient),
+          phase
+        },
+        "*"
+      );
+      gradientEditTarget = {
+        nodeId: gradientEditTarget.nodeId,
+        cssValue: linearGradientToCss(gradient)
+      };
+    }
+    function beginGradientDrag(event, kind) {
+      event.stopPropagation();
+      event.preventDefault();
+      gradientDrag = {
+        kind: kind.kind,
+        which: kind.kind === "endpoint" ? kind.which : void 0,
+        stopId: kind.kind === "stop" ? kind.stopId : void 0,
+        pointerId: event.pointerId
+      };
+      var handleEl = event.currentTarget;
+      if (handleEl && handleEl.setPointerCapture) {
+        handleEl.setPointerCapture(event.pointerId);
+      }
+      document.addEventListener("pointermove", onGradientDragMove, true);
+      document.addEventListener("pointerup", onGradientDragEnd, true);
+      document.addEventListener("pointercancel", onGradientDragEnd, true);
+    }
+    function onGradientDragMove(event) {
+      var drag = gradientDrag;
+      var target = gradientEditTarget;
+      var el = gradientEditTargetElement();
+      if (!drag || drag.pointerId !== event.pointerId || !target || !el) return;
+      var gradient = parseLinearGradientCss(target.cssValue);
+      if (!gradient) return;
+      var rect = el.getBoundingClientRect();
+      var width = Math.max(1, rect.width);
+      var height = Math.max(1, rect.height);
+      var local = gradientOverlayLocalPoint(event);
+      if (drag.kind === "endpoint" && drag.which) {
+        var nextAngle = angleFromDraggedEndpoint(
+          local,
+          width,
+          height,
+          drag.which
+        );
+        emitGradientChange(
+          { angle: nextAngle, stops: gradient.stops },
+          "preview"
+        );
+        positionGradientOverlay();
+        return;
+      }
+      if (drag.kind === "stop" && drag.stopId) {
+        var nextPosition = stopPercentFromDraggedPoint(
+          local,
+          gradient.angle,
+          width,
+          height
+        );
+        var stopId = drag.stopId;
+        emitGradientChange(
+          {
+            angle: gradient.angle,
+            stops: gradient.stops.map(function(stop) {
+              return stop.id === stopId ? { id: stop.id, color: stop.color, position: nextPosition } : stop;
+            })
+          },
+          "preview"
+        );
+        positionGradientOverlay();
+      }
+    }
+    function onGradientDragEnd(event) {
+      var drag = gradientDrag;
+      if (!drag || drag.pointerId !== event.pointerId) return;
+      gradientDrag = null;
+      document.removeEventListener("pointermove", onGradientDragMove, true);
+      document.removeEventListener("pointerup", onGradientDragEnd, true);
+      document.removeEventListener("pointercancel", onGradientDragEnd, true);
+      var target = gradientEditTarget;
+      if (!target) return;
+      var gradient = parseLinearGradientCss(target.cssValue);
+      if (!gradient) return;
+      emitGradientChange(gradient, "commit");
+    }
+    gradientOverlayStartHandle.addEventListener(
+      "pointerdown",
+      function(ev) {
+        beginGradientDrag(ev, { kind: "endpoint", which: "start" });
+      }
+    );
+    gradientOverlayEndHandle.addEventListener(
+      "pointerdown",
+      function(ev) {
+        beginGradientDrag(ev, { kind: "endpoint", which: "end" });
+      }
+    );
     function currentRotation(el) {
       var transform = el.style.transform || window.getComputedStyle(el).transform || "";
       var match = transform.match(/rotate\\((-?\\d+(?:\\.\\d+)?)deg\\)/);
@@ -2994,36 +3374,6 @@ export const editorChromeBridgeScript: string = `"use strict";
       var cs = window.getComputedStyle(el);
       return cs.position === "absolute" || cs.position === "fixed";
     }
-    function absolutePrimitiveContainerTargetForPoint(el, clientX, clientY) {
-      var hits = document.elementsFromPoint ? document.elementsFromPoint(clientX, clientY) : [document.elementFromPoint(clientX, clientY)];
-      var seen = [];
-      for (var i = 0; i < hits.length; i += 1) {
-        var cursor = hits[i];
-        var candidate = null;
-        while (cursor && cursor !== document.body) {
-          if (isAbsolutePrimitiveContainer(cursor)) {
-            candidate = cursor;
-            break;
-          }
-          cursor = cursor.parentElement;
-        }
-        if (!candidate || seen.indexOf(candidate) !== -1) continue;
-        seen.push(candidate);
-        if (candidate === el) continue;
-        if (el && el.contains && el.contains(candidate)) continue;
-        if (el && candidate.contains && candidate.contains(el)) continue;
-        if (isOverlayElement(candidate) || isLayerInteractionBlocked(candidate)) {
-          continue;
-        }
-        return {
-          anchor: candidate,
-          placement: "inside",
-          axis: "y",
-          dropMode: "absolute-container"
-        };
-      }
-      return null;
-    }
     function isOutsideIframeViewport(clientX, clientY) {
       return clientX < 0 || clientY < 0 || clientX > window.innerWidth || clientY > window.innerHeight;
     }
@@ -3269,17 +3619,9 @@ export const editorChromeBridgeScript: string = `"use strict";
             dropMode: "flow-insert"
           };
         }
-        if (isAbsolutePrimitiveContainer(cursor)) {
-          return {
-            anchor: cursor,
-            placement: "inside",
-            axis: "y",
-            dropMode: "absolute-container"
-          };
-        }
         cursor = parent;
       }
-      return absolutePrimitiveContainerTargetForPoint(el, clientX, clientY);
+      return null;
     }
     function showInsertionGuideFor(target) {
       if (!target || !target.anchor) {
@@ -3372,6 +3714,123 @@ export const editorChromeBridgeScript: string = `"use strict";
         },
         "*"
       );
+    }
+    var SNAP_THRESHOLD_PX = 6;
+    var SNAP_CANDIDATE_CAP = 200;
+    function rectBounds(rect) {
+      return {
+        left: rect.left,
+        top: rect.top,
+        right: rect.left + rect.width,
+        bottom: rect.top + rect.height,
+        centerX: rect.left + rect.width / 2,
+        centerY: rect.top + rect.height / 2
+      };
+    }
+    function collectSnapCandidateRects(dragEl) {
+      var rects = [];
+      var parent = dragEl && dragEl.parentElement;
+      if (parent) {
+        var parentRect = parent.getBoundingClientRect();
+        if (parentRect.width > 0 && parentRect.height > 0) {
+          rects.push(rectBounds(parentRect));
+        }
+      }
+      var offsetParent = dragEl && dragEl.offsetParent;
+      if (parent) {
+        var siblings = Array.prototype.slice.call(parent.children);
+        for (var i = 0; i < siblings.length && rects.length < SNAP_CANDIDATE_CAP; i += 1) {
+          var sibling = siblings[i];
+          if (!sibling || sibling === dragEl || sibling.nodeType !== 1 || isOverlayElement(sibling)) {
+            continue;
+          }
+          if (offsetParent && sibling.offsetParent !== offsetParent) {
+            continue;
+          }
+          var cs = window.getComputedStyle(sibling);
+          if (cs.display === "none" || cs.visibility === "hidden") continue;
+          var rect = sibling.getBoundingClientRect();
+          if (rect.width <= 0 || rect.height <= 0) continue;
+          rects.push(rectBounds(rect));
+        }
+      }
+      return rects;
+    }
+    function computeMoveSnapOffset(movingRect, candidates, threshold) {
+      var moving = rectBounds(movingRect);
+      var bestX = null;
+      var bestY = null;
+      for (var i = 0; i < candidates.length; i += 1) {
+        var candidate = candidates[i];
+        var xValues = [moving.left, moving.centerX, moving.right];
+        var xTargets = [candidate.left, candidate.centerX, candidate.right];
+        for (var xi = 0; xi < xValues.length; xi += 1) {
+          for (var xj = 0; xj < xTargets.length; xj += 1) {
+            var offsetX = xTargets[xj] - xValues[xi];
+            var distanceX = Math.abs(offsetX);
+            if (distanceX > threshold) continue;
+            if (!bestX || distanceX < bestX.distance) {
+              bestX = {
+                distance: distanceX,
+                offset: offsetX,
+                guide: {
+                  position: xTargets[xj],
+                  start: Math.min(moving.top, candidate.top),
+                  end: Math.max(moving.bottom, candidate.bottom)
+                }
+              };
+            }
+          }
+        }
+        var yValues = [moving.top, moving.centerY, moving.bottom];
+        var yTargets = [candidate.top, candidate.centerY, candidate.bottom];
+        for (var yi = 0; yi < yValues.length; yi += 1) {
+          for (var yj = 0; yj < yTargets.length; yj += 1) {
+            var offsetY = yTargets[yj] - yValues[yi];
+            var distanceY = Math.abs(offsetY);
+            if (distanceY > threshold) continue;
+            if (!bestY || distanceY < bestY.distance) {
+              bestY = {
+                distance: distanceY,
+                offset: offsetY,
+                guide: {
+                  position: yTargets[yj],
+                  start: Math.min(moving.left, candidate.left),
+                  end: Math.max(moving.right, candidate.right)
+                }
+              };
+            }
+          }
+        }
+      }
+      return {
+        dx: bestX ? bestX.offset : 0,
+        dy: bestY ? bestY.offset : 0,
+        guideV: bestX ? bestX.guide : null,
+        guideH: bestY ? bestY.guide : null
+      };
+    }
+    function showSnapGuides(guideV, guideH) {
+      if (guideV) {
+        snapGuideV.style.display = "block";
+        snapGuideV.style.left = Math.round(guideV.position) + "px";
+        snapGuideV.style.top = Math.round(guideV.start) + "px";
+        snapGuideV.style.height = Math.max(1, guideV.end - guideV.start) + "px";
+      } else {
+        snapGuideV.style.display = "none";
+      }
+      if (guideH) {
+        snapGuideH.style.display = "block";
+        snapGuideH.style.top = Math.round(guideH.position) + "px";
+        snapGuideH.style.left = Math.round(guideH.start) + "px";
+        snapGuideH.style.width = Math.max(1, guideH.end - guideH.start) + "px";
+      } else {
+        snapGuideH.style.display = "none";
+      }
+    }
+    function hideSnapGuides() {
+      snapGuideV.style.display = "none";
+      snapGuideH.style.display = "none";
     }
     function startMove(e) {
       if (!selectedEl) return;
@@ -3538,6 +3997,10 @@ export const editorChromeBridgeScript: string = `"use strict";
       var moved = false;
       var DRAG_THRESHOLD = 3;
       var currentAutoLayoutTarget = null;
+      var snapCandidateRects = collectSnapCandidateRects(dragEl);
+      var dragElStartRect = dragEl.getBoundingClientRect();
+      var dragElStartWidth = dragElStartRect.width;
+      var dragElStartHeight = dragElStartRect.height;
       if (!duplicatedForDrag) {
         postCrossScreenDrag("start", dragEl, e);
       }
@@ -3545,8 +4008,30 @@ export const editorChromeBridgeScript: string = `"use strict";
         if (!moved && Math.hypot(ev.clientX - startX, ev.clientY - startY) > DRAG_THRESHOLD) {
           moved = true;
         }
-        var nextLeft = originLeft + ev.clientX - startX;
-        var nextTop = originTop + ev.clientY - startY;
+        var rawDx = ev.clientX - startX;
+        var rawDy = ev.clientY - startY;
+        if (ev.shiftKey) {
+          if (Math.abs(rawDx) > Math.abs(rawDy)) {
+            rawDy = 0;
+          } else {
+            rawDx = 0;
+          }
+        }
+        var nextLeft = originLeft + rawDx;
+        var nextTop = originTop + rawDy;
+        var snapBypass = Boolean(ev.metaKey || ev.ctrlKey);
+        var snapResult = !snapBypass && !duplicatedForDrag ? computeMoveSnapOffset(
+          {
+            left: nextLeft,
+            top: nextTop,
+            width: dragElStartWidth,
+            height: dragElStartHeight
+          },
+          snapCandidateRects,
+          SNAP_THRESHOLD_PX
+        ) : { dx: 0, dy: 0, guideV: null, guideH: null };
+        nextLeft += snapResult.dx;
+        nextTop += snapResult.dy;
         dragEl.style.left = Math.round(nextLeft) + "px";
         dragEl.style.top = Math.round(nextTop) + "px";
         if (!duplicatedForDrag) {
@@ -3566,7 +4051,16 @@ export const editorChromeBridgeScript: string = `"use strict";
             dragEl.style.opacity = originalInlineOpacity;
           }
         }
-        hideTransformBadge();
+        if (currentAutoLayoutTarget || !duplicatedForDrag && isOutsideIframeViewport(ev.clientX, ev.clientY)) {
+          hideSnapGuides();
+        } else {
+          showSnapGuides(snapResult.guideV, snapResult.guideH);
+        }
+        showTransformBadge(
+          Math.round(nextLeft) + ", " + Math.round(nextTop),
+          ev.clientX,
+          ev.clientY
+        );
         refreshOverlays();
       }
       function restoreSourceDragPosition() {
@@ -3587,6 +4081,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         cleanupMoveDrag();
         hideTransformBadge();
         hideInsertionGuide();
+        hideSnapGuides();
         currentAutoLayoutTarget = null;
         if (duplicatedForDrag) {
           if (dragEl && dragEl.parentElement) {
@@ -3612,6 +4107,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         cleanupMoveDrag();
         hideTransformBadge();
         hideInsertionGuide();
+        hideSnapGuides();
         if (!dragEl) return;
         var outsideOnDrop = ev ? isOutsideIframeViewport(ev.clientX, ev.clientY) : false;
         if (ev && !duplicatedForDrag && (outsideOnDrop || designCanvasBoardSurface)) {
@@ -3684,10 +4180,16 @@ export const editorChromeBridgeScript: string = `"use strict";
       var originalInlineTop = resizeEl.style.top;
       var originalInlineWidth = resizeEl.style.width;
       var originalInlineHeight = resizeEl.style.height;
+      var originalInlineBorderWidth = resizeEl.style.borderWidth;
+      var originalInlineFontSize = resizeEl.style.fontSize;
       ensurePositionable(resizeEl);
       var cs = window.getComputedStyle(resizeEl);
       var originW = readPx(resizeEl.style.width || cs.width);
       var originH = readPx(resizeEl.style.height || cs.height);
+      var originBorderWidth = readPx(
+        resizeEl.style.borderWidth || cs.borderWidth
+      );
+      var originFontSize = readPx(resizeEl.style.fontSize || cs.fontSize);
       var origin = {
         left: readPx(resizeEl.style.left || cs.left),
         top: readPx(resizeEl.style.top || cs.top),
@@ -3769,6 +4271,18 @@ export const editorChromeBridgeScript: string = `"use strict";
         resizeEl.style.top = Math.round(rect.top) + "px";
         resizeEl.style.width = Math.round(rect.width) + "px";
         resizeEl.style.height = Math.round(rect.height) + "px";
+        if (scaleToolEnabled) {
+          var kScaleFactor = rect.width / Math.max(1, origin.width);
+          if (originBorderWidth > 0) {
+            resizeEl.style.borderWidth = Math.max(
+              0,
+              Math.round(originBorderWidth * kScaleFactor * 100) / 100
+            ) + "px";
+          }
+          if (originFontSize > 0) {
+            resizeEl.style.fontSize = Math.max(1, Math.round(originFontSize * kScaleFactor * 100) / 100) + "px";
+          }
+        }
         showTransformBadge(
           Math.round(rect.width) + " x " + Math.round(rect.height),
           ev.clientX,
@@ -3791,6 +4305,8 @@ export const editorChromeBridgeScript: string = `"use strict";
           resizeEl.style.top = originalInlineTop;
           resizeEl.style.width = originalInlineWidth;
           resizeEl.style.height = originalInlineHeight;
+          resizeEl.style.borderWidth = originalInlineBorderWidth;
+          resizeEl.style.fontSize = originalInlineFontSize;
           selectedEl = resizeEl;
           positionOverlay(selectionOverlay, selectedEl);
         }
@@ -3807,17 +4323,24 @@ export const editorChromeBridgeScript: string = `"use strict";
         cleanupResizeDrag();
         hideTransformBadge();
         if (!resizeEl) return;
+        var styles = {
+          position: resizeEl.style.position,
+          left: resizeEl.style.left,
+          top: resizeEl.style.top,
+          width: resizeEl.style.width,
+          height: resizeEl.style.height
+        };
+        if (scaleToolEnabled && originBorderWidth > 0) {
+          styles.borderWidth = resizeEl.style.borderWidth;
+        }
+        if (scaleToolEnabled && originFontSize > 0) {
+          styles.fontSize = resizeEl.style.fontSize;
+        }
         window.parent.postMessage(
           {
             type: "visual-style-change",
             selector: getSelector(resizeEl),
-            styles: {
-              position: resizeEl.style.position,
-              left: resizeEl.style.left,
-              top: resizeEl.style.top,
-              width: resizeEl.style.width,
-              height: resizeEl.style.height
-            },
+            styles,
             payload: getElementInfo(resizeEl)
           },
           "*"
@@ -4104,6 +4627,19 @@ export const editorChromeBridgeScript: string = `"use strict";
       },
       true
     );
+    document.addEventListener(
+      "keyup",
+      function(e) {
+        if (e.key !== " " || e.code !== "Space") return;
+        if (activeTextEditEl || isEditorTypingTarget(e.target)) return;
+        stopNativeInteraction(e);
+        window.parent.postMessage(
+          { type: "design-hotkey-up", key: e.key, code: e.code },
+          "*"
+        );
+      },
+      true
+    );
     function hasFigmaClipboardPayload(value) {
       return /<[^>]+\\sdata-(metadata|buffer)=["'][^"']*\\((figmeta|figma)\\)[^"']*["']/i.test(
         String(value || "")
@@ -4186,7 +4722,24 @@ export const editorChromeBridgeScript: string = `"use strict";
       var programmaticFlag = !!e && e.agentNativeProgrammaticTextEdit === true;
       var rawTargetFallback = programmaticFlag && !isRejectedRawTextEditTarget(eventTarget) ? eventTarget : null;
       var target = findTextEditTarget(elementFromEditorPoint(e.clientX, e.clientY)) || findTextEditTarget(eventTarget) || rawTargetFallback;
-      if (!target || target.nodeType !== 1) return;
+      if (!target || target.nodeType !== 1) {
+        var descendHit = elementFromEditorPoint(e.clientX, e.clientY);
+        if (descendHit && descendHit !== document.body && descendHit !== document.documentElement && !isLayerInteractionBlocked(descendHit)) {
+          var previousSelectedElForDescend = selectedEl;
+          var descendTarget = selectionTargetForHit(descendHit);
+          if (descendTarget && !isLayerInteractionBlocked(descendTarget)) {
+            selectedEl = descendTarget;
+            positionOverlay(selectionOverlay, selectedEl);
+            preservePreviousSelectedElementForShiftClick(
+              previousSelectedElForDescend,
+              selectedEl,
+              e
+            );
+            postElementSelect(selectedEl, e);
+          }
+        }
+        return;
+      }
       selectedEl = selectionTargetForHit(target) || target;
       var programmaticTextEdit = programmaticFlag;
       var originalText = target.textContent || "";
@@ -4316,6 +4869,12 @@ export const editorChromeBridgeScript: string = `"use strict";
         if (metaOrCtrl && !ev.altKey && ev.key.toLowerCase() === "i") {
           ev.preventDefault();
           document.execCommand("italic");
+          scheduleTextEditingChromeUpdate();
+          return;
+        }
+        if (metaOrCtrl && !ev.altKey && ev.key.toLowerCase() === "u") {
+          ev.preventDefault();
+          document.execCommand("underline");
           scheduleTextEditingChromeUpdate();
           return;
         }
@@ -4524,6 +5083,47 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       if (e.data.type === "scale-tool-mode") {
         scaleToolEnabled = !!e.data.enabled;
+        return;
+      }
+      if (e.data.type === "gradient-edit-target") {
+        var gradientTargetNodeId = typeof e.data.nodeId === "string" ? e.data.nodeId : "";
+        var gradientTargetCssValue = typeof e.data.cssValue === "string" ? e.data.cssValue : "";
+        if (!gradientTargetNodeId || !gradientTargetCssValue) {
+          gradientEditTarget = null;
+          hideGradientOverlay();
+          return;
+        }
+        gradientEditTarget = {
+          nodeId: gradientTargetNodeId,
+          cssValue: gradientTargetCssValue
+        };
+        positionGradientOverlay();
+        return;
+      }
+      if (e.data.type === "gradient-edit-clear") {
+        gradientEditTarget = null;
+        hideGradientOverlay();
+        return;
+      }
+      if (e.data.type === "state-preview") {
+        var statePreviewTargetNodeId = typeof e.data.nodeId === "string" ? e.data.nodeId : "";
+        var statePreviewState = typeof e.data.state === "string" ? e.data.state : "";
+        if (statePreviewNodeId) {
+          var previousStatePreviewEl = document.querySelector(
+            '[data-agent-native-node-id="' + String(statePreviewNodeId).replace(/\\\\/g, "\\\\\\\\").replace(/"/g, '\\\\"') + '"]'
+          );
+          if (previousStatePreviewEl) {
+            previousStatePreviewEl.removeAttribute("data-an-state-preview");
+          }
+          statePreviewNodeId = null;
+        }
+        if (!statePreviewTargetNodeId || !statePreviewState) return;
+        var statePreviewEl = document.querySelector(
+          '[data-agent-native-node-id="' + String(statePreviewTargetNodeId).replace(/\\\\/g, "\\\\\\\\").replace(/"/g, '\\\\"') + '"]'
+        );
+        if (!statePreviewEl) return;
+        statePreviewEl.setAttribute("data-an-state-preview", statePreviewState);
+        statePreviewNodeId = statePreviewTargetNodeId;
         return;
       }
       if (e.data.type === "agent-native:cancel-active-drag") {
@@ -4795,8 +5395,8 @@ export const editorChromeBridgeScript: string = `"use strict";
         refreshOverlays();
       }
     });
-    window.addEventListener("scroll", refreshOverlays, true);
-    window.addEventListener("resize", refreshOverlays);
+    window.addEventListener("scroll", scheduleRefreshOverlays, true);
+    window.addEventListener("resize", scheduleRefreshOverlays);
     applyEditorChromeScale();
     window.parent.postMessage(
       { type: "agent-native:editor-chrome-ready" },

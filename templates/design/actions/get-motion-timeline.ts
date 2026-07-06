@@ -10,8 +10,17 @@ import {
   hashCss,
   parse,
   parseFirstAnimationDurationMs,
+  parsePlaybackMode,
+  parseTimelineSpanMs,
 } from "../shared/motion-compiler.js";
-import type { MotionTrack } from "../shared/motion-timeline.js";
+import type {
+  MotionPlaybackMode,
+  MotionTrack,
+} from "../shared/motion-timeline.js";
+import {
+  MOTION_DEFAULT_PLAYBACK_MODE,
+  readTimelinePlaybackMode,
+} from "../shared/motion-timeline.js";
 
 type TimelineSource = "stored" | "recovered-css" | "stored-css-drift";
 
@@ -22,6 +31,12 @@ interface TimelineResult {
   filePath: string | null;
   tracks: unknown;
   durationMs: number;
+  /**
+   * Timeline playback mode: from the tracks JSON stamp for stored rows,
+   * recovered from animation-iteration-count/direction for CSS-recovered
+   * timelines, "once" for timelines that predate the field.
+   */
+  playbackMode: MotionPlaybackMode;
   defaultEase: string;
   compiledHash: string | null;
   cssHash?: string | null;
@@ -47,6 +62,7 @@ async function readManagedCssForSource(args: {
   hash: string;
   tracks: MotionTrack[];
   durationMs: number | null;
+  playbackMode: MotionPlaybackMode | null;
 } | null> {
   if (!args.sourceRef) return null;
 
@@ -88,7 +104,10 @@ async function readManagedCssForSource(args: {
     css,
     hash: hashCss(css),
     tracks,
-    durationMs: parseFirstAnimationDurationMs(css),
+    // Timeline span (max delay + duration) is robust when tracks carry
+    // per-track offsets/durations; fall back to the first duration.
+    durationMs: parseTimelineSpanMs(css) ?? parseFirstAnimationDurationMs(css),
+    playbackMode: parsePlaybackMode(css),
   };
 }
 
@@ -96,10 +115,13 @@ export default defineAction({
   description:
     "Read one or all motion timelines for a design. " +
     "Returns timeline metadata (id, sourceRef, filePath, durationMs, " +
-    "defaultEase, compiledHash) and the full tracks array (each track has " +
-    "targetNodeId, property, and keyframes). If sourceRef points at a design " +
-    "file and the metadata is missing or stale, recovers editable tracks from " +
-    "the managed <style data-agent-native-motion> block. Read-only.",
+    "playbackMode [loop|once|ping-pong], defaultEase, compiledHash) and the " +
+    "full tracks array (each track has targetNodeId, property, keyframes " +
+    "with per-segment easing incl. spring(...)/linear(...), and optional " +
+    "delayMs/durationMs start-offset timing). If sourceRef points at a " +
+    "design file and the metadata is missing or stale, recovers editable " +
+    "tracks (incl. offsets and playback mode) from the managed " +
+    "<style data-agent-native-motion> block. Read-only.",
   readOnly: true,
   http: { method: "GET" },
   schema: z.object({
@@ -151,13 +173,17 @@ export default defineAction({
       .limit(timelineId ? 1 : 100);
 
     const timelines: TimelineResult[] = rows.map((row) => {
+      const parsedTracks = parseTrackJson(row.tracks);
       return {
         id: row.id,
         designId: row.designId,
         sourceRef: row.sourceRef ?? null,
         filePath: row.filePath ?? null,
-        tracks: parseTrackJson(row.tracks),
+        tracks: parsedTracks,
         durationMs: row.durationMs,
+        playbackMode:
+          readTimelinePlaybackMode(parsedTracks) ??
+          MOTION_DEFAULT_PLAYBACK_MODE,
         defaultEase: row.defaultEase,
         compiledHash: row.compiledHash ?? null,
         cssHash: null,
@@ -183,6 +209,7 @@ export default defineAction({
           // Recover the compiled animation-duration instead of inventing a
           // default the next save would silently persist.
           durationMs: managedCss.durationMs ?? 1000,
+          playbackMode: managedCss.playbackMode ?? MOTION_DEFAULT_PLAYBACK_MODE,
           defaultEase: "ease",
           compiledHash: managedCss.hash,
           cssHash: managedCss.hash,
@@ -197,6 +224,7 @@ export default defineAction({
           // In the drift case the CSS is the runtime truth — surface its
           // compiled duration alongside its recovered tracks.
           durationMs: managedCss.durationMs ?? first.durationMs,
+          playbackMode: managedCss.playbackMode ?? first.playbackMode,
           cssHash: managedCss.hash,
           source: "stored-css-drift",
         };

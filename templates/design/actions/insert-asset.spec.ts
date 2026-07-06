@@ -12,6 +12,22 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => {
+  // `where()` must behave both as a directly-awaited result (the initial
+  // multi-file lookup in insert-asset.ts) AND as a chain that supports a
+  // trailing `.limit(1)` (writeInlineSourceFile's internal re-select in
+  // server/source-workspace.ts, now used by the action's write path).
+  // Returning a real Promise with an extra `.limit()` method attached covers
+  // both call shapes with the same mocked resolved rows, narrowed by id when
+  // the predicate looks like `eq(designFiles.id, someId)`.
+  function makeWhereResult(rows: unknown[]) {
+    const promise = Promise.resolve(rows) as Promise<unknown[]> & {
+      limit: (n: number) => Promise<unknown[]>;
+    };
+    promise.limit = vi.fn().mockResolvedValue(rows);
+    return promise;
+  }
+
+  let rows: Array<Record<string, unknown>> = [];
   const fileSelectChain = {
     from: vi.fn(),
     innerJoin: vi.fn(),
@@ -19,21 +35,43 @@ const mocks = vi.hoisted(() => {
   };
   fileSelectChain.from.mockReturnValue(fileSelectChain);
   fileSelectChain.innerJoin.mockReturnValue(fileSelectChain);
+  fileSelectChain.where.mockImplementation(
+    (predicate?: { left?: unknown; right?: unknown }) => {
+      if (predicate && predicate.left === "designFiles.id") {
+        return makeWhereResult(
+          rows.filter((row) => row.id === predicate.right),
+        );
+      }
+      return makeWhereResult(rows);
+    },
+  );
 
   const updateChain = { set: vi.fn(), where: vi.fn() };
   updateChain.set.mockReturnValue(updateChain);
+  updateChain.where.mockResolvedValue(undefined);
 
   const db = {
     select: vi.fn(() => fileSelectChain),
     update: vi.fn(() => updateChain),
   };
 
+  // Shared with the @agent-native/core/collab mock below: writeInlineSourceFile
+  // re-reads getText() right after seedFromText/applyText to persist the
+  // "authoritative" collab content back to SQL, so seedFromText must
+  // actually store what getText reads back. Cleared per-test in beforeEach.
+  const seededCollabText = new Map<string, string>();
+
   return {
     db,
     fileSelectChain,
     updateChain,
+    seededCollabText,
+    setRows: (next: Array<Record<string, unknown>>) => {
+      rows = next;
+    },
     accessFilter: vi.fn(() => ({ access: true })),
     assertAccess: vi.fn().mockResolvedValue(undefined),
+    resolveAccess: vi.fn().mockResolvedValue({ role: "editor", resource: {} }),
     and: vi.fn((...args) => ({ and: args })),
     eq: vi.fn((left, right) => ({ left, right })),
   };
@@ -42,6 +80,7 @@ const mocks = vi.hoisted(() => {
 vi.mock("@agent-native/core/sharing", () => ({
   accessFilter: mocks.accessFilter,
   assertAccess: mocks.assertAccess,
+  resolveAccess: mocks.resolveAccess,
 }));
 
 vi.mock("drizzle-orm", () => ({
@@ -53,12 +92,20 @@ vi.mock("@agent-native/core/application-state", () => ({
   readAppStateForCurrentTab: vi.fn().mockResolvedValue(null),
 }));
 
-vi.mock("@agent-native/core/collab", () => ({
-  hasCollabState: vi.fn().mockResolvedValue(false),
-  getText: vi.fn(),
-  applyText: vi.fn(),
-  seedFromText: vi.fn().mockResolvedValue(undefined),
-}));
+vi.mock("@agent-native/core/collab", () => {
+  const seeded = mocks.seededCollabText;
+  return {
+    hasCollabState: vi.fn().mockResolvedValue(false),
+    getText: vi.fn(async (docId: string) => seeded.get(docId) ?? ""),
+    applyText: vi.fn(async (docId: string, text: string) => {
+      seeded.set(docId, text);
+      return text;
+    }),
+    seedFromText: vi.fn(async (docId: string, text: string) => {
+      if (!seeded.has(docId)) seeded.set(docId, text);
+    }),
+  };
+});
 
 vi.mock("../server/db/index.js", () => ({
   getDb: () => mocks.db,
@@ -83,7 +130,7 @@ const MALICIOUS_URL =
   "https://evil.example.com/a'));</style><script>alert(1)</script><style x='.png";
 
 function setFile(content: string) {
-  mocks.fileSelectChain.where.mockResolvedValue([
+  mocks.setRows([
     {
       id: "file-1",
       designId: "design-1",
@@ -97,6 +144,7 @@ function setFile(content: string) {
 describe("insert-asset", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mocks.seededCollabText.clear();
     mocks.assertAccess.mockResolvedValue(undefined);
     mocks.updateChain.where.mockResolvedValue(undefined);
   });

@@ -33,7 +33,15 @@ import {
   compile,
   injectManagedMotionCss,
 } from "../shared/motion-compiler.js";
-import type { MotionTrack } from "../shared/motion-timeline.js";
+import { parseSpringToken } from "../shared/motion-easing.js";
+import type {
+  MotionPlaybackMode,
+  MotionTrack,
+} from "../shared/motion-timeline.js";
+import {
+  readTimelinePlaybackMode,
+  withTimelinePlaybackMode,
+} from "../shared/motion-timeline.js";
 
 // ─── Zod schemas ─────────────────────────────────────────────────────────────
 
@@ -42,13 +50,23 @@ const keyframeSchema = z.object({
     .number()
     .min(0)
     .max(1)
-    .describe("Normalised time in [0, 1] where 0 = 0% and 1 = 100%."),
+    .describe(
+      "Normalised time in [0, 1] within the track's own span " +
+        "(0 = span start, 1 = span end; the span is the whole timeline " +
+        "unless the track sets delayMs/durationMs).",
+    ),
   value: z.string().describe("CSS property value at this keyframe."),
   ease: z
     .string()
     .optional()
     .describe(
-      'Per-keyframe easing, e.g. "ease-out" or "cubic-bezier(0.4,0,0.2,1)".',
+      "Easing of the SEGMENT leaving this keyframe toward the next one " +
+        "(Figma semantics: the easing INTO the following keyframe). " +
+        'Accepts CSS keywords ("linear", "ease-out", "step-start" — the ' +
+        '"Hold" preset), "cubic-bezier(x1,y1,x2,y2)", "steps(n, pos)", ' +
+        'CSS "linear(...)" stop lists, and spring physics as ' +
+        '"spring(bounce)" or "spring(bounce, settle)" with bounce in [0, 1] ' +
+        "(compiled to a CSS linear() approximation).",
     ),
 });
 
@@ -61,11 +79,42 @@ const trackSchema = z.object({
     ),
   property: z
     .string()
-    .describe('CSS property to animate, e.g. "opacity" or "transform".'),
+    .describe(
+      "CSS property to animate. Figma-parity mapping: translation → " +
+        '"translate", scale → "scale", rotation → "rotate", opacity → ' +
+        '"opacity", corner radius → "border-radius", fill → ' +
+        '"background-color", stroke paint → "border-color", stroke weight ' +
+        '→ "border-width", drop shadow → "box-shadow". translate/scale/' +
+        "rotate are individual CSS transform properties, so they compose " +
+        "freely on one node as separate tracks.",
+    ),
   keyframes: z
     .array(keyframeSchema)
     .min(1)
     .describe("At least one keyframe is required per track."),
+  delayMs: z
+    .number()
+    .min(0)
+    .optional()
+    .describe(
+      "Start-time offset of this track within the timeline, in ms " +
+        "(compiled to animation-delay). Use for staggering layers.",
+    ),
+  durationMs: z
+    .number()
+    .positive()
+    .optional()
+    .describe(
+      "This track's own animation span in ms (compiled to a per-track " +
+        "animation-duration). Omit to span the whole timeline.",
+    ),
+  timelinePlaybackMode: z
+    .enum(["loop", "once", "ping-pong"])
+    .optional()
+    .describe(
+      "Internal: timeline-level playback mode stamp persisted on the first " +
+        "track. Prefer the top-level playbackMode parameter.",
+    ),
 });
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -109,6 +158,23 @@ export function motionTrackKey(targetNodeId: string, property: string): string {
   return `${targetNodeId}${MOTION_TRACK_KEY_SEPARATOR}${property}`;
 }
 
+/**
+ * Validate a caller-supplied ease token: CSS-injection safety plus
+ * spring-token well-formedness. A string that LOOKS like a spring token but
+ * cannot be parsed would otherwise pass injection checks and then be emitted
+ * verbatim into the stylesheet as an invalid timing function.
+ */
+export function assertValidMotionEase(ease: string, field: string): string {
+  assertSafeMotionCssToken(ease, field);
+  if (/^\s*spring/i.test(ease) && parseSpringToken(ease) === null) {
+    throw new Error(
+      `Invalid ${field}: "${ease}" is not a valid spring token. ` +
+        'Use "spring(bounce)" or "spring(bounce, settle)" with bounce in [0, 1].',
+    );
+  }
+  return ease;
+}
+
 async function persistFileContent(
   fileId: string,
   designId: string,
@@ -143,6 +209,11 @@ export default defineAction({
     "Persists the motion_timeline row, compiles tracks to CSS, injects the " +
     "managed <style data-agent-native-motion> block into the design's HTML, " +
     "and updates compiledHash — all in one atomic step. " +
+    "Supports the full keyframe model: per-property tracks (translate/scale/" +
+    "rotate compose as separate tracks on one node), per-segment easing " +
+    "(curves, steps, springs via spring(bounce)), playback modes " +
+    "(loop/once/ping-pong), and per-track start offsets/durations for " +
+    "staggering. " +
     "This is the durable timeline persist path; preview/scrubbing uses the " +
     "motion-preview postMessage bridge, NOT this action.",
   schema: z.object({
@@ -185,12 +256,21 @@ export default defineAction({
       // an omitted duration means the same thing on every surface.
       .default(1000)
       .describe("Total animation duration in milliseconds."),
+    playbackMode: z
+      .enum(["loop", "once", "ping-pong"])
+      .optional()
+      .describe(
+        'Timeline playback mode: "loop" repeats, "once" plays a single ' +
+          'time, "ping-pong" alternates forward/backward. Omit to keep the ' +
+          'timeline\'s existing mode (or "once" for new timelines).',
+      ),
     defaultEase: z
       .string()
       .default("ease")
       .describe(
         "Default easing applied to keyframe intervals that omit ease. " +
-          'E.g. "ease", "ease-in-out", "cubic-bezier(0.4,0,0.2,1)".',
+          'E.g. "ease", "ease-in-out", "cubic-bezier(0.4,0,0.2,1)", or ' +
+          '"spring(0.25)".',
       ),
     label: z
       .string()
@@ -217,6 +297,7 @@ export default defineAction({
     sourceRef,
     tracks,
     durationMs,
+    playbackMode,
     defaultEase,
     includeContent,
     currentContent: currentContentInput,
@@ -265,7 +346,7 @@ export default defineAction({
         : (file.content ?? "");
 
     // ── 2. Compile tracks → CSS ─────────────────────────────────────────────
-    const typedTracks = tracks as MotionTrack[];
+    const inputTracks = tracks as MotionTrack[];
 
     // Reject CSS-injection vectors in caller-supplied track properties,
     // keyframe values, and easing strings before they are compiled into the
@@ -273,7 +354,7 @@ export default defineAction({
     // pairs: the compiler derives the animation name from that pair, so a
     // duplicate would silently overwrite the earlier track's keyframes.
     const seenTrackKeys = new Set<string>();
-    for (const track of typedTracks) {
+    for (const track of inputTracks) {
       assertSafeMotionCssProperty(track.property, "track.property");
       const trackKey = motionTrackKey(track.targetNodeId, track.property);
       if (seenTrackKeys.has(trackKey)) {
@@ -287,11 +368,21 @@ export default defineAction({
       for (const kf of track.keyframes) {
         assertSafeMotionCssToken(kf.value, "keyframe value");
         if (kf.ease !== undefined) {
-          assertSafeMotionCssToken(kf.ease, "keyframe ease");
+          assertValidMotionEase(kf.ease, "keyframe ease");
         }
       }
     }
-    assertSafeMotionCssToken(defaultEase, "defaultEase");
+    assertValidMotionEase(defaultEase, "defaultEase");
+
+    // Persist the timeline-level playback mode as a stamp on the first track
+    // so the stored tracks JSON stays a plain (schema-compatible) array. An
+    // explicit playbackMode wins; otherwise any stamp already present in the
+    // incoming tracks is preserved.
+    const typedTracks = playbackMode
+      ? withTimelinePlaybackMode(inputTracks, playbackMode)
+      : inputTracks;
+    const resolvedPlaybackMode: MotionPlaybackMode =
+      playbackMode ?? readTimelinePlaybackMode(inputTracks) ?? "once";
 
     const { css, hash } = compile({
       id: timelineId ?? "",
@@ -300,6 +391,7 @@ export default defineAction({
       filePath: null,
       tracks: typedTracks,
       durationMs,
+      playbackMode: resolvedPlaybackMode,
       defaultEase,
       compiledHash: null,
       createdAt: now,
@@ -423,6 +515,7 @@ export default defineAction({
       fileId,
       sourceRef: resolvedSourceRef,
       trackCount: typedTracks.length,
+      playbackMode: resolvedPlaybackMode,
       compiledHash: hash,
       updatedAt,
       bytesBefore,

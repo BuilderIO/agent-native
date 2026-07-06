@@ -1,6 +1,7 @@
 import { defineAction } from "@agent-native/core";
 import {
   hasCollabState,
+  getText,
   applyText,
   seedFromText,
 } from "@agent-native/core/collab";
@@ -10,6 +11,7 @@ import { and, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { sourceContentHash } from "../shared/source-workspace.js";
 
 function rowsAffected(result: unknown): number | undefined {
   const candidate = result as {
@@ -42,8 +44,26 @@ export default defineAction({
       .describe(
         "Whether to mirror content updates into the live collaboration document.",
       ),
+    expectedVersionHash: z
+      .string()
+      .optional()
+      .describe(
+        "Optional optimistic-concurrency guard for content updates: the " +
+          "sourceContentHash of the live content this write was computed " +
+          "from (same semantics as apply-source-edit / read-source-file). " +
+          "When provided and the file changed since that read, the write " +
+          "fails loud instead of silently merging a stale full document " +
+          "into the collaboration state.",
+      ),
   }),
-  run: async ({ id, content, filename, fileType, syncCollab }) => {
+  run: async ({
+    id,
+    content,
+    filename,
+    fileType,
+    syncCollab,
+    expectedVersionHash,
+  }) => {
     // Path traversal guard on filename
     if (
       filename &&
@@ -81,6 +101,37 @@ export default defineAction({
     }
 
     await assertAccess("design", file.designId, "editor");
+
+    // Optimistic-concurrency guard (cross-pipeline write-race fix): a content
+    // update here is a FULL-document write that, when syncCollab runs, is
+    // char-diffed against the live collaboration text (applyText). If the
+    // caller computed `content` from a since-stale read — e.g. a base Fill
+    // style commit queued while a shader apply-source-edit landed for the
+    // same file — that silent diff-merge is exactly how the shader/fill
+    // interleave corrupted or lost screen content. When the caller supplies
+    // the hash of the content it based this write on, verify the file still
+    // matches before writing and fail loud otherwise, mirroring
+    // writeInlineSourceFile's expectedVersionHash contract (the check-then-
+    // write window here matches that existing pattern). Callers that don't
+    // pass a hash keep today's last-write-wins behavior.
+    if (expectedVersionHash !== undefined && content !== undefined) {
+      let liveContent: string;
+      if (await hasCollabState(id)) {
+        liveContent = await getText(id, "content");
+      } else {
+        const [current] = await db
+          .select({ content: schema.designFiles.content })
+          .from(schema.designFiles)
+          .where(eq(schema.designFiles.id, id))
+          .limit(1);
+        liveContent = current?.content ?? "";
+      }
+      if (sourceContentHash(liveContent) !== expectedVersionHash) {
+        throw new Error(
+          "File changed since it was read. Re-read the file and retry.",
+        );
+      }
+    }
 
     const updates: Record<string, unknown> = { updatedAt: now };
     if (content !== undefined) updates.content = content;

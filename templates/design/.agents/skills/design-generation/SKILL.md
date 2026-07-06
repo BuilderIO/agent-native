@@ -652,15 +652,18 @@ token layer, typography, nav, and footer stay identical.
 
 ## Breakpoints & screen states
 
-- **Breakpoints**: `add-breakpoint` adds a device-width frame (Mobile 390 /
-  Tablet 768 / Desktop 1280, or a custom width) to the design's breakpoint set
-  stored in `designs.data`; the Tailwind prefix is derived from the width and
-  duplicate widths are ignored. `remove-breakpoint` removes one by id.
-  `set-active-breakpoint` sets which frame is the current edit scope — editing
-  a layer while `base` is active writes unprefixed Tailwind classes, editing
-  while `md` is active writes `md:`-prefixed classes. Always check the active
-  breakpoint before making a responsive-only edit so the class lands at the
-  right prefix.
+- **Breakpoints**: `add-breakpoint` adds a device-width frame (Framer
+  defaults Phone 390 / Tablet 810 / Desktop 1200, or a custom width) to the
+  design's breakpoint set stored in `designs.data`; duplicate widths are
+  ignored. `remove-breakpoint` removes one by id. `set-active-breakpoint`
+  sets which frame is the current edit scope. Breakpoint frames are ONE
+  document rendered at different widths with a Framer-style cascade: the
+  primary (widest) frame is the base, and edits at a narrower active
+  breakpoint persist as width-scoped overrides (`max-[<bound>px]:` classes
+  or managed `@media` rules) that cascade down. Always check the active
+  breakpoint before a responsive-only edit, and pass `activeFrameWidthPx`
+  to `apply-visual-edit` so the write lands at the right scope. Read the
+  `responsive-breakpoints` skill for the full model.
 - **Design states**: `create-design-state` creates a named alternate
   DOM/Alpine snapshot (`kind: "state"` — Loading, Empty, Error), a static data
   fixture (`kind: "fixture"`), or a placeholder for a live capture

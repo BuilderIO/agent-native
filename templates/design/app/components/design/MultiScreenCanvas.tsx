@@ -7,11 +7,14 @@ import {
   DEFAULT_CANVAS_MAX_ZOOM,
   DEFAULT_CANVAS_MIN_ZOOM,
   DEFAULT_SNAP_THRESHOLD_SCREEN_PX,
+  canvasToScreenPoint,
   computeEqualGapGuides,
   computeMoveSnap,
   computeResizeSnap,
   type DistanceGuideBand,
   type EqualGapGuide,
+  type FrameBounds,
+  getCameraForBounds,
   getDraftGeometryFromPoints,
   getFrameGroupBounds,
   getNudgeDelta,
@@ -56,13 +59,18 @@ import {
   useEffect,
   useMemo,
   type CSSProperties,
+  type PointerEvent as ReactPointerEvent,
   type ReactNode,
 } from "react";
 
 import { prettyScreenName } from "@/lib/screen-names";
 import { cn } from "@/lib/utils";
 
-import { canvasPrimitiveReactStyle } from "./canvas-primitive-style";
+import {
+  canvasPrimitiveReactStyle,
+  DEFAULT_LINE_STROKE,
+  DEFAULT_LINE_STROKE_WIDTH_PX,
+} from "./canvas-primitive-style";
 import {
   DesignCanvas,
   LIGHTWEIGHT_HIT_TEST_BRIDGE_SCRIPT,
@@ -71,6 +79,11 @@ import {
   type IframeFigmaClipboardPastePayload,
   type IframeHotkeyPayload,
 } from "./DesignCanvas";
+import {
+  gradientToCss,
+  parseGradientCss,
+  type GradientStopValue,
+} from "./inspector/GradientEditor";
 import {
   DEVICE_FRAME_VIEWPORTS,
   type DeviceFrameType,
@@ -415,6 +428,63 @@ interface MultiScreenCanvasProps {
    * working PenPath state, entering/exiting edit mode, and persistence.
    */
   vectorEdit?: VectorEditOverlayState | null;
+  /**
+   * Figma-parity on-canvas gradient editing handles: when present and
+   * `frameOrDraftId` matches the single currently-selected screen frame or
+   * draft primitive, renders a draggable gradient line (start/end handles +
+   * per-stop markers) over that target's bounds in the selection-chrome
+   * layer. When null/undefined (the default), nothing new renders and
+   * existing selection/drag behavior is unaffected. The parent
+   * (DesignEditor) owns opening/closing the inspector's gradient tab,
+   * parsing/serializing the CSS value, and persistence — this component
+   * only draws the overlay and reports drag phases back through
+   * `onChange("preview" | "commit")`. See `GradientEditOverlayTarget` below
+   * and `GradientEditSessionTarget` in `inspector/GradientEditor.tsx` for
+   * the full contract. Linear gradients + overview-canvas board/draft/
+   * screen-frame targets only — see that type's doc for scope notes.
+   */
+  gradientEditTarget?: GradientEditOverlayTarget | null;
+  /**
+   * OS file drag-and-drop (Figma parity): fired when the user drops native
+   * OS files (e.g. images dragged from Finder/Explorer) onto the overview
+   * canvas surface. `target.canvasPoint` is the drop point converted to
+   * canvas-world coordinates via the same math `getCanvasPoint` uses.
+   * `target.frameId` is set when the drop landed inside an existing screen
+   * frame's bounds (hit-tested via `getFrameEntryAtPoint`), so the caller can
+   * insert into that screen's local coordinate space instead of the shared
+   * board. This component only resolves the drop geometry — it does NOT read
+   * file contents, upload, or insert anything; the caller (DesignEditor) owns
+   * that side, matching the paste-image pipeline. Multiple files dropped at
+   * once are passed together in one call so the caller can stagger their
+   * placement (e.g. offsetting each by a fixed canvas delta) instead of this
+   * component guessing a stagger amount.
+   */
+  onDropFiles?: (
+    files: File[],
+    target: { canvasPoint: Point; frameId?: string },
+  ) => void;
+  /**
+   * Imperative camera command (Figma's Shift+1 "zoom to fit" / Shift+2 "zoom
+   * to selection"). MultiScreenCanvas owns pan internally (no `onPanChange`
+   * prop exists), so the only external control path for pan is this
+   * bounds-based command: pass the world-space bounds to fit and a
+   * monotonically increasing `nonce`; on each `nonce` change this component
+   * computes the fit zoom+pan itself (via the shared `getCameraForBounds`,
+   * clamped to the same MIN_ZOOM/MAX_ZOOM this canvas already uses) against
+   * its OWN current viewport size, and applies it through the exact same
+   * imperative-transform + debounced-commit path wheel/pinch zoom uses (so
+   * there is no extra re-render storm — one commit at the end, same as a
+   * settled gesture). Passing `null`/`undefined`, or repeating the same
+   * `nonce`, is a no-op. `onZoomChange` still fires once the camera settles,
+   * same as any other zoom change, so callers that mirror `zoom` into their
+   * own state stay in sync automatically.
+   */
+  cameraCommand?: {
+    fitBounds: FrameBounds;
+    /** Screen-px padding around the bounds. Defaults to 64 (Figma-ish). */
+    paddingScreenPx?: number;
+    nonce: number;
+  } | null;
 }
 
 /**
@@ -493,6 +563,28 @@ export function isDirectScreenHoverTarget(
       ? (target as Element)
       : null;
   return !!element && !element.closest("[data-screen-content]");
+}
+
+/**
+ * True when a drag event is carrying native OS files (e.g. dragged in from
+ * Finder/Explorer) rather than an internal HTML5 DOM drag (element reorder,
+ * the extensions-panel native-asset drag, etc). Internal drags set
+ * `dataTransfer.types` to things like "text/plain" and never include
+ * "Files"; a real OS file drag always includes the "Files" type — per spec
+ * this is reliably present during dragenter/dragover even before drop (when
+ * `dataTransfer.files` itself is empty for security reasons), so this is the
+ * correct check to gate preventDefault()/highlight logic on, not
+ * `files.length` (which is only populated at drop time).
+ */
+export function isOsFileDrag(event: {
+  dataTransfer: { types: readonly string[] | DOMStringList } | null;
+}): boolean {
+  const types = event.dataTransfer?.types;
+  if (!types) return false;
+  for (let i = 0; i < types.length; i += 1) {
+    if (types[i] === "Files") return true;
+  }
+  return false;
 }
 
 export function shouldBoardSurfaceCapturePointerEvents(args: {
@@ -755,8 +847,13 @@ function getChromeLabelTransition(chromeSettling: boolean) {
 }
 const DRAFT_FRAME_WIDTH = 320;
 const DRAFT_FRAME_HEIGHT = 640;
-const DRAFT_RECT_WIDTH = 160;
-const DRAFT_RECT_HEIGHT = 120;
+// Figma parity: a plain click (no drag) with the rectangle or ellipse tool
+// places a 100x100 shape. Both tools share this default via the "else"
+// branch of getDraftGeometryForTool below — drag-to-size behavior is
+// unaffected since getDraftGeometryFromPoints only falls back to these when
+// the pointer hasn't moved.
+const DRAFT_RECT_WIDTH = 100;
+const DRAFT_RECT_HEIGHT = 100;
 const DRAFT_TEXT_WIDTH = 180;
 const DRAFT_TEXT_HEIGHT = 48;
 const DRAFT_LINE_WIDTH = 160;
@@ -806,6 +903,34 @@ export interface FrameGeometry {
 
 type FrameGeometryById = Record<string, FrameGeometry>;
 
+/** One entry of `canvasFrames` (PF21). Kept referentially stable across
+ *  renders for a given screen.id when that screen's own screen/metadata/
+ *  geometry are unchanged by value — see canvasFrameEntryCacheRef. */
+interface CanvasFrameEntry {
+  screen: ScreenFile;
+  metadata: ResolvedScreenMetadata;
+  geometry: FrameGeometry;
+}
+
+/** Per-screen cache entry backing screenContentById (PF21). `contentNode` is
+ *  reused across renders whenever `screen`, `renderScreenContent` (the
+ *  DesignEditor-provided callback identity), `metadata` (by value), and the
+ *  *rounded* geometry width/height are all unchanged — notably NOT
+ *  geometry.x/geometry.y, since renderScreenContent's actual implementation
+ *  never reads position (position is applied by Screen's own wrapper
+ *  transform/left/top, not by the cached content node). See the
+ *  screenContentById useMemo for the full rationale. */
+interface ScreenContentCacheEntry {
+  screen: ScreenFile;
+  metadata: ResolvedScreenMetadata;
+  width: number;
+  height: number;
+  renderScreenContent: NonNullable<
+    MultiScreenCanvasProps["renderScreenContent"]
+  >;
+  contentNode: ReactNode;
+}
+
 export interface Point {
   x: number;
   y: number;
@@ -850,6 +975,155 @@ export function vectorEditCanvasToLocalPoint(
   };
 }
 
+/**
+ * Figma-parity on-canvas gradient editing handles (follow-up to IP21's
+ * inspector-only `GradientEditor`). Supplied by the parent (DesignEditor)
+ * whenever a fill's gradient tab is open in the inspector for a selected
+ * board/draft primitive or screen frame this canvas renders chrome for; see
+ * `GradientEditSessionTarget` in `inspector/GradientEditor.tsx` for the full
+ * wiring contract both sides agree on. `frameOrDraftId` must match a
+ * currently-selected draft primitive id or screen id for the overlay to
+ * render — this component does not itself resolve "the selection", it only
+ * draws chrome for whichever single selected frame/draft's id matches.
+ *
+ * Scope note: this renders in the *parent-DOM* chrome layer (same layer as
+ * `SelectionBox`/`VectorEditOverlay`), so it only covers overview-canvas
+ * board/draft primitives and screen-frame-level selections. Gradient handles
+ * for elements *inside* a screen's iframe content are a separate follow-up
+ * (an in-iframe bridge overlay, analogous to how `boardEditMode` element
+ * selection already bridges into iframe content) — not implemented here.
+ *
+ * Linear-gradient only for now: `GradientEditor` also supports radial/
+ * angular/diamond kinds, but this overlay only draws handles when `cssValue`
+ * parses as `linear-gradient(...)`. Non-linear values (or values that fail
+ * to parse) render nothing, matching the "no behavior change" contract for
+ * every other unrecognized/absent target.
+ */
+export interface GradientEditOverlayTarget {
+  /** Draft primitive id or screen id this gradient CSS applies to. */
+  frameOrDraftId: string;
+  /** The live gradient CSS string, e.g. `linear-gradient(90deg, ...)`. */
+  cssValue: string;
+  /** Fired on every drag tick ("preview") and once on release ("commit"),
+   *  mirroring the gesture-coalescing convention used by `vectorEdit`. */
+  onChange: (nextCss: string, meta?: { phase: "preview" | "commit" }) => void;
+}
+
+/** One linear-gradient stop, projected to a point on the gradient line for
+ *  on-canvas rendering (see `gradientStopPoints`). */
+export interface GradientLinePoint extends Point {
+  /** 0–100 position along the gradient line, matching `GradientStopValue`. */
+  position: number;
+}
+
+/**
+ * The CSS `linear-gradient()` line-length formula (CSS Images ¤3
+ * §linear-gradient-syntax): for a box of `width` x `height` and an angle
+ * measured clockwise from "up" (matching both this app's `GradientValue`
+ * angle convention and the CSS `<angle>` syntax `linear-gradient(Ndeg, ...)`
+ * already produces), the gradient line's half-length from the box center is
+ * `|width/2 * sin(angle)| + |height/2 * cos(angle)|` — the projection of the
+ * box's half-diagonal onto the gradient axis, so the line exactly spans the
+ * box from edge to edge (touching whichever corner is furthest along the
+ * axis) the same way a browser renders it.
+ */
+export function gradientLineEndpoints(
+  angleDeg: number,
+  width: number,
+  height: number,
+): { start: Point; end: Point } {
+  const rad = (angleDeg * Math.PI) / 180;
+  // Unit vector pointing from the gradient's start toward its end (0deg = up
+  // = -y, clockwise), matching AngleDial's "0 is north, clockwise" mapping.
+  const dx = Math.sin(rad);
+  const dy = -Math.cos(rad);
+  const halfLength = Math.abs((width / 2) * dx) + Math.abs((height / 2) * dy);
+  const center = { x: width / 2, y: height / 2 };
+  return {
+    start: { x: center.x - dx * halfLength, y: center.y - dy * halfLength },
+    end: { x: center.x + dx * halfLength, y: center.y + dy * halfLength },
+  };
+}
+
+/** Projects each stop's 0–100 `position` onto the gradient line's start/end
+ *  points (linear interpolation), for rendering a round marker per stop. */
+export function gradientStopPoints(
+  angleDeg: number,
+  width: number,
+  height: number,
+  stops: ReadonlyArray<{ position: number }>,
+): GradientLinePoint[] {
+  const { start, end } = gradientLineEndpoints(angleDeg, width, height);
+  return stops.map((stop) => {
+    const t = clampGradientT(stop.position / 100);
+    return {
+      x: start.x + (end.x - start.x) * t,
+      y: start.y + (end.y - start.y) * t,
+      position: stop.position,
+    };
+  });
+}
+
+function clampGradientT(t: number): number {
+  if (!Number.isFinite(t)) return 0;
+  return Math.max(0, Math.min(1, t));
+}
+
+/**
+ * Inverts a dragged endpoint handle back into an angle: given the box center
+ * and the new local point for whichever endpoint is being dragged (`which`),
+ * returns the angle (0-360, "up"-is-0 clockwise) whose gradient line passes
+ * through that point. Dragging the "start" handle points the axis the
+ * opposite way (the start is the *far* end of the line from that point's
+ * direction), so it adds 180° after resolving the raw pointer angle.
+ */
+export function angleFromDraggedEndpoint(
+  point: Point,
+  width: number,
+  height: number,
+  which: "start" | "end",
+): number {
+  const center = { x: width / 2, y: height / 2 };
+  const dx = point.x - center.x;
+  const dy = point.y - center.y;
+  if (dx === 0 && dy === 0) return 0;
+  // atan2 gives angle from east (+x), clockwise-positive in screen space
+  // (y-down); convert to this app's "0 is north, clockwise" convention by
+  // rotating the reference axis by +90deg, matching AngleDial's own mapping.
+  let deg = (Math.atan2(dy, dx) * 180) / Math.PI + 90;
+  if (which === "start") deg += 180;
+  deg = ((deg % 360) + 360) % 360;
+  return deg;
+}
+
+/**
+ * Inverts a dragged stop marker back into a 0–100 position: projects the
+ * dragged local point onto the (unbounded) gradient line through the box
+ * center at `angleDeg`, using the *current* line's start/end as the 0/100
+ * reference frame, then clamps to [0, 100]. This mirrors
+ * `GradientEditor`'s own `positionFromPointer`, which likewise projects the
+ * pointer onto the ramp bar's axis and clamps rather than rejecting
+ * off-axis drags — on canvas the equivalent "axis" is the gradient line
+ * itself, so a drag that strays perpendicular to the line still tracks the
+ * nearest point on it instead of doing nothing.
+ */
+export function stopPercentFromDraggedPoint(
+  point: Point,
+  angleDeg: number,
+  width: number,
+  height: number,
+): number {
+  const { start, end } = gradientLineEndpoints(angleDeg, width, height);
+  const lineDx = end.x - start.x;
+  const lineDy = end.y - start.y;
+  const lengthSquared = lineDx * lineDx + lineDy * lineDy;
+  if (lengthSquared === 0) return 0;
+  const t =
+    ((point.x - start.x) * lineDx + (point.y - start.y) * lineDy) /
+    lengthSquared;
+  return clampGradientT(t) * 100;
+}
+
 /** Converts a constant on-screen pixel radius (e.g. a hit-test tolerance
  *  that should feel the same size regardless of zoom) into canvas px, the
  *  space hitTestPenAnchor/hitTestPenHandle and PenPath geometry operate in.
@@ -859,6 +1133,187 @@ export function vectorEditCanvasToLocalPoint(
 export function screenPxToCanvasPx(screenPx: number, zoom: number): number {
   const scale = zoom / 100;
   return scale > 0 ? screenPx / scale : screenPx;
+}
+
+// ── Overview viewport culling (PF22) ────────────────────────────────────────
+//
+// Boards with 100+ screens used to render every screen as a full live iframe
+// regardless of whether it was anywhere near the visible viewport. This is a
+// deliberately conservative culling scheme:
+//
+// - Visibility is computed from the *committed* pan/zoom React state (`pan`,
+//   `canvasZoom`), never from the imperative per-gesture-frame transform
+//   (zoomRef/panRef, mutated by applyViewToDom every wheel/pinch tick — see
+//   its comment). Recomputing this per gesture frame would mean re-rendering
+//   React during a gesture, exactly what applyViewToDom/scheduleViewCommit
+//   were built to avoid.
+// - A generous overscan margin keeps screens "live" well before they
+//   physically enter the viewport, so a settled-but-about-to-pan-into-view
+//   screen (the debounced commit lags real cursor position by up to
+//   ~120ms — see scheduleViewCommit) is already mounted by the time it's
+//   reachable.
+// - Two tiers, see computeScreenCullTier: a screen that has never intersected
+//   the overscanned viewport this session renders a lightweight placeholder;
+//   once visible it mounts real content and never goes back to a placeholder
+//   — it only ever gets hidden (Tier B), never unmounted, since iframes lose
+//   all internal state (scroll position, form input, Alpine/JS state) on
+//   unmount.
+
+/** Escape hatch: flip to `false` to fully disable culling in one line if a
+ *  regression appears — every screen goes back to always rendering full
+ *  content, matching pre-culling behavior exactly. */
+export const OVERVIEW_CULLING_ENABLED = true;
+
+/** How many viewport widths/heights of margin to add around the visible
+ *  surface, in each direction, before a screen counts as "culled". Generous
+ *  on purpose: the mission calls for >=1.5x, so screens scrolling into view
+ *  during an in-flight gesture are already live before the debounced
+ *  ~120ms view-commit (see scheduleViewCommit) catches up and this
+ *  recomputes. */
+export const OVERVIEW_CULLING_OVERSCAN_FACTOR = 1.5;
+
+export type ScreenCullTier =
+  /** Full content (iframe/DesignCanvas) is mounted and rendered normally. */
+  | "visible"
+  /** Has been visible before this session; content stays mounted (iframes
+   *  never unmount — see the module doc above) but is skipped from paint via
+   *  visibility/content-visibility, not display:none or will-change. */
+  | "culled"
+  /** Has never been visible this session; renders a lightweight placeholder
+   *  with no iframe/content node at all. */
+  | "placeholder";
+
+/** The world-space (canvas-space) rectangle currently visible inside the
+ *  pannable surface, expanded by `overscanFactor` viewport-widths/heights in
+ *  every direction. Built from the *committed* pan/zoom state, matching the
+ *  same `translate(pan) scale(zoom/100)` transform applyViewToDom applies to
+ *  the world layer — see getOverscannedViewportCanvasBounds's callers. */
+export interface OverscannedViewportBounds {
+  left: number;
+  top: number;
+  right: number;
+  bottom: number;
+}
+
+/** Computes the overscanned world-space viewport rect for culling purposes.
+ *  `surfaceSize` is the pannable surface's own on-screen size (the
+ *  `surfaceRef` element's content box, in screen px); `pan`/`zoomPercent` are
+ *  the committed (not per-gesture-frame) pan/zoom values. Screens are placed
+ *  in world space with `SURFACE_PADDING` added to their raw x/y (see Screen's
+ *  wrapper style), so this returns bounds already in that same
+ *  `SURFACE_PADDING`-relative space — compare directly against
+ *  `geometry.x`/`geometry.y`-based frame bounds, no further offset needed.
+ *  Returns `null` when the surface has no measured size yet (e.g. before the
+ *  first layout pass) — callers should treat that as "cannot determine
+ *  visibility yet" and fall back to treating everything as visible. */
+export function getOverscannedViewportCanvasBounds(
+  surfaceSize: { width: number; height: number },
+  pan: Point,
+  zoomPercent: number,
+  overscanFactor: number = OVERVIEW_CULLING_OVERSCAN_FACTOR,
+): OverscannedViewportBounds | null {
+  if (surfaceSize.width <= 0 || surfaceSize.height <= 0) return null;
+  const scale = zoomPercent / 100;
+  if (!(scale > 0)) return null;
+  // Visible world-space rect: screen-space [0, surfaceSize] maps back through
+  // the world transform (`screenPoint = pan + worldPoint * scale`) to
+  // `worldPoint = (screenPoint - pan) / scale`. This mirrors
+  // screenToCanvasPoint's own inverse-transform math but is kept local here
+  // (rather than imported) since it operates on the *committed* pan/zoom
+  // React state specifically, not the live gesture pan/zoom.
+  const visibleLeft = -pan.x / scale;
+  const visibleTop = -pan.y / scale;
+  const visibleWidth = surfaceSize.width / scale;
+  const visibleHeight = surfaceSize.height / scale;
+  const overscanX = visibleWidth * overscanFactor;
+  const overscanY = visibleHeight * overscanFactor;
+  return {
+    left: visibleLeft - overscanX - SURFACE_PADDING,
+    top: visibleTop - overscanY - SURFACE_PADDING,
+    right: visibleLeft + visibleWidth + overscanX - SURFACE_PADDING,
+    bottom: visibleTop + visibleHeight + overscanY - SURFACE_PADDING,
+  };
+}
+
+/** True when `geometry`'s (rotation-aware) bounds intersect the overscanned
+ *  viewport rect at all — i.e. the screen is not fully outside it. Uses
+ *  `getRotatedFrameAABB` so a rotated frame's actual on-screen footprint is
+ *  tested, not its unrotated local rect. */
+export function isFrameWithinOverscannedViewport(
+  geometry: FrameGeometry,
+  viewport: OverscannedViewportBounds,
+): boolean {
+  const bounds = getRotatedFrameAABB(geometry);
+  return (
+    bounds.right >= viewport.left &&
+    bounds.left <= viewport.right &&
+    bounds.bottom >= viewport.top &&
+    bounds.top <= viewport.bottom
+  );
+}
+
+/**
+ * Item 4 — frame-tool/preset new-screen placement guard. A degenerate camera
+ * (corrupted/extreme pan+zoom — see item 5's camera-restore fix) makes
+ * getCanvasPoint's screen-to-world conversion blow up (dividing by a near-
+ * zero zoom scale), so a click-to-place or drag-to-draw frame gesture can
+ * compute world coordinates in the tens of thousands (observed: ±65536-ish)
+ * instead of landing near what the user actually clicked. Clamps the
+ * proposed geometry's origin to sit within `viewport` (the current
+ * OverscannedViewportBounds with overscanFactor 0, i.e. the exact visible
+ * world-rect) — centering it there when the proposed origin falls outside —
+ * so a bad camera can never fling a new screen to infinity. Only the origin
+ * is clamped (not width/height): the frame tool's own min/default size rules
+ * already bound those, and centering a same-sized frame preserves the
+ * gesture's intended dimensions.
+ */
+export function clampFrameGeometryToViewport(
+  geometry: FrameGeometry,
+  viewport: OverscannedViewportBounds | null,
+): FrameGeometry {
+  if (!viewport) return geometry;
+  const viewportWidth = viewport.right - viewport.left;
+  const viewportHeight = viewport.bottom - viewport.top;
+  if (!(viewportWidth > 0) || !(viewportHeight > 0)) return geometry;
+  const isWithin = isFrameWithinOverscannedViewport(geometry, viewport);
+  if (isWithin) return geometry;
+  return {
+    ...geometry,
+    x: viewport.left + (viewportWidth - geometry.width) / 2,
+    y: viewport.top + (viewportHeight - geometry.height) / 2,
+  };
+}
+
+/** Resolves the culling tier for a single screen. `alwaysVisible` covers the
+ *  mission's "always treated as visible" overrides: the active/board screen
+ *  and anything in the current selection, regardless of position — Figma
+ *  itself never culls the object you're actively editing or have selected,
+ *  and keeping these paths iframe-backed avoids any risk of interrupting
+ *  in-progress edits/bridge state on the screen the user is looking at.
+ *  `viewport` is `null` when surface size isn't known yet (initial layout) —
+ *  treated as visible so nothing is incorrectly culled before we can measure.
+ *  `hasBeenVisible` should reflect whether this screen id has *ever* been
+ *  visible this session (see the hasBeenVisibleRef Set in MultiScreenCanvas):
+ *  once true, a screen can only be "visible" or "culled", never regress to
+ *  "placeholder". */
+export function computeScreenCullTier({
+  geometry,
+  viewport,
+  alwaysVisible,
+  hasBeenVisible,
+}: {
+  geometry: FrameGeometry;
+  viewport: OverscannedViewportBounds | null;
+  alwaysVisible: boolean;
+  hasBeenVisible: boolean;
+}): ScreenCullTier {
+  if (!OVERVIEW_CULLING_ENABLED) return "visible";
+  const isWithinViewport =
+    alwaysVisible ||
+    !viewport ||
+    isFrameWithinOverscannedViewport(geometry, viewport);
+  if (isWithinViewport) return "visible";
+  return hasBeenVisible ? "culled" : "placeholder";
 }
 
 export type CrossScreenDropPlacement = "before" | "after" | "inside";
@@ -999,6 +1454,34 @@ function equalGapGuidesEqual(a: EqualGapGuide[], b: EqualGapGuide[]) {
   return true;
 }
 
+function altHoverMeasurementLineEqual(
+  a: AltHoverMeasurementLine | null,
+  b: AltHoverMeasurementLine | null,
+): boolean {
+  if (a === b) return true;
+  if (!a || !b) return false;
+  return (
+    a.orientation === b.orientation &&
+    a.gap === b.gap &&
+    a.start === b.start &&
+    a.end === b.end &&
+    a.crossPosition === b.crossPosition &&
+    a.overlaps === b.overlaps
+  );
+}
+
+function altHoverMeasurementEqual(
+  a: AltHoverMeasurement | null,
+  b: AltHoverMeasurement | null,
+): boolean {
+  if (a === b) return true;
+  if (!a || !b) return false;
+  return (
+    altHoverMeasurementLineEqual(a.horizontal, b.horizontal) &&
+    altHoverMeasurementLineEqual(a.vertical, b.vertical)
+  );
+}
+
 export function getCrossScreenDropGuideForHitTest(args: {
   hit: CrossScreenHitTestResult;
   targetGeometry: FrameGeometry;
@@ -1074,6 +1557,114 @@ export function getCrossScreenDropGuideStyle(args: {
   };
 }
 
+/** One Figma-style alt-hover distance measurement: a line spanning the empty
+ *  space between the selection's bounds and the hovered object's bounds on a
+ *  single axis, plus the cross-axis position the line/label should draw at.
+ *  `gap` is the edge-to-edge distance in canvas units (can be negative when
+ *  the two boxes overlap on this axis — callers should treat negative gaps
+ *  as "no line" the same way `overlaps` signals that). */
+export interface AltHoverMeasurementLine {
+  orientation: "horizontal" | "vertical";
+  /** Edge-to-edge distance in canvas units. */
+  gap: number;
+  /** Start/end of the line along its own axis (e.g. for a horizontal line,
+   *  the x range it spans). */
+  start: number;
+  end: number;
+  /** Position along the cross axis the line is drawn at (e.g. for a
+   *  horizontal line, the y coordinate). Centered on the overlapping range
+   *  when the boxes overlap on the cross axis, otherwise centered between
+   *  the two boxes' cross-axis midpoints. */
+  crossPosition: number;
+  /** True when the two boxes overlap on this line's own axis, meaning there
+   *  is no real empty-space gap to show (Figma hides the line in that case). */
+  overlaps: boolean;
+}
+
+export interface AltHoverMeasurement {
+  horizontal: AltHoverMeasurementLine | null;
+  vertical: AltHoverMeasurementLine | null;
+}
+
+/** Computes the Figma-style alt-hover measurement lines between a selection's
+ *  bounding box and a hovered object's bounding box: one horizontal gap (x
+ *  axis) and one vertical gap (y axis), each with the px distance and the
+ *  line's placement. Pure/testable — no DOM, no React state. Returns null for
+ *  an axis where the two boxes overlap (nothing meaningful to measure there),
+ *  matching Figma's behavior of only showing the line(s) that represent real
+ *  empty space. */
+export function computeAltHoverMeasurement(
+  selectionBounds: FrameBounds,
+  hoveredBounds: FrameBounds,
+): AltHoverMeasurement {
+  const horizontalOverlap =
+    selectionBounds.top < hoveredBounds.bottom &&
+    selectionBounds.bottom > hoveredBounds.top;
+  const verticalOverlap =
+    selectionBounds.left < hoveredBounds.right &&
+    selectionBounds.right > hoveredBounds.left;
+
+  let horizontal: AltHoverMeasurementLine | null = null;
+  if (selectionBounds.right <= hoveredBounds.left) {
+    horizontal = {
+      orientation: "horizontal",
+      gap: hoveredBounds.left - selectionBounds.right,
+      start: selectionBounds.right,
+      end: hoveredBounds.left,
+      crossPosition: horizontalOverlap
+        ? (Math.max(selectionBounds.top, hoveredBounds.top) +
+            Math.min(selectionBounds.bottom, hoveredBounds.bottom)) /
+          2
+        : (selectionBounds.centerY + hoveredBounds.centerY) / 2,
+      overlaps: false,
+    };
+  } else if (hoveredBounds.right <= selectionBounds.left) {
+    horizontal = {
+      orientation: "horizontal",
+      gap: selectionBounds.left - hoveredBounds.right,
+      start: hoveredBounds.right,
+      end: selectionBounds.left,
+      crossPosition: horizontalOverlap
+        ? (Math.max(selectionBounds.top, hoveredBounds.top) +
+            Math.min(selectionBounds.bottom, hoveredBounds.bottom)) /
+          2
+        : (selectionBounds.centerY + hoveredBounds.centerY) / 2,
+      overlaps: false,
+    };
+  }
+
+  let vertical: AltHoverMeasurementLine | null = null;
+  if (selectionBounds.bottom <= hoveredBounds.top) {
+    vertical = {
+      orientation: "vertical",
+      gap: hoveredBounds.top - selectionBounds.bottom,
+      start: selectionBounds.bottom,
+      end: hoveredBounds.top,
+      crossPosition: verticalOverlap
+        ? (Math.max(selectionBounds.left, hoveredBounds.left) +
+            Math.min(selectionBounds.right, hoveredBounds.right)) /
+          2
+        : (selectionBounds.centerX + hoveredBounds.centerX) / 2,
+      overlaps: false,
+    };
+  } else if (hoveredBounds.bottom <= selectionBounds.top) {
+    vertical = {
+      orientation: "vertical",
+      gap: selectionBounds.top - hoveredBounds.bottom,
+      start: hoveredBounds.bottom,
+      end: selectionBounds.top,
+      crossPosition: verticalOverlap
+        ? (Math.max(selectionBounds.left, hoveredBounds.left) +
+            Math.min(selectionBounds.right, hoveredBounds.right)) /
+          2
+        : (selectionBounds.centerX + hoveredBounds.centerX) / 2,
+      overlaps: false,
+    };
+  }
+
+  return { horizontal, vertical };
+}
+
 export type DraftPrimitiveKind =
   | "frame"
   | "rectangle"
@@ -1095,7 +1686,10 @@ type DraftCreationTool =
   | "text"
   | "pen";
 
-interface DraftPrimitive {
+// Exported so applyDraftGeometry's K-scale math (see its own doc comment)
+// can be unit-tested directly, matching the existing convention for the
+// gradient-overlay math (gradientLineEndpoints etc.) exported just below.
+export interface DraftPrimitive {
   id: string;
   kind: DraftPrimitiveKind;
   geometry: FrameGeometry;
@@ -1380,6 +1974,9 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   onBoardVisualDuplicateChange,
   onBoardTextContentChange,
   vectorEdit,
+  gradientEditTarget,
+  onDropFiles,
+  cameraCommand,
 }: MultiScreenCanvasProps) {
   const t = useT();
   const surfaceRef = useRef<HTMLDivElement>(null);
@@ -1387,6 +1984,13 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   const panRef = useRef(pan);
   const [canvasZoom, setCanvasZoom] = useState(zoom);
   const zoomRef = useRef(zoom);
+  // Overview viewport culling (PF22): the surface's own on-screen size,
+  // tracked via ResizeObserver below. Combined with the *committed* pan/
+  // canvasZoom state (never the imperative per-gesture zoomRef/panRef — see
+  // the culling helpers' module doc) to compute an overscanned world-space
+  // viewport rect each render. Starts at {0,0} (unknown) so nothing is culled
+  // before the first layout measurement.
+  const [surfaceSize, setSurfaceSize] = useState({ width: 0, height: 0 });
   const [frameGeometry, setFrameGeometry] = useState<FrameGeometryById>({});
   const frameGeometryRef = useRef(frameGeometry);
   const onGeometryChangeRef = useRef(onGeometryChange);
@@ -1417,6 +2021,15 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   } | null>(null);
   const [localActiveTool, setLocalActiveTool] =
     useState<MultiScreenCanvasTool>("move");
+  // K-scale tool parity: beginDraftResize/beginResize are defined (via
+  // useCallback) earlier in this component's body than `effectiveTool` is
+  // computed further down during render, so a ref mirroring it is the only
+  // way for their long-lived mousemove closures to read the CURRENT tool
+  // (a plain render-scoped `const` declared later in the function can't be
+  // referenced by a callback defined earlier — that's a JS declaration-order
+  // error, not just a stale-closure risk). Kept in sync by the effect right
+  // below the other prop/state-mirroring refs (see onGeometryChangeRef etc.).
+  const effectiveToolRef = useRef<MultiScreenCanvasTool>("move");
   const [selectedIds, setSelectedIds] = useState<string[]>(
     selectedScreenIds ?? [],
   );
@@ -1448,6 +2061,23 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       equalGapGuidesEqual(current, next) ? current : next,
     );
   }, []);
+  // Figma-parity alt-hover measurement (pure hover, no drag): while a
+  // selection exists, holding Alt and hovering another frame/draft shows red
+  // edge-to-edge distance lines + px labels between the selection's bounds
+  // and the hovered object's bounds. Tracked as a single nullable value
+  // (rather than per-frame) since only one hover target is ever measured at
+  // a time; the equality bail keeps this from re-rendering every raw
+  // mousemove when the computed measurement hasn't actually changed.
+  const [altHoverMeasurement, setAltHoverMeasurementRaw] =
+    useState<AltHoverMeasurement | null>(null);
+  const setAltHoverMeasurement = useCallback(
+    (next: AltHoverMeasurement | null) => {
+      setAltHoverMeasurementRaw((current) =>
+        altHoverMeasurementEqual(current, next) ? current : next,
+      );
+    },
+    [],
+  );
   const [duplicatePreview, setDuplicatePreview] =
     useState<DuplicatePreview | null>(null);
   const [transformBadge, setTransformBadge] = useState<TransformBadge | null>(
@@ -1483,6 +2113,20 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     useState<CrossScreenDragGhost | null>(null);
   const [crossScreenTarget, setCrossScreenTarget] =
     useState<CrossScreenDragTarget | null>(null);
+  // OS file drag-over highlight (Figma parity §1): id of the screen frame
+  // currently under a native OS file drag, or "" for "over the board/empty
+  // canvas" (no frame). null means no drag is in progress. rAF-throttled in
+  // the dragover handler below so a fast-moving drag never re-renders faster
+  // than a frame, matching the wheel/pinch "never re-render mid-gesture"
+  // discipline used elsewhere in this component (though a dragover highlight
+  // is comparatively cheap — it's a single id, not a full view commit).
+  const [fileDragOverFrameId, setFileDragOverFrameId] = useState<string | null>(
+    null,
+  );
+  const fileDragOverFrameRef = useRef<string | null>(null);
+  const fileDragDepthRef = useRef(0);
+  const fileDragRafRef = useRef<number | null>(null);
+  const pendingFileDragPointRef = useRef<{ x: number; y: number } | null>(null);
   const [crossScreenDropGuide, setCrossScreenDropGuide] =
     useState<CrossScreenDropGuide | null>(null);
   const [crossScreenSourceIsBoard, setCrossScreenSourceIsBoard] =
@@ -1546,10 +2190,59 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   const pixelGridRef = useRef<HTMLDivElement>(null);
   const marqueeOverlayRef = useRef<HTMLSpanElement>(null);
   const viewCommitTimerRef = useRef<number | null>(null);
+  // Tracks the last-applied cameraCommand.nonce so repeated renders (or a
+  // caller re-passing the same command object) never re-run the fit — only a
+  // genuine nonce change should move the camera.
+  const lastCameraCommandNonceRef = useRef<number | null>(null);
   const pendingChromeSettleRef = useRef(false);
   const chromeSettleTimerRef = useRef<number | null>(null);
   const [chromeSettling, setChromeSettling] = useState(false);
   const previousPreviewDeviceFrameRef = useRef(previewDeviceFrame);
+  // Overview viewport culling (PF22): every screen id that has ever
+  // intersected the overscanned viewport this session. Once a screen id is
+  // added it is never removed — a screen that becomes visible mounts real
+  // content and stays mounted (as a hidden-but-live iframe when later culled
+  // again), never regressing to the lightweight placeholder. A plain mutable
+  // Set (not state) is intentional: membership is read-and-written together
+  // with the rest of the per-render visibility computation below (see
+  // screenCullTierById), not something that should itself trigger a
+  // re-render — the geometry/pan/zoom changes that make a screen newly
+  // visible already do that.
+  const hasBeenVisibleScreenIdsRef = useRef<Set<string>>(new Set());
+
+  // Track the pannable surface's own on-screen size for culling's viewport
+  // bounds (getOverscannedViewportCanvasBounds). Only the surface's *size*
+  // matters here (not scroll/position), since world-space bounds are derived
+  // from pan/zoom separately — a plain ResizeObserver on the fixed-position
+  // surface element is sufficient and avoids reading getBoundingClientRect on
+  // every render.
+  useEffect(() => {
+    const surface = surfaceRef.current;
+    if (!surface) return;
+    const updateSize = (width: number, height: number) => {
+      setSurfaceSize((current) =>
+        current.width === width && current.height === height
+          ? current
+          : { width, height },
+      );
+    };
+    const rect = surface.getBoundingClientRect();
+    updateSize(rect.width, rect.height);
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver((entries) => {
+      const entry = entries[0];
+      if (!entry) return;
+      const box = entry.contentBoxSize?.[0];
+      if (box) {
+        updateSize(box.inlineSize, box.blockSize);
+      } else {
+        const contentRect = entry.contentRect;
+        updateSize(contentRect.width, contentRect.height);
+      }
+    });
+    observer.observe(surface);
+    return () => observer.disconnect();
+  }, []);
 
   const claimKeyboardFocus = useCallback(() => {
     const surface = surfaceRef.current;
@@ -1566,15 +2259,42 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     surface.focus({ preventScroll: true });
   }, []);
 
+  // Per-screen memoization of resolveScreenMetadata (PF20). resolveScreenMetadata
+  // string-scans up to 4000 chars of content (deriveSource/derivePreviewState)
+  // plus URL parsing on every call. getResolvedMetadata is invoked once per
+  // screen on every canvasFrames/screenContentById rebuild, which previously
+  // meant every screen on the board re-paid that scan on every rAF tick of an
+  // unrelated screen's drag/resize. Cache the resolved result per screen id,
+  // keyed on the actual inputs resolveScreenMetadata reads (screen identity/
+  // content, the two metadata sources, and previewDeviceFrame) so an unchanged
+  // screen is O(1) even while a sibling screen's geometry churns every frame.
+  const resolvedMetadataCacheRef = useRef<
+    Map<string, ResolvedMetadataCacheEntry>
+  >(new Map());
   const getResolvedMetadata = useCallback(
     (screen: ScreenFile) =>
-      resolveScreenMetadata(
+      resolveScreenMetadataCached(
+        resolvedMetadataCacheRef.current,
         screen,
         metadataById?.[screen.id],
         getScreenMetadata?.(screen),
         previewDeviceFrame,
       ),
     [getScreenMetadata, metadataById, previewDeviceFrame],
+  );
+
+  // Per-screen entry-object reuse for canvasFrames (PF21) and per-screen
+  // content-node cache for screenContentById (PF21). See the definitions of
+  // canvasFrames/screenContentById below for the full invalidation-key
+  // rationale; these refs hold the previous computation's per-screen state so
+  // an unrelated screen's drag/resize tick can reuse both the frame entry
+  // object and the rendered content ReactNode for every screen except the one
+  // actually being manipulated.
+  const canvasFrameEntryCacheRef = useRef<Map<string, CanvasFrameEntry>>(
+    new Map(),
+  );
+  const screenContentCacheRef = useRef<Map<string, ScreenContentCacheEntry>>(
+    new Map(),
   );
 
   useEffect(() => {
@@ -1746,10 +2466,65 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     // instead of zooming in place. Mirror the wheel/pinch cursor-anchored
     // compensation using the surface's own center as the anchor, since
     // there's no cursor position for a toolbar/keyboard-driven zoom change.
+    //
+    // Exception: DesignEditor derives its overview "default zoom" from the
+    // *reference* screen's own canvas width (getOverviewZoomScale — the
+    // active file if one is open, else the first selected screen, else the
+    // first screen on the board), so the `zoom` prop can also jump purely
+    // because a differently-sized frame became the reference — not from any
+    // user zoom gesture. Anchoring that kind of jump at the surface center
+    // flings that frame off-screen: a small hand-drawn frame paired with a
+    // large zoom-scale correction can produce a multi-hundred-percent zoom
+    // delta, and re-centering on a point that has nothing to do with the
+    // frame amplifies that into hundreds of world pixels of pan error.
+    // `activeId` alone isn't enough here: it mirrors DesignEditor's
+    // `activeFileId`, which is only set once a screen is opened for
+    // *editing* — immediately after drawing a new frame with the frame tool
+    // in overview mode, the new screen is *selected* (selectedIds) but not
+    // "active" yet, and DesignEditor's own zoom-scale reference falls back
+    // to the first selected/first-on-board screen in that case. Mirror the
+    // same fallback chain so the anchor matches whichever frame actually
+    // drove the zoom-scale recompute.
+    const referenceId = activeId ?? selectedIds[0] ?? screens[0]?.id;
     const rect = surfaceRef.current?.getBoundingClientRect();
-    const cursor = rect
-      ? { x: rect.width / 2, y: rect.height / 2 }
-      : { x: 0, y: 0 };
+    // Prefer the `geometryById` prop over `frameGeometryRef` here: a screen
+    // just created by the frame tool has its geometry committed straight
+    // into the parent's persisted map (DesignEditor's
+    // writeFrameGeometrySnapshot) in the same commit that flips `activeId`/
+    // bumps `zoom` — but frameGeometryRef only gets that same geometry
+    // written by a separate effect declared *after* this one (see the
+    // `screens`/`geometryById` sync effect below), so it can still be one
+    // commit stale for a screen that only just appeared. `geometryById` is a
+    // plain prop with no such lag. Only trust it when it already carries a
+    // full width/height (it's typed as Partial since a caller could pass a
+    // partial override) — otherwise fall back to the ref, which is complete
+    // for every screen that has rendered at least once.
+    const persistedGeometry = referenceId
+      ? geometryById?.[referenceId]
+      : undefined;
+    const activeGeometry: FrameGeometry | undefined =
+      persistedGeometry &&
+      typeof persistedGeometry.x === "number" &&
+      typeof persistedGeometry.y === "number" &&
+      typeof persistedGeometry.width === "number" &&
+      typeof persistedGeometry.height === "number"
+        ? (persistedGeometry as FrameGeometry)
+        : referenceId
+          ? frameGeometryRef.current[referenceId]
+          : undefined;
+    const cursor = activeGeometry
+      ? canvasToScreenPoint(
+          {
+            x: activeGeometry.x + activeGeometry.width / 2,
+            y: activeGeometry.y + activeGeometry.height / 2,
+          },
+          { x: panRef.current.x, y: panRef.current.y, zoom: previousZoom },
+          { x: 0, y: 0 },
+          SURFACE_PADDING,
+        )
+      : rect
+        ? { x: rect.width / 2, y: rect.height / 2 }
+        : { x: 0, y: 0 };
     const nextPan = getPanForZoomToCursor({
       pan: panRef.current,
       cursor,
@@ -1763,7 +2538,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     // P18: an externally-driven zoom change (toolbar/keyboard) also moves
     // the canvas-space mapping the pen ghost preview was computed from.
     recomputePenPointerForViewChangeRef.current();
-  }, [zoom]);
+  }, [zoom, activeId]);
 
   useEffect(() => {
     const currentIds = new Set(screens.map((screen) => screen.id));
@@ -1888,6 +2663,17 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     );
     const totalWidth = bounds?.width ?? SCREEN_WIDTH;
     const totalHeight = bounds?.height ?? SCREEN_CARD_HEIGHT;
+    // The lineup's own world-space origin — NOT necessarily (0, 0). A frame
+    // drawn with the frame tool can land anywhere in world space (including
+    // negative x/y, e.g. dragged near wherever the camera happened to be
+    // panned), so the pan below must shift by this origin too, not just
+    // center a lineup-sized box as if it always started at the world
+    // origin. Omitting this previously caused the "solid black overview
+    // canvas" bug: this effect would compute a scale/pan pair that assumed
+    // the new frame sat at (0, 0), landing the pan hundreds of world px away
+    // from where the frame actually was whenever its real x/y was nonzero.
+    const boundsLeft = bounds?.left ?? 0;
+    const boundsTop = bounds?.top ?? 0;
     // Leave a Figma-like board gutter beside the last frame for quick drops/draws,
     // and fit tall single frames so lower canvas interactions remain reachable.
     const widthFitScale =
@@ -1906,8 +2692,8 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     const visualLeft = Math.max(24, (rect.width - totalWidth * nextScale) / 2);
     const visualTop = Math.max(24, (rect.height - totalHeight * nextScale) / 2);
     const nextPan = {
-      x: visualLeft - SURFACE_PADDING * nextScale,
-      y: visualTop - SURFACE_PADDING * nextScale,
+      x: visualLeft - (SURFACE_PADDING + boundsLeft) * nextScale,
+      y: visualTop - (SURFACE_PADDING + boundsTop) * nextScale,
     };
     panRef.current = nextPan;
     setPan(nextPan);
@@ -1989,8 +2775,17 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   );
 
   const getFrameEntryAtPoint = useCallback(
+    (point: Point) => findTopFrameEntryAtPoint(getCurrentFrameEntries(), point),
+    [getCurrentFrameEntries],
+  );
+
+  // Mirrors getFrameEntryAtPoint above, but hit-tests draft primitives
+  // instead of committed screens/frames — used by the alt-hover measurement
+  // (Figma parity) so hovering an uncommitted draft while a selection exists
+  // still shows distance lines.
+  const getDraftEntryAtPoint = useCallback(
     (point: Point) =>
-      getCurrentFrameEntries()
+      getCurrentDraftEntries()
         .map((entry, index) => ({ ...entry, index }))
         .filter((entry) => {
           const bounds = {
@@ -2010,8 +2805,97 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           (a, b) =>
             (b.geometry.z ?? 0) - (a.geometry.z ?? 0) || b.index - a.index,
         )[0],
-    [getCurrentFrameEntries],
+    [getCurrentDraftEntries],
   );
+
+  // ── OS file drag-and-drop (Figma parity §1) ───────────────────────────────
+  // Dragging image files from the OS onto the canvas places them at the
+  // cursor; over a screen frame they should be inserted INTO that frame at
+  // local coords. This component only resolves WHERE the drop landed
+  // (canvas point + optional frame id) and reports it via onDropFiles — file
+  // reading/upload/insert is the caller's job (DesignEditor's paste-image
+  // pipeline), matching how onCreatePrimitive/onBoardDrawPrimitive already
+  // separate "what happened on the canvas" from "how the app persists it".
+  const applyFileDragHighlight = useCallback((frameId: string | null) => {
+    if (fileDragOverFrameRef.current === frameId) return;
+    fileDragOverFrameRef.current = frameId;
+    setFileDragOverFrameId(frameId);
+  }, []);
+
+  const clearFileDragState = useCallback(() => {
+    fileDragDepthRef.current = 0;
+    pendingFileDragPointRef.current = null;
+    if (fileDragRafRef.current !== null) {
+      window.cancelAnimationFrame(fileDragRafRef.current);
+      fileDragRafRef.current = null;
+    }
+    applyFileDragHighlight(null);
+  }, [applyFileDragHighlight]);
+
+  const flushFileDragHighlight = useCallback(() => {
+    fileDragRafRef.current = null;
+    const point = pendingFileDragPointRef.current;
+    if (!point) return;
+    const canvasPoint = getCanvasPoint(point.x, point.y);
+    const frame = getFrameEntryAtPoint(canvasPoint);
+    applyFileDragHighlight(frame ? frame.id : "");
+  }, [applyFileDragHighlight, getCanvasPoint, getFrameEntryAtPoint]);
+
+  const handleCanvasDragEnter = useCallback(
+    (e: React.DragEvent<HTMLDivElement>) => {
+      if (!isOsFileDrag(e)) return;
+      e.preventDefault();
+      fileDragDepthRef.current += 1;
+    },
+    [],
+  );
+
+  const handleCanvasDragOver = useCallback(
+    (e: React.DragEvent<HTMLDivElement>) => {
+      if (!isOsFileDrag(e)) return;
+      e.preventDefault();
+      e.dataTransfer.dropEffect = "copy";
+      // rAF-throttle: dragover fires continuously (often faster than one per
+      // frame) while the pointer moves. Only the hit-test + potential
+      // setState should be throttled — preventDefault/dropEffect above must
+      // run on every event or the browser shows the "no-drop" cursor.
+      pendingFileDragPointRef.current = { x: e.clientX, y: e.clientY };
+      if (fileDragRafRef.current === null) {
+        fileDragRafRef.current = window.requestAnimationFrame(
+          flushFileDragHighlight,
+        );
+      }
+    },
+    [flushFileDragHighlight],
+  );
+
+  const handleCanvasDragLeave = useCallback(
+    (e: React.DragEvent<HTMLDivElement>) => {
+      if (!isOsFileDrag(e)) return;
+      fileDragDepthRef.current = Math.max(0, fileDragDepthRef.current - 1);
+      if (fileDragDepthRef.current === 0) clearFileDragState();
+    },
+    [clearFileDragState],
+  );
+
+  const handleCanvasDrop = useCallback(
+    (e: React.DragEvent<HTMLDivElement>) => {
+      if (!isOsFileDrag(e)) return;
+      e.preventDefault();
+      const files = Array.from(e.dataTransfer.files ?? []);
+      clearFileDragState();
+      if (files.length === 0 || !onDropFiles) return;
+      const canvasPoint = getCanvasPoint(e.clientX, e.clientY);
+      const frame = getFrameEntryAtPoint(canvasPoint);
+      onDropFiles(files, {
+        canvasPoint,
+        frameId: frame?.id,
+      });
+    },
+    [clearFileDragState, getCanvasPoint, getFrameEntryAtPoint, onDropFiles],
+  );
+
+  useEffect(() => clearFileDragState, [clearFileDragState]);
 
   // ── Cross-screen element drag receiver ────────────────────────────────────
   // The source iframe (the active interactive screen) posts
@@ -3303,7 +4187,10 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
 
       const handleMouseUp = () => {
         const state = dragState.current;
-        if (state?.type === "marquee" && !state.hasMoved && !state.additive) {
+        if (
+          state?.type === "marquee" &&
+          shouldClearSelectionOnEmptyCanvasClick(state)
+        ) {
           updateSelectedIds(() => []);
           updateSelectedDraftIds(() => []);
           onLayerMarqueeSelectionChange?.([], {
@@ -3362,20 +4249,9 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
 
       if (containing) return containing;
 
-      // Fallback: if no frame contains the center (shape drawn outside all
-      // frames), use the nearest frame so the shape still persists rather than
-      // becoming a lost draft primitive.
-      //
-      // Exception: when there is MORE THAN ONE screen, a draft whose center
-      // falls outside all frames becomes a board object (floating on the
-      // infinite canvas surface), not a primitive inside any screen.  In that
-      // case return undefined so the caller can route to onCreateBoardObject.
-      // With a single screen there is no meaningful "outside", so we always
-      // absorb the draft into the only available frame (existing behaviour).
-      if (entries.length === 0) return undefined;
-      if (entries.length === 1) return entries[0];
-      // Multiple screens: draft drawn outside all frames → board object.
-      return undefined;
+      return getOutsideFrameDraftFallback(entries, {
+        hasBoardDrawHandler: Boolean(onBoardDrawPrimitiveRef.current),
+      });
     },
     [getCurrentFrameEntries],
   );
@@ -4123,14 +4999,39 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           shiftKey: ev.shiftKey,
           altKey: ev.altKey,
         };
-        if (state.tool === "frame" && onCreateScreenFrame) {
+        // Figma parity: the frame tool (F/A) creates a new top-level frame —
+        // here, a screen — only when the gesture STARTS on empty canvas. A
+        // frame gesture that starts inside an existing screen nests instead
+        // (Figma nests a child frame): it falls through to the shared draft-
+        // primitive commit below, inserting a plain container <div> into the
+        // originating screen.
+        if (
+          state.tool === "frame" &&
+          !state.originFrameId &&
+          onCreateScreenFrame
+        ) {
+          const draftGeometry = getDraftGeometryForTool(
+            state.tool,
+            state.originCanvas,
+            endCanvas,
+            modifiers,
+          );
+          // Item 4 — guard against a degenerate/corrupted camera (extreme
+          // pan+near-zero zoom) sending getCanvasPoint's world-space
+          // conversion to infinity: clamp the new screen to the current
+          // viewport's exact visible world-rect (overscanFactor 0) rather
+          // than trusting the raw drag-computed geometry outright.
+          const surfaceRect = surfaceRef.current?.getBoundingClientRect();
+          const viewportBounds = surfaceRect
+            ? getOverscannedViewportCanvasBounds(
+                { width: surfaceRect.width, height: surfaceRect.height },
+                panRef.current,
+                zoomRef.current,
+                0,
+              )
+            : null;
           onCreateScreenFrame(
-            getDraftGeometryForTool(
-              state.tool,
-              state.originCanvas,
-              endCanvas,
-              modifiers,
-            ),
+            clampFrameGeometryToViewport(draftGeometry, viewportBounds),
           );
           if (activeTool === undefined) {
             setLocalActiveTool("move");
@@ -4147,7 +5048,19 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           toolProps,
           modifiers,
         });
-        commitDraftPrimitive(nextDraft, state.originFrameId);
+        // Figma parity: a frame-tool CLICK nested inside a screen places
+        // Figma's default 100x100 frame. The frame tool's 320x640 click
+        // default (DRAFT_FRAME_WIDTH/HEIGHT) only fits the top-level
+        // screen-creation path handled above — nesting a screen-sized div
+        // from a single click would blanket the whole screen.
+        const committedDraft =
+          state.tool === "frame" && !releaseMoved
+            ? {
+                ...nextDraft,
+                geometry: { ...nextDraft.geometry, width: 100, height: 100 },
+              }
+            : nextDraft;
+        commitDraftPrimitive(committedDraft, state.originFrameId);
         if (activeTool === undefined) {
           setLocalActiveTool("move");
         }
@@ -4200,14 +5113,17 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         hasMoved: false,
       };
       setIsDragging(true);
-      setDragCursor("grabbing");
+      // Figma parity: object drags keep the default arrow cursor, never a
+      // grabbing hand — grab/grabbing is reserved for the hand tool and
+      // space-pan gestures (see the isPanning/hand-tool branches in
+      // surfaceCursor below). Do not setDragCursor here.
 
       const handleMouseMove = (ev: MouseEvent) => {
         const state = dragState.current;
         if (!state || state.type !== "draft-move") return;
         const scale = zoomRef.current / 100;
-        const dx = (ev.clientX - state.originClient.x) / scale;
-        const dy = (ev.clientY - state.originClient.y) / scale;
+        let dx = (ev.clientX - state.originClient.x) / scale;
+        let dy = (ev.clientY - state.originClient.y) / scale;
         if (
           !state.hasMoved &&
           Math.hypot(
@@ -4216,6 +5132,20 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           ) >= DRAG_THRESHOLD
         ) {
           state.hasMoved = true;
+        }
+
+        // Shift held mid-move (not at mousedown — that path is shift-click
+        // multi-select and never reaches here, see the guard in
+        // beginDraftDrag above) locks movement to a single axis, matching
+        // Figma and mirroring the identical lock in beginFrameDrag. Zero the
+        // smaller-magnitude axis before snapping so snap candidates on the
+        // locked axis can't reintroduce drift on it.
+        if (ev.shiftKey) {
+          if (Math.abs(dx) >= Math.abs(dy)) {
+            dy = 0;
+          } else {
+            dx = 0;
+          }
         }
 
         const movingEntries = state.targetIds.map((targetId) => {
@@ -4446,13 +5376,19 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         const resizedById = Object.fromEntries(
           resizedEntries.map((entry) => [entry.id, entry.geometry]),
         ) as FrameGeometryById;
+        // K-scale (Figma "Scale" tool) parity: when the K tool drives this
+        // resize, applyDraftGeometry also multiplies strokeWidth by the
+        // uniform scale factor. Read from the ref (not the render-scoped
+        // `effectiveTool` const) since this closure was created once at
+        // drag-start and must see whichever tool is active on THIS tick.
+        const scaleK = effectiveToolRef.current === "scale";
 
         updateDraftPrimitives((current) =>
           current.map((draft) => {
             const origin = state.originDrafts[draft.id];
             const geometry = resizedById[draft.id];
             if (!origin || !geometry) return draft;
-            return applyDraftGeometry(origin, geometry);
+            return applyDraftGeometry(origin, geometry, scaleK);
           }),
         );
         setAlignmentGuides(snap.guides);
@@ -4541,7 +5477,8 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         hasMoved: false,
       };
       setIsDragging(true);
-      setDragCursor("grabbing");
+      // Figma parity: object drags keep the default arrow cursor, never a
+      // grabbing hand — see the matching comment in beginDraftDrag above.
 
       const handleMouseMove = (ev: MouseEvent) => {
         const state = dragState.current;
@@ -4807,6 +5744,20 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           geometry: state.originFrames[targetId],
         }));
 
+        // K-scale (Figma "Scale" tool) parity for screen frames: a screen's
+        // rendered content already scales proportionally (instead of
+        // reflowing) whenever its resized box keeps the SAME aspect ratio as
+        // its natural metadata size — see getScreenPreviewViewport's
+        // aspectMatches branch, and getInitialFrameGeometry, which seeds
+        // every screen's frame at exactly that aspect ratio already. So
+        // forcing aspect-ratio-locked resize (exactly like holding Shift)
+        // whenever the K tool drives this drag is sufficient on its own to
+        // get Figma-consistent "scale contents, don't reflow" behavior for
+        // screens — no metadata/DesignEditor changes needed. A normal resize
+        // (tool !== "scale") is completely unaffected.
+        const scaleK = effectiveToolRef.current === "scale";
+        const lockAspectRatio = ev.shiftKey || scaleK;
+
         // A single rotated frame needs rotation-aware resize math: the handle
         // follows the frame's own rotated axes (matching how the handles
         // render, rotated with the frame) and the opposite anchor edge/corner
@@ -4828,7 +5779,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
             dx,
             dy,
             {
-              preserveAspectRatio: ev.shiftKey,
+              preserveAspectRatio: lockAspectRatio,
               resizeFromCenter: ev.altKey,
               minWidth: 1,
               minHeight: 1,
@@ -4857,7 +5808,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           dx,
           dy,
           {
-            preserveAspectRatio: ev.shiftKey,
+            preserveAspectRatio: lockAspectRatio,
             resizeFromCenter: ev.altKey,
             minWidth: 1,
             minHeight: 1,
@@ -4874,10 +5825,10 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
             zoom: zoomRef.current,
             bypass: ev.metaKey || ev.ctrlKey,
             // Snapping x and y independently can each pull toward a
-            // different sibling edge, which would distort a shift-held
-            // (aspect-locked) resize away from its ratio — see
+            // different sibling edge, which would distort a shift-held or
+            // K-scale (aspect-locked) resize away from its ratio — see
             // computeAspectPreservingResizeSnap in canvas-math.ts.
-            preserveAspectRatio: ev.shiftKey,
+            preserveAspectRatio: lockAspectRatio,
           },
         );
         const resizedEntries = resizeFrameGroupToBounds(
@@ -4963,17 +5914,23 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
 
       const pointer = getCanvasPoint(e.clientX, e.clientY);
       const center = getFrameCenter(originFrame);
+      const originPointerAngle = angleBetween(center, pointer);
       dragState.current = {
         type: "rotate",
         originClient: { x: e.clientX, y: e.clientY },
         originFrame,
         frameId: id,
-        originPointerAngle: angleBetween(center, pointer),
+        originPointerAngle,
         originRotation: originFrame.rotation ?? 0,
         hasMoved: false,
       };
       setIsDragging(true);
-      setDragCursor("grabbing");
+      // Figma parity: show the curved rotate cursor (oriented toward the
+      // grabbed corner) instead of a plain grabbing hand, and keep it
+      // oriented to the live pointer angle as the drag proceeds below.
+      setDragCursor(
+        rotateCursorDataUri(quantizeAngleTo8Buckets(originPointerAngle)),
+      );
 
       const handleMouseMove = (ev: MouseEvent) => {
         const state = dragState.current;
@@ -4993,10 +5950,9 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
 
         const pointer = getCanvasPoint(ev.clientX, ev.clientY);
         const center = getFrameCenter(state.originFrame);
+        const pointerAngle = angleBetween(center, pointer);
         const raw =
-          state.originRotation +
-          angleBetween(center, pointer) -
-          state.originPointerAngle;
+          state.originRotation + pointerAngle - state.originPointerAngle;
         const rotation = ev.shiftKey ? Math.round(raw / 15) * 15 : raw;
         updateFrameGeometry((current) => ({
           ...current,
@@ -5005,6 +5961,9 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
             rotation: Math.round(rotation * 10) / 10,
           },
         }));
+        setDragCursor(
+          rotateCursorDataUri(quantizeAngleTo8Buckets(pointerAngle)),
+        );
         showTransformFeedback(
           `${Math.round(rotation)}deg`,
           ev.clientX,
@@ -5070,6 +6029,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       const groupCenter = { x: groupBounds.centerX, y: groupBounds.centerY };
 
       const pointer = getCanvasPoint(e.clientX, e.clientY);
+      const originPointerAngle = angleBetween(groupCenter, pointer);
       dragState.current = {
         type: "group-rotate",
         originClient: { x: e.clientX, y: e.clientY },
@@ -5078,11 +6038,15 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         ) as FrameGeometryById,
         targetIds: originEntries.map((entry) => entry.id),
         groupCenter,
-        originPointerAngle: angleBetween(groupCenter, pointer),
+        originPointerAngle,
         hasMoved: false,
       };
       setIsDragging(true);
-      setDragCursor("grabbing");
+      // Figma parity: curved rotate cursor instead of a grabbing hand — see
+      // the matching comment in beginRotate above.
+      setDragCursor(
+        rotateCursorDataUri(quantizeAngleTo8Buckets(originPointerAngle)),
+      );
 
       const handleMouseMove = (ev: MouseEvent) => {
         const state = dragState.current;
@@ -5104,6 +6068,9 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         const currentAngle = angleBetween(state.groupCenter, pointer);
         const rawDelta = currentAngle - state.originPointerAngle;
         const delta = ev.shiftKey ? Math.round(rawDelta / 15) * 15 : rawDelta;
+        setDragCursor(
+          rotateCursorDataUri(quantizeAngleTo8Buckets(currentAngle)),
+        );
 
         const originEntriesForRotate = state.targetIds.map((targetId) => ({
           id: targetId,
@@ -5249,6 +6216,13 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       // pointer freezes crossing a live embedded iframe and a release over a
       // screen never reaches handleMouseUp.
       setIsDragging(true);
+      // Figma parity: show a copy-affordance cursor while the alt-drag
+      // duplicate gesture is armed. Tracked live in handleMouseMove below
+      // (same live e.altKey tracking that already drives canDuplicate), so
+      // releasing alt mid-drag falls back to the default arrow instead of
+      // staying on the copy cursor for a gesture that will no longer
+      // duplicate on mouseup.
+      setDragCursor(e.altKey ? "copy" : null);
 
       const handleMouseMove = (ev: MouseEvent) => {
         const dx = ev.clientX - origin.x;
@@ -5268,6 +6242,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           canDuplicate: !!onDuplicate && ev.altKey,
           moved,
         });
+        setDragCursor(ev.altKey ? "copy" : null);
       };
 
       const cleanupDuplicateGesture = () => {
@@ -5345,6 +6320,12 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       // gesture that never received its trailing frame click — otherwise it would
       // silently swallow this unrelated interaction.
       suppressNextPick.current = false;
+      // This fires on the capture phase before any frame/draft card's own
+      // mousedown handler (even though those stopPropagation before bubbling
+      // back up), so it's the single choke point for "a drag started" —
+      // clear the alt-hover measurement immediately rather than letting it
+      // linger frozen for the duration of the drag.
+      setAltHoverMeasurement(null);
       const target = e.target as HTMLElement;
       const onFrame = !!target.closest("[data-frame-shell]");
       const tool = normalizeCanvasTool(activeTool ?? localActiveTool);
@@ -5426,18 +6407,90 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       claimKeyboardFocus,
       getCanvasPoint,
       localActiveTool,
+      setAltHoverMeasurement,
       toggleVectorNodeType,
       vectorEdit,
     ],
   );
 
+  // Figma-parity alt-hover measurement: with a selection and no active drag,
+  // holding Alt while hovering another frame/draft computes edge-to-edge
+  // gaps between the selection's bounds and the hovered object's bounds.
+  // Cheap by construction — only runs the hit-tests/bounds math on a raw
+  // mousemove when altKey is actually down, and bails to a single
+  // setAltHoverMeasurement(null) otherwise (which itself no-ops via the
+  // value-equality check once already cleared).
+  const updateAltHoverMeasurement = useCallback(
+    (e: { clientX: number; clientY: number; altKey: boolean }) => {
+      if (!e.altKey || dragState.current) {
+        setAltHoverMeasurement(null);
+        return;
+      }
+      const selectedFrames = getCurrentFrameEntries().filter((entry) =>
+        selectedIdsRef.current.includes(entry.id),
+      );
+      const selectedDrafts = getCurrentDraftEntries().filter((entry) =>
+        selectedDraftIdsRef.current.includes(entry.id),
+      );
+      const selectionEntries = [...selectedFrames, ...selectedDrafts];
+      const selectionBounds = getFrameGroupBounds(selectionEntries);
+      if (!selectionBounds) {
+        setAltHoverMeasurement(null);
+        return;
+      }
+
+      const canvasPoint = getCanvasPoint(e.clientX, e.clientY);
+      const selectedFrameIds = new Set(selectedFrames.map((f) => f.id));
+      const selectedDraftIdsSet = new Set(selectedDrafts.map((d) => d.id));
+      const hoveredFrame = getFrameEntryAtPoint(canvasPoint);
+      const hoveredDraft = getDraftEntryAtPoint(canvasPoint);
+      // Prefer whichever hit is on top (higher z), matching how the two hit
+      // tests each already resolve overlaps within their own kind. Skip a
+      // hit that's actually part of the current selection — measuring a
+      // selected object against itself isn't meaningful.
+      const hoveredCandidates = [
+        hoveredFrame && !selectedFrameIds.has(hoveredFrame.id)
+          ? hoveredFrame
+          : null,
+        hoveredDraft && !selectedDraftIdsSet.has(hoveredDraft.id)
+          ? hoveredDraft
+          : null,
+      ].filter((entry): entry is NonNullable<typeof entry> => !!entry);
+      const hovered = hoveredCandidates.sort(
+        (a, b) => (b.geometry.z ?? 0) - (a.geometry.z ?? 0),
+      )[0];
+
+      if (!hovered) {
+        setAltHoverMeasurement(null);
+        return;
+      }
+      const hoveredBounds = getFrameGroupBounds([hovered]);
+      if (!hoveredBounds) {
+        setAltHoverMeasurement(null);
+        return;
+      }
+      setAltHoverMeasurement(
+        computeAltHoverMeasurement(selectionBounds, hoveredBounds),
+      );
+    },
+    [
+      getCanvasPoint,
+      getCurrentDraftEntries,
+      getCurrentFrameEntries,
+      getDraftEntryAtPoint,
+      getFrameEntryAtPoint,
+      setAltHoverMeasurement,
+    ],
+  );
+
   const handleMouseMove = useCallback(
     (e: React.MouseEvent) => {
+      updateAltHoverMeasurement(e);
       const tool = normalizeCanvasTool(activeTool ?? localActiveTool);
       if (tool !== "pen" || dragState.current?.type === "pen-node") return;
       updatePenPointer(e.clientX, e.clientY, e.shiftKey);
     },
-    [activeTool, localActiveTool, updatePenPointer],
+    [activeTool, localActiveTool, updateAltHoverMeasurement, updatePenPointer],
   );
 
   // Push the current pan/zoom straight to the DOM. A wheel/pinch gesture must
@@ -5518,6 +6571,38 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   );
   applyViewToDomRef.current = applyViewToDom;
   scheduleViewCommitRef.current = scheduleViewCommit;
+
+  // Imperative camera command (Figma's Shift+1/Shift+2 zoom-to-fit /
+  // zoom-to-selection). MultiScreenCanvas owns pan internally, so this is the
+  // one external control path for pan+zoom together: the caller passes
+  // world-space bounds to fit and a nonce; whenever the nonce changes we
+  // resolve the fit camera against OUR OWN current viewport size (the caller
+  // may not know it) via the same shared `getCameraForBounds` math
+  // `computeFitCameraForFrames`-style callers already use, then push it
+  // through the exact same imperative-transform + debounced-commit path a
+  // settled wheel/pinch gesture uses — one `applyViewToDom` + one
+  // `scheduleViewCommit`, not a fresh render-per-frame loop.
+  useEffect(() => {
+    if (!cameraCommand) return;
+    if (lastCameraCommandNonceRef.current === cameraCommand.nonce) return;
+    lastCameraCommandNonceRef.current = cameraCommand.nonce;
+    const rect = surfaceRef.current?.getBoundingClientRect();
+    if (!rect || rect.width <= 0 || rect.height <= 0) return;
+    const camera = getCameraForBounds(
+      cameraCommand.fitBounds,
+      { width: rect.width, height: rect.height },
+      {
+        paddingScreenPx: cameraCommand.paddingScreenPx ?? 64,
+        minZoom: MIN_ZOOM,
+        maxZoom: MAX_ZOOM,
+        fallbackZoom: zoomRef.current,
+      },
+    );
+    zoomRef.current = camera.zoom;
+    panRef.current = { x: camera.x, y: camera.y };
+    applyViewToDom();
+    scheduleViewCommit();
+  }, [cameraCommand, applyViewToDom, scheduleViewCommit]);
 
   const flushPendingWheelGesture = useCallback(() => {
     wheelGestureFrameRef.current = null;
@@ -5984,10 +7069,28 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     };
   }, [onDuplicate, screens]);
 
+  // Releasing Alt should clear the alt-hover measurement immediately even if
+  // the mouse never moves again (e.g. the user just lifts the Alt key while
+  // reading the distance label) rather than leaving it frozen on screen
+  // until the next mousemove recomputes it.
+  useEffect(() => {
+    const handleKeyUp = (event: KeyboardEvent) => {
+      if (event.key !== "Alt") return;
+      setAltHoverMeasurement(null);
+    };
+    window.addEventListener("keyup", handleKeyUp, true);
+    return () => {
+      window.removeEventListener("keyup", handleKeyUp, true);
+    };
+  }, [setAltHoverMeasurement]);
+
   const scale = canvasZoom / 100;
   const chromeScale = scale > 0 ? 1 / scale : 1;
   const showPixelGrid = canvasZoom >= PIXEL_GRID_ZOOM;
   const effectiveTool = normalizeCanvasTool(activeTool ?? localActiveTool);
+  useEffect(() => {
+    effectiveToolRef.current = effectiveTool;
+  }, [effectiveTool]);
   const penActive = effectiveTool === "pen";
   const creationToolActive = Boolean(getDraftCreationTool(effectiveTool));
   const canvasGestureActive = isDragging || isPanning;
@@ -6010,31 +7113,100 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     : dragCursor
       ? dragCursor
       : isDragging && marquee
-        ? "crosshair"
+        ? // Figma parity: rubber-band marquee selection keeps the default
+          // arrow cursor, not crosshair.
+          "default"
         : penActive || getDraftCreationTool(effectiveTool)
           ? "crosshair"
           : effectiveTool === "hand"
             ? "grab"
-            : "default";
-  // PF19: canvasFrames (and everything derived from it below) used to be
+            : effectiveTool === "comment"
+              ? COMMENT_CURSOR
+              : "default";
+  // PF19/PF21: canvasFrames (and everything derived from it below) used to be
   // plain per-render recomputation over `screens`/`frameGeometry`, which are
   // large arrays/maps for boards with many screens. Memoize so a render that
   // doesn't touch screens/geometry (e.g. a hover-only or unrelated state
   // update) doesn't re-walk and re-allocate the whole frame list.
-  const canvasFrames = useMemo(
-    () =>
-      screens.map((screen, index) => {
-        const metadata = getResolvedMetadata(screen);
-        return {
-          screen,
-          metadata,
-          geometry:
-            frameGeometry[screen.id] ??
-            getInitialFrameGeometry(index, metadata),
-        };
-      }),
-    [frameGeometry, getResolvedMetadata, screens],
-  );
+  //
+  // PF21: dragging/resizing/rotating ONE screen still replaces the whole
+  // `frameGeometry` object every rAF tick (see updateFrameGeometry), which
+  // means this useMemo's deps always look "changed" for every tick of a
+  // drag — but only ONE screen's geometry actually differs. Previously the
+  // `.map` above allocated a brand-new `{screen, metadata, geometry}` object
+  // for every screen on every tick, which is what screenContentById and the
+  // Screen render loop below read `metadata`/`geometry` from. Reuse the prior
+  // entry object when a screen's own screen/metadata/geometry are unchanged
+  // by value, so mapping over canvasFrames for the N-1 screens NOT being
+  // dragged doesn't allocate anything new for them on this same tick.
+  const canvasFrames = useMemo(() => {
+    const cache = canvasFrameEntryCacheRef.current;
+    const nextIds = new Set<string>();
+    const next = screens.map((screen, index) => {
+      nextIds.add(screen.id);
+      const metadata = getResolvedMetadata(screen);
+      const geometry =
+        frameGeometry[screen.id] ?? getInitialFrameGeometry(index, metadata);
+      const prior = cache.get(screen.id);
+      if (
+        prior &&
+        prior.screen === screen &&
+        sameResolvedMetadata(prior.metadata, metadata) &&
+        sameFrameGeometry(prior.geometry, geometry)
+      ) {
+        return prior;
+      }
+      const entry: CanvasFrameEntry = { screen, metadata, geometry };
+      cache.set(screen.id, entry);
+      return entry;
+    });
+    // Drop cache entries for screens that no longer exist so a
+    // delete-then-recreate-with-the-same-id sequence (unlikely, but not
+    // impossible for generated ids) can't resurrect stale state, and so the
+    // cache doesn't grow unboundedly across a long editing session that
+    // deletes/creates many screens.
+    for (const id of cache.keys()) {
+      if (!nextIds.has(id)) cache.delete(id);
+    }
+    return next;
+  }, [frameGeometry, getResolvedMetadata, screens]);
+  // Overview viewport culling (PF22): resolve each screen's cull tier from
+  // canvasFrames' geometry against the overscanned viewport computed from
+  // *committed* pan/canvasZoom + the measured surface size — never the
+  // imperative per-gesture zoomRef/panRef (see the culling helpers' module
+  // doc for why). activeId and the current selection are always "visible"
+  // regardless of position (mission requirement — matches Figma never
+  // culling the object you're actively editing/have selected).
+  //
+  // hasBeenVisibleScreenIdsRef is intentionally mutated inside this useMemo,
+  // mirroring the established canvasFrameEntryCacheRef/screenContentCacheRef
+  // pattern in this file: a plain ref-backed cache read-and-written together
+  // with the memoized computation it backs, not React state, since "a screen
+  // just became visible" shouldn't itself force an extra render beyond the
+  // one already happening from the pan/zoom/selection change that made it
+  // visible.
+  const screenCullTierById = useMemo(() => {
+    const viewport = getOverscannedViewportCanvasBounds(
+      surfaceSize,
+      pan,
+      canvasZoom,
+    );
+    const hasBeenVisible = hasBeenVisibleScreenIdsRef.current;
+    const next = new Map<string, ScreenCullTier>();
+    canvasFrames.forEach(({ screen, geometry }) => {
+      const alwaysVisible =
+        screen.id === activeId || selectedIdSet.has(screen.id);
+      const tier = computeScreenCullTier({
+        geometry,
+        viewport,
+        alwaysVisible,
+        hasBeenVisible: hasBeenVisible.has(screen.id),
+      });
+      if (tier === "visible") hasBeenVisible.add(screen.id);
+      next.set(screen.id, tier);
+    });
+    return next;
+  }, [activeId, canvasFrames, canvasZoom, pan, selectedIdSet, surfaceSize]);
   const topScreenId = useMemo(
     () =>
       selectedIds.find((id) =>
@@ -6053,20 +7225,74 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   // (boosted for the top screen in Screen's root style, see
   // TOP_SCREEN_Z_BOOST) already expresses "paint above its siblings" without
   // needing to touch DOM order, so render canvasFrames in stable order.
+  // PF21: renderScreenContent produces a brand-new ReactNode (a live
+  // <DesignCanvas> instance) per screen every time it's called, and this used
+  // to be called once per screen on *every* canvasFrames rebuild — including
+  // every rAF tick of a single screen's move/resize/rotate drag, since
+  // updateFrameGeometry replaces the whole `frameGeometry` object each tick.
+  // Screen is memo()'d with areScreenPropsEqual, which bails only when
+  // `prev.screenContent === next.screenContent` (identity, not value) — so a
+  // fresh ReactNode for every screen on every tick defeated that memo for the
+  // entire board, not just the one screen actually being dragged.
+  //
+  // renderScreenContent's own inputs, per DesignEditor's implementation, are:
+  // (1) `screen` — content/identity, (2) resolved `metadata`, and (3) the
+  // *rounded* `geometry.width`/`geometry.height` (fed to a small embeddedFrame
+  // cache keyed by `${width}x${height}`; DesignCanvas renders that frame at
+  // 100%/100% of its container, so fractional width/height jitter and all
+  // `geometry.x`/`geometry.y` changes are irrelevant to the produced node —
+  // position is applied entirely by Screen's own wrapper transform/left/top).
+  // renderScreenContent's *identity* is also a real input: DesignEditor hoists
+  // it in a useCallback, but its dependency list includes hover/selection
+  // state that legitimately changes what it renders for every screen (e.g.
+  // which screen shows a hover outline), so a change in that identity must
+  // invalidate every screen's cached node — it is not safe to assume "this
+  // screen's own inputs are unchanged" is sufficient when the callback itself
+  // changed. In practice renderScreenContent's identity does NOT change from
+  // frameGeometry motion alone (DesignEditor never setStates on drag-move
+  // ticks), so a pure move/resize/rotate drag keeps it stable and this cache
+  // still gives every non-dragged screen a hit.
   const screenContentById = useMemo(() => {
     if (!renderScreenContent) return new Map<string, ReactNode>();
-    return new Map(
-      screens.map((screen, index) => {
-        const metadata = getResolvedMetadata(screen);
-        const geometry =
-          frameGeometry[screen.id] ?? getInitialFrameGeometry(index, metadata);
-        return [
-          screen.id,
-          renderScreenContent(screen, metadata, geometry),
-        ] as const;
-      }),
-    );
-  }, [frameGeometry, getResolvedMetadata, renderScreenContent, screens]);
+    const cache = screenContentCacheRef.current;
+    const nextIds = new Set<string>();
+    const next = new Map<string, ReactNode>();
+    canvasFrames.forEach(({ screen, metadata, geometry }) => {
+      // Overview viewport culling (PF22): a screen that has never been
+      // visible this session ("placeholder" tier) skips renderScreenContent
+      // entirely instead of mounting the real (DesignEditor-provided)
+      // content node and hiding it — for boards with 100+ screens this is
+      // the actual cost renderScreenContent exists to avoid paying (it
+      // mounts a live DesignCanvas/iframe per screen). Once a screen has
+      // ever been visible ("visible" or "culled" tier) it keeps getting a
+      // real content node forever after, per the "never unmount a live
+      // iframe" rule — see Screen's contentVisibility handling below for how
+      // a "culled" tier screen's mounted iframe is cheaply hidden instead.
+      const tier = screenCullTierById.get(screen.id) ?? "visible";
+      if (tier === "placeholder") {
+        // Also drop any stale cache entry so a screen that regresses to
+        // never-rendered (shouldn't normally happen, but keeps the cache
+        // honest) doesn't resurrect a stale node later.
+        cache.delete(screen.id);
+        return;
+      }
+      nextIds.add(screen.id);
+      next.set(
+        screen.id,
+        getCachedScreenContentNode(
+          cache,
+          screen,
+          metadata,
+          geometry,
+          renderScreenContent,
+        ),
+      );
+    });
+    for (const id of cache.keys()) {
+      if (!nextIds.has(id)) cache.delete(id);
+    }
+    return next;
+  }, [canvasFrames, renderScreenContent, screenCullTierById]);
   // PF19: filters/maps over canvasFrames + a getFrameGroupBounds pass — cheap
   // for a handful of screens, but this runs on every render (hover, hint
   // text, unrelated state), not just selection changes. Memoize keyed on the
@@ -6106,6 +7332,18 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     selectedFrameEntries.length === 1 && !selectedGroupBounds
       ? selectedFrameEntries[0]
       : null;
+  // BP-DEEP v2 item 3 — when the single selected screen's active edit target
+  // is one of its breakpoint sub-frames, that sub-frame's own accent chrome
+  // is the selection; suppress the base frame's SelectionBox (corner/rotate
+  // handles + outline) so only ONE frame reads as selected.
+  const singleSelectedFrameScreen = singleSelectedFrame
+    ? canvasFrames.find((entry) => entry.screen.id === singleSelectedFrame.id)
+        ?.screen
+    : undefined;
+  const suppressBaseSelectionBox = Boolean(
+    singleSelectedFrameScreen &&
+    isBreakpointSelectionTarget(singleSelectedFrameScreen),
+  );
   const singleSelectedDraft =
     selectedDraftEntries.length === 1 && !selectedDraftGroupBounds
       ? selectedDraftEntries[0]
@@ -6113,6 +7351,18 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   const rootSelectedEntryCount =
     selectedFrameEntries.length + selectedDraftEntries.length;
   const showPassiveRootSelectionBoxes = rootSelectedEntryCount > 1;
+  // Gradient-edit overlay (Figma-parity on-canvas handles): only renders for
+  // the single selected screen frame or draft primitive whose id matches
+  // `gradientEditTarget.frameOrDraftId` — a stale/mismatched target (e.g. the
+  // caller hasn't cleared it after selection changed) simply renders nothing
+  // rather than drawing chrome over the wrong element.
+  const gradientOverlayGeometry =
+    gradientEditTarget &&
+    (singleSelectedFrame?.id === gradientEditTarget.frameOrDraftId
+      ? singleSelectedFrame.geometry
+      : singleSelectedDraft?.id === gradientEditTarget.frameOrDraftId
+        ? singleSelectedDraft.geometry
+        : null);
   return (
     <div
       ref={surfaceRef}
@@ -6120,6 +7370,11 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       className="relative h-full w-full select-none overflow-hidden outline-none"
       onMouseDownCapture={handleMouseDown}
       onMouseMove={handleMouseMove}
+      onMouseLeave={() => setAltHoverMeasurement(null)}
+      onDragEnter={handleCanvasDragEnter}
+      onDragOver={handleCanvasDragOver}
+      onDragLeave={handleCanvasDragLeave}
+      onDrop={handleCanvasDrop}
       style={{
         cursor: surfaceCursor,
         overscrollBehavior: "none",
@@ -6266,11 +7521,23 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
               metadata={metadata}
               geometry={geometry}
               screenContent={screenContentById.get(screen.id)}
+              cullTier={screenCullTierById.get(screen.id) ?? "visible"}
               isActive={screen.id === activeId}
               isTopScreen={screen.id === topScreenId}
-              isSelected={selectedIdSet.has(screen.id)}
+              // BP-DEEP v2 item 3 — while a breakpoint sub-frame is the
+              // active edit target, IT carries the selection chrome (accent
+              // border + label); the base frame renders unselected so the
+              // two never read as simultaneously selected.
+              isSelected={
+                selectedIdSet.has(screen.id) &&
+                !isBreakpointSelectionTarget(screen)
+              }
               showFullView={fullViewIdSet.has(screen.id)}
               isDirectlyHovered={screen.id === directlyHoveredScreenId}
+              isFileDragOver={
+                fileDragOverFrameId !== null &&
+                screen.id === fileDragOverFrameId
+              }
               hasHoveredChild={
                 (screen.id === activeId && activeScreenHasHoveredChild) ||
                 screen.id === hoveredChildScreenId
@@ -6366,7 +7633,15 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           />
         ) : null}
 
-        {singleSelectedFrame ? (
+        {gradientEditTarget && gradientOverlayGeometry ? (
+          <GradientEditOverlay
+            target={gradientEditTarget}
+            geometry={gradientOverlayGeometry}
+            chromeScale={chromeScale}
+          />
+        ) : null}
+
+        {singleSelectedFrame && !suppressBaseSelectionBox ? (
           <SelectionBox
             geometry={singleSelectedFrame.geometry}
             chromeScale={chromeScale}
@@ -6461,7 +7736,62 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
             />
           )),
         )}
+
+        {/* Figma-parity alt-hover measurement: red edge-to-edge distance
+            lines between the current selection and whatever frame/draft is
+            under the cursor while Alt is held (pure hover, no drag). */}
+        {[altHoverMeasurement?.horizontal, altHoverMeasurement?.vertical]
+          .filter(
+            (line): line is AltHoverMeasurementLine => !!line && !line.overlaps,
+          )
+          .map((line) => (
+            <span
+              key={`alt-hover-${line.orientation}`}
+              className="pointer-events-none absolute z-40 bg-destructive"
+              style={
+                line.orientation === "vertical"
+                  ? {
+                      left: SURFACE_PADDING + line.crossPosition,
+                      top: SURFACE_PADDING + line.start,
+                      width: 1,
+                      height: Math.max(1, line.end - line.start),
+                    }
+                  : {
+                      left: SURFACE_PADDING + line.start,
+                      top: SURFACE_PADDING + line.crossPosition,
+                      width: Math.max(1, line.end - line.start),
+                      height: 1,
+                    }
+              }
+            />
+          ))}
       </div>
+
+      {/* Alt-hover measurement distance labels — same render-outside-the-
+          transformed-world reasoning as the equal-gap labels below. */}
+      {[altHoverMeasurement?.horizontal, altHoverMeasurement?.vertical]
+        .filter(
+          (line): line is AltHoverMeasurementLine => !!line && !line.overlaps,
+        )
+        .map((line) => {
+          const mid = (line.start + line.end) / 2;
+          const labelCanvasPoint =
+            line.orientation === "vertical"
+              ? { x: line.crossPosition, y: mid }
+              : { x: mid, y: line.crossPosition };
+          return (
+            <span
+              key={`alt-hover-label-${line.orientation}`}
+              className="pointer-events-none absolute z-40 -translate-x-1/2 -translate-y-1/2 rounded bg-destructive px-1 py-0.5 text-[10px] font-medium leading-none text-destructive-foreground shadow-sm"
+              style={{
+                left: pan.x + (SURFACE_PADDING + labelCanvasPoint.x) * scale,
+                top: pan.y + (SURFACE_PADDING + labelCanvasPoint.y) * scale,
+              }}
+            >
+              {Math.round(line.gap)}
+            </span>
+          );
+        })}
 
       {/* Equal-gap distance labels render outside the pan/scale-transformed
           world container (same reasoning as the marquee/duplicate-preview
@@ -6740,6 +8070,13 @@ function DraftPrimitiveContent({
       (draft.penPath
         ? serializePenPath(draft.penPath)
         : pointsToPath(draft.points ?? []));
+    // Figma parity: a freshly drawn line/arrow/pen path defaults to solid
+    // black at 1px (DEFAULT_LINE_STROKE / DEFAULT_LINE_STROKE_WIDTH_PX in
+    // canvas-primitive-style.ts), matching the committed board-file output
+    // and DesignEditor's appendCanvasPrimitiveToHtml. The arrowhead marker's
+    // fill is set to this same resolved stroke color (not `currentColor`) so
+    // it never disagrees with the shaft when a custom stroke is chosen.
+    const resolvedStroke = draft.stroke ?? DEFAULT_LINE_STROKE;
     return (
       <svg
         className={cn("block size-full overflow-visible", muted)}
@@ -6756,17 +8093,17 @@ function DraftPrimitiveContent({
               orient="auto"
               markerUnits="strokeWidth"
             >
-              <path d="M 0 0 L 10 5 L 0 10 z" fill="currentColor" />
+              <path d="M 0 0 L 10 5 L 0 10 z" fill={resolvedStroke} />
             </marker>
           </defs>
         ) : null}
         <path
           d={pathData}
           fill="none"
-          stroke={draft.stroke ?? "hsl(var(--primary))"}
+          stroke={resolvedStroke}
           strokeLinecap="round"
           strokeLinejoin="round"
-          strokeWidth={draft.strokeWidth ?? 3}
+          strokeWidth={draft.strokeWidth ?? DEFAULT_LINE_STROKE_WIDTH_PX}
           markerEnd={draft.kind === "arrow" ? `url(#${markerId})` : undefined}
         />
       </svg>
@@ -7122,6 +8459,264 @@ function VectorEditOverlay({
   );
 }
 
+/** Which part of the gradient the user is currently dragging on canvas. */
+type GradientDragKind =
+  | { kind: "endpoint"; which: "start" | "end" }
+  | { kind: "stop"; stopId: string };
+
+/**
+ * Figma-parity on-canvas gradient editing handles (see the
+ * `gradientEditTarget` prop / `GradientEditOverlayTarget` doc above). Purely
+ * a linear-gradient-line renderer + its own pointer
+ * handlers: unlike `VectorEditOverlay` (whose drag is owned by the parent
+ * surface's capture-phase mousedown handler), this overlay is small and
+ * self-contained enough to own its own drag gesture directly — there's no
+ * existing shared gesture-state plumbing for gradients to hook into, and
+ * adding one to the giant `MultiScreenCanvas` drag-state machine for a
+ * single, independent overlay would be the wrong trade. Mirrors
+ * `GradientEditor`'s own pointer-capture + preview/commit conventions
+ * (`startStopDrag`/`handleStopPointerMove`/`endStopDrag`) so dragging here
+ * and dragging the inspector's ramp bar feel identical.
+ */
+function GradientEditOverlay({
+  target,
+  geometry,
+  chromeScale,
+}: {
+  target: GradientEditOverlayTarget;
+  geometry: FrameGeometry;
+  chromeScale: number;
+}) {
+  const gradient = useMemo(
+    () => parseGradientCss(target.cssValue, "linear"),
+    [target.cssValue],
+  );
+  const dragRef = useRef<{
+    kind: GradientDragKind;
+    pointerId: number;
+  } | null>(null);
+  // Rect used to convert pointer clientX/Y back to the overlay's own local
+  // (unrotated) coordinate space. Always the *outer* container div — not
+  // whichever small handle span the pointer landed on — so the scale-only
+  // inverse in `localPointFromEvent` is correct regardless of which handle
+  // started the drag (pointer capture keeps delivering events to that span,
+  // but its own rect is the wrong reference frame for this math).
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  // Linear-only (P0 scope, see prop doc): non-linear/unparseable values
+  // render nothing rather than guessing at radial/angular chrome.
+  if (!gradient || gradient.kind !== "linear") return null;
+
+  const { width, height } = geometry;
+  const { start, end } = gradientLineEndpoints(gradient.angle, width, height);
+  const stopPoints = gradientStopPoints(
+    gradient.angle,
+    width,
+    height,
+    gradient.stops,
+  );
+
+  const emit = (
+    nextGradient: {
+      kind: "linear";
+      angle: number;
+      stops: GradientStopValue[];
+    },
+    phase: "preview" | "commit",
+  ) => {
+    target.onChange(gradientToCss(nextGradient), { phase });
+  };
+
+  const localPointFromEvent = (
+    event: ReactPointerEvent<HTMLElement>,
+  ): Point => {
+    const rect = containerRef.current?.getBoundingClientRect();
+    if (!rect) return { x: 0, y: 0 };
+    // rect is the container's on-screen box (already rotated by the CSS
+    // `transform`, since getBoundingClientRect measures the rotated result);
+    // for chromeScale=1:1 zoom with no rotation this reduces to a plain
+    // offset. At non-1:1 zoom the container is still laid out at exactly
+    // `width x height` local units (zoom only scales the ancestor `world`
+    // transform, not this element's own box), so rect.width/height already
+    // equals width/height on-screen and this scale factor stays ~1 in the
+    // common (unrotated) case; for a rotated target the bounding rect is the
+    // rotated AABB, so this remains an approximation — acceptable for P0
+    // since draft primitives/screen frames are typically edited unrotated
+    // and rotation support can be revisited alongside radial handles.
+    const scaleX = rect.width / width || 1;
+    const scaleY = rect.height / height || 1;
+    return {
+      x: (event.clientX - rect.left) / scaleX,
+      y: (event.clientY - rect.top) / scaleY,
+    };
+  };
+
+  const beginDrag = (
+    event: ReactPointerEvent<HTMLElement>,
+    dragKind: GradientDragKind,
+  ) => {
+    event.stopPropagation();
+    event.preventDefault();
+    dragRef.current = { kind: dragKind, pointerId: event.pointerId };
+    event.currentTarget.setPointerCapture(event.pointerId);
+  };
+
+  const handleDragMove = (event: ReactPointerEvent<HTMLElement>) => {
+    const drag = dragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId || !gradient) return;
+    const local = localPointFromEvent(event);
+    if (drag.kind.kind === "endpoint") {
+      const nextAngle = angleFromDraggedEndpoint(
+        local,
+        width,
+        height,
+        drag.kind.which,
+      );
+      emit(
+        { kind: "linear", angle: nextAngle, stops: gradient.stops },
+        "preview",
+      );
+      return;
+    }
+    const stopId = drag.kind.stopId;
+    const nextPosition = stopPercentFromDraggedPoint(
+      local,
+      gradient.angle,
+      width,
+      height,
+    );
+    emit(
+      {
+        kind: "linear",
+        angle: gradient.angle,
+        stops: gradient.stops.map((stop) =>
+          stop.id === stopId ? { ...stop, position: nextPosition } : stop,
+        ),
+      },
+      "preview",
+    );
+  };
+
+  const endDrag = (event: ReactPointerEvent<HTMLElement>) => {
+    const drag = dragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    dragRef.current = null;
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+    if (!gradient) return;
+    emit(
+      { kind: "linear", angle: gradient.angle, stops: gradient.stops },
+      "commit",
+    );
+  };
+
+  const endpointSize = 10 * chromeScale;
+  const endpointBorderWidth = Math.max(1, 1.5 * chromeScale);
+  const stopSize = 12 * chromeScale;
+  const stopBorderWidth = Math.max(1, 2 * chromeScale);
+  const lineStrokeWidth = Math.max(1, 1.5 * chromeScale);
+
+  return (
+    <div
+      ref={containerRef}
+      data-gradient-edit-overlay
+      className="pointer-events-none absolute z-[96]"
+      style={{
+        left: SURFACE_PADDING + geometry.x,
+        top: SURFACE_PADDING + geometry.y,
+        width: geometry.width,
+        height: geometry.height,
+        transform: geometry.rotation
+          ? `rotate(${geometry.rotation}deg)`
+          : undefined,
+        transformOrigin: `${geometry.width / 2}px ${geometry.height / 2}px`,
+      }}
+    >
+      <svg
+        className="pointer-events-none absolute inset-0 size-full overflow-visible"
+        viewBox={`0 0 ${width} ${height}`}
+      >
+        <line
+          x1={start.x}
+          y1={start.y}
+          x2={end.x}
+          y2={end.y}
+          stroke="rgba(255,255,255,0.95)"
+          strokeWidth={lineStrokeWidth + 1.5 * chromeScale}
+        />
+        <line
+          x1={start.x}
+          y1={start.y}
+          x2={end.x}
+          y2={end.y}
+          stroke="var(--design-editor-accent-color)"
+          strokeWidth={lineStrokeWidth}
+        />
+      </svg>
+
+      {(["start", "end"] as const).map((which) => {
+        const point = which === "start" ? start : end;
+        return (
+          <span
+            key={`gradient-endpoint-${which}`}
+            data-gradient-endpoint={which}
+            role="slider"
+            aria-label={
+              which === "start"
+                ? "Gradient start" /* i18n-ignore */
+                : "Gradient end" /* i18n-ignore */
+            }
+            aria-valuenow={Math.round(gradient.angle)}
+            className="pointer-events-auto absolute cursor-move rounded-[2px] border bg-[var(--design-editor-accent-contrast-color)] border-[var(--design-editor-accent-color)] shadow"
+            style={{
+              left: point.x - endpointSize / 2,
+              top: point.y - endpointSize / 2,
+              width: endpointSize,
+              height: endpointSize,
+              borderWidth: endpointBorderWidth,
+            }}
+            onPointerDown={(e) => beginDrag(e, { kind: "endpoint", which })}
+            onPointerMove={handleDragMove}
+            onPointerUp={endDrag}
+            onPointerCancel={endDrag}
+          />
+        );
+      })}
+
+      {stopPoints.map((point, index) => {
+        const stop = gradient.stops[index];
+        if (!stop) return null;
+        return (
+          <span
+            key={`gradient-stop-${stop.id}`}
+            data-gradient-stop={stop.id}
+            role="slider"
+            aria-label={`${stop.color} at ${Math.round(stop.position)}%`}
+            aria-valuenow={Math.round(stop.position)}
+            className="pointer-events-auto absolute cursor-grab rounded-full border shadow active:cursor-grabbing border-white"
+            style={{
+              left: point.x - stopSize / 2,
+              top: point.y - stopSize / 2,
+              width: stopSize,
+              height: stopSize,
+              borderWidth: stopBorderWidth,
+              backgroundColor: stop.color,
+              boxShadow: "0 0 0 1px rgba(0,0,0,0.25)",
+            }}
+            onPointerDown={(e) =>
+              beginDrag(e, { kind: "stop", stopId: stop.id })
+            }
+            onPointerMove={handleDragMove}
+            onPointerUp={endDrag}
+            onPointerCancel={endDrag}
+          />
+        );
+      })}
+    </div>
+  );
+}
+
 /** Standard Tailwind breakpoint widths, mobile-first (base / md: / lg: / xl:). */
 const STANDARD_BREAKPOINT_WIDTHS = [390, 768, 1280] as const;
 
@@ -7154,6 +8749,26 @@ export function getBreakpointIframeId(
   widthPx: number,
 ): string {
   return `${screenId}::bp-${widthPx}`;
+}
+
+/**
+ * BP-DEEP v2 item 3 — whether the selection chrome for a selected screen
+ * belongs on one of its BREAKPOINT sub-frames instead of the base frame:
+ * true when the screen's active breakpoint width is set AND still exists in
+ * its breakpoint set (a stale width from a removed breakpoint falls back to
+ * the base frame carrying selection as usual). While true, the base frame
+ * suppresses its own selected chrome (label emphasis + SelectionBox corner
+ * handles) so exactly ONE frame — the active edit target — reads as
+ * selected. Pure/exported for unit tests.
+ */
+export function isBreakpointSelectionTarget(screen: {
+  breakpointWidths?: number[];
+  activeBreakpointWidth?: number;
+}): boolean {
+  return (
+    screen.activeBreakpointWidth != null &&
+    (screen.breakpointWidths ?? []).includes(screen.activeBreakpointWidth)
+  );
 }
 
 /**
@@ -7190,6 +8805,8 @@ interface ScreenProps {
   isTopScreen: boolean;
   showFullView: boolean;
   isDirectlyHovered: boolean;
+  /** True while a native OS file drag is hovering this frame (Figma parity §1). */
+  isFileDragOver: boolean;
   hasHoveredChild: boolean;
   groupSelected: boolean;
   handlesEnabled: boolean;
@@ -7199,6 +8816,14 @@ interface ScreenProps {
   chromeScale: number;
   chromeSettling: boolean;
   screenContent?: ReactNode;
+  /** Overview viewport culling tier (PF22) — see computeScreenCullTier.
+   *  "visible": render screenContent normally. "culled": screenContent (if
+   *  any) stays mounted but is hidden from paint (visibility/
+   *  content-visibility, never display:none/unmount — iframes lose all
+   *  internal state on unmount). "placeholder": no screenContent was even
+   *  computed for this screen (see screenContentById) — render a
+   *  lightweight chrome-only placeholder instead of an iframe. */
+  cullTier: ScreenCullTier;
   onPick: (id: string, e: React.MouseEvent<HTMLElement>) => void;
   onEdit: (id: string, e: React.MouseEvent<HTMLElement>) => void;
   onStartFrameDrag: (id: string, e: React.MouseEvent) => void;
@@ -7235,6 +8860,7 @@ const Screen = memo(function Screen({
   isTopScreen,
   showFullView,
   isDirectlyHovered,
+  isFileDragOver,
   hasHoveredChild,
   groupSelected,
   handlesEnabled,
@@ -7250,6 +8876,7 @@ const Screen = memo(function Screen({
   onStartRotate,
   onStartDuplicateGesture,
   screenContent,
+  cullTier,
   onAddBreakpoint,
   onActiveBreakpointChange,
 }: ScreenProps) {
@@ -7258,6 +8885,18 @@ const Screen = memo(function Screen({
   const previewUrl = metadata.previewUrl ?? getPreviewUrl(screen.content);
   const previewViewport = getScreenPreviewViewport(metadata, geometry);
   const suppressNextClick = useRef(false);
+  // Overview viewport culling (PF22): a "culled" screen keeps its content
+  // (iframe/DesignCanvas) fully mounted — unmounting would lose all internal
+  // iframe state (scroll position, form input, in-progress Alpine/JS state)
+  // — but skips paint/layout cost for it via visibility:hidden +
+  // contentVisibility:"hidden" on the content wrapper. Deliberately NOT
+  // display:none (can drop layout/scroll state on some engines) and NOT
+  // will-change (a prior perf attempt using will-change on this same overview
+  // caused permanent blur by pinning a low-res compositor layer — see the
+  // world-transform comment near applyViewToDom). "placeholder" tier never
+  // had content computed for it at all (see screenContentById), so it always
+  // renders the chrome-only placeholder below regardless of this flag.
+  const isCulled = cullTier === "culled";
   const [directlyHovered, setDirectlyHovered] = useState(false);
   const frameDirectlyHovered =
     (directlyHovered || isDirectlyHovered) &&
@@ -7299,8 +8938,15 @@ const Screen = memo(function Screen({
   }, []);
   const frameLabelHeight = FRAME_LABEL_HEIGHT * chromeScale;
   const frameScreenWidth = geometry.width / Math.max(chromeScale, 0.001);
+  // BP-DEEP v2 item 1: the narrow-frame fallback that floats the Full-view
+  // pill OUTSIDE the frame's right edge (left-full) lands exactly where the
+  // breakpoint preview row starts, covering the first breakpoint frame's
+  // label/corner (the pill is z-40 over the row). When this screen has
+  // breakpoint frames, always keep the pill INSIDE the frame header —
+  // labelInfoMaxWidth already reserves room for the inside placement.
   const fullViewOutsideFrame =
-    frameScreenWidth < FRAME_HEADER_BUTTON_OUTSIDE_WIDTH;
+    frameScreenWidth < FRAME_HEADER_BUTTON_OUTSIDE_WIDTH &&
+    !(screen.breakpointWidths && screen.breakpointWidths.length > 0);
   const labelInfoMaxWidth = Math.max(
     64,
     frameScreenWidth - (fullViewOutsideFrame ? 8 : FRAME_HEADER_BUTTON_RESERVE),
@@ -7465,6 +9111,7 @@ const Screen = memo(function Screen({
           }
           e.preventDefault();
           e.stopPropagation();
+          onEdit(screen.id, e);
         }}
         onMouseDown={(e) => {
           if (isInteractiveScreenContentTarget(e.target)) {
@@ -7515,41 +9162,76 @@ const Screen = memo(function Screen({
       >
         <span
           data-screen-content
+          data-file-drag-over={isFileDragOver || undefined}
+          data-cull-tier={cullTier}
           className={cn(
             "relative block h-full w-full overflow-hidden rounded-[inherit] bg-white shadow-2xl ring-1 ring-inset ring-border transition-colors",
+            isFileDragOver &&
+              "ring-2 ring-[var(--design-editor-accent-color)] ring-inset",
           )}
-          style={{ pointerEvents: screenContentInteractive ? "auto" : "none" }}
+          style={{
+            pointerEvents: screenContentInteractive ? "auto" : "none",
+            // Tier B (PF22): keep the mounted iframe/DesignCanvas alive (see
+            // the isCulled comment above) but skip its paint/layout cost.
+            // visibility:hidden (not display:none) keeps the box in the
+            // layout/measurement tree; contentVisibility:"hidden" skips
+            // rendering its subtree entirely until it's shown again. Neither
+            // property touches will-change/compositor layers, so this can't
+            // reproduce the permanent-blur regression a prior will-change
+            // attempt on this same surface caused.
+            visibility: isCulled ? "hidden" : undefined,
+            contentVisibility: isCulled ? "hidden" : undefined,
+          }}
         >
-          {screenContent ?? (
-            <iframe
-              data-screen-iframe-id={screen.id}
-              src={previewUrl}
-              srcDoc={previewUrl ? undefined : srcdocWithHitTest}
-              sandbox="allow-scripts"
-              loading="lazy"
-              className="pointer-events-none border-0"
-              style={{
-                width: previewViewport.viewportWidth,
-                height: previewViewport.viewportHeight,
-                // Untouched same-aspect overview thumbnails may scale uniformly.
-                // User-resized frames use their real iframe viewport so
-                // responsive layouts recompute instead of getting stretched.
-                transform:
-                  previewViewport.scale === 1
-                    ? undefined
-                    : `scale(${previewViewport.scale})`,
-                transformOrigin: "top left",
-                backgroundColor: "white",
-                colorScheme: "light",
-                // Prevent the browser from discarding the composited layer at
-                // fractional zoom levels, which causes the iframe to go black.
-                // backface-visibility:hidden forces the browser to keep the
-                // backing store alive even when the effective scale is very small
-                // (e.g. 0.25 iframe scale × 0.5 canvas zoom = 0.125 total).
-                backfaceVisibility: "hidden",
-              }}
-              title={screen.filename}
-            />
+          {cullTier === "placeholder" ? (
+            // Tier A (PF22): this screen has never been visible this
+            // session, so no iframe/DesignCanvas was ever mounted for it
+            // (see screenContentById) — render inert chrome-only filler that
+            // keeps the same wrapper geometry as real content so selection,
+            // drag, marquee, and measurement math (all geometry-based, see
+            // computeScreenCullTier's callers) stay unaffected. Deliberately
+            // no iframe here at all, not even a hidden one.
+            <div
+              data-screen-placeholder
+              aria-hidden="true"
+              className="flex h-full w-full items-center justify-center bg-muted/40 text-muted-foreground"
+            >
+              <span className="max-w-[80%] truncate px-2 text-center !text-[11px] font-medium">
+                {display}
+              </span>
+            </div>
+          ) : (
+            (screenContent ?? (
+              <iframe
+                data-screen-iframe-id={screen.id}
+                src={previewUrl}
+                srcDoc={previewUrl ? undefined : srcdocWithHitTest}
+                sandbox="allow-scripts"
+                loading="lazy"
+                className="pointer-events-none border-0"
+                style={{
+                  width: previewViewport.viewportWidth,
+                  height: previewViewport.viewportHeight,
+                  // Untouched same-aspect overview thumbnails may scale uniformly.
+                  // User-resized frames use their real iframe viewport so
+                  // responsive layouts recompute instead of getting stretched.
+                  transform:
+                    previewViewport.scale === 1
+                      ? undefined
+                      : `scale(${previewViewport.scale})`,
+                  transformOrigin: "top left",
+                  backgroundColor: "white",
+                  colorScheme: "light",
+                  // Prevent the browser from discarding the composited layer at
+                  // fractional zoom levels, which causes the iframe to go black.
+                  // backface-visibility:hidden forces the browser to keep the
+                  // backing store alive even when the effective scale is very small
+                  // (e.g. 0.25 iframe scale × 0.5 canvas zoom = 0.125 total).
+                  backfaceVisibility: "hidden",
+                }}
+                title={screen.filename}
+              />
+            ))
           )}
           {creationToolActive ? (
             <span
@@ -7572,7 +9254,11 @@ const Screen = memo(function Screen({
             showHoverChrome ? "opacity-100" : "opacity-0",
           )}
           style={{
-            borderWidth: 1.5 * chromeScale,
+            // Figma parity: the hover outline is visibly thinner than the
+            // 1.5 * chromeScale selection outline (SelectionBox /
+            // PassiveSelectionBox) — hover is a light "you could select
+            // this" hint, selection is the stronger confirmed-state chrome.
+            borderWidth: chromeScale,
             transition: getChromeBorderTransition(chromeSettling),
           }}
           aria-hidden="true"
@@ -7605,12 +9291,24 @@ const Screen = memo(function Screen({
         <BreakpointPreviewRow
           screen={screen}
           primaryGeometry={geometry}
+          // See getBreakpointFrameGeometry's doc comment: reusing the
+          // primary frame's OWN previewViewport.scale (how far the user has
+          // resized this screen's box away from its natural/metadata width)
+          // keeps every frame in the row at the same on-canvas "zoom level"
+          // without conflating that resize factor with the primary's aspect
+          // ratio the way the original forced-height math did.
+          primaryScale={previewViewport.scale}
+          naturalAspect={metadata.height / Math.max(1, metadata.width)}
           previewUrl={previewUrl}
           srcdocWithHitTest={srcdocWithHitTest}
           activeBreakpointWidth={screen.activeBreakpointWidth}
+          isScreenSelected={isSelected}
           penActive={penActive}
           creationToolActive={creationToolActive}
           chromeScale={chromeScale}
+          chromeSettling={chromeSettling}
+          onPick={onPick}
+          onStartFrameDrag={onStartFrameDrag}
           onActiveBreakpointChange={
             onActiveBreakpointChange
               ? (widthPx) => onActiveBreakpointChange(screen.id, widthPx)
@@ -7631,6 +9329,7 @@ function areScreenPropsEqual(prev: ScreenProps, next: ScreenProps) {
   return (
     prev.screen === next.screen &&
     prev.screenContent === next.screenContent &&
+    prev.cullTier === next.cullTier &&
     sameResolvedMetadata(prev.metadata, next.metadata) &&
     sameFrameGeometry(prev.geometry, next.geometry) &&
     prev.isActive === next.isActive &&
@@ -7638,6 +9337,7 @@ function areScreenPropsEqual(prev: ScreenProps, next: ScreenProps) {
     prev.isTopScreen === next.isTopScreen &&
     prev.showFullView === next.showFullView &&
     prev.isDirectlyHovered === next.isDirectlyHovered &&
+    prev.isFileDragOver === next.isFileDragOver &&
     prev.hasHoveredChild === next.hasHoveredChild &&
     prev.groupSelected === next.groupSelected &&
     prev.handlesEnabled === next.handlesEnabled &&
@@ -7666,20 +9366,88 @@ function areScreenPropsEqual(prev: ScreenProps, next: ScreenProps) {
 /** Gap between adjacent breakpoint frames in canvas pixels. */
 const BREAKPOINT_FRAME_GAP = 24;
 
+/**
+ * Pure geometry helper for one breakpoint sub-frame (BP-DEEP item 3a): the
+ * on-canvas frame box is a UNIFORM scale of the iframe's own natural size at
+ * `widthPx`, never a non-uniform scale(x, y) that would stretch/squish the
+ * narrower layout's aspect ratio to match the primary frame's height.
+ *
+ * `primaryScale` is the SAME "how far has this screen's on-canvas box been
+ * resized away from its natural/metadata width" factor `Screen` already
+ * computes for the primary frame via `getScreenPreviewViewport(...).scale` —
+ * reusing it here (instead of re-deriving one from primaryGeometry alone,
+ * which conflated the primary's aspect ratio with its resize factor and
+ * produced the original forced-height distortion) keeps every frame in the
+ * row at the same "zoom level" the user resized the primary frame to, while
+ * each frame's OWN natural height comes from its own aspect ratio at its own
+ * width — so a narrower breakpoint is allowed to be visually shorter than
+ * the primary, matching a real device preview instead of an artificially
+ * stretched one.
+ *
+ * `naturalAspect` is the breakpoint iframe's own natural height/width ratio
+ * at `widthPx`; callers without a live measurement fall back to the
+ * primary's own aspect ratio (same document, same rough proportions).
+ * Exported so MultiScreenCanvas.primitives.test.ts can assert the scale is
+ * always uniform (one `scale` value applied to both iframe axes) and the
+ * frame box height is therefore derived from the breakpoint's OWN natural
+ * size, never forced to equal the primary frame's height.
+ */
+export function getBreakpointFrameGeometry(args: {
+  widthPx: number;
+  naturalAspect: number;
+  primaryScale: number;
+}): {
+  /** On-canvas frame box width, in canvas px. */
+  frameWidth: number;
+  /** On-canvas frame box height, in canvas px — the iframe's own natural
+   *  aspect at `widthPx`, uniformly scaled; NOT forced to the primary's
+   *  height. */
+  frameHeight: number;
+  /** The iframe's own intrinsic (pre-scale) height at `widthPx`. */
+  naturalHeight: number;
+  /** Uniform scale factor applied to BOTH iframe axes (never distorts). */
+  scale: number;
+} {
+  const scale =
+    Number.isFinite(args.primaryScale) && args.primaryScale > 0
+      ? args.primaryScale
+      : 1;
+  const naturalHeight = Math.round(
+    args.widthPx * Math.max(0.01, args.naturalAspect),
+  );
+  const frameWidth = Math.round(args.widthPx * scale);
+  const frameHeight = Math.round(naturalHeight * scale);
+  return { frameWidth, frameHeight, naturalHeight, scale };
+}
+
 function BreakpointPreviewRow({
   screen,
   primaryGeometry,
+  primaryScale,
+  naturalAspect,
   previewUrl,
   srcdocWithHitTest,
   activeBreakpointWidth,
+  isScreenSelected,
   penActive,
   creationToolActive,
   chromeScale,
+  chromeSettling,
+  onPick,
+  onStartFrameDrag,
   onActiveBreakpointChange,
   onAddBreakpoint,
 }: {
   screen: ScreenFile;
   primaryGeometry: FrameGeometry;
+  /** The primary frame's own resize scale (`getScreenPreviewViewport(...).
+   *  scale`) — see getBreakpointFrameGeometry's doc comment for why this,
+   *  not primaryGeometry alone, drives each breakpoint frame's on-canvas
+   *  size. */
+  primaryScale: number;
+  /** The primary frame's own natural height/width ratio, used as the
+   *  breakpoint iframe's assumed natural aspect (same document). */
+  naturalAspect: number;
   previewUrl: string | undefined;
   /**
    * The primary screen's srcdoc with the lightweight hit-test responder already
@@ -7691,15 +9459,30 @@ function BreakpointPreviewRow({
    */
   srcdocWithHitTest: string;
   activeBreakpointWidth: number | undefined;
+  /** Whether the OWNING screen (base frame) is the current selection —
+   *  mirrors `Screen`'s own `isSelected`, used so a breakpoint frame's chrome
+   *  reads as "part of a selected group" the same way the base frame does. */
+  isScreenSelected: boolean;
   penActive: boolean;
   creationToolActive: boolean;
   chromeScale: number;
+  chromeSettling: boolean;
+  /** BP-DEEP item 5 — click-to-target: picking a breakpoint frame picks its
+   *  owning screen too (same onPick the base frame card/label already use),
+   *  so selection, the layers panel, and the inspector all agree on which
+   *  screen is focused regardless of which frame in the group was clicked. */
+  onPick?: (id: string, e: React.MouseEvent<HTMLElement>) => void;
+  /** BP-DEEP item 3b — dragging ANY frame in the breakpoint group (not just
+   *  the primary) moves the group together: breakpoint frames have no
+   *  geometry entry of their own (they're always derived from
+   *  primaryGeometry, see the offset/left math below), so proxying straight
+   *  to the primary screen's own drag start keeps every frame in the row
+   *  pinned at its existing gap/offset for free. */
+  onStartFrameDrag?: (id: string, e: React.MouseEvent) => void;
   onActiveBreakpointChange?: (widthPx: number | undefined) => void;
   onAddBreakpoint?: (widthPx: number) => void;
 }) {
   const breakpointWidths = screen.breakpointWidths ?? [];
-  // Scale factor used to shrink additional frames to match the primary frame height
-  const scaleY = primaryGeometry.height / (primaryGeometry.width || 1);
   // Place additional frames to the right of the primary, starting after the gap
   let offsetX = primaryGeometry.width + BREAKPOINT_FRAME_GAP;
 
@@ -7708,57 +9491,106 @@ function BreakpointPreviewRow({
   return (
     <>
       {breakpointWidths.map((widthPx) => {
-        // Scale the additional frame proportionally (same height as primary)
-        const frameWidth = Math.round(widthPx * scaleY);
-        const frameHeight = primaryGeometry.height;
+        const { frameWidth, frameHeight, naturalHeight, scale } =
+          getBreakpointFrameGeometry({ widthPx, naturalAspect, primaryScale });
         const isActive = activeBreakpointWidth === widthPx;
         const currentOffsetX = offsetX;
         offsetX += frameWidth + BREAKPOINT_FRAME_GAP;
+        // BP-DEEP item 5 — clicking a frame in the group always SELECTS it
+        // (never toggles it off): the Framer click-to-target model returns to
+        // Base by clicking the base frame / empty canvas / Escape, not by
+        // re-clicking the already-active breakpoint. BreakpointBar's own chip
+        // still toggles (see handleBreakpointBarSelect's caller), which is
+        // the one place an explicit on/off switch stays intentional.
+        const activateThisFrame = (e: React.MouseEvent<HTMLElement>) => {
+          onPick?.(screen.id, e);
+          onActiveBreakpointChange?.(widthPx);
+        };
 
         return (
           <div
             key={widthPx}
             data-frame-shell
             data-breakpoint-frame
-            className="pointer-events-auto absolute"
+            className="group/frame pointer-events-auto absolute"
             // Positioned relative to the parent Screen wrapper, which is already
             // absolute at left: SURFACE_PADDING + geometry.x / top:
-            // SURFACE_PADDING + geometry.y - FRAME_LABEL_HEIGHT. Re-adding those
-            // surface/primary terms here would double-offset every breakpoint
-            // frame (~240px+ down-right), so we offset only within the wrapper.
+            // SURFACE_PADDING + geometry.y - FRAME_LABEL_HEIGHT * chromeScale.
+            // Re-adding those surface/primary terms here would double-offset
+            // every breakpoint frame (~240px+ down-right), so we offset only
+            // within the wrapper.
+            // BP-DEEP item 3c (common top edge): `top: 0` aligns this frame's
+            // own label row with the wrapper's top — the exact line the base
+            // frame's own label row starts on — and the label row below is
+            // given the SAME chromeScale-scaled height as the base's label
+            // band (Screen's `frameLabelHeight`), so both label rows AND both
+            // card top edges line up at every zoom level. The previous
+            // constant `top: -FRAME_LABEL_HEIGHT` + unscaled label height
+            // only lined up at 100% zoom and drifted the card top up by
+            // FRAME_LABEL_HEIGHT * (chromeScale - 1) as the user zoomed out.
             style={{
               left: currentOffsetX,
-              top: -FRAME_LABEL_HEIGHT,
+              top: 0,
               width: frameWidth,
               zIndex: primaryGeometry.z,
             }}
           >
-            {/* Frame label row */}
+            {/* Frame label row — same height/typography/chromeScale
+                transform as the primary frame's own label row (Screen, see
+                the `data-frame-label` block above) so breakpoint chrome
+                doesn't visibly shrink relative to regular screens at
+                zoom-out (BP-DEEP item 3c). */}
             <div
-              className={cn(
-                "flex h-7 w-full items-center justify-between gap-1 px-1 cursor-pointer select-none",
-              )}
+              className="relative flex w-full cursor-pointer select-none items-center"
+              style={{ height: FRAME_LABEL_HEIGHT * chromeScale }}
               onClick={(e) => {
                 e.stopPropagation();
-                onActiveBreakpointChange?.(isActive ? undefined : widthPx);
+                activateThisFrame(e);
+              }}
+              onMouseDown={(e) => {
+                if (e.button !== 0 || penActive || creationToolActive) return;
+                if (e.shiftKey) {
+                  e.stopPropagation();
+                  return;
+                }
+                onStartFrameDrag?.(screen.id, e);
+                // AFTER the drag start: beginFrameDrag internally picks the
+                // owning screen when it isn't active yet, and picking a base
+                // screen resets the edit scope to Base (see
+                // handleOverviewScreenPick). Re-targeting THIS breakpoint
+                // afterwards keeps a drag that starts on a breakpoint frame
+                // scoped to that breakpoint — mousedown on a frame IS the
+                // click-to-target gesture, whether or not it turns into a
+                // drag.
+                onActiveBreakpointChange?.(widthPx);
               }}
             >
-              <div className="flex min-w-0 items-center gap-1.5">
+              <div
+                data-frame-label
+                className="absolute left-1 top-1/2 flex min-w-0 items-center gap-1.5"
+                style={{
+                  transform: `translateY(-50%) scale(${chromeScale})`,
+                  transformOrigin: "left center",
+                  transition: getChromeLabelTransition(chromeSettling),
+                }}
+              >
                 <span
                   className={cn(
                     "h-1.5 w-1.5 shrink-0 rounded-full",
-                    isActive
-                      ? "bg-[var(--design-editor-accent-color)]"
+                    isActive || isScreenSelected
+                      ? "bg-primary"
                       : "bg-muted-foreground/40",
                   )}
                 />
                 <span
+                  data-frame-title
                   className={cn(
-                    "truncate !text-[11px] font-medium",
+                    "min-w-0 flex-1 truncate !text-[11px] font-medium",
                     isActive
                       ? "text-[var(--design-editor-accent-color)]"
                       : "text-muted-foreground",
                   )}
+                  title={`${screen.filename} — ${breakpointLabel(widthPx)}`}
                 >
                   {breakpointLabel(widthPx)}
                 </span>
@@ -7767,49 +9599,99 @@ function BreakpointPreviewRow({
                 </span>
               </div>
             </div>
-            {/* Frame card */}
+            {/* Frame card — same corner/hover-outline chrome as the primary
+                frame's own `data-screen-card` (BP-DEEP item 3c), sized to the
+                UNDISTORTED uniform-scale box from getBreakpointFrameGeometry
+                (BP-DEEP item 3a) instead of a forced shared height. */}
             <div
+              role="button"
+              tabIndex={0}
+              data-screen-card
               className={cn(
-                "relative block overflow-hidden rounded-lg border bg-white shadow-lg transition-colors",
-                isActive
-                  ? "border-[var(--design-editor-accent-color)]"
-                  : "border-border",
+                "group/artboard relative block cursor-pointer overflow-visible rounded-lg bg-background text-left outline-none transition-colors",
+                "focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
               )}
               style={{ width: frameWidth, height: frameHeight }}
+              onClick={(e) => {
+                e.stopPropagation();
+                activateThisFrame(e);
+              }}
+              onMouseDown={(e) => {
+                if (e.button !== 0 || penActive || creationToolActive) return;
+                if (e.shiftKey) {
+                  e.stopPropagation();
+                  return;
+                }
+                onStartFrameDrag?.(screen.id, e);
+                // See the label row's matching comment above: re-target this
+                // breakpoint after beginFrameDrag's internal pick so drags
+                // started on a breakpoint frame stay scoped to it.
+                onActiveBreakpointChange?.(widthPx);
+              }}
             >
-              <iframe
-                // Distinct id per breakpoint sub-frame — the primary iframe
-                // above uses the bare screen id, so without a suffix here
-                // every breakpoint sub-frame's iframe would share the exact
-                // same [data-screen-iframe-id] as the primary, and
-                // querySelector (which returns only the first DOM match)
-                // would always resolve hit-test/drag/wheel bridge lookups to
-                // the primary frame regardless of which breakpoint is
-                // active. getActiveScreenIframeId resolves the correct one
-                // to query at lookup time.
-                data-screen-iframe-id={getBreakpointIframeId(
-                  screen.id,
-                  widthPx,
+              <span
+                data-screen-content
+                className="relative block h-full w-full overflow-hidden rounded-[inherit] bg-white shadow-2xl ring-1 ring-inset ring-border"
+              >
+                <iframe
+                  // Distinct id per breakpoint sub-frame — the primary iframe
+                  // above uses the bare screen id, so without a suffix here
+                  // every breakpoint sub-frame's iframe would share the exact
+                  // same [data-screen-iframe-id] as the primary, and
+                  // querySelector (which returns only the first DOM match)
+                  // would always resolve hit-test/drag/wheel bridge lookups to
+                  // the primary frame regardless of which breakpoint is
+                  // active. getActiveScreenIframeId resolves the correct one
+                  // to query at lookup time.
+                  data-screen-iframe-id={getBreakpointIframeId(
+                    screen.id,
+                    widthPx,
+                  )}
+                  src={previewUrl}
+                  srcDoc={previewUrl ? undefined : srcdocWithHitTest}
+                  sandbox="allow-scripts"
+                  loading="lazy"
+                  className="pointer-events-none border-0"
+                  style={{
+                    width: widthPx,
+                    height: naturalHeight,
+                    // BP-DEEP item 3a: a SINGLE uniform factor on both axes —
+                    // the iframe lays out at its own real width (so CSS media
+                    // queries recompute exactly like a real narrower
+                    // viewport), then that already-correct box is scaled down
+                    // uniformly to fit the canvas, never stretched
+                    // non-uniformly to match the primary frame's height.
+                    transform: scale === 1 ? undefined : `scale(${scale})`,
+                    transformOrigin: "top left",
+                    backgroundColor: "white",
+                    colorScheme: "light",
+                    backfaceVisibility: "hidden",
+                  }}
+                  title={`${screen.filename} — ${breakpointLabel(widthPx)}`}
+                />
+                {creationToolActive || penActive ? (
+                  <span className="absolute inset-0 z-20 cursor-crosshair" />
+                ) : null}
+              </span>
+              <span
+                data-screen-hover-outline
+                className={cn(
+                  "pointer-events-none absolute inset-0 z-10 rounded-[inherit] border border-[var(--design-editor-accent-color)] opacity-0 transition-opacity",
+                  "group-hover/artboard:opacity-100",
                 )}
-                src={previewUrl}
-                srcDoc={previewUrl ? undefined : srcdocWithHitTest}
-                sandbox="allow-scripts"
-                loading="lazy"
-                className="pointer-events-none border-0"
-                style={{
-                  width: widthPx,
-                  height: Math.round(
-                    widthPx * (primaryGeometry.height / primaryGeometry.width),
-                  ),
-                  transform: `scale(${frameWidth / widthPx}, ${frameHeight / Math.round(widthPx * (primaryGeometry.height / primaryGeometry.width))})`,
-                  transformOrigin: "top left",
-                }}
-                title={`${screen.filename} — ${breakpointLabel(widthPx)}`}
+                style={{ borderWidth: chromeScale }}
+                aria-hidden="true"
               />
-              {creationToolActive || penActive ? (
-                <span className="absolute inset-0 z-20 cursor-crosshair" />
-              ) : null}
-              <span className="pointer-events-none absolute inset-0 rounded-[7px] border border-black/5" />
+              <span
+                className={cn(
+                  "pointer-events-none absolute inset-0 rounded-[inherit] border transition-colors",
+                  isActive
+                    ? "border-[var(--design-editor-accent-color)]"
+                    : "border-black/5",
+                )}
+                style={{ borderWidth: isActive ? 1.5 * chromeScale : 1 }}
+                aria-hidden="true"
+              />
             </div>
           </div>
         );
@@ -7821,10 +9703,16 @@ function BreakpointPreviewRow({
           className="pointer-events-auto absolute flex items-center"
           // Same wrapper-relative coordinate space as the breakpoint frames
           // above — no SURFACE_PADDING / primaryGeometry.x/y terms or it would
-          // double-offset.
+          // double-offset. Vertically centered on the card band: cards start
+          // at FRAME_LABEL_HEIGHT * chromeScale below the wrapper top (see
+          // the top: 0 + scaled-label-row comment above), and the button
+          // itself is size-7 (28px), so subtract half of that.
           style={{
             left: offsetX,
-            top: -FRAME_LABEL_HEIGHT + primaryGeometry.height / 2,
+            top:
+              FRAME_LABEL_HEIGHT * chromeScale +
+              primaryGeometry.height / 2 -
+              14,
             zIndex: primaryGeometry.z,
           }}
         >
@@ -8060,7 +9948,7 @@ function ResizeHandles({
               key={config.corner}
               data-rotate-handle
               className={cn(
-                "pointer-events-auto absolute z-10 size-5 rounded-full transition-opacity active:cursor-grabbing",
+                "pointer-events-auto absolute z-10 size-5 rounded-full transition-opacity",
                 active
                   ? "opacity-100"
                   : cn(
@@ -8073,6 +9961,7 @@ function ResizeHandles({
                 config.corner,
                 chromeScale,
                 chromeSettling,
+                rotationDeg,
               )}
               onMouseDown={onStartRotate}
             />
@@ -8158,15 +10047,80 @@ function cornerHandleStyle(
   };
 }
 
+/**
+ * Base (unrotated) orientation angle for each rotate handle corner, in the
+ * same "0 = east, clockwise, canvas-y-grows-down" convention as
+ * RESIZE_HANDLE_ANGLES in shared/canvas-math.ts's getResizeCursorForHandle —
+ * each corner's curved-arrow cursor glyph is drawn pointing "outward" along
+ * this base angle before any frame rotation is added.
+ */
+const ROTATE_HANDLE_BASE_ANGLE: Record<string, number> = {
+  ne: 0,
+  se: 90,
+  sw: 180,
+  nw: 270,
+};
+
+/**
+ * Quantizes `angleDeg` to the nearest of 8 compass buckets (0/45/90/…/315),
+ * mirroring the 8-bucket quantization getResizeCursorForHandle uses for
+ * resize cursors — but returning the bucket angle itself (not a lookup into
+ * a 4-symmetric cursor keyword table), since a rotate cursor's curved-arrow
+ * glyph is directional and needs a distinct rendered rotation per bucket
+ * rather than collapsing opposite corners onto the same CSS cursor keyword.
+ */
+function quantizeAngleTo8Buckets(angleDeg: number): number {
+  const normalized = ((angleDeg % 360) + 360) % 360;
+  return (Math.round(normalized / 45) % 8) * 45;
+}
+
+/**
+ * Builds a small (~20x20) curved double-headed-arrow cursor as an inline SVG
+ * data URI, rotated to `angleDeg`, matching Figma's rotate-handle cursor
+ * instead of the generic "grab" hand. The cursor hotspot (11 11) keeps the
+ * glyph's visual center under the pointer.
+ */
+function rotateCursorDataUri(angleDeg: number): string {
+  const svg =
+    `<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 20 20">` +
+    `<g transform="rotate(${angleDeg} 10 10)" fill="none" stroke="black" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">` +
+    `<path d="M 4 8 A 7 7 0 0 1 16 8" stroke="white" stroke-width="3.5"/>` +
+    `<path d="M 4 8 A 7 7 0 0 1 16 8"/>` +
+    `<path d="M 12.5 3.5 L 16 8 L 11 8.5" fill="white" stroke="white" stroke-width="3.5" stroke-linejoin="round"/>` +
+    `<path d="M 12.5 3.5 L 16 8 L 11 8.5" fill="black"/>` +
+    `</g>` +
+    `</svg>`;
+  return `url("data:image/svg+xml,${encodeURIComponent(svg)}") 10 10, grab`;
+}
+
+/**
+ * Comment-tool cursor: a small speech-bubble/pin glyph, matching Figma's
+ * comment-placement affordance instead of the plain arrow. The hotspot (2 2)
+ * sits at the pin's tip so the click lands exactly where the pin points.
+ */
+const COMMENT_CURSOR = (() => {
+  const svg =
+    `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24">` +
+    `<path d="M2 2 L2 17 L7 17 L10 22 L10 17 L20 17 L20 2 Z" fill="white" stroke="black" stroke-width="1.5" stroke-linejoin="round"/>` +
+    `<circle cx="7" cy="9.5" r="1.4" fill="black"/>` +
+    `<circle cx="11" cy="9.5" r="1.4" fill="black"/>` +
+    `<circle cx="15" cy="9.5" r="1.4" fill="black"/>` +
+    `</svg>`;
+  return `url("data:image/svg+xml,${encodeURIComponent(svg)}") 2 2, default`;
+})();
+
 function rotateHandleStyle(
   corner: string,
   chromeScale: number,
   chromeSettling: boolean,
+  rotationDeg = 0,
 ): CSSProperties {
   const size = 28 * chromeScale;
   const offset = -34 * chromeScale;
+  const baseAngle = ROTATE_HANDLE_BASE_ANGLE[corner] ?? 0;
+  const quantized = quantizeAngleTo8Buckets(baseAngle + rotationDeg);
   return {
-    cursor: "grab",
+    cursor: rotateCursorDataUri(quantized),
     transition: getChromeHandleTransition(chromeSettling),
     width: size,
     height: size,
@@ -8306,6 +10260,21 @@ function xorMarqueeSelection(baseIds: string[], hitIds: string[]) {
   return dedupeIds([...kept, ...added]);
 }
 
+/** A mousedown/mouseup gesture on empty board space (no frame/draft under the
+ *  pointer) always begins a marquee drag (see `beginMarquee`). This decides
+ *  whether that gesture's mouseup should deselect everything: only a plain
+ *  click — the pointer never moved past the drag threshold, and shift wasn't
+ *  held — clears the current selection. A real marquee drag (`hasMoved`)
+ *  already reported its own hit-tested selection on every mousemove tick, and
+ *  a shift-click on empty space (`additive`) is a no-op that preserves the
+ *  existing selection, matching Figma/Cursor's overview-canvas convention. */
+export function shouldClearSelectionOnEmptyCanvasClick(gesture: {
+  hasMoved: boolean;
+  additive: boolean;
+}): boolean {
+  return !gesture.hasMoved && !gesture.additive;
+}
+
 function sameIds(a: string[], b: string[]) {
   return a.length === b.length && a.every((id, index) => id === b[index]);
 }
@@ -8433,6 +10402,66 @@ function rotatePointAroundCenter(
     x: center.x + dx * cos - dy * sin,
     y: center.y + dx * sin + dy * cos,
   };
+}
+
+/**
+ * Pure drop-target resolution: finds the topmost frame entry (by z, then DOM
+ * index) whose (possibly rotated) bounds contain `point`, in canvas-world
+ * coordinates. Factored out of `getFrameEntryAtPoint`'s inline
+ * filter/sort so OS file drag-and-drop (Figma parity §1) can be unit tested
+ * without mounting the component — `getFrameEntryAtPoint` itself is just this
+ * function applied to `getCurrentFrameEntries()`.
+ */
+export function findTopFrameEntryAtPoint<
+  T extends { id: string; geometry: FrameGeometry },
+>(entries: readonly T[], point: Point): T | undefined {
+  return entries
+    .map((entry, index) => ({ entry, index }))
+    .filter(({ entry }) => {
+      const bounds = {
+        left: entry.geometry.x,
+        top: entry.geometry.y,
+        right: entry.geometry.x + entry.geometry.width,
+        bottom: entry.geometry.y + entry.geometry.height,
+      };
+      const local = rotatePointAroundCenter(
+        point,
+        getFrameCenter(entry.geometry),
+        entry.geometry.rotation ?? 0,
+      );
+      return rectContainsPoint(bounds, local);
+    })
+    .sort(
+      (a, b) =>
+        (b.entry.geometry.z ?? 0) - (a.entry.geometry.z ?? 0) ||
+        b.index - a.index,
+    )[0]?.entry;
+}
+
+/** Decides where a drawn primitive lands when its center falls outside every
+ *  screen frame (findTopFrameEntryAtPoint returned undefined) — used by
+ *  getTargetFrameForDraft's fallback branch. Exported for direct unit
+ *  testing, mirroring getCachedScreenContentNode.
+ *
+ *  A draft drawn outside every frame belongs on the board (floating on the
+ *  infinite canvas surface), not absorbed into a screen it was never drawn
+ *  inside — regardless of how many screens exist. Returning undefined here
+ *  routes the caller to onBoardDrawPrimitive.
+ *
+ *  Only when there is genuinely no board to route to (no handler registered)
+ *  do we fall back to absorbing into the nearest frame, so a drawn shape
+ *  still persists somewhere rather than becoming a lost draft primitive.
+ *  This previously special-cased "exactly one screen" as if a single-screen
+ *  board had no meaningful "outside" — stale from before the board-file
+ *  surface existed, and it broke drawing on empty canvas space whenever a
+ *  design happened to have only one screen. */
+export function getOutsideFrameDraftFallback<T>(
+  entries: readonly T[],
+  options: { hasBoardDrawHandler: boolean },
+): T | undefined {
+  if (entries.length === 0) return undefined;
+  if (options.hasBoardDrawHandler) return undefined;
+  return entries[0];
 }
 
 function sameFrameGeometry(a: FrameGeometry, b: FrameGeometry) {
@@ -8613,7 +10642,10 @@ function createDraftPrimitive({
       geometry: getPathGeometry(pathPoints),
       points: pathPoints,
       stroke: toolProps?.stroke,
-      strokeWidth: toolProps?.strokeWidth ?? 3,
+      // Figma parity: default line/arrow stroke width is 1px, not 3px. See
+      // DEFAULT_LINE_STROKE_WIDTH_PX in canvas-primitive-style.ts — the same
+      // token every other draw/commit call site uses.
+      strokeWidth: toolProps?.strokeWidth ?? DEFAULT_LINE_STROKE_WIDTH_PX,
     };
   }
   return {
@@ -8672,7 +10704,8 @@ function createPenDraftPrimitive(
     penPath,
     pathData: serializePenPath(penPath),
     stroke,
-    strokeWidth: strokeWidth ?? 3,
+    // Figma parity: default pen-path stroke width is 1px, not 3px.
+    strokeWidth: strokeWidth ?? DEFAULT_LINE_STROKE_WIDTH_PX,
   };
 }
 
@@ -8763,9 +10796,35 @@ function moveDraftPrimitive(
   };
 }
 
-function applyDraftGeometry(
+/**
+ * K-scale (Figma "Scale" tool) parity for draft primitives: when `scaleK` is
+ * true, `strokeWidth` grows/shrinks proportionally with the resize's uniform
+ * scale factor, matching Figma's Scale tool multiplying stroke weight (and,
+ * for text layers, font size — see the note below) along with the box. A
+ * *normal* resize (`scaleK` false/omitted, the default) only ever changes
+ * `geometry`, exactly as before this parity change.
+ *
+ * Uses `Math.max(scaleX, scaleY)` as the single scalar rather than scaling
+ * each axis independently: a stroke or font size has no "horizontal" vs
+ * "vertical" component to split across, so a non-uniform drag (K-scale
+ * doesn't itself force uniform scaling the way Shift does — see
+ * beginDraftResize's `preserveAspectRatio: ev.shiftKey` option, which is
+ * independent of the K tool) still needs one scalar. Figma's own Scale tool
+ * always drags with aspect ratio implicitly locked in practice; taking the
+ * larger of the two axis factors keeps the stroke/text growth from ever
+ * silently lagging behind the more-scaled axis.
+ *
+ * Text drafts (`DraftPrimitive` kind "text") have no explicit numeric
+ * font-size field today — text sizing on this canvas is implicit (CSS
+ * `font-size: 16px` baked into canvas-primitive-style.ts's `text` case, not a
+ * per-draft property), so there is nothing here to scale for text yet. See
+ * the report for the precise follow-up needed (promoting font-size to a
+ * first-class DraftPrimitive field) before K-scale can affect text size.
+ */
+export function applyDraftGeometry(
   draft: DraftPrimitive,
   geometry: FrameGeometry,
+  scaleK?: boolean,
 ): DraftPrimitive {
   const origin = draft.geometry;
   const scaleX = geometry.width / Math.max(1, origin.width);
@@ -8773,6 +10832,14 @@ function applyDraftGeometry(
   const scaledPenPath = draft.penPath
     ? scalePenPathToGeometry(draft.penPath, origin, geometry)
     : undefined;
+  const strokeScaleFactor = Math.max(scaleX, scaleY);
+  const scaledStrokeWidth =
+    scaleK && draft.strokeWidth !== undefined
+      ? Math.max(
+          0,
+          Math.round(draft.strokeWidth * strokeScaleFactor * 100) / 100,
+        )
+      : draft.strokeWidth;
   return {
     ...draft,
     geometry,
@@ -8782,6 +10849,7 @@ function applyDraftGeometry(
     })),
     penPath: scaledPenPath,
     pathData: scaledPenPath ? serializePenPath(scaledPenPath) : draft.pathData,
+    strokeWidth: scaledStrokeWidth,
   };
 }
 
@@ -8938,6 +11006,134 @@ function getWheelDeltaFromValues(
 
 function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value));
+}
+
+interface ResolvedMetadataCacheEntry {
+  screen: ScreenFile;
+  keyedMetadata?: ScreenMetadata;
+  getterMetadata?: ScreenMetadata;
+  previewDeviceFrame: DeviceFrameType;
+  result: ResolvedScreenMetadata;
+}
+
+/** Shallow-compares the small flat metadata records resolveScreenMetadata
+ *  reads. `getScreenMetadata?.(screen)` callers are not required to return a
+ *  referentially-stable object (DesignEditor's own implementations typically
+ *  build a fresh literal per call), so an identity check alone would never
+ *  hit. A field-by-field compare over ScreenMetadata's small fixed key set
+ *  is cheap and correct. */
+function sameScreenMetadataInput(
+  a: ScreenMetadata | undefined,
+  b: ScreenMetadata | undefined,
+) {
+  if (a === b) return true;
+  if (!a || !b) return false;
+  return (
+    a.source === b.source &&
+    a.sourceType === b.sourceType &&
+    a.lod === b.lod &&
+    a.previewState === b.previewState &&
+    a.title === b.title &&
+    a.width === b.width &&
+    a.height === b.height &&
+    a.url === b.url &&
+    a.previewUrl === b.previewUrl &&
+    a.bridgeUrl === b.bridgeUrl
+  );
+}
+
+/** Test-only escape hatch, mirrors __clearPrimitiveParseCachesForTests. The
+ *  cache itself is a per-MultiScreenCanvas-instance ref (see
+ *  resolvedMetadataCacheRef), so production code never needs to reset it. */
+export function __clearResolvedMetadataCacheForTests(
+  cache: Map<string, ResolvedMetadataCacheEntry>,
+) {
+  cache.clear();
+}
+
+/** Per-screen memoized resolveScreenMetadata (PF20). resolveScreenMetadata
+ *  does a bounded string scan (deriveSource/derivePreviewState, up to 4000
+ *  chars) plus URL parsing every time it's called — work that is wasted when
+ *  called again for a screen whose `screen`/`keyedMetadata`/`getterMetadata`/
+ *  `previewDeviceFrame` inputs are unchanged from the previous call (e.g. a
+ *  sibling screen's drag/resize triggering a canvasFrames rebuild). Cache is
+ *  keyed by screen.id — one entry per screen, invalidated only when that
+ *  screen's own inputs change — so it stays correct even though
+ *  resolveScreenMetadata itself does not depend on geometry at all. */
+export function resolveScreenMetadataCached(
+  cache: Map<string, ResolvedMetadataCacheEntry>,
+  screen: ScreenFile,
+  keyedMetadata: ScreenMetadata | undefined,
+  getterMetadata: ScreenMetadata | undefined,
+  previewDeviceFrame: DeviceFrameType,
+): ResolvedScreenMetadata {
+  const cached = cache.get(screen.id);
+  if (
+    cached &&
+    cached.screen === screen &&
+    cached.previewDeviceFrame === previewDeviceFrame &&
+    sameScreenMetadataInput(cached.keyedMetadata, keyedMetadata) &&
+    sameScreenMetadataInput(cached.getterMetadata, getterMetadata)
+  ) {
+    return cached.result;
+  }
+  const result = resolveScreenMetadata(
+    screen,
+    keyedMetadata,
+    getterMetadata,
+    previewDeviceFrame,
+  );
+  cache.set(screen.id, {
+    screen,
+    keyedMetadata,
+    getterMetadata,
+    previewDeviceFrame,
+    result,
+  });
+  return result;
+}
+
+/** Pure per-screen content-node cache lookup backing the screenContentById
+ *  useMemo (PF21). Returns the previously rendered node when this screen's
+ *  own inputs are unchanged — `screen` identity, `renderScreenContent`
+ *  identity, `metadata` by value, and the ROUNDED geometry width/height
+ *  (matching DesignEditor's getEmbeddedFrame rounding). geometry.x/y are
+ *  deliberately excluded from the key: position is applied by the Screen
+ *  wrapper's left/top/transform, never by the content node, so a move-drag
+ *  must reuse the cached node. Exported for direct unit testing, mirroring
+ *  parsePrimitivesFromScreen. */
+export function getCachedScreenContentNode(
+  cache: Map<string, ScreenContentCacheEntry>, // i18n-ignore scanner false positive on TS generics, not a string
+  screen: ScreenFile,
+  metadata: ResolvedScreenMetadata,
+  geometry: FrameGeometry,
+  renderScreenContent: NonNullable<
+    MultiScreenCanvasProps["renderScreenContent"]
+  >,
+): ReactNode {
+  const width = Math.max(1, Math.round(geometry.width));
+  const height = Math.max(1, Math.round(geometry.height));
+  const prior = cache.get(screen.id);
+  if (
+    prior &&
+    prior.screen === screen &&
+    prior.renderScreenContent === renderScreenContent &&
+    sameResolvedMetadata(prior.metadata, metadata) &&
+    prior.width === width &&
+    prior.height === height
+  ) {
+    return prior.contentNode;
+  }
+  const contentNode = renderScreenContent(screen, metadata, geometry);
+  cache.set(screen.id, {
+    screen,
+    metadata,
+    width,
+    height,
+    renderScreenContent,
+    contentNode,
+  });
+  return contentNode;
 }
 
 function resolveScreenMetadata(

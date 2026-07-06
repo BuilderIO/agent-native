@@ -26,9 +26,6 @@ import {
   agentEnterDocument,
   agentLeaveDocument,
   agentUpdateSelection,
-  applyText,
-  hasCollabState,
-  seedFromText,
 } from "@agent-native/core/collab";
 import {
   accessFilter,
@@ -40,6 +37,11 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import "../server/db/index.js"; // ensure registerShareableResource runs
+import {
+  readLiveSourceFile,
+  writeInlineSourceFile,
+  type SourceWorkspaceFile,
+} from "../server/source-workspace.js";
 import { resolveSourceCapabilities } from "../shared/capability-resolver.js";
 import {
   applyVisualEdit,
@@ -122,34 +124,45 @@ export function applyRootAttributeEdit(
 async function persistEdit(file: {
   id: string;
   designId: string;
+  filename: string;
   content: string;
 }): Promise<string> {
   await assertAccess("design", file.designId, "editor");
-  const db = getDb();
-  const now = new Date().toISOString();
 
   agentEnterDocument(file.id);
   try {
-    await db
-      .update(schema.designFiles)
-      .set({ content: file.content, updatedAt: now })
-      .where(eq(schema.designFiles.id, file.id));
+    // Read the LIVE base (collab text when present, else the SQL row) right
+    // before persisting, and carry its versionHash through to the write.
+    // writeInlineSourceFile re-reads the live text immediately before its own
+    // applyText/DB write and rejects if it no longer matches this hash —
+    // closing the race window where a concurrent editor/agent write lands
+    // between the edit being computed above (from `html`, possibly read
+    // earlier in run()) and this persist. The edit itself is NOT
+    // recomputed against this fresh base; only the write is guarded. See
+    // insert-design-native-asset.ts / insert-asset.ts for the identical
+    // pattern.
+    const workspaceFile: SourceWorkspaceFile = {
+      id: file.id,
+      designId: file.designId,
+      filename: file.filename,
+      fileType: "html",
+      content: file.content,
+      createdAt: null,
+      updatedAt: null,
+    };
+    const live = await readLiveSourceFile(workspaceFile);
 
-    if (await hasCollabState(file.id)) {
-      await applyText(file.id, file.content, "content", "agent");
-    } else {
-      await seedFromText(file.id, file.content);
-    }
+    const result = await writeInlineSourceFile({
+      designId: file.designId,
+      file: workspaceFile,
+      content: file.content,
+      expectedVersionHash: live.versionHash,
+    });
 
-    await db
-      .update(schema.designs)
-      .set({ updatedAt: now })
-      .where(eq(schema.designs.id, file.designId));
+    return result.updatedAt;
   } finally {
     agentLeaveDocument(file.id);
   }
-
-  return now;
 }
 
 // ─── Action ───────────────────────────────────────────────────────────────────
@@ -388,6 +401,7 @@ export default defineAction({
       const updatedAt = await persistEdit({
         id: file.id,
         designId: file.designId,
+        filename: file.filename,
         content: patchedContent,
       });
 

@@ -21,6 +21,7 @@ import {
   assertSafeMotionCssToken,
 } from "../shared/motion-compiler.js";
 import {
+  assertValidMotionEase,
   canPatchManagedMotionCss,
   motionTrackKey,
   resolveMotionTimelineInsertOwnership,
@@ -283,5 +284,69 @@ describe("motionTrackKey (Issue 6 — NUL separator made the file binary)", () =
     );
     const src = readFileSync(actionPath, "utf8");
     expect(src.includes("\0")).toBe(false);
+  });
+});
+
+// ─── Figma Motion parity: spring ease validation + playback mode plumbing ───
+
+describe("assertValidMotionEase", () => {
+  it("accepts CSS keywords, beziers, steps, linear() lists, and spring tokens", () => {
+    for (const ease of [
+      "linear",
+      "ease-in-out",
+      "step-start", // the "Hold" preset
+      "cubic-bezier(0.42, 0, 0.58, 1)",
+      "steps(4, end)",
+      "linear(0, 0.5, 1)",
+      "spring",
+      "spring(0.25)",
+      "spring(0.69)",
+      "spring(0.2, 0.5)",
+    ]) {
+      expect(() => assertValidMotionEase(ease, "keyframe ease")).not.toThrow();
+    }
+  });
+
+  it("rejects malformed spring tokens that would emit invalid CSS", () => {
+    for (const ease of ["spring(oops)", "spring(0.5, x)", "spring(1 2)"]) {
+      expect(() => assertValidMotionEase(ease, "keyframe ease")).toThrow();
+    }
+  });
+
+  it("still rejects CSS-injection payloads", () => {
+    expect(() =>
+      assertValidMotionEase("spring(0.5); } body { display: none", "ease"),
+    ).toThrow();
+  });
+});
+
+describe("playback mode + track timing plumbing (source contract)", () => {
+  const src = readFileSync(
+    path.resolve(
+      path.dirname(fileURLToPath(import.meta.url)),
+      "apply-motion-edit.ts",
+    ),
+    "utf8",
+  );
+
+  it("exposes a top-level playbackMode enum parameter", () => {
+    expect(src).toContain('.enum(["loop", "once", "ping-pong"])');
+    expect(src).toContain("playbackMode: z");
+  });
+
+  it("stamps the mode into the persisted tracks JSON via withTimelinePlaybackMode", () => {
+    expect(src).toContain(
+      "withTimelinePlaybackMode(inputTracks, playbackMode)",
+    );
+  });
+
+  it("accepts per-track delayMs/durationMs in the track schema", () => {
+    expect(src).toContain("delayMs:");
+    expect(src).toContain("durationMs:");
+  });
+
+  it("validates keyframe ease and defaultEase with the spring-aware guard", () => {
+    expect(src).toContain('assertValidMotionEase(kf.ease, "keyframe ease")');
+    expect(src).toContain('assertValidMotionEase(defaultEase, "defaultEase")');
   });
 });

@@ -38,6 +38,10 @@ export const shaderFillPreviewBridgeScript: string = `"use strict";
       patchedEl = null;
       originalBackground = "";
     }
+    function runtime() {
+      var api = window.__anShaders;
+      return api && api.version >= 1 ? api : null;
+    }
     window.addEventListener("message", function(e) {
       if (e.source !== window.parent) return;
       if (!e.data || typeof e.data.type !== "string") return;
@@ -50,6 +54,56 @@ export const shaderFillPreviewBridgeScript: string = `"use strict";
       }
       if (e.data.type === "shader-fill-preview-clear") {
         clearPreview();
+        return;
+      }
+      if (e.data.type === "glsl-shader-preview") {
+        var api = runtime();
+        if (!api) return;
+        var target = e.data.target && typeof e.data.target === "object" ? e.data.target : {};
+        var shader = e.data.shader && typeof e.data.shader === "object" ? e.data.shader : null;
+        if (!shader || typeof shader.glsl !== "string") return;
+        api.applyPreview(
+          { nodeId: target.nodeId, selector: target.selector },
+          {
+            id: shader.id,
+            name: shader.name,
+            glsl: shader.glsl,
+            uniforms: shader.uniforms,
+            values: e.data.values && typeof e.data.values === "object" ? e.data.values : void 0
+          },
+          e.data.mode === "effect" ? "effect" : "fill"
+        );
+        return;
+      }
+      if (e.data.type === "glsl-shader-set-uniform") {
+        var api2 = runtime();
+        if (!api2) return;
+        if (typeof e.data.name !== "string") return;
+        api2.setUniform(
+          e.data.filter && typeof e.data.filter === "object" ? e.data.filter : {},
+          e.data.name,
+          e.data.value
+        );
+        return;
+      }
+      if (e.data.type === "glsl-shader-update") {
+        var api3 = runtime();
+        if (!api3) return;
+        if (typeof e.data.id !== "string") return;
+        api3.updateShader(e.data.id, {
+          glsl: typeof e.data.glsl === "string" ? e.data.glsl : void 0,
+          uniforms: e.data.uniforms && typeof e.data.uniforms === "object" ? e.data.uniforms : void 0
+        });
+        return;
+      }
+      if (e.data.type === "glsl-shader-preview-clear") {
+        var api4 = runtime();
+        if (api4) api4.clearPreview();
+        return;
+      }
+      if (e.data.type === "glsl-shader-rescan") {
+        var api5 = runtime();
+        if (api5) api5.scan();
         return;
       }
     });

@@ -52,6 +52,13 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
   var designCanvasScreenId = __DESIGN_CANVAS_SCREEN_ID__ || "";
   var designCanvasBoardSurface = !!__DESIGN_CANVAS_BOARD_SURFACE__;
   var scaleToolEnabled = false;
+  // Interaction-state forced preview (phase 2 — see shared/interaction-states.ts's
+  // "Forced-preview mechanism" doc comment). Tracks which single node id
+  // currently carries the `data-an-state-preview` attribute so a later
+  // `state-preview` message for a DIFFERENT node clears the previous one
+  // first — only one element can be force-previewing a state at a time,
+  // matching the inspector's single-selection InteractionStatePanel.
+  var statePreviewNodeId: string | null = null;
   var editorChromeScaleX = Math.max(
     0.05,
     Number(__EDITOR_CHROME_SCALE_X__) || 1,
@@ -792,6 +799,16 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
         outlineStyle: cs.outlineStyle,
         outlineColor: cs.outlineColor,
         outlineOffset: cs.outlineOffset,
+        // Text glyph outline (Figma-parity text "Stroke") — CSS has no
+        // unprefixed alias, so this is read via the vendor-prefixed
+        // longhands directly. See applyStyleEdit/normalizeStyleProperty in
+        // shared/code-layer.ts for the matching write-side allow-list entry.
+        webkitTextStrokeWidth: (
+          cs as unknown as { webkitTextStrokeWidth?: string }
+        ).webkitTextStrokeWidth,
+        webkitTextStrokeColor: (
+          cs as unknown as { webkitTextStrokeColor?: string }
+        ).webkitTextStrokeColor,
         boxShadow: cs.boxShadow,
         textShadow: cs.textShadow,
         filter: cs.filter,
@@ -1062,6 +1079,72 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
   selectionOverlay.appendChild(spacingOverlay);
   document.body.appendChild(selectionOverlay);
 
+  // ── Gradient edit overlay (in-iframe parity for MultiScreenCanvas's
+  // GradientEditOverlay) ──────────────────────────────────────────────────
+  // Renders the same gradient line + endpoint squares + round stop markers
+  // over an element *inside* this screen's iframe content, driven entirely
+  // by `gradient-edit-target` / `gradient-edit-clear` postMessages from the
+  // parent (DesignEditor forwards its existing `gradientEditTarget` state
+  // for the active screen — see the doc comment on
+  // `gradientEditOverlayTarget` below for the exact wiring contract). Linear
+  // gradients only, matching MultiScreenCanvas's overlay scope: an
+  // unparseable or non-linear `cssValue` renders nothing.
+  //
+  // The math below (gradientLineEndpoints/gradientStopPoints/
+  // angleFromDraggedEndpoint/stopPercentFromDraggedPoint) is a direct port
+  // of the same-named pure functions exported from MultiScreenCanvas.tsx —
+  // this file cannot import them (bridge sources may not import/require
+  // anything, see bridge.guard.spec.ts), so the formulas are duplicated
+  // here verbatim. Keep both copies in sync if the math ever changes.
+  var gradientOverlay = document.createElement("div");
+  gradientOverlay.setAttribute("data-agent-native-edit-overlay", "gradient");
+  gradientOverlay.style.cssText =
+    "position:fixed;z-index:99998;pointer-events:none;display:none;box-sizing:border-box;";
+  var gradientOverlaySvg = document.createElementNS(
+    "http://www.w3.org/2000/svg",
+    "svg",
+  );
+  gradientOverlaySvg.setAttribute("data-gradient-edit-line", "");
+  gradientOverlaySvg.style.cssText =
+    "position:absolute;inset:0;width:100%;height:100%;overflow:visible;pointer-events:none;";
+  var gradientOverlayLineOutline = document.createElementNS(
+    "http://www.w3.org/2000/svg",
+    "line",
+  );
+  gradientOverlayLineOutline.setAttribute("stroke", "rgba(255,255,255,0.95)");
+  var gradientOverlayLine = document.createElementNS(
+    "http://www.w3.org/2000/svg",
+    "line",
+  );
+  gradientOverlayLine.setAttribute(
+    "stroke",
+    "var(--design-editor-accent-color)",
+  );
+  gradientOverlaySvg.appendChild(gradientOverlayLineOutline);
+  gradientOverlaySvg.appendChild(gradientOverlayLine);
+  gradientOverlay.appendChild(gradientOverlaySvg);
+  var gradientOverlayStartHandle = document.createElement("span");
+  gradientOverlayStartHandle.setAttribute("data-gradient-endpoint", "start");
+  gradientOverlayStartHandle.setAttribute("role", "slider");
+  gradientOverlayStartHandle.setAttribute(
+    "aria-label",
+    "Gradient start" /* i18n-ignore */,
+  );
+  gradientOverlayStartHandle.style.cssText =
+    "position:absolute;pointer-events:auto;cursor:move;border-radius:2px;box-sizing:border-box;background:var(--design-editor-accent-contrast-color);border:1px solid var(--design-editor-accent-color);box-shadow:0 1px 2px rgba(0,0,0,0.3);";
+  var gradientOverlayEndHandle = document.createElement("span");
+  gradientOverlayEndHandle.setAttribute("data-gradient-endpoint", "end");
+  gradientOverlayEndHandle.setAttribute("role", "slider");
+  gradientOverlayEndHandle.setAttribute(
+    "aria-label",
+    "Gradient end" /* i18n-ignore */,
+  );
+  gradientOverlayEndHandle.style.cssText =
+    gradientOverlayStartHandle.style.cssText;
+  gradientOverlay.appendChild(gradientOverlayStartHandle);
+  gradientOverlay.appendChild(gradientOverlayEndHandle);
+  document.body.appendChild(gradientOverlay);
+
   var transformBadge = document.createElement("div");
   transformBadge.setAttribute("data-agent-native-transform-badge", "");
   transformBadge.style.cssText =
@@ -1079,6 +1162,25 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
   insertionGuide.style.cssText =
     "position:fixed;z-index:100000;display:none;pointer-events:none;background:var(--design-editor-accent-color);border-radius:999px;box-shadow:0 0 0 1px var(--design-editor-accent-color);";
   document.body.appendChild(insertionGuide);
+
+  // Alignment/smart-guide lines shown while dragging (and resizing) an
+  // element inside the iframe — Figma-style snap-to-sibling guides. Two
+  // shared singleton divs (one per axis) are repositioned per-frame rather
+  // than pooled, matching the insertionGuide convention above. Tagged as an
+  // edit-overlay so elementFromEditorPoint/isOverlayElement never treat a
+  // guide line as a hit-test or drop target. Color matches the overview
+  // canvas's alignment guides (bg-destructive/90) translated to raw CSS.
+  var snapGuideV = document.createElement("div");
+  snapGuideV.setAttribute("data-agent-native-edit-overlay", "snap-guide");
+  snapGuideV.style.cssText =
+    "position:fixed;z-index:100000;display:none;pointer-events:none;width:1px;background:hsl(var(--destructive) / 0.9);";
+  document.body.appendChild(snapGuideV);
+
+  var snapGuideH = document.createElement("div");
+  snapGuideH.setAttribute("data-agent-native-edit-overlay", "snap-guide");
+  snapGuideH.style.cssText =
+    "position:fixed;z-index:100000;display:none;pointer-events:none;height:1px;background:hsl(var(--destructive) / 0.9);";
+  document.body.appendChild(snapGuideH);
 
   var measurementOverlay = document.createElement("div");
   measurementOverlay.setAttribute("data-agent-native-measurement-overlay", "");
@@ -1137,7 +1239,7 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
     } catch (_err) {}
   });
 
-  function updateComponentTag(el: Element | null): void {
+  function updateComponentTag(el: Element | null, knownRect?: DOMRect): void {
     if (!el) {
       clearComponentTag();
       return;
@@ -1157,7 +1259,10 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
     componentTagOverlay.setAttribute("data-component-node-id", nodeId);
     componentTagOverlay.setAttribute("data-component-name", compName);
 
-    var rect = el.getBoundingClientRect();
+    // Reuse the caller's fresh rect when available: positionOverlay() already
+    // read this element's rect this frame, and an extra getBoundingClientRect
+    // here is a second forced layout when overlay styles were just written.
+    var rect = knownRect || el.getBoundingClientRect();
     var tagHeight = 22;
     var tagTop = rect.top - tagHeight - 4;
     if (tagTop < 4) tagTop = rect.top + 4;
@@ -2450,7 +2555,11 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
     var sx = chromeScaleX();
     var sy = chromeScaleY();
     var line = chromeLineScale();
-    highlightOverlay.style.borderWidth = 1.5 * line + "px";
+    // Figma parity: the hover outline is visibly thinner than the selection
+    // outline — hover is a light "you could select this" hint, selection is
+    // the stronger confirmed-state chrome. Matches the overview canvas's
+    // hover (1 * chromeScale) vs selection (1.5 * chromeScale) ratio.
+    highlightOverlay.style.borderWidth = Math.max(1, 1 * line) + "px";
     parentAutoLayoutOverlay.style.borderWidth = Math.max(1, 1 * line) + "px";
     selectionOverlay.style.borderWidth = 1.5 * line + "px";
     passiveSelectionOverlays.forEach(scalePassiveSelectionOverlay);
@@ -2553,7 +2662,9 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
     if (overlay === selectionOverlay) {
       applySelectionChrome(el);
       updateSpacingOverlay(el);
-      updateComponentTag(el);
+      // `rect` is undefined on the rotated-local-box path; updateComponentTag
+      // falls back to its own read in that case.
+      updateComponentTag(el, rect);
       updateParentAutoLayoutOverlay(el);
     } else {
       applyElementOverlayChrome(overlay, el);
@@ -2591,6 +2702,7 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
       var overlay = passiveSelectionOverlays[index];
       if (overlay) positionOverlay(overlay, el);
     });
+    positionGradientOverlay();
     syncOverlayObservers();
   }
 
@@ -2975,7 +3087,13 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
     var didScroll = scrollElementByWheelDelta(scrollTarget, delta.x, delta.y);
     if (!didScroll) return;
     stopNativeInteraction(e);
-    window.requestAnimationFrame(refreshOverlays);
+    // Coalesced (not a raw requestAnimationFrame(refreshOverlays)): trackpads
+    // emit several wheel events per frame, and scheduling one full overlay
+    // refresh per event stacks N redundant refreshOverlays() runs into every
+    // frame. With an element selected each run forces multiple synchronous
+    // layout reads, which is exactly the per-event work that froze scrolling
+    // on layout-heavy pages while a selection was active.
+    scheduleRefreshOverlays();
   }
 
   function isEditorTypingTarget(target) {
@@ -2997,6 +3115,13 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
     var normalized = key && key.length === 1 ? key.toLowerCase() : key;
     var primary = e.metaKey || e.ctrlKey;
     if (key === "Escape" || key === "Enter") return true;
+    // Space arms Figma-style temporary hand-tool panning while the cursor is
+    // over the preview iframe. Only forward the plain (no-modifier) chord —
+    // the isEditorTypingTarget guard above already keeps this from hijacking
+    // Space while the user is typing in an editable in-iframe target.
+    if (key === " " && e.code === "Space") {
+      return !primary && !e.altKey && !e.shiftKey;
+    }
     // Forward Tab only when an element is actively selected so the iframe does
     // not intercept Tab when the user is tabbing through browser UI with nothing
     // selected (preserves native keyboard accessibility).
@@ -3538,6 +3663,460 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
     return Number.isFinite(num) ? num : null;
   }
 
+  // ── Gradient edit overlay: math + minimal linear-gradient CSS parser ────
+  // Ports of MultiScreenCanvas.tsx's exported `gradientLineEndpoints` /
+  // `gradientStopPoints` / `angleFromDraggedEndpoint` /
+  // `stopPercentFromDraggedPoint` (see that file's doc comments for the
+  // full derivation) — duplicated verbatim since this file cannot import.
+
+  function clampGradientT(t: number): number {
+    if (!Number.isFinite(t)) return 0;
+    return Math.max(0, Math.min(1, t));
+  }
+
+  function gradientLineEndpoints(
+    angleDeg: number,
+    width: number,
+    height: number,
+  ) {
+    var rad = (angleDeg * Math.PI) / 180;
+    var dx = Math.sin(rad);
+    var dy = -Math.cos(rad);
+    var halfLength = Math.abs((width / 2) * dx) + Math.abs((height / 2) * dy);
+    var center = { x: width / 2, y: height / 2 };
+    return {
+      start: { x: center.x - dx * halfLength, y: center.y - dy * halfLength },
+      end: { x: center.x + dx * halfLength, y: center.y + dy * halfLength },
+    };
+  }
+
+  function gradientStopPoints(
+    angleDeg: number,
+    width: number,
+    height: number,
+    stops: Array<{ position: number }>,
+  ) {
+    var line = gradientLineEndpoints(angleDeg, width, height);
+    return stops.map(function (stop) {
+      var t = clampGradientT(stop.position / 100);
+      return {
+        x: line.start.x + (line.end.x - line.start.x) * t,
+        y: line.start.y + (line.end.y - line.start.y) * t,
+        position: stop.position,
+      };
+    });
+  }
+
+  function angleFromDraggedEndpoint(
+    point: { x: number; y: number },
+    width: number,
+    height: number,
+    which: "start" | "end",
+  ): number {
+    var center = { x: width / 2, y: height / 2 };
+    var dx = point.x - center.x;
+    var dy = point.y - center.y;
+    if (dx === 0 && dy === 0) return 0;
+    var deg = (Math.atan2(dy, dx) * 180) / Math.PI + 90;
+    if (which === "start") deg += 180;
+    deg = ((deg % 360) + 360) % 360;
+    return deg;
+  }
+
+  function stopPercentFromDraggedPoint(
+    point: { x: number; y: number },
+    angleDeg: number,
+    width: number,
+    height: number,
+  ): number {
+    var line = gradientLineEndpoints(angleDeg, width, height);
+    var lineDx = line.end.x - line.start.x;
+    var lineDy = line.end.y - line.start.y;
+    var lengthSquared = lineDx * lineDx + lineDy * lineDy;
+    if (lengthSquared === 0) return 0;
+    var t =
+      ((point.x - line.start.x) * lineDx + (point.y - line.start.y) * lineDy) /
+      lengthSquared;
+    return clampGradientT(t) * 100;
+  }
+
+  // Minimal linear-only port of GradientEditor.tsx's parseGradientCss /
+  // gradientToCss (that component owns the canonical parser; this is a
+  // reduced copy scoped to just `linear-gradient(...)`, matching the
+  // MultiScreenCanvas overlay's own linear-only scope).
+  var GRADIENT_LINEAR_RE = /^linear-gradient\s*\(([\s\S]*)\)\s*$/i;
+  var GRADIENT_ANGLE_RE = /(-?\d+(?:\.\d+)?)deg/;
+  function splitGradientTopLevel(input: string): string[] {
+    var parts: string[] = [];
+    var depth = 0;
+    var current = "";
+    for (var i = 0; i < input.length; i += 1) {
+      var char = input.charAt(i);
+      if (char === "(") depth += 1;
+      if (char === ")") depth -= 1;
+      if (char === "," && depth === 0) {
+        parts.push(current.trim());
+        current = "";
+        continue;
+      }
+      current += char;
+    }
+    if (current.trim()) parts.push(current.trim());
+    return parts;
+  }
+  function parseLinearGradientCss(value: string): {
+    angle: number;
+    stops: Array<{ id: string; color: string; position: number }>;
+  } | null {
+    var match = String(value || "")
+      .trim()
+      .match(GRADIENT_LINEAR_RE);
+    if (!match) return null;
+    var segments = splitGradientTopLevel(match[1]);
+    if (segments.length === 0) return null;
+    var angle = 90;
+    var stopStart = 0;
+    var first = segments[0];
+    var angleMatch = first.match(GRADIENT_ANGLE_RE);
+    if (angleMatch) {
+      angle = Number(angleMatch[1]);
+      stopStart = 1;
+    } else if (/to\s+/i.test(first)) {
+      stopStart = 1;
+    }
+    var stopSegments = segments.slice(stopStart);
+    var stops: Array<{ id: string; color: string; position: number }> = [];
+    stopSegments.forEach(function (seg, index) {
+      var posMatch = seg.match(/(-?\d+(?:\.\d+)?)%\s*$/);
+      var color = posMatch ? seg.slice(0, posMatch.index).trim() : seg.trim();
+      if (!color) return;
+      var position = posMatch
+        ? Math.max(0, Math.min(100, Number(posMatch[1])))
+        : (index / Math.max(1, stopSegments.length - 1)) * 100;
+      stops.push({ id: "gstop-" + index, color: color, position: position });
+    });
+    if (stops.length < 2) return null;
+    return { angle: angle, stops: stops };
+  }
+  function linearGradientToCss(gradient: {
+    angle: number;
+    stops: Array<{ id: string; color: string; position: number }>;
+  }): string {
+    var sorted = gradient.stops.slice().sort(function (a, b) {
+      return a.position - b.position;
+    });
+    var stopsCss = sorted
+      .map(function (stop) {
+        return stop.color + " " + Math.round(stop.position * 100) / 100 + "%";
+      })
+      .join(", ");
+    return (
+      "linear-gradient(" +
+      Math.round(gradient.angle * 100) / 100 +
+      "deg, " +
+      stopsCss +
+      ")"
+    );
+  }
+
+  // gradientEditOverlayTarget doc / parent wiring contract:
+  //
+  // This bridge only RENDERS the overlay + emits drag deltas; it has no idea
+  // which element on the host side "is" the gradient-edited node beyond the
+  // `nodeId` the parent gives it. The parent (DesignEditor.tsx, NOT owned by
+  // this change — see the report) is expected to:
+  //
+  //   1. Keep its existing `gradientEditTarget` state (already threaded into
+  //      MultiScreenCanvas's board/screen-frame overlay) as the single
+  //      source of truth for "is a gradient edit session active, for which
+  //      node, with which CSS value".
+  //   2. Whenever that target refers to an element *inside* the active
+  //      screen's iframe content (as opposed to a board/draft primitive
+  //      MultiScreenCanvas already draws chrome for directly), postMessage
+  //      `{ type: "gradient-edit-target", nodeId, cssValue }` into that
+  //      screen's iframe — `nodeId` being the element's
+  //      `data-agent-native-node-id`. Post `{ type: "gradient-edit-clear" }`
+  //      when the session ends (selection changes, popover closes, or the
+  //      target moves to a different screen/board node).
+  //   3. Listen for this bridge's `{ type: "gradient-edit-change", nodeId,
+  //      cssValue, phase }` postMessages and route them through the same
+  //      style-apply path `visual-style-change` already uses (phase
+  //      "preview" for live feedback, "commit" once on release — mirroring
+  //      GradientEditOverlayTarget's own onChange contract in
+  //      MultiScreenCanvas.tsx).
+  //
+  // Until that parent-side wiring lands, this bridge simply never receives
+  // `gradient-edit-target` and stays fully inert (see the early-return checks
+  // below), so this is a strictly additive, zero-behavior-change surface
+  // until wired up.
+  var gradientEditTarget: { nodeId: string; cssValue: string } | null = null;
+  var gradientDrag: {
+    kind: "endpoint" | "stop";
+    which?: "start" | "end";
+    stopId?: string;
+    pointerId: number;
+  } | null = null;
+
+  function gradientEditTargetElement(): HTMLElement | null {
+    if (!gradientEditTarget) return null;
+    return document.querySelector(
+      '[data-agent-native-node-id="' +
+        String(gradientEditTarget.nodeId)
+          .replace(/\\/g, "\\\\")
+          .replace(/"/g, '\\"') +
+        '"]',
+    ) as HTMLElement | null;
+  }
+
+  function hideGradientOverlay(): void {
+    gradientOverlay.style.display = "none";
+    while (gradientOverlay.querySelectorAll("[data-gradient-stop]").length) {
+      var stopEl = gradientOverlay.querySelector("[data-gradient-stop]");
+      if (stopEl && stopEl.parentNode) stopEl.parentNode.removeChild(stopEl);
+    }
+  }
+
+  function positionGradientOverlay(): void {
+    var target = gradientEditTarget;
+    if (!target) {
+      hideGradientOverlay();
+      return;
+    }
+    var el = gradientEditTargetElement();
+    if (!el || !document.documentElement.contains(el)) {
+      hideGradientOverlay();
+      return;
+    }
+    var gradient = parseLinearGradientCss(target.cssValue);
+    if (!gradient) {
+      // Non-linear/unparseable — render nothing (linear-only scope, matches
+      // MultiScreenCanvas's GradientEditOverlay contract exactly).
+      hideGradientOverlay();
+      return;
+    }
+    var rect = el.getBoundingClientRect();
+    var width = Math.max(1, rect.width);
+    var height = Math.max(1, rect.height);
+    gradientOverlay.style.display = "block";
+    gradientOverlay.style.left = rect.left + "px";
+    gradientOverlay.style.top = rect.top + "px";
+    gradientOverlay.style.width = width + "px";
+    gradientOverlay.style.height = height + "px";
+
+    var line = gradientLineEndpoints(gradient.angle, width, height);
+    var stopPoints = gradientStopPoints(
+      gradient.angle,
+      width,
+      height,
+      gradient.stops,
+    );
+
+    var line1 = chromeLineScale();
+    var lineStrokeWidth = Math.max(1, 1.5 * line1);
+    gradientOverlaySvg.setAttribute("viewBox", "0 0 " + width + " " + height);
+    [gradientOverlayLineOutline, gradientOverlayLine].forEach(
+      function (lineEl, index) {
+        lineEl.setAttribute("x1", String(line.start.x));
+        lineEl.setAttribute("y1", String(line.start.y));
+        lineEl.setAttribute("x2", String(line.end.x));
+        lineEl.setAttribute("y2", String(line.end.y));
+        lineEl.setAttribute(
+          "stroke-width",
+          String(index === 0 ? lineStrokeWidth + 1.5 * line1 : lineStrokeWidth),
+        );
+      },
+    );
+
+    var endpointSize = 10 * line1;
+    var endpointBorderWidth = Math.max(1, 1.5 * line1);
+    [
+      { el: gradientOverlayStartHandle, point: line.start, which: "start" },
+      { el: gradientOverlayEndHandle, point: line.end, which: "end" },
+    ].forEach(function (entry) {
+      entry.el.style.left = entry.point.x - endpointSize / 2 + "px";
+      entry.el.style.top = entry.point.y - endpointSize / 2 + "px";
+      entry.el.style.width = endpointSize + "px";
+      entry.el.style.height = endpointSize + "px";
+      entry.el.style.borderWidth = endpointBorderWidth + "px";
+      entry.el.setAttribute(
+        "aria-valuenow",
+        String(Math.round(gradient.angle)),
+      );
+    });
+
+    // Stop markers are rebuilt each render (cheap: 2-8 stops typical) rather
+    // than pooled, matching the overlay's overall "small + self-contained"
+    // design (see the doc comment on MultiScreenCanvas's GradientEditOverlay).
+    hideGradientOverlayStops();
+    var stopSize = 12 * line1;
+    var stopBorderWidth = Math.max(1, 2 * line1);
+    stopPoints.forEach(function (point, index) {
+      var stop = gradient.stops[index];
+      if (!stop) return;
+      var stopEl = document.createElement("span");
+      stopEl.setAttribute("data-gradient-stop", stop.id);
+      stopEl.setAttribute("role", "slider");
+      stopEl.setAttribute(
+        "aria-label",
+        stop.color + " at " + Math.round(stop.position) + "%",
+      );
+      stopEl.setAttribute("aria-valuenow", String(Math.round(stop.position)));
+      stopEl.style.cssText =
+        "position:absolute;pointer-events:auto;cursor:grab;border-radius:999px;box-sizing:border-box;border:1px solid white;box-shadow:0 0 0 1px rgba(0,0,0,0.25);";
+      stopEl.style.left = point.x - stopSize / 2 + "px";
+      stopEl.style.top = point.y - stopSize / 2 + "px";
+      stopEl.style.width = stopSize + "px";
+      stopEl.style.height = stopSize + "px";
+      stopEl.style.borderWidth = stopBorderWidth + "px";
+      stopEl.style.backgroundColor = stop.color;
+      stopEl.addEventListener("pointerdown", function (ev: PointerEvent) {
+        beginGradientDrag(ev, { kind: "stop", stopId: stop.id });
+      });
+      gradientOverlay.appendChild(stopEl);
+    });
+  }
+
+  function hideGradientOverlayStops(): void {
+    Array.prototype.slice
+      .call(gradientOverlay.querySelectorAll("[data-gradient-stop]"))
+      .forEach(function (node: Element) {
+        if (node.parentNode) node.parentNode.removeChild(node);
+      });
+  }
+
+  function gradientOverlayLocalPoint(event: PointerEvent): {
+    x: number;
+    y: number;
+  } {
+    var rect = gradientOverlay.getBoundingClientRect();
+    return { x: event.clientX - rect.left, y: event.clientY - rect.top };
+  }
+
+  function emitGradientChange(
+    gradient: {
+      angle: number;
+      stops: Array<{ id: string; color: string; position: number }>;
+    },
+    phase: "preview" | "commit",
+  ): void {
+    if (!gradientEditTarget) return;
+    (window.parent as Window).postMessage(
+      {
+        type: "gradient-edit-change",
+        nodeId: gradientEditTarget.nodeId,
+        cssValue: linearGradientToCss(gradient),
+        phase: phase,
+      },
+      "*",
+    );
+    // Keep the local target's cssValue in sync so a subsequent drag tick (or
+    // a re-render triggered by scroll/resize) reflects the in-progress value
+    // instead of waiting for the parent to round-trip a fresh
+    // gradient-edit-target message.
+    gradientEditTarget = {
+      nodeId: gradientEditTarget.nodeId,
+      cssValue: linearGradientToCss(gradient),
+    };
+  }
+
+  function beginGradientDrag(
+    event: PointerEvent,
+    kind:
+      | { kind: "endpoint"; which: "start" | "end" }
+      | { kind: "stop"; stopId: string },
+  ): void {
+    event.stopPropagation();
+    event.preventDefault();
+    gradientDrag = {
+      kind: kind.kind,
+      which: kind.kind === "endpoint" ? kind.which : undefined,
+      stopId: kind.kind === "stop" ? kind.stopId : undefined,
+      pointerId: event.pointerId,
+    };
+    var handleEl = event.currentTarget as Element;
+    if (handleEl && (handleEl as HTMLElement).setPointerCapture) {
+      (handleEl as HTMLElement).setPointerCapture(event.pointerId);
+    }
+    document.addEventListener("pointermove", onGradientDragMove, true);
+    document.addEventListener("pointerup", onGradientDragEnd, true);
+    document.addEventListener("pointercancel", onGradientDragEnd, true);
+  }
+
+  function onGradientDragMove(event: PointerEvent): void {
+    var drag = gradientDrag;
+    var target = gradientEditTarget;
+    var el = gradientEditTargetElement();
+    if (!drag || drag.pointerId !== event.pointerId || !target || !el) return;
+    var gradient = parseLinearGradientCss(target.cssValue);
+    if (!gradient) return;
+    var rect = el.getBoundingClientRect();
+    var width = Math.max(1, rect.width);
+    var height = Math.max(1, rect.height);
+    var local = gradientOverlayLocalPoint(event);
+    if (drag.kind === "endpoint" && drag.which) {
+      var nextAngle = angleFromDraggedEndpoint(
+        local,
+        width,
+        height,
+        drag.which,
+      );
+      emitGradientChange(
+        { angle: nextAngle, stops: gradient.stops },
+        "preview",
+      );
+      positionGradientOverlay();
+      return;
+    }
+    if (drag.kind === "stop" && drag.stopId) {
+      var nextPosition = stopPercentFromDraggedPoint(
+        local,
+        gradient.angle,
+        width,
+        height,
+      );
+      var stopId = drag.stopId;
+      emitGradientChange(
+        {
+          angle: gradient.angle,
+          stops: gradient.stops.map(function (stop) {
+            return stop.id === stopId
+              ? { id: stop.id, color: stop.color, position: nextPosition }
+              : stop;
+          }),
+        },
+        "preview",
+      );
+      positionGradientOverlay();
+    }
+  }
+
+  function onGradientDragEnd(event: PointerEvent): void {
+    var drag = gradientDrag;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    gradientDrag = null;
+    document.removeEventListener("pointermove", onGradientDragMove, true);
+    document.removeEventListener("pointerup", onGradientDragEnd, true);
+    document.removeEventListener("pointercancel", onGradientDragEnd, true);
+    var target = gradientEditTarget;
+    if (!target) return;
+    var gradient = parseLinearGradientCss(target.cssValue);
+    if (!gradient) return;
+    emitGradientChange(gradient, "commit");
+  }
+
+  gradientOverlayStartHandle.addEventListener(
+    "pointerdown",
+    function (ev: PointerEvent) {
+      beginGradientDrag(ev, { kind: "endpoint", which: "start" });
+    },
+  );
+  gradientOverlayEndHandle.addEventListener(
+    "pointerdown",
+    function (ev: PointerEvent) {
+      beginGradientDrag(ev, { kind: "endpoint", which: "end" });
+    },
+  );
+
   function currentRotation(el) {
     var transform =
       el.style.transform || window.getComputedStyle(el).transform || "";
@@ -4068,43 +4647,6 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
     return cs.position === "absolute" || cs.position === "fixed";
   }
 
-  function absolutePrimitiveContainerTargetForPoint(
-    el: Element | null,
-    clientX: number,
-    clientY: number,
-  ) {
-    var hits: Element[] = document.elementsFromPoint
-      ? document.elementsFromPoint(clientX, clientY)
-      : ([document.elementFromPoint(clientX, clientY)] as Element[]);
-    var seen: Element[] = [];
-    for (var i = 0; i < hits.length; i += 1) {
-      var cursor: Element | null = hits[i];
-      var candidate: Element | null = null;
-      while (cursor && cursor !== document.body) {
-        if (isAbsolutePrimitiveContainer(cursor)) {
-          candidate = cursor;
-          break;
-        }
-        cursor = cursor.parentElement;
-      }
-      if (!candidate || seen.indexOf(candidate) !== -1) continue;
-      seen.push(candidate);
-      if (candidate === el) continue;
-      if (el && el.contains && el.contains(candidate)) continue;
-      if (el && candidate.contains && candidate.contains(el)) continue;
-      if (isOverlayElement(candidate) || isLayerInteractionBlocked(candidate)) {
-        continue;
-      }
-      return {
-        anchor: candidate,
-        placement: "inside",
-        axis: "y",
-        dropMode: "absolute-container",
-      };
-    }
-    return null;
-  }
-
   function isOutsideIframeViewport(clientX: number, clientY: number): boolean {
     return (
       clientX < 0 ||
@@ -4377,6 +4919,21 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
     return hit;
   }
 
+  // Item 8 — conservative re-parent policy for absolute-position drags
+  // (this function feeds onMove's currentAutoLayoutTarget for the
+  // isFlowReorderCandidate === false path, i.e. plain absolute-positioned
+  // elements/shapes, NOT flow children — see reorderTargetForPoint above for
+  // that separate case). Ground truth (Figma): a plain absolute rect/shape
+  // dragged over another plain absolute rect never re-parents into it just
+  // because their boxes overlap — frames only capture children when the
+  // TARGET is a genuine auto-layout (flex/grid) container. Only the two
+  // isAutoLayoutElement-gated branches below may return an "inside"/flow
+  // insertion target; the previous isAbsolutePrimitiveContainer branch and
+  // its absolutePrimitiveContainerTargetForPoint fallback (matched ANY
+  // absolute-positioned rect primitive as a drop-into target purely from
+  // pointer overlap) is intentionally removed — that was the actual cause of
+  // the smoke-tested "rect-into-rect"/"rect-into-main" re-parenting bug: any
+  // two overlapping absolute elements would silently adopt one another.
   function autoLayoutInsertionTargetForPoint(el, clientX, clientY) {
     var hit = elementFromEditorPointIgnoring(clientX, clientY, el);
     if (!hit || hit === document.documentElement || hit === document.body) {
@@ -4417,17 +4974,9 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
           dropMode: "flow-insert",
         };
       }
-      if (isAbsolutePrimitiveContainer(cursor)) {
-        return {
-          anchor: cursor,
-          placement: "inside",
-          axis: "y",
-          dropMode: "absolute-container",
-        };
-      }
       cursor = parent;
     }
-    return absolutePrimitiveContainerTargetForPoint(el, clientX, clientY);
+    return null;
   }
 
   function showInsertionGuideFor(target) {
@@ -4530,6 +5079,166 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
       },
       "*",
     );
+  }
+
+  // ── Alignment / smart-guide snapping (Figma parity) ───────────────────────
+  //
+  // Minimal, dependency-free port of the overview canvas's edge/center snap
+  // routine (shared/canvas-math.ts computeMoveSnap) for in-iframe element
+  // dragging. The bridge's pointer coordinates and getBoundingClientRect()
+  // values are already in the same iframe-local, zoom-normalized coordinate
+  // space (the host CSS-scales the whole iframe, not individual elements),
+  // so — unlike the overview canvas, which divides a screen-px threshold by
+  // its own camera zoom — no extra scale correction is needed here.
+  var SNAP_THRESHOLD_PX = 6;
+  var SNAP_CANDIDATE_CAP = 200;
+
+  // Accepts either a real DOMRect (getBoundingClientRect()) or a plain
+  // {left, top, width, height} object (the moving element's live drag rect,
+  // which doesn't have its own DOMRect during the drag since it's derived
+  // from pointer deltas) — right/bottom are always derived from
+  // left/top/width/height so both shapes work identically.
+  function rectBounds(rect) {
+    return {
+      left: rect.left,
+      top: rect.top,
+      right: rect.left + rect.width,
+      bottom: rect.top + rect.height,
+      centerX: rect.left + rect.width / 2,
+      centerY: rect.top + rect.height / 2,
+    };
+  }
+
+  // Collects candidate rects to snap against: visible sibling elements that
+  // share the dragged element's offsetParent, plus the parent's own content
+  // box. Capped and computed once (one getBoundingClientRect pass) at drag
+  // start rather than per move event, per the perf requirement below.
+  function collectSnapCandidateRects(dragEl) {
+    var rects = [];
+    var parent = dragEl && dragEl.parentElement;
+    if (parent) {
+      var parentRect = parent.getBoundingClientRect();
+      if (parentRect.width > 0 && parentRect.height > 0) {
+        rects.push(rectBounds(parentRect));
+      }
+    }
+    var offsetParent = dragEl && (dragEl as HTMLElement).offsetParent;
+    if (parent) {
+      var siblings = Array.prototype.slice.call(parent.children);
+      for (
+        var i = 0;
+        i < siblings.length && rects.length < SNAP_CANDIDATE_CAP;
+        i += 1
+      ) {
+        var sibling = siblings[i];
+        if (
+          !sibling ||
+          sibling === dragEl ||
+          sibling.nodeType !== 1 ||
+          isOverlayElement(sibling)
+        ) {
+          continue;
+        }
+        if (
+          offsetParent &&
+          (sibling as HTMLElement).offsetParent !== offsetParent
+        ) {
+          continue;
+        }
+        var cs = window.getComputedStyle(sibling);
+        if (cs.display === "none" || cs.visibility === "hidden") continue;
+        var rect = sibling.getBoundingClientRect();
+        if (rect.width <= 0 || rect.height <= 0) continue;
+        rects.push(rectBounds(rect));
+      }
+    }
+    return rects;
+  }
+
+  // Mirrors getAxisSnapCandidates/getBestCandidate/getVerticalGuide/
+  // getHorizontalGuide from shared/canvas-math.ts: for each axis, compare the
+  // moving rect's left/center/right (or top/center/bottom) against every
+  // candidate's same three values and keep the closest match within
+  // threshold. Exported off the IIFE closure via the return-value shape below
+  // so tests can exercise it directly (see the "extractable pure logic"
+  // convention used by motion-preview.bridge.ts).
+  function computeMoveSnapOffset(movingRect, candidates, threshold) {
+    var moving = rectBounds(movingRect);
+    var bestX = null;
+    var bestY = null;
+    for (var i = 0; i < candidates.length; i += 1) {
+      var candidate = candidates[i];
+      var xValues = [moving.left, moving.centerX, moving.right];
+      var xTargets = [candidate.left, candidate.centerX, candidate.right];
+      for (var xi = 0; xi < xValues.length; xi += 1) {
+        for (var xj = 0; xj < xTargets.length; xj += 1) {
+          var offsetX = xTargets[xj] - xValues[xi];
+          var distanceX = Math.abs(offsetX);
+          if (distanceX > threshold) continue;
+          if (!bestX || distanceX < bestX.distance) {
+            bestX = {
+              distance: distanceX,
+              offset: offsetX,
+              guide: {
+                position: xTargets[xj],
+                start: Math.min(moving.top, candidate.top),
+                end: Math.max(moving.bottom, candidate.bottom),
+              },
+            };
+          }
+        }
+      }
+      var yValues = [moving.top, moving.centerY, moving.bottom];
+      var yTargets = [candidate.top, candidate.centerY, candidate.bottom];
+      for (var yi = 0; yi < yValues.length; yi += 1) {
+        for (var yj = 0; yj < yTargets.length; yj += 1) {
+          var offsetY = yTargets[yj] - yValues[yi];
+          var distanceY = Math.abs(offsetY);
+          if (distanceY > threshold) continue;
+          if (!bestY || distanceY < bestY.distance) {
+            bestY = {
+              distance: distanceY,
+              offset: offsetY,
+              guide: {
+                position: yTargets[yj],
+                start: Math.min(moving.left, candidate.left),
+                end: Math.max(moving.right, candidate.right),
+              },
+            };
+          }
+        }
+      }
+    }
+    return {
+      dx: bestX ? bestX.offset : 0,
+      dy: bestY ? bestY.offset : 0,
+      guideV: bestX ? bestX.guide : null,
+      guideH: bestY ? bestY.guide : null,
+    };
+  }
+
+  function showSnapGuides(guideV, guideH) {
+    if (guideV) {
+      snapGuideV.style.display = "block";
+      snapGuideV.style.left = Math.round(guideV.position) + "px";
+      snapGuideV.style.top = Math.round(guideV.start) + "px";
+      snapGuideV.style.height = Math.max(1, guideV.end - guideV.start) + "px";
+    } else {
+      snapGuideV.style.display = "none";
+    }
+    if (guideH) {
+      snapGuideH.style.display = "block";
+      snapGuideH.style.top = Math.round(guideH.position) + "px";
+      snapGuideH.style.left = Math.round(guideH.start) + "px";
+      snapGuideH.style.width = Math.max(1, guideH.end - guideH.start) + "px";
+    } else {
+      snapGuideH.style.display = "none";
+    }
+  }
+
+  function hideSnapGuides() {
+    snapGuideV.style.display = "none";
+    snapGuideH.style.display = "none";
   }
 
   function startMove(e) {
@@ -4745,6 +5454,13 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
       placement: string;
       axis?: string;
     } | null = null;
+    // Snap candidates (siblings + parent content box) are computed once at
+    // drag start — a single getBoundingClientRect pass per candidate — not
+    // recomputed on every move event.
+    var snapCandidateRects = collectSnapCandidateRects(dragEl);
+    var dragElStartRect = (dragEl as HTMLElement).getBoundingClientRect();
+    var dragElStartWidth = dragElStartRect.width;
+    var dragElStartHeight = dragElStartRect.height;
     if (!duplicatedForDrag) {
       postCrossScreenDrag("start", dragEl, e);
     }
@@ -4755,8 +5471,42 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
       ) {
         moved = true;
       }
-      var nextLeft = originLeft + ev.clientX - startX;
-      var nextTop = originTop + ev.clientY - startY;
+      var rawDx = ev.clientX - startX;
+      var rawDy = ev.clientY - startY;
+      // Figma dominant-axis lock: while Shift is held, zero out whichever
+      // delta has the smaller magnitude so the element only moves along one
+      // axis. Read live off the move event (not cached at drag start) so
+      // pressing/releasing Shift mid-drag re-evaluates every event, matching
+      // how the resize path reads ev.shiftKey per-move rather than once.
+      if (ev.shiftKey) {
+        if (Math.abs(rawDx) > Math.abs(rawDy)) {
+          rawDy = 0;
+        } else {
+          rawDx = 0;
+        }
+      }
+      var nextLeft = originLeft + rawDx;
+      var nextTop = originTop + rawDy;
+      // Alignment/smart-guide snapping: disabled while Cmd/Ctrl is held
+      // (Figma behavior) and while an auto-layout flow-insert is about to
+      // happen instead of a free absolute placement (handled below once
+      // currentAutoLayoutTarget is known for this tick).
+      var snapBypass = Boolean(ev.metaKey || ev.ctrlKey);
+      var snapResult =
+        !snapBypass && !duplicatedForDrag
+          ? computeMoveSnapOffset(
+              {
+                left: nextLeft,
+                top: nextTop,
+                width: dragElStartWidth,
+                height: dragElStartHeight,
+              },
+              snapCandidateRects,
+              SNAP_THRESHOLD_PX,
+            )
+          : { dx: 0, dy: 0, guideV: null, guideH: null };
+      nextLeft += snapResult.dx;
+      nextTop += snapResult.dy;
       (dragEl as HTMLElement).style.left = Math.round(nextLeft) + "px";
       (dragEl as HTMLElement).style.top = Math.round(nextTop) + "px";
       if (!duplicatedForDrag) {
@@ -4781,7 +5531,24 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
           (dragEl as HTMLElement).style.opacity = originalInlineOpacity;
         }
       }
-      hideTransformBadge();
+      // Snap guides only make sense for a free absolute placement — never at
+      // once alongside the auto-layout flow-insert indicator (the element is
+      // about to be reflowed into a flex/grid slot, not placed at an x/y
+      // coordinate), and never while the pointer has left the iframe (the
+      // host owns a cross-screen drop at that point).
+      if (
+        currentAutoLayoutTarget ||
+        (!duplicatedForDrag && isOutsideIframeViewport(ev.clientX, ev.clientY))
+      ) {
+        hideSnapGuides();
+      } else {
+        showSnapGuides(snapResult.guideV, snapResult.guideH);
+      }
+      showTransformBadge(
+        Math.round(nextLeft) + ", " + Math.round(nextTop),
+        ev.clientX,
+        ev.clientY,
+      );
       refreshOverlays();
     }
     function restoreSourceDragPosition(): void {
@@ -4802,6 +5569,7 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
       cleanupMoveDrag();
       hideTransformBadge();
       hideInsertionGuide();
+      hideSnapGuides();
       currentAutoLayoutTarget = null;
       if (duplicatedForDrag) {
         if (dragEl && dragEl.parentElement) {
@@ -4827,6 +5595,7 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
       cleanupMoveDrag();
       hideTransformBadge();
       hideInsertionGuide();
+      hideSnapGuides();
       if (!dragEl) return;
       var outsideOnDrop = ev
         ? isOutsideIframeViewport(ev.clientX, ev.clientY)
@@ -4909,6 +5678,8 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
     var originalInlineTop = resizeEl.style.top;
     var originalInlineWidth = resizeEl.style.width;
     var originalInlineHeight = resizeEl.style.height;
+    var originalInlineBorderWidth = resizeEl.style.borderWidth;
+    var originalInlineFontSize = resizeEl.style.fontSize;
     ensurePositionable(resizeEl);
     var cs = window.getComputedStyle(resizeEl);
     // Bug fix: use CSS width/height (not getBoundingClientRect) for the resize
@@ -4916,6 +5687,23 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
     // axis-aligned bounding box as the starting size.
     var originW = readPx(resizeEl.style.width || cs.width);
     var originH = readPx(resizeEl.style.height || cs.height);
+    // K-scale (Figma "Scale" tool) parity: capture the element's own border
+    // width and font size once at drag-start so a uniform per-tick scale
+    // factor (derived from width/height growth, see nextRect below) can
+    // multiply them proportionally, exactly like Figma's Scale tool resizes
+    // stroke weight and text size along with the box — a *normal* resize
+    // (scaleToolEnabled false) never touches either. Uses the CSS
+    // borderWidth/fontSize shorthand (not per-side border-*-width) since
+    // canvas-primitive-style.ts / appendCanvasPrimitiveToHtml only ever set a
+    // uniform border on these elements; a hand-authored per-side border is
+    // left untouched (readPx on the shorthand returns 0 for mixed values,
+    // which multiplies to 0 — an explicit non-goal edge case, not silently
+    // wrong: scaleToolEnabled is opt-in and mixed-width borders on a
+    // draggable primitive are not part of this app's authored shapes).
+    var originBorderWidth = readPx(
+      resizeEl.style.borderWidth || cs.borderWidth,
+    );
+    var originFontSize = readPx(resizeEl.style.fontSize || cs.fontSize);
     var origin = {
       left: readPx(resizeEl.style.left || cs.left),
       top: readPx(resizeEl.style.top || cs.top),
@@ -5014,6 +5802,25 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
       resizeEl.style.top = Math.round(rect.top) + "px";
       resizeEl.style.width = Math.round(rect.width) + "px";
       resizeEl.style.height = Math.round(rect.height) + "px";
+      if (scaleToolEnabled) {
+        // Uniform scale factor: scaleToolEnabled already forces the
+        // aspect-ratio lock above (nextRect), so width/origin.width and
+        // height/origin.height agree (barring the min-size clamp's rounding)
+        // — width is the simpler, always-defined choice.
+        var kScaleFactor = rect.width / Math.max(1, origin.width);
+        if (originBorderWidth > 0) {
+          resizeEl.style.borderWidth =
+            Math.max(
+              0,
+              Math.round(originBorderWidth * kScaleFactor * 100) / 100,
+            ) + "px";
+        }
+        if (originFontSize > 0) {
+          resizeEl.style.fontSize =
+            Math.max(1, Math.round(originFontSize * kScaleFactor * 100) / 100) +
+            "px";
+        }
+      }
       showTransformBadge(
         Math.round(rect.width) + " x " + Math.round(rect.height),
         ev.clientX,
@@ -5036,6 +5843,8 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
         resizeEl.style.top = originalInlineTop;
         resizeEl.style.width = originalInlineWidth;
         resizeEl.style.height = originalInlineHeight;
+        resizeEl.style.borderWidth = originalInlineBorderWidth;
+        resizeEl.style.fontSize = originalInlineFontSize;
         selectedEl = resizeEl;
         positionOverlay(selectionOverlay, selectedEl);
       }
@@ -5052,17 +5861,28 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
       cleanupResizeDrag();
       hideTransformBadge();
       if (!resizeEl) return;
+      var styles: Record<string, string> = {
+        position: resizeEl.style.position,
+        left: resizeEl.style.left,
+        top: resizeEl.style.top,
+        width: resizeEl.style.width,
+        height: resizeEl.style.height,
+      };
+      // Only include borderWidth/fontSize when the K-scale tool actually
+      // changed them (originBorderWidth/originFontSize > 0 AND
+      // scaleToolEnabled) — a normal resize must never introduce these keys,
+      // matching the "normal resize unchanged" requirement.
+      if (scaleToolEnabled && originBorderWidth > 0) {
+        styles.borderWidth = resizeEl.style.borderWidth;
+      }
+      if (scaleToolEnabled && originFontSize > 0) {
+        styles.fontSize = resizeEl.style.fontSize;
+      }
       (window.parent as Window).postMessage(
         {
           type: "visual-style-change",
           selector: getSelector(resizeEl),
-          styles: {
-            position: resizeEl.style.position,
-            left: resizeEl.style.left,
-            top: resizeEl.style.top,
-            width: resizeEl.style.width,
-            height: resizeEl.style.height,
-          },
+          styles: styles,
           payload: getElementInfo(resizeEl),
         },
         "*",
@@ -5400,6 +6220,27 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
     true,
   );
 
+  // Space-pan release: keydown forwarding above arms the parent's temporary
+  // hand tool (see postDesignHotkey/"design-hotkey"), but the parent also
+  // needs the matching keyup to release it — without this, holding Space
+  // inside the preview iframe would arm panning but never let go. Forwarded
+  // as its own message (not reusing "design-hotkey", which the parent only
+  // ever re-dispatches as a synthetic keydown) so the parent can drive its
+  // real keyup-driven release logic.
+  document.addEventListener(
+    "keyup",
+    function (e) {
+      if (e.key !== " " || e.code !== "Space") return;
+      if (activeTextEditEl || isEditorTypingTarget(e.target)) return;
+      stopNativeInteraction(e);
+      (window.parent as Window).postMessage(
+        { type: "design-hotkey-up", key: e.key, code: e.code },
+        "*",
+      );
+    },
+    true,
+  );
+
   function hasFigmaClipboardPayload(value) {
     return /<[^>]+\sdata-(metadata|buffer)=["'][^"']*\((figmeta|figma)\)[^"']*["']/i.test(
       String(value || ""),
@@ -5511,7 +6352,36 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
       findTextEditTarget(elementFromEditorPoint(e.clientX, e.clientY)) ||
       findTextEditTarget(eventTarget) ||
       rawTargetFallback;
-    if (!target || target.nodeType !== 1) return;
+    if (!target || target.nodeType !== 1) {
+      // Figma parity: double-clicking a non-text element descends one level
+      // into the current selection instead of doing nothing — select the
+      // hit-tested element under the pointer (selectionTargetForHit already
+      // returns the raw, deeper hit when it falls inside the current
+      // selection, and climbs to the nearest stable-source ancestor
+      // otherwise, so this reuses the same selection-filtering rules a
+      // normal click uses).
+      var descendHit = elementFromEditorPoint(e.clientX, e.clientY);
+      if (
+        descendHit &&
+        descendHit !== document.body &&
+        descendHit !== document.documentElement &&
+        !isLayerInteractionBlocked(descendHit)
+      ) {
+        var previousSelectedElForDescend = selectedEl;
+        var descendTarget = selectionTargetForHit(descendHit);
+        if (descendTarget && !isLayerInteractionBlocked(descendTarget)) {
+          selectedEl = descendTarget;
+          positionOverlay(selectionOverlay, selectedEl);
+          preservePreviousSelectedElementForShiftClick(
+            previousSelectedElForDescend,
+            selectedEl,
+            e,
+          );
+          postElementSelect(selectedEl, e);
+        }
+      }
+      return;
+    }
     // Anchor the selection identity to the nearest source-backed element. Text
     // editing still operates on the actual target text node, but a later
     // style edit posts from selectedEl, so it must point at a patchable
@@ -5665,10 +6535,10 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
         scheduleTextEditingChromeUpdate();
         return;
       }
-      // T21: forward Cmd/Ctrl+B and Cmd/Ctrl+I within the edit session to
-      // execCommand bold/italic on the current selection. normalizeNestedIdenticalSpans
-      // (T12) cleans up any span nesting execCommand leaves behind when the
-      // session commits.
+      // T21: forward Cmd/Ctrl+B, Cmd/Ctrl+I, and Cmd/Ctrl+U within the edit
+      // session to execCommand bold/italic/underline on the current selection.
+      // normalizeNestedIdenticalSpans (T12) cleans up any span nesting
+      // execCommand leaves behind when the session commits.
       var metaOrCtrl = ev.metaKey || ev.ctrlKey;
       if (metaOrCtrl && !ev.altKey && ev.key.toLowerCase() === "b") {
         ev.preventDefault();
@@ -5679,6 +6549,12 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
       if (metaOrCtrl && !ev.altKey && ev.key.toLowerCase() === "i") {
         ev.preventDefault();
         document.execCommand("italic");
+        scheduleTextEditingChromeUpdate();
+        return;
+      }
+      if (metaOrCtrl && !ev.altKey && ev.key.toLowerCase() === "u") {
+        ev.preventDefault();
+        document.execCommand("underline");
         scheduleTextEditingChromeUpdate();
         return;
       }
@@ -5939,6 +6815,76 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
     }
     if (e.data.type === "scale-tool-mode") {
       scaleToolEnabled = !!e.data.enabled;
+      return;
+    }
+    // gradient-edit-target / gradient-edit-clear: see the gradientEditTarget
+    // doc comment above (near parseLinearGradientCss) for the full parent
+    // wiring contract. `nodeId` must be a `data-agent-native-node-id` value;
+    // `cssValue` is the live gradient CSS (only linear-gradient(...) renders
+    // handles — anything else is accepted but draws nothing).
+    if (e.data.type === "gradient-edit-target") {
+      var gradientTargetNodeId =
+        typeof e.data.nodeId === "string" ? e.data.nodeId : "";
+      var gradientTargetCssValue =
+        typeof e.data.cssValue === "string" ? e.data.cssValue : "";
+      if (!gradientTargetNodeId || !gradientTargetCssValue) {
+        gradientEditTarget = null;
+        hideGradientOverlay();
+        return;
+      }
+      gradientEditTarget = {
+        nodeId: gradientTargetNodeId,
+        cssValue: gradientTargetCssValue,
+      };
+      positionGradientOverlay();
+      return;
+    }
+    if (e.data.type === "gradient-edit-clear") {
+      gradientEditTarget = null;
+      hideGradientOverlay();
+      return;
+    }
+    // state-preview: force-render one element's interaction-state styling by
+    // setting/removing the `data-an-state-preview="<state>"` attribute — see
+    // `shared/interaction-states.ts`'s "Forced-preview mechanism" doc comment
+    // for the full contract this implements. This bridge does ZERO CSS work:
+    // the twin `[data-agent-native-node-id="…"][data-an-state-preview="…"]`
+    // rule already lives in the persisted `<style data-agent-native-states>`
+    // block (written by `duplicateStatePreviewRules`), so setting the
+    // attribute is the entire preview mechanism. `state: null` (or a missing/
+    // empty `nodeId`) clears any currently-previewing element.
+    if (e.data.type === "state-preview") {
+      var statePreviewTargetNodeId =
+        typeof e.data.nodeId === "string" ? e.data.nodeId : "";
+      var statePreviewState =
+        typeof e.data.state === "string" ? e.data.state : "";
+      // Clear the PREVIOUS target first — only one element force-previews a
+      // state at a time, and the new message may target a different node
+      // (e.g. the selection changed) or clear entirely.
+      if (statePreviewNodeId) {
+        var previousStatePreviewEl = document.querySelector(
+          '[data-agent-native-node-id="' +
+            String(statePreviewNodeId)
+              .replace(/\\/g, "\\\\")
+              .replace(/"/g, '\\"') +
+            '"]',
+        ) as HTMLElement | null;
+        if (previousStatePreviewEl) {
+          previousStatePreviewEl.removeAttribute("data-an-state-preview");
+        }
+        statePreviewNodeId = null;
+      }
+      if (!statePreviewTargetNodeId || !statePreviewState) return;
+      var statePreviewEl = document.querySelector(
+        '[data-agent-native-node-id="' +
+          String(statePreviewTargetNodeId)
+            .replace(/\\/g, "\\\\")
+            .replace(/"/g, '\\"') +
+          '"]',
+      ) as HTMLElement | null;
+      if (!statePreviewEl) return;
+      statePreviewEl.setAttribute("data-an-state-preview", statePreviewState);
+      statePreviewNodeId = statePreviewTargetNodeId;
       return;
     }
     if (e.data.type === "agent-native:cancel-active-drag") {
@@ -6308,8 +7254,15 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
     }
   });
 
-  window.addEventListener("scroll", refreshOverlays, true);
-  window.addEventListener("resize", refreshOverlays);
+  // rAF-coalesced on purpose: scroll events can fire several times per frame
+  // (nested scrollers, high-rate trackpads), and running the full overlay
+  // pipeline synchronously per event — with its interleaved rect reads and
+  // overlay style writes — forces repeated synchronous reflows while a
+  // selection is active. Coalescing to one refreshOverlays() per frame keeps
+  // overlays visually locked to the content (rAF runs before paint) while
+  // bounding the per-frame cost regardless of the incoming event rate.
+  window.addEventListener("scroll", scheduleRefreshOverlays, true);
+  window.addEventListener("resize", scheduleRefreshOverlays);
   applyEditorChromeScale();
 
   // One-time ready signal: tells the host that every message listener above is

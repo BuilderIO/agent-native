@@ -4,6 +4,8 @@ import {
   canvasPrimitiveReactStyle,
   canvasPrimitiveStyleString,
   canvasPrimitiveVisual,
+  DEFAULT_LINE_STROKE,
+  DEFAULT_LINE_STROKE_WIDTH_PX,
 } from "./canvas-primitive-style";
 
 describe("canvas text primitive style", () => {
@@ -70,5 +72,17 @@ describe("canvas rect/ellipse default tokens (CV24 doc accuracy)", () => {
     // The frame's border, like rect/ellipse, is still a plain gray — only
     // its (very faint) fill reads the editor's --primary custom property.
     expect(frame.border).toContain("rgb(168 168 168)");
+  });
+});
+
+describe("canvas line/arrow/pen default stroke tokens (Figma parity)", () => {
+  it("defaults to solid black at 1px, not the theme accent color at 3px", () => {
+    // Figma: a freshly drawn line/arrow/pen path is solid black 1px, not a
+    // tinted, thick accent stroke. These canonical tokens are the single
+    // source of truth every draw/commit call site (MultiScreenCanvas.tsx,
+    // shared/board-file.ts, and DesignEditor.tsx's
+    // appendCanvasPrimitiveToHtml) must agree on.
+    expect(DEFAULT_LINE_STROKE).toBe("#000000");
+    expect(DEFAULT_LINE_STROKE_WIDTH_PX).toBe(1);
   });
 });

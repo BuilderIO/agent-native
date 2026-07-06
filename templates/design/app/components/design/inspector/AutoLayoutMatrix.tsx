@@ -40,12 +40,19 @@ import {
   IconSizingRemove,
   IconSizingVariable,
 } from "./design-icons";
-import { ScrubInput } from "./ScrubInput";
+import { ScrubInput, type ScrubInputChangeMeta } from "./ScrubInput";
 
 export type AutoLayoutDirection = "horizontal" | "vertical";
 export type AutoLayoutWrap = "nowrap" | "wrap";
 export type AutoLayoutSizing = "hug" | "fill" | "fixed";
 export type AutoLayoutSizingAxis = "horizontal" | "vertical";
+
+/** Round to one decimal place — matches the `precision={1}` ScrubInput fields
+ * advertise (e.g. X/Y position, stroke weight) so W/H commit sub-pixel values
+ * like Figma instead of silently flooring to whole pixels. */
+function roundToOneDecimal(value: number): number {
+  return Math.round(value * 10) / 10;
+}
 
 /**
  * The active flow option. "normal" represents block / normal-flow layout for
@@ -160,8 +167,14 @@ export interface AutoLayoutMatrixProps {
    * Invoked when the user directly edits the resolved size (scrub or type) in
    * fixed-sizing mode. `value` is the new size in CSS pixels. Optional —
    * when omitted the resolved-size display is read-only (mode-picker only).
+   * `meta` forwards the originating ScrubInput's gesture-coalescing metadata
+   * (see `SizingFieldProps.onSizeChange`).
    */
-  onChildSizeChange?: (axis: AutoLayoutSizingAxis, value: number) => void;
+  onChildSizeChange?: (
+    axis: AutoLayoutSizingAxis,
+    value: number,
+    meta?: ScrubInputChangeMeta,
+  ) => void;
   /**
    * Set or clear a min/max constraint on an axis. `value === null` clears it.
    * Optional — when omitted the "Add min/max…" rows and constraint sub-rows are
@@ -403,7 +416,7 @@ export function AutoLayoutMatrix({
               onChange={(next) => onChildSizingChange("horizontal", next)}
               onSizeChange={
                 onChildSizeChange
-                  ? (px) => onChildSizeChange("horizontal", px)
+                  ? (px, meta) => onChildSizeChange("horizontal", px, meta)
                   : undefined
               }
               onMinMaxChange={onChildMinMaxChange}
@@ -425,7 +438,7 @@ export function AutoLayoutMatrix({
               onChange={(next) => onChildSizingChange("vertical", next)}
               onSizeChange={
                 onChildSizeChange
-                  ? (px) => onChildSizeChange("vertical", px)
+                  ? (px, meta) => onChildSizeChange("vertical", px, meta)
                   : undefined
               }
               onMinMaxChange={onChildMinMaxChange}
@@ -1109,8 +1122,15 @@ export interface SizingFieldProps {
    * Invoked when the user directly scrubs or types a new pixel value while in
    * "fixed" sizing mode. When omitted the numeric display is read-only and the
    * entire trigger is a mode-picker dropdown (legacy behaviour).
+   *
+   * `meta` mirrors the same `ScrubInputChangeMeta` the X/Y position fields
+   * already forward to `onStyleChange` (see `ScrubStyleInput` in
+   * EditPanel.tsx) — in particular `meta.phase`, which lets the caller
+   * coalesce a whole scrub-drag gesture (many "preview" ticks + one final
+   * "commit") into a single undo step instead of one per tick. Callers that
+   * ignore the second argument keep today's every-tick-commits behavior.
    */
-  onSizeChange?: (px: number) => void;
+  onSizeChange?: (px: number, meta?: ScrubInputChangeMeta) => void;
   onMinMaxChange?: (
     axis: AutoLayoutSizingAxis,
     kind: "min" | "max",
@@ -1263,13 +1283,15 @@ export function SizingField({
               ariaLabel={`${axis} size in pixels`}
               tooltipLabel={`${axis} size`}
               icon={null}
-              value={mixed ? 0 : Math.round(resolvedSize ?? 0)}
-              onChange={(next) => onSizeChange!(Math.max(0, Math.round(next)))}
+              value={mixed ? 0 : roundToOneDecimal(resolvedSize ?? 0)}
+              onChange={(next, meta) =>
+                onSizeChange!(Math.max(0, roundToOneDecimal(next)), meta)
+              }
               mixed={mixed}
               unit="px"
               min={0}
               step={1}
-              precision={0}
+              precision={1}
               disabled={disabled}
               className="min-w-0 flex-1 gap-0"
               labelClassName="h-7 w-5 justify-center gap-0 rounded-l-md rounded-r-none px-0 text-muted-foreground"

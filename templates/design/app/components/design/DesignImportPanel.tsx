@@ -20,6 +20,7 @@ import { Textarea } from "@/components/ui/textarea";
 import {
   importResultSummary,
   looksLikeStandaloneHtml,
+  parseUploadResponse,
   VISUAL_EDIT_CONNECT_COMMAND,
   VISUAL_EDIT_INSTALL_COMMAND,
   type ImportResult,
@@ -117,7 +118,16 @@ export function DesignImportPanel({ context }: DesignImportPanelProps) {
             body,
           },
         );
-        const result = (await response.json()) as ImportResult;
+        // R83 — guard the parse: a failed upload can come back as a
+        // non-JSON body (upstream proxy/platform error page, plaintext
+        // "Internal Error", etc.) even though this route's own thrown
+        // failures are always JSON. Calling response.json() unconditionally
+        // used to surface a raw "Unexpected token ... is not valid JSON"
+        // SyntaxError in the toast instead of a clean message.
+        const result = await parseUploadResponse<ImportResult>(
+          response,
+          t("designEditor.import.errors.uploadFailed"),
+        );
         if (!response.ok) {
           throw new Error(
             result.error || t("designEditor.import.errors.uploadFailed"),

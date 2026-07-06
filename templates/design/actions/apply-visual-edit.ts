@@ -24,7 +24,12 @@ import {
 } from "../shared/code-layer.js";
 import { agentSelectionDescriptor } from "../shared/collab-selection.js";
 import type { TailwindBreakpointPrefix } from "../shared/design-state.js";
-import { utilityStem, widthToPrefix } from "../shared/responsive-classes.js";
+import {
+  breakpointUpperBoundPx,
+  planBreakpointStyleWrite,
+  utilityStem,
+  widthToPrefix,
+} from "../shared/responsive-classes.js";
 
 /**
  * Short human-readable label describing an edit intent, shown next to the
@@ -38,6 +43,7 @@ function editIntentLabel(intent: EditIntent): string {
       return "Editing style";
     case "class":
     case "responsive-class":
+    case "breakpoint-style":
       return "Editing styles";
     case "moveNode":
       return "Moving element";
@@ -154,6 +160,139 @@ function scopeClassIntentToBreakpoint(
   return intent;
 }
 
+/**
+ * Convert a `class` or `style` intent into the equivalent Framer-scoped edit
+ * for a desktop-down max-width bound (§6.4 breakpoint bar semantics):
+ *
+ * - `class` add/replace/remove → `responsive-class` with `maxWidthPx`
+ *   (writes/removes a `max-[<bound>px]:` scoped token).
+ * - `style` → the single class-vs-media decision (`planBreakpointStyleWrite`):
+ *   Tailwind-utility values become scoped classes; raw CSS values become
+ *   managed `@media (max-width: <bound>px)` rules via `breakpoint-style`.
+ * - Everything else passes through unchanged.
+ */
+function scopeIntentToFramerBound(
+  intent: EditIntent,
+  maxWidthPx: number,
+): EditIntent {
+  if (intent.kind === "class") {
+    if (intent.operation === "add" || intent.operation === "replace") {
+      const tokens =
+        intent.operation === "replace"
+          ? intent.to
+            ? [intent.to]
+            : []
+          : (intent.classNames ?? (intent.className ? [intent.className] : []));
+      if (tokens.length !== 1 || !tokens[0]) return intent;
+      return {
+        kind: "responsive-class",
+        target: intent.target,
+        prefix: "base", // ignored when maxWidthPx is set
+        maxWidthPx,
+        operation: intent.operation,
+        utility: tokens[0],
+      };
+    }
+    if (intent.operation === "remove") {
+      const tokens =
+        intent.classNames ?? (intent.className ? [intent.className] : []);
+      if (tokens.length !== 1 || !tokens[0]) return intent;
+      return {
+        kind: "responsive-class",
+        target: intent.target,
+        prefix: "base",
+        maxWidthPx,
+        operation: "remove",
+        stem: stemFromToken(tokens[0]),
+      };
+    }
+    // "set" — no per-breakpoint analog.
+    return intent;
+  }
+
+  if (intent.kind === "style") {
+    const plan = planBreakpointStyleWrite({
+      property: intent.property,
+      value: intent.value,
+      upperBoundPx: maxWidthPx,
+    });
+    if (plan.mode === "class") {
+      return {
+        kind: "responsive-class",
+        target: intent.target,
+        prefix: "base",
+        maxWidthPx: plan.boundPx,
+        operation: "replace",
+        utility: plan.utility,
+      };
+    }
+    if (plan.mode === "media") {
+      return {
+        kind: "breakpoint-style",
+        target: intent.target,
+        maxWidthPx: plan.maxWidthPx,
+        property: plan.property,
+        value: plan.value,
+        operation: "set",
+      };
+    }
+    return intent;
+  }
+
+  return intent;
+}
+
+/**
+ * Resolve the Framer desktop-down bound for a design-file edit from the
+ * design's stored breakpoint set (+ the edited screen's primary width).
+ *
+ * - `{ kind: "bound" }` — a wider frame exists; scope below it.
+ * - `{ kind: "base" }` — the active frame IS the widest context; edits
+ *   belong to the base layer (Framer semantics).
+ * - `{ kind: "unknown" }` — the design has no breakpoint set; callers fall
+ *   back to the legacy min-width prefix behaviour.
+ */
+function resolveFramerBoundFromDesignData(
+  designData: string | null,
+  fileId: string,
+  activeFrameWidthPx: number,
+): { kind: "bound"; boundPx: number } | { kind: "base" } | { kind: "unknown" } {
+  if (!designData) return { kind: "unknown" };
+  try {
+    const parsed = JSON.parse(designData) as Record<string, unknown>;
+    const rawSet = parsed.breakpointSet as
+      | { breakpoints?: Array<{ widthPx?: unknown }> }
+      | undefined;
+    const widths = Array.isArray(rawSet?.breakpoints)
+      ? rawSet.breakpoints
+          .map((bp) => bp?.widthPx)
+          .filter(
+            (width): width is number =>
+              typeof width === "number" && Number.isFinite(width),
+          )
+      : [];
+    if (widths.length === 0) return { kind: "unknown" };
+
+    const metadataByFileId = parsed.screenMetadata as
+      | Record<string, { width?: unknown } | undefined>
+      | undefined;
+    const rawScreenWidth = metadataByFileId?.[fileId]?.width;
+    const screenWidthPx =
+      typeof rawScreenWidth === "number" && Number.isFinite(rawScreenWidth)
+        ? rawScreenWidth
+        : null;
+
+    const boundPx = breakpointUpperBoundPx(
+      widths,
+      activeFrameWidthPx,
+      screenWidthPx,
+    );
+    return boundPx === null ? { kind: "base" } : { kind: "bound", boundPx };
+  } catch {
+    return { kind: "unknown" };
+  }
+}
+
 function parseJsonString(value: unknown): unknown {
   if (typeof value !== "string") return value;
   try {
@@ -225,6 +364,30 @@ const intentSchema = z.preprocess(
       classNames: z.array(z.string()).optional(),
       from: z.string().optional(),
       to: z.string().optional(),
+    }),
+    z.object({
+      kind: z.literal("breakpoint-style"),
+      target: targetSchema,
+      maxWidthPx: z
+        .number()
+        .int()
+        .positive()
+        .describe(
+          "Inclusive upper viewport bound (px). The declaration persists as a managed '@media (max-width: <bound>px)' rule in the <style data-agent-native-breakpoints> block — the fallback for values responsive class prefixes can't express (exact px positions, rgb()/calc() values). Use breakpointUpperBoundPx semantics: just below the next-wider breakpoint frame.",
+        ),
+      property: z
+        .string()
+        .describe("CSS property to set (camelCase or kebab-case)."),
+      value: z
+        .string()
+        .optional()
+        .describe("CSS value. Required for operation 'set'."),
+      operation: z
+        .enum(["set", "remove"])
+        .optional()
+        .describe(
+          "'set' (default) writes/overwrites the scoped declaration; 'remove' deletes it so the base value cascades back down.",
+        ),
     }),
     z.object({
       kind: z.literal("textContent"),
@@ -312,6 +475,7 @@ async function resolveEditableDesignFile(
   designId: string;
   filename: string;
   content: string;
+  designData: string | null;
   codeLayerSource: CodeLayerSource;
 }> {
   if (!source.fileId && !source.designId) {
@@ -340,6 +504,7 @@ async function resolveEditableDesignFile(
       filename: schema.designFiles.filename,
       fileType: schema.designFiles.fileType,
       content: schema.designFiles.content,
+      designData: schema.designs.data,
     })
     .from(schema.designFiles)
     .innerJoin(
@@ -373,6 +538,7 @@ async function resolveEditableDesignFile(
     designId: file.designId,
     filename: file.filename,
     content: await liveContent(file.id, file.content ?? ""),
+    designData: file.designData ?? null,
     codeLayerSource: {
       kind: "design-file",
       designId: file.designId,
@@ -419,7 +585,9 @@ export default defineAction({
   description:
     "Apply one deterministic visual edit to a code-backed HTML design layer. " +
     "Supports safe inline style, class, and leaf textContent edits on inline/SQL HTML files; escalates ambiguous or structural edits with PatchResult statuses. " +
-    "Pass activeBreakpoint (or activeFrameWidthPx) to scope a class edit to a specific Tailwind responsive prefix; omit for global (backward-compatible) behaviour.",
+    "Responsive editing (§6.4): pass activeFrameWidthPx (the active breakpoint frame width, matching the UI's breakpoint bar) to scope class AND style edits Framer-style — overrides apply below the next-wider frame and cascade down; the widest frame is the base. " +
+    "Raw CSS values persist as managed @media rules (<style data-agent-native-breakpoints>); Tailwind-utility values become max-[<bound>px]: classes. " +
+    "Pass activeBreakpoint to force legacy min-width prefix scoping for class edits, or maxWidthPx for an explicit desktop-down bound. Omit all three for base (global) behaviour.",
   schema: z.object({
     source: sourceSchema.describe(
       "Edit source. Use kind=design-file with designId/filename or fileId to persist into SQL; kind=inline-html with html for a preview-only patch.",
@@ -446,7 +614,16 @@ export default defineAction({
       .optional()
       .nullable()
       .describe(
-        "Canvas frame width in pixels. When activeBreakpoint is not set, this is used to derive the Tailwind responsive prefix (via widthToPrefix) and scope class edits accordingly. Ignored when activeBreakpoint is provided.",
+        "Active breakpoint frame width in pixels — matches the UI's breakpoint bar. For design-file sources whose design has a breakpoint set, 'class' AND 'style' intents are scoped Framer-style: overrides apply below the next-wider frame (max-[<bound>px]: classes, or managed @media rules for raw CSS values); the widest frame is the base and writes unscoped. When the design has no breakpoint set (or for inline-html sources) class edits fall back to the legacy min-width Tailwind prefix via widthToPrefix. Ignored when activeBreakpoint is provided.",
+      ),
+    maxWidthPx: z
+      .number()
+      .int()
+      .positive()
+      .optional()
+      .nullable()
+      .describe(
+        "Explicit Framer desktop-down bound (px): scope this edit to apply at viewport widths <= this value. Overrides activeBreakpoint/activeFrameWidthPx derivation. Applies to 'class' and 'style' intents.",
       ),
   }),
   run: async ({
@@ -455,22 +632,36 @@ export default defineAction({
     includeContent,
     activeBreakpoint,
     activeFrameWidthPx,
+    maxWidthPx,
   }) => {
     const actionSource = source as VisualEditActionSource;
     let editIntent = intent as EditIntent;
 
-    // Breakpoint scoping: when the caller specifies an active breakpoint (or
-    // frame width) and the intent is a plain `"class"` edit, convert it to a
-    // `"responsive-class"` edit scoped to the appropriate Tailwind prefix.
-    // All other intent kinds (style, textContent, moveNode, responsive-class)
-    // are passed through unchanged — the caller either already supplied the
-    // correct prefix (responsive-class) or does not need one (the others).
-    const activePrefix = resolveActivePrefix(
-      activeBreakpoint,
-      activeFrameWidthPx,
-    );
-    if (activePrefix !== null && editIntent.kind === "class") {
-      editIntent = scopeClassIntentToBreakpoint(editIntent, activePrefix);
+    // Breakpoint scoping precedence (§6.4):
+    //
+    // 1. Explicit `maxWidthPx` param → Framer desktop-down scope for `class`
+    //    AND `style` intents (max-[<bound>px]: classes / managed @media).
+    // 2. Explicit `activeBreakpoint` prefix → legacy min-width Tailwind
+    //    prefix scoping for `class` intents (backward-compatible).
+    // 3. `activeFrameWidthPx` only → design-file sources resolve the Framer
+    //    bound from the design's breakpoint set (below, after the file is
+    //    loaded); other sources fall back to the legacy prefix path.
+    if (
+      maxWidthPx != null &&
+      (editIntent.kind === "class" || editIntent.kind === "style")
+    ) {
+      editIntent = scopeIntentToFramerBound(editIntent, maxWidthPx);
+    } else if (
+      actionSource.kind !== "design-file" ||
+      activeBreakpoint != null
+    ) {
+      const activePrefix = resolveActivePrefix(
+        activeBreakpoint,
+        activeFrameWidthPx,
+      );
+      if (activePrefix !== null && editIntent.kind === "class") {
+        editIntent = scopeClassIntentToBreakpoint(editIntent, activePrefix);
+      }
     }
 
     if (actionSource.kind === "inline-html") {
@@ -512,6 +703,34 @@ export default defineAction({
     }
 
     const file = await resolveEditableDesignFile(actionSource);
+
+    // §6.4 — design-file Framer scoping resolved from the stored breakpoint
+    // set (see precedence note above): the bound is just below the
+    // next-wider frame; the widest frame is the base and writes unscoped.
+    if (
+      maxWidthPx == null &&
+      activeBreakpoint == null &&
+      activeFrameWidthPx != null &&
+      (editIntent.kind === "class" || editIntent.kind === "style")
+    ) {
+      const bound = resolveFramerBoundFromDesignData(
+        file.designData,
+        file.id,
+        activeFrameWidthPx,
+      );
+      if (bound.kind === "bound") {
+        editIntent = scopeIntentToFramerBound(editIntent, bound.boundPx);
+      } else if (bound.kind === "unknown" && editIntent.kind === "class") {
+        // No breakpoint set on this design — legacy min-width prefix path.
+        const activePrefix = resolveActivePrefix(null, activeFrameWidthPx);
+        if (activePrefix !== null) {
+          editIntent = scopeClassIntentToBreakpoint(editIntent, activePrefix);
+        }
+      }
+      // bound.kind === "base": the active frame IS the widest context —
+      // the edit stays a plain base write that cascades down.
+    }
+
     const patch = applyVisualEdit(file.content, editIntent, {
       source: file.codeLayerSource,
     });

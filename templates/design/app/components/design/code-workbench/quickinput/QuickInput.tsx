@@ -501,7 +501,7 @@ function QuickInputRow({
       className={cn(
         "mx-1 flex h-7 cursor-pointer items-center gap-2 rounded-[5px] px-2 text-[12px]",
         active
-          ? "bg-[var(--workbench-list-active-bg,var(--workbench-active-bg))] text-[var(--workbench-active-fg)]"
+          ? "bg-[var(--workbench-list-active-bg,var(--workbench-active-bg))] text-[var(--workbench-fg)]"
           : "text-[var(--workbench-fg)] hover:bg-[var(--workbench-hover-bg)]",
       )}
     >

@@ -5,6 +5,16 @@ import {
 } from "@agent-native/core/client";
 import type { TweakDefinition } from "@shared/api";
 import {
+  getBreakpointOverrideState,
+  type BreakpointOverrideState,
+} from "@shared/breakpoint-media";
+import {
+  composeTransform3D,
+  isTransform3DActive,
+  parseTransform3DParts,
+  type Transform3DParts,
+} from "@shared/canvas-math";
+import {
   alphaToOpacity,
   parseCssColor,
   rgbaToCss,
@@ -12,6 +22,11 @@ import {
   withColorOpacity,
 } from "@shared/color-utils";
 import { propNameToDataAttribute } from "@shared/component-model";
+import {
+  listInteractionStates,
+  readStateStyles,
+  type InteractionState,
+} from "@shared/interaction-states";
 import {
   IconAlignCenter,
   IconAlignJustified,
@@ -21,6 +36,8 @@ import {
   IconArrowAutofitHeight,
   IconArrowAutofitWidth,
   IconArrowRight,
+  IconAxisX,
+  IconAxisY,
   IconBackground,
   IconBlur,
   IconBorderCorners,
@@ -28,6 +45,8 @@ import {
   IconBorderStyle,
   IconBrush,
   IconCheck,
+  IconChevronDown,
+  IconChevronRight,
   IconCode,
   IconComponents,
   IconExternalLink,
@@ -38,6 +57,7 @@ import {
   IconFlipVertical,
   IconFrame,
   IconGridDots,
+  IconGripVertical,
   IconLayoutDistributeHorizontal,
   IconLayoutGrid,
   IconLoader2,
@@ -51,7 +71,9 @@ import {
   IconLetterSpacing,
   IconLineHeight,
   IconLink,
+  IconLinkOff,
   IconMinus,
+  IconPerspective,
   IconPhoto,
   IconPlus,
   IconRadiusBottomLeft,
@@ -59,11 +81,13 @@ import {
   IconRadiusTopLeft,
   IconRadiusTopRight,
   IconRefresh,
+  IconRotate3d,
   IconShadow,
   IconSquare,
   IconTypography,
   IconUnlink,
   IconVector,
+  IconWaveSine,
 } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import {
@@ -73,6 +97,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type DragEvent,
   type ReactNode,
 } from "react";
 import { useParams } from "react-router";
@@ -112,10 +137,14 @@ import { cn } from "@/lib/utils";
 
 import {
   AutoLayoutMatrix,
+  BreakpointOverrideIndicator,
   ConstraintsPreview,
   ConstraintsWidget,
   ExportSettingsPanel,
   DesignColorPicker,
+  FRAME_SIZE_PRESET_CATEGORIES,
+  MotionKeyframeDiamond,
+  motionPropertyHasKeyframe,
   ScrubInput,
   SizingField,
   type AlignmentMatrixValue,
@@ -124,17 +153,26 @@ import {
   type AutoLayoutSizingAxis,
   type ConstraintsValue,
   type ExportSettingsValue,
+  type FrameSizePreset,
+  type FrameSizePresetCategoryKey,
   imageFillToBackgroundStyles,
+  InteractionStatePanel,
+  type ActiveInteractionState,
   type DesignFillRow,
   type DesignFillRowPatch,
   type DesignGradientStop,
   type DesignGradientStopPatch,
   type DesignGradientType,
   type ImageFillValue,
+  type MotionKeyframeCssProperty,
   type ScrubInputChangeMeta,
 } from "./inspector";
 import { IconLayoutSettings } from "./inspector/design-icons";
 import type { DesignPaintType } from "./inspector/DesignColorPicker";
+import {
+  GlslShaderEffectSection,
+  type GlslShaderPanelContext,
+} from "./inspector/GlslShaderPanel";
 import { ReviewPanel } from "./ReviewPanel";
 import type { ReviewPanelProps } from "./ReviewPanel";
 import type { StatesPanelProps } from "./StatesPanel";
@@ -154,9 +192,40 @@ export type InspectorTab = "design" | "tweaks";
  *   gesture's authoritative final value — exactly one per gesture — which
  *   DOES trigger the full source commit. Omitting meta entirely preserves
  *   prior behavior (treated as "commit") for every non-scrub/color call site.
+ *
+ * - `interactionState`: set on EVERY style commit (regardless of `phase`)
+ *   while the inspector's element interaction-state selector
+ *   (`InteractionStatePanel`) has a non-default state active — see
+ *   `shared/interaction-states.ts` for the persisted format. Omitted (or
+ *   `undefined`) means "commit to the element's normal inline style /
+ *   class", exactly like today. This is a PHASE-2 CONTRACT: EditPanel only
+ *   attaches the field, it never calls the shared upsert helpers itself —
+ *   DesignEditor's `onStyleChange`/`onStylesChange` handlers must branch on
+ *   `meta.interactionState` and, when present, route the commit through
+ *   `upsertStateStyle` / `upsertStateStyles` (targeting `activeContent` +
+ *   the selected element's `sourceId` as the node id) instead of the normal
+ *   inline-style patch path, then re-derive the forced-preview twins with
+ *   `duplicateStatePreviewRules` before persisting — all as ONE history
+ *   step, same as any other single style commit today.
+ *
+ * - `breakpointReset`: set ONLY on the synthetic commit fired by a
+ *   `BreakpointOverrideIndicator`'s reset button (see `breakpointContext` on
+ *   `EditPanelProps`). Means "clear this property's override at
+ *   `maxWidthPx`, don't write a new value" — the accompanying `value`
+ *   argument on `onStyleChange`/`onStylesChange` is the CURRENT (base or
+ *   wider-scope) value the field falls back to displaying, not a value to
+ *   persist. CONTRACT: DesignEditor's handlers must branch on
+ *   `meta.breakpointReset` and, when present, call
+ *   `removeBreakpointMediaDeclaration` (or clear the matching max-width
+ *   utility class — whichever persistence layer
+ *   `getBreakpointOverrideState` reported the override on) for `property` at
+ *   `maxWidthPx`, instead of writing `value` through the normal inline-style
+ *   /  managed-breakpoint-block commit path.
  */
 export interface StyleChangeMeta {
   phase?: "preview" | "commit";
+  interactionState?: InteractionState;
+  breakpointReset?: { property: string; maxWidthPx: number };
 }
 
 export type StyleChangeHandler = (
@@ -169,6 +238,59 @@ export type StylesChangeHandler = (
   styles: Record<string, string>,
   meta?: StyleChangeMeta,
 ) => void;
+
+/**
+ * Per-render bundle the style-section components below use to render the
+ * motion keyframe diamond next to a field — precomputed once in `EditPanel`
+ * from `motionKeyframeState`/`onToggleMotionKeyframe` so each section only
+ * needs to know its own field's CSS property name. `undefined` (the whole
+ * bundle, or `hasTimeline: false`) means "render no diamonds" — sections
+ * check this before rendering `MotionKeyframeDiamond` at all.
+ */
+interface MotionKeyframeFieldContext {
+  hasTimeline: boolean;
+  keyframedProperties: readonly string[];
+  onToggle?: (cssProperty: MotionKeyframeCssProperty) => void;
+}
+
+/**
+ * Per-render bundle the style-section components below use to render the
+ * breakpoint override indicator next to a field — precomputed once in
+ * `EditPanel` from `breakpointContext`. `undefined` means "render no
+ * indicators" (feature off or editing the base frame).
+ */
+interface BreakpointOverrideFieldContext {
+  nodeId: string | undefined;
+  breakpointWidths: readonly number[];
+  baseWidthPx: number;
+  activeWidthPx: number | null;
+  html: string;
+  onReset: (property: string, maxWidthPx: number) => void;
+}
+
+/**
+ * Resolve a single property's override state against
+ * `BreakpointOverrideFieldContext`, or `undefined` when the feature is off /
+ * there's no stable node id for the current selection. Thin wrapper around
+ * `getBreakpointOverrideState` so call sites don't repeat the
+ * className/nodeId/html plumbing at every field.
+ */
+function resolveBreakpointOverride(
+  ctx: BreakpointOverrideFieldContext | undefined,
+  className: string,
+  property: string,
+): BreakpointOverrideState | undefined {
+  if (!ctx || !ctx.nodeId || ctx.activeWidthPx == null) return undefined;
+  return getBreakpointOverrideState({
+    className,
+    html: ctx.html,
+    nodeId: ctx.nodeId,
+    property,
+    breakpointWidths: ctx.breakpointWidths,
+    baseWidthPx: ctx.baseWidthPx,
+    activeWidthPx: ctx.activeWidthPx,
+  });
+}
 
 const MIXED_VALUE = "Mixed";
 
@@ -284,6 +406,15 @@ interface EditPanelProps {
   activeContent?: string;
   /** Server revision for activeContent. */
   activeFileUpdatedAt?: string | null;
+  /**
+   * Every file's content in the current design (all screens, not just the
+   * active one) — used to compute the document-wide "Document colors"
+   * palette (see `extractDocumentColorPalette`) so it reflects colors used
+   * anywhere in the file, not just the selected element's own color props.
+   * Optional: when omitted, the Fill section's document-colors row falls
+   * back to just the selected element's colors (previous behavior).
+   */
+  files?: DocumentColorSourceFile[];
   // -------------------------------------------------------------------------
   // Design Studio panels (§6.2, §6.4, §6.5)
   // Pass `designId` to unlock Tokens, States, and Review sections.
@@ -343,6 +474,163 @@ interface EditPanelProps {
   inspectCode?: InspectCodeData;
   /** Optional compact AI edit controls for selected/local source elements. */
   aiActions?: ReactNode;
+  // -------------------------------------------------------------------------
+  // Frame tool size presets (Figma parity)
+  // -------------------------------------------------------------------------
+  /**
+   * The currently-armed canvas tool. When this is `"frame"` and
+   * `onCreateScreenFromPreset` is provided, the whole panel is replaced with
+   * a scrollable list of screen-size presets grouped by category — mirroring
+   * Figma's behavior when the Frame tool (F / A) is activated before
+   * drawing. Any string is accepted so callers can pass their own tool union
+   * type without EditPanel importing it.
+   */
+  activeTool?: string;
+  /**
+   * Creates a new screen sized to the clicked preset. Only takes effect while
+   * `activeTool === "frame"`; when omitted the frame tool falls back to the
+   * normal selection-based panel content.
+   *
+   * Contract: the parent (DesignEditor) is responsible for placing the new
+   * screen centered in the current viewport, selecting it, and reverting the
+   * active tool back to `"move"` afterward — matching Figma, which arms the
+   * Frame tool for exactly one placement.
+   */
+  onCreateScreenFromPreset?: (preset: {
+    name: string;
+    width: number;
+    height: number;
+  }) => void;
+  // -------------------------------------------------------------------------
+  // Position section — selection alignment (Figma parity)
+  // -------------------------------------------------------------------------
+  /**
+   * Moves the selected object(s) — the real Figma "Alignment" row in the
+   * Position section always aligns the selection itself, never the selected
+   * element's own children (that's a distinct operation covered by the
+   * auto-layout section's alignment matrix for flex containers).
+   *
+   * Contract for the caller (DesignEditor):
+   * - `edge` names one of Figma's six align operations: "left" | "right" |
+   *   "center-h" (horizontal centering) act on the X axis; "top" | "bottom" |
+   *   "center-v" (vertical centering) act on the Y axis.
+   * - For a multi-selection (2+ objects), align every selected object to the
+   *   shared bounding box of the current selection (min/max of every
+   *   selected element's `boundingRect`) — e.g. "left" moves each object's
+   *   left edge to the selection bbox's left edge; "center-h" centers each
+   *   object on the bbox's horizontal midpoint. This matches
+   *   `mixedElementFromSelection`'s bbox computation already used to build
+   *   the merged inspector element in this file.
+   * - For a single selected object, align it to its parent's content box
+   *   instead (Figma's single-object align-to-parent behavior).
+   * - This callback only needs to reposition objects (write left/top or an
+   *   equivalent transform) — it must NOT touch flexbox alignment
+   *   properties; that responsibility was removed from this row and lives
+   *   solely in the auto-layout alignment matrix now.
+   * - When omitted, the alignment row's buttons are still rendered (Figma
+   *   always shows this row) but no-op, since EditPanel has no selection
+   *   bbox/parent geometry of its own to act on.
+   */
+  onAlignSelection?: (
+    edge: "left" | "center-h" | "right" | "top" | "center-v" | "bottom",
+  ) => void;
+  // -------------------------------------------------------------------------
+  // Element interaction states (hover / focus / focus-visible / active /
+  // disabled) — see shared/interaction-states.ts for the persisted format
+  // and forced-preview mechanism, and the StyleChangeMeta doc comment above
+  // for the exact phase-2 commit-routing contract.
+  // -------------------------------------------------------------------------
+  /**
+   * Called whenever the inspector's state selector changes. `null` means
+   * Default. PHASE 2: the parent (DesignEditor) uses this to set/clear the
+   * `data-an-state-preview` attribute on the selected element in the canvas
+   * iframe via the bridge (see `duplicateStatePreviewRules` in
+   * `shared/interaction-states.ts` for why an attribute, not a real
+   * pseudo-class, drives the forced preview). Omit to render the selector as
+   * a no-op display (EditPanel still shows/tracks the active state locally
+   * for its own commit-meta tagging even without this callback).
+   */
+  onInteractionStateChange?: (state: ActiveInteractionState) => void;
+  /**
+   * Restricts which non-default states the selector offers for the current
+   * selection (e.g. omit "disabled" for elements that don't support it).
+   * Defaults to all five supported states when omitted.
+   */
+  availableInteractionStates?: readonly InteractionState[];
+  /**
+   * GLSL shader fill/effect "Edit code" affordance — threaded straight into
+   * `glslShaderContext.onEditCode` (see `GlslShaderPanelContext` in
+   * `./inspector/GlslShaderPanel`). Called with the shader's id when the user
+   * clicks the panel's Edit-code button; the parent (DesignEditor) should
+   * open the left Code panel focused on the active screen's file. Omit to
+   * leave the affordance rendered but inert (the panel still explains where
+   * the shader source lives).
+   */
+  onEditCode?: (shaderId: string) => void;
+  // -------------------------------------------------------------------------
+  // Motion keyframe diamonds (Figma Motion parity) — small ◆ affordances
+  // beside keyframeable fields (X/Y/W/H, rotation, opacity, corner radius,
+  // fill/stroke color, stroke weight, drop shadow). See
+  // `MotionKeyframeDiamond` in `./inspector` for the affordance itself and
+  // the exact CSS property identifiers it emits (`MotionKeyframeCssProperty`
+  // — these match `MOTION_PROPERTY_PRESETS` in `shared/motion-timeline.ts`
+  // verbatim: translate/scale/rotate/opacity/border-radius/
+  // background-color/border-color/border-width/box-shadow).
+  // -------------------------------------------------------------------------
+  /**
+   * When provided, unlocks the per-field keyframe diamonds. Safe default:
+   * omitted (or `hasTimeline: false`) hides every diamond, so EditPanel
+   * renders exactly as before this feature for any caller that hasn't wired
+   * motion yet.
+   */
+  motionKeyframeState?: {
+    /** Whether the selected element currently belongs to a motion timeline. */
+    hasTimeline: boolean;
+    /**
+     * CSS property identifiers (see `MotionKeyframeCssProperty`) that already
+     * have at least one authored keyframe for the selected element — drives
+     * each diamond's outline-vs-filled state.
+     */
+    keyframedProperties: readonly string[];
+  };
+  /**
+   * Called when a keyframe diamond is clicked. `cssProperty` is always one
+   * of the motion catalog's tracked identifiers (see
+   * `MotionKeyframeCssProperty`). Contract for the caller (DesignEditor):
+   * toggle a keyframe for that property on the selected element at the
+   * timeline's current playhead position — add one (seeded from the
+   * element's current computed value) when none exists yet at that time, or
+   * remove the one at the playhead when `motionKeyframeState.keyframedProperties`
+   * already includes it. Omit to render every diamond as an inert (but still
+   * visible once `hasTimeline` is true) affordance.
+   */
+  onToggleMotionKeyframe?: (cssProperty: MotionKeyframeCssProperty) => void;
+  // -------------------------------------------------------------------------
+  // Breakpoint override indicators (Framer-style responsive breakpoints) —
+  // see `getBreakpointOverrideState` in `@shared/breakpoint-media` for the
+  // override-detection contract this reads, and `BreakpointOverrideIndicator`
+  // in `./inspector` for the dot + reset affordance itself.
+  // -------------------------------------------------------------------------
+  /**
+   * When provided (and `activeWidthPx` is non-null), style-section fields
+   * show an accent override indicator + reset affordance for any property
+   * that's overridden at the active breakpoint. Safe default: omitted
+   * disables the feature entirely — every field renders exactly as before.
+   */
+  breakpointContext?: {
+    /** Widths (px) of the design's configured breakpoint frames. */
+    breakpointWidths: readonly number[];
+    /** The primary/widest frame's width — the base editing context. */
+    baseWidthPx: number;
+    /**
+     * The active breakpoint frame's width, or `null` while editing the base
+     * frame (no override indicators shown in that case — matches
+     * `getBreakpointOverrideState`'s `activeUpperBoundPx: null` contract).
+     */
+    activeWidthPx: number | null;
+    /** The active screen's HTML — read-only, for the managed media block. */
+    html: string;
+  };
 }
 
 export interface ScreenGeometrySelection {
@@ -536,7 +824,9 @@ function ColorInput({
   onBlendModeChange,
   supportsLayeredFills = false,
   documentColors,
+  supportedPaintTypes,
   pickerKey,
+  glslShaderContext,
 }: {
   label: string;
   value: string;
@@ -552,7 +842,21 @@ function ColorInput({
   supportsLayeredFills?: boolean;
   /** Hex strings already in use on the page — forwarded to the color picker swatch grid. */
   documentColors?: string[];
+  /**
+   * Restricts which paint-type tabs the popover renders. Omit for the full
+   * set (solid + gradients + image + …). Pass `["solid"]` for properties
+   * with no clean gradient/image equivalent (e.g. CSS border/outline
+   * strokes) so the tab is hidden instead of clickable-but-discarded.
+   */
+  supportedPaintTypes?: DesignPaintType[];
   pickerKey?: string;
+  /**
+   * Persistence context for the code-backed GLSL Shader paint type. When
+   * provided, the picker's Shader tab opens the GlslShaderPanel (Created by
+   * you / Create new (AI) / Presets) which persists real GLSL source into
+   * the screen HTML. Omit to fall back to the legacy shader presets panel.
+   */
+  glslShaderContext?: GlslShaderPanelContext;
 }) {
   const [draft, setDraft] = useState(value);
   const [selectedFillId, setSelectedFillId] = useState(SOLID_FILL_ID);
@@ -928,9 +1232,20 @@ function ColorInput({
       }
       onRemoveGradientStop={handleRemoveGradientStop}
       documentColors={documentColors}
+      supportedPaintTypes={supportedPaintTypes}
+      glslShaderContext={glslShaderContext}
     />
   );
 }
+
+/**
+ * Paint types allowed for CSS properties with no clean gradient/image
+ * equivalent — currently strokes (`border`/`outline`), which are plain CSS
+ * colors with no `border-image`/layered-background trickery clean enough to
+ * support here. Passed as `supportedPaintTypes` so the picker never shows a
+ * tab that would silently discard its write.
+ */
+const SOLID_ONLY_PAINT_TYPES: DesignPaintType[] = ["solid"];
 
 const SOLID_FILL_ID = "solid";
 const FILL_LAYER_PREFIX = "layer:";
@@ -955,6 +1270,71 @@ function elementIdentityKey(element: ElementInfo): string {
     Math.round(element.boundingRect.width),
     Math.round(element.boundingRect.height),
   ].join(":");
+}
+
+/**
+ * Stable per-element identity for UI-only inspector state that must survive
+ * resizing (unlike elementIdentityKey, which folds in the bounding rect and
+ * therefore changes on every resize — exactly what an aspect-ratio lock needs
+ * to persist across). Falls back through the same id chain.
+ */
+function elementStableKey(element: ElementInfo): string {
+  return element.sourceId ?? element.id ?? element.selector ?? element.tagName;
+}
+
+/**
+ * Module-level aspect-ratio lock state, keyed by elementStableKey. Module
+ * scope (not React state) so the lock survives EditPanel remounts across
+ * selection changes, matching this file's existing convention of using
+ * plain data structures for cross-render inspector UI state (see
+ * hiddenEffectStash for the analogous per-element pattern kept in React
+ * state instead — the lock uses module scope specifically so a toggle
+ * doesn't need to be re-applied if the panel remounts).
+ */
+const aspectRatioLocks = new Map<string, number>();
+
+/**
+ * Reads/writes the aspect-ratio lock for the given element. The map stores
+ * the locked ratio (width / height) captured at lock time, not just a
+ * boolean, so a W or H edit can derive the other axis without re-reading
+ * stale computed styles. Returns a React-state-backed `locked`/`ratio` pair
+ * plus a `toggle` that forces a re-render (the Map itself is not reactive).
+ */
+function useAspectRatioLock(element: ElementInfo) {
+  const key = elementStableKey(element);
+  const [, forceRender] = useState(0);
+  const locked = aspectRatioLocks.has(key);
+  const ratio = aspectRatioLocks.get(key);
+
+  const setLocked = (nextLocked: boolean, currentRatio?: number) => {
+    if (nextLocked) {
+      if (Number.isFinite(currentRatio) && (currentRatio as number) > 0) {
+        aspectRatioLocks.set(key, currentRatio as number);
+      }
+    } else {
+      aspectRatioLocks.delete(key);
+    }
+    forceRender((n) => n + 1);
+  };
+
+  return { locked, ratio, setLocked };
+}
+
+/**
+ * Derives the paired dimension for an aspect-locked W/H commit. `ratio` is
+ * width / height, captured once when the lock was toggled on. `axis`
+ * identifies which dimension the user just edited (`px`); the function
+ * returns the other axis's next value, rounded to one decimal to match the
+ * precision every other size/position field commits at.
+ */
+export function deriveLockedAspectSize(
+  axis: "width" | "height",
+  px: number,
+  ratio: number,
+): number {
+  return axis === "width"
+    ? roundToOneDecimal(px / ratio)
+    : roundToOneDecimal(px * ratio);
 }
 
 function fillLayerId(index: number): string {
@@ -1052,7 +1432,7 @@ export function withLayerSizeMarker(
   return joinCssLayers(next);
 }
 
-function splitCssLayers(value: string): string[] {
+export function splitCssLayers(value: string): string[] {
   const trimmed = value.trim();
   if (!trimmed || trimmed === "none") return [];
   const layers: string[] = [];
@@ -1075,9 +1455,50 @@ function splitCssLayers(value: string): string[] {
   return layers;
 }
 
-function joinCssLayers(layers: string[]): string {
+export function joinCssLayers(layers: string[]): string {
   const cleaned = layers.map((layer) => layer.trim()).filter(Boolean);
   return cleaned.length ? cleaned.join(", ") : "none";
+}
+
+/** One fill layer's index-aligned parallel CSS values. */
+export interface FillLayerArrays {
+  backgroundImage: string[];
+  backgroundSize: string[];
+  backgroundRepeat: string[];
+  backgroundPosition: string[];
+}
+
+/**
+ * Removes the layer at `index` from all four index-aligned parallel fill
+ * arrays (image/size/repeat/position) together, returning a single patch of
+ * joined CSS layer-list strings ready to commit as one atomic style change.
+ *
+ * Splicing only `backgroundImage`/`backgroundSize` (as a previous version of
+ * `removeLayer` did) and leaving `backgroundRepeat`/`backgroundPosition`
+ * untouched shifts every remaining layer's index relative to those two
+ * arrays, silently re-pairing each of them with the *next* layer's original
+ * repeat/position. Splicing all four together — the same pattern
+ * `reorderFillLayers` already uses for permutation — keeps every remaining
+ * layer's size/repeat/position aligned with its own image after the removal.
+ */
+export function removeFillLayerAtIndex(
+  layers: FillLayerArrays,
+  index: number,
+): Record<
+  | "backgroundImage"
+  | "backgroundSize"
+  | "backgroundRepeat"
+  | "backgroundPosition",
+  string
+> {
+  const withoutIndex = (values: string[]) =>
+    values.filter((_, layerIndex) => layerIndex !== index);
+  return {
+    backgroundImage: joinCssLayers(withoutIndex(layers.backgroundImage)),
+    backgroundSize: joinCssLayers(withoutIndex(layers.backgroundSize)),
+    backgroundRepeat: joinCssLayers(withoutIndex(layers.backgroundRepeat)),
+    backgroundPosition: joinCssLayers(withoutIndex(layers.backgroundPosition)),
+  };
 }
 
 export function parseGradientLayer(layer: string): ParsedGradientLayer | null {
@@ -1346,6 +1767,116 @@ function PanelSection({
         </div>
       ) : null}
     </section>
+  );
+}
+
+/**
+ * One collapsible category group in the frame-tool presets panel — e.g.
+ * "Phone" or "Tablet". Unlike {@link PanelSection} (used for property
+ * sections, which shows no chevron), this renders a leading chevron like
+ * Figma's own preset list and LayersPanel's disclosure triangles.
+ */
+function FramePresetCategoryGroup({
+  title,
+  presets,
+  defaultOpen = false,
+  onPick,
+}: {
+  title: string;
+  presets: FrameSizePreset[];
+  defaultOpen?: boolean;
+  onPick: (preset: FrameSizePreset) => void;
+}) {
+  const [open, setOpen] = useState(defaultOpen);
+
+  return (
+    <section className="shrink-0 border-t border-[var(--design-editor-control-border)] first:border-t-0">
+      <button
+        type="button"
+        className="flex h-9 w-full min-w-0 cursor-pointer items-center gap-1.5 px-3 text-left"
+        onClick={() => setOpen((current) => !current)}
+        aria-expanded={open}
+      >
+        {open ? (
+          <IconChevronDown className="size-3.5 shrink-0 text-muted-foreground" />
+        ) : (
+          <IconChevronRight className="size-3.5 shrink-0 text-muted-foreground rtl:-scale-x-100" />
+        )}
+        <h3 className="min-w-0 flex-1 truncate !text-[11px] font-semibold text-foreground">
+          {title}
+        </h3>
+      </button>
+      {open ? (
+        <div className="pb-1.5">
+          {presets.map((preset) => (
+            <button
+              key={preset.name}
+              type="button"
+              className="flex h-8 w-full min-w-0 cursor-pointer items-center gap-2 px-3 pl-8 text-left hover:bg-[var(--design-editor-control-hover-bg)]"
+              onClick={() => onPick(preset)}
+            >
+              <span className="min-w-0 flex-1 truncate !text-[11px] text-foreground">
+                {preset.name}
+              </span>
+              <span className="shrink-0 !text-[11px] tabular-nums text-muted-foreground">
+                {preset.width}
+                {"×" /* × */}
+                {preset.height}
+              </span>
+            </button>
+          ))}
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
+const FRAME_PRESET_CATEGORY_LABEL_KEYS: Record<
+  FrameSizePresetCategoryKey,
+  string
+> = {
+  phone: "editPanel.framePresets.categories.phone",
+  tablet: "editPanel.framePresets.categories.tablet",
+  desktop: "editPanel.framePresets.categories.desktop",
+  presentation: "editPanel.framePresets.categories.presentation",
+  watch: "editPanel.framePresets.categories.watch",
+  paper: "editPanel.framePresets.categories.paper",
+  socialMedia: "editPanel.framePresets.categories.socialMedia",
+};
+
+/**
+ * Figma-parity frame-tool panel: replaces the whole inspector body with a
+ * scrollable, categorized list of screen-size presets while the Frame tool
+ * is armed. Clicking a row calls `onCreateScreenFromPreset` with the exact
+ * size — see the `activeTool`/`onCreateScreenFromPreset` doc comments on
+ * `EditPanelProps` for the parent-side creation/tool-revert contract.
+ */
+function FramePresetsPanel({
+  onPick,
+}: {
+  onPick: (preset: FrameSizePreset) => void;
+}) {
+  const t = useT();
+
+  return (
+    <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+      <div className="flex h-10 shrink-0 items-center border-b border-border/90 px-3">
+        <h3 className="min-w-0 flex-1 truncate text-[13px] font-semibold text-foreground">
+          {t("editPanel.framePresets.title")}
+        </h3>
+      </div>
+      <div className="design-inspector-scroll min-h-0 flex-1 overflow-y-auto overscroll-contain">
+        {FRAME_SIZE_PRESET_CATEGORIES.map((category, index) => (
+          <FramePresetCategoryGroup
+            key={category.key}
+            title={t(FRAME_PRESET_CATEGORY_LABEL_KEYS[category.key])}
+            presets={category.presets}
+            defaultOpen={index === 0}
+            onPick={onPick}
+          />
+        ))}
+      </div>
+    </div>
   );
 }
 
@@ -1618,12 +2149,16 @@ const ALIGN_SELF_OPTIONS = [
   { value: "stretch", key: "stretch" },
   { value: "baseline", key: "baseline" },
 ] as const;
-// "center" stroke position is omitted: CSS has no native single-property
-// centered stroke; choosing it in the UI caused a confusing revert to "inside"
-// on next render. Inside (border) and outside (outline) are fully supported.
+// Inside is a real `border` (draws inset from the box edge by definition).
+// Outside and center are both implemented as CSS `outline`, which always
+// paints just outside the border-box edge — `outline-offset` then pushes it
+// further out (outside, offset 0) or pulls it back by half its own width so
+// it straddles the edge (center, offset -width/2). See readStrokeOutlinePosition
+// for how a persisted outline is read back into one of these three options.
 const STROKE_POSITION_OPTIONS = [
   { value: "inside", key: "inside" },
   { value: "outside", key: "outside" },
+  { value: "center", key: "center" },
 ] as const;
 const BLEND_MODE_OPTIONS = [
   { value: "normal", label: "Normal" },
@@ -1772,6 +2307,99 @@ function mergeTranslateFunction(
   return base ? `${fn} ${base}` : fn;
 }
 
+/**
+ * FieldTrailer — composes the motion keyframe diamond and the breakpoint
+ * override indicator/reset for one field, in the Figma-parity order (diamond
+ * first, then the override dot). Renders `null` when neither affordance
+ * applies, so call sites can drop it in unconditionally next to any
+ * keyframeable/overridable field without their own presence checks.
+ *
+ * `motionCssProperty` drives the keyframe diamond (omit to skip it — e.g.
+ * for fields with no motion-catalog equivalent); `overrideProperty` drives
+ * the breakpoint override indicator (defaults to `motionCssProperty` when
+ * omitted, since most fields use the same identifier for both — pass it
+ * explicitly when a field's CSS property differs from its motion-catalog
+ * name, e.g. corner radius's independent-corner longhands).
+ */
+function FieldTrailer({
+  element,
+  motionCssProperty,
+  overrideProperty,
+  motionKeyframeContext,
+  breakpointOverrideContext,
+  hoverRevealClassName,
+  className,
+}: {
+  element: ElementInfo;
+  motionCssProperty?: MotionKeyframeCssProperty;
+  overrideProperty?: string;
+  motionKeyframeContext?: MotionKeyframeFieldContext;
+  breakpointOverrideContext?: BreakpointOverrideFieldContext;
+  /**
+   * Applied ONLY to the keyframe diamond, and only while it's in its muted
+   * outline (not-yet-keyframed) state — e.g. `"opacity-0
+   * group-hover/field:opacity-100"` to hide it until the field is hovered.
+   * A filled (already-keyframed) diamond, and the breakpoint override dot,
+   * always render regardless of this class since both convey real state
+   * rather than a quiet affordance.
+   */
+  hoverRevealClassName?: string;
+  className?: string;
+}) {
+  const showDiamond =
+    motionCssProperty != null && motionKeyframeContext?.hasTimeline === true;
+  const hasKeyframe = showDiamond
+    ? motionPropertyHasKeyframe(
+        motionKeyframeContext?.keyframedProperties,
+        motionCssProperty!,
+      )
+    : false;
+  const resolvedOverrideProperty = overrideProperty ?? motionCssProperty;
+  const overrideState = resolvedOverrideProperty
+    ? resolveBreakpointOverride(
+        breakpointOverrideContext,
+        element.classes.join(" "),
+        resolvedOverrideProperty,
+      )
+    : undefined;
+
+  if (!showDiamond && !overrideState?.overriddenAtActive) return null;
+
+  return (
+    <span
+      className={cn(
+        "group/trailer inline-flex items-center gap-0.5",
+        className,
+      )}
+    >
+      {showDiamond ? (
+        <MotionKeyframeDiamond
+          cssProperty={motionCssProperty!}
+          hasKeyframe={hasKeyframe}
+          onToggle={() => motionKeyframeContext?.onToggle?.(motionCssProperty!)}
+          className={hasKeyframe ? undefined : hoverRevealClassName}
+        />
+      ) : null}
+      {overrideState?.overriddenAtActive && resolvedOverrideProperty ? (
+        <BreakpointOverrideIndicator
+          overridden
+          maxWidthPx={overrideState.activeUpperBoundPx}
+          onReset={
+            breakpointOverrideContext &&
+            overrideState.activeUpperBoundPx != null
+              ? () =>
+                  breakpointOverrideContext.onReset(
+                    resolvedOverrideProperty,
+                    overrideState.activeUpperBoundPx!,
+                  )
+              : undefined
+          }
+        />
+      ) : null}
+    </span>
+  );
+}
+
 function ScrubStyleInput({
   label,
   value,
@@ -1787,6 +2415,7 @@ function ScrubStyleInput({
   tooltipLabel,
   hideIcon = true,
   icon,
+  disabled = false,
 }: {
   label: string;
   value: string;
@@ -1802,6 +2431,7 @@ function ScrubStyleInput({
   ariaLabel?: string;
   tooltipLabel?: string;
   icon?: (props: { className?: string }) => ReactNode;
+  disabled?: boolean;
 }) {
   const mixed = isMixedValue(value);
   return (
@@ -1818,6 +2448,7 @@ function ScrubStyleInput({
       max={max}
       step={step}
       precision={1}
+      disabled={disabled}
       className="gap-0"
       labelClassName={cn(
         "h-6 w-7 justify-center gap-0 rounded-l-md rounded-r-none border border-r-0 border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] !text-[11px] tabular-nums",
@@ -1888,6 +2519,121 @@ function strokeIsVisible(width: string | undefined, style: string | undefined) {
  */
 export function strokeHiddenByColor(color: string | undefined): boolean {
   return Boolean(color) && !colorHasVisibleAlpha(color);
+}
+
+/**
+ * R94 fix — Figma-parity text "Stroke": a real glyph outline, not a box
+ * border. A text stroke is "on" whenever it has a non-zero width AND a
+ * visible (non-zero-alpha) color — mirroring `strokeIsVisible` +
+ * `!strokeHiddenByColor` for border/outline, but as one predicate since
+ * `-webkit-text-stroke` has no separate "style: none" hide switch to check.
+ */
+export function textStrokeIsVisible(
+  width: string | undefined,
+  color: string | undefined,
+): boolean {
+  return cssLengthNumber(width) > 0 && colorHasVisibleAlpha(color);
+}
+
+/**
+ * R94 fix — text stroke color must never fall back to the (possibly
+ * transparent, possibly removed) fill color. Figma keeps a text node's
+ * stroke and fill fully independent: hiding the fill must not turn a
+ * configured stroke black or transparent. Falls back to opaque black only
+ * when no stroke color has ever been set at all (brand-new stroke).
+ */
+export function resolveTextStrokeColor(
+  strokeColor: string | undefined,
+): string {
+  return cssColorOrFallback(strokeColor, "#000000");
+}
+
+/**
+ * R94 fix — reads a text stroke's width/color out of `element.computedStyles`
+ * regardless of which of two shapes that map is in:
+ *
+ *   1. Live DOM selection (editor-chrome.bridge.ts `getElementInfo()`) reports
+ *      the two longhands directly as `webkitTextStrokeWidth` /
+ *      `webkitTextStrokeColor` (CSSOM always expands the shorthand).
+ *   2. A projection-only selection (`elementInfoFromCodeLayerNode` in
+ *      DesignEditor.tsx, used right after a reload/before the live bridge
+ *      reports back) instead carries whatever was literally serialized in
+ *      the inline `style` attribute — which for this property is *always*
+ *      the shorthand `-webkit-text-stroke: <width> <color>` (browsers never
+ *      write the longhands back out individually), aliased to camelCase
+ *      `WebkitTextStroke` by DesignEditor's `cssStyleAliases` but never split
+ *      into the two longhand keys.
+ *
+ * Without this fallback, TextStrokeProperties would only ever see a value
+ * immediately after a same-session live edit and go blank again on any
+ * reload/reselect — the panel would falsely show "no stroke" for a stroke
+ * that is very much present and rendering.
+ */
+export function readTextStrokeStyle(styles: Record<string, string>): {
+  width: string;
+  color: string;
+} {
+  const longhandWidth = styles.webkitTextStrokeWidth;
+  const longhandColor = styles.webkitTextStrokeColor;
+  if (longhandWidth || longhandColor) {
+    return { width: longhandWidth || "0px", color: longhandColor || "" };
+  }
+  const shorthand =
+    styles["-webkit-text-stroke"] ??
+    styles.WebkitTextStroke ??
+    styles.webkitTextStroke;
+  if (!shorthand) return { width: "0px", color: "" };
+  return parseTextStrokeShorthand(shorthand);
+}
+
+/**
+ * Splits a `-webkit-text-stroke` shorthand value ("<width> <color>", either
+ * order per spec, browsers serialize width-then-color) into its two parts.
+ * Cannot naively split on whitespace — `rgb(0, 0, 0)` / `rgba(...)` contain
+ * internal commas but no spaces in the browser-serialized form, so a plain
+ * "first token vs rest" split is safe for computed-style input; this is not
+ * meant to validate arbitrary hand-authored shorthand values.
+ */
+function parseTextStrokeShorthand(shorthand: string): {
+  width: string;
+  color: string;
+} {
+  const trimmed = shorthand.trim();
+  const match = /^(-?[\d.]+(?:px|em|rem|%))\s+(.+)$/.exec(trimmed);
+  if (match) return { width: match[1]!, color: match[2]!.trim() };
+  const reverseMatch = /^(.+?)\s+(-?[\d.]+(?:px|em|rem|%))$/.exec(trimmed);
+  if (reverseMatch)
+    return { width: reverseMatch[2]!, color: reverseMatch[1]!.trim() };
+  return { width: "0px", color: "" };
+}
+
+/**
+ * Reads a persisted `outline`'s position back from its offset: CSS `outline`
+ * always paints just outside the border-box edge, so `outline-offset: 0`
+ * (or unset) is Figma's "outside", and an offset of roughly `-width/2` (the
+ * outline pulled back to straddle the edge) is Figma's "center". Tolerant of
+ * float drift from repeated round-tripping (e.g. width/2 on an odd width).
+ */
+export function readStrokeOutlinePosition(
+  width: string | undefined,
+  offset: string | undefined,
+): "outside" | "center" {
+  const widthPx = cssLengthNumber(width);
+  const offsetPx = cssLengthNumber(offset);
+  const centerOffset = -widthPx / 2;
+  return Math.abs(offsetPx - centerOffset) < 0.5 && offsetPx < 0
+    ? "center"
+    : "outside";
+}
+
+/** The `outline-offset` to persist for a given position + stroke width. */
+export function outlineOffsetForPosition(
+  position: "outside" | "center",
+  width: string | undefined,
+): string {
+  if (position === "outside") return "0px";
+  const widthPx = cssLengthNumber(width);
+  return `${roundToOneDecimal(-widthPx / 2)}px`;
 }
 
 function swatchStyle(value: string | undefined) {
@@ -3372,16 +4118,116 @@ function SectionIconToggle({
   );
 }
 
+/**
+ * Minimal pointer-based reorder for a flat row list (fill layers, shadow
+ * layers). Deliberately not shared with LayersPanel.tsx's tree-drag logic —
+ * that implementation is coupled to nested/multi-select layer nodes, while
+ * this only ever needs "move index A to index B" over a flat array.
+ *
+ * Reads live in a ref (not React state) so a fast pointermove sequence never
+ * reorders against a stale `count`/`onReorder` closure, mirroring why
+ * ScrubInput tracks its draft in a ref alongside state.
+ */
+function useRowDragReorder(
+  count: number,
+  onReorder: (from: number, to: number) => void,
+) {
+  const [dragIndex, setDragIndex] = useState<number | null>(null);
+  const [overIndex, setOverIndex] = useState<number | null>(null);
+  const liveRef = useRef({ count, onReorder });
+  liveRef.current = { count, onReorder };
+
+  const getRowProps = (index: number) => ({
+    onDragOver: (event: DragEvent<HTMLDivElement>) => {
+      if (dragIndex == null) return;
+      event.preventDefault();
+      event.dataTransfer.dropEffect = "move";
+      if (index !== overIndex) setOverIndex(index);
+    },
+    onDrop: (event: DragEvent<HTMLDivElement>) => {
+      event.preventDefault();
+      const from = dragIndex;
+      setDragIndex(null);
+      setOverIndex(null);
+      if (from == null || from === index) return;
+      const { count: liveCount, onReorder: liveOnReorder } = liveRef.current;
+      if (index < 0 || index >= liveCount) return;
+      liveOnReorder(from, index);
+    },
+  });
+
+  const getHandleProps = (index: number) => ({
+    draggable: true,
+    onDragStart: (event: DragEvent<HTMLSpanElement>) => {
+      // Firefox requires setData to be called for the drag to start at all.
+      event.dataTransfer.setData("text/plain", String(index));
+      event.dataTransfer.effectAllowed = "move";
+      setDragIndex(index);
+    },
+    onDragEnd: () => {
+      setDragIndex(null);
+      setOverIndex(null);
+    },
+  });
+
+  return {
+    dragIndex,
+    overIndex,
+    getRowProps,
+    getHandleProps,
+  };
+}
+
+/** Drag handle + before/after drop-indicator line for a reorderable row.
+ * Grip is hover-revealed (Figma convention); the row itself uses always-visible
+ * eye/remove buttons per this file's existing convention, so only the grip
+ * gets the opacity treatment. */
+function RowDragHandle({
+  label,
+  dropIndicator,
+  draggable,
+  onDragStart,
+  onDragEnd,
+}: {
+  label: string;
+  dropIndicator?: "before" | "after" | null;
+  draggable: boolean;
+  onDragStart: (event: DragEvent<HTMLSpanElement>) => void;
+  onDragEnd: () => void;
+}) {
+  return (
+    <span
+      draggable={draggable}
+      onDragStart={onDragStart}
+      onDragEnd={onDragEnd}
+      role="button"
+      aria-label={label}
+      className="relative flex size-6 shrink-0 cursor-grab items-center justify-center rounded-md text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100 active:cursor-grabbing"
+    >
+      <IconGripVertical className="size-3.5" />
+      {dropIndicator === "before" ? (
+        <span className="pointer-events-none absolute -top-[3px] left-0 right-0 h-px bg-[var(--design-editor-accent-color)]" />
+      ) : null}
+      {dropIndicator === "after" ? (
+        <span className="pointer-events-none absolute -bottom-[3px] left-0 right-0 h-px bg-[var(--design-editor-accent-color)]" />
+      ) : null}
+    </span>
+  );
+}
+
 function InspectorIconButton({
   label,
   active,
   onClick,
   children,
+  shortcut,
 }: {
   label: string;
   active?: boolean;
   onClick?: () => void;
   children: ReactNode;
+  /** Optional keyboard-shortcut hint (e.g. "⌥A") appended to the tooltip only — aria-label stays plain text. */
+  shortcut?: string;
 }) {
   return (
     <Tooltip>
@@ -3401,7 +4247,9 @@ function InspectorIconButton({
           {children}
         </Button>
       </TooltipTrigger>
-      <TooltipContent>{label}</TooltipContent>
+      <TooltipContent>
+        {shortcut ? `${label}  ${shortcut}` : label}
+      </TooltipContent>
     </Tooltip>
   );
 }
@@ -3525,9 +4373,20 @@ function TypographyDetailsPopover({
 function CornerRadiusControl({
   styles,
   onStyleChange,
+  element,
+  motionKeyframeContext,
+  breakpointOverrideContext,
 }: {
   styles: Record<string, string>;
   onStyleChange: StyleChangeHandler;
+  /**
+   * Optional — only needed to render the keyframe diamond / breakpoint
+   * override indicator next to the uniform radius field. Omit for callers
+   * that don't wire those features (both affordances stay hidden).
+   */
+  element?: ElementInfo;
+  motionKeyframeContext?: MotionKeyframeFieldContext;
+  breakpointOverrideContext?: BreakpointOverrideFieldContext;
 }) {
   const t = useT();
   const independentCornersLabel = t("editPanel.labels.independentCorners");
@@ -3612,15 +4471,27 @@ function CornerRadiusControl({
 
   return (
     <>
-      <AppearanceScrubField
-        label={t("editPanel.labels.cornerRadius")}
-        icon={IconBorderRadius}
-        value={radius}
-        onChange={commitRadius}
-        mixed={radiusMixed}
-        min={0}
-        precision={0}
-      />
+      <div className="group/field relative min-w-0">
+        <AppearanceScrubField
+          label={t("editPanel.labels.cornerRadius")}
+          icon={IconBorderRadius}
+          value={radius}
+          onChange={commitRadius}
+          mixed={radiusMixed}
+          min={0}
+          precision={0}
+        />
+        {element ? (
+          <FieldTrailer
+            element={element}
+            motionCssProperty="border-radius"
+            motionKeyframeContext={motionKeyframeContext}
+            breakpointOverrideContext={breakpointOverrideContext}
+            className="absolute -top-3.5 right-0"
+            hoverRevealClassName="opacity-0 group-hover/field:opacity-100"
+          />
+        ) : null}
+      </div>
       <Tooltip>
         <TooltipTrigger asChild>
           <Button
@@ -3727,6 +4598,7 @@ function AppearanceScrubField({
   step,
   unit,
   precision,
+  disabled = false,
 }: {
   label: string;
   ariaLabel?: string;
@@ -3739,6 +4611,7 @@ function AppearanceScrubField({
   step?: number;
   unit?: string;
   precision?: number;
+  disabled?: boolean;
 }) {
   return (
     <ScrubInput
@@ -3753,6 +4626,7 @@ function AppearanceScrubField({
       step={step}
       unit={unit}
       precision={precision}
+      disabled={disabled}
       className="min-w-0 gap-0"
       labelClassName="h-6 w-7 justify-center gap-0 rounded-l-md rounded-r-none border border-r-0 border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] text-muted-foreground [&>span]:sr-only"
       inputClassName="h-6 min-w-0 rounded-l-none rounded-r-md border-[var(--design-editor-control-border)] border-l-0 bg-[var(--design-editor-control-bg)] px-0 text-left shadow-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]"
@@ -3860,6 +4734,7 @@ function BlendModeMenu({
 }
 
 type StrokeLayerKind = "border" | "outline";
+type StrokePosition = "inside" | "outside" | "center";
 
 function StrokeLayerControl({
   kind,
@@ -3867,16 +4742,34 @@ function StrokeLayerControl({
   color,
   width,
   styleValue,
+  outlineOffset,
   onStyleChange,
+  onStylesChange,
   onRemove,
+  element,
+  motionKeyframeContext,
+  breakpointOverrideContext,
 }: {
   kind: StrokeLayerKind;
   visible: boolean;
   color: string;
   width: string;
   styleValue: string;
+  /** Only meaningful when `kind === "outline"` — distinguishes outside vs
+   * center (see readStrokeOutlinePosition). Ignored for `kind === "border"`. */
+  outlineOffset?: string;
   onStyleChange: StyleChangeHandler;
+  onStylesChange?: StylesChangeHandler;
   onRemove: () => void;
+  /**
+   * Optional — only needed for the keyframe diamond / breakpoint override
+   * indicator. The motion catalog only tracks `border-color`/`border-width`
+   * (not `outline-color`/`outline-width`), so both affordances only ever
+   * render for `kind === "border"` regardless of whether these are passed.
+   */
+  element?: ElementInfo;
+  motionKeyframeContext?: MotionKeyframeFieldContext;
+  breakpointOverrideContext?: BreakpointOverrideFieldContext;
 }) {
   const t = useT();
   const strokePositionOptions = STROKE_POSITION_OPTIONS.map((option) => ({
@@ -3884,18 +4777,55 @@ function StrokeLayerControl({
     label: t(`editPanel.labels.${option.key}`),
   }));
   const prefix = kind === "border" ? "border" : "outline";
-  const position = kind === "border" ? "inside" : "outside";
+  const position: StrokePosition =
+    kind === "border"
+      ? "inside"
+      : readStrokeOutlinePosition(width, outlineOffset);
 
   const movePosition = (next: string) => {
     if (next === position) return;
-    const nextPrefix = next === "outside" ? "outline" : "border";
-    onStyleChange(`${nextPrefix}Color`, color);
-    onStyleChange(`${nextPrefix}Width`, width || "1px");
-    // Preserve the original border-style so a hidden stroke (style:none, kept
-    // visible as a row because width>0) stays hidden when its position moves
-    // between inside/outside. Only default to solid when there's no style at all.
-    onStyleChange(`${nextPrefix}Style`, styleValue || "solid");
-    onRemove();
+    const nextPosition = next as StrokePosition;
+    if (kind === "outline" && nextPosition !== "inside") {
+      // Outline → outline (outside ⇄ center): no property-family change,
+      // just re-point outline-offset. Single commit, no remove/re-add.
+      onStyleChange(
+        "outlineOffset",
+        outlineOffsetForPosition(nextPosition, width),
+      );
+      return;
+    }
+    const nextPrefix = nextPosition === "inside" ? "border" : "outline";
+    const patch: Record<string, string> = {
+      [`${nextPrefix}Color`]: color,
+      [`${nextPrefix}Width`]: width || "1px",
+      // Preserve the original border-style so a hidden stroke (style:none,
+      // kept visible as a row because width>0) stays hidden when its
+      // position moves. Only default to solid when there's no style at all.
+      [`${nextPrefix}Style`]: styleValue || "solid",
+    };
+    if (nextPrefix === "outline") {
+      patch.outlineOffset = outlineOffsetForPosition(
+        nextPosition === "center" ? "center" : "outside",
+        width || "1px",
+      );
+    }
+    // Clear the property family we're moving away from in the SAME commit
+    // (rather than a separate onRemove() call afterwards) so the position
+    // switch lands as one history step instead of two.
+    if (kind === "border") {
+      patch.borderWidth = "0px";
+      patch.borderStyle = "none";
+    } else {
+      patch.outlineWidth = "0px";
+      patch.outlineStyle = "none";
+    }
+    if (onStylesChange) {
+      onStylesChange(patch);
+    } else {
+      Object.entries(patch).forEach(([property, value]) =>
+        onStyleChange(property, value),
+      );
+    }
   };
 
   return (
@@ -3909,6 +4839,7 @@ function StrokeLayerControl({
             onChange={(value, meta) =>
               onStyleChange(`${prefix}Color`, value, meta)
             }
+            supportedPaintTypes={SOLID_ONLY_PAINT_TYPES}
           />
         </div>
         <SectionIconButton
@@ -3955,6 +4886,15 @@ function StrokeLayerControl({
         >
           <IconMinus className="size-3.5" />
         </SectionIconButton>
+        {kind === "border" && element ? (
+          <FieldTrailer
+            element={element}
+            motionCssProperty="border-color"
+            motionKeyframeContext={motionKeyframeContext}
+            breakpointOverrideContext={breakpointOverrideContext}
+            hoverRevealClassName="opacity-0 group-hover:opacity-100"
+          />
+        ) : null}
       </div>
       {/* design stroke geometry: position + weight side by side */}
       <div className="grid grid-cols-2 gap-1.5">
@@ -3974,25 +4914,50 @@ function StrokeLayerControl({
             ))}
           </SelectContent>
         </Select>
-        <ScrubInput
-          label={t("editPanel.labels.weight")}
-          ariaLabel={t("editPanel.labels.weight")}
-          icon={IconBorderStyle}
-          value={cssLengthNumber(width)}
-          onChange={(value, meta) =>
-            onStyleChange(
-              `${prefix}Width`,
-              `${Math.max(0, roundToOneDecimal(value))}px`,
-              meta,
-            )
-          }
-          unit="px"
-          min={0}
-          precision={1}
-          className="gap-0"
-          labelClassName="h-6 w-6 justify-center gap-0 rounded-l-md rounded-r-none border border-r-0 border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] !text-[11px] [&>span]:hidden"
-          inputClassName="h-6 rounded-l-none rounded-r-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] shadow-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]"
-        />
+        <div className="group/field relative min-w-0">
+          <ScrubInput
+            label={t("editPanel.labels.weight")}
+            ariaLabel={t("editPanel.labels.weight")}
+            icon={IconBorderStyle}
+            value={cssLengthNumber(width)}
+            onChange={(value, meta) => {
+              const nextWidth = `${Math.max(0, roundToOneDecimal(value))}px`;
+              // A centered outline's offset is derived from its own width
+              // (-width/2) — re-derive it in the same commit so the stroke
+              // stays centered as its weight changes, instead of drifting
+              // toward "outside" as a stale offset.
+              if (kind === "outline" && position === "center") {
+                const patch = {
+                  outlineWidth: nextWidth,
+                  outlineOffset: outlineOffsetForPosition("center", nextWidth),
+                };
+                if (onStylesChange) onStylesChange(patch, meta);
+                else
+                  Object.entries(patch).forEach(([p, v]) =>
+                    onStyleChange(p, v, meta),
+                  );
+                return;
+              }
+              onStyleChange(`${prefix}Width`, nextWidth, meta);
+            }}
+            unit="px"
+            min={0}
+            precision={1}
+            className="gap-0"
+            labelClassName="h-6 w-6 justify-center gap-0 rounded-l-md rounded-r-none border border-r-0 border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] !text-[11px] [&>span]:hidden"
+            inputClassName="h-6 rounded-l-none rounded-r-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] shadow-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]"
+          />
+          {kind === "border" && element ? (
+            <FieldTrailer
+              element={element}
+              motionCssProperty="border-width"
+              motionKeyframeContext={motionKeyframeContext}
+              breakpointOverrideContext={breakpointOverrideContext}
+              className="absolute -top-3.5 right-0"
+              hoverRevealClassName="opacity-0 group-hover/field:opacity-100"
+            />
+          ) : null}
+        </div>
       </div>
     </div>
   );
@@ -4124,19 +5089,45 @@ function ShadowEffectRow({
   onChange,
   onRemove,
   onToggleVisibility,
+  dragHandleLabel,
+  dropIndicator,
+  rowProps,
+  handleProps,
+  element,
+  motionKeyframeContext,
 }: {
   layer: ShadowLayer;
   index: number;
   onChange: (patch: Partial<ShadowLayer>, meta?: StyleChangeMeta) => void;
   onRemove: () => void;
   onToggleVisibility: () => void;
+  dragHandleLabel: string;
+  dropIndicator?: "before" | "after" | null;
+  rowProps: ReturnType<ReturnType<typeof useRowDragReorder>["getRowProps"]>;
+  handleProps: ReturnType<
+    ReturnType<typeof useRowDragReorder>["getHandleProps"]
+  >;
+  /**
+   * Optional — only needed for the keyframe diamond (drop shadow's motion
+   * track keys the WHOLE `box-shadow` value, so there's one diamond for the
+   * layer, not per x/y/blur field). No breakpoint override indicator here —
+   * multi-layer `box-shadow` composition isn't covered by
+   * `getBreakpointOverrideState`'s per-property model yet.
+   */
+  element?: ElementInfo;
+  motionKeyframeContext?: MotionKeyframeFieldContext;
 }) {
   const t = useT();
   const visible = colorHasVisibleAlpha(layer.color);
   return (
     <Popover>
-      {/* design effect row: [swatch+label+x,y,blur trigger (flex-1)] [eye] [remove] */}
-      <div className="group flex items-center gap-1.5">
+      {/* design effect row: [grip] [swatch+label+x,y,blur trigger (flex-1)] [eye] [remove] */}
+      <div className="group relative flex items-center gap-1.5" {...rowProps}>
+        <RowDragHandle
+          label={dragHandleLabel}
+          dropIndicator={dropIndicator}
+          {...handleProps}
+        />
         <PopoverTrigger asChild>
           <button
             type="button"
@@ -4177,6 +5168,14 @@ function ShadowEffectRow({
         >
           <IconMinus className="size-3.5" />
         </SectionIconButton>
+        {index === 0 && element ? (
+          <FieldTrailer
+            element={element}
+            motionCssProperty="box-shadow"
+            motionKeyframeContext={motionKeyframeContext}
+            hoverRevealClassName="opacity-0 group-hover:opacity-100"
+          />
+        ) : null}
       </div>
       <PopoverContent
         side="left"
@@ -4842,8 +5841,12 @@ function FlexContainerControls({
             onStylesChange,
           );
         }}
-        onChildSizeChange={(axis, px) =>
-          onStyleChange(axis === "horizontal" ? "width" : "height", `${px}px`)
+        onChildSizeChange={(axis, px, meta) =>
+          onStyleChange(
+            axis === "horizontal" ? "width" : "height",
+            `${px}px`,
+            meta,
+          )
         }
         onChildMinMaxChange={(axis, kind, val) =>
           commitElementMinMax(axis, kind, val, onStyleChange)
@@ -4951,16 +5954,21 @@ function LayoutContextProperties({
   element,
   onStyleChange,
   onStylesChange,
+  motionKeyframeContext,
+  breakpointOverrideContext,
 }: {
   element: ElementInfo;
   onStyleChange: StyleChangeHandler;
   onStylesChange?: StylesChangeHandler;
+  motionKeyframeContext?: MotionKeyframeFieldContext;
+  breakpointOverrideContext?: BreakpointOverrideFieldContext;
 }) {
   const t = useT();
   const flexChild = isParentFlex(element);
   const gridChild = isParentGrid(element);
   const availableSizing = availableSizingForElement(element);
   const isContainer = isContainerElement(element);
+  const aspectLock = useAspectRatioLock(element);
 
   const childControls = (
     <>
@@ -4980,57 +5988,175 @@ function LayoutContextProperties({
   // Leaf elements (text, img, svg, etc.) never get auto layout — show the plain
   // design W/H sizing block instead.
   if (!isContainer) {
+    const widthSizing = inferElementSizing(element, "horizontal");
+    const heightSizing = inferElementSizing(element, "vertical");
+    // The aspect lock only makes sense between two fixed numeric dimensions —
+    // hug/fill don't have an independent px value to scale. Match Figma: the
+    // toggle is disabled (not hidden) otherwise, so its state/affordance stays
+    // visible but inert.
+    const canLockAspect = widthSizing === "fixed" && heightSizing === "fixed";
+    const resolvedWidth = cssElementSize(element, "horizontal");
+    const resolvedHeight = cssElementSize(element, "vertical");
+
+    const toggleAspectLock = () => {
+      if (!canLockAspect) return;
+      aspectLock.setLocked(
+        !aspectLock.locked,
+        resolvedHeight > 0 ? resolvedWidth / resolvedHeight : undefined,
+      );
+    };
+
+    // Shared W/H commit path: when locked, derive the other axis from the
+    // captured ratio and commit both in one patch/history step; otherwise
+    // fall back to the existing single-property write. `meta` is the
+    // ScrubInput gesture-coalescing metadata forwarded from SizingField's
+    // onSizeChange (see AutoLayoutMatrix.tsx) — threading it through here,
+    // exactly like the X/Y ScrubStyleInput fields already do, is what lets a
+    // W/H drag-scrub coalesce into one undo step instead of one per tick.
+    // When locked, the same single `meta` describes the *one* combined
+    // gesture driving both axes, so it's forwarded unchanged to whichever
+    // commit call carries the patch (StylesChangeHandler/StyleChangeHandler
+    // both accept an optional meta already).
+    const commitWidth = (px: number, meta?: ScrubInputChangeMeta) => {
+      if (aspectLock.locked && canLockAspect && aspectLock.ratio) {
+        const nextHeight = deriveLockedAspectSize(
+          "width",
+          px,
+          aspectLock.ratio,
+        );
+        const patch = { width: `${px}px`, height: `${nextHeight}px` };
+        if (onStylesChange) onStylesChange(patch, meta);
+        else {
+          onStyleChange("width", patch.width, meta);
+          onStyleChange("height", patch.height, meta);
+        }
+        return;
+      }
+      onStyleChange("width", `${px}px`, meta);
+    };
+    const commitHeight = (px: number, meta?: ScrubInputChangeMeta) => {
+      if (aspectLock.locked && canLockAspect && aspectLock.ratio) {
+        const nextWidth = deriveLockedAspectSize(
+          "height",
+          px,
+          aspectLock.ratio,
+        );
+        const patch = { width: `${nextWidth}px`, height: `${px}px` };
+        if (onStylesChange) onStylesChange(patch, meta);
+        else {
+          onStyleChange("width", patch.width, meta);
+          onStyleChange("height", patch.height, meta);
+        }
+        return;
+      }
+      onStyleChange("height", `${px}px`, meta);
+    };
+
     return (
       <PanelSection title={t("editPanel.sections.layout")}>
-        {/* design-editor single-row-per-axis: [W | value | Fixed/Hug/Fill ▾] with
-            the full sizing menu (modes + min/max + variable) per axis. */}
-        <div className="grid grid-cols-2 items-start gap-1.5">
-          <SizingField
-            axis="W"
-            sizingAxis="horizontal"
-            value={inferElementSizing(element, "horizontal")}
-            resolvedSize={cssElementSize(element, "horizontal")}
-            mixed={isMixedValue(element.computedStyles.width)}
-            minMax={readElementMinMax(element, "horizontal")}
-            options={availableSizing.horizontal ?? ["fixed"]}
-            disabled={false}
-            onChange={(mode) =>
-              commitElementSizing(
-                element,
-                "horizontal",
-                mode,
-                onStyleChange,
-                onStylesChange,
-              )
-            }
-            onSizeChange={(px) => onStyleChange("width", `${px}px`)}
-            onMinMaxChange={(axis, kind, val) =>
-              commitElementMinMax(axis, kind, val, onStyleChange)
-            }
-          />
-          <SizingField
-            axis="H"
-            sizingAxis="vertical"
-            value={inferElementSizing(element, "vertical")}
-            resolvedSize={cssElementSize(element, "vertical")}
-            mixed={isMixedValue(element.computedStyles.height)}
-            minMax={readElementMinMax(element, "vertical")}
-            options={availableSizing.vertical ?? ["fixed"]}
-            disabled={false}
-            onChange={(mode) =>
-              commitElementSizing(
-                element,
-                "vertical",
-                mode,
-                onStyleChange,
-                onStylesChange,
-              )
-            }
-            onSizeChange={(px) => onStyleChange("height", `${px}px`)}
-            onMinMaxChange={(axis, kind, val) =>
-              commitElementMinMax(axis, kind, val, onStyleChange)
-            }
-          />
+        {/* design-editor single-row-per-axis: [W | value | Fixed/Hug/Fill ▾]
+            with the full sizing menu (modes + min/max + variable) per axis,
+            plus a chain-link aspect-ratio lock at the FAR RIGHT of the row
+            (Figma parity — the constrain-proportions link sits after both W
+            and H, not between them). */}
+        <div className="grid grid-cols-[1fr_1fr_auto] items-start gap-1.5">
+          <div className="group/field relative min-w-0">
+            <SizingField
+              axis="W"
+              sizingAxis="horizontal"
+              value={widthSizing}
+              resolvedSize={resolvedWidth}
+              mixed={isMixedValue(element.computedStyles.width)}
+              minMax={readElementMinMax(element, "horizontal")}
+              options={availableSizing.horizontal ?? ["fixed"]}
+              disabled={false}
+              onChange={(mode) =>
+                commitElementSizing(
+                  element,
+                  "horizontal",
+                  mode,
+                  onStyleChange,
+                  onStylesChange,
+                )
+              }
+              onSizeChange={commitWidth}
+              onMinMaxChange={(axis, kind, val) =>
+                commitElementMinMax(axis, kind, val, onStyleChange)
+              }
+            />
+            <FieldTrailer
+              element={element}
+              overrideProperty="width"
+              motionKeyframeContext={motionKeyframeContext}
+              breakpointOverrideContext={breakpointOverrideContext}
+              className="absolute -top-3.5 right-0"
+            />
+          </div>
+          <div className="group/field relative min-w-0">
+            <SizingField
+              axis="H"
+              sizingAxis="vertical"
+              value={heightSizing}
+              resolvedSize={resolvedHeight}
+              mixed={isMixedValue(element.computedStyles.height)}
+              minMax={readElementMinMax(element, "vertical")}
+              options={availableSizing.vertical ?? ["fixed"]}
+              disabled={false}
+              onChange={(mode) =>
+                commitElementSizing(
+                  element,
+                  "vertical",
+                  mode,
+                  onStyleChange,
+                  onStylesChange,
+                )
+              }
+              onSizeChange={commitHeight}
+              onMinMaxChange={(axis, kind, val) =>
+                commitElementMinMax(axis, kind, val, onStyleChange)
+              }
+            />
+            <FieldTrailer
+              element={element}
+              overrideProperty="height"
+              motionKeyframeContext={motionKeyframeContext}
+              breakpointOverrideContext={breakpointOverrideContext}
+              className="absolute -top-3.5 right-0"
+            />
+          </div>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                aria-label={
+                  aspectLock.locked
+                    ? t("editPanel.labels.unlockAspectRatio")
+                    : t("editPanel.labels.lockAspectRatio")
+                }
+                aria-pressed={aspectLock.locked}
+                disabled={!canLockAspect}
+                onClick={toggleAspectLock}
+                className={cn(
+                  "mt-0.5 flex size-6 shrink-0 items-center justify-center self-start rounded-md text-muted-foreground transition-colors",
+                  "hover:bg-[var(--design-editor-control-bg)] hover:text-foreground",
+                  aspectLock.locked &&
+                    "text-[var(--design-editor-accent-color)] hover:text-[var(--design-editor-accent-color)]",
+                  !canLockAspect && "pointer-events-none opacity-40",
+                )}
+              >
+                {aspectLock.locked ? (
+                  <IconLink className="size-3.5" />
+                ) : (
+                  <IconLinkOff className="size-3.5" />
+                )}
+              </button>
+            </TooltipTrigger>
+            <TooltipContent>
+              {aspectLock.locked
+                ? t("editPanel.labels.unlockAspectRatio")
+                : t("editPanel.labels.lockAspectRatio")}
+            </TooltipContent>
+          </Tooltip>
         </div>
         {childControls}
       </PanelSection>
@@ -5193,46 +6319,87 @@ export function authoredStyleValue(
   return element.computedStyles[property];
 }
 
+/**
+ * While a non-default interaction state is active, style-section fields
+ * display the STATE's value for a property when it has one, else fall back
+ * to the base (Default-state) value — never blank. This is the "overridden
+ * shows the override, else shows the inherited base" convention (documented
+ * choice: values are shown in their normal weight/color either way, since
+ * the state-selector's own accent already signals "you are editing Hover" —
+ * repeating that with dimmed/greyed-out base values on every single field
+ * would be visual noise; the per-property override DOT, rendered via
+ * `InteractionStateOverrideIndicator`, is what marks which specific fields
+ * differ from the base in the active state).
+ *
+ * @param stateStyles  `activeInteractionStateStyles` — the active state's
+ *   declared properties for the selected element, or `undefined` when no
+ *   state is active / nothing is overridden.
+ * @param property  CSS property, camelCase or kebab-case (normalized the
+ *   same way `shared/interaction-states.ts` normalizes keys, so callers can
+ *   pass either).
+ * @param baseValue  The value that would render with no state active
+ *   (typically `authoredStyleValue(element, property)` or a computed style).
+ */
+export function resolveInteractionStateValue(
+  stateStyles: Record<string, string> | undefined,
+  property: string,
+  baseValue: string | undefined,
+): string | undefined {
+  if (!stateStyles) return baseValue;
+  const kebabProperty = property.replace(
+    /[A-Z]/g,
+    (letter) => `-${letter.toLowerCase()}`,
+  );
+  const override = stateStyles[property] ?? stateStyles[kebabProperty];
+  return override !== undefined ? override : baseValue;
+}
+
 /** Position, size, and spacing properties */
 function PositionLayoutProperties({
   element,
   onStyleChange,
+  onAlignSelection,
+  motionKeyframeContext,
+  breakpointOverrideContext,
 }: {
   element: ElementInfo;
   onStyleChange: StyleChangeHandler;
+  /**
+   * Moves the selection itself (Figma's real "Alignment" row semantics):
+   * aligns to the combined selection bounding box for a 2+ multi-selection,
+   * or to the parent for a single selected object. When provided, the
+   * alignment row's six buttons call this instead of writing flex-alignment
+   * properties on the selected element. See the `onAlignSelection` contract
+   * note above `PositionLayoutProperties` usage in this file for the exact
+   * edge semantics the caller (DesignEditor) must implement.
+   */
+  onAlignSelection?: (
+    edge: "left" | "center-h" | "right" | "top" | "center-v" | "bottom",
+  ) => void;
+  motionKeyframeContext?: MotionKeyframeFieldContext;
+  breakpointOverrideContext?: BreakpointOverrideFieldContext;
 }) {
   const t = useT();
   const styles = element.computedStyles;
   const constrainedPosition =
     styles.position === "absolute" || styles.position === "fixed";
-  // Reflect the active packing in the alignment segments (the design editor
-  // highlights the current alignment) — these buttons align the selected
-  // element's own children, the same operation FlexContainerControls' full
-  // AutoLayoutMatrix alignment grid performs. A column-direction flex
-  // container swaps which CSS axis is "horizontal"/"vertical" from the
-  // user's point of view: justifyContent packs the main (here: vertical)
-  // axis and alignItems packs the cross (horizontal) axis, so reading/
-  // writing must go through autoLayoutAlignmentFromStyles /
-  // horizontalToJustify / verticalToAlign like the matrix control does,
-  // instead of assuming justifyContent is always horizontal.
-  const positionFlexDirection: AutoLayoutMatrixValue["direction"] =
-    styles.flexDirection?.includes("column") ? "vertical" : "horizontal";
-  const positionAlignment = autoLayoutAlignmentFromStyles(
-    styles,
-    positionFlexDirection,
-  );
-  const alignH = positionAlignment.horizontal;
-  const alignV = positionAlignment.vertical;
+  // NOTE: this row used to also write flex alignment (justifyContent/
+  // alignItems) on the selected element when it was a flex container —
+  // i.e. it aligned the element's own children. That duplicated exactly
+  // what FlexContainerControls' AutoLayoutMatrix already offers via its
+  // CompactAlignmentMatrix (onAlignmentChange, wired a few hundred lines
+  // up in this file) and was never real Figma behavior: Figma's Alignment
+  // row in the Position section always moves the selected object(s), not
+  // their children. That fallback has been removed — flex child alignment
+  // now lives exclusively in the auto-layout section's alignment matrix.
   const handlePositionAlignH = (value: AlignmentMatrixValue["horizontal"]) => {
-    onStyleChange(
-      positionFlexDirection === "vertical" ? "alignItems" : "justifyContent",
-      horizontalToJustify(value),
+    onAlignSelection?.(
+      value === "left" ? "left" : value === "right" ? "right" : "center-h",
     );
   };
   const handlePositionAlignV = (value: AlignmentMatrixValue["vertical"]) => {
-    onStyleChange(
-      positionFlexDirection === "vertical" ? "justifyContent" : "alignItems",
-      verticalToAlign(value),
+    onAlignSelection?.(
+      value === "top" ? "top" : value === "bottom" ? "bottom" : "center-v",
     );
   };
   // Authored (not computed) offsets: when inlineStyles is present, "auto"/absent
@@ -5270,6 +6437,19 @@ function PositionLayoutProperties({
               : "top",
   };
   const [constraintsExpanded, setConstraintsExpanded] = useState(false);
+  // 3D rotation/perspective progressive-disclosure expander — mirrors
+  // CornerRadiusControl's showIndependentCorners pattern. Default-expanded
+  // when the authored transform already has non-zero X/Y rotation or
+  // perspective, so an element edited elsewhere (e.g. by the agent) doesn't
+  // hide its active 3D state behind a collapsed control.
+  const initialTransform3DParts = parseTransform3DParts(
+    isMixedValue(authoredTransform) ? undefined : authoredTransform,
+  );
+  const [rotation3DExpanded, setRotation3DExpanded] = useState(
+    () =>
+      initialTransform3DParts !== null &&
+      isTransform3DActive(initialTransform3DParts),
+  );
 
   const handleConstraintsChange = useCallback(
     (value: ConstraintsValue) => {
@@ -5382,21 +6562,21 @@ function PositionLayoutProperties({
           <InspectorSegment>
             <InspectorIconButton
               label={t("editPanel.textAligns.left")}
-              active={alignH === "left"}
+              shortcut="⌥A"
               onClick={() => handlePositionAlignH("left")}
             >
               <IconLayoutAlignLeft className="size-3.5" />
             </InspectorIconButton>
             <InspectorIconButton
               label={t("editPanel.textAligns.center")}
-              active={alignH === "center"}
+              shortcut="⌥H"
               onClick={() => handlePositionAlignH("center")}
             >
               <IconLayoutAlignCenter className="size-3.5" />
             </InspectorIconButton>
             <InspectorIconButton
               label={t("editPanel.textAligns.right")}
-              active={alignH === "right"}
+              shortcut="⌥D"
               onClick={() => handlePositionAlignH("right")}
             >
               <IconLayoutAlignRight className="size-3.5" />
@@ -5405,21 +6585,21 @@ function PositionLayoutProperties({
           <InspectorSegment>
             <InspectorIconButton
               label={t("editPanel.alignSelfOptions.start")}
-              active={alignV === "top"}
+              shortcut="⌥W"
               onClick={() => handlePositionAlignV("top")}
             >
               <IconLayoutAlignTop className="size-3.5" />
             </InspectorIconButton>
             <InspectorIconButton
               label={t("editPanel.alignSelfOptions.center")}
-              active={alignV === "middle"}
+              shortcut="⌥V"
               onClick={() => handlePositionAlignV("middle")}
             >
               <IconLayoutAlignMiddle className="size-3.5" />
             </InspectorIconButton>
             <InspectorIconButton
               label={t("editPanel.alignSelfOptions.end")}
-              active={alignV === "bottom"}
+              shortcut="⌥S"
               onClick={() => handlePositionAlignV("bottom")}
             >
               <IconLayoutAlignBottom className="size-3.5" />
@@ -5431,37 +6611,61 @@ function PositionLayoutProperties({
       <div className="space-y-1.5">
         <SubsectionLabel>{t("editPanel.labels.position")}</SubsectionLabel>
         <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_1.75rem] gap-2">
-          <ScrubStyleInput
-            label="X"
-            ariaLabel="X-position"
-            tooltipLabel="X-position"
-            value={
-              isMixedValue(authoredLeft) ? MIXED_VALUE : authoredLeft || ""
-            }
-            placeholder={element.boundingRect.x}
-            inputClassName="h-6"
-            onChange={(v, meta) => {
-              // Typing X/Y on a static (non-positioned) element is a no-op on
-              // canvas unless we first give it a position to offset from —
-              // mirror handleConstraintsChange, which always sets
-              // position:absolute (the convention canvas drag/resize and
-              // primitive creation both use) before writing left/top.
-              if (!constrainedPosition) onStyleChange("position", "absolute");
-              onStyleChange("left", `${Math.round(v)}px`, meta);
-            }}
-          />
-          <ScrubStyleInput
-            label="Y"
-            ariaLabel="Y-position"
-            tooltipLabel="Y-position"
-            value={isMixedValue(authoredTop) ? MIXED_VALUE : authoredTop || ""}
-            placeholder={element.boundingRect.y}
-            inputClassName="h-6"
-            onChange={(v, meta) => {
-              if (!constrainedPosition) onStyleChange("position", "absolute");
-              onStyleChange("top", `${Math.round(v)}px`, meta);
-            }}
-          />
+          <div className="group/field relative min-w-0">
+            <ScrubStyleInput
+              label="X"
+              ariaLabel="X-position"
+              tooltipLabel="X-position"
+              value={
+                isMixedValue(authoredLeft) ? MIXED_VALUE : authoredLeft || ""
+              }
+              placeholder={element.boundingRect.x}
+              inputClassName="h-6"
+              onChange={(v, meta) => {
+                // Typing X/Y on a static (non-positioned) element is a no-op on
+                // canvas unless we first give it a position to offset from —
+                // mirror handleConstraintsChange, which always sets
+                // position:absolute (the convention canvas drag/resize and
+                // primitive creation both use) before writing left/top.
+                if (!constrainedPosition) onStyleChange("position", "absolute");
+                onStyleChange("left", `${roundToOneDecimal(v)}px`, meta);
+              }}
+            />
+            <FieldTrailer
+              element={element}
+              motionCssProperty="translate"
+              overrideProperty="left"
+              motionKeyframeContext={motionKeyframeContext}
+              breakpointOverrideContext={breakpointOverrideContext}
+              className="absolute -top-3.5 right-0"
+              hoverRevealClassName="opacity-0 group-hover/field:opacity-100"
+            />
+          </div>
+          <div className="group/field relative min-w-0">
+            <ScrubStyleInput
+              label="Y"
+              ariaLabel="Y-position"
+              tooltipLabel="Y-position"
+              value={
+                isMixedValue(authoredTop) ? MIXED_VALUE : authoredTop || ""
+              }
+              placeholder={element.boundingRect.y}
+              inputClassName="h-6"
+              onChange={(v, meta) => {
+                if (!constrainedPosition) onStyleChange("position", "absolute");
+                onStyleChange("top", `${roundToOneDecimal(v)}px`, meta);
+              }}
+            />
+            <FieldTrailer
+              element={element}
+              motionCssProperty="translate"
+              overrideProperty="top"
+              motionKeyframeContext={motionKeyframeContext}
+              breakpointOverrideContext={breakpointOverrideContext}
+              className="absolute -top-3.5 right-0"
+              hoverRevealClassName="opacity-0 group-hover/field:opacity-100"
+            />
+          </div>
           <Tooltip>
             <TooltipTrigger asChild>
               <button
@@ -5499,7 +6703,7 @@ function PositionLayoutProperties({
 
       <div className="space-y-1.5">
         <SubsectionLabel>{t("editPanel.labels.rotation")}</SubsectionLabel>
-        <div className="flex items-center gap-2">
+        <div className="group flex items-center gap-2">
           <div className="min-w-0 flex-1">
             <ScrubStyleInput
               label="Rotation"
@@ -5524,7 +6728,14 @@ function PositionLayoutProperties({
                   // From a mixed selection the sentinel is not a transform —
                   // treat it as absent so the typed value applies cleanly to
                   // every selected object instead of producing
-                  // "Mixed rotate(…)".
+                  // "Mixed rotate(…)". This field always writes the Z
+                  // rotation — back-compat: existing designs'
+                  // `transform: rotate()` is the Z axis. When the 3D
+                  // expander below is active (non-zero X/Y/perspective),
+                  // mergeRotationValue's plain rotate() slot still round-
+                  // trips correctly since composeTransform3D always emits a
+                  // trailing rotateZ() once 3D is active, which
+                  // ROTATE_FN_PATTERN also matches.
                   mergeRotationValue(
                     isMixedValue(styles.transform)
                       ? undefined
@@ -5536,6 +6747,14 @@ function PositionLayoutProperties({
               }
             />
           </div>
+          <FieldTrailer
+            element={element}
+            motionCssProperty="rotate"
+            overrideProperty="transform"
+            motionKeyframeContext={motionKeyframeContext}
+            breakpointOverrideContext={breakpointOverrideContext}
+            hoverRevealClassName="opacity-0 group-hover:opacity-100"
+          />
           <InspectorSegment>
             <InspectorIconButton
               label={t("editPanel.labels.flipHorizontal")}
@@ -5556,9 +6775,144 @@ function PositionLayoutProperties({
               <IconFlipVertical className="size-4" />
             </InspectorIconButton>
           </InspectorSegment>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                aria-label={t("editPanel.labels.rotation3d")}
+                aria-pressed={rotation3DExpanded}
+                onClick={() => setRotation3DExpanded((expanded) => !expanded)}
+                className={cn(
+                  "flex size-7 shrink-0 items-center justify-center rounded-md transition-colors",
+                  "hover:bg-[var(--design-editor-control-bg)] hover:text-foreground",
+                  "focus:outline-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]",
+                  rotation3DExpanded
+                    ? "bg-[var(--design-editor-selection-color)] text-[var(--design-editor-accent-color)] hover:text-[var(--design-editor-accent-color)]"
+                    : "text-muted-foreground",
+                )}
+              >
+                <IconRotate3d className="size-3.5" />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent>{t("editPanel.labels.rotation3d")}</TooltipContent>
+          </Tooltip>
         </div>
+        {rotation3DExpanded ? (
+          <Rotation3DControls styles={styles} onStyleChange={onStyleChange} />
+        ) : null}
       </div>
     </PanelSection>
+  );
+}
+
+/**
+ * Progressive-disclosure X/Y/Z rotation + perspective controls, revealed by
+ * the 3D-rotation expander next to the plain (Z-axis) rotation field. See
+ * `composeTransform3D`/`parseTransform3DParts` (shared/canvas-math.ts) for
+ * the parse/compose contract this wraps.
+ *
+ * - Transform composition order: `perspective(Npx) rotateX(Xdeg)
+ *   rotateY(Ydeg) rotateZ(Zdeg) <preserved translate/scale/etc>` — see the
+ *   `composeTransform3D` doc comment for the full rationale (X→Y→Z is a
+ *   common 3D-engine Euler convention; Figma hasn't published a composition
+ *   order since 3D transforms are unshipped there as of this build).
+ * - When X, Y, and Perspective are all zero/empty, the composed transform is
+ *   the plain 2D `rotate(Zdeg)` form — zero output churn for existing
+ *   designs that never touch this expander.
+ * - `transform-style: preserve-3d` is intentionally NOT applied here:
+ *   defaulting to flattened (no preserve-3d) matches the conservative,
+ *   minimal-footprint choice for this first pass — see the build report for
+ *   the preserve-3d-on-children tradeoff.
+ */
+function Rotation3DControls({
+  styles,
+  onStyleChange,
+}: {
+  styles: Record<string, string>;
+  onStyleChange: StyleChangeHandler;
+}) {
+  const t = useT();
+  const transformMixed = isMixedValue(styles.transform);
+  const parts = transformMixed ? null : parseTransform3DParts(styles.transform);
+  // `parts === null` (and not mixed) means the authored transform is a
+  // matrix()/matrix3d()/rotate3d() composite (or an unrecognized token) that
+  // parseTransform3DParts can't safely invert into independent X/Y/Z/
+  // perspective fields — show the fields disabled with a note instead of
+  // guessing, matching how Mixed values disable commit rather than silently
+  // defaulting to 0. See parseTransform3DParts's doc comment.
+  const isCustomTransform = !transformMixed && parts === null;
+  const disabled = transformMixed || isCustomTransform;
+  const displayParts: Transform3DParts = parts ?? {
+    rotateX: 0,
+    rotateY: 0,
+    rotateZ: 0,
+    perspective: 0,
+  };
+
+  const commitPart = (
+    patch: Partial<Transform3DParts>,
+    meta?: ScrubInputChangeMeta,
+  ) => {
+    if (disabled) return;
+    const nextParts: Transform3DParts = { ...displayParts, ...patch };
+    onStyleChange(
+      "transform",
+      composeTransform3D(styles.transform, nextParts),
+      meta,
+    );
+  };
+
+  return (
+    <div className="space-y-1.5 pt-1">
+      {isCustomTransform ? (
+        <p className="!text-[11px] text-muted-foreground">
+          {t("editPanel.labels.customTransform")}
+        </p>
+      ) : null}
+      <div className="grid grid-cols-2 gap-1.5">
+        <AppearanceScrubField
+          label={t("editPanel.labels.rotationX")}
+          icon={IconAxisX}
+          value={transformMixed ? 0 : displayParts.rotateX}
+          onChange={(value, meta) => commitPart({ rotateX: value }, meta)}
+          mixed={transformMixed}
+          disabled={isCustomTransform}
+          step={1}
+          unit="deg"
+          precision={1}
+        />
+        <AppearanceScrubField
+          label={t("editPanel.labels.rotationY")}
+          icon={IconAxisY}
+          value={transformMixed ? 0 : displayParts.rotateY}
+          onChange={(value, meta) => commitPart({ rotateY: value }, meta)}
+          mixed={transformMixed}
+          disabled={isCustomTransform}
+          step={1}
+          unit="deg"
+          precision={1}
+        />
+        <ScrubInput
+          label={t("editPanel.labels.perspective")}
+          ariaLabel={t("editPanel.labels.perspective")}
+          tooltipLabel={t("editPanel.labels.perspectiveHint")}
+          icon={IconPerspective}
+          value={transformMixed ? 0 : displayParts.perspective}
+          onChange={(value, meta) =>
+            commitPart({ perspective: Math.max(0, value) }, meta)
+          }
+          mixed={transformMixed}
+          disabled={isCustomTransform}
+          min={0}
+          step={10}
+          unit="px"
+          precision={0}
+          className="col-span-2 gap-0"
+          labelClassName="h-6 w-7 justify-center gap-0 rounded-l-md rounded-r-none border border-r-0 border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] [&>span]:sr-only"
+          inputClassName="h-6 rounded-l-none rounded-r-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] shadow-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]"
+        />
+      </div>
+    </div>
   );
 }
 
@@ -5566,10 +6920,27 @@ function FillProperties({
   element,
   onStyleChange,
   onStylesChange,
+  documentColorPalette = [],
+  glslShaderContext,
+  motionKeyframeContext,
+  breakpointOverrideContext,
 }: {
   element: ElementInfo;
   onStyleChange: StyleChangeHandler;
   onStylesChange?: StylesChangeHandler;
+  /** Document-wide palette (see `extractDocumentColorPalette`), already
+   * capped/ordered by frequency. Merged with the current selection's own
+   * colors below so a real, always-populated "Document colors" row is
+   * available even before any file content has been scanned. */
+  documentColorPalette?: string[];
+  /**
+   * Persistence context for the code-backed Shader paint type (GLSL source
+   * saved into the screen HTML). Threaded into the fill picker so its
+   * Shader tab opens the GlslShaderPanel.
+   */
+  glslShaderContext?: GlslShaderPanelContext;
+  motionKeyframeContext?: MotionKeyframeFieldContext;
+  breakpointOverrideContext?: BreakpointOverrideFieldContext;
 }) {
   const t = useT();
   const styles = element.computedStyles;
@@ -5630,32 +7001,78 @@ function FillProperties({
     }
   };
 
-  // Document colors: unique hex strings from all CSS color properties on the
-  // selected element, collected via the existing selectionColorValues helper.
-  const docColorHexes = selectionColorValues(element)
+  // Reorder fill layers by dragging: permute all four index-aligned parallel
+  // arrays (image/size/repeat/position) together and commit them as one patch
+  // so stacking order changes in a single history step. Prefer onStylesChange
+  // (single call) when available; otherwise fall back to four sequential
+  // onStyleChange calls, matching the commit-path convention used elsewhere
+  // in this component (see commitStylePatch).
+  const reorderFillLayers = (from: number, to: number) => {
+    const reorder = (layers: string[]) => {
+      const next = [...layers];
+      const [moved] = next.splice(from, 1);
+      if (moved === undefined) return layers;
+      next.splice(to, 0, moved);
+      return next;
+    };
+    const patch = {
+      backgroundImage: joinCssLayers(reorder(backgroundLayers)),
+      backgroundSize: joinCssLayers(reorder(backgroundSizeLayers)),
+      backgroundRepeat: joinCssLayers(reorder(backgroundRepeatLayers)),
+      backgroundPosition: joinCssLayers(reorder(backgroundPositionLayers)),
+    };
+    if (onStylesChange) {
+      onStylesChange(patch);
+      return;
+    }
+    Object.entries(patch).forEach(([property, value]) =>
+      onStyleChange(property, value),
+    );
+  };
+  const fillDrag = useRowDragReorder(
+    backgroundLayers.length,
+    reorderFillLayers,
+  );
+
+  // Document colors: the selected element's own colors lead the row (so the
+  // colors most relevant to what's currently selected are immediately
+  // visible), followed by the real document-wide palette collected across
+  // every file in the design (see `extractDocumentColorPalette` /
+  // `documentColorPalette`, computed once in EditPanel and passed down —
+  // this is the actual "every distinct color used in the file" behavior;
+  // previously this row only ever showed the 4 lines below, mislabeled as
+  // document colors).
+  const selectionHexes = selectionColorValues(element)
     .map((c) => {
       const parsed = parseCssColor(c.value);
       return parsed ? rgbaToHex(parsed) : null;
     })
     .filter((h): h is string => Boolean(h));
   // Deduplicate (selectionColorValues already dedupes by raw CSS value, but
-  // hex normalisation may collapse additional entries e.g. rgb vs #hex).
+  // hex normalisation may collapse additional entries e.g. rgb vs #hex; the
+  // document-wide palette is also normalized/deduped on its own, but may
+  // still repeat one of the selection's own colors).
   const seenHex = new Set<string>();
-  const documentColors = docColorHexes.filter((h) => {
-    const key = h.toUpperCase();
-    if (seenHex.has(key)) return false;
-    seenHex.add(key);
-    return true;
-  });
+  const documentColors = [...selectionHexes, ...documentColorPalette].filter(
+    (h) => {
+      const key = h.toUpperCase();
+      if (seenHex.has(key)) return false;
+      seenHex.add(key);
+      return true;
+    },
+  );
 
   return (
     <PanelSection
       title={t("editPanel.sections.fill")}
       actions={
         <>
-          {/* design color-styles affordance (grid icon) to the left of "+". */}
+          {/* design color-styles affordance (grid icon) to the left of "+".
+              Not yet implemented — disabled with a "Coming soon" tooltip
+              rather than a dead, silently-no-op click. */}
           <SectionIconButton
-            label={"Styles" /* i18n-ignore design inspector action */}
+            label={t("editPanel.labels.stylesComingSoon")}
+            disabled
           >
             <IconLayoutGrid className="size-3.5" />
           </SectionIconButton>
@@ -5693,9 +7110,38 @@ function FillProperties({
                 "linear",
                 styles.backgroundColor || "#ffffff",
               );
-              onStyleChange(
-                "backgroundImage",
-                current ? `${nextLayer}, ${current}` : nextLayer,
+              if (!current) {
+                onStyleChange("backgroundImage", nextLayer);
+                return;
+              }
+              // Prepending a layer without also prepending matching entries
+              // to the other three index-aligned parallel arrays
+              // (size/repeat/position) would shift every existing layer's
+              // index by one, silently re-pairing each of them with the
+              // *previous* layer's size/repeat/position (same class of bug
+              // as the removeLayer fix above). Commit a default entry for
+              // the new layer in all four arrays together, in one patch.
+              const patch = {
+                backgroundImage: `${nextLayer}, ${current}`,
+                backgroundSize: joinCssLayers([
+                  "auto",
+                  ...backgroundSizeLayers,
+                ]),
+                backgroundRepeat: joinCssLayers([
+                  "no-repeat",
+                  ...backgroundRepeatLayers,
+                ]),
+                backgroundPosition: joinCssLayers([
+                  "0% 0%",
+                  ...backgroundPositionLayers,
+                ]),
+              };
+              if (onStylesChange) {
+                onStylesChange(patch);
+                return;
+              }
+              Object.entries(patch).forEach(([property, value]) =>
+                onStyleChange(property, value),
               );
             }}
           >
@@ -5773,6 +7219,11 @@ function FillProperties({
                       element.tagName,
                     fillProperty,
                   ].join(":")}
+                  // Code-backed GLSL Shader paint type — text fills can't
+                  // host a shader canvas, so only container fills get it.
+                  glslShaderContext={
+                    isTextFillElement ? undefined : glslShaderContext
+                  }
                 />
               </div>
               <SectionIconButton
@@ -5809,6 +7260,15 @@ function FillProperties({
               >
                 <IconMinus className="size-3.5" />
               </SectionIconButton>
+              {!isTextFillElement ? (
+                <FieldTrailer
+                  element={element}
+                  motionCssProperty="background-color"
+                  motionKeyframeContext={motionKeyframeContext}
+                  breakpointOverrideContext={breakpointOverrideContext}
+                  hoverRevealClassName="opacity-0 group-hover:opacity-100"
+                />
+              ) : null}
             </div>
           ) : null}
           {!isTextFillElement
@@ -5834,22 +7294,32 @@ function FillProperties({
                   nextLayers[index] = nextLayer;
                   onStyleChange("backgroundImage", joinCssLayers(nextLayers));
                 };
+                // Remove one fill layer by index. Mirrors reorderFillLayers:
+                // all four index-aligned parallel arrays (image/size/repeat/
+                // position) must be spliced together and committed as one
+                // patch (see removeFillLayerAtIndex), or the arrays fall out
+                // of alignment for every layer after the removed index (each
+                // remaining layer's size ends up paired with the next
+                // layer's repeat/position). The previous version only
+                // filtered backgroundImage and backgroundSize, silently
+                // leaving backgroundRepeat and backgroundPosition
+                // unfiltered/misaligned.
                 const removeLayer = () => {
-                  onStyleChange(
-                    "backgroundImage",
-                    joinCssLayers(
-                      backgroundLayers.filter(
-                        (_, layerIndex) => layerIndex !== index,
-                      ),
-                    ),
+                  const patch = removeFillLayerAtIndex(
+                    {
+                      backgroundImage: backgroundLayers,
+                      backgroundSize: backgroundSizeLayers,
+                      backgroundRepeat: backgroundRepeatLayers,
+                      backgroundPosition: backgroundPositionLayers,
+                    },
+                    index,
                   );
-                  onStyleChange(
-                    "backgroundSize",
-                    joinCssLayers(
-                      backgroundSizeLayers.filter(
-                        (_, layerIndex) => layerIndex !== index,
-                      ),
-                    ),
+                  if (onStylesChange) {
+                    onStylesChange(patch);
+                    return;
+                  }
+                  Object.entries(patch).forEach(([property, value]) =>
+                    onStyleChange(property, value),
                   );
                 };
                 const setLayerHidden = (nextHidden: boolean) => {
@@ -5865,11 +7335,24 @@ function FillProperties({
                 };
 
                 return (
-                  /* design row: [swatch+label+opacity% trigger (flex-1)] [eye] [remove] */
+                  /* design row: [grip] [swatch+label+opacity% trigger (flex-1)] [eye] [remove] */
                   <div
                     key={`${layer}-${index}`}
-                    className="group flex items-center gap-1.5"
+                    className="group relative flex items-center gap-1.5"
+                    {...fillDrag.getRowProps(index)}
                   >
+                    <RowDragHandle
+                      label={t("editPanel.labels.reorderLayer")}
+                      dropIndicator={
+                        fillDrag.dragIndex != null &&
+                        fillDrag.overIndex === index
+                          ? fillDrag.overIndex > fillDrag.dragIndex
+                            ? "after"
+                            : "before"
+                          : null
+                      }
+                      {...fillDrag.getHandleProps(index)}
+                    />
                     <Popover>
                       <PopoverTrigger asChild>
                         <button
@@ -5973,13 +7456,31 @@ function StrokeProperties({
   element,
   onStyleChange,
   onStylesChange,
+  motionKeyframeContext,
+  breakpointOverrideContext,
 }: {
   element: ElementInfo;
   onStyleChange: StyleChangeHandler;
   onStylesChange?: StylesChangeHandler;
+  motionKeyframeContext?: MotionKeyframeFieldContext;
+  breakpointOverrideContext?: BreakpointOverrideFieldContext;
 }) {
   const t = useT();
   const styles = element.computedStyles;
+  // R94 fix — Figma semantics: a text node's "Stroke" is the glyph outline
+  // (-webkit-text-stroke), never a box border. Route text nodes to their own
+  // control entirely so the border/outline logic below (and its `styles.color`
+  // fallback, which used to leak the removed fill color into the stroke) never
+  // runs for text at all.
+  if (isTextElement(element)) {
+    return (
+      <TextStrokeProperties
+        element={element}
+        onStyleChange={onStyleChange}
+        onStylesChange={onStylesChange}
+      />
+    );
+  }
   // Visible requires: real width, style not "none" (legacy hide path), and
   // color not zero-alpha (current hide path — see strokeHiddenByColor).
   const borderVisible =
@@ -6002,6 +7503,12 @@ function StrokeProperties({
   // hidden stroke rows remain present so the user can re-show them via the eye icon.
   const borderExists = cssLengthNumber(styles.borderWidth) > 0;
   const outlineExists = cssLengthNumber(styles.outlineWidth) > 0;
+  // Same empty-wrapper hazard as EffectsProperties: border and outline are
+  // separate top-level sibling conditionals, so when neither exists (and the
+  // mixed-value hint isn't showing either) JSX would still hand PanelSection
+  // a truthy array of `null`s as `children`, rendering an empty spacer div
+  // under the header instead of staying collapsed like Fill's empty state.
+  const hasStrokeContent = strokeIsMixed || borderExists || outlineExists;
 
   return (
     <PanelSection
@@ -6089,45 +7596,218 @@ function StrokeProperties({
         </SectionIconButton>
       }
     >
-      {strokeIsMixed ? (
+      {hasStrokeContent ? (
+        <>
+          {strokeIsMixed ? (
+            <p className="px-1.5 py-2 !text-[11px] text-muted-foreground">
+              {
+                "Click + to replace mixed content" /* i18n-ignore figma mixed stroke hint */
+              }
+            </p>
+          ) : borderExists ? (
+            <StrokeLayerControl
+              kind="border"
+              visible={borderVisible}
+              color={styles.borderColor || "#000000"}
+              width={styles.borderWidth || "0px"}
+              styleValue={styles.borderStyle || "none"}
+              onStyleChange={onStyleChange}
+              onStylesChange={onStylesChange}
+              onRemove={() => {
+                if (onStylesChange) {
+                  onStylesChange({ borderWidth: "0px", borderStyle: "none" });
+                } else {
+                  onStyleChange("borderWidth", "0px");
+                }
+              }}
+              element={element}
+              motionKeyframeContext={motionKeyframeContext}
+              breakpointOverrideContext={breakpointOverrideContext}
+            />
+          ) : null}
+          {outlineExists ? (
+            <StrokeLayerControl
+              kind="outline"
+              visible={outlineVisible}
+              color={styles.outlineColor || styles.borderColor || "#000000"}
+              width={styles.outlineWidth || "0px"}
+              styleValue={styles.outlineStyle || "solid"}
+              outlineOffset={styles.outlineOffset || "0px"}
+              onStyleChange={onStyleChange}
+              onStylesChange={onStylesChange}
+              onRemove={() => {
+                if (onStylesChange) {
+                  onStylesChange({ outlineWidth: "0px", outlineStyle: "none" });
+                } else {
+                  onStyleChange("outlineWidth", "0px");
+                }
+              }}
+              element={element}
+              motionKeyframeContext={motionKeyframeContext}
+              breakpointOverrideContext={breakpointOverrideContext}
+            />
+          ) : null}
+        </>
+      ) : null}
+    </PanelSection>
+  );
+}
+
+/**
+ * R94 fix — text "Stroke" section: a real glyph outline via
+ * `-webkit-text-stroke-width` / `-webkit-text-stroke-color`, independent of
+ * fill (`color`). Removing the fill (FillProperties zeroing `color`'s alpha)
+ * must never hide the glyphs when a stroke is set, and must never coerce the
+ * stroke to black by reading `styles.color` — both bugs the box-border-based
+ * StrokeProperties path had for text. `-webkit-text-stroke` paints centered
+ * on the glyph edge (CSS has no outside/center/inside position control for
+ * it, unlike border/outline), so there is no position selector here.
+ */
+function TextStrokeProperties({
+  element,
+  onStyleChange,
+  onStylesChange,
+}: {
+  element: ElementInfo;
+  onStyleChange: StyleChangeHandler;
+  onStylesChange?: StylesChangeHandler;
+}) {
+  const t = useT();
+  const styles = element.computedStyles;
+  // R94 fix — read through readTextStrokeStyle rather than the longhand
+  // keys directly: right after a reload/reselect the panel's computedStyles
+  // may only carry the browser-serialized `-webkit-text-stroke` shorthand
+  // (see readTextStrokeStyle's doc comment), not the two longhands a live
+  // DOM selection reports. Reading the longhands directly here would make
+  // the section falsely show "no stroke" for a stroke that is persisted and
+  // rendering.
+  const { width, color } = readTextStrokeStyle(styles);
+  const isMixed = [
+    styles.webkitTextStrokeWidth,
+    styles.webkitTextStrokeColor,
+    styles["-webkit-text-stroke"],
+    styles.WebkitTextStroke,
+  ].some(isMixedValue);
+  const strokeExists = cssLengthNumber(width) > 0;
+  const visible = textStrokeIsVisible(width, color);
+
+  return (
+    <PanelSection
+      title={t("editPanel.sections.stroke")}
+      actions={
+        <SectionIconButton
+          label={t("editPanel.labels.addLayer")}
+          onClick={() => {
+            commitStylePatch(
+              {
+                webkitTextStrokeWidth: "1px",
+                webkitTextStrokeColor: resolveTextStrokeColor(color),
+              },
+              onStyleChange,
+              onStylesChange,
+            );
+          }}
+        >
+          <IconPlus className="size-3.5" />
+        </SectionIconButton>
+      }
+    >
+      {isMixed ? (
         <p className="px-1.5 py-2 !text-[11px] text-muted-foreground">
           {
             "Click + to replace mixed content" /* i18n-ignore figma mixed stroke hint */
           }
         </p>
-      ) : borderExists ? (
-        <StrokeLayerControl
-          kind="border"
-          visible={borderVisible}
-          color={styles.borderColor || "#000000"}
-          width={styles.borderWidth || "0px"}
-          styleValue={styles.borderStyle || "none"}
-          onStyleChange={onStyleChange}
-          onRemove={() => {
-            if (onStylesChange) {
-              onStylesChange({ borderWidth: "0px", borderStyle: "none" });
-            } else {
-              onStyleChange("borderWidth", "0px");
-            }
-          }}
-        />
-      ) : null}
-      {outlineExists ? (
-        <StrokeLayerControl
-          kind="outline"
-          visible={outlineVisible}
-          color={styles.outlineColor || styles.borderColor || "#000000"}
-          width={styles.outlineWidth || "0px"}
-          styleValue={styles.outlineStyle || "solid"}
-          onStyleChange={onStyleChange}
-          onRemove={() => {
-            if (onStylesChange) {
-              onStylesChange({ outlineWidth: "0px", outlineStyle: "none" });
-            } else {
-              onStyleChange("outlineWidth", "0px");
-            }
-          }}
-        />
+      ) : strokeExists ? (
+        <div className="space-y-1.5">
+          <div className="group flex items-center gap-1.5">
+            <div className="min-w-0 flex-1">
+              <ColorInput
+                label=""
+                value={resolveTextStrokeColor(color)}
+                onChange={(value, meta) =>
+                  onStyleChange("-webkit-text-stroke-color", value, meta)
+                }
+                supportedPaintTypes={SOLID_ONLY_PAINT_TYPES}
+              />
+            </div>
+            <SectionIconButton
+              label={
+                visible
+                  ? t("editPanel.labels.hideLayer")
+                  : t("editPanel.labels.showLayer")
+              }
+              onClick={() => {
+                // Same durable, comment-free hide technique as border/outline
+                // and fill: zero the stroke color's alpha (preserving its RGB
+                // channels) instead of zeroing width, so re-showing restores
+                // the exact same color rather than defaulting back to black.
+                const parsed = parseCssColor(color);
+                if (visible) {
+                  onStyleChange(
+                    "-webkit-text-stroke-color",
+                    parsed
+                      ? rgbaToCss(withColorOpacity(parsed, 0))
+                      : "transparent",
+                  );
+                  return;
+                }
+                const restoredColor = parsed
+                  ? rgbaToCss(withColorOpacity(parsed, 100))
+                  : "#000000";
+                commitStylePatch(
+                  {
+                    "-webkit-text-stroke-color": restoredColor,
+                    "-webkit-text-stroke-width":
+                      width === "0px" ? "1px" : width,
+                  },
+                  onStyleChange,
+                  onStylesChange,
+                );
+              }}
+            >
+              {visible ? (
+                <IconEye className="size-3.5" />
+              ) : (
+                <IconEyeOff className="size-3.5" />
+              )}
+            </SectionIconButton>
+            <SectionIconButton
+              label={t("editPanel.labels.removeLayer")}
+              onClick={() => {
+                commitStylePatch(
+                  {
+                    "-webkit-text-stroke-width": "0px",
+                    "-webkit-text-stroke-color": "transparent",
+                  },
+                  onStyleChange,
+                  onStylesChange,
+                );
+              }}
+            >
+              <IconMinus className="size-3.5" />
+            </SectionIconButton>
+          </div>
+          <div className="grid grid-cols-2 gap-1.5">
+            <span aria-hidden="true" />
+            <ScrubInput
+              label={t("editPanel.labels.weight")}
+              ariaLabel={t("editPanel.labels.weight")}
+              icon={IconBorderStyle}
+              value={cssLengthNumber(width)}
+              onChange={(value, meta) => {
+                const nextWidth = `${Math.max(0, roundToOneDecimal(value))}px`;
+                onStyleChange("-webkit-text-stroke-width", nextWidth, meta);
+              }}
+              unit="px"
+              min={0}
+              precision={1}
+              className="gap-0"
+              labelClassName="h-6 w-6 justify-center gap-0 rounded-l-md rounded-r-none border border-r-0 border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] !text-[11px] [&>span]:hidden"
+              inputClassName="h-6 rounded-l-none rounded-r-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] shadow-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]"
+            />
+          </div>
+        </div>
       ) : null}
     </PanelSection>
   );
@@ -6136,9 +7816,13 @@ function StrokeProperties({
 function AppearanceProperties({
   element,
   onStyleChange,
+  motionKeyframeContext,
+  breakpointOverrideContext,
 }: {
   element: ElementInfo;
   onStyleChange: StyleChangeHandler;
+  motionKeyframeContext?: MotionKeyframeFieldContext;
+  breakpointOverrideContext?: BreakpointOverrideFieldContext;
 }) {
   const t = useT();
   const styles = element.computedStyles;
@@ -6180,24 +7864,34 @@ function AppearanceProperties({
           {t("editPanel.labels.cornerRadius")}
         </p>
         <span aria-hidden="true" />
-        <AppearanceScrubField
-          label={t("editPanel.labels.opacity")}
-          icon={IconGridDots}
-          value={
-            isMixedValue(styles.opacity)
-              ? 0
-              : parseNumericValue(styles.opacity || "1") * 100
-          }
-          onChange={(v, meta) =>
-            onStyleChange("opacity", String(v / 100), meta)
-          }
-          mixed={isMixedValue(styles.opacity)}
-          min={0}
-          max={100}
-          step={1}
-          unit="%"
-          precision={1}
-        />
+        <div className="group/field relative min-w-0">
+          <AppearanceScrubField
+            label={t("editPanel.labels.opacity")}
+            icon={IconGridDots}
+            value={
+              isMixedValue(styles.opacity)
+                ? 0
+                : parseNumericValue(styles.opacity || "1") * 100
+            }
+            onChange={(v, meta) =>
+              onStyleChange("opacity", String(v / 100), meta)
+            }
+            mixed={isMixedValue(styles.opacity)}
+            min={0}
+            max={100}
+            step={1}
+            unit="%"
+            precision={1}
+          />
+          <FieldTrailer
+            element={element}
+            motionCssProperty="opacity"
+            motionKeyframeContext={motionKeyframeContext}
+            breakpointOverrideContext={breakpointOverrideContext}
+            className="absolute -top-3.5 right-0"
+            hoverRevealClassName="opacity-0 group-hover/field:opacity-100"
+          />
+        </div>
         {/* Selection-stable key so per-selection UI state (the independent-
             corners toggle, which ratchets open while corners differ) resets on
             selection change instead of leaking to the next element — same
@@ -6206,6 +7900,9 @@ function AppearanceProperties({
           key={elementIdentityKey(element)}
           styles={styles}
           onStyleChange={onStyleChange}
+          element={element}
+          motionKeyframeContext={motionKeyframeContext}
+          breakpointOverrideContext={breakpointOverrideContext}
         />
       </div>
     </PanelSection>
@@ -6216,12 +7913,22 @@ function EffectsProperties({
   element,
   onStyleChange,
   onStylesChange,
+  glslShaderContext,
+  motionKeyframeContext,
 }: {
   element: ElementInfo;
   onStyleChange: StyleChangeHandler;
   onStylesChange?: StylesChangeHandler;
+  /**
+   * Persistence context for the code-backed Shader effect type (GLSL
+   * overlay rendered above the element's content, saved into the screen
+   * HTML). When absent the Shader entry is hidden from the Add-effect menu.
+   */
+  glslShaderContext?: GlslShaderPanelContext;
+  motionKeyframeContext?: MotionKeyframeFieldContext;
 }) {
   const t = useT();
+  const [shaderPickerOpen, setShaderPickerOpen] = useState(false);
   const styles = element.computedStyles;
   const blurValue = readBlurFilter(styles.filter);
   const filterHasBlur = hasBlurFilter(styles.filter);
@@ -6250,6 +7957,30 @@ function EffectsProperties({
     ]);
   const addLayerBlur = () => onStyleChange("filter", "blur(4px)");
   const addBackgroundBlur = () => onStyleChange("backdropFilter", "blur(8px)");
+  const reorderShadowLayers = (from: number, to: number) => {
+    const next = [...shadowLayers];
+    const [moved] = next.splice(from, 1);
+    if (moved === undefined) return;
+    next.splice(to, 0, moved);
+    setShadowLayers(next);
+  };
+  const shadowDrag = useRowDragReorder(
+    shadowLayers.length,
+    reorderShadowLayers,
+  );
+  // Whether there is anything at all to render below the header row. Each
+  // effect kind below is its own top-level sibling conditional (not one
+  // single ternary), so when every one of them is empty, JSX would still
+  // hand PanelSection a real (truthy) array of `null`s as `children` — its
+  // `children &&` guard can't tell that apart from "has content" and renders
+  // an empty spacer div under the header. Gating the whole block behind one
+  // boolean keeps `children` a real `null` in that case, matching how the
+  // other sections (e.g. Fill) stay collapsed-empty.
+  const hasEffectsContent =
+    shadowLayers.length > 0 ||
+    filterHasBlur ||
+    backdropFilterHasBlur ||
+    Boolean(glslShaderContext?.nodeId);
 
   return (
     <PanelSection
@@ -6289,248 +8020,350 @@ function EffectsProperties({
               <IconBackground className="size-3.5" />
               {"Background blur" /* i18n-ignore design effect type */}
             </DropdownMenuItem>
+            {glslShaderContext?.nodeId ? (
+              <DropdownMenuItem
+                className="gap-2 !text-[11px]"
+                onSelect={() => {
+                  // Defer past the dropdown's close so the inline picker's
+                  // focus handling isn't clobbered by menu teardown.
+                  setTimeout(() => setShaderPickerOpen(true), 0);
+                }}
+              >
+                <IconWaveSine className="size-3.5" />
+                {t("editPanel.labels.shaderEffectType")}
+              </DropdownMenuItem>
+            ) : null}
           </DropdownMenuContent>
         </DropdownMenu>
       }
     >
-      {shadowLayers.length ? (
-        <div className="space-y-1.5">
-          {shadowLayers.map((layer, index) => (
-            <ShadowEffectRow
-              key={layer.id}
-              layer={layer}
-              index={index}
-              onChange={(patch, meta) => {
-                const next = shadowLayers.map((candidate) =>
-                  candidate.id === layer.id
-                    ? { ...candidate, ...patch }
-                    : candidate,
-                );
-                setShadowLayers(next, meta);
-              }}
-              onToggleVisibility={() => {
-                const visible = colorHasVisibleAlpha(layer.color);
-                const shadowStashKey = `${effectStashKey}:shadow:${layer.id}`;
-                if (visible) {
-                  setHiddenEffectStash((prev) => ({
-                    ...prev,
-                    [shadowStashKey]: layer.color,
-                  }));
-                  const next = shadowLayers.map((candidate) =>
-                    candidate.id === layer.id
-                      ? {
-                          ...candidate,
-                          color: shadowColorWithOpacity(candidate.color, 0),
-                        }
-                      : candidate,
-                  );
-                  setShadowLayers(next);
-                  return;
-                }
+      {hasEffectsContent ? (
+        <>
+          {shadowLayers.length ? (
+            <div className="space-y-1.5">
+              {shadowLayers.map((layer, index) => (
+                <ShadowEffectRow
+                  key={layer.id}
+                  layer={layer}
+                  index={index}
+                  dragHandleLabel={t("editPanel.labels.reorderLayer")}
+                  dropIndicator={
+                    shadowDrag.dragIndex != null &&
+                    shadowDrag.overIndex === index
+                      ? shadowDrag.overIndex > shadowDrag.dragIndex
+                        ? "after"
+                        : "before"
+                      : null
+                  }
+                  rowProps={shadowDrag.getRowProps(index)}
+                  handleProps={shadowDrag.getHandleProps(index)}
+                  onChange={(patch, meta) => {
+                    const next = shadowLayers.map((candidate) =>
+                      candidate.id === layer.id
+                        ? { ...candidate, ...patch }
+                        : candidate,
+                    );
+                    setShadowLayers(next, meta);
+                  }}
+                  onToggleVisibility={() => {
+                    const visible = colorHasVisibleAlpha(layer.color);
+                    const shadowStashKey = `${effectStashKey}:shadow:${layer.id}`;
+                    if (visible) {
+                      setHiddenEffectStash((prev) => ({
+                        ...prev,
+                        [shadowStashKey]: layer.color,
+                      }));
+                      const next = shadowLayers.map((candidate) =>
+                        candidate.id === layer.id
+                          ? {
+                              ...candidate,
+                              color: shadowColorWithOpacity(candidate.color, 0),
+                            }
+                          : candidate,
+                      );
+                      setShadowLayers(next);
+                      return;
+                    }
 
-                const restored =
-                  hiddenEffectStash[shadowStashKey] ??
-                  shadowColorWithOpacity(layer.color, 25);
-                setHiddenEffectStash((prev) => {
-                  const next = { ...prev };
-                  delete next[shadowStashKey];
-                  return next;
-                });
-                const next = shadowLayers.map((candidate) =>
-                  candidate.id === layer.id
-                    ? { ...candidate, color: restored }
-                    : candidate,
-                );
-                setShadowLayers(next);
-              }}
-              onRemove={() =>
-                setShadowLayers(
-                  shadowLayers.filter((candidate) => candidate.id !== layer.id),
-                )
-              }
-            />
-          ))}
-        </div>
-      ) : null}
-      {filterHasBlur ? (
-        /* design effect row for layer blur: flat row matching shadow rows */
-        <Popover>
-          <div className="group flex items-center gap-1.5">
-            <PopoverTrigger asChild>
-              <button
-                type="button"
-                className="flex h-6 min-w-0 flex-1 items-center gap-1.5 rounded-md border border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-1.5 text-left !text-[11px] hover:bg-[var(--design-editor-panel-raised-bg)]"
+                    const restored =
+                      hiddenEffectStash[shadowStashKey] ??
+                      shadowColorWithOpacity(layer.color, 25);
+                    setHiddenEffectStash((prev) => {
+                      const next = { ...prev };
+                      delete next[shadowStashKey];
+                      return next;
+                    });
+                    const next = shadowLayers.map((candidate) =>
+                      candidate.id === layer.id
+                        ? { ...candidate, color: restored }
+                        : candidate,
+                    );
+                    setShadowLayers(next);
+                  }}
+                  onRemove={() =>
+                    setShadowLayers(
+                      shadowLayers.filter(
+                        (candidate) => candidate.id !== layer.id,
+                      ),
+                    )
+                  }
+                  element={element}
+                  motionKeyframeContext={motionKeyframeContext}
+                />
+              ))}
+            </div>
+          ) : null}
+          {filterHasBlur ? (
+            /* design effect row for layer blur: flat row matching shadow rows */
+            <Popover>
+              <div className="group flex items-center gap-1.5">
+                <PopoverTrigger asChild>
+                  <button
+                    type="button"
+                    className="flex h-6 min-w-0 flex-1 items-center gap-1.5 rounded-md border border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-1.5 text-left !text-[11px] hover:bg-[var(--design-editor-panel-raised-bg)]"
+                  >
+                    <span className="min-w-0 flex-1 truncate font-medium text-foreground">
+                      {t("editPanel.labels.layerBlur")}
+                    </span>
+                    <span className="shrink-0 tabular-nums text-muted-foreground">
+                      {Math.round(blurValue)}px
+                    </span>
+                  </button>
+                </PopoverTrigger>
+                <SectionIconButton
+                  label={
+                    blurValue > 0
+                      ? t("editPanel.labels.hideLayer")
+                      : t("editPanel.labels.showLayer")
+                  }
+                  onClick={() => {
+                    if (blurValue > 0) {
+                      setHiddenEffectStash((prev) => ({
+                        ...prev,
+                        [layerBlurStashKey]: String(blurValue),
+                      }));
+                      onStyleChange(
+                        "filter",
+                        setBlurFilterValue(styles.filter, 0),
+                      );
+                      return;
+                    }
+
+                    const restored = Number(
+                      hiddenEffectStash[layerBlurStashKey],
+                    );
+                    const nextBlur =
+                      Number.isFinite(restored) && restored > 0 ? restored : 4;
+                    setHiddenEffectStash((prev) => {
+                      const next = { ...prev };
+                      delete next[layerBlurStashKey];
+                      return next;
+                    });
+                    onStyleChange(
+                      "filter",
+                      setBlurFilterValue(styles.filter, nextBlur),
+                    );
+                  }}
+                >
+                  {blurValue > 0 ? (
+                    <IconEye className="size-3.5" />
+                  ) : (
+                    <IconEyeOff className="size-3.5" />
+                  )}
+                </SectionIconButton>
+                <SectionIconButton
+                  label={t("editPanel.labels.removeLayer")}
+                  onClick={() => onStyleChange("filter", "none")}
+                  disabled={!filterHasBlur}
+                >
+                  <IconMinus className="size-3.5" />
+                </SectionIconButton>
+              </div>
+              <PopoverContent
+                side="left"
+                align="start"
+                sideOffset={8}
+                className="w-56 p-3"
               >
-                <span className="min-w-0 flex-1 truncate font-medium text-foreground">
-                  {t("editPanel.labels.layerBlur")}
-                </span>
-                <span className="shrink-0 tabular-nums text-muted-foreground">
-                  {Math.round(blurValue)}px
-                </span>
-              </button>
-            </PopoverTrigger>
-            <SectionIconButton
-              label={
-                blurValue > 0
-                  ? t("editPanel.labels.hideLayer")
-                  : t("editPanel.labels.showLayer")
-              }
-              onClick={() => {
-                if (blurValue > 0) {
-                  setHiddenEffectStash((prev) => ({
-                    ...prev,
-                    [layerBlurStashKey]: String(blurValue),
-                  }));
-                  onStyleChange("filter", setBlurFilterValue(styles.filter, 0));
-                  return;
-                }
+                <ScrubInput
+                  label={t("editPanel.labels.blur")}
+                  value={blurValue}
+                  onChange={(value, meta) =>
+                    onStyleChange(
+                      "filter",
+                      setBlurFilterValue(styles.filter, value),
+                      meta,
+                    )
+                  }
+                  unit="px"
+                  min={0}
+                  precision={1}
+                  labelClassName="w-16"
+                  inputClassName="h-6"
+                />
+              </PopoverContent>
+            </Popover>
+          ) : null}
+          {backdropFilterHasBlur ? (
+            /* M5 · Background (backdrop) blur effect row — mirrors the layer-blur row */
+            <Popover>
+              <div className="group flex items-center gap-1.5">
+                <PopoverTrigger asChild>
+                  <button
+                    type="button"
+                    className="flex h-6 min-w-0 flex-1 items-center gap-1.5 rounded-md border border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-1.5 text-left !text-[11px] hover:bg-[var(--design-editor-panel-raised-bg)]"
+                  >
+                    <span className="min-w-0 flex-1 truncate font-medium text-foreground">
+                      {"Background blur" /* i18n-ignore design effect type */}
+                    </span>
+                    <span className="shrink-0 tabular-nums text-muted-foreground">
+                      {Math.round(backdropBlurValue)}px
+                    </span>
+                  </button>
+                </PopoverTrigger>
+                <SectionIconButton
+                  label={
+                    backdropBlurValue > 0
+                      ? t("editPanel.labels.hideLayer")
+                      : t("editPanel.labels.showLayer")
+                  }
+                  onClick={() => {
+                    if (backdropBlurValue > 0) {
+                      setHiddenEffectStash((prev) => ({
+                        ...prev,
+                        [backdropBlurStashKey]: String(backdropBlurValue),
+                      }));
+                      onStyleChange(
+                        "backdropFilter",
+                        setBlurFilterValue(backdropFilterValue, 0),
+                      );
+                      return;
+                    }
 
-                const restored = Number(hiddenEffectStash[layerBlurStashKey]);
-                const nextBlur =
-                  Number.isFinite(restored) && restored > 0 ? restored : 4;
-                setHiddenEffectStash((prev) => {
-                  const next = { ...prev };
-                  delete next[layerBlurStashKey];
-                  return next;
-                });
-                onStyleChange(
-                  "filter",
-                  setBlurFilterValue(styles.filter, nextBlur),
-                );
-              }}
-            >
-              {blurValue > 0 ? (
-                <IconEye className="size-3.5" />
-              ) : (
-                <IconEyeOff className="size-3.5" />
-              )}
-            </SectionIconButton>
-            <SectionIconButton
-              label={t("editPanel.labels.removeLayer")}
-              onClick={() => onStyleChange("filter", "none")}
-              disabled={!filterHasBlur}
-            >
-              <IconMinus className="size-3.5" />
-            </SectionIconButton>
-          </div>
-          <PopoverContent
-            side="left"
-            align="start"
-            sideOffset={8}
-            className="w-56 p-3"
-          >
-            <ScrubInput
-              label={t("editPanel.labels.blur")}
-              value={blurValue}
-              onChange={(value, meta) =>
-                onStyleChange(
-                  "filter",
-                  setBlurFilterValue(styles.filter, value),
-                  meta,
-                )
-              }
-              unit="px"
-              min={0}
-              precision={1}
-              labelClassName="w-16"
-              inputClassName="h-6"
-            />
-          </PopoverContent>
-        </Popover>
-      ) : null}
-      {backdropFilterHasBlur ? (
-        /* M5 · Background (backdrop) blur effect row — mirrors the layer-blur row */
-        <Popover>
-          <div className="group flex items-center gap-1.5">
-            <PopoverTrigger asChild>
-              <button
-                type="button"
-                className="flex h-6 min-w-0 flex-1 items-center gap-1.5 rounded-md border border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-1.5 text-left !text-[11px] hover:bg-[var(--design-editor-panel-raised-bg)]"
+                    const restored = Number(
+                      hiddenEffectStash[backdropBlurStashKey],
+                    );
+                    const nextBlur =
+                      Number.isFinite(restored) && restored > 0 ? restored : 8;
+                    setHiddenEffectStash((prev) => {
+                      const next = { ...prev };
+                      delete next[backdropBlurStashKey];
+                      return next;
+                    });
+                    onStyleChange(
+                      "backdropFilter",
+                      setBlurFilterValue(backdropFilterValue, nextBlur),
+                    );
+                  }}
+                >
+                  {backdropBlurValue > 0 ? (
+                    <IconEye className="size-3.5" />
+                  ) : (
+                    <IconEyeOff className="size-3.5" />
+                  )}
+                </SectionIconButton>
+                <SectionIconButton
+                  label={t("editPanel.labels.removeLayer")}
+                  onClick={() => onStyleChange("backdropFilter", "none")}
+                  disabled={!backdropFilterHasBlur}
+                >
+                  <IconMinus className="size-3.5" />
+                </SectionIconButton>
+              </div>
+              <PopoverContent
+                side="left"
+                align="start"
+                sideOffset={8}
+                className="w-56 p-3"
               >
-                <span className="min-w-0 flex-1 truncate font-medium text-foreground">
-                  {"Background blur" /* i18n-ignore design effect type */}
-                </span>
-                <span className="shrink-0 tabular-nums text-muted-foreground">
-                  {Math.round(backdropBlurValue)}px
-                </span>
-              </button>
-            </PopoverTrigger>
-            <SectionIconButton
-              label={
-                backdropBlurValue > 0
-                  ? t("editPanel.labels.hideLayer")
-                  : t("editPanel.labels.showLayer")
-              }
-              onClick={() => {
-                if (backdropBlurValue > 0) {
-                  setHiddenEffectStash((prev) => ({
-                    ...prev,
-                    [backdropBlurStashKey]: String(backdropBlurValue),
-                  }));
-                  onStyleChange(
-                    "backdropFilter",
-                    setBlurFilterValue(backdropFilterValue, 0),
-                  );
-                  return;
-                }
-
-                const restored = Number(
-                  hiddenEffectStash[backdropBlurStashKey],
-                );
-                const nextBlur =
-                  Number.isFinite(restored) && restored > 0 ? restored : 8;
-                setHiddenEffectStash((prev) => {
-                  const next = { ...prev };
-                  delete next[backdropBlurStashKey];
-                  return next;
-                });
-                onStyleChange(
-                  "backdropFilter",
-                  setBlurFilterValue(backdropFilterValue, nextBlur),
-                );
-              }}
-            >
-              {backdropBlurValue > 0 ? (
-                <IconEye className="size-3.5" />
-              ) : (
-                <IconEyeOff className="size-3.5" />
-              )}
-            </SectionIconButton>
-            <SectionIconButton
-              label={t("editPanel.labels.removeLayer")}
-              onClick={() => onStyleChange("backdropFilter", "none")}
-              disabled={!backdropFilterHasBlur}
-            >
-              <IconMinus className="size-3.5" />
-            </SectionIconButton>
-          </div>
-          <PopoverContent
-            side="left"
-            align="start"
-            sideOffset={8}
-            className="w-56 p-3"
-          >
-            <ScrubInput
-              label={t("editPanel.labels.blur")}
-              value={backdropBlurValue}
-              onChange={(value, meta) =>
-                onStyleChange(
-                  "backdropFilter",
-                  setBlurFilterValue(backdropFilterValue, value),
-                  meta,
-                )
-              }
-              unit="px"
-              min={0}
-              precision={1}
-              labelClassName="w-16"
-              inputClassName="h-6"
+                <ScrubInput
+                  label={t("editPanel.labels.blur")}
+                  value={backdropBlurValue}
+                  onChange={(value, meta) =>
+                    onStyleChange(
+                      "backdropFilter",
+                      setBlurFilterValue(backdropFilterValue, value),
+                      meta,
+                    )
+                  }
+                  unit="px"
+                  min={0}
+                  precision={1}
+                  labelClassName="w-16"
+                  inputClassName="h-6"
+                />
+              </PopoverContent>
+            </Popover>
+          ) : null}
+          {glslShaderContext?.nodeId ? (
+            /* Code-backed GLSL shader effect — overlay canvas above the
+           element's content, persisted as editable GLSL in the screen HTML
+           (see shared/shader-fills.ts). Renders its row (when applied) and
+           the picker (when adding). */
+            <GlslShaderEffectSection
+              context={glslShaderContext}
+              pickerOpen={shaderPickerOpen}
+              onPickerOpenChange={setShaderPickerOpen}
             />
-          </PopoverContent>
-        </Popover>
+          ) : null}
+        </>
       ) : null}
     </PanelSection>
   );
+}
+
+/** One file's worth of content to scan for document-wide colors. */
+export interface DocumentColorSourceFile {
+  id: string;
+  content: string;
+}
+
+// Matches hex (#rgb/#rgba/#rrggbb/#rrggbbaa), legacy comma rgb()/rgba(), and
+// hsl()/hsla() color literals appearing anywhere in raw HTML/CSS text (inline
+// `style="..."` attributes and `<style>` blocks alike — both are plain
+// substrings of `content`, so a single text scan covers both). Modern
+// space-separated `rgb(R G B [/ A])` and DOM-resolved formats (oklch,
+// color(display-p3 ...)) are intentionally out of scope: `parseCssColor` (the
+// non-DOM parser, safe to run in a plain Node/vitest environment) doesn't
+// resolve them, and pulling in the canvas-based `parseCssColorExtended`
+// resolver would make this helper impure/untestable without jsdom.
+const CSS_COLOR_TOKEN_PATTERN =
+  /#(?:[0-9a-f]{3,4}|[0-9a-f]{6}|[0-9a-f]{8})\b|(?:rgb|hsl)a?\([^)]*\)/gi;
+
+/**
+ * Extracts a document-wide color palette from raw file contents: every
+ * distinct color literal (hex/rgb/hsl) found anywhere in the given files'
+ * HTML/CSS text, normalized to uppercase hex, deduped, and ordered by
+ * descending frequency (most-used colors first) so the most relevant swatches
+ * lead the grid. Capped at `limit` entries — real designs can reference many
+ * more distinct color strings than are useful to show as quick-pick swatches.
+ *
+ * Pure and DOM-free so it can run against any file content (server-rendered,
+ * cached, or live) and is unit-testable without jsdom.
+ */
+export function extractDocumentColorPalette(
+  files: DocumentColorSourceFile[],
+  limit = 24,
+): string[] {
+  const countByHex = new Map<string, number>();
+  for (const file of files) {
+    if (!file.content) continue;
+    const matches = file.content.match(CSS_COLOR_TOKEN_PATTERN);
+    if (!matches) continue;
+    for (const token of matches) {
+      const parsed = parseCssColor(token);
+      if (!parsed) continue;
+      // Skip fully transparent tokens — not a meaningful "document color"
+      // swatch (matches selectionColorValues' same filter below).
+      if (parsed.a === 0) continue;
+      const hex = rgbaToHex(parsed).toUpperCase();
+      countByHex.set(hex, (countByHex.get(hex) ?? 0) + 1);
+    }
+  }
+  return Array.from(countByHex.entries())
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, limit)
+    .map(([hex]) => hex);
 }
 
 interface SelectionColorValue {
@@ -7430,13 +9263,14 @@ export const EditPanel = memo(function EditPanel({
   tweakValues = {},
   onTweakChange,
   onRequestTweaks,
-  onStyleChange,
-  onStylesChange,
+  onStyleChange: onStyleChangeProp,
+  onStylesChange: onStylesChangeProp,
   onExport,
   exporting = false,
   fileId,
   activeContent,
   activeFileUpdatedAt,
+  files,
   designId,
   onComponentPropApplied,
   reviewPanelProps,
@@ -7447,6 +9281,15 @@ export const EditPanel = memo(function EditPanel({
   defaultComponentName = "Component",
   inspectCode,
   aiActions,
+  activeTool,
+  onCreateScreenFromPreset,
+  onAlignSelection,
+  onInteractionStateChange,
+  availableInteractionStates,
+  onEditCode,
+  motionKeyframeState,
+  onToggleMotionKeyframe,
+  breakpointContext,
 }: EditPanelProps) {
   const t = useT();
   const [createComponentOpen, setCreateComponentOpen] = useState(false);
@@ -7454,6 +9297,14 @@ export const EditPanel = memo(function EditPanel({
     DEFAULT_EXPORT_SETTINGS,
   );
   const [showExportPreview, setShowExportPreview] = useState(false);
+  // Element interaction-state selector (Default / Hover / Focus / …). Owned
+  // here (not lifted to the parent) per the mission contract — DesignEditor
+  // only needs to react to changes via onInteractionStateChange, it doesn't
+  // need to drive the value. Resets to Default whenever the selection
+  // changes so switching elements never leaves a stale non-default state
+  // silently active (matches the export-settings reset effect below).
+  const [interactionState, setInteractionState] =
+    useState<ActiveInteractionState>(null);
 
   const effectiveSelectedElements = useMemo(
     () =>
@@ -7472,6 +9323,43 @@ export const EditPanel = memo(function EditPanel({
     [effectiveSelectedElements],
   );
   const selectedCount = effectiveSelectedElements.length;
+  // Persistence context for the code-backed GLSL Shader paint/effect type.
+  // Requires the design + active file plus a stable node id on the selection;
+  // reuses the component-prop onComponentPropApplied contract so the host
+  // editor syncs its local/collab content after a persisted shader write.
+  const glslShaderContext: GlslShaderPanelContext | undefined = useMemo(() => {
+    if (!designId || !fileId || selectedCount > 1) return undefined;
+    const nodeId = inspectorElement?.sourceId;
+    if (!nodeId) return undefined;
+    return {
+      designId,
+      fileId,
+      nodeId,
+      selector: inspectorElement?.selector,
+      onApplied: onComponentPropApplied,
+      onEditCode,
+    };
+  }, [
+    designId,
+    fileId,
+    selectedCount,
+    inspectorElement?.sourceId,
+    inspectorElement?.selector,
+    onComponentPropApplied,
+    onEditCode,
+  ]);
+  // Document-wide color palette (real "Document colors", not just the
+  // selected element's own color props) — recomputed only when the set of
+  // file contents actually changes, since scanning every file's HTML/CSS
+  // text is nontrivially more work than the old per-element prop read.
+  const filesContentKey = files
+    ? files.map((file) => `${file.id}:${file.content.length}`).join("|")
+    : "";
+  const documentColorPalette = useMemo(
+    () => (files && files.length > 0 ? extractDocumentColorPalette(files) : []),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- keyed on filesContentKey (cheap length+id fingerprint) instead of `files` itself so an unstable-but-equal array identity from the parent doesn't force a full re-scan every render.
+    [filesContentKey],
+  );
   const selectionAlreadyComponent =
     selectedCount === 1 &&
     (selectedElementAlreadyComponent ||
@@ -7517,6 +9405,148 @@ export const EditPanel = memo(function EditPanel({
     if (!canCreateComponent) setCreateComponentOpen(false);
   }, [canCreateComponent]);
 
+  // Reset the interaction-state selector back to Default whenever the
+  // selection changes, so switching elements never leaves a stale
+  // non-default state silently active (and never leaves the PREVIOUS
+  // element's forced canvas preview attribute stuck on — the effect also
+  // notifies the parent so it can clear that attribute). Runs for every
+  // selection change, including going from "an element" to "no element" or
+  // "multi-selection", both of which the state selector doesn't support.
+  useEffect(() => {
+    setInteractionState(null);
+    onInteractionStateChange?.(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentionally omits onInteractionStateChange: this only needs to fire when the SELECTION changes, not when the parent passes a new callback identity.
+  }, [selectedElementKey]);
+
+  const handleInteractionStateChange = useCallback(
+    (next: ActiveInteractionState) => {
+      setInteractionState(next);
+      onInteractionStateChange?.(next);
+    },
+    [onInteractionStateChange],
+  );
+
+  // States that already have at least one authored override for the
+  // selected element, for the selector's per-row accent dot. Pure/cheap:
+  // `listInteractionStates` just scans the managed
+  // `<style data-agent-native-states>` block in the active file's HTML for
+  // this one node id. Only meaningful for a single-element, source-backed
+  // selection — undefined (no dot ever shown) otherwise.
+  const interactionStatesWithOverrides = useMemo(():
+    | ReadonlySet<InteractionState>
+    | undefined => {
+    if (!activeContent || selectedCount > 1) return undefined;
+    const nodeId = inspectorElement?.sourceId;
+    if (!nodeId) return undefined;
+    const states = listInteractionStates(activeContent, nodeId);
+    return states.length > 0 ? new Set(states) : undefined;
+  }, [activeContent, selectedCount, inspectorElement?.sourceId]);
+
+  // The active state's declared property/value overrides for the selected
+  // element, used below to resolve each style-section field's displayed
+  // value (state value when overridden, else the base value — see
+  // `resolveInteractionStateValue`).
+  const activeInteractionStateStyles = useMemo(():
+    | Record<string, string>
+    | undefined => {
+    if (!activeContent || !interactionState || selectedCount > 1) {
+      return undefined;
+    }
+    const nodeId = inspectorElement?.sourceId;
+    if (!nodeId) return undefined;
+    return readStateStyles(activeContent, nodeId, interactionState);
+  }, [
+    activeContent,
+    interactionState,
+    selectedCount,
+    inspectorElement?.sourceId,
+  ]);
+
+  // Motion keyframe diamonds (Figma Motion parity) — see `motionKeyframeState`
+  // on EditPanelProps. `undefined` (feature off, or a multi-selection, which
+  // has no single element to keyframe) hides every diamond below.
+  const motionKeyframeFieldContext = useMemo(():
+    | MotionKeyframeFieldContext
+    | undefined => {
+    if (!motionKeyframeState || selectedCount > 1) return undefined;
+    return {
+      hasTimeline: motionKeyframeState.hasTimeline,
+      keyframedProperties: motionKeyframeState.keyframedProperties,
+      onToggle: onToggleMotionKeyframe,
+    };
+  }, [motionKeyframeState, selectedCount, onToggleMotionKeyframe]);
+
+  // Every style commit below flows through these two wrappers instead of the
+  // raw onStyleChange/onStylesChange props — see the StyleChangeMeta doc
+  // comment for the full phase-2 contract. While a non-default interaction
+  // state is active, every commit (regardless of gesture `phase`) is tagged
+  // with `meta.interactionState` so the parent (DesignEditor) can route it
+  // to the state's managed CSS rule instead of the element's inline style.
+  // Every existing call site in this file passes `onStyleChange`/
+  // `onStylesChange` straight through as JSX props, so shadowing the prop
+  // names here (see the destructure above:
+  // `onStyleChange: onStyleChangeProp`) applies the wrapping everywhere
+  // without touching those ~26 call sites individually.
+  const onStyleChange = useCallback<StyleChangeHandler>(
+    (property, value, meta) => {
+      onStyleChangeProp(
+        property,
+        value,
+        interactionState ? { ...meta, interactionState } : meta,
+      );
+    },
+    [onStyleChangeProp, interactionState],
+  );
+  const onStylesChange = useCallback<StylesChangeHandler>(
+    (styles, meta) => {
+      if (!onStylesChangeProp) return;
+      onStylesChangeProp(
+        styles,
+        interactionState ? { ...meta, interactionState } : meta,
+      );
+    },
+    [onStylesChangeProp, interactionState],
+  );
+
+  // Breakpoint override indicators — see `breakpointContext` on
+  // EditPanelProps. `undefined` (feature off, no stable node id, or a
+  // multi-selection) hides every indicator below; the per-field resolution
+  // itself happens in `resolveBreakpointOverride`. Declared after
+  // `onStyleChange` so its reset callback can route the synthetic commit
+  // through the same interaction-state-aware wrapper every other field uses.
+  const breakpointOverrideFieldContext = useMemo(():
+    | BreakpointOverrideFieldContext
+    | undefined => {
+    if (!breakpointContext || selectedCount > 1) return undefined;
+    const nodeId = inspectorElement?.sourceId;
+    return {
+      nodeId,
+      breakpointWidths: breakpointContext.breakpointWidths,
+      baseWidthPx: breakpointContext.baseWidthPx,
+      activeWidthPx: breakpointContext.activeWidthPx,
+      html: breakpointContext.html,
+      onReset: (property, maxWidthPx) => {
+        if (!nodeId) return;
+        // The reset's `value` argument is the current (post-reset) display
+        // value — the base/wider-scope value the field falls back to once
+        // the override is cleared — never a new value to persist; see the
+        // `breakpointReset` doc on `StyleChangeMeta` for the full contract.
+        const camelProperty = property.replace(
+          /-([a-z])/g,
+          (_, letter: string) => letter.toUpperCase(),
+        );
+        const fallback =
+          inspectorElement?.computedStyles[property] ??
+          inspectorElement?.computedStyles[camelProperty] ??
+          "";
+        onStyleChange(property, fallback, {
+          breakpointReset: { property, maxWidthPx },
+        });
+      },
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- onStyleChange is a stable useCallback (see above) whose own deps already cover onStyleChangeProp/interactionState; omitting it here avoids recreating this context on every keystroke of an unrelated interaction-state toggle.
+  }, [breakpointContext, selectedCount, inspectorElement]);
+
   // Scroll guard: suppress the click that fires immediately after a scroll
   // gesture ends (rubber-band or normal scroll). Using onScroll instead of
   // onPointerDown avoids side-effects like Radix DismissableLayer detecting a
@@ -7526,6 +9556,12 @@ export const EditPanel = memo(function EditPanel({
   const scrolledRecentlyRef = useRef(false);
   const userScrollIntentRef = useRef(false);
   const scrollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Figma replaces the entire right panel with the size-preset list while the
+  // Frame tool is armed — regardless of which inspector tab (Design/Tweaks)
+  // was showing beforehand — so this takes priority over `activeTab` below.
+  const showFramePresets =
+    activeTool === "frame" && Boolean(onCreateScreenFromPreset);
 
   return (
     <div
@@ -7541,7 +9577,11 @@ export const EditPanel = memo(function EditPanel({
         trailing={headerTrailing}
       />
 
-      {activeTab === "design" ? (
+      {showFramePresets ? (
+        <FramePresetsPanel
+          onPick={(preset) => onCreateScreenFromPreset?.(preset)}
+        />
+      ) : activeTab === "design" ? (
         <>
           <SelectionHeader
             element={inspectorElement}
@@ -7670,18 +9710,41 @@ export const EditPanel = memo(function EditPanel({
 
             {inspectorElement && (
               <>
+                {/* Element interaction-state selector (Default / Hover /
+                    Focus / Focus-visible / Pressed / Disabled) — Webflow-
+                    style state picker for THIS element's pseudo-class
+                    styling. Distinct from the app-level Design states in
+                    StatesPanel (Loading/Empty/Error/fixtures/captures),
+                    which apply to the whole screen, not one element. Only
+                    offered for a single, source-backed selection (needs a
+                    stable node id — see shared/interaction-states.ts). */}
+                {selectedCount <= 1 && inspectorElement.sourceId && (
+                  <InteractionStatePanel
+                    activeState={interactionState}
+                    onActiveStateChange={handleInteractionStateChange}
+                    availableStates={availableInteractionStates}
+                    statesWithOverrides={interactionStatesWithOverrides}
+                  />
+                )}
                 <PositionLayoutProperties
                   element={inspectorElement}
                   onStyleChange={onStyleChange}
+                  onAlignSelection={onAlignSelection}
+                  motionKeyframeContext={motionKeyframeFieldContext}
+                  breakpointOverrideContext={breakpointOverrideFieldContext}
                 />
                 <LayoutContextProperties
                   element={inspectorElement}
                   onStyleChange={onStyleChange}
                   onStylesChange={onStylesChange}
+                  motionKeyframeContext={motionKeyframeFieldContext}
+                  breakpointOverrideContext={breakpointOverrideFieldContext}
                 />
                 <AppearanceProperties
                   element={inspectorElement}
                   onStyleChange={onStyleChange}
+                  motionKeyframeContext={motionKeyframeFieldContext}
+                  breakpointOverrideContext={breakpointOverrideFieldContext}
                 />
                 {selectionHasTextElement ? (
                   <TypographyProperties
@@ -7693,16 +9756,24 @@ export const EditPanel = memo(function EditPanel({
                   element={inspectorElement}
                   onStyleChange={onStyleChange}
                   onStylesChange={onStylesChange}
+                  documentColorPalette={documentColorPalette}
+                  glslShaderContext={glslShaderContext}
+                  motionKeyframeContext={motionKeyframeFieldContext}
+                  breakpointOverrideContext={breakpointOverrideFieldContext}
                 />
                 <StrokeProperties
                   element={inspectorElement}
                   onStyleChange={onStyleChange}
                   onStylesChange={onStylesChange}
+                  motionKeyframeContext={motionKeyframeFieldContext}
+                  breakpointOverrideContext={breakpointOverrideFieldContext}
                 />
                 <EffectsProperties
                   element={inspectorElement}
                   onStyleChange={onStyleChange}
                   onStylesChange={onStylesChange}
+                  glslShaderContext={glslShaderContext}
+                  motionKeyframeContext={motionKeyframeFieldContext}
                 />
                 <SelectionColorsProperties
                   element={inspectorElement}

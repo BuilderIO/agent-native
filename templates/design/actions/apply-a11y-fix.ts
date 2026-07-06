@@ -24,16 +24,19 @@ import {
   agentEnterDocument,
   agentLeaveDocument,
   agentUpdateSelection,
-  applyText,
   getText,
   hasCollabState,
-  seedFromText,
 } from "@agent-native/core/collab";
 import { accessFilter, assertAccess } from "@agent-native/core/sharing";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import {
+  readLiveSourceFile,
+  writeInlineSourceFile,
+  type SourceWorkspaceFile,
+} from "../server/source-workspace.js";
 import { applyVisualEdit, type EditIntent } from "../shared/code-layer.js";
 import { agentSelectionDescriptor } from "../shared/collab-selection.js";
 import {
@@ -163,31 +166,43 @@ async function resolveEditableDesignFile(source: {
 async function persistDesignFileEdit(file: {
   id: string;
   designId: string;
+  filename: string;
   content: string;
 }): Promise<void> {
   // Re-assert at the write boundary so the persist path is independently scoped.
   await assertAccess("design", file.designId, "editor");
 
-  const db = getDb();
-  const now = new Date().toISOString();
-
   agentEnterDocument(file.id);
   try {
-    await db
-      .update(schema.designFiles)
-      .set({ content: file.content, updatedAt: now })
-      .where(eq(schema.designFiles.id, file.id));
+    // Read the LIVE base (collab text when present, else the SQL row) right
+    // before writing, and carry its versionHash through to
+    // writeInlineSourceFile. writeInlineSourceFile re-reads the live text
+    // immediately before its own applyText/DB write and rejects if it no
+    // longer matches this hash — closing the race window where a concurrent
+    // editor/agent write lands between the earlier liveContent() read (used
+    // to compute this patch) and this persist call (the same stale-diff-base
+    // bug fixed for insert-design-native-asset.ts / insert-asset.ts: a diff
+    // computed from a stale base, char-diffed into a collab doc that has
+    // since moved on, corrupts or drops the other writer's change).
+    // writeInlineSourceFile/readLiveSourceFile only ever dereference
+    // file.id/filename/content; createdAt/updatedAt aren't needed.
+    const workspaceFile: SourceWorkspaceFile = {
+      id: file.id,
+      designId: file.designId,
+      filename: file.filename,
+      fileType: "html",
+      content: file.content,
+      createdAt: null,
+      updatedAt: null,
+    };
+    const live = await readLiveSourceFile(workspaceFile);
 
-    if (await hasCollabState(file.id)) {
-      await applyText(file.id, file.content, "content", "agent");
-    } else {
-      await seedFromText(file.id, file.content);
-    }
-
-    await db
-      .update(schema.designs)
-      .set({ updatedAt: now })
-      .where(eq(schema.designs.id, file.designId));
+    await writeInlineSourceFile({
+      designId: file.designId,
+      file: workspaceFile,
+      content: file.content,
+      expectedVersionHash: live.versionHash,
+    });
   } finally {
     agentLeaveDocument(file.id);
   }
@@ -298,6 +313,7 @@ export default defineAction({
       await persistDesignFileEdit({
         id: file.id,
         designId: file.designId,
+        filename: file.filename,
         content: patch.content,
       });
     }

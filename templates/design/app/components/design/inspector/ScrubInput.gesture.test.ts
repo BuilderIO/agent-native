@@ -135,3 +135,94 @@ describe("ScrubInput gesture lifecycle — discrete commits are always phase:'co
     expect(meta.phase).toBe("commit");
   });
 });
+
+/**
+ * Reproduces handleKeyDown's mixed-selection arrow-key branch (ScrubInput.tsx)
+ * outside a DOM/React render (this template has no jsdom — see file header):
+ * the same direction/step/cmdMultiplier math the component uses, applied to a
+ * synthetic keyboard event, asserting on the resulting onChange call. On a
+ * mixed selection there is no single current value to step from, so the
+ * component must emit a *relative* delta (Figma's per-object-nudge behavior)
+ * instead of early-returning (the previous no-op bug) or snapping every
+ * selected object to one absolute value.
+ */
+function simulateMixedArrowKey(
+  key: "ArrowUp" | "ArrowDown",
+  options: {
+    step?: number;
+    shiftKey?: boolean;
+    altKey?: boolean;
+    metaKey?: boolean;
+  } = {},
+) {
+  const step = options.step ?? 1;
+  const event = {
+    shiftKey: options.shiftKey ?? false,
+    altKey: options.altKey ?? false,
+    metaKey: options.metaKey ?? false,
+  };
+  const direction = key === "ArrowUp" ? 1 : -1;
+  const baseStep = getScrubStepFromEvent(event, step);
+  const cmdMultiplier = event.metaKey && !event.shiftKey ? 10 : 1;
+  const delta = direction * baseStep * cmdMultiplier;
+
+  let received: { value: number; meta: ScrubInputChangeMeta } | null = null;
+  const onChange = (value: number, meta: ScrubInputChangeMeta) => {
+    received = { value, meta };
+  };
+  onChange(delta, {
+    source: "keyboard",
+    phase: "commit",
+    relativeDelta: delta,
+  });
+  return received as unknown as { value: number; meta: ScrubInputChangeMeta };
+}
+
+describe("ScrubInput gesture lifecycle — mixed-selection arrow-key relative delta", () => {
+  it("emits a relative delta instead of no-op'ing on ArrowUp for a mixed value", () => {
+    const { value, meta } = simulateMixedArrowKey("ArrowUp", { step: 1 });
+    expect(value).toBe(1);
+    expect(meta.relativeDelta).toBe(1);
+    expect(meta.phase).toBe("commit");
+    expect(meta.source).toBe("keyboard");
+  });
+
+  it("emits a negative relative delta on ArrowDown", () => {
+    const { value, meta } = simulateMixedArrowKey("ArrowDown", { step: 1 });
+    expect(value).toBe(-1);
+    expect(meta.relativeDelta).toBe(-1);
+  });
+
+  it("scales the delta ×10 with Shift, matching the non-mixed step convention", () => {
+    const { value, meta } = simulateMixedArrowKey("ArrowUp", {
+      step: 1,
+      shiftKey: true,
+    });
+    expect(value).toBe(10);
+    expect(meta.relativeDelta).toBe(10);
+  });
+
+  it("scales the delta ÷10 with Alt (fine step)", () => {
+    const { value, meta } = simulateMixedArrowKey("ArrowUp", {
+      step: 1,
+      altKey: true,
+    });
+    expect(value).toBeCloseTo(0.1);
+    expect(meta.relativeDelta).toBeCloseTo(0.1);
+  });
+
+  it("scales the delta ×10 with Cmd, mirroring Shift", () => {
+    const { value, meta } = simulateMixedArrowKey("ArrowUp", {
+      step: 1,
+      metaKey: true,
+    });
+    expect(value).toBe(10);
+    expect(meta.relativeDelta).toBe(10);
+  });
+
+  it("respects a custom step size", () => {
+    const { value, meta } = simulateMixedArrowKey("ArrowUp", { step: 4 });
+    expect(value).toBe(4);
+    expect(meta.relativeDelta).toBe(4);
+  });
+});
