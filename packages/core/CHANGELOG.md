@@ -1,5 +1,12 @@
 # @agent-native/core
 
+## 0.88.1
+
+### Patch Changes
+
+- Updated dependencies [277d115]
+  - @agent-native/toolkit@0.3.0
+
 ## 0.88.0
 
 ### Minor Changes
