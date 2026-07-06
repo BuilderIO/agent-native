@@ -71,7 +71,7 @@ describe("dashboard-panel-query: program source", () => {
   describe("runDashboardPanelQuery dispatch", () => {
     const ctx = { userEmail: "alice@example.com", orgId: "org_1" };
 
-    it("maps an ok:true result to {rows, schema}", async () => {
+    it("maps an ok:true result to {rows, schema, truncated}", async () => {
       mocks.runDataProgram.mockResolvedValue({
         ok: true,
         rows: [{ dealname: "Acme", risk_status: "at_risk" }],
@@ -79,7 +79,7 @@ describe("dashboard-panel-query: program source", () => {
           { name: "dealname", type: "string" },
           { name: "risk_status", type: "string" },
         ],
-        truncated: false,
+        truncated: true,
         stale: false,
         cacheHit: true,
         asOfMs: Date.now(),
@@ -102,6 +102,7 @@ describe("dashboard-panel-query: program source", () => {
           { name: "dealname", type: "string" },
           { name: "risk_status", type: "string" },
         ],
+        truncated: true,
       });
       expect(mocks.runDataProgram).toHaveBeenCalledWith({
         programId: "dp_risk_cohort",
@@ -123,6 +124,7 @@ describe("dashboard-panel-query: program source", () => {
         lastGoodRun: {
           rows: [{ account: "Globex" }],
           schema: [{ name: "account", type: "string" }],
+          truncated: true,
           asOfMs,
         },
       });
@@ -139,6 +141,7 @@ describe("dashboard-panel-query: program source", () => {
       expect(result).toEqual({
         rows: [{ account: "Globex" }],
         schema: [{ name: "account", type: "string" }],
+        truncated: true,
       });
     });
 

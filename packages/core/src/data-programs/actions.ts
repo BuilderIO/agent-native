@@ -189,6 +189,7 @@ export function createDataProgramActions(
                   rowCount: result.lastGoodRun.rows.length,
                   columns: compactColumns(result.lastGoodRun.schema),
                   sampleRows: result.lastGoodRun.rows.slice(0, 5),
+                  truncated: result.lastGoodRun.truncated,
                   asOfMs: result.lastGoodRun.asOfMs,
                 },
               }
@@ -263,11 +264,14 @@ export function createDataProgramActions(
       const defaultParams = program.defaultParams
         ? (JSON.parse(program.defaultParams) as Record<string, unknown>)
         : {};
-      // Viewer-scoped hash: the cached run for these params was produced
-      // under SOME viewer's credentials, so only show it back to that same
-      // viewer (see hashDataProgramParams doc) — never surface another
-      // teammate's cached rows/lastRun summary here.
-      const hash = hashDataProgramParams(defaultParams, ctx?.userEmail);
+      // Viewer/org-scoped hash: the cached run for these params was produced
+      // under SOME caller's credentials and org grants, so only show it back
+      // to that same scope (see hashDataProgramParams doc).
+      const hash = hashDataProgramParams(
+        defaultParams,
+        ctx?.userEmail,
+        ctx?.orgId ?? null,
+      );
       const lastRun = await getLatestRun(program.id, hash);
 
       return {
@@ -289,6 +293,7 @@ export function createDataProgramActions(
           ? {
               status: lastRun.status,
               rowCount: lastRun.rowCount,
+              truncated: lastRun.truncated,
               errorCode: lastRun.errorCode,
               errorMessage: lastRun.errorMessage,
               finishedAt: lastRun.finishedAt,

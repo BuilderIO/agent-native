@@ -17,6 +17,10 @@ import {
 import { contextBridge, ipcRenderer } from "electron";
 
 const agentNativeDesktop = {
+  clipboard: {
+    writeText: (text: string): Promise<boolean> =>
+      ipcRenderer.invoke(IPC.CLIPBOARD_WRITE_TEXT, text),
+  },
   planFiles: {
     getFolder: (
       request: DesktopPlanFilesFolderRequest,

@@ -31,6 +31,7 @@ export type DashboardPanelSource = (typeof DASHBOARD_PANEL_SOURCES)[number];
 export interface DashboardPanelQueryResult {
   rows: Record<string, unknown>[];
   schema: { name: string; type: string }[];
+  truncated?: boolean;
 }
 
 export function isDashboardPanelSource(
@@ -366,11 +367,19 @@ async function runProgramPanel(
   });
 
   if (result.ok) {
-    return { rows: result.rows, schema: result.schema };
+    return {
+      rows: result.rows,
+      schema: result.schema,
+      truncated: result.truncated,
+    };
   }
 
   if (result.lastGoodRun) {
-    return { rows: result.lastGoodRun.rows, schema: result.lastGoodRun.schema };
+    return {
+      rows: result.lastGoodRun.rows,
+      schema: result.lastGoodRun.schema,
+      truncated: result.lastGoodRun.truncated,
+    };
   }
 
   const friendlyMessages: Partial<Record<string, string>> = {
