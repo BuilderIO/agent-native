@@ -57,7 +57,16 @@ details live in `.agents/skills/`.
   cohort definition: `product` for the `products` field, `pipeline` for deal
   pipeline, `closedStatus` for won/lost/open, and `closedDateFrom` /
   `closedDateTo` for close-date windows. `query` is full-text search across
-  deals and is not valid proof that a specific property matched.
+  deals and is not valid proof that a specific property matched. For a fast
+  server-side search on a risk/status property (bypassing the full deal
+  catalog scan), pass `riskStatuses` instead of `query`.
+- For the weekly Risk Review meeting, pass HubSpot/Pylon property names from the
+  extension seed (`seeds/risk-meeting/cohort-bindings.json`) into
+  `hubspot-deals` (`riskStatuses`, `statusProperty`, `properties`) and
+  `build-secondary-cohort` (joins Pylon sentiment to HubSpot deals via company
+  join keys, rolls up CSM/ARR/close date, excludes accounts already flagged in
+  CRM). Use `pylon-accounts` only for a raw Pylon sentiment search without
+  HubSpot join.
 - For BigQuery, Prometheus, or other external providers, use the provider skill
   and existing credential/integration flow.
 - For questions that span multiple sources, follow `cross-source-analysis`:

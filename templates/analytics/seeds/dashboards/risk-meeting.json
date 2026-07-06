@@ -1,0 +1,16 @@
+{
+  "name": "Risk Meeting",
+  "description": "Weekly at-risk renewal review combining HubSpot risk flags with Pylon sentiment early warnings.",
+  "columns": 1,
+  "panels": [
+    {
+      "id": "risk-meeting-widget",
+      "title": "Risk Review",
+      "chartType": "extension",
+      "width": 1,
+      "config": {
+        "extensionId": "risk-meeting"
+      }
+    }
+  ]
+}

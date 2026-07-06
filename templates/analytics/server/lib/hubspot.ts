@@ -259,6 +259,7 @@ const OPTIONAL_DEAL_PROPERTIES = [
   "risk_status_last_updated",
   "total_contract_value",
   "churn_notes",
+  "customer_success_owner",
   // POV stage entry dates (hs_v2_date_entered_{stageId})
   "hs_v2_date_entered_2121599", // Enterprise: New Business — S2 - Proof of Value
   "hs_v2_date_entered_1166928645", // Enterprise: Expansion — S2 - Proof of Value
@@ -448,6 +449,170 @@ export async function searchHubSpotObjects(options: {
     nextAfter: data.paging?.next?.after ?? null,
     properties,
   };
+}
+
+function objectRecordToDeal(record: HubSpotObjectRecord): Deal {
+  return {
+    id: record.id,
+    properties: {
+      dealname: record.properties.dealname ?? "",
+      dealstage: record.properties.dealstage ?? "",
+      amount: record.properties.amount ?? null,
+      closedate: record.properties.closedate ?? null,
+      createdate: record.properties.createdate ?? "",
+      hs_lastmodifieddate: record.properties.hs_lastmodifieddate ?? "",
+      pipeline: record.properties.pipeline ?? "",
+      hubspot_owner_id: record.properties.hubspot_owner_id ?? null,
+      hs_deal_stage_probability:
+        record.properties.hs_deal_stage_probability ?? null,
+      ...record.properties,
+    },
+  };
+}
+
+// CRM search on a risk-status property (default `risk_status`) — used by
+// the risk meeting review so the HubSpot-flagged cohort doesn't require
+// scanning the entire deal catalog. `statusProperty` is configurable so an
+// org with a differently-named CRM field doesn't need a code change.
+export async function searchHubSpotDealsByRiskStatuses(options: {
+  riskStatuses: string[];
+  statusProperty?: string;
+  limit?: number;
+  after?: string;
+  extraProperties?: string[];
+}): Promise<{
+  deals: Deal[];
+  total: number;
+  nextAfter: string | null;
+}> {
+  const riskStatuses = uniqueProperties(options.riskStatuses);
+  if (!riskStatuses.length) {
+    return { deals: [], total: 0, nextAfter: null };
+  }
+
+  const statusProperty = options.statusProperty?.trim() || "risk_status";
+  const limit = Math.max(1, Math.min(100, options.limit ?? 100));
+  const properties = await resolveDealProperties(options.extraProperties ?? []);
+
+  const body: Record<string, unknown> = {
+    filterGroups: [
+      {
+        filters: [
+          {
+            propertyName: statusProperty,
+            operator: "IN",
+            values: riskStatuses,
+          },
+        ],
+      },
+    ],
+    properties,
+    limit,
+  };
+  if (options.after) body.after = options.after;
+
+  const data = await apiPost<HubSpotObjectListResponse>(
+    "/crm/v3/objects/deals/search",
+    body,
+    `risk-status-search:${statusProperty}:${riskStatuses.join(",")}:${limit}:${options.after ?? ""}`,
+  );
+
+  return {
+    deals: data.results.map(objectRecordToDeal),
+    total: data.total ?? data.results.length,
+    nextAfter: data.paging?.next?.after ?? null,
+  };
+}
+
+export async function searchHubSpotCompaniesByProperty(options: {
+  propertyName: string;
+  operator: "EQ" | "IN";
+  value?: string;
+  values?: string[];
+  properties?: string[];
+  limit?: number;
+}): Promise<HubSpotObjectRecord[]> {
+  const propertyName = options.propertyName.trim();
+  if (!propertyName) return [];
+
+  const properties = await resolveObjectProperties(
+    "companies",
+    options.properties ?? [],
+  );
+  const filter: Record<string, unknown> = {
+    propertyName,
+    operator: options.operator,
+  };
+  if (options.operator === "IN") {
+    const values = uniqueProperties(options.values ?? []);
+    if (!values.length) return [];
+    filter.values = values;
+  } else {
+    const value = options.value?.trim();
+    if (!value) return [];
+    filter.value = value;
+  }
+
+  const limit = Math.max(1, Math.min(100, options.limit ?? 100));
+  const body: Record<string, unknown> = {
+    filterGroups: [{ filters: [filter] }],
+    properties,
+    limit,
+  };
+
+  const cacheKey =
+    options.operator === "IN"
+      ? `company-search:${propertyName}:IN:${(options.values ?? []).join(",")}`
+      : `company-search:${propertyName}:EQ:${options.value ?? ""}`;
+
+  const data = await apiPost<HubSpotObjectListResponse>(
+    `/crm/v3/objects/companies/search`,
+    body,
+    cacheKey,
+  );
+  return data.results ?? [];
+}
+
+// Batch-reads associations for many "from" records in one call (HubSpot v4
+// associations batch/read) instead of one HTTP round trip per record.
+export async function batchGetAssociations(options: {
+  fromObjectType: HubSpotAssociatedObjectType;
+  toObjectType: HubSpotAssociatedObjectType;
+  fromObjectIds: string[];
+}): Promise<Map<string, string[]>> {
+  const ids = Array.from(new Set(options.fromObjectIds.filter(Boolean)));
+  const map = new Map<string, string[]>();
+  if (!ids.length) return map;
+
+  for (let i = 0; i < ids.length; i += 100) {
+    const batch = ids.slice(i, i + 100);
+    const data = await apiPost<{
+      results?: Array<{
+        from?: { id?: string };
+        to?: Array<{ toObjectId?: string | number; id?: string }>;
+      }>;
+    }>(
+      `/crm/v4/associations/${options.fromObjectType}/${options.toObjectType}/batch/read`,
+      { inputs: batch.map((id) => ({ id })) },
+      `batch-assoc:${options.fromObjectType}:${options.toObjectType}:${batch.join(",")}`,
+    );
+    for (const result of data.results ?? []) {
+      const fromId = result.from?.id;
+      if (!fromId) continue;
+      const toIds = (result.to ?? [])
+        .map((t) =>
+          typeof t.id === "string"
+            ? t.id
+            : t.toObjectId != null
+              ? String(t.toObjectId)
+              : null,
+        )
+        .filter((id): id is string => Boolean(id));
+      map.set(fromId, toIds);
+    }
+  }
+
+  return map;
 }
 
 export async function getHubSpotAssociations(options: {

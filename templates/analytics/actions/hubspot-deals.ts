@@ -6,6 +6,7 @@ import {
   getDealPipelines,
   getDealOwners,
   getVisiblePipelines,
+  searchHubSpotDealsByRiskStatuses,
   searchHubSpotObjects,
   type Deal,
   type Pipeline,
@@ -77,6 +78,8 @@ function enrichDeal(
   properties.owner_name = ownerName ?? ownerId;
   properties.hubspot_owner_name = ownerName ?? ownerId;
   properties.sales_rep_owner_name = ownerName ?? ownerId;
+  const csmOwnerId = String(properties.customer_success_owner ?? "");
+  properties.csm_name = csmOwnerId ? (owners[csmOwnerId] ?? csmOwnerId) : "";
   properties.is_closed_won = isClosedWon;
   properties.is_closed_lost = isClosedLost;
   properties.is_deal_closed = isClosedWon || isClosedLost;
@@ -353,6 +356,15 @@ export default defineAction({
       .describe(
         "Optional HubSpot full-text deal search query, such as a company name, deal name, domain, or keyword. Use for customer/deal deep dives. Do not use query as a substitute for field-specific product, pipeline, stage, or date filters.",
       ),
+    riskStatuses: StringListSchema.describe(
+      "Optional exact status values to match on a HubSpot deal property (e.g. Churn Risk, On the Radar). Uses HubSpot CRM property IN search instead of the full deal catalog. Pair with statusProperty when the CRM field is not risk_status.",
+    ),
+    statusProperty: z
+      .string()
+      .optional()
+      .describe(
+        "HubSpot deal property name for riskStatuses CRM search. Defaults to risk_status. Pass explicitly when wiring multi-source dashboards.",
+      ),
     limit: z.coerce
       .number()
       .int()
@@ -386,10 +398,42 @@ export default defineAction({
     closedDateFrom,
     closedDateTo,
     query,
+    riskStatuses,
+    statusProperty,
     limit = 25,
     offset = 0,
     after,
   }) => {
+    if (riskStatuses && riskStatuses.length > 0) {
+      const trimmedStatusProperty = statusProperty?.trim() || "risk_status";
+      const [searchResult, allPipelines, owners] = await Promise.all([
+        searchHubSpotDealsByRiskStatuses({
+          riskStatuses,
+          statusProperty: trimmedStatusProperty,
+          limit,
+          after,
+          extraProperties: properties,
+        }),
+        getDealPipelines(),
+        getDealOwners(),
+      ]);
+      const visiblePipelines = getVisiblePipelines(allPipelines);
+      const lookups = stageLookups(visiblePipelines);
+      const deals = searchResult.deals.map((deal) =>
+        enrichDeal(deal, lookups, owners),
+      );
+
+      return {
+        deals,
+        stageLabels: lookups.stageLabels,
+        pipelineLabels: lookups.pipelineLabels,
+        total: searchResult.total,
+        count: deals.length,
+        nextAfter: searchResult.nextAfter,
+        guidance: `Loaded via HubSpot CRM search on ${trimmedStatusProperty} instead of scanning the full deal catalog. Page with the returned nextAfter cursor for more results.`,
+      };
+    }
+
     const trimmedQuery = query?.trim();
     const trimmedOwner = owner?.trim();
     const trimmedProduct = product?.trim();

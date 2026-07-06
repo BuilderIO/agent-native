@@ -277,6 +277,7 @@ export function buildExtensionHtml(
 
 	    function hostRequest(path, options) {
 	      options = options || {};
+	      var timeoutMs = options.timeoutMs || 30000;
 	      return new Promise(function(resolve, reject) {
 	        var requestId = 'extension-req-' + (++_extensionRequestSeq);
 	        _extensionPendingRequests[requestId] = { resolve: resolve, reject: reject };
@@ -295,7 +296,7 @@ export function buildExtensionHtml(
 	          if (!pending) return;
 	          delete _extensionPendingRequests[requestId];
 	          pending.reject(new Error('Extension host request timed out'));
-	        }, 30000);
+	        }, timeoutMs);
 	      });
 	    }
 
@@ -374,13 +375,25 @@ export function buildExtensionHtml(
 	      return match ? match[1].toUpperCase() : null;
 	    }
 
-	    async function appAction(name, params) {
+	    var EXTENSION_ACTION_TIMEOUT_MS = {
+	      'build-secondary-cohort': 240000,
+	      'hubspot-deals': 90000,
+	    };
+
+	    function actionRequestTimeoutMs(name, callOptions) {
+	      if (callOptions && callOptions.timeoutMs) return callOptions.timeoutMs;
+	      return EXTENSION_ACTION_TIMEOUT_MS[name] || 30000;
+	    }
+
+	    async function appAction(name, params, callOptions) {
 	      params = params || {};
+	      var timeoutMs = actionRequestTimeoutMs(name, callOptions);
 	      if (name === 'navigate') {
 	        var navRes = await hostRequest('/_agent-native/application-state/navigate', {
 	          method: 'PUT',
 	          headers: { 'Content-Type': 'application/json' },
 	          body: JSON.stringify(params),
+	          timeoutMs: timeoutMs,
 	        });
 	        if (!navRes.ok) {
 	          var navErr = navRes.body || { error: navRes.statusText };
@@ -393,6 +406,7 @@ export function buildExtensionHtml(
 	        method: 'POST',
 	        headers: { 'Content-Type': 'application/json' },
 	        body: JSON.stringify(params),
+	        timeoutMs: timeoutMs,
 	      });
 
 	      var retryMethod = _methodHintFromActionResponse(res);
@@ -401,6 +415,7 @@ export function buildExtensionHtml(
 	        var retryOptions = {
 	          method: retryMethod,
 	          headers: { 'Content-Type': 'application/json' },
+	          timeoutMs: timeoutMs,
 	        };
 	        if (retryMethod === 'GET' || retryMethod === 'HEAD') {
 	          retryPath = _appendActionQuery(path, params);

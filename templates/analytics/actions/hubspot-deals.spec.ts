@@ -5,6 +5,7 @@ const getDealOwners = vi.fn();
 const getDealPipelines = vi.fn();
 const getVisiblePipelines = vi.fn((pipelines) => pipelines);
 const searchHubSpotObjects = vi.fn();
+const searchHubSpotDealsByRiskStatuses = vi.fn();
 
 vi.mock("../server/lib/hubspot", () => ({
   getAllDeals,
@@ -12,6 +13,7 @@ vi.mock("../server/lib/hubspot", () => ({
   getDealPipelines,
   getVisiblePipelines,
   searchHubSpotObjects,
+  searchHubSpotDealsByRiskStatuses,
 }));
 
 const { default: hubspotDeals } = await import("./hubspot-deals");
@@ -23,6 +25,102 @@ describe("hubspot-deals action", () => {
     getDealPipelines.mockReset();
     getVisiblePipelines.mockClear();
     searchHubSpotObjects.mockReset();
+    searchHubSpotDealsByRiskStatuses.mockReset();
+  });
+
+  it("uses HubSpot CRM search on risk_status when riskStatuses is provided", async () => {
+    searchHubSpotDealsByRiskStatuses.mockResolvedValue({
+      deals: [
+        {
+          id: "deal-risk-1",
+          properties: {
+            dealname: "At-risk renewal",
+            dealstage: "stage-1",
+            amount: "50000",
+            pipeline: "pipeline-1",
+            hubspot_owner_id: "owner-1",
+            createdate: "2026-01-01T00:00:00Z",
+            hs_lastmodifieddate: "2026-05-01T00:00:00Z",
+            risk_status: "Churn Risk",
+          },
+        },
+      ],
+      total: 1,
+      nextAfter: null,
+    });
+    getDealPipelines.mockResolvedValue([
+      {
+        id: "pipeline-1",
+        label: "Enterprise",
+        stages: [
+          {
+            id: "stage-1",
+            label: "Negotiation",
+            displayOrder: 1,
+            metadata: { probability: "0.7" },
+          },
+        ],
+      },
+    ]);
+    getVisiblePipelines.mockReturnValueOnce([
+      {
+        id: "pipeline-1",
+        label: "Enterprise",
+        stages: [
+          {
+            id: "stage-1",
+            label: "Negotiation",
+            displayOrder: 1,
+            metadata: { probability: "0.7" },
+          },
+        ],
+      },
+    ]);
+    getDealOwners.mockResolvedValue({ "owner-1": "Alice Seller" });
+
+    const result = (await hubspotDeals.run({
+      riskStatuses: ["Churn Risk"],
+      limit: 100,
+    })) as Record<string, any>;
+
+    expect(getAllDeals).not.toHaveBeenCalled();
+    expect(searchHubSpotObjects).not.toHaveBeenCalled();
+    expect(searchHubSpotDealsByRiskStatuses).toHaveBeenCalledWith({
+      riskStatuses: ["Churn Risk"],
+      statusProperty: "risk_status",
+      limit: 100,
+      after: undefined,
+      extraProperties: undefined,
+    });
+    expect(result.deals).toHaveLength(1);
+    expect(result.deals[0].properties.owner_name).toBe("Alice Seller");
+    expect(result.total).toBe(1);
+    expect(result.guidance).toContain("risk_status");
+  });
+
+  it("passes statusProperty through to HubSpot CRM search", async () => {
+    searchHubSpotDealsByRiskStatuses.mockResolvedValue({
+      deals: [],
+      total: 0,
+      nextAfter: null,
+    });
+    getDealPipelines.mockResolvedValue([]);
+    getVisiblePipelines.mockReturnValueOnce([]);
+    getDealOwners.mockResolvedValue({});
+
+    await hubspotDeals.run({
+      riskStatuses: ["At Risk"],
+      statusProperty: "csm_sentiment",
+      limit: 25,
+    });
+
+    expect(searchHubSpotDealsByRiskStatuses).toHaveBeenCalledWith({
+      riskStatuses: ["At Risk"],
+      statusProperty: "csm_sentiment",
+      limit: 25,
+      after: undefined,
+      extraProperties: undefined,
+    });
   });
 
   it("uses targeted HubSpot search for named deal/account queries", async () => {
