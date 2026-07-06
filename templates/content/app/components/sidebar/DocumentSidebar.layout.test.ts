@@ -33,6 +33,19 @@ describe("document sidebar layout", () => {
     expect(scrollArea).toContain('<ScrollBar orientation="horizontal" />');
   });
 
+  it("uses one sidebar surface for collapsed and expanded rails", () => {
+    const sidebar = readSidebarSource("./DocumentSidebar.tsx");
+
+    expect(sidebar).toContain(
+      "agent-layout-left-drawer flex h-full w-12 flex-col",
+    );
+    expect(sidebar).toContain(
+      "agent-layout-left-drawer relative flex h-full min-h-0 flex-col",
+    );
+    expect(sidebar).toContain("bg-sidebar");
+    expect(sidebar).not.toContain("bg-muted/30");
+  });
+
   it("gates page tree actions by document capabilities", () => {
     const treeItem = readSidebarSource("./DocumentTreeItem.tsx");
 

@@ -282,10 +282,10 @@ const enUS = {
     import: {
       title: "Import",
       description:
-        "Bring in Figma selections, .fig exports, or standalone HTML as Design screens.",
+        "Bring in Figma clipboard HTML or standalone HTML as Design screens.",
       figmaPasteTitle: "Paste from Figma",
       figmaPasteDescription:
-        "Copy a frame or layer in Figma, then paste into the Design canvas. Figma metadata imports directly when available.",
+        "Copy a frame or layer in Figma, then paste into the Design canvas. Design imports the visible clipboard HTML.",
       figmaPasteTarget: "Paste into the canvas",
       figUploadTitle: "Upload .fig",
       figUploadDescription:
@@ -837,7 +837,7 @@ const enUS = {
     errors: {
       chooseFig:
         "Please choose a .fig file (in Figma: File -> Save local copy).",
-      parseFig: "Could not parse that Figma file.",
+      parseFig: "Could not start Builder indexing for that Figma file.",
       enterWebsite: "Enter a website URL before adding it.",
       websiteProtocol: "Website URLs must start with http:// or https://.",
       enterGithub: "Enter a GitHub repository URL before adding it.",
@@ -849,7 +849,7 @@ const enUS = {
       figma: {
         title: "Connect Figma",
         description:
-          "Upload a .fig local copy and Builder DSI will extract tokens, components, assets, and guidance into a reusable design system.",
+          "Upload a .fig local copy and Builder DSI will index tokens, components, assets, and guidance into a reusable design system.",
       },
       company: {
         title: "Company / Brand",
@@ -1243,7 +1243,7 @@ const designLocaleOverrides = {
       figmaThumbnailAlt: "Figma 文件缩略图",
       errors: {
         chooseFig: "请选择一个.fig 文件（在 Figma 中：文件 -> 保存本地副本）。",
-        parseFig: "无法解析该 Figma 文件。",
+        parseFig: "无法为该 Figma 文件启动 Builder 索引。",
         enterWebsite: "添加前输入网站 URL。",
         websiteProtocol: "网站 URLs 必须以 http:// 或 https:// 开头。",
         enterGithub: "在添加之前输入 GitHub 存储库 URL。",
@@ -1612,7 +1612,8 @@ const designLocaleOverrides = {
       errors: {
         chooseFig:
           "Elija un archivo.fig (en Figma: Archivo -> Guardar copia local).",
-        parseFig: "No se pudo analizar ese archivo Figma.",
+        parseFig:
+          "No se pudo iniciar la indexación de Builder para ese archivo Figma.",
         enterWebsite: "Ingrese un sitio web URL antes de agregarlo.",
         websiteProtocol:
           "El sitio web URLs debe comenzar con http:// o https://.",
@@ -1994,7 +1995,8 @@ const designLocaleOverrides = {
       errors: {
         chooseFig:
           "Veuillez choisir un fichier.fig (dans Figma: Fichier -> Enregistrer la copie locale).",
-        parseFig: "Impossible d'analyser ce fichier Figma.",
+        parseFig:
+          "Impossible de lancer l’indexation Builder pour ce fichier Figma.",
         enterWebsite: "Entrez un site Web URL avant de l'ajouter.",
         websiteProtocol:
           "Le site Web URLs doit commencer par http:// ou https://.",
@@ -2376,7 +2378,8 @@ const designLocaleOverrides = {
       errors: {
         chooseFig:
           "Bitte wählen Sie eine.fig-Datei (in Figma: Datei -> Lokale Kopie speichern).",
-        parseFig: "Die Figma-Datei konnte nicht analysiert werden.",
+        parseFig:
+          "Die Builder-Indizierung für diese Figma-Datei konnte nicht gestartet werden.",
         enterWebsite:
           "Geben Sie eine Website URL ein, bevor Sie sie hinzufügen.",
         websiteProtocol:
@@ -2758,7 +2761,8 @@ const designLocaleOverrides = {
       errors: {
         chooseFig:
           ".fig ファイルを選択してください (Figma の場合: [ファイル] -> [ローカル コピーを保存])。",
-        parseFig: "Figma ファイルを解析できませんでした。",
+        parseFig:
+          "その Figma ファイルの Builder インデックス作成を開始できませんでした。",
         enterWebsite: "追加する前に、Web サイト URL を入力してください。",
         websiteProtocol:
           "ウェブサイト URLs は http:// または https:// で始まる必要があります。",
@@ -3132,7 +3136,7 @@ const designLocaleOverrides = {
       figmaThumbnailAlt: "Figma 파일 썸네일",
       errors: {
         chooseFig: ".fig 파일을 선택하십시오(Figma: 파일 -> 로컬 복사본 저장).",
-        parseFig: "Figma 파일을 구문 분석할 수 없습니다.",
+        parseFig: "해당 Figma 파일의 Builder 인덱싱을 시작할 수 없습니다.",
         enterWebsite: "추가하기 전에 웹사이트 URL를 입력하세요.",
         websiteProtocol:
           "웹사이트 URLs는 http:// 또는 https://로 시작해야 합니다.",
@@ -3507,7 +3511,8 @@ const designLocaleOverrides = {
       errors: {
         chooseFig:
           "Escolha um arquivo.fig (em Figma: Arquivo -> Salvar cópia local).",
-        parseFig: "Não foi possível analisar esse arquivo Figma.",
+        parseFig:
+          "Não foi possível iniciar a indexação do Builder para esse arquivo Figma.",
         enterWebsite: "Insira um site URL antes de adicioná-lo.",
         websiteProtocol: "O site URLs deve começar com http:// ou https://.",
         enterGithub: "Insira um repositório GitHub URL antes de adicioná-lo.",
@@ -3880,7 +3885,7 @@ const designLocaleOverrides = {
       errors: {
         chooseFig:
           "कृपया एक.fig फ़ाइल चुनें (Figma में: फ़ाइल -> स्थानीय प्रतिलिपि सहेजें)।",
-        parseFig: "उस Figma फ़ाइल को पार्स नहीं किया जा सका।",
+        parseFig: "उस Figma file के लिए Builder indexing शुरू नहीं हो सकी।",
         enterWebsite: "इसे जोड़ने से पहले एक वेबसाइट URL दर्ज करें।",
         websiteProtocol: "वेबसाइट URLs http:// या https:// से शुरू होनी चाहिए।",
         enterGithub: "इसे जोड़ने से पहले एक GitHub रिपॉजिटरी URL दर्ज करें।",
@@ -4250,7 +4255,7 @@ const designLocaleOverrides = {
       errors: {
         chooseFig:
           "الرجاء اختيار ملف.fig (في Figma: ملف -> حفظ النسخة المحلية).",
-        parseFig: "تعذر تحليل ملف Figma هذا.",
+        parseFig: "تعذر بدء فهرسة Builder لملف Figma هذا.",
         enterWebsite: "أدخل موقع URL قبل إضافته.",
         websiteProtocol: "يجب أن يبدأ موقع الويب URLs بـ http:// أو https://.",
         enterGithub: "أدخل مستودع GitHub URL قبل إضافته.",
@@ -10137,11 +10142,10 @@ const designImportOverrides = {
     designEditor: {
       import: {
         title: "匯入",
-        description:
-          "將 Figma 選取內容、.fig 匯出檔或獨立 HTML 帶入為 Design 螢幕。",
+        description: "將 Figma 剪貼簿 HTML 或獨立 HTML 帶入為 Design 螢幕。",
         figmaPasteTitle: "從 Figma 貼上",
         figmaPasteDescription:
-          "在 Figma 複製畫框或圖層，然後貼到 Design 畫布。可用時會直接匯入 Figma 中繼資料。",
+          "在 Figma 複製畫框或圖層，然後貼到 Design 畫布。Design 會匯入可見的剪貼簿 HTML。",
         figmaPasteTarget: "貼到畫布",
         figUploadTitle: "上傳 .fig",
         figUploadDescription:
@@ -10178,10 +10182,10 @@ const designImportOverrides = {
     designEditor: {
       import: {
         title: "导入",
-        description: "将 Figma 选区、.fig 导出或独立 HTML 导入为 Design 屏幕。",
+        description: "将 Figma 剪贴板 HTML 或独立 HTML 导入为 Design 屏幕。",
         figmaPasteTitle: "从 Figma 粘贴",
         figmaPasteDescription:
-          "在 Figma 中复制画框或图层，然后粘贴到 Design 画布。有可用元数据时会直接导入。",
+          "在 Figma 中复制画框或图层，然后粘贴到 Design 画布。Design 会导入可见的剪贴板 HTML。",
         figmaPasteTarget: "粘贴到画布",
         figUploadTitle: "上传 .fig",
         figUploadDescription:
@@ -10219,10 +10223,10 @@ const designImportOverrides = {
       import: {
         title: "Importar",
         description:
-          "Trae selecciones de Figma, exportaciones .fig o HTML independiente como pantallas de Design.",
+          "Trae HTML del portapapeles de Figma o HTML independiente como pantallas de Design.",
         figmaPasteTitle: "Pegar desde Figma",
         figmaPasteDescription:
-          "Copia un marco o capa en Figma y pégalo en el lienzo de Design. Los metadatos de Figma se importan directamente cuando están disponibles.",
+          "Copia un marco o capa en Figma y pégalo en el lienzo de Design. Design importa el HTML visible del portapapeles.",
         figmaPasteTarget: "Pega en el lienzo",
         figUploadTitle: "Subir .fig",
         figUploadDescription:
@@ -10262,10 +10266,10 @@ const designImportOverrides = {
       import: {
         title: "Importer",
         description:
-          "Importez des sélections Figma, des exports .fig ou du HTML autonome comme écrans Design.",
+          "Importez le HTML du presse-papiers Figma ou du HTML autonome comme écrans Design.",
         figmaPasteTitle: "Coller depuis Figma",
         figmaPasteDescription:
-          "Copiez un frame ou un calque dans Figma, puis collez-le dans le canevas Design. Les métadonnées Figma sont importées directement si disponibles.",
+          "Copiez un frame ou un calque dans Figma, puis collez-le dans le canevas Design. Design importe le HTML visible du presse-papiers.",
         figmaPasteTarget: "Collez dans le canevas",
         figUploadTitle: "Téléverser .fig",
         figUploadDescription:
@@ -10305,10 +10309,10 @@ const designImportOverrides = {
       import: {
         title: "Import",
         description:
-          "Bringe Figma-Auswahlen, .fig-Exporte oder eigenständiges HTML als Design-Bildschirme hinein.",
+          "Bringe Figma-Zwischenablage-HTML oder eigenständiges HTML als Design-Bildschirme hinein.",
         figmaPasteTitle: "Aus Figma einfügen",
         figmaPasteDescription:
-          "Kopiere einen Frame oder Layer in Figma und füge ihn in die Design-Leinwand ein. Figma-Metadaten werden direkt importiert, wenn sie verfügbar sind.",
+          "Kopiere einen Frame oder Layer in Figma und füge ihn in die Design-Leinwand ein. Design importiert das sichtbare Zwischenablage-HTML.",
         figmaPasteTarget: "In die Leinwand einfügen",
         figUploadTitle: ".fig hochladen",
         figUploadDescription:
@@ -10347,10 +10351,10 @@ const designImportOverrides = {
       import: {
         title: "インポート",
         description:
-          "Figma の選択範囲、.fig エクスポート、または単体 HTML を Design の画面として取り込みます。",
+          "Figma のクリップボード HTML または単体 HTML を Design の画面として取り込みます。",
         figmaPasteTitle: "Figma から貼り付け",
         figmaPasteDescription:
-          "Figma でフレームまたはレイヤーをコピーし、Design キャンバスに貼り付けます。利用可能な場合は Figma メタデータを直接インポートします。",
+          "Figma でフレームまたはレイヤーをコピーし、Design キャンバスに貼り付けます。Design は表示されているクリップボード HTML をインポートします。",
         figmaPasteTarget: "キャンバスに貼り付け",
         figUploadTitle: ".fig をアップロード",
         figUploadDescription:
@@ -10390,10 +10394,10 @@ const designImportOverrides = {
       import: {
         title: "가져오기",
         description:
-          "Figma 선택 영역, .fig 내보내기 또는 독립 HTML을 Design 화면으로 가져옵니다.",
+          "Figma 클립보드 HTML 또는 독립 HTML을 Design 화면으로 가져옵니다.",
         figmaPasteTitle: "Figma에서 붙여넣기",
         figmaPasteDescription:
-          "Figma에서 프레임이나 레이어를 복사한 뒤 Design 캔버스에 붙여넣으세요. 가능한 경우 Figma 메타데이터를 바로 가져옵니다.",
+          "Figma에서 프레임이나 레이어를 복사한 뒤 Design 캔버스에 붙여넣으세요. Design은 보이는 클립보드 HTML을 가져옵니다.",
         figmaPasteTarget: "캔버스에 붙여넣기",
         figUploadTitle: ".fig 업로드",
         figUploadDescription:
@@ -10433,10 +10437,10 @@ const designImportOverrides = {
       import: {
         title: "Importar",
         description:
-          "Traga seleções do Figma, exportações .fig ou HTML independente como telas do Design.",
+          "Traga HTML da área de transferência do Figma ou HTML independente como telas do Design.",
         figmaPasteTitle: "Colar do Figma",
         figmaPasteDescription:
-          "Copie um frame ou camada no Figma e cole na tela do Design. Os metadados do Figma são importados diretamente quando disponíveis.",
+          "Copie um frame ou camada no Figma e cole na tela do Design. O Design importa o HTML visível da área de transferência.",
         figmaPasteTarget: "Cole na tela",
         figUploadTitle: "Enviar .fig",
         figUploadDescription:
@@ -10476,10 +10480,10 @@ const designImportOverrides = {
       import: {
         title: "आयात",
         description:
-          "Figma selections, .fig exports या standalone HTML को Design screens के रूप में लाएँ।",
+          "Figma clipboard HTML या standalone HTML को Design screens के रूप में लाएँ।",
         figmaPasteTitle: "Figma से पेस्ट करें",
         figmaPasteDescription:
-          "Figma में frame या layer कॉपी करें, फिर Design canvas में paste करें। उपलब्ध होने पर Figma metadata सीधे import होता है।",
+          "Figma में frame या layer कॉपी करें, फिर Design canvas में paste करें। Design visible clipboard HTML import करता है।",
         figmaPasteTarget: "canvas में paste करें",
         figUploadTitle: ".fig अपलोड करें",
         figUploadDescription:
@@ -10518,11 +10522,10 @@ const designImportOverrides = {
     designEditor: {
       import: {
         title: "استيراد",
-        description:
-          "استورد تحديدات Figma أو ملفات .fig أو HTML مستقل كشاشات Design.",
+        description: "استورد HTML حافظة Figma أو HTML مستقلا كشاشات Design.",
         figmaPasteTitle: "لصق من Figma",
         figmaPasteDescription:
-          "انسخ إطارا أو طبقة في Figma، ثم الصقها في لوحة Design. يتم استيراد بيانات Figma الوصفية مباشرة عند توفرها.",
+          "انسخ إطارا أو طبقة في Figma، ثم الصقها في لوحة Design. يستورد Design HTML المرئي من الحافظة.",
         figmaPasteTarget: "الصق في اللوحة",
         figUploadTitle: "رفع .fig",
         figUploadDescription:

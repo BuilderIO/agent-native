@@ -41,4 +41,17 @@ describe("create-recording schema", () => {
 
     expect(parsed.success).toBe(true);
   });
+
+  it("keeps streaming opt-out optional for default-on recorder clients", () => {
+    const parsed = createRecordingSchema.safeParse({
+      hasCamera: true,
+      hasAudio: true,
+      mimeType: "video/webm",
+    });
+
+    expect(parsed.success).toBe(true);
+    if (parsed.success) {
+      expect(parsed.data.requestStreaming).toBeUndefined();
+    }
+  });
 });

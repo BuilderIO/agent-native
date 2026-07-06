@@ -16,6 +16,12 @@
 // MIME selection and the chunk-upload URL/param protocol are shared with the web
 // app recorder via @shared/recording-core so the server contract can't drift.
 
+import {
+  chooseFallbackAudioInput,
+  enumerateAudioInputDevices,
+  isLikelyPhoneMicLabel,
+  type AudioInputFallback,
+} from "@shared/media-device-selection";
 import { scheduleReadyChime } from "@shared/recording-audio";
 import {
   chunkUploadUrl,
@@ -380,17 +386,25 @@ async function getCameraStream(deviceId: string): Promise<MediaStream> {
 // ask the browser to SKIP its own noise suppression / AGC for those devices
 // (`{ ideal: false }` — a best-effort request, not a hard requirement). Echo
 // cancellation stays on for everything.
-const PHONE_MIC_LABEL_RE = /iphone|ipad|android phone|continuity|handoff/i;
-
-function isLikelyPhoneMic(label: string): boolean {
-  return PHONE_MIC_LABEL_RE.test(label);
+async function chooseFallbackMicDevice(
+  requestedLabel: string,
+  avoidDeviceIds: string[] = [],
+): Promise<AudioInputFallback | null> {
+  try {
+    return chooseFallbackAudioInput(await enumerateAudioInputDevices(), {
+      savedLabel: requestedLabel,
+      avoidDeviceIds,
+    });
+  } catch {
+    return null;
+  }
 }
 
 function voiceFocusedAudioConstraints(
   deviceId: string,
   deviceLabel = "",
 ): MediaTrackConstraints {
-  const skipRedundantProcessing = isLikelyPhoneMic(deviceLabel);
+  const skipRedundantProcessing = isLikelyPhoneMicLabel(deviceLabel);
   const audio: MediaTrackConstraints = {
     echoCancellation: true,
     noiseSuppression: skipRedundantProcessing ? { ideal: false } : true,
@@ -413,30 +427,48 @@ function isDeviceUnavailableError(error: unknown): boolean {
   );
 }
 
+function micLabelDiagnostic(label: string | null | undefined): string {
+  const value = label?.trim();
+  if (!value) return "empty";
+  if (isLikelyPhoneMicLabel(value)) return "phone-like";
+  if (/\b(?:macbook|built[- ]?in|internal microphone)\b/i.test(value)) {
+    return "built-in";
+  }
+  return "redacted";
+}
+
 async function getMicStream(
   deviceId: string,
   deviceLabel = "",
 ): Promise<MediaStream> {
-  const audio = voiceFocusedAudioConstraints(deviceId, deviceLabel);
+  const requestedDeviceId = deviceId;
+  const requestedDeviceLabel = deviceLabel;
+  const audio = voiceFocusedAudioConstraints(
+    requestedDeviceId,
+    requestedDeviceLabel,
+  );
   try {
     const stream = await navigator.mediaDevices.getUserMedia({
       audio,
       video: false,
     });
-    warnIfTrackDeviceMismatch("mic", deviceId, stream.getAudioTracks()[0]);
-    return stream;
+    return await correctMicStreamIfNeeded(
+      stream,
+      requestedDeviceId,
+      requestedDeviceLabel,
+    );
   } catch (error) {
-    if (!deviceId || !isDeviceUnavailableError(error)) throw error;
+    if (!requestedDeviceId || !isDeviceUnavailableError(error)) throw error;
 
     captureExtensionError(
       new Error(
-        "Selected Clips microphone was unavailable; using default mic.",
+        "Selected Clips microphone was unavailable; retrying an explicit fallback mic.",
       ),
       {
         tags: { surface: "offscreen", mechanism: "mic-device-fallback" },
         extra: {
-          requestedDeviceId: deviceId,
-          requestedDeviceLabel: deviceLabel,
+          requestedDeviceId,
+          requestedDeviceLabel: micLabelDiagnostic(requestedDeviceLabel),
           originalError:
             error instanceof Error
               ? { name: error.name, message: error.message }
@@ -445,10 +477,124 @@ async function getMicStream(
       },
     );
 
-    return navigator.mediaDevices.getUserMedia({
-      audio: voiceFocusedAudioConstraints(""),
+    const fallback = await chooseFallbackMicDevice(requestedDeviceLabel, [
+      requestedDeviceId,
+    ]);
+    if (fallback) {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          audio: voiceFocusedAudioConstraints(
+            fallback.deviceId,
+            fallback.label,
+          ),
+          video: false,
+        });
+        return correctMicStreamIfNeeded(
+          stream,
+          fallback.deviceId,
+          fallback.label,
+        );
+      } catch (fallbackError) {
+        if (!isDeviceUnavailableError(fallbackError)) throw fallbackError;
+        captureExtensionError(
+          new Error("Explicit Clips microphone fallback was unavailable."),
+          {
+            tags: { surface: "offscreen", mechanism: "mic-device-fallback" },
+            extra: {
+              requestedDeviceId,
+              requestedDeviceLabel: micLabelDiagnostic(requestedDeviceLabel),
+              fallbackDeviceId: fallback.deviceId,
+              fallbackDeviceLabel: micLabelDiagnostic(fallback.label),
+              fallbackReason: fallback.reason,
+              originalError:
+                fallbackError instanceof Error
+                  ? {
+                      name: fallbackError.name,
+                      message: fallbackError.message,
+                    }
+                  : String(fallbackError),
+            },
+          },
+        );
+      }
+    }
+
+    const stream = await navigator.mediaDevices.getUserMedia({
+      audio: voiceFocusedAudioConstraints("", ""),
       video: false,
     });
+    return correctMicStreamIfNeeded(stream, "", "");
+  }
+}
+
+async function correctMicStreamIfNeeded(
+  stream: MediaStream,
+  requestedDeviceId: string,
+  requestedDeviceLabel: string,
+): Promise<MediaStream> {
+  const track = stream.getAudioTracks()[0];
+  if (!track) return stream;
+  const settings = track.getSettings?.();
+  const actualDeviceId = settings?.deviceId ?? "";
+  const mismatched =
+    !!requestedDeviceId &&
+    !!actualDeviceId &&
+    actualDeviceId !== requestedDeviceId;
+  const phoneLike = isLikelyPhoneMicLabel(track.label);
+  if (!mismatched && !phoneLike) return stream;
+
+  warnIfTrackDeviceMismatch("mic", requestedDeviceId, track);
+  if (phoneLike) {
+    captureExtensionError(
+      new Error(
+        "Captured microphone looked phone-like; retrying fallback mic.",
+      ),
+      {
+        tags: {
+          surface: "offscreen",
+          mechanism: "mic-phone-capture-correction",
+        },
+        extra: {
+          requestedDeviceId,
+          requestedDeviceLabel: micLabelDiagnostic(requestedDeviceLabel),
+          actualDeviceId,
+          trackLabel: micLabelDiagnostic(track.label),
+        },
+      },
+    );
+  }
+  const fallback = await chooseFallbackMicDevice(requestedDeviceLabel, [
+    requestedDeviceId,
+    actualDeviceId,
+  ]);
+  if (!fallback) return stream;
+
+  try {
+    const replacement = await navigator.mediaDevices.getUserMedia({
+      audio: voiceFocusedAudioConstraints(fallback.deviceId, fallback.label),
+      video: false,
+    });
+    stream.getTracks().forEach((oldTrack) => oldTrack.stop());
+    return replacement;
+  } catch (error) {
+    captureExtensionError(
+      new Error("Corrective microphone fallback failed; keeping original mic."),
+      {
+        tags: { surface: "offscreen", mechanism: "mic-correction-failed" },
+        extra: {
+          requestedDeviceId,
+          requestedDeviceLabel: micLabelDiagnostic(requestedDeviceLabel),
+          fallbackDeviceId: fallback.deviceId,
+          fallbackDeviceLabel: micLabelDiagnostic(fallback.label),
+          fallbackReason: fallback.reason,
+          originalError:
+            error instanceof Error
+              ? { name: error.name, message: error.message }
+              : String(error),
+        },
+      },
+    );
+    return stream;
   }
 }
 
@@ -482,7 +628,7 @@ function warnIfTrackDeviceMismatch(
       extra: {
         requestedDeviceId,
         actualDeviceId,
-        trackLabel: track.label,
+        trackLabel: micLabelDiagnostic(track.label),
       },
     },
   );

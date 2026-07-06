@@ -496,6 +496,8 @@ struct SavedNativeRecording {
     recording_id: String,
     server_url: String,
     file_path: PathBuf,
+    #[serde(default)]
+    segment_paths: Vec<PathBuf>,
     mime_type: String,
     duration_ms: u128,
     width: Option<u32>,
@@ -697,7 +699,7 @@ fn start_native_session_locked(
                 if defer_recording_output {
                     return Err(sck_err);
                 }
-                if include_audio && !capture_system_audio && has_specific_mic {
+                if include_audio && has_specific_mic {
                     return Err(format!(
                         "ScreenCaptureKit recording failed before it could use the selected microphone ({sck_err}). Clips did not fall back to macOS screencapture because that would ignore your selected input."
                     ));
@@ -947,6 +949,39 @@ pub async fn native_fullscreen_recording_stop_and_upload(
     let _ = crate::clips::close_bubble(app.clone()).await;
     clear_recording_active(&app);
 
+    if multi_segment {
+        if let Err(merge_err) = &consolidate_outcome {
+            let mut saved = saved_recording_from_segments(
+                &session,
+                &server_url,
+                &recording_id,
+                duration_ms,
+                has_audio,
+                has_camera,
+            )?;
+            saved.last_error = Some(match &stop_outcome {
+                Err(stop_err) => {
+                    format!("{stop_err}. Segment consolidation failed: {merge_err}")
+                }
+                Ok(()) => merge_err.clone(),
+            });
+            write_saved_recording_metadata(&app, &saved)?;
+            emit_native_upload_progress(&app, "failed", "Upload paused", None, None);
+            let error = format!(
+                "{merge_err}. The raw clip segments were saved locally and can be retried from the Clips menu."
+            );
+            emit_native_upload_finished(
+                &app,
+                &server_url,
+                &recording_id,
+                false,
+                Some(error.clone()),
+                Some(&saved.file_path),
+            );
+            return Err(error);
+        }
+    }
+
     let mut saved = saved_recording_from_session(
         &session,
         &server_url,
@@ -1028,27 +1063,9 @@ pub async fn native_fullscreen_recording_stop_and_upload(
             Some(&saved.file_path),
         );
         return Err(error);
-    } else if let Err(merge_err) = &consolidate_outcome {
-        saved.last_error = Some(merge_err.clone());
     }
     write_saved_recording_metadata(&app, &saved)?;
     emit_native_upload_progress(&app, "preparing", "Optimizing clip", None, None);
-    if multi_segment {
-        if let Err(merge_err) = consolidate_outcome {
-            let error = format!(
-                "{merge_err}. The clip segments were saved locally and can be retried from the Clips menu."
-            );
-            emit_native_upload_finished(
-                &app,
-                &server_url,
-                &recording_id,
-                false,
-                Some(error.clone()),
-                Some(&saved.file_path),
-            );
-            return Err(error);
-        }
-    }
 
     let result = upload_recording_file(
         &app,
@@ -1630,6 +1647,14 @@ fn start_segment_backend(
         ) {
             Ok((backend, w, h)) => return Ok((backend, w, h)),
             Err(sck_err) => {
+                if include_audio
+                    && (mic_device_id.is_some_and(|value| !value.trim().is_empty())
+                        || mic_device_label.is_some_and(|value| !value.trim().is_empty()))
+                {
+                    return Err(format!(
+                        "ScreenCaptureKit resume failed before it could use the selected microphone ({sck_err}). Clips did not fall back to macOS screencapture because that would ignore your selected input."
+                    ));
+                }
                 eprintln!(
                     "[clips-tray] ScreenCaptureKit resume failed; falling back to screencapture: {sck_err}"
                 );
@@ -1709,12 +1734,7 @@ pub(crate) fn start_screencapturekit_backend_at(
     } else {
         filter_builder.build()
     };
-    let capture_microphone_in_recording = false;
-    if include_audio {
-        eprintln!(
-            "[clips-tray] ScreenCaptureKit microphone recording disabled; microphone audio stays out of SCRecordingOutput to avoid macOS 15 finalize timeouts"
-        );
-    }
+    let capture_microphone_in_recording = include_audio;
     let selected_mic = if capture_microphone_in_recording {
         resolve_microphone_capture_device(mic_device_id, mic_device_label)?
     } else {
@@ -1728,8 +1748,8 @@ pub(crate) fn start_screencapturekit_backend_at(
         .with_queue_depth(8)
         .with_shows_cursor(true)
         // Mic and system audio are independent toggles. SCK delivers them as
-        // separate inputs. We intentionally do not hand microphone buffers to
-        // SCRecordingOutput because macOS 15 can fail to finalize those MP4s.
+        // separate inputs so recordings can include both the user's mic and
+        // system audio.
         .with_captures_audio(capture_system_audio)
         .with_captures_microphone(capture_microphone_in_recording)
         .with_excludes_current_process_audio(true)
@@ -1951,7 +1971,7 @@ pub async fn native_fullscreen_pending_uploads(
         let Ok(saved) = read_saved_recording_metadata_path(&path) else {
             continue;
         };
-        if saved.file_path.exists() {
+        if saved_recording_has_local_artifact(&saved) {
             pending.push(PendingNativeRecording::from(&saved));
         } else {
             let _ = std::fs::remove_file(path);
@@ -2052,6 +2072,10 @@ fn describe_recording_path(path: &Path) -> String {
     )
 }
 
+fn saved_recording_has_local_artifact(saved: &SavedNativeRecording) -> bool {
+    saved.file_path.exists() || saved.segment_paths.iter().any(|path| path.exists())
+}
+
 fn pending_uploads_dir(app: &AppHandle) -> Result<PathBuf, String> {
     let dir = app
         .path()
@@ -2134,6 +2158,37 @@ fn names_match(a: &str, b: &str) -> bool {
 }
 
 #[cfg(target_os = "macos")]
+fn is_built_in_input_name(value: &str) -> bool {
+    let value = normalize_audio_device_name(value);
+    value.contains("macbook")
+        || value.contains("built in")
+        || value.contains("builtin")
+        || value.contains("internal microphone")
+}
+
+#[cfg(target_os = "macos")]
+fn is_phone_input_name(value: &str) -> bool {
+    let value = normalize_audio_device_name(value);
+    value.contains("iphone")
+        || value.contains("ipad")
+        || value.contains("continuity")
+        || value.contains("phone microphone")
+}
+
+#[cfg(target_os = "macos")]
+fn preferred_default_microphone_device(devices: &[AudioInputDevice]) -> Option<AudioInputDevice> {
+    devices
+        .iter()
+        .find(|device| is_built_in_input_name(&device.name))
+        .or_else(|| {
+            devices
+                .iter()
+                .find(|device| !is_phone_input_name(&device.name))
+        })
+        .cloned()
+}
+
+#[cfg(target_os = "macos")]
 fn resolve_microphone_capture_device(
     device_id: Option<&str>,
     device_label: Option<&str>,
@@ -2143,11 +2198,6 @@ fn resolve_microphone_capture_device(
         .map(str::trim)
         .filter(|value| !value.is_empty());
 
-    if device_id.is_none() && device_label.is_none() {
-        eprintln!("[clips-tray] audio input devices not provided");
-        return Ok(None);
-    }
-
     let devices = AudioInputDevice::list();
     devices.iter().for_each(|device| {
         eprintln!(
@@ -2155,6 +2205,18 @@ fn resolve_microphone_capture_device(
             device.id, device.name
         );
     });
+
+    if device_id.is_none() && device_label.is_none() {
+        let resolved = preferred_default_microphone_device(&devices);
+        eprintln!(
+            "[clips-tray] mic resolve: no explicit input provided -> {}",
+            match &resolved {
+                Some(device) => format!("using {} ({})", device.name, device.id),
+                None => "using macOS default input".to_string(),
+            }
+        );
+        return Ok(resolved);
+    }
 
     let resolved = device_id
         .and_then(|id| devices.iter().find(|device| device.id == id))
@@ -2382,9 +2444,70 @@ fn saved_recording_from_session(
     has_audio: bool,
     has_camera: bool,
 ) -> Result<SavedNativeRecording, String> {
-    let bytes = std::fs::metadata(&session.path)
+    saved_recording_from_path(
+        session,
+        &session.path,
+        Vec::new(),
+        server_url,
+        recording_id,
+        duration_ms,
+        has_audio,
+        has_camera,
+    )
+}
+
+fn saved_recording_from_segments(
+    session: &NativeFullscreenSession,
+    server_url: &str,
+    recording_id: &str,
+    duration_ms: u128,
+    has_audio: bool,
+    has_camera: bool,
+) -> Result<SavedNativeRecording, String> {
+    let segment_paths: Vec<PathBuf> = session
+        .segments
+        .iter()
+        .filter(|path| path.exists())
+        .cloned()
+        .collect();
+    let fallback_path = segment_paths
+        .iter()
+        .find(|path| playable_recording_file(path, session.mime_type))
+        .or_else(|| {
+            segment_paths.iter().find(|path| {
+                std::fs::metadata(path)
+                    .map(|meta| meta.len() > 0)
+                    .unwrap_or(false)
+            })
+        })
+        .cloned()
+        .ok_or_else(|| "No local recording segment survived consolidation failure.".to_string())?;
+
+    saved_recording_from_path(
+        session,
+        &fallback_path,
+        segment_paths,
+        server_url,
+        recording_id,
+        duration_ms,
+        has_audio,
+        has_camera,
+    )
+}
+
+fn saved_recording_from_path(
+    session: &NativeFullscreenSession,
+    file_path: &Path,
+    segment_paths: Vec<PathBuf>,
+    server_url: &str,
+    recording_id: &str,
+    duration_ms: u128,
+    has_audio: bool,
+    has_camera: bool,
+) -> Result<SavedNativeRecording, String> {
+    let bytes = std::fs::metadata(file_path)
         .map_err(|e| {
-            let diag = describe_recording_path(&session.path);
+            let diag = describe_recording_path(file_path);
             eprintln!(
                 "[clips-tray] native recording file missing at save: {e}; backend={}, segments={}, {diag}",
                 session.mime_type,
@@ -2396,7 +2519,7 @@ fn saved_recording_from_session(
     if bytes == 0 {
         eprintln!(
             "[clips-tray] native recording empty at save: {}",
-            describe_recording_path(&session.path)
+            describe_recording_path(file_path)
         );
         return Err("Native recording produced an empty file.".into());
     }
@@ -2404,7 +2527,8 @@ fn saved_recording_from_session(
     Ok(SavedNativeRecording {
         recording_id: recording_id.to_string(),
         server_url: server_url.trim_end_matches('/').to_string(),
-        file_path: session.path.clone(),
+        file_path: file_path.to_path_buf(),
+        segment_paths,
         mime_type: session.mime_type.to_string(),
         duration_ms,
         width: session.width,
@@ -2456,6 +2580,11 @@ fn remove_saved_file(path: &Path, label: &str) -> Result<(), String> {
 
 fn clear_saved_recording(app: &AppHandle, saved: &SavedNativeRecording) -> Result<(), String> {
     remove_saved_file(&saved.file_path, "pending recording file")?;
+    for segment_path in &saved.segment_paths {
+        if segment_path != &saved.file_path {
+            remove_saved_file(segment_path, "pending recording segment")?;
+        }
+    }
     let path = saved_recording_metadata_path(app, &saved.recording_id)?;
     remove_saved_file(&path, "pending recording metadata")
 }
@@ -2586,7 +2715,7 @@ fn start_screencapturekit_recording(
             safe_id: safe_id.to_string(),
             include_audio,
             capture_system_audio,
-            mic_captured_in_file: false,
+            mic_captured_in_file: include_audio,
             mic_device_id: mic_device_id.map(str::to_string),
             mic_device_label: mic_device_label.map(str::to_string),
             segment_counter: 0,
@@ -2981,16 +3110,7 @@ async fn upload_saved_recording_file(
     auth_token: String,
     cookie: String,
 ) -> Result<NativeFullscreenUploadResult, String> {
-    let prepared = prepare_recording_file(
-        app,
-        &saved.file_path,
-        &saved.mime_type,
-        saved.width,
-        saved.height,
-        Some(saved.duration_ms),
-        saved.has_audio,
-        saved.mic_captured,
-    )?;
+    let (prepared, retry_combined_path) = prepare_saved_recording_file(app, saved)?;
     let upload_result = upload_prepared_recording_file(
         app,
         &prepared,
@@ -3009,7 +3129,62 @@ async fn upload_saved_recording_file(
     if prepared.temporary {
         let _ = std::fs::remove_file(&prepared.path);
     }
+    if let Some(path) = retry_combined_path {
+        if path != prepared.path || !prepared.temporary {
+            let _ = std::fs::remove_file(path);
+        }
+    }
     upload_result
+}
+
+fn prepare_saved_recording_file(
+    app: &AppHandle,
+    saved: &SavedNativeRecording,
+) -> Result<(PreparedRecordingFile, Option<PathBuf>), String> {
+    let retry_combined_path = if saved.segment_paths.len() > 1 {
+        let output = retry_combined_recording_path(saved);
+        let _ = std::fs::remove_file(&output);
+        concat_saved_recording_segments(&saved.segment_paths, &output)?;
+        Some(output)
+    } else {
+        None
+    };
+    let source_path = retry_combined_path
+        .as_ref()
+        .unwrap_or(&saved.file_path)
+        .to_path_buf();
+    let prepared = prepare_recording_file(
+        app,
+        &source_path,
+        &saved.mime_type,
+        saved.width,
+        saved.height,
+        Some(saved.duration_ms),
+        saved.has_audio,
+        saved.mic_captured,
+    )?;
+    Ok((prepared, retry_combined_path))
+}
+
+fn retry_combined_recording_path(saved: &SavedNativeRecording) -> PathBuf {
+    let stem = saved
+        .file_path
+        .file_stem()
+        .and_then(|value| value.to_str())
+        .unwrap_or("recording");
+    saved
+        .file_path
+        .with_file_name(format!("{stem}-retry-combined.mp4"))
+}
+
+#[cfg(target_os = "macos")]
+fn concat_saved_recording_segments(segments: &[PathBuf], output: &Path) -> Result<(), String> {
+    concat_mp4_segments(segments, output)
+}
+
+#[cfg(not(target_os = "macos"))]
+fn concat_saved_recording_segments(_segments: &[PathBuf], _output: &Path) -> Result<(), String> {
+    Err("Segment concat is only available on macOS.".into())
 }
 
 async fn upload_prepared_recording_file(
@@ -4259,6 +4434,26 @@ fn wait_for_transcode_child(
 /// re-encoding, so concat is roughly disk-IO bound. Called from
 /// `consolidate_segments_into_path` after every segment has been
 /// finalized by `stop_native_recording(_, wait_for_finalize=true)`.
+fn validate_recording_segment_file(path: &Path) -> Result<(), String> {
+    match std::fs::metadata(path) {
+        Ok(meta) if meta.len() > 0 => {}
+        Ok(_) => return Err(format!("recording segment is empty: {}", path.display())),
+        Err(err) => {
+            return Err(format!(
+                "recording segment is missing or unreadable: {} ({err})",
+                path.display()
+            ));
+        }
+    }
+    if mp4_has_moov(path) == Some(false) {
+        return Err(format!(
+            "recording segment is missing playback metadata: {}",
+            path.display()
+        ));
+    }
+    Ok(())
+}
+
 #[cfg(target_os = "macos")]
 fn concat_mp4_segments(segments: &[PathBuf], output: &Path) -> Result<(), String> {
     use std::ffi::CString;
@@ -4420,22 +4615,7 @@ fn concat_mp4_segments(segments: &[PathBuf], output: &Path) -> Result<(), String
         let mut appended_any = false;
 
         for path in segments {
-            match std::fs::metadata(path) {
-                Ok(meta) if meta.len() > 0 => {}
-                Ok(_) => return Err(format!("recording segment is empty: {}", path.display())),
-                Err(err) => {
-                    return Err(format!(
-                        "recording segment is missing or unreadable: {} ({err})",
-                        path.display()
-                    ));
-                }
-            }
-            if mp4_has_moov(path) == Some(false) {
-                return Err(format!(
-                    "recording segment is missing playback metadata: {}",
-                    path.display()
-                ));
-            }
+            validate_recording_segment_file(path)?;
             let url = file_url(path)
                 .ok_or_else(|| format!("could not build NSURL for {}", path.display()))?;
             let asset: *mut AnyObject = msg_send![asset_cls, URLAssetWithURL: &*url, options: std::ptr::null::<AnyObject>()];
@@ -4685,8 +4865,8 @@ mod audio_track_probe_tests {
 #[cfg(test)]
 mod segment_recovery_tests {
     use super::{
-        recover_from_unusable_current_segment, NativeFullscreenSession, RestartInfo,
-        MP4_RECORDING_MIME_TYPE,
+        recover_from_unusable_current_segment, validate_recording_segment_file,
+        NativeFullscreenSession, RestartInfo, MP4_RECORDING_MIME_TYPE,
     };
     use std::io::Write;
     use std::path::PathBuf;
@@ -4814,5 +4994,31 @@ mod segment_recovery_tests {
 
         let _ = std::fs::remove_file(first);
         let _ = std::fs::remove_file(second);
+    }
+
+    #[test]
+    fn concat_validation_rejects_bad_middle_segment() {
+        let first = temp_path("middle-first");
+        let bad = temp_path("middle-bad");
+        let last = temp_path("middle-last");
+        write_mp4(&first, true);
+        write_mp4(&bad, false);
+        write_mp4(&last, true);
+
+        let mut error = None;
+        for path in [&first, &bad, &last] {
+            if let Err(err) = validate_recording_segment_file(path) {
+                error = Some(err);
+                break;
+            }
+        }
+
+        let err = error.expect("bad middle segment should fail concat validation");
+        assert!(err.contains("missing playback metadata"));
+        assert!(err.contains(bad.to_string_lossy().as_ref()));
+
+        let _ = std::fs::remove_file(first);
+        let _ = std::fs::remove_file(bad);
+        let _ = std::fs::remove_file(last);
     }
 }

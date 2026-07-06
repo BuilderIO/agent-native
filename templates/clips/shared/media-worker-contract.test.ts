@@ -54,6 +54,15 @@ describe("media-worker-contract", () => {
         nowMs: 2_400_001,
       }),
     ).toEqual({ ok: false, reason: "stale-timestamp" });
+    expect(
+      verifyMediaWorkerSignature({
+        rawBody,
+        secret: "test-secret",
+        timestamp: headers[MEDIA_WORKER_TIMESTAMP_HEADER],
+        signature: headers[MEDIA_WORKER_SIGNATURE_HEADER],
+        nowMs: 1_599_999,
+      }),
+    ).toEqual({ ok: false, reason: "stale-timestamp" });
   });
 
   it("parses only valid callbacks", () => {
