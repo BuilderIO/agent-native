@@ -188,9 +188,7 @@ interface SlackInstallationsResponse {
 
 async function loadSettings(): Promise<ClipsUserSettings> {
   try {
-    const res = await fetch(
-      agentNativePath("/_agent-native/settings/clips-user-prefs"),
-    );
+    const res = await fetch(agentNativePath("/_agent-native/clips/user-prefs"));
     if (!res.ok) return {};
     const json = await res.json();
     // The store's GET returns the stored object directly, not wrapped.
@@ -204,14 +202,11 @@ async function loadSettings(): Promise<ClipsUserSettings> {
 }
 
 async function saveSettings(value: ClipsUserSettings): Promise<void> {
-  const res = await fetch(
-    agentNativePath("/_agent-native/settings/clips-user-prefs"),
-    {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(value),
-    },
-  );
+  const res = await fetch(agentNativePath("/_agent-native/clips/user-prefs"), {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(value),
+  });
   if (!res.ok) {
     throw new Error(`Save failed (${res.status})`);
   }
