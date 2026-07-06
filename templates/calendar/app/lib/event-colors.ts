@@ -133,6 +133,10 @@ export function getEventDisplayColor(
   event: CalendarEvent,
   preferences?: CalendarColorPreferences,
 ): string {
+  if (event.overlayEmail && event.ownerColor) {
+    return event.ownerColor;
+  }
+
   if (event.source === "google" && !event.overlayEmail && preferences) {
     const accountKey = event.accountEmail;
     const accountMode = accountKey
@@ -148,7 +152,7 @@ export function getEventDisplayColor(
     } else if (preferences.colorMode === "single" && preferences.singleColor) {
       // No per-account choice yet — fall back to the legacy global setting so
       // existing single-account users keep their color after the upgrade.
-      return preferences.singleColor;
+      return accountColor ?? preferences.singleColor;
     }
   }
   return getEventAutoColor(event);

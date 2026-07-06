@@ -1,6 +1,5 @@
-import { agentNativePath } from "@agent-native/core/client";
-import { useQuery } from "@tanstack/react-query";
-import { useState, useCallback, useEffect } from "react";
+import { agentNativePath, callAction } from "@agent-native/core/client";
+import { useState, useCallback, useEffect, useRef } from "react";
 
 import {
   CALENDAR_COLOR_MODE_KEY,
@@ -16,6 +15,14 @@ import {
 
 export type ViewPreferences = CalendarViewPreferences;
 
+const PENDING_ACCOUNT_COLORS_KEY = `${CALENDAR_VIEW_PREFERENCES_KEY}:pending-account-colors`;
+const PENDING_ACCOUNT_COLORS_TTL_MS = 30_000;
+
+interface PendingAccountColors {
+  colors: Record<string, string>;
+  expiresAt: number;
+}
+
 function load(): CalendarViewPreferences {
   try {
     const raw = localStorage.getItem(CALENDAR_VIEW_PREFERENCES_KEY);
@@ -30,6 +37,62 @@ function load(): CalendarViewPreferences {
   } catch {
     return DEFAULT_CALENDAR_VIEW_PREFERENCES;
   }
+}
+
+function loadPendingAccountPreferences(): PendingAccountColors | null {
+  try {
+    const raw = localStorage.getItem(PENDING_ACCOUNT_COLORS_KEY);
+    if (!raw) return null;
+    const pending = JSON.parse(raw) as PendingAccountColors;
+    if (!pending.expiresAt || pending.expiresAt < Date.now()) {
+      localStorage.removeItem(PENDING_ACCOUNT_COLORS_KEY);
+      return null;
+    }
+    return pending.colors && typeof pending.colors === "object"
+      ? pending
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function loadPendingAccountColors(): Record<string, string> {
+  return loadPendingAccountPreferences()?.colors ?? {};
+}
+
+function savePendingAccountColor(accountEmail: string, accountColor: string) {
+  try {
+    localStorage.setItem(
+      PENDING_ACCOUNT_COLORS_KEY,
+      JSON.stringify({
+        colors: {
+          ...loadPendingAccountColors(),
+          [accountEmail]: accountColor,
+        },
+        expiresAt: Date.now() + PENDING_ACCOUNT_COLORS_TTL_MS,
+      } satisfies PendingAccountColors),
+    );
+  } catch {}
+}
+
+function clearPendingAccountColor(accountEmail: string) {
+  try {
+    const pending = loadPendingAccountPreferences();
+    if (!pending) return;
+    const colors = { ...pending.colors };
+    delete colors[accountEmail];
+    if (Object.keys(colors).length === 0) {
+      localStorage.removeItem(PENDING_ACCOUNT_COLORS_KEY);
+      return;
+    }
+    localStorage.setItem(
+      PENDING_ACCOUNT_COLORS_KEY,
+      JSON.stringify({
+        colors,
+        expiresAt: Date.now() + PENDING_ACCOUNT_COLORS_TTL_MS,
+      } satisfies PendingAccountColors),
+    );
+  } catch {}
 }
 
 function save(prefs: CalendarViewPreferences) {
@@ -51,23 +114,12 @@ async function readAppStatePreferences(): Promise<CalendarViewPreferences | null
   return normalizeCalendarViewPreferences(await res.json());
 }
 
-function writeAppStatePreferences(prefs: CalendarViewPreferences) {
-  fetch(
-    agentNativePath(
-      `/_agent-native/application-state/${CALENDAR_VIEW_PREFERENCES_KEY}`,
-    ),
-    {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(prefs),
-    },
-  ).catch(() => {});
-}
-
 export function useViewPreferences() {
   const [prefs, setPrefs] = useState<ViewPreferences>(load);
+  const accountColorRequestIds = useRef<Record<string, number>>({});
+  const accountModeRequestIds = useRef<Record<string, number>>({});
+  const pendingAccountColors = useRef<Record<string, string>>({});
 
-  // Sync across components in the same tab via custom event
   useEffect(() => {
     function handle() {
       setPrefs(load());
@@ -83,68 +135,256 @@ export function useViewPreferences() {
     };
   }, []);
 
-  // Shared across every mounted instance of this hook via the react-query
-  // cache — only one poller runs regardless of how many components call
-  // useViewPreferences() concurrently.
-  const { data: remote } = useQuery({
-    queryKey: ["agent-native", CALENDAR_VIEW_PREFERENCES_KEY],
-    queryFn: readAppStatePreferences,
-    refetchInterval: 4_000,
-    staleTime: 2_000,
-  });
-
   useEffect(() => {
-    if (!remote) return;
-    setPrefs((current) => {
-      if (calendarViewPreferencesEqual(current, remote)) return current;
-      save(remote);
-      window.dispatchEvent(new Event(CALENDAR_VIEW_PREFERENCES_CHANGE_EVENT));
-      return remote;
-    });
-  }, [remote]);
+    let cancelled = false;
+    let timeout: number | undefined;
+
+    async function refresh() {
+      try {
+        const remote = await readAppStatePreferences();
+        if (!cancelled && remote) {
+          setPrefs((current) => {
+            const pendingPreferences = loadPendingAccountPreferences();
+            const pendingColors = {
+              ...(pendingPreferences?.colors ?? {}),
+              ...pendingAccountColors.current,
+            };
+            const next =
+              Object.keys(pendingColors).length > 0
+                ? normalizeCalendarViewPreferences({
+                    ...remote,
+                    accountColorModes: {
+                      ...remote.accountColorModes,
+                      ...Object.fromEntries(
+                        Object.keys(pendingColors).map((accountEmail) => [
+                          accountEmail,
+                          "single" as const,
+                        ]),
+                      ),
+                    },
+                    accountColors: {
+                      ...remote.accountColors,
+                      ...pendingColors,
+                    },
+                  })
+                : remote;
+
+            if (calendarViewPreferencesEqual(current, next)) return current;
+            save(next);
+            window.dispatchEvent(
+              new Event(CALENDAR_VIEW_PREFERENCES_CHANGE_EVENT),
+            );
+            return next;
+          });
+        }
+      } catch {
+        // Preferences are a UI convenience; keep the local copy if app-state
+        // is temporarily unavailable.
+      } finally {
+        if (!cancelled) timeout = window.setTimeout(refresh, 2_000);
+      }
+    }
+
+    void refresh();
+    return () => {
+      cancelled = true;
+      if (timeout) window.clearTimeout(timeout);
+    };
+  }, []);
 
   const update = useCallback((patch: Partial<ViewPreferences>) => {
     setPrefs((prev) => {
       const next = normalizeCalendarViewPreferences({ ...prev, ...patch });
       save(next);
-      writeAppStatePreferences(next);
       window.dispatchEvent(new Event(CALENDAR_VIEW_PREFERENCES_CHANGE_EVENT));
       return next;
     });
+    callAction("update-calendar-visual-preferences", patch).catch(() => {});
   }, []);
 
   const updateAccountColor = useCallback(
-    (accountKey: string, color: string) => {
+    (accountEmail: string, accountColor: string) => {
+      const requestId = (accountColorRequestIds.current[accountEmail] ?? 0) + 1;
+      accountColorRequestIds.current[accountEmail] = requestId;
+      pendingAccountColors.current[accountEmail] = accountColor;
+      savePendingAccountColor(accountEmail, accountColor);
+      let rollbackPrefs: CalendarViewPreferences | null = null;
+
       setPrefs((prev) => {
+        rollbackPrefs = prev;
         const next = normalizeCalendarViewPreferences({
           ...prev,
           accountColorModes: {
             ...prev.accountColorModes,
-            [accountKey]: "single",
+            [accountEmail]: "single",
           },
-          accountColors: { ...prev.accountColors, [accountKey]: color },
+          accountColors: {
+            ...prev.accountColors,
+            [accountEmail]: accountColor,
+          },
         });
         save(next);
-        writeAppStatePreferences(next);
         window.dispatchEvent(new Event(CALENDAR_VIEW_PREFERENCES_CHANGE_EVENT));
         return next;
       });
+
+      callAction("update-calendar-visual-preferences", {
+        accountEmail,
+        accountColor,
+      })
+        .then((result) => {
+          if (accountColorRequestIds.current[accountEmail] !== requestId) {
+            return;
+          }
+          delete pendingAccountColors.current[accountEmail];
+          clearPendingAccountColor(accountEmail);
+
+          const preferences = (result as { preferences?: unknown }).preferences;
+          if (!preferences) return;
+          const serverPrefs = normalizeCalendarViewPreferences(preferences);
+          setPrefs((current) => {
+            const next = normalizeCalendarViewPreferences({
+              ...current,
+              accountColorModes: {
+                ...current.accountColorModes,
+                [accountEmail]:
+                  serverPrefs.accountColorModes[accountEmail] ?? "single",
+              },
+              accountColors: {
+                ...current.accountColors,
+                [accountEmail]:
+                  serverPrefs.accountColors[accountEmail] ?? accountColor,
+              },
+            });
+            if (calendarViewPreferencesEqual(current, next)) return current;
+            save(next);
+            window.dispatchEvent(
+              new Event(CALENDAR_VIEW_PREFERENCES_CHANGE_EVENT),
+            );
+            return next;
+          });
+        })
+        .catch(() => {
+          if (accountColorRequestIds.current[accountEmail] === requestId) {
+            delete pendingAccountColors.current[accountEmail];
+            clearPendingAccountColor(accountEmail);
+            setPrefs((current) => {
+              if (!rollbackPrefs) return current;
+              const accountColors = { ...current.accountColors };
+              const accountColorModes = { ...current.accountColorModes };
+              const previousAccountColor =
+                rollbackPrefs.accountColors[accountEmail];
+              const previousAccountMode =
+                rollbackPrefs.accountColorModes[accountEmail];
+              if (current.accountColors[accountEmail] === accountColor) {
+                if (previousAccountColor) {
+                  accountColors[accountEmail] = previousAccountColor;
+                } else {
+                  delete accountColors[accountEmail];
+                }
+                if (previousAccountMode) {
+                  accountColorModes[accountEmail] = previousAccountMode;
+                } else {
+                  delete accountColorModes[accountEmail];
+                }
+              }
+              const next = normalizeCalendarViewPreferences({
+                ...current,
+                accountColorModes,
+                accountColors,
+              });
+              if (calendarViewPreferencesEqual(current, next)) return current;
+              save(next);
+              window.dispatchEvent(
+                new Event(CALENDAR_VIEW_PREFERENCES_CHANGE_EVENT),
+              );
+              return next;
+            });
+          }
+        });
     },
     [],
   );
 
   const updateAccountColorMode = useCallback(
-    (accountKey: string, mode: CalendarColorMode) => {
+    (accountEmail: string, accountColorMode: CalendarColorMode) => {
+      const requestId = (accountModeRequestIds.current[accountEmail] ?? 0) + 1;
+      accountModeRequestIds.current[accountEmail] = requestId;
+      let rollbackPrefs: CalendarViewPreferences | null = null;
+
       setPrefs((prev) => {
+        rollbackPrefs = prev;
         const next = normalizeCalendarViewPreferences({
           ...prev,
-          accountColorModes: { ...prev.accountColorModes, [accountKey]: mode },
+          accountColorModes: {
+            ...prev.accountColorModes,
+            [accountEmail]: accountColorMode,
+          },
         });
         save(next);
-        writeAppStatePreferences(next);
         window.dispatchEvent(new Event(CALENDAR_VIEW_PREFERENCES_CHANGE_EVENT));
         return next;
       });
+
+      callAction("update-calendar-visual-preferences", {
+        accountEmail,
+        accountColorMode,
+      })
+        .then((result) => {
+          if (accountModeRequestIds.current[accountEmail] !== requestId) {
+            return;
+          }
+          const preferences = (result as { preferences?: unknown }).preferences;
+          if (!preferences) return;
+          const serverPrefs = normalizeCalendarViewPreferences(preferences);
+          setPrefs((current) => {
+            const next = normalizeCalendarViewPreferences({
+              ...current,
+              accountColorModes: {
+                ...current.accountColorModes,
+                [accountEmail]:
+                  serverPrefs.accountColorModes[accountEmail] ??
+                  accountColorMode,
+              },
+            });
+            if (calendarViewPreferencesEqual(current, next)) return current;
+            save(next);
+            window.dispatchEvent(
+              new Event(CALENDAR_VIEW_PREFERENCES_CHANGE_EVENT),
+            );
+            return next;
+          });
+        })
+        .catch(() => {
+          if (accountModeRequestIds.current[accountEmail] === requestId) {
+            setPrefs((current) => {
+              if (!rollbackPrefs) return current;
+              if (
+                current.accountColorModes[accountEmail] !== accountColorMode
+              ) {
+                return current;
+              }
+              const accountColorModes = { ...current.accountColorModes };
+              const previousAccountMode =
+                rollbackPrefs.accountColorModes[accountEmail];
+              if (previousAccountMode) {
+                accountColorModes[accountEmail] = previousAccountMode;
+              } else {
+                delete accountColorModes[accountEmail];
+              }
+              const next = normalizeCalendarViewPreferences({
+                ...current,
+                accountColorModes,
+              });
+              if (calendarViewPreferencesEqual(current, next)) return current;
+              save(next);
+              window.dispatchEvent(
+                new Event(CALENDAR_VIEW_PREFERENCES_CHANGE_EVENT),
+              );
+              return next;
+            });
+          }
+        });
     },
     [],
   );

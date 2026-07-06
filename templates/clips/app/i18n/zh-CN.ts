@@ -415,6 +415,8 @@ const messages = {
       "获取这个 Clips 代理上下文 URL：{{agentContextUrl}}。使用 transcript.segments 读取语音上下文，获取 recommendedFrames 或帧 API URL 来查看屏幕，并在 browserDiagnostics 存在时检查经过脱敏的控制台日志和 fetch/XHR 请求元数据。",
     agentTokenDescription:
       "这个临时代理 URL 可让代理读取剪辑，而无需将其设为公开。它会在两小时后过期。",
+    agentLinkUnavailable: "无法创建代理链接。",
+    retryAgentLink: "重试",
     gifPreview: "GIF 预览",
     openPlayer: "开放玩家",
     downloadMp4: "下载MP4",
