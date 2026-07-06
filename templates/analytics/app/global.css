@@ -571,6 +571,31 @@
 /* The dashboard grid responds to the available content width — which shrinks
    when the agent sidebar is open — not the viewport. Rows are rendered
    explicitly so deleting a card only expands the remaining cards in that row. */
+.dashboard-title-resource-meta {
+  container: dashboard-title-resource-meta / inline-size;
+  width: 100%;
+}
+
+@container dashboard-title-resource-meta (max-width: 380px) {
+  .dashboard-title-resource-chip {
+    width: 1.25rem;
+    justify-content: center;
+    padding-inline: 0;
+  }
+
+  .dashboard-title-resource-chip-label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    white-space: nowrap;
+    border-width: 0;
+    clip: rect(0, 0, 0, 0);
+  }
+}
+
 .dashboard-grid-container {
   --dashboard-drop-line: hsl(217 91% 60%);
   container: dashboard-grid / inline-size;

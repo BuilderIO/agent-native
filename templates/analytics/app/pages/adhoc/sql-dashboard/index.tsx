@@ -102,6 +102,7 @@ import {
   resourceCanManage,
   type ResourceAccess,
 } from "@/lib/resource-access";
+import { ownerDisplayName, visibilityLabelKey } from "@/lib/resource-metadata";
 
 import BlankDashboard from "../BlankDashboard";
 import { DashboardSkeleton } from "../DashboardSkeleton";
@@ -1317,33 +1318,84 @@ export default function SqlDashboardPage() {
     [saveView],
   );
 
+  const dashboardOwnerName = ownerDisplayName(dashboardOwner);
+  const dashboardVisibilityLabel = dashboardVisibility
+    ? t(visibilityLabelKey(dashboardVisibility))
+    : null;
+  const DashboardVisibilityIcon =
+    dashboardVisibility === "public"
+      ? IconWorld
+      : dashboardVisibility === "org"
+        ? IconBuilding
+        : IconLock;
+
   useSetPageTitle(
     reportScreenshot ? null : dashboard ? (
-      <div className="flex items-center gap-2 min-w-0">
-        {editingName && canEdit ? (
-          <Input
-            value={nameInput}
-            onChange={(e) => setNameInput(e.target.value)}
-            onBlur={handleSaveName}
-            onKeyDown={(e) => e.key === "Enter" && handleSaveName()}
-            className="h-8 w-full sm:w-64 text-lg font-semibold"
-            autoFocus
-          />
-        ) : canEdit ? (
-          <button
-            className="group text-lg font-semibold hover:text-primary flex items-center gap-1 truncate"
-            onClick={() => {
-              setNameInput(dashboard.name);
-              setEditingName(true);
-            }}
-          >
-            <span className="truncate">{dashboard.name}</span>
-            <IconPencil className="h-3.5 w-3.5 text-muted-foreground shrink-0 opacity-0 group-hover:opacity-100" />
-          </button>
-        ) : (
-          <span className="truncate text-lg font-semibold">
-            {dashboard.name}
-          </span>
+      <div className="dashboard-title-resource-meta flex w-full min-w-0 flex-col gap-0.5">
+        <div className="flex min-w-0 items-center gap-2">
+          {editingName && canEdit ? (
+            <Input
+              value={nameInput}
+              onChange={(e) => setNameInput(e.target.value)}
+              onBlur={handleSaveName}
+              onKeyDown={(e) => e.key === "Enter" && handleSaveName()}
+              className="h-8 w-full sm:w-64 text-lg font-semibold"
+              autoFocus
+            />
+          ) : canEdit ? (
+            <button
+              className="group flex min-w-0 items-center gap-1 truncate text-lg font-semibold hover:text-primary"
+              onClick={() => {
+                setNameInput(dashboard.name);
+                setEditingName(true);
+              }}
+            >
+              <span className="truncate">{dashboard.name}</span>
+              <IconPencil className="h-3.5 w-3.5 shrink-0 text-muted-foreground opacity-0 group-hover:opacity-100" />
+            </button>
+          ) : (
+            <span className="truncate text-lg font-semibold">
+              {dashboard.name}
+            </span>
+          )}
+        </div>
+        {(dashboardVisibilityLabel || dashboardOwnerName) && (
+          <div className="dashboard-title-resource-badges flex min-w-0 flex-nowrap items-center gap-1.5 overflow-hidden text-[11px] leading-none text-muted-foreground">
+            {dashboardVisibility && dashboardVisibilityLabel ? (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span
+                    className="dashboard-title-resource-chip inline-flex h-5 max-w-[8rem] shrink-0 items-center gap-1 rounded-full border border-border/80 px-1.5 py-0.5"
+                    aria-label={dashboardVisibilityLabel}
+                    tabIndex={0}
+                  >
+                    <DashboardVisibilityIcon className="h-3 w-3 shrink-0" />
+                    <span className="dashboard-title-resource-chip-label truncate">
+                      {dashboardVisibilityLabel}
+                    </span>
+                  </span>
+                </TooltipTrigger>
+                <TooltipContent>{dashboardVisibilityLabel}</TooltipContent>
+              </Tooltip>
+            ) : null}
+            {dashboardOwnerName && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span
+                    className="dashboard-title-resource-chip inline-flex h-5 max-w-[8rem] shrink-0 items-center gap-1 rounded-full border border-border/80 px-1.5 py-0.5"
+                    aria-label={dashboardOwnerName}
+                    tabIndex={0}
+                  >
+                    <IconUser className="h-3 w-3 shrink-0" />
+                    <span className="dashboard-title-resource-chip-label truncate">
+                      {dashboardOwnerName}
+                    </span>
+                  </span>
+                </TooltipTrigger>
+                <TooltipContent>{dashboardOwnerName}</TooltipContent>
+              </Tooltip>
+            )}
+          </div>
         )}
       </div>
     ) : dashboardId && !loaded ? (

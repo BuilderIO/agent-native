@@ -19,6 +19,7 @@ import {
   IconPlus,
   IconBuilding,
   IconLock,
+  IconWorld,
   IconLink,
   IconMessageCircle,
   IconEye,
@@ -64,6 +65,7 @@ type SidebarDashboard = {
   subviews?: DashboardSubview[];
   source: "static" | "sql";
   visibility?: Visibility;
+  ownerEmail?: string | null;
   /** Id of the dashboard this one nests under in the sidebar, if any. */
   parentId?: string;
 };
@@ -129,6 +131,11 @@ import {
   type PrefetchSnapshot,
 } from "@/lib/prefetch-keys";
 import type { ResourceAccess } from "@/lib/resource-access";
+import {
+  ownerDisplayName,
+  visibilityLabelKey,
+  type ResourceVisibility,
+} from "@/lib/resource-metadata";
 
 import { NewAnalysisDialog } from "./NewAnalysisDialog";
 import { NewDashboardDialog } from "./NewDashboardDialog";
@@ -145,6 +152,7 @@ const SIDEBAR_SKELETON_CLASS =
   "bg-sidebar-foreground/12 dark:bg-sidebar-foreground/10";
 
 type SidebarSortMode = "most-used" | "alphabetical" | "manual";
+type SidebarVisibilityFilter = "all" | "private" | "shared";
 
 import {
   DndContext,
@@ -231,25 +239,38 @@ function applyOrder<T extends { id: string }>(
   return ordered;
 }
 
+function matchesVisibilityFilter(
+  item: { visibility?: Visibility },
+  filter: SidebarVisibilityFilter,
+): boolean {
+  if (filter === "all") return true;
+  if (filter === "private") {
+    return item.visibility !== "org" && item.visibility !== "public";
+  }
+  return item.visibility === "org" || item.visibility === "public";
+}
+
 function SidebarSectionSettingsPopover({
   label,
   sortMode,
   onSortModeChange,
-  sharedOnly,
-  onSharedOnlyChange,
+  visibilityFilter,
+  onVisibilityFilterChange,
   showHidden,
   onShowHiddenChange,
 }: {
   label: string;
   sortMode: SidebarSortMode;
   onSortModeChange: (value: SidebarSortMode) => void;
-  sharedOnly: boolean;
-  onSharedOnlyChange: (value: boolean) => void;
+  visibilityFilter: SidebarVisibilityFilter;
+  onVisibilityFilterChange: (value: SidebarVisibilityFilter) => void;
   showHidden?: boolean;
   onShowHiddenChange?: (value: boolean) => void;
 }) {
   const t = useT();
   const settingsLabel = t("sidebar.sectionSettings", { label });
+  const segmentedItemClass =
+    "h-7 rounded px-2 text-[11px] text-muted-foreground hover:bg-sidebar-accent/60 hover:text-foreground data-[state=on]:bg-sidebar-accent data-[state=on]:text-foreground data-[state=on]:shadow-sm";
   return (
     <Popover>
       <Tooltip>
@@ -266,11 +287,55 @@ function SidebarSectionSettingsPopover({
         </TooltipTrigger>
         <TooltipContent side="right">{settingsLabel}</TooltipContent>
       </Tooltip>
-      <PopoverContent side="right" align="start" className="w-60 p-2">
+      <PopoverContent side="right" align="start" className="w-64 p-2">
         <div className="px-2 pb-2">
           <p className="text-xs font-medium text-foreground">{label}</p>
         </div>
         <div className="grid gap-3">
+          <div className="grid gap-1.5">
+            <p className="px-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+              {t("sidebar.show")}
+            </p>
+            <ToggleGroup
+              type="single"
+              value={visibilityFilter}
+              onValueChange={(next) => {
+                if (next === "all" || next === "private" || next === "shared") {
+                  onVisibilityFilterChange(next);
+                }
+              }}
+              className="grid grid-cols-3 gap-1 rounded-lg border border-border/60 bg-background/50 p-1"
+            >
+              <ToggleGroupItem
+                value="all"
+                aria-label={t("sidebar.visibilityAllDescription")}
+                className={segmentedItemClass}
+              >
+                {t("sidebar.visibilityAll")}
+              </ToggleGroupItem>
+              <ToggleGroupItem
+                value="private"
+                aria-label={t("sidebar.visibilityPrivateOnlyDescription")}
+                className={segmentedItemClass}
+              >
+                {t("sidebar.visibilityPrivateOnly")}
+              </ToggleGroupItem>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <ToggleGroupItem
+                    value="shared"
+                    aria-label={t("sidebar.visibilitySharedOnlyDescription")}
+                    className={segmentedItemClass}
+                  >
+                    {t("sidebar.visibilitySharedOnly")}
+                  </ToggleGroupItem>
+                </TooltipTrigger>
+                <TooltipContent side="bottom">
+                  {t("sidebar.visibilitySharedOnlyDescription")}
+                </TooltipContent>
+              </Tooltip>
+            </ToggleGroup>
+          </div>
           <div className="grid gap-1.5">
             <p className="px-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
               {t("sidebar.sortBy")}
@@ -287,46 +352,39 @@ function SidebarSectionSettingsPopover({
                   onSortModeChange(next);
                 }
               }}
-              className="grid grid-cols-3 gap-1 rounded-md bg-muted/40 p-1"
+              className="grid grid-cols-3 gap-1 rounded-lg border border-border/60 bg-background/50 p-1"
             >
-              <ToggleGroupItem
-                value="most-used"
-                aria-label={t("sidebar.sortMostUsed")}
-                className="h-7 px-2 text-[11px]"
-              >
-                {t("sidebar.used")}
-              </ToggleGroupItem>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <ToggleGroupItem
+                    value="most-used"
+                    aria-label={t("sidebar.sortMostUsedPersonal")}
+                    className={segmentedItemClass}
+                  >
+                    {t("sidebar.used")}
+                  </ToggleGroupItem>
+                </TooltipTrigger>
+                <TooltipContent side="bottom">
+                  {t("sidebar.usedExplainer")}
+                </TooltipContent>
+              </Tooltip>
               <ToggleGroupItem
                 value="alphabetical"
                 aria-label={t("sidebar.sortAlphabetically")}
-                className="h-7 px-2 text-[11px]"
+                className={segmentedItemClass}
               >
                 {t("sidebar.alphabetical")}
               </ToggleGroupItem>
               <ToggleGroupItem
                 value="manual"
                 aria-label={t("sidebar.sortManually")}
-                className="h-7 px-2 text-[11px]"
+                className={segmentedItemClass}
               >
                 {t("sidebar.manual")}
               </ToggleGroupItem>
             </ToggleGroup>
           </div>
           <div className="grid gap-1">
-            <label
-              htmlFor={`${label.toLowerCase()}-shared-filter`}
-              className="flex items-center justify-between gap-3 rounded-md px-2 py-1.5 text-xs text-foreground hover:bg-sidebar-accent/60"
-            >
-              <span className="min-w-0 truncate">
-                {t("sidebar.orgSharedOnly")}
-              </span>
-              <Switch
-                id={`${label.toLowerCase()}-shared-filter`}
-                checked={sharedOnly}
-                onCheckedChange={onSharedOnlyChange}
-                aria-label={`${label} ${t("sidebar.orgSharedOnly")}`}
-              />
-            </label>
             {onShowHiddenChange && showHidden !== undefined && (
               <label
                 htmlFor={`${label.toLowerCase()}-hidden-filter`}
@@ -352,7 +410,7 @@ function SidebarSectionSettingsPopover({
 
 // --- Visibility types and helpers ---
 
-type Visibility = "private" | "org" | "public";
+type Visibility = ResourceVisibility;
 
 // --- Shared sortable row (used by both dashboards and analyses) ---
 
@@ -372,6 +430,7 @@ function SortableRow({
   hidden,
   onPrefetch,
   visibility,
+  ownerEmail,
   onSetVisibility,
   children,
 }: {
@@ -393,6 +452,7 @@ function SortableRow({
   hidden?: boolean;
   onPrefetch?: () => void;
   visibility?: Visibility;
+  ownerEmail?: string | null;
   onSetVisibility?: (visibility: Visibility) => Promise<void> | void;
   children?: React.ReactNode;
 }) {
@@ -416,6 +476,21 @@ function SortableRow({
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
   const [isRenaming, setIsRenaming] = useState(false);
   const [renameValue, setRenameValue] = useState(name);
+  const ownerName = ownerDisplayName(ownerEmail);
+  const visibilityLabel = visibility ? t(visibilityLabelKey(visibility)) : null;
+  const visibilityTooltip =
+    visibilityLabel && ownerName
+      ? t("sidebar.visibilityWithOwner", {
+          visibility: visibilityLabel,
+          owner: ownerName,
+        })
+      : visibilityLabel;
+  const VisibilityIcon =
+    visibility === "public"
+      ? IconWorld
+      : visibility === "org"
+        ? IconBuilding
+        : IconLock;
 
   useEffect(() => {
     if (!isRenaming) setRenameValue(name);
@@ -544,7 +619,7 @@ function SortableRow({
       <button
         type="button"
         className="absolute -start-4 top-1/2 z-10 -translate-y-1/2 cursor-grab rounded p-1 text-muted-foreground/30 opacity-0 transition-colors hover:text-muted-foreground/60 group-hover/item:opacity-100 active:cursor-grabbing"
-        aria-label={t("sidebar.dragItem", { name })}
+        aria-label={t("sidebar.dragItemPersonal", { name })}
         {...attributes}
         {...listeners}
       >
@@ -581,12 +656,39 @@ function SortableRow({
                 onFocus={onPrefetch}
                 onMouseEnter={onPrefetch}
                 onTouchStart={onPrefetch}
-                className="min-w-0 flex-1 px-2 py-1.5 pe-12 text-xs transition-[padding] md:pe-2 md:group-hover/item:pe-12 md:group-focus-within/item:pe-12"
+                aria-label={
+                  visibilityTooltip ? `${name} - ${visibilityTooltip}` : name
+                }
+                className="min-w-0 flex-1 px-2 py-1.5 pe-16 text-xs transition-[padding] md:pe-8 md:group-hover/item:pe-16 md:group-focus-within/item:pe-16"
               >
-                <span className="block truncate">{name}</span>
+                <span className="block truncate leading-4">{name}</span>
+                {visibility && visibilityTooltip && (
+                  <span
+                    className={cn(
+                      "mt-0.5 flex min-w-0 items-center gap-1 text-[10px] leading-3",
+                      isActive
+                        ? "text-sidebar-accent-foreground/70"
+                        : "text-muted-foreground/70",
+                    )}
+                  >
+                    <VisibilityIcon className="h-3 w-3 shrink-0" />
+                    <span className="truncate">{visibilityTooltip}</span>
+                  </span>
+                )}
               </Link>
             </TooltipTrigger>
-            <TooltipContent side="right">{name}</TooltipContent>
+            <TooltipContent side="right">
+              {visibilityTooltip ? (
+                <span className="grid gap-0.5">
+                  <span>{name}</span>
+                  <span className="text-muted-foreground">
+                    {visibilityTooltip}
+                  </span>
+                </span>
+              ) : (
+                name
+              )}
+            </TooltipContent>
           </Tooltip>
         )}
         <div className="pointer-events-none absolute end-1 top-1/2 flex -translate-y-1/2 items-center gap-0.5 opacity-100 transition-opacity md:opacity-0 md:group-hover/item:opacity-100 md:group-focus-within/item:opacity-100">
@@ -602,14 +704,18 @@ function SortableRow({
                     : "text-muted-foreground/50 hover:text-yellow-500",
                 )}
                 aria-label={
-                  isFav ? t("sidebar.unfavorite") : t("sidebar.favorite")
+                  isFav
+                    ? t("sidebar.unfavoritePersonal")
+                    : t("sidebar.favoritePersonal")
                 }
               >
                 <IconStar className={cn("h-3 w-3", isFav && "fill-current")} />
               </button>
             </TooltipTrigger>
             <TooltipContent side="right">
-              {isFav ? t("sidebar.unfavorite") : t("sidebar.favorite")}
+              {isFav
+                ? t("sidebar.unfavoritePersonal")
+                : t("sidebar.favoritePersonal")}
             </TooltipContent>
           </Tooltip>
           <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
@@ -705,7 +811,7 @@ function SortableRow({
                     className="text-destructive focus:text-destructive"
                   >
                     <IconTrash className="me-2 h-3.5 w-3.5" />
-                    {t("sidebar.deletePermanently")}
+                    {t("sidebar.delete")}
                   </DropdownMenuItem>
                 </>
               ) : (
@@ -834,6 +940,7 @@ function SortableDashboardItem({
       onArchive={onArchive ? () => onArchive(d) : undefined}
       onPrefetch={() => onPrefetch?.(d)}
       visibility={d.visibility}
+      ownerEmail={d.ownerEmail}
       onSetVisibility={
         onSetVisibility ? (v) => onSetVisibility(d, v) : undefined
       }
@@ -872,6 +979,7 @@ function SortableDashboardItem({
                     <Tooltip>
                       <TooltipTrigger asChild>
                         <button
+                          type="button"
                           onClick={(e) => {
                             e.preventDefault();
                             e.stopPropagation();
@@ -883,6 +991,11 @@ function SortableDashboardItem({
                               ? "text-yellow-500 opacity-100"
                               : "opacity-0 group-hover/sv:opacity-100 text-muted-foreground/50 hover:text-yellow-500",
                           )}
+                          aria-label={
+                            favoriteIds.has(`view:${d.id}:${sv.id}`)
+                              ? t("sidebar.unfavoritePersonal")
+                              : t("sidebar.favoritePersonal")
+                          }
                         >
                           <IconStar
                             className={cn(
@@ -895,8 +1008,8 @@ function SortableDashboardItem({
                       </TooltipTrigger>
                       <TooltipContent side="right">
                         {favoriteIds.has(`view:${d.id}:${sv.id}`)
-                          ? t("sidebar.unfavorite")
-                          : t("sidebar.favorite")}
+                          ? t("sidebar.unfavoritePersonal")
+                          : t("sidebar.favoritePersonal")}
                       </TooltipContent>
                     </Tooltip>
                     <Popover
@@ -1044,6 +1157,7 @@ type SqlDashboardListItem = {
   id: string;
   name: string;
   visibility?: Visibility;
+  ownerEmail?: string | null;
   parentId?: string;
 };
 
@@ -1064,6 +1178,7 @@ async function fetchSqlDashboards(
           d.visibility === "org" || d.visibility === "public"
             ? (d.visibility as Visibility)
             : ("private" as Visibility),
+        ownerEmail: typeof d.ownerEmail === "string" ? d.ownerEmail : null,
         parentId:
           typeof d.parentId === "string" && d.parentId.trim().length > 0
             ? d.parentId
@@ -1082,6 +1197,7 @@ async function fetchSidebarAnalyses(
     id: string;
     name: string;
     visibility: Visibility;
+    ownerEmail: string | null;
     hiddenAt: string | null;
   }[]
 > {
@@ -1105,6 +1221,7 @@ async function fetchSidebarAnalyses(
           a.visibility === "org" || a.visibility === "public"
             ? a.visibility
             : ("private" as Visibility),
+        ownerEmail: typeof a.ownerEmail === "string" ? a.ownerEmail : null,
         hiddenAt: typeof a.hiddenAt === "string" ? a.hiddenAt : null,
       }));
   } catch {
@@ -1516,12 +1633,13 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
     getStoredBoolean(DASHBOARDS_OPEN_KEY, true),
   );
   const [dashShowAll, setDashShowAll] = useState(false);
-  const [dashFilter, setDashFilter] = useState<"all" | "org">("all");
+  const [dashFilter, setDashFilter] = useState<SidebarVisibilityFilter>("all");
   const [analysesOpen, setAnalysesOpen] = useState(() =>
     getStoredBoolean(ANALYSES_OPEN_KEY, true),
   );
   const [analysesShowAll, setAnalysesShowAll] = useState(false);
-  const [analysisFilter, setAnalysisFilter] = useState<"all" | "org">("all");
+  const [analysisFilter, setAnalysisFilter] =
+    useState<SidebarVisibilityFilter>("all");
   const [analysisHiddenFilter, setAnalysisHiddenFilter] =
     useState<AnalysisHiddenFilter>("visible");
   const [dashboardSortMode, setDashboardSortModeState] =
@@ -1689,11 +1807,9 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
 
   const filteredAnalyses = useMemo(
     () =>
-      analysisFilter === "org"
-        ? sortedAnalyses.filter(
-            (a) => a.visibility === "org" || a.visibility === "public",
-          )
-        : sortedAnalyses,
+      sortedAnalyses.filter((analysis) =>
+        matchesVisibilityFilter(analysis, analysisFilter),
+      ),
     [sortedAnalyses, analysisFilter],
   );
 
@@ -1775,6 +1891,7 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
       name: d.name,
       source: "sql",
       visibility: d.visibility,
+      ownerEmail: d.ownerEmail,
       parentId: d.parentId,
     }));
     const all = [...staticItems, ...sqlItems];
@@ -1805,11 +1922,9 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
 
   const filteredDashboards = useMemo(
     () =>
-      dashFilter === "org"
-        ? visibleDashboards.filter(
-            (d) => d.visibility === "org" || d.visibility === "public",
-          )
-        : visibleDashboards,
+      visibleDashboards.filter((dashboard) =>
+        matchesVisibilityFilter(dashboard, dashFilter),
+      ),
     [visibleDashboards, dashFilter],
   );
 
@@ -2532,10 +2647,8 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
                     label={t("navigation.dashboards")}
                     sortMode={dashboardSortMode}
                     onSortModeChange={setDashboardSortMode}
-                    sharedOnly={dashFilter === "org"}
-                    onSharedOnlyChange={(checked) =>
-                      setDashFilter(checked ? "org" : "all")
-                    }
+                    visibilityFilter={dashFilter}
+                    onVisibilityFilterChange={setDashFilter}
                   />
                   <button
                     type="button"
@@ -2680,10 +2793,8 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
                     label={t("navigation.analyses")}
                     sortMode={analysisSortMode}
                     onSortModeChange={setAnalysisSortMode}
-                    sharedOnly={analysisFilter === "org"}
-                    onSharedOnlyChange={(checked) =>
-                      setAnalysisFilter(checked ? "org" : "all")
-                    }
+                    visibilityFilter={analysisFilter}
+                    onVisibilityFilterChange={setAnalysisFilter}
                     showHidden={analysisHiddenFilter === "hidden"}
                     onShowHiddenChange={(checked) =>
                       setAnalysisHiddenFilter(checked ? "hidden" : "visible")
@@ -2743,6 +2854,7 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
                                 : undefined
                             }
                             visibility={a.visibility}
+                            ownerEmail={a.ownerEmail}
                             onSetVisibility={(v) =>
                               handleAnalysisSetVisibility(a, v)
                             }
