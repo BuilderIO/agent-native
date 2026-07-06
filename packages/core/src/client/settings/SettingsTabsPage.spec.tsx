@@ -92,4 +92,27 @@ describe("SettingsTabsPage", () => {
     );
     expect(tabLabels).toEqual(["General", "Agent", "Team", "What's new"]);
   });
+
+  it("opens an extra workspace tab from the workspace hash", () => {
+    window.history.replaceState(null, "", "/settings#workspace");
+
+    act(() => {
+      root.render(
+        <SettingsTabsPage
+          general={<div>General content</div>}
+          team={<div>Team members</div>}
+          extraTabs={[
+            {
+              id: "workspace",
+              label: "Workspace",
+              content: <div>Workspace controls</div>,
+            },
+          ]}
+        />,
+      );
+    });
+
+    expect(container.textContent).toContain("Workspace controls");
+    expect(container.textContent).not.toContain("Team members");
+  });
 });

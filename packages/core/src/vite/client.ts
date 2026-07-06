@@ -2011,28 +2011,6 @@ function createNitroDevPlugin(
       ...((options.nitro as { routeRules?: Record<string, any> })?.routeRules ??
         {}),
     },
-    experimental: {
-      ...((options.nitro as { experimental?: Record<string, any> })
-        ?.experimental ?? {}),
-      vite: {
-        // Nitro 3's Vite plugin full-reloads the BROWSER on every edit to a
-        // server-only module (actions/, server/) — its hotUpdate hook sends
-        // `server.ws.send({ type: "full-reload" })` whenever no client-shared
-        // module changed. Agent editing sessions (self-modifying code, Builder
-        // Fusion) write those files constantly, so the app looks like it
-        // "keeps auto-refreshing" while the agent works. Opting out skips only
-        // that custom hook; Vite's default hotUpdate still invalidates changed
-        // server modules in the nitro environment, so the next request
-        // re-imports fresh server code — verified: action edits show up on the
-        // next invocation with no browser reload.
-        serverReload: false,
-        ...((
-          options.nitro as {
-            experimental?: { vite?: Record<string, any> };
-          }
-        )?.experimental?.vite ?? {}),
-      },
-    },
   } as any);
 }
 

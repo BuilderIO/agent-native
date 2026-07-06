@@ -810,6 +810,90 @@ describe("bug fixes — reliability sweep", () => {
     });
   });
 
+  // n26: a toggle heading's summary shares one serialized line with the real
+  // trailing `{toggle="true" ...}` attrs. Notion-emitted summaries (raw NFM,
+  // round-tripped verbatim) never end in an odd backslash run — but the
+  // editor's plain summary <input> writes untouched plain text into the same
+  // `summary` attr, and a plain-text summary ending in an odd number of
+  // backslashes (e.g. a Windows path) made the parser treat the whole
+  // `{toggle="true"}` suffix as escaped literal text, degrading the toggle
+  // into a heading containing that literal attrs string.
+  describe("n26: toggle-heading summary corruption resistance", () => {
+    const headingToggleDoc = (summary: string, headingLevel = 2): any => ({
+      type: "doc",
+      content: [
+        {
+          type: "notionToggle",
+          attrs: { summary, headingLevel, open: true, color: null },
+          content: [{ type: "paragraph" }],
+        },
+      ],
+    });
+
+    it("round-trips a heading-toggle summary ending in a single backslash", () => {
+      const doc = headingToggleDoc("b\\");
+      const nfm = docToNfm(doc);
+      const doc2 = nfmToDoc(nfm);
+      expect(doc2.content[0].type).toBe("notionToggle");
+      expect(doc2.content[0].attrs?.summary).toBe("b\\");
+      expect(doc2.content[0].attrs?.headingLevel).toBe(2);
+      // The real toggle attrs must not have degraded into literal text.
+      expect(docToNfm(doc2)).toBe(nfm);
+    });
+
+    it("round-trips an editor-typed Windows path summary (trailing backslash)", () => {
+      const doc = headingToggleDoc("C:\\path\\", 3);
+      const nfm = docToNfm(doc);
+      const doc2 = nfmToDoc(nfm);
+      expect(doc2.content[0].type).toBe("notionToggle");
+      expect(doc2.content[0].attrs?.summary).toBe("C:\\path\\");
+      expect(doc2.content[0].attrs?.headingLevel).toBe(3);
+    });
+
+    it("round-trips a summary containing an attr-lookalike sequence", () => {
+      const doc = headingToggleDoc('hello {color="red"}', 2);
+      const nfm = docToNfm(doc);
+      const doc2 = nfmToDoc(nfm);
+      expect(doc2.content[0].type).toBe("notionToggle");
+      expect(doc2.content[0].attrs?.summary).toBe('hello {color="red"}');
+    });
+
+    it("round-trips a summary containing backticks", () => {
+      const doc = headingToggleDoc("some `code` here", 2);
+      const nfm = docToNfm(doc);
+      const doc2 = nfmToDoc(nfm);
+      expect(doc2.content[0].attrs?.summary).toBe("some `code` here");
+    });
+
+    it("is stable under a second round trip", () => {
+      const doc = headingToggleDoc("b\\", 2);
+      const nfm1 = docToNfm(doc);
+      const nfm2 = docToNfm(nfmToDoc(nfm1));
+      expect(nfm2).toBe(nfm1);
+    });
+
+    it("still keeps a Notion-emitted heading-toggle summary a byte-stable fixpoint", () => {
+      const nfm = L('# **bold** title {toggle="true"}', "\tChild");
+      expect(canonicalizeNfm(nfm)).toBe(nfm);
+    });
+
+    it("still keeps a plain (no-backslash) heading-toggle summary a byte-stable fixpoint", () => {
+      const nfm = L(
+        '## Toggle Heading Two {toggle="true"}',
+        "\tChild under toggle heading",
+      );
+      expect(canonicalizeNfm(nfm)).toBe(nfm);
+    });
+
+    it("does not affect the unrelated <details><summary> form with a trailing backslash", () => {
+      const doc = headingToggleDoc("C:\\path\\", 0);
+      const nfm = docToNfm(doc);
+      expect(nfm).toContain("<summary>C:\\path\\</summary>");
+      const doc2 = nfmToDoc(nfm);
+      expect(doc2.content[0].attrs?.summary).toBe("C:\\path\\");
+    });
+  });
+
   // n19: an unclosed container tag must not silently swallow every
   // following same-indent line to EOF.
   describe("n19: unterminated container fallback", () => {

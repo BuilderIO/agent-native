@@ -89,6 +89,7 @@ pub fn run() {
             clips::close_signin,
             clips::show_flow_bar,
             clips::hide_flow_bar,
+            clips::hide_onboarding_window,
             clips::complete_voice_dictation,
             clips::paste_last_dictation,
             clips::set_recording_state,
@@ -232,6 +233,15 @@ pub fn run() {
             tray::build_tray(app)?;
             config::sync_launch_at_login(app.handle());
             let feature_config = config::feature_config(app.handle());
+            // ONBOARD-WINDOW: first-run onboarding never had a Rust-side
+            // window to appear in — the `#onboarding` hash route and overlay
+            // component existed, but nothing ever called
+            // WebviewWindowBuilder for it. Build it here, after the popover
+            // exists, gated on the persisted `onboarding_complete` flag so
+            // returning users never see it again.
+            if !feature_config.onboarding_complete {
+                clips::show_onboarding_window(app.handle());
+            }
             screen_memory::sync_from_config(app.handle(), &feature_config);
             // Re-show always-on region guides after relaunch/reboot when the
             // setting is on (no-op if a recording owns the window or the

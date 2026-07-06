@@ -136,6 +136,9 @@ export function Onboarding() {
         },
       });
       await invoke("show_popover");
+      // Close the onboarding window itself — show_popover only opens the
+      // popover, it doesn't know an onboarding window exists to dismiss.
+      await invoke("hide_onboarding_window");
     } catch (err) {
       console.error(
         "[onboarding] set_feature_config / show_popover failed",

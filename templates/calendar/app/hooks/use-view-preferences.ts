@@ -10,6 +10,7 @@ import {
   DEFAULT_CALENDAR_VIEW_PREFERENCES,
   calendarViewPreferencesEqual,
   normalizeCalendarViewPreferences,
+  type CalendarColorMode,
   type CalendarViewPreferences,
 } from "@/lib/calendar-view-preferences";
 
@@ -112,5 +113,41 @@ export function useViewPreferences() {
     });
   }, []);
 
-  return { prefs, update };
+  const updateAccountColor = useCallback(
+    (accountKey: string, color: string) => {
+      setPrefs((prev) => {
+        const next = normalizeCalendarViewPreferences({
+          ...prev,
+          accountColorModes: {
+            ...prev.accountColorModes,
+            [accountKey]: "single",
+          },
+          accountColors: { ...prev.accountColors, [accountKey]: color },
+        });
+        save(next);
+        writeAppStatePreferences(next);
+        window.dispatchEvent(new Event(CALENDAR_VIEW_PREFERENCES_CHANGE_EVENT));
+        return next;
+      });
+    },
+    [],
+  );
+
+  const updateAccountColorMode = useCallback(
+    (accountKey: string, mode: CalendarColorMode) => {
+      setPrefs((prev) => {
+        const next = normalizeCalendarViewPreferences({
+          ...prev,
+          accountColorModes: { ...prev.accountColorModes, [accountKey]: mode },
+        });
+        save(next);
+        writeAppStatePreferences(next);
+        window.dispatchEvent(new Event(CALENDAR_VIEW_PREFERENCES_CHANGE_EVENT));
+        return next;
+      });
+    },
+    [],
+  );
+
+  return { prefs, update, updateAccountColor, updateAccountColorMode };
 }

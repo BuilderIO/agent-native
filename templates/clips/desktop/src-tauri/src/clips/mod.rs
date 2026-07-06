@@ -45,6 +45,9 @@ const FLOW_BAR_LABEL: &str = "flow-bar";
 const REGION_GUIDES_LABEL: &str = "region-guides";
 const REGION_GUIDE_EDITOR_LABEL: &str = "region-guide-editor";
 const REGION_RECORD_BORDER_LABEL: &str = "region-record-border";
+const ONBOARDING_LABEL: &str = "onboarding";
+const ONBOARDING_WIDTH_LOGICAL: f64 = 560.0;
+const ONBOARDING_HEIGHT_LOGICAL: f64 = 640.0;
 
 /// Physical-pixel bubble sizes. Logical px on retina = physical / 2, so these
 /// map to ~96 (small) and ~180 (medium) logical px — matching Loom's camera
@@ -491,6 +494,48 @@ pub async fn show_finalizing(app: AppHandle) -> Result<(), String> {
 #[tauri::command]
 pub async fn hide_finalizing(app: AppHandle) -> Result<(), String> {
     if let Some(w) = app.get_webview_window(FINALIZING_LABEL) {
+        let _ = w.close();
+    }
+    Ok(())
+}
+
+/// First-run onboarding window (ONBOARD-WINDOW). Unlike the transparent,
+/// click-through overlays above, this is a normal decorated, focused window
+/// with its own solid dark background (`.onboarding-root` in styles.css) —
+/// centered on the primary display so it reads as a real app window, not a
+/// HUD. Called once from `lib.rs`'s `setup()` when `onboarding_complete` is
+/// false. Reuses an existing window if one is somehow already open (e.g. a
+/// hot-reload re-triggering setup in dev) instead of building a second one.
+pub fn show_onboarding_window(app: &AppHandle) {
+    if let Some(existing) = app.get_webview_window(ONBOARDING_LABEL) {
+        let _ = existing.show();
+        let _ = existing.set_focus();
+        return;
+    }
+    let win =
+        match WebviewWindowBuilder::new(app, ONBOARDING_LABEL, build_overlay_url("onboarding"))
+            .title("Welcome to Clips")
+            .inner_size(ONBOARDING_WIDTH_LOGICAL, ONBOARDING_HEIGHT_LOGICAL)
+            .resizable(false)
+            .center()
+            .focused(true)
+            .build()
+        {
+            Ok(w) => w,
+            Err(e) => {
+                eprintln!("[clips-tray] onboarding window build failed: {}", e);
+                return;
+            }
+        };
+    let _ = win.show();
+}
+
+/// Close the first-run onboarding window once the overlay's finish handler
+/// has saved feature config + opened the popover. Idempotent — closing an
+/// already-closed/never-built window is a no-op.
+#[tauri::command]
+pub async fn hide_onboarding_window(app: AppHandle) -> Result<(), String> {
+    if let Some(w) = app.get_webview_window(ONBOARDING_LABEL) {
         let _ = w.close();
     }
     Ok(())
@@ -1342,6 +1387,9 @@ pub async fn complete_voice_dictation(app: AppHandle, text: String) -> Result<()
             *g = Some(trimmed.clone());
         }
     }
+    // Refresh the tray's "Paste Last Dictation" enabled state now that a
+    // transcript exists. Cheap — same pattern as toggle-region-guides.
+    crate::tray::rebuild_tray_menu(&app);
     insert_text_for_frontmost(&app, &trimmed, "complete_voice_dictation")
 }
 

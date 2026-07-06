@@ -205,6 +205,37 @@ function oddTrailingBackslashes(s: string): boolean {
   return (s.match(/\\+$/)?.[0].length ?? 0) % 2 === 1;
 }
 
+// A toggle-heading line is `${summary}${blockAttrSuffix(...)}` — `summary`
+// and the real trailing `{toggle="true" ...}` attrs end up concatenated on
+// one line, then re-split by splitBlockAttrs. `summary` is stored as raw NFM
+// (see serializeToggle), which is fine for Notion-emitted summaries (Notion's
+// own inline spec already backslash-escapes a literal trailing backslash, so
+// valid raw-NFM summary text never ends in an odd backslash run). But the
+// editor's plain summary <input> writes untouched plain text into the same
+// attr, and a plain-text summary ending in an odd number of backslashes
+// (e.g. "C:\path\") makes splitBlockAttrs's oddTrailingBackslashes guard
+// think the real trailing `{toggle="true"}` attrs are themselves escaped
+// literal text, degrading the toggle into a heading containing the literal
+// attrs string. Doubling (not just parity-flipping) the trailing backslash
+// run is safe to apply unconditionally — it's a no-op with no trailing
+// backslash, and unlike "add one backslash when odd", doubling is exactly
+// reversible for every run length (k -> 2k -> k) with no ambiguity between
+// an original even run and an escaped former-odd run.
+function escapeTrailingBackslashRun(s: string): string {
+  const run = s.match(/\\+$/)?.[0];
+  if (!run) return s;
+  return s.slice(0, -run.length) + run + run;
+}
+
+// Inverse of escapeTrailingBackslashRun: halve a trailing backslash run.
+// Safe to apply unconditionally to text extracted from a toggle-heading line
+// (see escapeTrailingBackslashRun) since the run length is always even there.
+function unescapeTrailingBackslashRun(s: string): string {
+  const run = s.match(/\\+$/)?.[0];
+  if (!run) return s;
+  return s.slice(0, -run.length) + "\\".repeat(run.length / 2);
+}
+
 // Strip + read a trailing `{...}` attribute list from a block line.
 function splitBlockAttrs(line: string): {
   text: string;
@@ -934,11 +965,18 @@ function serializeToggle(node: PMNode, ind: number): string[] {
   const color = node.attrs?.color;
   const out: string[] = [];
   if (headingLevel >= 1 && headingLevel <= 4) {
+    // A heading-toggle's summary shares one line with the real trailing
+    // `{toggle="true" ...}` attrs (unlike <details><summary>, which keeps
+    // summary on its own line) — escapeTrailingBackslashRun keeps a
+    // plain-text summary ending in an odd backslash run (e.g. an
+    // editor-typed "C:\path\") from being misread as escaping that suffix
+    // away; see its doc comment for why this is a no-op for every valid
+    // Notion-emitted summary.
     out.push(
       indentStr(ind) +
         "#".repeat(headingLevel) +
         " " +
-        summary +
+        escapeTrailingBackslashRun(summary) +
         blockAttrSuffix({ toggle: true, color }),
     );
     out.push(...serializeBlocks(node.content || [], ind + 1));
@@ -1450,7 +1488,10 @@ function parseSingleBlock(
         type: "notionToggle",
         attrs: {
           // Keep as raw NFM source (not unescaped) — see serializeToggle.
-          summary: text,
+          // unescapeTrailingBackslashRun undoes the write-side doubling that
+          // keeps a plain-text summary's own trailing backslash run from
+          // being misread as escaping the real `{toggle="true"}` suffix.
+          summary: unescapeTrailingBackslashRun(text),
           headingLevel: level,
           open: false,
           color: isColor(color) ? color : null,

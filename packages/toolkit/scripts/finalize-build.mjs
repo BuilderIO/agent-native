@@ -16,7 +16,6 @@ function walk(dir) {
   }
   return files;
 }
-
 for (const name of readdirSync("src")) {
   if (name.endsWith(".css")) {
     copyFileSync(join("src", name), join("dist", name));
