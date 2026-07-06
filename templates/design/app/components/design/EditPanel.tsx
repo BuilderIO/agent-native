@@ -150,6 +150,41 @@ import {
   vscodeDeepLink,
 } from "./edit-panel/code-inspect-helpers";
 import {
+  averageGradientOpacity,
+  buildFillRows,
+  buildGradientLayer,
+  DEFAULT_EXPORT_SETTINGS,
+  defaultGradientLayer,
+  defaultGradientStops,
+  clampNumber,
+  fillLayerId,
+  fillLayerIndex,
+  type FillLayerArrays,
+  gradientLabel,
+  isLayerHiddenBySize,
+  joinCssLayers,
+  parseGradientLayer,
+  removeFillLayerAtIndex,
+  SOLID_FILL_ID,
+  splitCssLayers,
+  withLayerSizeMarker,
+} from "./edit-panel/fill-gradient-helpers";
+import {
+  colorHasVisibleAlpha,
+  compactCssValue,
+  cssColorOrFallback,
+  cssLengthNumber,
+  outlineOffsetForPosition,
+  readStrokeOutlinePosition,
+  readTextStrokeStyle,
+  resolveTextStrokeColor,
+  roundToOneDecimal,
+  strokeHiddenByColor,
+  strokeIsVisible,
+  swatchStyle,
+  textStrokeIsVisible,
+} from "./edit-panel/position-helpers";
+import {
   AutoLayoutMatrix,
   BreakpointOverrideIndicator,
   ConstraintsPreview,
@@ -203,6 +238,25 @@ export {
   replaceAlpineDataKeyValue,
   serializeAlpineDataObject,
   truncateOpeningTag,
+};
+export {
+  buildGradientLayer,
+  isLayerHiddenBySize,
+  joinCssLayers,
+  parseGradientLayer,
+  removeFillLayerAtIndex,
+  splitCssLayers,
+  withLayerSizeMarker,
+  type FillLayerArrays,
+};
+export {
+  outlineOffsetForPosition,
+  readStrokeOutlinePosition,
+  readTextStrokeStyle,
+  resolveTextStrokeColor,
+  roundToOneDecimal,
+  strokeHiddenByColor,
+  textStrokeIsVisible,
 };
 
 export type InspectorTab = "design" | "tweaks";
@@ -1256,21 +1310,6 @@ function ColorInput({
  */
 const SOLID_ONLY_PAINT_TYPES: DesignPaintType[] = ["solid"];
 
-const SOLID_FILL_ID = "solid";
-const FILL_LAYER_PREFIX = "layer:";
-
-interface ParsedGradientLayer {
-  type: DesignGradientType;
-  prefix?: string;
-  stops: DesignGradientStop[];
-}
-
-const DEFAULT_EXPORT_SETTINGS: ExportSettingsValue = {
-  scale: 1,
-  format: "png",
-  suffix: "",
-};
-
 function elementIdentityKey(element: ElementInfo): string {
   return [
     element.sourceId ?? element.id ?? element.selector ?? element.tagName,
@@ -1344,318 +1383,6 @@ export function deriveLockedAspectSize(
   return axis === "width"
     ? roundToOneDecimal(px / ratio)
     : roundToOneDecimal(px * ratio);
-}
-
-function fillLayerId(index: number): string {
-  return `${FILL_LAYER_PREFIX}${index}`;
-}
-
-function fillLayerIndex(id: string): number | null {
-  if (!id.startsWith(FILL_LAYER_PREFIX)) return null;
-  const index = Number(id.slice(FILL_LAYER_PREFIX.length));
-  return Number.isInteger(index) && index >= 0 ? index : null;
-}
-
-function buildFillRows(
-  colorValue: string,
-  backgroundLayers: string[],
-  selectedFillId: string,
-): DesignFillRow[] {
-  const solid = parseCssColor(colorValue);
-  const rows: DesignFillRow[] = [
-    {
-      id: SOLID_FILL_ID,
-      label: "Solid", // i18n-ignore inspector fallback label
-      type: "solid",
-      value: colorValue,
-      swatch: colorValue,
-      opacity: solid ? alphaToOpacity(solid.a) : 100,
-      selected: selectedFillId === SOLID_FILL_ID,
-    },
-  ];
-
-  backgroundLayers.forEach((layer, index) => {
-    const gradient = parseGradientLayer(layer);
-    rows.push({
-      id: fillLayerId(index),
-      label: gradient
-        ? `Gradient ${index + 1}` // i18n-ignore inspector fallback label
-        : `Image ${index + 1}`, // i18n-ignore inspector fallback label
-      type: gradient ? "gradient" : "image",
-      value: layer,
-      swatch: layer,
-      opacity: gradient ? averageGradientOpacity(gradient.stops) : 100,
-      selected: selectedFillId === fillLayerId(index),
-    });
-  });
-
-  return rows;
-}
-
-function averageGradientOpacity(stops: DesignGradientStop[]): number {
-  if (!stops.length) return 100;
-  const total = stops.reduce((sum, stop) => {
-    const parsed = parseCssColor(stop.color);
-    return sum + (stop.opacity ?? (parsed ? alphaToOpacity(parsed.a) : 100));
-  }, 0);
-  return Math.round(total / stops.length);
-}
-
-/**
- * Marker used to non-destructively hide a single backgroundImage layer
- * (gradient or image). CSS strips comments from computed style values — a
- * trailing comment appended to a backgroundImage layer does not survive
- * getComputedStyle (verified: browsers normalize/serialize computed values
- * without their source comments) — so we can't tag the layer text itself.
- * Instead we pair the untouched original layer with a zero-size
- * background-size entry at the same index: `background-size: 0px 0px` makes
- * that layer render nothing while backgroundImage keeps the exact original
- * CSS text. Both backgroundImage and backgroundSize are real, valid,
- * positionally-paired CSS lists that DO round-trip through computed style,
- * so hiding survives reselect/reload with no React state stash required.
- */
-const HIDDEN_LAYER_SIZE_MARKER = "0px 0px";
-
-export function isLayerHiddenBySize(sizeEntry: string | undefined): boolean {
-  return (
-    (sizeEntry ?? "").trim().replace(/\s+/g, " ") === HIDDEN_LAYER_SIZE_MARKER
-  );
-}
-
-/**
- * Rewrites the background-size list so `index` is hidden/shown via the
- * zero-size marker, padding shorter lists with "auto" (the CSS default) so
- * every other layer keeps rendering at its current/default size.
- */
-export function withLayerSizeMarker(
-  sizeLayers: string[],
-  layerCount: number,
-  index: number,
-  hidden: boolean,
-): string {
-  const next = Array.from(
-    { length: layerCount },
-    (_, i) => sizeLayers[i] || "auto",
-  );
-  next[index] = hidden ? HIDDEN_LAYER_SIZE_MARKER : "auto";
-  return joinCssLayers(next);
-}
-
-export function splitCssLayers(value: string): string[] {
-  const trimmed = value.trim();
-  if (!trimmed || trimmed === "none") return [];
-  const layers: string[] = [];
-  let depth = 0;
-  let start = 0;
-
-  for (let index = 0; index < trimmed.length; index += 1) {
-    const char = trimmed[index];
-    if (char === "(") depth += 1;
-    if (char === ")") depth = Math.max(0, depth - 1);
-    if (char === "," && depth === 0) {
-      const layer = trimmed.slice(start, index).trim();
-      if (layer) layers.push(layer);
-      start = index + 1;
-    }
-  }
-
-  const finalLayer = trimmed.slice(start).trim();
-  if (finalLayer) layers.push(finalLayer);
-  return layers;
-}
-
-export function joinCssLayers(layers: string[]): string {
-  const cleaned = layers.map((layer) => layer.trim()).filter(Boolean);
-  return cleaned.length ? cleaned.join(", ") : "none";
-}
-
-/** One fill layer's index-aligned parallel CSS values. */
-export interface FillLayerArrays {
-  backgroundImage: string[];
-  backgroundSize: string[];
-  backgroundRepeat: string[];
-  backgroundPosition: string[];
-}
-
-/**
- * Removes the layer at `index` from all four index-aligned parallel fill
- * arrays (image/size/repeat/position) together, returning a single patch of
- * joined CSS layer-list strings ready to commit as one atomic style change.
- *
- * Splicing only `backgroundImage`/`backgroundSize` (as a previous version of
- * `removeLayer` did) and leaving `backgroundRepeat`/`backgroundPosition`
- * untouched shifts every remaining layer's index relative to those two
- * arrays, silently re-pairing each of them with the *next* layer's original
- * repeat/position. Splicing all four together — the same pattern
- * `reorderFillLayers` already uses for permutation — keeps every remaining
- * layer's size/repeat/position aligned with its own image after the removal.
- */
-export function removeFillLayerAtIndex(
-  layers: FillLayerArrays,
-  index: number,
-): Record<
-  | "backgroundImage"
-  | "backgroundSize"
-  | "backgroundRepeat"
-  | "backgroundPosition",
-  string
-> {
-  const withoutIndex = (values: string[]) =>
-    values.filter((_, layerIndex) => layerIndex !== index);
-  return {
-    backgroundImage: joinCssLayers(withoutIndex(layers.backgroundImage)),
-    backgroundSize: joinCssLayers(withoutIndex(layers.backgroundSize)),
-    backgroundRepeat: joinCssLayers(withoutIndex(layers.backgroundRepeat)),
-    backgroundPosition: joinCssLayers(withoutIndex(layers.backgroundPosition)),
-  };
-}
-
-export function parseGradientLayer(layer: string): ParsedGradientLayer | null {
-  const match = layer.trim().match(/^(linear|radial|conic)-gradient\((.*)\)$/i);
-  if (!match) return null;
-
-  const parts = splitCssLayers(match[2] || "");
-  const type = gradientTypeFromCss(match[1] || "", layer);
-  const firstStop = parseGradientStop(parts[0] || "", 0, parts.length);
-  const prefix = firstStop ? undefined : parts[0]?.trim();
-  const stopParts = firstStop ? parts : parts.slice(1);
-  const stops = stopParts
-    .map((part, index) => parseGradientStop(part, index, stopParts.length))
-    .filter((stop): stop is DesignGradientStop => Boolean(stop));
-
-  if (!stops.length) return null;
-  return { type, prefix, stops };
-}
-
-function parseGradientStop(
-  part: string,
-  index: number,
-  total: number,
-): DesignGradientStop | null {
-  const color = readLeadingColor(part);
-  if (!color) return null;
-  const parsed = parseCssColor(color.value);
-  const remaining = part.slice(color.raw.length);
-  const positionMatch = remaining.match(/(-?\d+(?:\.\d+)?)%/);
-  const position = positionMatch
-    ? clampNumber(Number(positionMatch[1]), 0, 100)
-    : total <= 1
-      ? 0
-      : Math.round((index / (total - 1)) * 100);
-
-  return {
-    id: `stop-${index}`,
-    color: parsed ? rgbaToCss(parsed) : color.value,
-    position,
-    opacity: parsed ? alphaToOpacity(parsed.a) : 100,
-  };
-}
-
-function readLeadingColor(part: string): { raw: string; value: string } | null {
-  const trimmed = part.trim();
-  const hex = trimmed.match(/^#[0-9a-f]{3,8}\b/i);
-  if (hex) return { raw: hex[0], value: hex[0] };
-  const transparent = trimmed.match(/^transparent\b/i);
-  if (transparent) {
-    return { raw: transparent[0], value: "rgba(0, 0, 0, 0)" };
-  }
-  const functionName = trimmed.match(/^[a-z][a-z0-9-]*\(/i);
-  if (!functionName) return null;
-  let depth = 0;
-  for (let index = 0; index < trimmed.length; index += 1) {
-    const char = trimmed[index];
-    if (char === "(") depth += 1;
-    if (char === ")") {
-      depth -= 1;
-      if (depth === 0) {
-        const raw = trimmed.slice(0, index + 1);
-        return { raw, value: raw };
-      }
-    }
-  }
-  return null;
-}
-
-function gradientTypeFromCss(
-  functionName: string,
-  layer: string,
-): DesignGradientType {
-  if (functionName.toLowerCase() === "conic") return "angular";
-  // Recognize both diamond serializations — EditPanel's "closest-corner" and
-  // GradientEditor's "ellipse closest-side" — so a diamond authored in either
-  // place round-trips as diamond instead of flipping to radial.
-  if (/closest-corner/i.test(layer) || /ellipse\s+closest-side/i.test(layer))
-    return "diamond";
-  if (functionName.toLowerCase() === "radial") return "radial";
-  return "linear";
-}
-
-function gradientLabel(type: DesignGradientType): string {
-  if (type === "radial") {
-    return "Radial gradient"; // i18n-ignore design inspector paint row
-  }
-  if (type === "angular") {
-    return "Angular gradient"; // i18n-ignore design inspector paint row
-  }
-  if (type === "diamond") {
-    return "Diamond gradient"; // i18n-ignore design inspector paint row
-  }
-  return "Linear gradient"; // i18n-ignore design inspector paint row
-}
-
-function defaultGradientPrefix(type: DesignGradientType): string {
-  if (type === "radial") return "circle at 50% 50%";
-  if (type === "angular") return "from 0deg at 50% 50%";
-  if (type === "diamond") return "closest-corner at 50% 50%";
-  return "90deg";
-}
-
-export function buildGradientLayer(
-  type: DesignGradientType,
-  stops: DesignGradientStop[],
-  prefix = defaultGradientPrefix(type),
-): string {
-  const stopList = [...stops]
-    .sort((a, b) => a.position - b.position)
-    .map((stop) => {
-      const parsed = parseCssColor(stop.color);
-      const opacity = stop.opacity ?? (parsed ? alphaToOpacity(parsed.a) : 100);
-      const color = parsed
-        ? rgbaToCss(withColorOpacity(parsed, opacity))
-        : stop.color;
-      return `${color} ${clampNumber(stop.position, 0, 100)}%`;
-    })
-    .join(", ");
-
-  if (type === "radial" || type === "diamond") {
-    return `radial-gradient(${prefix}, ${stopList})`;
-  }
-  if (type === "angular") return `conic-gradient(${prefix}, ${stopList})`;
-  return `linear-gradient(${prefix}, ${stopList})`;
-}
-
-function defaultGradientStops(colorValue: string): DesignGradientStop[] {
-  const parsed =
-    parseCssColor(cssColorOrFallback(colorValue, "#000000")) ??
-    parseCssColor("#000000");
-  const start = parsed ? rgbaToCss(withColorOpacity(parsed, 100)) : "#000000";
-  const end = parsed
-    ? rgbaToCss(withColorOpacity(parsed, 0))
-    : "rgba(0, 0, 0, 0)";
-
-  return [
-    { id: "stop-0", color: start, position: 0, opacity: 100 },
-    { id: "stop-1", color: end, position: 100, opacity: 0 },
-  ];
-}
-
-function defaultGradientLayer(type: DesignGradientType, colorValue: string) {
-  return buildGradientLayer(type, defaultGradientStops(colorValue));
-}
-
-function clampNumber(value: number, min: number, max: number): number {
-  if (!Number.isFinite(value)) return min;
-  return Math.max(min, Math.min(max, Math.round(value)));
 }
 
 /** Select dropdown */
@@ -2491,179 +2218,6 @@ function optionValue<T extends readonly { value: string }[]>(
   fallback: T[number]["value"],
 ) {
   return options.some((option) => option.value === value) ? value! : fallback;
-}
-
-function cssLengthNumber(value: string | undefined, fallback = 0): number {
-  const parsed = parseFloat(value || "");
-  return Number.isFinite(parsed) ? parsed : fallback;
-}
-
-/** Round to one decimal place — matches the `precision={1}` ScrubInput controls advertise (e.g. stroke weight, font size) so 0.5-unit values aren't silently floored to whole numbers. */
-export function roundToOneDecimal(value: number): number {
-  return Math.round(value * 10) / 10;
-}
-
-function cssColorOrFallback(value: string | undefined, fallback: string) {
-  const normalized = value?.trim();
-  if (
-    !normalized ||
-    normalized === "transparent" ||
-    normalized === "rgba(0, 0, 0, 0)"
-  ) {
-    return fallback;
-  }
-  return normalized;
-}
-
-function strokeIsVisible(width: string | undefined, style: string | undefined) {
-  return cssLengthNumber(width) > 0 && style !== "none";
-}
-
-/**
- * True when a stroke's own color is the reason it's invisible (alpha
- * zeroed) rather than its width/style. Used so the eye toggle can hide a
- * stroke by zeroing color alpha — preserving the original border-style
- * (solid/dashed/dotted/etc, which has no "unset" round-trip once written as
- * "none") — instead of forcing borderStyle back to "solid" on every show.
- */
-export function strokeHiddenByColor(color: string | undefined): boolean {
-  return Boolean(color) && !colorHasVisibleAlpha(color);
-}
-
-/**
- * R94 fix — Figma-parity text "Stroke": a real glyph outline, not a box
- * border. A text stroke is "on" whenever it has a non-zero width AND a
- * visible (non-zero-alpha) color — mirroring `strokeIsVisible` +
- * `!strokeHiddenByColor` for border/outline, but as one predicate since
- * `-webkit-text-stroke` has no separate "style: none" hide switch to check.
- */
-export function textStrokeIsVisible(
-  width: string | undefined,
-  color: string | undefined,
-): boolean {
-  return cssLengthNumber(width) > 0 && colorHasVisibleAlpha(color);
-}
-
-/**
- * R94 fix — text stroke color must never fall back to the (possibly
- * transparent, possibly removed) fill color. Figma keeps a text node's
- * stroke and fill fully independent: hiding the fill must not turn a
- * configured stroke black or transparent. Falls back to opaque black only
- * when no stroke color has ever been set at all (brand-new stroke).
- */
-export function resolveTextStrokeColor(
-  strokeColor: string | undefined,
-): string {
-  return cssColorOrFallback(strokeColor, "#000000");
-}
-
-/**
- * R94 fix — reads a text stroke's width/color out of `element.computedStyles`
- * regardless of which of two shapes that map is in:
- *
- *   1. Live DOM selection (editor-chrome.bridge.ts `getElementInfo()`) reports
- *      the two longhands directly as `webkitTextStrokeWidth` /
- *      `webkitTextStrokeColor` (CSSOM always expands the shorthand).
- *   2. A projection-only selection (`elementInfoFromCodeLayerNode` in
- *      DesignEditor.tsx, used right after a reload/before the live bridge
- *      reports back) instead carries whatever was literally serialized in
- *      the inline `style` attribute — which for this property is *always*
- *      the shorthand `-webkit-text-stroke: <width> <color>` (browsers never
- *      write the longhands back out individually), aliased to camelCase
- *      `WebkitTextStroke` by DesignEditor's `cssStyleAliases` but never split
- *      into the two longhand keys.
- *
- * Without this fallback, TextStrokeProperties would only ever see a value
- * immediately after a same-session live edit and go blank again on any
- * reload/reselect — the panel would falsely show "no stroke" for a stroke
- * that is very much present and rendering.
- */
-export function readTextStrokeStyle(styles: Record<string, string>): {
-  width: string;
-  color: string;
-} {
-  const longhandWidth = styles.webkitTextStrokeWidth;
-  const longhandColor = styles.webkitTextStrokeColor;
-  if (longhandWidth || longhandColor) {
-    return { width: longhandWidth || "0px", color: longhandColor || "" };
-  }
-  const shorthand =
-    styles["-webkit-text-stroke"] ??
-    styles.WebkitTextStroke ??
-    styles.webkitTextStroke;
-  if (!shorthand) return { width: "0px", color: "" };
-  return parseTextStrokeShorthand(shorthand);
-}
-
-/**
- * Splits a `-webkit-text-stroke` shorthand value ("<width> <color>", either
- * order per spec, browsers serialize width-then-color) into its two parts.
- * Cannot naively split on whitespace — `rgb(0, 0, 0)` / `rgba(...)` contain
- * internal commas but no spaces in the browser-serialized form, so a plain
- * "first token vs rest" split is safe for computed-style input; this is not
- * meant to validate arbitrary hand-authored shorthand values.
- */
-function parseTextStrokeShorthand(shorthand: string): {
-  width: string;
-  color: string;
-} {
-  const trimmed = shorthand.trim();
-  const match = /^(-?[\d.]+(?:px|em|rem|%))\s+(.+)$/.exec(trimmed);
-  if (match) return { width: match[1]!, color: match[2]!.trim() };
-  const reverseMatch = /^(.+?)\s+(-?[\d.]+(?:px|em|rem|%))$/.exec(trimmed);
-  if (reverseMatch)
-    return { width: reverseMatch[2]!, color: reverseMatch[1]!.trim() };
-  return { width: "0px", color: "" };
-}
-
-/**
- * Reads a persisted `outline`'s position back from its offset: CSS `outline`
- * always paints just outside the border-box edge, so `outline-offset: 0`
- * (or unset) is Figma's "outside", and an offset of roughly `-width/2` (the
- * outline pulled back to straddle the edge) is Figma's "center". Tolerant of
- * float drift from repeated round-tripping (e.g. width/2 on an odd width).
- */
-export function readStrokeOutlinePosition(
-  width: string | undefined,
-  offset: string | undefined,
-): "outside" | "center" {
-  const widthPx = cssLengthNumber(width);
-  const offsetPx = cssLengthNumber(offset);
-  const centerOffset = -widthPx / 2;
-  return Math.abs(offsetPx - centerOffset) < 0.5 && offsetPx < 0
-    ? "center"
-    : "outside";
-}
-
-/** The `outline-offset` to persist for a given position + stroke width. */
-export function outlineOffsetForPosition(
-  position: "outside" | "center",
-  width: string | undefined,
-): string {
-  if (position === "outside") return "0px";
-  const widthPx = cssLengthNumber(width);
-  return `${roundToOneDecimal(-widthPx / 2)}px`;
-}
-
-function swatchStyle(value: string | undefined) {
-  return {
-    background:
-      value && value !== "none"
-        ? value
-        : "linear-gradient(135deg, hsl(var(--muted)) 0 45%, hsl(var(--border)) 45% 55%, hsl(var(--muted)) 55% 100%)",
-  };
-}
-
-function compactCssValue(value: string | undefined, fallback: string) {
-  const normalized = value?.trim();
-  if (!normalized || normalized === "none") return fallback;
-  return normalized;
-}
-
-function colorHasVisibleAlpha(value: string | undefined): boolean {
-  const parsed = parseCssColor(value || "");
-  if (!parsed) return Boolean(value && value !== "transparent");
-  return parsed.a > 0;
 }
 
 function inspectorObjectTitle(element: ElementInfo): string {
