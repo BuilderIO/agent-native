@@ -1595,6 +1595,11 @@ export function installDesktopVoiceDictation(
       cleanup(current);
       return;
     }
+    // P4: this stop() call is a deliberate finalize (past the accidental-tap
+    // discard above) — if it's ending a hands-free session, clear the flag
+    // now so the very next fresh press starts an ordinary push-to-talk
+    // session rather than being misread as hands-free's own release.
+    handsFreeActive = false;
     try {
       if (current.kind === "server") {
         current.recorder?.stop();
@@ -2038,6 +2043,26 @@ export function installDesktopVoiceDictation(
       stop();
       return;
     }
+    // P4 (Wispr double-tap hands-free): a third press while a hands-free
+    // session is already running is the "tap again to finish" gesture —
+    // finalize + paste, same as a normal push-to-talk release.
+    if (mode === "push-to-talk" && handsFreeActive) {
+      stop();
+      return;
+    }
+    // A press landing within the upgrade window of a just-discarded
+    // accidental tap is the second half of the double-tap gesture: start
+    // (or restart, since the first tap's session was already torn down)
+    // a session and mark it hands-free so its own release is ignored and
+    // it persists until the next standalone tap.
+    const upgradeToHandsFree =
+      mode === "push-to-talk" &&
+      pendingHandsFreeTapAt !== null &&
+      Date.now() - pendingHandsFreeTapAt < HANDS_FREE_UPGRADE_WINDOW_MS;
+    pendingHandsFreeTapAt = null;
+    if (upgradeToHandsFree) {
+      handsFreeActive = true;
+    }
     start(event.payload?.source);
   })
     .then((u) => unlistens.push(u))
@@ -2045,6 +2070,9 @@ export function installDesktopVoiceDictation(
   listen<VoiceShortcutEvent>("voice:shortcut-stop", (event) => {
     if (!acceptsShortcut(event.payload?.source)) return;
     if (mode === "toggle") return;
+    // P4: while hands-free, the release edge is a no-op — the session
+    // stays open until the next full press (handled above) stops it.
+    if (handsFreeActive) return;
     stop();
   })
     .then((u) => unlistens.push(u))
