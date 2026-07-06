@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.88.0
+
+### Minor Changes
+
+- 945c525: Add shared scoped agent-access helpers, agent-readable resource discovery helpers, and a `create-agent-resource-link` action for bot-visible resource links and JSON API URLs.
+
 ## 0.87.0
 
 ### Minor Changes
