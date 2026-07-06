@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 import {
   FeatureNotConfiguredError,
   getBuilderImageGenerationBaseUrl,
@@ -5,6 +7,7 @@ import {
   resolveSecret,
 } from "@agent-native/core/server";
 import { and, eq, inArray } from "drizzle-orm";
+import sharp from "sharp";
 
 import type {
   AspectRatio,
@@ -41,8 +44,10 @@ export interface GenerateProviderInput {
   compiledPrompt: string;
   references: ReferenceForGeneration[];
   model: ImageModel;
+  mode?: "generate" | "edit";
   aspectRatio: AspectRatio;
   imageSize: ImageSize;
+  background?: "transparent" | "opaque" | "auto";
   groundingMode: "auto" | "off" | "google-search";
   intent?: GenerationIntent;
   styleStrength?: StyleStrength;
@@ -77,7 +82,7 @@ const MANAGED_PROVIDER_INFLIGHT_MAX_POLLS =
   process.env.NODE_ENV === "test" ? 6 : 40;
 const MANAGED_PROVIDER_INFLIGHT_POLL_MS =
   process.env.NODE_ENV === "test" ? 0 : 6000;
-// Slow image models (e.g. gpt-image-2) return the finished image synchronously
+// Slow image models (e.g. gpt-image-*) return the finished image synchronously
 // but can take several minutes end-to-end (generate + encode the large PNG +
 // transfer). The old 90s window was tuned for Gemini and aborted these mid-
 // response, so the request just needs a longer budget rather than the poll-and-
@@ -86,7 +91,7 @@ const IMAGE_GENERATION_REQUEST_TIMEOUT_MS =
   Number(process.env.ASSETS_IMAGE_GENERATION_TIMEOUT_MS) || 300_000;
 
 // Lightweight structured logging for the image-generation providers. Slow
-// models (e.g. gpt-image-2) can exceed the 90s per-request abort window and get
+// models (e.g. gpt-image-*) can exceed the 90s per-request abort window and get
 // converted into an in-flight poll, so these logs make the provider, model,
 // elapsed time, and abort/poll outcome visible when a generation "completes on
 // the provider but times out in the app". Silenced under NODE_ENV=test.
@@ -97,9 +102,21 @@ function logGeneration(
   if (process.env.NODE_ENV === "test") return;
   const parts = Object.entries(fields)
     .filter(([, value]) => value !== undefined)
-    .map(([key, value]) => `${key}=${value}`)
+    .map(([key, value]) => `${key}=${formatLogValue(value)}`)
     .join(" ");
   console.info(`[assets] image-gen ${event}${parts ? ` ${parts}` : ""}`);
+}
+
+function formatLogValue(value: unknown): string {
+  if (typeof value === "string") return value;
+  if (
+    typeof value === "number" ||
+    typeof value === "boolean" ||
+    value === null
+  ) {
+    return String(value);
+  }
+  return JSON.stringify(value);
 }
 
 export async function getGeminiApiKey(): Promise<string> {
@@ -258,15 +275,57 @@ export async function generateWithBuilderImageApi(
   const baseUrl = getBuilderImageGenerationBaseUrl().replace(/\/$/, "");
   const requestModel = toBuilderImageModel(input.model);
   const startedAt = Date.now();
+  const requestBody = {
+    idempotencyKey: input.runId,
+    prompt: input.compiledPrompt,
+    model: requestModel,
+    ...(input.mode ? { mode: input.mode } : {}),
+    count: 1,
+    aspectRatio: toBuilderAspectRatio(input.aspectRatio),
+    size: toBuilderImageSize(input.imageSize),
+    outputFormat: "png",
+    ...(input.background ? { background: input.background } : {}),
+    references: input.references.map((ref) => ({
+      id: ref.id,
+      role: toBuilderReferenceRole(ref.role),
+      mimeType: ref.mimeType,
+      data: ref.data,
+      name: ref.category,
+    })),
+    source: {
+      appId: "assets",
+      feature: "generate-image",
+      resourceId: input.libraryId,
+    },
+    metadata: {
+      collectionId: input.collectionId ?? undefined,
+      callerAppId: input.callerAppId,
+      source: input.source,
+      groundingMode: input.groundingMode,
+      intent: input.intent,
+    },
+  };
   logGeneration("builder.request", {
     model: requestModel,
+    mode: input.mode,
     requestedModel: input.model,
     host: safeUrlHost(baseUrl),
     aspectRatio: toBuilderAspectRatio(input.aspectRatio),
     size: toBuilderImageSize(input.imageSize),
     references: input.references.length,
+    referenceRoles: input.references
+      .map((ref) => `${ref.id}:${toBuilderReferenceRole(ref.role)}`)
+      .join(","),
     runId: input.runId,
   });
+  if (
+    input.mode === "edit" ||
+    process.env.ASSETS_IMAGE_GENERATION_DEBUG_PAYLOAD
+  ) {
+    logGeneration("builder.request_payload", {
+      payload: await sanitizedBuilderRequestPayload(requestBody),
+    });
+  }
   const response = await fetch(`${baseUrl}/generations`, {
     method: "POST",
     headers: {
@@ -274,34 +333,7 @@ export async function generateWithBuilderImageApi(
       "x-builder-api-key": builderCredentials.publicKey,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({
-      idempotencyKey: input.runId,
-      prompt: input.compiledPrompt,
-      model: requestModel,
-      count: 1,
-      aspectRatio: toBuilderAspectRatio(input.aspectRatio),
-      size: toBuilderImageSize(input.imageSize),
-      outputFormat: "png",
-      references: input.references.map((ref) => ({
-        id: ref.id,
-        role: toBuilderReferenceRole(ref.role),
-        mimeType: ref.mimeType,
-        data: ref.data,
-        name: ref.category,
-      })),
-      source: {
-        appId: "assets",
-        feature: "generate-image",
-        resourceId: input.libraryId,
-      },
-      metadata: {
-        collectionId: input.collectionId ?? undefined,
-        callerAppId: input.callerAppId,
-        source: input.source,
-        groundingMode: input.groundingMode,
-        intent: input.intent,
-      },
-    }),
+    body: JSON.stringify(requestBody),
     signal: AbortSignal.timeout(IMAGE_GENERATION_REQUEST_TIMEOUT_MS),
   }).catch((err) => {
     // `AbortSignal.timeout()` rejects with a `TimeoutError` DOMException, while a
@@ -405,6 +437,117 @@ function safeUrlHost(url: string): string {
   }
 }
 
+async function sanitizedBuilderRequestPayload(input: {
+  idempotencyKey?: string;
+  prompt: string;
+  model: string;
+  mode?: string;
+  count: number;
+  aspectRatio: string;
+  size: string;
+  outputFormat: string;
+  background?: string;
+  references: Array<{
+    id: string;
+    role: string;
+    mimeType: string;
+    data: string;
+    name?: string;
+  }>;
+  source: Record<string, unknown>;
+  metadata: Record<string, unknown>;
+}): Promise<Record<string, unknown>> {
+  return {
+    ...input,
+    promptChars: input.prompt.length,
+    references: await Promise.all(
+      input.references.map(async (reference) => ({
+        id: reference.id,
+        role: reference.role,
+        mimeType: reference.mimeType,
+        name: reference.name,
+        data: await referenceDataDebugSummary(reference.data),
+      })),
+    ),
+  };
+}
+
+async function referenceDataDebugSummary(data: string): Promise<
+  | {
+      omitted: true;
+      bytes: number;
+      sha256: string;
+      width?: number;
+      height?: number;
+      channels?: number;
+      hasAlpha?: boolean;
+      alpha?: {
+        min: number;
+        max: number;
+        transparent: number;
+        opaque: number;
+        partial: number;
+      };
+    }
+  | { omitted: true; error: string; chars: number }
+> {
+  try {
+    const buffer = decodeReferenceData(data);
+    const metadata = await sharp(buffer, { failOn: "none" }).metadata();
+    const alpha = metadata.hasAlpha
+      ? await alphaDebugSummary(buffer).catch(() => undefined)
+      : undefined;
+    return {
+      omitted: true,
+      bytes: buffer.byteLength,
+      sha256: createHash("sha256").update(buffer).digest("hex").slice(0, 16),
+      width: metadata.width,
+      height: metadata.height,
+      channels: metadata.channels,
+      hasAlpha: metadata.hasAlpha,
+      alpha,
+    };
+  } catch (err) {
+    return {
+      omitted: true,
+      error: err instanceof Error ? err.message : "Unable to inspect reference",
+      chars: data.length,
+    };
+  }
+}
+
+function decodeReferenceData(data: string): Buffer {
+  const base64 = data.includes(",") ? data.split(",").pop()! : data;
+  return Buffer.from(base64, "base64");
+}
+
+async function alphaDebugSummary(data: Buffer): Promise<{
+  min: number;
+  max: number;
+  transparent: number;
+  opaque: number;
+  partial: number;
+}> {
+  const alpha = await sharp(data, { failOn: "none" })
+    .ensureAlpha()
+    .extractChannel("alpha")
+    .raw()
+    .toBuffer();
+  let min = 255;
+  let max = 0;
+  let transparent = 0;
+  let opaque = 0;
+  let partial = 0;
+  for (const value of alpha) {
+    if (value < min) min = value;
+    if (value > max) max = value;
+    if (value === 0) transparent += 1;
+    else if (value === 255) opaque += 1;
+    else partial += 1;
+  }
+  return { min, max, transparent, opaque, partial };
+}
+
 async function generateWithRetryingBuilderImageApi(
   input: GenerateProviderInput,
 ): Promise<GenerateProviderOutput> {
@@ -474,7 +617,9 @@ export async function generateWithManagedImageProvider(
 ): Promise<GenerateProviderOutput> {
   logGeneration("dispatch", {
     model: input.model,
+    mode: input.mode,
     intent: input.intent,
+    background: input.background,
     builderEnabled: isBuilderImageGenerationEnabled(),
     runId: input.runId,
   });
@@ -760,6 +905,15 @@ export function sanitizeStyleBrief(value: Record<string, unknown>): StyleBrief {
 async function generateWithManualImageProvider(
   input: GenerateProviderInput,
 ): Promise<GenerateProviderOutput> {
+  if (input.mode === "edit") {
+    throw new FeatureNotConfiguredError({
+      requiredCredential: "BUILDER_PRIVATE_KEY",
+      builderConnectUrl: "/_agent-native/builder/connect",
+      byokDocsUrl: "https://aistudio.google.com/apikey",
+      message:
+        "Mask inpainting runs need Builder-managed image generation because the manual fallback cannot pass the image-edit mask.",
+    });
+  }
   if (await isGeminiImageGenerationConfigured()) {
     return generateWithGemini(input);
   }
@@ -779,8 +933,9 @@ export async function generateWithOpenAI(
   input: GenerateProviderInput,
 ): Promise<GenerateProviderOutput> {
   const startedAt = Date.now();
+  const model = openAIImageModelForInput(input.model);
   logGeneration("openai.request", {
-    model: "gpt-image-2",
+    model,
     requestedModel: input.model,
     size: toOpenAIImageSize(input.aspectRatio),
     runId: input.runId,
@@ -792,12 +947,13 @@ export async function generateWithOpenAI(
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
-      model: "gpt-image-2",
+      model,
       prompt: buildOpenAIImagePrompt(input),
       n: 1,
       size: toOpenAIImageSize(input.aspectRatio),
       quality: "medium",
       output_format: "png",
+      ...(input.background ? { background: input.background } : {}),
     }),
     signal: AbortSignal.timeout(IMAGE_GENERATION_REQUEST_TIMEOUT_MS),
   }).catch((err) => {
@@ -831,7 +987,7 @@ export async function generateWithOpenAI(
     return {
       image: Buffer.from(output.b64_json, "base64"),
       mimeType: "image/png",
-      model: "gpt-image-2",
+      model,
       provider: "openai",
     };
   }
@@ -848,12 +1004,20 @@ export async function generateWithOpenAI(
       image: Buffer.from(await imageResponse.arrayBuffer()),
       mimeType:
         imageResponse.headers.get("content-type")?.split(";")[0] || "image/png",
-      model: "gpt-image-2",
+      model,
       provider: "openai",
       sourceUrl: output.url,
     };
   }
   throw new Error("OpenAI returned no image data.");
+}
+
+function openAIImageModelForInput(
+  model: ImageModel,
+): "gpt-image-1" | "gpt-image-2" {
+  return model === "gpt-image-1" || model === "gpt-image-2"
+    ? model
+    : "gpt-image-2";
 }
 
 function buildOpenAIImagePrompt(input: GenerateProviderInput): string {
@@ -990,8 +1154,11 @@ function toBuilderReferenceRole(role: string) {
       return "logo";
     case "product_reference":
       return "product";
+    case "background_reference":
     case "diagram_reference":
       return "composition";
+    case "mask":
+      return "mask";
     case "subject_reference":
     case "edit_target":
       return "source";
@@ -1011,6 +1178,9 @@ export function compilePrompt(input: {
   textPlacement?: string | null;
   referenceCount: number;
   includeLogo: boolean;
+  skeletonContentMode?: "cutout" | "fill" | null;
+  hasBackgroundPlate?: boolean;
+  skeletonInpaint?: boolean;
   aspectRatio?: AspectRatio;
   imageSize?: ImageSize;
   category?: ImageCategory;
@@ -1033,6 +1203,16 @@ export function compilePrompt(input: {
   const logoInstruction = input.includeLogo
     ? "\nLeave a clean uncluttered area in the upper-right for the real brand logo; do not draw or approximate the logo yourself."
     : "";
+  const cutoutInstruction =
+    input.skeletonContentMode === "cutout" && !input.skeletonInpaint
+      ? "\nCutout mode: generate the subject in isolation on an empty transparent background; no scenery, no baked-in ground plane, no environment, and no baked-in shadow."
+      : "";
+  const backgroundPlateInstruction = input.hasBackgroundPlate
+    ? "\nA background plate is attached as a composition reference. It is the FIXED brand layout your output will be composited onto — it already contains the logo, framing, and all fixed text/headlines. Render ONLY the subject, isolated on a transparent background. Do NOT draw, repeat, restyle, or overlap the plate's logo, headline, body text, CTA, or framing. Keep the subject within the plate's open/empty area and leave the occupied regions clear."
+    : "";
+  const skeletonInpaintInstruction = input.skeletonInpaint
+    ? "\nSkeleton inpaint mode: the attached background plate is the fixed final image, and its transparent/open region is the only editable area. Render ONLY the requested foreground content inside that editable region. If the request asks for exact text, CTA, linework, or graphic elements, render those elements only within the editable region. Match the surrounding plate's lighting, perspective, scale, and contact geometry. Do NOT alter, redraw, repeat, restyle, or overlap the plate's existing logo, text, framing, borders, or other brand chrome in the opaque/preserved regions; the plate already contains them. Return the finished plate with the opaque regions preserved."
+    : "";
   const diagramInstruction =
     input.category === "diagram"
       ? "\nDiagram mode: use clear hierarchy, precise labels only when requested, consistent line weights, and enough whitespace for readability."
@@ -1050,7 +1230,7 @@ export function compilePrompt(input: {
       : intent === "restyle"
         ? `The first attached image is the subject to preserve. Keep its identity, pose, composition, and framing. Treat the remaining attached images as style evidence for the brand library. Apply the library look with ${input.styleStrength ?? "balanced"} strength.`
         : input.referenceCount > 0
-          ? `Use the ${input.referenceCount} attached reference image${input.referenceCount === 1 ? "" : "s"} as visual evidence. Treat them by role: style references define visual language, logo/product references define accurate brand/product appearance, subject/source references provide content or composition only, and prior candidates define continuity. Subject/source references must not override the library style brief or custom instructions.`
+          ? `Use the ${input.referenceCount} attached reference image${input.referenceCount === 1 ? "" : "s"} as visual evidence. Treat them by role: style references define visual language, logo/product references define accurate brand/product appearance, background references define fixed composition plates/layout only, mask references define editable regions only, subject/source references provide content or composition only, and prior candidates define continuity. Subject/source/background/mask references must not override the library style brief or custom instructions.`
           : "No reference images are attached for this run. Use the style brief and custom instructions as the source of truth.";
 
   if (intent === "edit") {
@@ -1087,7 +1267,7 @@ ${style.texture ? `\nTexture/material treatment: ${style.texture}.` : ""}
 ${style.composition ? `\nComposition: ${style.composition}.` : ""}
 ${style.lighting ? `\nLighting: ${style.lighting}.` : ""}
 ${typographyBlock ? `\n${typographyBlock}` : ""}${frameInstruction}
-${doNot}${logoInstruction}${diagramInstruction}${customInstructions}
+${doNot}${logoInstruction}${cutoutInstruction}${backgroundPlateInstruction}${skeletonInpaintInstruction}${diagramInstruction}${customInstructions}
 
 ${textInstruction}
 
@@ -1145,6 +1325,7 @@ export async function selectReferences(input: {
   collectionId?: string | null;
   categories?: ImageCategory[];
   referenceAssetIds?: string[];
+  excludeAssetIds?: string[];
   sourceAssetId?: string;
   subjectAssetId?: string;
   intent?: GenerationIntent;
@@ -1152,6 +1333,7 @@ export async function selectReferences(input: {
 }): Promise<ReferenceForGeneration[]> {
   const db = getDb();
   const requestedExplicitIds = new Set(input.referenceAssetIds ?? []);
+  const excludedAssetIds = new Set(input.excludeAssetIds ?? []);
   let explicitIds = [...requestedExplicitIds];
   if (explicitIds.length) {
     explicitIds = [
@@ -1180,7 +1362,8 @@ export async function selectReferences(input: {
           asset != null &&
           asset.mimeType.startsWith("image/") &&
           asset.status !== "archived" &&
-          asset.status !== "failed",
+          asset.status !== "failed" &&
+          !excludedAssetIds.has(asset.id),
       );
     const explicitRefs = await loadReferenceData(
       explicitAssets,
@@ -1215,6 +1398,7 @@ export async function selectReferences(input: {
       libraryId: input.libraryId,
       collectionId: input.collectionId,
       categories: input.categories,
+      excludeAssetIds: input.excludeAssetIds,
       intent: input.intent,
       limit: styleLimit,
     });
@@ -1241,12 +1425,16 @@ export async function selectReferences(input: {
     ? settings.canonicalStyleAssetIds.filter((id) => typeof id === "string")
     : [];
   const candidates = rows
-    .filter(
-      (asset) =>
+    .filter((asset) => {
+      const metadata = parseJson<{ category?: string }>(asset.metadata, {});
+      return (
         asset.mimeType.startsWith("image/") &&
         asset.status !== "archived" &&
-        asset.status !== "failed",
-    )
+        asset.status !== "failed" &&
+        metadata.category !== "skeleton" &&
+        !excludedAssetIds.has(asset.id)
+      );
+    })
     .map((asset) => {
       const metadata = parseJson<{
         category?: string;

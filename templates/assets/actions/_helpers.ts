@@ -368,6 +368,7 @@ export function serializeAsset(
       row.mediaType ?? (row.mimeType?.startsWith("video/") ? "video" : "image"),
     role: row.role,
     status: row.status,
+    category: metadata.category ?? null,
     title: row.title,
     description: row.description ?? metadata.description ?? null,
     altText: row.altText,

@@ -67,6 +67,20 @@ prompt, aspectRatio }`.
   model never draws the logo itself. Pass `includeLogo` on a generate call only
   to override the preset for that one run; otherwise omit it. See the
   `logo-composite` skill.
+- Preset skeletons live in `settings.skeletonSpec` on generation presets and
+  are edited from `/brand-kits/:libraryId/presets/:presetId`. They composite a
+  generated subject onto an uploaded brand background image and optional
+  foreground layers. When the resolved skeleton model is `gpt-image-2`, the
+  action uses managed mask inpainting: the uploaded plate is the edit source,
+  an optional same-size mask asset controls the editable area, and the plate's
+  alpha channel is used as the fallback mask when no manual mask is set. Opaque
+  mask pixels are preserved, transparent mask pixels are editable, and no local
+  compositing runs. Other `cutout` skeletons force `gpt-image-1`, request
+  transparent output through the managed Builder image provider, attach the
+  plate as a composition/background reference for layout awareness, clamp only
+  the provider subject ratio to a supported `gpt-image-1` ratio, and keep the
+  final skeleton canvas at the preset's requested ratio. See the
+  `logo-composite` skill.
 - Humans can edit an existing generation preset from
   `/brand-kits/:libraryId/presets/:presetId`. Use `navigate` with
   `{ view: "preset", libraryId, presetId }` when sending a user to that editor.

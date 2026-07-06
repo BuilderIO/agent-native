@@ -45,6 +45,7 @@ vi.mock("../server/db/index.js", () => ({
   },
 }));
 
+import { generationPresetSettingsSchema } from "./_generation-preset-settings.js";
 import createPresetAction from "./create-generation-preset.js";
 import updatePresetAction from "./update-generation-preset.js";
 
@@ -104,5 +105,27 @@ describe("generation preset includeLogo option", () => {
       tier: "best",
       includeLogo: true,
     });
+  });
+
+  it("validates skeletonSpec settings patches", () => {
+    expect(() =>
+      generationPresetSettingsSchema.parse({
+        skeletonSpec: {
+          background: { type: "asset", assetId: "plate-asset-1" },
+          mask: { type: "asset", assetId: "mask-asset-1" },
+          contentMode: "cutout",
+          dropShadow: true,
+          foreground: [{ source: "canonicalLogo", x: 0.78, y: 0.06, w: 0.16 }],
+        },
+      }),
+    ).not.toThrow();
+    expect(() =>
+      generationPresetSettingsSchema.parse({
+        skeletonSpec: {
+          background: { type: "gradient", from: "#F7F2E8", to: "#D8E6E0" },
+          contentMode: "cutout",
+        },
+      }),
+    ).toThrow();
   });
 });

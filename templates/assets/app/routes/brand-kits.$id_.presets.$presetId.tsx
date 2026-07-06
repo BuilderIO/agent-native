@@ -1,4 +1,5 @@
 import {
+  appBasePath,
   insertAgentComposerReference,
   useActionMutation,
   useActionQuery,
@@ -9,9 +10,11 @@ import {
   IconChevronDown,
   IconDeviceFloppy,
   IconLock,
+  IconPhotoPlus,
   IconTrash,
+  IconUpload,
 } from "@tabler/icons-react";
-import { type ReactNode, useEffect, useMemo, useState } from "react";
+import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
 import { toast } from "sonner";
 
@@ -43,6 +46,8 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Spinner } from "@/components/ui/spinner";
 import { Textarea } from "@/components/ui/textarea";
 import { messagesByLocale } from "@/i18n-data";
+import { assetMediaUrl } from "@/lib/asset-urls";
+import type { AssetUploadResult } from "@/lib/upload-results";
 import { cn } from "@/lib/utils";
 
 import {
@@ -57,7 +62,18 @@ import {
   type ImageCategory,
   type ImageModel,
   type ImageSize,
+  type PresetSkeletonSpec,
 } from "../../shared/api";
+
+type SkeletonContentMode = PresetSkeletonSpec["contentMode"];
+type SkeletonLogoPlacement =
+  | "upper-right"
+  | "upper-left"
+  | "lower-right"
+  | "lower-left";
+type SkeletonForegroundLayer = NonNullable<
+  PresetSkeletonSpec["foreground"]
+>[number];
 
 type PresetFormState = {
   title: string;
@@ -72,20 +88,102 @@ type PresetFormState = {
   textPolicy: string;
   includeLogo: boolean;
   sortOrder: string;
+  skeletonEnabled: boolean;
+  skeletonContentMode: SkeletonContentMode;
+  skeletonBackgroundAssetId: string;
+  skeletonBackgroundPreviewUrl: string;
+  skeletonMaskAssetId: string;
+  skeletonMaskPreviewUrl: string;
+  skeletonDropShadow: boolean;
+  skeletonLogo: boolean;
+  skeletonLogoPlacement: SkeletonLogoPlacement;
 };
 
 const NO_COLLECTION = "__none__";
+const NO_SKELETON_BACKGROUND = "__none__";
+const NO_SKELETON_MASK = "__none__";
 
 export function meta() {
   return [{ title: messagesByLocale["en-US"].routeTitles.generationPreset }];
 }
 
-function formFromPreset(preset: any): PresetFormState {
+function skeletonFromPreset(preset: any): PresetSkeletonSpec | null {
+  const spec = preset?.settings?.skeletonSpec;
+  return spec && typeof spec === "object" ? (spec as PresetSkeletonSpec) : null;
+}
+
+function logoPlacementFromLayer(
+  layer: SkeletonForegroundLayer,
+): SkeletonLogoPlacement {
+  if (layer.y > 0.5) return layer.x > 0.5 ? "lower-right" : "lower-left";
+  return layer.x > 0.5 ? "upper-right" : "upper-left";
+}
+
+function logoLayerFromPlacement(
+  placement: SkeletonLogoPlacement,
+): SkeletonForegroundLayer {
+  switch (placement) {
+    case "upper-left":
+      return { source: "canonicalLogo", x: 0.06, y: 0.06, w: 0.16 };
+    case "lower-left":
+      return { source: "canonicalLogo", x: 0.06, y: 0.82, w: 0.16 };
+    case "lower-right":
+      return { source: "canonicalLogo", x: 0.78, y: 0.82, w: 0.16 };
+    default:
+      return { source: "canonicalLogo", x: 0.78, y: 0.06, w: 0.16 };
+  }
+}
+
+function buildSkeletonSpec(form: PresetFormState): PresetSkeletonSpec | null {
+  if (!form.skeletonEnabled || !form.skeletonBackgroundAssetId) return null;
+  const foreground = form.skeletonLogo
+    ? [logoLayerFromPlacement(form.skeletonLogoPlacement)]
+    : undefined;
+  return {
+    background: {
+      type: "asset",
+      assetId: form.skeletonBackgroundAssetId,
+    },
+    ...(form.skeletonMaskAssetId
+      ? { mask: { type: "asset" as const, assetId: form.skeletonMaskAssetId } }
+      : {}),
+    contentMode: form.skeletonContentMode,
+    dropShadow:
+      form.skeletonContentMode === "cutout"
+        ? form.skeletonDropShadow
+        : undefined,
+    foreground,
+  };
+}
+
+function formFromPreset(
+  preset: any,
+  assets: Array<Record<string, any>> = [],
+): PresetFormState {
+  const skeleton = skeletonFromPreset(preset);
+  const skeletonLogoLayer = skeleton?.foreground?.find(
+    (layer) => layer.source === "canonicalLogo",
+  );
+  const skeletonContentMode = skeleton?.contentMode ?? "fill";
+  const presetModel = (preset?.model ?? "gemini-3.1-flash-image") as ImageModel;
+  const backgroundAssetId =
+    skeleton?.background?.type === "asset" ? skeleton.background.assetId : "";
+  const backgroundAsset = assets.find(
+    (asset) => asset.id === backgroundAssetId,
+  );
+  const maskAssetId =
+    skeleton?.mask?.type === "asset" ? skeleton.mask.assetId : "";
+  const maskAsset = assets.find((asset) => asset.id === maskAssetId);
   return {
     title: preset?.title ?? "",
     description: preset?.description ?? "",
     category: preset?.category ?? "social",
-    model: preset?.model ?? "gemini-3.1-flash-image",
+    model:
+      skeleton &&
+      skeletonContentMode === "cutout" &&
+      presetModel !== "gpt-image-2"
+        ? "gpt-image-1"
+        : presetModel,
     aspectRatio: preset?.aspectRatio ?? "1:1",
     imageSize: preset?.imageSize ?? "2K",
     referencePolicy: preset?.referencePolicy ?? "auto",
@@ -94,6 +192,17 @@ function formFromPreset(preset: any): PresetFormState {
     textPolicy: preset?.textPolicy ?? "",
     includeLogo: preset?.includeLogo === true,
     sortOrder: String(preset?.sortOrder ?? 0),
+    skeletonEnabled: Boolean(skeleton && backgroundAssetId),
+    skeletonContentMode,
+    skeletonBackgroundAssetId: backgroundAssetId,
+    skeletonBackgroundPreviewUrl: previewUrlForAsset(backgroundAsset),
+    skeletonMaskAssetId: maskAssetId,
+    skeletonMaskPreviewUrl: previewUrlForAsset(maskAsset),
+    skeletonDropShadow: skeleton?.dropShadow === true,
+    skeletonLogo: Boolean(skeletonLogoLayer),
+    skeletonLogoPlacement: skeletonLogoLayer
+      ? logoPlacementFromLayer(skeletonLogoLayer)
+      : "upper-right",
   };
 }
 
@@ -107,7 +216,34 @@ function normalizedForm(form: PresetFormState) {
     sortOrder: Number.isFinite(Number(form.sortOrder))
       ? String(Number(form.sortOrder))
       : "0",
+    skeletonBackgroundPreviewUrl: "",
+    skeletonMaskPreviewUrl: "",
   };
+}
+
+function previewUrlForAsset(asset: any): string {
+  return (
+    assetMediaUrl(
+      asset?.thumbnailUrl ?? asset?.previewUrl ?? asset?.downloadUrl,
+    ) ?? ""
+  );
+}
+
+function isImageAsset(asset: any): boolean {
+  return (
+    asset?.mediaType === "image" ||
+    (typeof asset?.mimeType === "string" && asset.mimeType.startsWith("image/"))
+  );
+}
+
+function uploadedSkeletonAssetId(
+  result: AssetUploadResult | null | undefined,
+): string | null {
+  return (
+    result?.assets?.find((asset) => asset.id)?.id ??
+    result?.skippedDuplicates?.find((asset) => asset.assetId)?.assetId ??
+    null
+  );
 }
 
 function isEditableRole(role: unknown): boolean {
@@ -131,6 +267,42 @@ function FieldLabel({
   );
 }
 
+function SkeletonPreview({ form }: { form: PresetFormState }) {
+  const logoLayer = logoLayerFromPlacement(form.skeletonLogoPlacement);
+  return (
+    <div className="relative mt-3 aspect-video overflow-hidden rounded-md border border-border bg-muted">
+      {form.skeletonBackgroundPreviewUrl ? (
+        <img
+          src={form.skeletonBackgroundPreviewUrl}
+          alt=""
+          className="absolute inset-0 h-full w-full object-cover"
+        />
+      ) : null}
+      <div
+        className={cn(
+          "absolute bg-background/85 shadow-sm",
+          form.skeletonContentMode === "cutout"
+            ? "inset-x-[26%] top-[14%] h-[62%] rounded-full"
+            : "inset-[12%] rounded-sm",
+        )}
+      />
+      {form.skeletonContentMode === "cutout" && form.skeletonDropShadow ? (
+        <div className="absolute bottom-[18%] left-1/2 h-3 w-28 -translate-x-1/2 rounded-full bg-foreground/20 blur-sm" />
+      ) : null}
+      {form.skeletonLogo ? (
+        <div
+          className="absolute h-3 rounded-sm bg-foreground/80"
+          style={{
+            left: `${logoLayer.x * 100}%`,
+            top: `${logoLayer.y * 100}%`,
+            width: `${logoLayer.w * 100}%`,
+          }}
+        />
+      ) : null}
+    </div>
+  );
+}
+
 export default function GenerationPresetEditorRoute() {
   const t = useT();
   const navigate = useNavigate();
@@ -150,11 +322,24 @@ export default function GenerationPresetEditorRoute() {
   const [initialForm, setInitialForm] = useState<PresetFormState | null>(null);
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
+  const [skeletonUploadPending, setSkeletonUploadPending] = useState(false);
+  const [skeletonMaskUploadPending, setSkeletonMaskUploadPending] =
+    useState(false);
+  const skeletonFileInputRef = useRef<HTMLInputElement | null>(null);
+  const skeletonMaskFileInputRef = useRef<HTMLInputElement | null>(null);
 
   const library = libraryData?.library;
+  const assets = useMemo(
+    () => (Array.isArray(libraryData?.assets) ? libraryData.assets : []),
+    [libraryData?.assets],
+  );
   const collections = Array.isArray(libraryData?.collections)
     ? libraryData.collections
     : [];
+  const skeletonBackgroundAssets = useMemo(
+    () => assets.filter(isImageAsset),
+    [assets],
+  );
   const presets = Array.isArray(presetData?.presets) ? presetData.presets : [];
   const preset = presets.find((item: any) => item.id === presetId);
   const loading = libraryLoading || presetsLoading;
@@ -163,10 +348,44 @@ export default function GenerationPresetEditorRoute() {
 
   useEffect(() => {
     if (!preset) return;
-    const next = formFromPreset(preset);
+    const next = formFromPreset(preset, assets);
     setForm(next);
     setInitialForm(next);
   }, [preset?.id, preset?.updatedAt]);
+
+  useEffect(() => {
+    function hydratePreview(
+      current: PresetFormState | null,
+    ): PresetFormState | null {
+      if (!current) {
+        return current;
+      }
+      const backgroundAsset = assets.find(
+        (item: any) => item.id === current.skeletonBackgroundAssetId,
+      );
+      const maskAsset = assets.find(
+        (item: any) => item.id === current.skeletonMaskAssetId,
+      );
+      const backgroundPreviewUrl =
+        current.skeletonBackgroundPreviewUrl ||
+        previewUrlForAsset(backgroundAsset);
+      const maskPreviewUrl =
+        current.skeletonMaskPreviewUrl || previewUrlForAsset(maskAsset);
+      if (
+        backgroundPreviewUrl === current.skeletonBackgroundPreviewUrl &&
+        maskPreviewUrl === current.skeletonMaskPreviewUrl
+      ) {
+        return current;
+      }
+      return {
+        ...current,
+        skeletonBackgroundPreviewUrl: backgroundPreviewUrl,
+        skeletonMaskPreviewUrl: maskPreviewUrl,
+      };
+    }
+    setForm(hydratePreview);
+    setInitialForm(hydratePreview);
+  }, [assets]);
 
   useEffect(() => {
     if (!library?.id || !library?.title || !preset?.id || !preset?.title) {
@@ -215,8 +434,22 @@ export default function GenerationPresetEditorRoute() {
   ]);
 
   const supportedRatios = useMemo(
-    () => (form ? supportedAspectRatiosForModel(form.model) : ASPECT_RATIOS),
-    [form?.model],
+    () =>
+      form?.skeletonEnabled
+        ? ASPECT_RATIOS
+        : form
+          ? supportedAspectRatiosForModel(form.model)
+          : ASPECT_RATIOS,
+    [form?.model, form?.skeletonEnabled],
+  );
+  const modelOptions = useMemo(
+    () =>
+      form?.skeletonEnabled && form.skeletonContentMode === "cutout"
+        ? IMAGE_MODELS.filter(
+            (model) => model === "gpt-image-1" || model === "gpt-image-2",
+          )
+        : IMAGE_MODELS,
+    [form?.skeletonContentMode, form?.skeletonEnabled],
   );
   const dirty = Boolean(
     form &&
@@ -235,6 +468,15 @@ export default function GenerationPresetEditorRoute() {
   function updateModel(model: ImageModel) {
     setForm((current) => {
       if (!current) return current;
+      if (current.skeletonEnabled && current.skeletonContentMode === "cutout") {
+        return {
+          ...current,
+          model:
+            model === "gpt-image-1" || model === "gpt-image-2"
+              ? model
+              : "gpt-image-1",
+        };
+      }
       const ratios = supportedAspectRatiosForModel(model);
       return {
         ...current,
@@ -246,10 +488,167 @@ export default function GenerationPresetEditorRoute() {
     });
   }
 
+  function updateSkeletonEnabled(enabled: boolean) {
+    setForm((current) => {
+      if (!current) return current;
+      return {
+        ...current,
+        skeletonEnabled: enabled,
+        model:
+          enabled &&
+          current.skeletonContentMode === "cutout" &&
+          current.model !== "gpt-image-1" &&
+          current.model !== "gpt-image-2"
+            ? "gpt-image-1"
+            : current.model,
+      };
+    });
+  }
+
+  function updateSkeletonContentMode(contentMode: SkeletonContentMode) {
+    setForm((current) =>
+      current
+        ? {
+            ...current,
+            skeletonContentMode: contentMode,
+            model:
+              contentMode === "cutout" &&
+              current.model !== "gpt-image-1" &&
+              current.model !== "gpt-image-2"
+                ? "gpt-image-1"
+                : current.model,
+            skeletonDropShadow:
+              contentMode === "cutout" ? current.skeletonDropShadow : false,
+          }
+        : current,
+    );
+  }
+
+  function updateSkeletonBackgroundAsset(assetId: string) {
+    if (assetId === NO_SKELETON_BACKGROUND) {
+      updateForm({
+        skeletonBackgroundAssetId: "",
+        skeletonBackgroundPreviewUrl: "",
+      });
+      return;
+    }
+    const asset = skeletonBackgroundAssets.find(
+      (item: any) => item.id === assetId,
+    );
+    updateForm({
+      skeletonBackgroundAssetId: assetId,
+      skeletonBackgroundPreviewUrl: previewUrlForAsset(asset),
+    });
+  }
+
+  function updateSkeletonMaskAsset(assetId: string) {
+    if (assetId === NO_SKELETON_MASK) {
+      updateForm({
+        skeletonMaskAssetId: "",
+        skeletonMaskPreviewUrl: "",
+      });
+      return;
+    }
+    const asset = skeletonBackgroundAssets.find(
+      (item: any) => item.id === assetId,
+    );
+    updateForm({
+      skeletonMaskAssetId: assetId,
+      skeletonMaskPreviewUrl: previewUrlForAsset(asset),
+    });
+  }
+
+  async function uploadSkeletonImage(
+    files: FileList | null,
+    target: "background" | "mask" = "background",
+  ) {
+    const pending =
+      target === "mask" ? skeletonMaskUploadPending : skeletonUploadPending;
+    if (!files?.length || !libraryId || readOnly || pending) return;
+    const file = files[0];
+    const localPreviewUrl = URL.createObjectURL(file);
+    const body = new FormData();
+    body.append("libraryId", libraryId);
+    body.append("category", "skeleton");
+    body.append("files", file);
+    if (target === "mask") {
+      setSkeletonMaskUploadPending(true);
+    } else {
+      setSkeletonUploadPending(true);
+    }
+    try {
+      const response = await fetch(`${appBasePath()}/api/assets/upload`, {
+        method: "POST",
+        body,
+      });
+      if (!response.ok) {
+        const errorBody = (await response.json().catch(() => null)) as {
+          error?: string;
+        } | null;
+        throw new Error(
+          errorBody?.error || `Upload failed (${response.status})`,
+        );
+      }
+      const result = (await response
+        .json()
+        .catch(() => null)) as AssetUploadResult | null;
+      const assetId = uploadedSkeletonAssetId(result);
+      if (!assetId) {
+        throw new Error(
+          result?.errors?.[0]?.message ??
+            (target === "mask"
+              ? t("brandKitDetail.couldNotUploadSkeletonMask")
+              : t("brandKitDetail.couldNotUploadSkeletonImage")),
+        );
+      }
+      updateForm(
+        target === "mask"
+          ? {
+              skeletonMaskAssetId: assetId,
+              skeletonMaskPreviewUrl: localPreviewUrl,
+            }
+          : {
+              skeletonBackgroundAssetId: assetId,
+              skeletonBackgroundPreviewUrl: localPreviewUrl,
+            },
+      );
+      toast.success(
+        target === "mask"
+          ? t("brandKitDetail.skeletonMaskUploaded")
+          : t("brandKitDetail.skeletonImageUploaded"),
+      );
+    } catch (error) {
+      URL.revokeObjectURL(localPreviewUrl);
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : target === "mask"
+            ? t("brandKitDetail.couldNotUploadSkeletonMask")
+            : t("brandKitDetail.couldNotUploadSkeletonImage"),
+      );
+    } finally {
+      if (target === "mask") {
+        setSkeletonMaskUploadPending(false);
+        if (skeletonMaskFileInputRef.current) {
+          skeletonMaskFileInputRef.current.value = "";
+        }
+      } else {
+        setSkeletonUploadPending(false);
+        if (skeletonFileInputRef.current) {
+          skeletonFileInputRef.current.value = "";
+        }
+      }
+    }
+  }
+
   async function save() {
     if (!preset || !form || readOnly || updatePreset.isPending) return;
     const normalized = normalizedForm(form);
     if (!normalized.title) return;
+    if (normalized.skeletonEnabled && !normalized.skeletonBackgroundAssetId) {
+      toast.error(t("brandKitDetail.skeletonImageRequired"));
+      return;
+    }
     try {
       const saved = await updatePreset.mutateAsync({
         id: preset.id,
@@ -263,10 +662,22 @@ export default function GenerationPresetEditorRoute() {
         textPolicy: normalized.textPolicy,
         referencePolicy: normalized.referencePolicy,
         includeLogo: normalized.includeLogo,
+        settings: {
+          skeletonSpec: buildSkeletonSpec(normalized),
+        },
         collectionId: normalized.collectionId,
         sortOrder: Number(normalized.sortOrder),
       });
-      const next = formFromPreset(saved);
+      const next = formFromPreset(saved, assets);
+      if (
+        normalized.skeletonBackgroundAssetId &&
+        !next.skeletonBackgroundPreviewUrl
+      ) {
+        next.skeletonBackgroundPreviewUrl = form.skeletonBackgroundPreviewUrl;
+      }
+      if (normalized.skeletonMaskAssetId && !next.skeletonMaskPreviewUrl) {
+        next.skeletonMaskPreviewUrl = form.skeletonMaskPreviewUrl;
+      }
       setForm(next);
       setInitialForm(next);
       toast.success(t("brandKitDetail.generationPresetSaved"));
@@ -372,7 +783,11 @@ export default function GenerationPresetEditorRoute() {
           <Button
             className="gap-2"
             disabled={
-              readOnly || updatePreset.isPending || !dirty || !form.title.trim()
+              readOnly ||
+              updatePreset.isPending ||
+              !dirty ||
+              !form.title.trim() ||
+              (form.skeletonEnabled && !form.skeletonBackgroundAssetId)
             }
             onClick={save}
           >
@@ -524,6 +939,314 @@ export default function GenerationPresetEditorRoute() {
               </span>
             </span>
           </label>
+          <div className="grid gap-4 rounded-md border border-border p-4">
+            <label
+              htmlFor="preset-skeleton-enabled"
+              className={cn("flex items-start gap-3", readOnly && "opacity-70")}
+            >
+              <Checkbox
+                id="preset-skeleton-enabled"
+                checked={form.skeletonEnabled}
+                disabled={readOnly}
+                onCheckedChange={(checked) =>
+                  updateSkeletonEnabled(checked === true)
+                }
+                className="mt-0.5"
+              />
+              <span className="grid gap-1">
+                <span className="text-sm font-medium leading-none">
+                  {t("brandKitDetail.presetSkeleton")}
+                </span>
+                <span className="text-xs text-muted-foreground">
+                  {t("brandKitDetail.presetSkeletonHint")}
+                </span>
+              </span>
+            </label>
+            {form.skeletonEnabled ? (
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div className="grid gap-2">
+                  <FieldLabel>{t("brandKitDetail.contentMode")}</FieldLabel>
+                  <Select
+                    value={form.skeletonContentMode}
+                    disabled={readOnly}
+                    onValueChange={(value) =>
+                      updateSkeletonContentMode(value as SkeletonContentMode)
+                    }
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="fill">
+                        {t("brandKitDetail.contentModeFill")}
+                      </SelectItem>
+                      <SelectItem value="cutout">
+                        {t("brandKitDetail.contentModeCutout")}
+                      </SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="grid gap-3 sm:col-span-2">
+                  <FieldLabel>{t("brandKitDetail.skeletonImage")}</FieldLabel>
+                  <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_16rem]">
+                    <button
+                      type="button"
+                      className={cn(
+                        "relative aspect-video overflow-hidden rounded-md border border-dashed border-border bg-muted text-left transition-colors hover:border-foreground/40 disabled:cursor-not-allowed disabled:opacity-70",
+                        form.skeletonBackgroundPreviewUrl && "border-solid",
+                      )}
+                      disabled={readOnly || skeletonUploadPending}
+                      onClick={() => skeletonFileInputRef.current?.click()}
+                    >
+                      {form.skeletonBackgroundPreviewUrl ? (
+                        <img
+                          src={form.skeletonBackgroundPreviewUrl}
+                          alt=""
+                          className="absolute inset-0 h-full w-full object-cover"
+                        />
+                      ) : (
+                        <span className="absolute inset-0 flex flex-col items-center justify-center gap-2 px-4 text-center text-sm text-muted-foreground">
+                          <IconPhotoPlus className="h-7 w-7" />
+                          <span>{t("brandKitDetail.uploadSkeletonImage")}</span>
+                        </span>
+                      )}
+                    </button>
+                    <div className="grid content-start gap-2">
+                      <input
+                        ref={skeletonFileInputRef}
+                        type="file"
+                        accept="image/*"
+                        className="hidden"
+                        disabled={readOnly || skeletonUploadPending}
+                        onChange={(event) =>
+                          void uploadSkeletonImage(event.target.files)
+                        }
+                      />
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="gap-2"
+                        disabled={readOnly || skeletonUploadPending}
+                        onClick={() => skeletonFileInputRef.current?.click()}
+                      >
+                        {skeletonUploadPending ? (
+                          <Spinner className="h-4 w-4" />
+                        ) : (
+                          <IconUpload className="h-4 w-4" />
+                        )}
+                        {skeletonUploadPending
+                          ? t("brandKitDetail.uploadingSkeletonImage")
+                          : t("brandKitDetail.uploadSkeletonImage")}
+                      </Button>
+                      <Select
+                        value={
+                          form.skeletonBackgroundAssetId ||
+                          NO_SKELETON_BACKGROUND
+                        }
+                        disabled={readOnly || !skeletonBackgroundAssets.length}
+                        onValueChange={updateSkeletonBackgroundAsset}
+                      >
+                        <SelectTrigger>
+                          <SelectValue
+                            placeholder={t(
+                              "brandKitDetail.chooseSkeletonImage",
+                            )}
+                          />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value={NO_SKELETON_BACKGROUND}>
+                            {t("brandKitDetail.noSkeletonImage")}
+                          </SelectItem>
+                          {skeletonBackgroundAssets.map((asset: any) => (
+                            <SelectItem key={asset.id} value={asset.id}>
+                              {asset.title || asset.id}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <p className="text-xs text-muted-foreground">
+                        {t("brandKitDetail.skeletonImageHint")}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+                {form.skeletonContentMode === "cutout" &&
+                form.model === "gpt-image-2" ? (
+                  <div className="grid gap-3 sm:col-span-2">
+                    <FieldLabel>{t("brandKitDetail.skeletonMask")}</FieldLabel>
+                    <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_16rem]">
+                      <button
+                        type="button"
+                        className={cn(
+                          "relative aspect-video overflow-hidden rounded-md border border-dashed border-border bg-muted text-left transition-colors hover:border-foreground/40 disabled:cursor-not-allowed disabled:opacity-70",
+                          form.skeletonMaskPreviewUrl && "border-solid",
+                        )}
+                        disabled={readOnly || skeletonMaskUploadPending}
+                        onClick={() =>
+                          skeletonMaskFileInputRef.current?.click()
+                        }
+                      >
+                        {form.skeletonMaskPreviewUrl ? (
+                          <img
+                            src={form.skeletonMaskPreviewUrl}
+                            alt=""
+                            className="absolute inset-0 h-full w-full object-cover"
+                          />
+                        ) : (
+                          <span className="absolute inset-0 flex flex-col items-center justify-center gap-2 px-4 text-center text-sm text-muted-foreground">
+                            <IconPhotoPlus className="h-7 w-7" />
+                            <span>
+                              {t("brandKitDetail.uploadSkeletonMask")}
+                            </span>
+                          </span>
+                        )}
+                      </button>
+                      <div className="grid content-start gap-2">
+                        <input
+                          ref={skeletonMaskFileInputRef}
+                          type="file"
+                          accept="image/*"
+                          className="hidden"
+                          disabled={readOnly || skeletonMaskUploadPending}
+                          onChange={(event) =>
+                            void uploadSkeletonImage(event.target.files, "mask")
+                          }
+                        />
+                        <Button
+                          type="button"
+                          variant="outline"
+                          className="gap-2"
+                          disabled={readOnly || skeletonMaskUploadPending}
+                          onClick={() =>
+                            skeletonMaskFileInputRef.current?.click()
+                          }
+                        >
+                          {skeletonMaskUploadPending ? (
+                            <Spinner className="h-4 w-4" />
+                          ) : (
+                            <IconUpload className="h-4 w-4" />
+                          )}
+                          {skeletonMaskUploadPending
+                            ? t("brandKitDetail.uploadingSkeletonMask")
+                            : t("brandKitDetail.uploadSkeletonMask")}
+                        </Button>
+                        <Select
+                          value={form.skeletonMaskAssetId || NO_SKELETON_MASK}
+                          disabled={
+                            readOnly || !skeletonBackgroundAssets.length
+                          }
+                          onValueChange={updateSkeletonMaskAsset}
+                        >
+                          <SelectTrigger>
+                            <SelectValue
+                              placeholder={t(
+                                "brandKitDetail.chooseSkeletonMask",
+                              )}
+                            />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value={NO_SKELETON_MASK}>
+                              {t("brandKitDetail.noSkeletonMask")}
+                            </SelectItem>
+                            {skeletonBackgroundAssets.map((asset: any) => (
+                              <SelectItem key={asset.id} value={asset.id}>
+                                {asset.title || asset.id}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <p className="text-xs text-muted-foreground">
+                          {t("brandKitDetail.skeletonMaskHint")}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                ) : null}
+                {form.skeletonContentMode === "cutout" ? (
+                  <label
+                    htmlFor="preset-skeleton-shadow"
+                    className={cn(
+                      "flex items-start gap-3 rounded-md border border-border p-3 sm:col-span-2",
+                      readOnly && "opacity-70",
+                    )}
+                  >
+                    <Checkbox
+                      id="preset-skeleton-shadow"
+                      checked={form.skeletonDropShadow}
+                      disabled={readOnly}
+                      onCheckedChange={(checked) =>
+                        updateForm({ skeletonDropShadow: checked === true })
+                      }
+                      className="mt-0.5"
+                    />
+                    <span className="grid gap-1">
+                      <span className="text-sm font-medium leading-none">
+                        {t("brandKitDetail.contactShadow")}
+                      </span>
+                      <span className="text-xs text-muted-foreground">
+                        {t("brandKitDetail.contactShadowHint")}
+                      </span>
+                    </span>
+                  </label>
+                ) : null}
+                <label
+                  htmlFor="preset-skeleton-logo"
+                  className={cn(
+                    "flex items-start gap-3 rounded-md border border-border p-3",
+                    readOnly && "opacity-70",
+                  )}
+                >
+                  <Checkbox
+                    id="preset-skeleton-logo"
+                    checked={form.skeletonLogo}
+                    disabled={readOnly || !library?.canonicalLogoAssetId}
+                    onCheckedChange={(checked) =>
+                      updateForm({ skeletonLogo: checked === true })
+                    }
+                    className="mt-0.5"
+                  />
+                  <span className="grid gap-1">
+                    <span className="text-sm font-medium leading-none">
+                      {t("brandKitDetail.placeLogoInSkeleton")}
+                    </span>
+                    <span className="text-xs text-muted-foreground">
+                      {t("brandKitDetail.placeLogoInSkeletonHint")}
+                    </span>
+                  </span>
+                </label>
+                <div className="grid gap-2">
+                  <FieldLabel>{t("brandKitDetail.logoPlacement")}</FieldLabel>
+                  <Select
+                    value={form.skeletonLogoPlacement}
+                    disabled={readOnly || !form.skeletonLogo}
+                    onValueChange={(value) =>
+                      updateForm({
+                        skeletonLogoPlacement: value as SkeletonLogoPlacement,
+                      })
+                    }
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="upper-right">
+                        {t("brandKitDetail.upperRight")}
+                      </SelectItem>
+                      <SelectItem value="upper-left">
+                        {t("brandKitDetail.upperLeft")}
+                      </SelectItem>
+                      <SelectItem value="lower-right">
+                        {t("brandKitDetail.lowerRight")}
+                      </SelectItem>
+                      <SelectItem value="lower-left">
+                        {t("brandKitDetail.lowerLeft")}
+                      </SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+            ) : null}
+          </div>
 
           <Separator />
 
@@ -557,7 +1280,7 @@ export default function GenerationPresetEditorRoute() {
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      {IMAGE_MODELS.map((item) => (
+                      {modelOptions.map((item) => (
                         <SelectItem key={item} value={item}>
                           {item}
                         </SelectItem>
@@ -685,6 +1408,17 @@ export default function GenerationPresetEditorRoute() {
                 {t("brandKitDetail.referencePolicy")}
               </dt>
               <dd className="mt-1">{form.referencePolicy}</dd>
+            </div>
+            <div>
+              <dt className="text-xs text-muted-foreground">
+                {t("brandKitDetail.presetSkeleton")}
+              </dt>
+              <dd className="mt-1">
+                {form.skeletonEnabled
+                  ? t("brandKitDetail.skeletonEnabled")
+                  : t("brandKitDetail.skeletonOff")}
+              </dd>
+              {form.skeletonEnabled ? <SkeletonPreview form={form} /> : null}
             </div>
           </dl>
         </aside>

@@ -13,6 +13,7 @@ import {
   IMAGE_MODELS,
   IMAGE_SIZES,
 } from "../shared/api.js";
+import { generationPresetSettingsSchema } from "./_generation-preset-settings.js";
 import { serializeGenerationPreset } from "./_helpers.js";
 
 export default defineAction({
@@ -38,7 +39,7 @@ export default defineAction({
       .describe(
         "When true, images generated with this preset composite the library's canonical logo (no-op if the library has no canonical logo).",
       ),
-    settings: z.record(z.string(), z.unknown()).optional(),
+    settings: generationPresetSettingsSchema.optional(),
     sortOrder: z.coerce.number().optional(),
   }),
   run: async (args) => {

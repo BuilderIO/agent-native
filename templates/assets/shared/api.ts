@@ -8,6 +8,7 @@ export const IMAGE_CATEGORIES = [
   "social",
   "campaign",
   "style-only",
+  "skeleton",
   "other",
 ] as const;
 
@@ -38,18 +39,20 @@ export const IMAGE_MODELS = [
   "gemini-3.1-flash-image-preview",
   "gemini-3-pro-image-preview",
   "gemini-2.5-flash-image",
+  "gpt-image-1",
   "gpt-image-2",
 ] as const;
 
 // Per-model aspect-ratio constraints. Mirrors the image service catalog's
 // `supportedAspectRatios` (see the ai-services image-generation catalog). Models
-// omitted here accept the full ASPECT_RATIOS set. gpt-image-2 maps each aspect
-// ratio to a fixed OpenAI resolution and supports only these three; other ratios
-// are rejected upstream with `unsupported_aspect_ratio`. Keep this in sync with
-// the catalog until the picker sources it dynamically from `/discover`.
+// omitted here accept the full ASPECT_RATIOS set. GPT image models map each
+// aspect ratio to a fixed OpenAI resolution and support only these three; other
+// ratios are rejected upstream with `unsupported_aspect_ratio`. Keep this in
+// sync with the catalog until the picker sources it dynamically from `/discover`.
 export const MODEL_ASPECT_RATIOS: Partial<
   Record<ImageModel, readonly AspectRatio[]>
 > = {
+  "gpt-image-1": ["1:1", "2:3", "3:2"],
   "gpt-image-2": ["1:1", "2:3", "3:2"],
 };
 
@@ -98,6 +101,7 @@ export type ImageRole =
   | "product_reference"
   | "diagram_reference"
   | "video_reference"
+  | "background_reference"
   | "subject_reference"
   | "edit_target"
   | "generated";
@@ -137,6 +141,29 @@ export interface StyleBrief {
   caseStyle?: string;
   typographyPolicy?: string;
   doNot?: string[];
+}
+
+export type PresetSkeletonBackground = { type: "asset"; assetId: string };
+export type PresetSkeletonMask = { type: "asset"; assetId: string };
+
+export type PresetSkeletonForegroundSource =
+  | "canonicalLogo"
+  | { assetId: string };
+
+export interface PresetSkeletonForegroundLayer {
+  source: PresetSkeletonForegroundSource;
+  x: number;
+  y: number;
+  w: number;
+}
+
+export interface PresetSkeletonSpec {
+  background: PresetSkeletonBackground;
+  mask?: PresetSkeletonMask;
+  contentMode: "cutout" | "fill";
+  contentRegion?: { x: number; y: number; w: number; h: number };
+  dropShadow?: boolean;
+  foreground?: PresetSkeletonForegroundLayer[];
 }
 
 export interface ImageLibrarySummary {
