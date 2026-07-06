@@ -349,10 +349,19 @@ async function restoreRuntimeState(): Promise<void> {
   const stored = await sessionStorageGet([
     "activeNativeRecording",
     "overlayRuntime",
+    "armingNativeRecordingSessionId",
   ]);
   const rec = stored.activeNativeRecording as NativeRecording | undefined;
   if (rec && typeof rec.sessionId === "string" && !activeNativeRecording) {
     activeNativeRecording = rec;
+  }
+  const armingSessionId = stored.armingNativeRecordingSessionId;
+  if (
+    typeof armingSessionId === "string" &&
+    armingSessionId &&
+    armingNativeRecordingSessionId === null
+  ) {
+    armingNativeRecordingSessionId = armingSessionId;
   }
   const rt = stored.overlayRuntime as
     | {
@@ -767,6 +776,26 @@ async function saveActiveNativeRecording(): Promise<void> {
   }).catch(() => undefined);
 }
 
+// The arming guard rejects a second CLIPS_POPUP_START while the picker +
+// create-recording round trip is in flight. The in-memory var alone does not
+// survive an MV3 service-worker suspension (possible while awaiting the
+// native picker or the create-recording network call), which would let a
+// second start race in on a revived worker. Persist it to session storage
+// (authoritative; cleared when the browser session ends) and treat the
+// in-memory var as a fast path only.
+async function setArmingGuard(sessionId: string | null): Promise<void> {
+  armingNativeRecordingSessionId = sessionId;
+  if (sessionId) {
+    await sessionStorageSet({
+      armingNativeRecordingSessionId: sessionId,
+    }).catch(() => undefined);
+  } else {
+    await sessionStorageRemove("armingNativeRecordingSessionId").catch(
+      () => undefined,
+    );
+  }
+}
+
 function queryActiveTab(): Promise<ChromeTab | null> {
   return new Promise((resolve, reject) => {
     chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
@@ -953,7 +982,16 @@ function createSession(
 }
 
 async function handlePopupStart(message: PopupStartMessage) {
-  if (activeNativeRecording || armingNativeRecordingSessionId) {
+  // The persisted value is authoritative (survives a worker suspension during
+  // arming); the in-memory var is only a same-tick fast path on top of it.
+  const persistedArming = (
+    await sessionStorageGet(["armingNativeRecordingSessionId"])
+  ).armingNativeRecordingSessionId;
+  if (
+    activeNativeRecording ||
+    armingNativeRecordingSessionId ||
+    (typeof persistedArming === "string" && persistedArming)
+  ) {
     return {
       ok: false,
       error: "Clips is already recording. Stop the active clip first.",
@@ -961,7 +999,7 @@ async function handlePopupStart(message: PopupStartMessage) {
   }
 
   const sessionId = crypto.randomUUID();
-  armingNativeRecordingSessionId = sessionId;
+  await setArmingGuard(sessionId);
   try {
     const tab = await queryActiveTab();
     if (!tab || typeof tab.id !== "number") {
@@ -974,7 +1012,7 @@ async function handlePopupStart(message: PopupStartMessage) {
     return await armRecording({ sessionId, tab, settings });
   } finally {
     if (armingNativeRecordingSessionId === sessionId) {
-      armingNativeRecordingSessionId = null;
+      await setArmingGuard(null);
     }
   }
 }
@@ -1251,12 +1289,27 @@ async function handleOverlayRestart() {
   // If the previous take's chunks could not be cleared, do NOT re-arm with the
   // same recordingId — finalize would otherwise assemble stale chunk keys from
   // the aborted take into the restarted recording. Surface the failure instead.
+  // CLIPS_OFFSCREEN_RESTART above already cleared the offscreen's active
+  // recording (it only holds the raw source streams in a "prepared" slot now),
+  // so we must not leave the overlay stuck mid-recording/paused with no
+  // recorder behind it — tear the overlay back down and release those streams,
+  // matching the re-arm failure handling just below.
   const chunksReset = await resetRecordingChunks(recording);
   if (!chunksReset) {
+    recording.status = "error";
+    recording.error =
+      "Could not clear the previous take before restarting. Stop and start a new recording.";
+    await sendOffscreenMessage({
+      type: "CLIPS_OFFSCREEN_CANCEL",
+      sessionId: recording.sessionId,
+    }).catch(() => undefined);
+    resetOverlay();
+    await saveActiveNativeRecording();
+    await broadcastUnmount();
+    broadcastOverlayState();
     return {
       ok: false,
-      error:
-        "Could not clear the previous take before restarting. Stop and start a new recording.",
+      error: recording.error,
     };
   }
   overlayPhase = "countdown";

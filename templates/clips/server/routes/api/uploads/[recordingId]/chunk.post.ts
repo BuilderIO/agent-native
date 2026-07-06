@@ -622,6 +622,10 @@ async function handleResumableChunk(
   ownerEmail: string,
 ) {
   const uploadProvider = getActiveFileUploadProvider();
+  if (!uploadProvider?.resumable) {
+    setResponseStatus(event, 502);
+    return { ok: false, error: "Upload storage is not configured" };
+  }
   console.log(
     `[resumable-chunk-${recordingId}] resumable session exists - bytesUploaded=${session.bytesUploaded} index=${index} isFinal=${isFinal}`,
   );
@@ -644,7 +648,7 @@ async function handleResumableChunk(
     // 0-byte sentinel from the recorder after stop(). All data chunks have
     // already been PUT to the provider; send Content-Range: bytes */<total>
     // to close the session before handing off to finalize-recording.
-    const closeRes = await uploadProvider!.resumable!.relayChunk(
+    const closeRes = await uploadProvider.resumable.relayChunk(
       { sessionId: session.sessionId, meta: session.meta },
       `bytes */${session.bytesUploaded}`,
       new Uint8Array(0),
@@ -690,7 +694,7 @@ async function handleResumableChunk(
         : `bytes ${start}-${end}/*`;
 
       const putT0 = Date.now();
-      const putResult = await uploadProvider!.resumable!.relayChunk(
+      const putResult = await uploadProvider.resumable.relayChunk(
         { sessionId: session.sessionId, meta: session.meta },
         contentRange,
         bytes,

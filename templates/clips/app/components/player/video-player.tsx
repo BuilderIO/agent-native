@@ -234,6 +234,9 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
     const idleTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
     const playAttemptPendingRef = useRef(false);
     const playAttemptIdRef = useRef(0);
+    // Position to restore after `v.load()` resets `currentTime` to 0 while
+    // recovering from a media error (see `requestPlay`).
+    const resumeAfterReloadMsRef = useRef<number | null>(null);
     const [activeVideoSrc, setActiveVideoSrc] = useState(resolvedVideoSrc);
     const [isPlaying, setIsPlaying] = useState(false);
     const [currentMs, setCurrentMs] = useState(startMs ?? 0);
@@ -416,7 +419,20 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
 
       bumpControls();
       setPlayError(null);
-      if (v.readyState >= 2 || v.currentTime > 0) {
+
+      // A <video> element left in an error state (network/decode/unsupported
+      // format) will just re-reject on `.play()` forever — it needs `.load()`
+      // to reset `readyState`/`error` and re-fetch the source before playback
+      // can be retried. Remember the last known position so we can restore it
+      // once the reloaded source is ready (best-effort; `loadeddata`/`canPlay`
+      // below call `retryPendingPlay`, which resumes the pending play attempt).
+      if (v.error) {
+        resumeAfterReloadMsRef.current = currentMs > 0 ? currentMs : null;
+        setCanPlay(false);
+        setIsPreparing(true);
+        setIsBuffering(false);
+        v.load();
+      } else if (v.readyState >= 2 || v.currentTime > 0) {
         setCanPlay(true);
         setIsPreparing(false);
       }
@@ -432,7 +448,13 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
       } catch (err) {
         rejectPlayAttempt(attemptId, err);
       }
-    }, [activeVideoSrc, attachPlayPromise, bumpControls, rejectPlayAttempt]);
+    }, [
+      activeVideoSrc,
+      attachPlayPromise,
+      bumpControls,
+      currentMs,
+      rejectPlayAttempt,
+    ]);
 
     const retryPendingPlay = useCallback(
       (v: HTMLVideoElement) => {
@@ -996,6 +1018,16 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
               onPause?.();
             }}
             onLoadedData={(e) => {
+              const resumeMs = resumeAfterReloadMsRef.current;
+              if (resumeMs != null) {
+                resumeAfterReloadMsRef.current = null;
+                try {
+                  e.currentTarget.currentTime = resumeMs / 1000;
+                  setCurrentMs(resumeMs);
+                } catch {
+                  // Ignore — worst case playback resumes from 0.
+                }
+              }
               const didSeek = seekInitialVisibleFrame(e.currentTarget);
               setCanPlay(e.currentTarget.readyState >= 2);
               setIsPreparing(false);

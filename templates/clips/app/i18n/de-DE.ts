@@ -122,6 +122,11 @@ const messages = {
     restoreFailed: "Wiederherstellung fehlgeschlagen",
     permanentlyDeleted: "Endgültig gelöscht",
     deleteFailed: "Löschen fehlgeschlagen",
+    clipsRestored: "{{count}} Clips wiederhergestellt",
+    clipsRestoreFailed:
+      "{{count}} Clips konnten nicht wiederhergestellt werden",
+    clipsPermanentlyDeleted: "{{count}} Clips endgültig gelöscht",
+    clipsDeleteFailed: "{{count}} Clips konnten nicht gelöscht werden",
   },
   recordingRoute: {
     pageTitle: "Clip-Aufnahme · Clips",
@@ -800,6 +805,10 @@ Alle sichtbaren Änderungen für Clips-Nutzer werden hier dokumentiert. Du kanns
     clipsMovedToTrash: "{{count}} Clips in den Papierkorb verschoben",
     clipsTrashFailed:
       "{{count}} Clips konnten nicht in den Papierkorb verschoben werden",
+    loadFailedTitle: "Deine Aufnahmen konnten nicht geladen werden",
+    loadFailedBody:
+      "Beim Laden dieser Liste ist etwas schiefgelaufen. Deine Aufnahmen sind sicher — versuche es erneut.",
+    retry: "Erneut versuchen",
   },
   notificationsRoute: {
     pageTitle: "Benachrichtigungen · Clips",

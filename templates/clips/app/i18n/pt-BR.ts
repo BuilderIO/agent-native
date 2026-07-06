@@ -122,6 +122,10 @@ const messages = {
     restoreFailed: "Falha ao restaurar",
     permanentlyDeleted: "Excluído permanentemente",
     deleteFailed: "Falha ao excluir",
+    clipsRestored: "{{count}} clipes restaurados",
+    clipsRestoreFailed: "{{count}} clipes não puderam ser restaurados",
+    clipsPermanentlyDeleted: "{{count}} clipes excluídos permanentemente",
+    clipsDeleteFailed: "{{count}} clipes não puderam ser excluídos",
   },
   recordingRoute: {
     pageTitle: "Gravação de clip · Clips",
@@ -789,6 +793,10 @@ Todas as mudanças visíveis para usuários do Clips são documentadas aqui. Voc
     clipsArchiveFailed: "{{count}} clipes não puderam ser arquivados",
     clipsMovedToTrash: "{{count}} clipes movidos para a lixeira",
     clipsTrashFailed: "{{count}} clipes não puderam ser movidos para a lixeira",
+    loadFailedTitle: "Não foi possível carregar suas gravações",
+    loadFailedBody:
+      "Algo deu errado ao carregar esta lista. Suas gravações estão seguras — tente novamente.",
+    retry: "Tentar novamente",
   },
   notificationsRoute: {
     pageTitle: "Notificações · Clips",

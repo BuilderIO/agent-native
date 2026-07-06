@@ -29,16 +29,13 @@
 
 import { defineAction } from "@agent-native/core";
 import { writeAppState } from "@agent-native/core/application-state";
-import { and, eq, inArray } from "drizzle-orm";
+import { assertAccess } from "@agent-native/core/sharing";
+import { inArray } from "drizzle-orm";
 import { z } from "zod";
 
 import { parseEdits, serializeEdits } from "../app/lib/timestamp-mapping.js";
 import { getDb, schema } from "../server/db/index.js";
-import {
-  getCurrentOwnerEmail,
-  nanoid,
-  ownerEmailMatches,
-} from "../server/lib/recordings.js";
+import { getCurrentOwnerEmail, nanoid } from "../server/lib/recordings.js";
 import { assertNativeRecordingMedia } from "./lib/native-media.js";
 
 export default defineAction({
@@ -92,19 +89,19 @@ export default defineAction({
       throw new Error("stitch-recordings needs at least 2 sourceRecordingIds");
     }
 
+    // Every source recording must be editable by the current user.
+    for (const sourceId of ids) {
+      await assertAccess("recording", sourceId, "editor");
+    }
+
     // Load sources so we can copy workspace + validate ownership.
     const sources = await db
       .select()
       .from(schema.recordings)
-      .where(
-        and(
-          inArray(schema.recordings.id, ids),
-          ownerEmailMatches(schema.recordings.ownerEmail, ownerEmail),
-        ),
-      );
+      .where(inArray(schema.recordings.id, ids));
     if (sources.length !== ids.length) {
       throw new Error(
-        `Not all source recordings were found (or not owned): asked for ${ids.length}, got ${sources.length}`,
+        `Not all source recordings were found: asked for ${ids.length}, got ${sources.length}`,
       );
     }
 
@@ -130,7 +127,7 @@ export default defineAction({
 
     // Seed editsJson with provenance so the editor/player can link back.
     const edits = parseEdits("{}");
-    (edits as any).stitchedFrom = ids;
+    edits.stitchedFrom = ids;
 
     await db.insert(schema.recordings).values({
       id,

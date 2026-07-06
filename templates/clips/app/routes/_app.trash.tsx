@@ -43,6 +43,7 @@ export default function TrashRoute() {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [confirmPurge, setConfirmPurge] = useState(false);
   const [singlePurgeId, setSinglePurgeId] = useState<string | null>(null);
+  const [isBulkPending, setIsBulkPending] = useState(false);
 
   const args = useMemo(() => ({ view: "trash" as const, sort }), [sort]);
   const { data, isLoading } = useRecordings(args);
@@ -63,33 +64,95 @@ export default function TrashRoute() {
     });
   };
 
-  const restoreAll = (ids: string[]) => {
-    for (const id of ids) {
-      restore.mutate(
-        { id },
-        {
-          onSuccess: () => toast.success(t("trashRoute.restored")),
-          onError: (err: any) =>
-            toast.error(err?.message ?? t("trashRoute.restoreFailed")),
-        },
+  const restoreAll = async (ids: string[]) => {
+    if (ids.length === 0) return;
+    setIsBulkPending(true);
+    try {
+      if (ids.length === 1) {
+        try {
+          await restore.mutateAsync({ id: ids[0] });
+          toast.success(t("trashRoute.restored"));
+          setSelected((prev) => {
+            const next = new Set(prev);
+            next.delete(ids[0]);
+            return next;
+          });
+        } catch (err: any) {
+          toast.error(err?.message ?? t("trashRoute.restoreFailed"));
+        }
+        return;
+      }
+
+      const results = await Promise.allSettled(
+        ids.map((id) => restore.mutateAsync({ id })),
       );
+      const succeededIds = ids.filter(
+        (_, i) => results[i].status === "fulfilled",
+      );
+      const failed = ids.length - succeededIds.length;
+      if (succeededIds.length > 0) {
+        toast.success(
+          t("trashRoute.clipsRestored", { count: succeededIds.length }),
+        );
+        setSelected((prev) => {
+          const next = new Set(prev);
+          succeededIds.forEach((id) => next.delete(id));
+          return next;
+        });
+      }
+      if (failed > 0) {
+        toast.error(t("trashRoute.clipsRestoreFailed", { count: failed }));
+      }
+    } finally {
+      setIsBulkPending(false);
     }
-    setSelected(new Set());
   };
 
-  const purgeAll = (ids: string[]) => {
-    for (const id of ids) {
-      purge.mutate(
-        { id },
-        {
-          onSuccess: () => toast.success(t("trashRoute.permanentlyDeleted")),
-          onError: (err: any) =>
-            toast.error(err?.message ?? t("trashRoute.deleteFailed")),
-        },
+  const purgeAll = async (ids: string[]) => {
+    if (ids.length === 0) return;
+    setIsBulkPending(true);
+    try {
+      if (ids.length === 1) {
+        try {
+          await purge.mutateAsync({ id: ids[0] });
+          toast.success(t("trashRoute.permanentlyDeleted"));
+          setSelected((prev) => {
+            const next = new Set(prev);
+            next.delete(ids[0]);
+            return next;
+          });
+        } catch (err: any) {
+          toast.error(err?.message ?? t("trashRoute.deleteFailed"));
+        }
+        return;
+      }
+
+      const results = await Promise.allSettled(
+        ids.map((id) => purge.mutateAsync({ id })),
       );
+      const succeededIds = ids.filter(
+        (_, i) => results[i].status === "fulfilled",
+      );
+      const failed = ids.length - succeededIds.length;
+      if (succeededIds.length > 0) {
+        toast.success(
+          t("trashRoute.clipsPermanentlyDeleted", {
+            count: succeededIds.length,
+          }),
+        );
+        setSelected((prev) => {
+          const next = new Set(prev);
+          succeededIds.forEach((id) => next.delete(id));
+          return next;
+        });
+      }
+      if (failed > 0) {
+        toast.error(t("trashRoute.clipsDeleteFailed", { count: failed }));
+      }
+    } finally {
+      setIsBulkPending(false);
+      setConfirmPurge(false);
     }
-    setSelected(new Set());
-    setConfirmPurge(false);
   };
 
   const selectedIds = Array.from(selected);
@@ -130,6 +193,7 @@ export default function TrashRoute() {
                 size="sm"
                 variant="outline"
                 className="gap-1.5"
+                disabled={isBulkPending}
                 onClick={() => restoreAll(selectedIds)}
               >
                 <IconArrowBackUp className="h-3.5 w-3.5" />{" "}
@@ -139,6 +203,7 @@ export default function TrashRoute() {
                 size="sm"
                 variant="destructive"
                 className="gap-1.5"
+                disabled={isBulkPending}
                 onClick={() => setConfirmPurge(true)}
               >
                 <IconTrash className="h-3.5 w-3.5" />{" "}

@@ -41,7 +41,11 @@ import {
 } from "../../../shared/transcript-segments.js";
 import { getDb, schema } from "../../db/index.js";
 import { resolvePlayerVideoUrl } from "../../lib/player-video-url.js";
-import { parseSpaceIds, sameOwnerEmail } from "../../lib/recordings.js";
+import {
+  getOrganizationRoleForEmail,
+  parseSpaceIds,
+  sameOwnerEmail,
+} from "../../lib/recordings.js";
 import { verifySharePassword } from "../../lib/share-password.js";
 
 function appPath(path: string): string {
@@ -102,6 +106,38 @@ function setProtectedMediaAccessCookie(
     maxAge: PROTECTED_MEDIA_ACCESS_TTL_SECONDS,
   });
   return token;
+}
+
+// Best-effort, per-instance (not distributed) throttle on wrong-password
+// attempts against a password-protected share. Keyed by IP + recordingId so
+// one abusive client/recording pair can't brute-force unlimited guesses
+// against a single server instance. Mirrors the limiter in view-event.post.ts.
+const PASSWORD_ATTEMPT_WINDOW_MS = 60_000;
+const PASSWORD_ATTEMPT_MAX = 10;
+const passwordAttemptBuckets = new Map<
+  string,
+  { count: number; reset: number }
+>();
+
+function passwordAttemptAllowed(key: string): boolean {
+  const now = Date.now();
+  const existing = passwordAttemptBuckets.get(key);
+  if (!existing || existing.reset < now) {
+    passwordAttemptBuckets.set(key, {
+      count: 1,
+      reset: now + PASSWORD_ATTEMPT_WINDOW_MS,
+    });
+    return true;
+  }
+  if (existing.count >= PASSWORD_ATTEMPT_MAX) return false;
+  existing.count += 1;
+  return true;
+}
+
+function requestIp(event: H3Event): string {
+  const xff = getHeader(event, "x-forwarded-for");
+  if (xff) return String(xff).split(",")[0].trim();
+  return event.node?.req?.socket?.remoteAddress || "unknown";
 }
 
 function appendQueryParam(url: string, key: string, value: string): string {
@@ -170,9 +206,25 @@ export default defineEventHandler(async (event) => {
       }).ok
     : false;
 
+  let viewerIsOrgMember = false;
+  if (session?.email && rec.visibility === "org" && rec.organizationId) {
+    try {
+      const role = await getOrganizationRoleForEmail(
+        rec.organizationId,
+        session.email,
+      );
+      viewerIsOrgMember = Boolean(role);
+    } catch {
+      // Never fail the request for anonymous/unauthenticated viewers or if
+      // org lookup is unavailable — just fall through to the existing gate.
+      viewerIsOrgMember = false;
+    }
+  }
+
   if (
     rec.visibility !== "public" &&
     !viewerIsOwner &&
+    !viewerIsOrgMember &&
     !tokenAllowsAgentAccess
   ) {
     setResponseStatus(event, 404);
@@ -191,12 +243,18 @@ export default defineEventHandler(async (event) => {
   // Password check
   let protectedMediaToken: string | null = null;
   if (rec.password && !viewerIsOwner) {
-    if (
-      !tokenAllowsAgentAccess &&
-      (!password || !verifySharePassword(password, rec.password))
-    ) {
-      setResponseStatus(event, 401);
-      return { error: "Password required", passwordRequired: true };
+    if (!tokenAllowsAgentAccess) {
+      if (!password || !verifySharePassword(password, rec.password)) {
+        // Only wrong/missing-password attempts count against the throttle, so
+        // a viewer who supplies the correct password is never rate-limited.
+        const attemptKey = `${requestIp(event)}:${recordingId}`;
+        if (!passwordAttemptAllowed(attemptKey)) {
+          setResponseStatus(event, 429);
+          return { error: "Too many attempts, try again later" };
+        }
+        setResponseStatus(event, 401);
+        return { error: "Password required", passwordRequired: true };
+      }
     }
     protectedMediaToken = setProtectedMediaAccessCookie(event, recordingId);
   } else if (tokenAllowsAgentAccess && !viewerIsOwner) {

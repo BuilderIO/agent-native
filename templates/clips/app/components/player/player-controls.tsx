@@ -128,7 +128,7 @@ export function PlayerControls(props: PlayerControlsProps) {
         </IconBtn>
 
         <div
-          className="relative hidden shrink-0 items-center sm:flex"
+          className="relative flex shrink-0 items-center"
           onMouseEnter={() => setVolumePopoverOpen(true)}
           onMouseLeave={() => setVolumePopoverOpen(false)}
           onFocus={() => setVolumePopoverOpen(true)}

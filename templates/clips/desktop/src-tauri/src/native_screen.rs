@@ -190,6 +190,24 @@ pub(crate) enum NativeFullscreenBackend {
     },
 }
 
+/// Safety net for the `screencapture` fallback: if a session carrying a live
+/// `screencapture` child is ever dropped without going through
+/// `stop_native_recording`/`stop_screencapture` (app quit, crash unwind, or an
+/// error path that discards the session), make sure the child process doesn't
+/// keep recording and writing to disk after we've lost track of it. This is a
+/// best-effort hard kill (no SIGINT grace period) since a `Drop` impl is not
+/// the place to block on graceful finalization.
+impl Drop for NativeFullscreenBackend {
+    fn drop(&mut self) {
+        if let NativeFullscreenBackend::Screencapture { child } = self {
+            if matches!(child.try_wait(), Ok(None)) {
+                let _ = child.kill();
+                let _ = child.wait();
+            }
+        }
+    }
+}
+
 /// `SCRecordingOutput` finalizes the MP4 *asynchronously*: after
 /// `remove_recording_output()` / `stop_capture()` it still has to flush its
 /// last buffered sample fragment and write the `moov` atom, then it calls
@@ -739,7 +757,7 @@ pub async fn native_fullscreen_recording_begin(
         if let Some(ready) = mic_ready {
             let deadline = Instant::now() + Duration::from_millis(MIC_WARM_TIMEOUT_MS);
             while !ready.load(Ordering::Relaxed) && Instant::now() < deadline {
-                std::thread::sleep(Duration::from_millis(15));
+                tokio::time::sleep(Duration::from_millis(15)).await;
             }
         }
 
@@ -1011,6 +1029,26 @@ pub async fn native_fullscreen_capture_thumbnail(
         }
     });
     Ok(())
+}
+
+/// Called from the app's exit path (tray Quit / Cmd+Q) so a live `screencapture`
+/// fallback process doesn't survive the app quitting. `app.exit()` triggers
+/// `std::process::exit` under the hood, which does not run Rust destructors,
+/// so this must run explicitly before exit rather than relying solely on
+/// `NativeFullscreenBackend`'s `Drop` impl. Synchronous and best-effort: no
+/// finalize/upload, just make sure nothing keeps recording after we're gone.
+pub(crate) fn kill_active_screencapture_child(state: &NativeFullscreenRecordingState) {
+    let Ok(mut guard) = state.inner.lock() else {
+        return;
+    };
+    if let Some(session) = guard.as_mut() {
+        if let Some(NativeFullscreenBackend::Screencapture { child }) = session.backend.as_mut() {
+            if matches!(child.try_wait(), Ok(None)) {
+                let _ = child.kill();
+                let _ = child.wait();
+            }
+        }
+    }
 }
 
 #[tauri::command]
@@ -3486,7 +3524,7 @@ struct FfmpegTranscodePreset {
 }
 
 /// Maximum total bytes a recording upload may be. Overridable per-deployment
-/// with the `CLIPS_MAX_UPLOAD_BYTES` env var; falls back to 256 MB.
+/// with the `CLIPS_MAX_UPLOAD_BYTES` env var; falls back to `DEFAULT_MAX_UPLOAD_BYTES` (2 GB).
 fn max_upload_bytes() -> u64 {
     std::env::var("CLIPS_MAX_UPLOAD_BYTES")
         .ok()

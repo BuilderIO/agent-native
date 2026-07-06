@@ -22,30 +22,36 @@ export default defineAction({
     await assertAccess("recording", args.recordingId, "editor");
 
     const db = getDb();
-    const [row] = await db
-      .select({ spaceIds: schema.recordings.spaceIds })
-      .from(schema.recordings)
-      .where(eq(schema.recordings.id, args.recordingId));
-
-    if (!row) {
-      throw new Error(`Recording not found: ${args.recordingId}`);
-    }
-
-    const current = parseSpaceIds(row.spaceIds);
-    let next: string[];
-    if (args.op === "add") {
-      next = current.includes(args.spaceId)
-        ? current
-        : [...current, args.spaceId];
-    } else {
-      next = current.filter((id) => id !== args.spaceId);
-    }
-
     const now = new Date().toISOString();
-    await db
-      .update(schema.recordings)
-      .set({ spaceIds: stringifySpaceIds(next), updatedAt: now })
-      .where(eq(schema.recordings.id, args.recordingId));
+
+    // Read-modify-write on the shared spaceIds JSON blob, done inside a
+    // transaction so concurrent add/remove calls for the same recording
+    // serialize instead of racing on a stale read.
+    const next = await db.transaction(async (tx) => {
+      const [row] = await tx
+        .select({ spaceIds: schema.recordings.spaceIds })
+        .from(schema.recordings)
+        .where(eq(schema.recordings.id, args.recordingId));
+
+      if (!row) {
+        throw new Error(`Recording not found: ${args.recordingId}`);
+      }
+
+      const current = parseSpaceIds(row.spaceIds);
+      const updated =
+        args.op === "add"
+          ? current.includes(args.spaceId)
+            ? current
+            : [...current, args.spaceId]
+          : current.filter((id) => id !== args.spaceId);
+
+      await tx
+        .update(schema.recordings)
+        .set({ spaceIds: stringifySpaceIds(updated), updatedAt: now })
+        .where(eq(schema.recordings.id, args.recordingId));
+
+      return updated;
+    });
 
     await writeAppState("refresh-signal", { ts: Date.now() });
 

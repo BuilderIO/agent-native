@@ -34,12 +34,26 @@ export default defineAction({
       .limit(1);
     if (!meeting) throw new Error(`Meeting not found: ${args.meetingId}`);
 
+    // Only mark the transcript "ready" if a transcript actually exists —
+    // otherwise finalize-meeting has nothing to summarize and there would be
+    // no way for the UI to distinguish "notes coming" from "nothing was ever
+    // captured". Match finalize-meeting's own empty-transcript handling.
+    let hasTranscript = false;
+    if (meeting.recordingId) {
+      const [transcript] = await db
+        .select({ fullText: schema.recordingTranscripts.fullText })
+        .from(schema.recordingTranscripts)
+        .where(eq(schema.recordingTranscripts.recordingId, meeting.recordingId))
+        .limit(1);
+      hasTranscript = Boolean(transcript?.fullText?.trim());
+    }
+
     await db
       .update(schema.meetings)
       .set({
         actualEnd: meeting.actualEnd ?? nowIso,
         updatedAt: nowIso,
-        transcriptStatus: "ready",
+        transcriptStatus: hasTranscript ? "ready" : "failed",
       })
       .where(eq(schema.meetings.id, args.meetingId));
 

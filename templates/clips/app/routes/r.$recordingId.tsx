@@ -261,8 +261,13 @@ export default function RecordingPage() {
     }
   }, [panelParam]);
 
+  const appliedCompactDefaultRef = useRef(false);
   useEffect(() => {
-    if (!panelParam && isCompactLayout) setPanel("comments");
+    if (appliedCompactDefaultRef.current) return;
+    if (!panelParam && isCompactLayout) {
+      appliedCompactDefaultRef.current = true;
+      setPanel("comments");
+    }
   }, [isCompactLayout, panelParam]);
 
   const playerDataQ = useActionQuery<any>(

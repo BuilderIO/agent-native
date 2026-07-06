@@ -36,6 +36,7 @@ export default defineAction({
         orgId: orgInvitations.orgId,
         role: orgInvitations.role,
         status: orgInvitations.status,
+        email: orgInvitations.email,
       })
       .from(orgInvitations)
       .where(eq(orgInvitations.id, args.token))
@@ -45,6 +46,8 @@ export default defineAction({
       throw new Error("Invite already accepted.");
     if (invite.status === "rejected" || invite.status === "canceled")
       throw new Error("Invite is no longer valid.");
+    if (invite.email.trim().toLowerCase() !== meLower)
+      throw new Error("This invite was sent to a different email address.");
 
     const role: "admin" | "member" =
       invite.role === "admin" ? "admin" : "member";

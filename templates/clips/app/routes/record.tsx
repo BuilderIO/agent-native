@@ -1101,6 +1101,13 @@ export default function RecordRoute() {
           onWarning: (message) => {
             toast.warning(message);
           },
+          // Camera track ended mid-recording (unplugged, permission revoked,
+          // device asleep). The recorded composite already drops the bubble;
+          // clear the on-page preview stream too so it doesn't keep showing a
+          // frozen last frame that no longer matches the recorded output.
+          onCameraEnded: () => {
+            setCameraStream(null);
+          },
           // Track the surface the user actually chose (and any mid-recording
           // switch) so the live camera bubble is hidden only when the full
           // screen — including this tab's overlay — is being captured.
@@ -2123,11 +2130,35 @@ export default function RecordRoute() {
       // ignore
     }
     if (pendingId) {
-      fetch(agentNativePath("/_agent-native/actions/trash-recording"), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id: pendingId }),
-      }).catch(() => {});
+      // The recording may have already finished uploading server-side (the
+      // final chunk can land, and the row can flip to "ready", while we're
+      // still awaiting saveBrowserDiagnostics/finishSavedRecording on the
+      // client). Check the server's current status before trashing — trashing
+      // an already-"ready" recording would silently discard a fully saved
+      // video. Mirrors the same guard in /api/uploads/:id/abort.
+      void (async () => {
+        let alreadyReady = false;
+        try {
+          const statusRes = await fetch(
+            `${appBasePath()}/api/uploads/${pendingId}/status`,
+          );
+          if (statusRes.ok) {
+            const statusJson = (await statusRes.json().catch(() => null)) as {
+              recording?: { status?: string; videoUrl?: string | null };
+            } | null;
+            const rec = statusJson?.recording;
+            alreadyReady = Boolean(rec?.status === "ready" && rec?.videoUrl);
+          }
+        } catch {
+          // ignore — fall through and trash as before.
+        }
+        if (alreadyReady) return;
+        fetch(agentNativePath("/_agent-native/actions/trash-recording"), {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ id: pendingId }),
+        }).catch(() => {});
+      })();
     }
     setCameraStream(null);
     setPreviewStream(null);

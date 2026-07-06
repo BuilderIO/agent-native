@@ -121,6 +121,10 @@ const messages = {
     restoreFailed: "복원 실패",
     permanentlyDeleted: "영구 삭제됨",
     deleteFailed: "삭제 실패",
+    clipsRestored: "클립 {{count}}개 복원됨",
+    clipsRestoreFailed: "클립 {{count}}개를 복원할 수 없습니다",
+    clipsPermanentlyDeleted: "클립 {{count}}개 영구 삭제됨",
+    clipsDeleteFailed: "클립 {{count}}개를 삭제할 수 없습니다",
   },
   recordingRoute: {
     pageTitle: "클립 녹화 · Clips",
@@ -775,6 +779,10 @@ Clips의 모든 사용자 대상 변경 사항은 여기에 기록됩니다. 명
     clipsArchiveFailed: "클립 {{count}}개를 보관할 수 없습니다",
     clipsMovedToTrash: "클립 {{count}}개가 휴지통으로 이동됨",
     clipsTrashFailed: "클립 {{count}}개를 휴지통으로 이동할 수 없습니다",
+    loadFailedTitle: "녹화를 불러올 수 없습니다",
+    loadFailedBody:
+      "목록을 불러오는 중 문제가 발생했습니다. 녹화는 안전하게 보관되어 있으니 다시 시도해 보세요.",
+    retry: "다시 시도",
   },
   notificationsRoute: {
     pageTitle: "알림 · Clips",

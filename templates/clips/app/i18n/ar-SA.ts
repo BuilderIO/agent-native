@@ -120,6 +120,10 @@ const messages = {
     restoreFailed: "فشلت الاستعادة",
     permanentlyDeleted: "تم الحذف نهائيا",
     deleteFailed: "فشل الحذف",
+    clipsRestored: "تمت استعادة {{count}} مقاطع",
+    clipsRestoreFailed: "تعذرت استعادة {{count}} مقاطع",
+    clipsPermanentlyDeleted: "تم حذف {{count}} مقاطع نهائيا",
+    clipsDeleteFailed: "تعذر حذف {{count}} مقاطع",
   },
   recordingRoute: {
     pageTitle: "تسجيل المقطع · Clips",
@@ -775,6 +779,10 @@ const messages = {
     clipsArchiveFailed: "تعذرت أرشفة {{count}} مقاطع",
     clipsMovedToTrash: "تم نقل {{count}} مقاطع إلى المهملات",
     clipsTrashFailed: "تعذر نقل {{count}} مقاطع إلى المهملات",
+    loadFailedTitle: "تعذر تحميل تسجيلاتك",
+    loadFailedBody:
+      "حدث خطأ ما أثناء تحميل هذه القائمة. تسجيلاتك آمنة — يرجى المحاولة مرة أخرى.",
+    retry: "إعادة المحاولة",
   },
   notificationsRoute: {
     pageTitle: "الإشعارات · Clips",

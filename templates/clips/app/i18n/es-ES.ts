@@ -122,6 +122,10 @@ const messages = {
     restoreFailed: "Error al restaurar",
     permanentlyDeleted: "Eliminado permanentemente",
     deleteFailed: "Error al eliminar",
+    clipsRestored: "{{count}} clips restaurados",
+    clipsRestoreFailed: "{{count}} clips no se pudieron restaurar",
+    clipsPermanentlyDeleted: "{{count}} clips eliminados permanentemente",
+    clipsDeleteFailed: "{{count}} clips no se pudieron eliminar",
   },
   recordingRoute: {
     pageTitle: "Grabación de clip · Clips",
@@ -792,6 +796,10 @@ Todos los cambios visibles para los usuarios de Clips se documentan aquí. Puede
     clipsArchiveFailed: "{{count}} clips no se pudieron archivar",
     clipsMovedToTrash: "{{count}} clips movidos a la papelera",
     clipsTrashFailed: "{{count}} clips no se pudieron mover a la papelera",
+    loadFailedTitle: "No se pudieron cargar tus grabaciones",
+    loadFailedBody:
+      "Algo salió mal al cargar esta lista. Tus grabaciones están a salvo — inténtalo de nuevo.",
+    retry: "Reintentar",
   },
   notificationsRoute: {
     pageTitle: "Notificaciones · Clips",
