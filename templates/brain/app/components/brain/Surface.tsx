@@ -1,3 +1,11 @@
+import { Badge } from "@agent-native/toolkit/ui/badge";
+import {
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+} from "@agent-native/toolkit/ui/card";
+import { Skeleton } from "@agent-native/toolkit/ui/skeleton";
 import {
   IconAlertTriangle,
   IconCircleCheck,
@@ -6,9 +14,6 @@ import {
   IconInfoCircle,
 } from "@tabler/icons-react";
 
-import { Badge } from "@/components/ui/badge";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 
 export function PageHeader({

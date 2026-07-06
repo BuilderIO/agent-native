@@ -21,7 +21,7 @@ import {
 } from "@agent-native/core/file-upload";
 import { captureRouteError } from "@agent-native/core/server";
 import { MAX_UPLOAD_BYTES as MAX_RECORDING_UPLOAD_BYTES } from "@shared/upload-limits.js";
-import { and, eq } from "drizzle-orm";
+import { and, eq, isNull, ne } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -30,7 +30,10 @@ import {
   applyFaststart,
   hasPlayableMp4Metadata,
 } from "../server/lib/faststart.js";
-import { listRecordingChunkKeys } from "../server/lib/recording-upload-state.js";
+import {
+  listRecordingChunkKeys,
+  validateRecordingChunkKeys,
+} from "../server/lib/recording-upload-state.js";
 import {
   getCurrentOwnerEmail,
   ownerEmailMatches,
@@ -87,10 +90,6 @@ function concatBytes(parts: Uint8Array[]): Uint8Array {
     offset += p.byteLength;
   }
   return out;
-}
-
-function chunkIndexFromKey(key: string): number {
-  return Number(key.split("-").pop() || 0);
 }
 
 const RECORDING_TOO_LARGE_REASON =
@@ -175,8 +174,51 @@ async function markRecordingReady(params: {
       and(
         eq(schema.recordings.id, id),
         ownerEmailMatches(schema.recordings.ownerEmail, ownerEmail),
+        // Guard against a slow/racing finalize resurrecting a recording the
+        // user already aborted (abort.post.ts flips status to 'failed'). If
+        // the row was aborted after this call started, the WHERE clause
+        // excludes it and the UPDATE becomes a no-op instead of silently
+        // flipping 'failed' back to 'ready'.
+        ne(schema.recordings.status, "failed"),
+        // Guard against the other direction of the cancel/finalize race:
+        // trash-recording's skipIfReady only blocks trashing a row that is
+        // ALREADY 'ready'. If cancel lands while this finalize is still
+        // 'processing'/'streaming', trashedAt gets set before this UPDATE
+        // runs. Excluding trashed rows here stops us from flipping status to
+        // 'ready' underneath a recording the user just trashed.
+        isNull(schema.recordings.trashedAt),
       ),
     );
+
+  // Re-select to see whether the guarded UPDATE above actually landed. If the
+  // row is not 'ready' now, the status guard blocked the write (the recording
+  // was aborted concurrently) — stop here without seeding a transcript,
+  // writing 'ready' app-state, emitting clip.created, or kicking off
+  // background transcription for a recording the user already saw fail.
+  const [postUpdate] = await db
+    .select({
+      status: schema.recordings.status,
+    })
+    .from(schema.recordings)
+    .where(
+      and(
+        eq(schema.recordings.id, id),
+        ownerEmailMatches(schema.recordings.ownerEmail, ownerEmail),
+      ),
+    );
+  if (!postUpdate || postUpdate.status !== "ready") {
+    debugLog(
+      "[finalize] markRecordingReady blocked — recording was aborted concurrently",
+      { id, status: postUpdate?.status },
+    );
+    return {
+      id,
+      status: "failed" as const,
+      videoUrl,
+      videoSizeBytes,
+      durationMs: finalDurationMs,
+    };
+  }
 
   const [existingTranscript] = await db
     .select({ recordingId: schema.recordingTranscripts.recordingId })
@@ -485,39 +527,9 @@ export default defineAction({
         updatedAt: new Date().toISOString(),
       });
 
-      // Pull chunk keys first, then fetch values one at a time. A single
-      // SELECT key,value over many base64 chunks can exceed Neon's 8s op
-      // timeout before we even start assembling the recording.
-      const chunkKeys = await listRecordingChunkKeys(ownerEmail, id);
-      chunkKeys.sort((a, b) => chunkIndexFromKey(a) - chunkIndexFromKey(b));
-      debugLog("[finalize] chunks found", {
-        id,
-        count: chunkKeys.length,
-      });
-      // Commit to deleting these keys in the finally below. We collect
-      // the keys NOW (not after success) because a throw in uploadFile
-      // or the drizzle update would otherwise bypass the delete and
-      // orphan the chunks.
-      chunkKeysToPurge = chunkKeys;
-
-      if (chunkKeys.length === 0) {
-        await db
-          .update(schema.recordings)
-          .set({
-            status: "failed",
-            failureReason: "No chunks found for recording",
-            updatedAt: new Date().toISOString(),
-          })
-          .where(eq(schema.recordings.id, id));
-        await writeAppState(`recording-upload-${id}`, {
-          recordingId: id,
-          status: "failed",
-          failureReason: "No chunks found for recording",
-        });
-        throw new Error(`No chunks found for recording ${id}`);
-      }
-
-      const failChunkAssembly = async (failureReason: string) => {
+      const failChunkAssembly = async (
+        failureReason: string,
+      ): Promise<never> => {
         const now = new Date().toISOString();
         await db
           .update(schema.recordings)
@@ -536,14 +548,55 @@ export default defineAction({
         throw new Error(failureReason);
       };
 
+      // Pull chunk keys first, then fetch values one at a time. A single
+      // SELECT key,value over many base64 chunks can exceed Neon's 8s op
+      // timeout before we even start assembling the recording.
+      const chunkKeys = await listRecordingChunkKeys(ownerEmail, id);
+      const expectedDataChunks = stateNumber(uploadState, "expectedDataChunks");
+      debugLog("[finalize] chunks found", {
+        id,
+        count: chunkKeys.length,
+        expectedDataChunks,
+      });
+      // Commit to deleting these keys in the finally below. We collect
+      // the keys NOW (not after success) because a throw in uploadFile
+      // or the drizzle update would otherwise bypass the delete and
+      // orphan the chunks.
+      chunkKeysToPurge = chunkKeys;
+
+      if (chunkKeys.length === 0) {
+        await failChunkAssembly(`No chunks found for recording ${id}`);
+      }
+
+      let chunkSequence: ReturnType<typeof validateRecordingChunkKeys>;
+      try {
+        chunkSequence = validateRecordingChunkKeys(
+          chunkKeys,
+          expectedDataChunks,
+        );
+      } catch (err) {
+        await failChunkAssembly(
+          err instanceof Error
+            ? err.message
+            : "Recording upload is incomplete. Please retry the recording.",
+        );
+        throw new Error("Unreachable chunk validation failure");
+      }
+
       const parts: Uint8Array[] = [];
-      for (const key of chunkKeys) {
+      for (const { key, index } of chunkSequence) {
         const entry = await readAppState(key);
         const b64 = typeof entry?.data === "string" ? entry.data : null;
-        const index = chunkIndexFromKey(key);
         if (!b64) {
           await failChunkAssembly(
             `Recording chunk ${index} is missing upload data. Please retry the recording.`,
+          );
+        }
+
+        const entryIndex = stateNumber(entry, "index");
+        if (entryIndex !== undefined && entryIndex !== index) {
+          await failChunkAssembly(
+            `Recording chunk metadata mismatch for chunk ${index}. Please retry the recording.`,
           );
         }
 

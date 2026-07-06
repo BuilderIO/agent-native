@@ -1,14 +1,4 @@
 import {
-  forwardRef,
-  useCallback,
-  useImperativeHandle,
-  useMemo,
-  useState,
-  type CSSProperties,
-  type ReactNode,
-} from "react";
-
-import {
   ContextMenu,
   ContextMenuContent,
   ContextMenuGroup,
@@ -19,7 +9,17 @@ import {
   ContextMenuSubContent,
   ContextMenuSubTrigger,
   ContextMenuTrigger,
-} from "@/components/ui/context-menu";
+} from "@agent-native/toolkit/ui/context-menu";
+import {
+  forwardRef,
+  useCallback,
+  useImperativeHandle,
+  useMemo,
+  useState,
+  type CSSProperties,
+  type ReactNode,
+} from "react";
+
 import { cn } from "@/lib/utils";
 
 export type CanvasContextMenuAction =
@@ -139,6 +139,13 @@ export interface CanvasContextMenuProps {
   canReorder?: boolean;
   canGroup?: boolean;
   canUngroup?: boolean;
+  // L12: this menu is target-agnostic — it has no built-in notion of "design
+  // title" vs "layer". Rename is enabled by default for a single selection
+  // (see the canRename default below) and fires through the onRename
+  // callback / onAction("rename", ...) regardless of what's selected. Any
+  // "only rename the design title" restriction is a CALL-SITE decision (e.g.
+  // passing canRename={false} and/or hiddenActions={["rename"]} when a layer
+  // is selected instead of the design title) — it does not live here.
   canRename?: boolean;
   canToggleLocked?: boolean;
   canToggleHidden?: boolean;
@@ -173,6 +180,11 @@ export interface CanvasContextMenuProps {
   onSendToBack?: CanvasContextMenuActionHandler;
   onGroup?: CanvasContextMenuActionHandler;
   onUngroup?: CanvasContextMenuActionHandler;
+  // L12: fired when the Rename item is selected (details.selectedCount tells
+  // the caller how many things are selected). The caller decides what
+  // "rename" means for the current target — e.g. calling a LayersPanel
+  // ref's beginRename(layerId) when exactly one layer is selected, vs.
+  // starting design-title rename when nothing is selected.
   onRename?: CanvasContextMenuActionHandler;
   onToggleLocked?: CanvasContextMenuActionHandler;
   onToggleHidden?: CanvasContextMenuActionHandler;

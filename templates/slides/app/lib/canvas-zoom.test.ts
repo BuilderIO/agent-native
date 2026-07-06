@@ -32,4 +32,17 @@ describe("computeCanvasFitZoom", () => {
       }),
     ).toBe(10);
   });
+
+  it("uses height when a short workspace would otherwise crop the slide", () => {
+    expect(
+      computeCanvasFitZoom({
+        viewportWidth: 1280,
+        viewportHeight: 360,
+        canvasWidth: 960,
+        canvasHeight: 540,
+        horizontalPadding: 64,
+        verticalPadding: 72,
+      }),
+    ).toBe(53);
+  });
 });

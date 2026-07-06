@@ -362,6 +362,10 @@ const messages = {
     loadErrorTitle: "Couldn't load organization",
     loadErrorFallback: "Couldn't load organization.",
     tryAgain: "Try again",
+    sendFeedback: "Send feedback",
+    feedbackPlaceholder:
+      "Describe what happened before this organization error appeared.",
+    openGitHubIssue: "Open GitHub issue",
     yourOrganization: "Your organization",
     joinYourTeam: "Join your team",
     openToDomainEmails: "Open to @{{domain}} emails",

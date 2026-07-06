@@ -1739,6 +1739,7 @@ function ssrStubPlugin(packages: string[]): Plugin | null {
     "captureException",
     "common",
     "createLowlight",
+    "createNodeFromContent",
     "defaultUrlTransform",
     "extensions",
     "findTable",

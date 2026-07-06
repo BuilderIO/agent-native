@@ -6,6 +6,7 @@ import { getDbExec } from "../../db/client.js";
 import { getAppProductionUrl } from "../../server/app-url.js";
 import { renderEmail, emailStrong } from "../../server/email-template.js";
 import { sendEmail, isEmailConfigured } from "../../server/email.js";
+import { invalidateCollabAccessCache } from "../../server/poll.js";
 import { getRequestUserEmail } from "../../server/request-context.js";
 import { assertAccess, ForbiddenError } from "../access.js";
 import { requireShareableResource } from "../registry.js";
@@ -235,6 +236,7 @@ export default defineAction({
         .update(reg.sharesTable)
         .set({ role: args.role })
         .where(eq(reg.sharesTable.id, existing.id));
+      invalidateCollabAccessCache(args.resourceType, args.resourceId);
       await notifyExtensionShareChanged(
         args.resourceType,
         args.resourceId,
@@ -253,6 +255,7 @@ export default defineAction({
       createdBy: actor,
       createdAt: new Date().toISOString(),
     });
+    invalidateCollabAccessCache(args.resourceType, args.resourceId);
     await notifyExtensionShareChanged(
       args.resourceType,
       args.resourceId,

@@ -36,11 +36,17 @@ import { DataGrid, type GridRow, type ActiveCell } from "./DataGrid.js";
 import { FilterBar } from "./FilterBar.js";
 import { RowSidePanel, type RowSidePanelMode } from "./RowSidePanel.js";
 import { loadGridState, saveGridState } from "./storage.js";
-import { useTableSchema, useTableRows, mutateTable } from "./useDbAdmin.js";
+import {
+  useTableSchema,
+  useTableRows,
+  mutateTable,
+  type DbAdminRequestConfig,
+} from "./useDbAdmin.js";
 
 export interface TableEditorProps {
   table: string;
   dialect: DbAdminDialect;
+  requestConfig?: DbAdminRequestConfig;
   initialFilters?: DbAdminFilter[];
   onNavigateToRow: (table: string, filters: DbAdminFilter[]) => void;
 }
@@ -51,6 +57,7 @@ const PAGE_SIZES = [25, 50, 100, 250, 500];
 export function TableEditor({
   table,
   dialect: _dialect,
+  requestConfig,
   initialFilters,
   onNavigateToRow,
 }: TableEditorProps) {
@@ -90,12 +97,12 @@ export function TableEditor({
   }, [table, columnWidths, sort, filters, pageSize]);
 
   // ─── Data ────────────────────────────────────────────────────────────────
-  const schemaState = useTableSchema(table);
+  const schemaState = useTableSchema(table, requestConfig);
   const rowsReq = useMemo(
     () => ({ page, pageSize, sort, filters }),
     [page, pageSize, sort, filters],
   );
-  const rowsState = useTableRows(table, rowsReq);
+  const rowsState = useTableRows(table, rowsReq, requestConfig);
 
   const schema = schemaState.data;
   const changeset = useChangeset(schema);
@@ -201,9 +208,9 @@ export function TableEditor({
       if (!mutation.inserts && !mutation.updates && !mutation.deletes) {
         return null;
       }
-      return mutateTable(table, mutation);
+      return mutateTable(table, mutation, requestConfig);
     },
-    [changeset, originalRows, table],
+    [changeset, originalRows, requestConfig, table],
   );
 
   const handlePreview = useCallback(async () => {

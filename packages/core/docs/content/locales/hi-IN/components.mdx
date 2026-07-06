@@ -25,6 +25,15 @@ import { ResourcesPanel } from "@agent-native/core/client/resources";
 `@agent-native/core/client` या एक केंद्रित `@agent-native/core/client/*` उपपथ
 इसलिए बंडलर ब्राउज़र-सुरक्षित प्रविष्टि चुनते हैं।
 
+`@agent-native/toolkit` का उपयोग उन पुन: उपयोग योग्य ऐप-बिल्डिंग हिस्सों के लिए करें जो मूल रनटाइम अनुबंध का भाग नहीं हैं: shadcn-शैली UI primitives, साझा hooks, सरल ऐप shell helpers, और अन्य template composition modules. संक्रमण के दौरान Core compatibility re-exports रखता है, लेकिन नए template और app code को toolkit modules सीधे import करने चाहिए:
+
+```tsx
+import { Button } from "@agent-native/toolkit/ui/button";
+import { Toaster } from "@agent-native/toolkit/ui/sonner";
+import { useToast } from "@agent-native/toolkit/hooks/use-toast";
+import { useSetHeaderActions } from "@agent-native/toolkit/app-shell";
+```
+
 <Diagram id="doc-block-109zkj3" title={"एक परत नीचे गिराएं, ढांचे से बाहर नहीं"} summary={"प्रत्येक परत आपको क्रोम पर अधिक नियंत्रण प्रदान करते हुए समान रनटाइम - क्रियाएं, थ्रेड स्थिति और SQL-backed सिंक रखती है।"}>
 
 ```html

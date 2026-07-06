@@ -188,6 +188,67 @@ track("checkout.completed", { total: 49.99, items: 3 });
 
 これは、Agent Native 独自の製品分析を強化するフレームワークの内部ブラウザー テレメトリ (`trackEvent()` / 自動ページビュー — 以下の [Browser defaults](#browser-defaults) を参照) とは異なります。設定されたプロバイダーに到達する必要があるアプリ独自の分析イベントには、`track()` を使用します。
 
+## セッション リプレイ {#session-replay}
+
+Agent Native アプリは、2 つ目の分析 SDK を追加することなく、ファーストパーティのブラウザー セッション リプレイを利用できます。ブラウザー ルートで一度 `configureTracking()` を呼び出し、Analytics の公開キーとコレクター エンドポイントを渡します。
+
+```ts
+import { configureTracking } from "@agent-native/core/client";
+
+configureTracking({
+  key: "anpk_...",
+  endpoint: "https://analytics.example.com/api/analytics/track",
+  sessionReplay: {
+    enabled: true,
+    sampleRate: 0.1,
+  },
+  getDefaultProps: (_event, props) => ({
+    ...props,
+    app: "my-app",
+    template: "my-template",
+  }),
+});
+```
+
+`sessionReplay.enabled` が truthy の場合、クライアントは起動後に `@rrweb/record` を動的にインポートし、リプレイ チャンクをリプレイ エンドポイントに POST します。`endpoint` が `/api/analytics/track` または `/track` で終わる場合、リプレイ エンドポイントは `/api/analytics/replay` として自動的に導出されます。リプレイ コレクターが別の場所にある場合は、`sessionReplay.endpoint` で明示的にオーバーライドしてください。
+
+Agent Native のテンプレート ルートはすでに `configureTracking()` を呼び出しています。ホストされたテンプレート デプロイでは Vite/Netlify の環境変数でリプレイを有効化でき、ライブラリとして利用する場合は上記の明示的な `configureTracking({ key, endpoint, sessionReplay })` の形式を推奨します。
+
+```bash
+VITE_AGENT_NATIVE_ANALYTICS_PUBLIC_KEY=anpk_...
+VITE_AGENT_NATIVE_ANALYTICS_ENDPOINT=https://analytics.example.com/api/analytics/track
+VITE_AGENT_NATIVE_SESSION_REPLAY_ENABLED=true
+VITE_AGENT_NATIVE_SESSION_REPLAY_SAMPLE_RATE=0.1
+```
+
+ブラウザー ヘルパーは、現在の Agent Native 認証セッションのベストエフォートかつノンブロッキングな読み取りも行います。リプレイはデフォルトでサインイン済みユーザー限定です。`sessionReplay` が有効な場合、セッションがユーザーのメール アドレスに解決されない限り、記録は開始されません。サインイン済みのリプレイには、メールに紐づく `userId`/`userEmail` と `orgId` が含まれます。
+
+意図的に匿名リプレイをデプロイする場合にのみ、`sessionReplay.requireSignedInUser: false` または `VITE_AGENT_NATIVE_SESSION_REPLAY_REQUIRE_AUTH=false` を設定してください。認証ゲーティングを無効にすると、匿名の記録は匿名訪問者、セッション、アプリ/テンプレート、ホスト名、パスで引き続きクエリ可能です。
+
+セッション リプレイは、ブラウザー セッションごとに決定論的にサンプリングされます。`sampleRate` を `0.1` に設定すると、対象セッションの約 10% が記録されます。ログイン済みユーザーのみの動作確認など、対象母集団が意図的に小さい場合は `1` を使用してください。
+
+プライバシーのデフォルト設定は意図的に控えめですが、再生には十分役立ちます。
+
+- 入力はデフォルトでマスクされます (`maskAllInputs: true`)。
+- ページ テキストは、要素に `.an-mask` または `data-an-mask` が付いていない限り表示されたままです。
+- 機密ゾーンは、`[data-sensitive]`、`.an-block`、`.an-private`、`data-an-block`、`data-an-private`、およびクレジット カード/パスワード/SSN のようなフィールドなどのセレクターでブロックされます。
+- URL は、ブラウザー分析で使用されるものと同じ `scrubUrl()` ヘルパーでスクラブされます。
+- リプレイ キャプチャは Web 専用でオプトインです。ネイティブ デスクトップ画面は記録しません。
+
+記録中、セッション リプレイはブラウザーのコンソール出力 (`log`、`info`、`warn`、`error`、`debug`、およびウィンドウの `error`/`unhandledrejection`) とネットワーク リクエストのメタデータ (`fetch` および XHR) もタグ付けされた rrweb カスタム イベントとしてキャプチャするため、エージェントとリプレイ ビューアーがユーザー報告の問題をデバッグできます。キャプチャは、リプレイが有効な場合デフォルトでオンになっています。`sessionReplay.console` と `sessionReplay.network` オプション (それぞれ真偽値またはオプション オブジェクト `{ maxEvents?: number }` を受け取り、`network` はさらに `captureErrorBodies` と `maxErrorBodyLength` を受け取ります) で調整または無効化できます。リクエストの本文とヘッダーは記録されませんが、レスポンスの本文は 5xx (サーバー エラー) レスポンスに限り、境界付きでレダクト済みのスニペットとしてキャプチャされます (`captureErrorBodies`、デフォルトは `true`、上限は `maxErrorBodyLength` 文字、デフォルト 2048) — 5xx 以外およびネットワーク障害 (ステータス 0) のレスポンスに本文が含まれることはありません。URL はスクラブされ、メッセージは切り詰められ、レコーダー自身の取り込み/追跡トラフィックは除外されます。セッションごとの上限 (コンソール 1000 件/ネットワーク 2000 件) を超えると切り詰めの通知が追加されます。
+
+Analytics テンプレートは、リプレイ メタデータを SQL (`session_recordings`) に保存し、チャンクはプライベートな blob 参照 (`session_replay_chunks`) を通じて保存します。ブラウザーとエージェントはプロバイダーの URL を受け取ることはありません。再生はスコープ付きのサーバー ルートを経由し、デフォルトのエージェント ツールは要約または範囲を限定したリプレイ イベントを返すのみで、生のチャンク テーブルへのアクセスはできません。
+
+プライベートな記録を外部エージェントに渡す必要がある場合は、セッション詳細ページの **Copy for agent** コントロールを使用します。これにより、2 時間有効で記録にスコープされた `agent_access` リンクが発行され、`/sessions/:recordingId` で小さなディスカバリー ペイロードが SSR され、エージェント コンテキスト/イベントの JSON API のみが公開されます。記録の可視性は変更されません。
+
+Implementation note: the reusable layer is the core agent-access URL contract,
+not a replay-specific UI abstraction. Use `createScopedAgentAccessGrant`,
+`verifyScopedAgentAccessToken`, `buildAgentAccessUrl`, and
+`buildAgentAccessApiUrl` for scoped SSR and JSON API links; keep replay storage,
+diagnostics shaping, and access policy inside the Analytics template.
+
+ローカル開発でのみ、Analytics はプライベートな blob ストレージが利用できない場合に、上限付きの SQL インライン チャンクにフォールバックできます。本番デプロイでは、リプレイ ペイロードを Postgres に依存するのではなく、プライベートまたは暗号化された blob ストレージを設定する必要があります。
+
 ## 上級: カスタムプロバイダーと内部 {#advanced}
 
 ほとんどのアプリでは、`track()` / `identify()` と組み込みプロバイダーのみが必要です。表面の残りの部分 (カスタム プロバイダーの登録、`TrackingProvider` インターフェイス、内部処理のバッチ処理、フレームワーク独自のブラウザ テレメトリ) は以下のとおりです。

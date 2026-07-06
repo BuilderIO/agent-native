@@ -10,6 +10,24 @@ description: >-
 
 How to export designs and generate handoff documentation for developers converting prototypes to production code.
 
+## Other export actions
+
+- **SVG**: `export-svg` exports a design project as an SVG document (a
+  `foreignObject` wrapper around the standalone HTML), giving agent parity
+  with the editor's Download SVG command. The editor's own Download SVG
+  command captures the live browser DOM for the most faithful snapshot; use
+  the action when you need agent-side SVG export without a live browser.
+- **PNG**: there is no PNG export action. Point the user to the editor's
+  download menu (Download PNG) — PNG export is a client-side rasterization of
+  the live canvas and is not exposed as an agent action.
+- **Deploy preview**: `deploy-design-preview` triggers a preview deploy for a
+  fusion-backed design branch. It requires the design's source to advertise
+  the `deployPreview` capability (fusion tier) and Builder.io to be connected;
+  a branch must already exist via `create-design-branch`. For inline/localhost
+  designs it returns `ctaRequired: true` with a Make-it-real CTA instead of
+  faking a deploy. This triggers a *preview* deploy only — production
+  publishing goes through the Builder Visual Editor's Publish flow.
+
 ## Export Formats
 
 ### HTML Export
@@ -70,9 +88,30 @@ pnpm action export-pdf --id <designId>
 
 Returns all design data and files needed for the client to render a PDF.
 
-## Claude Code Handoff
+## Coding Handoff
 
-When a user wants to convert an Alpine.js + Tailwind prototype into production code, generate a detailed handoff prompt. This is not an action — it is a structured message you compose based on the design.
+When a user wants to convert an Alpine.js + Tailwind prototype into production
+code, use the canonical `export-coding-handoff` action instead of hand-writing
+a handoff message:
+
+```bash
+pnpm action export-coding-handoff --id <designId>
+```
+
+This returns tokenized raw and ZIP URLs any external coding agent can fetch,
+plus a ready-to-copy prompt. The bundle reflects the design's **current**
+state — live editor (collab) content plus the user's applied visual tweaks
+resolved into the HTML `:root` — so the generated code matches what the user
+actually tuned, not the original generated tokens. Pass `format: "json"` if the
+receiving agent wants structured data instead of markdown, and `origin` to get
+an absolute raw-code URL for a specific app origin. This is the canonical
+design-to-code tool; prefer it over composing a handoff message by hand.
+
+### Manual handoff template (fallback)
+
+Use the template below only when `export-coding-handoff` isn't available or
+the user explicitly wants a hand-composed summary instead of the action's
+bundle. Compose it based on the design's actual HTML/tokens.
 
 ### Handoff Prompt Template
 
@@ -159,7 +198,11 @@ pnpm action export-html --id [designId]
 
 ### Generating the Handoff
 
-When the user asks to "hand off" or "convert to production code":
+When the user asks to "hand off" or "convert to production code", call
+`export-coding-handoff --id <designId>` first (see Coding Handoff above) — it
+already extracts tokens, resolves applied tweaks, and returns a ready-to-copy
+prompt plus fetchable URLs. Only fall back to composing the manual template
+by hand if that action is unavailable:
 
 1. Read the design: `get-design --id <designId>`
 2. Extract all CSS custom properties from the HTML

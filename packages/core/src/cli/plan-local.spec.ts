@@ -429,6 +429,91 @@ describe("local plan CLI helpers", () => {
     }
   });
 
+  it("persists local comments through the tokenized bridge", async () => {
+    const dir = path.join(tmpDir(), "checkout");
+    writeSamplePlan(dir);
+    const bridge = await startLocalPlanBridge({
+      dir,
+      appUrl: "https://plan.example.com",
+      urlFile: false,
+    });
+    const commentsUrl = new URL(bridge.result.bridgeUrl);
+    commentsUrl.pathname = "/local-plan-comments.json";
+
+    try {
+      const preflight = await fetch(commentsUrl, { method: "OPTIONS" });
+      expect(preflight.status).toBe(204);
+      expect(preflight.headers.get("access-control-allow-methods")).toContain(
+        "POST",
+      );
+
+      const initial = (await (await fetch(bridge.result.bridgeUrl)).json()) as {
+        comments?: unknown[];
+      };
+      expect(initial.comments).toEqual([]);
+
+      const badTokenUrl = new URL(commentsUrl);
+      badTokenUrl.searchParams.set("token", "bad");
+      const rejected = await fetch(badTokenUrl, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          comments: [{ id: "cmt_bad", message: "Must not write." }],
+        }),
+      });
+      expect(rejected.status).toBe(403);
+
+      const written = await fetch(commentsUrl, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          comments: [
+            {
+              id: "cmt_local",
+              kind: "annotation",
+              status: "open",
+              message: "Tighten this local recap note.",
+              anchor: JSON.stringify({ kind: "document", blockId: "wf" }),
+            },
+          ],
+        }),
+      });
+      expect(written.status).toBe(200);
+      const payload = (await written.json()) as {
+        comments?: Array<{
+          id: string;
+          message: string;
+          resolutionTarget: string;
+        }>;
+      };
+      expect(payload.comments).toMatchObject([
+        {
+          id: "cmt_local",
+          message: "Tighten this local recap note.",
+          resolutionTarget: "agent",
+        },
+      ]);
+
+      const onDisk = JSON.parse(
+        fs.readFileSync(path.join(dir, "comments.json"), "utf-8"),
+      ) as Array<{ id: string; message: string }>;
+      expect(onDisk).toMatchObject([
+        { id: "cmt_local", message: "Tighten this local recap note." },
+      ]);
+
+      const reloaded = (await (
+        await fetch(bridge.result.bridgeUrl)
+      ).json()) as { comments?: Array<{ id: string }> };
+      expect(reloaded.comments?.map((comment) => comment.id)).toEqual([
+        "cmt_local",
+      ]);
+    } finally {
+      await new Promise<void>((resolve) =>
+        bridge.server.close(() => resolve()),
+      );
+    }
+  });
+
   it("builds the same safe folder names as the Plan app local mirror", () => {
     expect(localPlanFolderName("Private / no-DB recap!")).toBe(
       "private-no-db-recap",

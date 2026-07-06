@@ -63,12 +63,13 @@ import {
   deleteSnippet,
   type SqlSnippet,
 } from "./sql-storage.js";
-import { runQuery } from "./useDbAdmin.js";
+import { runQuery, type DbAdminRequestConfig } from "./useDbAdmin.js";
 
 export interface SqlEditorProps {
   dialect: DbAdminDialect;
   tableNames: string[];
   columnsByTable: Record<string, string[]>;
+  requestConfig?: DbAdminRequestConfig;
 }
 
 interface QueryResult {
@@ -266,6 +267,7 @@ export function SqlEditor({
   dialect,
   tableNames,
   columnsByTable,
+  requestConfig,
 }: SqlEditorProps) {
   const isDark = useIsDark();
   const editorRef = useRef<ReactCodeMirrorRef>(null);
@@ -307,7 +309,12 @@ export function SqlEditor({
       setRunning(true);
       setError(null);
       try {
-        const res = await runQuery(trimmed, undefined, confirmDestructive);
+        const res = await runQuery(
+          trimmed,
+          undefined,
+          confirmDestructive,
+          requestConfig,
+        );
         setResult({
           columns: res.columns,
           rows: res.rows,
@@ -334,7 +341,7 @@ export function SqlEditor({
         setRunning(false);
       }
     },
-    [],
+    [requestConfig],
   );
 
   const runActiveStatement = useCallback(() => {

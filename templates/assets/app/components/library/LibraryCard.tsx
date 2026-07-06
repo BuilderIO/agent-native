@@ -1,4 +1,12 @@
 import { useT } from "@agent-native/core/client";
+import { Badge } from "@agent-native/toolkit/ui/badge";
+import { Button } from "@agent-native/toolkit/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@agent-native/toolkit/ui/dropdown-menu";
 import {
   IconCopy,
   IconDots,
@@ -7,14 +15,6 @@ import {
 } from "@tabler/icons-react";
 import { Link } from "react-router";
 
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import { assetMediaUrl } from "@/lib/asset-urls";
 import {
   getLibraryCustomInstructions,

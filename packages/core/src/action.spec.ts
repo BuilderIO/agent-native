@@ -280,6 +280,33 @@ describe("defineAction schema mode — tool parameter JSON Schema", () => {
     expect("$schema" in (action.tool.parameters as any)).toBe(false);
   });
 
+  it("strips propertyNames (from z.record) so OpenAI/Gemini function schemas are not rejected", () => {
+    const action = defineAction({
+      description: "with a record field",
+      schema: z.object({
+        styleBrief: z.record(z.string(), z.unknown()).optional(),
+      }),
+      run: async () => "ok",
+    });
+    const json = JSON.stringify(action.tool.parameters);
+    expect(json).not.toContain("propertyNames");
+  });
+
+  it("preserves a `propertyNames` data key inside a default value while stripping the schema keyword", () => {
+    const action = defineAction({
+      description: "record with a default object",
+      schema: z.object({
+        cfg: z.record(z.string(), z.string()).default({ propertyNames: "x" }),
+      }),
+      run: async () => "ok",
+    });
+    const params = action.tool.parameters as any;
+    // The structural `propertyNames` keyword on the record is stripped…
+    expect("propertyNames" in params.properties.cfg).toBe(false);
+    // …but the identically-named key inside the default *data* survives.
+    expect(params.properties.cfg.default).toEqual({ propertyNames: "x" });
+  });
+
   it("stores the original schema on the entry for downstream re-validation", () => {
     const schema = z.object({ x: z.string() });
     const action = defineAction({

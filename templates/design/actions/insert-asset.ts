@@ -41,6 +41,27 @@ const schemaInput = z.object({
     .string()
     .optional()
     .describe("Design editor selection owner token from current screen state."),
+  targetNodeId: z
+    .string()
+    .optional()
+    .describe(
+      "data-agent-native-node-id of an existing element to target. Required " +
+        'for mode "replace-src" and "background-fill". Ignored for the ' +
+        'default "figure" mode.',
+    ),
+  mode: z
+    .enum(["figure", "replace-src", "background-fill"])
+    .optional()
+    .default("figure")
+    .describe(
+      'How to place the asset. "figure" (default) appends a new figure/section ' +
+        "at the end of the file, styled with the design's own tokens — use " +
+        'this when there is no existing element to target. "replace-src" sets ' +
+        "the src of the <img>/<video> at targetNodeId (e.g. filling a hero " +
+        'image placeholder). "background-fill" sets a background-image style ' +
+        "on the element at targetNodeId (e.g. filling a hero/section background). " +
+        'Both "replace-src" and "background-fill" require targetNodeId.',
+    ),
 });
 
 function stringFromState(state: unknown, key: string): string | undefined {
@@ -55,6 +76,26 @@ function escapeHtml(value: string): string {
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;");
+}
+
+/**
+ * Prepare a URL for embedding inside a single-quoted CSS `url('...')` value
+ * that itself lives inside an HTML attribute. A literal `'` in the URL would
+ * otherwise close the CSS string early — and depending on whether the
+ * surrounding HTML attribute is single- or double-quoted, everything after it
+ * becomes live CSS or, worse, live HTML/JS in the script-enabled preview
+ * iframe. Percent-encoding the quote/backslash characters that are meaningful
+ * to the CSS string-literal grammar keeps the URL functionally identical
+ * (browsers resolve %27/%22/%5C the same as the raw characters) while making
+ * it impossible to break out of the `url('...')` string. HTML-escape on top
+ * so the value is also safe as an HTML attribute (covers the "..." case).
+ */
+function cssUrlValue(value: string): string {
+  const cssSafe = value
+    .replace(/\\/g, "%5C")
+    .replace(/'/g, "%27")
+    .replace(/"/g, "%22");
+  return escapeHtml(cssSafe);
 }
 
 function createInsertedNodeId(prefix: string): string {
@@ -88,13 +129,13 @@ function appendAssetMarkup(
     : "";
   const media =
     args.mediaType === "video"
-      ? `<video src="${escapedUrl}" controls class="w-full rounded-xl object-cover"></video>`
-      : `<img src="${escapedUrl}" alt="${escapeHtml(args.altText?.trim() || label)}" class="w-full rounded-xl object-cover" />`;
+      ? `<video src="${escapedUrl}" controls class="w-full rounded-[var(--radius,0.75rem)] object-cover"></video>`
+      : `<img src="${escapedUrl}" alt="${escapeHtml(args.altText?.trim() || label)}" class="w-full rounded-[var(--radius,0.75rem)] object-cover" />`;
   const snippet = `
     <section class="mx-auto my-8 max-w-5xl px-4" data-agent-native-asset data-agent-native-node-id="${escapeHtml(nodeId)}" data-agent-native-layer-name="${escapedLabel}"${assetIdAttr}>
-      <figure class="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+      <figure class="overflow-hidden rounded-[var(--radius,1rem)] border border-[var(--color-border,rgba(0,0,0,0.1))] bg-[var(--color-surface,#fff)] shadow-sm">
         ${media}
-        <figcaption class="px-4 py-3 text-sm text-slate-600">${escapedLabel}</figcaption>
+        <figcaption class="px-4 py-3 text-sm text-[var(--color-text-muted,#64748b)]">${escapedLabel}</figcaption>
       </figure>
     </section>`;
 
@@ -103,6 +144,119 @@ function appendAssetMarkup(
     insertBeforeClosingTag(html, "body", snippet) ??
     `${html}\n${snippet}`
   );
+}
+
+/** Find the raw tag string for the element carrying the given node id. */
+function findTagByNodeId(html: string, nodeId: string): string | null {
+  const escapedId = nodeId.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const pattern = new RegExp(
+    `<[a-zA-Z][a-zA-Z0-9:-]*\\b[^>]*data-agent-native-node-id\\s*=\\s*(?:"${escapedId}"|'${escapedId}')[^>]*>`,
+  );
+  const match = html.match(pattern);
+  return match ? match[0] : null;
+}
+
+/** Replace the src attribute of the <img>/<video> tag at targetNodeId. */
+function replaceSrcAtNode(
+  html: string,
+  args: z.infer<typeof schemaInput>,
+): string {
+  const nodeId = args.targetNodeId!;
+  const tag = findTagByNodeId(html, nodeId);
+  if (!tag) {
+    throw new Error(
+      `No element found with data-agent-native-node-id="${nodeId}".`,
+    );
+  }
+  const escapedUrl = escapeHtml(args.assetUrl);
+  let nextTag: string;
+  if (/\bsrc\s*=\s*(?:"[^"]*"|'[^']*')/i.test(tag)) {
+    nextTag = tag.replace(
+      /\bsrc\s*=\s*(?:"[^"]*"|'[^']*')/i,
+      `src="${escapedUrl}"`,
+    );
+  } else {
+    nextTag = tag.replace(/\/?>\s*$/, ` src="${escapedUrl}">`);
+  }
+  if (args.altText?.trim()) {
+    const escapedAlt = escapeHtml(args.altText.trim());
+    nextTag = /\balt\s*=\s*(?:"[^"]*"|'[^']*')/i.test(nextTag)
+      ? nextTag.replace(
+          /\balt\s*=\s*(?:"[^"]*"|'[^']*')/i,
+          `alt="${escapedAlt}"`,
+        )
+      : nextTag.replace(/\/?>\s*$/, ` alt="${escapedAlt}">`);
+  }
+  if (args.assetId?.trim()) {
+    const escapedAssetId = escapeHtml(args.assetId.trim());
+    nextTag = /\bdata-asset-id\s*=/.test(nextTag)
+      ? nextTag.replace(
+          /\bdata-asset-id\s*=\s*(?:"[^"]*"|'[^']*')/i,
+          `data-asset-id="${escapedAssetId}"`,
+        )
+      : nextTag.replace(/\/?>\s*$/, ` data-asset-id="${escapedAssetId}">`);
+  }
+  return html.replace(tag, nextTag);
+}
+
+/** Set a background-image inline style on the element at targetNodeId. */
+function backgroundFillAtNode(
+  html: string,
+  args: z.infer<typeof schemaInput>,
+): string {
+  const nodeId = args.targetNodeId!;
+  const tag = findTagByNodeId(html, nodeId);
+  if (!tag) {
+    throw new Error(
+      `No element found with data-agent-native-node-id="${nodeId}".`,
+    );
+  }
+  const cssUrl = cssUrlValue(args.assetUrl);
+  const bgDeclaration = `background-image: url('${cssUrl}'); background-size: cover; background-position: center;`;
+  let nextTag: string;
+  if (/\bstyle\s*=\s*"/.test(tag)) {
+    nextTag = tag.replace(
+      /\bstyle\s*=\s*"([^"]*)"/i,
+      (_match, existing: string) => {
+        const trimmed = existing.trim();
+        const withoutBgImage = trimmed.replace(
+          /background-image\s*:[^;]*;?\s*/gi,
+          "",
+        );
+        const joined = withoutBgImage
+          ? `${withoutBgImage.replace(/;\s*$/, "")}; ${bgDeclaration}`
+          : bgDeclaration;
+        return `style="${joined}"`;
+      },
+    );
+  } else if (/\bstyle\s*=\s*'/.test(tag)) {
+    nextTag = tag.replace(
+      /\bstyle\s*=\s*'([^']*)'/i,
+      (_match, existing: string) => {
+        const trimmed = existing.trim();
+        const withoutBgImage = trimmed.replace(
+          /background-image\s*:[^;]*;?\s*/gi,
+          "",
+        );
+        const joined = withoutBgImage
+          ? `${withoutBgImage.replace(/;\s*$/, "")}; ${bgDeclaration}`
+          : bgDeclaration;
+        return `style='${joined}'`;
+      },
+    );
+  } else {
+    nextTag = tag.replace(/\/?>\s*$/, ` style="${bgDeclaration}">`);
+  }
+  if (args.assetId?.trim()) {
+    const escapedAssetId = escapeHtml(args.assetId.trim());
+    nextTag = /\bdata-asset-id\s*=/.test(nextTag)
+      ? nextTag.replace(
+          /\bdata-asset-id\s*=\s*(?:"[^"]*"|'[^']*')/i,
+          `data-asset-id="${escapedAssetId}"`,
+        )
+      : nextTag.replace(/\/?>\s*$/, ` data-asset-id="${escapedAssetId}">`);
+  }
+  return html.replace(tag, nextTag);
 }
 
 async function resolveTarget(args: z.infer<typeof schemaInput>) {
@@ -149,7 +303,18 @@ function isHtmlFile(file: {
 
 export default defineAction({
   description:
-    "Insert a chosen Assets image or video URL into a Design file. Use this after the Assets picker returns chooseAsset/chooseImage context; pass designId/fileId directly when known, or pass ownerId from view-screen.designSelection when targeting the current editor selection.",
+    "Insert a chosen Assets image or video URL into a Design file. Use this " +
+    "after the Assets picker returns chooseAsset/chooseImage context; pass " +
+    "designId/fileId directly when known, or pass ownerId from " +
+    "view-screen.designSelection when targeting the current editor selection. " +
+    'Default `mode: "figure"` appends a new tokened figure/section at the end ' +
+    "of the file — use this when there is no existing element to fill. Use " +
+    '`mode: "replace-src"` with `targetNodeId` to set the src of an existing ' +
+    "<img>/<video> (e.g. filling a hero image placeholder), or " +
+    '`mode: "background-fill"` with `targetNodeId` to set a background-image ' +
+    "style on an existing element (e.g. filling a hero/section background). " +
+    "Both of those require targetNodeId (a data-agent-native-node-id) from " +
+    "get-code-layer-projection or the current selection.",
   schema: schemaInput,
   publicAgent: { expose: true, readOnly: false, requiresAuth: true },
   run: async (args) => {
@@ -200,8 +365,25 @@ export default defineAction({
       // Collab read is best-effort; fall back to stored content.
     }
 
-    const insertedNodeId = createInsertedNodeId("asset");
-    const content = appendAssetMarkup(base, args, insertedNodeId);
+    const mode = args.mode ?? "figure";
+    let content: string;
+    let insertedNodeId: string;
+    if (mode === "replace-src") {
+      if (!args.targetNodeId) {
+        throw new Error('targetNodeId is required for mode "replace-src".');
+      }
+      insertedNodeId = args.targetNodeId;
+      content = replaceSrcAtNode(base, args);
+    } else if (mode === "background-fill") {
+      if (!args.targetNodeId) {
+        throw new Error('targetNodeId is required for mode "background-fill".');
+      }
+      insertedNodeId = args.targetNodeId;
+      content = backgroundFillAtNode(base, args);
+    } else {
+      insertedNodeId = createInsertedNodeId("asset");
+      content = appendAssetMarkup(base, args, insertedNodeId);
+    }
     const now = new Date().toISOString();
     await db
       .update(schema.designFiles)
@@ -223,6 +405,7 @@ export default defineAction({
       fileId: file.id,
       filename: file.filename,
       inserted: true,
+      mode,
       insertedNodeId,
       insertedSelector: `[data-agent-native-node-id="${insertedNodeId}"]`,
       assetId: args.assetId ?? null,

@@ -25,24 +25,28 @@ export default defineAction({
 
     const db = getDb();
 
-    const deleted = await db
-      .delete(schema.designLocalhostWriteGrants)
-      .where(
-        and(
-          eq(schema.designLocalhostWriteGrants.designId, designId),
-          eq(schema.designLocalhostWriteGrants.connectionId, connectionId),
-          eq(schema.designLocalhostWriteGrants.ownerEmail, ownerEmail),
-        ),
-      );
+    // The delete result's rows-affected shape varies by driver (and some
+    // drivers do not report it at all), so SELECT the scoped grant first and
+    // derive `revoked` from its existence — portable across dialects without
+    // assuming RETURNING support.
+    const scope = and(
+      eq(schema.designLocalhostWriteGrants.designId, designId),
+      eq(schema.designLocalhostWriteGrants.connectionId, connectionId),
+      eq(schema.designLocalhostWriteGrants.ownerEmail, ownerEmail),
+    );
 
-    // `deleted` shape varies by dialect; check rows affected via the object.
-    const rowsAffected =
-      (deleted as unknown as { rowsAffected?: number })?.rowsAffected ?? 0;
+    const [grant] = await db
+      .select({ id: schema.designLocalhostWriteGrants.id })
+      .from(schema.designLocalhostWriteGrants)
+      .where(scope)
+      .limit(1);
+
+    await db.delete(schema.designLocalhostWriteGrants).where(scope);
 
     return {
       designId,
       connectionId,
-      revoked: rowsAffected > 0,
+      revoked: Boolean(grant),
     };
   },
 });

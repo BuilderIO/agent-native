@@ -43,41 +43,8 @@ function getGaMeasurementId(): string | null {
 }
 
 /**
- * Script hosts the injected GA loader pulls executable code from. Google Tag
- * Manager serves `gtag/js`, and GA4 can lazy-load additional collectors from
- * `www.google-analytics.com`. These must be listed in the document `script-src`
- * so the CSP reflects the code the framework itself injects (see
- * `applyDocumentCsp` in `ssr-handler.ts`).
- */
-export const GA_CSP_SCRIPT_HOSTS = [
-  "https://www.googletagmanager.com",
-  "https://www.google-analytics.com",
-] as const;
-
-/**
- * Network/image hosts used by the GA4 loader when it sends page-view and event
- * beacons. These are separate from `script-src`: a stricter deployment CSP with
- * `connect-src 'self'` or `img-src 'self'` can load gtag.js but still drop all
- * analytics events unless these hosts are present too.
- */
-export const GA_CSP_CONNECT_HOSTS = [
-  "https://www.google-analytics.com",
-  "https://analytics.google.com",
-  "https://stats.g.doubleclick.net",
-  "https://region1.google-analytics.com",
-] as const;
-
-export const GA_CSP_IMG_HOSTS = [
-  "https://www.google-analytics.com",
-  "https://www.googletagmanager.com",
-  "https://stats.g.doubleclick.net",
-] as const;
-
-/**
  * The exact JS body (no surrounding `<script>` tags) of the inline gtag config
- * block injected next to the gtag.js loader. Returned so the SSR handler can
- * hash it for the `script-src` CSP directive — the hash must be computed from
- * the identical string that `getGaScript()` embeds, so both call this helper.
+ * block injected next to the gtag.js loader.
  * Returns `null` when GA is not configured.
  */
 export function getGaInlineConfigScriptBody(): string | null {

@@ -7,6 +7,7 @@ export const motionPreviewBridgeScript: string = `"use strict";
   // app/components/design/bridge/motion-preview.bridge.ts
   (function() {
     var loadedTracks = [];
+    var loadedDefaultEase = "ease";
     var touchedProps = {};
     var originalInlineValues = {};
     function camelizeProp(prop) {
@@ -169,11 +170,137 @@ export const motionPreviewBridgeScript: string = `"use strict";
         var s = segs[i];
         parts.push("lit" in s ? "L" + s.lit : "T" + s.type);
       }
-      return parts.join("\\0");
+      return parts.join("");
+    }
+    function cubicBezierY(x1, y1, x2, y2, x) {
+      if (x <= 0) return 0;
+      if (x >= 1) return 1;
+      var cx = 3 * x1;
+      var bx = 3 * (x2 - x1) - cx;
+      var ax = 1 - cx - bx;
+      var cy = 3 * y1;
+      var by = 3 * (y2 - y1) - cy;
+      var ay = 1 - cy - by;
+      function sampleX(u2) {
+        return ((ax * u2 + bx) * u2 + cx) * u2;
+      }
+      function sampleY(u2) {
+        return ((ay * u2 + by) * u2 + cy) * u2;
+      }
+      function sampleDX(u2) {
+        return (3 * ax * u2 + 2 * bx) * u2 + cx;
+      }
+      var u = x;
+      for (var i = 0; i < 8; i++) {
+        var err = sampleX(u) - x;
+        if (Math.abs(err) < 1e-6) return sampleY(u);
+        var d = sampleDX(u);
+        if (Math.abs(d) < 1e-6) break;
+        u = Math.min(1, Math.max(0, u - err / d));
+      }
+      var lo = 0;
+      var hi = 1;
+      u = x;
+      while (hi - lo > 1e-6) {
+        u = (lo + hi) / 2;
+        if (sampleX(u) < x) lo = u;
+        else hi = u;
+      }
+      return sampleY(u);
+    }
+    function evalEase(ease, x) {
+      var clamped = x <= 0 ? 0 : x >= 1 ? 1 : x;
+      var raw = String(ease == null ? "ease" : ease).trim().toLowerCase();
+      if (raw === "linear") return clamped;
+      if (raw === "step-start") return clamped > 0 ? 1 : 0;
+      if (raw === "step-end") return clamped >= 1 ? 1 : 0;
+      if (raw === "ease") return cubicBezierY(0.25, 0.1, 0.25, 1, clamped);
+      if (raw === "ease-in") return cubicBezierY(0.42, 0, 1, 1, clamped);
+      if (raw === "ease-out") return cubicBezierY(0, 0, 0.58, 1, clamped);
+      if (raw === "ease-in-out") return cubicBezierY(0.42, 0, 0.58, 1, clamped);
+      var bezier = /^cubic-bezier\\(([^)]+)\\)$/.exec(raw);
+      if (bezier) {
+        var parts = bezier[1].split(",");
+        if (parts.length === 4) {
+          var p0 = parseFloat(parts[0]);
+          var p1 = parseFloat(parts[1]);
+          var p2 = parseFloat(parts[2]);
+          var p3 = parseFloat(parts[3]);
+          if (Number.isFinite(p0) && Number.isFinite(p1) && Number.isFinite(p2) && Number.isFinite(p3)) {
+            return cubicBezierY(
+              Math.min(1, Math.max(0, p0)),
+              p1,
+              Math.min(1, Math.max(0, p2)),
+              p3,
+              clamped
+            );
+          }
+        }
+      }
+      var steps = /^steps\\(([^)]+)\\)$/.exec(raw);
+      if (steps) {
+        var stepArgs = steps[1].split(",");
+        var count = parseInt(stepArgs[0], 10);
+        if (Number.isFinite(count) && count > 0) {
+          if (clamped >= 1) return 1;
+          var pos = (stepArgs[1] || "").trim();
+          var jumpStart = pos === "start" || pos === "jump-start";
+          return Math.min(
+            1,
+            (Math.floor(clamped * count) + (jumpStart ? 1 : 0)) / count
+          );
+        }
+      }
+      if (raw.indexOf("spring") === 0) {
+        return cubicBezierY(0.34, 1.56, 0.64, 1, clamped);
+      }
+      return clamped;
+    }
+    function identityForFunctions(value) {
+      var fnRe = /([a-zA-Z][a-zA-Z0-9]*)\\(([^)]*)\\)/g;
+      var out = "";
+      var lastIndex = 0;
+      var matched = false;
+      var m;
+      while ((m = fnRe.exec(value)) !== null) {
+        if (value.slice(lastIndex, m.index).trim() !== "") return null;
+        var fn = m[1].toLowerCase();
+        var args = m[2];
+        var identity = null;
+        if (/^translate/.test(fn) || /^skew/.test(fn)) {
+          identity = args.replace(/[+-]?(?:\\d+\\.?\\d*|\\.\\d+)([a-z%]*)/gi, "0$1");
+        } else if (/^scale/.test(fn)) {
+          identity = args.replace(/[+-]?(?:\\d+\\.?\\d*|\\.\\d+)/g, "1");
+        } else if (/^rotate/.test(fn) || fn === "hue-rotate") {
+          identity = args.replace(/[+-]?(?:\\d+\\.?\\d*|\\.\\d+)([a-z%]*)/gi, "0$1");
+        } else if (fn === "matrix") {
+          identity = "1, 0, 0, 1, 0, 0";
+        } else if (fn === "blur" || fn === "grayscale" || fn === "sepia" || fn === "invert") {
+          identity = args.replace(/[+-]?(?:\\d+\\.?\\d*|\\.\\d+)([a-z%]*)/gi, "0$1");
+        } else if (fn === "brightness" || fn === "contrast" || fn === "saturate" || fn === "opacity") {
+          identity = args.indexOf("%") >= 0 ? "100%" : "1";
+        } else {
+          return null;
+        }
+        out += (out ? " " : "") + m[1] + "(" + identity + ")";
+        lastIndex = m.index + m[0].length;
+        matched = true;
+      }
+      if (!matched) return null;
+      if (value.slice(lastIndex).trim() !== "") return null;
+      return out;
     }
     function lerp(a, b, ratio) {
       a = a == null ? "" : String(a);
       b = b == null ? "" : String(b);
+      if (a === b) return a;
+      if (a.trim() === "none") {
+        var identA = identityForFunctions(b);
+        if (identA) a = identA;
+      } else if (b.trim() === "none") {
+        var identB = identityForFunctions(a);
+        if (identB) b = identB;
+      }
       if (a === b) return a;
       var ca = parseColor(a);
       var cb = parseColor(b);
@@ -230,7 +357,9 @@ export const motionPreviewBridgeScript: string = `"use strict";
       var span = next.t - prev.t;
       if (span <= 0) return prev.value;
       var ratio = Math.max(0, Math.min(1, (t - prev.t) / span));
-      return lerp(prev.value, next.value, ratio);
+      var kfEase = prev.ease == null ? loadedDefaultEase : prev.ease;
+      var eased = evalEase(kfEase, ratio);
+      return lerp(prev.value, next.value, eased);
     }
     function applyPreview(t) {
       for (var i = 0; i < loadedTracks.length; i++) {
@@ -271,24 +400,40 @@ export const motionPreviewBridgeScript: string = `"use strict";
       touchedProps = {};
       originalInlineValues = {};
       loadedTracks = [];
+      loadedDefaultEase = "ease";
     }
+    var lastPreviewT = null;
     window.addEventListener("message", function(e) {
       if (e.source !== window.parent) return;
       if (!e.data || typeof e.data.type !== "string") return;
       if (e.data.type === "motion-load-tracks") {
         clearPreview();
         loadedTracks = Array.isArray(e.data.tracks) ? e.data.tracks : [];
+        loadedDefaultEase = typeof e.data.defaultEase === "string" && e.data.defaultEase ? e.data.defaultEase : "ease";
+        for (var i = 0; i < loadedTracks.length; i++) {
+          var kfs = loadedTracks[i] && loadedTracks[i].keyframes;
+          if (Array.isArray(kfs)) {
+            kfs.sort(function(a, b) {
+              return (a && a.t) - (b && b.t);
+            });
+          }
+        }
+        if (lastPreviewT !== null && loadedTracks.length > 0) {
+          applyPreview(lastPreviewT);
+        }
         return;
       }
       if (e.data.type === "motion-preview") {
         var t = Number(e.data.t);
         if (!Number.isFinite(t)) return;
         t = Math.max(0, Math.min(1, t));
+        lastPreviewT = t;
         applyPreview(t);
         return;
       }
       if (e.data.type === "motion-preview-clear") {
         clearPreview();
+        lastPreviewT = null;
         return;
       }
     });

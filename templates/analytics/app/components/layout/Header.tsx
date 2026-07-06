@@ -20,6 +20,7 @@ const pageTitleKeys: Record<string, string> = {
   "/catalog": "navigation.templateCatalog",
   "/analyses": "navigation.analyses",
   "/sessions": "navigation.sessions",
+  "/agents": "navigation.agents",
   "/dashboards/explorer": "navigation.explorer",
   "/settings": "navigation.settings",
 };

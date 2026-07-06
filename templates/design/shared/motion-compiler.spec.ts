@@ -17,6 +17,7 @@ import {
   extractManagedMotionCss,
   injectManagedMotionCss,
   parse,
+  parseFirstAnimationDurationMs,
 } from "./motion-compiler";
 import type { MotionTimeline } from "./motion-timeline";
 
@@ -230,7 +231,10 @@ describe("compile — property is emitted safely", () => {
     ];
 
     const { css } = compile(timeline);
-    const ruleMatches = css.match(
+    // Count element rules outside the reduced-motion media query (which now
+    // also selects animated nodes by id).
+    const beforeMedia = css.slice(0, css.indexOf("@media"));
+    const ruleMatches = beforeMedia.match(
       /\[data-agent-native-node-id="node1"\]\s*\{/g,
     );
 
@@ -323,10 +327,146 @@ describe("parse — managed style fallback", () => {
 
     const { css } = compile(timeline);
 
-    expect(css).toContain("@keyframes an-motion-hero_button--transform");
+    // Sanitised names carry a short hash of the raw id to avoid collisions.
+    expect(css).toMatch(
+      /@keyframes an-motion-hero_button_[a-z0-9]+--transform/,
+    );
     expect(parse(css)[0]).toMatchObject({
       targetNodeId: "hero:button",
       property: "transform",
     });
+  });
+
+  it("sanitised node ids that collide after cleanup get distinct animation names", () => {
+    const timeline = makeTimeline("opacity");
+    timeline.tracks = [
+      {
+        targetNodeId: "a:b",
+        property: "opacity",
+        keyframes: [
+          { t: 0, value: "0" },
+          { t: 1, value: "1" },
+        ],
+      },
+      {
+        targetNodeId: "a_b",
+        property: "opacity",
+        keyframes: [
+          { t: 0, value: "1" },
+          { t: 1, value: "0" },
+        ],
+      },
+    ];
+
+    const { css } = compile(timeline);
+    const names = [...css.matchAll(/@keyframes\s+(\S+)/g)].map((m) => m[1]);
+    expect(names).toHaveLength(2);
+    expect(new Set(names).size).toBe(2);
+
+    // Both tracks recover with their exact raw node ids.
+    const recovered = parse(css);
+    expect(recovered.map((track) => track.targetNodeId).sort()).toEqual([
+      "a:b",
+      "a_b",
+    ]);
+  });
+});
+
+// ─── Keyframe stop formatting + ordering ─────────────────────────────────────
+
+describe("compile — keyframe stop edge cases", () => {
+  it("keeps a near-100% stop distinct from a real 100% stop", () => {
+    const timeline = makeTimeline("opacity");
+    timeline.tracks[0].keyframes = [
+      { t: 0, value: "0" },
+      { t: 0.99997, value: "0.5" },
+      { t: 1, value: "1" },
+    ];
+
+    const { css } = compile(timeline);
+    // The interior stop must not round onto the 100% selector (duplicate
+    // selectors silently drop one of the two values).
+    expect(css).toContain("99.99% {");
+    expect(css.match(/100% \{/g)).toHaveLength(1);
+  });
+
+  it("keeps a near-0% stop distinct from a real 0% stop", () => {
+    const timeline = makeTimeline("opacity");
+    timeline.tracks[0].keyframes = [
+      { t: 0, value: "0" },
+      { t: 0.00003, value: "0.5" },
+      { t: 1, value: "1" },
+    ];
+
+    const { css } = compile(timeline);
+    expect(css).toContain("0.01% {");
+    expect(css.match(/(^|\s)0% \{/g)).toHaveLength(1);
+  });
+
+  it("sorts unsorted keyframes and reads the element-rule ease from the first sorted stop", () => {
+    const timeline = makeTimeline("opacity");
+    // Deliberately out of order: the t=0 stop (ease-out) is listed last.
+    timeline.tracks[0].keyframes = [
+      { t: 1, value: "1", ease: "linear" },
+      { t: 0.5, value: "0.5", ease: "ease-in" },
+      { t: 0, value: "0", ease: "ease-out" },
+    ];
+
+    const { css } = compile(timeline);
+    // Stops emitted in time order.
+    const stopOrder = [...css.matchAll(/(\d+(?:\.\d+)?)% \{/g)].map((m) =>
+      parseFloat(m[1]),
+    );
+    expect(stopOrder).toEqual([0, 50, 100]);
+    // Element rule ease comes from the SORTED first keyframe (t=0 → ease-out),
+    // not from whatever happened to be first in array order.
+    expect(css).toContain("animation-timing-function: ease-out;");
+  });
+});
+
+// ─── Reduced motion scoping ──────────────────────────────────────────────────
+
+describe("compile — reduced-motion block scoping", () => {
+  it("targets only the animated node ids, not every stamped node", () => {
+    const { css } = compile(makeTimeline("opacity"));
+    const reduced = css.slice(css.indexOf("@media (prefers-reduced-motion"));
+    expect(reduced).toContain('[data-agent-native-node-id="node1"]');
+    // No blanket selector that would disable animations on unrelated nodes,
+    // and no dead [style*=…] selectors.
+    expect(reduced).not.toMatch(/\[data-agent-native-node-id\]/);
+    expect(reduced).not.toContain('[style*="');
+  });
+});
+
+// ─── Duration recovery ───────────────────────────────────────────────────────
+
+describe("parseFirstAnimationDurationMs", () => {
+  it("recovers the compiled duration from managed CSS", () => {
+    const timeline = makeTimeline("opacity");
+    timeline.durationMs = 750;
+    const { css } = compile(timeline);
+    expect(parseFirstAnimationDurationMs(css)).toBe(750);
+  });
+
+  it("parses seconds and milliseconds units", () => {
+    expect(
+      parseFirstAnimationDurationMs("a { animation-duration: 1.5s; }"),
+    ).toBe(1500);
+    expect(
+      parseFirstAnimationDurationMs("a { animation-duration: 300ms; }"),
+    ).toBe(300);
+    expect(
+      parseFirstAnimationDurationMs("a { animation-duration: 2s, 1s; }"),
+    ).toBe(2000);
+  });
+
+  it("returns null when absent or unparsable", () => {
+    expect(parseFirstAnimationDurationMs("a { opacity: 1; }")).toBeNull();
+    expect(
+      parseFirstAnimationDurationMs("a { animation-duration: fast; }"),
+    ).toBeNull();
+    expect(
+      parseFirstAnimationDurationMs("a { animation-duration: 0s; }"),
+    ).toBeNull();
   });
 });

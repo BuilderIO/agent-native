@@ -49,6 +49,11 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
         slug: "agent-surfaces",
       },
       { id: "key-concepts", labelKey: "keyConcepts", slug: "key-concepts" },
+      {
+        id: "agent-native-toolkit",
+        labelKey: "agentNativeToolkit",
+        slug: "agent-native-toolkit",
+      },
       { id: "cloneable-saas", labelKey: "templates", slug: "cloneable-saas" },
       { id: "faq", labelKey: "faq", slug: "faq" },
     ],
@@ -321,7 +326,6 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
         ],
       },
       { id: "template-slides", labelKey: "slides", slug: "template-slides" },
-      { id: "template-videos", labelKey: "video", slug: "template-videos" },
       {
         id: "template-analytics",
         labelKey: "analytics",

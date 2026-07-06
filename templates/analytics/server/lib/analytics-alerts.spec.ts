@@ -80,6 +80,34 @@ describe("analytics alert evaluation", () => {
     expect(result.eventCount).toBe(3);
   });
 
+  it("matches the default HTTP 5xx response status telemetry filter", () => {
+    const result = evaluateAnalyticsAlertRuleRows(
+      {
+        threshold: 2,
+        thresholdMode: "event_count",
+        distinctBy: null,
+        filters: [{ field: "properties.status_class", value: "5xx" }],
+      },
+      [
+        event("1", {
+          eventName: "http.response",
+          properties: JSON.stringify({ status_code: 500, status_class: "5xx" }),
+        }),
+        event("2", {
+          eventName: "http.response",
+          properties: JSON.stringify({ status_code: 504, status_class: "5xx" }),
+        }),
+        event("3", {
+          eventName: "http.response",
+          properties: JSON.stringify({ status_code: 200, status_class: "2xx" }),
+        }),
+      ],
+    );
+
+    expect(result.triggered).toBe(true);
+    expect(result.observedValue).toBe(2);
+  });
+
   it("keeps sweep ordering fair instead of cycling only recently evaluated rules", () => {
     const source = readFileSync(
       new URL("./analytics-alerts.ts", import.meta.url),
@@ -181,5 +209,54 @@ describe("analytics alert evaluation", () => {
     ).toBeLessThan(
       alertSource.indexOf('"x-agent-native-analytics-alert-cron": CRON_TOKEN'),
     );
+  });
+
+  it("does not let a failed rule listing crash the whole sweep", () => {
+    const jobSource = readFileSync(
+      new URL("../jobs/analytics-alerts.ts", import.meta.url),
+      "utf8",
+    );
+
+    const tryIndex = jobSource.indexOf("try {\n      rules = await");
+    const catchIndex = jobSource.indexOf(
+      "Failed to list enabled alert rules; skipping this sweep",
+    );
+    const listCallIndex = jobSource.indexOf(
+      "rules = await listEnabledAnalyticsAlertRules(",
+    );
+
+    expect(tryIndex).toBeGreaterThan(-1);
+    expect(catchIndex).toBeGreaterThan(-1);
+    expect(listCallIndex).toBeGreaterThan(tryIndex);
+    expect(catchIndex).toBeGreaterThan(listCallIndex);
+    expect(jobSource).toContain("listRulesFailureLogged");
+    expect(jobSource).toContain(
+      "return { processed: 0, triggered: 0, failed: 0, remaining: 0 };",
+    );
+  });
+
+  it("seeds the default HTTP 5xx alert before evaluating rules", () => {
+    const source = readFileSync(
+      new URL("./analytics-alerts.ts", import.meta.url),
+      "utf8",
+    );
+    const jobSource = readFileSync(
+      new URL("../jobs/analytics-alerts.ts", import.meta.url),
+      "utf8",
+    );
+
+    expect(source).toContain("ensureDefaultHttp5xxSpikeAlertRules");
+    expect(source).toContain("Hosted app HTTP 5xx spike");
+    expect(source).toContain("properties.status_class");
+    expect(jobSource).toContain("ensureDefaultHttp5xxSpikeAlertRules()");
+    const seedCallIndex = jobSource.indexOf(
+      "await ensureDefaultHttp5xxSpikeAlertRules()",
+    );
+    const listRulesIndex = jobSource.indexOf(
+      "rules = await listEnabledAnalyticsAlertRules",
+    );
+    expect(seedCallIndex).toBeGreaterThan(-1);
+    expect(listRulesIndex).toBeGreaterThan(-1);
+    expect(seedCallIndex).toBeLessThan(listRulesIndex);
   });
 });

@@ -1,6 +1,5 @@
 import { useT } from "@agent-native/core/client";
-
-import { Button } from "@/components/ui/button";
+import { Button } from "@agent-native/toolkit/ui/button";
 import {
   Dialog,
   DialogContent,
@@ -8,7 +7,7 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from "@/components/ui/dialog";
+} from "@agent-native/toolkit/ui/dialog";
 
 export interface SignInPromptDialogProps {
   open: boolean;

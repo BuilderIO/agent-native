@@ -118,9 +118,7 @@ Domäne skills folgt demselben Format wie das Framework skills. Sie kodieren Mus
 
 ## App-gestütztes skills {#app-backed-skills}
 
-Aktuelle appgestützte Skills sind `visual-plan` und `visual-recap` aus Plan,
-`visual-edit` aus Design, `assets` aus Assets und `content` für repo-basiertes
-Bearbeiten von docs/blog/MDX.
+Aktuelle appgestützte Skills sind `visual-plan`, `visual-recap` und `visualize-repo` aus Plan, `visual-edit` aus Design, `assets` aus Assets und `content` für repo-gestützte docs/blog/MDX-Bearbeitung.
 
 App-gestütztes skills-Paket einer agentennativen App als Skill-Marktplatz-Artefakt. Das Paket kann Agentenanweisungen, exportierte skills-, MCP-Connector-Metadaten, gehostete/lokale Startanweisungen und UI-Oberflächen wie MCP-Apps enthalten.
 
@@ -332,6 +330,7 @@ Offline-Arbeit oder datenschutzrelevante Nutzung.
 ```bash
 # Glücklicher Weg: exportierte Anweisungen plus gehosteter MCP-Connector.
 npx @agent-native/core@latest skills add visual-plan
+npx @agent-native/core@latest skills add visualize-repo
 npx @agent-native/core@latest skills add visual-edit
 npx @agent-native/core@latest skills add assets
 

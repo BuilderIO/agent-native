@@ -11,12 +11,13 @@ import {
   readPlanLocalFolder,
   writeLocalPlanComments,
 } from "../server/lib/local-plan-files.js";
+import { resolveLocalPlanKind } from "../server/lib/local-plan-kind.js";
 import {
   buildUpdatedPlanCommentRows,
   commentInputSchema,
   nowIso,
 } from "../server/plans.js";
-import type { PlanComment, PlanKind } from "../shared/types.js";
+import type { PlanComment } from "../shared/types.js";
 
 export default defineAction({
   description:
@@ -162,9 +163,10 @@ export default defineAction({
       slug: local.slug,
       path: local.repoPath,
     });
+    const kind = resolveLocalPlanKind(undefined, fresh.mdx);
     return buildLocalPlanBundleResult({
       local: fresh,
-      kind: "plan" as PlanKind,
+      kind,
       role: "editor",
       comments: next,
       currentFocus: "local-files commenting",

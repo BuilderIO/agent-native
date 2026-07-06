@@ -26,7 +26,7 @@ import {
   parseFrontmatter,
 } from "../resources/metadata.js";
 import {
-  isDeployCredentialFallbackAllowed,
+  canUseDeployCredentialFallbackForRequest,
   readDeployCredentialEnv,
 } from "../server/credential-provider.js";
 import { readBody } from "../server/h3-helpers.js";
@@ -130,6 +130,7 @@ import {
   claimBackgroundRun,
   readBackgroundRunClaim,
   recordRunDiagnostic,
+  countRunsForTurn,
   RUN_DIAG_STAGE,
   UNCLAIMED_BACKGROUND_RUN_GRACE_MS,
 } from "./run-store.js";
@@ -458,31 +459,15 @@ export function engineToProvider(engineName: string): string {
 }
 
 /**
- * Returns true when this process should block generic deploy-level provider
- * credentials for signed-in chat requests.
- *
- * Self-hosted single-tenant deployments keep the env-var fallback so the
- * original BYO-server UX continues to work without a per-user key.
- */
-function shouldBlockDeployCredentialFallback(): boolean {
-  return !isDeployCredentialFallbackAllowed();
-}
-
-/**
  * Resolve the active engine's provider and look up the user's API key for it.
  *
- * In shared hosted deploys we deliberately refuse the deploy-level fallback
- * for authenticated users. Without that gate any
- * signed-in user who hasn't configured their own provider key would silently
- * inherit the deployment's key (uncapped billing on the owner's account,
- * prompt logging tied to the deployment owner) — exactly the prior-incident
- * pattern we hit on 2026-04-29.
+ * If the owner has no scoped key, fall back to provider keys supplied by the
+ * hosting environment only when the current request can safely use deploy-level
+ * credentials. This is a read from process-level config, not a request-scoped
+ * write to `process.env`.
  *
- * Single-tenant (local-dev, self-hosted SQLite) keeps the env fallback.
- *
- * Callers in `agent-chat-plugin.ts`, `triggers/dispatcher.ts`,
- * `jobs/scheduler.ts`, and `integrations/plugin.ts` historically layer
- * another deployment-key fallback after this must keep the same gate.
+ * Callers that layer another deployment-key fallback after this should keep the
+ * same precedence: scoped key first, host-provided env key second.
  */
 export async function getOwnerActiveApiKey(
   ownerEmail: string | null | undefined,
@@ -495,14 +480,7 @@ export async function getOwnerActiveApiKey(
     const provider = engineToProvider(activeEngine);
     const userKey = await getOwnerApiKey(provider, ownerEmail);
     if (userKey) return userKey;
-    if (shouldBlockDeployCredentialFallback()) {
-      // Shared hosted default: refuse the env fallback. A null user
-      // (unauthenticated / background context with no owner) gets undefined
-      // here too — there's no user to bill, and the call site must surface a
-      // "configure a key" error to the requester rather than silently using
-      // the deploy key.
-      return undefined;
-    }
+    if (!canUseDeployCredentialFallbackForRequest()) return undefined;
     const envVar = PROVIDER_TO_ENV[provider];
     return envVar ? readDeployCredentialEnv(envVar) : undefined;
   } catch {
@@ -552,6 +530,10 @@ export interface ActionEntry {
   /** If true, completion does NOT trigger a screen-refresh change event.
    *  Set automatically by `defineAction` when `http.method === "GET"`. */
   readOnly?: boolean;
+  /** False keeps a read-only tool available in Act mode but hides/blocks it in
+   *  Plan mode. Use for tools that perform substantive work even without
+   *  mutating state. */
+  allowInPlanMode?: boolean;
   /** If true, this action can run concurrently with other same-turn
    *  read-only/parallel-safe tool calls. Only use for actions that handle
    *  their own write ordering and idempotency. */
@@ -705,6 +687,7 @@ export function isPlanModeToolCallAllowed(
   input: unknown,
   entry: ActionEntry,
 ): boolean {
+  if (entry.allowInPlanMode === false) return false;
   if (PLAN_MODE_BLOCKED_READONLY_TOOLS.has(name)) return false;
 
   if (name === "web-request") {
@@ -802,6 +785,7 @@ export function createPlanModeActionRegistry(
 
   for (const [name, entry] of Object.entries(actions)) {
     if (name === TOOL_SEARCH_ACTION_NAME) continue;
+    if (entry.allowInPlanMode === false) continue;
     if (PLAN_MODE_BLOCKED_READONLY_TOOLS.has(name)) continue;
 
     const allowedActions = PLAN_MODE_ALLOWED_ACTIONS[name];
@@ -895,6 +879,8 @@ export interface ProductionAgentOptions {
    *  timeout. When reached, the client receives an internal auto-continuation
    *  signal instead of a user-facing warning. */
   runSoftTimeoutMs?: number;
+  /** Optional no-progress watchdog override for this app's runs. */
+  runNoProgressTimeoutMs?: number;
   /**
    * Opt this app into durable Netlify background-function agent-chat runs. This
    * is a runtime opt-in layered on top of the hosted-runtime + A2A_SECRET gates;
@@ -987,6 +973,13 @@ function maxRetriesForError(err: unknown): number {
 const TOOL_INPUT_ACTIVITY_INTERVAL_MS = 1500;
 const ACTION_PREPARATION_NO_PROGRESS_TIMEOUT_MS = 90_000;
 const ACTION_PREPARATION_ZERO_BYTE_RESTART_LIMIT = 2;
+const MODEL_STREAM_NO_PROGRESS_TIMEOUT_MS = 90_000;
+const MAIN_CHAT_INTERNAL_CONTINUATION_LIMIT = 6;
+const RUN_BUDGET_EXHAUSTED_ERROR_CODE = "run_budget_exhausted";
+const RUN_BUDGET_EXHAUSTED_MESSAGE =
+  "I ran out of time before finishing this step. " +
+  "I stopped rather than keep retrying silently. " +
+  "Check any completed tool cards above before retrying, ideally as one smaller follow-up.";
 const MAX_TEXT_ATTACHMENT_CHARS = 60_000;
 const MAX_SELECTION_CONTEXT_CHARS = 8_000;
 const MAX_RESOURCE_INVENTORY_ITEMS = 40;
@@ -2831,7 +2824,8 @@ export async function runAgentLoop(opts: {
         };
         const activeToolInputs = new Map<string, ActiveToolInputPreparation>();
         let zeroByteToolInputRestart: ZeroByteToolInputRestart | undefined;
-        let endedForActionPreparationNoProgress = false;
+        let endedForNoProgress = false;
+        let lastModelStreamProgressAt = Date.now();
         const sendToolInputActivity = (
           toolName: string | undefined,
           toolInputId?: string,
@@ -2854,9 +2848,15 @@ export async function runAgentLoop(opts: {
             ...(typeof progressBytes === "number" ? { progressBytes } : {}),
           });
         };
-        const hasActionPreparationStalled = () => {
-          if (activeToolInputs.size === 0) return false;
-          const now = Date.now();
+        const actionPreparationDeadlineAt = () => {
+          let deadlineAt = Number.POSITIVE_INFINITY;
+          if (zeroByteToolInputRestart) {
+            deadlineAt = Math.min(
+              deadlineAt,
+              zeroByteToolInputRestart.firstStartedAt +
+                ACTION_PREPARATION_NO_PROGRESS_TIMEOUT_MS,
+            );
+          }
           let earliestStartedAt = Number.POSITIVE_INFINITY;
           let latestPositiveProgressAt = 0;
           for (const active of activeToolInputs.values()) {
@@ -2874,8 +2874,78 @@ export async function runAgentLoop(opts: {
             latestPositiveProgressAt > 0
               ? latestPositiveProgressAt
               : earliestStartedAt;
-          if (!Number.isFinite(progressAt)) return false;
-          return now - progressAt >= ACTION_PREPARATION_NO_PROGRESS_TIMEOUT_MS;
+          if (Number.isFinite(progressAt)) {
+            deadlineAt = Math.min(
+              deadlineAt,
+              progressAt + ACTION_PREPARATION_NO_PROGRESS_TIMEOUT_MS,
+            );
+          }
+          return Number.isFinite(deadlineAt) ? deadlineAt : undefined;
+        };
+        const modelStreamNoProgressDeadlineAt = () =>
+          lastModelStreamProgressAt + MODEL_STREAM_NO_PROGRESS_TIMEOUT_MS;
+        const noProgressDeadlineAt = () => {
+          const actionDeadlineAt = actionPreparationDeadlineAt();
+          const modelDeadlineAt = modelStreamNoProgressDeadlineAt();
+          return actionDeadlineAt === undefined
+            ? modelDeadlineAt
+            : Math.min(actionDeadlineAt, modelDeadlineAt);
+        };
+        const hasNoProgressStalled = () => Date.now() >= noProgressDeadlineAt();
+        const checkpointNoProgress = () => {
+          if (endedForNoProgress) return;
+          send({
+            type: "auto_continue",
+            reason: "no_progress",
+          });
+          endedForNoProgress = true;
+        };
+        let eventIteratorReturnRequested = false;
+        const requestEventIteratorReturn = (
+          iterator: AsyncIterator<EngineEvent>,
+          awaitReturn: boolean,
+        ) => {
+          if (eventIteratorReturnRequested) return;
+          eventIteratorReturnRequested = true;
+          let returnPromise:
+            | ReturnType<NonNullable<typeof iterator.return>>
+            | undefined;
+          try {
+            returnPromise = iterator.return?.();
+          } catch {
+            return;
+          }
+          if (!returnPromise) return;
+          if (awaitReturn) return returnPromise.catch(() => undefined);
+          void returnPromise.catch(() => undefined);
+        };
+        const nextEngineEventWithNoProgressTimeout = async (
+          iterator: AsyncIterator<EngineEvent>,
+        ): Promise<IteratorResult<EngineEvent>> => {
+          const deadlineAt = noProgressDeadlineAt();
+          const timeoutMs = Math.max(0, deadlineAt - Date.now());
+          if (timeoutMs <= 0) {
+            checkpointNoProgress();
+            requestEventIteratorReturn(iterator, false);
+            return { done: true, value: undefined };
+          }
+          let timeoutId: ReturnType<typeof setTimeout> | undefined;
+          const next = iterator.next();
+          void next.catch(() => undefined);
+          const timeout = new Promise<"timeout">((resolve) => {
+            timeoutId = setTimeout(() => resolve("timeout"), timeoutMs);
+          });
+          try {
+            const result = await Promise.race([next, timeout]);
+            if (result === "timeout") {
+              checkpointNoProgress();
+              requestEventIteratorReturn(iterator, false);
+              return { done: true, value: undefined };
+            }
+            return result;
+          } finally {
+            if (timeoutId) clearTimeout(timeoutId);
+          }
         };
         const trackActiveToolInput = (
           key: string,
@@ -2917,139 +2987,152 @@ export async function runAgentLoop(opts: {
             };
           }
           return (
-            zeroByteToolInputRestart.count >
+            zeroByteToolInputRestart.count >=
               ACTION_PREPARATION_ZERO_BYTE_RESTART_LIMIT &&
             now - zeroByteToolInputRestart.firstStartedAt >=
               ACTION_PREPARATION_NO_PROGRESS_TIMEOUT_MS
           );
         };
-        for await (const event of eventStream) {
-          if (hasActionPreparationStalled()) {
-            send({
-              type: "auto_continue",
-              reason: "no_progress",
-            });
-            endedForActionPreparationNoProgress = true;
-            break;
-          }
-          // In-loop processor seam (stream hook). Each chunk is offered to every
-          // processor's `processOutputStream` before the loop handles it. A
-          // processor `abort()` throws a TripWire; catch it locally so it is not
-          // mistaken for a retryable engine error, then break out cleanly.
-          if (processorChain) {
-            try {
-              await processorChain.runStream(event);
-            } catch (err) {
-              if (err instanceof TripWire) {
-                emitTripwire(err);
+        const eventIterator = eventStream[Symbol.asyncIterator]();
+        let eventIteratorDone = false;
+        try {
+          while (true) {
+            const nextEvent =
+              await nextEngineEventWithNoProgressTimeout(eventIterator);
+            if (nextEvent.done) {
+              eventIteratorDone = true;
+              break;
+            }
+            const event = nextEvent.value;
+            if (hasNoProgressStalled()) {
+              checkpointNoProgress();
+              break;
+            }
+            if (event.type !== "gateway-heartbeat") {
+              lastModelStreamProgressAt = Date.now();
+            }
+            // In-loop processor seam (stream hook). Each chunk is offered to every
+            // processor's `processOutputStream` before the loop handles it. A
+            // processor `abort()` throws a TripWire; catch it locally so it is not
+            // mistaken for a retryable engine error, then break out cleanly.
+            if (processorChain) {
+              try {
+                await processorChain.runStream(event);
+              } catch (err) {
+                if (err instanceof TripWire) {
+                  emitTripwire(err);
+                  break;
+                }
+                throw err;
+              }
+            }
+            if (event.type === "text-delta") {
+              resetZeroByteToolInputRestart();
+              streamedAssistantText += event.text;
+              send({ type: "text", text: event.text });
+            } else if (event.type === "thinking-delta") {
+              thinkingBuffer += event.text;
+              // Forward thinking deltas as a distinct event type so the UI
+              // can render a collapsible "Thinking…" cell while the model
+              // reasons, then collapse it when content arrives.
+              send({ type: "thinking", text: event.text });
+            } else if (event.type === "tool-input-start") {
+              const key = event.id ?? event.name;
+              if (key && event.name) {
+                toolInputNames.set(key, event.name);
+                toolInputBytes.set(key, 0);
+                trackActiveToolInput(key, event.name, 0);
+              }
+              sendToolInputActivity(event.name, key, undefined, true);
+              if (noteZeroByteToolInputStart(event.name)) {
+                send({
+                  type: "auto_continue",
+                  reason: "no_progress",
+                });
+                endedForNoProgress = true;
                 break;
               }
-              throw err;
-            }
-          }
-          if (event.type === "text-delta") {
-            resetZeroByteToolInputRestart();
-            streamedAssistantText += event.text;
-            send({ type: "text", text: event.text });
-          } else if (event.type === "thinking-delta") {
-            thinkingBuffer += event.text;
-            // Forward thinking deltas as a distinct event type so the UI
-            // can render a collapsible "Thinking…" cell while the model
-            // reasons, then collapse it when content arrives.
-            send({ type: "thinking", text: event.text });
-          } else if (event.type === "tool-input-start") {
-            const key = event.id ?? event.name;
-            if (key && event.name) {
-              toolInputNames.set(key, event.name);
-              toolInputBytes.set(key, 0);
-              trackActiveToolInput(key, event.name, 0);
-            }
-            sendToolInputActivity(event.name, key, undefined, true);
-            if (noteZeroByteToolInputStart(event.name)) {
-              send({
-                type: "auto_continue",
-                reason: "no_progress",
-              });
-              endedForActionPreparationNoProgress = true;
-              break;
-            }
-          } else if (event.type === "tool-input-delta") {
-            const key = event.id ?? event.name;
-            const toolName =
-              event.name ??
-              (event.id ? toolInputNames.get(event.id) : undefined);
-            let progressBytes: number | undefined;
-            let startedZeroByteInput = false;
-            if (key) {
-              const hadByteRecord = toolInputBytes.has(key);
-              const previous = hadByteRecord
-                ? (toolInputBytes.get(key) ?? 0)
-                : 0;
-              progressBytes =
-                previous +
-                new TextEncoder().encode(event.text ?? "").byteLength;
-              toolInputBytes.set(key, progressBytes);
-              if (!hadByteRecord || progressBytes > previous) {
-                trackActiveToolInput(key, toolName, progressBytes);
-                if (progressBytes > 0) {
-                  resetZeroByteToolInputRestart(toolName);
-                } else if (!hadByteRecord) {
-                  startedZeroByteInput = true;
+            } else if (event.type === "tool-input-delta") {
+              const key = event.id ?? event.name;
+              const toolName =
+                event.name ??
+                (event.id ? toolInputNames.get(event.id) : undefined);
+              let progressBytes: number | undefined;
+              let startedZeroByteInput = false;
+              if (key) {
+                const hadByteRecord = toolInputBytes.has(key);
+                const previous = hadByteRecord
+                  ? (toolInputBytes.get(key) ?? 0)
+                  : 0;
+                progressBytes =
+                  previous +
+                  new TextEncoder().encode(event.text ?? "").byteLength;
+                toolInputBytes.set(key, progressBytes);
+                if (!hadByteRecord || progressBytes > previous) {
+                  trackActiveToolInput(key, toolName, progressBytes);
+                  if (progressBytes > 0) {
+                    resetZeroByteToolInputRestart();
+                  } else if (!hadByteRecord) {
+                    startedZeroByteInput = true;
+                  }
                 }
               }
-            }
-            sendToolInputActivity(toolName, key, progressBytes);
-            if (
-              startedZeroByteInput &&
-              toolName &&
-              noteZeroByteToolInputStart(toolName)
-            ) {
-              send({
-                type: "auto_continue",
-                reason: "no_progress",
+              sendToolInputActivity(toolName, key, progressBytes);
+              if (
+                startedZeroByteInput &&
+                toolName &&
+                noteZeroByteToolInputStart(toolName)
+              ) {
+                send({
+                  type: "auto_continue",
+                  reason: "no_progress",
+                });
+                endedForNoProgress = true;
+                break;
+              }
+            } else if (event.type === "gateway-heartbeat") {
+              send({ type: "stream_keepalive" });
+            } else if (event.type === "tool-call") {
+              // The authoritative tool-call blocks arrive in assistant-content.
+            } else if (event.type === "tool-call-error") {
+              toolCallErrors.set(event.id, {
+                name: event.name,
+                input: event.input,
+                error: event.error,
               });
-              endedForActionPreparationNoProgress = true;
+            } else if (event.type === "assistant-content") {
+              assistantContent = event.parts;
+            } else if (event.type === "usage") {
+              usage.inputTokens += event.inputTokens;
+              usage.outputTokens += event.outputTokens;
+              usage.cacheReadTokens += event.cacheReadTokens ?? 0;
+              usage.cacheWriteTokens += event.cacheWriteTokens ?? 0;
+            } else if (event.type === "stop") {
+              terminalStopReason = event.reason;
+              if (event.reason === "error") {
+                throw new EngineError(event.error ?? "Engine stream error", {
+                  errorCode: event.errorCode,
+                  upgradeUrl: event.upgradeUrl,
+                  statusCode: event.statusCode,
+                  providerRetryable: event.providerRetryable,
+                });
+              }
+            }
+            if (hasNoProgressStalled()) {
+              checkpointNoProgress();
               break;
             }
-          } else if (event.type === "gateway-heartbeat") {
-            send({ type: "stream_keepalive" });
-          } else if (event.type === "tool-call") {
-            // The authoritative tool-call blocks arrive in assistant-content.
-          } else if (event.type === "tool-call-error") {
-            toolCallErrors.set(event.id, {
-              name: event.name,
-              input: event.input,
-              error: event.error,
-            });
-          } else if (event.type === "assistant-content") {
-            assistantContent = event.parts;
-          } else if (event.type === "usage") {
-            usage.inputTokens += event.inputTokens;
-            usage.outputTokens += event.outputTokens;
-            usage.cacheReadTokens += event.cacheReadTokens ?? 0;
-            usage.cacheWriteTokens += event.cacheWriteTokens ?? 0;
-          } else if (event.type === "stop") {
-            terminalStopReason = event.reason;
-            if (event.reason === "error") {
-              throw new EngineError(event.error ?? "Engine stream error", {
-                errorCode: event.errorCode,
-                upgradeUrl: event.upgradeUrl,
-                statusCode: event.statusCode,
-                providerRetryable: event.providerRetryable,
-              });
-            }
           }
-          if (hasActionPreparationStalled()) {
-            send({
-              type: "auto_continue",
-              reason: "no_progress",
-            });
-            endedForActionPreparationNoProgress = true;
-            break;
+        } finally {
+          if (!eventIteratorDone) {
+            await requestEventIteratorReturn(
+              eventIterator,
+              !eventIteratorReturnRequested,
+            );
           }
         }
 
-        if (endedForActionPreparationNoProgress) {
+        if (endedForNoProgress) {
           return usage;
         }
 
@@ -4356,6 +4439,82 @@ export function backgroundContinuationReasonForRun(
   return "run_timeout";
 }
 
+export async function runAgentLoopWithMainChatInternalContinuations(
+  opts: Parameters<typeof runAgentLoop>[0],
+): Promise<Awaited<ReturnType<typeof runAgentLoop>>> {
+  const usage: Awaited<ReturnType<typeof runAgentLoop>> = {
+    inputTokens: 0,
+    outputTokens: 0,
+    cacheReadTokens: 0,
+    cacheWriteTokens: 0,
+    model: opts.model,
+  };
+  const addUsage = (next: Awaited<ReturnType<typeof runAgentLoop>>) => {
+    usage.inputTokens += next.inputTokens;
+    usage.outputTokens += next.outputTokens;
+    usage.cacheReadTokens += next.cacheReadTokens;
+    usage.cacheWriteTokens += next.cacheWriteTokens;
+    usage.model = next.model;
+  };
+
+  const localTurnEvents: AgentChatEvent[] = [];
+  let lastAttemptWasUnfinishedContinuation = false;
+  for (
+    let attempt = 0;
+    !opts.signal.aborted && attempt < MAIN_CHAT_INTERNAL_CONTINUATION_LIMIT;
+    attempt++
+  ) {
+    lastAttemptWasUnfinishedContinuation = false;
+    let continuationReason: AgentLoopContinuationReason | undefined;
+    const attemptStartIndex = localTurnEvents.length;
+    const send = (event: AgentChatEvent) => {
+      localTurnEvents.push(event);
+      if (
+        event.type === "auto_continue" &&
+        isAgentLoopContinuationReason(event.reason)
+      ) {
+        continuationReason = event.reason;
+        return;
+      }
+      opts.send(event);
+    };
+
+    const nextUsage = await runAgentLoop({ ...opts, send });
+    addUsage(nextUsage);
+
+    if (!continuationReason || opts.signal.aborted) {
+      return usage;
+    }
+
+    lastAttemptWasUnfinishedContinuation = true;
+    const attemptEvents = localTurnEvents.slice(attemptStartIndex);
+    const completedSideEffect = attemptEvents.some(
+      (event) =>
+        event.type === "tool_done" &&
+        event.completedSideEffect === true &&
+        event.isError !== true,
+    );
+    if (!completedSideEffect) {
+      opts.send({ type: "clear" });
+    }
+    const actionPreparationTool =
+      lastUnfinishedPreparingActionToolFromEvents(localTurnEvents);
+    appendAgentLoopContinuation(opts.messages, continuationReason, {
+      ...(actionPreparationTool ? { actionPreparationTool } : {}),
+    });
+  }
+
+  if (!opts.signal.aborted && lastAttemptWasUnfinishedContinuation) {
+    opts.send({
+      type: "error",
+      error: RUN_BUDGET_EXHAUSTED_MESSAGE,
+      errorCode: RUN_BUDGET_EXHAUSTED_ERROR_CODE,
+      recoverable: true,
+    });
+  }
+  return usage;
+}
+
 function endsAtContinuationBoundary(run: ActiveRun): boolean {
   return (
     endsAtInternalContinuationBoundary(run) ||
@@ -4389,6 +4548,25 @@ export function shouldChainBackgroundContinuation(opts: {
     endsAtContinuationBoundary(opts.run) &&
     opts.continuationCount < MAX_BACKGROUND_RUN_CONTINUATIONS
   );
+}
+
+export async function markBackgroundContinuationChunkTerminal(opts: {
+  runId: string;
+  continuationReason: AgentLoopContinuationReason;
+  deps?: {
+    updateRunStatusIfRunning?: typeof updateRunStatusIfRunning;
+    setRunTerminalReason?: typeof setRunTerminalReason;
+  };
+}): Promise<boolean> {
+  const updateStatus =
+    opts.deps?.updateRunStatusIfRunning ?? updateRunStatusIfRunning;
+  const setTerminalReason =
+    opts.deps?.setRunTerminalReason ?? setRunTerminalReason;
+  const updated = await updateStatus(opts.runId, "completed");
+  if (updated) {
+    await setTerminalReason(opts.runId, opts.continuationReason);
+  }
+  return updated;
 }
 
 export async function claimBackgroundWorkerRunEarly(opts: {
@@ -4760,15 +4938,14 @@ export function createProductionAgentHandler(
     // for that provider instead of the global active engine's provider.
     // DIAGNOSTIC-ONLY: bracket per-owner API-key resolution (settings/app_secrets reads).
     workerStep("apikey_start");
+    const allowDeployCredentialFallback =
+      canUseDeployCredentialFallbackForRequest();
     let userApiKey: string | undefined;
     if (requestEngine) {
       const provider = engineToProvider(requestEngine);
       userApiKey = await getOwnerApiKey(provider, ownerEmail);
-      if (!userApiKey && !shouldBlockDeployCredentialFallback()) {
-        // Single-tenant only: env fallback for the requested provider. Shared
-        // hosted deploys never silently substitute the deploy-level key for
-        // an authenticated user (see getOwnerActiveApiKey for the full
-        // rationale).
+      if (!userApiKey && allowDeployCredentialFallback) {
+        // Read-only env fallback for the requested provider.
         const envVar = PROVIDER_TO_ENV[provider];
         userApiKey = envVar ? readDeployCredentialEnv(envVar) : undefined;
       }
@@ -4779,16 +4956,12 @@ export function createProductionAgentHandler(
     workerStep("apikey_done");
 
     // `options.apiKey` is the value the template constructed the plugin with
-    // (e.g. wired from a deployment env var). On a shared hosted deploy this
-    // is the same cross-tenant hazard as any deploy-level provider key:
-    // accepting it as the final fallback would silently bill every key-less
-    // user to the deployment's account. Honour it only when the generic
-    // deploy fallback policy allows it.
-    const effectiveApiKey = shouldBlockDeployCredentialFallback()
-      ? userApiKey
-      : (userApiKey ??
-        options.apiKey ??
-        readDeployCredentialEnv("ANTHROPIC_API_KEY"));
+    // (often wired from a deployment env var). Honor it as host-provided
+    // read-only configuration after scoped keys when deploy fallback is safe.
+    const hostApiKey = allowDeployCredentialFallback
+      ? (options.apiKey ?? readDeployCredentialEnv("ANTHROPIC_API_KEY"))
+      : undefined;
+    const effectiveApiKey = userApiKey ?? hostApiKey;
 
     // Resolve engine — per-request engine override takes priority
     // DIAGNOSTIC-ONLY: bracket engine resolution (Builder credential / app-default
@@ -5376,8 +5549,13 @@ export function createProductionAgentHandler(
         // Insert the run row up front so /runs/active sees it immediately and
         // the slot stays held while the background function cold-starts. Mark
         // it background-dispatched so the stale reaper uses the wider window.
+        // The full request body is persisted ON the row (dispatch_payload) so
+        // the self-POST below can carry only the tiny marker — Netlify caps
+        // background-function request bodies at 256KB, and a large chat
+        // history (inline attachments especially) silently exceeded that.
         await insertRun(runId, effectiveThreadId, effectiveTurnId, {
           dispatchMode: "background",
+          dispatchPayload: JSON.stringify(body),
         });
         backgroundRowInserted = true;
       } catch (err) {
@@ -5409,16 +5587,31 @@ export function createProductionAgentHandler(
           // the Authorization Bearer HMAC is preserved either way.
           path: backgroundDispatchPath,
           taskId: runId,
-          body: {
-            ...body,
-            // Carry the pre-claimed identity so the worker reuses this run.
-            [AGENT_CHAT_BACKGROUND_RUN_FIELD]: {
-              runId,
-              turnId: effectiveTurnId,
-              backgroundFunctionRuntimeExpected:
-                expectsNetlifyBackgroundFunction,
-            },
-          },
+          // When the row (and its persisted payload) landed, send only the
+          // marker — the worker rehydrates the body from dispatch_payload
+          // (`payloadRef`), keeping the self-POST far under Netlify's 256KB
+          // background-function body cap. If the insert failed we fall back to
+          // carrying the full body inline, exactly as before.
+          body: backgroundRowInserted
+            ? {
+                [AGENT_CHAT_BACKGROUND_RUN_FIELD]: {
+                  runId,
+                  turnId: effectiveTurnId,
+                  backgroundFunctionRuntimeExpected:
+                    expectsNetlifyBackgroundFunction,
+                  payloadRef: true,
+                },
+              }
+            : {
+                ...body,
+                // Carry the pre-claimed identity so the worker reuses this run.
+                [AGENT_CHAT_BACKGROUND_RUN_FIELD]: {
+                  runId,
+                  turnId: effectiveTurnId,
+                  backgroundFunctionRuntimeExpected:
+                    expectsNetlifyBackgroundFunction,
+                },
+              },
         });
         dispatched = true;
       } catch (err) {
@@ -5684,6 +5877,38 @@ export function createProductionAgentHandler(
               // foreground fallback, which is not a worker and rides the
               // connected client's auto_continue instead.)
               if (willChainBackgroundContinuation(run)) {
+                // DURABLE PER-TURN LEDGER: bound the total number of runs one
+                // logical turn may consume, counted in SQL. The in-marker
+                // `continuationCount` resets whenever a fresh POST starts a new
+                // chain for the same turn (client recovery, duplicate delivery),
+                // so it cannot bound cross-chain loops — the SQL count survives
+                // every recovery path and is what actually kills a pathological
+                // turn (the "dozens of runs on one prompt" incident class).
+                const turnRunCount = await countRunsForTurn(
+                  effectiveThreadId,
+                  effectiveTurnId,
+                ).catch(() => null);
+                if (
+                  turnRunCount !== null &&
+                  turnRunCount > MAX_BACKGROUND_RUN_CONTINUATIONS + 5
+                ) {
+                  console.error(
+                    `[agent-chat] turn ${effectiveTurnId} consumed ${turnRunCount} runs — refusing to chain further`,
+                    runId,
+                  );
+                  const statusUpdated = await updateRunStatusIfRunning(
+                    runId,
+                    "errored",
+                  ).catch(() => false);
+                  if (statusUpdated) {
+                    await setRunTerminalReason(
+                      runId,
+                      "turn_continuation_budget_exhausted",
+                    ).catch(() => {});
+                  }
+                  return;
+                }
+
                 // Mint the next chunk's runId here and sign the dispatch token
                 // over it, so the `_process-run` route's HMAC check and the
                 // worker's run identity agree. Fresh runId (not this chunk's) so
@@ -5700,37 +5925,171 @@ export function createProductionAgentHandler(
                   dispatchPathTargetsNetlifyBackgroundFunction(
                     continuationDispatchPath,
                   );
+                const continuationMarker = {
+                  runId: nextRunId,
+                  turnId: effectiveTurnId,
+                  continuationCount: backgroundContinuationCount + 1,
+                  continuationReason,
+                  ...(actionPreparationTool ? { actionPreparationTool } : {}),
+                  backgroundFunctionRuntimeExpected:
+                    continuationExpectsNetlifyBackgroundFunction,
+                };
+                // Strip this chunk's own marker before persisting/forwarding —
+                // the next chunk gets the fresh marker above.
+                const continuationBody: Record<string, unknown> = {
+                  ...(body as unknown as Record<string, unknown>),
+                  internalContinuation: true,
+                };
+                delete continuationBody[AGENT_CHAT_BACKGROUND_RUN_FIELD];
                 try {
-                  await fireInternalDispatch({
-                    event,
-                    // Continuation chunks use the same path resolution as the
-                    // initial dispatch: on hosted Netlify the background
-                    // function's DEFAULT url (no custom config.path; async via
-                    // background:true; never shadowed because /.netlify/* is
-                    // excluded from the /* catch-all) so each chunk keeps the
-                    // 15-min budget; off-Netlify the in-process framework route.
-                    path: continuationDispatchPath,
-                    taskId: nextRunId,
-                    body: {
-                      ...body,
-                      internalContinuation: true,
-                      [AGENT_CHAT_BACKGROUND_RUN_FIELD]: {
-                        runId: nextRunId,
-                        turnId: effectiveTurnId,
-                        continuationCount: backgroundContinuationCount + 1,
-                        continuationReason,
-                        ...(actionPreparationTool
-                          ? { actionPreparationTool }
-                          : {}),
-                        backgroundFunctionRuntimeExpected:
-                          continuationExpectsNetlifyBackgroundFunction,
+                  await recordRunDiagnostic(
+                    run.runId,
+                    RUN_DIAG_STAGE.workerSetupStep,
+                    `chain_dispatch_start nextRunId=${nextRunId} reason=${continuationReason} path=${continuationDispatchPath}`,
+                  ).catch(() => {});
+                  // ── TRANSACTIONAL HANDOFF ──────────────────────────────────
+                  // 1. Insert the successor row (with its rehydration payload)
+                  //    BEFORE firing the dispatch, so:
+                  //    - /runs/active shows an active run continuously across
+                  //      the chunk boundary (no idle gap for the client to
+                  //      misread as "the turn ended"), and
+                  //    - a lost dispatch leaves a row the unclaimed-run sweep
+                  //      reaps into a LOUD error instead of a silent hang.
+                  // 2. Await the dispatch response fully (`awaitResponse`) —
+                  //    this worker's Lambda is about to finish, and the old
+                  //    250ms settle race let a still-in-flight handoff fetch be
+                  //    killed by the post-return freeze WITHOUT rejecting: the
+                  //    turn just stopped, silently. A Netlify background
+                  //    function 202s on enqueue (normally well under a second),
+                  //    and this chunk has minutes of budget headroom left, so
+                  //    awaiting is cheap. Retried with backoff for transient
+                  //    network blips.
+                  let nextRowInserted = false;
+                  try {
+                    await insertRun(
+                      nextRunId,
+                      effectiveThreadId,
+                      effectiveTurnId,
+                      {
+                        dispatchMode: "background",
+                        dispatchPayload: JSON.stringify(continuationBody),
                       },
-                    },
-                  });
+                    );
+                    nextRowInserted = true;
+                  } catch (insertErr) {
+                    await recordRunDiagnostic(
+                      run.runId,
+                      RUN_DIAG_STAGE.workerSetupStep,
+                      `chain_successor_insert_failed nextRunId=${nextRunId} ${
+                        insertErr instanceof Error
+                          ? insertErr.message
+                          : String(insertErr)
+                      }`,
+                    ).catch(() => {});
+                    console.error(
+                      "[agent-chat] continuation insertRun failed; dispatching with inline body:",
+                      insertErr instanceof Error
+                        ? insertErr.message
+                        : insertErr,
+                    );
+                  }
+                  const dispatchBody = nextRowInserted
+                    ? {
+                        internalContinuation: true,
+                        [AGENT_CHAT_BACKGROUND_RUN_FIELD]: {
+                          ...continuationMarker,
+                          payloadRef: true,
+                        },
+                      }
+                    : {
+                        ...continuationBody,
+                        [AGENT_CHAT_BACKGROUND_RUN_FIELD]: continuationMarker,
+                      };
+                  let dispatched = false;
+                  let lastDispatchErr: unknown;
+                  for (let attempt = 0; attempt < 3 && !dispatched; attempt++) {
+                    try {
+                      if (attempt > 0) {
+                        await new Promise<void>((resolve) =>
+                          setTimeout(resolve, 500 * 2 ** attempt),
+                        );
+                        // Keep the pre-inserted successor row visibly alive
+                        // while we retry: the awaited attempts + backoff can
+                        // outlast UNCLAIMED_BACKGROUND_RUN_GRACE_MS (25s), and
+                        // without a fresh heartbeat the unclaimed-run reaper /
+                        // sweep could error a handoff we are still delivering.
+                        if (nextRowInserted) {
+                          await updateRunHeartbeat(nextRunId).catch(() => {});
+                        }
+                      }
+                      await fireInternalDispatch({
+                        event,
+                        // Continuation chunks use the same path resolution as
+                        // the initial dispatch: on hosted Netlify the background
+                        // function's DEFAULT url (no custom config.path; async
+                        // via background:true; never shadowed because
+                        // /.netlify/* is excluded from the /* catch-all) so each
+                        // chunk keeps the 15-min budget; off-Netlify the
+                        // in-process framework route.
+                        path: continuationDispatchPath,
+                        taskId: nextRunId,
+                        body: dispatchBody,
+                        awaitResponse: true,
+                        responseTimeoutMs: 15_000,
+                      });
+                      dispatched = true;
+                    } catch (dispatchErr) {
+                      lastDispatchErr = dispatchErr;
+                      console.error(
+                        `[agent-chat] background continuation dispatch attempt ${attempt + 1} failed:`,
+                        dispatchErr instanceof Error
+                          ? dispatchErr.message
+                          : dispatchErr,
+                      );
+                    }
+                  }
+                  if (!dispatched) {
+                    // The pre-inserted successor row would otherwise sit
+                    // unclaimed until the sweep reaps it — error it now so the
+                    // failure is immediate and truthful.
+                    if (nextRowInserted) {
+                      const nextStatusUpdated = await updateRunStatusIfRunning(
+                        nextRunId,
+                        "errored",
+                      ).catch(() => false);
+                      if (nextStatusUpdated) {
+                        await setRunTerminalReason(
+                          nextRunId,
+                          "background_continuation_dispatch_failed",
+                        ).catch(() => {});
+                      }
+                    }
+                    throw lastDispatchErr instanceof Error
+                      ? lastDispatchErr
+                      : new Error(String(lastDispatchErr));
+                  }
+                  await recordRunDiagnostic(
+                    run.runId,
+                    RUN_DIAG_STAGE.workerSetupStep,
+                    `chain_dispatch_sent nextRunId=${nextRunId} reason=${continuationReason}`,
+                  ).catch(() => {});
+                  await markBackgroundContinuationChunkTerminal({
+                    runId: run.runId,
+                    continuationReason,
+                  }).catch(() => {});
                 } catch (chainErr) {
                   // Chain dispatch failed — fail loud so the held row goes
                   // terminal instead of spinning. The reaper would also catch
                   // it, but this is immediate and truthful.
+                  await recordRunDiagnostic(
+                    run.runId,
+                    RUN_DIAG_STAGE.workerThrew,
+                    `chain_dispatch_failed nextRunId=${nextRunId} ${
+                      chainErr instanceof Error
+                        ? chainErr.message
+                        : String(chainErr)
+                    }`,
+                  ).catch(() => {});
                   console.error(
                     "[agent-chat] background continuation dispatch failed:",
                     chainErr instanceof Error ? chainErr.message : chainErr,
@@ -6173,7 +6532,7 @@ export function createProductionAgentHandler(
           if (obsConfig.enabled) {
             instrumented = true;
             loopUsage = await instrumentAgentLoop({
-              runAgentLoop,
+              runAgentLoop: runAgentLoopWithMainChatInternalContinuations,
               loopOpts: agentLoopOpts,
               runId,
               threadId: threadId ?? null,
@@ -6203,7 +6562,8 @@ export function createProductionAgentHandler(
           if (instrumented) throw err;
         }
         if (!instrumented) {
-          loopUsage = await runAgentLoop(agentLoopOpts);
+          loopUsage =
+            await runAgentLoopWithMainChatInternalContinuations(agentLoopOpts);
         }
 
         // Record token usage for cost monitoring so the Usage panel in
@@ -6250,6 +6610,7 @@ export function createProductionAgentHandler(
         // worker." Foreground runs never set this, so their 40s clamp is
         // unchanged.
         backgroundFunction: runsInBackgroundFunction,
+        noProgressTimeoutMs: options.runNoProgressTimeoutMs,
         // Fold continuation runs of one logical turn onto a single durable
         // assistant message. Falls back to the runId (turn == run) when the
         // client doesn't supply a turnId.

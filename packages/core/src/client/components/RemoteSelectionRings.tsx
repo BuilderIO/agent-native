@@ -22,6 +22,13 @@ import { useState, useEffect, useRef, useLayoutEffect, memo } from "react";
 
 import type { OtherPresence } from "../../collab/presence.js";
 
+/**
+ * Selection descriptors may be a plain string (treated as the resolver
+ * input) or an object carrying a resolver input plus a human label
+ * ("Editing hero section").
+ */
+export type SelectionDescriptor = string | { selector: string; label?: string };
+
 export interface RemoteSelectionRingsProps {
   /** Remote participants. */
   others: OtherPresence[];
@@ -48,6 +55,7 @@ interface Ring {
   clientId: number;
   color: string;
   label: string;
+  avatarUrl?: string;
   isAgent: boolean;
   rect: { top: number; left: number; width: number; height: number };
 }
@@ -76,6 +84,9 @@ const RingItem = memo(function RingItem({ ring }: { ring: Ring }) {
           position: "absolute",
           top: -20,
           left: 0,
+          display: "flex",
+          alignItems: "center",
+          gap: 4,
           backgroundColor: ring.color,
           color: "#fff",
           fontSize: 10,
@@ -83,12 +94,24 @@ const RingItem = memo(function RingItem({ ring }: { ring: Ring }) {
           padding: "1px 5px",
           borderRadius: 3,
           whiteSpace: "nowrap",
-          maxWidth: 120,
+          maxWidth: 160,
           overflow: "hidden",
           textOverflow: "ellipsis",
         }}
       >
-        {ring.isAgent ? `AI — ${ring.label}` : ring.label}
+        {ring.avatarUrl ? (
+          <img
+            src={ring.avatarUrl}
+            alt=""
+            style={{
+              width: 12,
+              height: 12,
+              borderRadius: "50%",
+              flexShrink: 0,
+            }}
+          />
+        ) : null}
+        {ring.label}
       </div>
     </div>
   );
@@ -115,10 +138,17 @@ export function RemoteSelectionRings({
     const next: Ring[] = [];
 
     for (const other of others) {
-      const descriptor = other.presence[selectionKey] as string | undefined;
-      if (!descriptor || typeof descriptor !== "string") continue;
+      const raw = other.presence[selectionKey] as
+        | SelectionDescriptor
+        | null
+        | undefined;
+      const selector =
+        typeof raw === "string" ? raw : raw ? raw.selector : undefined;
+      if (!selector || typeof selector !== "string") continue;
+      const selectionLabel =
+        raw && typeof raw === "object" ? raw.label : undefined;
 
-      const domRect = resolveRect(descriptor);
+      const domRect = resolveRect(selector);
       if (!domRect) continue;
 
       // Convert viewport-relative rect to container-relative.
@@ -133,10 +163,14 @@ export function RemoteSelectionRings({
         continue; // Out of container bounds — skip.
       }
 
+      const baseName = other.isAgent
+        ? "AI"
+        : other.user.name || other.user.email;
       next.push({
         clientId: other.clientId,
         color: other.user.color || "#94a3b8",
-        label: other.isAgent ? "AI" : other.user.name || other.user.email,
+        label: selectionLabel ? `${baseName} — ${selectionLabel}` : baseName,
+        avatarUrl: (other.user as { avatarUrl?: string }).avatarUrl,
         isAgent: other.isAgent,
         rect: { top, left, width: domRect.width, height: domRect.height },
       });

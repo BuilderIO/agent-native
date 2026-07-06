@@ -1,4 +1,9 @@
 import { useT } from "@agent-native/core/client";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@agent-native/toolkit/ui/tooltip";
 import { IconX } from "@tabler/icons-react";
 import {
   useState,
@@ -10,11 +15,6 @@ import {
 } from "react";
 import { useNavigate } from "react-router";
 
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
 import { useContacts, type Contact } from "@/hooks/use-emails";
 import { cn } from "@/lib/utils";
 

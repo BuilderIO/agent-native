@@ -120,9 +120,9 @@ Domain skills follow the same format as framework skills. They encode patterns s
 
 App-backed skills package an agent-native app as a skill marketplace artifact. The bundle can include agent instructions, exported skills, MCP connector metadata, hosted/local launch instructions, and UI surfaces such as MCP Apps.
 
-Current app-backed skills include `visual-plan` and `visual-recap` from Plan,
-`visual-edit` from Design, `assets` from Assets, and `content` for repo-backed
-docs/blog/MDX editing.
+Current app-backed skills include `visual-plan`, `visual-recap`, and
+`visualize-repo` from Plan, `visual-edit` from Design, `assets` from Assets, and
+`content` for repo-backed docs/blog/MDX editing.
 
 > **Full details below:** the mechanics of app-backed skills (manifest format, CLI commands, marketplace adapters, auto-update hashing) are covered in [App-backed skills — full details](#app-backed-skills-full).
 
@@ -332,6 +332,7 @@ offline work, or privacy-sensitive use.
 ```bash
 # Happy path: exported instructions plus hosted MCP connector.
 npx @agent-native/core@latest skills add visual-plan
+npx @agent-native/core@latest skills add visualize-repo
 npx @agent-native/core@latest skills add visual-edit
 npx @agent-native/core@latest skills add assets
 

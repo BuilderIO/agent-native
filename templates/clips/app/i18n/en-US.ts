@@ -121,6 +121,10 @@ const messages = {
     restoreFailed: "Restore failed",
     permanentlyDeleted: "Permanently deleted",
     deleteFailed: "Delete failed",
+    clipsRestored: "{{count}} clips restored",
+    clipsRestoreFailed: "{{count}} clips could not be restored",
+    clipsPermanentlyDeleted: "{{count}} clips permanently deleted",
+    clipsDeleteFailed: "{{count}} clips could not be deleted",
   },
   recordingRoute: {
     pageTitle: "Clip recording · Clips",
@@ -419,7 +423,7 @@ const messages = {
     agentPrompt:
       "Fetch this Clips agent context URL: {{agentContextUrl}}. Use transcript.segments for spoken context, fetch recommendedFrames or the frame API URLs to see the screen, and check browserDiagnostics if present for redacted console logs and fetch/XHR request metadata.",
     agentTokenDescription:
-      "This agent URL uses a short-lived token, so agents can read the clip without exposing the password.",
+      "This temporary agent URL lets agents read the clip without making it public. It expires after two hours.",
     gifPreview: "GIF preview",
     openPlayer: "Open player",
     downloadMp4: "Download MP4",
@@ -637,6 +641,11 @@ All notable user-facing changes to Clips are documented here. Open it any time f
     s3SecretAccessKeyLabel: "Secret access key",
     s3RegionLabel: "Region",
     s3PublicBaseUrlLabel: "Public base URL",
+    s3UrlInvalid:
+      "Must be a valid URL (e.g. https://s3.us-east-1.amazonaws.com)",
+    s3BucketInvalid:
+      "Bucket name must be 3–63 lowercase letters, numbers, or hyphens",
+    s3RegionInvalid: 'Must be a valid region (e.g. us-east-1) or "auto"',
     apiSetup: "AI setup",
     apiSetupDescription:
       "Connect AI with Builder.io free credits or your own LLM keys.",
@@ -651,6 +660,8 @@ All notable user-facing changes to Clips are documented here. Open it any time f
     providerKeysSet: "{{count}} set",
     checkingProviderKeys: "Checking provider keys…",
     keySet: "Set",
+    keyCleared: "Storage credentials cleared",
+    clearAllS3: "Clear credentials",
     replaceKey: "Replace key…",
     pasteProviderKey: "Paste a provider key first.",
     apiKeySaved: "API key saved",
@@ -766,6 +777,10 @@ All notable user-facing changes to Clips are documented here. Open it any time f
     clipsArchiveFailed: "{{count}} clips could not be archived",
     clipsMovedToTrash: "{{count}} clips moved to trash",
     clipsTrashFailed: "{{count}} clips could not be moved to trash",
+    loadFailedTitle: "Couldn't load your recordings",
+    loadFailedBody:
+      "Something went wrong while loading this list. Your recordings are safe — try again.",
+    retry: "Retry",
   },
   notificationsRoute: {
     pageTitle: "Notifications · Clips",

@@ -3,49 +3,47 @@
 /**
  * Collab-stability properties for the plan doc ↔ blocks[] serializer.
  *
- * These tests document and verify the properties that must hold for single-doc
- * Yjs collab to be safely re-enabled in `PlanDocumentEditor`.
+ * These tests verify the SERIALIZATION properties that must hold for single-doc
+ * Yjs collab in `PlanDocumentEditor`. Single-doc collab is now ENABLED
+ * (`SINGLE_DOC_COLLAB_ENABLED = true`); this suite remains the regression guard
+ * for the serialization layer it depends on.
  *
- * ROOT CAUSE DIAGNOSIS (2026-06):
+ * ROOT CAUSE DIAGNOSIS (2026-06) AND RESOLUTION:
  *   The pure `blocks[] → doc JSON → blocks[]` round-trip IS byte-stable —
  *   the existing `plan-doc.roundtrip.spec.ts` suite confirms this. The
- *   instability documented in `PlanDocumentEditor.tsx` (SINGLE_DOC_COLLAB_ENABLED
- *   = false) is NOT in the pure serialization layer.
+ *   instability that kept collab off was NOT in the pure serialization layer:
  *
- *   The actual instability, when single-doc Yjs collab is enabled, is:
- *
- *   1. FULL-FRAGMENT REWRITE: `editor.commands.setContent(newDoc)` when the
- *      Collaboration extension is active routes through y-prosemirror, which
- *      replaces the ENTIRE `Y.XmlFragment` rather than patching individual
- *      changed nodes. Every `planBlock` ReactNodeView (`Tiptap ReactRenderer`)
- *      is torn down and recreated; each `ReactRenderer` constructor calls
- *      `flushSync`, and that call fires inside a React render lifecycle,
- *      producing "flushSync called from inside a lifecycle method" warnings at
- *      a rate proportional to the autosave frequency × the number of structured
+ *   1. FULL-FRAGMENT REWRITE (the original problem): `editor.commands
+ *      .setContent(newDoc)` when the Collaboration extension is active routes
+ *      through y-prosemirror, which replaces the ENTIRE `Y.XmlFragment` rather
+ *      than patching individual changed nodes. Every `planBlock` ReactNodeView
+ *      (`Tiptap ReactRenderer`) is torn down and recreated; each `ReactRenderer`
+ *      constructor calls `flushSync`, firing inside a React render lifecycle and
+ *      producing "flushSync called from inside a lifecycle method" warnings at a
+ *      rate proportional to the autosave frequency × the number of structured
  *      blocks.
  *
- *   2. WHY `normalizeValue` IS NOT ENOUGH: The `normalizeValue` guard in
+ *   2. WHY `normalizeValue` WAS NOT ENOUGH: The `normalizeValue` guard in
  *      `useCollabReconcile` prevents UNNECESSARY `setContent` calls (those where
  *      the serialized content is already equivalent). But the initial seed and
- *      any external agent/peer edit still require a `setContent` call, which
- *      triggers the full-fragment rewrite described above.
+ *      any external agent/peer edit still require an apply, which — via the old
+ *      whole-document `setContent` — triggered the full-fragment rewrite above.
  *
- *   3. WHAT IS NEEDED TO RE-ENABLE COLLAB (requires `packages/core` change):
- *      The `setContent` path in `useCollabReconcile` must be replaced with a
- *      surgical Yjs transaction when collab is active: compare the incoming
- *      `blocks[]` against the live doc block-by-block and apply only the
- *      changed runs / atoms via targeted `tr.replaceWith(from, to, newNode)`
- *      calls, so unchanged `planBlock` NodeViews are never torn down.
- *      This change must live in `packages/core/src/client/rich-markdown-editor/
- *      useCollabReconcile.ts` because the surgical path requires access to the
- *      Yjs `Y.XmlFragment` and the Collaboration extension's encoding layer.
- *      Specifically, one of:
- *        Option A: Add a `setContentSurgical` hook to `UseCollabReconcileOptions`
- *          so the plan can supply a targeted transaction per changed block range,
- *          applied via the ProseMirror `tr.replaceWith(from, to, fragment)` API.
- *        Option B: Make `useCollabReconcile` diff the old vs new doc JSON and emit
- *          targeted Yjs step operations (insert/delete at specific positions) instead
- *          of replacing the whole `Y.XmlFragment`.
+ *   3. HOW COLLAB WAS RE-ENABLED (no `packages/core` change needed): The plan's
+ *      injected `setContent` (in `PlanDocumentEditor.tsx`) now applies external
+ *      edits SURGICALLY via `applyBlocksSurgically` → `applyDocSurgically`
+ *      (exported from `@agent-native/core/client/editor`). It parses the
+ *      authoritative `blocks[]` into a doc built with the LIVE editor's schema
+ *      (`editor.schema.nodeFromJSON(blocksToProseJSON(blocks))`), diffs it
+ *      top-level against the live doc, and dispatches ONE
+ *      `tr.replaceWith(from, to, changed)` for the changed run — so unchanged
+ *      `planBlock` NodeViews are never torn down and, under Collaboration, Yjs
+ *      sees a minimal edit instead of a full `Y.XmlFragment` rewrite. Because the
+ *      plan's serializer has no tiptap-markdown storage parser, the reconcile's
+ *      own `defaultParseValue` returns null and every external apply routes
+ *      through the plan's `setContent`, so the surgical path lives entirely in
+ *      template code. See `PlanDocumentEditor.surgical.spec.ts` for the direct
+ *      NodeView-identity regression test.
  *
  * SERIALIZATION STABILITY (no Yjs, pure data layer):
  *   The `normalizeValue` function used by `PlanDocumentEditor` runs:
@@ -254,21 +252,24 @@ describe("plan-doc collab-stability: autosave echo recognition property", () => 
   });
 });
 
-describe("plan-doc collab-stability: documented preconditions for single-doc Yjs collab", () => {
+describe("plan-doc collab-stability: preconditions for single-doc Yjs collab", () => {
   /**
-   * Documents the remaining gap that keeps `SINGLE_DOC_COLLAB_ENABLED = false`.
+   * Both preconditions for single-doc collab now hold (the flag is ON):
    *
    * PRECONDITION MET: pure serialization stability (these tests).
-   * PRECONDITION NOT YET MET: surgical Yjs apply path (needs packages/core change).
+   * PRECONDITION MET: surgical Yjs apply path — the plan's `setContent` applies
+   *   external edits via `applyDocSurgically` (see the file-level comment and
+   *   `PlanDocumentEditor.surgical.spec.ts`, which exercises the live-editor
+   *   surgical path directly).
    *
-   * The presence of this test file documents the exact gap. When the
-   * packages/core surgical-apply change lands, flip the flag and these tests
-   * continue to serve as regression guard for the serialization layer.
+   * These serialization tests remain the regression guard for the layer the
+   * surgical path depends on: if the round-trip ever stops being a fixed point,
+   * the reconcile's echo/already-in-sync equality checks break and collab churns.
    */
-  it("serialization is a necessary but not sufficient precondition for safe Yjs collab (documents the gap)", () => {
+  it("serialization is a necessary precondition for safe Yjs collab (regression guard)", () => {
     // This test asserts the NECESSARY precondition: the pure serialization is stable.
-    // The SUFFICIENT precondition (surgical Yjs apply, not tested here because it
-    // requires a live editor + Yjs) is documented in the file-level comment above.
+    // The SUFFICIENT precondition (surgical Yjs apply) is covered by
+    // PlanDocumentEditor.surgical.spec.ts, which needs a live editor + schema.
     const blocks: PlanBlock[] = [
       {
         id: "rt-1",

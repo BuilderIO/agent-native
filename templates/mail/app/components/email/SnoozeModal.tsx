@@ -1,9 +1,9 @@
 import { useT } from "@agent-native/core/client";
+import { Dialog, DialogContent } from "@agent-native/toolkit/ui/dialog";
 import { IconClock } from "@tabler/icons-react";
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { toast } from "sonner";
 
-import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { useParseDate, useSnoozeEmail } from "@/hooks/use-scheduled-jobs";
 import { cn } from "@/lib/utils";

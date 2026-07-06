@@ -120,6 +120,10 @@ const messages = {
     restoreFailed: "فشلت الاستعادة",
     permanentlyDeleted: "تم الحذف نهائيا",
     deleteFailed: "فشل الحذف",
+    clipsRestored: "تمت استعادة {{count}} مقاطع",
+    clipsRestoreFailed: "تعذرت استعادة {{count}} مقاطع",
+    clipsPermanentlyDeleted: "تم حذف {{count}} مقاطع نهائيا",
+    clipsDeleteFailed: "تعذر حذف {{count}} مقاطع",
   },
   recordingRoute: {
     pageTitle: "تسجيل المقطع · Clips",
@@ -419,7 +423,7 @@ const messages = {
     agentPrompt:
       "اجلب عنوان URL لسياق وكيل Clips هذا: {{agentContextUrl}}. استخدم transcript.segments للسياق المنطوق، واجلب recommendedFrames أو عناوين URL الخاصة بواجهة API للإطارات لرؤية الشاشة، وتحقق من browserDiagnostics إن وجدت لسجلات وحدة التحكم المنقحة وبيانات طلبات fetch/XHR الوصفية.",
     agentTokenDescription:
-      "يستخدم هذا الوكيل URL رمزًا مميزًا قصير العمر، بحيث يمكن للعملاء قراءة المقطع دون الكشف عن كلمة المرور.",
+      "يسمح URL المؤقت هذا للوكلاء بقراءة المقطع دون جعله عاما. تنتهي صلاحيته بعد ساعتين.",
     gifPreview: "معاينة GIF",
     openPlayer: "مشغل مفتوح",
     downloadMp4: "تحميل MP4",
@@ -637,6 +641,11 @@ const messages = {
     s3SecretAccessKeyLabel: "مفتاح الوصول السري",
     s3RegionLabel: "المنطقة",
     s3PublicBaseUrlLabel: "عنوان URL الأساسي العام",
+    s3UrlInvalid:
+      "يجب أن يكون عنوان URL صالحًا (مثال: https://s3.us-east-1.amazonaws.com)",
+    s3BucketInvalid:
+      "يجب أن يتكون اسم الحاوية من 3 إلى 63 حرفًا صغيرًا أو رقمًا أو شرطة",
+    s3RegionInvalid: 'يجب أن تكون منطقة صالحة (مثال: us-east-1) أو "auto"',
     apiSetup: "إعداد الذكاء الاصطناعي",
     apiSetupDescription:
       "صِل الذكاء الاصطناعي باستخدام أرصدة Builder.io المجانية أو مفاتيح LLM الخاصة بك.",
@@ -651,6 +660,8 @@ const messages = {
     providerKeysSet: "تم تعيين {{count}}",
     checkingProviderKeys: "جار فحص مفاتيح المزود…",
     keySet: "تم التعيين",
+    keyCleared: "تم مسح بيانات اعتماد التخزين",
+    clearAllS3: "مسح بيانات الاعتماد",
     replaceKey: "استبدال المفتاح…",
     pasteProviderKey: "الصق مفتاح مزود أولًا.",
     apiKeySaved: "تم حفظ مفتاح API",
@@ -768,6 +779,10 @@ const messages = {
     clipsArchiveFailed: "تعذرت أرشفة {{count}} مقاطع",
     clipsMovedToTrash: "تم نقل {{count}} مقاطع إلى المهملات",
     clipsTrashFailed: "تعذر نقل {{count}} مقاطع إلى المهملات",
+    loadFailedTitle: "تعذر تحميل تسجيلاتك",
+    loadFailedBody:
+      "حدث خطأ ما أثناء تحميل هذه القائمة. تسجيلاتك آمنة — يرجى المحاولة مرة أخرى.",
+    retry: "إعادة المحاولة",
   },
   notificationsRoute: {
     pageTitle: "الإشعارات · Clips",

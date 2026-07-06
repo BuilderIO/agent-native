@@ -54,7 +54,6 @@ export function compile(timeline: MotionTimeline): CompileResult {
     return { css, hash: djb2(css) };
   }
 
-  const animNames: string[] = [];
   const kfBlocks: string[] = [];
   const rulesByTarget = new Map<
     string,
@@ -77,12 +76,15 @@ export function compile(timeline: MotionTimeline): CompileResult {
     if (!keyframes || keyframes.length === 0) continue;
     assertSafeMotionCssProperty(property, "track.property");
 
+    // Sort ONCE per track: the editor may hand us keyframes in drag order, and
+    // both the stop list and the element-rule ease must read time order.
+    const sortedKeyframes = [...keyframes].sort((a, b) => a.t - b.t);
+
     const name = animationName(targetNodeId, property);
-    animNames.push(name);
-    kfBlocks.push(keyframesBlock(name, property, keyframes, defaultEase));
+    kfBlocks.push(keyframesBlock(name, property, sortedKeyframes, defaultEase));
 
     const dur = formatDuration(durationMs);
-    const ease = keyframes[0]?.ease ?? defaultEase;
+    const ease = sortedKeyframes[0]?.ease ?? defaultEase;
     assertSafeMotionCssToken(ease, "track ease");
     const targetRule = rulesByTarget.get(targetNodeId) ?? {
       names: [],
@@ -97,21 +99,24 @@ export function compile(timeline: MotionTimeline): CompileResult {
     rulesByTarget.set(targetNodeId, targetRule);
   }
 
-  const ruleBlocks = [...rulesByTarget.entries()]
-    .sort(([a], [b]) => a.localeCompare(b))
-    .map(
-      ([targetNodeId, rule]) =>
-        `[data-agent-native-node-id="${escAttr(targetNodeId)}"] {\n` +
-        `  animation-name: ${rule.names.join(", ")};\n` +
-        `  animation-duration: ${rule.durations.join(", ")};\n` +
-        `  animation-timing-function: ${rule.timings.join(", ")};\n` +
-        `  animation-fill-mode: ${rule.fillModes.join(", ")};\n` +
-        `}`,
-    );
-
-  const css = [...kfBlocks, ...ruleBlocks, reducedMotionBlock(animNames)].join(
-    "\n\n",
+  const sortedTargets = [...rulesByTarget.entries()].sort(([a], [b]) =>
+    a.localeCompare(b),
   );
+  const ruleBlocks = sortedTargets.map(
+    ([targetNodeId, rule]) =>
+      `[data-agent-native-node-id="${escAttr(targetNodeId)}"] {\n` +
+      `  animation-name: ${rule.names.join(", ")};\n` +
+      `  animation-duration: ${rule.durations.join(", ")};\n` +
+      `  animation-timing-function: ${rule.timings.join(", ")};\n` +
+      `  animation-fill-mode: ${rule.fillModes.join(", ")};\n` +
+      `}`,
+  );
+
+  const css = [
+    ...kfBlocks,
+    ...ruleBlocks,
+    reducedMotionBlock(sortedTargets.map(([targetNodeId]) => targetNodeId)),
+  ].join("\n\n");
   return { css, hash: djb2(css) };
 }
 
@@ -202,6 +207,24 @@ export function hashCss(css: string): string {
 }
 
 /**
+ * Parse the first `animation-duration` declaration in a managed motion CSS
+ * body and return it in milliseconds, or `null` when absent/unparsable. Used
+ * by CSS-recovery so a recovered timeline keeps the compiled duration instead
+ * of inventing a default that the next save would then persist.
+ */
+export function parseFirstAnimationDurationMs(css: string): number | null {
+  const m = /animation-duration\s*:\s*([^;]+)/.exec(css);
+  if (!m) return null;
+  const first = m[1].split(",")[0].trim();
+  const value = /^([\d.]+)(ms|s)$/.exec(first);
+  if (!value) return null;
+  const n = parseFloat(value[1]);
+  if (!Number.isFinite(n)) return null;
+  const ms = value[2] === "ms" ? n : n * 1000;
+  return ms > 0 ? Math.round(ms) : null;
+}
+
+/**
  * Reject caller-supplied CSS declaration values before interpolation into the
  * managed motion stylesheet. Motion values still allow useful CSS functions
  * such as `translateY(...)`, `calc(...)`, `cubic-bezier(...)`, and `var(...)`,
@@ -248,13 +271,18 @@ const CSS_TOKEN_CONTROL_RE = /[\u0000-\u001f\u007f]/;
 
 /**
  * Build a deterministic CSS animation name from a node id and CSS property.
- * Non-ident characters are replaced with `_`.
+ * Non-ident characters are replaced with `_`; when sanitisation changed the
+ * node id, a short hash of the RAW id is appended so distinct ids that
+ * sanitise identically (e.g. "a:b" vs "a_b") never collide.
  *
- * Format: `an-motion-<nodeId>--<property>`
+ * Format: `an-motion-<nodeId>[_<hash>]--<property>`
  */
 function animationName(nodeId: string, property: string): string {
   const safe = (s: string) => s.replace(/[^a-zA-Z0-9-]/g, "_");
-  return `an-motion-${safe(nodeId)}--${safe(property)}`;
+  const safeNode = safe(nodeId);
+  const suffix =
+    safeNode === nodeId ? "" : `_${djb2Num(nodeId).toString(36).slice(-4)}`;
+  return `an-motion-${safeNode}${suffix}--${safe(property)}`;
 }
 
 /** Reverse `animationName` — returns `null` when the name doesn't match. */
@@ -299,17 +327,21 @@ function keyframesBlock(
 /**
  * Build the `@media (prefers-reduced-motion: reduce)` block.
  * Always emitted so managed blocks are easily identified by parsers.
+ *
+ * Selects ONLY the node ids that carry compiled motion rules — a blanket
+ * `[data-agent-native-node-id]` selector would disable every animation on
+ * every stamped node, including ones this compiler does not manage.
  */
-function reducedMotionBlock(names: string[]): string {
-  if (names.length === 0) {
+function reducedMotionBlock(targetNodeIds: string[]): string {
+  if (targetNodeIds.length === 0) {
     return `@media (prefers-reduced-motion: reduce) {\n  /* no animations */\n}`;
   }
-  // Disable every named animation on any element that carries it.
-  const selector = names.map((n) => `[style*="${n}"]`).join(",\n  ");
+  const selector = targetNodeIds
+    .map((id) => `[data-agent-native-node-id="${escAttr(id)}"]`)
+    .join(",\n  ");
   return (
     `@media (prefers-reduced-motion: reduce) {\n` +
-    `  ${selector},\n` +
-    `  [data-agent-native-node-id] {\n` +
+    `  ${selector} {\n` +
     `    animation: none !important;\n` +
     `  }\n` +
     `}`
@@ -322,11 +354,18 @@ function formatDuration(ms: number): string {
   return `${s}s`;
 }
 
-/** Format a normalised time `t ∈ [0, 1]` as a CSS percentage string. */
+/**
+ * Format a normalised time `t ∈ [0, 1]` as a CSS percentage string.
+ * Interior stops are clamped away from 0% / 100% so a stop at e.g.
+ * t = 0.99997 never rounds onto a real t = 1 stop (duplicate keyframe
+ * selectors silently drop one of the two values).
+ */
 function formatPercent(t: number): string {
   if (t <= 0) return "0%";
   if (t >= 1) return "100%";
   const pct = Math.round(t * 10000) / 100;
+  if (pct >= 100) return "99.99%";
+  if (pct <= 0) return "0.01%";
   return `${pct}%`;
 }
 
@@ -415,13 +454,18 @@ function escapeRegExp(value: string): string {
 
 /**
  * djb2 string hash — deterministic, no crypto dependency.
- * Returns a 32-bit unsigned integer as a decimal string.
+ * Returns a 32-bit unsigned integer.
  */
-function djb2(str: string): string {
+function djb2Num(str: string): number {
   let hash = 5381;
   for (let i = 0; i < str.length; i++) {
     // eslint-disable-next-line no-bitwise
     hash = ((hash << 5) + hash + str.charCodeAt(i)) >>> 0;
   }
-  return hash.toString(10);
+  return hash;
+}
+
+/** {@link djb2Num} as a decimal string (stored `compiled_hash` format). */
+function djb2(str: string): string {
+  return djb2Num(str).toString(10);
 }

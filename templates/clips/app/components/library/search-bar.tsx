@@ -1,14 +1,14 @@
 import { useT } from "@agent-native/core/client";
+import {
+  Popover,
+  PopoverTrigger,
+  PopoverContent,
+} from "@agent-native/toolkit/ui/popover";
 import { IconClock, IconSearch, IconX } from "@tabler/icons-react";
 import React, { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router";
 
 import { msToClock } from "@/components/player/scrubber";
-import {
-  Popover,
-  PopoverTrigger,
-  PopoverContent,
-} from "@/components/ui/popover";
 import { useRecordingSearch, type SearchHit } from "@/hooks/use-library";
 import { cn, shortcutLabel } from "@/lib/utils";
 

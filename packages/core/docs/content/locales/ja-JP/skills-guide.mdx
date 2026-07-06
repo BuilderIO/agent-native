@@ -118,9 +118,7 @@ Skills は `.agents/skills/<name>/SKILL.md` にあり、エージェント向け
 
 ## アプリベースの skills {#app-backed-skills}
 
-現在の app-backed skills には、Plan の `visual-plan` と `visual-recap`、
-Design の `visual-edit`、Assets の `assets`、repo-backed docs/blog/MDX
-編集用の `content` があります。
+現在の app-backed skills には、Plan の `visual-plan`、`visual-recap`、`visualize-repo`、Design の `visual-edit`、Assets の `assets`、repo-backed docs/blog/MDX editing 用の `content` が含まれます。
 
 アプリベースの skills は、エージェント ネイティブ アプリをスキル マーケットプレイス アーティファクトとしてパッケージ化します。バンドルには、エージェントの指示、エクスポートされた skills、MCP コネクタ メタデータ、ホスト/ローカルの起動指示、MCP アプリなどの UI サーフェスを含めることができます。
 
@@ -332,6 +330,7 @@ Hosted はデフォルトのインストール パスです。ローカル起動
 ```bash
 # ハッピー パス: エクスポートされた命令とホストされた MCP コネクタ。
 npx @agent-native/core@latest skills add visual-plan
+npx @agent-native/core@latest skills add visualize-repo
 npx @agent-native/core@latest skills add visual-edit
 npx @agent-native/core@latest skills add assets
 

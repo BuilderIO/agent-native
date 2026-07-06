@@ -11,14 +11,11 @@
 
 import { defineAction } from "@agent-native/core";
 import { writeAppState } from "@agent-native/core/application-state";
-import { and, eq } from "drizzle-orm";
+import { assertAccess } from "@agent-native/core/sharing";
+import { eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
-import {
-  getCurrentOwnerEmail,
-  ownerEmailMatches,
-} from "../server/lib/recordings.js";
 
 const ChapterSchema = z.object({
   startMs: z.coerce.number().int().min(0),
@@ -37,8 +34,9 @@ export default defineAction({
       ),
   }),
   run: async (args) => {
+    await assertAccess("recording", args.recordingId, "editor");
+
     const db = getDb();
-    const ownerEmail = getCurrentOwnerEmail();
 
     let chapters: Array<{ startMs: number; title: string }> = [];
     if (typeof args.chapters === "string") {
@@ -59,14 +57,9 @@ export default defineAction({
       .sort((a, b) => a.startMs - b.startMs);
 
     const [existing] = await db
-      .select()
+      .select({ id: schema.recordings.id })
       .from(schema.recordings)
-      .where(
-        and(
-          eq(schema.recordings.id, args.recordingId),
-          ownerEmailMatches(schema.recordings.ownerEmail, ownerEmail),
-        ),
-      );
+      .where(eq(schema.recordings.id, args.recordingId));
     if (!existing) {
       throw new Error(`Recording not found: ${args.recordingId}`);
     }
@@ -80,9 +73,7 @@ export default defineAction({
       .where(eq(schema.recordings.id, args.recordingId));
 
     await writeAppState("refresh-signal", { ts: Date.now() });
-
     console.log(`Set ${chapters.length} chapter(s) on ${args.recordingId}`);
-
     return { id: args.recordingId, chapters };
   },
 });

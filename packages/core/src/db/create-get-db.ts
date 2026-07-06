@@ -181,6 +181,88 @@ export function buildResilientNeonPool(pool: {
 }
 
 /**
+ * Wraps a postgres.js client so Drizzle queries on the non-Neon Postgres
+ * path get the same withDbTimeout + retryOnConnectionError protection as
+ * every other Postgres path (raw DbExec postgres.js, raw DbExec Neon, and
+ * the Drizzle Neon pool above). Without this, one hung query on a BYO
+ * Postgres deployment stalls its request forever.
+ *
+ * Drizzle's postgres-js session only calls `client.unsafe(query, params)` —
+ * awaited directly for row-object results or via `.values()` for row-array
+ * results — plus `client.begin(...)` for transactions. We interpose on
+ * `unsafe` with a lazy thenable that re-issues the query per retry attempt,
+ * and leave transactions unwrapped (same rule as the Neon wrapper: the
+ * driver manages the sticky connection inside `begin`).
+ *
+ * Retry-safety mirrors buildResilientNeonPool: reads retry freely on
+ * connection-class errors; writes retry only on CONNECT_TIMEOUT (postgres.js
+ * raises it before the statement is ever sent), so writes can't
+ * double-execute.
+ */
+export function buildResilientPostgresJsClient<
+  T extends {
+    unsafe(query: string, params?: any[], options?: any): any;
+  },
+>(client: T): T {
+  const wrapUnsafe = (query: string, params?: any[], options?: any) => {
+    const isRead = isSqlRead(query);
+
+    const runAttempt = (mode: "rows" | "values") => async (): Promise<any> => {
+      const pending = client.unsafe(query, params, options);
+      return withDbTimeout(
+        "query",
+        async () => (mode === "values" ? pending.values() : pending),
+        dbOpTimeoutMs(),
+        () => {
+          // Best-effort cancel so the timed-out statement doesn't keep
+          // occupying one of the (small, serverless-capped) pool slots.
+          try {
+            pending.cancel?.();
+          } catch {
+            // ignore — cancellation is advisory
+          }
+        },
+      );
+    };
+
+    const execute = async (mode: "rows" | "values"): Promise<any> => {
+      if (isRead) return retryOnConnectionError(runAttempt(mode));
+      try {
+        return await runAttempt(mode)();
+      } catch (err) {
+        // Connect timeout fires before the statement is sent → one retry is
+        // safe even for writes.
+        if (
+          isConnectionError(err) &&
+          (err as any)?.code === "CONNECT_TIMEOUT"
+        ) {
+          return runAttempt(mode)();
+        }
+        throw err;
+      }
+    };
+
+    // Lazy thenable mirroring the slice of postgres.js's PendingQuery
+    // surface that Drizzle uses: `await q` or `await q.values()`.
+    return {
+      then: (onFulfilled?: any, onRejected?: any) =>
+        execute("rows").then(onFulfilled, onRejected),
+      catch: (onRejected?: any) => execute("rows").catch(onRejected),
+      finally: (onFinally?: any) => execute("rows").finally(onFinally),
+      values: () => execute("values"),
+    };
+  };
+
+  return new Proxy(client as any, {
+    get(target, prop) {
+      if (prop === "unsafe") return wrapUnsafe;
+      const val = target[prop];
+      return typeof val === "function" ? val.bind(target) : val;
+    },
+  }) as T;
+}
+
+/**
  * Neon's pooler endpoints cold-start in 5–10s. Serverless environments
  * (Netlify Functions, Vercel Edge, CF Workers) have short cold-start
  * budgets of their own, and `postgres-js` opens a raw TCP connection on
@@ -369,7 +451,7 @@ export function createGetDb<T extends Record<string, unknown>>(schema: T) {
           // concurrent frozen instances don't exhaust Neon/Postgres'
           // connection limit ("Max client connections reached").
           const client = postgres(url, pgPoolOptions(url));
-          _db = drizzle(client, { schema });
+          _db = drizzle(buildResilientPostgresJsClient(client), { schema });
         });
       }
     } else if (isLocalSqliteUrl(url)) {
@@ -378,6 +460,9 @@ export function createGetDb<T extends Record<string, unknown>>(schema: T) {
         getBetterSqliteDrizzle(),
       ]).then(([sqliteUrl, { drizzle, Database }]) => {
         const sqlite = new Database(sqliteFilenameFromUrl(sqliteUrl));
+        // Wait up to 10s for a concurrent writer instead of failing fast
+        // with SQLITE_BUSY — mirrors the raw DbExec SQLite path in client.ts.
+        sqlite.pragma("busy_timeout = 10000");
         sqlite.pragma("journal_mode = WAL");
         const db = drizzle(sqlite, { schema });
         _db = patchBetterSqliteTransactions(db, sqlite);

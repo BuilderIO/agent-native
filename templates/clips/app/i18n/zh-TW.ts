@@ -117,6 +117,10 @@ const messages = {
     restoreFailed: "恢復失敗",
     permanentlyDeleted: "已永久刪除",
     deleteFailed: "刪除失敗",
+    clipsRestored: "已恢復 {{count}} 個剪輯",
+    clipsRestoreFailed: "{{count}} 個剪輯無法恢復",
+    clipsPermanentlyDeleted: "已永久刪除 {{count}} 個剪輯",
+    clipsDeleteFailed: "{{count}} 個剪輯無法刪除",
   },
   recordingRoute: {
     pageTitle: "剪輯錄製 · Clips",
@@ -403,7 +407,7 @@ const messages = {
     agentPrompt:
       "取得這個 Clips Agent 脈絡 URL：{{agentContextUrl}}。使用 transcript.segments 讀取語音脈絡，取得 recommendedFrames 或影格 API URL 來查看螢幕，並在 browserDiagnostics 存在時檢查已遮蔽的主控台記錄和 fetch/XHR 請求中繼資料。",
     agentTokenDescription:
-      "此 Agent URL 使用短期權杖，因此 Agent 可以在不暴露密碼的情況下讀取剪輯。",
+      "這個臨時 Agent URL 可讓 Agent 讀取剪輯，而不必將其設為公開。它會在兩小時後過期。",
     gifPreview: "GIF 預覽",
     openPlayer: "開啟播放器",
     downloadMp4: "下載 MP4",
@@ -607,6 +611,9 @@ const messages = {
     s3SecretAccessKeyLabel: "秘密存取金鑰",
     s3RegionLabel: "區域",
     s3PublicBaseUrlLabel: "公開基礎 URL",
+    s3UrlInvalid: "必須是有效的 URL（例如 https://s3.us-east-1.amazonaws.com）",
+    s3BucketInvalid: "儲存貯體名稱必須為 3–63 個小寫字母、數字或連字號",
+    s3RegionInvalid: '必須是有效的區域（例如 us-east-1）或 "auto"',
     apiSetup: "AI 設定",
     apiSetupDescription: "使用 Builder.io 免費額度或您自己的 LLM 金鑰連線 AI。",
     builderEasySetup: "Builder.io 免費額度",
@@ -619,6 +626,8 @@ const messages = {
     providerKeysSet: "已設定 {{count}} 個",
     checkingProviderKeys: "正在檢查提供方金鑰…",
     keySet: "已設定",
+    keyCleared: "儲存憑證已清除",
+    clearAllS3: "清除憑證",
     replaceKey: "替換金鑰…",
     pasteProviderKey: "請先貼上提供方金鑰。",
     apiKeySaved: "API 金鑰已儲存",
@@ -730,6 +739,9 @@ const messages = {
     clipsArchiveFailed: "{{count}} 個剪輯無法封存",
     clipsMovedToTrash: "已將 {{count}} 個剪輯移至廢紙簍",
     clipsTrashFailed: "{{count}} 個剪輯無法移至廢紙簍",
+    loadFailedTitle: "無法載入你的錄製",
+    loadFailedBody: "載入此清單時發生問題。你的錄製是安全的 —— 請重試。",
+    retry: "重試",
   },
   notificationsRoute: {
     pageTitle: "通知 · Clips",

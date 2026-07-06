@@ -1,0 +1,67 @@
+---
+title: "Agent-Native ツールキット"
+description: "コラボレーション、設定、共有、ナビゲーション、プレゼンス、履歴、セットアップ、Agent UX の再利用可能なキット。"
+---
+
+# Agent-Native ツールキット
+
+Agent-Native のアプリは、workspace の共通機能を毎回作り直すべきではありません。
+アプリはドメインモデル、ドメイン action、固有のビューを持ちます。Framework と
+`@agent-native/toolkit` は、すべてのアプリが継承すべき再利用可能な面を持ちます:
+コラボレーション、共有、設定、ナビゲーション、整理、セットアップ、Agent UX、履歴、
+運用の可視性です。
+
+ユーザーが覚える共有方法、キー接続、Agent の共同編集表示、設定の場所、変更履歴の見方は
+ひとつであるべきです。
+
+## ツールキットの契約 {#toolkit-contract}
+
+次の条件に当てはまる動作は toolkit に移します。
+
+- **Workspace 全体** - すべてのアプリで同じ挙動が期待される。
+- **Agent から見える** - action、instructions、application state を通じて Agent も使う。
+- **Governed** - 権限、audit、secrets、org policy、billing、sharing rules が関係する。
+- **繰り返される** - 2 つ以上のアプリが似た UI やロジックを持つ。
+- **ドメイン固有ではない** - アプリはリソース名と action を渡し、操作パターンは汎用。
+
+ドメインモデルやアプリ固有の workflow に強く結びつくものは app-local に残します。
+
+## 再利用可能なキット {#reusable-kits}
+
+- **Settings kit** - account、workspace、AI models、LLM keys、connections、
+  secrets、usage、notifications、changelog、app preferences の標準 tabs。永続設定は
+  Settings に置き、Agent sidebar は文脈上の quick controls と deep links に絞ります。
+- **Collaboration kit** - リアルタイム編集、Yjs docs、presence、agent presence、live
+  cursors、remote selections、recent edit highlights、共有 undo/redo。詳しくは
+  [Real-Time Collaboration](/docs/real-time-collaboration)。
+- **Sharing kit** - private、workspace、org、public link、invites、roles、
+  expirations、agent-readable access をひとつの権限モデルで扱います。詳しくは
+  [Sharing & Privacy](/docs/sharing)。
+- **Navigation and command kit** - app shell、nav、breadcrumbs、app switcher、
+  command palette、recents、pinned resources、search。
+- **Organization kit** - folders、tags、favorites、archive、trash、ownership、
+  membership、共通 metadata。
+- **Setup and connections kit** - API keys、OAuth、connections、model readiness、
+  missing secrets、declarative onboarding。詳しくは
+  [Workspace Connections](/docs/workspace-connections)。
+- **Agent UX kit** - sidebar、composer、staged context、mentions、voice、human
+  approval、generative UI、progress、Agent-visible state。
+- **History and recovery kit** - audit log、activity feed、version history、
+  checkpoints、undo、redo、restore、proof-of-done。詳しくは
+  [Audit Log](/docs/audit-log)。
+- **Comments and review kit** - anchored comments、pins、mentions、review requests、
+  resolved threads、Agent follow-up tasks。
+- **Workflow and observability kit** - notifications、approvals、background runs、
+  recurring jobs、traces、evals、feedback、run timelines。詳しくは
+  [Observability](/docs/observability)。
+
+## 実装順序 {#implementation-order}
+
+1. 永続設定を標準 Settings tabs に集約します。
+2. collaboration、presence、agent presence、undo/redo、real-time editing を共有
+   adapters の後ろに揃えます。
+3. navigation、commands、recents、favorites、folders、tags、archive、trash を共有
+   primitives に移します。
+4. 共有可能なすべての resource を同じ permissions と agent-readable access モデルに登録します。
+5. collaborative resource に activity、comments、review、restore、audit の一貫した体験を持たせます。
+6. notifications、approvals、run status、traces、evals、feedback を統一します。

@@ -5,7 +5,7 @@ description: "Google-Docs-style sharing, built into the framework. Every user-cr
 
 # Sharing & Privacy
 
-Every resource a user creates in an agent-native app — a document, a dashboard, a design, a deck, a video edit, a screen recording, a meeting transcript, a form, a booking link — is **private to the creator by default**. Other people see it only when the creator explicitly shares it, or changes its visibility to `org` or `public`.
+Every resource a user creates in an agent-native app — a document, a dashboard, a design, a deck, a screen recording, a meeting transcript, a form, a booking link — is **private to the creator by default**. Other people see it only when the creator explicitly shares it, or changes its visibility to `org` or `public`.
 
 It looks and works like Google Docs. The same share button, the same dialog, the same three-tier visibility model, the same per-user/per-org grants — across every template, with no per-app reinvention.
 
@@ -92,11 +92,11 @@ Every template that stores user-authored work uses this model. Concretely:
 - **Content** — documents
 - **Slides** — decks
 - **Design** — designs and assets
-- **Video** — compositions
 - **Clips** — screen recordings (Loom-style)
+- **Plan** — visual plans and PR recaps
 - **Forms** — form definitions
 - **Calendar** — events and booking links
-- **Analytics** — dashboards (rolling out — see the analytics template's `AGENTS.md`)
+- **Analytics** — dashboards, saved analyses, and tokenized session replays
 - **Extensions** — sandboxed mini-apps (see [Extensions](/docs/extensions#sharing))
 
 Every one of these uses the same `ownableColumns()` schema helper, the same `share-resource` action, and the same `<ShareButton>` UI. Move from one template to another and the share dialog looks identical.
@@ -137,14 +137,45 @@ For lists, drop a `<VisibilityBadge visibility={row.visibility} />` next to each
 
 The framework auto-mounts these actions in every template — the agent calls them as tools, and the UI calls them through `useActionQuery` / `useActionMutation`:
 
-| Action                    | What it does                                                                                   |
-| ------------------------- | ---------------------------------------------------------------------------------------------- |
-| `share-resource`          | Grant a user or org access at a specific role. Optional `notify` controls email notifications. |
-| `unshare-resource`        | Revoke access for a user or org.                                                               |
-| `list-resource-shares`    | Show current visibility plus all explicit grants.                                              |
-| `set-resource-visibility` | Change to `private`, `org`, or `public`.                                                       |
+| Action                       | What it does                                                                                   |
+| ---------------------------- | ---------------------------------------------------------------------------------------------- |
+| `share-resource`             | Grant a user or org access at a specific role. Optional `notify` controls email notifications. |
+| `unshare-resource`           | Revoke access for a user or org.                                                               |
+| `list-resource-shares`       | Show current visibility plus all explicit grants.                                              |
+| `set-resource-visibility`    | Change to `private`, `org`, or `public`.                                                       |
+| `create-agent-resource-link` | Mint a temporary read-only `agent_access` URL for a registered agent-readable resource.        |
 
 Tell the agent "share this design with the marketing team as editors" and it calls `share-resource` against the same endpoint the UI uses. The result shows up in the share dialog the next render.
+
+## Agent-readable share links {#agent-readable-links}
+
+Human share links should also work for agents when the resource is a document-like artifact: plans, documents, decks, designs, analytics dashboards, saved analyses, clips, and similar "things you would send to a person." Public links expose a small SSR discovery script that points at structured JSON. Private resources use a short-lived `agent_access` token scoped to exactly one resource.
+
+The default flow is:
+
+1. Register the resource with `agentReadable`.
+2. Add a read-only JSON endpoint that returns the same content a viewer can see.
+3. Add an SSR discovery script on the human page with `renderAgentReadableResourceDiscoveryScript()`.
+4. Let agents call `create-agent-resource-link` when they need a temporary private URL.
+
+```ts
+registerShareableResource({
+  type: "deck",
+  resourceTable: schema.decks,
+  sharesTable: schema.deckShares,
+  displayName: "Deck",
+  titleColumn: "title",
+  getResourcePath: (deck) => `/p/${deck.id}`,
+  agentReadable: {
+    resourceKind: "slides:deck",
+    getContextPath: () => "/api/deck-agent-context.json",
+    getPagePath: (deck) => `/p/${deck.id}`,
+  },
+  getDb,
+});
+```
+
+The context endpoint must be read-only. It should return data only when the row is `public` or `verifyScopedAgentAccessToken()` accepts the token for that exact `resourceKind` and `resourceId`. Set `Cache-Control: no-store`, `Referrer-Policy: no-referrer`, and avoid including write credentials, provider blob URLs, or secrets. Token links should not change the resource visibility.
 
 ## Building it into a new template {#building}
 

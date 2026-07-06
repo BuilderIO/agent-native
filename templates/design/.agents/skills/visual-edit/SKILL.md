@@ -163,6 +163,25 @@ content as the absolute URL and keep `screenMetadata[fileId]` aligned:
 Do not replace localhost screens with copied `srcdoc` HTML unless the user
 explicitly asks to freeze a snapshot.
 
+## Local Files in the Code Tab
+
+Once a connection is registered, the design editor's Code panel (left rail →
+Code, or `navigate --view editor --designId <id> --leftPanel code`) shows a
+local-files workspace root for that connection next to the design's own files.
+It lists the connected app's text/code files through the bridge
+(`list-local-files` / `read-local-file`); build output, `node_modules`,
+`.git`, and secret-looking paths (`.env*`, key files) are always excluded.
+
+- Browsing and reading need only editor access on the design plus the running
+  bridge.
+- Saving goes through `write-local-file`: the first save opens the
+  write-consent dialog (an 8-hour, folder-scoped grant) and retries
+  automatically once granted. Only text/code files are writable; secret paths
+  are always blocked.
+- Saves are conflict-checked against the file's on-disk version — a file that
+  changed since it was read fails with a version conflict instead of being
+  overwritten.
+
 ## Verification
 
 - `list-localhost-connections` returns the expected connection and routes.
@@ -170,3 +189,4 @@ explicitly asks to freeze a snapshot.
 - Every requested screen renders the intended localhost URL.
 - Alt-dragging a screen copies the URL-backed frame, not an inline HTML clone.
 - A query/path edit changes only the target screen's URL metadata and iframe.
+- The Code tab shows a local-files root for the connection and opens its files.

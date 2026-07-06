@@ -1,5 +1,4 @@
 import type { LocaleCode } from "@agent-native/core/client";
-
 /**
  * AvailabilityEditor — weekly schedule grid with per-day toggles and time
  * pickers. Matches the calendar template's visual baseline.
@@ -11,8 +10,7 @@ import type { LocaleCode } from "@agent-native/core/client";
  *
  * Shadcn primitives expected in the consumer: input, switch.
  */
-import { Input } from "@/components/ui/input";
-import { Switch } from "@/components/ui/switch";
+import { Input, Switch } from "@agent-native/toolkit/ui";
 
 import { schedulingMessage, useSchedulingT } from "../../i18n.js";
 

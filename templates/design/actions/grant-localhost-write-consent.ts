@@ -19,6 +19,16 @@ export default defineAction({
     "for a specific design + localhost connection. The grant scopes writes to the " +
     "connection's rootPath and expires after 8 hours. Requires editor access on the design. " +
     "The LocalhostWriteConsentDialog calls this after the user clicks 'Allow writes'.",
+  // This action mints/returns the real bridgeToken that unlocks the local
+  // bridge's unrestricted /read-file, /write-file, and /apply-edit. It must
+  // only ever be triggered by a human clicking "Allow writes" in
+  // LocalhostWriteConsentDialog — never by the agent itself, or an agent
+  // could self-grant local filesystem write/read access and bypass the
+  // human consent model entirely. `agentTool: false` hides it from every
+  // agent tool surface (in-app assistant, MCP, A2A) while keeping it
+  // callable from the frontend via `callAction` / `useActionMutation` and
+  // the raw `/_agent-native/actions/grant-localhost-write-consent` route.
+  agentTool: false,
   schema: z.object({
     designId: z.string().describe("Design ID."),
     connectionId: z

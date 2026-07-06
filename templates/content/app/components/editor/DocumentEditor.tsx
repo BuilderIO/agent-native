@@ -4,11 +4,15 @@ import {
   generateTabId,
   emailToColor,
   emailToName,
+  useAvatarUrl,
   useSession,
   useT,
   agentNativePath,
   type CollabUser,
 } from "@agent-native/core/client";
+import { Button } from "@agent-native/toolkit/ui/button";
+import { Sheet, SheetContent } from "@agent-native/toolkit/ui/sheet";
+import { Skeleton } from "@agent-native/toolkit/ui/skeleton";
 import type { Document, DocumentSyncStatus } from "@shared/api";
 import { IconArrowLeft, IconDatabase } from "@tabler/icons-react";
 import { IconLock } from "@tabler/icons-react";
@@ -29,9 +33,6 @@ import {
   contentBlockRegistry,
   createContentBlockRenderContext,
 } from "@/blocks/contentBlockRegistry";
-import { Button } from "@/components/ui/button";
-import { Sheet, SheetContent } from "@/components/ui/sheet";
-import { Skeleton } from "@/components/ui/skeleton";
 import { useComments } from "@/hooks/use-comments";
 import { useProcessBuilderBodyHydration } from "@/hooks/use-content-database";
 import {
@@ -464,16 +465,27 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
 
   // Current user info for cursor labels
   const { session } = useSession();
+  const currentUserAvatarUrl = useAvatarUrl(session?.email);
   const currentUser: CollabUser | undefined = session?.email
     ? {
         name: emailToName(session.email),
         email: session.email,
         color: emailToColor(session.email),
+        avatarUrl: currentUserAvatarUrl ?? undefined,
       }
     : undefined;
 
-  // Collaborative editing is write-only for now. Viewers get the SQL snapshot
-  // and skip collab endpoints that reject non-editor access.
+  // Live collaboration for everyone who can open the doc — editors and viewers
+  // alike. Viewers join the shared Y.Doc read-only: they see live keystrokes,
+  // cursors, and presence (Google-Docs style) instead of a lagging SQL snapshot.
+  // The server enforces the split — collab READ routes (state / awareness GET /
+  // users) require viewer access, WRITE routes (update) require editor — so a
+  // viewer's client can subscribe but never push. The editor stays non-editable
+  // for viewers (see `editable={canEdit}` below), and VisualEditor additionally
+  // neutralizes every local Y.Doc mutation for viewers (no seed, no reconcile
+  // apply) so a read-only client can never originate a rejected `/update` POST.
+  // Local-file documents are still excluded (they have no SQL-backed collab doc).
+  const collabEnabled = !isLocalFileDocument;
   const {
     ydoc,
     awareness,
@@ -482,7 +494,7 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
     agentActive,
     agentPresent,
   } = useCollaborativeDoc({
-    docId: canEdit && !isLocalFileDocument ? documentId : "",
+    docId: collabEnabled ? documentId : "",
     requestSource: TAB_ID,
     user: currentUser,
   });
@@ -863,6 +875,112 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
     pendingDocumentSaveRef.current = null;
     flushPendingDocumentSave(pending);
   }, [canEdit, documentId, flushPendingDocumentSave]);
+
+  // Last-chance flush when the tab is being hidden or torn down. A normal
+  // debounced save is an async React-Query mutation; if the page unloads before
+  // it resolves the edit is lost. On `pagehide` / `visibilitychange → hidden` we
+  // fire a `keepalive` POST straight to the update-document action so the write
+  // survives navigation/close. Local-file documents persist to disk, not this
+  // endpoint, so they fall back to the best-effort async flush.
+  useEffect(() => {
+    if (!canEdit) return;
+
+    const flushForTeardown = () => {
+      const pending = pendingDocumentSaveRef.current;
+      if (!pending || !pending.canEditWhenQueued) return;
+
+      // Local-file docs can't be flushed via keepalive fetch; best-effort only.
+      if (isLocalFileDocument || isLinkedLocalSourceDocument) {
+        flushPendingDocumentSave(pending);
+        return;
+      }
+
+      // Mirror saveDocumentImmediately's per-field stale guard + diff so we only
+      // send genuinely-changed, non-stale fields.
+      const serverUpdatedAt = documentUpdatedAtRef.current;
+      const titleIsStale =
+        !!serverUpdatedAt &&
+        !!lastSavedTitleRef.current.updatedAt &&
+        serverUpdatedAt > lastSavedTitleRef.current.updatedAt;
+      const contentIsStale =
+        !!serverUpdatedAt &&
+        !!lastSavedContentRef.current.updatedAt &&
+        serverUpdatedAt > lastSavedContentRef.current.updatedAt;
+
+      const updates: Record<string, string> = {};
+      if (pending.title !== lastSavedTitleRef.current.title && !titleIsStale) {
+        updates.title = pending.title;
+      }
+      if (
+        pending.content !== lastSavedContentRef.current.content &&
+        !contentIsStale
+      ) {
+        updates.content = pending.content;
+      }
+      if (Object.keys(updates).length === 0) return;
+
+      clearTimeout(pending.timeout);
+      saveTimeoutRef.current = null;
+      pendingDocumentSaveRef.current = null;
+
+      try {
+        const url = agentNativePath("/_agent-native/actions/update-document");
+        const body = JSON.stringify({ id: documentId, ...updates });
+        const ok = fetch(url, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            // Tag as a browser-originated call (ctx.caller = "frontend") so this
+            // never lights the AI-editing flag.
+            "X-Agent-Native-Frontend": "1",
+          },
+          body,
+          keepalive: true,
+          cache: "no-store",
+        });
+        // Adopt an optimistic watermark so a re-render doesn't re-queue the same
+        // save; the server bumps updatedAt, and the next poll reconciles it.
+        const optimisticAt = new Date().toISOString();
+        if (updates.title !== undefined) {
+          lastSavedTitleRef.current = {
+            title: pending.title,
+            updatedAt: optimisticAt,
+          };
+        }
+        if (updates.content !== undefined) {
+          lastSavedContentRef.current = {
+            content: pending.content,
+            updatedAt: optimisticAt,
+          };
+        }
+        void Promise.resolve(ok).catch(() => {
+          /* Page is going away; nothing more we can do. */
+        });
+      } catch {
+        // Fall back to the async flush if the keepalive fetch couldn't start.
+        flushPendingDocumentSave(pending);
+      }
+    };
+
+    const onVisibilityChange = () => {
+      if (window.document.visibilityState === "hidden") flushForTeardown();
+    };
+    window.addEventListener("pagehide", flushForTeardown);
+    window.document.addEventListener("visibilitychange", onVisibilityChange);
+    return () => {
+      window.removeEventListener("pagehide", flushForTeardown);
+      window.document.removeEventListener(
+        "visibilitychange",
+        onVisibilityChange,
+      );
+    };
+  }, [
+    canEdit,
+    documentId,
+    isLocalFileDocument,
+    isLinkedLocalSourceDocument,
+    flushPendingDocumentSave,
+  ]);
 
   // Collab-aware ingest flush: the `pull-document` action writes a one-shot
   // `flush-request-<id>` app-state key when an external agent wants to ingest
@@ -1299,10 +1417,12 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
                         }
                         onChange={handleContentChange}
                         onSaveContent={handleContentSaveNow}
-                        ydoc={canEdit && !isLocalFileDocument ? ydoc : null}
-                        awareness={
-                          canEdit && !isLocalFileDocument ? awareness : null
-                        }
+                        // Bind the shared Y.Doc/awareness for viewers too — the
+                        // editor is non-editable for them and VisualEditor blocks
+                        // any local Y.Doc mutation, so they get live edits +
+                        // cursors without ever writing. Excludes local-file docs.
+                        ydoc={collabEnabled ? ydoc : null}
+                        awareness={collabEnabled ? awareness : null}
                         user={currentUser}
                         editable={canEdit}
                         localFileMode={isLocalFileDocument}

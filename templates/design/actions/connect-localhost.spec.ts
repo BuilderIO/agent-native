@@ -8,13 +8,17 @@ vi.mock("@agent-native/core/server/request-context", () => ({
 vi.mock("nanoid", () => ({ nanoid: () => "fixed_connection_id" }));
 
 type ExistingConnection = {
-  id: string;
+  ownerEmail: string;
   bridgeToken: string | null;
 };
 
 let existingConnection: ExistingConnection | null = null;
 let insertedValues: Record<string, unknown> | null = null;
-let updatedSet: Record<string, unknown> | null = null;
+let upsertConfig: {
+  target: unknown;
+  set: Record<string, unknown>;
+  setWhere?: unknown;
+} | null = null;
 
 function makeSelectChain(rows: unknown[]) {
   return {
@@ -33,14 +37,15 @@ vi.mock("../server/db/index.js", () => ({
     insert: () => ({
       values: (vals: Record<string, unknown>) => {
         insertedValues = vals;
-        return Promise.resolve();
-      },
-    }),
-    update: () => ({
-      set: (vals: Record<string, unknown>) => {
-        updatedSet = vals;
         return {
-          where: () => Promise.resolve(),
+          onConflictDoUpdate: (config: {
+            target: unknown;
+            set: Record<string, unknown>;
+            setWhere?: unknown;
+          }) => {
+            upsertConfig = config;
+            return Promise.resolve();
+          },
         };
       },
     }),
@@ -59,13 +64,13 @@ import action from "./connect-localhost.js";
 beforeEach(() => {
   existingConnection = null;
   insertedValues = null;
-  updatedSet = null;
+  upsertConfig = null;
 });
 
 describe("connect-localhost", () => {
   it("preserves an existing bridge token when a refresh omits bridgeToken", async () => {
     existingConnection = {
-      id: "conn_1",
+      ownerEmail: "user@example.com",
       bridgeToken: "existing_bridge_token",
     };
 
@@ -76,13 +81,13 @@ describe("connect-localhost", () => {
       rootPath: "/tmp/app",
     });
 
-    expect(updatedSet?.bridgeToken).toBe("existing_bridge_token");
-    expect(insertedValues).toBeNull();
+    expect(insertedValues?.bridgeToken).toBe("existing_bridge_token");
+    expect(upsertConfig?.set.bridgeToken).toBe("existing_bridge_token");
   });
 
   it("stores a new bridge token when the bridge provides one", async () => {
     existingConnection = {
-      id: "conn_1",
+      ownerEmail: "user@example.com",
       bridgeToken: "old_bridge_token",
     };
 
@@ -94,7 +99,59 @@ describe("connect-localhost", () => {
       bridgeToken: " new_bridge_token ",
     });
 
-    expect(updatedSet?.bridgeToken).toBe("new_bridge_token");
+    expect(insertedValues?.bridgeToken).toBe("new_bridge_token");
+    expect(upsertConfig?.set.bridgeToken).toBe("new_bridge_token");
+  });
+
+  it("writes through a single upsert guarded by ownerEmail (no check-then-insert race)", async () => {
+    await action.run({
+      id: "conn_new",
+      devServerUrl: "http://localhost:5173",
+      bridgeUrl: "http://127.0.0.1:7666",
+      rootPath: "/tmp/app",
+    });
+
+    // Insert values and upsert set carry the same owner scoping.
+    expect(insertedValues?.ownerEmail).toBe("user@example.com");
+    expect(upsertConfig?.set.ownerEmail).toBe("user@example.com");
+    // setWhere must be present so a cross-user conflict filters to a no-op
+    // instead of overwriting the other user's row.
+    expect(upsertConfig?.setWhere).toBeDefined();
+  });
+
+  it("rejects a connection id that belongs to another user (VE3 regression)", async () => {
+    existingConnection = {
+      ownerEmail: "someone-else@example.com",
+      bridgeToken: "their_token",
+    };
+
+    await expect(
+      action.run({
+        id: "conn_1",
+        devServerUrl: "http://localhost:5173",
+        bridgeUrl: "http://127.0.0.1:7666",
+        rootPath: "/tmp/app",
+      }),
+    ).rejects.toThrow(/another user/);
+
+    // Nothing may be written for the colliding id.
+    expect(insertedValues).toBeNull();
+    expect(upsertConfig).toBeNull();
+  });
+
+  it("does not reuse another user's bridge token on a colliding id", async () => {
+    existingConnection = {
+      ownerEmail: "someone-else@example.com",
+      bridgeToken: "their_token",
+    };
+
+    await expect(
+      action.run({
+        id: "conn_1",
+        devServerUrl: "http://localhost:5173",
+        rootPath: "/tmp/app",
+      }),
+    ).rejects.toThrow(/another user/);
   });
 
   it("rejects non-loopback bridge URLs", async () => {

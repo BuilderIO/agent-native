@@ -22,20 +22,21 @@ function makeE2ePassword(label: string): string {
  *    SSR keeps the per-block reader (`PlanMarkdownReader`) — no Tiptap server-side.
  *    `PlanContentRenderer` gates the editor on `SINGLE_DOC_EDITOR_ENABLED = true`.
  *
- *  - Cross-client propagation is NOT Yjs in this model. Inside
- *    `PlanDocumentEditor`, `SINGLE_DOC_COLLAB_ENABLED = false`, so `docId = null`,
- *    no Y.Doc / awareness is bound, and `SharedRichEditor` mounts a plain
- *    controlled `value`/`onChange` editor. Edits autosave (`update-visual-plan`
- *    `replace-blocks`) → SQL → the peer's `usePlan` poll (`refetchInterval: 3s`)
- *    refetches `get-visual-plan` → the `content.blocks` prop changes →
- *    `useCollabReconcile` applies it (non-collab reconcile). That is how an idle
- *    peer converges to a remote edit. Single-doc multi-user CRDT collab + live
- *    cursors are an intentional, documented fast-follow (full-fragment
- *    Y.XmlFragment rewrites tear down every React NodeView → flushSync storms),
- *    not a regression — see the rationale block in `PlanDocumentEditor.tsx`.
+ *  - Cross-client propagation is Yjs in this model. Inside `PlanDocumentEditor`,
+ *    `SINGLE_DOC_COLLAB_ENABLED = true`, so a signed-in editor binds a
+ *    `plan:<planId>` Y.Doc + awareness and `SharedRichEditor` mounts the shared
+ *    Collaboration stack (live CRDT merge + CollaborationCaret cursors). External
+ *    agent/peer edits mirrored to SQL still reconcile in via the peer's `usePlan`
+ *    poll (`refetchInterval: 3s`) → `content.blocks` prop change →
+ *    `useCollabReconcile`, which now applies them SURGICALLY through the plan's
+ *    `setContent` (one `tr.replaceWith` for the changed top-level run) so
+ *    unchanged NodeViews are never torn down — the flushSync storm that kept
+ *    collab off is gone. In collab mode Yjs owns undo/redo (the app-level
+ *    blocks[] undo stack is gated off), so cmd+z reverts only the local client's
+ *    edits.
  *
  *  - The collab SERVER transport (`createCollabPlugin` in server/plugins/collab.ts)
- *    is still mounted and healthy. `resolvePlanIdFromCollabDocId` strips everything
+ *    is mounted and healthy. `resolvePlanIdFromCollabDocId` strips everything
  *    after the first `:`, so BOTH a single-doc `plan:<id>` docId and a legacy
  *    per-block `plan:<id>:<block>` docId resolve to the same plan for the access
  *    check. Reads (state/users/awareness) require VIEWER; writes
@@ -43,11 +44,9 @@ function makeE2ePassword(label: string): string {
  *    sends the RAW docId (literal colons — never percent-encoded).
  *
  * These specs assert the CURRENT model's CORRECT behavior. A failing assertion is
- * a real bug. Where the new model deliberately differs from the old per-block Yjs
- * model (no live CRDT merge of simultaneous edits, no live cursors in the editable
- * surface), the spec asserts the new contract (convergence to ONE consistent value
- * with no duplication; the transport substrate stays reachable) and documents the
- * deferred collab — it does NOT assert behavior the model intentionally dropped.
+ * a real bug. Two peers editing concurrently through Yjs still converge to ONE
+ * consistent value with no duplication; the transport substrate stays reachable;
+ * live cursors render for a remote editor.
  */
 
 const CREATE_ACTION = "/_agent-native/actions/create-visual-plan";
@@ -605,10 +604,10 @@ test("concurrent edits: near-simultaneous typing converges to one consistent, no
 });
 
 /* -------------------------------------------------------------------------- */
-/* 3. Presence: transport substrate is reachable; live cursors are deferred    */
+/* 3. Presence: transport reachable; live cursors render for a remote editor    */
 /* -------------------------------------------------------------------------- */
 
-test("presence: awareness transport is reachable for both editors; live cursors are deferred in the single-doc surface", async ({
+test("presence: awareness transport is reachable and a remote editor's live cursor renders in the single-doc surface", async ({
   browser,
 }) => {
   const ctxA = await browser.newContext({ storageState: STATE_FILE });
@@ -635,10 +634,12 @@ test("presence: awareness transport is reachable for both editors; live cursors 
     await pageA.keyboard.press("Control+End");
     await edB.click();
     await pageB.keyboard.press("Control+End");
+    // B moves its selection so its awareness caret has a position A can paint.
+    await pageB.keyboard.type(" here");
     await pageA.waitForTimeout(5_000);
 
-    // The awareness SUBSTRATE must be reachable for both an editor and a viewer —
-    // this is what live cursors will ride once single-doc collab is re-enabled.
+    // The awareness SUBSTRATE must be reachable for a present editor — this is
+    // what the live single-doc `plan:<id>` cursors ride.
     const docId = `plan:${planId}:${RICH_BLOCK_ID}`;
     const awarenessStatus = await pageA.evaluate(
       async (url) => {
@@ -661,20 +662,17 @@ test("presence: awareness transport is reachable for both editors; live cursors 
       "the awareness transport must accept a present editor's state",
     ).toBe(200);
 
-    // CURRENT MODEL: the editable single-doc surface binds NO Y.Doc/awareness
-    // (SINGLE_DOC_COLLAB_ENABLED = false), so live collaboration cursors are
-    // intentionally NOT rendered yet. Assert that contract precisely so this spec
-    // tracks the real model; flip to a positive cursor assertion when single-doc
-    // multi-user collab lands (the deferred fast-follow).
-    const cursorsInA = await pageA
-      .locator("[class*='collaboration-cursor']")
-      .count();
-    expect(
-      cursorsInA,
-      "live collaboration cursors are deferred in the single-doc editor today; " +
-        "if cursors appear here, single-doc collab was re-enabled — update this " +
-        "assertion to require the remote cursor to appear and then clear on leave.",
-    ).toBe(0);
+    // CURRENT MODEL: single-doc collab is ENABLED (SINGLE_DOC_COLLAB_ENABLED =
+    // true), so the editable surface binds the `plan:<id>` Y.Doc + awareness and
+    // CollaborationCaret paints the REMOTE editor's live cursor. `@tiptap/
+    // extension-collaboration-caret` v3 renders `.collaboration-carets__caret`
+    // (own cursor is hidden; B is a different identity, so its caret is what A
+    // sees). Poll for it — awareness + the render settle a beat after typing.
+    await expect(
+      pageA.locator(".collaboration-carets__caret").first(),
+      "the remote editor's live collaboration cursor must render for a peer " +
+        "editing the same single-doc plan",
+    ).toBeVisible({ timeout: 15_000 });
   } finally {
     await ctxA.close();
     await ctxB.close().catch(() => {});

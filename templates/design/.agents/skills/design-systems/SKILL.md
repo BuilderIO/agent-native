@@ -73,6 +73,12 @@ interface DesignSystemData {
 }
 ```
 
+`imageStyle.styleDescription` is not just metadata — fold it into every
+`generate-asset` prompt for a design linked to this system, alongside the
+subject/composition/lighting direction described in the design-generation
+skill's Imagery section. This is what keeps generated photography/illustration
+on-brand instead of drifting to a generic stock look each time.
+
 ## Actions
 
 ### Creating a Design System
@@ -92,8 +98,8 @@ pnpm action create-design-system \
       "textMuted": "#94A3B8"
     },
     "typography": {
-      "headingFont": "Space Grotesk",
-      "bodyFont": "DM Sans",
+      "headingFont": "<HEADING_FONT>",
+      "bodyFont": "<BODY_FONT>",
       "headingWeight": "700",
       "bodyWeight": "400",
       "headingSizes": { "h1": "64px", "h2": "40px", "h3": "28px" }
@@ -104,6 +110,12 @@ pnpm action create-design-system \
     "logos": []
   }'
 ```
+
+`<HEADING_FONT>` / `<BODY_FONT>` are placeholders — pick a real Google Fonts
+pairing per the design-generation skill's Font Recommendations table (or the
+brand's actual extracted fonts) rather than defaulting to Space Grotesk/DM
+Sans every time; that pairing is this skill's own most common convergence
+fingerprint.
 
 If this is the user's first design system, it is automatically set as the default.
 
@@ -257,8 +269,8 @@ When the user provides multiple sources, call all applicable import actions in p
 4. **Documents supplement** — presentations may reveal brand colors not in code
 5. **Images inform mood** — color temperature, density, visual style
 6. **Aggregate into DesignSystemData** — merge all extracted tokens, resolve conflicts
-6. **Call `create-design-system`** with the combined result
-7. **Link to design** via `update-design --designSystemId`
+7. **Call `create-design-system`** with the combined result
+8. **Link to design** via `update-design --designSystemId`
 
 ## Applying Design System to Generated HTML
 

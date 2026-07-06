@@ -239,8 +239,12 @@ function createUserMessageRunConfig(
 const PENDING_SELECTION_KEY = "pending-selection-context";
 const ACTIVE_RUN_CLEAR_TIMEOUT_MS = 5_000;
 const ACTIVE_RUN_STUCK_THRESHOLD_MS = 90_000;
+const BACKGROUND_ACTIVE_RUN_STUCK_THRESHOLD_MS = 13 * 60_000;
 const ACTIVE_RUN_POLL_INTERVAL_MS = 150;
 const AUTO_RESUME_STATUS_TIMEOUT_MS = 30_000;
+const MAX_RECONNECT_AUTO_RECOVERIES = 3;
+const RECONNECT_NO_PROGRESS_CONTINUE_MESSAGE =
+  "Continue from where you stopped. Use the partial work above, verify what succeeded, and finish the original request. If the last visible step was preparing an app action and no tool result was returned, treat that action input as stalled or too large: change strategy, use a smaller bounded input, and preserve optional details as visible affordances instead of repeating the same giant action. Do not rerun the exact same failed tool input unless the failure was transient or the user explicitly asked for an exact rerun. Prefer dedicated app actions over raw database edits when they exist.";
 // How long a single activity (model call, tool prep, long tool) must stay
 // in-flight before its label is surfaced in the running indicator. Below this
 // the indicator stays a steady "Thinking" so normal fast turns don't flicker
@@ -256,18 +260,44 @@ type ActiveRunLookup = {
   status?: string;
   heartbeatAt?: number | null;
   lastProgressAt?: number | null;
+  dispatchMode?: string | null;
+  terminalReason?: string | null;
   serverNow?: number;
 };
+
+type PendingReconnectRecovery = {
+  id: number;
+  message: string;
+};
+
+function isReplayableTerminalRun(runInfo: ActiveRunLookup): boolean {
+  const dispatchMode =
+    typeof runInfo.dispatchMode === "string" ? runInfo.dispatchMode : "";
+  return (
+    runInfo.status !== "running" &&
+    dispatchMode.startsWith("background") &&
+    runInfo.terminalReason === "run_timeout"
+  );
+}
+
+function activeRunStuckThresholdMs(runInfo: ActiveRunLookup): number {
+  const dispatchMode =
+    typeof runInfo.dispatchMode === "string" ? runInfo.dispatchMode : "";
+  return dispatchMode.startsWith("background")
+    ? BACKGROUND_ACTIVE_RUN_STUCK_THRESHOLD_MS
+    : ACTIVE_RUN_STUCK_THRESHOLD_MS;
+}
 
 function activeRunLooksStale(runInfo: ActiveRunLookup): boolean {
   const lastProgressAt =
     typeof runInfo.lastProgressAt === "number" ? runInfo.lastProgressAt : null;
   const nowMs =
     typeof runInfo.serverNow === "number" ? runInfo.serverNow : Date.now();
+  const thresholdMs = activeRunStuckThresholdMs(runInfo);
   return (
     runInfo.status === "running" &&
     lastProgressAt != null &&
-    nowMs - lastProgressAt > ACTIVE_RUN_STUCK_THRESHOLD_MS
+    nowMs - lastProgressAt > thresholdMs
   );
 }
 
@@ -586,6 +616,178 @@ export function reconnectActivityFallbackContent(
       activity: true,
     },
   ];
+}
+
+function toolCallIdFromContentPart(part: unknown): string | null {
+  if (!part || typeof part !== "object") return null;
+  const candidate = part as { type?: unknown; toolCallId?: unknown };
+  if (candidate.type !== "tool-call") return null;
+  return typeof candidate.toolCallId === "string" && candidate.toolCallId
+    ? candidate.toolCallId
+    : null;
+}
+
+function toolCallPartHasResult(part: unknown): boolean {
+  if (!part || typeof part !== "object") return false;
+  const candidate = part as { type?: unknown; result?: unknown };
+  return candidate.type === "tool-call" && "result" in candidate;
+}
+
+/**
+ * Identity fingerprint for a tool-call part that survives across readers: two
+ * readers of the same run assign unrelated synthetic toolCallIds until both
+ * have seen the server id, but the tool name + serialized args are identical
+ * for the same logical call (argsText is `JSON.stringify(input)` on both
+ * sides). Activity placeholders (no args yet) return null — an empty-args
+ * fingerprint would over-match unrelated calls of the same tool.
+ */
+function toolCallFingerprintFromContentPart(part: unknown): string | null {
+  if (!part || typeof part !== "object") return null;
+  const candidate = part as {
+    type?: unknown;
+    toolName?: unknown;
+    argsText?: unknown;
+    activity?: unknown;
+  };
+  if (candidate.type !== "tool-call") return null;
+  if (candidate.activity === true) return null;
+  const name =
+    typeof candidate.toolName === "string" && candidate.toolName
+      ? candidate.toolName
+      : null;
+  const argsText =
+    typeof candidate.argsText === "string" ? candidate.argsText : "";
+  if (!name || !argsText) return null;
+  return `${name} ${argsText}`;
+}
+
+function collectRenderedToolCallStates(messages: readonly unknown[]): {
+  byId: Map<string, { hasResult: boolean }>;
+  completedFingerprints: Set<string>;
+} {
+  const byId = new Map<string, { hasResult: boolean }>();
+  const completedFingerprints = new Set<string>();
+  for (const message of messages) {
+    const msg = (message as { message?: unknown })?.message ?? message;
+    const content = (msg as { content?: unknown })?.content;
+    if (!Array.isArray(content)) continue;
+    for (const part of content) {
+      const id = toolCallIdFromContentPart(part);
+      if (!id) continue;
+      const hasResult = toolCallPartHasResult(part);
+      const existing = byId.get(id);
+      byId.set(id, {
+        hasResult: Boolean(existing?.hasResult || hasResult),
+      });
+      if (hasResult) {
+        const fingerprint = toolCallFingerprintFromContentPart(part);
+        if (fingerprint) completedFingerprints.add(fingerprint);
+      }
+    }
+  }
+  return { byId, completedFingerprints };
+}
+
+function assistantTextFromContent(content: unknown): string {
+  if (typeof content === "string") return content;
+  if (!Array.isArray(content)) return "";
+  return content
+    .filter(
+      (part): part is { type: "text"; text: string } =>
+        part?.type === "text" && typeof part.text === "string",
+    )
+    .map((part) => part.text)
+    .join("");
+}
+
+function latestRenderedAssistantText(messages: readonly unknown[]): string {
+  const latestEntry = messages.at(-1);
+  const latestMessage = getRepoMessage(latestEntry as any);
+  if (latestMessage?.role !== "assistant") return "";
+  return assistantTextFromContent(latestMessage.content);
+}
+
+function trimReconnectTextAlreadyRendered(
+  content: ContentPart[],
+  renderedAssistantText: string,
+): ContentPart[] {
+  if (!renderedAssistantText) return content;
+
+  let remainingOverlap = renderedAssistantText;
+  let changed = false;
+  const next: ContentPart[] = [];
+
+  for (const part of content) {
+    if (part.type !== "text" || remainingOverlap.length === 0) {
+      next.push(part);
+      continue;
+    }
+
+    if (remainingOverlap.startsWith(part.text)) {
+      remainingOverlap = remainingOverlap.slice(part.text.length);
+      changed = true;
+      continue;
+    }
+
+    if (part.text.startsWith(remainingOverlap)) {
+      const text = part.text.slice(remainingOverlap.length);
+      remainingOverlap = "";
+      changed = true;
+      if (text) next.push({ ...part, text });
+      continue;
+    }
+
+    remainingOverlap = "";
+    next.push(part);
+  }
+
+  return changed ? next : content;
+}
+
+export function dedupeReconnectContentAgainstMessages(
+  content: ContentPart[],
+  messages: readonly unknown[],
+): ContentPart[] {
+  if (content.length === 0 || messages.length === 0) return content;
+  const { byId, completedFingerprints } =
+    collectRenderedToolCallStates(messages);
+  const renderedAssistantText = latestRenderedAssistantText(messages);
+  if (byId.size === 0 && !renderedAssistantText) return content;
+
+  let changed = false;
+  const filtered = byId.size
+    ? content.filter((part) => {
+        const id = toolCallIdFromContentPart(part);
+        if (!id) return true;
+        const existing = byId.get(id);
+        if (existing) {
+          if (toolCallPartHasResult(part) && !existing.hasResult) return true;
+          changed = true;
+          return false;
+        }
+        // Fingerprint fallback for the id-convergence window: a reconnect part
+        // that is still PENDING while the rendered messages already show the same
+        // call (same tool + same serialized args) completed is a replay artifact —
+        // dropping it removes the "one spinning, one done" duplicate pair. Only
+        // pending parts are dropped by fingerprint: completed-vs-completed keeps
+        // the strict id match so a legitimately repeated identical call is never
+        // hidden.
+        if (!toolCallPartHasResult(part)) {
+          const fingerprint = toolCallFingerprintFromContentPart(part);
+          if (fingerprint && completedFingerprints.has(fingerprint)) {
+            changed = true;
+            return false;
+          }
+        }
+        return true;
+      })
+    : content;
+  const textDeduped = trimReconnectTextAlreadyRendered(
+    filtered,
+    renderedAssistantText,
+  );
+  if (textDeduped !== filtered) changed = true;
+  return changed ? textDeduped : content;
 }
 
 const RECOVERY_USER_MESSAGE_PREFIXES = [
@@ -1147,6 +1349,14 @@ const AssistantChatInner = forwardRef<
   const threadRuntime = useThreadRuntime();
   const composerRuntime = useComposerRuntime();
   const isRuntimeRunning = thread.isRunning;
+  // Latest-value ref so long-lived async closures (the reconnect reader, its
+  // watchdog) can check the CURRENT adapter-runtime state instead of the value
+  // captured when they were created. Load-bearing for single-reader ownership:
+  // the adapter's own stream and AssistantChat's reconnect reader must never
+  // both be attached to the same run (dual accumulators render duplicate tool
+  // cards and parallel duplicate streaming text).
+  const isRuntimeRunningRef = useRef(isRuntimeRunning);
+  isRuntimeRunningRef.current = isRuntimeRunning;
   const messages = thread.messages;
   const { suggestions: resolvedSuggestions } = useAgentDynamicSuggestionsResult(
     {
@@ -1459,6 +1669,11 @@ const AssistantChatInner = forwardRef<
   // True during the 250ms continuation window and startup of the next chunk
   // (adapter's auto-continue delay before POSTing the next chunk).
   const [isAutoResuming, setIsAutoResuming] = useState(false);
+  // Latest-value ref for the same single-reader checks as isRuntimeRunningRef:
+  // during an adapter auto-continuation the runtime can flick false between
+  // chunks while the adapter is still driving the turn.
+  const isAutoResumingRef = useRef(isAutoResuming);
+  isAutoResumingRef.current = isAutoResuming;
   const autoResumeTimerRef = useRef<number | null>(null);
   const [optimisticRunning, setOptimisticRunning] = useState(false);
   const [runningActivityLabel, setRunningActivityLabel] = useState<
@@ -1491,6 +1706,9 @@ const AssistantChatInner = forwardRef<
   const reconnectTailOnlyRef = useRef(false);
   const reconnectCanMaterializeRef = useRef(false);
   const reconnectAbortRef = useRef<AbortController | null>(null);
+  const reconnectAutoRecoveryCountRef = useRef(0);
+  const [pendingReconnectRecovery, setPendingReconnectRecovery] =
+    useState<PendingReconnectRecovery | null>(null);
   // Nuclear stop: user clicked stop. Clears the stop button/indicator AND
   // lets new submissions go through immediately — prevents the "stuck
   // queueing forever" state where isReconnecting or isRuntimeRunning gets
@@ -1540,15 +1758,10 @@ const AssistantChatInner = forwardRef<
   });
   const reconnectActivityContent = useMemo(
     () =>
-      (isReconnecting || reconnectFrozen) && reconnectContent.length === 0
+      isReconnecting || reconnectFrozen
         ? reconnectActivityFallbackContent(runningActivityTool)
         : [],
-    [
-      isReconnecting,
-      reconnectFrozen,
-      reconnectContent.length,
-      runningActivityTool,
-    ],
+    [isReconnecting, reconnectFrozen, runningActivityTool],
   );
   const lastBroadcastRunningRef = useRef(isRunning);
   const tiptapRef = useRef<TiptapComposerHandle>(null);
@@ -1796,12 +2009,26 @@ const AssistantChatInner = forwardRef<
 
   const startReconnectToRun = useCallback(
     (runInfo: ActiveRunLookup): boolean => {
-      if (!threadId || !runInfo.runId || runInfo.status !== "running") {
+      if (
+        !threadId ||
+        !runInfo.runId ||
+        (runInfo.status !== "running" && !isReplayableTerminalRun(runInfo))
+      ) {
         return false;
       }
       const runId = String(runInfo.runId);
       if (wasRecentlyStoppedRun(runId)) return false;
       if (reconnectRunIdRef.current === runId) return true;
+      // SINGLE-READER OWNERSHIP: never start a second reader while the
+      // adapter's own stream is live (or mid auto-continuation) for this
+      // thread. Two concurrent readers of the same run render two independent
+      // accumulators — duplicate tool cards (one spinning, one static) and the
+      // same assistant text streaming twice in parallel. The adapter owns the
+      // run whenever its runtime is active; this reconnect reader exists only
+      // for runs with NO live adapter stream (page reload, tab restore).
+      if (isRuntimeRunningRef.current || isAutoResumingRef.current) {
+        return false;
+      }
 
       reconnectRunIdRef.current = runId;
       const afterSeq = resolveReconnectAfterSeq(threadId, runId);
@@ -1826,6 +2053,9 @@ const AssistantChatInner = forwardRef<
 
       const abortCtrl = new AbortController();
       reconnectAbortRef.current = abortCtrl;
+      let reconnectTerminalReason: AgentAutoContinueSignal["reason"] | null =
+        null;
+      const reconnectStuckThresholdMs = activeRunStuckThresholdMs(runInfo);
 
       const watchdog = setInterval(async () => {
         try {
@@ -1838,6 +2068,19 @@ const AssistantChatInner = forwardRef<
             return;
           }
           const info = (await res.json()) as ActiveRunLookup;
+          // SINGLE-READER OWNERSHIP: if the adapter runtime came alive while
+          // this reader was attached (user sent a message, adapter adopted the
+          // thread's run), this reader is now the duplicate — kill it. The
+          // false→true runtime-transition effect also unwinds the UI state;
+          // this covers the reader itself.
+          if (isRuntimeRunningRef.current) {
+            abortCtrl.abort();
+            clearInterval(watchdog);
+            return;
+          }
+          if (isReplayableTerminalRun(info)) {
+            return;
+          }
           if (info.status !== "running" || activeRunLooksStale(info)) {
             abortCtrl.abort();
             clearInterval(watchdog);
@@ -1861,10 +2104,12 @@ const AssistantChatInner = forwardRef<
         lastReconnectProgressAt = Date.now();
       };
       const idleCheck = setInterval(() => {
+        if (reconnectTerminalReason !== null) return;
         if (
           !reconnectProgressTimedOut({
             lastProgressAt: lastReconnectProgressAt,
             now: Date.now(),
+            thresholdMs: reconnectStuckThresholdMs,
           })
         ) {
           return;
@@ -1988,6 +2233,10 @@ const AssistantChatInner = forwardRef<
             err.reason === "no_progress"
           ) {
             noProgressDuringReconnect = true;
+            reconnectTerminalReason = err.reason;
+          } else if (err instanceof AgentAutoContinueSignal) {
+            noProgressDuringReconnect = true;
+            reconnectTerminalReason = err.reason;
           } else if (
             reconnectTimedOut &&
             err instanceof Error &&
@@ -2004,11 +2253,16 @@ const AssistantChatInner = forwardRef<
         }
 
         if (noProgressDuringReconnect && reconnectRunIdRef.current === runId) {
-          captureError(new Error("agent-chat:reconnect_no_progress"), {
+          const reconnectErrorCode =
+            reconnectTerminalReason === "run_timeout"
+              ? "run_timeout"
+              : "reconnect_no_progress";
+          captureError(new Error(`agent-chat:${reconnectErrorCode}`), {
             tags: {
               context: "agent-native-chat",
-              errorCode: "reconnect_no_progress",
+              errorCode: reconnectErrorCode,
               reconnectTimedOut: String(reconnectTimedOut),
+              reconnectTerminalReason: reconnectTerminalReason ?? undefined,
             },
             extra: {
               runId,
@@ -2017,14 +2271,16 @@ const AssistantChatInner = forwardRef<
               contentLength: latestContent.length,
             },
           });
-          try {
-            await fetch(`${apiUrl}/runs/${encodeURIComponent(runId)}/abort`, {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ reason: "no_progress" }),
-            });
-          } catch {
-            // Best effort — the important part is unwinding the UI.
+          if (reconnectTerminalReason !== "run_timeout") {
+            try {
+              await fetch(`${apiUrl}/runs/${encodeURIComponent(runId)}/abort`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ reason: "no_progress" }),
+              });
+            } catch {
+              // Best effort — the important part is unwinding the UI.
+            }
           }
           if (afterSeq > 0) {
             // Tail-resume only replays new events; never freeze that slice as a
@@ -2039,10 +2295,44 @@ const AssistantChatInner = forwardRef<
             setReconnectFrozen(latestContent.length > 0);
             reconnectCanMaterializeRef.current = latestContent.length > 0;
           }
+          const canAutoRecoverReconnect =
+            reconnectTerminalReason !== "run_timeout" &&
+            reconnectAutoRecoveryCountRef.current <
+              MAX_RECONNECT_AUTO_RECOVERIES;
+          if (canAutoRecoverReconnect) {
+            reconnectAutoRecoveryCountRef.current += 1;
+            setRunErrorInfo(null);
+            setDismissedRunErrorKey(null);
+            clearActiveRunIfMatches(threadId, runId);
+            reconnectAbortRef.current = null;
+            setIsReconnecting(false);
+            reconnectRunIdRef.current = null;
+            reconnectTailOnlyRef.current = false;
+            if (afterSeq > 0) {
+              reconnectCanMaterializeRef.current = false;
+            }
+            window.dispatchEvent(
+              new CustomEvent("agent-chat:auto-continue", {
+                detail: { tabId: tabId || threadId },
+              }),
+            );
+            setPendingReconnectRecovery({
+              id: Date.now(),
+              message: RECONNECT_NO_PROGRESS_CONTINUE_MESSAGE,
+            });
+            window.dispatchEvent(
+              new CustomEvent("agentNative.chatRunning", {
+                detail: { isRunning: false, tabId: tabId || threadId },
+              }),
+            );
+            return;
+          }
           setRunErrorInfo({
             message:
-              "The previous agent run stopped producing visible progress during recovery, so it was stopped before it could keep looping.",
-            errorCode: "reconnect_no_progress",
+              reconnectTerminalReason === "run_timeout"
+                ? "The previous background agent run reached its time limit before finishing. The partial work was preserved; continue or retry to pick up from here."
+                : "The previous agent run stopped producing visible progress during recovery, so it was stopped before it could keep looping.",
+            errorCode: reconnectErrorCode,
             recoverable: true,
             runId,
           });
@@ -2091,13 +2381,19 @@ const AssistantChatInner = forwardRef<
           if (loaded || afterSeq > 0 || latestContent.length === 0) {
             reconnectCanMaterializeRef.current = false;
           }
+          if (loaded) {
+            reconnectAutoRecoveryCountRef.current = 0;
+          }
           window.dispatchEvent(
             new CustomEvent("agentNative.chatRunning", {
               detail: { isRunning: false, tabId: tabId || threadId },
             }),
           );
         }
-        if (!loaded) {
+        // Skip the final refresh when the adapter runtime is live — importing
+        // thread_data mid-stream would clobber the adapter's in-flight message
+        // (the takeover path already discarded this reader's content).
+        if (!loaded && !isRuntimeRunningRef.current) {
           const repo = await refreshThreadFromServer();
           if (afterSeq > 0 || repoHasAssistantMessage(repo)) {
             setReconnectContent([]);
@@ -2116,6 +2412,12 @@ const AssistantChatInner = forwardRef<
   const reconnectActiveRunForThread =
     useCallback(async (): Promise<boolean> => {
       if (!threadId) return false;
+      // Single-reader ownership (see startReconnectToRun, which re-checks
+      // after the async probe): skip the probe entirely while the adapter's
+      // own stream is driving this thread.
+      if (isRuntimeRunningRef.current || isAutoResumingRef.current) {
+        return false;
+      }
       try {
         const storedActiveRun = getActiveRun();
         const runRes = await fetch(
@@ -2125,7 +2427,7 @@ const AssistantChatInner = forwardRef<
         const runInfo = (await runRes.json()) as ActiveRunLookup;
         if (
           !runInfo.active ||
-          runInfo.status !== "running" ||
+          (runInfo.status !== "running" && !isReplayableTerminalRun(runInfo)) ||
           activeRunLooksStale(runInfo)
         ) {
           if (storedActiveRun?.threadId === threadId) {
@@ -2812,7 +3114,21 @@ const AssistantChatInner = forwardRef<
     const wasRunning = prevIsRuntimeRunningRef.current;
     prevIsRuntimeRunningRef.current = isRuntimeRunning;
     if (isRuntimeRunning && !wasRunning) {
-      if (reconnectFrozen) {
+      // SINGLE-READER OWNERSHIP: the adapter runtime just took over (a new run
+      // started or an adopted run resumed). Any live reconnect reader is now a
+      // duplicate accumulator — abort it and DISCARD its content; the adapter's
+      // stream renders the canonical message. Null the run ref first so the
+      // reader's own cleanup paths (which all check reconnectRunIdRef) no-op.
+      if (reconnectRunIdRef.current !== null) {
+        reconnectRunIdRef.current = null;
+        reconnectAbortRef.current?.abort();
+        reconnectAbortRef.current = null;
+        setIsReconnecting(false);
+        setReconnectContent([]);
+        setReconnectFrozen(false);
+        reconnectCanMaterializeRef.current = false;
+        reconnectTailOnlyRef.current = false;
+      } else if (reconnectFrozen) {
         setReconnectFrozen(false);
         setReconnectContent([]);
         reconnectCanMaterializeRef.current = false;
@@ -2973,9 +3289,13 @@ const AssistantChatInner = forwardRef<
       recoveryAction?: AgentRecoveryAction,
       includeComposerContext = false,
       trackInRunsTray = false,
+      preserveReconnectAutoRecoveryBudget = false,
     ) => {
       if (!(await ensureAgentEngineReadyForSubmit())) {
         return;
+      }
+      if (!preserveReconnectAutoRecoveryBudget) {
+        reconnectAutoRecoveryCountRef.current = 0;
       }
       materializeFrozenReconnectContent();
       setShowContinue(false);
@@ -3199,6 +3519,29 @@ const AssistantChatInner = forwardRef<
     ],
   );
 
+  useEffect(() => {
+    if (!pendingReconnectRecovery) return;
+    const recovery = pendingReconnectRecovery;
+    const timer = window.setTimeout(() => {
+      setPendingReconnectRecovery((current) =>
+        current?.id === recovery.id ? null : current,
+      );
+      addToQueue(
+        recovery.message,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        "queued",
+        "continue",
+        false,
+        false,
+        true,
+      );
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [addToQueue, pendingReconnectRecovery]);
+
   // Expose imperative handle
   useImperativeHandle(
     ref,
@@ -3287,14 +3630,19 @@ const AssistantChatInner = forwardRef<
     ],
   );
 
+  const visibleReconnectContent = useMemo(
+    () => dedupeReconnectContentAgainstMessages(reconnectContent, messages),
+    [messages, reconnectContent],
+  );
+
   const autoscrollFollowKey = useMemo(
     () =>
       [
         messages.map(messageFollowKey).join(";"),
         `q:${queuedMessages.map(queuedMessageFollowKey).join("|")}`,
-        `r:${reconnectContentFollowKey(reconnectContent)}`,
+        `r:${reconnectContentFollowKey(visibleReconnectContent)}`,
       ].join(";;"),
-    [messages, queuedMessages, reconnectContent],
+    [messages, queuedMessages, visibleReconnectContent],
   );
 
   const {
@@ -3769,7 +4117,7 @@ const AssistantChatInner = forwardRef<
                           onContinue={() => {
                             setRunErrorInfo(null);
                             addToQueue(
-                              "Continue from where you stopped. Use the partial work above, verify what succeeded, and finish the original request. Do not rerun the exact same failed tool input unless the failure was transient or the user explicitly asked for an exact rerun. Prefer dedicated app actions over raw database edits when they exist.",
+                              RECONNECT_NO_PROGRESS_CONTINUE_MESSAGE,
                               undefined,
                               undefined,
                               undefined,
@@ -3802,11 +4150,13 @@ const AssistantChatInner = forwardRef<
                         />
                       )}
                       {(isReconnecting || reconnectFrozen) &&
-                        reconnectContent.length > 0 && (
-                          <ReconnectStreamMessage content={reconnectContent} />
+                        visibleReconnectContent.length > 0 && (
+                          <ReconnectStreamMessage
+                            content={visibleReconnectContent}
+                          />
                         )}
                       {(isReconnecting || reconnectFrozen) &&
-                        reconnectContent.length === 0 &&
+                        visibleReconnectContent.length === 0 &&
                         reconnectActivityContent.length > 0 && (
                           <ReconnectStreamMessage
                             content={reconnectActivityContent}

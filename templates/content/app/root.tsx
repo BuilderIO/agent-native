@@ -4,6 +4,7 @@ import {
   appPath,
   CommandMenu,
   createAgentNativeQueryClient,
+  ErrorReportActions,
   getLocaleInitScript,
   getThemeInitScript,
   type LocaleCode,
@@ -15,6 +16,10 @@ import {
 } from "@agent-native/core/client";
 import { configureTracking } from "@agent-native/core/client";
 import { resolveLocaleFromRequest } from "@agent-native/core/server";
+// Styled sonner wrapper — passed via AppProviders `toaster` prop to avoid duplicate.
+import { Toaster as Sonner } from "@agent-native/toolkit/ui/sonner";
+// shadcn useToast-based toaster — separate from sonner, must stay inline.
+import { Toaster } from "@agent-native/toolkit/ui/toaster";
 import type { ListContentDatabasesResponse } from "@shared/api";
 import {
   IconDatabase,
@@ -41,11 +46,6 @@ import {
   useRouteError,
 } from "react-router";
 import type { LinksFunction, LoaderFunctionArgs } from "react-router";
-
-// Styled sonner wrapper — passed via AppProviders `toaster` prop to avoid duplicate.
-import { Toaster as Sonner } from "@/components/ui/sonner";
-// shadcn useToast-based toaster — separate from sonner, must stay inline.
-import { Toaster } from "@/components/ui/toaster";
 
 import changelog from "../CHANGELOG.md?raw";
 import { useDbSync } from "./hooks/use-db-sync";
@@ -627,6 +627,14 @@ function ContentErrorBoundaryBody() {
         >
           Reload
         </button>
+        <ErrorReportActions
+          appName="Content"
+          title={title}
+          details={details}
+          issueTitle={`Content error: ${title}`}
+          className="mt-4"
+          align="center"
+        />
       </div>
     </main>
   );

@@ -7,14 +7,9 @@ import {
   IconTerminal2,
 } from "@tabler/icons-react";
 import { useState } from "react";
-import {
-  Link,
-  redirect,
-  useParams,
-  type LoaderFunctionArgs,
-} from "react-router";
+import { Link, useParams, type LoaderFunctionArgs } from "react-router";
 
-import { isDocsLocale, sitePathForLocale } from "../components/docs-locale";
+import { sitePathForLocale } from "../components/docs-locale";
 import { TemplateDocsLink } from "../components/template-docs";
 import {
   templates,
@@ -25,15 +20,10 @@ import enUS from "../i18n/en-US";
 import { withDefaultSocialImage, withTemplateSocialImage } from "../seo";
 
 function findTemplate(slug: string | undefined) {
-  if (slug === "videos") slug = "video";
   return templates.find((t) => t.slug === slug);
 }
 
 export function loader({ params }: LoaderFunctionArgs) {
-  if (params.slug === "videos") {
-    const locale = isDocsLocale(params.locale) ? params.locale : undefined;
-    throw redirect(sitePathForLocale("/apps/video", locale), 301);
-  }
   if (!findTemplate(params.slug)) {
     throw new Response("Not Found", { status: 404 });
   }
@@ -156,7 +146,7 @@ export default function GenericTemplatePage() {
   }
 
   const hasDemoUrl = "demoUrl" in template && template.demoUrl;
-  const sourceSlug = template.slug === "video" ? "videos" : template.slug;
+  const sourceSlug = template.slug;
   const replaces = t(`templates.${template.slug}.replaces`);
   const description = t(`templates.${template.slug}.description`);
 

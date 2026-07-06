@@ -3133,10 +3133,9 @@ ${identitySsoScript}
         if (!__anGoogleSignInInFlight) return;
         var btn = document.getElementById('google-btn');
         if (!btn || !btn.disabled) return;
-        if (__anOAuthPollTimer) {
-          clearInterval(__anOAuthPollTimer);
-          __anOAuthPollTimer = null;
-        }
+        // Keep the desktop-exchange poll alive. Agent Native Desktop opens
+        // Google in the system browser, so focus can return before the
+        // callback has stored the session token.
         btn.disabled = false;
         __anGoogleSignInInFlight = false;
       }, 1200);

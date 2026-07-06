@@ -4,6 +4,15 @@ import {
   useT,
 } from "@agent-native/core/client";
 import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@agent-native/toolkit/ui/dropdown-menu";
+import { Spinner } from "@agent-native/toolkit/ui/spinner";
+import {
   isLoomEmbedUrl,
   LOOM_START_MS_QUERY_PARAM,
   loomEmbedUrlWithTimestamp,
@@ -19,15 +28,6 @@ import {
   useState,
 } from "react";
 
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import { Spinner } from "@/components/ui/spinner";
 import {
   parsePlaybackSpeed,
   readPlaybackSpeedPreference,
@@ -234,6 +234,9 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
     const idleTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
     const playAttemptPendingRef = useRef(false);
     const playAttemptIdRef = useRef(0);
+    // Position to restore after `v.load()` resets `currentTime` to 0 while
+    // recovering from a media error (see `requestPlay`).
+    const resumeAfterReloadMsRef = useRef<number | null>(null);
     const [activeVideoSrc, setActiveVideoSrc] = useState(resolvedVideoSrc);
     const [isPlaying, setIsPlaying] = useState(false);
     const [currentMs, setCurrentMs] = useState(startMs ?? 0);
@@ -359,6 +362,12 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
     const resolvePlayAttempt = useCallback((attemptId: number) => {
       if (attemptId !== playAttemptIdRef.current) return;
       playAttemptPendingRef.current = false;
+      const v = videoRef.current;
+      if (v && !v.paused && !v.ended) {
+        setIsPlaying(true);
+        setHasPlaybackStarted(true);
+      }
+      setCanPlay(true);
       setIsPlayPending(false);
       setIsBuffering(false);
       setIsPreparing(false);
@@ -410,6 +419,23 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
 
       bumpControls();
       setPlayError(null);
+
+      // A <video> element left in an error state (network/decode/unsupported
+      // format) will just re-reject on `.play()` forever — it needs `.load()`
+      // to reset `readyState`/`error` and re-fetch the source before playback
+      // can be retried. Remember the last known position so we can restore it
+      // once the reloaded source is ready (best-effort; `loadeddata`/`canPlay`
+      // below call `retryPendingPlay`, which resumes the pending play attempt).
+      if (v.error) {
+        resumeAfterReloadMsRef.current = currentMs > 0 ? currentMs : null;
+        setCanPlay(false);
+        setIsPreparing(true);
+        setIsBuffering(false);
+        v.load();
+      } else if (v.readyState >= 2 || v.currentTime > 0) {
+        setCanPlay(true);
+        setIsPreparing(false);
+      }
       setIsBuffering(v.readyState < 3);
       setIsPlayPending(true);
 
@@ -422,7 +448,13 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
       } catch (err) {
         rejectPlayAttempt(attemptId, err);
       }
-    }, [activeVideoSrc, attachPlayPromise, bumpControls, rejectPlayAttempt]);
+    }, [
+      activeVideoSrc,
+      attachPlayPromise,
+      bumpControls,
+      currentMs,
+      rejectPlayAttempt,
+    ]);
 
     const retryPendingPlay = useCallback(
       (v: HTMLVideoElement) => {
@@ -810,7 +842,10 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
         return;
       }
       setIsPreparing(true);
-      const t = setTimeout(() => setIsPreparing(false), 10000);
+      const t = setTimeout(() => {
+        setIsPreparing(false);
+        setCanPlay(true);
+      }, 10000);
       return () => clearTimeout(t);
     }, [activeVideoSrc]);
 
@@ -958,6 +993,9 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
             onPlay={() => {
               setIsPlaying(true);
               setHasPlaybackStarted(true);
+              setCanPlay(true);
+              setIsPreparing(false);
+              setIsBuffering(false);
               onPlay?.();
             }}
             onPlaying={() => {
@@ -980,6 +1018,16 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
               onPause?.();
             }}
             onLoadedData={(e) => {
+              const resumeMs = resumeAfterReloadMsRef.current;
+              if (resumeMs != null) {
+                resumeAfterReloadMsRef.current = null;
+                try {
+                  e.currentTarget.currentTime = resumeMs / 1000;
+                  setCurrentMs(resumeMs);
+                } catch {
+                  // Ignore — worst case playback resumes from 0.
+                }
+              }
               const didSeek = seekInitialVisibleFrame(e.currentTarget);
               setCanPlay(e.currentTarget.readyState >= 2);
               setIsPreparing(false);
@@ -996,6 +1044,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
             }}
             onCanPlayThrough={(e) => {
               setCanPlay(true);
+              setIsPreparing(false);
               setIsBuffering(false);
               retryPendingPlay(e.currentTarget);
             }}
@@ -1010,7 +1059,9 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
               }
             }}
             onSeeked={() => {
+              setCanPlay(true);
               setIsPreparing(false);
+              setIsBuffering(false);
               captureThumbnail();
             }}
             onTimeUpdate={(e) => {
@@ -1030,20 +1081,29 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
               if (visibleMs !== ms) {
                 v.currentTime = visibleMs / 1000;
                 setCurrentMs(visibleMs);
-                if (visibleMs > 0) setHasPlaybackStarted(true);
-                if (visibleMs > 0) setIsPreparing(false);
+                if (visibleMs > 0) {
+                  setCanPlay(true);
+                  setHasPlaybackStarted(true);
+                  setIsPreparing(false);
+                  setIsBuffering(false);
+                }
                 onTimeUpdate?.(visibleMs, resolvedDurationMs);
                 return;
               }
               setCurrentMs(ms);
-              if (ms > 0) setHasPlaybackStarted(true);
-              if (ms > 0) setIsPreparing(false);
+              if (ms > 0) {
+                setCanPlay(true);
+                setHasPlaybackStarted(true);
+                setIsPreparing(false);
+                setIsBuffering(false);
+              }
               onTimeUpdate?.(ms, resolvedDurationMs);
             }}
             onEnded={() => {
               setIsPlaying(false);
               setIsPlayPending(false);
               setIsBuffering(false);
+              setIsPreparing(false);
               onEnded?.();
             }}
             onError={(e) => {

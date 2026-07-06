@@ -1209,7 +1209,7 @@ describe("AgentEngine registry", () => {
 
     it("does not auto-detect deploy-level provider env keys for signed-in production shared-database users", async () => {
       vi.stubEnv("NODE_ENV", "production");
-      process.env.OPENAI_API_KEY = "sk-deploy"; // guard:allow-env-credential — fixture: prove signed-in users do NOT pick up deploy env
+      process.env.OPENAI_API_KEY = "sk-deploy"; // guard:allow-env-credential — fixture: hosted env keys must not power signed-in shared-database users
       vi.doMock("../../settings/store.js", () => ({
         getSetting: vi.fn().mockResolvedValue(null),
       }));
@@ -1267,7 +1267,7 @@ describe("AgentEngine registry", () => {
 
     it("disables deploy env fallback for explicitly selected engines in signed-in production shared-database requests", async () => {
       vi.stubEnv("NODE_ENV", "production");
-      process.env.OPENAI_API_KEY = "sk-deploy"; // guard:allow-env-credential — fixture: prove explicit engine selection does NOT fall back to deploy env
+      process.env.OPENAI_API_KEY = "sk-deploy"; // guard:allow-env-credential — fixture: explicit engine selection must not inherit hosted env
       vi.doMock("../../server/request-context.js", () => ({
         getRequestUserEmail: () => "new@example.com",
         getRequestOrgId: () => "org-1",

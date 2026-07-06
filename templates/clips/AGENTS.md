@@ -132,8 +132,14 @@ Detailed media, meeting, dictation, editing, and sharing rules live in
 - `navigate` moves the UI to recording/library/meeting/share surfaces.
 - Use data actions for full transcripts and media metadata.
 - For the in-app Clips agent, prefer `get-recording-player-data` for full
-  private/authenticated recording context. Use the public agent-context URLs
-  when preparing a link for another agent outside Clips.
+  private/authenticated recording context. When preparing a link for another
+  agent outside Clips, use `create-recording-agent-link`; it mints a two-hour
+  `agent_access` share URL without changing recording visibility.
+- Use `@agent-native/core/server` and `@agent-native/core/shared` agent-access
+  helpers for scoped token mint/verify and bot-visible URL construction. Keep
+  Clips-specific visibility, password, transcript, frame, and player behavior
+  in Clips. New URLs should use `agent_access`; existing agent API routes should
+  keep accepting legacy `t` tokens for copied links.
 
 ## Skills
 

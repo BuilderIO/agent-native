@@ -15,6 +15,9 @@ import {
   type DragHandleOptions,
   type RichMarkdownCollabUser,
 } from "@agent-native/core/client";
+// `applyDocSurgically` is re-exported from the editor subpath barrel (the top
+// `@agent-native/core/client` barrel doesn't surface the surgical helpers).
+import { applyDocSurgically } from "@agent-native/core/client/editor";
 import { isNotionCompatibleBlockType } from "@shared/notion-compat";
 import {
   createPlanBlockId,
@@ -726,6 +729,44 @@ function repaintDropViews(
   restoreScroll();
 }
 
+/**
+ * Parse an authoritative `blocks[]` list into a full ProseMirror document built
+ * with the LIVE editor's schema, then apply it SURGICALLY — replacing only the
+ * changed top-level run instead of rewriting the whole document.
+ *
+ * This is the plan analog of the surgical reconcile in `useCollabReconcile`.
+ * Under the Collaboration extension a whole-document `setContent` routes through
+ * y-prosemirror and rewrites the ENTIRE `Y.XmlFragment`: every `planBlock`
+ * ReactNodeView is torn down + recreated (each `ReactRenderer` constructor calls
+ * `flushSync` inside a React lifecycle → "flushSync called from inside a
+ * lifecycle method" warnings), remote carets jump, and the CRDT sees a
+ * delete-all + insert-all. Diffing the parsed doc against the live doc and
+ * dispatching one `tr.replaceWith(from, to, changed)` leaves unchanged NodeViews
+ * untouched and produces minimal Yjs ops.
+ *
+ * The parsed doc MUST be built with `editor.schema.nodeFromJSON` — NodeType
+ * identity is per-Schema-instance, so a foreign-schema doc makes
+ * `applyDocSurgically` return "failed" (a safe signal to fall back to the full
+ * `setContent`). `applyDocSurgically` also preserves a trailing empty paragraph
+ * from the live doc that `blocks[]` cannot express (the cursor line below a
+ * list/code block), so the surgical path never deletes it.
+ *
+ * Returns true when the surgical replacement was dispatched (or was a no-op
+ * because the docs already matched), false when the caller must fall back to a
+ * whole-document `setContent`.
+ */
+function applyBlocksSurgically(editor: Editor, blocks: PlanBlock[]): boolean {
+  try {
+    const doc = editor.schema.nodeFromJSON(blocksToProseJSON(blocks));
+    const result = applyDocSurgically(editor, doc);
+    return result === "applied" || result === "noop";
+  } catch {
+    // A schema mismatch, an invalid parse, or a torn-down view: fall back to the
+    // whole-document `setContent` path.
+    return false;
+  }
+}
+
 function resolveBlockDataChange(
   registry: BlockRegistry | null,
   block: PlanBlock | undefined,
@@ -859,10 +900,12 @@ export function PlanDocumentEditor({
     }
     rememberEmitted(incoming);
     setBlocks(content.blocks);
-    // A genuine external/agent edit changed the baseline — the user's local
-    // undo entries reference a tree that no longer exists, so drop them rather
-    // than let cmd+z resurrect pre-agent state over the agent's change.
-    undoRef.current?.reset();
+    // A genuine external/agent edit changed the baseline. We intentionally do
+    // NOT wipe the user's undo/redo history here: the undo stack validates each
+    // entry at apply time, skipping any whose target blocks no longer exist
+    // (so cmd+z can't resurrect pre-agent structure) while keeping entries that
+    // still target live blocks undoable. Blowing away the whole stack on every
+    // agent patch used to strand the user's own in-progress edits.
   }, [content.blocks, rememberEmitted]);
 
   // True once the editor has been seeded with real (non-empty) content. Until
@@ -894,38 +937,40 @@ export function PlanDocumentEditor({
           color: collabUser.color,
         }
       : undefined;
-  // Single-doc multi-user collaboration (one Y.Doc per the whole plan) is an
-  // explicit fast-follow, intentionally OFF. Root-cause diagnosis (2026-06):
+  // Single-doc multi-user collaboration (one Y.Doc per the whole plan). ENABLED
+  // now that BOTH preconditions hold (root-cause diagnosis 2026-06, resolved):
   //
   //   PRECONDITION MET — serialization stability: The pure `blocks[] → doc JSON →
   //   blocks[]` round-trip IS byte-stable (confirmed by plan-doc.roundtrip.spec.ts
   //   and plan-doc.collab-stability.spec.ts). The `normalizeValue` guard in
-  //   `useCollabReconcile` correctly recognizes autosave echoes as "already in
-  //   sync" and skips `setContent` for them.
+  //   `useCollabReconcile` recognizes autosave echoes as "already in sync" and
+  //   skips re-application for them.
   //
-  //   PRECONDITION UNMET — surgical Yjs apply: Even when the echo guard fires
-  //   correctly, the initial seed and every external agent/peer edit still call
-  //   `editor.commands.setContent(newDoc)`. Under the Collaboration extension
-  //   this routes through y-prosemirror, which replaces the ENTIRE Y.XmlFragment
-  //   (not a surgical patch). Every `planBlock` ReactNodeView is torn down and
-  //   recreated; each `Tiptap ReactRenderer` constructor calls `flushSync` inside
-  //   a React render lifecycle → "flushSync called from inside a lifecycle method"
-  //   warnings, one per block per apply. With N blocks × autosave frequency this
-  //   is ~9 full-doc rewrites/min.
+  //   PRECONDITION MET — surgical Yjs apply: The plan's injected `setContent`
+  //   (below) now applies external agent/peer edits via `applyBlocksSurgically`
+  //   → `applyDocSurgically`: it diffs the parsed doc (built with the LIVE
+  //   editor's schema) against the live doc and dispatches ONE
+  //   `tr.replaceWith(from, to, changed)` for the changed top-level run, so
+  //   unchanged `planBlock` NodeViews are never torn down and Yjs sees a minimal
+  //   edit instead of a full `Y.XmlFragment` rewrite. This removes the flushSync
+  //   storm that kept collab off. The reconcile routes every external apply
+  //   through this `setContent` (the plan serializer has no tiptap-markdown
+  //   storage parser, so the hook's own `defaultParseValue` returns null), so the
+  //   surgical path lives in template code — no `packages/core` change was needed.
   //
-  //   TO UNBLOCK: a `packages/core` change to `useCollabReconcile` is needed.
-  //   When collab is active, apply external changes via a targeted Yjs transaction
-  //   (diff old vs new doc JSON, emit one `tr.replaceWith(from, to, fragment)` per
-  //   changed span) instead of replacing the whole Y.XmlFragment. Either expose a
-  //   `setContentSurgical` hook in `UseCollabReconcileOptions` so the plan can
-  //   supply a per-block-range transaction, or make the reconcile compute the diff
-  //   internally. See plan-doc.collab-stability.spec.ts for the full diagnosis.
+  //   UNDO IN COLLAB MODE: Yjs owns undo/redo (the Collaboration extension's
+  //   Mod-z / Mod-Shift-z drive the shared UndoManager, which only reverts THIS
+  //   client's edits — correct multiplayer behavior). The app-level `usePlanUndoStack`
+  //   (a full-tree blocks[] snapshot stack that would clobber peers) is gated OFF
+  //   when collab is on: `commit` skips `record`, and the capture-phase cmd+z
+  //   listener early-returns, so exactly one undo authority is ever active and
+  //   double-undo is structurally impossible.
   //
-  //   LIVE REAL-TIME COLLAB TODAY: `PlanMarkdownEditor` (the legacy per-block
-  //   editor) uses `plan:${planId}:${blockId}` per-block doc IDs and is the live
-  //   production collab surface. The server-side collab plugin is healthy for both
-  //   the single-doc `plan:<id>` and per-block `plan:<id>:<block>` doc ID shapes.
-  const SINGLE_DOC_COLLAB_ENABLED = false;
+  //   PER-BLOCK COLLAB: `PlanMarkdownEditor` (the legacy per-block editor) uses
+  //   `plan:${planId}:${blockId}` per-block doc IDs. The server-side collab plugin
+  //   is healthy for both the single-doc `plan:<id>` and per-block
+  //   `plan:<id>:<block>` doc ID shapes (see server/collab-plugin.spec.ts).
+  const SINGLE_DOC_COLLAB_ENABLED = true;
   const collabEnabled =
     SINGLE_DOC_COLLAB_ENABLED && editable && !!planId && !!docUser;
   const docId = collabEnabled ? `plan:${planId}` : null;
@@ -1100,6 +1145,23 @@ export function PlanDocumentEditor({
         } catch {
           return;
         }
+        // Surgical apply first: replace only the changed top-level run so
+        // unchanged `planBlock` NodeViews are never torn down and — under the
+        // Collaboration extension — Yjs sees a minimal edit instead of a
+        // full-fragment rewrite (the churn that kept single-doc collab disabled).
+        // The reconcile routes through THIS `setContent` (the plan's serializer
+        // has no tiptap-markdown storage parser, so the hook's `defaultParseValue`
+        // returns null and never runs its own surgical path), so the surgical
+        // behavior belongs here. `emitUpdate` is a no-op for the surgical
+        // transaction because it is stamped programmatic; the reconcile passes
+        // `emitUpdate: false` anyway. Fall back to the whole-document `setContent`
+        // only when the surgical path can't apply (schema mismatch, torn-down
+        // view). Seed applies (options `{}`) go straight through the surgical
+        // path too, so the very first empty→content apply is minimal.
+        if (applyBlocksSurgically(editor, parsed)) {
+          if (parsed.length > 0) hasSeededRef.current = true;
+          return;
+        }
         const nextDoc = blocksToProseJSON(parsed);
         if (options.addToHistory === false) {
           editor
@@ -1181,13 +1243,34 @@ export function PlanDocumentEditor({
   });
   undoRef.current = undoStack;
 
-  // The plan editor disables ProseMirror history (see `disableHistory` on the
-  // editor below), so cmd+z has ONE authority: this stack. A capture-phase
-  // document listener scoped to this editor's wrapper drives it — capture so it
-  // beats ProseMirror/native, and document-level so it still fires when focus
-  // sits on the page body after a drag (no prose selection). Real form fields
-  // (a block's options inputs) keep their native per-field undo; the committed
-  // option change lands on this stack afterward.
+  // Switching to a DIFFERENT plan (this component is reused without remounting
+  // on plan→plan navigation) is the one case that genuinely invalidates ALL
+  // local history — the entire block set changed. Reset then. Ordinary
+  // external/agent edits WITHIN the current plan deliberately keep the stack;
+  // its apply-time validation skips only the entries they invalidated.
+  const undoResetPlanIdRef = useRef(planId);
+  useEffect(() => {
+    if (undoResetPlanIdRef.current === planId) return;
+    undoResetPlanIdRef.current = planId;
+    undoRef.current?.reset();
+  }, [planId]);
+
+  // In NON-collab mode the plan editor disables ProseMirror history (see
+  // `disableHistory` on the editor below), so cmd+z has ONE authority: this
+  // stack. A capture-phase document listener scoped to this editor's wrapper
+  // drives it — capture so it beats ProseMirror/native, and document-level so it
+  // still fires when focus sits on the page body after a drag (no prose
+  // selection). Real form fields (a block's options inputs) keep their native
+  // per-field undo; the committed option change lands on this stack afterward.
+  //
+  // In COLLAB mode this listener is intentionally NOT registered (the early
+  // return): the Collaboration extension owns cmd+z (its `Mod-z` /
+  // `Mod-Shift-z` shortcuts drive the shared Yjs UndoManager, which reverts only
+  // THIS client's edits — correct multiplayer undo, and it never clobbers a
+  // peer). Leaving exactly one undo authority active means the two can't both
+  // fire, so a double-undo is structurally impossible without disabling the
+  // Collaboration extension's own shortcuts. `commit` likewise skips recording
+  // onto this stack when collab is on, so the stack stays dormant.
   useEffect(() => {
     if (collabEnabled) return;
     const onKeyDown = (event: KeyboardEvent) => {
@@ -1385,13 +1468,19 @@ export function PlanDocumentEditor({
           ydoc={ydoc}
           awareness={awareness}
           user={collabUser}
-          // PM history off so the app-level undo stack (which alone can see
-          // block-data edits) is the single cmd+z authority. Gated to the
-          // non-collab path; when single-doc collab lands, Yjs owns history.
+          // Non-collab: PM history off so the app-level undo stack (which alone
+          // can see block-data edits) is the single cmd+z authority. Collab:
+          // Yjs owns undo/redo, so `disableHistory` goes false and the shared
+          // factory forces StarterKit history off anyway when a ydoc is present
+          // (the Collaboration extension binds its own UndoManager). Passing
+          // `awareness` + `user` alongside `ydoc` mounts CollaborationCaret so
+          // remote human carets render.
           disableHistory={!collabEnabled}
           getMarkdown={getMarkdown}
           setContent={setContent}
+          parseValue={false}
           normalizeValue={normalizeValue}
+          initialAppliedUpdatedAt={null}
           wrapperClassName={WRAPPER_CLASS}
           className="plan-document-editor-surface"
           onEditorReady={handleEditorReady}
@@ -1526,6 +1615,14 @@ export function NestedPlanBlocksEditor({
         try {
           parsed = JSON.parse(nextValue) as PlanBlock[];
         } catch {
+          return;
+        }
+        // Surgical apply first (see the top-level editor's `setContent` for the
+        // full rationale): replace only the changed top-level run so unchanged
+        // nested `planBlock` NodeViews are never torn down. Falls back to the
+        // whole-document `setContent` when the surgical path can't apply.
+        if (applyBlocksSurgically(editor, parsed)) {
+          if (parsed.length > 0) hasSeededRef.current = true;
           return;
         }
         const nextDoc = blocksToProseJSON(parsed);
@@ -1711,7 +1808,9 @@ export function NestedPlanBlocksEditor({
           slashItems={slashItems}
           getMarkdown={getMarkdown}
           setContent={setContent}
+          parseValue={false}
           normalizeValue={normalizeValue}
+          initialAppliedUpdatedAt={null}
           wrapperClassName={NESTED_WRAPPER_CLASS}
           className="plan-nested-document-editor-surface"
           editorClassName="plan-nested-document-editor-prose"

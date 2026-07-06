@@ -215,6 +215,9 @@ beforeAll(async () => {
       source_pr_number INTEGER,
       source_pr_state TEXT,
       source_pr_merged_at TEXT,
+      source_author_email TEXT,
+      source_author_name TEXT,
+      source_author_login TEXT,
       recap_idempotency_key TEXT,
       deleted_at TEXT, deleted_by TEXT,
       owner_email TEXT NOT NULL,
@@ -272,7 +275,14 @@ beforeAll(async () => {
       snapshot_json TEXT NOT NULL,
       change_label TEXT,
       created_by TEXT NOT NULL DEFAULT 'agent',
-      created_at TEXT NOT NULL
+      created_at TEXT NOT NULL,
+      summary_status TEXT,
+      summary_source TEXT,
+      block_count INTEGER,
+      section_count INTEGER,
+      has_canvas INTEGER,
+      has_prototype INTEGER,
+      preview_text TEXT
     );
     CREATE TABLE plan_shares (
       id TEXT PRIMARY KEY,

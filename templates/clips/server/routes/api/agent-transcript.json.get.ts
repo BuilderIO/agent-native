@@ -16,6 +16,7 @@ import { buildAgentApiUrls } from "../../../shared/agent-context.js";
 import { isLoomEmbedBackedRecording } from "../../../shared/loom.js";
 import {
   applyAgentJsonHeaders,
+  CLIPS_AGENT_ACCESS_PARAM,
   getServerAppBasePath,
   loadAgentTranscript,
   loadPublicAgentAccess,
@@ -30,7 +31,7 @@ export default defineEventHandler(async (event: H3Event) => {
   const id = queryString(query.id);
   const accessResult = await loadPublicAgentAccess(event, id, {
     password: queryString(query.password),
-    token: queryString(query.t),
+    token: queryString(query[CLIPS_AGENT_ACCESS_PARAM]) || queryString(query.t),
   });
 
   if (!accessResult.ok) {

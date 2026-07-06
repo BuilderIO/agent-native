@@ -1,4 +1,11 @@
 import { useT } from "@agent-native/core/client";
+import { Button } from "@agent-native/toolkit/ui/button";
+import { Textarea } from "@agent-native/toolkit/ui/textarea";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@agent-native/toolkit/ui/tooltip";
 import {
   IconAlertTriangle,
   IconBolt,
@@ -10,13 +17,6 @@ import {
 } from "@tabler/icons-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { Button } from "@/components/ui/button";
-import { Textarea } from "@/components/ui/textarea";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
 import { sendToDesignAgentChat } from "@/lib/agent-chat";
 import { cn } from "@/lib/utils";
 
@@ -340,16 +340,34 @@ export function CanvasCommentPins({
     const ro = new ResizeObserver(bump);
     ro.observe(canvas);
 
-    // Scroll listeners on the canvas's scrollable ancestor(s) and window cover
-    // both page-level scrolling and container-level panning.
-    const scrollTarget =
-      canvas.closest<HTMLElement>("[class*='overflow']") ?? window;
-    scrollTarget.addEventListener("scroll", bump, { passive: true });
+    // Scroll listeners on every scrollable ancestor and the window cover both
+    // page-level scrolling and container-level panning. Walk the ancestor
+    // chain with getComputedStyle instead of a class-name heuristic so
+    // inline-styled, nested, and multiple scroll containers are all covered.
+    const isScrollable = (value: string) =>
+      value === "auto" || value === "scroll" || value === "overlay";
+    const scrollTargets: Array<HTMLElement | Window> = [];
+    for (let el: HTMLElement | null = canvas; el; el = el.parentElement) {
+      const style = getComputedStyle(el);
+      if (
+        isScrollable(style.overflow) ||
+        isScrollable(style.overflowX) ||
+        isScrollable(style.overflowY)
+      ) {
+        scrollTargets.push(el);
+      }
+    }
+    scrollTargets.push(window);
+    for (const target of scrollTargets) {
+      target.addEventListener("scroll", bump, { passive: true });
+    }
     window.addEventListener("resize", bump, { passive: true });
 
     return () => {
       ro.disconnect();
-      scrollTarget.removeEventListener("scroll", bump);
+      for (const target of scrollTargets) {
+        target.removeEventListener("scroll", bump);
+      }
       window.removeEventListener("resize", bump);
     };
   }, [canvasEl]);

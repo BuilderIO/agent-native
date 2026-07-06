@@ -1,19 +1,19 @@
-import { IconPhotoPlus, IconX } from "@tabler/icons-react";
-import { useEffect, useRef, useState } from "react";
-
-import { Input } from "@/components/ui/input";
+import { Input } from "@agent-native/toolkit/ui/input";
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from "@/components/ui/select";
+} from "@agent-native/toolkit/ui/select";
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
-} from "@/components/ui/tooltip";
+} from "@agent-native/toolkit/ui/tooltip";
+import { IconPhotoPlus, IconX } from "@tabler/icons-react";
+import { useEffect, useRef, useState } from "react";
+
 import { cn } from "@/lib/utils";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -264,11 +264,18 @@ export function ImageFillControls({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [urlDraft, setUrlDraft] = useState(value.url);
   const urlDraftRef = useRef(value.url);
+  // Guard re-syncing the draft from an external value change while the field
+  // is focused (mirrors ScrubInput's `focused` pattern): without this, an
+  // incoming prop update while the user is mid-typing a URL — e.g. a
+  // selection-driven re-render, or another control committing a sibling
+  // style in the same patch — clobbers their in-progress keystrokes.
+  const [focused, setFocused] = useState(false);
 
   useEffect(() => {
+    if (focused) return;
     urlDraftRef.current = value.url;
     setUrlDraft(value.url);
-  }, [value.url]);
+  }, [focused, value.url]);
 
   const commitUrl = () => {
     onChange({ ...value, url: urlDraftRef.current.trim() });
@@ -352,7 +359,11 @@ export function ImageFillControls({
             urlDraftRef.current = event.target.value;
             setUrlDraft(event.target.value);
           }}
-          onBlur={commitUrl}
+          onFocus={() => setFocused(true)}
+          onBlur={() => {
+            setFocused(false);
+            commitUrl();
+          }}
           onKeyDown={(event) => {
             if (event.key === "Enter") {
               event.preventDefault();

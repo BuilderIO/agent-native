@@ -1,14 +1,13 @@
-import { IconInfoCircle } from "@tabler/icons-react";
-import { type ReactNode } from "react";
-
+import { useSetPageTitle } from "@agent-native/toolkit/app-shell";
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
-} from "@/components/ui/tooltip";
-import { cn } from "@/lib/utils";
+} from "@agent-native/toolkit/ui/tooltip";
+import { IconInfoCircle } from "@tabler/icons-react";
+import { type ReactNode } from "react";
 
-import { useSetPageTitle } from "./HeaderActions";
+import { cn } from "@/lib/utils";
 
 export function PageShell({
   title,

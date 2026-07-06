@@ -2,6 +2,7 @@ import {
   SIDEBAR_STATE_CHANGE_EVENT,
   PromptComposer,
   BuilderSetupCard,
+  ErrorReportActions,
   ShareButton,
   appPath,
   agentNativePath,
@@ -15,6 +16,7 @@ import {
   emailToColor,
   emailToName,
   type AgentSidebarStateChangeDetail,
+  type ErrorReportDebugItem,
   type RichMarkdownCollabUser,
 } from "@agent-native/core/client";
 import {
@@ -26,6 +28,91 @@ import {
   type DomainMatchOrg,
 } from "@agent-native/core/client/org";
 import {
+  useSetHeaderActions,
+  useSetPageTitle,
+} from "@agent-native/toolkit/app-shell";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@agent-native/toolkit/ui/alert-dialog";
+import {
+  Avatar,
+  AvatarFallback,
+  AvatarImage,
+} from "@agent-native/toolkit/ui/avatar";
+import { Badge } from "@agent-native/toolkit/ui/badge";
+import { Button } from "@agent-native/toolkit/ui/button";
+import { Checkbox } from "@agent-native/toolkit/ui/checkbox";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@agent-native/toolkit/ui/collapsible";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@agent-native/toolkit/ui/dialog";
+import {
+  DropdownMenu,
+  DropdownMenuCheckboxItem,
+  DropdownMenuContent,
+  DropdownMenuGroup,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
+  DropdownMenuTrigger,
+} from "@agent-native/toolkit/ui/dropdown-menu";
+import { Input } from "@agent-native/toolkit/ui/input";
+import { Label } from "@agent-native/toolkit/ui/label";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@agent-native/toolkit/ui/popover";
+import { ScrollArea } from "@agent-native/toolkit/ui/scroll-area";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@agent-native/toolkit/ui/select";
+import { Separator } from "@agent-native/toolkit/ui/separator";
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from "@agent-native/toolkit/ui/sheet";
+import { Skeleton } from "@agent-native/toolkit/ui/skeleton";
+import { Textarea } from "@agent-native/toolkit/ui/textarea";
+import {
+  ToggleGroup,
+  ToggleGroupItem,
+} from "@agent-native/toolkit/ui/toggle-group";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@agent-native/toolkit/ui/tooltip";
+import {
+  SOURCE_AUTHOR_COMMENT_MENTION_EMAIL,
   extractCommentMentions,
   formatPlanCommentAnchorForAgent,
   formatPlanCommentMentionToken,
@@ -109,6 +196,7 @@ import { useTheme } from "next-themes";
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -121,10 +209,6 @@ import {
 import { Link, useLocation, useNavigate, useParams } from "react-router";
 import { toast } from "sonner";
 
-import {
-  useSetHeaderActions,
-  useSetPageTitle,
-} from "@/components/layout/HeaderActions";
 import type {
   CanvasMarkupCreateContext,
   CanvasMarkupMode,
@@ -136,80 +220,7 @@ import {
   toggleWireframeStyle,
   useWireframeStyle,
 } from "@/components/plan/wireframe/use-wireframe-style";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
-import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from "@/components/ui/collapsible";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import {
-  DropdownMenu,
-  DropdownMenuCheckboxItem,
-  DropdownMenuContent,
-  DropdownMenuGroup,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuRadioGroup,
-  DropdownMenuRadioItem,
-  DropdownMenuSeparator,
-  DropdownMenuSub,
-  DropdownMenuSubContent,
-  DropdownMenuSubTrigger,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover";
-import { ScrollArea } from "@/components/ui/scroll-area";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { Separator } from "@/components/ui/separator";
-import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetHeader,
-  SheetTitle,
-} from "@/components/ui/sheet";
-import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Textarea } from "@/components/ui/textarea";
-import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
 import {
   planBundleQueryKey,
   localPlanBundleQueryKey,
@@ -251,6 +262,9 @@ import { planDocumentTitle } from "@/lib/plan-document-title";
 import { cn } from "@/lib/utils";
 
 import { parsePlanMdxFolder } from "../../server/plan-mdx";
+
+const useBrowserLayoutEffect =
+  typeof window === "undefined" ? useEffect : useLayoutEffect;
 
 function GoogleLogoIcon({ className }: { className?: string }) {
   return (
@@ -374,7 +388,7 @@ function readDesktopPlanAutoSync(planId: string | undefined): boolean {
 
 type PlanAnnotationAnchor = PlanCommentAnchor & { x: number; y: number };
 
-type CommentDraft = {
+export type CommentDraft = {
   message: string;
   mentions: PlanCommentMention[];
   resolutionTarget: PlanCommentResolutionTarget;
@@ -453,6 +467,17 @@ type PlanDocumentState = {
   clientHeight: number;
 };
 
+export function resetPlanReaderScrollPosition(reader: HTMLElement | null) {
+  if (reader) {
+    reader.scrollTo({ left: 0, top: 0, behavior: "auto" });
+    reader.scrollLeft = 0;
+    reader.scrollTop = 0;
+  }
+  if (typeof window !== "undefined") {
+    window.scrollTo(0, 0);
+  }
+}
+
 function shortDate(value: string) {
   return new Intl.DateTimeFormat(undefined, {
     month: "short",
@@ -518,7 +543,13 @@ type LocalPlanBridgePayload = {
   updatedAt?: string;
   files?: string[];
   mdx?: PlanMdxFolder;
+  comments?: PlanCommentItem[];
   error?: string;
+};
+
+type LocalPlanBridgeCommentUpdate = {
+  comments?: PlanCommentInput[];
+  deletedCommentIds?: string[];
 };
 
 function assertLocalBridgeUrl(value: string): string {
@@ -552,6 +583,12 @@ function assertLocalBridgeUrl(value: string): string {
   ) {
     throw new Error("Local plan bridge URL is missing its access token.");
   }
+  return url.toString();
+}
+
+function localPlanBridgeCommentsUrl(value: string): string {
+  const url = new URL(assertLocalBridgeUrl(value));
+  url.pathname = "/local-plan-comments.json";
   return url.toString();
 }
 
@@ -798,21 +835,10 @@ function mergeLocalBridgeComments(
   };
 }
 
-async function fetchLocalPlanBridgeBundle(
-  bridgeUrl: string,
+async function localPlanBridgePayloadToBundle(
+  payload: LocalPlanBridgePayload,
   fallbackSlug: string,
 ): Promise<LocalPlanBundle> {
-  const safeUrl = assertLocalBridgeUrl(bridgeUrl);
-  const response = await fetch(safeUrl, { cache: "no-store" });
-  const payload = (await response
-    .json()
-    .catch(() => null)) as LocalPlanBridgePayload | null;
-  if (!response.ok || !payload?.ok) {
-    throw new Error(
-      payload?.error ||
-        `Local plan bridge returned ${response.status || "an error"}.`,
-    );
-  }
   if (
     payload.source !== "agent-native-local-bridge" ||
     !payload.mdx?.["plan.mdx"]
@@ -830,6 +856,9 @@ async function fetchLocalPlanBridgeBundle(
   const title = content.title || payload.title || slug;
   const brief = content.brief || payload.brief || "";
   const url = localPlanRouteUrl(slug);
+  const comments = (payload.comments ?? []).filter(
+    (comment) => !comment.deletedAt,
+  );
   const bundle: LocalPlanBundle = {
     plan: {
       id: `local-${slug}`,
@@ -854,12 +883,13 @@ async function fetchLocalPlanBridgeBundle(
       visibility: "private",
     },
     sections: [],
-    comments: [],
+    comments,
     events: [],
     summary: {
       sectionCounts: countLocalPlanBlocks(content.blocks),
-      commentCount: 0,
-      openCommentCount: 0,
+      commentCount: comments.length,
+      openCommentCount: comments.filter((comment) => comment.status === "open")
+        .length,
     },
     localOnly: true,
     slug,
@@ -869,6 +899,47 @@ async function fetchLocalPlanBridgeBundle(
     mdx: payload.mdx,
   };
   return bundle;
+}
+
+async function fetchLocalPlanBridgeBundle(
+  bridgeUrl: string,
+  fallbackSlug: string,
+): Promise<LocalPlanBundle> {
+  const safeUrl = assertLocalBridgeUrl(bridgeUrl);
+  const response = await fetch(safeUrl, { cache: "no-store" });
+  const payload = (await response
+    .json()
+    .catch(() => null)) as LocalPlanBridgePayload | null;
+  if (!response.ok || !payload?.ok) {
+    throw new Error(
+      payload?.error ||
+        `Local plan bridge returned ${response.status || "an error"}.`,
+    );
+  }
+  return localPlanBridgePayloadToBundle(payload, fallbackSlug);
+}
+
+async function updateLocalPlanBridgeComments(
+  bridgeUrl: string,
+  fallbackSlug: string,
+  update: LocalPlanBridgeCommentUpdate,
+): Promise<LocalPlanBundle> {
+  const response = await fetch(localPlanBridgeCommentsUrl(bridgeUrl), {
+    method: "POST",
+    cache: "no-store",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(update),
+  });
+  const payload = (await response
+    .json()
+    .catch(() => null)) as LocalPlanBridgePayload | null;
+  if (!response.ok || !payload?.ok) {
+    throw new Error(
+      payload?.error ||
+        `Local plan bridge returned ${response.status || "an error"}.`,
+    );
+  }
+  return localPlanBridgePayloadToBundle(payload, fallbackSlug);
 }
 
 type CommentThread = {
@@ -1243,6 +1314,110 @@ function useOrgMemberMentionSearch(query: string | null) {
 
 function displayNameForMention(email: string) {
   return emailToName(email).replace(/\s+/g, " ").trim() || email;
+}
+
+function elementForShortcutTarget(target: EventTarget | null) {
+  if (target instanceof Element) return target;
+  if (target instanceof Node) return target.parentElement;
+  return null;
+}
+
+export function isPlanCommentShortcutEditableTarget(
+  target: EventTarget | null,
+) {
+  const element = elementForShortcutTarget(target);
+  if (!element) return false;
+  return Boolean(
+    element.closest(
+      "input, textarea, select, [contenteditable]:not([contenteditable='false']), [role='textbox']",
+    ),
+  );
+}
+
+export function shouldHandlePlanCommentShortcut(
+  event: Pick<
+    KeyboardEvent,
+    | "altKey"
+    | "ctrlKey"
+    | "defaultPrevented"
+    | "key"
+    | "metaKey"
+    | "shiftKey"
+    | "target"
+  >,
+) {
+  if (event.defaultPrevented) return false;
+  const activeElement =
+    typeof document === "undefined" ? null : document.activeElement;
+  if (
+    isPlanCommentShortcutEditableTarget(activeElement) ||
+    isPlanCommentShortcutEditableTarget(event.target)
+  ) {
+    return false;
+  }
+  const key = event.key.toLowerCase();
+  if (
+    key === "c" &&
+    !event.metaKey &&
+    !event.ctrlKey &&
+    !event.altKey &&
+    !event.shiftKey
+  ) {
+    return true;
+  }
+  return (
+    key === "m" &&
+    event.metaKey &&
+    event.shiftKey &&
+    !event.ctrlKey &&
+    !event.altKey
+  );
+}
+
+export function defaultInlineCommentDraftForPlanContext(input: {
+  planKind?: PlanKind | null;
+  ownerEmail?: string | null;
+  sourceAuthorName?: string | null;
+  sourceAuthorLogin?: string | null;
+  accessRole?: NonNullable<PlanBundle["access"]>["role"] | null;
+  currentEmail?: string | null;
+}): CommentDraft {
+  const currentEmail = normalizeCommentEmail(input.currentEmail);
+  if (input.planKind === "recap") {
+    const targetLabel =
+      input.sourceAuthorName?.trim() || input.sourceAuthorLogin?.trim();
+    if (!targetLabel || input.accessRole === "owner") {
+      return { message: "", mentions: [], resolutionTarget: "agent" };
+    }
+    const mention: PlanCommentMention = {
+      email: SOURCE_AUTHOR_COMMENT_MENTION_EMAIL,
+      label: targetLabel,
+      role: "source-author",
+    };
+    return {
+      message: `${formatPlanCommentMentionToken(mention)} `,
+      mentions: [mention],
+      resolutionTarget: "human",
+    };
+  }
+
+  const targetEmail = normalizeCommentEmail(input.ownerEmail);
+  if (
+    !targetEmail ||
+    input.accessRole === "owner" ||
+    targetEmail === currentEmail
+  ) {
+    return { message: "", mentions: [], resolutionTarget: "agent" };
+  }
+  const mention = {
+    email: targetEmail,
+    label: displayNameForMention(targetEmail),
+  };
+  return {
+    message: `${formatPlanCommentMentionToken(mention)} `,
+    mentions: [mention],
+    resolutionTarget: "human",
+  };
 }
 
 function safeDecodeURIComponent(value: string): string {
@@ -2400,6 +2575,8 @@ function buildPlanAgentContext(input: {
   url: string;
   screenshotNote?: string;
 }) {
+  const isLocalPlan =
+    "localOnly" in input.bundle && input.bundle.localOnly === true;
   const contentBlockCount = input.bundle.plan.content?.blocks.length ?? 0;
   const contentBlocks = input.bundle.plan.content?.blocks
     .slice(0, 12)
@@ -2459,7 +2636,9 @@ function buildPlanAgentContext(input: {
     Math.max(0, humanReviewThreads.length - 8);
   const omittedCommentNote =
     omittedComments > 0
-      ? `\n${omittedComments} additional open thread(s) omitted from this composer context. Call get-plan-feedback for the full list before editing.`
+      ? isLocalPlan
+        ? `\n${omittedComments} additional open thread(s) omitted from this composer context. Reopen the local plan or inspect comments.json for the full list before editing.`
+        : `\n${omittedComments} additional open thread(s) omitted from this composer context. Call get-plan-feedback for the full list before editing.`
       : "";
   const legacyUnroutedThreads = openThreads.filter(
     (thread) => !thread.anchor?.resolutionTarget,
@@ -2504,20 +2683,35 @@ function buildPlanAgentContext(input: {
     ...(ENABLE_PLAN_STATUS_FEATURE
       ? [`Status: ${input.bundle.plan.status}`]
       : []),
+    ...(isLocalPlan ? [`Local folder: ${input.bundle.plan.repoPath}`] : []),
     `URL: ${input.url}`,
     input.bundle.plan.content
       ? `Structured content blocks: ${contentBlockCount}`
       : `Legacy rendered HTML length: ${input.documentHtml.length} characters`,
     "",
-    "Fast iteration workflow:",
-    "1. Call get-visual-plan with this plan ID to read structured content, exported HTML, sections, comments, and activity.",
-    "2. Prefer update-visual-plan contentPatches for targeted edits. Examples: update-rich-text for copy, patch-prototype-html / update-prototype-screen for live prototype states, update-wireframe-node for one kit-tree node, update-canvas-frame for frame layout, append-canvas-annotation / update-canvas-annotation for canvas markup, append-block/remove-block for document changes, or replace-block for a single block. Use full content only for broad restructuring. Use html only when preserving or importing a legacy standalone HTML artifact.",
-    "3. Preserve the user's existing annotation comments and intent unless the user asks to remove or resolve them.",
-    "4. Keep the output as a refined document with rich text, tables, sketch diagrams, wireframes, implementation maps, code tabs, and bounded custom HTML fragments.",
-    "5. After applying feedback, keep the plan scannable, editable, and serious instead of turning it into a marketing page.",
-    "6. Work the actionable agent comments first. Treat human-review comments as FYI/questions/approval items; do not silently resolve those unless the user explicitly asks.",
-    "7. When visual screenshots are attached, each crop is centered near a comment marker and has a red ring on the exact commented point. Use the comment IDs and anchor details below to connect screenshots to threads. If a visual comment is listed as overflow, rely on its anchorDetails/coordinates and call get-plan-feedback for the full manifest.",
-    "8. For text comments, use the quoted text plus Text before/Text after and Block type details. If a quote is marked ambiguous, ask instead of editing the wrong span.",
+    ...(isLocalPlan
+      ? [
+          "Local-files workflow:",
+          "1. This is a local-only Agent-Native Plan or recap. Do not call hosted Plan tools such as get-visual-plan, get-plan-feedback, or update-visual-plan for this plan.",
+          "2. Use the local MDX files and the feedback threads included below. If your host exposes local Plan tools, read the local folder and comments.json before editing.",
+          "3. Preserve the user's existing annotation comments and intent unless the user asks to remove or resolve them.",
+          "4. Keep the output as a refined document with rich text, tables, sketch diagrams, wireframes, implementation maps, code tabs, and bounded custom HTML fragments.",
+          "5. After applying feedback, rerun the local Plan check/serve/verify path available in your environment and report the updated local URL or folder.",
+          "6. Work the actionable agent comments first. Treat human-review comments as FYI/questions/approval items; do not silently resolve those unless the user explicitly asks.",
+          "7. When visual screenshots are attached, each crop is centered near a comment marker and has a red ring on the exact commented point. Use the comment IDs and anchor details below to connect screenshots to threads.",
+          "8. For text comments, use the quoted text plus Text before/Text after and Block type details. If a quote is marked ambiguous, ask instead of editing the wrong span.",
+        ]
+      : [
+          "Fast iteration workflow:",
+          "1. Call get-visual-plan with this plan ID to read structured content, exported HTML, sections, comments, and activity.",
+          "2. Prefer update-visual-plan contentPatches for targeted edits. Examples: update-rich-text for copy, patch-prototype-html / update-prototype-screen for live prototype states, update-wireframe-node for one kit-tree node, update-canvas-frame for frame layout, append-canvas-annotation / update-canvas-annotation for canvas markup, append-block/remove-block for document changes, or replace-block for a single block. Use full content only for broad restructuring. Use html only when preserving or importing a legacy standalone HTML artifact.",
+          "3. Preserve the user's existing annotation comments and intent unless the user asks to remove or resolve them.",
+          "4. Keep the output as a refined document with rich text, tables, sketch diagrams, wireframes, implementation maps, code tabs, and bounded custom HTML fragments.",
+          "5. After applying feedback, keep the plan scannable, editable, and serious instead of turning it into a marketing page.",
+          "6. Work the actionable agent comments first. Treat human-review comments as FYI/questions/approval items; do not silently resolve those unless the user explicitly asks.",
+          "7. When visual screenshots are attached, each crop is centered near a comment marker and has a red ring on the exact commented point. Use the comment IDs and anchor details below to connect screenshots to threads. If a visual comment is listed as overflow, rely on its anchorDetails/coordinates and call get-plan-feedback for the full manifest.",
+          "8. For text comments, use the quoted text plus Text before/Text after and Block type details. If a quote is marked ambiguous, ask instead of editing the wrong span.",
+        ]),
     contentBlocks ? `\nStructured content blocks:\n${contentBlocks}` : "",
     recentReviewEvents
       ? `\nRecent review/edit events:\n${recentReviewEvents}`
@@ -2540,7 +2734,13 @@ function buildPlanAgentContext(input: {
     .join("\n");
 }
 
-function buildApplyFeedbackMessage(openCommentCount: number) {
+function buildApplyFeedbackMessage(
+  openCommentCount: number,
+  options: { local?: boolean } = {},
+) {
+  if (options.local) {
+    return `Apply the ${openCommentCount} open comment${openCommentCount === 1 ? "" : "s"} on this local visual plan. Use the local files and feedback context in this handoff; do not call hosted Plan tools for this local-only plan. Use any attached focused screenshots to understand visual comments, then update the local MDX plan/recap files as needed.`;
+  }
   return `Apply the ${openCommentCount} open comment${openCommentCount === 1 ? "" : "s"} on this visual plan. Read the plan with get-visual-plan, read feedback with get-plan-feedback, use any attached focused screenshots to understand visual comments, then update structured content blocks, prototype screens, and related implementation details as needed. Use HTML only for legacy imported artifacts.`;
 }
 
@@ -2882,6 +3082,7 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
   const pendingDocumentRestoreRef = useRef<PlanDocumentState | null>(null);
   const pendingDocumentRestoreTimerRef = useRef<number | null>(null);
   const nativeScrollFrameRef = useRef<number | null>(null);
+  const initialReaderScrollResetKeyRef = useRef<string | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
   const [annotationsOpen, setAnnotationsOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
@@ -2901,6 +3102,8 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
   );
   const [agentSidebarOpen, setAgentSidebarOpen] = useState(false);
   const [sendingFeedback, setSendingFeedback] = useState(false);
+  const [localBridgeCommentPending, setLocalBridgeCommentPending] =
+    useState(false);
   const [pendingAnnotation, setPendingAnnotation] =
     useState<PlanAnnotationAnchor | null>(null);
   const [inlineCommentPosition, setInlineCommentPosition] =
@@ -3282,25 +3485,22 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
     bundle && (localPlanMode || session || canEditPlanContent),
   );
   const defaultInlineCommentDraft = useMemo<CommentDraft>(() => {
-    const ownerEmail = normalizeCommentEmail(bundle?.access?.ownerEmail);
-    const currentEmail = normalizeCommentEmail(collabUser?.email);
-    if (
-      !ownerEmail ||
-      effectivePlanAccessRole === "owner" ||
-      ownerEmail === currentEmail
-    ) {
-      return { message: "", mentions: [], resolutionTarget: "agent" };
-    }
-    const mention = {
-      email: ownerEmail,
-      label: displayNameForMention(ownerEmail),
-    };
-    return {
-      message: `${formatPlanCommentMentionToken(mention)} `,
-      mentions: [mention],
-      resolutionTarget: "human",
-    };
-  }, [bundle?.access?.ownerEmail, collabUser?.email, effectivePlanAccessRole]);
+    return defaultInlineCommentDraftForPlanContext({
+      planKind: bundle?.plan.kind,
+      ownerEmail: bundle?.access?.ownerEmail,
+      sourceAuthorName: bundle?.plan.sourceAuthorName,
+      sourceAuthorLogin: bundle?.plan.sourceAuthorLogin,
+      accessRole: effectivePlanAccessRole,
+      currentEmail: collabUser?.email,
+    });
+  }, [
+    bundle?.access?.ownerEmail,
+    bundle?.plan.kind,
+    bundle?.plan.sourceAuthorName,
+    bundle?.plan.sourceAuthorLogin,
+    collabUser?.email,
+    effectivePlanAccessRole,
+  ]);
   const commentThreads = useMemo(
     () => buildCommentThreads(bundle?.comments ?? []),
     [bundle?.comments],
@@ -3575,20 +3775,45 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
   const persistQuestionFormAnswers = useCallback(
     (summary: string, planId: string | undefined) => {
       if (!planId) return;
+      const comment: PlanCommentInput = {
+        kind: "comment",
+        status: "open",
+        message: summary,
+        createdBy: "human",
+        authorEmail: collabUser?.email,
+        authorName: collabUser?.name,
+        resolutionTarget: "agent",
+      };
+      if (localPlanMode && localPlanSlug) {
+        void (async () => {
+          if (localPlanBridgeUrl) setLocalBridgeCommentPending(true);
+          try {
+            const updated = localPlanBridgeUrl
+              ? await updateLocalPlanBridgeComments(
+                  localPlanBridgeUrl,
+                  localPlanSlug,
+                  { comments: [comment] },
+                )
+              : await updateLocalCommentMutation.mutateAsync({
+                  slug: localPlanSlug,
+                  ...(localPlanRepoPath ? { path: localPlanRepoPath } : {}),
+                  comments: [comment],
+                });
+            if (selectedPlanQueryKey) {
+              queryClient.setQueryData(selectedPlanQueryKey, updated);
+            }
+          } catch {
+            toast.error(t("plansPage.reader.saveAnswersFailed"));
+          } finally {
+            if (localPlanBridgeUrl) setLocalBridgeCommentPending(false);
+          }
+        })();
+        return;
+      }
       updatePlanMutateRef.current(
         {
           planId,
-          comments: [
-            {
-              kind: "comment",
-              status: "open",
-              message: summary,
-              createdBy: "human",
-              authorEmail: collabUser?.email,
-              authorName: collabUser?.name,
-              resolutionTarget: "agent",
-            },
-          ],
+          comments: [comment],
         },
         {
           onError: () => {
@@ -3597,7 +3822,18 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
         },
       );
     },
-    [collabUser?.email, collabUser?.name, t],
+    [
+      collabUser?.email,
+      collabUser?.name,
+      localPlanBridgeUrl,
+      localPlanMode,
+      localPlanRepoPath,
+      localPlanSlug,
+      queryClient,
+      selectedPlanQueryKey,
+      t,
+      updateLocalCommentMutation,
+    ],
   );
 
   const exportPlan = useExportPlan(localPlanMode ? undefined : selectedId);
@@ -4021,6 +4257,47 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
   }, [clearPendingDocumentRestore, postRuntimeState]);
 
   useEffect(() => clearPendingDocumentRestore, [clearPendingDocumentRestore]);
+
+  useBrowserLayoutEffect(() => {
+    if (!selectedId || !bundle?.plan.content || location.hash) return;
+    const resetKey = `${bundle.plan.kind}:${selectedId}`;
+    if (initialReaderScrollResetKeyRef.current === resetKey) return;
+    initialReaderScrollResetKeyRef.current = resetKey;
+    clearPendingDocumentRestore();
+    documentStateRef.current = null;
+
+    const reset = () => resetPlanReaderScrollPosition(nativeReaderRef.current);
+    const frameIds: number[] = [];
+    const timeoutIds: number[] = [];
+    const scheduleFrame = () => {
+      frameIds.push(window.requestAnimationFrame(reset));
+    };
+    const scheduleTimeout = (delay: number) => {
+      timeoutIds.push(
+        window.setTimeout(() => {
+          reset();
+          scheduleFrame();
+        }, delay),
+      );
+    };
+
+    reset();
+    scheduleFrame();
+    scheduleTimeout(0);
+    scheduleTimeout(120);
+    scheduleTimeout(500);
+
+    return () => {
+      frameIds.forEach((id) => window.cancelAnimationFrame(id));
+      timeoutIds.forEach((id) => window.clearTimeout(id));
+    };
+  }, [
+    bundle?.plan.content,
+    bundle?.plan.kind,
+    clearPendingDocumentRestore,
+    location.hash,
+    selectedId,
+  ]);
 
   useEffect(() => {
     const frame = requestAnimationFrame(() => postRuntimeState());
@@ -4547,13 +4824,13 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
     });
   };
 
-  const startCommenting = () => {
+  const startCommenting = useCallback(() => {
     setCanvasMarkupMode("none");
     setActiveAnnotation(null);
     setAnnotationsOpen(false);
     setCommentVisibility("open");
     setAnnotateMode(true);
-  };
+  }, []);
 
   const selectReviewMode = (mode: CanvasMarkupMode) => {
     preservePlanReaderScroll(() => {
@@ -4609,95 +4886,134 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
     scheduleNativeMarkerUpdate();
   };
 
-  const readNativeSelectionComment = (): NativeSelectionComment | null => {
-    const reader = nativeReaderRef.current;
-    const selection = window.getSelection();
-    if (!reader || !selection || selection.rangeCount === 0) return null;
-    if (selection.isCollapsed) return null;
-    const textQuote = selection.toString().replace(/\s+/g, " ").trim();
-    if (!textQuote) return null;
-    const range = selection.getRangeAt(0);
-    if (!reader.contains(range.commonAncestorContainer)) return null;
+  const readNativeSelectionComment =
+    useCallback((): NativeSelectionComment | null => {
+      const reader = nativeReaderRef.current;
+      const selection = window.getSelection();
+      if (!reader || !selection || selection.rangeCount === 0) return null;
+      if (selection.isCollapsed) return null;
+      const textQuote = selection.toString().replace(/\s+/g, " ").trim();
+      if (!textQuote) return null;
+      const range = selection.getRangeAt(0);
+      if (!reader.contains(range.commonAncestorContainer)) return null;
 
-    const rects = Array.from(range.getClientRects()).filter(
-      (rect) => rect.width > 0 && rect.height > 0,
-    );
-    const selectionRect = rects[0] ?? range.getBoundingClientRect();
-    if (selectionRect.width <= 0 || selectionRect.height <= 0) return null;
+      const rects = Array.from(range.getClientRects()).filter(
+        (rect) => rect.width > 0 && rect.height > 0,
+      );
+      const selectionRect = rects[0] ?? range.getBoundingClientRect();
+      if (selectionRect.width <= 0 || selectionRect.height <= 0) return null;
 
-    const readerRect = reader.getBoundingClientRect();
-    const pointX =
-      selectionRect.left + selectionRect.width / 2 - readerRect.left;
-    const pointY =
-      selectionRect.top + selectionRect.height / 2 - readerRect.top;
-    const startElement =
-      range.startContainer instanceof Element
-        ? range.startContainer
-        : range.startContainer.parentElement;
-    const blockElement = startElement?.closest<HTMLElement>("[data-block-id]");
-    const blockType = blockElement?.dataset.blockId
-      ? findPlanBlockById(
-          bundle?.plan.content?.blocks ?? [],
-          blockElement.dataset.blockId,
-        )?.type
-      : undefined;
-    const quoteContext = textQuoteContextForBlock({
-      block: blockElement,
-      quote: textQuote,
-    });
-    const snippet = textQuote.slice(0, 220);
-    const anchor = {
-      ...buildNativeAnchorFromElement({
-        reader,
-        target: startElement instanceof HTMLElement ? startElement : reader,
-        pointX,
-        pointY,
-        planTitle: bundle?.plan.title,
-      }),
-      snippet,
-      textQuote: snippet,
-      anchorKind: "text",
-      tagName: "selection",
-      blockType,
-      ...quoteContext,
-    } satisfies PlanAnnotationAnchor;
-    const toolbarWidth = 132;
-    const toolbarLeft = clamp(
-      pointX - toolbarWidth / 2,
-      12,
-      Math.max(12, readerRect.width - toolbarWidth - 12),
-    );
-    const toolbarTop = clamp(
-      selectionRect.top - readerRect.top - 48,
-      12,
-      Math.max(12, readerRect.height - 48),
-    );
-    return {
-      anchor,
-      toolbarLeft,
-      toolbarTop,
-      position:
-        getPositionFromAnchor(anchor) ??
-        resolveInlineCommentPosition({
+      const readerRect = reader.getBoundingClientRect();
+      const pointX =
+        selectionRect.left + selectionRect.width / 2 - readerRect.left;
+      const pointY =
+        selectionRect.top + selectionRect.height / 2 - readerRect.top;
+      const startElement =
+        range.startContainer instanceof Element
+          ? range.startContainer
+          : range.startContainer.parentElement;
+      const blockElement =
+        startElement?.closest<HTMLElement>("[data-block-id]");
+      const blockType = blockElement?.dataset.blockId
+        ? findPlanBlockById(
+            bundle?.plan.content?.blocks ?? [],
+            blockElement.dataset.blockId,
+          )?.type
+        : undefined;
+      const quoteContext = textQuoteContextForBlock({
+        block: blockElement,
+        quote: textQuote,
+      });
+      const snippet = textQuote.slice(0, 220);
+      const anchor = {
+        ...buildNativeAnchorFromElement({
+          reader,
+          target: startElement instanceof HTMLElement ? startElement : reader,
           pointX,
           pointY,
-          viewportWidth: readerRect.width,
-          viewportHeight: readerRect.height,
+          planTitle: bundle?.plan.title,
         }),
-    };
-  };
+        snippet,
+        textQuote: snippet,
+        anchorKind: "text",
+        tagName: "selection",
+        blockType,
+        ...quoteContext,
+      } satisfies PlanAnnotationAnchor;
+      const toolbarWidth = 132;
+      const toolbarLeft = clamp(
+        pointX - toolbarWidth / 2,
+        12,
+        Math.max(12, readerRect.width - toolbarWidth - 12),
+      );
+      const toolbarTop = clamp(
+        selectionRect.top - readerRect.top - 48,
+        12,
+        Math.max(12, readerRect.height - 48),
+      );
+      return {
+        anchor,
+        toolbarLeft,
+        toolbarTop,
+        position:
+          getPositionFromAnchor(anchor) ??
+          resolveInlineCommentPosition({
+            pointX,
+            pointY,
+            viewportWidth: readerRect.width,
+            viewportHeight: readerRect.height,
+          }),
+      };
+    }, [
+      bundle?.plan.content?.blocks,
+      bundle?.plan.title,
+      getPositionFromAnchor,
+    ]);
+
+  const openNativeSelectionComment = useCallback(
+    (selectionComment: NativeSelectionComment) => {
+      documentStateRef.current = readNativeDocumentState();
+      setCanvasMarkupMode("none");
+      setActiveAnnotation(null);
+      setAnnotationsOpen(false);
+      setCommentVisibility("open");
+      setAnnotateMode(true);
+      setPendingAnnotation(selectionComment.anchor);
+      setInlineCommentPosition(selectionComment.position);
+      setNativeSelectionComment(null);
+      window.getSelection()?.removeAllRanges();
+    },
+    [readNativeDocumentState],
+  );
 
   const beginNativeSelectionComment = () => {
     if (!nativeSelectionComment) return;
-    documentStateRef.current = readNativeDocumentState();
-    // Implicitly enter annotate mode when a selection comment is started
-    // outside of review mode so the inline comment popover renders correctly.
-    if (!annotateMode) setAnnotateMode(true);
-    setPendingAnnotation(nativeSelectionComment.anchor);
-    setInlineCommentPosition(nativeSelectionComment.position);
-    setNativeSelectionComment(null);
-    window.getSelection()?.removeAllRanges();
+    openNativeSelectionComment(nativeSelectionComment);
   };
+
+  useEffect(() => {
+    if (!bundle) return;
+    const handleCommentShortcut = (event: KeyboardEvent) => {
+      if (!shouldHandlePlanCommentShortcut(event)) return;
+      event.preventDefault();
+      preservePlanReaderScroll(() => {
+        const selectionComment = readNativeSelectionComment();
+        if (selectionComment) {
+          openNativeSelectionComment(selectionComment);
+          return;
+        }
+        startCommenting();
+      });
+    };
+    window.addEventListener("keydown", handleCommentShortcut);
+    return () => window.removeEventListener("keydown", handleCommentShortcut);
+  }, [
+    bundle,
+    openNativeSelectionComment,
+    preservePlanReaderScroll,
+    readNativeSelectionComment,
+    startCommenting,
+  ]);
 
   const handleNativeReaderPointerDown = (
     event: PointerEvent<HTMLDivElement>,
@@ -5080,7 +5396,9 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
         : "",
       ...labels.map((label) => `- ${label}`),
       overflow.length > 0
-        ? `- ${overflow.length} additional visual comment(s) exceeded the screenshot budget. Use get-plan-feedback anchorDetails/coordinates for these overflow comments:`
+        ? localPlanMode
+          ? `- ${overflow.length} additional visual comment(s) exceeded the screenshot budget. Use comments.json anchor details/coordinates for these overflow comments:`
+          : `- ${overflow.length} additional visual comment(s) exceeded the screenshot budget. Use get-plan-feedback anchorDetails/coordinates for these overflow comments:`
         : "",
       ...overflowLabels,
     ]
@@ -5120,7 +5438,9 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
         openSidebar: true,
         context,
         images: capture.images,
-        message: buildApplyFeedbackMessage(openCommentCount),
+        message: buildApplyFeedbackMessage(openCommentCount, {
+          local: localPlanMode,
+        }),
       });
       toast.success(
         capture.images.length > 0
@@ -5146,19 +5466,33 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
       return;
     }
     await navigator.clipboard.writeText(
-      [buildApplyFeedbackMessage(openCommentCount), "", planAgentContext].join(
-        "\n",
-      ),
+      [
+        buildApplyFeedbackMessage(openCommentCount, { local: localPlanMode }),
+        "",
+        planAgentContext,
+      ].join("\n"),
     );
     toast.success(t("plansPage.reader.feedbackCopied"));
   };
 
   // Route comment writes to the DB (hosted) or comments.json (local); both
   // return the same bundle shape.
-  const writeComments = (
+  const writeComments = async (
     comments: PlanCommentInput[],
     note: string,
   ): Promise<PlanBundleWithHtml> => {
+    if (localPlanMode && localPlanBridgeUrl) {
+      setLocalBridgeCommentPending(true);
+      try {
+        return await updateLocalPlanBridgeComments(
+          localPlanBridgeUrl,
+          localPlanSlug ?? "",
+          { comments },
+        );
+      } finally {
+        setLocalBridgeCommentPending(false);
+      }
+    }
     if (localPlanMode) {
       return updateLocalCommentMutation.mutateAsync({
         slug: localPlanSlug ?? "",
@@ -5174,6 +5508,22 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
     }) as Promise<PlanBundleWithHtml>;
   };
   const removeCommentById = async (commentId: string): Promise<void> => {
+    if (localPlanMode && localPlanBridgeUrl) {
+      setLocalBridgeCommentPending(true);
+      try {
+        const updated = await updateLocalPlanBridgeComments(
+          localPlanBridgeUrl,
+          localPlanSlug ?? "",
+          { deletedCommentIds: [commentId] },
+        );
+        if (selectedPlanQueryKey) {
+          queryClient.setQueryData(selectedPlanQueryKey, updated);
+        }
+      } finally {
+        setLocalBridgeCommentPending(false);
+      }
+      return;
+    }
     if (localPlanMode) {
       await updateLocalCommentMutation.mutateAsync({
         slug: localPlanSlug ?? "",
@@ -5189,9 +5539,13 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
     });
   };
   const commentWritePending =
-    updateCommentMutation.isPending || updateLocalCommentMutation.isPending;
+    updateCommentMutation.isPending ||
+    updateLocalCommentMutation.isPending ||
+    localBridgeCommentPending;
   const commentDeletePending =
-    deleteCommentMutation.isPending || updateLocalCommentMutation.isPending;
+    deleteCommentMutation.isPending ||
+    updateLocalCommentMutation.isPending ||
+    localBridgeCommentPending;
 
   const submitInlineComment = async (draft: CommentDraft) => {
     if (!bundle || !pendingAnnotation || !selectedPlanQueryKey) return;
@@ -5616,6 +5970,7 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
           ) : showPlanLoadError ? (
             <PlanLoadError
               error={planQuery.error}
+              planId={selectedId}
               accessStatus={planAccessStatus}
               onRetry={() => void planQuery.refetch()}
               onSignIn={() => openSignIn()}
@@ -5925,18 +6280,20 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
                               )}
                             </DropdownMenuRadioItem>
                           </DropdownMenuRadioGroup>
-                          <DropdownMenuItem
-                            onClick={() => {
-                              preservePlanReaderScroll(() => {
-                                closeInlineComment();
-                                setHistoryOpen(true);
-                              });
-                            }}
-                            className="gap-2"
-                          >
-                            <IconHistory className="size-4" />
-                            {t("plansPage.history.title")}
-                          </DropdownMenuItem>
+                          {canEditPlanContent ? (
+                            <DropdownMenuItem
+                              onClick={() => {
+                                preservePlanReaderScroll(() => {
+                                  closeInlineComment();
+                                  setHistoryOpen(true);
+                                });
+                              }}
+                              className="gap-2"
+                            >
+                              <IconHistory className="size-4" />
+                              {t("plansPage.history.title")}
+                            </DropdownMenuItem>
+                          ) : null}
                         </>
                       )}
                       <DropdownMenuItem
@@ -6367,7 +6724,7 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
                   ) : (
                     pendingCommentPin
                   )}
-                  {!session ? (
+                  {!session && !localPlanMode ? (
                     <GuestCommentCta
                       position={inlineCommentPosition}
                       onSignIn={() => {
@@ -6547,7 +6904,7 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
       {bundle && (
         <PlanHistorySheet
           planId={bundle.plan.id}
-          open={historyOpen}
+          open={historyOpen && canEditPlanContent}
           onOpenChange={setHistoryOpen}
           canRestore={canEditPlanContent}
         />
@@ -7327,6 +7684,35 @@ function ReviewMarkupToolbar({
   );
 }
 
+function PlanErrorFeedbackActions({
+  title,
+  message,
+  status,
+  extraDebug,
+}: {
+  title: string;
+  message: string;
+  status?: number;
+  extraDebug?: ErrorReportDebugItem[];
+}) {
+  const t = useT();
+  return (
+    <ErrorReportActions
+      appName="Plan"
+      title={title}
+      details={message}
+      status={status}
+      issueTitle={`Plan error: ${title}`}
+      feedbackLabel={t("plansPage.loadError.sendFeedback")}
+      feedbackPlaceholder={t("plansPage.loadError.feedbackPlaceholder")}
+      githubLabel={t("plansPage.loadError.openGitHubIssue")}
+      align="start"
+      className="justify-start"
+      extraDebug={extraDebug}
+    />
+  );
+}
+
 function LocalPlanLoadError({
   error,
   slug,
@@ -7341,6 +7727,7 @@ function LocalPlanLoadError({
     error instanceof Error && error.message
       ? error.message.replace(/^Action [\w-]+ failed:\s*/, "")
       : t("plansPage.localPlanLoadError.message", { slug });
+  const title = t("plansPage.localPlanLoadError.title");
 
   return (
     <div className="flex min-h-0 flex-1 items-center justify-center px-6 py-12">
@@ -7350,9 +7737,7 @@ function LocalPlanLoadError({
             <IconAlertTriangle className="size-5" />
           </div>
           <div>
-            <h1 className="text-lg font-semibold tracking-tight">
-              {t("plansPage.localPlanLoadError.title")}
-            </h1>
+            <h1 className="text-lg font-semibold tracking-tight">{title}</h1>
             <p className="mt-1 text-sm text-muted-foreground">{message}</p>
           </div>
         </div>
@@ -7368,6 +7753,15 @@ function LocalPlanLoadError({
             </Link>
           </Button>
         </div>
+        <div className="mt-4 border-t border-border/70 pt-3">
+          <PlanErrorFeedbackActions
+            title={title}
+            message={message}
+            extraDebug={[
+              { label: "Local plan slug", value: slug }, // i18n-ignore debug label
+            ]}
+          />
+        </div>
       </div>
     </div>
   );
@@ -7375,6 +7769,7 @@ function LocalPlanLoadError({
 
 function PlanLoadError({
   error,
+  planId,
   accessStatus,
   onRetry,
   onSignIn,
@@ -7385,6 +7780,7 @@ function PlanLoadError({
   viewerEmail,
 }: {
   error?: unknown;
+  planId?: string | null;
   accessStatus?: PlanAccessStatusResponse | null;
   onRetry: () => void;
   onSignIn: () => void;
@@ -7532,6 +7928,7 @@ function PlanLoadError({
             : t("plansPage.loadError.maybeOtherOrgBody")
           : t("plansPage.loadError.privateBody")
       : message;
+  const reportMessage = `${body}${message && message !== body ? `\n${message}` : ""}`;
 
   return (
     <div className="flex h-full flex-col items-center justify-center bg-background p-8">
@@ -7717,6 +8114,34 @@ function PlanLoadError({
             )}
           </div>
         ) : null}
+        <div className="mt-4 border-t border-border/70 pt-3">
+          <PlanErrorFeedbackActions
+            title={title}
+            message={reportMessage}
+            status={status}
+            extraDebug={[
+              { label: "Plan id", value: planId }, // i18n-ignore debug label
+              accessStatus?.visibility
+                ? {
+                    label: "Plan visibility", // i18n-ignore debug label
+                    value: accessStatus.visibility,
+                  }
+                : {
+                    label: "Plan visibility", // i18n-ignore debug label
+                    value: null,
+                  },
+              accessStatus?.hasAccess !== undefined
+                ? {
+                    label: "Has access", // i18n-ignore debug label
+                    value: accessStatus.hasAccess,
+                  }
+                : {
+                    label: "Has access", // i18n-ignore debug label
+                    value: null,
+                  },
+            ]}
+          />
+        </div>
       </div>
       <Button
         type="button"
@@ -8519,8 +8944,11 @@ function PlanHistorySheet({
   const [restoreCandidateId, setRestoreCandidateId] = useState<string | null>(
     null,
   );
-  const versionsQuery = usePlanVersions(planId, open);
-  const versionQuery = usePlanVersion(open ? planId : null, selectedVersionId);
+  const versionsQuery = usePlanVersions(planId, open && canRestore);
+  const versionQuery = usePlanVersion(
+    open && canRestore ? planId : null,
+    selectedVersionId,
+  );
   const restoreVersion = useRestorePlanVersion();
   const versions = versionsQuery.data?.versions ?? [];
   const selectedVersion = versionQuery.data;
@@ -9303,6 +9731,22 @@ function commentBodyText(message: string) {
     .trim();
 }
 
+export function canSubmitInlineCommentDraft(input: {
+  draft: CommentDraft;
+  isSubmitting?: boolean;
+  lockToAgent?: boolean;
+}) {
+  const needsHumanMention =
+    !input.lockToAgent &&
+    input.draft.resolutionTarget === "human" &&
+    input.draft.mentions.length === 0;
+  return (
+    commentBodyText(input.draft.message).length > 0 &&
+    !needsHumanMention &&
+    !input.isSubmitting
+  );
+}
+
 export function mentionQueryAtCaret(root: HTMLElement) {
   const selection = window.getSelection();
   if (!selection || selection.rangeCount === 0) return null;
@@ -9600,7 +10044,11 @@ function InlineCommentPopover({
       mountedRef.current = false;
     };
   }, []);
-  const canSubmit = commentBodyText(draft.message).length > 0 && !isSubmitting;
+  const canSubmit = canSubmitInlineCommentDraft({
+    draft,
+    isSubmitting,
+    lockToAgent,
+  });
   const submit = async () => {
     if (!canSubmit) return;
     setSubmitError(false);
@@ -9666,15 +10114,19 @@ function InlineCommentPopover({
           autoFocus
           onSubmitShortcut={submit}
           onChange={(value) =>
-            setDraft((current) => ({
-              ...current,
-              ...value,
-              resolutionTarget: resolverTouched
-                ? current.resolutionTarget
-                : value.mentions.length > 0
-                  ? "human"
-                  : "agent",
-            }))
+            setDraft((current) => {
+              const addedMention =
+                value.mentions.length > current.mentions.length;
+              return {
+                ...current,
+                ...value,
+                resolutionTarget: resolverTouched
+                  ? current.resolutionTarget
+                  : addedMention
+                    ? "human"
+                    : current.resolutionTarget,
+              };
+            })
           }
         />
         <Button

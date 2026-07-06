@@ -122,6 +122,10 @@ const messages = {
     restoreFailed: "Falha ao restaurar",
     permanentlyDeleted: "Excluído permanentemente",
     deleteFailed: "Falha ao excluir",
+    clipsRestored: "{{count}} clipes restaurados",
+    clipsRestoreFailed: "{{count}} clipes não puderam ser restaurados",
+    clipsPermanentlyDeleted: "{{count}} clipes excluídos permanentemente",
+    clipsDeleteFailed: "{{count}} clipes não puderam ser excluídos",
   },
   recordingRoute: {
     pageTitle: "Gravação de clip · Clips",
@@ -429,7 +433,7 @@ const messages = {
     agentPrompt:
       "Busque esta URL de contexto para agentes do Clips: {{agentContextUrl}}. Use transcript.segments para o contexto falado, busque recommendedFrames ou as URLs da API de quadros para ver a tela e confira browserDiagnostics, se presente, para logs de console redigidos e metadados de solicitações fetch/XHR.",
     agentTokenDescription:
-      "Este agente URL usa um token de curta duração, para que os agentes possam ler o clipe sem expor a senha.",
+      "Esta URL temporaria para agentes permite ler o clipe sem torna-lo publico. Ela expira em duas horas.",
     gifPreview: "visualização de GIF",
     openPlayer: "Jogador aberto",
     downloadMp4: "Baixar MP4",
@@ -652,6 +656,11 @@ Todas as mudanças visíveis para usuários do Clips são documentadas aqui. Voc
     s3SecretAccessKeyLabel: "Chave de acesso secreta",
     s3RegionLabel: "Região",
     s3PublicBaseUrlLabel: "URL base pública",
+    s3UrlInvalid:
+      "Deve ser uma URL válida (ex.: https://s3.us-east-1.amazonaws.com)",
+    s3BucketInvalid:
+      "O nome do bucket deve ter 3–63 letras minúsculas, números ou hifens",
+    s3RegionInvalid: 'Deve ser uma região válida (ex.: us-east-1) ou "auto"',
     apiSetup: "Configuração de IA",
     apiSetupDescription:
       "Conecte IA com créditos grátis da Builder.io ou suas próprias chaves LLM.",
@@ -666,6 +675,8 @@ Todas as mudanças visíveis para usuários do Clips são documentadas aqui. Voc
     providerKeysSet: "{{count}} configuradas",
     checkingProviderKeys: "Verificando chaves de provedor…",
     keySet: "Configurada",
+    keyCleared: "Credenciais de armazenamento limpas",
+    clearAllS3: "Limpar credenciais",
     replaceKey: "Substituir chave…",
     pasteProviderKey: "Cole primeiro uma chave de provedor.",
     apiKeySaved: "Chave de API salva",
@@ -782,6 +793,10 @@ Todas as mudanças visíveis para usuários do Clips são documentadas aqui. Voc
     clipsArchiveFailed: "{{count}} clipes não puderam ser arquivados",
     clipsMovedToTrash: "{{count}} clipes movidos para a lixeira",
     clipsTrashFailed: "{{count}} clipes não puderam ser movidos para a lixeira",
+    loadFailedTitle: "Não foi possível carregar suas gravações",
+    loadFailedBody:
+      "Algo deu errado ao carregar esta lista. Suas gravações estão seguras — tente novamente.",
+    retry: "Tentar novamente",
   },
   notificationsRoute: {
     pageTitle: "Notificações · Clips",

@@ -1,0 +1,173 @@
+{
+  "name": "Agent LLM Observability",
+  "description": "LLM generation volume, latency, errors, token usage, and cost recorded through Agent Native tracking as PostHog-compatible `$ai_generation` events. Source: first-party analytics_events.",
+  "columns": 3,
+  "panels": [
+    {
+      "id": "llm-generations-30d",
+      "title": "LLM Generations (30d)",
+      "chartType": "metric",
+      "source": "first-party",
+      "width": 1,
+      "sql": "SELECT COUNT(*) AS count FROM analytics_events WHERE event_name = '$ai_generation' AND event_date >= to_char(CURRENT_DATE - INTERVAL '30 days', 'YYYY-MM-DD')",
+      "config": {
+        "yKey": "count",
+        "yFormatter": "number",
+        "description": "Agent LLM generation events emitted by core observability tracking over the last 30 days."
+      }
+    },
+    {
+      "id": "llm-cost-30d",
+      "title": "LLM Cost (30d)",
+      "chartType": "metric",
+      "source": "first-party",
+      "width": 1,
+      "sql": "SELECT COALESCE(SUM(COALESCE(NULLIF(properties::jsonb ->> '$ai_total_cost_usd', '')::float, NULLIF(properties::jsonb ->> 'cost_usd', '')::float, COALESCE(NULLIF(properties::jsonb ->> 'cost_cents_x100', '')::float, 0) / 10000.0)), 0) AS cost_usd FROM analytics_events WHERE event_name = '$ai_generation' AND event_date >= to_char(CURRENT_DATE - INTERVAL '30 days', 'YYYY-MM-DD')",
+      "config": {
+        "yKey": "cost_usd",
+        "yFormatter": "currency",
+        "description": "Estimated provider spend from tracked LLM generation events."
+      }
+    },
+    {
+      "id": "llm-avg-latency-30d",
+      "title": "Avg LLM Latency (30d)",
+      "chartType": "metric",
+      "source": "first-party",
+      "width": 1,
+      "sql": "SELECT COALESCE(AVG(COALESCE(NULLIF(properties::jsonb ->> 'duration_ms', '')::float, NULLIF(properties::jsonb ->> '$ai_latency', '')::float * 1000.0)), 0) AS latency_ms FROM analytics_events WHERE event_name = '$ai_generation' AND event_date >= to_char(CURRENT_DATE - INTERVAL '30 days', 'YYYY-MM-DD')",
+      "config": {
+        "yKey": "latency_ms",
+        "yFormatter": "duration",
+        "description": "Average agent loop latency for tracked LLM generations."
+      }
+    },
+    {
+      "id": "llm-error-rate-30d",
+      "title": "LLM Error Rate (30d)",
+      "chartType": "metric",
+      "source": "first-party",
+      "width": 1,
+      "sql": "SELECT CASE WHEN COUNT(*) = 0 THEN 0 ELSE COUNT(*) FILTER (WHERE lower(COALESCE(properties::jsonb ->> '$ai_is_error', properties::jsonb ->> 'status', '')) IN ('true', 'error'))::float / COUNT(*) END AS rate FROM analytics_events WHERE event_name = '$ai_generation' AND event_date >= to_char(CURRENT_DATE - INTERVAL '30 days', 'YYYY-MM-DD')",
+      "config": {
+        "yKey": "rate",
+        "yFormatter": "percent",
+        "description": "Share of tracked LLM generations that ended in an error status."
+      }
+    },
+    {
+      "id": "llm-cost-over-time",
+      "title": "LLM Cost Over Time by App",
+      "chartType": "area",
+      "source": "first-party",
+      "width": 2,
+      "sql": "SELECT event_date AS date, COALESCE(NULLIF(app, ''), NULLIF(template, ''), 'unknown') AS app, COALESCE(SUM(COALESCE(NULLIF(properties::jsonb ->> '$ai_total_cost_usd', '')::float, NULLIF(properties::jsonb ->> 'cost_usd', '')::float, COALESCE(NULLIF(properties::jsonb ->> 'cost_cents_x100', '')::float, 0) / 10000.0)), 0) AS cost_usd FROM analytics_events WHERE event_name = '$ai_generation' AND event_date >= to_char(CURRENT_DATE - INTERVAL '30 days', 'YYYY-MM-DD') GROUP BY event_date, COALESCE(NULLIF(app, ''), NULLIF(template, ''), 'unknown') ORDER BY date, app",
+      "config": {
+        "xKey": "date",
+        "yKey": "cost_usd",
+        "yFormatter": "currency",
+        "pivot": {
+          "xKey": "date",
+          "seriesKey": "app",
+          "valueKey": "cost_usd"
+        },
+        "stacked": true,
+        "description": "Daily estimated LLM cost stacked by emitting app/template."
+      }
+    },
+    {
+      "id": "llm-cost-by-model",
+      "title": "LLM Cost by Model",
+      "chartType": "bar",
+      "source": "first-party",
+      "width": 1,
+      "sql": "SELECT COALESCE(NULLIF(properties::jsonb ->> '$ai_model', ''), NULLIF(properties::jsonb ->> 'model', ''), 'unknown') AS model, COALESCE(SUM(COALESCE(NULLIF(properties::jsonb ->> '$ai_total_cost_usd', '')::float, NULLIF(properties::jsonb ->> 'cost_usd', '')::float, COALESCE(NULLIF(properties::jsonb ->> 'cost_cents_x100', '')::float, 0) / 10000.0)), 0) AS cost_usd FROM analytics_events WHERE event_name = '$ai_generation' AND event_date >= to_char(CURRENT_DATE - INTERVAL '30 days', 'YYYY-MM-DD') GROUP BY COALESCE(NULLIF(properties::jsonb ->> '$ai_model', ''), NULLIF(properties::jsonb ->> 'model', ''), 'unknown') ORDER BY cost_usd DESC LIMIT 20",
+      "config": {
+        "xKey": "model",
+        "yKey": "cost_usd",
+        "yFormatter": "currency",
+        "color": "var(--brand-purple)",
+        "description": "Estimated LLM cost grouped by model over the last 30 days."
+      }
+    },
+    {
+      "id": "llm-tokens-over-time",
+      "title": "LLM Tokens Over Time by Model",
+      "chartType": "area",
+      "source": "first-party",
+      "width": 2,
+      "sql": "SELECT event_date AS date, COALESCE(NULLIF(properties::jsonb ->> '$ai_model', ''), NULLIF(properties::jsonb ->> 'model', ''), 'unknown') AS model, SUM(COALESCE(NULLIF(properties::jsonb ->> '$ai_input_tokens', '')::float, NULLIF(properties::jsonb ->> 'input_tokens', '')::float, 0) + COALESCE(NULLIF(properties::jsonb ->> '$ai_output_tokens', '')::float, NULLIF(properties::jsonb ->> 'output_tokens', '')::float, 0)) AS tokens FROM analytics_events WHERE event_name = '$ai_generation' AND event_date >= to_char(CURRENT_DATE - INTERVAL '30 days', 'YYYY-MM-DD') GROUP BY event_date, COALESCE(NULLIF(properties::jsonb ->> '$ai_model', ''), NULLIF(properties::jsonb ->> 'model', ''), 'unknown') ORDER BY date, model",
+      "config": {
+        "xKey": "date",
+        "yKey": "tokens",
+        "yFormatter": "number",
+        "pivot": {
+          "xKey": "date",
+          "seriesKey": "model",
+          "valueKey": "tokens"
+        },
+        "stacked": true,
+        "description": "Input plus output tokens per day, stacked by model."
+      }
+    },
+    {
+      "id": "llm-latency-by-model",
+      "title": "LLM Latency by Model",
+      "chartType": "bar",
+      "source": "first-party",
+      "width": 1,
+      "sql": "SELECT COALESCE(NULLIF(properties::jsonb ->> '$ai_model', ''), NULLIF(properties::jsonb ->> 'model', ''), 'unknown') AS model, COALESCE(AVG(COALESCE(NULLIF(properties::jsonb ->> 'duration_ms', '')::float, NULLIF(properties::jsonb ->> '$ai_latency', '')::float * 1000.0)), 0) AS latency_ms FROM analytics_events WHERE event_name = '$ai_generation' AND event_date >= to_char(CURRENT_DATE - INTERVAL '30 days', 'YYYY-MM-DD') GROUP BY COALESCE(NULLIF(properties::jsonb ->> '$ai_model', ''), NULLIF(properties::jsonb ->> 'model', ''), 'unknown') ORDER BY latency_ms DESC LIMIT 20",
+      "config": {
+        "xKey": "model",
+        "yKey": "latency_ms",
+        "yFormatter": "duration",
+        "color": "var(--brand-teal)",
+        "description": "Average tracked LLM generation latency grouped by model."
+      }
+    },
+    {
+      "id": "top-expensive-llm-runs",
+      "title": "Top Expensive LLM Runs",
+      "chartType": "table",
+      "source": "first-party",
+      "width": 3,
+      "sql": "SELECT timestamp, COALESCE(NULLIF(app, ''), NULLIF(template, ''), 'unknown') AS app, COALESCE(NULLIF(properties::jsonb ->> '$ai_model', ''), NULLIF(properties::jsonb ->> 'model', ''), 'unknown') AS model, COALESCE(NULLIF(user_id, ''), NULLIF(anonymous_id, ''), 'anonymous') AS user_key, COALESCE(NULLIF(properties::jsonb ->> 'run_id', ''), NULLIF(properties::jsonb ->> '$ai_trace_id', '')) AS run_id, ROUND((COALESCE(NULLIF(properties::jsonb ->> '$ai_total_cost_usd', '')::float, NULLIF(properties::jsonb ->> 'cost_usd', '')::float, COALESCE(NULLIF(properties::jsonb ->> 'cost_cents_x100', '')::float, 0) / 10000.0))::numeric, 4) AS cost_usd, ROUND((COALESCE(NULLIF(properties::jsonb ->> 'duration_ms', '')::float, NULLIF(properties::jsonb ->> '$ai_latency', '')::float * 1000.0, 0))::numeric) AS duration_ms, COALESCE(NULLIF(properties::jsonb ->> 'tool_calls', '')::int, 0) AS tool_calls FROM analytics_events WHERE event_name = '$ai_generation' AND event_date >= to_char(CURRENT_DATE - INTERVAL '30 days', 'YYYY-MM-DD') ORDER BY cost_usd DESC LIMIT 25",
+      "config": {
+        "description": "Highest estimated-cost agent runs in the last 30 days.",
+        "columns": [
+          { "key": "timestamp", "label": "Time", "format": "date" },
+          { "key": "app", "label": "App" },
+          { "key": "model", "label": "Model" },
+          { "key": "user_key", "label": "User" },
+          { "key": "run_id", "label": "Run ID" },
+          { "key": "cost_usd", "label": "Cost", "format": "currency" },
+          { "key": "duration_ms", "label": "Duration", "format": "duration" },
+          { "key": "tool_calls", "label": "Tools", "format": "number" }
+        ],
+        "sortable": true,
+        "limit": 25
+      }
+    },
+    {
+      "id": "recent-llm-errors",
+      "title": "Recent LLM Errors",
+      "chartType": "table",
+      "source": "first-party",
+      "width": 3,
+      "sql": "SELECT timestamp, COALESCE(NULLIF(app, ''), NULLIF(template, ''), 'unknown') AS app, COALESCE(NULLIF(properties::jsonb ->> '$ai_model', ''), NULLIF(properties::jsonb ->> 'model', ''), 'unknown') AS model, COALESCE(NULLIF(user_id, ''), NULLIF(anonymous_id, ''), 'anonymous') AS user_key, COALESCE(NULLIF(properties::jsonb ->> 'run_id', ''), NULLIF(properties::jsonb ->> '$ai_trace_id', '')) AS run_id, COALESCE(NULLIF(properties::jsonb ->> 'error_message', ''), NULLIF(properties::jsonb ->> '$ai_error', ''), 'error') AS error FROM analytics_events WHERE event_name = '$ai_generation' AND lower(COALESCE(properties::jsonb ->> '$ai_is_error', properties::jsonb ->> 'status', '')) IN ('true', 'error') ORDER BY timestamp DESC LIMIT 25",
+      "config": {
+        "description": "Most recent tracked LLM generation errors.",
+        "columns": [
+          { "key": "timestamp", "label": "Time", "format": "date" },
+          { "key": "app", "label": "App" },
+          { "key": "model", "label": "Model" },
+          { "key": "user_key", "label": "User" },
+          { "key": "run_id", "label": "Run ID" },
+          { "key": "error", "label": "Error" }
+        ],
+        "sortable": true,
+        "limit": 25
+      }
+    }
+  ]
+}

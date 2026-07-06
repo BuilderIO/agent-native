@@ -285,8 +285,8 @@ const enUS = {
         "Bring in Figma selections, .fig exports, or standalone HTML as Design screens.",
       figmaPasteTitle: "Paste from Figma",
       figmaPasteDescription:
-        "Copy a frame or layer in Figma, then focus this target and paste. Figma metadata imports directly when available.",
-      figmaPasteTarget: "Paste Figma content here",
+        "Copy a frame or layer in Figma, then paste into the Design canvas. Figma metadata imports directly when available.",
+      figmaPasteTarget: "Paste into the canvas",
       figUploadTitle: "Upload .fig",
       figUploadDescription:
         "Export only the frames you need. Large files with many embedded images may exceed the import limit.",
@@ -300,17 +300,15 @@ const enUS = {
       githubTitle: "GitHub",
       githubDescription:
         "Coming soon: import screens and components directly from a repository.",
-      localTitle: "Local app / VS Code",
-      localDescription: "Connect a running local app with visual-edit.",
+      localTitle: "Local app",
+      localDescription: "Connect any running local app with /visual-edit.",
       visualEditGuidance:
-        "Start your app, run the command below from the app repo, then ask the agent to use the visual-edit skill to add URL-backed screens.",
-      useVisualEditNow: "Use visual-edit now",
+        "Install the /visual-edit skill, start any local app, then run the bridge command from that app repo so your agent can add URL-backed screens.",
       comingSoon: "Coming soon",
       warningsToast: "Import completed with warnings",
       figmaSuccess: "Figma paste imported",
       htmlSuccess: "HTML imported",
       uploadSuccess: "File imported",
-      visualEditSent: "Sent visual-edit request to the agent",
       lastImport: "Last import",
       errors: {
         notHtml: "Paste or choose valid HTML to import.",
@@ -518,6 +516,8 @@ const enUS = {
       auditRunFailed: "Unable to run design audit",
       componentCreated: "Component created",
       componentCreateFailed: "Could not create component",
+      undoSkippedConcurrentEdit: "Skipped an undo — someone else moved that",
+      redoSkippedConcurrentEdit: "Skipped a redo — someone else moved that",
     },
     localSourceEdit: {
       copyPrompt: "Copy prompt",
@@ -786,22 +786,22 @@ const enUS = {
     continue: "Continue to generation",
     title: "Set up your design system",
     description:
-      "Provide any combination of sources. The more context you give, the more accurate the extracted design system will be.",
-    figmaParsingTitle: "Parsing your Figma file...",
+      "Connect Figma, code, and optional design.md guidance through Builder DSI. More context gives the agent a more accurate system.",
+    figmaParsingTitle: "Starting Builder DSI indexing...",
     figmaParsingDescription:
-      "Decoding the document and extracting brand tokens",
-    uploadFig: "Upload a .fig file",
-    figmaSaveLocalCopy: "In Figma: File -> Save local copy",
+      "Builder will extract tokens, components, assets, and usage guidance",
+    uploadFig: "Connect Figma with a .fig file",
+    figmaSaveLocalCopy:
+      "Upload a local copy from Figma: File -> Save local copy",
     websiteUrl: "Website-URL",
     add: "Add",
     githubRepository: "GitHub repository",
     privateRepoPrefix: "Private repos need a fine-grained token saved as",
     privateRepoSuffix: "with Contents read access.",
-    localCodeFiles: "Local code files",
-    dropCodeFiles:
-      "Drop CSS, Tailwind config, theme files here, or click to browse",
+    localCodeFiles: "Connect code files",
+    dropCodeFiles: "Drop CSS, Tailwind config, theme files, or design.md here",
     codeFilePatterns:
-      ".css, .scss, tailwind.config.*, theme.*, tokens.*, package.json",
+      ".css, .scss, tailwind.config.*, theme.*, tokens.*, design.md, package.json",
     documents: "Documents & presentations",
     documentsHelp:
       "PPTX, DOCX, PDF, XLSX - brand guides, pitch decks, style docs",
@@ -847,22 +847,22 @@ const enUS = {
     },
     sections: {
       figma: {
-        title: "Start from a Figma file",
+        title: "Connect Figma",
         description:
-          "Upload a .fig and we'll deeply extract the brand - colors, type scale, signature gradients, and a brand-character brief - into a ready-to-use design system.",
+          "Upload a .fig local copy and Builder DSI will extract tokens, components, assets, and guidance into a reusable design system.",
       },
       company: {
         title: "Company / Brand",
         description: "Name, description, and website",
       },
       code: {
-        title: "Code",
+        title: "Connect Code",
         description:
-          "GitHub repos or local files - the strongest signal for design tokens",
+          "GitHub repos, local source files, and optional design.md guidance for Builder DSI",
       },
       designFiles: {
-        title: "Design files",
-        description: "Figma files, documents, screenshots, brand assets",
+        title: "Reference files",
+        description: "Documents, screenshots, logos, fonts, and brand assets",
       },
       importExisting: {
         title: "Import from existing",
@@ -1188,6 +1188,8 @@ const designLocaleOverrides = {
         openScreenSvg: "导出 SVG 之前打开一个屏幕",
         svgDownloaded: "SVG 下载",
         svgExportError: "无法导出 SVG",
+        undoSkippedConcurrentEdit: "已跳过撤消 — 其他人移动了该内容",
+        redoSkippedConcurrentEdit: "已跳过重做 — 其他人移动了该内容",
       },
     },
     designSystemSetup: {
@@ -1198,18 +1200,18 @@ const designLocaleOverrides = {
       continue: "继续生成",
       title: "设置您的设计系统",
       description:
-        "提供来源的任意组合。您提供的上下文越多，提取的设计系统就越准确。",
-      figmaParsingTitle: "正在解析您的 Figma 文件...",
-      figmaParsingDescription: "解码文档并提取品牌令牌",
-      uploadFig: "上传.fig 文件",
-      figmaSaveLocalCopy: "在Figma中：文件->保存本地副本",
+        "通过 Builder DSI 连接 Figma、代码和可选的 design.md 指引。上下文越多，代理得到的系统越准确。",
+      figmaParsingTitle: "正在启动 Builder DSI 索引...",
+      figmaParsingDescription: "Builder 会提取令牌、组件、资产和使用指引",
+      uploadFig: "连接 Figma .fig 文件",
+      figmaSaveLocalCopy: "上传 Figma 本地副本：File -> Save local copy",
       websiteUrl: "网站URL",
       add: "添加",
       githubRepository: "GitHub 存储库",
       privateRepoPrefix: "私人仓库需要一个细粒度的令牌，另存为",
       privateRepoSuffix: "具有内容读取权限。",
-      localCodeFiles: "本地代码文件",
-      dropCodeFiles: "将 CSS、Tailwind 配置、主题文件拖放到此处，或单击浏览",
+      localCodeFiles: "连接代码文件",
+      dropCodeFiles: "将 CSS、Tailwind 配置、主题文件或 design.md 拖放到此处",
       documents: "文件和演示文稿",
       documentsHelp: "PPTX、DOCX、PDF、XLSX - 品牌指南、推介材料、风格文档",
       visualReferences: "屏幕截图和视觉参考",
@@ -1251,21 +1253,22 @@ const designLocaleOverrides = {
       },
       sections: {
         figma: {
-          title: "从 Figma 文件开始",
+          title: "连接 Figma",
           description:
-            "上传.fig，我们会将品牌（颜色、字体比例、签名渐变和品牌特征简介）深入提取到即用型设计系统中。",
+            "上传 .fig，Builder DSI 会将令牌、组件、资产和品牌指引索引成可重用的设计系统。",
         },
         company: {
           title: "公司/品牌",
           description: "名称、描述和网站",
         },
         code: {
-          title: "代码",
-          description: "GitHub 存储库或本地文件 - 设计令牌的最强信号",
+          title: "连接代码",
+          description:
+            "GitHub 存储库、本地代码文件或 design.md 会交给 Builder DSI 索引。",
         },
         designFiles: {
-          title: "设计文件",
-          description: "Figma 文件、文档、屏幕截图、品牌资产",
+          title: "参考文件",
+          description: "文档、截图和品牌资产会补充 Builder DSI 的索引上下文",
         },
         importExisting: {
           title: "从现有的导入",
@@ -1546,6 +1549,8 @@ const designLocaleOverrides = {
         openScreenSvg: "Abra una pantalla antes de exportar SVG",
         svgDownloaded: "SVG descargado",
         svgExportError: "No se pudo exportar SVG",
+        undoSkippedConcurrentEdit: "Se omitió deshacer: otra persona movió eso",
+        redoSkippedConcurrentEdit: "Se omitió rehacer: otra persona movió eso",
       },
     },
     designSystemSetup: {
@@ -1556,21 +1561,22 @@ const designLocaleOverrides = {
       continue: "continuar con la generación",
       title: "Configure su sistema de diseño",
       description:
-        "Proporcione cualquier combinación de fuentes. Cuanto más contexto proporcione, más preciso será el sistema de diseño extraído.",
-      figmaParsingTitle: "Analizando su archivo Figma...",
+        "Conecta Figma, código y guía opcional de design.md mediante Builder DSI. Más contexto le da al agente un sistema más preciso.",
+      figmaParsingTitle: "Iniciando indexación de Builder DSI...",
       figmaParsingDescription:
-        "Decodificando el documento y extrayendo tokens de marca.",
-      uploadFig: "Sube un archivo.fig",
-      figmaSaveLocalCopy: "En Figma: Archivo -> Guardar copia local",
+        "Builder extraerá tokens, componentes, recursos y guía de uso.",
+      uploadFig: "Conectar Figma con un archivo .fig",
+      figmaSaveLocalCopy:
+        "Sube una copia local de Figma: File -> Save local copy",
       websiteUrl: "Sitio web URL",
       add: "Agregar",
       githubRepository: "repositorio GitHub",
       privateRepoPrefix:
         "Los repositorios privados necesitan un token detallado guardado como",
       privateRepoSuffix: "con acceso de lectura de contenidos.",
-      localCodeFiles: "Archivos de código local",
+      localCodeFiles: "Conectar archivos de código",
       dropCodeFiles:
-        "Suelte aquí los archivos de temas y de configuración CSS, Tailwind o haga clic para explorar",
+        "Suelta aquí CSS, configuración de Tailwind, archivos de tema o design.md",
       documents: "Documentos y presentaciones",
       documentsHelp:
         "PPTX, DOCX, PDF, XLSX: guías de marca, presentaciones, documentos de estilo",
@@ -1618,23 +1624,23 @@ const designLocaleOverrides = {
       },
       sections: {
         figma: {
-          title: "Comenzar desde un archivo Figma",
+          title: "Conectar Figma",
           description:
-            "Cargue un.fig y extraeremos en profundidad la marca (colores, escala de tipografía, degradados característicos y un resumen del personaje de la marca) en un sistema de diseño listo para usar.",
+            "Sube un .fig y Builder DSI indexará tokens, componentes, recursos y guía de marca en un sistema de diseño reutilizable.",
         },
         company: {
           title: "Empresa / Marca",
           description: "Nombre, descripción y sitio web.",
         },
         code: {
-          title: "Código",
+          title: "Conectar código",
           description:
-            "GitHub repositorios o archivos locales: la señal más fuerte para tokens de diseño",
+            "Repositorios de GitHub, archivos de código locales o design.md se indexan con Builder DSI.",
         },
         designFiles: {
-          title: "Archivos de diseño",
+          title: "Archivos de referencia",
           description:
-            "Archivos Figma, documentos, capturas de pantalla y activos de marca.",
+            "Documentos, capturas de pantalla y recursos de marca complementan el contexto de Builder DSI.",
         },
         importExisting: {
           title: "Importar desde existente",
@@ -1923,6 +1929,10 @@ const designLocaleOverrides = {
         openScreenSvg: "Ouvrir un écran avant d'exporter SVG",
         svgDownloaded: "SVG téléchargé",
         svgExportError: "Impossible d'exporter SVG",
+        undoSkippedConcurrentEdit:
+          "Annulation ignorée : quelqu'un d'autre a déplacé cet élément",
+        redoSkippedConcurrentEdit:
+          "Rétablissement ignoré : quelqu'un d'autre a déplacé cet élément",
       },
     },
     designSystemSetup: {
@@ -1933,21 +1943,22 @@ const designLocaleOverrides = {
       continue: "Continuer jusqu'à la génération",
       title: "Configurez votre système de conception",
       description:
-        "Fournissez n’importe quelle combinaison de sources. Plus vous donnez de contexte, plus le système de conception extrait sera précis.",
-      figmaParsingTitle: "Analyse de votre fichier Figma...",
+        "Connectez Figma, le code et les consignes design.md facultatives via Builder DSI. Plus le contexte est riche, plus le système de l’agent est précis.",
+      figmaParsingTitle: "Démarrage de l’indexation Builder DSI...",
       figmaParsingDescription:
-        "Décoder le document et extraire les jetons de marque",
-      uploadFig: "Téléchargez un fichier.fig",
-      figmaSaveLocalCopy: "Dans Figma: Fichier -> Enregistrer la copie locale",
+        "Builder extraira les jetons, composants, ressources et consignes d’utilisation",
+      uploadFig: "Connecter Figma avec un fichier .fig",
+      figmaSaveLocalCopy:
+        "Importez une copie locale Figma : File -> Save local copy",
       websiteUrl: "Site Web URL",
       add: "Ajouter",
       githubRepository: "référentiel GitHub",
       privateRepoPrefix:
         "Les dépôts privés nécessitent un jeton à granularité fine enregistré sous",
       privateRepoSuffix: "avec accès en lecture au contenu.",
-      localCodeFiles: "Fichiers de codes locaux",
+      localCodeFiles: "Connecter des fichiers de code",
       dropCodeFiles:
-        "Déposez CSS, Tailwind config, fichiers de thème ici ou cliquez pour parcourir",
+        "Déposez ici CSS, config Tailwind, fichiers de thème ou design.md",
       documents: "Documents & présentations",
       documentsHelp:
         "PPTX, DOCX, PDF, XLSX – guides de marque, pitch decks, documents de style",
@@ -1995,23 +2006,23 @@ const designLocaleOverrides = {
       },
       sections: {
         figma: {
-          title: "Démarrer à partir d'un fichier Figma",
+          title: "Connecter Figma",
           description:
-            "Téléchargez un.fig et nous extrairons en profondeur la marque - couleurs, échelle de caractères, dégradés de signature et description du personnage de la marque - dans un système de conception prêt à l'emploi.",
+            "Importez un .fig et Builder DSI indexera les jetons, composants, ressources et consignes de marque dans un système de design réutilisable.",
         },
         company: {
           title: "Entreprise / Marque",
           description: "Nom, description et site Web",
         },
         code: {
-          title: "Code",
+          title: "Connecter le code",
           description:
-            "Dépôts GitHub ou fichiers locaux - le signal le plus fort pour les jetons de conception",
+            "Les dépôts GitHub, fichiers de code locaux ou design.md sont indexés par Builder DSI.",
         },
         designFiles: {
-          title: "Fichiers de conception",
+          title: "Fichiers de référence",
           description:
-            "Fichiers Figma, documents, captures d'écran, actifs de marque",
+            "Documents, captures d’écran et ressources de marque enrichissent le contexte Builder DSI",
         },
         importExisting: {
           title: "Importer depuis un existant",
@@ -2300,6 +2311,10 @@ const designLocaleOverrides = {
         openScreenSvg: "Öffnen Sie einen Bildschirm, bevor Sie SVG exportieren",
         svgDownloaded: "SVG heruntergeladen",
         svgExportError: "SVG konnte nicht exportiert werden",
+        undoSkippedConcurrentEdit:
+          "Rückgängig übersprungen – jemand anderes hat das verschoben",
+        redoSkippedConcurrentEdit:
+          "Wiederholen übersprungen – jemand anderes hat das verschoben",
       },
     },
     designSystemSetup: {
@@ -2310,21 +2325,22 @@ const designLocaleOverrides = {
       continue: "Weiter zur Generation",
       title: "Richten Sie Ihr Designsystem ein",
       description:
-        "Geben Sie eine beliebige Kombination von Quellen an. Je mehr Kontext Sie angeben, desto genauer wird das extrahierte Designsystem sein.",
-      figmaParsingTitle: "Parsen Ihrer Figma-Datei...",
+        "Verbinde Figma, Code und optionale design.md-Anweisungen über Builder DSI. Mehr Kontext gibt dem Agenten ein genaueres System.",
+      figmaParsingTitle: "Builder-DSI-Indizierung wird gestartet...",
       figmaParsingDescription:
-        "Entschlüsseln des Dokuments und Extrahieren von Markentokens",
-      uploadFig: "Laden Sie eine.fig-Datei hoch",
-      figmaSaveLocalCopy: "In Figma: Datei -> Lokale Kopie speichern",
+        "Builder extrahiert Tokens, Komponenten, Assets und Nutzungsanweisungen",
+      uploadFig: "Figma mit einer .fig-Datei verbinden",
+      figmaSaveLocalCopy:
+        "Lade eine lokale Figma-Kopie hoch: File -> Save local copy",
       websiteUrl: "Website URL",
       add: "Hinzufügen",
       githubRepository: "GitHub-Repository",
       privateRepoPrefix:
         "Private Repos benötigen einen feinkörnigen Token, der unter gespeichert wird",
       privateRepoSuffix: "mit Lesezugriff auf Inhalte.",
-      localCodeFiles: "Lokale Codedateien",
+      localCodeFiles: "Code-Dateien verbinden",
       dropCodeFiles:
-        "Legen Sie die CSS-, Tailwind-Konfigurations- und Designdateien hier ab oder klicken Sie zum Durchsuchen",
+        "CSS, Tailwind-Konfiguration, Theme-Dateien oder design.md hier ablegen",
       documents: "Dokumente und Präsentationen",
       documentsHelp:
         "PPTX, DOCX, PDF, XLSX – Markenführer, Pitchdecks, Stildokumente",
@@ -2374,22 +2390,23 @@ const designLocaleOverrides = {
       },
       sections: {
         figma: {
-          title: "Beginnen Sie mit einer Figma-Datei",
+          title: "Figma verbinden",
           description:
-            "Laden Sie ein.fig hoch und wir extrahieren die Marke – Farben, Schriftskalierung, Signaturverläufe und eine Beschreibung der Markencharaktere – tiefgreifend in ein gebrauchsfertiges Designsystem.",
+            "Lade eine .fig hoch und Builder DSI indexiert Tokens, Komponenten, Assets und Markenanweisungen als wiederverwendbares Designsystem.",
         },
         company: {
           title: "Unternehmen / Marke",
           description: "Name, Beschreibung und Website",
         },
         code: {
-          title: "Code",
+          title: "Code verbinden",
           description:
-            "GitHub Repos oder lokale Dateien – das stärkste Signal für Design-Token",
+            "GitHub-Repositories, lokale Code-Dateien oder design.md werden mit Builder DSI indexiert.",
         },
         designFiles: {
-          title: "Designdateien",
-          description: "Figma-Dateien, Dokumente, Screenshots, Markenwerte",
+          title: "Referenzdateien",
+          description:
+            "Dokumente, Screenshots und Markenassets ergänzen den Builder-DSI-Kontext",
         },
         importExisting: {
           title: "Aus vorhandenem importieren",
@@ -2676,6 +2693,10 @@ const designLocaleOverrides = {
         openScreenSvg: "SVG をエクスポートする前に画面を開く",
         svgDownloaded: "SVGがダウンロードされました",
         svgExportError: "SVG をエクスポートできませんでした",
+        undoSkippedConcurrentEdit:
+          "元に戻す操作をスキップしました — 他のユーザーがそれを移動しました",
+        redoSkippedConcurrentEdit:
+          "やり直し操作をスキップしました — 他のユーザーがそれを移動しました",
       },
     },
     designSystemSetup: {
@@ -2686,20 +2707,22 @@ const designLocaleOverrides = {
       continue: "世代を継続する",
       title: "デザインシステムをセットアップする",
       description:
-        "ソースを任意に組み合わせて提供します。提供するコンテキストが多いほど、抽出されたデザイン システムの精度が高くなります。",
-      figmaParsingTitle: "Figma ファイルを解析しています...",
-      figmaParsingDescription: "文書をデコードしてブランドトークンを抽出する",
-      uploadFig: ".fig ファイルをアップロードする",
-      figmaSaveLocalCopy: "Figma の場合: [ファイル] -> [ローカル コピーを保存]",
+        "Figma、コード、任意の design.md ガイドを Builder DSI で接続します。コンテキストが多いほど、エージェントのシステムは正確になります。",
+      figmaParsingTitle: "Builder DSI のインデックス作成を開始しています...",
+      figmaParsingDescription:
+        "Builder がトークン、コンポーネント、アセット、利用ガイドを抽出します",
+      uploadFig: "Figma .fig ファイルを接続",
+      figmaSaveLocalCopy:
+        "Figma のローカルコピーをアップロード: File -> Save local copy",
       websiteUrl: "ウェブサイト URL",
       add: "追加",
       githubRepository: "GitHub リポジトリ",
       privateRepoPrefix:
         "プライベート リポジトリには、次のように保存されたきめ細かいトークンが必要です。",
       privateRepoSuffix: "コンテンツ読み取りアクセス付き。",
-      localCodeFiles: "ローカルコードファイル",
+      localCodeFiles: "コードファイルを接続",
       dropCodeFiles:
-        "CSS、Tailwind 設定、テーマ ファイルをここにドロップするか、クリックして参照します",
+        "CSS、Tailwind 設定、テーマファイル、design.md をここにドロップ",
       documents: "ドキュメントとプレゼンテーション",
       documentsHelp:
         "PPTX、DOCX、PDF、XLSX - ブランド ガイド、提案資料、スタイル ドキュメント",
@@ -2747,23 +2770,23 @@ const designLocaleOverrides = {
       },
       sections: {
         figma: {
-          title: "Figma ファイルから開始します",
+          title: "Figma を接続",
           description:
-            ".fig をアップロードすると、ブランド (色、タイプ スケール、特徴的なグラデーション、ブランド キャラクターの概要) がすぐに使用できるデザイン システムに深く抽出されます。",
+            ".fig をアップロードすると、Builder DSI がトークン、コンポーネント、アセット、ブランドガイドを再利用可能なデザインシステムにインデックス化します。",
         },
         company: {
           title: "会社・ブランド",
           description: "名前、説明、Web サイト",
         },
         code: {
-          title: "コード",
+          title: "コードを接続",
           description:
-            "GitHub リポジトリまたはローカル ファイル - デザイン トークンの最も強いシグナル",
+            "GitHub リポジトリ、ローカルコードファイル、design.md は Builder DSI でインデックス化されます。",
         },
         designFiles: {
-          title: "デザインファイル",
+          title: "参照ファイル",
           description:
-            "Figma ファイル、ドキュメント、スクリーンショット、ブランド資産",
+            "ドキュメント、スクリーンショット、ブランドアセットが Builder DSI のコンテキストを補足します",
         },
         importExisting: {
           title: "既存からインポート",
@@ -3047,6 +3070,10 @@ const designLocaleOverrides = {
         openScreenSvg: "SVG를 내보내기 전에 화면을 엽니다",
         svgDownloaded: "SVG 다운로드됨",
         svgExportError: "SVG를 내보낼 수 없습니다.",
+        undoSkippedConcurrentEdit:
+          "실행 취소를 건너뛰었습니다 — 다른 사용자가 이동했습니다",
+        redoSkippedConcurrentEdit:
+          "다시 실행을 건너뛰었습니다 — 다른 사용자가 이동했습니다",
       },
     },
     designSystemSetup: {
@@ -3057,20 +3084,21 @@ const designLocaleOverrides = {
       continue: "세대를 이어가다",
       title: "디자인 시스템 설정",
       description:
-        "소스 조합을 제공하십시오. 더 많은 컨텍스트를 제공할수록 추출된 디자인 시스템이 더 정확해집니다.",
-      figmaParsingTitle: "Figma 파일을 구문 분석하는 중...",
-      figmaParsingDescription: "문서 디코딩 및 브랜드 토큰 추출",
-      uploadFig: ".fig 파일 업로드",
-      figmaSaveLocalCopy: "Figma에서: 파일 -> 로컬 복사본 저장",
+        "Figma, 코드, 선택적 design.md 지침을 Builder DSI로 연결하세요. 맥락이 많을수록 에이전트의 시스템이 더 정확해집니다.",
+      figmaParsingTitle: "Builder DSI 색인 생성을 시작하는 중...",
+      figmaParsingDescription:
+        "Builder가 토큰, 컴포넌트, 자산, 사용 지침을 추출합니다",
+      uploadFig: "Figma .fig 파일 연결",
+      figmaSaveLocalCopy: "Figma 로컬 사본 업로드: File -> Save local copy",
       websiteUrl: "웹사이트 URL",
       add: "추가하다",
       githubRepository: "GitHub 저장소",
       privateRepoPrefix:
         "비공개 저장소에는 다음과 같이 저장된 세분화된 토큰이 필요합니다.",
       privateRepoSuffix: "콘텐츠 읽기 액세스 권한이 있습니다.",
-      localCodeFiles: "로컬 코드 파일",
+      localCodeFiles: "코드 파일 연결",
       dropCodeFiles:
-        "CSS, Tailwind 구성, 테마 파일을 여기에 드롭하거나 클릭하여 찾아보세요.",
+        "CSS, Tailwind 구성, 테마 파일 또는 design.md를 여기에 드롭하세요",
       documents: "문서 및 프리젠테이션",
       documentsHelp:
         "PPTX, DOCX, PDF, XLSX - 브랜드 가이드, 프레젠테이션 자료, 스타일 문서",
@@ -3115,22 +3143,23 @@ const designLocaleOverrides = {
       },
       sections: {
         figma: {
-          title: "Figma 파일에서 시작",
+          title: "Figma 연결",
           description:
-            ".fig를 업로드하면 브랜드(색상, 활자 크기, 시그니처 그라데이션, 브랜드 캐릭터 개요)를 바로 사용할 수 있는 디자인 시스템으로 심층적으로 추출해 드립니다.",
+            ".fig를 업로드하면 Builder DSI가 토큰, 컴포넌트, 자산, 브랜드 지침을 재사용 가능한 디자인 시스템으로 색인화합니다.",
         },
         company: {
           title: "회사/브랜드",
           description: "이름, 설명, 웹사이트",
         },
         code: {
-          title: "암호",
+          title: "코드 연결",
           description:
-            "GitHub 저장소 또는 로컬 파일 - 디자인 토큰에 대한 가장 강력한 신호",
+            "GitHub 저장소, 로컬 코드 파일 또는 design.md가 Builder DSI로 색인화됩니다.",
         },
         designFiles: {
-          title: "디자인 파일",
-          description: "Figma 파일, 문서, 스크린샷, 브랜드 자산",
+          title: "참조 파일",
+          description:
+            "문서, 스크린샷, 브랜드 자산이 Builder DSI 맥락을 보강합니다",
         },
         importExisting: {
           title: "기존에서 가져오기",
@@ -3414,6 +3443,9 @@ const designLocaleOverrides = {
         openScreenSvg: "Abra uma tela antes de exportar SVG",
         svgDownloaded: "SVG baixado",
         svgExportError: "Não foi possível exportar SVG",
+        undoSkippedConcurrentEdit:
+          "Desfazer ignorado — outra pessoa moveu isso",
+        redoSkippedConcurrentEdit: "Refazer ignorado — outra pessoa moveu isso",
       },
     },
     designSystemSetup: {
@@ -3424,21 +3456,22 @@ const designLocaleOverrides = {
       continue: "Continuar para a geração",
       title: "Configure seu sistema de design",
       description:
-        "Forneça qualquer combinação de fontes. Quanto mais contexto você fornecer, mais preciso será o sistema de design extraído.",
-      figmaParsingTitle: "Analisando seu arquivo Figma...",
+        "Conecte Figma, código e orientações opcionais de design.md pelo Builder DSI. Mais contexto dá ao agente um sistema mais preciso.",
+      figmaParsingTitle: "Iniciando indexação do Builder DSI...",
       figmaParsingDescription:
-        "Decodificando o documento e extraindo tokens de marca",
-      uploadFig: "Carregar um arquivo.fig",
-      figmaSaveLocalCopy: "Em Figma: Arquivo -> Salvar cópia local",
+        "Builder extrairá tokens, componentes, recursos e orientações de uso",
+      uploadFig: "Conectar Figma com um arquivo .fig",
+      figmaSaveLocalCopy:
+        "Envie uma cópia local do Figma: File -> Save local copy",
       websiteUrl: "Site URL",
       add: "Adicionar",
       githubRepository: "repositório GitHub",
       privateRepoPrefix:
         "Os repositórios privados precisam de um token refinado salvo como",
       privateRepoSuffix: "com acesso de leitura de conteúdo.",
-      localCodeFiles: "Arquivos de código local",
+      localCodeFiles: "Conectar arquivos de código",
       dropCodeFiles:
-        "Solte CSS, Tailwind config, arquivos de tema aqui ou clique para navegar",
+        "Solte CSS, configuração do Tailwind, arquivos de tema ou design.md aqui",
       documents: "Documentos e apresentações",
       documentsHelp:
         "PPTX, DOCX, PDF, XLSX - guias de marca, apresentações de argumento de venda, documentos de estilo",
@@ -3485,23 +3518,23 @@ const designLocaleOverrides = {
       },
       sections: {
         figma: {
-          title: "Comece a partir de um arquivo Figma",
+          title: "Conectar Figma",
           description:
-            "Faça upload de um.fig e extrairemos profundamente a marca - cores, escala de tipo, gradientes de assinatura e um resumo do personagem da marca - em um sistema de design pronto para uso.",
+            "Envie um .fig e o Builder DSI indexará tokens, componentes, recursos e orientações de marca em um sistema de design reutilizável.",
         },
         company: {
           title: "Empresa / Marca",
           description: "Nome, descrição e site",
         },
         code: {
-          title: "Código",
+          title: "Conectar código",
           description:
-            "repositórios GitHub ou arquivos locais - o sinal mais forte para tokens de design",
+            "Repositórios GitHub, arquivos de código locais ou design.md são indexados com Builder DSI.",
         },
         designFiles: {
-          title: "Arquivos de projeto",
+          title: "Arquivos de referência",
           description:
-            "arquivos Figma, documentos, capturas de tela, ativos de marca",
+            "Documentos, capturas de tela e recursos de marca complementam o contexto do Builder DSI",
         },
         importExisting: {
           title: "Importar de existente",
@@ -3786,6 +3819,10 @@ const designLocaleOverrides = {
         openScreenSvg: "SVG निर्यात करने से पहले एक स्क्रीन खोलें",
         svgDownloaded: "SVG डाउनलोड किया गया",
         svgExportError: "SVG निर्यात नहीं किया जा सका",
+        undoSkippedConcurrentEdit:
+          "पूर्ववत करना छोड़ दिया गया — किसी और ने इसे स्थानांतरित कर दिया",
+        redoSkippedConcurrentEdit:
+          "फिर से करना छोड़ दिया गया — किसी और ने इसे स्थानांतरित कर दिया",
       },
     },
     designSystemSetup: {
@@ -3796,20 +3833,20 @@ const designLocaleOverrides = {
       continue: "पीढ़ी तक जारी रखें",
       title: "अपना डिज़ाइन सिस्टम सेट करें",
       description:
-        "स्रोतों का कोई संयोजन प्रदान करें. आप जितना अधिक संदर्भ देंगे, निकाली गई डिज़ाइन प्रणाली उतनी ही सटीक होगी।",
-      figmaParsingTitle: "आपकी Figma फ़ाइल को पार्स किया जा रहा है...",
-      figmaParsingDescription: "दस्तावेज़ को डिकोड करना और ब्रांड टोकन निकालना",
-      uploadFig: "एक.fig फ़ाइल अपलोड करें",
-      figmaSaveLocalCopy: "Figma में: फ़ाइल -> स्थानीय प्रतिलिपि सहेजें",
+        "Figma, कोड और वैकल्पिक design.md मार्गदर्शन को Builder DSI से कनेक्ट करें. अधिक संदर्भ एजेंट को अधिक सटीक सिस्टम देता है.",
+      figmaParsingTitle: "Builder DSI indexing शुरू की जा रही है...",
+      figmaParsingDescription:
+        "Builder टोकन, कंपोनेंट, एसेट और उपयोग मार्गदर्शन निकालेगा",
+      uploadFig: "Figma .fig फ़ाइल कनेक्ट करें",
+      figmaSaveLocalCopy: "Figma स्थानीय कॉपी अपलोड करें: File -> Save local copy",
       websiteUrl: "वेबसाइट URL",
       add: "जोड़ना",
       githubRepository: "GitHub रिपॉजिटरी",
       privateRepoPrefix:
         "निजी रेपो को एक बढ़िया टोकन के रूप में सहेजे जाने की आवश्यकता होती है",
       privateRepoSuffix: "सामग्री पढ़ने की पहुंच के साथ।",
-      localCodeFiles: "स्थानीय कोड फ़ाइलें",
-      dropCodeFiles:
-        "CSS, Tailwind कॉन्फिगरेशन, थीम फ़ाइलें यहां छोड़ें, या ब्राउज़ करने के लिए क्लिक करें",
+      localCodeFiles: "कोड फ़ाइलें कनेक्ट करें",
+      dropCodeFiles: "CSS, Tailwind कॉन्फ़िग, थीम फ़ाइलें या design.md यहां छोड़ें",
       documents: "दस्तावेज़ एवं प्रस्तुतियाँ",
       documentsHelp: "PPTX, DOCX, PDF, XLSX - ब्रांड गाइड, पिच डेक, स्टाइल डॉक्स",
       visualReferences: "स्क्रीनशॉट और दृश्य संदर्भ",
@@ -3853,22 +3890,23 @@ const designLocaleOverrides = {
       },
       sections: {
         figma: {
-          title: "Figma फ़ाइल से प्रारंभ करें",
+          title: "Figma कनेक्ट करें",
           description:
-            "एक.fig अपलोड करें और हम उपयोग के लिए तैयार डिज़ाइन सिस्टम में ब्रांड - रंग, प्रकार का पैमाना, हस्ताक्षर ग्रेडिएंट और एक ब्रांड-चरित्र संक्षिप्त - को गहराई से निकालेंगे।",
+            ".fig अपलोड करें और Builder DSI टोकन, कंपोनेंट, एसेट और ब्रांड मार्गदर्शन को पुन: उपयोग योग्य डिज़ाइन सिस्टम में index करेगा.",
         },
         company: {
           title: "कंपनी/ब्रांड",
           description: "नाम, विवरण और वेबसाइट",
         },
         code: {
-          title: "कोड",
+          title: "कोड कनेक्ट करें",
           description:
-            "GitHub रेपो या स्थानीय फ़ाइलें - डिज़ाइन टोकन के लिए सबसे मजबूत संकेत",
+            "GitHub रिपॉज़िटरी, स्थानीय कोड फ़ाइलें या design.md Builder DSI से index होते हैं.",
         },
         designFiles: {
-          title: "फ़ाइलें डिज़ाइन करें",
-          description: "Figma फ़ाइलें, दस्तावेज़, स्क्रीनशॉट, ब्रांड संपत्ति",
+          title: "संदर्भ फ़ाइलें",
+          description:
+            "दस्तावेज़, स्क्रीनशॉट और ब्रांड एसेट Builder DSI संदर्भ को मजबूत करते हैं",
         },
         importExisting: {
           title: "मौजूदा से आयात करें",
@@ -4151,6 +4189,8 @@ const designLocaleOverrides = {
         openScreenSvg: "افتح الشاشة قبل تصدير SVG",
         svgDownloaded: "تم تنزيل SVG",
         svgExportError: "تعذر تصدير SVG",
+        undoSkippedConcurrentEdit: "تم تخطي التراجع — قام شخص آخر بنقله",
+        redoSkippedConcurrentEdit: "تم تخطي الإعادة — قام شخص آخر بنقله",
       },
     },
     designSystemSetup: {
@@ -4161,20 +4201,21 @@ const designLocaleOverrides = {
       continue: "الاستمرار في الجيل",
       title: "قم بإعداد نظام التصميم الخاص بك",
       description:
-        "توفير أي مجموعة من المصادر. كلما زاد السياق الذي تقدمه، أصبح نظام التصميم المستخرج أكثر دقة.",
-      figmaParsingTitle: "جارٍ تحليل ملف Figma...",
-      figmaParsingDescription: "فك تشفير الوثيقة واستخراج رموز العلامة التجارية",
-      uploadFig: "تحميل ملف.fig",
-      figmaSaveLocalCopy: "في Figma: ملف -> حفظ النسخة المحلية",
+        "اربط Figma والكود وإرشادات design.md الاختيارية عبر Builder DSI. كلما زاد السياق، حصل الوكيل على نظام أدق.",
+      figmaParsingTitle: "جارٍ بدء فهرسة Builder DSI...",
+      figmaParsingDescription:
+        "سيستخرج Builder الرموز والمكونات والأصول وإرشادات الاستخدام",
+      uploadFig: "ربط Figma بملف .fig",
+      figmaSaveLocalCopy: "حمّل نسخة Figma محلية: File -> Save local copy",
       websiteUrl: "موقع URL",
       add: "يضيف",
       githubRepository: "مستودع GitHub",
       privateRepoPrefix:
         "تحتاج عمليات إعادة الشراء الخاصة إلى رمز مميز محفوظ باسم",
       privateRepoSuffix: "مع محتويات الوصول للقراءة.",
-      localCodeFiles: "ملفات التعليمات البرمجية المحلية",
+      localCodeFiles: "ربط ملفات الكود",
       dropCodeFiles:
-        "قم بإسقاط CSS، أو Tailwind، أو ملفات السمات هنا، أو انقر للتصفح",
+        "أسقط CSS أو إعدادات Tailwind أو ملفات السمة أو design.md هنا",
       documents: "الوثائق والعروض التقديمية",
       documentsHelp:
         "PPTX، DOCX، PDF، XLSX - أدلة العلامة التجارية، والعروض الترويجية، ومستندات النمط",
@@ -4219,23 +4260,23 @@ const designLocaleOverrides = {
       },
       sections: {
         figma: {
-          title: "ابدأ من ملف Figma",
+          title: "ربط Figma",
           description:
-            "قم بتحميل.fig وسنقوم باستخراج العلامة التجارية بعمق - الألوان، ومقياس الكتابة، وتدرجات التوقيع، وملخص شخصية العلامة التجارية - في نظام تصميم جاهز للاستخدام.",
+            "حمّل .fig وسيقوم Builder DSI بفهرسة الرموز والمكونات والأصول وإرشادات العلامة في نظام تصميم قابل لإعادة الاستخدام.",
         },
         company: {
           title: "الشركة / العلامة التجارية",
           description: "الاسم والوصف والموقع",
         },
         code: {
-          title: "شفرة",
+          title: "ربط الكود",
           description:
-            "GitHub repos أو الملفات المحلية - أقوى إشارة لرموز التصميم",
+            "تتم فهرسة مستودعات GitHub أو ملفات الكود المحلية أو design.md عبر Builder DSI.",
         },
         designFiles: {
-          title: "ملفات التصميم",
+          title: "ملفات مرجعية",
           description:
-            "ملفات Figma والمستندات ولقطات الشاشة وأصول العلامة التجارية",
+            "تضيف المستندات ولقطات الشاشة وأصول العلامة سياقًا لفهرسة Builder DSI",
         },
         importExisting: {
           title: "الاستيراد من الموجود",
@@ -5730,7 +5771,7 @@ const designExactEnglishOverrides = {
     },
     designSystemSetup: {
       codeFilePatterns:
-        "文件类型: .css、.scss、tailwind.config.*、theme.*、tokens.*、package.json",
+        "文件类型: .css、.scss、tailwind.config.*、theme.*、tokens.*、design.md、package.json",
     },
     designEditor: {
       backToDesigns: "返回设计",
@@ -5804,7 +5845,7 @@ const designExactEnglishOverrides = {
     },
     designSystemSetup: {
       codeFilePatterns:
-        "Tipos de archivo: .css, .scss, tailwind.config.*, theme.*, tokens.*, package.json",
+        "Tipos de archivo: .css, .scss, tailwind.config.*, theme.*, tokens.*, design.md, package.json",
     },
     designEditor: {
       backToDesigns: "Volver a diseños",
@@ -5880,7 +5921,7 @@ const designExactEnglishOverrides = {
     },
     designSystemSetup: {
       codeFilePatterns:
-        "Types de fichiers : .css, .scss, tailwind.config.*, theme.*, tokens.*, package.json",
+        "Types de fichiers : .css, .scss, tailwind.config.*, theme.*, tokens.*, design.md, package.json",
     },
     designEditor: {
       backToDesigns: "Retour aux designs",
@@ -5957,7 +5998,7 @@ const designExactEnglishOverrides = {
     },
     designSystemSetup: {
       codeFilePatterns:
-        "Dateitypen: .css, .scss, tailwind.config.*, theme.*, tokens.*, package.json",
+        "Dateitypen: .css, .scss, tailwind.config.*, theme.*, tokens.*, design.md, package.json",
     },
     designEditor: {
       backToDesigns: "Zurück zu Designs",
@@ -6034,7 +6075,7 @@ const designExactEnglishOverrides = {
     },
     designSystemSetup: {
       codeFilePatterns:
-        "ファイル形式: .css、.scss、tailwind.config.*、theme.*、tokens.*、package.json",
+        "ファイル形式: .css、.scss、tailwind.config.*、theme.*、tokens.*、design.md、package.json",
     },
     designEditor: {
       backToDesigns: "デザインに戻る",
@@ -6111,7 +6152,7 @@ const designExactEnglishOverrides = {
     },
     designSystemSetup: {
       codeFilePatterns:
-        "파일 형식: .css, .scss, tailwind.config.*, theme.*, tokens.*, package.json",
+        "파일 형식: .css, .scss, tailwind.config.*, theme.*, tokens.*, design.md, package.json",
     },
     designEditor: {
       backToDesigns: "디자인으로 돌아가기",
@@ -6187,7 +6228,7 @@ const designExactEnglishOverrides = {
     },
     designSystemSetup: {
       codeFilePatterns:
-        "Tipos de arquivo: .css, .scss, tailwind.config.*, theme.*, tokens.*, package.json",
+        "Tipos de arquivo: .css, .scss, tailwind.config.*, theme.*, tokens.*, design.md, package.json",
     },
     designEditor: {
       backToDesigns: "Voltar aos designs",
@@ -6263,7 +6304,7 @@ const designExactEnglishOverrides = {
     },
     designSystemSetup: {
       codeFilePatterns:
-        "फ़ाइल प्रकार: .css, .scss, tailwind.config.*, theme.*, tokens.*, package.json",
+        "फ़ाइल प्रकार: .css, .scss, tailwind.config.*, theme.*, tokens.*, design.md, package.json",
     },
     designEditor: {
       backToDesigns: "डिज़ाइन पर वापस जाएँ",
@@ -6338,7 +6379,7 @@ const designExactEnglishOverrides = {
     },
     designSystemSetup: {
       codeFilePatterns:
-        "أنواع الملفات: .css و.scss وtailwind.config.* وtheme.* وtokens.* وpackage.json",
+        "أنواع الملفات: .css و.scss وtailwind.config.* وtheme.* وtokens.* وdesign.md وpackage.json",
     },
     designEditor: {
       backToDesigns: "العودة إلى التصاميم",
@@ -10100,8 +10141,8 @@ const designImportOverrides = {
           "將 Figma 選取內容、.fig 匯出檔或獨立 HTML 帶入為 Design 螢幕。",
         figmaPasteTitle: "從 Figma 貼上",
         figmaPasteDescription:
-          "在 Figma 複製畫框或圖層，然後聚焦此目標並貼上。可用時會直接匯入 Figma 中繼資料。",
-        figmaPasteTarget: "在此貼上 Figma 內容",
+          "在 Figma 複製畫框或圖層，然後貼到 Design 畫布。可用時會直接匯入 Figma 中繼資料。",
+        figmaPasteTarget: "貼到畫布",
         figUploadTitle: "上傳 .fig",
         figUploadDescription:
           "只匯出需要的畫框。含有許多嵌入圖片的大型檔案可能超過匯入限制。",
@@ -10114,17 +10155,15 @@ const designImportOverrides = {
         chooseHtmlFile: "選擇 HTML 檔案",
         githubTitle: "GitHub",
         githubDescription: "即將推出：直接從儲存庫匯入螢幕和元件。",
-        localTitle: "本機 app / VS Code",
-        localDescription: "使用 visual-edit 連接執行中的本機 app。",
+        localTitle: "本機 app",
+        localDescription: "使用 /visual-edit 連接任何執行中的本機 app。",
         visualEditGuidance:
-          "啟動 app，在 app repo 中執行下方命令，然後請代理使用 visual-edit skill 新增 URL 螢幕。",
-        useVisualEditNow: "立即使用 visual-edit",
+          "安裝 /visual-edit skill，啟動任意本機 app，然後在該 app repo 中執行橋接命令，讓代理新增 URL 螢幕。",
         comingSoon: "即將推出",
         warningsToast: "匯入完成但有警告",
         figmaSuccess: "已匯入 Figma 貼上內容",
         htmlSuccess: "已匯入 HTML",
         uploadSuccess: "已匯入檔案",
-        visualEditSent: "已將 visual-edit 請求傳送給代理",
         lastImport: "上次匯入",
         errors: {
           notHtml: "請貼上或選擇有效的 HTML 以匯入。",
@@ -10142,8 +10181,8 @@ const designImportOverrides = {
         description: "将 Figma 选区、.fig 导出或独立 HTML 导入为 Design 屏幕。",
         figmaPasteTitle: "从 Figma 粘贴",
         figmaPasteDescription:
-          "在 Figma 中复制画框或图层，然后聚焦此区域并粘贴。有可用元数据时会直接导入。",
-        figmaPasteTarget: "在此粘贴 Figma 内容",
+          "在 Figma 中复制画框或图层，然后粘贴到 Design 画布。有可用元数据时会直接导入。",
+        figmaPasteTarget: "粘贴到画布",
         figUploadTitle: "上传 .fig",
         figUploadDescription:
           "只导出需要的画框。包含大量嵌入图片的大文件可能超过导入限制。",
@@ -10156,17 +10195,15 @@ const designImportOverrides = {
         chooseHtmlFile: "选择 HTML 文件",
         githubTitle: "GitHub",
         githubDescription: "即将推出：直接从仓库导入屏幕和组件。",
-        localTitle: "本地 app / VS Code",
-        localDescription: "使用 visual-edit 连接正在运行的本地 app。",
+        localTitle: "本地 app",
+        localDescription: "使用 /visual-edit 连接任何正在运行的本地 app。",
         visualEditGuidance:
-          "启动 app，在 app repo 中运行下方命令，然后让代理使用 visual-edit skill 添加 URL 屏幕。",
-        useVisualEditNow: "立即使用 visual-edit",
+          "安装 /visual-edit skill，启动任意本地 app，然后在该 app repo 中运行桥接命令，让代理添加 URL 屏幕。",
         comingSoon: "即将推出",
         warningsToast: "导入完成但有警告",
         figmaSuccess: "已导入 Figma 粘贴内容",
         htmlSuccess: "已导入 HTML",
         uploadSuccess: "已导入文件",
-        visualEditSent: "已将 visual-edit 请求发送给代理",
         lastImport: "上次导入",
         errors: {
           notHtml: "请粘贴或选择有效的 HTML 进行导入。",
@@ -10185,8 +10222,8 @@ const designImportOverrides = {
           "Trae selecciones de Figma, exportaciones .fig o HTML independiente como pantallas de Design.",
         figmaPasteTitle: "Pegar desde Figma",
         figmaPasteDescription:
-          "Copia un marco o capa en Figma, enfoca este destino y pega. Los metadatos de Figma se importan directamente cuando están disponibles.",
-        figmaPasteTarget: "Pega contenido de Figma aquí",
+          "Copia un marco o capa en Figma y pégalo en el lienzo de Design. Los metadatos de Figma se importan directamente cuando están disponibles.",
+        figmaPasteTarget: "Pega en el lienzo",
         figUploadTitle: "Subir .fig",
         figUploadDescription:
           "Exporta solo los marcos necesarios. Los archivos grandes con muchas imágenes incrustadas pueden superar el límite.",
@@ -10200,17 +10237,16 @@ const designImportOverrides = {
         githubTitle: "GitHub",
         githubDescription:
           "Próximamente: importar pantallas y componentes directamente desde un repositorio.",
-        localTitle: "App local / VS Code",
-        localDescription: "Conecta una app local en ejecución con visual-edit.",
+        localTitle: "App local",
+        localDescription:
+          "Conecta cualquier app local en ejecución con /visual-edit.",
         visualEditGuidance:
-          "Inicia tu app, ejecuta el comando siguiente desde el repo de la app y luego pide al agente que use la skill visual-edit para añadir pantallas con URL.",
-        useVisualEditNow: "Usar visual-edit ahora",
+          "Instala la skill /visual-edit, inicia cualquier app local y ejecuta el comando de puente desde ese repo para que tu agente añada pantallas con URL.",
         comingSoon: "Próximamente",
         warningsToast: "La importación terminó con advertencias",
         figmaSuccess: "Pegado de Figma importado",
         htmlSuccess: "HTML importado",
         uploadSuccess: "Archivo importado",
-        visualEditSent: "Solicitud de visual-edit enviada al agente",
         lastImport: "Última importación",
         errors: {
           notHtml: "Pega o elige HTML válido para importar.",
@@ -10229,8 +10265,8 @@ const designImportOverrides = {
           "Importez des sélections Figma, des exports .fig ou du HTML autonome comme écrans Design.",
         figmaPasteTitle: "Coller depuis Figma",
         figmaPasteDescription:
-          "Copiez un frame ou un calque dans Figma, ciblez cette zone puis collez. Les métadonnées Figma sont importées directement si disponibles.",
-        figmaPasteTarget: "Collez le contenu Figma ici",
+          "Copiez un frame ou un calque dans Figma, puis collez-le dans le canevas Design. Les métadonnées Figma sont importées directement si disponibles.",
+        figmaPasteTarget: "Collez dans le canevas",
         figUploadTitle: "Téléverser .fig",
         figUploadDescription:
           "Exportez seulement les frames nécessaires. Les gros fichiers avec beaucoup d’images intégrées peuvent dépasser la limite.",
@@ -10244,18 +10280,16 @@ const designImportOverrides = {
         githubTitle: "GitHub",
         githubDescription:
           "Bientôt : importer des écrans et composants directement depuis un dépôt.",
-        localTitle: "App locale / VS Code",
+        localTitle: "App locale",
         localDescription:
-          "Connectez une app locale en cours d’exécution avec visual-edit.",
+          "Connectez n’importe quelle app locale en cours d’exécution avec /visual-edit.",
         visualEditGuidance:
-          "Lancez votre app, exécutez la commande ci-dessous depuis le dépôt de l’app, puis demandez à l’agent d’utiliser la skill visual-edit pour ajouter des écrans par URL.",
-        useVisualEditNow: "Utiliser visual-edit maintenant",
+          "Installez la skill /visual-edit, lancez n’importe quelle app locale, puis exécutez la commande de pont depuis ce dépôt pour que votre agent ajoute des écrans par URL.",
         comingSoon: "Bientôt",
         warningsToast: "Import terminé avec avertissements",
         figmaSuccess: "Collage Figma importé",
         htmlSuccess: "HTML importé",
         uploadSuccess: "Fichier importé",
-        visualEditSent: "Demande visual-edit envoyée à l’agent",
         lastImport: "Dernier import",
         errors: {
           notHtml: "Collez ou choisissez du HTML valide à importer.",
@@ -10274,8 +10308,8 @@ const designImportOverrides = {
           "Bringe Figma-Auswahlen, .fig-Exporte oder eigenständiges HTML als Design-Bildschirme hinein.",
         figmaPasteTitle: "Aus Figma einfügen",
         figmaPasteDescription:
-          "Kopiere einen Frame oder Layer in Figma, fokussiere dieses Ziel und füge ein. Figma-Metadaten werden direkt importiert, wenn sie verfügbar sind.",
-        figmaPasteTarget: "Figma-Inhalt hier einfügen",
+          "Kopiere einen Frame oder Layer in Figma und füge ihn in die Design-Leinwand ein. Figma-Metadaten werden direkt importiert, wenn sie verfügbar sind.",
+        figmaPasteTarget: "In die Leinwand einfügen",
         figUploadTitle: ".fig hochladen",
         figUploadDescription:
           "Exportiere nur die benötigten Frames. Große Dateien mit vielen eingebetteten Bildern können das Importlimit überschreiten.",
@@ -10289,17 +10323,15 @@ const designImportOverrides = {
         githubTitle: "GitHub",
         githubDescription:
           "Demnächst: Bildschirme und Komponenten direkt aus einem Repository importieren.",
-        localTitle: "Lokale App / VS Code",
-        localDescription: "Verbinde eine laufende lokale App mit visual-edit.",
+        localTitle: "Lokale App",
+        localDescription: "Verbinde jede laufende lokale App mit /visual-edit.",
         visualEditGuidance:
-          "Starte deine App, führe den folgenden Befehl im App-Repo aus und bitte den Agenten dann, die visual-edit-Skill zu verwenden, um URL-basierte Bildschirme hinzuzufügen.",
-        useVisualEditNow: "visual-edit jetzt verwenden",
+          "Installiere die /visual-edit-Skill, starte eine lokale App und führe dann den Bridge-Befehl aus diesem App-Repo aus, damit dein Agent URL-basierte Bildschirme hinzufügen kann.",
         comingSoon: "Demnächst",
         warningsToast: "Import mit Warnungen abgeschlossen",
         figmaSuccess: "Figma-Einfügung importiert",
         htmlSuccess: "HTML importiert",
         uploadSuccess: "Datei importiert",
-        visualEditSent: "visual-edit-Anfrage an den Agenten gesendet",
         lastImport: "Letzter Import",
         errors: {
           notHtml: "Füge gültiges HTML ein oder wähle es zum Importieren aus.",
@@ -10318,8 +10350,8 @@ const designImportOverrides = {
           "Figma の選択範囲、.fig エクスポート、または単体 HTML を Design の画面として取り込みます。",
         figmaPasteTitle: "Figma から貼り付け",
         figmaPasteDescription:
-          "Figma でフレームまたはレイヤーをコピーし、この領域にフォーカスして貼り付けます。利用可能な場合は Figma メタデータを直接インポートします。",
-        figmaPasteTarget: "ここに Figma コンテンツを貼り付け",
+          "Figma でフレームまたはレイヤーをコピーし、Design キャンバスに貼り付けます。利用可能な場合は Figma メタデータを直接インポートします。",
+        figmaPasteTarget: "キャンバスに貼り付け",
         figUploadTitle: ".fig をアップロード",
         figUploadDescription:
           "必要なフレームだけを書き出してください。埋め込み画像が多い大きなファイルは制限を超える場合があります。",
@@ -10333,17 +10365,16 @@ const designImportOverrides = {
         githubTitle: "GitHub",
         githubDescription:
           "近日対応: リポジトリから画面とコンポーネントを直接インポートします。",
-        localTitle: "ローカル app / VS Code",
-        localDescription: "visual-edit で実行中のローカル app に接続します。",
+        localTitle: "ローカル app",
+        localDescription:
+          "/visual-edit で任意の実行中ローカル app に接続します。",
         visualEditGuidance:
-          "app を起動し、app repo で下のコマンドを実行してから、エージェントに visual-edit skill で URL ベースの画面を追加するよう依頼してください。",
-        useVisualEditNow: "visual-edit を今すぐ使う",
+          "/visual-edit skill をインストールし、任意のローカル app を起動してから、その app repo でブリッジコマンドを実行し、エージェントが URL ベースの画面を追加できるようにします。",
         comingSoon: "近日対応",
         warningsToast: "警告付きでインポートが完了しました",
         figmaSuccess: "Figma 貼り付けをインポートしました",
         htmlSuccess: "HTML をインポートしました",
         uploadSuccess: "ファイルをインポートしました",
-        visualEditSent: "visual-edit リクエストをエージェントに送信しました",
         lastImport: "前回のインポート",
         errors: {
           notHtml: "インポートする有効な HTML を貼り付けるか選択してください。",
@@ -10362,8 +10393,8 @@ const designImportOverrides = {
           "Figma 선택 영역, .fig 내보내기 또는 독립 HTML을 Design 화면으로 가져옵니다.",
         figmaPasteTitle: "Figma에서 붙여넣기",
         figmaPasteDescription:
-          "Figma에서 프레임이나 레이어를 복사한 뒤 이 영역에 포커스하고 붙여넣으세요. 가능한 경우 Figma 메타데이터를 바로 가져옵니다.",
-        figmaPasteTarget: "여기에 Figma 콘텐츠 붙여넣기",
+          "Figma에서 프레임이나 레이어를 복사한 뒤 Design 캔버스에 붙여넣으세요. 가능한 경우 Figma 메타데이터를 바로 가져옵니다.",
+        figmaPasteTarget: "캔버스에 붙여넣기",
         figUploadTitle: ".fig 업로드",
         figUploadDescription:
           "필요한 프레임만 내보내세요. 포함된 이미지가 많은 큰 파일은 가져오기 제한을 초과할 수 있습니다.",
@@ -10377,17 +10408,16 @@ const designImportOverrides = {
         githubTitle: "GitHub",
         githubDescription:
           "곧 제공: 저장소에서 화면과 컴포넌트를 직접 가져옵니다.",
-        localTitle: "로컬 app / VS Code",
-        localDescription: "visual-edit로 실행 중인 로컬 app을 연결합니다.",
+        localTitle: "로컬 app",
+        localDescription:
+          "/visual-edit로 실행 중인 모든 로컬 app을 연결합니다.",
         visualEditGuidance:
-          "app을 시작하고 app repo에서 아래 명령을 실행한 다음, 에이전트에게 visual-edit skill로 URL 기반 화면을 추가해 달라고 요청하세요.",
-        useVisualEditNow: "지금 visual-edit 사용",
+          "/visual-edit skill을 설치하고 로컬 app을 시작한 뒤, 해당 app repo에서 브리지 명령을 실행해 에이전트가 URL 기반 화면을 추가할 수 있게 하세요.",
         comingSoon: "곧 제공",
         warningsToast: "경고와 함께 가져오기가 완료되었습니다",
         figmaSuccess: "Figma 붙여넣기를 가져왔습니다",
         htmlSuccess: "HTML을 가져왔습니다",
         uploadSuccess: "파일을 가져왔습니다",
-        visualEditSent: "visual-edit 요청을 에이전트에 보냈습니다",
         lastImport: "최근 가져오기",
         errors: {
           notHtml: "가져올 유효한 HTML을 붙여넣거나 선택하세요.",
@@ -10406,8 +10436,8 @@ const designImportOverrides = {
           "Traga seleções do Figma, exportações .fig ou HTML independente como telas do Design.",
         figmaPasteTitle: "Colar do Figma",
         figmaPasteDescription:
-          "Copie um frame ou camada no Figma, foque este destino e cole. Os metadados do Figma são importados diretamente quando disponíveis.",
-        figmaPasteTarget: "Cole conteúdo do Figma aqui",
+          "Copie um frame ou camada no Figma e cole na tela do Design. Os metadados do Figma são importados diretamente quando disponíveis.",
+        figmaPasteTarget: "Cole na tela",
         figUploadTitle: "Enviar .fig",
         figUploadDescription:
           "Exporte apenas os frames necessários. Arquivos grandes com muitas imagens incorporadas podem exceder o limite.",
@@ -10421,17 +10451,16 @@ const designImportOverrides = {
         githubTitle: "GitHub",
         githubDescription:
           "Em breve: importe telas e componentes diretamente de um repositório.",
-        localTitle: "App local / VS Code",
-        localDescription: "Conecte um app local em execução com visual-edit.",
+        localTitle: "App local",
+        localDescription:
+          "Conecte qualquer app local em execução com /visual-edit.",
         visualEditGuidance:
-          "Inicie seu app, execute o comando abaixo no repo do app e depois peça ao agente para usar a skill visual-edit para adicionar telas por URL.",
-        useVisualEditNow: "Usar visual-edit agora",
+          "Instale a skill /visual-edit, inicie qualquer app local e execute o comando de ponte nesse repo para que seu agente adicione telas por URL.",
         comingSoon: "Em breve",
         warningsToast: "Importação concluída com avisos",
         figmaSuccess: "Colagem do Figma importada",
         htmlSuccess: "HTML importado",
         uploadSuccess: "Arquivo importado",
-        visualEditSent: "Solicitação de visual-edit enviada ao agente",
         lastImport: "Última importação",
         errors: {
           notHtml: "Cole ou escolha HTML válido para importar.",
@@ -10450,8 +10479,8 @@ const designImportOverrides = {
           "Figma selections, .fig exports या standalone HTML को Design screens के रूप में लाएँ।",
         figmaPasteTitle: "Figma से पेस्ट करें",
         figmaPasteDescription:
-          "Figma में frame या layer कॉपी करें, फिर इस target को focus करके paste करें। उपलब्ध होने पर Figma metadata सीधे import होता है।",
-        figmaPasteTarget: "Figma content यहाँ paste करें",
+          "Figma में frame या layer कॉपी करें, फिर Design canvas में paste करें। उपलब्ध होने पर Figma metadata सीधे import होता है।",
+        figmaPasteTarget: "canvas में paste करें",
         figUploadTitle: ".fig अपलोड करें",
         figUploadDescription:
           "सिर्फ ज़रूरी frames export करें। कई embedded images वाली बड़ी files import limit से ऊपर जा सकती हैं।",
@@ -10465,17 +10494,16 @@ const designImportOverrides = {
         githubTitle: "GitHub",
         githubDescription:
           "जल्द आ रहा है: repository से screens और components सीधे import करें।",
-        localTitle: "स्थानीय app / VS Code",
-        localDescription: "चल रहे local app को visual-edit से connect करें।",
+        localTitle: "स्थानीय app",
+        localDescription:
+          "/visual-edit से किसी भी चल रहे local app को connect करें।",
         visualEditGuidance:
-          "अपना app शुरू करें, app repo से नीचे वाला command चलाएँ, फिर agent से visual-edit skill इस्तेमाल करके URL-backed screens जोड़ने को कहें।",
-        useVisualEditNow: "अभी visual-edit इस्तेमाल करें",
+          "/visual-edit skill install करें, कोई भी local app शुरू करें, फिर उस app repo से bridge command चलाएँ ताकि आपका agent URL-backed screens जोड़ सके।",
         comingSoon: "जल्द आ रहा है",
         warningsToast: "Import warnings के साथ पूरा हुआ",
         figmaSuccess: "Figma paste import हो गया",
         htmlSuccess: "HTML import हो गया",
         uploadSuccess: "File import हो गई",
-        visualEditSent: "visual-edit request agent को भेजी गई",
         lastImport: "पिछला import",
         errors: {
           notHtml: "Import करने के लिए valid HTML paste करें या चुनें।",
@@ -10494,8 +10522,8 @@ const designImportOverrides = {
           "استورد تحديدات Figma أو ملفات .fig أو HTML مستقل كشاشات Design.",
         figmaPasteTitle: "لصق من Figma",
         figmaPasteDescription:
-          "انسخ إطارا أو طبقة في Figma، ثم ركز هذه المنطقة والصق. يتم استيراد بيانات Figma الوصفية مباشرة عند توفرها.",
-        figmaPasteTarget: "الصق محتوى Figma هنا",
+          "انسخ إطارا أو طبقة في Figma، ثم الصقها في لوحة Design. يتم استيراد بيانات Figma الوصفية مباشرة عند توفرها.",
+        figmaPasteTarget: "الصق في اللوحة",
         figUploadTitle: "رفع .fig",
         figUploadDescription:
           "صدّر الإطارات التي تحتاجها فقط. قد تتجاوز الملفات الكبيرة ذات الصور المضمنة الكثيرة حد الاستيراد.",
@@ -10508,17 +10536,16 @@ const designImportOverrides = {
         chooseHtmlFile: "اختر ملف HTML",
         githubTitle: "GitHub",
         githubDescription: "قريبا: استيراد الشاشات والمكونات مباشرة من مستودع.",
-        localTitle: "تطبيق محلي / VS Code",
-        localDescription: "وصّل تطبيقا محليا قيد التشغيل باستخدام visual-edit.",
+        localTitle: "تطبيق محلي",
+        localDescription:
+          "وصّل أي تطبيق محلي قيد التشغيل باستخدام /visual-edit.",
         visualEditGuidance:
-          "شغّل التطبيق، ثم نفّذ الأمر أدناه من مستودع التطبيق، وبعدها اطلب من الوكيل استخدام مهارة visual-edit لإضافة شاشات مدعومة بروابط URL.",
-        useVisualEditNow: "استخدم visual-edit الآن",
+          "ثبّت مهارة /visual-edit، وشغّل أي تطبيق محلي، ثم نفّذ أمر الجسر من مستودع ذلك التطبيق ليتمكن الوكيل من إضافة شاشات مدعومة بروابط URL.",
         comingSoon: "قريبا",
         warningsToast: "اكتمل الاستيراد مع تحذيرات",
         figmaSuccess: "تم استيراد لصق Figma",
         htmlSuccess: "تم استيراد HTML",
         uploadSuccess: "تم استيراد الملف",
-        visualEditSent: "تم إرسال طلب visual-edit إلى الوكيل",
         lastImport: "آخر استيراد",
         errors: {
           notHtml: "الصق أو اختر HTML صالحا للاستيراد.",

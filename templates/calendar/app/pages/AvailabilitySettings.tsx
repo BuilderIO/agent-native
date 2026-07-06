@@ -1,21 +1,21 @@
 import { useT } from "@agent-native/core/client";
-import type { AvailabilityConfig, DaySchedule } from "@shared/api";
-import { useState, useEffect } from "react";
-import { toast } from "sonner";
-
-import { CloudUpgrade } from "@/components/CloudUpgrade";
-import { TimezoneCombobox } from "@/components/TimezoneCombobox";
-import { Button } from "@/components/ui/button";
+import { Button } from "@agent-native/toolkit/ui/button";
 import {
   Card,
   CardContent,
   CardDescription,
   CardHeader,
   CardTitle,
-} from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Switch } from "@/components/ui/switch";
+} from "@agent-native/toolkit/ui/card";
+import { Input } from "@agent-native/toolkit/ui/input";
+import { Label } from "@agent-native/toolkit/ui/label";
+import { Switch } from "@agent-native/toolkit/ui/switch";
+import type { AvailabilityConfig, DaySchedule } from "@shared/api";
+import { useState, useEffect } from "react";
+import { toast } from "sonner";
+
+import { CloudUpgrade } from "@/components/CloudUpgrade";
+import { TimezoneCombobox } from "@/components/TimezoneCombobox";
 import {
   useAvailability,
   useUpdateAvailability,

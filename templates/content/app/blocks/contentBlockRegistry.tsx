@@ -10,14 +10,14 @@ import {
   type NestedBlock,
 } from "@agent-native/core/blocks";
 import { sendToAgentChat } from "@agent-native/core/client";
-import { useEffect, useRef, useState } from "react";
-
-import { uploadImageFile } from "@/components/editor/image-upload";
 import {
   Popover,
   PopoverContent,
   PopoverTrigger,
-} from "@/components/ui/popover";
+} from "@agent-native/toolkit/ui/popover";
+import { useEffect, useRef, useState } from "react";
+
+import { uploadImageFile } from "@/components/editor/image-upload";
 import { cn } from "@/lib/utils";
 
 import { builderDocsBlocks } from "./BuilderDocsBlocks";

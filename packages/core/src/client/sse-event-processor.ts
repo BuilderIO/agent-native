@@ -118,6 +118,7 @@ export function settleInterruptedToolCalls(
         part.activity === true
           ? (options?.activityResult ?? INTERRUPTED_ACTIVITY_RESULT)
           : result;
+      part.isError = true;
       changed = true;
     }
   }
@@ -147,6 +148,36 @@ export class AgentAutoContinueSignal extends Error {
 
 export const SSE_NO_PROGRESS_TIMEOUT_MS = 75_000;
 export const SSE_ACTION_PREPARATION_STALL_TIMEOUT_MS = 90_000;
+/**
+ * Widened client watchdog windows for durable background runs. The SERVER is
+ * the recovery brain for these runs: its run-manager no-progress backstop
+ * emits `auto_continue` over the same stream the client is already reading,
+ * and its unclaimed-run sweep reaps dead workers into loud terminal errors.
+ * The client watchdogs therefore sit ABOVE the server's durable-background
+ * backstop so a healthy background run never trips them — the server's own
+ * recovery event arrives first over the wire. When one does fire, the thrown
+ * signal only means "reattach the read" (the adapter's background follow loop
+ * re-polls /runs/active); it never escalates to a client-declared error or a
+ * synthetic continuation POST. Progress ACCOUNTING (what counts as a
+ * meaningful event) is unchanged — only the client-initiated recovery timing
+ * is relaxed.
+ */
+export const SSE_DURABLE_NO_PROGRESS_TIMEOUT_MS = 13 * 60_000;
+export const SSE_DURABLE_ACTION_PREPARATION_STALL_TIMEOUT_MS = 13 * 60_000;
+
+export function sseNoProgressTimeoutMs(options?: SSEStreamOptions): number {
+  return options?.durableBackgroundRun === true
+    ? SSE_DURABLE_NO_PROGRESS_TIMEOUT_MS
+    : SSE_NO_PROGRESS_TIMEOUT_MS;
+}
+
+function sseActionPreparationStallTimeoutMs(
+  options?: SSEStreamOptions,
+): number {
+  return options?.durableBackgroundRun === true
+    ? SSE_DURABLE_ACTION_PREPARATION_STALL_TIMEOUT_MS
+    : SSE_ACTION_PREPARATION_STALL_TIMEOUT_MS;
+}
 
 export interface SSEStreamOptions {
   /**
@@ -154,7 +185,9 @@ export interface SSEStreamOptions {
    * heartbeat. While one is active, generic keepalive-only periods keep the
    * client attached. Tool-input preparation is stricter: real byte progress
    * keeps long payloads alive, but zero-byte/silent preparation still recovers
-   * so one stuck action cannot pin the chat forever.
+   * so one stuck action cannot pin the chat forever — just on the wider
+   * durable windows above (behind the server's own 150s backstop) instead of
+   * the tight foreground 75s/90s windows.
    */
   durableBackgroundRun?: boolean;
   /**
@@ -434,20 +467,25 @@ function updatePreparingActionState(
   return undefined;
 }
 
-function hasStalledPreparingAction(state: PreparingActionState, now: number) {
+function hasStalledPreparingAction(
+  state: PreparingActionState,
+  now: number,
+  stallTimeoutMs: number,
+) {
   // Fire only when a tool input has gone SILENT — no further streaming deltas
   // for the whole window — never merely because a large input has been
   // streaming for a long time. `lastProgressAt` advances on every delta
   // heartbeat, so an actively-streaming large output keeps resetting this and
   // survives; a genuinely stuck prep (keepalive-only, no deltas) trips it.
+  // Durable background reads pass the wider durable window so the server's
+  // own 150s no-progress backstop gets first chance to recover the stall.
   for (const entry of [
     ...(state.toolEntries?.values() ?? []),
     ...(state.entries?.values() ?? []),
   ]) {
     if (
       entry.startedAt !== undefined &&
-      now - (entry.lastProgressAt ?? entry.startedAt) >=
-        SSE_ACTION_PREPARATION_STALL_TIMEOUT_MS
+      now - (entry.lastProgressAt ?? entry.startedAt) >= stallTimeoutMs
     ) {
       return true;
     }
@@ -458,9 +496,10 @@ function hasStalledPreparingAction(state: PreparingActionState, now: number) {
 async function readChunkWithProgressTimeout(
   reader: ReadableStreamDefaultReader<Uint8Array>,
   lastMeaningfulEventAt: number,
+  noProgressTimeoutMs: number,
 ): Promise<ReadableStreamReadResult<Uint8Array>> {
   const elapsed = Date.now() - lastMeaningfulEventAt;
-  const timeoutMs = Math.max(0, SSE_NO_PROGRESS_TIMEOUT_MS - elapsed);
+  const timeoutMs = Math.max(0, noProgressTimeoutMs - elapsed);
   let timeoutId: ReturnType<typeof setTimeout> | null = null;
   const readPromise = reader.read();
   // If the timeout wins and cancellation causes the pending read to reject,
@@ -673,6 +712,90 @@ function completedToolRepeatSignature(
     part.isError === true ? "error" : "",
     part.completedSideEffect === true ? "side-effect" : "",
   ].join("\u0000");
+}
+
+/**
+ * Result prefixes the server emits when a tool_start/tool_done pair is a
+ * REPLAY of a call that already executed in an earlier interrupted chunk of
+ * this turn (tool-call journal hard-block and zombie-ledger recovery in
+ * production-agent.ts). These are not new calls — rendering them as separate
+ * cards produces the "same tool twice, one spinning / one done" duplicate.
+ */
+const JOURNAL_RECOVERY_RESULT_PREFIXES = [
+  "(Already completed in an earlier interrupted attempt",
+  "(Recovered from prior interrupted chunk",
+] as const;
+
+function isJournalRecoveryResult(result: unknown): boolean {
+  return (
+    typeof result === "string" &&
+    JOURNAL_RECOVERY_RESULT_PREFIXES.some((prefix) => result.startsWith(prefix))
+  );
+}
+
+/**
+ * Merge a journal/ledger-recovered tool_done into the earlier card for the
+ * same logical call instead of leaving a duplicate pair. Two shapes occur:
+ *
+ * 1. The original card already completed (reconnect/continuation replay): the
+ *    recovery card at `completedIndex` is redundant — drop it, keeping the
+ *    original result.
+ * 2. The recovery result attached to the ORIGINAL still-pending card (the
+ *    id-less replay tool_done name-matches the earliest pending card): the
+ *    replay's own tool_start pushed a second pending card AFTER it that no
+ *    tool_done will ever resolve — remove that stuck-spinner artifact.
+ *
+ * Gated strictly on the recovery result markers so genuinely repeated
+ * identical calls are never collapsed. Returns true when it spliced the card
+ * at `completedIndex` (callers must not reuse the index afterwards).
+ */
+function coalesceJournalRecoveredTool(
+  content: ContentPart[],
+  completedIndex: number,
+): boolean {
+  const current = content[completedIndex];
+  if (!current || current.type !== "tool-call") return false;
+  if (!isJournalRecoveryResult(current.result)) return false;
+  const matchesCurrentCall = (
+    part: ContentPart,
+  ): part is Extract<ContentPart, { type: "tool-call" }> =>
+    part.type === "tool-call" &&
+    part.activity !== true &&
+    part.toolName === current.toolName &&
+    part.argsText === current.argsText;
+
+  for (let i = completedIndex - 1; i >= 0; i--) {
+    const prior = content[i];
+    if (!matchesCurrentCall(prior)) continue;
+    if (prior.result === undefined) {
+      // The original was interrupted mid-flight (spinner) — resolve it with
+      // the recovered result instead of showing a second card.
+      prior.result = current.result;
+      if (current.isError !== undefined) prior.isError = current.isError;
+      if (current.completedSideEffect !== undefined) {
+        prior.completedSideEffect = current.completedSideEffect;
+      }
+      if (current.mcpApp) prior.mcpApp = current.mcpApp;
+      if (current.chatUI) prior.chatUI = current.chatUI;
+    }
+    content.splice(completedIndex, 1);
+    return true;
+  }
+
+  // No earlier card — the recovery result landed on the original pending card
+  // itself. Remove any later still-pending replay-start artifact for the same
+  // call so it doesn't spin forever.
+  for (let i = content.length - 1; i > completedIndex; i--) {
+    const later = content[i];
+    if (
+      later.type === "tool-call" &&
+      matchesCurrentCall(later) &&
+      later.result === undefined
+    ) {
+      content.splice(i, 1);
+    }
+  }
+  return false;
 }
 
 function coalesceCompletedToolRepeat(
@@ -983,7 +1106,12 @@ export function processEvent(
         if (part.activity !== true && part.isError !== true) {
           markCompletedToolAfterAssistantText(state, part.toolName);
         }
-        coalesceCompletedToolRepeat(content, doneIdx);
+        // Journal/ledger replay merge first (may splice the card at doneIdx —
+        // when it does, the adjacent-repeat coalesce below must not run on the
+        // stale index).
+        if (!coalesceJournalRecoveredTool(content, doneIdx)) {
+          coalesceCompletedToolRepeat(content, doneIdx);
+        }
       }
     }
     return {
@@ -1304,6 +1432,8 @@ export async function* readSSEStream(
   const decoder = new TextDecoder();
   let buf = "";
   let lastMeaningfulEventAt = Date.now();
+  const noProgressTimeoutMs = sseNoProgressTimeoutMs(options);
+  const preparationStallTimeoutMs = sseActionPreparationStallTimeoutMs(options);
   const activityTrail: ActivityTrailEntry[] = [];
   const preparingActionState: PreparingActionState =
     options?.preparingActionState ?? {};
@@ -1348,6 +1478,7 @@ export async function* readSSEStream(
         readResult = await readChunkWithProgressTimeout(
           reader,
           lastMeaningfulEventAt,
+          noProgressTimeoutMs,
         );
       } catch (err) {
         if (err instanceof AgentAutoContinueSignal) {
@@ -1427,7 +1558,13 @@ export async function* readSSEStream(
         );
 
         if (result) yield withStreamMetadata(result);
-        if (hasStalledPreparingAction(preparingActionState, Date.now())) {
+        if (
+          hasStalledPreparingAction(
+            preparingActionState,
+            Date.now(),
+            preparationStallTimeoutMs,
+          )
+        ) {
           throw new AgentAutoContinueSignal({
             reason: "no_progress",
             activityTrail: [...activityTrail],
@@ -1451,7 +1588,7 @@ export async function* readSSEStream(
 
       if (
         !sawProgressEvent &&
-        Date.now() - lastMeaningfulEventAt >= SSE_NO_PROGRESS_TIMEOUT_MS
+        Date.now() - lastMeaningfulEventAt >= noProgressTimeoutMs
       ) {
         throw new AgentAutoContinueSignal({
           reason: "no_progress",
@@ -1497,6 +1634,8 @@ export async function readSSEStreamRaw(
   const decoder = new TextDecoder();
   let buf = "";
   let lastMeaningfulEventAt = Date.now();
+  const noProgressTimeoutMs = sseNoProgressTimeoutMs(options);
+  const preparationStallTimeoutMs = sseActionPreparationStallTimeoutMs(options);
   const activityTrail: ActivityTrailEntry[] = [];
   const preparingActionState: PreparingActionState =
     options?.preparingActionState ?? {};
@@ -1516,6 +1655,7 @@ export async function readSSEStreamRaw(
         readResult = await readChunkWithProgressTimeout(
           reader,
           lastMeaningfulEventAt,
+          noProgressTimeoutMs,
         );
       } catch (err) {
         if (err instanceof AgentAutoContinueSignal) {
@@ -1611,7 +1751,13 @@ export async function readSSEStreamRaw(
               : { reason: "stream_ended", activityTrail: [...activityTrail] },
           );
         }
-        if (hasStalledPreparingAction(preparingActionState, Date.now())) {
+        if (
+          hasStalledPreparingAction(
+            preparingActionState,
+            Date.now(),
+            preparationStallTimeoutMs,
+          )
+        ) {
           onUpdate(contentSnapshot(content));
           throw new AgentAutoContinueSignal({
             reason: "no_progress",
@@ -1629,7 +1775,7 @@ export async function readSSEStreamRaw(
 
       if (
         !sawProgressEvent &&
-        Date.now() - lastMeaningfulEventAt >= SSE_NO_PROGRESS_TIMEOUT_MS
+        Date.now() - lastMeaningfulEventAt >= noProgressTimeoutMs
       ) {
         throw new AgentAutoContinueSignal({
           reason: "no_progress",
