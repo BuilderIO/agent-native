@@ -1,4 +1,13 @@
 import { useT } from "@agent-native/core/client";
+import { Button } from "@agent-native/toolkit/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from "@agent-native/toolkit/ui/dialog";
 import CodeBlockLowlight from "@tiptap/extension-code-block-lowlight";
 import Link from "@tiptap/extension-link";
 import Placeholder from "@tiptap/extension-placeholder";
@@ -14,15 +23,6 @@ import {
 } from "react";
 import { Markdown } from "tiptap-markdown";
 
-import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-  DialogFooter,
-} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 
 import { CodeBlockLangPicker } from "./CodeBlockLangPicker";

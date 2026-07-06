@@ -21,6 +21,9 @@
  */
 
 import { useActionMutation } from "@agent-native/core/client";
+import { Badge } from "@agent-native/toolkit/ui/badge";
+import { Button } from "@agent-native/toolkit/ui/button";
+import { Separator } from "@agent-native/toolkit/ui/separator";
 import {
   IconAlertCircle,
   IconArrowsLeftRight,
@@ -33,9 +36,6 @@ import {
 } from "@tabler/icons-react";
 import { useState } from "react";
 
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Separator } from "@/components/ui/separator";
 import { cn } from "@/lib/utils";
 
 import {

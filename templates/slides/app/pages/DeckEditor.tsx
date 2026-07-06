@@ -10,6 +10,9 @@ import {
 } from "@agent-native/core/client";
 import { useOrg } from "@agent-native/core/client/org";
 import type { PinpointProps } from "@agent-native/pinpoint/react";
+import { toast } from "@agent-native/toolkit/hooks/use-toast";
+import { Button } from "@agent-native/toolkit/ui/button";
+import { ToastAction } from "@agent-native/toolkit/ui/toast";
 import {
   DndContext,
   closestCenter,
@@ -50,8 +53,6 @@ import LogoSearchPanel from "@/components/editor/LogoSearchPanel";
 import { QuestionFlow } from "@/components/editor/QuestionFlow";
 import SlideEditor from "@/components/editor/SlideEditor";
 import { TweaksPanel } from "@/components/editor/TweaksPanel";
-import { Button } from "@/components/ui/button";
-import { ToastAction } from "@/components/ui/toast";
 import { useDecks } from "@/context/DeckContext";
 import { useAgentGenerating } from "@/hooks/use-agent-generating";
 import { useDeckDesignSystem } from "@/hooks/use-deck-design-system";
@@ -61,7 +62,6 @@ import {
   useSlideComments,
   type CommentThread,
 } from "@/hooks/use-slide-comments";
-import { toast } from "@/hooks/use-toast";
 import type { AspectRatio } from "@/lib/aspect-ratios";
 import { getPreset } from "@/lib/design-systems";
 import { exportDeckAsPdf } from "@/lib/export-pdf-client";

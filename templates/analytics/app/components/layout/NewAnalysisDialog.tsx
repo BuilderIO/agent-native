@@ -4,6 +4,12 @@ import {
   useActionQuery,
   useT,
 } from "@agent-native/core/client";
+import { Badge } from "@agent-native/toolkit/ui/badge";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@agent-native/toolkit/ui/popover";
 import {
   IconAlertCircle,
   IconCheck,
@@ -14,12 +20,6 @@ import {
 import { useMemo, useState } from "react";
 import { Link } from "react-router";
 
-import { Badge } from "@/components/ui/badge";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover";
 import {
   credentialRowsFromStatus,
   getConfiguredDataSources,

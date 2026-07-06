@@ -8,13 +8,13 @@ import {
   type GuidedQuestion,
   type GuidedQuestionOption,
 } from "@agent-native/core/client";
+import { Button } from "@agent-native/toolkit/ui/button";
+import { Slider } from "@agent-native/toolkit/ui/slider";
+import { Textarea } from "@agent-native/toolkit/ui/textarea";
 import type { QuestionFlowQuestion } from "@shared/api";
 import { IconCheck, IconPalette, IconUpload, IconX } from "@tabler/icons-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
-import { Button } from "@/components/ui/button";
-import { Slider } from "@/components/ui/slider";
-import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 
 interface QuestionFlowProps {

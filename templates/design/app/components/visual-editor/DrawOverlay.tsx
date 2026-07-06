@@ -1,4 +1,11 @@
 import { useT } from "@agent-native/core/client";
+import { Button } from "@agent-native/toolkit/ui/button";
+import { Input } from "@agent-native/toolkit/ui/input";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@agent-native/toolkit/ui/tooltip";
 import {
   IconEraser,
   IconArrowBackUp,
@@ -17,13 +24,6 @@ import {
 import { createPortal } from "react-dom";
 import { toast } from "sonner";
 
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
 export interface DrawAnnotation {

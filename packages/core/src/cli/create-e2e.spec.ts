@@ -30,6 +30,7 @@ import {
   _rewriteNetlifyToml,
   _getCoreDependencyVersion,
   _getDispatchDependencyVersion,
+  _getToolkitDependencyVersion,
   _getGitHubTemplateRef,
   _getGitHubTemplateRefCandidates,
   _shouldSkipScaffoldEntry,
@@ -475,6 +476,7 @@ describe("workspace scaffold — required packages", { timeout: 60000 }, () => {
         workspaceCoreName,
         coreDependencyVersion: _getCoreDependencyVersion(),
         dispatchDependencyVersion: _getDispatchDependencyVersion(),
+        toolkitDependencyVersion: _getToolkitDependencyVersion(),
       });
       _fixPackageJsonName(appDir, t);
       _renameGitignore(appDir);
@@ -547,6 +549,71 @@ describe("workspace scaffold — required packages", { timeout: 60000 }, () => {
     const wsDir = await scaffoldWorkspace("my-ws", ["calendar"]);
     const calPkg = readPkg(path.join(wsDir, "apps", "calendar"));
     expect(calPkg.dependencies["@agent-native/scheduling"]).toBe("workspace:*");
+  });
+
+  it("resolves @agent-native/toolkit in workspacified apps", async () => {
+    const wsDir = await scaffoldWorkspace("my-ws", ["chat"]);
+    const appPkg = readPkg(path.join(wsDir, "apps", "chat"));
+    expect(appPkg.dependencies["@agent-native/toolkit"]).toBe(
+      _getToolkitDependencyVersion(),
+    );
+  });
+
+  it("overrides toolkit for standalone installs during local core development", async () => {
+    const previous = process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE;
+    process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE = "1";
+    try {
+      await createApp("local-chat", { template: "chat" });
+      const pkg = readPkg(path.join(tmpDir, "local-chat"));
+      expect(pkg.dependencies["@agent-native/core"]).toMatch(/^file:\/\//);
+      expect(pkg.dependencies["@agent-native/toolkit"]).toMatch(/^file:\/\//);
+
+      const workspaceYaml = fs
+        .readFileSync(path.join(tmpDir, "local-chat", "pnpm-workspace.yaml"), {
+          encoding: "utf-8",
+        })
+        .replaceAll("\\", "/");
+      expect(workspaceYaml).toContain("overrides:");
+      expect(workspaceYaml).toContain('"@agent-native/toolkit": "file://');
+      expect(workspaceYaml).toContain("/packages/toolkit");
+      expect(workspaceYaml).not.toContain("packages:");
+    } finally {
+      if (previous === undefined) {
+        delete process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE;
+      } else {
+        process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE = previous;
+      }
+    }
+  });
+
+  it("overrides toolkit for workspace installs during local core development", async () => {
+    const previous = process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE;
+    process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE = "1";
+    try {
+      const wsDir = await scaffoldWorkspace("local-ws", ["calendar"]);
+      const rootPkg = readPkg(wsDir);
+      expect(rootPkg.dependencies["@agent-native/core"]).toMatch(/^file:\/\//);
+
+      const schedPkg = readPkg(path.join(wsDir, "packages", "scheduling"));
+      expect(schedPkg.dependencies["@agent-native/toolkit"]).toMatch(
+        /^file:\/\//,
+      );
+
+      const workspaceYaml = fs
+        .readFileSync(path.join(wsDir, "pnpm-workspace.yaml"), {
+          encoding: "utf-8",
+        })
+        .replaceAll("\\", "/");
+      expect(workspaceYaml).toContain("overrides:");
+      expect(workspaceYaml).toContain('"@agent-native/toolkit": "file://');
+      expect(workspaceYaml).toContain("/packages/toolkit");
+    } finally {
+      if (previous === undefined) {
+        delete process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE;
+      } else {
+        process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE = previous;
+      }
+    }
   });
 
   it("resolves @agent-native/dispatch to latest in workspacified apps", async () => {
@@ -769,6 +836,7 @@ describe("template/core version compatibility", () => {
     delete process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE;
     try {
       expect(_getCoreDependencyVersion()).toBe("latest");
+      expect(_getToolkitDependencyVersion()).toBe("latest");
     } finally {
       if (previous === undefined) {
         delete process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE;
@@ -783,6 +851,7 @@ describe("template/core version compatibility", () => {
     process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE = "1";
     try {
       expect(_getCoreDependencyVersion()).toMatch(/^file:\/\//);
+      expect(_getToolkitDependencyVersion()).toMatch(/^file:\/\//);
     } finally {
       if (previous === undefined) {
         delete process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE;
@@ -1185,14 +1254,16 @@ describe("build artifacts", () => {
     expect(Object.keys(catalog).length).toBeGreaterThan(0);
   });
 
-  it("core package.json has no workspace:* in dependencies", () => {
+  it("core package.json only uses workspace:* for publishable package deps", () => {
+    const publishableWorkspaceDeps = new Set(["@agent-native/toolkit"]);
     const corePkg = readPkg(coreRoot);
     const deps = corePkg.dependencies ?? {};
     for (const [key, val] of Object.entries(deps)) {
+      if (typeof val !== "string" || !val.startsWith("workspace:")) continue;
       expect(
-        val,
-        `dependencies.${key} must not be workspace:* — this breaks npx installs`,
-      ).not.toMatch(/^workspace:/);
+        publishableWorkspaceDeps.has(key),
+        `dependencies.${key} may use workspace:* only if pnpm pack rewrites it for npm publishing`,
+      ).toBe(true);
     }
   });
 });

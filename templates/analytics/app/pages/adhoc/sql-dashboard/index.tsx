@@ -14,6 +14,39 @@ import {
   type CollabUser,
 } from "@agent-native/core/client";
 import {
+  Alert,
+  AlertDescription,
+  AlertTitle,
+} from "@agent-native/toolkit/ui/alert";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@agent-native/toolkit/ui/alert-dialog";
+import { Button } from "@agent-native/toolkit/ui/button";
+import { Card, CardContent } from "@agent-native/toolkit/ui/card";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@agent-native/toolkit/ui/dropdown-menu";
+import { Input } from "@agent-native/toolkit/ui/input";
+import { Tabs, TabsList, TabsTrigger } from "@agent-native/toolkit/ui/tabs";
+import { Textarea } from "@agent-native/toolkit/ui/textarea";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@agent-native/toolkit/ui/tooltip";
+import {
   useDroppable,
   DndContext,
   DragOverlay,
@@ -61,35 +94,6 @@ import {
   useSetPageTitle,
   useSetHeaderActions,
 } from "@/components/layout/HeaderActions";
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import { Input } from "@/components/ui/input";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Textarea } from "@/components/ui/textarea";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
 import { useDashboardViews } from "@/hooks/use-dashboard-views";
 import { useUserPref } from "@/hooks/use-user-pref";
 import { incrementItemView } from "@/lib/item-popularity";

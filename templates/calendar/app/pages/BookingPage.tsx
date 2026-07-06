@@ -5,6 +5,8 @@ import {
   StarfieldBackground,
   useT,
 } from "@agent-native/core/client";
+import { Button } from "@agent-native/toolkit/ui/button";
+import { Spinner } from "@agent-native/toolkit/ui/spinner";
 import type { Booking } from "@shared/api";
 import { IconAlertTriangle, IconCalendar } from "@tabler/icons-react";
 import {
@@ -26,8 +28,6 @@ import {
 import { DatePicker } from "@/components/booking/DatePicker";
 import { TimeSlotPicker } from "@/components/booking/TimeSlotPicker";
 import { ThemeToggle } from "@/components/ThemeToggle";
-import { Button } from "@/components/ui/button";
-import { Spinner } from "@/components/ui/spinner";
 import {
   useAvailableDays,
   useAvailableSlots,

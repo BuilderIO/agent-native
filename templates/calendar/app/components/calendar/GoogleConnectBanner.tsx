@@ -4,6 +4,12 @@ import {
   oauthRedirectUri,
   useT,
 } from "@agent-native/core/client";
+import { Button } from "@agent-native/toolkit/ui/button";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@agent-native/toolkit/ui/popover";
 import {
   IconCalendarCheck,
   IconX,
@@ -19,12 +25,6 @@ import {
 } from "@tabler/icons-react";
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 
-import { Button } from "@/components/ui/button";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover";
 import {
   useGoogleAuthStatus,
   useGoogleAuthUrl,

@@ -1,4 +1,10 @@
 import { useT, VisualTweakControl } from "@agent-native/core/client";
+import { Button } from "@agent-native/toolkit/ui/button";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@agent-native/toolkit/ui/tooltip";
 import type { TweakDefinition } from "@shared/api";
 import {
   IconX,
@@ -8,12 +14,6 @@ import {
 } from "@tabler/icons-react";
 import { useState, useRef, useCallback } from "react";
 
-import { Button } from "@/components/ui/button";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
 interface TweaksPanelProps {

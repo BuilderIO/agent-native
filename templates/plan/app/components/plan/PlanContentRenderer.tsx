@@ -10,6 +10,7 @@ import {
   type CollabUser,
   type RichMarkdownCollabUser,
 } from "@agent-native/core/client";
+import { Button } from "@agent-native/toolkit/ui/button";
 import type { PlanFileTreeBlock } from "@shared/plan-content";
 import type {
   PlanAnnotation,
@@ -33,7 +34,6 @@ import {
   type ReactNode,
 } from "react";
 
-import { Button } from "@/components/ui/button";
 import { usePlanPresence } from "@/hooks/use-plan-presence";
 import { cn } from "@/lib/utils";
 

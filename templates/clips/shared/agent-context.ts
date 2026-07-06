@@ -1,3 +1,9 @@
+import {
+  AGENT_ACCESS_PARAM,
+  buildAgentAccessApiUrl,
+  scopedAgentAccessResourceId,
+} from "@agent-native/core/shared";
+
 import type { TranscriptSegment } from "./transcript-segments";
 
 export const CLIP_AGENT_CONTEXT_VERSION = 1;
@@ -5,9 +11,16 @@ export const AGENT_CONTEXT_ENDPOINT = "/api/agent-context.json";
 export const AGENT_TRANSCRIPT_ENDPOINT = "/api/agent-transcript.json";
 export const AGENT_FRAME_ENDPOINT = "/api/agent-frame.jpg";
 export const CLIP_AGENT_ACCESS_TOKEN_PREFIX = "clip-agent-context";
+export const CLIPS_AGENT_ACCESS_PARAM = AGENT_ACCESS_PARAM || "agent_access";
 
 export function agentAccessTokenResourceId(recordingId: string): string {
-  return `${CLIP_AGENT_ACCESS_TOKEN_PREFIX}:${recordingId}`;
+  if (typeof scopedAgentAccessResourceId !== "function") {
+    return `${CLIP_AGENT_ACCESS_TOKEN_PREFIX}:${recordingId}`;
+  }
+  return scopedAgentAccessResourceId(
+    CLIP_AGENT_ACCESS_TOKEN_PREFIX,
+    recordingId,
+  );
 }
 
 export interface AgentApiUrls {
@@ -37,20 +50,6 @@ export interface ChapterLike {
   title: string;
 }
 
-function trimSlashes(value: string): string {
-  return value.replace(/^\/+|\/+$/g, "");
-}
-
-function normalizeBasePath(basePath?: string): string {
-  const trimmed = trimSlashes(basePath ?? "");
-  return trimmed ? `/${trimmed}` : "";
-}
-
-function normalizeOrigin(origin?: string): string {
-  if (!origin) return "";
-  return origin.replace(/\/+$/g, "");
-}
-
 function endpointUrl({
   endpoint,
   recordingId,
@@ -66,12 +65,15 @@ function endpointUrl({
   token?: string | null;
   extraParams?: Array<[string, string]>;
 }): string {
-  const params = new URLSearchParams({ id: recordingId });
-  if (token) params.set("t", token);
-  for (const [key, value] of extraParams ?? []) {
-    params.set(key, value);
-  }
-  return `${normalizeOrigin(origin)}${normalizeBasePath(basePath)}${endpoint}?${params.toString()}`;
+  return buildAgentAccessApiUrl({
+    endpoint,
+    resourceId: recordingId,
+    origin,
+    basePath,
+    token,
+    tokenParam: AGENT_ACCESS_PARAM,
+    extraParams,
+  });
 }
 
 export function buildAgentApiUrls(

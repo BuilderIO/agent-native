@@ -4,6 +4,23 @@ import {
   NotificationsBell,
   useT,
 } from "@agent-native/core/client";
+import { useIsMobile } from "@agent-native/toolkit/hooks/use-mobile";
+import { Button } from "@agent-native/toolkit/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@agent-native/toolkit/ui/dropdown-menu";
+import { Spinner } from "@agent-native/toolkit/ui/spinner";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@agent-native/toolkit/ui/tooltip";
 import type {
   CalendarEvent,
   CalendarEventDraft,
@@ -52,22 +69,6 @@ import { PeopleSearchDialog } from "@/components/calendar/PeopleSearchDialog";
 import { WeekView } from "@/components/calendar/WeekView";
 import { useCalendarContext } from "@/components/layout/AppLayout";
 import type { ViewMode } from "@/components/layout/AppLayout";
-import { Button } from "@/components/ui/button";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import { Spinner } from "@/components/ui/spinner";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
 import {
   useEvents,
   useCreateEvent,
@@ -78,7 +79,6 @@ import {
 } from "@/hooks/use-events";
 import { useGoogleAuthStatus } from "@/hooks/use-google-auth";
 import { useMeetingStartNotifications } from "@/hooks/use-meeting-start-notifications";
-import { useIsMobile } from "@/hooks/use-mobile";
 import { useOverlayPeople } from "@/hooks/use-overlay-people";
 import { useSettings } from "@/hooks/use-settings";
 import { setUndoAction, runUndo } from "@/hooks/use-undo";

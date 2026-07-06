@@ -1,4 +1,11 @@
 import { useT } from "@agent-native/core/client";
+import { Button } from "@agent-native/toolkit/ui/button";
+import { Textarea } from "@agent-native/toolkit/ui/textarea";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@agent-native/toolkit/ui/tooltip";
 import {
   IconAlertTriangle,
   IconBolt,
@@ -10,13 +17,6 @@ import {
 } from "@tabler/icons-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { Button } from "@/components/ui/button";
-import { Textarea } from "@/components/ui/textarea";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
 import { sendToDesignAgentChat } from "@/lib/agent-chat";
 import { cn } from "@/lib/utils";
 

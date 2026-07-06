@@ -1,10 +1,10 @@
-import { useState } from "react";
-
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
-} from "@/components/ui/tooltip";
+} from "@agent-native/toolkit/ui/tooltip";
+import { useState } from "react";
+
 import { cn } from "@/lib/utils";
 
 const EMOJIS = ["👍", "❤️", "🔥", "👏", "🎉", "😂", "🤯"] as const;

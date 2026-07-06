@@ -11,6 +11,19 @@ import {
   type CollabUser,
 } from "@agent-native/core/client";
 import { RunsTray } from "@agent-native/core/client/progress";
+import { toast } from "@agent-native/toolkit/hooks/use-toast";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+  DropdownMenuSeparator,
+} from "@agent-native/toolkit/ui/dropdown-menu";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@agent-native/toolkit/ui/tooltip";
 import {
   IconArrowLeft,
   IconPlayerPlay,
@@ -43,22 +56,9 @@ import { useState, useRef, useEffect } from "react";
 import { createPortal } from "react-dom";
 import { Link } from "react-router";
 
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-  DropdownMenuSeparator,
-} from "@/components/ui/dropdown-menu";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
 import { SaveStatusIndicator } from "@/components/visual-editor";
 import type { Deck, Slide, SlideLayout } from "@/context/DeckContext";
 import { defaultSlideContent, useSaveState } from "@/context/DeckContext";
-import { toast } from "@/hooks/use-toast";
 import {
   ASPECT_RATIO_VALUES,
   type AspectRatio,

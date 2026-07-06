@@ -1,4 +1,11 @@
 import { useT } from "@agent-native/core/client";
+import { Button } from "@agent-native/toolkit/ui/button";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@agent-native/toolkit/ui/collapsible";
+import { Textarea } from "@agent-native/toolkit/ui/textarea";
 import {
   IconClipboard,
   IconChevronDown,
@@ -6,13 +13,6 @@ import {
 } from "@tabler/icons-react";
 import { useState } from "react";
 
-import { Button } from "@/components/ui/button";
-import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from "@/components/ui/collapsible";
-import { Textarea } from "@/components/ui/textarea";
 import { useAgentEditRequest } from "@/hooks/useAgentEditRequest";
 import { cn } from "@/lib/utils";
 

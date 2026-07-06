@@ -149,6 +149,12 @@ pnpm dev
 
 **Session replay agent handoff.** Session recordings stay private, but the session detail page can mint a temporary **Copy for agent** link. The two-hour `agent_access` URL lets an external agent read replay summaries, timelines, and bounded event details without exposing blob/provider URLs or making the recording public.
 
+Implementation note: use the shared core agent-access helpers
+(`createScopedAgentAccessGrant`, `verifyScopedAgentAccessToken`,
+`buildAgentAccessUrl`, and `buildAgentAccessApiUrl`) for the SSR/bot-visible
+URL contract. Keep replay chunk authorization, diagnostics payloads, and the
+session detail UI local to Analytics.
+
 ### العمل مع الوكيل
 
 يعرف الوكيل دائمًا ما تنظر إليه. يتم إدخال حالة الشاشة الحالية في كل رسالة ككتلة `<current-screen>` - فهي تحتوي على العرض النشط، ولوحة المعلومات المفتوحة أو التحليل، وأي عوامل تصفية محددة.

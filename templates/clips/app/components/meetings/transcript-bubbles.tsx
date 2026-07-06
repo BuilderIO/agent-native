@@ -1,13 +1,13 @@
 import { useT } from "@agent-native/core/client";
-import { IconNotes } from "@tabler/icons-react";
-import { useEffect, useMemo, useRef } from "react";
-
 import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
   TooltipTrigger,
-} from "@/components/ui/tooltip";
+} from "@agent-native/toolkit/ui/tooltip";
+import { IconNotes } from "@tabler/icons-react";
+import { useEffect, useMemo, useRef } from "react";
+
 import { cn } from "@/lib/utils";
 
 export interface TranscriptSegment {

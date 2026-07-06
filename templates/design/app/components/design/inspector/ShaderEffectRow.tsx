@@ -1,20 +1,20 @@
+import { Button } from "@agent-native/toolkit/ui/button";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@agent-native/toolkit/ui/popover";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@agent-native/toolkit/ui/tooltip";
 import {
   SHADER_PRESET_MAP,
   type ShaderDescriptor,
 } from "@shared/shader-presets";
 import { IconTrash } from "@tabler/icons-react";
 
-import { Button } from "@/components/ui/button";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
 import { ShaderControls } from "./ShaderControls";

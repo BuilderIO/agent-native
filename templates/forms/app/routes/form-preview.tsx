@@ -1,4 +1,7 @@
 import { isInAgentEmbed, postNavigate, useT } from "@agent-native/core/client";
+import { Badge } from "@agent-native/toolkit/ui/badge";
+import { Button } from "@agent-native/toolkit/ui/button";
+import { Skeleton } from "@agent-native/toolkit/ui/skeleton";
 import type { FormFieldType } from "@shared/types";
 import {
   IconAlertCircle,
@@ -17,9 +20,6 @@ import {
 } from "@tabler/icons-react";
 import { useSearchParams } from "react-router";
 
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Skeleton } from "@/components/ui/skeleton";
 import { useForm } from "@/hooks/use-forms";
 import { normalizeFields } from "@/lib/normalize-fields";
 

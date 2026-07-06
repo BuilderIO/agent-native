@@ -1,9 +1,12 @@
 import { useT } from "@agent-native/core/client";
+import {
+  Sheet,
+  SheetContent,
+  SheetTitle,
+} from "@agent-native/toolkit/ui/sheet";
 import { IconMenu } from "@tabler/icons-react";
 import { useState, useEffect } from "react";
 import { useLocation } from "react-router";
-
-import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 
 import { Sidebar } from "./Sidebar";
 

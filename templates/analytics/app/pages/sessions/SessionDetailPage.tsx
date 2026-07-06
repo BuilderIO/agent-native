@@ -6,6 +6,20 @@ import {
   useSendToAgentChat,
   useT,
 } from "@agent-native/core/client";
+import { Button } from "@agent-native/toolkit/ui/button";
+import { Card, CardContent } from "@agent-native/toolkit/ui/card";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@agent-native/toolkit/ui/popover";
+import { Skeleton } from "@agent-native/toolkit/ui/skeleton";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@agent-native/toolkit/ui/tooltip";
 import { SESSION_REPLAY_AGENT_ACCESS_PARAM } from "@shared/session-replay-agent-access";
 import {
   IconArrowLeft,
@@ -35,20 +49,6 @@ import {
 } from "react";
 import { Link, useParams } from "react-router";
 
-import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover";
-import { Skeleton } from "@/components/ui/skeleton";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
 import { getIdToken } from "@/lib/auth";
 import { cn } from "@/lib/utils";
 
@@ -1075,15 +1075,21 @@ function useSessionReplayPlayback(recordingId: string) {
     enabled: Boolean(recordingId),
     staleTime: 30_000,
     gcTime: 60_000,
-    queryFn: () => fetchSessionReplayPlayback(recordingId),
+    queryFn: () =>
+      fetchSessionReplayPlayback(recordingId, { agentAccessToken }),
   });
+}
+
+interface FetchSessionReplayPlaybackOptions {
+  agentAccessToken?: string;
 }
 
 export async function fetchSessionReplayPlayback(
   recordingId: string,
+  options: FetchSessionReplayPlaybackOptions = {},
 ): Promise<SessionReplayPlaybackResponse> {
-  const manifest = await fetchReplayManifest(recordingId);
-  const chunks = await fetchReplayChunks(manifest.chunks);
+  const manifest = await fetchReplayManifest(recordingId, options);
+  const chunks = await fetchReplayChunks(manifest.chunks, options);
   const unavailableChunks = chunks.filter((chunk) => chunk.unavailable).length;
   const eventCount = chunks.reduce(
     (sum, chunk) => sum + chunk.events.length,
@@ -1100,11 +1106,13 @@ export async function fetchSessionReplayPlayback(
 
 async function fetchReplayManifest(
   recordingId: string,
+  options: FetchSessionReplayPlaybackOptions,
 ): Promise<SessionReplayManifestResponse> {
   const response = await fetchReplayApi(
     `/api/session-replay/recordings/${encodeURIComponent(
       recordingId,
     )}/manifest`,
+    options.agentAccessToken,
   );
   if (!response.ok) throw await replayFetchError(response);
   return (await response.json()) as SessionReplayManifestResponse;
@@ -1112,6 +1120,7 @@ async function fetchReplayManifest(
 
 async function fetchReplayChunks(
   chunks: SessionReplayManifestResponse["chunks"],
+  options: FetchSessionReplayPlaybackOptions,
 ): Promise<ReplayChunkEvents[]> {
   const results = new Array<ReplayChunkEvents>(chunks.length);
   let nextIndex = 0;
@@ -1120,7 +1129,7 @@ async function fetchReplayChunks(
     while (nextIndex < chunks.length) {
       const index = nextIndex;
       nextIndex += 1;
-      results[index] = await fetchReplayChunk(chunks[index]);
+      results[index] = await fetchReplayChunk(chunks[index], options);
     }
   }
 
@@ -1135,8 +1144,12 @@ async function fetchReplayChunks(
 
 async function fetchReplayChunk(
   chunk: SessionReplayManifestResponse["chunks"][number],
+  options: FetchSessionReplayPlaybackOptions,
 ): Promise<ReplayChunkEvents> {
-  const response = await fetchReplayApi(chunk.bytesPath);
+  const response = await fetchReplayApi(
+    chunk.bytesPath,
+    options.agentAccessToken,
+  );
   if (!response.ok) {
     const error = await replayFetchError(response);
     if (isUnavailableReplayChunk(response, error)) {
@@ -1176,19 +1189,25 @@ function replayUnavailableChunk(
 
 function currentSessionReplayAgentAccessToken(): string {
   const browserSearch =
-    typeof window === "undefined" ? "" : window.location.search;
+    globalThis.window?.location?.search ?? globalThis.location?.search ?? "";
   return (
     new URLSearchParams(browserSearch).get(SESSION_REPLAY_AGENT_ACCESS_PARAM) ??
     ""
   );
 }
 
-async function fetchReplayApi(path: string): Promise<Response> {
+async function fetchReplayApi(
+  path: string,
+  explicitAgentAccessToken?: string,
+): Promise<Response> {
   const token = await getIdToken();
   const browserOrigin =
-    typeof window === "undefined" ? "http://localhost" : window.location.origin;
+    globalThis.window?.location?.origin ??
+    globalThis.location?.origin ??
+    "http://localhost";
   const url = new URL(appApiPath(path), browserOrigin);
-  const agentAccessToken = currentSessionReplayAgentAccessToken();
+  const agentAccessToken =
+    explicitAgentAccessToken ?? currentSessionReplayAgentAccessToken();
   if (agentAccessToken) {
     url.searchParams.set(SESSION_REPLAY_AGENT_ACCESS_PARAM, agentAccessToken);
   }

@@ -5,11 +5,6 @@ import {
   useActionQuery,
   useT,
 } from "@agent-native/core/client";
-import { IconMessageCircle, IconPhoto, IconTrash } from "@tabler/icons-react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useMemo, useRef, useState } from "react";
-import { toast } from "sonner";
-
 import {
   AlertDialog,
   AlertDialogAction,
@@ -19,10 +14,15 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Spinner } from "@/components/ui/spinner";
+} from "@agent-native/toolkit/ui/alert-dialog";
+import { Badge } from "@agent-native/toolkit/ui/badge";
+import { Button } from "@agent-native/toolkit/ui/button";
+import { Spinner } from "@agent-native/toolkit/ui/spinner";
+import { IconMessageCircle, IconPhoto, IconTrash } from "@tabler/icons-react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { toast } from "sonner";
+
 import { assetPreviewSources } from "@/lib/asset-preview-sources";
 
 import type {

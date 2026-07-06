@@ -1,3 +1,4 @@
+import { Button, Input } from "@agent-native/toolkit/ui";
 import { IconPlus, IconX } from "@tabler/icons-react";
 /**
  * DurationPicker — multi-select of booking durations rendered as pills.
@@ -9,9 +10,6 @@ import { IconPlus, IconX } from "@tabler/icons-react";
  * Shadcn primitives expected in the consumer: button, input, label.
  */
 import { useState } from "react";
-
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 
 import { useSchedulingT } from "../../i18n.js";
 

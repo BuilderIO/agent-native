@@ -241,6 +241,12 @@ Analytics テンプレートは、リプレイ メタデータを SQL (`session_
 
 プライベートな記録を外部エージェントに渡す必要がある場合は、セッション詳細ページの **Copy for agent** コントロールを使用します。これにより、2 時間有効で記録にスコープされた `agent_access` リンクが発行され、`/sessions/:recordingId` で小さなディスカバリー ペイロードが SSR され、エージェント コンテキスト/イベントの JSON API のみが公開されます。記録の可視性は変更されません。
 
+Implementation note: the reusable layer is the core agent-access URL contract,
+not a replay-specific UI abstraction. Use `createScopedAgentAccessGrant`,
+`verifyScopedAgentAccessToken`, `buildAgentAccessUrl`, and
+`buildAgentAccessApiUrl` for scoped SSR and JSON API links; keep replay storage,
+diagnostics shaping, and access policy inside the Analytics template.
+
 ローカル開発でのみ、Analytics はプライベートな blob ストレージが利用できない場合に、上限付きの SQL インライン チャンクにフォールバックできます。本番デプロイでは、リプレイ ペイロードを Postgres に依存するのではなく、プライベートまたは暗号化された blob ストレージを設定する必要があります。
 
 ## 上級: カスタムプロバイダーと内部 {#advanced}

@@ -7,6 +7,8 @@ const mockSetResponseHeader = vi.hoisted(() => vi.fn());
 const mockSetResponseStatus = vi.hoisted(() => vi.fn());
 const mockSetCookie = vi.hoisted(() => vi.fn());
 const mockSignShortLivedToken = vi.hoisted(() => vi.fn());
+const mockSignScopedAgentAccessToken = vi.hoisted(() => vi.fn());
+const mockVerifyScopedAgentAccessToken = vi.hoisted(() => vi.fn());
 const mockGetSession = vi.hoisted(() => vi.fn());
 const mockGetDb = vi.hoisted(() => vi.fn());
 const mockVerifySharePassword = vi.hoisted(() => vi.fn());
@@ -31,6 +33,10 @@ vi.mock("drizzle-orm", () => ({
 vi.mock("@agent-native/core/server", () => ({
   getSession: (...args: unknown[]) => mockGetSession(...args),
   signShortLivedToken: (...args: unknown[]) => mockSignShortLivedToken(...args),
+  signScopedAgentAccessToken: (...args: unknown[]) =>
+    mockSignScopedAgentAccessToken(...args),
+  verifyScopedAgentAccessToken: (...args: unknown[]) =>
+    mockVerifyScopedAgentAccessToken(...args),
 }));
 
 vi.mock("../../db/index.js", () => ({
@@ -71,6 +77,8 @@ vi.mock("../../../shared/agent-context.js", () => ({
   agentAccessTokenResourceId: (recordingId: string) =>
     `clip-agent-context:${recordingId}`,
   buildAgentApiUrls: (...args: unknown[]) => mockBuildAgentApiUrls(...args),
+  CLIP_AGENT_ACCESS_TOKEN_PREFIX: "clip-agent-context",
+  CLIPS_AGENT_ACCESS_PARAM: "agent_access",
 }));
 
 vi.mock("../../../shared/transcript-segments.js", () => ({
@@ -136,6 +144,9 @@ function makeRecording(overrides: Record<string, unknown> = {}) {
 describe("/api/public-recording route", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockSignShortLivedToken.mockReset();
+    mockSignScopedAgentAccessToken.mockReset();
+    mockVerifyScopedAgentAccessToken.mockReset();
     mockGetHeader.mockReturnValue(undefined);
     mockGetQuery.mockReturnValue({ id: "rec-1", password: "open-sesame" });
     mockGetRequestURL.mockReturnValue(
@@ -145,11 +156,13 @@ describe("/api/public-recording route", () => {
       event.setCookies.push({ name, value, options });
     });
     mockGetSession.mockResolvedValue(null);
+    mockVerifyScopedAgentAccessToken.mockReturnValue({ ok: false });
     mockVerifySharePassword.mockReturnValue(true);
     mockResolvePlayerVideoUrl.mockReturnValue("/api/video/rec-1");
+    mockSignScopedAgentAccessToken.mockReturnValue("agent-token");
     mockSignShortLivedToken
       .mockReturnValueOnce("media-token")
-      .mockReturnValueOnce("agent-token");
+      .mockReturnValueOnce("unused-media-token");
     mockBuildAgentApiUrls.mockReturnValue({
       contextUrl: "https://clips.example/api/agent-context.json?id=rec-1",
     });
@@ -186,6 +199,51 @@ describe("/api/public-recording route", () => {
     expect(mockResolvePlayerVideoUrl).toHaveBeenCalledWith(
       expect.objectContaining({ id: "rec-1" }),
       expect.objectContaining({ addPasswordToken: false }),
+    );
+  });
+
+  it("allows a scoped agent access token to load private clips without changing visibility", async () => {
+    const event = { setCookies: [] as unknown[] };
+    mockGetQuery.mockReturnValue({
+      id: "rec-1",
+      agent_access: "agent-token",
+    });
+    mockVerifyScopedAgentAccessToken.mockReturnValue({ ok: true });
+    mockGetDb.mockReturnValue(
+      createDbWithSelectResults([
+        [
+          makeRecording({
+            visibility: "private",
+            password: null,
+          }),
+        ],
+        [],
+        [],
+        [],
+        [],
+      ]),
+    );
+
+    const result = await handler(event as any);
+
+    expect(result).toMatchObject({
+      recording: {
+        id: "rec-1",
+        visibility: "private",
+        videoUrl: "/api/video/rec-1?t=media-token",
+      },
+    });
+    expect(mockVerifyScopedAgentAccessToken).toHaveBeenCalledWith(
+      "agent-token",
+      {
+        resourceKind: "clip-agent-context",
+        resourceId: "rec-1",
+      },
+    );
+    expect(mockSetResponseStatus).not.toHaveBeenCalledWith(event, 404);
+    expect(mockBuildAgentApiUrls).toHaveBeenCalledWith(
+      "rec-1",
+      expect.objectContaining({ token: "agent-token" }),
     );
   });
 });

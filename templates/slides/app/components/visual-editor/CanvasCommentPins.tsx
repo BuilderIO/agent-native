@@ -1,14 +1,14 @@
 import { sendToAgentChat, useT } from "@agent-native/core/client";
-import { IconMessage, IconSend, IconX } from "@tabler/icons-react";
-import { useEffect, useRef, useState } from "react";
-
-import { Button } from "@/components/ui/button";
-import { Textarea } from "@/components/ui/textarea";
+import { Button } from "@agent-native/toolkit/ui/button";
+import { Textarea } from "@agent-native/toolkit/ui/textarea";
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
-} from "@/components/ui/tooltip";
+} from "@agent-native/toolkit/ui/tooltip";
+import { IconMessage, IconSend, IconX } from "@tabler/icons-react";
+import { useEffect, useRef, useState } from "react";
+
 import { cn } from "@/lib/utils";
 
 export interface CanvasPin {

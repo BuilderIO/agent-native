@@ -459,6 +459,25 @@ export {
   type ShortLivedTokenClaims,
   type VerifyResult as ShortLivedTokenVerifyResult,
 } from "./short-lived-token.js";
+export {
+  AGENT_ACCESS_PARAM,
+  DEFAULT_AGENT_ACCESS_TTL_SECONDS,
+  appendAgentAccessParam,
+  buildAgentAccessApiUrl,
+  buildAgentAccessUrl,
+  createScopedAgentAccessGrant,
+  normalizeAgentAccessBasePath,
+  normalizeAgentAccessOrigin,
+  scopedAgentAccessResourceId,
+  signScopedAgentAccessToken,
+  toAgentAccessUrl,
+  verifyScopedAgentAccessToken,
+  type AgentAccessApiUrlOptions,
+  type AgentAccessResourceScope,
+  type AgentAccessUrlOptions,
+  type ScopedAgentAccessGrant,
+  type ScopedAgentAccessTokenOptions,
+} from "./agent-access.js";
 
 // SSR handler is NOT re-exported here — it uses a virtual module
 // (virtual:react-router/server-build) that only exists at Vite dev/build time.

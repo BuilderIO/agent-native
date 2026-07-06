@@ -1,5 +1,10 @@
 import { useT } from "@agent-native/core/client";
 import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@agent-native/toolkit/ui/tooltip";
+import {
   IconX,
   IconCheck,
   IconTrash,
@@ -8,11 +13,6 @@ import {
 } from "@tabler/icons-react";
 import { useState, useRef, useEffect } from "react";
 
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
 import {
   useSlideComments,
   useCreateSlideComment,

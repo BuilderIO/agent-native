@@ -1,3 +1,9 @@
+import { useIsMobile } from "@agent-native/toolkit/hooks/use-mobile";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@agent-native/toolkit/ui/tooltip";
 import type { CalendarEvent } from "@shared/api";
 import { IconAlertTriangleFilled } from "@tabler/icons-react";
 import {
@@ -19,13 +25,7 @@ import {
 import { useState, useEffect, useRef, useMemo, useCallback } from "react";
 
 import { useCalendarContext } from "@/components/layout/AppLayout";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
 import { useEventDrag } from "@/hooks/use-event-drag";
-import { useIsMobile } from "@/hooks/use-mobile";
 import { useViewPreferences } from "@/hooks/use-view-preferences";
 import { getEventDisplayColor, allOtherDeclined } from "@/lib/event-colors";
 import { shouldSuppressAfterPopoverClose } from "@/lib/popover-click-guard";

@@ -1,3 +1,4 @@
+import { useIsMobile } from "@agent-native/toolkit/hooks/use-mobile";
 import type { CalendarEvent } from "@shared/api";
 import {
   startOfMonth,
@@ -13,7 +14,6 @@ import {
 } from "date-fns";
 import { useState, useMemo } from "react";
 
-import { useIsMobile } from "@/hooks/use-mobile";
 import { useViewPreferences } from "@/hooks/use-view-preferences";
 import { cn } from "@/lib/utils";
 

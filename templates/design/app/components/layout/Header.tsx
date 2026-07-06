@@ -6,10 +6,12 @@ import {
 } from "@agent-native/core/client";
 import { AgentToggleButton } from "@agent-native/core/client";
 import { RunsTray } from "@agent-native/core/client/progress";
+import {
+  useHeaderTitle,
+  useHeaderActions,
+} from "@agent-native/toolkit/app-shell";
 import { useCallback } from "react";
 import { useLocation } from "react-router";
-
-import { useHeaderTitle, useHeaderActions } from "./HeaderActions";
 
 const pageTitleKeys: Record<string, string> = {
   "/": "navigation.designs",

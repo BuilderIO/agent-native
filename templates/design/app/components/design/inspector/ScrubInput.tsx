@@ -1,3 +1,10 @@
+import { Input } from "@agent-native/toolkit/ui/input";
+import { Label } from "@agent-native/toolkit/ui/label";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@agent-native/toolkit/ui/tooltip";
 import { IconArrowsHorizontal } from "@tabler/icons-react";
 import {
   useEffect,
@@ -9,13 +16,6 @@ import {
   type ReactNode,
 } from "react";
 
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
 import {

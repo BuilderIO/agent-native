@@ -1,4 +1,5 @@
 import { appBasePath, useT } from "@agent-native/core/client";
+import { Spinner } from "@agent-native/toolkit/ui/spinner";
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useSearchParams } from "react-router";
@@ -8,7 +9,6 @@ import {
   VideoPlayer,
   type VideoPlayerHandle,
 } from "@/components/player/video-player";
-import { Spinner } from "@/components/ui/spinner";
 import { useViewTracking } from "@/hooks/use-view-tracking";
 import { parsePlaybackSpeed } from "@/lib/playback-speed";
 

@@ -185,6 +185,13 @@ Password-protected clips require the password once; successful responses return
 short-lived tokenized links so downstream agents do not need the plaintext
 password.
 
+Implementation note: use the shared core agent-access helpers
+(`createScopedAgentAccessGrant`, `verifyScopedAgentAccessToken`,
+`buildAgentAccessUrl`, and `buildAgentAccessApiUrl`) for the SSR/bot-visible
+URL contract. Keep Clips-specific visibility checks, transcript/frame payloads,
+and player UI local. New links use `agent_access`; routes should continue
+accepting the legacy `t` query where existing agent API URLs may already use it.
+
 When `transcript.status` is `pending`, agents should wait 15-30 seconds and
 retry the context or transcript URL a few times before falling back to frames or
 reporting that no transcript is available. Long recordings can take several

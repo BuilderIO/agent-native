@@ -8,12 +8,21 @@ import {
   getBrowserTabId,
   useT,
 } from "@agent-native/core/client";
+import { Button } from "@agent-native/toolkit/ui/button";
 import {
-  getRequestUserEmail,
-  signShortLivedToken,
-  verifyShortLivedToken,
-} from "@agent-native/core/server";
-import { resolveAccess } from "@agent-native/core/sharing";
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@agent-native/toolkit/ui/dropdown-menu";
+import { Skeleton } from "@agent-native/toolkit/ui/skeleton";
+import { Spinner } from "@agent-native/toolkit/ui/spinner";
+import {
+  Tabs,
+  TabsList,
+  TabsTrigger,
+  TabsContent,
+} from "@agent-native/toolkit/ui/tabs";
 import {
   IconAlertTriangle,
   IconArrowLeft,
@@ -54,16 +63,6 @@ import {
   type VideoPlayerHandle,
 } from "@/components/player/video-player";
 import { StorageSetupCard } from "@/components/recorder/storage-setup-card";
-import { Button } from "@/components/ui/button";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import { Skeleton } from "@/components/ui/skeleton";
-import { Spinner } from "@/components/ui/spinner";
-import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { isDefaultTitle } from "@/hooks/use-auto-title";
 import { usePlayerShortcuts } from "@/hooks/use-player-shortcuts";
 import { useViewTracking } from "@/hooks/use-view-tracking";
@@ -71,10 +70,10 @@ import { parsePlaybackSpeed } from "@/lib/playback-speed";
 import { isStorageSetupFailureReason } from "@/lib/storage-failures";
 
 import { getDb, schema } from "../../server/db";
-import { CLIPS_AGENT_ACCESS_PARAM } from "../../server/lib/public-agent-context";
 import {
-  agentAccessTokenResourceId,
   buildAgentApiUrls,
+  CLIPS_AGENT_ACCESS_PARAM,
+  CLIP_AGENT_ACCESS_TOKEN_PREFIX,
   safeJsonForHtml,
 } from "../../shared/agent-context";
 import {
@@ -114,6 +113,7 @@ const PRIVATE_AGENT_SHARE_HEADERS = {
   "Cache-Control": "private, max-age=0, no-store",
   "Referrer-Policy": "no-referrer",
 };
+const CLIPS_AGENT_ACCESS_TTL_SECONDS = 2 * 60 * 60;
 
 function emptyLoaderData(url: URL): SharePageLoaderData {
   return {
@@ -172,6 +172,17 @@ function shouldShowGeneratedTitleSkeleton(
 export async function loader({ params, url }: LoaderFunctionArgs) {
   const id = params.shareId;
   if (!id) return emptyLoaderData(url);
+  const [
+    {
+      getRequestUserEmail,
+      signScopedAgentAccessToken,
+      verifyScopedAgentAccessToken,
+    },
+    { resolveAccess },
+  ] = await Promise.all([
+    import("@agent-native/core/server"),
+    import("@agent-native/core/sharing"),
+  ]);
 
   const [rec] = await getDb()
     .select({
@@ -192,10 +203,16 @@ export async function loader({ params, url }: LoaderFunctionArgs) {
     .where(eq(schema.recordings.id, id))
     .limit(1);
 
-  const agentAccessToken = url.searchParams.get(CLIPS_AGENT_ACCESS_PARAM) ?? "";
+  const agentAccessToken =
+    url.searchParams.get(CLIPS_AGENT_ACCESS_PARAM) ??
+    url.searchParams.get("t") ??
+    "";
   const hasAgentAccessToken = Boolean(agentAccessToken);
   const tokenGrantsAgentAccess = agentAccessToken
-    ? verifyShortLivedToken(agentAccessToken, agentAccessTokenResourceId(id)).ok
+    ? verifyScopedAgentAccessToken(agentAccessToken, {
+        resourceKind: CLIP_AGENT_ACCESS_TOKEN_PREFIX,
+        resourceId: id,
+      }).ok
     : false;
 
   if (!rec) return shareLoaderData(emptyLoaderData(url), hasAgentAccessToken);
@@ -233,7 +250,11 @@ export async function loader({ params, url }: LoaderFunctionArgs) {
     : canExposeAgentContext &&
         rec.password &&
         getRequestUserEmail() === rec.ownerEmail
-      ? signShortLivedToken({ resourceId: agentAccessTokenResourceId(id) })
+      ? signScopedAgentAccessToken({
+          resourceKind: CLIP_AGENT_ACCESS_TOKEN_PREFIX,
+          resourceId: id,
+          ttlSeconds: CLIPS_AGENT_ACCESS_TTL_SECONDS,
+        })
       : undefined;
   const canExposeAnonymousAgentContext = canExposeAgentContext && !rec.password;
   const canExposeOwnerAgentContext = canExposeAgentContext && Boolean(token);

@@ -4,6 +4,15 @@ import {
   useT,
 } from "@agent-native/core/client";
 import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@agent-native/toolkit/ui/dropdown-menu";
+import { Spinner } from "@agent-native/toolkit/ui/spinner";
+import {
   isLoomEmbedUrl,
   LOOM_START_MS_QUERY_PARAM,
   loomEmbedUrlWithTimestamp,
@@ -19,15 +28,6 @@ import {
   useState,
 } from "react";
 
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import { Spinner } from "@/components/ui/spinner";
 import {
   parsePlaybackSpeed,
   readPlaybackSpeedPreference,

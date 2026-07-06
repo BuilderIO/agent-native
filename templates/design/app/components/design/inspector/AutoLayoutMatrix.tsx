@@ -1,8 +1,5 @@
-import { IconArrowBackUp } from "@tabler/icons-react";
-import { type ReactNode, useState } from "react";
-
-import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
+import { Button } from "@agent-native/toolkit/ui/button";
+import { Checkbox } from "@agent-native/toolkit/ui/checkbox";
 import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
@@ -10,13 +7,16 @@ import {
   DropdownMenuItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
+} from "@agent-native/toolkit/ui/dropdown-menu";
 import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
   TooltipTrigger,
-} from "@/components/ui/tooltip";
+} from "@agent-native/toolkit/ui/tooltip";
+import { IconArrowBackUp } from "@tabler/icons-react";
+import { type ReactNode, useState } from "react";
+
 import { cn } from "@/lib/utils";
 
 import type {

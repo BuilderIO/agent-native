@@ -6,17 +6,17 @@ import {
   useT,
 } from "@agent-native/core/client";
 import { TeamPage } from "@agent-native/core/client/org";
-
-import { useSetPageTitle } from "@/components/layout/HeaderActions";
-import { Button } from "@/components/ui/button";
+import { useSetPageTitle } from "@agent-native/toolkit/app-shell";
+import { Button } from "@agent-native/toolkit/ui/button";
 import {
   Card,
   CardContent,
   CardDescription,
   CardHeader,
   CardTitle,
-} from "@/components/ui/card";
-import { Label } from "@/components/ui/label";
+} from "@agent-native/toolkit/ui/card";
+import { Label } from "@agent-native/toolkit/ui/label";
+
 import { APP_TITLE } from "@/lib/app-config";
 
 import changelog from "../../CHANGELOG.md?raw";

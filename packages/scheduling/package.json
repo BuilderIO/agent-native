@@ -54,6 +54,7 @@
     "prepublishOnly": "npm run build"
   },
   "dependencies": {
+    "@agent-native/toolkit": "workspace:*",
     "@date-fns/tz": "^1.2.0",
     "date-fns": "^4.1.0",
     "nanoid": "^5.1.9",

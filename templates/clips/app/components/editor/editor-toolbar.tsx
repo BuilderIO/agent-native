@@ -1,5 +1,32 @@
 import { useActionMutation, useT } from "@agent-native/core/client";
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@agent-native/toolkit/ui/alert-dialog";
+import { Button } from "@agent-native/toolkit/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuShortcut,
+  DropdownMenuTrigger,
+} from "@agent-native/toolkit/ui/dropdown-menu";
+import { Separator } from "@agent-native/toolkit/ui/separator";
+import { Slider } from "@agent-native/toolkit/ui/slider";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@agent-native/toolkit/ui/tooltip";
+import {
   IconArrowBackUp,
   IconChevronDown,
   IconCut,
@@ -20,35 +47,6 @@ import { useState } from "react";
 import { toast } from "sonner";
 
 import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
-import { Button } from "@/components/ui/button";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuShortcut,
-  DropdownMenuSub,
-  DropdownMenuSubContent,
-  DropdownMenuSubTrigger,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import { Separator } from "@/components/ui/separator";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
-import {
   exportMp4,
   LONG_EXPORT_THRESHOLD_MS,
   type ExportProgress,
@@ -60,6 +58,9 @@ import {
   type EditsJson,
 } from "@/lib/timestamp-mapping";
 import { cn } from "@/lib/utils";
+
+const MIN_TIMELINE_ZOOM = 1;
+const MAX_TIMELINE_ZOOM = 50;
 
 export interface EditorToolbarProps {
   recordingId: string;
@@ -338,6 +339,74 @@ export function EditorToolbar({
         </DropdownMenuContent>
       </DropdownMenu>
 
+      <Separator orientation="vertical" className="mx-1 h-6" />
+
+      <div
+        className="flex h-8 shrink-0 items-center gap-1 rounded-md border border-border bg-background/70 px-1"
+        aria-label={t("editorToolbar.zoom")}
+      >
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              size="icon"
+              variant="ghost"
+              className="h-6 w-6"
+              aria-label={t("editorToolbar.zoomOut")}
+              disabled={zoom <= MIN_TIMELINE_ZOOM}
+              onClick={() =>
+                onZoomChange(Math.max(MIN_TIMELINE_ZOOM, zoom - 1))
+              }
+            >
+              <IconZoomOut className="h-3.5 w-3.5" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>{t("editorToolbar.zoomOut")}</TooltipContent>
+        </Tooltip>
+
+        <Slider
+          value={[zoom]}
+          min={MIN_TIMELINE_ZOOM}
+          max={MAX_TIMELINE_ZOOM}
+          step={0.1}
+          aria-label={t("editorToolbar.zoom")}
+          onValueChange={(value) => onZoomChange(value[0] ?? zoom)}
+          className="hidden w-28 lg:flex"
+        />
+
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              size="sm"
+              variant={zoom === MIN_TIMELINE_ZOOM ? "secondary" : "ghost"}
+              className="h-6 min-w-10 px-1.5 font-mono text-[11px] tabular-nums"
+              aria-label={t("editorToolbar.fitToWidth")}
+              onClick={() => onZoomChange(MIN_TIMELINE_ZOOM)}
+            >
+              {formatZoomLabel(zoom)}
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>{t("editorToolbar.fitToWidth")}</TooltipContent>
+        </Tooltip>
+
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              size="icon"
+              variant="ghost"
+              className="h-6 w-6"
+              aria-label={t("editorToolbar.zoomIn")}
+              disabled={zoom >= MAX_TIMELINE_ZOOM}
+              onClick={() =>
+                onZoomChange(Math.min(MAX_TIMELINE_ZOOM, zoom + 1))
+              }
+            >
+              <IconZoomIn className="h-3.5 w-3.5" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>{t("editorToolbar.zoomIn")}</TooltipContent>
+        </Tooltip>
+      </div>
+
       {selectionRange ? (
         <>
           <Separator orientation="vertical" className="mx-1 h-6" />
@@ -412,35 +481,6 @@ export function EditorToolbar({
             <IconPuzzle className="mr-2 h-4 w-4" />
             {t("editorToolbar.stitchClips")}
           </DropdownMenuItem>
-          <DropdownMenuSeparator />
-          <DropdownMenuSub>
-            <DropdownMenuSubTrigger>
-              <IconZoomIn className="mr-2 h-4 w-4" />
-              {t("editorToolbar.zoom")}
-              <span className="ml-auto text-xs text-muted-foreground">
-                {zoom}x
-              </span>
-            </DropdownMenuSubTrigger>
-            <DropdownMenuSubContent className="w-44">
-              <DropdownMenuItem
-                disabled={zoom <= 1}
-                onSelect={() => onZoomChange(Math.max(1, zoom - 5))}
-              >
-                <IconZoomOut className="mr-2 h-4 w-4" />
-                {t("editorToolbar.zoomOut")}
-              </DropdownMenuItem>
-              <DropdownMenuItem onSelect={() => onZoomChange(1)}>
-                {t("editorToolbar.fitToWidth")}
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                disabled={zoom >= 50}
-                onSelect={() => onZoomChange(Math.min(50, zoom + 5))}
-              >
-                <IconZoomIn className="mr-2 h-4 w-4" />
-                {t("editorToolbar.zoomIn")}
-              </DropdownMenuItem>
-            </DropdownMenuSubContent>
-          </DropdownMenuSub>
           <DropdownMenuSeparator />
           <DropdownMenuItem onSelect={() => setClearOpen(true)}>
             <IconTrash className="mr-2 h-4 w-4" />
@@ -535,4 +575,8 @@ export function EditorToolbar({
 
 function formatSpeedLabel(rate: number): string {
   return `${Number.isInteger(rate) ? rate : rate.toFixed(1)}x`;
+}
+
+function formatZoomLabel(zoom: number): string {
+  return `${Number.isInteger(zoom) ? zoom : zoom.toFixed(1)}x`;
 }

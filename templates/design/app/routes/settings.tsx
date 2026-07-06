@@ -8,15 +8,15 @@ import {
   useT,
 } from "@agent-native/core/client";
 import { TeamPage } from "@agent-native/core/client/org";
-
 import {
   Card,
   CardContent,
   CardDescription,
   CardHeader,
   CardTitle,
-} from "@/components/ui/card";
-import { Label } from "@/components/ui/label";
+} from "@agent-native/toolkit/ui/card";
+import { Label } from "@agent-native/toolkit/ui/label";
+
 import { messagesByLocale } from "@/i18n-data";
 
 import changelog from "../../CHANGELOG.md?raw";

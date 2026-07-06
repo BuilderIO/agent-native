@@ -1,4 +1,19 @@
 import { captureError, useT } from "@agent-native/core/client";
+import { Badge } from "@agent-native/toolkit/ui/badge";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@agent-native/toolkit/ui/card";
+import { Progress } from "@agent-native/toolkit/ui/progress";
+import {
+  Tabs,
+  TabsContent,
+  TabsList,
+  TabsTrigger,
+} from "@agent-native/toolkit/ui/tabs";
 import {
   IconAlertTriangle,
   IconChecks,
@@ -12,17 +27,6 @@ import {
   IconUsers,
 } from "@tabler/icons-react";
 import { useEffect, type ComponentType, type ReactNode } from "react";
-
-import { Badge } from "@/components/ui/badge";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
-import { Progress } from "@/components/ui/progress";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 type TablerIcon = ComponentType<{ className?: string }>;
 

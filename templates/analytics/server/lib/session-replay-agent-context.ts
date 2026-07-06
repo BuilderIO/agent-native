@@ -1,12 +1,14 @@
 import {
+  buildAgentAccessApiUrl,
+  buildAgentAccessUrl,
+  createScopedAgentAccessGrant,
   getRequestContext,
-  signShortLivedToken,
-  verifyShortLivedToken,
+  verifyScopedAgentAccessToken,
 } from "@agent-native/core/server";
 
 import {
   SESSION_REPLAY_AGENT_ACCESS_PARAM,
-  sessionReplayAgentAccessTokenResourceId,
+  SESSION_REPLAY_AGENT_ACCESS_TOKEN_PREFIX,
 } from "../../shared/session-replay-agent-access.js";
 import {
   isFailedSessionReplayNetworkStatus,
@@ -68,17 +70,6 @@ function appOrigin(explicitOrigin?: string): string {
   } catch {
     return "http://localhost:3000";
   }
-}
-
-function absoluteUrl(path: string, origin?: string): string {
-  return `${appOrigin(origin)}${appBasePath()}${path}`;
-}
-
-function appendAgentToken(path: string, token: string): string {
-  const sep = path.includes("?") ? "&" : "?";
-  return `${path}${sep}${SESSION_REPLAY_AGENT_ACCESS_PARAM}=${encodeURIComponent(
-    token,
-  )}`;
 }
 
 function replayStartedAt(events: AgentReplayEvent[]): number {
@@ -616,10 +607,10 @@ export function verifySessionReplayAgentAccess(
   recordingId: string,
   token: string,
 ): boolean {
-  return verifyShortLivedToken(
-    token,
-    sessionReplayAgentAccessTokenResourceId(recordingId),
-  ).ok;
+  return verifyScopedAgentAccessToken(token, {
+    resourceKind: SESSION_REPLAY_AGENT_ACCESS_TOKEN_PREFIX,
+    resourceId: recordingId,
+  }).ok;
 }
 
 export async function createSessionReplayAgentLink({
@@ -632,31 +623,32 @@ export async function createSessionReplayAgentLink({
   origin?: string;
 }) {
   const recording = await getSessionReplaySummary(recordingId, scope);
-  const token = signShortLivedToken({
-    resourceId: sessionReplayAgentAccessTokenResourceId(recording.id),
+  const grant = createScopedAgentAccessGrant({
+    resourceKind: SESSION_REPLAY_AGENT_ACCESS_TOKEN_PREFIX,
+    resourceId: recording.id,
     viewerEmail: scope.userEmail,
     ttlSeconds: SESSION_REPLAY_AGENT_ACCESS_TTL_SECONDS,
   });
-  const expiresAt = new Date(
-    Date.now() + SESSION_REPLAY_AGENT_ACCESS_TTL_SECONDS * 1000,
-  ).toISOString();
-  const sessionPath = appendAgentToken(
-    `/sessions/${encodeURIComponent(recording.id)}`,
-    token,
-  );
-  const contextPath = appendAgentToken(
-    `/api/session-replay/agent-context.json?id=${encodeURIComponent(
-      recording.id,
-    )}`,
-    token,
-  );
+  const resolvedOrigin = appOrigin(origin);
+  const basePath = appBasePath();
 
   return {
     recordingId: recording.id,
-    url: absoluteUrl(sessionPath, origin),
-    contextUrl: absoluteUrl(contextPath, origin),
-    expiresAt,
-    ttlSeconds: SESSION_REPLAY_AGENT_ACCESS_TTL_SECONDS,
+    url: buildAgentAccessUrl({
+      path: `/sessions/${encodeURIComponent(recording.id)}`,
+      origin: resolvedOrigin,
+      basePath,
+      token: grant.token,
+    }),
+    contextUrl: buildAgentAccessApiUrl({
+      endpoint: "/api/session-replay/agent-context.json",
+      resourceId: recording.id,
+      origin: resolvedOrigin,
+      basePath,
+      token: grant.token,
+    }),
+    expiresAt: grant.expiresAt,
+    ttlSeconds: grant.ttlSeconds,
   };
 }
 
@@ -679,28 +671,36 @@ export async function buildSessionReplayAgentContext({
   }
 
   const recording = await getSessionReplayTokenizedSummary(recordingId);
-  const contextPath = appendAgentToken(
-    `/api/session-replay/agent-context.json?id=${encodeURIComponent(
-      recording.id,
-    )}`,
+  const resolvedOrigin = appOrigin(origin);
+  const basePath = appBasePath();
+  const contextUrl = buildAgentAccessApiUrl({
+    endpoint: "/api/session-replay/agent-context.json",
+    resourceId: recording.id,
+    origin: resolvedOrigin,
+    basePath,
     token,
-  );
-  const eventsPath = appendAgentToken(
-    `/api/session-replay/agent-events.json?id=${encodeURIComponent(
-      recording.id,
-    )}&limit=10000`,
+  });
+  const eventsUrl = buildAgentAccessApiUrl({
+    endpoint: "/api/session-replay/agent-events.json",
+    resourceId: recording.id,
+    origin: resolvedOrigin,
+    basePath,
     token,
-  );
-  const diagnosticsPath = appendAgentToken(
-    `/api/session-replay/agent-diagnostics.json?id=${encodeURIComponent(
-      recording.id,
-    )}`,
+    extraParams: [["limit", 10000]],
+  });
+  const diagnosticsUrl = buildAgentAccessApiUrl({
+    endpoint: "/api/session-replay/agent-diagnostics.json",
+    resourceId: recording.id,
+    origin: resolvedOrigin,
+    basePath,
     token,
-  );
-  const pagePath = appendAgentToken(
-    `/sessions/${encodeURIComponent(recording.id)}`,
+  });
+  const pageUrl = buildAgentAccessUrl({
+    path: `/sessions/${encodeURIComponent(recording.id)}`,
+    origin: resolvedOrigin,
+    basePath,
     token,
-  );
+  });
 
   const eventsResponse = includeTimeline
     ? await getSessionReplayTokenizedEvents(recording.id, { limit: 10000 })
@@ -735,16 +735,16 @@ export async function buildSessionReplayAgentContext({
     ],
     recording: compactSessionRecordingSummary(recording),
     apis: {
-      page: { method: "GET", url: absoluteUrl(pagePath, origin) },
-      context: { method: "GET", url: absoluteUrl(contextPath, origin) },
+      page: { method: "GET", url: pageUrl },
+      context: { method: "GET", url: contextUrl },
       events: {
         method: "GET",
-        url: absoluteUrl(eventsPath, origin),
+        url: eventsUrl,
         note: "Returns bounded sanitized replay events; storage/provider URLs stay private.",
       },
       diagnostics: {
         method: "GET",
-        url: absoluteUrl(diagnosticsPath, origin),
+        url: diagnosticsUrl,
         note: "Returns bounded console/network diagnostics. Params: kind=console|network|all, level=log|info|warn|error|debug, limit (default 200, max 500), offset (page with N-entry skip), fromMs/toMs (inclusive offsetMs window around a timeline marker). offset/fromMs/toMs force strictly chronological pagination for full enumeration; totals reflect the filtered population and hasMore/truncated show whether more entries remain.",
       },
     },

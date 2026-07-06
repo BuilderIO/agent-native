@@ -1,8 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockGetRequestContext = vi.hoisted(() => vi.fn());
-const mockSignShortLivedToken = vi.hoisted(() => vi.fn());
-const mockVerifyShortLivedToken = vi.hoisted(() => vi.fn());
+const mockCreateScopedAgentAccessGrant = vi.hoisted(() => vi.fn());
+const mockVerifyScopedAgentAccessToken = vi.hoisted(() => vi.fn());
 const mockGetSessionReplaySummary = vi.hoisted(() => vi.fn());
 const mockGetSessionReplayTokenizedSummary = vi.hoisted(() => vi.fn());
 const mockGetSessionReplayTokenizedEvents = vi.hoisted(() => vi.fn());
@@ -23,10 +23,29 @@ const mockCompactSessionRecordingSummary = vi.hoisted(() =>
 );
 
 vi.mock("@agent-native/core/server", () => ({
+  buildAgentAccessApiUrl: ({
+    endpoint,
+    resourceId,
+    token,
+    origin,
+    basePath,
+    extraParams,
+  }: any) => {
+    const params = new URLSearchParams({ id: resourceId });
+    if (token) params.set("agent_access", token);
+    for (const [key, value] of extraParams ?? [])
+      params.set(key, String(value));
+    return `${origin ?? ""}${basePath ?? ""}${endpoint}?${params.toString()}`;
+  },
+  buildAgentAccessUrl: ({ path, token, origin, basePath }: any) =>
+    `${origin ?? ""}${basePath ?? ""}${path}?agent_access=${encodeURIComponent(
+      token,
+    )}`,
+  createScopedAgentAccessGrant: (...args: unknown[]) =>
+    mockCreateScopedAgentAccessGrant(...args),
   getRequestContext: (...args: unknown[]) => mockGetRequestContext(...args),
-  signShortLivedToken: (...args: unknown[]) => mockSignShortLivedToken(...args),
-  verifyShortLivedToken: (...args: unknown[]) =>
-    mockVerifyShortLivedToken(...args),
+  verifyScopedAgentAccessToken: (...args: unknown[]) =>
+    mockVerifyScopedAgentAccessToken(...args),
 }));
 
 vi.mock("./session-replay.js", () => ({
@@ -115,8 +134,12 @@ describe("session replay agent context links", () => {
     mockGetRequestContext.mockReturnValue({
       requestOrigin: "https://analytics.example.com",
     });
-    mockSignShortLivedToken.mockReturnValue("signed-token");
-    mockVerifyShortLivedToken.mockReturnValue({ ok: true });
+    mockCreateScopedAgentAccessGrant.mockReturnValue({
+      token: "signed-token",
+      expiresAt: "2026-01-01T02:00:00.000Z",
+      ttlSeconds: SESSION_REPLAY_AGENT_ACCESS_TTL_SECONDS,
+    });
+    mockVerifyScopedAgentAccessToken.mockReturnValue({ ok: true });
     mockGetSessionReplaySummary.mockResolvedValue(makeRecording());
     mockGetSessionReplayTokenizedSummary.mockResolvedValue(makeRecording());
     mockGetSessionReplayTokenizedEvents.mockResolvedValue({
@@ -154,8 +177,9 @@ describe("session replay agent context links", () => {
       origin: "https://analytics.example.com",
     });
 
-    expect(mockSignShortLivedToken).toHaveBeenCalledWith({
-      resourceId: "analytics-session-replay-agent-context:sr_1",
+    expect(mockCreateScopedAgentAccessGrant).toHaveBeenCalledWith({
+      resourceKind: "analytics-session-replay-agent-context",
+      resourceId: "sr_1",
       viewerEmail: "owner@example.com",
       ttlSeconds: SESSION_REPLAY_AGENT_ACCESS_TTL_SECONDS,
     });
@@ -175,9 +199,12 @@ describe("session replay agent context links", () => {
       origin: "https://analytics.example.com",
     });
 
-    expect(mockVerifyShortLivedToken).toHaveBeenCalledWith(
+    expect(mockVerifyScopedAgentAccessToken).toHaveBeenCalledWith(
       "signed-token",
-      "analytics-session-replay-agent-context:sr_1",
+      {
+        resourceKind: "analytics-session-replay-agent-context",
+        resourceId: "sr_1",
+      },
     );
     expect(context.apis.page.url).toBe(
       "https://analytics.example.com/sessions/sr_1?agent_access=signed-token",
@@ -358,7 +385,7 @@ describe("session replay agent context links", () => {
   });
 
   it("rejects invalid agent access tokens", async () => {
-    mockVerifyShortLivedToken.mockReturnValue({ ok: false });
+    mockVerifyScopedAgentAccessToken.mockReturnValue({ ok: false });
 
     await expect(
       buildSessionReplayAgentContext({

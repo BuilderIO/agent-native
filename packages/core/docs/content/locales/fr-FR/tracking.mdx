@@ -241,6 +241,12 @@ Le modèle Analytics stocke les métadonnées de relecture en SQL (`session_reco
 
 Lorsque vous devez transmettre un enregistrement privé à un agent externe, utilisez le contrôle **Copy for agent** de la page de détail de session. Il génère un lien `agent_access` limité à l'enregistrement, valide deux heures, effectue le rendu SSR d'une petite charge utile de découverte sur `/sessions/:recordingId`, et n'expose que les API JSON de contexte/événements de l'agent. La visibilité de l'enregistrement ne change pas.
 
+Implementation note: the reusable layer is the core agent-access URL contract,
+not a replay-specific UI abstraction. Use `createScopedAgentAccessGrant`,
+`verifyScopedAgentAccessToken`, `buildAgentAccessUrl`, and
+`buildAgentAccessApiUrl` for scoped SSR and JSON API links; keep replay storage,
+diagnostics shaping, and access policy inside the Analytics template.
+
 Pour le développement local uniquement, Analytics peut se replier sur des blocs SQL en ligne plafonnés lorsque le stockage blob privé n'est pas disponible. Les déploiements en production doivent configurer un stockage blob privé ou chiffré plutôt que de s'appuyer sur Postgres pour les charges utiles de relecture.
 
 ## Avancé : fournisseurs personnalisés et éléments internes {#advanced}

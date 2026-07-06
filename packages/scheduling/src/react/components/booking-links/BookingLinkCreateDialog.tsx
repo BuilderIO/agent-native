@@ -1,3 +1,15 @@
+import {
+  Button,
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  Input,
+  Label,
+  Textarea,
+} from "@agent-native/toolkit/ui";
 /**
  * BookingLinkCreateDialog — dialog prompting for Title / URL / Duration
  * when creating a new booking link (a.k.a. event type).
@@ -10,19 +22,6 @@
  * label, textarea.
  */
 import { useEffect, useState } from "react";
-
-import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
 
 import { useSchedulingT } from "../../i18n.js";
 

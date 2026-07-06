@@ -1,5 +1,6 @@
 import { AgentSidebar, useT } from "@agent-native/core/client";
 import { InvitationBanner } from "@agent-native/core/client/org";
+import { HeaderActionsProvider } from "@agent-native/toolkit/app-shell";
 import { IconMenu2 } from "@tabler/icons-react";
 import { useEffect, useMemo, useState } from "react";
 import { useLocation } from "react-router";
@@ -11,7 +12,6 @@ import { cn } from "@/lib/utils";
 
 import { AgentWorkIndicator } from "./AgentWorkIndicator";
 import { Header } from "./Header";
-import { HeaderActionsProvider } from "./HeaderActions";
 import { Sidebar } from "./Sidebar";
 
 interface LayoutProps {

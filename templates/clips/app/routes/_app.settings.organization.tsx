@@ -1,11 +1,12 @@
 import { useActionQuery, useSession, useT } from "@agent-native/core/client";
-import { IconMailFast, IconUsers } from "@tabler/icons-react";
-import { useMemo } from "react";
-
-import { PageHeader } from "@/components/library/page-header";
-import { Badge } from "@/components/ui/badge";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Skeleton } from "@/components/ui/skeleton";
+import { Badge } from "@agent-native/toolkit/ui/badge";
+import {
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+} from "@agent-native/toolkit/ui/card";
+import { Skeleton } from "@agent-native/toolkit/ui/skeleton";
 import {
   Table,
   TableBody,
@@ -13,7 +14,11 @@ import {
   TableHead,
   TableHeader,
   TableRow,
-} from "@/components/ui/table";
+} from "@agent-native/toolkit/ui/table";
+import { IconMailFast, IconUsers } from "@tabler/icons-react";
+import { useMemo } from "react";
+
+import { PageHeader } from "@/components/library/page-header";
 import { BrandingEditor } from "@/components/workspace/branding-editor";
 import { InviteDialog } from "@/components/workspace/invite-dialog";
 import {

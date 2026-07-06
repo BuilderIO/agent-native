@@ -1,20 +1,20 @@
 import { defineAction } from "@agent-native/core";
 import {
+  buildAgentAccessUrl,
+  createScopedAgentAccessGrant,
   getRequestContext,
   getRequestUserEmail,
-  signShortLivedToken,
 } from "@agent-native/core/server";
 import { ForbiddenError, resolveAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
 
 import {
-  CLIPS_AGENT_ACCESS_PARAM,
   CLIPS_AGENT_ACCESS_TTL_SECONDS,
   getServerAppBasePath,
 } from "../server/lib/public-agent-context.js";
 import {
-  agentAccessTokenResourceId,
   buildAgentApiUrls,
+  CLIP_AGENT_ACCESS_TOKEN_PREFIX,
 } from "../shared/agent-context.js";
 
 function appOrigin(): string {
@@ -28,11 +28,6 @@ function appOrigin(): string {
   } catch {
     return "http://localhost:3000";
   }
-}
-
-function appendAgentAccess(url: string, token: string): string {
-  const sep = url.includes("?") ? "&" : "?";
-  return `${url}${sep}${CLIPS_AGENT_ACCESS_PARAM}=${encodeURIComponent(token)}`;
 }
 
 export default defineAction({
@@ -59,32 +54,32 @@ export default defineAction({
       );
     }
 
-    const token = signShortLivedToken({
-      resourceId: agentAccessTokenResourceId(recording.id),
+    const grant = createScopedAgentAccessGrant({
+      resourceKind: CLIP_AGENT_ACCESS_TOKEN_PREFIX,
+      resourceId: recording.id,
       viewerEmail: getRequestUserEmail() || undefined,
       ttlSeconds: CLIPS_AGENT_ACCESS_TTL_SECONDS,
     });
     const origin = appOrigin();
     const basePath = getServerAppBasePath();
-    const expiresAt = new Date(
-      Date.now() + CLIPS_AGENT_ACCESS_TTL_SECONDS * 1000,
-    ).toISOString();
-    const pageUrl = appendAgentAccess(
-      `${origin}${basePath}/share/${encodeURIComponent(recording.id)}`,
-      token,
-    );
+    const pageUrl = buildAgentAccessUrl({
+      path: `/share/${encodeURIComponent(recording.id)}`,
+      origin,
+      basePath,
+      token: grant.token,
+    });
     const api = buildAgentApiUrls(recording.id, {
       origin,
       basePath,
-      token,
+      token: grant.token,
     });
 
     return {
       recordingId: recording.id,
       url: pageUrl,
       contextUrl: api.contextUrl,
-      expiresAt,
-      ttlSeconds: CLIPS_AGENT_ACCESS_TTL_SECONDS,
+      expiresAt: grant.expiresAt,
+      ttlSeconds: grant.ttlSeconds,
     };
   },
 });

@@ -241,6 +241,12 @@ La plantilla de Analytics almacena los metadatos de repetición en SQL (`session
 
 Cuando necesite entregar una grabación privada a un agente externo, use el control **Copiar para el agente** de la página de detalle de la sesión. Este genera un enlace `agent_access` de dos horas con alcance limitado a la grabación, renderiza en el servidor (SSR) una pequeña carga útil de descubrimiento en `/sessions/:recordingId`, y expone únicamente las API JSON de contexto/eventos del agente. La visibilidad de la grabación no cambia.
 
+Implementation note: the reusable layer is the core agent-access URL contract,
+not a replay-specific UI abstraction. Use `createScopedAgentAccessGrant`,
+`verifyScopedAgentAccessToken`, `buildAgentAccessUrl`, and
+`buildAgentAccessApiUrl` for scoped SSR and JSON API links; keep replay storage,
+diagnostics shaping, and access policy inside the Analytics template.
+
 Solo para desarrollo local, Analytics puede recurrir a fragmentos en línea de SQL limitados cuando el almacenamiento de blob privado no está disponible. Las implementaciones de producción deberían configurar almacenamiento de blob privado o cifrado en lugar de depender de Postgres para las cargas útiles de repetición.
 
 ## Avanzado: proveedores personalizados e internos {#advanced}

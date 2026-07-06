@@ -6,10 +6,10 @@ import {
   useT,
 } from "@agent-native/core/client";
 import { TeamPage } from "@agent-native/core/client/org";
+import { useSetPageTitle } from "@agent-native/toolkit/app-shell";
+import { Button } from "@agent-native/toolkit/ui/button";
+import { Label } from "@agent-native/toolkit/ui/label";
 
-import { useSetPageTitle } from "@/components/layout/HeaderActions";
-import { Button } from "@/components/ui/button";
-import { Label } from "@/components/ui/label";
 import { messagesByLocale } from "@/i18n-data";
 
 import changelog from "../../CHANGELOG.md?raw";

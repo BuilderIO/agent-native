@@ -1,11 +1,13 @@
 import {
+  ToggleGroup,
+  ToggleGroupItem,
+} from "@agent-native/toolkit/ui/toggle-group";
+import {
   IconChartBar,
   IconChartLine,
   IconTable,
   IconHash,
 } from "@tabler/icons-react";
-
-import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 
 import type { ChartType } from "../types";
 

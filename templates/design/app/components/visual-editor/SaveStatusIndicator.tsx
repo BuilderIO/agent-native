@@ -1,11 +1,11 @@
 import { useT } from "@agent-native/core/client";
-import { IconCloudOff } from "@tabler/icons-react";
-
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
-} from "@/components/ui/tooltip";
+} from "@agent-native/toolkit/ui/tooltip";
+import { IconCloudOff } from "@tabler/icons-react";
+
 import { cn } from "@/lib/utils";
 
 interface SaveStatusIndicatorProps {

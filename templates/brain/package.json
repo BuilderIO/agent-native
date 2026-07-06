@@ -19,6 +19,7 @@
   },
   "dependencies": {
     "@agent-native/core": "workspace:*",
+    "@agent-native/toolkit": "workspace:*",
     "@fontsource-variable/inter": "^5.2.8",
     "@libsql/client": "^0.15.0",
     "drizzle-orm": "^0.45.2",

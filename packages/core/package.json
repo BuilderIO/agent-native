@@ -73,6 +73,12 @@
     "./client/conversation": "./dist/client/conversation/index.js",
     "./client/editor": "./dist/client/editor/index.js",
     "./client/resources": "./dist/client/resources/index.js",
+    "./client/components/ui/dialog": "./dist/client/components/ui/dialog.js",
+    "./client/components/ui/dropdown-menu": "./dist/client/components/ui/dropdown-menu.js",
+    "./client/components/ui/hover-card": "./dist/client/components/ui/hover-card.js",
+    "./client/components/ui/popover": "./dist/client/components/ui/popover.js",
+    "./client/components/ui/sheet": "./dist/client/components/ui/sheet.js",
+    "./client/components/ui/tooltip": "./dist/client/components/ui/tooltip.js",
     "./blocks": "./dist/client/blocks/index.js",
     "./blocks/server": "./dist/client/blocks/server.js",
     "./client/AgentPanel": "./dist/client/AgentPanel.js",
@@ -190,6 +196,7 @@
     "prepublishOnly": "npm run build"
   },
   "dependencies": {
+    "@agent-native/toolkit": "workspace:*",
     "@amplitude/analytics-browser": "^2.41.1",
     "@anthropic-ai/sdk": "^0.90.0",
     "@anthropic-ai/tokenizer": "0.0.4",

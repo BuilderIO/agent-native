@@ -83,7 +83,6 @@ import {
 } from "@agent-native/core/client";
 import { ExtensionsSidebarSection } from "@agent-native/core/client/extensions";
 import { OrgSwitcher } from "@agent-native/core/client/org";
-
 import {
   AlertDialog,
   AlertDialogAction,
@@ -93,29 +92,33 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
+} from "@agent-native/toolkit/ui/alert-dialog";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import { Input } from "@/components/ui/input";
+} from "@agent-native/toolkit/ui/dropdown-menu";
+import { Input } from "@agent-native/toolkit/ui/input";
 import {
   Popover,
   PopoverTrigger,
   PopoverContent,
-} from "@/components/ui/popover";
-import { Skeleton } from "@/components/ui/skeleton";
-import { Switch } from "@/components/ui/switch";
-import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+} from "@agent-native/toolkit/ui/popover";
+import { Skeleton } from "@agent-native/toolkit/ui/skeleton";
+import { Switch } from "@agent-native/toolkit/ui/switch";
+import {
+  ToggleGroup,
+  ToggleGroupItem,
+} from "@agent-native/toolkit/ui/toggle-group";
 import {
   Tooltip,
   TooltipTrigger,
   TooltipContent,
   TooltipProvider,
-} from "@/components/ui/tooltip";
+} from "@agent-native/toolkit/ui/tooltip";
+
 import {
   useDashboardViews,
   useDeleteDashboardView,

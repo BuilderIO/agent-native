@@ -14,6 +14,7 @@
   },
   "dependencies": {
     "@agent-native/core": "workspace:*",
+    "@agent-native/toolkit": "workspace:*",
     "@aws-sdk/client-s3": "^3.1044.0",
     "@aws-sdk/s3-request-presigner": "^3.1044.0",
     "@fontsource-variable/inter": "^5.2.8",

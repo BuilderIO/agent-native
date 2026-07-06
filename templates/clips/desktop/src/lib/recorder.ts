@@ -64,6 +64,11 @@ import {
   type LocalExportedFile,
   type LocalRecordingTarget,
 } from "./local-export";
+import {
+  buildDesktopDisplayMediaOptions,
+  getAudioStreamWithFallback,
+  getCameraStreamWithFallback,
+} from "./media-capture-constraints";
 import { buildCaptureTitle, type CaptureTitleResult } from "./recording-title";
 import {
   startTranscriptionCapture,
@@ -384,22 +389,6 @@ function createCloudMediaRecorder(
   throw lastError instanceof Error ? lastError : new Error(String(lastError));
 }
 
-const VOICE_FOCUSED_AUDIO_CONSTRAINTS: MediaTrackConstraints = {
-  echoCancellation: { ideal: true },
-  noiseSuppression: { ideal: true },
-  autoGainControl: { ideal: true },
-  channelCount: { ideal: 1 },
-};
-
-function voiceFocusedAudioConstraints(
-  deviceId?: string | null,
-): MediaTrackConstraints {
-  return {
-    ...VOICE_FOCUSED_AUDIO_CONSTRAINTS,
-    ...(deviceId ? { deviceId: { exact: deviceId } } : {}),
-  };
-}
-
 interface RecordingAudio {
   tracks: MediaStreamTrack[];
   cleanup: () => void;
@@ -444,13 +433,13 @@ function localRecordingTargetsForMode({
   localRecordingMode,
   displayStream,
   bubbleCameraStream,
-  audioStream,
+  recordingAudio,
   combined,
 }: {
   localRecordingMode: Exclude<LocalRecordingMode, "off">;
   displayStream: MediaStream | null;
   bubbleCameraStream: MediaStream | null;
-  audioStream: MediaStream | null;
+  recordingAudio: RecordingAudio;
   combined: MediaStream;
 }): LocalRecordingTarget[] {
   if (localRecordingMode === "composed") {
@@ -461,7 +450,7 @@ function localRecordingTargetsForMode({
   if (displayStream) {
     const desktopTracks = [
       ...displayStream.getVideoTracks(),
-      ...(audioStream?.getAudioTracks() ?? displayStream.getAudioTracks()),
+      ...recordingAudio.tracks,
     ];
     targets.push({
       role: "desktop",
@@ -1698,8 +1687,10 @@ async function startNativeFullscreenRecording(
   // clock and the toolbar-enable behind the real recording start.
   let startedAt = 0;
   let nativeTranscriptFailureSaved = false;
+  const wantsSystemAudio = params.systemAudioOn !== false;
+  const wantsRecordedAudio = wantsAudio || wantsSystemAudio;
   const saveTranscriptFailure = async (failureReason: string) => {
-    if (!wantsAudio || nativeTranscriptFailureSaved || !id) return;
+    if (!wantsRecordedAudio || nativeTranscriptFailureSaved || !id) return;
     nativeTranscriptFailureSaved = true;
     await saveRecordingTranscriptFailure(
       params.serverUrl,
@@ -1724,12 +1715,7 @@ async function startNativeFullscreenRecording(
     if (localOnly && localRecordingMode === "separate" && wantsCamera) {
       localCameraStream =
         params.preAcquiredCameraStream ??
-        (await navigator.mediaDevices.getUserMedia({
-          video: params.cameraId
-            ? { deviceId: { exact: params.cameraId } }
-            : true,
-          audio: false,
-        }));
+        (await getCameraStreamWithFallback(params.cameraId));
       localOwnsCameraStream =
         localCameraStream !== params.preAcquiredCameraStream;
       localCameraExport = await prepareLocalRecordingExport(
@@ -1757,16 +1743,12 @@ async function startNativeFullscreenRecording(
         ? "[clips-recorder] invoking show_countdown for native local recording"
         : "[clips-recorder] invoking show_countdown + createServerRecording",
     );
-    const wantsSystemAudio = wantsAudio && params.systemAudioOn !== false;
-    // Resolve the mic's REAL device name for the native recorder. WebKit's
-    // deviceId is a salted hash that never equals ScreenCaptureKit's CoreAudio
-    // device UID, so the Rust side can only pin the input by NAME. The stored
-    // label can be stale or empty (device list locked when picked, or a rotated
-    // deviceId salt after an app update) — that's what makes "only Default
-    // works": the hash matches nothing and there's no name to fall back to.
-    // A one-shot getUserMedia gives the exact current device name, the same
-    // string ScreenCaptureKit exposes, so name resolution succeeds. Done before
-    // warming so both phases pin the same input.
+    // Resolve the mic's REAL device name before native setup. WebKit's deviceId
+    // is a salted hash that never equals CoreAudio's device UID, so any native
+    // path that needs a mic can only pin the input by NAME. The stored label can
+    // be stale or empty (device list locked when picked, or a rotated deviceId
+    // salt after an app update), so a one-shot getUserMedia gives the exact
+    // current device name.
     let micDeviceLabel = params.micLabel || null;
     if (wantsAudio && params.micId) {
       try {
@@ -1797,11 +1779,10 @@ async function startNativeFullscreenRecording(
       micDeviceLabel,
       captureRegion,
     };
-    // Warm the mic DURING the countdown. ScreenCaptureKit delivers its first
-    // mic sample ~1s after capture starts; warming now lets `begin` attach the
-    // recording output to an already-live mic, so the clip no longer starts
-    // with a silent second. No-op when there's nothing to pre-warm (mic off /
-    // SCK unavailable) — `begin` then does a normal immediate start.
+    // Warm ScreenCaptureKit DURING the countdown without recording frames yet.
+    // This keeps the capture start off the critical path while letting `begin`
+    // attach the recording output at the exact start moment. No-op when SCK is
+    // unavailable — `begin` then does a normal immediate start.
     const warmMic = (recordingId: string) =>
       invoke("native_fullscreen_recording_warm", {
         recordingId,
@@ -1822,13 +1803,13 @@ async function startNativeFullscreenRecording(
       const recordingPromise = createServerRecording(
         params.serverUrl,
         wantsCamera,
-        wantsAudio,
+        wantsRecordedAudio,
         captureTitle,
       ).finally(() => {
         console.timeEnd("[clips-recorder] createServerRecording duration");
       });
       // The recording id usually lands well before the countdown ends — warm
-      // the mic as soon as it does so the warm-up overlaps the 3-2-1.
+      // native capture as soon as it does so setup overlaps the 3-2-1.
       const warmAndId = (async () => {
         const createRes = await recordingPromise;
         await warmMic(createRes.id);
@@ -2049,7 +2030,7 @@ async function startNativeFullscreenRecording(
             recordingId: id,
             authToken: params.authToken ?? "",
             cookie: params.cookie ?? "",
-            hasAudio: wantsAudio,
+            hasAudio: wantsRecordedAudio,
             hasCamera: wantsCamera,
           },
         );
@@ -2074,9 +2055,9 @@ async function startNativeFullscreenRecording(
               capturedTranscript,
               params.authToken,
             );
-          } else if (wantsAudio) {
+          } else if (wantsRecordedAudio) {
             await saveTranscriptFailure(
-              "No speech was captured during this recording. If you spoke, check Microphone input, Speech Recognition permission, and the selected mic, then retry transcription.",
+              "No speech was captured during this recording. If you spoke or played system audio, check System Audio, Microphone input, Speech Recognition permission, and the selected mic, then retry transcription.",
             );
           }
 
@@ -2265,8 +2246,7 @@ async function startNativeFullscreenRecording(
 
   if (!localOnly) {
     await showRegionGuidesForRecording(true);
-    const wantsSystemAudio = wantsAudio && params.systemAudioOn !== false;
-    transcriptionCapture = wantsAudio
+    transcriptionCapture = wantsRecordedAudio
       ? await startTranscriptionCapture(
           {
             deviceId: params.micId,
@@ -2288,12 +2268,12 @@ async function startNativeFullscreenRecording(
       );
       void transcriptionCapture.pause().catch(() => {});
     } else if (
-      wantsAudio &&
+      wantsRecordedAudio &&
       !transcriptionCapture &&
       shouldSaveLocalTranscriptionStartupFailure()
     ) {
       void saveTranscriptFailure(
-        "macOS Speech recognition could not start for this recording. Check Speech Recognition and Microphone permissions, then retry transcription.",
+        "macOS Speech recognition could not start for this recording. Check Speech Recognition, System Audio, and Microphone permissions, then retry transcription.",
       );
     }
   }
@@ -2409,7 +2389,8 @@ async function startRecordingInner(
   const wantsScreen = params.mode !== "camera";
   const wantsCamera = params.mode !== "screen" && params.cameraOn;
   const wantsAudio = params.micOn;
-  const wantsSystemAudio = wantsAudio && params.systemAudioOn !== false;
+  const wantsSystemAudio = wantsScreen && params.systemAudioOn !== false;
+  const wantsRecordedAudio = wantsAudio || wantsSystemAudio;
   const audioCue = createAudioCue();
   const captureSource = params.source ?? "window";
   const localRecordingMode = params.localRecordingMode ?? "off";
@@ -2421,6 +2402,7 @@ async function startRecordingInner(
     wantsScreen,
     wantsCamera,
     wantsAudio,
+    wantsSystemAudio,
   });
 
   if (wantsScreen && shouldUseNativeFullscreenRecording(captureSource)) {
@@ -2466,21 +2448,18 @@ async function startRecordingInner(
   const displayStreamPromise: Promise<MediaStream> | null = wantsScreen
     ? (() => {
         if (!devSyntheticCapture) {
-          const displaySurface =
-            captureSource === "window" ? "window" : "monitor";
-          return navigator.mediaDevices.getDisplayMedia({
-            video: {
-              frameRate: {
-                ideal: CLOUD_CAPTURE_FRAME_RATE,
-                max: CLOUD_CAPTURE_FRAME_RATE,
-              },
-              width: { ideal: CLOUD_CAPTURE_MAX_WIDTH },
-              height: { ideal: CLOUD_CAPTURE_MAX_HEIGHT },
-              displaySurface,
-            },
-            // System/desktop audio is gated by the system-audio toggle, not mic.
-            audio: wantsSystemAudio,
-          });
+          // Do not pass displaySurface as an input constraint. Modern runtimes
+          // can reject it with "Invalid constraint", and it cannot reliably
+          // pre-filter the OS picker anyway; the selected track reports its
+          // actual surface through getSettings() after capture starts.
+          return navigator.mediaDevices.getDisplayMedia(
+            buildDesktopDisplayMediaOptions({
+              audio: wantsSystemAudio,
+              frameRate: CLOUD_CAPTURE_FRAME_RATE,
+              maxWidth: CLOUD_CAPTURE_MAX_WIDTH,
+              maxHeight: CLOUD_CAPTURE_MAX_HEIGHT,
+            }),
+          );
         }
         console.warn(
           "[clips-recorder] using opt-in dev synthetic screen capture; remove localStorage clips:dev-synthetic-capture to use the native picker",
@@ -2506,18 +2485,10 @@ async function startRecordingInner(
   }
   const bubbleCameraStreamPromise: Promise<MediaStream> | null =
     wantsCamera && !reusedCameraStream
-      ? navigator.mediaDevices.getUserMedia({
-          video: params.cameraId
-            ? { deviceId: { exact: params.cameraId } }
-            : true,
-          audio: false,
-        })
+      ? getCameraStreamWithFallback(params.cameraId)
       : null;
   const audioStreamPromise: Promise<MediaStream> | null = wantsAudio
-    ? navigator.mediaDevices.getUserMedia({
-        audio: voiceFocusedAudioConstraints(params.micId),
-        video: false,
-      })
+    ? getAudioStreamWithFallback(params.micId)
     : null;
 
   // Use allSettled so a single rejection (e.g. user cancels the macOS screen
@@ -2700,7 +2671,7 @@ async function startRecordingInner(
       localRecordingMode,
       displayStream,
       bubbleCameraStream,
-      audioStream,
+      recordingAudio,
       combined,
     });
 
@@ -2896,7 +2867,7 @@ async function startRecordingInner(
   const recordingPromise = createServerRecording(
     params.serverUrl,
     wantsCamera,
-    wantsAudio,
+    recordingAudio.tracks.length > 0,
     captureTitle,
     { mimeType: mimeType || "video/webm", requestStreaming: true },
   ).finally(() => {
@@ -2922,7 +2893,7 @@ async function startRecordingInner(
   console.log("[clips-recorder] recording row created", { id, uploadMode });
   let nativeTranscriptFailureSaved = false;
   const saveTranscriptFailure = async (failureReason: string) => {
-    if (!wantsAudio || nativeTranscriptFailureSaved) return;
+    if (!wantsRecordedAudio || nativeTranscriptFailureSaved) return;
     nativeTranscriptFailureSaved = true;
     await saveRecordingTranscriptFailure(
       params.serverUrl,
@@ -3182,7 +3153,7 @@ async function startRecordingInner(
   // delaying capture, so the first ~1s the user expected to record was lost
   // (and the recording felt cut at the end). It's a separate capture from the
   // recorded audio tracks, so starting it slightly late is safe.
-  transcriptionCapture = wantsAudio
+  transcriptionCapture = wantsRecordedAudio
     ? await startTranscriptionCapture(
         {
           deviceId: params.micId,
@@ -3204,12 +3175,12 @@ async function startRecordingInner(
     );
     void transcriptionCapture.pause().catch(() => {});
   } else if (
-    wantsAudio &&
+    wantsRecordedAudio &&
     !transcriptionCapture &&
     shouldSaveLocalTranscriptionStartupFailure()
   ) {
     void saveTranscriptFailure(
-      "macOS Speech recognition could not start for this recording. Check Speech Recognition and Microphone permissions, then retry transcription.",
+      "macOS Speech recognition could not start for this recording. Check Speech Recognition, System Audio, and Microphone permissions, then retry transcription.",
     );
   }
 
@@ -3289,9 +3260,9 @@ async function startRecordingInner(
           capturedTranscript,
           params.authToken,
         );
-      } else if (wantsAudio) {
+      } else if (wantsRecordedAudio) {
         await saveTranscriptFailure(
-          "No speech was captured during this recording. If you spoke, check Microphone input, Speech Recognition permission, and the selected mic, then retry transcription.",
+          "No speech was captured during this recording. If you spoke or played system audio, check System Audio, Microphone input, Speech Recognition permission, and the selected mic, then retry transcription.",
         );
       }
       await thumbnailUploadPromise;

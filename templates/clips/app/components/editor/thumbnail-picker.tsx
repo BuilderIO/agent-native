@@ -1,4 +1,20 @@
 import { useActionMutation, useT } from "@agent-native/core/client";
+import { Button } from "@agent-native/toolkit/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@agent-native/toolkit/ui/dialog";
+import { Label } from "@agent-native/toolkit/ui/label";
+import { Slider } from "@agent-native/toolkit/ui/slider";
+import {
+  Tabs,
+  TabsList,
+  TabsTrigger,
+  TabsContent,
+} from "@agent-native/toolkit/ui/tabs";
 import {
   IconPhoto,
   IconPhotoEdit,
@@ -8,17 +24,6 @@ import {
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
-import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogFooter,
-} from "@/components/ui/dialog";
-import { Label } from "@/components/ui/label";
-import { Slider } from "@/components/ui/slider";
-import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { exportGif, blobToDataUrl } from "@/lib/ffmpeg-export";
 import { formatMs } from "@/lib/timestamp-mapping";
 

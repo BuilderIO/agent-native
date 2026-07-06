@@ -10,6 +10,9 @@ import {
   agentNativePath,
   type CollabUser,
 } from "@agent-native/core/client";
+import { Button } from "@agent-native/toolkit/ui/button";
+import { Sheet, SheetContent } from "@agent-native/toolkit/ui/sheet";
+import { Skeleton } from "@agent-native/toolkit/ui/skeleton";
 import type { Document, DocumentSyncStatus } from "@shared/api";
 import { IconArrowLeft, IconDatabase } from "@tabler/icons-react";
 import { IconLock } from "@tabler/icons-react";
@@ -30,9 +33,6 @@ import {
   contentBlockRegistry,
   createContentBlockRenderContext,
 } from "@/blocks/contentBlockRegistry";
-import { Button } from "@/components/ui/button";
-import { Sheet, SheetContent } from "@/components/ui/sheet";
-import { Skeleton } from "@/components/ui/skeleton";
 import { useComments } from "@/hooks/use-comments";
 import { useProcessBuilderBodyHydration } from "@/hooks/use-content-database";
 import {

@@ -1,4 +1,10 @@
 import { appApiPath, useT } from "@agent-native/core/client";
+import { Skeleton } from "@agent-native/toolkit/ui/skeleton";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@agent-native/toolkit/ui/tooltip";
 import type { EmailMessage, MobileActionId } from "@shared/types";
 import {
   IconArchive,
@@ -34,12 +40,6 @@ import {
 import { useNavigate, useParams, useSearchParams } from "react-router";
 import { toast } from "sonner";
 
-import { Skeleton } from "@/components/ui/skeleton";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
 import { useAccountFilter } from "@/hooks/use-account-filter";
 import { useComposeState } from "@/hooks/use-compose-state";
 import {

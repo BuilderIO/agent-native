@@ -1,4 +1,9 @@
 import { useT } from "@agent-native/core/client";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@agent-native/toolkit/ui/tooltip";
 import type { EmailMessage } from "@shared/types";
 import {
   IconArchive,
@@ -15,11 +20,6 @@ import {
 } from "@tabler/icons-react";
 import { memo, useRef, useState, useCallback } from "react";
 
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
 import { useAccountFilter } from "@/hooks/use-account-filter";
 import type { ThreadSummary } from "@/lib/threads";
 import { cn, formatEmailDate, truncate } from "@/lib/utils";

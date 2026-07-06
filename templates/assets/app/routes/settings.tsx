@@ -15,6 +15,24 @@ import {
   type OnboardingStepStatus,
 } from "@agent-native/core/client/onboarding";
 import { TeamPage } from "@agent-native/core/client/org";
+import { Button } from "@agent-native/toolkit/ui/button";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@agent-native/toolkit/ui/card";
+import { Input } from "@agent-native/toolkit/ui/input";
+import { Label } from "@agent-native/toolkit/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@agent-native/toolkit/ui/select";
 import {
   IconAlertCircle,
   IconCheck,
@@ -36,24 +54,6 @@ import {
 } from "react";
 
 import { PageShell } from "@/components/layout/PageShell";
-import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectGroup,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 
 import changelog from "../../CHANGELOG.md?raw";

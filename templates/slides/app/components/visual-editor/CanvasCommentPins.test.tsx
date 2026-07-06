@@ -36,7 +36,7 @@ vi.mock("@agent-native/core/client", () => ({
 
 // Tooltip primitives in shadcn portal to document.body. Render them inline
 // in the test so we can assert visibility without a TooltipProvider boilerplate.
-vi.mock("@/components/ui/tooltip", () => ({
+vi.mock("@agent-native/toolkit/ui/tooltip", () => ({
   Tooltip: ({
     open,
     children,
