@@ -203,12 +203,14 @@ describe("sync-notion-comments", () => {
       authorEmail: "notion@sync",
       authorName: "Notion",
       notionCommentId: "nc-1",
+      notionDiscussionId: "nc-1",
       resolved: 0,
     });
 
     notionLibMocks.listNotionComments.mockResolvedValue([
       {
         id: "nc-1",
+        discussion_id: "nc-1",
         rich_text: [{ plain_text: "hello" }],
         created_time: "2026-01-01T00:00:00.000Z",
         created_by: { id: "u1" },
@@ -219,5 +221,202 @@ describe("sync-notion-comments", () => {
 
     expect(result).toEqual({ pulled: 0, pushed: 0 });
     expect(state.rows).toHaveLength(1);
+  });
+
+  it("pulls a reply threaded under its local root comment (n-D)", async () => {
+    notionLibMocks.listNotionComments.mockResolvedValue([
+      {
+        id: "nc-root",
+        discussion_id: "nc-root",
+        rich_text: [{ plain_text: "top-level comment" }],
+        created_time: "2026-01-01T00:00:00.000Z",
+        created_by: { id: "u1" },
+      },
+      {
+        id: "nc-reply",
+        discussion_id: "nc-root",
+        rich_text: [{ plain_text: "a reply" }],
+        created_time: "2026-01-01T00:01:00.000Z",
+        created_by: { id: "u2" },
+      },
+    ]);
+
+    const result = await run("doc-1");
+
+    expect(result).toEqual({ pulled: 2, pushed: 0 });
+    const root = state.rows.find((r) => r.notionCommentId === "nc-root");
+    const reply = state.rows.find((r) => r.notionCommentId === "nc-reply");
+    expect(root).toBeDefined();
+    expect(root!.parentId).toBeNull();
+    expect(root!.notionDiscussionId).toBe("nc-root");
+    expect(reply).toBeDefined();
+    // The reply must attach to the root's thread, not become an unrelated
+    // top-level comment.
+    expect(reply!.parentId).toBe(root!.id);
+    expect(reply!.threadId).toBe(root!.threadId);
+  });
+
+  it("pulls a reply threaded under its local root even when Notion returns the reply first (n-D)", async () => {
+    notionLibMocks.listNotionComments.mockResolvedValue([
+      {
+        id: "nc-reply",
+        discussion_id: "nc-root",
+        rich_text: [{ plain_text: "a reply" }],
+        created_time: "2026-01-01T00:01:00.000Z",
+        created_by: { id: "u2" },
+      },
+      {
+        id: "nc-root",
+        discussion_id: "nc-root",
+        rich_text: [{ plain_text: "top-level comment" }],
+        created_time: "2026-01-01T00:00:00.000Z",
+        created_by: { id: "u1" },
+      },
+    ]);
+
+    const result = await run("doc-1");
+
+    expect(result).toEqual({ pulled: 2, pushed: 0 });
+    const root = state.rows.find((r) => r.notionCommentId === "nc-root");
+    const reply = state.rows.find((r) => r.notionCommentId === "nc-reply");
+    expect(reply!.parentId).toBe(root!.id);
+    expect(reply!.threadId).toBe(root!.threadId);
+  });
+
+  it("pushes a reply using discussion_id so it threads under the existing Notion discussion (n-D)", async () => {
+    // Local thread: a root already synced to Notion (and carrying the
+    // resulting discussion_id), plus an unsynced local reply to it.
+    state.rows.push({
+      id: "local-root",
+      ownerEmail: "owner-a@example.com",
+      documentId: "doc-1",
+      threadId: "local-root",
+      parentId: null,
+      content: "root comment",
+      authorEmail: "alice@example.com",
+      authorName: "Alice",
+      notionCommentId: "nc-root",
+      notionDiscussionId: "nc-root",
+      resolved: 0,
+    });
+    state.rows.push({
+      id: "local-reply",
+      ownerEmail: "owner-a@example.com",
+      documentId: "doc-1",
+      threadId: "local-root",
+      parentId: "local-root",
+      content: "a local reply",
+      authorEmail: "alice@example.com",
+      authorName: "Alice",
+      notionCommentId: null,
+      notionDiscussionId: null,
+      resolved: 0,
+    });
+
+    notionLibMocks.listNotionComments.mockResolvedValue([]);
+    notionLibMocks.addNotionComment.mockResolvedValue({
+      id: "nc-reply",
+      discussionId: "nc-root",
+    });
+
+    const result = await run("doc-1");
+
+    expect(result).toEqual({ pulled: 0, pushed: 1 });
+    expect(notionLibMocks.addNotionComment).toHaveBeenCalledWith(
+      "notion-page-1",
+      "a local reply",
+      "token",
+      "nc-root",
+    );
+    const reply = state.rows.find((r) => r.id === "local-reply");
+    expect(reply!.notionCommentId).toBe("nc-reply");
+    expect(reply!.notionDiscussionId).toBe("nc-root");
+  });
+
+  it("pushes a brand-new thread (root + reply both unsynced) so the reply threads under the root's freshly created discussion (n-D)", async () => {
+    state.rows.push({
+      id: "local-root",
+      ownerEmail: "owner-a@example.com",
+      documentId: "doc-1",
+      threadId: "local-root",
+      parentId: null,
+      content: "new root comment",
+      authorEmail: "alice@example.com",
+      authorName: "Alice",
+      notionCommentId: null,
+      notionDiscussionId: null,
+      resolved: 0,
+    });
+    state.rows.push({
+      id: "local-reply",
+      ownerEmail: "owner-a@example.com",
+      documentId: "doc-1",
+      threadId: "local-root",
+      parentId: "local-root",
+      content: "new local reply",
+      authorEmail: "alice@example.com",
+      authorName: "Alice",
+      notionCommentId: null,
+      notionDiscussionId: null,
+      resolved: 0,
+    });
+
+    notionLibMocks.listNotionComments.mockResolvedValue([]);
+    notionLibMocks.addNotionComment.mockImplementation(
+      async (_pageId, _text, _token, discussionId) => {
+        if (!discussionId) {
+          return { id: "nc-new-root", discussionId: "nc-new-root" };
+        }
+        return { id: "nc-new-reply", discussionId };
+      },
+    );
+
+    const result = await run("doc-1");
+
+    expect(result).toEqual({ pulled: 0, pushed: 2 });
+    expect(notionLibMocks.addNotionComment).toHaveBeenNthCalledWith(
+      1,
+      "notion-page-1",
+      "new root comment",
+      "token",
+      null,
+    );
+    expect(notionLibMocks.addNotionComment).toHaveBeenNthCalledWith(
+      2,
+      "notion-page-1",
+      "new local reply",
+      "token",
+      "nc-new-root",
+    );
+    const reply = state.rows.find((r) => r.id === "local-reply");
+    expect(reply!.notionDiscussionId).toBe("nc-new-root");
+  });
+
+  it("re-syncing does not duplicate an already-pulled threaded reply (n-D)", async () => {
+    notionLibMocks.listNotionComments.mockResolvedValue([
+      {
+        id: "nc-root",
+        discussion_id: "nc-root",
+        rich_text: [{ plain_text: "top-level comment" }],
+        created_time: "2026-01-01T00:00:00.000Z",
+        created_by: { id: "u1" },
+      },
+      {
+        id: "nc-reply",
+        discussion_id: "nc-root",
+        rich_text: [{ plain_text: "a reply" }],
+        created_time: "2026-01-01T00:01:00.000Z",
+        created_by: { id: "u2" },
+      },
+    ]);
+
+    const first = await run("doc-1");
+    expect(first).toEqual({ pulled: 2, pushed: 0 });
+    expect(state.rows).toHaveLength(2);
+
+    // Re-sync with the exact same Notion comments — nothing new should land.
+    const second = await run("doc-1");
+    expect(second).toEqual({ pulled: 0, pushed: 0 });
+    expect(state.rows).toHaveLength(2);
   });
 });

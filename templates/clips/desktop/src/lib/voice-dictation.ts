@@ -545,6 +545,20 @@ export function installDesktopVoiceDictation(
   // sees a stale cache.
   let providerStatus: ProviderStatus | null = null;
   let providerStatusFetchedAt = 0;
+  // P4 (Wispr double-tap hands-free, push-to-talk only): when a
+  // press-release cycle is too brief for a deliberate dictation (the
+  // existing <500ms accidental-tap discard in stop()), we note the
+  // timestamp here instead of just discarding. If a second press lands
+  // within HANDS_FREE_UPGRADE_WINDOW_MS, that second press upgrades to a
+  // hands-free session instead of being discarded as its own accidental
+  // tap. Cleared once consumed or once the window elapses.
+  let pendingHandsFreeTapAt: number | null = null;
+  // True for the lifetime of a hands-free session: it ignores the
+  // shortcut's release edge and instead waits for the next full press to
+  // stop + paste. Reset on stop, cancel, and dispose so it can never leak
+  // into a later ordinary push-to-talk session.
+  let handsFreeActive = false;
+  const HANDS_FREE_UPGRADE_WINDOW_MS = 400;
   const unlistens: Array<() => void> = [];
 
   const acceptsShortcut = (source: VoiceShortcutSource | undefined) => {
@@ -1556,6 +1570,16 @@ export function installDesktopVoiceDictation(
       // for browser sessions also skips the paste. Matches Wispr's
       // documented ~0.5s minimum: "audio saves only if you spoke for at
       // least half a second" (design-refs/wispr-ux.md §1) (P8).
+      //
+      // P4: in push-to-talk mode, note the timestamp instead of just
+      // discarding — a second press within HANDS_FREE_UPGRADE_WINDOW_MS
+      // upgrades to a hands-free session (Wispr's double-tap gesture)
+      // rather than being discarded again as its own accidental tap. Not
+      // set for an already-hands-free session (its own stop is a
+      // deliberate finalize even if unusually fast).
+      if (mode === "push-to-talk" && !handsFreeActive) {
+        pendingHandsFreeTapAt = Date.now();
+      }
       current.cancelled = true;
       if (current.kind === "browser") {
         try {
