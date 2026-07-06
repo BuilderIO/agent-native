@@ -912,6 +912,280 @@ it("does not let open-row hydration promotion downgrade a queued full Builder bo
   expect(after.queued).toBeNull();
 });
 
+it("rebuilds an empty queued Builder body from the current source row before giving up", async () => {
+  builderReadMock.mode = "full";
+  builderReadMock.calls = [];
+  const db = getDb();
+  const now = new Date().toISOString();
+  const databaseId = "db_hydration_rebuild_from_source";
+  const databaseDocId = "doc_db_hydration_rebuild_from_source";
+  const documentId = "doc_hydration_rebuild_from_source";
+  const itemId = "item_hydration_rebuild_from_source";
+  const sourceId = "src_hydration_rebuild_from_source";
+  const sourceRowId = "entry_hydration_rebuild_from_source";
+  const fullBody = "Current source row body should hydrate the opened row.";
+
+  await db.insert(schema.documents).values([
+    {
+      id: databaseDocId,
+      ownerEmail: OWNER,
+      title: "DB hydration rebuild",
+      createdAt: now,
+      updatedAt: now,
+    },
+    {
+      id: documentId,
+      ownerEmail: OWNER,
+      parentId: databaseDocId,
+      title: "Hydration rebuild",
+      content: "",
+      createdAt: now,
+      updatedAt: now,
+    },
+  ]);
+  await db.insert(schema.contentDatabases).values({
+    id: databaseId,
+    ownerEmail: OWNER,
+    documentId: databaseDocId,
+    title: "DB hydration rebuild",
+    createdAt: now,
+    updatedAt: now,
+  });
+  await db.insert(schema.contentDatabaseSources).values({
+    id: sourceId,
+    ownerEmail: OWNER,
+    databaseId,
+    sourceType: "builder-cms",
+    sourceName: "collection-hydration-rebuild",
+    sourceTable: "collection-hydration-rebuild",
+    createdAt: now,
+    updatedAt: now,
+  });
+  await db.insert(schema.contentDatabaseItems).values({
+    id: itemId,
+    ownerEmail: OWNER,
+    databaseId,
+    documentId,
+    position: 0,
+    bodyHydrationStatus: "pending",
+    bodyHydrationError: null,
+    createdAt: now,
+    updatedAt: now,
+  });
+  await db.insert(schema.contentDatabaseSourceRows).values({
+    id: "row_hydration_rebuild_from_source",
+    ownerEmail: OWNER,
+    sourceId,
+    databaseItemId: itemId,
+    documentId,
+    sourceRowId,
+    sourceQualifiedId: `builder-cms://collection-hydration-rebuild/${sourceRowId}`,
+    sourceDisplayKey: "Hydration rebuild",
+    sourceValuesJson: JSON.stringify({
+      "data.title": "Hydration rebuild",
+      "data.url": "/blog/hydration-rebuild",
+      lastUpdated: "2026-01-01T00:00:00.000Z",
+      [BUILDER_CMS_BODY_CONTENT_KEY]: fullBody,
+    }),
+    provenance: "Builder CMS read adapter",
+    createdAt: now,
+    updatedAt: now,
+  });
+  await db.insert(schema.contentDatabaseBodyHydrationQueue).values({
+    id: "queue_hydration_rebuild_from_source",
+    ownerEmail: OWNER,
+    sourceId,
+    databaseItemId: itemId,
+    documentId,
+    sourceRowId,
+    sourceTable: "collection-hydration-rebuild",
+    sourceEntryJson: JSON.stringify({
+      id: sourceRowId,
+      model: "collection-hydration-rebuild",
+      title: "Hydration rebuild",
+      urlPath: "/blog/hydration-rebuild",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+      sourceValues: {
+        "data.title": "Hydration rebuild",
+        "data.url": "/blog/hydration-rebuild",
+        lastUpdated: "2026-01-01T00:00:00.000Z",
+        [BUILDER_CMS_BODY_CONTENT_KEY]: "",
+      },
+    }),
+    priority: 0,
+    attempts: 1,
+    createdAt: now,
+    updatedAt: now,
+  });
+
+  const first = await hydrateQueuedBodies({ sourceId, limit: 1 });
+  const second = await hydrateQueuedBodies({ sourceId, limit: 1 });
+
+  const [after] = await db
+    .select({
+      content: schema.documents.content,
+      status: schema.contentDatabaseItems.bodyHydrationStatus,
+      error: schema.contentDatabaseItems.bodyHydrationError,
+      queued: schema.contentDatabaseBodyHydrationQueue.id,
+      attempts: schema.contentDatabaseBodyHydrationQueue.attempts,
+    })
+    .from(schema.documents)
+    .innerJoin(
+      schema.contentDatabaseItems,
+      eq(schema.contentDatabaseItems.documentId, schema.documents.id),
+    )
+    .leftJoin(
+      schema.contentDatabaseBodyHydrationQueue,
+      eq(
+        schema.contentDatabaseBodyHydrationQueue.databaseItemId,
+        schema.contentDatabaseItems.id,
+      ),
+    )
+    .where(eq(schema.documents.id, documentId));
+
+  expect(first.processed).toBe(1);
+  expect(second.processed).toBe(0);
+  expect(after.content).toBe(fullBody);
+  expect(after.status).toBe("hydrated");
+  expect(after.error).toBeNull();
+  expect(after.queued).toBeNull();
+  expect(after.attempts).toBeNull();
+});
+
+it("terminates an unbuildable empty Builder body job at the hydration cap", async () => {
+  builderReadMock.mode = "full";
+  builderReadMock.calls = [];
+  const db = getDb();
+  const now = new Date().toISOString();
+  const databaseId = "db_hydration_empty_terminal";
+  const databaseDocId = "doc_db_hydration_empty_terminal";
+  const documentId = "doc_hydration_empty_terminal";
+  const itemId = "item_hydration_empty_terminal";
+  const sourceId = "src_hydration_empty_terminal";
+  const sourceRowId = "entry_hydration_empty_terminal";
+
+  await db.insert(schema.documents).values([
+    {
+      id: databaseDocId,
+      ownerEmail: OWNER,
+      title: "DB hydration empty terminal",
+      createdAt: now,
+      updatedAt: now,
+    },
+    {
+      id: documentId,
+      ownerEmail: OWNER,
+      parentId: databaseDocId,
+      title: "Hydration empty terminal",
+      content: "",
+      createdAt: now,
+      updatedAt: now,
+    },
+  ]);
+  await db.insert(schema.contentDatabases).values({
+    id: databaseId,
+    ownerEmail: OWNER,
+    documentId: databaseDocId,
+    title: "DB hydration empty terminal",
+    createdAt: now,
+    updatedAt: now,
+  });
+  await db.insert(schema.contentDatabaseSources).values({
+    id: sourceId,
+    ownerEmail: OWNER,
+    databaseId,
+    sourceType: "builder-cms",
+    sourceName: "collection-hydration-empty-terminal",
+    sourceTable: "collection-hydration-empty-terminal",
+    createdAt: now,
+    updatedAt: now,
+  });
+  await db.insert(schema.contentDatabaseItems).values({
+    id: itemId,
+    ownerEmail: OWNER,
+    databaseId,
+    documentId,
+    position: 0,
+    bodyHydrationStatus: "pending",
+    bodyHydrationError: null,
+    createdAt: now,
+    updatedAt: now,
+  });
+  await db.insert(schema.contentDatabaseSourceRows).values({
+    id: "row_hydration_empty_terminal",
+    ownerEmail: OWNER,
+    sourceId,
+    databaseItemId: itemId,
+    documentId,
+    sourceRowId,
+    sourceQualifiedId: `builder-cms://collection-hydration-empty-terminal/${sourceRowId}`,
+    sourceDisplayKey: "Hydration empty terminal",
+    sourceValuesJson: JSON.stringify({
+      "data.title": "Hydration empty terminal",
+      "data.url": "/blog/hydration-empty-terminal",
+      lastUpdated: "2026-01-01T00:00:00.000Z",
+    }),
+    provenance: "Builder CMS read adapter",
+    createdAt: now,
+    updatedAt: now,
+  });
+  await db.insert(schema.contentDatabaseBodyHydrationQueue).values({
+    id: "queue_hydration_empty_terminal",
+    ownerEmail: OWNER,
+    sourceId,
+    databaseItemId: itemId,
+    documentId,
+    sourceRowId,
+    sourceTable: "collection-hydration-empty-terminal",
+    sourceEntryJson: JSON.stringify({
+      id: sourceRowId,
+      model: "collection-hydration-empty-terminal",
+      title: "Hydration empty terminal",
+      urlPath: "/blog/hydration-empty-terminal",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+      sourceValues: {
+        "data.title": "Hydration empty terminal",
+        "data.url": "/blog/hydration-empty-terminal",
+        lastUpdated: "2026-01-01T00:00:00.000Z",
+      },
+    }),
+    priority: 0,
+    attempts: 4,
+    createdAt: now,
+    updatedAt: now,
+  });
+
+  await hydrateQueuedBodies({ sourceId, limit: 1 });
+
+  const [after] = await db
+    .select({
+      content: schema.documents.content,
+      status: schema.contentDatabaseItems.bodyHydrationStatus,
+      error: schema.contentDatabaseItems.bodyHydrationError,
+      queued: schema.contentDatabaseBodyHydrationQueue.id,
+      attempts: schema.contentDatabaseBodyHydrationQueue.attempts,
+    })
+    .from(schema.documents)
+    .innerJoin(
+      schema.contentDatabaseItems,
+      eq(schema.contentDatabaseItems.documentId, schema.documents.id),
+    )
+    .leftJoin(
+      schema.contentDatabaseBodyHydrationQueue,
+      eq(
+        schema.contentDatabaseBodyHydrationQueue.databaseItemId,
+        schema.contentDatabaseItems.id,
+      ),
+    )
+    .where(eq(schema.documents.id, documentId));
+
+  expect(after.content).toBe("");
+  expect(after.status).toBe("pending");
+  expect(after.error).toBe("body not yet available from Builder");
+  expect(after.queued).toBeNull();
+  expect(after.attempts).toBeNull();
+});
+
 it("re-enqueues hydrated Builder rows with empty document content on resync", async () => {
   builderReadMock.mode = "full";
   builderReadMock.calls = [];

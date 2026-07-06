@@ -322,7 +322,7 @@ const JoinFirstBodyBlockToTitle = Extension.create<{
 
       const text = firstBlock.textContent.trim();
       if (!text) {
-        queueMicrotask(() => this.options.onJoinTitle?.(""));
+        setTimeout(() => this.options.onJoinTitle?.(""), 0);
         return true;
       }
 
@@ -332,7 +332,7 @@ const JoinFirstBodyBlockToTitle = Extension.create<{
           ? state.tr.replaceWith(0, firstBlock.nodeSize, paragraph.create())
           : state.tr.delete(0, firstBlock.nodeSize);
       view.dispatch(tr.scrollIntoView());
-      queueMicrotask(() => this.options.onJoinTitle?.(text));
+      setTimeout(() => this.options.onJoinTitle?.(text), 0);
       return true;
     };
 
@@ -1701,7 +1701,7 @@ export function VisualEditor({
         // clobber DB content with an empty string). `registerEmitted` records
         // this as the last-emitted value and returns false to skip the save.
         if (!guards.registerEmitted(normalized)) return true;
-        queueMicrotask(() => onChangeRef.current(normalized));
+        setTimeout(() => onChangeRef.current(normalized), 0);
         return true;
       } catch (err: any) {
         toast.error(
@@ -2067,7 +2067,7 @@ export function VisualEditor({
       ) as HTMLElement | null;
       if (!el) return;
       const id = el.getAttribute("data-comment-thread");
-      if (id) queueMicrotask(() => onActivateThread(id));
+      if (id) setTimeout(() => onActivateThread(id), 0);
     };
     dom.addEventListener("click", handleClick);
     return () => dom.removeEventListener("click", handleClick);

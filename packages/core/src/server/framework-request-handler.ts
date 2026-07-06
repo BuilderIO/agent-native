@@ -380,6 +380,32 @@ function logFrameworkRouteError(args: {
   console.error(`${prefix}: ${message}`, error?.stack || args.error);
 }
 
+function isClientAbortError(error: unknown, event: H3Event): boolean {
+  const err = error as any;
+  const message = typeof err?.message === "string" ? err.message : "";
+  const code = typeof err?.code === "string" ? err.code : "";
+  const node = (event as any).node;
+  return (
+    message === "aborted" ||
+    code === "ECONNRESET" ||
+    node?.req?.destroyed === true ||
+    node?.res?.destroyed === true
+  );
+}
+
+function debugClientAbort(args: {
+  method: string | undefined;
+  route: string;
+  error: unknown;
+}): void {
+  if (process.env.NODE_ENV === "production") return;
+  const err = args.error as any;
+  const message = err?.message || String(args.error);
+  console.debug?.(
+    `[agent-native] ${args.method ?? ""} ${args.route} aborted by client: ${message}`,
+  );
+}
+
 /**
  * Await all tracked plugin initializations. Called by the readiness gate
  * middleware before dispatching framework routes.
@@ -516,6 +542,10 @@ function registerMiddleware(
           : typeof e?.status === "number"
             ? e.status
             : 500;
+      if (isClientAbortError(err, event)) {
+        debugClientAbort({ method: event.method, route: reqPath, error: err });
+        return undefined;
+      }
       logFrameworkRouteError({
         method: event.method,
         route: reqPath,

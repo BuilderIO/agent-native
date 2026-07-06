@@ -508,6 +508,7 @@ const BUILDER_BODY_HYDRATION_BATCH_LIMIT = 8;
 const BUILDER_BODY_HYDRATION_MAX_ATTEMPTS = 5;
 const BUILDER_BODY_HYDRATION_CODEC_VERSION = "readable-native-images-v5";
 const BUILDER_CMS_REFRESH_INITIAL_PAGES = 1;
+const BUILDER_BODY_NOT_AVAILABLE_ERROR = "body not yet available from Builder";
 
 function builderBodyHydrationDelayMs() {
   if (
@@ -965,45 +966,111 @@ async function processBuilderBodyHydrationJob(
 
   const entry = parseHydrationEntry(row);
   if (!entry) throw new Error("Builder body hydration entry is missing.");
-  const entryWithBody = await refreshBuilderBodySourceValuesFromStoredLossless(
+  let activeSourceEntryJson = row.sourceEntryJson;
+  let entryWithBody = await refreshBuilderBodySourceValuesFromStoredLossless(
     await withBuilderBodySourceValues(entry),
   );
+  const [sourceRow] = await db
+    .select()
+    .from(schema.contentDatabaseSourceRows)
+    .where(
+      and(
+        eq(schema.contentDatabaseSourceRows.sourceId, row.sourceId),
+        eq(schema.contentDatabaseSourceRows.databaseItemId, row.databaseItemId),
+      ),
+    );
   const sourceValues =
     parseObject<Record<string, DocumentPropertyValue>>(
-      (
-        await db
-          .select({
-            sourceValuesJson: schema.contentDatabaseSourceRows.sourceValuesJson,
-          })
-          .from(schema.contentDatabaseSourceRows)
-          .where(
-            and(
-              eq(schema.contentDatabaseSourceRows.sourceId, row.sourceId),
-              eq(
-                schema.contentDatabaseSourceRows.databaseItemId,
-                row.databaseItemId,
-              ),
-            ),
-          )
-      )[0]?.sourceValuesJson ?? "{}",
+      sourceRow?.sourceValuesJson ?? "{}",
     ) ?? {};
-  const nextValues = {
+  let nextValues = {
     ...sourceValues,
     ...entryWithBody.sourceValues,
   };
-  const nextContent =
+  let nextContent =
     stringSourceValue(nextValues, BUILDER_CMS_BODY_CONTENT_KEY) ?? "";
   if (!nextContent.trim()) {
-    await db
-      .update(schema.contentDatabaseItems)
-      .set({
-        bodyHydrationStatus: "pending",
-        bodyHydrationAttemptedAt: now,
-        bodyHydrationError: null,
-        updatedAt: now,
-      })
-      .where(eq(schema.contentDatabaseItems.id, row.databaseItemId));
-    return;
+    const rebuiltBaseEntry = sourceRow
+      ? builderEntryFromSourceRow({
+          row: sourceRow,
+          sourceTable: row.sourceTable,
+          fallbackTitle: entry.title,
+        })
+      : null;
+    const rebuiltEntry = rebuiltBaseEntry
+      ? await refreshBuilderBodySourceValuesFromStoredLossless(rebuiltBaseEntry)
+      : null;
+    if (rebuiltEntry) {
+      const rebuiltValues = {
+        ...sourceValues,
+        ...rebuiltEntry.sourceValues,
+      };
+      const rebuiltContent =
+        stringSourceValue(rebuiltValues, BUILDER_CMS_BODY_CONTENT_KEY) ?? "";
+      if (rebuiltContent.trim()) {
+        const rebuiltSourceEntryJson = JSON.stringify(rebuiltEntry);
+        const [upgraded] = await db
+          .update(schema.contentDatabaseBodyHydrationQueue)
+          .set({
+            sourceEntryJson: rebuiltSourceEntryJson,
+            lastError: null,
+            updatedAt: now,
+          })
+          .where(
+            and(
+              eq(schema.contentDatabaseBodyHydrationQueue.id, row.id),
+              eq(
+                schema.contentDatabaseBodyHydrationQueue.sourceEntryJson,
+                activeSourceEntryJson,
+              ),
+            ),
+          )
+          .returning({ id: schema.contentDatabaseBodyHydrationQueue.id });
+        if (!upgraded) return;
+        activeSourceEntryJson = rebuiltSourceEntryJson;
+        entryWithBody = rebuiltEntry;
+        nextValues = rebuiltValues;
+        nextContent = rebuiltContent;
+      }
+    }
+    if (!nextContent.trim()) {
+      const attempts = row.attempts + 1;
+      await db.transaction(async (tx) => {
+        if (builderBodyHydrationAttemptIsTerminal(attempts)) {
+          await tx
+            .delete(schema.contentDatabaseBodyHydrationQueue)
+            .where(
+              and(
+                eq(schema.contentDatabaseBodyHydrationQueue.id, row.id),
+                eq(
+                  schema.contentDatabaseBodyHydrationQueue.sourceEntryJson,
+                  activeSourceEntryJson,
+                ),
+              ),
+            );
+          await tx
+            .update(schema.contentDatabaseItems)
+            .set({
+              bodyHydrationStatus: "pending",
+              bodyHydrationAttemptedAt: now,
+              bodyHydrationError: BUILDER_BODY_NOT_AVAILABLE_ERROR,
+              updatedAt: now,
+            })
+            .where(eq(schema.contentDatabaseItems.id, row.databaseItemId));
+          return;
+        }
+        await tx
+          .update(schema.contentDatabaseItems)
+          .set({
+            bodyHydrationStatus: "pending",
+            bodyHydrationAttemptedAt: now,
+            bodyHydrationError: null,
+            updatedAt: now,
+          })
+          .where(eq(schema.contentDatabaseItems.id, row.databaseItemId));
+      });
+      return;
+    }
   }
   const [document] = await db
     .select({ content: schema.documents.content })
@@ -1055,7 +1122,7 @@ async function processBuilderBodyHydrationJob(
             eq(schema.contentDatabaseBodyHydrationQueue.id, row.id),
             eq(
               schema.contentDatabaseBodyHydrationQueue.sourceEntryJson,
-              row.sourceEntryJson,
+              activeSourceEntryJson,
             ),
           ),
         )
@@ -1081,7 +1148,7 @@ async function processBuilderBodyHydrationJob(
           eq(schema.contentDatabaseBodyHydrationQueue.id, row.id),
           eq(
             schema.contentDatabaseBodyHydrationQueue.sourceEntryJson,
-            row.sourceEntryJson,
+            activeSourceEntryJson,
           ),
         ),
       )
@@ -1093,7 +1160,7 @@ async function processBuilderBodyHydrationJob(
           .set({
             sourceValuesJson: JSON.stringify(nextValues),
             lastSyncedAt: now,
-            lastSourceUpdatedAt: entry.updatedAt ?? now,
+            lastSourceUpdatedAt: entryWithBody.updatedAt ?? now,
             updatedAt: now,
           })
           .where(
@@ -1133,7 +1200,7 @@ async function processBuilderBodyHydrationJob(
       .set({
         sourceValuesJson: JSON.stringify(nextValues),
         lastSyncedAt: now,
-        lastSourceUpdatedAt: entry.updatedAt ?? now,
+        lastSourceUpdatedAt: entryWithBody.updatedAt ?? now,
         updatedAt: now,
       })
       .where(
