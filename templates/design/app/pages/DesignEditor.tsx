@@ -3601,10 +3601,31 @@ function primitiveLayerName(primitive: CanvasPrimitiveInsert): string {
   }
 }
 
+// Item 2 (text defaults): canvas-drawn text has no explicit fill/font by
+// default, so it falls back to `currentColor` (inherited body color — black
+// in an unstyled document) and the browser's serif default. That's invisible
+// on the dark infinite-canvas/board background and looks wrong compared to
+// the rest of the editor chrome. Screens keep their own (often light)
+// background and existing font stack, so this default only applies to
+// primitives landing on the BOARD, gated on the app's actual resolved theme
+// (next-themes' `dark` class on <html>, which drives the canvas background
+// via CSS vars) rather than raw OS `prefers-color-scheme` — see
+// isDesignEditorDarkTheme's doc comment.
+export function isDesignEditorDarkTheme(): boolean {
+  if (typeof document === "undefined") return false;
+  return document.documentElement.classList.contains("dark");
+}
+
+/** Default font stack for board-drawn text — Inter with the app's standard
+ * system-font fallback chain, matching the rest of the editor's UI type
+ * instead of the browser's serif default for an unstyled <div>. */
+export const CANVAS_TEXT_DEFAULT_FONT_FAMILY =
+  '"Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
+
 function appendCanvasPrimitiveToHtml(
   content: string,
   primitive: CanvasPrimitiveInsert,
-  options?: { preserveNegativePosition?: boolean },
+  options?: { preserveNegativePosition?: boolean; isBoardTarget?: boolean },
 ): string | null {
   if (typeof window === "undefined") return null;
   try {
@@ -3841,12 +3862,27 @@ function appendCanvasPrimitiveToHtml(
         // not centered — match that instead of centering the text block.
         element.style.alignItems = "flex-start";
       }
-      element.style.color = primitive.fill ?? "currentColor";
+      // Item 2: board (dark infinite-canvas) text needs an explicit default
+      // fill — "currentColor" inherits the unstyled document's black body
+      // text, invisible on the dark canvas background. Screens keep
+      // "currentColor" so text dropped into an existing (often light)
+      // screen still inherits its surrounding styles/theme as before.
+      element.style.color =
+        primitive.fill ??
+        (options?.isBoardTarget && isDesignEditorDarkTheme()
+          ? "#ffffff"
+          : "currentColor");
       element.style.fontSize = "16px";
       element.style.lineHeight = "1.2";
       element.style.whiteSpace = "pre-wrap";
       element.style.border = canonical.border;
       element.style.borderRadius = canonical.borderRadius;
+      // Item 2: canvas-drawn text defaulted to the browser's serif fallback
+      // (no font-family was ever set here) — match the editor's own Inter
+      // stack instead. Only applies when the caller doesn't already carry an
+      // explicit font (kept future-proof even though CanvasPrimitiveInsert
+      // has no fontFamily field today).
+      element.style.fontFamily = CANVAS_TEXT_DEFAULT_FONT_FAMILY;
     } else if (primitive.kind === "ellipse") {
       element.style.background = primitive.fill ?? canonical.background;
       element.style.border =
@@ -7504,6 +7540,10 @@ export default function DesignEditor() {
   const persistedSelectionStateRef = useRef<string | null>(null);
   const designSelectionOwnerIdRef = useRef(`${TAB_ID}:${generateTabId()}`);
   const frameGeometrySaveTimerRef = useRef<number | null>(null);
+  // Item 11 (URL sync): debounce timer for the URL-state write effect below,
+  // so continuous zoom/drag ticks coalesce into one history.replaceState
+  // instead of one per tick. See that effect's doc comment.
+  const urlSyncTimerRef = useRef<number | null>(null);
   // U9: last handleGeometryCommit timestamp, used to detect a rapid burst of
   // commits (keyboard nudge auto-repeat) so they coalesce into one undo entry
   // and one debounced server write instead of one of each per tick.
@@ -10086,10 +10126,27 @@ export default function DesignEditor() {
       // Y.Doc snapshots are a render seed, not the SQL source of truth; the
       // reconcile effect below advances the updatedAt watermark only after it
       // confirms or applies the current DB content.
-      setCollabContent(text);
-      setCollabContentFileId(fileId);
-      latestActiveContentRef.current = text;
-      setContentRenderRevision((revision) => revision + 1);
+      //
+      // Item 5 (edit-flash) root cause: this effect's deps include
+      // `activeFile?.content`/`activeFile?.updatedAt`, which change on EVERY
+      // save (useActionMutation's default onSuccess invalidates all
+      // `["action"]` queries, so `get-design` refetches after every single
+      // edit and hands back a new `activeFile` object with a bumped
+      // `updatedAt`). That refire lands here even when the Y.Doc's `text`
+      // hasn't changed at all since the last time this ran — previously this
+      // unconditionally re-adopted `text` and bumped contentRenderRevision on
+      // every such refire, forcing a full srcdoc rebuild after nearly every
+      // commit. Only touch collab/render state when `text` genuinely differs
+      // from what is already reflected.
+      if (
+        text !== latestActiveContentRef.current ||
+        collabContentFileIdRef.current !== fileId
+      ) {
+        setCollabContent(text);
+        setCollabContentFileId(fileId);
+        latestActiveContentRef.current = text;
+        setContentRenderRevision((revision) => revision + 1);
+      }
     }
   }, [
     ydoc,
@@ -10120,6 +10177,16 @@ export default function DesignEditor() {
     const ytext = ydoc.getText("content");
     const handler = (_event: unknown, transaction?: { origin?: unknown }) => {
       const next = ytext.toString();
+      // Item 5 (edit-flash): capture what the preview already reflects BEFORE
+      // this observe fires, so a remote-origin transaction that merely ECHOES
+      // content we already rendered (e.g. update-file's own applyText/
+      // seedFromText round-tripping our own just-saved commit back through
+      // the collab sync channel) can be recognized as a no-op instead of
+      // unconditionally forcing a full srcdoc rebuild below. Every commit
+      // path already sets latestActiveContentRef.current synchronously
+      // before the network round trip lands, so this ref reliably holds the
+      // pre-update value at the moment a same-content echo arrives.
+      const previousActiveContent = latestActiveContentRef.current;
       // UndoManager fires with itself as the origin; treat those as local too
       // so the reconcile watermark and stale-selection fix are consistent.
       const isLocalEdit =
@@ -10147,7 +10214,7 @@ export default function DesignEditor() {
       latestActiveContentRef.current = next;
       if (isLocalEdit) {
         lastLocalContentRef.current = next;
-      } else {
+      } else if (next !== previousActiveContent) {
         setContentRenderRevision((revision) => revision + 1);
       }
       // Only advance the DB reconcile watermark when the live CRDT text
@@ -12561,7 +12628,10 @@ export default function DesignEditor() {
       const insertedContent = appendCanvasPrimitiveToHtml(
         baseContent,
         primitive,
-        { preserveNegativePosition: targetFile.id === boardFileId },
+        {
+          preserveNegativePosition: targetFile.id === boardFileId,
+          isBoardTarget: targetFile.id === boardFileId,
+        },
       );
       if (!insertedContent) {
         toast.error(t("designEditor.toasts.primitiveInsertFailed"));
@@ -14182,8 +14252,21 @@ export default function DesignEditor() {
         createdAt: Date.now(),
       });
       const sendStyleChange = (window as any).__designCanvasSendStyle;
+      // Item 5 (edit-flash): a breakpoint-scoped commit (activeBreakpointUpperBoundPx
+      // set) never persists as a plain inline style — planBreakpointStyleWrite
+      // below turns it into a width-scoped Tailwind class or an `@media` rule
+      // in the managed breakpoints <style> block. sendStyleChange only knows
+      // how to patch the live element's INLINE style, which unconditionally
+      // beats any `@media` rule's specificity. Applying it here would preview
+      // the wrong (inline-style-overridden) value immediately, then visibly
+      // flash to the correct cascaded value once the next full document
+      // patch/reload catches up — so skip the runtime shortcut entirely for
+      // breakpoint-scoped writes and fall through to the full content patch
+      // path below, which reflects the actual persisted class/`@media` result.
       const runtimeStyleApplied =
-        !options.runtimeApplied && typeof sendStyleChange === "function";
+        !options.runtimeApplied &&
+        activeBreakpointUpperBoundPx == null &&
+        typeof sendStyleChange === "function";
       if (runtimeStyleApplied) {
         const selectorCandidates = targetNode
           ? codeLayerSelectorAliases(targetNode)
@@ -22018,14 +22101,36 @@ ${serializedHtml}
       zoom,
     });
     if (nextSearch === location.search) return;
-    navigate(
-      {
-        pathname: location.pathname,
-        search: nextSearch,
-        hash: location.hash,
-      },
-      { replace: true, preventScrollReset: true },
-    );
+    // Item 11 (URL sync): `zoom` is a dependency here, and zoom changes
+    // continuously (every wheel/pinch tick, not just on gesture-end) — every
+    // tick previously called `navigate(..., {replace:true})` synchronously,
+    // spamming history.replaceState and re-rendering every `useLocation()`
+    // consumer (this whole page, since DesignCanvas below isn't memoized)
+    // once per tick. Coalesce rapid-fire ticks into a single navigate call
+    // per short window instead of one per state change; the URL is a
+    // shareable-link mirror of UI state, not a live gesture-preview surface,
+    // so a small trailing delay is invisible to the user but eliminates the
+    // churn during continuous zoom/drag.
+    if (urlSyncTimerRef.current !== null) {
+      window.clearTimeout(urlSyncTimerRef.current);
+    }
+    urlSyncTimerRef.current = window.setTimeout(() => {
+      urlSyncTimerRef.current = null;
+      navigate(
+        {
+          pathname: location.pathname,
+          search: nextSearch,
+          hash: location.hash,
+        },
+        { replace: true, preventScrollReset: true },
+      );
+    }, 150);
+    return () => {
+      if (urlSyncTimerRef.current !== null) {
+        window.clearTimeout(urlSyncTimerRef.current);
+        urlSyncTimerRef.current = null;
+      }
+    };
   }, [
     activeFile?.id,
     activeFileId,

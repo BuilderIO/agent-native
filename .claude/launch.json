@@ -33,6 +33,23 @@
       "port": 3101
     },
     {
+      "name": "design-nestfix",
+      "runtimeExecutable": "env",
+      "runtimeArgs": [
+        "APP_NAME=design",
+        "DESIGN_DATABASE_URL=file:./data/nestfix.db",
+        "AUTH_MODE=local",
+        "PORT=9331",
+        "pnpm",
+        "--dir",
+        "templates/design",
+        "dev",
+        "--port",
+        "9331"
+      ],
+      "port": 9331
+    },
+    {
       "name": "analytics",
       "runtimeExecutable": "env",
       "runtimeArgs": [
@@ -174,6 +191,38 @@
         "9321"
       ],
       "port": 9321
+    },
+    {
+      "name": "design-batch3",
+      "runtimeExecutable": "env",
+      "runtimeArgs": [
+        "DATABASE_URL=file:/Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/hungry-mahavira-9ef02f/templates/design/data/stateflash.db",
+        "PORT=9327",
+        "AUTH_MODE=local",
+        "pnpm",
+        "--dir",
+        "templates/design",
+        "dev",
+        "--port",
+        "9327"
+      ],
+      "port": 9327
+    },
+    {
+      "name": "design-respfix",
+      "runtimeExecutable": "env",
+      "runtimeArgs": [
+        "DATABASE_URL=file:/Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/hungry-mahavira-9ef02f/templates/design/data/respfix.db",
+        "PORT=9329",
+        "AUTH_MODE=local",
+        "pnpm",
+        "--dir",
+        "templates/design",
+        "dev",
+        "--port",
+        "9329"
+      ],
+      "port": 9329
     },
     {
       "name": "dispatch",
