@@ -130,6 +130,7 @@ export function dataProgramRunsCreateSql(integerType: string): string {
     status TEXT NOT NULL,
     rows_json TEXT,
     schema_json TEXT,
+    truncated INTEGER NOT NULL DEFAULT 0,
     row_count ${integerType} NOT NULL DEFAULT 0,
     byte_size ${integerType} NOT NULL DEFAULT 0,
     error_code TEXT,
@@ -143,4 +144,5 @@ export function dataProgramRunsCreateSql(integerType: string): string {
   )`;
 }
 
+export const DATA_PROGRAM_RUNS_TRUNCATED_COLUMN_SQL = `ALTER TABLE data_program_runs ADD COLUMN IF NOT EXISTS truncated INTEGER NOT NULL DEFAULT 0`;
 export const DATA_PROGRAM_RUNS_LOOKUP_INDEX_SQL = `CREATE INDEX IF NOT EXISTS data_program_runs_lookup_idx ON data_program_runs (program_id, params_hash, finished_at)`;

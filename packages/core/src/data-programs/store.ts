@@ -14,7 +14,11 @@ import { and, eq, isNull } from "drizzle-orm";
 
 import { getDbExec, intType, isPostgres } from "../db/client.js";
 import { createGetDb } from "../db/create-get-db.js";
-import { ensureTableExists, ensureIndexExists } from "../db/ddl-guard.js";
+import {
+  ensureTableExists,
+  ensureIndexExists,
+  ensureColumnExists,
+} from "../db/ddl-guard.js";
 import { accessFilter, type AccessContext } from "../sharing/access.js";
 import { registerShareableResource } from "../sharing/registry.js";
 import {
@@ -28,6 +32,7 @@ import {
   DATA_PROGRAMS_APP_NAME_INDEX_SQL,
   DATA_PROGRAM_SHARES_RESOURCE_INDEX_SQL,
   dataProgramRunsCreateSql,
+  DATA_PROGRAM_RUNS_TRUNCATED_COLUMN_SQL,
   DATA_PROGRAM_RUNS_LOOKUP_INDEX_SQL,
 } from "./schema.js";
 
@@ -51,6 +56,29 @@ const getDb = createGetDb({ dataPrograms, dataProgramShares });
 
 let _initPromise: Promise<void> | undefined;
 
+function isDuplicateColumnError(err: unknown): boolean {
+  const code = String((err as { code?: unknown })?.code ?? "");
+  const message = String((err as { message?: unknown })?.message ?? err)
+    .toLowerCase()
+    .trim();
+  return (
+    code === "42701" ||
+    message.includes("duplicate column") ||
+    message.includes("already exists")
+  );
+}
+
+async function ensureSqliteDataProgramRunsColumns(): Promise<void> {
+  const client = getDbExec();
+  try {
+    await client.execute(
+      `ALTER TABLE data_program_runs ADD COLUMN truncated INTEGER NOT NULL DEFAULT 0`,
+    );
+  } catch (err) {
+    if (!isDuplicateColumnError(err)) throw err;
+  }
+}
+
 export async function ensureDataProgramTables(): Promise<void> {
   if (!_initPromise) {
     _initPromise = (async () => {
@@ -68,6 +96,11 @@ export async function ensureDataProgramTables(): Promise<void> {
           DATA_PROGRAM_SHARES_CREATE_SQL_PG,
         );
         await ensureTableExists("data_program_runs", runsCreateSql);
+        await ensureColumnExists(
+          "data_program_runs",
+          "truncated",
+          DATA_PROGRAM_RUNS_TRUNCATED_COLUMN_SQL,
+        );
         await ensureIndexExists(
           "data_programs_app_owner_idx",
           DATA_PROGRAMS_APP_OWNER_INDEX_SQL,
@@ -91,6 +124,7 @@ export async function ensureDataProgramTables(): Promise<void> {
       await client.execute(DATA_PROGRAMS_CREATE_SQL);
       await client.execute(DATA_PROGRAM_SHARES_CREATE_SQL);
       await client.execute(runsCreateSql);
+      await ensureSqliteDataProgramRunsColumns();
       for (const ddl of [
         DATA_PROGRAMS_APP_OWNER_INDEX_SQL,
         DATA_PROGRAMS_APP_NAME_INDEX_SQL,
@@ -423,6 +457,7 @@ export interface DataProgramRunRow {
   status: DataProgramRunStatus;
   rowsJson: string | null;
   schemaJson: string | null;
+  truncated: boolean;
   rowCount: number;
   byteSize: number;
   errorCode: string | null;
@@ -442,6 +477,7 @@ export interface RecordDataProgramRunInput {
   status: DataProgramRunStatus;
   rowsJson?: string | null;
   schemaJson?: string | null;
+  truncated?: boolean;
   rowCount?: number;
   byteSize?: number;
   errorCode?: string | null;
@@ -456,6 +492,10 @@ export interface RecordDataProgramRunInput {
   keep?: number;
 }
 
+function booleanFromDb(value: unknown): boolean {
+  return value === true || value === 1 || value === "1";
+}
+
 function runRowFromDb(row: Record<string, unknown>): DataProgramRunRow {
   return {
     id: row.id as string,
@@ -465,6 +505,7 @@ function runRowFromDb(row: Record<string, unknown>): DataProgramRunRow {
     status: row.status as DataProgramRunStatus,
     rowsJson: (row.rows_json as string | null) ?? null,
     schemaJson: (row.schema_json as string | null) ?? null,
+    truncated: booleanFromDb(row.truncated),
     rowCount: Number(row.row_count ?? 0),
     byteSize: Number(row.byte_size ?? 0),
     errorCode: (row.error_code as string | null) ?? null,
@@ -499,9 +540,9 @@ export async function recordDataProgramRun(
   await client.execute({
     sql: `INSERT INTO data_program_runs (
       id, program_id, params_hash, params_json, status, rows_json, schema_json,
-      row_count, byte_size, error_code, error_message, logs_tail, execution_id,
-      triggered_by, started_at, finished_at, duration_ms
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      truncated, row_count, byte_size, error_code, error_message, logs_tail,
+      execution_id, triggered_by, started_at, finished_at, duration_ms
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     args: [
       id,
       input.programId,
@@ -510,6 +551,7 @@ export async function recordDataProgramRun(
       input.status,
       input.rowsJson ?? null,
       input.schemaJson ?? null,
+      input.truncated ? 1 : 0,
       input.rowCount ?? 0,
       input.byteSize ?? 0,
       input.errorCode ?? null,
@@ -535,6 +577,7 @@ export async function recordDataProgramRun(
     status: input.status,
     rowsJson: input.rowsJson ?? null,
     schemaJson: input.schemaJson ?? null,
+    truncated: Boolean(input.truncated),
     rowCount: input.rowCount ?? 0,
     byteSize: input.byteSize ?? 0,
     errorCode: input.errorCode ?? null,
@@ -552,6 +595,7 @@ export interface UpdateDataProgramRunInput {
   status?: DataProgramRunStatus;
   rowsJson?: string | null;
   schemaJson?: string | null;
+  truncated?: boolean;
   rowCount?: number;
   byteSize?: number;
   errorCode?: string | null;
@@ -580,6 +624,8 @@ export async function updateDataProgramRun(
   if (updates.status !== undefined) push("status", updates.status);
   if (updates.rowsJson !== undefined) push("rows_json", updates.rowsJson);
   if (updates.schemaJson !== undefined) push("schema_json", updates.schemaJson);
+  if (updates.truncated !== undefined)
+    push("truncated", updates.truncated ? 1 : 0);
   if (updates.rowCount !== undefined) push("row_count", updates.rowCount);
   if (updates.byteSize !== undefined) push("byte_size", updates.byteSize);
   if (updates.errorCode !== undefined) push("error_code", updates.errorCode);

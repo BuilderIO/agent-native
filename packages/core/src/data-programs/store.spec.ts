@@ -83,6 +83,11 @@ describe("data-programs/store", () => {
       expect(names).toContain("data_programs");
       expect(names).toContain("data_program_shares");
       expect(names).toContain("data_program_runs");
+
+      const runColumns = sqlite
+        .prepare(`PRAGMA table_info(data_program_runs)`)
+        .all() as Array<{ name: string }>;
+      expect(runColumns.map((c) => c.name)).toContain("truncated");
     });
 
     it("memoizes the init promise (second call is a no-op re-await)", async () => {
@@ -308,6 +313,7 @@ describe("data-programs/store", () => {
         status: "succeeded",
         rowsJson: JSON.stringify([{ a: 1 }]),
         schemaJson: JSON.stringify([{ name: "a", type: "number" }]),
+        truncated: true,
         rowCount: 1,
         byteSize: 20,
         triggeredBy: "agent",
@@ -317,6 +323,7 @@ describe("data-programs/store", () => {
       const latest = await getLatestRun(programId, "hash1");
       expect(latest?.status).toBe("succeeded");
       expect(latest?.rowCount).toBe(1);
+      expect(latest?.truncated).toBe(true);
     });
 
     it("getLatestSuccessfulRun ignores failed runs", async () => {
@@ -402,6 +409,7 @@ describe("data-programs/store", () => {
       await updateDataProgramRun(running.id, {
         status: "succeeded",
         rowsJson: JSON.stringify([{ ok: true }]),
+        truncated: true,
         rowCount: 1,
         finishedAt: Date.now(),
       });
@@ -409,6 +417,7 @@ describe("data-programs/store", () => {
       const latest = await getLatestRun(programId, "update-hash");
       expect(latest?.status).toBe("succeeded");
       expect(latest?.rowCount).toBe(1);
+      expect(latest?.truncated).toBe(true);
     });
 
     it("getActiveRun finds queued/running rows but not succeeded/failed ones", async () => {

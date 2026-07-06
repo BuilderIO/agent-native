@@ -50,6 +50,7 @@ function makeRun(
     status: "succeeded",
     rowsJson: JSON.stringify([{ a: 1 }]),
     schemaJson: JSON.stringify([{ name: "a", type: "number" }]),
+    truncated: false,
     rowCount: 1,
     byteSize: 20,
     errorCode: null,
@@ -116,6 +117,19 @@ describe("data-programs/execute", () => {
         hashDataProgramParams({ b: { d: 3, c: 2 }, a: 1 }),
       );
     });
+
+    it("scopes hashes by viewer and org", async () => {
+      const { hashDataProgramParams } = await loadExecute();
+
+      const base = hashDataProgramParams({ q: "won" }, OWNER, "org_1");
+      expect(hashDataProgramParams({ q: "won" }, OWNER, "org_1")).toBe(base);
+      expect(hashDataProgramParams({ q: "won" }, OWNER, "org_2")).not.toBe(
+        base,
+      );
+      expect(
+        hashDataProgramParams({ q: "won" }, "other@example.com", "org_1"),
+      ).not.toBe(base);
+    });
   });
 
   describe("program_not_found / access_denied / archived", () => {
@@ -179,19 +193,24 @@ describe("data-programs/execute", () => {
 
     it("returns cacheHit: true when a fresh successful run exists", async () => {
       storeMocks.getLatestSuccessfulRun.mockResolvedValue(
-        makeRun({ finishedAt: Date.now() }),
+        makeRun({ finishedAt: Date.now(), truncated: true }),
       );
-      const { runDataProgram } = await loadExecute();
+      const { hashDataProgramParams, runDataProgram } = await loadExecute();
 
       const result = await runDataProgram({
         programId: PROGRAM_ID,
-        ctx: { userEmail: OWNER },
+        ctx: { userEmail: OWNER, orgId: "org_1" },
         triggeredBy: "panel_view",
       });
 
+      expect(storeMocks.getLatestSuccessfulRun).toHaveBeenCalledWith(
+        PROGRAM_ID,
+        hashDataProgramParams(undefined, OWNER, "org_1"),
+      );
       expect(result.ok).toBe(true);
       if (!result.ok) return;
       expect(result.cacheHit).toBe(true);
+      expect(result.truncated).toBe(true);
       expect(result.rows).toEqual([{ a: 1 }]);
     });
 
@@ -420,7 +439,12 @@ describe("data-programs/execute", () => {
       // (stale-serve lookups, possibly more than one) sees the stale run.
       storeMocks.getLatestSuccessfulRun
         .mockResolvedValueOnce(null)
-        .mockResolvedValue(makeRun({ finishedAt: Date.now() - 1_000_000 }));
+        .mockResolvedValue(
+          makeRun({
+            finishedAt: Date.now() - 1_000_000,
+            truncated: true,
+          }),
+        );
       storeMocks.getActiveRun.mockResolvedValue(null);
 
       const enqueueSandboxExecution = vi.fn().mockResolvedValue({
@@ -442,6 +466,7 @@ describe("data-programs/execute", () => {
       expect(result.ok).toBe(true);
       if (!result.ok) return;
       expect(result.stale).toBe(true);
+      expect(result.truncated).toBe(true);
       expect(storeMocks.recordDataProgramRun).toHaveBeenCalledWith(
         expect.objectContaining({ status: "queued", executionId: "exec_1" }),
       );
@@ -506,10 +531,13 @@ describe("data-programs/execute", () => {
         .mockResolvedValueOnce(queuedRun) // first check: finalize path
         .mockResolvedValueOnce(null); // after finalize: no longer active
 
+      const oversizedRows = Array.from(
+        { length: storeMocks.MAX_PROGRAM_ROWS + 1 },
+        (_, i) => ({ done: true, i }),
+      );
       const getSandboxExecutionForOwner = vi.fn().mockResolvedValue({
         status: "succeeded",
-        stdout:
-          DATA_PROGRAM_SENTINEL + JSON.stringify({ rows: [{ done: true }] }),
+        stdout: DATA_PROGRAM_SENTINEL + JSON.stringify({ rows: oversizedRows }),
         stderr: "",
       });
       const enqueueSandboxExecution = vi.fn().mockResolvedValue({
@@ -533,7 +561,7 @@ describe("data-programs/execute", () => {
       );
       expect(storeMocks.updateDataProgramRun).toHaveBeenCalledWith(
         "dpr_queued",
-        expect.objectContaining({ status: "succeeded" }),
+        expect.objectContaining({ status: "succeeded", truncated: true }),
       );
       expect(result.ok).toBe(true);
     });

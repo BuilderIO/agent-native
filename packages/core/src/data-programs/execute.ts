@@ -69,6 +69,7 @@ export interface DataProgramFailure {
   lastGoodRun?: {
     rows: Record<string, unknown>[];
     schema: DataProgramColumn[];
+    truncated: boolean;
     asOfMs: number;
   };
 }
@@ -154,7 +155,7 @@ export function canonicalDataProgramParamsJson(value: unknown): string {
 }
 
 /**
- * Hash params (and, critically, the viewer) into the cache key used for
+ * Hash params (and, critically, the viewer/org scope) into the cache key used for
  * `data_program_runs` lookups.
  *
  * `providerFetch` inside a program resolves auth using the CALLING viewer's
@@ -162,21 +163,25 @@ export function canonicalDataProgramParamsJson(value: unknown): string {
  * running the same program with the same params can legitimately get two
  * different results — e.g. one has a configured HubSpot key and the other
  * doesn't, or row-level provider permissions differ per user. Folding
- * `viewerKey` into the hash means the run cache (and the active-run /
+ * `viewerKey` and `orgKey` into the hash means the run cache (and the active-run /
  * last-successful-run lookups keyed on it) is scoped per viewer, so a
  * teammate missing a credential sees their own auth error, not a cached
- * result produced under someone else's token. Pass a stable identity for
- * `viewerKey` (the calling user's email); omitting it is only safe for
- * inline preview/dry-run calls that never persist or read the shared cache.
+ * result produced under someone else's token or org grants. Pass stable
+ * identities for `viewerKey` (the calling user's email) and `orgKey`
+ * (the active org id); omitting them is only safe for inline preview/dry-run
+ * calls that never persist or read the shared cache.
  */
 export function hashDataProgramParams(
   params: Record<string, unknown> | undefined,
   viewerKey?: string,
+  orgKey?: string | null,
 ): string {
   return createHash("sha256")
     .update(canonicalDataProgramParamsJson(params ?? {}))
     .update(":viewer:")
     .update(viewerKey ?? "")
+    .update(":org:")
+    .update(orgKey ?? "")
     .digest("hex");
 }
 
@@ -191,6 +196,7 @@ function lastGoodFromRun(run: {
   schemaJson: string | null;
   finishedAt: number | null;
   startedAt: number;
+  truncated?: boolean;
 }): DataProgramFailure["lastGoodRun"] {
   if (!run.rowsJson) return undefined;
   try {
@@ -199,6 +205,7 @@ function lastGoodFromRun(run: {
       schema: run.schemaJson
         ? (JSON.parse(run.schemaJson) as DataProgramColumn[])
         : [],
+      truncated: run.truncated ?? false,
       asOfMs: run.finishedAt ?? run.startedAt,
     };
   } catch {
@@ -404,7 +411,11 @@ export async function runDataProgram(
     );
   }
 
-  const paramsHash = hashDataProgramParams(args.params, args.ctx.userEmail);
+  const paramsHash = hashDataProgramParams(
+    args.params,
+    args.ctx.userEmail,
+    args.ctx.orgId ?? null,
+  );
 
   if (program.archivedAt) {
     return failureWithLastGood(
@@ -449,7 +460,7 @@ async function resolveCacheHit(
       schema: latestSuccess.schemaJson
         ? (JSON.parse(latestSuccess.schemaJson) as DataProgramColumn[])
         : [],
-      truncated: false,
+      truncated: latestSuccess.truncated,
       stale: false,
       cacheHit: true,
       asOfMs: asOf,
@@ -525,6 +536,7 @@ async function runForegroundProgram(
     status: "succeeded",
     rowsJson,
     schemaJson: JSON.stringify(outcome.schema),
+    truncated: outcome.truncated,
     rowCount: outcome.rows.length,
     byteSize: Buffer.byteLength(rowsJson, "utf8"),
     logsTail: outcome.logsTail,
@@ -617,7 +629,7 @@ async function runBackgroundProgram(
         ok: true,
         rows: stale.rows,
         schema: stale.schema,
-        truncated: false,
+        truncated: stale.truncated,
         stale: true,
         cacheHit: true,
         asOfMs: stale.asOfMs,
@@ -650,6 +662,7 @@ async function finalizeBackgroundRun(
         status: "succeeded",
         rowsJson,
         schemaJson: JSON.stringify(parsed.result.schema),
+        truncated: parsed.result.truncated,
         rowCount: parsed.result.rows.length,
         byteSize: Buffer.byteLength(rowsJson, "utf8"),
         logsTail: truncateLogs(execution.stdout, execution.stderr),
