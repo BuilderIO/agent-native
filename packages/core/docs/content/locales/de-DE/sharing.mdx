@@ -137,13 +137,13 @@ Fügen Sie bei Listen neben jeder Zeile ein `<VisibilityBadge visibility={row.vi
 
 Das Framework mountet diese actions automatisch in jeder Vorlage – der Agent nennt sie als Tools und der UI ruft sie über `useActionQuery` / `useActionMutation` auf:
 
-| Aktion                    | Was es tut                                                                                                                                   |
-| ------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
-| `share-resource`          | Gewähren Sie einem Benutzer oder einer Organisation Zugriff für eine bestimmte Rolle. Optionales `notify` steuert E-Mail-Benachrichtigungen. |
-| `unshare-resource`        | Zugriff für einen Benutzer oder eine Organisation widerrufen.                                                                                |
-| `list-resource-shares`    | Aktuelle Sichtbarkeit sowie alle expliziten Gewährungen anzeigen.                                                                            |
-| `set-resource-visibility` | Wechseln Sie zu `private`, `org` oder `public`.                                                                                              |
-| `create-agent-resource-link` | Mint a temporary read-only `agent_access` URL for a registered agent-readable resource.                                                    |
+| Aktion                       | Was es tut                                                                                                                                   |
+| ---------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| `share-resource`             | Gewähren Sie einem Benutzer oder einer Organisation Zugriff für eine bestimmte Rolle. Optionales `notify` steuert E-Mail-Benachrichtigungen. |
+| `unshare-resource`           | Zugriff für einen Benutzer oder eine Organisation widerrufen.                                                                                |
+| `list-resource-shares`       | Aktuelle Sichtbarkeit sowie alle expliziten Gewährungen anzeigen.                                                                            |
+| `set-resource-visibility`    | Wechseln Sie zu `private`, `org` oder `public`.                                                                                              |
+| `create-agent-resource-link` | Mint a temporary read-only `agent_access` URL for a registered agent-readable resource.                                                      |
 
 Sagen Sie dem Agenten: „Teilen Sie dieses Design mit dem Marketingteam als Redakteuren“, und er ruft `share-resource` für denselben Endpunkt auf, den UI verwendet. Das Ergebnis wird beim nächsten Rendern im Freigabedialog angezeigt.
 

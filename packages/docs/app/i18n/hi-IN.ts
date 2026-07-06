@@ -1413,7 +1413,7 @@ const hiIN = {
     whatIsAgentNative: "Agent-Native क्या है?",
     agentSurfaces: "Agent surfaces",
     keyConcepts: "मुख्य अवधारणाएं",
-    agentNativeToolkit: "Agent-Native Toolkit",
+    agentNativeToolkit: "Agent-Native टूलकिट",
     templates: "टेम्पलेट",
     faq: "FAQ",
     server: "Server",

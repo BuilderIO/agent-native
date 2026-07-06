@@ -137,13 +137,13 @@ import { ShareButton } from "@agent-native/core/client";
 
 프레임워크는 모든 템플릿에 이러한 actions를 자동으로 마운트합니다. 에이전트는 이를 도구로 호출하고 UI는 `useActionQuery` / `useActionMutation`를 통해 호출합니다.
 
-| 액션                      | 무엇을 하는가                                                                                             |
-| ------------------------- | --------------------------------------------------------------------------------------------------------- |
-| `share-resource`          | 특정 역할의 사용자 또는 조직에 액세스 권한을 부여합니다. 선택 사항인 `notify`는 이메일 알림을 제어합니다. |
-| `unshare-resource`        | 사용자 또는 조직의 액세스 권한을 취소합니다.                                                              |
-| `list-resource-shares`    | 현재 공개 상태와 모든 명시적 승인을 표시합니다.                                                           |
-| `set-resource-visibility` | `private`, `org` 또는 `public`로 변경하세요.                                                              |
-| `create-agent-resource-link` | Mint a temporary read-only `agent_access` URL for a registered agent-readable resource.                  |
+| 액션                         | 무엇을 하는가                                                                                             |
+| ---------------------------- | --------------------------------------------------------------------------------------------------------- |
+| `share-resource`             | 특정 역할의 사용자 또는 조직에 액세스 권한을 부여합니다. 선택 사항인 `notify`는 이메일 알림을 제어합니다. |
+| `unshare-resource`           | 사용자 또는 조직의 액세스 권한을 취소합니다.                                                              |
+| `list-resource-shares`       | 현재 공개 상태와 모든 명시적 승인을 표시합니다.                                                           |
+| `set-resource-visibility`    | `private`, `org` 또는 `public`로 변경하세요.                                                              |
+| `create-agent-resource-link` | Mint a temporary read-only `agent_access` URL for a registered agent-readable resource.                   |
 
 에이전트에게 "이 디자인을 편집자로서 마케팅 팀과 공유"하라고 말하면 에이전트는 UI가 사용하는 동일한 엔드포인트에 대해 `share-resource`를 호출합니다. 결과는 다음 렌더링 시 공유 대화상자에 표시됩니다.
 

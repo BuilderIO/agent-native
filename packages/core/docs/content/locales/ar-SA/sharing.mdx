@@ -137,13 +137,13 @@ import { ShareButton } from "@agent-native/core/client";
 
 يقوم إطار العمل بتثبيت actions تلقائيًا في كل قالب - يستدعيها الوكيل كأدوات، ويستدعيها UI من خلال `useActionQuery` / `useActionMutation`:
 
-| الإجراء                   | ماذا يفعل                                                                                          |
-| ------------------------- | -------------------------------------------------------------------------------------------------- |
-| `share-resource`          | منح مستخدم أو مؤسسة حق الوصول إلى دور محدد. يتحكم `notify` الاختياري في إشعارات البريد الإلكتروني. |
-| `unshare-resource`        | إبطال الوصول لمستخدم أو مؤسسة.                                                                     |
-| `list-resource-shares`    | إظهار الرؤية الحالية بالإضافة إلى جميع المنح الصريحة.                                              |
-| `set-resource-visibility` | قم بالتغيير إلى `private`، أو `org`، أو `public`.                                                  |
-| `create-agent-resource-link` | Mint a temporary read-only `agent_access` URL for a registered agent-readable resource.           |
+| الإجراء                      | ماذا يفعل                                                                                          |
+| ---------------------------- | -------------------------------------------------------------------------------------------------- |
+| `share-resource`             | منح مستخدم أو مؤسسة حق الوصول إلى دور محدد. يتحكم `notify` الاختياري في إشعارات البريد الإلكتروني. |
+| `unshare-resource`           | إبطال الوصول لمستخدم أو مؤسسة.                                                                     |
+| `list-resource-shares`       | إظهار الرؤية الحالية بالإضافة إلى جميع المنح الصريحة.                                              |
+| `set-resource-visibility`    | قم بالتغيير إلى `private`، أو `org`، أو `public`.                                                  |
+| `create-agent-resource-link` | Mint a temporary read-only `agent_access` URL for a registered agent-readable resource.            |
 
 أخبر الوكيل "بمشاركة هذا التصميم مع فريق التسويق كمحررين" وسيقوم باستدعاء `share-resource` مقابل نفس نقطة النهاية التي يستخدمها UI. تظهر النتيجة في مربع حوار المشاركة في العرض التالي.
 

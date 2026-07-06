@@ -137,13 +137,13 @@ Para las listas, coloque un `<VisibilityBadge visibility={row.visibility} />` al
 
 El marco monta automáticamente estos actions en cada plantilla: el agente los llama como herramientas y el UI los llama a través de `useActionQuery`/`useActionMutation`:
 
-| Acción                    | Qué hace                                                                                                                                       |
-| ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
-| `share-resource`          | Otorgar acceso a un usuario u organización en una función específica. El `notify` opcional controla las notificaciones por correo electrónico. |
-| `unshare-resource`        | Revocar el acceso a un usuario u organización.                                                                                                 |
-| `list-resource-shares`    | Mostrar visibilidad actual más todas las subvenciones explícitas.                                                                              |
-| `set-resource-visibility` | Cambiar a `private`, `org` o `public`.                                                                                                         |
-| `create-agent-resource-link` | Mint a temporary read-only `agent_access` URL for a registered agent-readable resource.                                                      |
+| Acción                       | Qué hace                                                                                                                                       |
+| ---------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| `share-resource`             | Otorgar acceso a un usuario u organización en una función específica. El `notify` opcional controla las notificaciones por correo electrónico. |
+| `unshare-resource`           | Revocar el acceso a un usuario u organización.                                                                                                 |
+| `list-resource-shares`       | Mostrar visibilidad actual más todas las subvenciones explícitas.                                                                              |
+| `set-resource-visibility`    | Cambiar a `private`, `org` o `public`.                                                                                                         |
+| `create-agent-resource-link` | Mint a temporary read-only `agent_access` URL for a registered agent-readable resource.                                                        |
 
 Dígale al agente "comparta este diseño con el equipo de marketing como editores" y llamará a `share-resource` contra el mismo punto final que utiliza UI. El resultado aparece en el cuadro de diálogo para compartir en el siguiente renderizado.
 

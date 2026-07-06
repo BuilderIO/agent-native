@@ -137,13 +137,13 @@ import { ShareButton } from "@agent-native/core/client";
 
 フレームワークはこれらの actions をすべてのテンプレートに自動マウントします。エージェントはこれらをツールとして呼び出し、UI は `useActionQuery` / `useActionMutation` を通じてこれらを呼び出します。
 
-| アクション                | 機能                                                                                                           |
-| ------------------------- | -------------------------------------------------------------------------------------------------------------- |
-| `share-resource`          | ユーザーまたは組織に特定のロールでのアクセスを許可します。オプションの `notify` は電子メール通知を制御します。 |
-| `unshare-resource`        | ユーザーまたは組織のアクセス権を取り消します。                                                                 |
-| `list-resource-shares`    | 現在の可視性とすべての明示的な許可を表示します。                                                               |
-| `set-resource-visibility` | `private`、`org`、または `public` に変更します。                                                               |
-| `create-agent-resource-link` | Mint a temporary read-only `agent_access` URL for a registered agent-readable resource.                       |
+| アクション                   | 機能                                                                                                           |
+| ---------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| `share-resource`             | ユーザーまたは組織に特定のロールでのアクセスを許可します。オプションの `notify` は電子メール通知を制御します。 |
+| `unshare-resource`           | ユーザーまたは組織のアクセス権を取り消します。                                                                 |
+| `list-resource-shares`       | 現在の可視性とすべての明示的な許可を表示します。                                                               |
+| `set-resource-visibility`    | `private`、`org`、または `public` に変更します。                                                               |
+| `create-agent-resource-link` | Mint a temporary read-only `agent_access` URL for a registered agent-readable resource.                        |
 
 エージェントに「このデザインを編集者としてマーケティング チームと共有する」ように指示すると、エージェントは UI が使用するのと同じエンドポイントに対して `share-resource` を呼び出します。結果は、次回のレンダリング時に共有ダイアログに表示されます。
 

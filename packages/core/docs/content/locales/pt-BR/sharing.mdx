@@ -137,13 +137,13 @@ Para listas, coloque um `<VisibilityBadge visibility={row.visibility} />` ao lad
 
 A estrutura monta automaticamente esses actions em cada modelo — o agente os chama como ferramentas e o UI os chama por meio de `useActionQuery` / `useActionMutation`:
 
-| Ação                      | O que faz                                                                                                                |
-| ------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
-| `share-resource`          | Conceda acesso a um usuário ou organização em uma função específica. `notify` opcional controla notificações por e-mail. |
-| `unshare-resource`        | Revogar o acesso de um usuário ou organização.                                                                           |
-| `list-resource-shares`    | Mostrar a visibilidade atual e todas as concessões explícitas.                                                           |
-| `set-resource-visibility` | Mude para `private`, `org` ou `public`.                                                                                  |
-| `create-agent-resource-link` | Mint a temporary read-only `agent_access` URL for a registered agent-readable resource.                                |
+| Ação                         | O que faz                                                                                                                |
+| ---------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| `share-resource`             | Conceda acesso a um usuário ou organização em uma função específica. `notify` opcional controla notificações por e-mail. |
+| `unshare-resource`           | Revogar o acesso de um usuário ou organização.                                                                           |
+| `list-resource-shares`       | Mostrar a visibilidade atual e todas as concessões explícitas.                                                           |
+| `set-resource-visibility`    | Mude para `private`, `org` ou `public`.                                                                                  |
+| `create-agent-resource-link` | Mint a temporary read-only `agent_access` URL for a registered agent-readable resource.                                  |
 
 Diga ao agente "compartilhe este design com a equipe de marketing como editores" e ele chamará `share-resource` no mesmo endpoint que UI usa. O resultado aparece na caixa de diálogo de compartilhamento na próxima renderização.
 
