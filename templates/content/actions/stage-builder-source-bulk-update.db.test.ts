@@ -6,6 +6,8 @@ import { runWithRequestContext } from "@agent-native/core/server";
 import { and, eq, inArray } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
+import { BUILDER_CMS_FIXTURE_ROW_PROVENANCE } from "./_builder-cms-source-adapter";
+
 const TEST_DB_PATH = join(
   tmpdir(),
   `stage-builder-source-bulk-update-${process.pid}-${Date.now()}.sqlite`,
@@ -47,7 +49,7 @@ async function asOwner<T>(fn: () => Promise<T>): Promise<T> {
   return runWithRequestContext({ userEmail: OWNER }, fn);
 }
 
-function capabilities() {
+function capabilities(args: { liveWritesEnabled?: boolean } = {}) {
   return JSON.stringify({
     canRefresh: true,
     canCreateChangeSets: true,
@@ -58,7 +60,7 @@ function capabilities() {
     canPublish: false,
     canDelete: false,
     canStageLocalRevision: true,
-    liveWritesEnabled: false,
+    liveWritesEnabled: args.liveWritesEnabled ?? false,
     readOnlyRefresh: true,
   });
 }
@@ -69,6 +71,9 @@ async function seedBuilderDatabase(args: {
   rowCount?: number;
   staleRowIndex?: number;
   existingOpenChangeIndex?: number;
+  fixtureRowIndex?: number;
+  liveReadConfigured?: boolean;
+  liveWritesEnabled?: boolean;
 }) {
   const db = getDb();
   const now = "2026-07-01T12:00:00.000Z";
@@ -114,12 +119,15 @@ async function seedBuilderDatabase(args: {
     sourceType: "builder-cms",
     sourceName: "Builder CMS",
     sourceTable: "blog_article",
-    capabilitiesJson: capabilities(),
+    capabilitiesJson: capabilities({
+      liveWritesEnabled: args.liveWritesEnabled,
+    }),
     metadataJson: JSON.stringify({
       primaryKey: "id",
       titleField: "data.title",
       writeMode: "stage_only",
       pushMode: "autosave",
+      liveReadConfigured: args.liveReadConfigured,
     }),
     freshness: "fresh",
     createdAt: now,
@@ -180,7 +188,10 @@ async function seedBuilderDatabase(args: {
         "data.title": `Article ${index + 1}`,
         [sourceFieldKey]: index === 1 ? "Founders" : "Developers",
       }),
-      provenance: "source",
+      provenance:
+        args.fixtureRowIndex === index
+          ? BUILDER_CMS_FIXTURE_ROW_PROVENANCE
+          : "source",
       freshness: args.staleRowIndex === index ? "stale" : "fresh",
       syncState: "linked",
       lastSourceUpdatedAt:
@@ -465,6 +476,47 @@ describe("stage-builder-source-bulk-update", () => {
     ).resolves.toHaveLength(0);
   });
 
+  it("blocks legacy fixture rows on live Builder sources before local staging", async () => {
+    const seeded = await seedBuilderDatabase({
+      fixtureRowIndex: 1,
+      liveReadConfigured: true,
+    });
+
+    const response = await asOwner(() =>
+      stageBulkUpdate.run({
+        documentId: seeded.databaseDocumentId,
+        sourceId: seeded.sourceId,
+        itemIds: seeded.rows.map((row) => row.itemId),
+        field: { propertyId: seeded.propertyId, value: "Architects" },
+        dryRun: false,
+      }),
+    );
+
+    expect(response.summary).toEqual({
+      total: 2,
+      staged: 0,
+      unchanged: 0,
+      blocked: 2,
+    });
+    expect(response.rows[0]).toMatchObject({
+      status: "blocked",
+      message:
+        "No rows were staged because at least one selected row is blocked.",
+    });
+    expect(response.rows[1]).toMatchObject({
+      status: "blocked",
+      message:
+        "Refresh this Builder row from the live source before staging a bulk update.",
+    });
+    expect(response.review).toBeNull();
+    await expect(
+      valuesFor(
+        seeded.propertyId,
+        seeded.rows.map((row) => row.documentId),
+      ),
+    ).resolves.toHaveLength(0);
+  });
+
   it("blocks rows with existing pending Builder reviews without partially staging", async () => {
     const seeded = await seedBuilderDatabase({ existingOpenChangeIndex: 1 });
 
@@ -526,5 +578,41 @@ describe("stage-builder-source-bulk-update", () => {
       "This property type is not supported for Builder bulk updates yet.",
     );
     expect(response.review).toBeNull();
+  });
+
+  it("rejects ambiguous Builder field mappings instead of picking one", async () => {
+    const seeded = await seedBuilderDatabase({});
+    const now = "2026-07-01T12:00:00.000Z";
+    await getDb()
+      .insert(schema.contentDatabaseSourceFields)
+      .values({
+        id: nextId("duplicate_field"),
+        ownerEmail: OWNER,
+        sourceId: seeded.sourceId,
+        propertyId: seeded.propertyId,
+        localFieldKey: seeded.propertyId,
+        sourceFieldKey: `${seeded.sourceFieldKey}.duplicate`,
+        sourceFieldLabel: "Audience duplicate",
+        sourceFieldType: "string",
+        mappingType: "property",
+        writeOwner: "source",
+        readOnly: 0,
+        provenance: "source",
+        freshness: "fresh",
+        createdAt: now,
+        updatedAt: now,
+      });
+
+    await expect(
+      asOwner(() =>
+        stageBulkUpdate.run({
+          documentId: seeded.databaseDocumentId,
+          sourceId: seeded.sourceId,
+          itemIds: [seeded.rows[0].itemId],
+          field: { propertyId: seeded.propertyId, value: "Architects" },
+          dryRun: false,
+        }),
+      ),
+    ).rejects.toThrow("Mapped Builder source field is ambiguous.");
   });
 });

@@ -79,6 +79,23 @@ describe("content database source actions", () => {
     });
   });
 
+  it("rejects Builder source bulk update requests above the combined row limit", () => {
+    expect(() =>
+      stageBulkUpdate.schema.parse({
+        documentId: "database-page",
+        itemIds: Array.from({ length: 75 }, (_, index) => `item-${index}`),
+        documentIds: Array.from(
+          { length: 75 },
+          (_, index) => `document-${index}`,
+        ),
+        field: {
+          propertyId: "property-1",
+          value: "Docs team",
+        },
+      }),
+    ).toThrow("Builder source bulk updates are limited to 100 rows.");
+  });
+
   it("defaults source attachment to the safe mock-local source type", () => {
     expect(attachSource.schema.parse({ documentId: "database-page" })).toEqual({
       documentId: "database-page",

@@ -1072,12 +1072,15 @@ function DatabaseTable({
       activeReviewSource && activeReviewSource.id !== source?.id
         ? activeReviewSource.id
         : undefined;
+    const scopedChangeSetIds =
+      activeBuilderReview && activeBuilderReview.rows.length > 0
+        ? activeBuilderReview.rows.map((row) => row.changeSetId)
+        : undefined;
     try {
       const prepared = await prepareBuilderReview.mutateAsync({
         documentId: document.id,
         sourceId: targetSourceId,
-        changeSetIds:
-          activeBuilderReview?.rows.map((row) => row.changeSetId) ?? undefined,
+        changeSetIds: scopedChangeSetIds,
       });
       let nextReview = prepared.review;
       let batchResult: ExecuteBuilderSourceBatchResponse | null = null;

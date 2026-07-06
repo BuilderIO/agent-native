@@ -1013,12 +1013,15 @@ function DatabaseTable({
   ) {
     setBuilderReviewResult(null);
     setBuilderReviewCheckedAt(null);
+    const scopedChangeSetIds =
+      activeBuilderReview && activeBuilderReview.rows.length > 0
+        ? activeBuilderReview.rows.map((row) => row.changeSetId)
+        : undefined;
     try {
       const prepared = await prepareBuilderReview.mutateAsync({
         documentId: document.id,
         sourceId: source?.id,
-        changeSetIds:
-          activeBuilderReview?.rows.map((row) => row.changeSetId) ?? undefined,
+        changeSetIds: scopedChangeSetIds,
         pushModeConfirmation: "autosave",
       });
       let nextReview = prepared.review;

@@ -20,6 +20,7 @@ import {
   normalizePropertyValue,
   type DocumentPropertyType,
 } from "../shared/properties.js";
+import { BUILDER_CMS_FIXTURE_ROW_PROVENANCE } from "./_builder-cms-source-adapter.js";
 import {
   DATABASE_ROW_BATCH_LIMIT,
   resolveDatabaseRowsForBatch,
@@ -113,6 +114,9 @@ function resolveSourceField(args: {
         ? field.sourceFieldKey === args.field.sourceFieldKey
         : true),
   );
+  if (candidates.length > 1) {
+    throw new Error("Mapped Builder source field is ambiguous.");
+  }
   return candidates[0] ?? null;
 }
 
@@ -137,8 +141,24 @@ function sourceBlocker(source: ContentDatabaseSource) {
   if (!source.capabilities.canWriteFields) {
     return "This Builder source does not allow field writeback.";
   }
-  if (source.freshness === "stale") {
+  if (source.freshness !== "fresh") {
     return "Refresh the Builder source before staging bulk updates.";
+  }
+  return null;
+}
+
+function reviewableRowBlocker(
+  source: ContentDatabaseSource,
+  row: ContentDatabaseSource["rows"][number],
+) {
+  const skipsFixtureRows =
+    source.metadata.liveReadConfigured === true ||
+    source.capabilities.liveWritesEnabled === true;
+  if (
+    skipsFixtureRows &&
+    row.provenance === BUILDER_CMS_FIXTURE_ROW_PROVENANCE
+  ) {
+    return "Refresh this Builder row from the live source before staging a bulk update.";
   }
   return null;
 }
@@ -319,6 +339,7 @@ async function stageBuilderSourceBulkUpdateWithDeps(
       (sourceRow?.freshness !== "fresh" || sourceRow?.syncState === "error"
         ? "Refresh this Builder row before staging a bulk update."
         : null) ??
+      (sourceRow ? reviewableRowBlocker(source, sourceRow) : null) ??
       (openChangeSetForDocument(source, row.document.id)
         ? "This row already has a pending Builder review item."
         : null);
@@ -563,6 +584,12 @@ export const stageBuilderSourceBulkUpdateSchema = z
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         message: "At least one itemId or documentId is required.",
+      });
+    }
+    if (total > DATABASE_ROW_BATCH_LIMIT) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: `Builder source bulk updates are limited to ${DATABASE_ROW_BATCH_LIMIT} rows.`,
       });
     }
     if (!value.field.propertyId && !value.field.localFieldKey) {
