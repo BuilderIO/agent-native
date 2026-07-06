@@ -25,6 +25,7 @@ LLMs — including Gemini Pro — degrade complex logos. They smear gradients, d
 ```ts
 {
   background: { type: "asset"; assetId: string };
+  mask?: { type: "asset"; assetId: string };
   contentMode: "fill" | "cutout";
   contentRegion?: { x: number; y: number; w: number; h: number };
   dropShadow?: boolean;
@@ -39,9 +40,9 @@ LLMs — including Gemini Pro — degrade complex logos. They smear gradients, d
 
 - The background is an uploaded or selected brand-library image asset. The compositor cover-fits it to the preset canvas and throws if the asset pixels are unavailable.
 - `fill` drops an opaque generation into the content region, so it works through the normal managed provider path.
-- When the resolved skeleton model is `gpt-image-2`, the action sends a managed edit/inpaint request instead of generate-then-composite: the uploaded plate is the `edit_target`, an optional same-size `mask` asset becomes the editable-area mask, and `maskFromPlateAlpha()` is only the fallback when no manual mask is set. Transparent mask pixels are editable, opaque pixels are preserved, and the returned image is final. The manual mask or plate fallback must have transparent pixels.
+- When the resolved skeleton model is `gpt-image-2`, the action sends a managed edit/inpaint request instead of generate-then-composite: the uploaded plate is the `edit_target`, an optional same-size `mask` asset becomes the editable-area mask, and `maskFromPlateAlpha()` is only the fallback when no manual mask is set. Transparent mask pixels are editable, opaque pixels are sent as preserved regions, and the returned image is final. The manual mask or plate fallback must have transparent pixels.
 - Other `cutout` skeletons ask for an isolated transparent subject, force `gpt-image-1`, attach the background plate as a `background_reference`/composition reference, request `background: "transparent"` through the managed Builder image provider, and only fall back to OpenAI BYOK when the managed provider fails. They clamp only the provider subject ratio to `1:1`, `2:3`, or `3:2`. The final skeleton canvas still uses the preset's requested aspect ratio.
-- The prompt envelope for cutout mode asks for an isolated subject on an empty transparent background. The gpt-image-2 inpaint branch instead asks the model to paint only the subject into the mask's transparent/open region while preserving logos, headlines, framing, and other opaque plate content.
+- The prompt envelope for cutout mode asks for an isolated subject on an empty transparent background. The gpt-image-2 inpaint branch instead asks the model to render the requested foreground content inside the mask's transparent/open region while preserving logos, text, framing, and other opaque plate content.
 - Background and foreground `assetId` values must belong to the selected brand kit and must be images.
 
 ## When to use it

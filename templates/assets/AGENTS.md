@@ -74,8 +74,9 @@ prompt, aspectRatio }`.
   action uses managed mask inpainting: the uploaded plate is the edit source,
   an optional same-size mask asset controls the editable area, and the plate's
   alpha channel is used as the fallback mask when no manual mask is set. Opaque
-  mask pixels are preserved, transparent mask pixels are editable, and no local
-  compositing runs. Other `cutout` skeletons force `gpt-image-1`, request
+  mask pixels are sent as preserved regions, transparent mask pixels are
+  editable, and no local compositing runs. Other `cutout` skeletons force
+  `gpt-image-1`, request
   transparent output through the managed Builder image provider, attach the
   plate as a composition/background reference for layout awareness, clamp only
   the provider subject ratio to a supported `gpt-image-1` ratio, and keep the
