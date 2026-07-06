@@ -367,15 +367,6 @@ export default defineAction({
       .describe(
         "HubSpot deal property name for propertyValues CRM search. Required when propertyValues is set.",
       ),
-    /** @deprecated Use propertyValues */
-    riskStatuses: StringListSchema.describe(
-      "Deprecated alias for propertyValues on existing extensions.",
-    ),
-    /** @deprecated Use dealProperty */
-    statusProperty: z
-      .string()
-      .optional()
-      .describe("Deprecated alias for dealProperty on existing extensions."),
     limit: z.coerce
       .number()
       .int()
@@ -411,23 +402,12 @@ export default defineAction({
     query,
     propertyValues,
     dealProperty,
-    riskStatuses,
-    statusProperty,
     limit = 25,
     offset = 0,
     after,
   }) => {
-    const usingLegacyRiskStatuses =
-      !propertyValues?.length && Boolean(riskStatuses?.length);
-    const resolvedPropertyValues = propertyValues?.length
-      ? propertyValues
-      : riskStatuses;
-    const resolvedDealProperty =
-      dealProperty?.trim() ||
-      statusProperty?.trim() ||
-      (usingLegacyRiskStatuses ? "risk_status" : undefined);
-
-    if (resolvedPropertyValues && resolvedPropertyValues.length > 0) {
+    if (propertyValues && propertyValues.length > 0) {
+      const resolvedDealProperty = dealProperty?.trim();
       if (!resolvedDealProperty) {
         throw new Error(
           "dealProperty is required when propertyValues is provided",
@@ -435,7 +415,7 @@ export default defineAction({
       }
       const [searchResult, allPipelines, owners] = await Promise.all([
         searchHubSpotDealsByPropertyValues({
-          propertyValues: resolvedPropertyValues,
+          propertyValues,
           propertyName: resolvedDealProperty,
           limit,
           after,

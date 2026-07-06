@@ -124,30 +124,6 @@ describe("hubspot-deals action", () => {
     });
   });
 
-  it("accepts deprecated riskStatuses/statusProperty aliases", async () => {
-    searchHubSpotDealsByPropertyValues.mockResolvedValue({
-      deals: [],
-      total: 0,
-      nextAfter: null,
-    });
-    getDealPipelines.mockResolvedValue([]);
-    getVisiblePipelines.mockReturnValueOnce([]);
-    getDealOwners.mockResolvedValue({});
-
-    await hubspotDeals.run({
-      riskStatuses: ["Churn Risk"],
-      limit: 25,
-    });
-
-    expect(searchHubSpotDealsByPropertyValues).toHaveBeenCalledWith({
-      propertyValues: ["Churn Risk"],
-      propertyName: "risk_status",
-      limit: 25,
-      after: undefined,
-      extraProperties: undefined,
-    });
-  });
-
   it("requires dealProperty when propertyValues is provided", async () => {
     await expect(
       hubspotDeals.run({
