@@ -644,7 +644,6 @@ const messages = {
     builderRowsLoadingHitSnag: "Builder 列載入遇到問題。",
     closeDatabaseSettings: "關閉資料庫設定",
     closeSearch: "關閉搜尋",
-    continue: "繼續",
     databaseRowsAndLocalPropertiesWereKeptIntact: "資料庫行和本機屬性已保留。",
     failedToDeleteRow: "刪除行失敗",
     failedToDeleteSelectedRows: "刪除所選行失敗",

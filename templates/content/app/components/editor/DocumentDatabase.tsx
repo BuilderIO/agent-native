@@ -1635,7 +1635,7 @@ function DatabaseTable({
             : false
         }
         progressHighWater={builderProgressHighWater}
-        onContinue={() => {
+        onRetry={() => {
           if (!source) return;
           const continuationKey = builderSourceContinuationKey(source);
           setBuilderContinuationClientErrorKey(null);
@@ -5886,7 +5886,7 @@ function BuilderSourceContinuationBar({
   pending,
   clientError,
   progressHighWater,
-  onContinue,
+  onRetry,
 }: {
   source: ContentDatabaseSource | null;
   canEdit: boolean;
@@ -5898,7 +5898,7 @@ function BuilderSourceContinuationBar({
     hydratedCount: number;
     rowsComplete: boolean;
   };
-  onContinue: () => void;
+  onRetry: () => void;
 }) {
   if (
     !source ||
@@ -5952,6 +5952,7 @@ function BuilderSourceContinuationBar({
     bodyHydration.pending + bodyHydration.hydrating === 0;
   const bodyHydrationVisible = bodyHydrationActive || bodyHydrationFailed;
   if (!status && !bodyHydrationVisible) return null;
+  const showRetry = status === "error" || bodyHydrationFailed;
   const progressPercent = bodyHydrationActive
     ? Math.round((hydratedCount / bodyHydration!.total) * 100)
     : builderSourceContinuationProgressPercent(source);
@@ -6008,7 +6009,7 @@ function BuilderSourceContinuationBar({
     <div
       className={cn(
         "mx-6 mb-3 grid gap-2 rounded-lg border p-3 text-xs",
-        status === "error"
+        showRetry
           ? "border-destructive/30 bg-destructive/5 text-destructive"
           : "border-border bg-muted/35 text-foreground",
       )}
@@ -6020,34 +6021,30 @@ function BuilderSourceContinuationBar({
             <div
               className={cn(
                 "mt-0.5 break-words",
-                status === "error"
-                  ? "text-destructive/80"
-                  : "text-muted-foreground",
+                showRetry ? "text-destructive/80" : "text-muted-foreground",
               )}
             >
               {detail}
             </div>
           ) : null}
         </div>
-        <Button
-          type="button"
-          size="sm"
-          variant="outline"
-          className="h-7 shrink-0 px-2 text-xs"
-          disabled={pending || !canEdit}
-          onClick={onContinue}
-        >
-          {pending ? (
-            <Spinner className="mr-1 size-3.5" />
-          ) : (
-            <IconRefresh className="mr-1 size-3.5" />
-          )}
-          {status === "error" ? (
+        {showRetry ? (
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            className="h-7 shrink-0 px-2 text-xs"
+            disabled={pending || !canEdit}
+            onClick={onRetry}
+          >
+            {pending ? (
+              <Spinner className="mr-1 size-3.5" />
+            ) : (
+              <IconRefresh className="mr-1 size-3.5" />
+            )}
             <DatabaseText k="retry" />
-          ) : (
-            <DatabaseText k="continue" />
-          )}
-        </Button>
+          </Button>
+        ) : null}
       </div>
       {status === "fetching" || bodyHydrationActive ? (
         <div className="h-1.5 overflow-hidden rounded-full bg-background">

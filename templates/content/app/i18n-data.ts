@@ -84,7 +84,6 @@ const databaseMessages = {
   click: "Click",
   column: "Column",
   columnOptions: "Column options",
-  continue: "Continue",
   clearColumn: "Clear column",
   clearRow: "Clear row",
   deleteColumn: "Delete column",
@@ -7768,7 +7767,6 @@ export const messagesByLocale = {
       builderRowsFinishingUp: "Builder 行即将完成加载。",
       builderRowsLoadingBackground: "Builder 仍在后台加载行。",
       builderRowsLoadingHitSnag: "Builder 行加载遇到问题。",
-      continue: "继续",
       opening: "正在打开...",
     },
     localFiles: localFilesMessagesByLocale["zh-CN"],
@@ -7934,7 +7932,6 @@ export const messagesByLocale = {
         "Builder sigue cargando filas en segundo plano.",
       builderRowsLoadingHitSnag:
         "La carga de filas de Builder tuvo un problema.",
-      continue: "Continuar",
       opening: "Abriendo...",
     },
     localFiles: localFilesMessagesByLocale["es-ES"],
@@ -8109,7 +8106,6 @@ export const messagesByLocale = {
         "Builder charge encore des lignes en arrière-plan.",
       builderRowsLoadingHitSnag:
         "Le chargement des lignes Builder a rencontré un problème.",
-      continue: "Continuer",
       opening: "Ouverture...",
     },
     localFiles: localFilesMessagesByLocale["fr-FR"],
@@ -8286,7 +8282,6 @@ export const messagesByLocale = {
         "Builder lädt weiterhin Zeilen im Hintergrund.",
       builderRowsLoadingHitSnag:
         "Beim Laden der Builder-Zeilen ist ein Problem aufgetreten.",
-      continue: "Fortfahren",
       opening: "Wird geöffnet...",
     },
     localFiles: localFilesMessagesByLocale["de-DE"],
@@ -8463,7 +8458,6 @@ export const messagesByLocale = {
       builderRowsLoadingBackground:
         "Builder はバックグラウンドで行を読み込み続けています。",
       builderRowsLoadingHitSnag: "Builder 行の読み込みで問題が発生しました。",
-      continue: "続行",
       opening: "開いています...",
     },
     localFiles: localFilesMessagesByLocale["ja-JP"],
@@ -8635,7 +8629,6 @@ export const messagesByLocale = {
       builderRowsLoadingBackground:
         "Builder가 백그라운드에서 행을 계속 로드하고 있습니다.",
       builderRowsLoadingHitSnag: "Builder 행 로드 중 문제가 발생했습니다.",
-      continue: "계속",
       opening: "여는 중...",
     },
     localFiles: localFilesMessagesByLocale["ko-KR"],
@@ -8802,7 +8795,6 @@ export const messagesByLocale = {
         "O Builder ainda está carregando linhas em segundo plano.",
       builderRowsLoadingHitSnag:
         "O carregamento de linhas do Builder encontrou um problema.",
-      continue: "Continuar",
       opening: "Abrindo...",
     },
     localFiles: localFilesMessagesByLocale["pt-BR"],
@@ -8976,7 +8968,6 @@ export const messagesByLocale = {
       builderRowsLoadingBackground:
         "Builder अभी भी पृष्ठभूमि में पंक्तियां लोड कर रहा है।",
       builderRowsLoadingHitSnag: "Builder पंक्तियां लोड करने में समस्या आई।",
-      continue: "जारी रखें",
       opening: "खोला जा रहा है...",
     },
     localFiles: localFilesMessagesByLocale["hi-IN"],
@@ -9137,7 +9128,6 @@ export const messagesByLocale = {
       builderRowsFinishingUp: "صفوف Builder توشك على إكمال التحميل.",
       builderRowsLoadingBackground: "لا يزال Builder يحمّل الصفوف في الخلفية.",
       builderRowsLoadingHitSnag: "واجه تحميل صفوف Builder مشكلة.",
-      continue: "متابعة",
       opening: "جارٍ الفتح...",
     },
     localFiles: localFilesMessagesByLocale["ar-SA"],

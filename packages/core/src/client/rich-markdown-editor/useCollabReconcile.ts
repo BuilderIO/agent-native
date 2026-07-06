@@ -284,15 +284,29 @@ export function useCollabReconcile({
     if (
       shouldSeed({ value, currentMarkdown, fragmentLength: fragment.length })
     ) {
-      isSettingContentRef.current = true;
-      setContent(editor, value, {});
-      isSettingContentRef.current = false;
-      const serialized = getMarkdown(editor);
-      lastEmittedRef.current = serialized;
-      pushEmittedRing(recentEmittedRef.current, serialized);
-      lastAppliedValueRef.current = value;
-      lastAppliedSerializedRef.current = serialized;
-      if (contentUpdatedAt) lastAppliedUpdatedAtRef.current = contentUpdatedAt;
+      let cancelled = false;
+      const seedTimer = setTimeout(() => {
+        if (cancelled || editor.isDestroyed) return;
+        isSettingContentRef.current = true;
+        try {
+          setContent(editor, value, {});
+        } finally {
+          isSettingContentRef.current = false;
+        }
+        const serialized = getMarkdown(editor);
+        lastEmittedRef.current = serialized;
+        pushEmittedRing(recentEmittedRef.current, serialized);
+        lastAppliedValueRef.current = value;
+        lastAppliedSerializedRef.current = serialized;
+        if (contentUpdatedAt) {
+          lastAppliedUpdatedAtRef.current = contentUpdatedAt;
+        }
+        seededRef.current = true;
+      }, 0);
+      return () => {
+        cancelled = true;
+        clearTimeout(seedTimer);
+      };
     }
     seededRef.current = true;
   }, [

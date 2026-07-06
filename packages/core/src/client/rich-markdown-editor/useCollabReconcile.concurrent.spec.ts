@@ -191,6 +191,42 @@ describe("useCollabReconcile — concurrent edit / lost-update guards", () => {
     expect(results[1]).toBe(true); // real content → accepted
   });
 
+  it("defers collab seed setContent to a cancellable timer task", async () => {
+    const setContentValues: string[] = [];
+
+    function Probe({ value }: { value: string }) {
+      const editor = useEditor({
+        extensions: createRichMarkdownExtensions({ dialect: "gfm" }),
+        content: "",
+      });
+      const fakeYdoc = { clientID: 1, getXmlFragment: () => ({ length: 0 }) };
+      useCollabReconcile({
+        editor,
+        ydoc: fakeYdoc as never,
+        value,
+        contentUpdatedAt: "2024-01-01T00:00:01.000Z",
+        editable: true,
+        setContent: (ed, v) => {
+          setContentValues.push(v);
+          ed.commands.setContent(v);
+        },
+      });
+      return React.createElement("div", null);
+    }
+
+    act(() => root.render(React.createElement(Probe, { value: "first seed" })));
+    expect(setContentValues).toEqual([]);
+
+    act(() =>
+      root.render(React.createElement(Probe, { value: "second seed" })),
+    );
+    expect(setContentValues).toEqual([]);
+
+    await flush();
+
+    expect(setContentValues).toEqual(["second seed"]);
+  });
+
   it("applies a genuinely newer external value once the user is no longer focused", async () => {
     const { captured, Harness } = makeHarness();
 
