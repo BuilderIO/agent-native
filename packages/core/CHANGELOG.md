@@ -1,5 +1,17 @@
 # @agent-native/core
 
+## 0.87.0
+
+### Minor Changes
+
+- b24446e: Add shared scoped agent-access helpers for bot-visible resource links and JSON API URLs, and keep commonly imported server utilities browser-safe when template route modules are bundled.
+
+### Patch Changes
+
+- b24446e: Add `@agent-native/toolkit` for reusable app-building UI, move shared template primitives into it, and keep core UI shim imports working through compatibility re-exports.
+- Updated dependencies [b24446e]
+  - @agent-native/toolkit@0.2.0
+
 ## 0.86.1
 
 ### Patch Changes
