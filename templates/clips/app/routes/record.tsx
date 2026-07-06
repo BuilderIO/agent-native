@@ -6,7 +6,6 @@ import {
   useT,
 } from "@agent-native/core/client";
 import { useLiveTranscription } from "@agent-native/core/client/transcription/use-live-transcription";
-import { Skeleton } from "@agent-native/toolkit/ui/skeleton";
 import type { BrowserDiagnosticsData } from "@shared/browser-diagnostics";
 import { waitForReadyRecordingAfterFinalizeError } from "@shared/finalize-recovery";
 import {
@@ -30,6 +29,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import { Link, useLocation, useNavigate } from "react-router";
 
+import { Skeleton } from "@/components/ui/skeleton";
 import { useDesktopPromo } from "@/hooks/use-desktop-promo";
 import {
   fetchVideoStorageStatus,
@@ -82,8 +82,6 @@ async function writeAppState(key: string, value: unknown): Promise<void> {
     },
   );
 }
-import { Button } from "@agent-native/toolkit/ui/button";
-import { Spinner } from "@agent-native/toolkit/ui/spinner";
 import {
   bugReportTitle,
   parseBugReportContext,
@@ -110,6 +108,8 @@ import {
 } from "@/components/recorder/recorder-engine";
 import { RecordingToolbar } from "@/components/recorder/recording-toolbar";
 import { StorageSetupCard } from "@/components/recorder/storage-setup-card";
+import { Button } from "@/components/ui/button";
+import { Spinner } from "@/components/ui/spinner";
 
 export function meta() {
   return [{ title: enMessages.recordRoute.pageTitle }];

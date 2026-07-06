@@ -342,6 +342,17 @@ const messages = {
     attendee_two: "{{count}} attendees",
     attendee_few: "{{count}} attendees",
     attendee_many: "{{count}} attendees",
+    timeRemaining_zero: "{{count}} دقيقة متبقية",
+    timeRemaining_one: "{{count}} دقيقة متبقية",
+    timeRemaining_two: "{{count}} دقيقتان متبقيتان",
+    timeRemaining_few: "{{count}} دقائق متبقية",
+    timeRemaining_many: "{{count}} دقيقة متبقية",
+    timeRemaining_other: "{{count}} دقيقة متبقية",
+    endMeeting: "إنهاء الاجتماع",
+    endThisMeeting: "هل تريد إنهاء هذا الاجتماع؟",
+    endMeetingDescription:
+      "يوقف هذا التسجيل والنسخ لهذا الاجتماع. لا يزال بإمكانك إنشاء ملاحظات مما تم التقاطه حتى الآن.",
+    couldNotEndMeeting: "تعذر إنهاء الاجتماع",
   },
   transcriptPanel: {
     transcribing: "جارٍ النسخ…",
@@ -496,6 +507,12 @@ const messages = {
     send: "إرسال",
     sentToChat:
       "تم الإرسال إلى الدردشة — راجع الشريط الجانبي للوكيل للحصول على الرد.",
+    suggestQuestions: "اقترح أسئلة لأطرحها",
+    suggestQuestionsPrompt:
+      "اقترح بضعة أسئلة جيدة يمكنني طرحها لاحقًا في هذا الاجتماع، بناءً على ما تمت مناقشته حتى الآن.",
+    makeMeSoundSmart: "اجعلني أبدو ذكيًا",
+    makeMeSoundSmartPrompt:
+      "أعطني تعليقًا أو سؤالًا ذكيًا ومؤثرًا يمكنني إضافته الآن، بناءً على هذا الاجتماع حتى الآن.",
   },
   brandingEditor: {
     title: "العلامة التجارية",
@@ -763,6 +780,9 @@ const messages = {
     anonymous: "مجهول",
     anon: "مجهول",
     moreViewers: "+{{count}} آخرين",
+    viewedBy: "شاهده",
+    someone: "شخص ما",
+    noViewsYet: "لا توجد مشاهدات بعد.",
   },
   libraryGrid: {
     spaceRoot: "جذر المساحة",
@@ -920,6 +940,8 @@ const messages = {
     noVideo: "لا يوجد فيديو متاح",
     thanks: "شكرًا للمشاهدة",
     playClip: "تشغيل المقطع",
+    unsupportedFormat:
+      "لا يمكن لهذا المتصفح تشغيل هذا الفيديو. جرّب فتح الرابط في Chrome أو Edge أو Firefox.",
   },
   searchBar: {
     placeholder: "البحث في التسجيلات…",
@@ -982,6 +1004,13 @@ const messages = {
     liveTranscriptDescription: "سيظهر النص المباشر هنا عند بدء الملاحظات.",
     me: "أنا",
     them: "هم",
+    searchTranscript: "البحث في النص",
+    searchPlaceholder: "البحث في النص…",
+    searchMatchCount: "{{current}} من {{total}}",
+    searchNoMatches: "لا توجد نتائج",
+    searchPrevMatch: "النتيجة السابقة",
+    searchNextMatch: "النتيجة التالية",
+    searchClose: "إغلاق البحث",
   },
   editorLayout: {
     trimmed: "تم القص",
@@ -1256,6 +1285,11 @@ const messages = {
     browserDictation: "Browser dictation (مترجم)",
     browserDictationDescription:
       "Use the button on this page, or press the shortcut while this tab is focused. Browser dictation saves here for copy and cleanup. (مترجم)",
+    browserDictationDescriptionDesktop:
+      "Use the button below to capture a note right here on this page. It does not paste into other apps — for that, use the desktop shortcut on the right. (مترجم)",
+    quickNoteTitle: "Quick dictation note (مترجم)",
+    quickNoteHint:
+      "Captures here without leaving this page — it does not paste into other apps. Use the button to start and stop. (مترجم)",
     desktopShortcuts: "Desktop shortcuts (مترجم)",
     desktopShortcutsDescriptionSuffix: ", in the desktop app. (مترجم)",
     holdFn: "Hold Fn (مترجم)",
@@ -1288,6 +1322,18 @@ const messages = {
       "Voice-to-text dictation with AI cleanup. Get the desktop app to dictate from anywhere with a global shortcut. (مترجم)",
     loadFailed: "Couldn't load dictations. (مترجم)",
     noFilterMatches: "No dictations matching this filter. (مترجم)",
+    dictionaryTitle: "Dictionary (مترجم)",
+    dictionaryDescription:
+      "Terms here bias speech recognition toward your preferred spellings — auto-learned from corrections, or add your own. (مترجم)",
+    dictionaryTermPlaceholder: "Term (مترجم)",
+    dictionaryReplacementPlaceholder: "Replacement (optional) (مترجم)",
+    dictionaryAdd: "Add (مترجم)",
+    dictionaryLoading: "Loading dictionary... (مترجم)",
+    dictionaryEmpty: "No learned terms yet. (مترجم)",
+    dictionaryUsesCount: "Used {{count}}x (مترجم)",
+    dictionaryRemove: "Remove (مترجم)",
+    vocabularyAddFailed: "Couldn't add term (مترجم)",
+    vocabularyRemoveFailed: "Couldn't remove term (مترجم)",
   },
   clipsFinalRaw: {
     splitAtPlayhead: "قسّم عند موضع التشغيل (S)",

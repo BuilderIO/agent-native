@@ -1,61 +1,103 @@
 ---
-title: "Agent-Native 工具包"
-description: "用于协作、设置、共享、导航、在线状态、历史、配置和 Agent UX 的可复用套件。"
+title: "Toolkit"
+description: "Reusable app-building primitives that sit between @agent-native/core and template apps."
 ---
 
-# Agent-Native 工具包
+# Toolkit
 
-Agent-Native 应用不应该重复搭建 workspace 的通用能力。应用负责自己的领域模型、领域
-actions 和产品视图。Framework 和 `@agent-native/toolkit` 负责每个应用都应该继承的可复用
-产品表面：协作、共享、设置、导航、组织、配置、Agent UX、历史和运营可见性。
+`@agent-native/core` owns the foundational runtime: actions, app state, auth,
+SQL, server plugins, agent chat, sharing access checks, and collaboration
+transport. `@agent-native/toolkit` owns reusable app-building pieces that sit on
+top of that runtime: UI primitives, app-local adapters, shell helpers, sharing
+badges, and collaboration UI.
 
-用户应该只学习一种共享方式、一种连接密钥的方式、一种看到 Agent 一起编辑的方式、一处设置入口，
-以及一种理解变更的方式。
+Apps should compose those pieces through local adapters. That keeps app UI easy
+to customize without copying Toolkit implementation code.
 
-## 工具包契约 {#toolkit-contract}
+<WireframeBlock id="doc-block-toolkit-layering">
+  <Screen
+    surface="desktop"
+    html={
+      "<div style='min-height:520px;box-sizing:border-box;padding:48px 36px;display:flex;align-items:center;justify-content:center'><div style='width:min(900px,100%);display:grid;grid-template-columns:1fr;gap:18px'><div class='wf-card' style='padding:22px 24px'><div style='display:flex;align-items:center;justify-content:space-between;gap:16px'><div><strong>App</strong><p class='wf-muted' style='margin:6px 0 0'>Domain routes, actions, local UI adapters, product-specific views</p></div><span class='wf-pill'>@/components/ui/button</span></div></div><div class='wf-card' style='padding:22px 24px;border-color:hsl(var(--primary))'><div style='display:flex;align-items:center;justify-content:space-between;gap:16px'><div><strong>Toolkit</strong><p class='wf-muted' style='margin:6px 0 0'>Reusable primitives, collab UI, sharing UI, app shell hooks</p></div><span class='wf-pill'>ToolkitProvider</span></div><div style='display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin-top:16px'><span class='wf-pill'>UI</span><span class='wf-pill'>Collab UI</span><span class='wf-pill'>Sharing UI</span><span class='wf-pill'>Shell</span></div></div><div class='wf-card' style='padding:22px 24px'><div style='display:flex;align-items:center;justify-content:space-between;gap:16px'><div><strong>Core</strong><p class='wf-muted' style='margin:6px 0 0'>Actions, SQL, auth, sharing runtime, Yjs transport, app state</p></div><span class='wf-pill'>@agent-native/core</span></div></div></div></div>"
+    }
+  />
+</WireframeBlock>
 
-当行为符合以下条件时，应移动到 toolkit：
+## What Ships Today {#what-ships-today}
 
-- **Workspace 级别** - 用户期望所有应用都一样。
-- **Agent 可见** - Agent 需要通过 actions、instructions 或 application state 使用同一能力。
-- **受治理** - 权限、audit、secrets、组织策略、billing 或共享规则会参与。
-- **重复出现** - 两个应用已经构建了类似 UI 或逻辑。
-- **非领域专属** - 应用提供资源名称和 actions，但交互模式是通用的。
+- **UI primitives**: shadcn-style components under
+  `@agent-native/toolkit/ui/*`.
+- **App adapters**: template-local wrappers such as
+  `@/components/ui/button` that re-export Toolkit primitives until an app wants
+  to customize them.
+- **ToolkitProvider**: an override layer that lets reusable Toolkit UI use an
+  app's local primitives, starting with `Button`.
+- **Collaboration UI**: presence avatars, live cursors, remote selection rings,
+  recent edit highlights, and agent presence chips under
+  `@agent-native/toolkit/collab-ui`.
+- **Sharing UI**: the reusable `VisibilityBadge` under
+  `@agent-native/toolkit/sharing`.
+- **Shell and hooks**: app-shell header actions plus shared hooks such as
+  `useIsMobile` and `useToast`.
 
-如果行为绑定领域模型、专属 workflow 或应用自己的心智模型，就保持 app-local。
+## Compatibility {#compatibility}
 
-## 可复用套件 {#reusable-kits}
+Existing imports from `@agent-native/core/client` keep working. Core now exposes
+thin re-export shims for Toolkit-owned visual pieces while keeping runtime
+behavior in core.
 
-- **Settings kit** - account、workspace、AI models、LLM keys、connections、secrets、
-  usage、notifications、changelog 和 app preferences 的标准 tabs。持久配置放在 Settings；
-  Agent sidebar 只保留上下文 quick controls 和 deep links。
-- **Collaboration kit** - real-time editing、Yjs docs、presence、agent presence、live
-  cursors、remote selections、recent edit highlights 和 shared undo/redo。参见
-  [Real-Time Collaboration](/docs/real-time-collaboration)。
-- **Sharing kit** - 用一个隐私和权限模型处理 private、workspace、org、public link、invites、
-  roles、expirations 和 agent-readable access。参见 [Sharing & Privacy](/docs/sharing)。
-- **Navigation and command kit** - app shell、nav、breadcrumbs、app switcher、command
-  palette、recents、pinned resources 和 search。
-- **Organization kit** - folders、tags、favorites、archive、trash、ownership、membership
-  和 common metadata。
-- **Setup and connections kit** - API keys、OAuth、connections、model readiness、
-  missing secrets 和 declarative onboarding。参见
-  [Workspace Connections](/docs/workspace-connections)。
-- **Agent UX kit** - sidebar、composer、staged context、mentions、voice、human approval、
-  generative UI、progress 和 Agent-visible state。
-- **History and recovery kit** - audit log、activity feed、version history、checkpoints、
-  undo、redo、restore 和 proof-of-done。参见 [Audit Log](/docs/audit-log)。
-- **Comments and review kit** - anchored comments、pins、mentions、review requests、
-  resolved threads 和 Agent follow-up tasks。
-- **Workflow and observability kit** - notifications、approvals、background runs、
-  recurring jobs、traces、evals、feedback 和 run timelines。参见
-  [Observability](/docs/observability)。
+Those core shims are temporary migration support, not the long-term dependency
+direction. The next major can remove them; after that, reusable app-building
+packages should import Toolkit directly, and behaviorful Toolkit kits may compose
+core runtime APIs as peer/runtime dependencies instead of pushing more UI back
+into core.
 
-## 实施顺序 {#implementation-order}
+Extract future behaviorful kits one at a time before broadening the split.
+Sharing is the first candidate to validate that model because it exercises
+access checks, action-backed data, and share-link UI together.
 
-1. 将持久配置合并到标准 Settings tabs。
-2. 用共享 adapters 统一 collaboration、presence、agent presence、undo/redo 和 real-time editing。
-3. 将 navigation、commands、recents、favorites、folders、tags、archive 和 trash 移入共享 primitives。
-4. 让所有可共享 resource 注册到同一 permissions 和 agent-readable access 模型。
-5. 为每个 collaborative resource 提供一致的 activity、comments、review、restore 和 audit 体验。
-6. 统一 notifications、approvals、run status、traces、evals 和 feedback。
+That means this keeps working:
+
+```tsx
+import { PresenceBar, VisibilityBadge } from "@agent-native/core/client";
+```
+
+New reusable app code should prefer Toolkit or app-local adapters:
+
+```tsx
+import { PresenceBar } from "@agent-native/toolkit/collab-ui";
+import { Button } from "@/components/ui/button";
+```
+
+## Boundary {#boundary}
+
+Move code into Toolkit when it is reusable app-building UI or a pure UI contract.
+Keep code in core when it owns access control, SQL, actions, request context,
+Yjs transport, auth, or other runtime guarantees.
+
+Good Toolkit candidates:
+
+- Components that render the same interaction across apps.
+- Display-only helpers and structural prop types.
+- Base components that receive data and callbacks from an app or core wrapper.
+- App-shell hooks and adapters that do not own domain data.
+
+Keep app-local:
+
+- Domain-specific workflows.
+- Resource-specific mutations and routes.
+- Custom visual systems an app intentionally owns.
+
+Keep core-owned:
+
+- Sharing actions and access checks.
+- Collaboration storage, awareness transport, and Yjs document sync.
+- Auth, sessions, app state, SQL, and server plugins.
+
+## Pages {#pages}
+
+- [UI Primitives](/docs/toolkit-ui)
+- [App Adapters](/docs/toolkit-app-adapters)
+- [Collaboration UI](/docs/toolkit-collaboration-ui)
+- [Sharing UI](/docs/toolkit-sharing-ui)
+- [Shell & Hooks](/docs/toolkit-shell-hooks)

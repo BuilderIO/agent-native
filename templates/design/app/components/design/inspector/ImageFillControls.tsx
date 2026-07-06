@@ -1,19 +1,19 @@
-import { Input } from "@agent-native/toolkit/ui/input";
+import { IconPhotoPlus, IconX } from "@tabler/icons-react";
+import { useEffect, useRef, useState } from "react";
+
+import { Input } from "@/components/ui/input";
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from "@agent-native/toolkit/ui/select";
+} from "@/components/ui/select";
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
-} from "@agent-native/toolkit/ui/tooltip";
-import { IconPhotoPlus, IconX } from "@tabler/icons-react";
-import { useEffect, useRef, useState } from "react";
-
+} from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
 // ─── Types ───────────────────────────────────────────────────────────────────

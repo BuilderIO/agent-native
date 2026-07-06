@@ -35,17 +35,29 @@ pub async fn native_speech_start(
     locale: Option<String>,
     mic_device_id: Option<String>,
     mic_device_label: Option<String>,
+    owner: Option<String>,
 ) -> Result<(), String> {
     #[cfg(target_os = "macos")]
     {
         // contextual_strings (personal vocabulary) is staged separately via
         // `native_speech_set_vocabulary` so mic metadata can flow through
         // meeting capture without coupling vocabulary into that path.
-        macos::native_speech_start_impl(app, locale, mic_device_id, mic_device_label)
+        //
+        // `owner` defaults to "dictation" for back-compat with callers that
+        // don't pass it. Meetings pass "meeting" (transcription-engine.ts) so
+        // a meeting's native-speech session can refuse a dictation takeover —
+        // see `SessionOwner` / the cancel-prior-session check below.
+        macos::native_speech_start_impl(
+            app,
+            locale,
+            mic_device_id,
+            mic_device_label,
+            macos::SessionOwner::from_param(owner),
+        )
     }
     #[cfg(not(target_os = "macos"))]
     {
-        let _ = (app, locale, mic_device_id, mic_device_label);
+        let _ = (app, locale, mic_device_id, mic_device_label, owner);
         Err("Native speech recognition is only supported on macOS.".into())
     }
 }
@@ -141,6 +153,29 @@ pub(crate) mod macos {
 
     use screencapturekit::audio_devices::AudioInputDevice;
 
+    /// Who owns an in-flight `SpeechSession`. Meetings fall back to this
+    /// mic-only engine when whisper fails; a Fn/dictation press must not be
+    /// able to silently kill a meeting's live capture (D10). Priority rule:
+    /// meeting beats dictation. All other combinations (same owner
+    /// replacing itself, or a meeting evicting a dictation session) keep the
+    /// original unconditional cancel+replace behavior.
+    #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+    pub(crate) enum SessionOwner {
+        Dictation,
+        Meeting,
+    }
+
+    impl SessionOwner {
+        /// Parses the Tauri command's `owner` string param, defaulting to
+        /// `Dictation` for back-compat with callers that omit it.
+        pub(crate) fn from_param(owner: Option<String>) -> Self {
+            match owner.as_deref() {
+                Some("meeting") => SessionOwner::Meeting,
+                _ => SessionOwner::Dictation,
+            }
+        }
+    }
+
     /// One in-flight dictation. Holds strong references to the AppKit objects
     /// so they don't drop while the recognition task is still emitting
     /// results.
@@ -168,6 +203,8 @@ pub(crate) mod macos {
         /// installed; we swap this to false on the first removal and skip
         /// subsequent calls.
         tap_installed: AtomicBool,
+        /// Who started this session — see `SessionOwner`.
+        owner: SessionOwner,
     }
 
     // SAFETY: see the doc comment on `SpeechSession`. We never alias the
@@ -189,6 +226,13 @@ pub(crate) mod macos {
         static GEN: OnceLock<AtomicU64> = OnceLock::new();
         GEN.get_or_init(|| AtomicU64::new(0))
     }
+
+    /// Cap on consecutive transient-error auto-restarts (see
+    /// `native_speech_start_impl`'s `restart_attempt` param) before we give up
+    /// and surface `voice:speech-error` instead of retrying forever. A
+    /// persistently silent mic (codes 203/1110) would otherwise restart every
+    /// ~300ms indefinitely.
+    const MAX_TRANSIENT_RESTARTS: u32 = 5;
 
     #[derive(Serialize, Clone)]
     struct PartialPayload {
@@ -567,7 +611,40 @@ pub(crate) mod macos {
         locale: Option<String>,
         mic_device_id: Option<String>,
         mic_device_label: Option<String>,
+        owner: SessionOwner,
     ) -> Result<(), String> {
+        native_speech_start_impl_inner(app, locale, mic_device_id, mic_device_label, owner, 0)
+    }
+
+    /// `restart_attempt` counts consecutive transient-error auto-restarts of
+    /// the *same* logical session lineage (see `MAX_TRANSIENT_RESTARTS`). Every
+    /// externally-visible entry point (the public `native_speech_start_impl`
+    /// above) passes `0`; only the auto-restart thread below increments it.
+    /// The auto-restart thread always passes the original session's `owner`
+    /// through unchanged, so a meeting's own transient-error restart is never
+    /// misclassified as a foreign dictation takeover.
+    fn native_speech_start_impl_inner(
+        app: AppHandle,
+        locale: Option<String>,
+        mic_device_id: Option<String>,
+        mic_device_label: Option<String>,
+        owner: SessionOwner,
+        restart_attempt: u32,
+    ) -> Result<(), String> {
+        // Priority rule (D10): a meeting-owned session must never be
+        // silently evicted by a dictation takeover. Check (without taking)
+        // BEFORE bumping the generation or touching the slot, so a refused
+        // dictation start leaves the meeting's session — and its own
+        // transient-restart lineage — completely untouched.
+        {
+            let slot = session_slot().lock().map_err(|e| e.to_string())?;
+            if let Some(prev) = slot.as_ref() {
+                if prev.owner == SessionOwner::Meeting && owner == SessionOwner::Dictation {
+                    return Err("speech-engine-busy-meeting".into());
+                }
+            }
+        }
+
         // Bump the generation so any pending auto-restart for the previous
         // session's transient error will see the counter has changed and abort.
         let my_gen = session_generation().fetch_add(1, Ordering::SeqCst) + 1;
@@ -577,7 +654,9 @@ pub(crate) mod macos {
             (!v.is_empty()).then_some(v)
         };
         // Cancel any prior session first — there's only one mic tap per input
-        // node, and we want a deterministic state going in.
+        // node, and we want a deterministic state going in. (Any other
+        // owner combination — same-owner replacement, or meeting evicting
+        // dictation — keeps this unconditional cancel+replace behavior.)
         {
             let mut slot = session_slot().lock().map_err(|e| e.to_string())?;
             if let Some(prev) = slot.take() {
@@ -745,19 +824,30 @@ pub(crate) mod macos {
                         err.code()
                     );
 
-                    if !is_cancelled && !transient {
+                    let restarts_exhausted =
+                        transient && restart_attempt + 1 >= MAX_TRANSIENT_RESTARTS;
+
+                    if !is_cancelled && (!transient || restarts_exhausted) {
+                        let error = if restarts_exhausted {
+                            format!(
+                                "Speech recognition kept failing ({msg}) — stopped after {MAX_TRANSIENT_RESTARTS} attempts."
+                            )
+                        } else {
+                            msg
+                        };
                         let _ = app.emit(
                             "voice:speech-error",
                             ErrorPayload {
-                                error: msg,
+                                error,
                                 source: "mic",
                             },
                         );
                     }
                     clear_session_slot();
 
-                    if !is_cancelled && !is_stopped && transient {
+                    if !is_cancelled && !is_stopped && transient && !restarts_exhausted {
                         let gen = my_gen;
+                        let next_attempt = restart_attempt + 1;
                         let app = app.clone();
                         let locale = locale.clone();
                         let mic_device_id = mic_device_id.clone();
@@ -768,11 +858,13 @@ pub(crate) mod macos {
                             if session_generation().load(Ordering::SeqCst) != gen {
                                 return;
                             }
-                            if let Err(e) = native_speech_start_impl(
+                            if let Err(e) = native_speech_start_impl_inner(
                                 app.clone(),
                                 locale,
                                 mic_device_id,
                                 mic_device_label,
+                                owner,
+                                next_attempt,
                             ) {
                                 let _ = app.emit(
                                     "voice:speech-error",
@@ -834,6 +926,7 @@ pub(crate) mod macos {
                 cancelled,
                 stopped,
                 tap_installed: AtomicBool::new(true),
+                owner,
             });
         }
 

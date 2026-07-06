@@ -1,4 +1,14 @@
 import {
+  forwardRef,
+  useCallback,
+  useImperativeHandle,
+  useMemo,
+  useState,
+  type CSSProperties,
+  type ReactNode,
+} from "react";
+
+import {
   ContextMenu,
   ContextMenuContent,
   ContextMenuGroup,
@@ -9,17 +19,7 @@ import {
   ContextMenuSubContent,
   ContextMenuSubTrigger,
   ContextMenuTrigger,
-} from "@agent-native/toolkit/ui/context-menu";
-import {
-  forwardRef,
-  useCallback,
-  useImperativeHandle,
-  useMemo,
-  useState,
-  type CSSProperties,
-  type ReactNode,
-} from "react";
-
+} from "@/components/ui/context-menu";
 import { cn } from "@/lib/utils";
 
 export type CanvasContextMenuAction =

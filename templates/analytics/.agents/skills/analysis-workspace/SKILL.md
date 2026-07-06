@@ -39,6 +39,14 @@ window, then read them back selectively for synthesis.
   durable files outside `scratch/` only when the user wants to keep them.
 - **run-code aggregation**: call `workspaceRead` / `workspaceWrite` inside a
   `run-code` block to load and process data that's too large to print as output.
+- **Long compute**: for aggregation scripts that could exceed ~30 s (big
+  cross-source joins, multi-page provider sweeps), run `run-code` with
+  `background: true`. It returns `{ executionId, status: "queued" }`
+  immediately and executes durably out-of-band (default 10 min budget),
+  surviving the hosted run timeout. Continue other work, then poll with
+  `run-code` `{ executionId }` for the persisted result. On `failed`/
+  `timed_out`, chunk the work or persist intermediate progress with
+  `workspaceWrite` and re-run.
 
 ## Workspace File Helpers
 

@@ -35,6 +35,16 @@
       "import": "./dist/app-shell/*.js",
       "default": "./dist/app-shell/*.js"
     },
+    "./collab-ui": {
+      "types": "./dist/collab-ui/index.d.ts",
+      "import": "./dist/collab-ui/index.js",
+      "default": "./dist/collab-ui/index.js"
+    },
+    "./collab-ui/*": {
+      "types": "./dist/collab-ui/*.d.ts",
+      "import": "./dist/collab-ui/*.js",
+      "default": "./dist/collab-ui/*.js"
+    },
     "./hooks": {
       "types": "./dist/hooks/index.d.ts",
       "import": "./dist/hooks/index.js",
@@ -54,6 +64,21 @@
       "types": "./dist/onboarding/*.d.ts",
       "import": "./dist/onboarding/*.js",
       "default": "./dist/onboarding/*.js"
+    },
+    "./provider": {
+      "types": "./dist/provider.d.ts",
+      "import": "./dist/provider.js",
+      "default": "./dist/provider.js"
+    },
+    "./sharing": {
+      "types": "./dist/sharing/index.d.ts",
+      "import": "./dist/sharing/index.js",
+      "default": "./dist/sharing/index.js"
+    },
+    "./sharing/*": {
+      "types": "./dist/sharing/*.d.ts",
+      "import": "./dist/sharing/*.js",
+      "default": "./dist/sharing/*.js"
     },
     "./ui": {
       "types": "./dist/ui/index.d.ts",

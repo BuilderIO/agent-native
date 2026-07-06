@@ -10,7 +10,6 @@ import {
   useCommandMenuShortcut,
   useT,
 } from "@agent-native/core/client";
-import { Toaster } from "@agent-native/toolkit/ui/sonner";
 import { IconSun, IconMoon } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useTheme } from "next-themes";
@@ -19,6 +18,8 @@ import { Links, Meta, Outlet, Scripts, ScrollRestoration } from "react-router";
 import type { LinksFunction } from "react-router";
 
 import { AppLayout } from "@/components/layout/AppLayout";
+import { Toaster } from "@/components/ui/sonner";
+import { AppToolkitProvider } from "@/components/ui/toolkit-provider";
 import { TAB_ID } from "@/lib/tab-id";
 
 import changelog from "../CHANGELOG.md?raw";
@@ -182,19 +183,21 @@ export default function Root() {
   useCommandMenuShortcut(useCallback(() => setCmdkOpen(true), []));
 
   return (
-    <AppProviders
-      queryClient={queryClient}
-      defaultTheme="dark"
-      tooltipDelayDuration={300}
-      toaster={<Toaster richColors position="bottom-left" />}
-      i18n={{ catalog: i18nCatalog }}
-    >
-      <DbSyncSetup />
-      <MacrosCommandMenu open={cmdkOpen} onOpenChange={setCmdkOpen} />
-      <AppLayout>
-        <Outlet />
-      </AppLayout>
-    </AppProviders>
+    <AppToolkitProvider>
+      <AppProviders
+        queryClient={queryClient}
+        defaultTheme="dark"
+        tooltipDelayDuration={300}
+        toaster={<Toaster richColors position="bottom-left" />}
+        i18n={{ catalog: i18nCatalog }}
+      >
+        <DbSyncSetup />
+        <MacrosCommandMenu open={cmdkOpen} onOpenChange={setCmdkOpen} />
+        <AppLayout>
+          <Outlet />
+        </AppLayout>
+      </AppProviders>
+    </AppToolkitProvider>
   );
 }
 

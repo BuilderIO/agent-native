@@ -25,7 +25,10 @@ import {
   type ActionEntry,
 } from "../agent/production-agent.js";
 import { startRun, type ActiveRun } from "../agent/run-manager.js";
-import { buildRuntimeContextPrompt } from "../agent/runtime-context.js";
+import {
+  buildCurrentTimeUserContext,
+  buildRuntimeContextPrompt,
+} from "../agent/runtime-context.js";
 import {
   buildAssistantMessage,
   extractThreadMeta,
@@ -145,22 +148,30 @@ export async function resolveIntegrationApiKey(
   ownerEmail: string,
   fallbackApiKey: string,
 ): Promise<string | undefined> {
-  const canUseDeployFallback = canUseDeployCredentialFallbackForRequest();
   const engineName = explicitEngineName(engineOption);
   if (engineName) {
     const provider = engineToProvider(engineName);
     const userApiKey = await getOwnerApiKey(provider, ownerEmail);
     if (userApiKey) return userApiKey;
-    if (!canUseDeployFallback) return undefined;
     const envVar = PROVIDER_TO_ENV[provider];
-    const providerEnvKey = envVar ? readDeployCredentialEnv(envVar) : undefined;
-    return providerEnvKey || fallbackApiKey.trim() || undefined;
+    const providerEnvKey =
+      envVar && canUseDeployCredentialFallbackForRequest(envVar)
+        ? readDeployCredentialEnv(envVar)
+        : undefined;
+    return (
+      providerEnvKey ||
+      (canUseDeployCredentialFallbackForRequest("ANTHROPIC_API_KEY")
+        ? fallbackApiKey.trim()
+        : "") ||
+      undefined
+    );
   }
 
   const userApiKey = await getOwnerActiveApiKey(ownerEmail);
   if (userApiKey) return userApiKey;
-  if (!canUseDeployFallback) return undefined;
-  return fallbackApiKey.trim() || undefined;
+  return canUseDeployCredentialFallbackForRequest("ANTHROPIC_API_KEY")
+    ? fallbackApiKey.trim() || undefined
+    : undefined;
 }
 
 /**
@@ -520,9 +531,17 @@ async function processIncomingMessage(
       ? `<integration-context>\n${identityLines.join("\n")}\n</integration-context>\n\n${incoming.text}`
       : incoming.text;
 
+  // Precise current time rides the engine-facing user message (not the cached
+  // system-prompt prefix, and not the persisted thread text) — the runtime
+  // context appended to the system prompt is day-granular only.
   const messages: EngineMessage[] = [
     ...existingMessages,
-    { role: "user", content: [{ type: "text", text: userText }] },
+    {
+      role: "user",
+      content: [
+        { type: "text", text: userText + buildCurrentTimeUserContext() },
+      ],
+    },
   ];
 
   // Run agent loop via startRun, wrapped in a request context so that

@@ -21,6 +21,7 @@
     "@fontsource-variable/inter": "^5.2.8",
     "@libsql/client": "^0.15.0",
     "@tabler/icons-react": "catalog:",
+    "@tanstack/react-virtual": "^3.14.5",
     "chrono-node": "^2.7.6",
     "drizzle-orm": "^0.45.2",
     "embla-carousel-react": "^8.6.0",

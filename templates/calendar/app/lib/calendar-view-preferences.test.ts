@@ -1,5 +1,6 @@
 import type { CalendarEvent } from "@shared/api";
 import {
+  CALENDAR_COLORS,
   DEFAULT_CALENDAR_VIEW_PREFERENCES,
   normalizeCalendarViewPreferences,
 } from "@shared/calendar-view-preferences";
@@ -136,5 +137,50 @@ describe("calendar view preferences", () => {
         },
       ),
     ).toBe("#B07CC6");
+  });
+
+  it("resolves a distinct color per connected account", () => {
+    const preferences = {
+      hideWeekends: false,
+      colorMode: "multi" as const,
+      singleColor: CALENDAR_COLORS[0],
+      accountColorModes: {
+        "steve@builder.io": "single" as const,
+        "alex@builder.io": "single" as const,
+      },
+      accountColors: {
+        "steve@builder.io": "#D4A053",
+        "alex@builder.io": "#CD6B6B",
+      },
+    };
+
+    expect(getEventDisplayColor(googleEvent, preferences)).toBe("#D4A053");
+    expect(
+      getEventDisplayColor(
+        { ...googleEvent, accountEmail: "alex@builder.io" },
+        preferences,
+      ),
+    ).toBe("#CD6B6B");
+  });
+
+  it("falls back to the legacy global single color for accounts with no explicit choice", () => {
+    const preferences = normalizeCalendarViewPreferences({
+      colorMode: "single",
+      singleColor: "#4ECDC4",
+    });
+
+    expect(getEventDisplayColor(googleEvent, preferences)).toBe("#4ECDC4");
+  });
+
+  it("respects a per-account 'multi' choice over the legacy global single color", () => {
+    const preferences = normalizeCalendarViewPreferences({
+      colorMode: "single",
+      singleColor: "#4ECDC4",
+      accountColorModes: { "steve@builder.io": "multi" },
+    });
+
+    expect(getEventDisplayColor(googleEvent, preferences)).toBe(
+      getEventDisplayColor(googleEvent),
+    );
   });
 });

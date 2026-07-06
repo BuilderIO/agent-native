@@ -1,6 +1,5 @@
 import {
   AgentToggleButton,
-  NotificationsBell,
   ShareButton,
   appPath,
   useFormatters,
@@ -8,30 +7,6 @@ import {
   useSendToAgentChat,
   useT,
 } from "@agent-native/core/client";
-import { Badge } from "@agent-native/toolkit/ui/badge";
-import { Button } from "@agent-native/toolkit/ui/button";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@agent-native/toolkit/ui/dropdown-menu";
-import { Input } from "@agent-native/toolkit/ui/input";
-import { Label } from "@agent-native/toolkit/ui/label";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@agent-native/toolkit/ui/popover";
-import { Skeleton } from "@agent-native/toolkit/ui/skeleton";
-import { Switch } from "@agent-native/toolkit/ui/switch";
-import { Tabs, TabsList, TabsTrigger } from "@agent-native/toolkit/ui/tabs";
-import { Textarea } from "@agent-native/toolkit/ui/textarea";
-import {
-  Tooltip,
-  TooltipTrigger,
-  TooltipContent,
-} from "@agent-native/toolkit/ui/tooltip";
 import type {
   FormField,
   FormFieldType,
@@ -71,6 +46,30 @@ import { toast } from "sonner";
 import { FieldPropertiesPanel } from "@/components/builder/FieldPropertiesPanel";
 import { FieldRenderer } from "@/components/builder/FieldRenderer";
 import { CloudUpgrade } from "@/components/CloudUpgrade";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Switch } from "@/components/ui/switch";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Textarea } from "@/components/ui/textarea";
+import {
+  Tooltip,
+  TooltipTrigger,
+  TooltipContent,
+} from "@/components/ui/tooltip";
 import { useAgentPromptRun } from "@/hooks/use-agent-prompt-run";
 import { useDbStatus } from "@/hooks/use-db-status";
 import {
@@ -717,7 +716,6 @@ export function FormBuilderPage() {
               </DropdownMenuContent>
             </DropdownMenu>
           )}
-          <NotificationsBell />
           <AgentToggleButton />
         </div>
       </div>

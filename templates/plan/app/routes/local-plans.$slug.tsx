@@ -1,6 +1,6 @@
-import { Spinner } from "@agent-native/toolkit/ui/spinner";
 import { useParams } from "react-router";
 
+import { Spinner } from "@/components/ui/spinner";
 import { APP_TITLE } from "@/lib/app-config";
 import { PlansPage } from "@/pages/PlansPage";
 

@@ -30,6 +30,18 @@ const TEMPLATE_SKILLS_DIRS = [
   path.join(".agent", "skills"),
 ] as const;
 
+/**
+ * Coalesce window for the dev-server full-reload sent after AGENTS.md /
+ * SKILL.md changes. Agents (and Fusion editing sessions) frequently write
+ * several skill files back-to-back, and editor atomic saves surface as
+ * unlink+add pairs — without coalescing, every one of those watcher events
+ * triggered its own full page reload, which reads as the app "constantly
+ * refreshing" while an agent works. Module invalidation still happens per
+ * event (it's cheap and keeps the next request fresh); only the browser
+ * reload is batched.
+ */
+const FULL_RELOAD_COALESCE_MS = 500;
+
 async function emitBundleModule(projectRoot: string): Promise<string> {
   // If the project is inside an enterprise monorepo with a workspace core,
   // merge in its AGENTS.md + skills. Template skills override workspace
@@ -126,12 +138,25 @@ export function agentsBundlePlugin(): Plugin {
         return false;
       };
 
+      let reloadTimer: ReturnType<typeof setTimeout> | null = null;
+      const scheduleFullReload = () => {
+        if (reloadTimer) clearTimeout(reloadTimer);
+        reloadTimer = setTimeout(() => {
+          reloadTimer = null;
+          server.ws.send({ type: "full-reload" });
+        }, FULL_RELOAD_COALESCE_MS);
+      };
+      server.httpServer?.once("close", () => {
+        if (reloadTimer) clearTimeout(reloadTimer);
+        reloadTimer = null;
+      });
+
       const invalidate = (file: string) => {
         if (!shouldInvalidate(file)) return;
         const mod = server.moduleGraph.getModuleById(RESOLVED_ID);
         if (mod) {
           server.moduleGraph.invalidateModule(mod);
-          server.ws.send({ type: "full-reload" });
+          scheduleFullReload();
         }
       };
 

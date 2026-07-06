@@ -132,8 +132,11 @@ const llmStep: OnboardingStep = {
       // Fall through to legacy/env detection.
     }
     if (
-      canUseDeployCredentialFallbackForRequest() &&
-      PROVIDER_ENV_VARS.some((k) => !!readDeployCredentialEnv(k))
+      PROVIDER_ENV_VARS.some(
+        (k) =>
+          canUseDeployCredentialFallbackForRequest(k) &&
+          !!readDeployCredentialEnv(k),
+      )
     ) {
       return true;
     }

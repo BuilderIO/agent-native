@@ -1,12 +1,5 @@
 import { useT } from "@agent-native/core/client";
 import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-} from "@agent-native/toolkit/ui/card";
-import { Skeleton } from "@agent-native/toolkit/ui/skeleton";
-import {
   Bar,
   CartesianGrid,
   ComposedChart,
@@ -19,6 +12,8 @@ import {
   YAxis,
 } from "recharts";
 
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
 import { chartAxisStroke, chartGridStroke } from "@/lib/chart-theme";
 
 interface RevenueComparisonChartProps {

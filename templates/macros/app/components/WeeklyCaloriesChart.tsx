@@ -1,5 +1,4 @@
 import { useT } from "@agent-native/core/client";
-import { Skeleton } from "@agent-native/toolkit/ui/skeleton";
 import type { DailyCalories } from "@shared/types";
 import {
   startOfWeek,
@@ -21,6 +20,8 @@ import {
   ReferenceLine,
   Cell,
 } from "recharts";
+
+import { Skeleton } from "@/components/ui/skeleton";
 
 interface WeeklyData {
   weekLabel: string;

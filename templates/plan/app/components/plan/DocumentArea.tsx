@@ -9,8 +9,6 @@ import {
   useT,
   type RichMarkdownCollabUser,
 } from "@agent-native/core/client";
-import { Button } from "@agent-native/toolkit/ui/button";
-import { Textarea } from "@agent-native/toolkit/ui/textarea";
 import { imageDataSchema, type PlanBlock } from "@shared/plan-content";
 import {
   IconAlertTriangle,
@@ -31,6 +29,8 @@ import {
 } from "react";
 import { toast } from "sonner";
 
+import { Button } from "@/components/ui/button";
+import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 
 import { PlanImageViewer } from "./PlanImageViewer";

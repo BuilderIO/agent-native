@@ -73,11 +73,29 @@ export function readDeployCredentialEnv(key: string): string | undefined {
   return process.env[key] || undefined;
 }
 
+const APP_PROVIDED_DEPLOY_CREDENTIAL_KEYS = new Set([
+  "ANTHROPIC_API_KEY",
+  "OPENAI_API_KEY",
+  "OPENAI_BASE_URL",
+  "OPENROUTER_API_KEY",
+  "GOOGLE_GENERATIVE_AI_API_KEY",
+  "GROQ_API_KEY",
+  "MISTRAL_API_KEY",
+  "COHERE_API_KEY",
+]);
+
+function isAppProvidedDeployCredentialKey(key: string | undefined): boolean {
+  return !!key && APP_PROVIDED_DEPLOY_CREDENTIAL_KEYS.has(key);
+}
+
 /**
  * Deployment-level credentials are safe as a runtime fallback only in local /
  * single-tenant contexts. In hosted production with a shared database, every
- * signed-in user needs their own user/org/workspace credential so one deploy
- * key does not silently power another tenant's chat.
+ * signed-in user needs their own user/org/workspace credential for
+ * identity-bearing provider keys so one deploy key does not silently
+ * impersonate another tenant. App-provided LLM provider keys are different:
+ * they intentionally let the app developer pay for model usage for users of
+ * that deployed app, so key-aware callers may use those env vars.
  *
  * @deprecated Use `canUseDeployCredentialFallbackForRequest()` for generic
  * provider secrets. This stricter helper remains for legacy call sites with
@@ -88,9 +106,12 @@ export function isDeployCredentialFallbackAllowed(): boolean {
   return isLocalDatabase();
 }
 
-export function canUseDeployCredentialFallbackForRequest(): boolean {
+export function canUseDeployCredentialFallbackForRequest(
+  key?: string,
+): boolean {
   const email = getRequestUserEmail();
   if (!email) return true;
+  if (isAppProvidedDeployCredentialKey(key)) return true;
   if (isHostedWorkspaceRuntime()) return false;
   if (!isProductionLikeRuntime()) return true;
   return isLocalDatabase();
@@ -878,10 +899,9 @@ export async function deleteBuilderCredentials(
 // User-pasted and shared secrets live in `app_secrets` (encrypted). The
 // settings UI / onboarding panels can write user, org, or workspace rows.
 // Deploy-level env vars are the fallback for unauthenticated/CLI/background
-// contexts where there's no user to scope by — never the silent fallback
-// for an authenticated request, since on a multi-tenant deploy that would
-// silently identify every user as whoever set the deploy-level key
-// (KVesta Space, 2026-04).
+// contexts where there's no user to scope by. Authenticated requests may also
+// use app-provided LLM provider keys such as OPENAI_API_KEY or
+// ANTHROPIC_API_KEY, but Builder identity keys keep the stricter scoped policy.
 // ---------------------------------------------------------------------------
 
 /**
@@ -974,7 +994,7 @@ export async function resolveSecret(key: string): Promise<string | null> {
     const envFallback = (
       isBuilderCredentialKey(key)
         ? canUseBuilderDeployCredentialFallbackForRequest()
-        : canUseDeployCredentialFallbackForRequest()
+        : canUseDeployCredentialFallbackForRequest(key)
     )
       ? process.env[key] || null
       : null;

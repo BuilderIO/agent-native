@@ -1,5 +1,10 @@
 import { useActionMutation, useT } from "@agent-native/core/client";
-import { Button } from "@agent-native/toolkit/ui/button";
+import { IconMailFast, IconUserPlus } from "@tabler/icons-react";
+import { useQueryClient } from "@tanstack/react-query";
+import { useState } from "react";
+import { toast } from "sonner";
+
+import { Button } from "@/components/ui/button";
 import {
   Dialog,
   DialogContent,
@@ -8,20 +13,16 @@ import {
   DialogHeader,
   DialogTitle,
   DialogTrigger,
-} from "@agent-native/toolkit/ui/dialog";
-import { Label } from "@agent-native/toolkit/ui/label";
+} from "@/components/ui/dialog";
+import { Label } from "@/components/ui/label";
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from "@agent-native/toolkit/ui/select";
-import { Textarea } from "@agent-native/toolkit/ui/textarea";
-import { IconMailFast, IconUserPlus } from "@tabler/icons-react";
-import { useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
-import { toast } from "sonner";
+} from "@/components/ui/select";
+import { Textarea } from "@/components/ui/textarea";
 
 export type InviteRole = "member" | "admin";
 

@@ -25,13 +25,22 @@ import { ResourcesPanel } from "@agent-native/core/client/resources";
 `@agent-native/core/client` या एक केंद्रित `@agent-native/core/client/*` उपपथ
 इसलिए बंडलर ब्राउज़र-सुरक्षित प्रविष्टि चुनते हैं।
 
-`@agent-native/toolkit` का उपयोग उन पुन: उपयोग योग्य ऐप-बिल्डिंग हिस्सों के लिए करें जो मूल रनटाइम अनुबंध का भाग नहीं हैं: shadcn-शैली UI primitives, साझा hooks, सरल ऐप shell helpers, और अन्य template composition modules. संक्रमण के दौरान Core compatibility re-exports रखता है, लेकिन नए template और app code को toolkit modules सीधे import करने चाहिए:
+`@agent-native/toolkit` का उपयोग उन पुन: उपयोग योग्य ऐप-बिल्डिंग हिस्सों के लिए करें जो मूल रनटाइम अनुबंध का भाग नहीं हैं: shadcn-शैली UI primitives, साझा hooks, सरल ऐप shell helpers, और अन्य template composition modules. संक्रमण के दौरान Core compatibility re-exports रखता है.
+
+पुन: उपयोग योग्य packages Toolkit modules सीधे import कर सकते हैं:
 
 ```tsx
 import { Button } from "@agent-native/toolkit/ui/button";
 import { Toaster } from "@agent-native/toolkit/ui/sonner";
 import { useToast } from "@agent-native/toolkit/hooks/use-toast";
 import { useSetHeaderActions } from "@agent-native/toolkit/app-shell";
+```
+
+Template apps के अंदर app-local adapters को प्राथमिकता दें, ताकि teams primitives को एक बार बदलें और reused Toolkit surfaces वही local implementation इस्तेमाल करें:
+
+```tsx
+import { Button } from "@/components/ui/button";
+import { useToast } from "@/hooks/use-toast";
 ```
 
 <Diagram id="doc-block-109zkj3" title={"एक परत नीचे गिराएं, ढांचे से बाहर नहीं"} summary={"प्रत्येक परत आपको क्रोम पर अधिक नियंत्रण प्रदान करते हुए समान रनटाइम - क्रियाएं, थ्रेड स्थिति और SQL-backed सिंक रखती है।"}>
@@ -437,15 +446,16 @@ function WorkspaceResources() {
 
 ## अन्य सार्वजनिक UI {#other-ui}
 
-| क्षेत्र       | APIs                                                  | आयात पथ                                   |
-| ------------- | ----------------------------------------------------- | ----------------------------------------- |
-| साझा करना     | `<ShareButton>`, `<ShareDialog>`, `<VisibilityBadge>` | `@agent-native/core/client/sharing`       |
-| सूचनाएं       | `<NotificationsBell>`                                 | `@agent-native/core/client/notifications` |
-| प्रगति        | `<RunsTray>`, प्रगति हुक और प्रकार                    | `@agent-native/core/client/progress`      |
-| ऑनबोर्डिंग    | `useOnboarding()`, ऑनबोर्डिंग पैनल हुक                | `@agent-native/core/client/onboarding`    |
-| अवलोकनशीलता   | `<ObservabilityDashboard>`, `<ThumbsFeedback>`        | `@agent-native/core/client/observability` |
-| संसाधन        | `<ResourcesPanel>`, `<ResourceTree>`, संसाधन हुक      | `@agent-native/core/client/resources`     |
-| समृद्ध संपादक | `<SharedRichEditor>`, स्लैश कमांड, ब्लॉक नोड हुक      | `@agent-native/core/client/editor`        |
+| क्षेत्र       | APIs                                             | आयात पथ                                   |
+| ------------- | ------------------------------------------------ | ----------------------------------------- |
+| साझा करना     | `<ShareButton>`, `<ShareDialog>`                 | `@agent-native/core/client/sharing`       |
+| Sharing UI    | `<VisibilityBadge>`                              | `@agent-native/toolkit/sharing`           |
+| सूचनाएं       | `<NotificationsBell>`                            | `@agent-native/core/client/notifications` |
+| प्रगति        | `<RunsTray>`, प्रगति हुक और प्रकार               | `@agent-native/core/client/progress`      |
+| ऑनबोर्डिंग    | `useOnboarding()`, ऑनबोर्डिंग पैनल हुक           | `@agent-native/core/client/onboarding`    |
+| अवलोकनशीलता   | `<ObservabilityDashboard>`, `<ThumbsFeedback>`   | `@agent-native/core/client/observability` |
+| संसाधन        | `<ResourcesPanel>`, `<ResourceTree>`, संसाधन हुक | `@agent-native/core/client/resources`     |
+| समृद्ध संपादक | `<SharedRichEditor>`, स्लैश कमांड, ब्लॉक नोड हुक | `@agent-native/core/client/editor`        |
 
 ## एकमुश्त पाठ समापन {#one-off-text-completion}
 

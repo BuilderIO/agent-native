@@ -5,6 +5,11 @@ import {
   useActionQuery,
   useT,
 } from "@agent-native/core/client";
+import { IconMessageCircle, IconPhoto, IconTrash } from "@tabler/icons-react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { toast } from "sonner";
+
 import {
   AlertDialog,
   AlertDialogAction,
@@ -14,15 +19,10 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
-} from "@agent-native/toolkit/ui/alert-dialog";
-import { Badge } from "@agent-native/toolkit/ui/badge";
-import { Button } from "@agent-native/toolkit/ui/button";
-import { Spinner } from "@agent-native/toolkit/ui/spinner";
-import { IconMessageCircle, IconPhoto, IconTrash } from "@tabler/icons-react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useMemo, useRef, useState } from "react";
-import { toast } from "sonner";
-
+} from "@/components/ui/alert-dialog";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Spinner } from "@/components/ui/spinner";
 import { assetPreviewSources } from "@/lib/asset-preview-sources";
 
 import type {
@@ -65,7 +65,13 @@ export function GenerationResults({ threadId }: { threadId: string | null }) {
     queryFn: async ({ signal }) => {
       return readClientAppState<AssetVariantState>(stateKey, { signal });
     },
-    refetchInterval: 1000,
+    refetchInterval: (query) => {
+      const state = query.state.data as AssetVariantState | undefined;
+      const hasPendingSlot = (state?.slots ?? []).some(
+        (slot) => slot.status === "pending",
+      );
+      return hasPendingSlot ? 1000 : false;
+    },
   });
   const { data: librariesData } = useActionQuery("list-libraries", {
     compact: true,

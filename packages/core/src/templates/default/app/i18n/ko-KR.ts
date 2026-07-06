@@ -283,7 +283,6 @@ const messages = {
       'Create a new widget that fits in slot "{{slotId}}". I\'ll describe what it should do next.',
     whatShouldItDo: "무엇을 해야 합니까?",
     createPlaceholder: "할 일 목록, API 대시보드, 계산기...",
-    backToApp: "앱으로 돌아가기",
     title: "확장",
     hiddenShown: "숨김 표시됨",
     showHidden: "숨김 항목 표시",

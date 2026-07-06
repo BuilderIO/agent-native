@@ -143,6 +143,31 @@ Keep this file tidy — revise, consolidate, and remove outdated entries. Don't 
 ## Patterns
 `;
 
+/**
+ * Read the project-root learnings seed file for the shared LEARNINGS.md
+ * resource. Prefers `learnings.md` (scaffolded by `create.ts`, possibly
+ * customized locally), then the checked-in `learnings.defaults.md` — the
+ * scaffolded copy is gitignored, so production deploys built from git only
+ * carry the defaults file. Returns null when neither file is present, both
+ * are empty, or fs is unavailable (e.g. edge runtimes) so seeding falls back
+ * to the built-in default. Only consulted on first insert (INSERT OR IGNORE),
+ * so an existing LEARNINGS.md resource is never overwritten.
+ */
+async function readProjectRootLearningsSeed(): Promise<string | null> {
+  try {
+    const [fs, path] = await Promise.all([import("fs"), import("path")]);
+    for (const name of ["learnings.md", "learnings.defaults.md"]) {
+      const filePath = path.resolve(process.cwd(), name);
+      if (!fs.existsSync(filePath)) continue;
+      const content = fs.readFileSync(filePath, "utf-8");
+      if (content.trim()) return content;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
 const DEFAULT_LEARNINGS_PERSONAL_MD = `# My Learnings
 
 Personal preferences, corrections, and patterns — only visible to you.
@@ -849,15 +874,21 @@ async function _doEnsureTable(): Promise<void> {
     ],
   });
 
-  // LEARNINGS.md — shared learnings (preferences, corrections, patterns)
-  const learningsSize = Buffer.byteLength(DEFAULT_LEARNINGS_SHARED_MD, "utf8");
+  // LEARNINGS.md — shared learnings (preferences, corrections, patterns).
+  // Prefer the project-root learnings.md (scaffolded from the template's
+  // learnings.defaults.md) so template-authored defaults reach the prompt
+  // without a manual migrate-learnings step. INSERT OR IGNORE means this only
+  // applies on first seed — existing LEARNINGS.md content is never overwritten.
+  const learningsSeedContent =
+    (await readProjectRootLearningsSeed()) ?? DEFAULT_LEARNINGS_SHARED_MD;
+  const learningsSize = Buffer.byteLength(learningsSeedContent, "utf8");
   await client.execute({
     sql: seedSql,
     args: [
       crypto.randomUUID(),
       "LEARNINGS.md",
       SHARED_OWNER,
-      DEFAULT_LEARNINGS_SHARED_MD,
+      learningsSeedContent,
       "text/markdown",
       learningsSize,
       now,

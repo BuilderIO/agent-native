@@ -17,109 +17,20 @@ import { randomUUID } from "node:crypto";
 import { defineAction } from "@agent-native/core";
 import { writeAppState } from "@agent-native/core/application-state";
 import { emit } from "@agent-native/core/event-bus";
-import { readAppSecret, writeAppSecret } from "@agent-native/core/secrets";
 import { accessFilter } from "@agent-native/core/sharing";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import {
+  resolveCalendarAccessToken,
+  shouldMarkNeedsReauth,
+} from "../server/lib/calendar-event-meetings.js";
+import {
   listEvents,
-  resolveGoogleOAuthCredentialCandidates,
-  refreshAccessTokenWithFallback,
   pickJoinUrl,
   type CalendarEvent,
 } from "../server/lib/google-calendar-client.js";
-
-interface AccessTokenBundle {
-  accessToken: string;
-  expiresAt?: number;
-  tokenType?: string;
-  scope?: string;
-}
-
-function parseAccessBundle(raw: string): AccessTokenBundle {
-  try {
-    const parsed = JSON.parse(raw) as AccessTokenBundle;
-    if (parsed && typeof parsed.accessToken === "string") return parsed;
-  } catch {
-    // older shape: raw token string
-  }
-  return { accessToken: raw };
-}
-
-/**
- * Resolve a fresh access token, refreshing via Google if expired.
- * Returns null if the account is unrecoverable (no refresh token,
- * permanent refresh failure).
- */
-async function resolveAccessToken(args: {
-  ownerEmail: string;
-  accessRef: string | null;
-  refreshRef: string | null;
-}): Promise<string | null> {
-  const credentialCandidates = resolveGoogleOAuthCredentialCandidates();
-  if (!credentialCandidates.length) return null;
-
-  let bundle: AccessTokenBundle | null = null;
-  if (args.accessRef) {
-    const stored = await readAppSecret({
-      key: args.accessRef,
-      scope: "user",
-      scopeId: args.ownerEmail,
-    });
-    if (stored?.value) bundle = parseAccessBundle(stored.value);
-  }
-
-  // Token is fresh enough → use as-is (5 min skew).
-  if (
-    bundle?.accessToken &&
-    bundle.expiresAt &&
-    Date.now() < bundle.expiresAt - 5 * 60 * 1000
-  ) {
-    return bundle.accessToken;
-  }
-  if (bundle?.accessToken && !bundle.expiresAt) {
-    // Unknown expiry — try once and let the caller retry on 401 if needed.
-    return bundle.accessToken;
-  }
-
-  // Refresh path.
-  if (!args.refreshRef) return null;
-  const refreshSecret = await readAppSecret({
-    key: args.refreshRef,
-    scope: "user",
-    scopeId: args.ownerEmail,
-  });
-  if (!refreshSecret?.value) return null;
-
-  let refreshed;
-  try {
-    refreshed = await refreshAccessTokenWithFallback({
-      refreshToken: refreshSecret.value,
-      credentials: credentialCandidates,
-    });
-  } catch {
-    return null;
-  }
-  if (!refreshed.access_token) return null;
-  if (args.accessRef) {
-    await writeAppSecret({
-      key: args.accessRef,
-      value: JSON.stringify({
-        accessToken: refreshed.access_token,
-        expiresAt: refreshed.expires_in
-          ? Date.now() + refreshed.expires_in * 1000
-          : undefined,
-        tokenType: refreshed.token_type,
-        scope: refreshed.scope,
-      }),
-      scope: "user",
-      scopeId: args.ownerEmail,
-    });
-  }
-  return refreshed.access_token;
-}
 
 function eventStartIso(event: CalendarEvent): string | null {
   return event.start?.dateTime || event.start?.date || null;
@@ -127,16 +38,6 @@ function eventStartIso(event: CalendarEvent): string | null {
 
 function eventEndIso(event: CalendarEvent): string | null {
   return event.end?.dateTime || event.end?.date || null;
-}
-
-function shouldMarkNeedsReauth(message: string): boolean {
-  const lower = message.toLowerCase();
-  return (
-    lower.includes("google calendar list failed (401)") ||
-    lower.includes("invalid_grant") ||
-    lower.includes("invalid_token") ||
-    lower.includes("insufficient_scope")
-  );
 }
 
 export default defineAction({
@@ -190,11 +91,12 @@ export default defineAction({
       let perAccountEvents = 0;
       let perAccountMeetings = 0;
       try {
-        const accessToken = await resolveAccessToken({
-          ownerEmail: account.ownerEmail,
-          accessRef: account.accessTokenSecretRef ?? null,
-          refreshRef: account.refreshTokenSecretRef ?? null,
-        });
+        // A permanent refresh failure (dead token / bad client) resolves to
+        // `null` here (handled below as needs-reauth). A transient failure
+        // (network error, 429, 5xx) is rethrown by resolveCalendarAccessToken
+        // and caught by this try's own catch, which records it as a soft
+        // sync error via shouldMarkNeedsReauth without flipping status.
+        const accessToken = await resolveCalendarAccessToken(account);
         if (!accessToken) {
           // Fix 10: isolate this account's needs-reauth write in its own
           // try/catch so a downstream throw on a different account doesn't

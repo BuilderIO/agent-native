@@ -290,8 +290,8 @@ const messages = {
     pageUnderConstruction: "此頁面正在建設中。請稍後再回來檢視，或返回儀表板。",
     askAnalytics: "向 Analytics 詢問你的資料。",
     askPlaceholder: "詢問資料、儀表板、指標或資料來源...",
-    askIntroTitle: "你想探索什麼？",
-    askIntroBody: "詢問資料、儀表板、指標或資料來源。",
+    askIntroTitle: "我們該探索什麼？",
+    askIntroBody: "資料、儀表板、指標或資料來源。",
     emptyDashboard: "空儀表板",
     emptyDashboardDescription:
       "此儀表板為空。告訴 AI 助手你想在這裡看到哪些圖表和資料，例如“顯示過去 90 天按歸因來源劃分的註冊數”，它會為你填充此儀表板。",

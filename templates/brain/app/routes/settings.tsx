@@ -2,35 +2,12 @@ import {
   ChangelogSettingsCard,
   LanguagePicker,
   SettingsTabsPage,
-  openAgentSettings,
+  useAgentSettingsTabs,
   useActionMutation,
   useActionQuery,
   useT,
 } from "@agent-native/core/client";
 import { TeamPage } from "@agent-native/core/client/org";
-import { Badge } from "@agent-native/toolkit/ui/badge";
-import { Button } from "@agent-native/toolkit/ui/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@agent-native/toolkit/ui/card";
-import { Input } from "@agent-native/toolkit/ui/input";
-import { Label } from "@agent-native/toolkit/ui/label";
-import { Progress } from "@agent-native/toolkit/ui/progress";
-import {
-  Select,
-  SelectContent,
-  SelectGroup,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@agent-native/toolkit/ui/select";
-import { Separator } from "@agent-native/toolkit/ui/separator";
-import { Switch } from "@agent-native/toolkit/ui/switch";
-import { Textarea } from "@agent-native/toolkit/ui/textarea";
 import {
   IconAdjustments,
   IconBuilding,
@@ -43,6 +20,29 @@ import {
 import { useEffect, useMemo, useState } from "react";
 
 import { EmptyActionState, PageHeader } from "@/components/brain/Surface";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Progress } from "@/components/ui/progress";
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Separator } from "@/components/ui/separator";
+import { Switch } from "@/components/ui/switch";
+import { Textarea } from "@/components/ui/textarea";
 import {
   type BrainSettings,
   type SettingsResponse,
@@ -75,6 +75,7 @@ function sourcePolicyOptions(t: ReturnType<typeof useT>) {
 
 export default function SettingsRoute() {
   const t = useT();
+  const agentSettingsTabs = useAgentSettingsTabs();
   const localizedToneOptions = useMemo(() => toneOptions(t), [t]);
   const localizedSourcePolicyOptions = useMemo(
     () => sourcePolicyOptions(t),
@@ -144,6 +145,7 @@ export default function SettingsRoute() {
 
       <SettingsTabsPage
         teamLabel={t("team.title")}
+        extraTabs={agentSettingsTabs}
         general={
           <div className="brain-settings-general-grid grid gap-5">
             <main className="grid gap-5">
@@ -417,23 +419,6 @@ export default function SettingsRoute() {
                 <CardContent className="space-y-1.5">
                   <Label>{t("settings.languageLabel")}</Label>
                   <LanguagePicker label={t("settings.languageLabel")} />
-                </CardContent>
-              </Card>
-
-              <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2 text-base">
-                    <IconAdjustments className="size-4 text-primary" />
-                    {t("settings.agentTitle")}
-                  </CardTitle>
-                  <CardDescription>
-                    {t("settings.agentDescription")}
-                  </CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <Button variant="outline" onClick={() => openAgentSettings()}>
-                    {t("settings.openAgentSettings")}
-                  </Button>
                 </CardContent>
               </Card>
 

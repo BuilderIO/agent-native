@@ -107,6 +107,96 @@ async function runFfmpeg(args: string[]): Promise<void> {
   });
 }
 
+const PROBE_TIMEOUT_MS = 20_000;
+// Demuxer stream listing happens at container-open time regardless of how
+// much we ask ffmpeg to process, so bounding the probe to a fraction of a
+// second of stream-copy keeps this cheap even for multi-gigabyte recordings.
+const PROBE_DURATION_SECONDS = "0.1";
+
+/**
+ * Best-effort probe for whether a media file has at least one audio stream.
+ * Returns `null` (unknown) when ffmpeg is unavailable or the probe itself
+ * fails — callers should treat `null` as "couldn't verify" and skip any
+ * check that depends on the answer, never as "no audio".
+ */
+export async function probeHasAudioStream(
+  mediaBytes: Uint8Array,
+  extension: "webm" | "mp4",
+): Promise<boolean | null> {
+  if (mediaBytes.byteLength === 0) return null;
+  if (!isFfmpegAvailable()) return null;
+
+  const dir = await mkdtemp(join(tmpdir(), "clips-audio-probe-"));
+  const inputPath = join(dir, `input.${extension}`);
+
+  try {
+    await writeFile(inputPath, mediaBytes);
+    const stderr = await new Promise<string>((resolve, reject) => {
+      const child = spawn(
+        ffmpegCommand(),
+        [
+          "-hide_banner",
+          "-nostdin",
+          "-i",
+          inputPath,
+          "-t",
+          PROBE_DURATION_SECONDS,
+          "-map",
+          "0",
+          "-c",
+          "copy",
+          "-f",
+          "null",
+          "-",
+        ],
+        { stdio: ["ignore", "ignore", "pipe"] },
+      );
+      let buf = "";
+      const timeout = setTimeout(() => {
+        child.kill("SIGKILL");
+        reject(new Error(`ffmpeg audio probe timed out\n${buf}`));
+      }, PROBE_TIMEOUT_MS);
+      child.stderr?.on("data", (chunk: Buffer) => {
+        // Keep the HEAD of stderr, not the tail: ffmpeg prints the input
+        // stream listing (what we grep for below) at container-open time,
+        // before any per-frame warnings. Unlike `runFfmpeg`'s error-diagnostic
+        // tail-window, truncating from the end here risks scrolling the
+        // `Stream #...: Audio:` line out of the buffer on a warning-heavy input.
+        if (buf.length < STDERR_LIMIT) {
+          buf += chunk.toString("utf8");
+        }
+      });
+      child.on("error", (err) => {
+        clearTimeout(timeout);
+        reject(new Error(`${err.message}\n${buf}`));
+      });
+      child.on("close", () => {
+        // A non-zero exit is expected here for some malformed/edge inputs
+        // even when the stream listing itself printed fine — this is a
+        // probe, not a correctness check, so we still inspect stderr for
+        // the stream listing rather than rejecting on exit code.
+        clearTimeout(timeout);
+        resolve(buf);
+      });
+    });
+    // Require positive proof the demuxer actually opened the container
+    // (found at least one stream of any kind) before trusting a "no audio"
+    // reading — an unreadable/corrupt file (bad data, unknown format) also
+    // prints no `Stream #...: Audio:` line, but that means "couldn't verify",
+    // not "confirmed no audio". Only a file ffmpeg could actually demux earns
+    // a definite `false`.
+    if (!/Stream #\d+:\d+/i.test(stderr)) return null;
+    return /Stream #\d+:\d+.*: ?Audio:/i.test(stderr);
+  } catch (err) {
+    console.warn("[video-remux] audio-stream probe failed, skipping check", {
+      err: err instanceof Error ? err.message : String(err),
+    });
+    return null;
+  } finally {
+    await rm(dir, { recursive: true, force: true }).catch(() => {});
+  }
+}
+
 async function withRemuxSlot<T>(fn: () => Promise<T>): Promise<T> {
   if (activeRemuxes >= MAX_CONCURRENT_REMUXES) {
     await new Promise<void>((resolve) => remuxWaiters.push(resolve));

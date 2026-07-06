@@ -1,15 +1,4 @@
 import { appBasePath, useT } from "@agent-native/core/client";
-import { Button } from "@agent-native/toolkit/ui/button";
-import { Input } from "@agent-native/toolkit/ui/input";
-import { Label } from "@agent-native/toolkit/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@agent-native/toolkit/ui/select";
-import { Textarea } from "@agent-native/toolkit/ui/textarea";
 import {
   bugReportContextToSearchParams,
   parseBugReportContext,
@@ -25,6 +14,17 @@ import {
 import { useEffect, useMemo, useState } from "react";
 import { useLocation, useOutlet } from "react-router";
 
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Textarea } from "@/components/ui/textarea";
 import enMessages from "@/i18n/en-US";
 import { cn } from "@/lib/utils";
 

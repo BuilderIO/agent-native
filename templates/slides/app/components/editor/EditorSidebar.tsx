@@ -7,12 +7,6 @@ import {
   useAvatarUrl,
   useT,
 } from "@agent-native/core/client";
-import { toast } from "@agent-native/toolkit/hooks/use-toast";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@agent-native/toolkit/ui/tooltip";
 import {
   useSortable,
   SortableContext,
@@ -34,8 +28,14 @@ import { createPortal } from "react-dom";
 import SlideRenderer from "@/components/deck/SlideRenderer";
 import { GoogleDocImportHint } from "@/components/editor/GoogleDocImportHint";
 import type { UploadedFile } from "@/components/editor/PromptDialog";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import type { Slide } from "@/context/DeckContext";
 import { useAgentGenerating } from "@/hooks/use-agent-generating";
+import { toast } from "@/hooks/use-toast";
 import type { AspectRatio } from "@/lib/aspect-ratios";
 
 interface EditorSidebarProps {

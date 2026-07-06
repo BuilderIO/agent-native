@@ -34,6 +34,13 @@ export interface UseRunStuckDetectionOptions {
   /** The thread to monitor. Pass null/undefined to disable polling. */
   threadId: string | null | undefined;
   /**
+   * Set false to skip scheduling the poll loop entirely — used to gate
+   * polling to only the active chat tab when multiple tabs are mounted
+   * (inactive tabs are kept alive via display:none, not unmounted).
+   * Defaults to true.
+   */
+  enabled?: boolean;
+  /**
    * Threshold above which an in-flight FOREGROUND run is considered stuck.
    * The default sits comfortably above the adapter's 75s no-progress
    * reconnect — by then automatic recovery has already had its chance.
@@ -83,6 +90,7 @@ const EMPTY_STATE: RunStuckState = {
 
 export function useRunStuckDetection({
   threadId,
+  enabled = true,
   stuckThresholdMs = DEFAULT_STUCK_THRESHOLD_MS,
   backgroundStuckThresholdMs = DEFAULT_BACKGROUND_STUCK_THRESHOLD_MS,
   pollIntervalMs = DEFAULT_POLL_INTERVAL_MS,
@@ -94,7 +102,7 @@ export function useRunStuckDetection({
     // Reset on every thread change so the previous thread's stuck banner
     // doesn't bleed onto the new one before the first poll completes.
     setState(EMPTY_STATE);
-    if (!threadId) return;
+    if (!threadId || !enabled) return;
 
     const base = apiUrl ?? agentNativePath("/_agent-native/agent-chat");
     let cancelled = false;
@@ -173,6 +181,7 @@ export function useRunStuckDetection({
     };
   }, [
     threadId,
+    enabled,
     stuckThresholdMs,
     backgroundStuckThresholdMs,
     pollIntervalMs,

@@ -746,6 +746,8 @@ interface VisualEditorProps {
   onSaveContent?: (markdown: string) => boolean | Promise<boolean>;
   /** Yjs document for collaborative editing. */
   ydoc?: YDoc | null;
+  /** True after the collab provider has loaded persisted Y.Doc state. */
+  collabSynced?: boolean;
   /** Shared awareness instance for collaborative cursors/presence. */
   awareness?: Awareness | null;
   /** Current user info for cursor labels. */
@@ -1590,6 +1592,7 @@ export function VisualEditor({
   onChange,
   onSaveContent,
   ydoc,
+  collabSynced = true,
   awareness,
   user,
   editable = true,
@@ -1890,6 +1893,7 @@ export function VisualEditor({
   const collabState = useCollabReconcile({
     editor,
     ydoc,
+    collabSynced,
     awareness: localAwareness,
     value: content,
     contentUpdatedAt,

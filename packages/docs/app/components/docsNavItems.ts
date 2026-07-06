@@ -50,9 +50,40 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
       },
       { id: "key-concepts", labelKey: "keyConcepts", slug: "key-concepts" },
       {
-        id: "agent-native-toolkit",
+        id: "toolkit-group",
         labelKey: "agentNativeToolkit",
-        slug: "agent-native-toolkit",
+        children: [
+          {
+            id: "agent-native-toolkit",
+            labelKey: "toolkitOverview",
+            slug: "agent-native-toolkit",
+          },
+          {
+            id: "toolkit-ui",
+            labelKey: "toolkitUiPrimitives",
+            slug: "toolkit-ui",
+          },
+          {
+            id: "toolkit-app-adapters",
+            labelKey: "toolkitAppAdapters",
+            slug: "toolkit-app-adapters",
+          },
+          {
+            id: "toolkit-collaboration-ui",
+            labelKey: "toolkitCollaborationUi",
+            slug: "toolkit-collaboration-ui",
+          },
+          {
+            id: "toolkit-sharing-ui",
+            labelKey: "toolkitSharingUi",
+            slug: "toolkit-sharing-ui",
+          },
+          {
+            id: "toolkit-shell-hooks",
+            labelKey: "toolkitShellHooks",
+            slug: "toolkit-shell-hooks",
+          },
+        ],
       },
       { id: "cloneable-saas", labelKey: "templates", slug: "cloneable-saas" },
       { id: "faq", labelKey: "faq", slug: "faq" },

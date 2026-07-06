@@ -596,6 +596,26 @@ const runContentMigrations = runMigrations(
         CREATE UNIQUE INDEX IF NOT EXISTS content_database_body_hydration_queue_item_idx ON content_database_body_hydration_queue (database_item_id);
         CREATE INDEX IF NOT EXISTS content_database_items_body_hydration_idx ON content_database_items (database_id, body_hydration_status)`,
     },
+    {
+      version: 61,
+      name: "document-sync-links-claim-column",
+      // Best-effort cross-instance serialization for Notion pull/push: a
+      // conditional UPDATE claims this column before making Notion API calls
+      // so two concurrent syncs for the same document (different tabs,
+      // different serverless instances) don't race Notion mutations against
+      // each other. See server/lib/notion-sync.ts's use of this column.
+      sql: `ALTER TABLE document_sync_links ADD COLUMN IF NOT EXISTS sync_claimed_at TEXT`,
+    },
+    {
+      version: 62,
+      name: "document-comments-notion-discussion-id-column",
+      // Notion groups a top-level comment and its replies under one
+      // discussion_id. Storing it locally lets sync-notion-comments create
+      // replies with `discussion_id` (instead of `parent`) so they thread
+      // under the existing Notion discussion in both directions instead of
+      // becoming unrelated top-level comments. See actions/sync-notion-comments.ts.
+      sql: `ALTER TABLE document_comments ADD COLUMN IF NOT EXISTS notion_discussion_id TEXT`,
+    },
   ],
   { table: "content_migrations" },
 );

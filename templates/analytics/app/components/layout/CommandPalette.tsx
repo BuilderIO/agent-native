@@ -9,22 +9,6 @@ import {
 } from "@agent-native/core/client";
 import { extensionPath } from "@agent-native/core/client/extensions";
 import {
-  CommandDialog,
-  CommandInput,
-  CommandList,
-  CommandEmpty,
-  CommandGroup,
-  CommandItem,
-} from "@agent-native/toolkit/ui/command";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from "@agent-native/toolkit/ui/dialog";
-import { Label } from "@agent-native/toolkit/ui/label";
-import { Skeleton } from "@agent-native/toolkit/ui/skeleton";
-import {
   IconFlask,
   IconTool,
   IconChartBar,
@@ -39,6 +23,22 @@ import { useTheme } from "next-themes";
 import { useEffect, useState, useCallback } from "react";
 import { useNavigate } from "react-router";
 
+import {
+  CommandDialog,
+  CommandInput,
+  CommandList,
+  CommandEmpty,
+  CommandGroup,
+  CommandItem,
+} from "@/components/ui/command";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Label } from "@/components/ui/label";
+import { Skeleton } from "@/components/ui/skeleton";
 import { dashboards } from "@/pages/adhoc/registry";
 
 import changelog from "../../../CHANGELOG.md?raw";

@@ -1,16 +1,17 @@
 import { useT } from "@agent-native/core/client";
+import { IconMoodSmile } from "@tabler/icons-react";
+import { useState, useMemo, useRef, useEffect, type ReactNode } from "react";
+
 import {
   Popover,
   PopoverTrigger,
   PopoverContent,
-} from "@agent-native/toolkit/ui/popover";
+} from "@/components/ui/popover";
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
-} from "@agent-native/toolkit/ui/tooltip";
-import { IconMoodSmile } from "@tabler/icons-react";
-import { useState, useMemo, useRef, useEffect, type ReactNode } from "react";
+} from "@/components/ui/tooltip";
 
 type EmojiCategory = { name: string; emojis: string[] };
 

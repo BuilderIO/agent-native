@@ -1,9 +1,9 @@
 import { useT } from "@agent-native/core/client";
-import { Button } from "@agent-native/toolkit/ui/button";
 import { IconChevronRight, IconCopy, IconCheck } from "@tabler/icons-react";
 import { useState } from "react";
 
 import { SqlHighlight } from "@/components/SqlHighlight";
+import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
 interface SqlPreviewProps {

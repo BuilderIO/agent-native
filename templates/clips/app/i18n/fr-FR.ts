@@ -351,6 +351,14 @@ const messages = {
     copyTranscript: "Copier la transcription",
     copyFullTranscript: "Copier la transcription complète",
     attendee_many: "{{count}} attendees",
+    timeRemaining_one: "{{count}} min restante",
+    timeRemaining_other: "{{count}} min restantes",
+    timeRemaining_many: "{{count}} min restantes",
+    endMeeting: "Terminer la réunion",
+    endThisMeeting: "Terminer cette réunion ?",
+    endMeetingDescription:
+      "Cela arrête l'enregistrement et la transcription de cette réunion. Vous pourrez toujours générer des notes à partir de ce qui a été capturé jusqu'ici.",
+    couldNotEndMeeting: "Impossible de terminer la réunion",
   },
   transcriptPanel: {
     transcribing: "Transcription…",
@@ -497,6 +505,12 @@ const messages = {
     quickPrompts: "Invites rapides",
     whatDidIMiss: "Qu'est-ce que j'ai raté ?",
     whatDidIMissPrompt: "Qu'est-ce que j'ai raté ?",
+    suggestQuestions: "Suggérer des questions à poser",
+    suggestQuestionsPrompt:
+      "Suggérez-moi quelques bonnes questions à poser ensuite dans cette réunion, en vous basant sur ce qui a été discuté jusqu'ici.",
+    makeMeSoundSmart: "Faites-moi paraître brillant",
+    makeMeSoundSmartPrompt:
+      "Donnez-moi un commentaire ou une question pertinente et perspicace que je pourrais ajouter maintenant, d'après cette réunion.",
     summarizeLastFive: "Résumez les 5 dernières minutes",
     summarizeLastFivePrompt:
       "Résumez les 5 dernières minutes de cette réunion en 3 à 5 puces.",
@@ -781,6 +795,9 @@ Tous les changements visibles par les utilisateurs de Clips sont documentés ici
     anonymous: "Anonyme",
     anon: "Anon",
     moreViewers: "+{{count}} de plus",
+    viewedBy: "Vu par",
+    someone: "Quelqu’un",
+    noViewsYet: "Aucune vue pour le moment.",
   },
   libraryGrid: {
     spaceRoot: "Racine de l’espace",
@@ -942,6 +959,8 @@ Tous les changements visibles par les utilisateurs de Clips sont documentés ici
     noVideo: "Aucune vidéo disponible",
     thanks: "Merci d’avoir regardé",
     playClip: "Lire le clip",
+    unsupportedFormat:
+      "Ce navigateur ne peut pas lire cette vidéo. Essayez d’ouvrir le lien dans Chrome, Edge ou Firefox.",
   },
   searchBar: {
     placeholder: "Rechercher des enregistrements…",
@@ -1006,6 +1025,13 @@ Tous les changements visibles par les utilisateurs de Clips sont documentés ici
       "La transcription en direct apparaîtra ici lorsque les notes commenceront.",
     me: "Moi",
     them: "Eux",
+    searchTranscript: "Rechercher dans la transcription",
+    searchPlaceholder: "Rechercher dans la transcription…",
+    searchMatchCount: "{{current}} sur {{total}}",
+    searchNoMatches: "Aucun résultat",
+    searchPrevMatch: "Résultat précédent",
+    searchNextMatch: "Résultat suivant",
+    searchClose: "Fermer la recherche",
   },
   editorLayout: {
     trimmed: "Découpé",
@@ -1280,6 +1306,11 @@ Tous les changements visibles par les utilisateurs de Clips sont documentés ici
     browserDictation: "Browser dictation (Localisé)",
     browserDictationDescription:
       "Use the button on this page, or press the shortcut while this tab is focused. Browser dictation saves here for copy and cleanup. (Localisé)",
+    browserDictationDescriptionDesktop:
+      "Use the button below to capture a note right here on this page. It does not paste into other apps — for that, use the desktop shortcut on the right. (Localisé)",
+    quickNoteTitle: "Quick dictation note (Localisé)",
+    quickNoteHint:
+      "Captures here without leaving this page — it does not paste into other apps. Use the button to start and stop. (Localisé)",
     desktopShortcuts: "Desktop shortcuts (Localisé)",
     desktopShortcutsDescriptionSuffix: ", in the desktop app. (Localisé)",
     holdFn: "Hold Fn (Localisé)",
@@ -1312,6 +1343,18 @@ Tous les changements visibles par les utilisateurs de Clips sont documentés ici
       "Voice-to-text dictation with AI cleanup. Get the desktop app to dictate from anywhere with a global shortcut. (Localisé)",
     loadFailed: "Couldn't load dictations. (Localisé)",
     noFilterMatches: "No dictations matching this filter. (Localisé)",
+    dictionaryTitle: "Dictionary (Localisé)",
+    dictionaryDescription:
+      "Terms here bias speech recognition toward your preferred spellings — auto-learned from corrections, or add your own. (Localisé)",
+    dictionaryTermPlaceholder: "Term (Localisé)",
+    dictionaryReplacementPlaceholder: "Replacement (optional) (Localisé)",
+    dictionaryAdd: "Add (Localisé)",
+    dictionaryLoading: "Loading dictionary... (Localisé)",
+    dictionaryEmpty: "No learned terms yet. (Localisé)",
+    dictionaryUsesCount: "Used {{count}}x (Localisé)",
+    dictionaryRemove: "Remove (Localisé)",
+    vocabularyAddFailed: "Couldn't add term (Localisé)",
+    vocabularyRemoveFailed: "Couldn't remove term (Localisé)",
   },
   clipsFinalRaw: {
     splitAtPlayhead: "Couper à la tête de lecture (S)",

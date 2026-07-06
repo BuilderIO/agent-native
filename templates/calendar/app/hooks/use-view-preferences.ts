@@ -9,6 +9,7 @@ import {
   DEFAULT_CALENDAR_VIEW_PREFERENCES,
   calendarViewPreferencesEqual,
   normalizeCalendarViewPreferences,
+  type CalendarColorMode,
   type CalendarViewPreferences,
 } from "@/lib/calendar-view-preferences";
 
@@ -116,9 +117,9 @@ async function readAppStatePreferences(): Promise<CalendarViewPreferences | null
 export function useViewPreferences() {
   const [prefs, setPrefs] = useState<ViewPreferences>(load);
   const accountColorRequestIds = useRef<Record<string, number>>({});
+  const accountModeRequestIds = useRef<Record<string, number>>({});
   const pendingAccountColors = useRef<Record<string, string>>({});
 
-  // Sync across components in the same tab via custom event
   useEffect(() => {
     function handle() {
       setPrefs(load());
@@ -152,6 +153,15 @@ export function useViewPreferences() {
               Object.keys(pendingColors).length > 0
                 ? normalizeCalendarViewPreferences({
                     ...remote,
+                    accountColorModes: {
+                      ...remote.accountColorModes,
+                      ...Object.fromEntries(
+                        Object.keys(pendingColors).map((accountEmail) => [
+                          accountEmail,
+                          "single" as const,
+                        ]),
+                      ),
+                    },
                     accountColors: {
                       ...remote.accountColors,
                       ...pendingColors,
@@ -204,7 +214,10 @@ export function useViewPreferences() {
         rollbackPrefs = prev;
         const next = normalizeCalendarViewPreferences({
           ...prev,
-          colorMode: "single",
+          accountColorModes: {
+            ...prev.accountColorModes,
+            [accountEmail]: "single",
+          },
           accountColors: {
             ...prev.accountColors,
             [accountEmail]: accountColor,
@@ -232,6 +245,11 @@ export function useViewPreferences() {
           setPrefs((current) => {
             const next = normalizeCalendarViewPreferences({
               ...current,
+              accountColorModes: {
+                ...current.accountColorModes,
+                [accountEmail]:
+                  serverPrefs.accountColorModes[accountEmail] ?? "single",
+              },
               accountColors: {
                 ...current.accountColors,
                 [accountEmail]:
@@ -253,22 +271,26 @@ export function useViewPreferences() {
             setPrefs((current) => {
               if (!rollbackPrefs) return current;
               const accountColors = { ...current.accountColors };
+              const accountColorModes = { ...current.accountColorModes };
               const previousAccountColor =
                 rollbackPrefs.accountColors[accountEmail];
+              const previousAccountMode =
+                rollbackPrefs.accountColorModes[accountEmail];
               if (current.accountColors[accountEmail] === accountColor) {
                 if (previousAccountColor) {
                   accountColors[accountEmail] = previousAccountColor;
                 } else {
                   delete accountColors[accountEmail];
                 }
+                if (previousAccountMode) {
+                  accountColorModes[accountEmail] = previousAccountMode;
+                } else {
+                  delete accountColorModes[accountEmail];
+                }
               }
               const next = normalizeCalendarViewPreferences({
                 ...current,
-                colorMode:
-                  current.colorMode === "single" &&
-                  current.accountColors[accountEmail] === accountColor
-                    ? rollbackPrefs.colorMode
-                    : current.colorMode,
+                accountColorModes,
                 accountColors,
               });
               if (calendarViewPreferencesEqual(current, next)) return current;
@@ -284,5 +306,88 @@ export function useViewPreferences() {
     [],
   );
 
-  return { prefs, update, updateAccountColor };
+  const updateAccountColorMode = useCallback(
+    (accountEmail: string, accountColorMode: CalendarColorMode) => {
+      const requestId = (accountModeRequestIds.current[accountEmail] ?? 0) + 1;
+      accountModeRequestIds.current[accountEmail] = requestId;
+      let rollbackPrefs: CalendarViewPreferences | null = null;
+
+      setPrefs((prev) => {
+        rollbackPrefs = prev;
+        const next = normalizeCalendarViewPreferences({
+          ...prev,
+          accountColorModes: {
+            ...prev.accountColorModes,
+            [accountEmail]: accountColorMode,
+          },
+        });
+        save(next);
+        window.dispatchEvent(new Event(CALENDAR_VIEW_PREFERENCES_CHANGE_EVENT));
+        return next;
+      });
+
+      callAction("update-calendar-visual-preferences", {
+        accountEmail,
+        accountColorMode,
+      })
+        .then((result) => {
+          if (accountModeRequestIds.current[accountEmail] !== requestId) {
+            return;
+          }
+          const preferences = (result as { preferences?: unknown }).preferences;
+          if (!preferences) return;
+          const serverPrefs = normalizeCalendarViewPreferences(preferences);
+          setPrefs((current) => {
+            const next = normalizeCalendarViewPreferences({
+              ...current,
+              accountColorModes: {
+                ...current.accountColorModes,
+                [accountEmail]:
+                  serverPrefs.accountColorModes[accountEmail] ??
+                  accountColorMode,
+              },
+            });
+            if (calendarViewPreferencesEqual(current, next)) return current;
+            save(next);
+            window.dispatchEvent(
+              new Event(CALENDAR_VIEW_PREFERENCES_CHANGE_EVENT),
+            );
+            return next;
+          });
+        })
+        .catch(() => {
+          if (accountModeRequestIds.current[accountEmail] === requestId) {
+            setPrefs((current) => {
+              if (!rollbackPrefs) return current;
+              if (
+                current.accountColorModes[accountEmail] !== accountColorMode
+              ) {
+                return current;
+              }
+              const accountColorModes = { ...current.accountColorModes };
+              const previousAccountMode =
+                rollbackPrefs.accountColorModes[accountEmail];
+              if (previousAccountMode) {
+                accountColorModes[accountEmail] = previousAccountMode;
+              } else {
+                delete accountColorModes[accountEmail];
+              }
+              const next = normalizeCalendarViewPreferences({
+                ...current,
+                accountColorModes,
+              });
+              if (calendarViewPreferencesEqual(current, next)) return current;
+              save(next);
+              window.dispatchEvent(
+                new Event(CALENDAR_VIEW_PREFERENCES_CHANGE_EVENT),
+              );
+              return next;
+            });
+          }
+        });
+    },
+    [],
+  );
+
+  return { prefs, update, updateAccountColor, updateAccountColorMode };
 }

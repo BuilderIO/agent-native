@@ -9,26 +9,22 @@
  * the agent participant (AGENT_CLIENT_ID) as isAgent: true.
  */
 
+import type {
+  CollabUser,
+  NormalizedPoint,
+  OtherPresence,
+  PresencePayload,
+} from "@agent-native/toolkit/collab-ui";
 import { useState, useEffect, useCallback, useRef } from "react";
 import type { Awareness } from "y-protocols/awareness";
 
 import { AGENT_CLIENT_ID } from "./agent-identity.js";
-import type { CollabUser } from "./client.js";
 
-/** Arbitrary JSON presence payload published by a participant. */
-export type PresencePayload = Record<string, unknown>;
-
-/** A remote participant's full presence snapshot. */
-export interface OtherPresence {
-  /** Yjs client ID. */
-  clientId: number;
-  /** User identity (from awareness `user` field). */
-  user: CollabUser;
-  /** Arbitrary presence fields set via setPresence() / agentUpdateSelection(). */
-  presence: PresencePayload;
-  /** True when this participant is the AI agent. */
-  isAgent: boolean;
-}
+export type {
+  NormalizedPoint,
+  OtherPresence,
+  PresencePayload,
+} from "@agent-native/toolkit/collab-ui";
 
 export interface UsePresenceResult {
   /** All remote participants (excludes local client). */
@@ -186,13 +182,6 @@ export function usePresence(
 // ---------------------------------------------------------------------------
 // Normalized cursor coordinate helpers
 // ---------------------------------------------------------------------------
-
-export interface NormalizedPoint {
-  /** 0–1 fraction of container width. */
-  x: number;
-  /** 0–1 fraction of container height. */
-  y: number;
-}
 
 /** Convert a pointer event offset to a normalized point. */
 export function toNormalized(

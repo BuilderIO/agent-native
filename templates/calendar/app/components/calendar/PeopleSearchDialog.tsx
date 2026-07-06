@@ -1,11 +1,5 @@
 import { callAction, useT } from "@agent-native/core/client";
 import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from "@agent-native/toolkit/ui/dialog";
-import {
   IconSearch,
   IconX,
   IconUserPlus,
@@ -13,6 +7,12 @@ import {
 } from "@tabler/icons-react";
 import { useState, useEffect, useRef, useCallback } from "react";
 
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import {
   useOverlayPeople,
   useAddOverlayPerson,

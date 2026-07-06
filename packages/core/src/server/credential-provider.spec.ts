@@ -92,7 +92,13 @@ beforeEach(() => {
   delete process.env.BUILDER_SUBSCRIPTION_NAME;
   delete process.env.BUILDER_IS_ENTERPRISE;
   delete process.env.BUILDER_IS_FREE_ACCOUNT;
+  delete process.env.ANTHROPIC_API_KEY;
   delete process.env.OPENAI_API_KEY;
+  delete process.env.OPENAI_BASE_URL;
+  delete process.env.OPENROUTER_API_KEY;
+  delete process.env.GROQ_API_KEY;
+  delete process.env.GOOGLE_CLIENT_SECRET;
+  delete process.env.GITHUB_TOKEN;
   mockReadAppSecret.mockResolvedValue(null);
   mockWriteAppSecret.mockResolvedValue("id");
   mockDeleteAppSecret.mockResolvedValue(true);
@@ -464,15 +470,18 @@ describe("resolveBuilderCredential", () => {
     expect(canUseDeployCredentialFallbackForRequest()).toBe(false);
   });
 
-  it("does not use deploy-level LLM keys for signed-in hosted workspace users", async () => {
+  it("uses app-provided deploy-level LLM keys for signed-in hosted workspace users", async () => {
     process.env.NODE_ENV = "development";
     process.env.AGENT_NATIVE_WORKSPACE = "1";
     process.env.BUILDER_PRIVATE_KEY = "deploy-key";
     process.env.BUILDER_PUBLIC_KEY = "space-id";
+    process.env.ANTHROPIC_API_KEY = "anthropic-deploy-key";
     process.env.OPENAI_API_KEY = "openai-deploy-key";
+    process.env.GITHUB_TOKEN = "github-deploy-token";
     // Fusion/workspace dev servers can still look "local" to DB detection
     // during startup, but their Builder env fallback must not impersonate the
-    // signed-in user.
+    // signed-in user. App-provided LLM keys are allowed because they do not
+    // identify the user; they let the app developer pay for model usage.
     mockIsLocalDatabase.mockReturnValue(true);
     mockGetRequestUserEmail.mockReturnValue("a@b.com");
     mockGetRequestOrgId.mockReturnValue("builder_io");
@@ -481,8 +490,36 @@ describe("resolveBuilderCredential", () => {
     expect(await resolveBuilderCredential("BUILDER_PRIVATE_KEY")).toBeNull();
     expect(await resolveSecret("BUILDER_PRIVATE_KEY")).toBeNull();
     expect(await resolveBuilderCredentialSource()).toBeNull();
-    expect(await resolveSecret("OPENAI_API_KEY")).toBeNull();
+    expect(await resolveSecret("ANTHROPIC_API_KEY")).toBe(
+      "anthropic-deploy-key",
+    );
+    expect(await resolveSecret("OPENAI_API_KEY")).toBe("openai-deploy-key");
+    expect(await resolveSecret("GITHUB_TOKEN")).toBeNull();
     expect(canUseDeployCredentialFallbackForRequest()).toBe(false);
+    expect(canUseDeployCredentialFallbackForRequest("OPENAI_API_KEY")).toBe(
+      true,
+    );
+  });
+
+  it("uses app-provided LLM env keys for signed-in production shared-database users", async () => {
+    process.env.NODE_ENV = "production";
+    process.env.ANTHROPIC_API_KEY = "anthropic-deploy-key";
+    process.env.OPENAI_API_KEY = "openai-deploy-key";
+    process.env.BUILDER_PRIVATE_KEY = "deploy-key";
+    mockIsLocalDatabase.mockReturnValue(false);
+    mockGetRequestUserEmail.mockReturnValue("a@b.com");
+    mockGetRequestOrgId.mockReturnValue("builder_io");
+    mockReadAppSecret.mockResolvedValue(null);
+
+    expect(await resolveSecret("ANTHROPIC_API_KEY")).toBe(
+      "anthropic-deploy-key",
+    );
+    expect(await resolveSecret("OPENAI_API_KEY")).toBe("openai-deploy-key");
+    expect(await resolveSecret("BUILDER_PRIVATE_KEY")).toBeNull();
+    expect(canUseDeployCredentialFallbackForRequest()).toBe(false);
+    expect(canUseDeployCredentialFallbackForRequest("ANTHROPIC_API_KEY")).toBe(
+      true,
+    );
   });
 
   it("honors env Builder keys for a signed-in workspace user when the local dev escape hatch is set", async () => {
@@ -830,24 +867,27 @@ describe("resolveSecret (generic)", () => {
 
   it("does not consult process.env in a signed-in production shared-database request", async () => {
     process.env.NODE_ENV = "production";
-    process.env.OPENAI_API_KEY = "deploy-key";
+    process.env.GOOGLE_CLIENT_SECRET = "deploy-secret";
     mockIsLocalDatabase.mockReturnValue(false);
     mockGetRequestUserEmail.mockReturnValue("a@b.com");
     mockReadAppSecret.mockResolvedValue(null);
-    expect(await resolveSecret("OPENAI_API_KEY")).toBeNull();
+    expect(await resolveSecret("GOOGLE_CLIENT_SECRET")).toBeNull();
   });
 
-  it("blocks generic deploy env secrets for signed-in production shared-database users even when AGENT_ENGINE is set", async () => {
+  it("blocks generic deploy env secrets for signed-in production shared-database users even when an LLM key is allowed", async () => {
     process.env.NODE_ENV = "production";
     process.env.AGENT_ENGINE = "builder";
     process.env.BUILDER_PRIVATE_KEY = "deploy-key";
     process.env.BUILDER_PUBLIC_KEY = "space-id";
     process.env.OPENAI_API_KEY = "openai-deploy-key";
+    process.env.GITHUB_TOKEN = "github-deploy-token";
     mockIsLocalDatabase.mockReturnValue(false);
     mockGetRequestUserEmail.mockReturnValue("a@b.com");
     mockReadAppSecret.mockResolvedValue(null);
 
-    expect(await resolveSecret("OPENAI_API_KEY")).toBeNull();
+    expect(await resolveSecret("OPENAI_API_KEY")).toBe("openai-deploy-key");
+    expect(await resolveSecret("BUILDER_PRIVATE_KEY")).toBeNull();
+    expect(await resolveSecret("GITHUB_TOKEN")).toBeNull();
   });
 
   it("uses process.env for authenticated requests on local/single-tenant databases", async () => {

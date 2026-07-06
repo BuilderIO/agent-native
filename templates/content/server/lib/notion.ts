@@ -11,13 +11,20 @@ import {
   runWithRequestContext,
 } from "@agent-native/core/server";
 import { assertAccess } from "@agent-native/core/sharing";
-import { createError, type H3Event } from "h3";
+import { createError, getHeader, setCookie, type H3Event } from "h3";
 
 import { canonicalizeNfm } from "../../shared/nfm.js";
 
 export const NOTION_PROVIDER = "notion";
 export const NOTION_API_BASE = "https://api.notion.com/v1";
 export const NOTION_API_VERSION = "2026-03-11";
+
+// Name of the short-lived HttpOnly cookie that binds an in-flight OAuth
+// flow to the browser session that started it. The callback compares this
+// value against the `n` nonce embedded in `state` (see `encodeState`) and
+// refuses to save tokens on any mismatch or absence — this is the CSRF
+// binding the bare `state` nonce alone did not provide.
+export const NOTION_OAUTH_STATE_COOKIE = "notion_oauth_state";
 
 type NotionTokens = {
   access_token?: string;
@@ -77,18 +84,51 @@ function getOrigin(event: H3Event): string {
   return `${proto}://${host}`;
 }
 
-function encodeState(data: Record<string, string>): string {
-  const payload = { ...data, n: crypto.randomBytes(8).toString("hex") };
-  return Buffer.from(JSON.stringify(payload)).toString("base64url");
+/**
+ * Mirrors the `isSecureRequest`/proto-sniffing convention used elsewhere in
+ * this app (see `public-documents.ts`, and `plan`'s `public-plans.ts`):
+ * prefer `x-forwarded-proto` (set by the hosting proxy in production), then
+ * fall back to the `origin` header's scheme, defaulting to insecure. A
+ * hardcoded `secure: true` here would make browsers silently drop the
+ * cookie on any plain-http origin (Safari does this even for
+ * `http://localhost`), making `buildNotionAuthUrl`'s CSRF-binding cookie
+ * never arrive and Connect Notion permanently fail in http dev.
+ */
+function isSecureRequest(event: H3Event): boolean {
+  const proto =
+    getHeader(event, "x-forwarded-proto") ??
+    (getHeader(event, "origin")?.startsWith("https://") ? "https" : "http");
+  return proto === "https";
 }
 
-function decodeState(stateParam: string | undefined): Record<string, string> {
-  if (!stateParam) return {};
-  try {
-    return JSON.parse(Buffer.from(stateParam, "base64url").toString());
-  } catch {
-    return {};
-  }
+function getStateSecret(): string | null {
+  return (
+    process.env.NOTION_STATE_SECRET ||
+    process.env.BETTER_AUTH_SECRET ||
+    process.env.AUTH_SECRET ||
+    null
+  );
+}
+
+/**
+ * Sign `redirectPath` the same way `callback.get.ts`'s `verifyStateSignature`
+ * expects: HMAC-SHA256 over `redirectPath:${redirectPath}`, base64url-encoded.
+ * Without this, the callback's signature check always fails and every OAuth
+ * connect silently drops the user on `/` regardless of where they started —
+ * the `redirect` query param threaded through `auth-url.get.ts` was a no-op.
+ */
+function signRedirectPath(redirectPath: string): string | null {
+  const secret = getStateSecret();
+  if (!secret) return null;
+  return crypto
+    .createHmac("sha256", secret)
+    .update(`redirectPath:${redirectPath}`)
+    .digest("base64url");
+}
+
+function encodeState(data: Record<string, string>, nonce: string): string {
+  const payload = { ...data, n: nonce };
+  return Buffer.from(JSON.stringify(payload)).toString("base64url");
 }
 
 async function resolveNotionOAuthCredentials(event: H3Event): Promise<{
@@ -114,9 +154,11 @@ async function notionBasicAuthHeader(event: H3Event): Promise<string> {
   const clientId = credentials?.clientId;
   const clientSecret = credentials?.clientSecret;
   if (!clientId || !clientSecret) {
-    throw new Error(
-      "Notion OAuth credentials are not configured. Save NOTION_CLIENT_ID and NOTION_CLIENT_SECRET in settings.",
-    );
+    throw createError({
+      statusCode: 400,
+      statusMessage:
+        "Notion OAuth credentials are not configured. Save NOTION_CLIENT_ID and NOTION_CLIENT_SECRET in settings.",
+    });
   }
   return `Basic ${Buffer.from(`${clientId}:${clientSecret}`).toString("base64")}`;
 }
@@ -291,6 +333,14 @@ export function normalizeNotionPageId(input: string): string {
   throw new Error("Invalid Notion page ID or URL.");
 }
 
+const NOTION_FETCH_TIMEOUT_MS = 15_000;
+// Cap how long we'll sleep in-process honoring a Notion Retry-After header.
+// Notion can legally send arbitrarily large values (e.g. during an outage);
+// sleeping for them would stall a request handler well past the hosted run's
+// wall-clock budget. Anything above the cap surfaces as a normal 429 error
+// instead of blocking.
+const NOTION_RETRY_AFTER_CAP_SECONDS = 5;
+
 export async function notionFetch<T>(
   path: string,
   accessToken: string,
@@ -300,6 +350,7 @@ export async function notionFetch<T>(
   for (let attempt = 0; ; attempt++) {
     const response = await fetch(`${NOTION_API_BASE}${path}`, {
       ...init,
+      signal: init?.signal ?? AbortSignal.timeout(NOTION_FETCH_TIMEOUT_MS),
       headers: {
         Authorization: `Bearer ${accessToken}`,
         "Notion-Version": NOTION_API_VERSION,
@@ -308,9 +359,16 @@ export async function notionFetch<T>(
       },
     });
     if (response.status === 429 && attempt < MAX_RETRIES) {
-      const retryAfter = Number(response.headers.get("retry-after")) || 1;
-      await new Promise((r) => setTimeout(r, Math.max(retryAfter, 1) * 1000));
-      continue;
+      const rawRetryAfter = Number(response.headers.get("retry-after"));
+      const retryAfterSeconds =
+        Number.isFinite(rawRetryAfter) && rawRetryAfter > 0 ? rawRetryAfter : 1;
+      if (retryAfterSeconds <= NOTION_RETRY_AFTER_CAP_SECONDS) {
+        await new Promise((r) => setTimeout(r, retryAfterSeconds * 1000));
+        continue;
+      }
+      // Retry-After exceeds what we're willing to block a request for —
+      // surface the 429 immediately so the caller can record lastError
+      // instead of stalling the handler.
     }
     const body = await response.json().catch(() => null);
     if (!response.ok) {
@@ -521,12 +579,33 @@ export async function buildNotionAuthUrl(
 ): Promise<string> {
   const credentials = await resolveNotionOAuthCredentials(event);
   if (!credentials?.clientId) {
-    throw new Error(
-      "Notion OAuth credentials are not configured. Save NOTION_CLIENT_ID and NOTION_CLIENT_SECRET in settings.",
-    );
+    throw createError({
+      statusCode: 400,
+      statusMessage:
+        "Notion OAuth credentials are not configured. Save NOTION_CLIENT_ID and NOTION_CLIENT_SECRET in settings.",
+    });
   }
   const redirectUri = `${getOrigin(event)}/api/notion/callback`;
-  const state = encodeState({ redirectPath });
+  const nonce = crypto.randomBytes(16).toString("hex");
+  const sig = signRedirectPath(redirectPath);
+  const state = encodeState(
+    sig ? { redirectPath, sig } : { redirectPath },
+    nonce,
+  );
+
+  // Bind this OAuth flow to the browser session that started it. The
+  // callback compares this cookie against the `n` nonce carried in `state`
+  // and refuses to save tokens on any mismatch or absence, closing the CSRF
+  // hole where an attacker could otherwise send a victim their own
+  // completed-but-unfinished OAuth callback URL.
+  setCookie(event, NOTION_OAUTH_STATE_COOKIE, nonce, {
+    httpOnly: true,
+    sameSite: "lax",
+    secure: isSecureRequest(event),
+    path: "/",
+    maxAge: 600,
+  });
+
   const params = new URLSearchParams({
     owner: "user",
     client_id: credentials.clientId,
@@ -537,11 +616,6 @@ export async function buildNotionAuthUrl(
   return `https://api.notion.com/v1/oauth/authorize?${params.toString()}`;
 }
 
-export function getNotionRedirectPath(stateParam: string | undefined): string {
-  const state = decodeState(stateParam);
-  return state.redirectPath || "/";
-}
-
 export async function exchangeNotionCodeForTokens(
   event: H3Event,
   code: string,
@@ -549,6 +623,7 @@ export async function exchangeNotionCodeForTokens(
   const redirectUri = `${getOrigin(event)}/api/notion/callback`;
   const response = await fetch(`${NOTION_API_BASE}/oauth/token`, {
     method: "POST",
+    signal: AbortSignal.timeout(NOTION_FETCH_TIMEOUT_MS),
     headers: {
       Authorization: await notionBasicAuthHeader(event),
       "Content-Type": "application/json",
@@ -580,6 +655,20 @@ export async function saveNotionTokensForOwner(
     tokens as Record<string, unknown>,
     owner,
   );
+
+  // Enforce single-connection semantics: the UI/action model (and
+  // getNotionConnectionForOwner below) assume one Notion workspace per
+  // owner. Without this, connecting a second workspace leaves two rows and
+  // getNotionConnectionForOwner's `accounts[0]` pick becomes arbitrary DB row
+  // order instead of "most recently connected". Clean up any other Notion
+  // accounts this owner holds so the one just saved is unambiguously active.
+  const accounts = await listOAuthAccountsByOwner(NOTION_PROVIDER, owner);
+  await Promise.all(
+    accounts
+      .filter((account) => account.accountId !== accountId)
+      .map((account) => deleteOAuthTokens(NOTION_PROVIDER, account.accountId)),
+  );
+
   return accountId;
 }
 
@@ -590,40 +679,115 @@ export interface NotionComment {
   rich_text: Array<{ plain_text: string }>;
   created_time: string;
   created_by: { id: string };
+  // Notion groups a top-level comment and all of its replies under the same
+  // discussion_id. Creating a comment WITH this id (instead of a `parent`
+  // page reference) appends it as a reply to that thread rather than
+  // starting a new unrelated top-level comment — this is what
+  // sync-notion-comments uses to preserve reply threading in both
+  // directions.
+  discussion_id?: string;
 }
 
-/** List open comments on a Notion page. */
+const MAX_COMMENT_PAGES = 20;
+
+/**
+ * List open comments on a Notion page. The endpoint is cursor-paginated
+ * (max 100 results per page); this follows `has_more`/`next_cursor` until
+ * exhausted (capped at MAX_COMMENT_PAGES as a safety bound) so pages with
+ * more than one page of comments don't silently lose the remainder.
+ *
+ * Auth/permission/rate-limit failures (401/403/404/429) are rethrown rather
+ * than swallowed into an empty array — callers (sync-notion-comments) need
+ * to distinguish "no comments" from "the API call failed" so they don't
+ * report a broken sync as a successful no-op.
+ */
 export async function listNotionComments(
   pageId: string,
   accessToken: string,
 ): Promise<NotionComment[]> {
-  try {
-    const data = await notionFetch<{ results?: NotionComment[] }>(
-      `/comments?block_id=${pageId}`,
-      accessToken,
-    );
-    return data.results ?? [];
-  } catch {
-    return [];
+  const results: NotionComment[] = [];
+  let cursor: string | undefined;
+  for (let page = 0; page < MAX_COMMENT_PAGES; page++) {
+    try {
+      const query = new URLSearchParams({ block_id: pageId, page_size: "100" });
+      if (cursor) query.set("start_cursor", cursor);
+      const data = await notionFetch<{
+        results?: NotionComment[];
+        has_more?: boolean;
+        next_cursor?: string | null;
+      }>(`/comments?${query.toString()}`, accessToken);
+      results.push(...(data.results ?? []));
+      if (!data.has_more || !data.next_cursor) break;
+      cursor = data.next_cursor;
+    } catch (error) {
+      if (
+        error instanceof NotionApiError &&
+        [401, 403, 404, 429].includes(error.status)
+      ) {
+        throw error;
+      }
+      // Unexpected shape on a page we've already partially fetched — return
+      // what we have rather than losing already-fetched comments.
+      if (results.length > 0) break;
+      throw error;
+    }
   }
+  return results;
 }
 
-/** Add a comment to a Notion page. */
+export type AddedNotionComment = {
+  id: string;
+  discussionId: string | null;
+};
+
+/**
+ * Add a comment to a Notion page, or a reply to an existing discussion
+ * thread when `discussionId` is provided. Passing `discussion_id` (instead
+ * of a `parent` page reference) is what makes Notion append the comment to
+ * that thread as a reply rather than starting a new, unrelated top-level
+ * comment — see sync-notion-comments.ts for how local comment replies map
+ * to a stored `notion_discussion_id`.
+ *
+ * Auth/permission/rate-limit failures (401/403/404/429) are rethrown so
+ * sync-notion-comments can surface a real error instead of silently
+ * reporting the comment as pushed.
+ */
 export async function addNotionComment(
   pageId: string,
   text: string,
   accessToken: string,
-): Promise<string | null> {
+  discussionId?: string | null,
+): Promise<AddedNotionComment | null> {
   try {
-    const data = await notionFetch<{ id?: string }>("/comments", accessToken, {
-      method: "POST",
-      body: JSON.stringify({
-        parent: { page_id: pageId },
-        rich_text: [{ text: { content: text } }],
-      }),
-    });
-    return data.id ?? null;
-  } catch {
+    const body = discussionId
+      ? {
+          discussion_id: discussionId,
+          rich_text: [{ text: { content: text } }],
+        }
+      : {
+          parent: { page_id: pageId },
+          rich_text: [{ text: { content: text } }],
+        };
+    const data = await notionFetch<{ id?: string; discussion_id?: string }>(
+      "/comments",
+      accessToken,
+      {
+        method: "POST",
+        body: JSON.stringify(body),
+      },
+    );
+    if (!data.id) return null;
+    return {
+      id: data.id,
+      discussionId: data.discussion_id ?? discussionId ?? null,
+    };
+  } catch (error) {
+    if (
+      error instanceof NotionApiError &&
+      [401, 403, 404, 429].includes(error.status)
+    ) {
+      throw error;
+    }
     return null;
   }
 }

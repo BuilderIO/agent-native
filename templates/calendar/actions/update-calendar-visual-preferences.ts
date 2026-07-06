@@ -7,6 +7,7 @@ import { z } from "zod";
 
 import {
   CALENDAR_VIEW_PREFERENCES_KEY,
+  isValidCalendarColor,
   normalizeCalendarViewPreferences,
 } from "../shared/calendar-view-preferences.js";
 
@@ -18,23 +19,31 @@ let updateQueue = Promise.resolve();
 
 export default defineAction({
   description:
-    "Update the Calendar app's local visual preferences. Use this for UI-only display changes such as color-coding meetings by type or choosing display colors for connected calendars. This does not call Google Calendar and does not use Google Calendar colorId values.",
+    "Update the Calendar app's local visual preferences. Use this for UI-only display changes such as color-coding meetings by type or choosing a display color for one or more connected Google accounts. This does not call Google Calendar and does not use Google Calendar colorId values.",
   schema: z
     .object({
       colorMode: z
         .enum(["multi", "single"])
         .optional()
         .describe(
-          "multi colors Google events by local meeting type; single uses connected-calendar display colors for the user's Google events",
+          "Legacy global fallback used only for accounts with no per-account mode set. multi colors Google events by local meeting type; single uses singleColor.",
         ),
       singleColor: hexColor
         .optional()
-        .describe("Fallback hex display color to use when colorMode is single"),
+        .describe(
+          "Legacy global fallback hex color, used only for accounts with no per-account color set",
+        ),
       accountEmail: z
         .string()
         .email()
         .optional()
-        .describe("Connected Google Calendar account email to color"),
+        .describe("Connected Google Calendar account email to update"),
+      accountColorMode: z
+        .enum(["multi", "single"])
+        .optional()
+        .describe(
+          "Color mode for accountEmail: multi colors by local meeting type, single uses accountColor",
+        ),
       accountColor: hexColor
         .optional()
         .describe("Hex display color for the connected accountEmail"),
@@ -42,40 +51,60 @@ export default defineAction({
         .record(z.string(), hexColor)
         .optional()
         .describe(
-          "Replacement map of connected Google Calendar account email to hex color. Pass an empty object to clear account color overrides.",
+          "Map of connected Google Calendar account email to hex color, for setting multiple accounts at once",
         ),
       hideWeekends: z
         .boolean()
         .optional()
         .describe("Whether the calendar UI hides Saturday and Sunday"),
     })
-    .refine((args) => !args.accountEmail === !args.accountColor, {
-      message: "accountEmail and accountColor must be provided together",
-      path: ["accountColor"],
-    }),
+    .refine(
+      (args) =>
+        !(args.accountColor || args.accountColorMode) || !!args.accountEmail,
+      {
+        message:
+          "accountColor and accountColorMode require accountEmail to be set",
+        path: ["accountEmail"],
+      },
+    ),
   run: async (args) => {
     const runUpdate = async () => {
       const current = normalizeCalendarViewPreferences(
         (await readAppState(CALENDAR_VIEW_PREFERENCES_KEY)) as any,
       );
-      const hasAccountColorReplacements =
-        args.accountColors && Object.keys(args.accountColors).length > 0;
       const colorMode =
-        args.colorMode ??
-        (args.singleColor || args.accountColor || hasAccountColorReplacements
-          ? "single"
-          : undefined);
+        args.colorMode ?? (args.singleColor ? "single" : undefined);
       const accountColors = {
-        ...(args.accountColors ?? current.accountColors),
+        ...current.accountColors,
+        ...(args.accountColors ?? {}),
         ...(args.accountEmail && args.accountColor
           ? { [args.accountEmail]: args.accountColor }
           : {}),
       };
+      const accountColorModes = {
+        ...current.accountColorModes,
+        ...Object.fromEntries(
+          Object.keys(args.accountColors ?? {}).map((email) => [
+            email,
+            "single" as const,
+          ]),
+        ),
+        ...(args.accountEmail && args.accountColor
+          ? { [args.accountEmail]: "single" as const }
+          : {}),
+        ...(args.accountEmail && args.accountColorMode
+          ? { [args.accountEmail]: args.accountColorMode }
+          : {}),
+      };
       const next = normalizeCalendarViewPreferences({
         ...current,
-        ...args,
+        hideWeekends: args.hideWeekends ?? current.hideWeekends,
         ...(colorMode ? { colorMode } : {}),
+        ...(isValidCalendarColor(args.singleColor)
+          ? { singleColor: args.singleColor }
+          : {}),
         accountColors,
+        accountColorModes,
       });
 
       await writeAppState(

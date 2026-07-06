@@ -1,22 +1,5 @@
 import { useFormatters, useT } from "@agent-native/core/client";
 import {
-  Avatar,
-  AvatarFallback,
-  AvatarImage,
-} from "@agent-native/toolkit/ui/avatar";
-import { Checkbox } from "@agent-native/toolkit/ui/checkbox";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuSub,
-  DropdownMenuSubContent,
-  DropdownMenuSubTrigger,
-  DropdownMenuTrigger,
-} from "@agent-native/toolkit/ui/dropdown-menu";
-import { Skeleton } from "@agent-native/toolkit/ui/skeleton";
-import {
   IconDots,
   IconLock,
   IconWorld,
@@ -32,6 +15,20 @@ import {
 import { useCallback, useMemo, useState } from "react";
 import { useNavigate } from "react-router";
 
+import { ViewedByPopover } from "@/components/sharing/viewed-by-popover";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { Checkbox } from "@/components/ui/checkbox";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Skeleton } from "@/components/ui/skeleton";
 import { isDefaultTitle } from "@/hooks/use-auto-title";
 import type { RecordingSummary } from "@/hooks/use-library";
 import { isStaleRecordingUpload } from "@/lib/recording-status";
@@ -314,11 +311,22 @@ export function RecordingCard({
               />
               <span className="capitalize">{recording.visibility}</span>
               <span>•</span>
-              <span>
-                {t("clipsFinalRaw.viewsCount", {
-                  count: recording.viewCount,
-                })}
-              </span>
+              {recording.viewCount > 0 ? (
+                <ViewedByPopover
+                  recordingId={recording.id}
+                  className="underline-offset-2 hover:underline hover:text-foreground"
+                >
+                  {t("clipsFinalRaw.viewsCount", {
+                    count: recording.viewCount,
+                  })}
+                </ViewedByPopover>
+              ) : (
+                <span>
+                  {t("clipsFinalRaw.viewsCount", {
+                    count: recording.viewCount,
+                  })}
+                </span>
+              )}
               <span>•</span>
               <span>{relative}</span>
             </div>

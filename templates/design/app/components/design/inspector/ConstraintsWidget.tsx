@@ -1,3 +1,5 @@
+import { useState } from "react";
+
 import {
   Select,
   SelectContent,
@@ -5,9 +7,7 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from "@agent-native/toolkit/ui/select";
-import { useState } from "react";
-
+} from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 
 export type HorizontalConstraint =

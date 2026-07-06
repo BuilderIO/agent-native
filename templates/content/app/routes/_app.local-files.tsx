@@ -1,15 +1,5 @@
 import { callAction, setClientAppState, useT } from "@agent-native/core/client";
 import { useSetPageTitle } from "@agent-native/toolkit/app-shell";
-import { Button } from "@agent-native/toolkit/ui/button";
-import { Separator } from "@agent-native/toolkit/ui/separator";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@agent-native/toolkit/ui/table";
 import { CONTENT_SOURCE_ROOT } from "@shared/content-source";
 import {
   IconAlertCircle,
@@ -27,6 +17,16 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
+import { Button } from "@/components/ui/button";
+import { Separator } from "@/components/ui/separator";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import { messagesByLocale } from "@/i18n-data";
 import {
   getDesktopContentFiles,

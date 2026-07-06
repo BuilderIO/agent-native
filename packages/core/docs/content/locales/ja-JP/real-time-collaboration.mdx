@@ -260,11 +260,8 @@ export default createCollabPlugin({
 ### 4. クライアントフックを使用する
 
 ```ts
-import {
-  useCollaborativeDoc,
-  emailToColor,
-  emailToName,
-} from "@agent-native/core/client";
+import { useCollaborativeDoc } from "@agent-native/core/client";
+import { emailToColor, emailToName } from "@agent-native/toolkit/collab-ui";
 
 const TAB_ID = generateTabId(); // or Math.random().toString(36)
 
@@ -366,12 +363,14 @@ pnpm action edit-document --id doc123 --find "delete me" --replace ""
 
 ```ts
 import {
-  PresenceBar,
-  LiveCursorOverlay,
-  RemoteSelectionRings,
   useCollaborativeDoc,
   usePresence,
 } from "@agent-native/core/client/collab";
+import {
+  PresenceBar,
+  LiveCursorOverlay,
+  RemoteSelectionRings,
+} from "@agent-native/toolkit/collab-ui";
 ```
 
 サーバー側のエージェント プレゼンス ヘルパーは、下位​​レベルのコラボレーション パッケージに残ります。
@@ -457,7 +456,7 @@ setPresence({ cursor: { x: 0.4, y: 0.7 }, selection: "#hero" });
 リモート カーソルをコンテナ要素上の絶対位置のラベルとしてレンダリングします。
 
 ```tsx
-import { LiveCursorOverlay } from "@agent-native/core/client";
+import { LiveCursorOverlay } from "@agent-native/toolkit/collab-ui";
 
 // cursor positions stored as { x, y } normalized 0–1 under presence.cursor
 <div ref={containerRef} style={{ position: "relative" }}>
@@ -477,7 +476,7 @@ import { LiveCursorOverlay } from "@agent-native/core/client";
 リモートで選択された要素上に色付きのアウトライン リングと名前タグをレンダリングします:
 
 ```tsx
-import { RemoteSelectionRings } from "@agent-native/core/client";
+import { RemoteSelectionRings } from "@agent-native/toolkit/collab-ui";
 
 <div ref={containerRef} style={{ position: "relative" }}>
   {content}

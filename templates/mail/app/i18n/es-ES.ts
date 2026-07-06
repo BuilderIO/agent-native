@@ -42,6 +42,8 @@ const messages = {
       placeholder: "Buscar...",
       clear: "Clear search (Esc)",
       noMatches: "Sin coincidencias",
+      localResults: "En esta bandeja de entrada",
+      searchingGmail: "Buscando en Gmail...",
     },
     tabSettings: {
       views: "Vistas",
@@ -134,6 +136,7 @@ const messages = {
       blocks: "Bloques",
       media: "Multimedia",
       ai: "IA",
+      snippets: "Fragmentos",
     },
     mobileActions: {
       archive: "Archivar",
@@ -270,6 +273,7 @@ const messages = {
       scheduledCancelled: "Email programado cancelado.",
       scheduledCancelFailed: "No se pudo cancelar el email programado",
       failedToAttachFile: "No se pudo adjuntar el archivo",
+      failedToUploadImage: "No se pudo subir la imagen",
       failedToSendEmail: "No se pudo enviar el email",
       failedToScheduleEmailDraftKeptOpen:
         "No se pudo programar el email - borrador abierto",
@@ -541,6 +545,19 @@ const messages = {
     whatsNewDescription:
       "Cambios recientes para usuarios en Agent-Native Mail.",
     drafting: "Redaccion",
+    snippets: "Fragmentos",
+    snippetsDescription:
+      "Respuestas guardadas que puedes insertar en un borrador escribiendo / y el nombre del fragmento.",
+    newSnippet: "Nuevo fragmento",
+    noSnippets: "Aun no hay fragmentos. Crea uno para empezar.",
+    snippetName: "Nombre del fragmento",
+    snippetNamePlaceholder: "p. ej. Seguimiento de precios",
+    snippetBody: "Contenido del fragmento",
+    snippetBodyPlaceholder: "Texto que se inserta al usar este fragmento...",
+    editSnippet: "Editar fragmento",
+    deleteSnippet: "Eliminar fragmento",
+    deleteSnippetDescription:
+      'Eliminar el fragmento "{{name}}"? Esta accion no se puede deshacer.',
     automations: "Automatizaciones",
     gmailFilters: "Filtros de Gmail",
     aliases: "Alias",

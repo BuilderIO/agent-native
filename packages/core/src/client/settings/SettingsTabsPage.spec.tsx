@@ -67,4 +67,52 @@ describe("SettingsTabsPage", () => {
     expect(container.textContent).toContain("Recent updates");
     expect(container.textContent).not.toContain("General content");
   });
+
+  it("places extra settings tabs between general and team", () => {
+    act(() => {
+      root.render(
+        <SettingsTabsPage
+          general={<div>General content</div>}
+          team={<div>Team members</div>}
+          whatsNew={<div>Recent updates</div>}
+          extraTabs={[
+            {
+              id: "agent",
+              label: "Agent",
+              content: <div>Agent settings</div>,
+            },
+          ]}
+        />,
+      );
+    });
+
+    const tabLabels = Array.from(
+      container.querySelectorAll('[role="tab"]'),
+      (tab) => tab.textContent,
+    );
+    expect(tabLabels).toEqual(["General", "Agent", "Team", "What's new"]);
+  });
+
+  it("opens an extra workspace tab from the workspace hash", () => {
+    window.history.replaceState(null, "", "/settings#workspace");
+
+    act(() => {
+      root.render(
+        <SettingsTabsPage
+          general={<div>General content</div>}
+          team={<div>Team members</div>}
+          extraTabs={[
+            {
+              id: "workspace",
+              label: "Workspace",
+              content: <div>Workspace controls</div>,
+            },
+          ]}
+        />,
+      );
+    });
+
+    expect(container.textContent).toContain("Workspace controls");
+    expect(container.textContent).not.toContain("Team members");
+  });
 });

@@ -7,17 +7,17 @@ import {
   useT,
 } from "@agent-native/core/client";
 import { HeaderActionsProvider } from "@agent-native/toolkit/app-shell";
-import { Button } from "@agent-native/toolkit/ui/button";
+import { IconMenu2 } from "@tabler/icons-react";
+import { useState, useEffect } from "react";
+import { useLocation, useNavigate } from "react-router";
+
+import { Button } from "@/components/ui/button";
 import {
   Sheet,
   SheetContent,
   SheetDescription,
   SheetTitle,
-} from "@agent-native/toolkit/ui/sheet";
-import { IconMenu2 } from "@tabler/icons-react";
-import { useState, useEffect } from "react";
-import { useLocation, useNavigate } from "react-router";
-
+} from "@/components/ui/sheet";
 import { APP_TITLE } from "@/lib/app-config";
 import { TAB_ID } from "@/lib/tab-id";
 

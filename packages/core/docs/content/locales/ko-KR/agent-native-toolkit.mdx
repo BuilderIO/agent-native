@@ -1,63 +1,103 @@
 ---
-title: "Agent-Native 툴킷"
-description: "협업, 설정, 공유, 탐색, presence, 기록, 설정 준비, Agent UX를 위한 재사용 가능한 키트."
+title: "Toolkit"
+description: "Reusable app-building primitives that sit between @agent-native/core and template apps."
 ---
 
-# Agent-Native 툴킷
+# Toolkit
 
-Agent-Native 앱은 workspace 공통 기능을 매번 다시 만들면 안 됩니다. 앱은 도메인 모델,
-도메인 action, 제품별 화면을 소유합니다. Framework와 `@agent-native/toolkit`은 모든 앱이
-상속해야 하는 재사용 가능한 표면을 소유합니다: 협업, 공유, 설정, 탐색, 정리, 설정 준비,
-Agent UX, 기록, 운영 가시성입니다.
+`@agent-native/core` owns the foundational runtime: actions, app state, auth,
+SQL, server plugins, agent chat, sharing access checks, and collaboration
+transport. `@agent-native/toolkit` owns reusable app-building pieces that sit on
+top of that runtime: UI primitives, app-local adapters, shell helpers, sharing
+badges, and collaboration UI.
 
-사용자는 공유, 키 연결, Agent의 공동 편집, 설정 위치, 변경 내역을 앱마다 새로 배우지 않아야 합니다.
+Apps should compose those pieces through local adapters. That keeps app UI easy
+to customize without copying Toolkit implementation code.
 
-## 툴킷 계약 {#toolkit-contract}
+<WireframeBlock id="doc-block-toolkit-layering">
+  <Screen
+    surface="desktop"
+    html={
+      "<div style='min-height:520px;box-sizing:border-box;padding:48px 36px;display:flex;align-items:center;justify-content:center'><div style='width:min(900px,100%);display:grid;grid-template-columns:1fr;gap:18px'><div class='wf-card' style='padding:22px 24px'><div style='display:flex;align-items:center;justify-content:space-between;gap:16px'><div><strong>App</strong><p class='wf-muted' style='margin:6px 0 0'>Domain routes, actions, local UI adapters, product-specific views</p></div><span class='wf-pill'>@/components/ui/button</span></div></div><div class='wf-card' style='padding:22px 24px;border-color:hsl(var(--primary))'><div style='display:flex;align-items:center;justify-content:space-between;gap:16px'><div><strong>Toolkit</strong><p class='wf-muted' style='margin:6px 0 0'>Reusable primitives, collab UI, sharing UI, app shell hooks</p></div><span class='wf-pill'>ToolkitProvider</span></div><div style='display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin-top:16px'><span class='wf-pill'>UI</span><span class='wf-pill'>Collab UI</span><span class='wf-pill'>Sharing UI</span><span class='wf-pill'>Shell</span></div></div><div class='wf-card' style='padding:22px 24px'><div style='display:flex;align-items:center;justify-content:space-between;gap:16px'><div><strong>Core</strong><p class='wf-muted' style='margin:6px 0 0'>Actions, SQL, auth, sharing runtime, Yjs transport, app state</p></div><span class='wf-pill'>@agent-native/core</span></div></div></div></div>"
+    }
+  />
+</WireframeBlock>
 
-다음에 해당하면 동작을 toolkit으로 옮깁니다.
+## What Ships Today {#what-ships-today}
 
-- **Workspace 전체** - 모든 앱에서 같은 방식으로 동작해야 합니다.
-- **Agent-visible** - Agent가 actions, instructions, application state를 통해 같은 기능을 써야 합니다.
-- **Governed** - 권한, audit, secrets, org policy, billing, sharing rules가 적용됩니다.
-- **Repeated** - 두 앱 이상이 비슷한 UI나 로직을 이미 만들었습니다.
-- **Not domain-specific** - 앱은 resource 이름과 action을 제공하지만 interaction pattern은 일반적입니다.
+- **UI primitives**: shadcn-style components under
+  `@agent-native/toolkit/ui/*`.
+- **App adapters**: template-local wrappers such as
+  `@/components/ui/button` that re-export Toolkit primitives until an app wants
+  to customize them.
+- **ToolkitProvider**: an override layer that lets reusable Toolkit UI use an
+  app's local primitives, starting with `Button`.
+- **Collaboration UI**: presence avatars, live cursors, remote selection rings,
+  recent edit highlights, and agent presence chips under
+  `@agent-native/toolkit/collab-ui`.
+- **Sharing UI**: the reusable `VisibilityBadge` under
+  `@agent-native/toolkit/sharing`.
+- **Shell and hooks**: app-shell header actions plus shared hooks such as
+  `useIsMobile` and `useToast`.
 
-도메인 모델이나 앱 고유 workflow에 깊게 묶인 동작은 app-local로 둡니다.
+## Compatibility {#compatibility}
 
-## 재사용 가능한 키트 {#reusable-kits}
+Existing imports from `@agent-native/core/client` keep working. Core now exposes
+thin re-export shims for Toolkit-owned visual pieces while keeping runtime
+behavior in core.
 
-- **Settings kit** - account, workspace, AI models, LLM keys, connections,
-  secrets, usage, notifications, changelog, app preferences의 표준 tabs입니다. 지속 설정은
-  Settings에 두고 Agent sidebar는 contextual quick controls와 deep links만 유지합니다.
-- **Collaboration kit** - real-time editing, Yjs docs, presence, agent presence,
-  live cursors, remote selections, recent edit highlights, shared undo/redo입니다. 자세한 내용은
-  [Real-Time Collaboration](/docs/real-time-collaboration)을 보세요.
-- **Sharing kit** - private, workspace, org, public link, invites, roles,
-  expirations, agent-readable access를 하나의 권한 모델로 다룹니다. 자세한 내용은
-  [Sharing & Privacy](/docs/sharing)을 보세요.
-- **Navigation and command kit** - app shell, nav, breadcrumbs, app switcher,
-  command palette, recents, pinned resources, search입니다.
-- **Organization kit** - folders, tags, favorites, archive, trash, ownership,
-  membership, common metadata입니다.
-- **Setup and connections kit** - API keys, OAuth, connections, model readiness,
-  missing secrets, declarative onboarding입니다. 자세한 내용은
-  [Workspace Connections](/docs/workspace-connections)을 보세요.
-- **Agent UX kit** - sidebar, composer, staged context, mentions, voice, human
-  approval, generative UI, progress, Agent-visible state입니다.
-- **History and recovery kit** - audit log, activity feed, version history,
-  checkpoints, undo, redo, restore, proof-of-done입니다. 자세한 내용은
-  [Audit Log](/docs/audit-log)를 보세요.
-- **Comments and review kit** - anchored comments, pins, mentions, review requests,
-  resolved threads, Agent follow-up tasks입니다.
-- **Workflow and observability kit** - notifications, approvals, background runs,
-  recurring jobs, traces, evals, feedback, run timelines입니다. 자세한 내용은
-  [Observability](/docs/observability)를 보세요.
+Those core shims are temporary migration support, not the long-term dependency
+direction. The next major can remove them; after that, reusable app-building
+packages should import Toolkit directly, and behaviorful Toolkit kits may compose
+core runtime APIs as peer/runtime dependencies instead of pushing more UI back
+into core.
 
-## 구현 순서 {#implementation-order}
+Extract future behaviorful kits one at a time before broadening the split.
+Sharing is the first candidate to validate that model because it exercises
+access checks, action-backed data, and share-link UI together.
 
-1. 지속 설정을 표준 Settings tabs로 통합합니다.
-2. collaboration, presence, agent presence, undo/redo, real-time editing을 공유 adapters 뒤로 정규화합니다.
-3. navigation, commands, recents, favorites, folders, tags, archive, trash를 공유 primitives로 이동합니다.
-4. 모든 공유 가능한 resource를 같은 permissions와 agent-readable access 모델에 등록합니다.
-5. collaborative resource마다 activity, comments, review, restore, audit 경험을 일관되게 만듭니다.
-6. notifications, approvals, run status, traces, evals, feedback을 통합합니다.
+That means this keeps working:
+
+```tsx
+import { PresenceBar, VisibilityBadge } from "@agent-native/core/client";
+```
+
+New reusable app code should prefer Toolkit or app-local adapters:
+
+```tsx
+import { PresenceBar } from "@agent-native/toolkit/collab-ui";
+import { Button } from "@/components/ui/button";
+```
+
+## Boundary {#boundary}
+
+Move code into Toolkit when it is reusable app-building UI or a pure UI contract.
+Keep code in core when it owns access control, SQL, actions, request context,
+Yjs transport, auth, or other runtime guarantees.
+
+Good Toolkit candidates:
+
+- Components that render the same interaction across apps.
+- Display-only helpers and structural prop types.
+- Base components that receive data and callbacks from an app or core wrapper.
+- App-shell hooks and adapters that do not own domain data.
+
+Keep app-local:
+
+- Domain-specific workflows.
+- Resource-specific mutations and routes.
+- Custom visual systems an app intentionally owns.
+
+Keep core-owned:
+
+- Sharing actions and access checks.
+- Collaboration storage, awareness transport, and Yjs document sync.
+- Auth, sessions, app state, SQL, and server plugins.
+
+## Pages {#pages}
+
+- [UI Primitives](/docs/toolkit-ui)
+- [App Adapters](/docs/toolkit-app-adapters)
+- [Collaboration UI](/docs/toolkit-collaboration-ui)
+- [Sharing UI](/docs/toolkit-sharing-ui)
+- [Shell & Hooks](/docs/toolkit-shell-hooks)

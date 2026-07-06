@@ -57,7 +57,7 @@ export function resolveMaxSubagentDelegationDepth(
   return Math.min(parsed, MAX_SUBAGENT_DELEGATION_DEPTH_CEILING);
 }
 
-function isValidTimezone(timezone: string): boolean {
+export function isValidTimezone(timezone: string): boolean {
   try {
     new Intl.DateTimeFormat("en-US", { timeZone: timezone }).format();
     return true;
@@ -66,7 +66,7 @@ function isValidTimezone(timezone: string): boolean {
   }
 }
 
-function formatDateTime(date: Date, timezone: string): string {
+export function formatDateTime(date: Date, timezone: string): string {
   return new Intl.DateTimeFormat("en-US", {
     timeZone: timezone,
     weekday: "long",
@@ -80,7 +80,7 @@ function formatDateTime(date: Date, timezone: string): string {
   }).format(date);
 }
 
-function formatDate(date: Date, timezone: string): string {
+export function formatDate(date: Date, timezone: string): string {
   const parts = new Intl.DateTimeFormat("en-CA", {
     timeZone: timezone,
     year: "numeric",
@@ -93,14 +93,33 @@ function formatDate(date: Date, timezone: string): string {
   return `${year}-${month}-${day}`;
 }
 
+/** Resolve the effective timezone for runtime-context helpers: the provided
+ * value when it parses as a valid IANA timezone, otherwise "UTC". */
+function resolveTimezone(timezone?: string | null): string {
+  return typeof timezone === "string" && isValidTimezone(timezone)
+    ? timezone
+    : "UTC";
+}
+
+/**
+ * Build the stable, day-granular runtime-context block embedded in the
+ * SYSTEM prompt.
+ *
+ * This block is part of the cached prompt prefix, so it must stay byte-for-
+ * byte identical across requests within the same calendar day — anything
+ * with sub-day granularity (a millisecond/second timestamp) here would
+ * invalidate the Anthropic prompt cache on every single turn, since the
+ * cache matches prefixes and this block sits near the start of the system
+ * prompt. Precise current time is injected separately, per-turn, into the
+ * USER message instead (see `buildCurrentTimeUserContext` below) so the
+ * model can still answer "what time is it" accurately without destabilizing
+ * the cached prefix.
+ */
 export function buildRuntimeContextPrompt(
   options: RuntimeContextOptions = {},
 ): string {
   const now = options.now ?? new Date();
-  const timezone =
-    typeof options.timezone === "string" && isValidTimezone(options.timezone)
-      ? options.timezone
-      : "UTC";
+  const timezone = resolveTimezone(options.timezone);
 
   const depth =
     typeof options.delegationDepth === "number" &&
@@ -121,11 +140,30 @@ export function buildRuntimeContextPrompt(
   return `
 
 <runtime-context>
-currentUtc: ${now.toISOString()}
-currentDateUtc: ${formatDate(now, "UTC")}
+currentDate: ${formatDate(now, "UTC")}
 currentTimezone: ${timezone}
-currentDateInTimezone: ${formatDate(now, timezone)}
-currentTimeInTimezone: ${formatDateTime(now, timezone)}${delegationLine}
-Use this runtime context as authoritative for relative dates such as today, yesterday, tomorrow, this week, and last month. Resolve relative dates to explicit calendar dates before querying data or creating artifacts, and include the exact date or date range in factual answers.
+currentDateInTimezone: ${formatDate(now, timezone)}${delegationLine}
+Use this runtime context as authoritative for relative dates such as today, yesterday, tomorrow, this week, and last month. Resolve relative dates to explicit calendar dates before querying data or creating artifacts, and include the exact date or date range in factual answers. This block only carries day-granularity; for the precise current time, see the <current-time> block in the user message.
 </runtime-context>`;
+}
+
+export interface CurrentTimeContextOptions {
+  now?: Date;
+  timezone?: string | null;
+}
+
+/**
+ * Build the precise, per-turn current-time block injected into the USER
+ * message (not the system prompt). Millisecond-precision time changes every
+ * request, so it must never live in the cached system-prompt prefix — see
+ * `buildRuntimeContextPrompt`. This follows the same volatile-context pattern
+ * as the current-screen/current-url/selection blocks in production-agent.ts.
+ */
+export function buildCurrentTimeUserContext(
+  options: CurrentTimeContextOptions = {},
+): string {
+  const now = options.now ?? new Date();
+  const timezone = resolveTimezone(options.timezone);
+
+  return `\n\n<current-time>\ncurrentUtc: ${now.toISOString()}\ncurrentTimezone: ${timezone}\ncurrentTimeInTimezone: ${formatDateTime(now, timezone)}\n</current-time>`;
 }
