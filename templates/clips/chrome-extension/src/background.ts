@@ -264,6 +264,12 @@ const CROSS_TAB_FOLLOW: boolean = false;
 let overlayTabId: number | null = null;
 let countdownEndsAtMs = 0;
 let armingNativeRecordingSessionId: string | null = null;
+// If the worker dies mid-arming (before the `finally` in handlePopupStart
+// clears the guard), the persisted guard would otherwise survive for the rest
+// of the browser session and permanently report "already recording". A TTL
+// comfortably longer than the picker + create-recording round trip lets a
+// stuck guard self-clear instead.
+const ARMING_GUARD_TTL_MS = 120000;
 
 function desiredParts(): OverlayPart[] {
   // The on-page controls match the desktop app: a left-edge vertical pill plus
@@ -355,13 +361,11 @@ async function restoreRuntimeState(): Promise<void> {
   if (rec && typeof rec.sessionId === "string" && !activeNativeRecording) {
     activeNativeRecording = rec;
   }
-  const armingSessionId = stored.armingNativeRecordingSessionId;
-  if (
-    typeof armingSessionId === "string" &&
-    armingSessionId &&
-    armingNativeRecordingSessionId === null
-  ) {
-    armingNativeRecordingSessionId = armingSessionId;
+  const freshArmingSessionId = await readFreshPersistedArmingSessionId(
+    stored.armingNativeRecordingSessionId,
+  );
+  if (freshArmingSessionId && armingNativeRecordingSessionId === null) {
+    armingNativeRecordingSessionId = freshArmingSessionId;
   }
   const rt = stored.overlayRuntime as
     | {
@@ -782,18 +786,51 @@ async function saveActiveNativeRecording(): Promise<void> {
 // native picker or the create-recording network call), which would let a
 // second start race in on a revived worker. Persist it to session storage
 // (authoritative; cleared when the browser session ends) and treat the
-// in-memory var as a fast path only.
+// in-memory var as a fast path only. Stored alongside a timestamp so a guard
+// left behind by a worker that died mid-arming (skipping the `finally` that
+// normally clears it) expires instead of blocking every future start for the
+// rest of the browser session.
 async function setArmingGuard(sessionId: string | null): Promise<void> {
   armingNativeRecordingSessionId = sessionId;
   if (sessionId) {
     await sessionStorageSet({
-      armingNativeRecordingSessionId: sessionId,
+      armingNativeRecordingSessionId: { sessionId, ts: Date.now() },
     }).catch(() => undefined);
   } else {
     await sessionStorageRemove("armingNativeRecordingSessionId").catch(
       () => undefined,
     );
   }
+}
+
+// Reads the persisted arming guard and returns its sessionId only if it is
+// still fresh. Clears (best-effort) and treats as absent when: missing,
+// expired, or in the old bare-string shape (no `ts` — can't be aged, so
+// treat as stale). Centralized so handlePopupStart and restoreRuntimeState
+// apply the exact same TTL logic.
+async function readFreshPersistedArmingSessionId(
+  rawValue: unknown,
+): Promise<string | null> {
+  if (typeof rawValue === "string" && rawValue) {
+    // Old shape (bare string, no timestamp) — can't verify freshness, so
+    // treat as stale and clear it.
+    await sessionStorageRemove("armingNativeRecordingSessionId").catch(
+      () => undefined,
+    );
+    return null;
+  }
+  if (rawValue && typeof rawValue === "object") {
+    const { sessionId, ts } = rawValue as { sessionId?: unknown; ts?: unknown };
+    if (typeof sessionId === "string" && sessionId && typeof ts === "number") {
+      if (Date.now() - ts < ARMING_GUARD_TTL_MS) {
+        return sessionId;
+      }
+    }
+    await sessionStorageRemove("armingNativeRecordingSessionId").catch(
+      () => undefined,
+    );
+  }
+  return null;
 }
 
 function queryActiveTab(): Promise<ChromeTab | null> {
@@ -984,13 +1021,16 @@ function createSession(
 async function handlePopupStart(message: PopupStartMessage) {
   // The persisted value is authoritative (survives a worker suspension during
   // arming); the in-memory var is only a same-tick fast path on top of it.
-  const persistedArming = (
-    await sessionStorageGet(["armingNativeRecordingSessionId"])
-  ).armingNativeRecordingSessionId;
+  // Stale (past-TTL) or legacy-shaped guards are treated as absent — see
+  // readFreshPersistedArmingSessionId.
+  const persistedArmingSessionId = await readFreshPersistedArmingSessionId(
+    (await sessionStorageGet(["armingNativeRecordingSessionId"]))
+      .armingNativeRecordingSessionId,
+  );
   if (
     activeNativeRecording ||
     armingNativeRecordingSessionId ||
-    (typeof persistedArming === "string" && persistedArming)
+    persistedArmingSessionId
   ) {
     return {
       ok: false,

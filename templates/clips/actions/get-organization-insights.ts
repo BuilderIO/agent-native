@@ -116,6 +116,7 @@ export default defineAction({
           .limit(MAX_ENGAGEMENT_ROWS)
       : [];
     totals.views = viewerRows.length;
+    const truncatedViewers = viewerRows.length >= MAX_ENGAGEMENT_ROWS;
 
     const reactionRows = recordingIds.length
       ? await db
@@ -133,6 +134,7 @@ export default defineAction({
           .limit(MAX_ENGAGEMENT_ROWS)
       : [];
     totals.reactions = reactionRows.length;
+    const truncatedReactions = reactionRows.length >= MAX_ENGAGEMENT_ROWS;
 
     const commentRows = recordingIds.length
       ? await db
@@ -150,6 +152,7 @@ export default defineAction({
           .limit(MAX_ENGAGEMENT_ROWS)
       : [];
     totals.comments = commentRows.length;
+    const truncatedComments = commentRows.length >= MAX_ENGAGEMENT_ROWS;
 
     // Top videos.
     const viewsByRec: Record<string, number> = {};
@@ -243,7 +246,11 @@ export default defineAction({
       // the bounded scan below covers — totals/trend reflect only the most
       // recent MAX_RECORDINGS recordings and/or the first MAX_ENGAGEMENT_ROWS
       // matching rows per engagement table in that case.
-      truncated: truncatedRecordings,
+      truncated:
+        truncatedRecordings ||
+        truncatedViewers ||
+        truncatedReactions ||
+        truncatedComments,
     };
   },
 });
