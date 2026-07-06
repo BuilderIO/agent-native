@@ -110,10 +110,22 @@
 }
 
 @layer base {
+  html:not([data-embed="1"]),
+  html:not([data-embed="1"]) body {
+    height: 100%;
+    overflow: hidden;
+  }
+
   body {
     @apply bg-background text-foreground;
     font-family: "Inter Variable", "Inter", sans-serif;
     font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+  }
+}
+
+@supports (height: 100dvh) {
+  html:not([data-embed="1"]) .agent-layout-shell {
+    height: 100dvh;
   }
 }
 

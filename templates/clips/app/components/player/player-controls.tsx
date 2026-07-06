@@ -115,7 +115,7 @@ export function PlayerControls(props: PlayerControlsProps) {
         excludedRanges={excludedRanges}
       />
 
-      <div className="flex items-center gap-1.5 text-white">
+      <div className="flex min-w-0 items-center gap-1.5 text-white">
         <IconBtn
           onClick={onPlayPause}
           tooltip={isPlaying ? "Pause (K)" : "Play (K)"}
@@ -128,7 +128,7 @@ export function PlayerControls(props: PlayerControlsProps) {
         </IconBtn>
 
         <div
-          className="relative flex shrink-0 items-center"
+          className="relative hidden shrink-0 items-center sm:flex"
           onMouseEnter={() => setVolumePopoverOpen(true)}
           onMouseLeave={() => setVolumePopoverOpen(false)}
           onFocus={() => setVolumePopoverOpen(true)}
@@ -183,13 +183,15 @@ export function PlayerControls(props: PlayerControlsProps) {
         <div className="flex-1" />
 
         {hasCaptions ? (
-          <IconBtn
-            onClick={onToggleCaptions}
-            active={captionsOn}
-            tooltip="Captions (C)"
-          >
-            <IconSubtitles className="h-5 w-5" />
-          </IconBtn>
+          <div className="hidden sm:block">
+            <IconBtn
+              onClick={onToggleCaptions}
+              active={captionsOn}
+              tooltip="Captions (C)"
+            >
+              <IconSubtitles className="h-5 w-5" />
+            </IconBtn>
+          </div>
         ) : null}
 
         <DropdownMenu>
@@ -226,22 +228,26 @@ export function PlayerControls(props: PlayerControlsProps) {
           </DropdownMenuContent>
         </DropdownMenu>
 
-        <IconBtn
-          onClick={onTogglePip}
-          active={isPip}
-          tooltip="Picture in picture"
-        >
-          <IconPictureInPicture className="h-5 w-5" />
-        </IconBtn>
+        <div className="hidden sm:block">
+          <IconBtn
+            onClick={onTogglePip}
+            active={isPip}
+            tooltip="Picture in picture"
+          >
+            <IconPictureInPicture className="h-5 w-5" />
+          </IconBtn>
+        </div>
 
         {onToggleTheater ? (
-          <IconBtn
-            onClick={onToggleTheater}
-            active={theaterMode}
-            tooltip="Theater mode (T)"
-          >
-            <IconRectangle className="h-5 w-5" />
-          </IconBtn>
+          <div className="hidden sm:block">
+            <IconBtn
+              onClick={onToggleTheater}
+              active={theaterMode}
+              tooltip="Theater mode (T)"
+            >
+              <IconRectangle className="h-5 w-5" />
+            </IconBtn>
+          </div>
         ) : null}
 
         <IconBtn onClick={onToggleFullscreen} tooltip="Fullscreen (F)">
