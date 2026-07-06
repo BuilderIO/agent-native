@@ -366,6 +366,15 @@ export default defineAction({
       .describe(
         "HubSpot deal property name for propertyValues CRM search. Required when propertyValues is set.",
       ),
+    /** @deprecated Use propertyValues */
+    riskStatuses: StringListSchema.describe(
+      "Deprecated alias for propertyValues on existing extensions.",
+    ),
+    /** @deprecated Use dealProperty */
+    statusProperty: z
+      .string()
+      .optional()
+      .describe("Deprecated alias for dealProperty on existing extensions."),
     limit: z.coerce
       .number()
       .int()
@@ -401,21 +410,32 @@ export default defineAction({
     query,
     propertyValues,
     dealProperty,
+    riskStatuses,
+    statusProperty,
     limit = 25,
     offset = 0,
     after,
   }) => {
-    if (propertyValues && propertyValues.length > 0) {
-      const trimmedDealProperty = dealProperty?.trim();
-      if (!trimmedDealProperty) {
+    const usingLegacyRiskStatuses =
+      !propertyValues?.length && Boolean(riskStatuses?.length);
+    const resolvedPropertyValues = propertyValues?.length
+      ? propertyValues
+      : riskStatuses;
+    const resolvedDealProperty =
+      dealProperty?.trim() ||
+      statusProperty?.trim() ||
+      (usingLegacyRiskStatuses ? "risk_status" : undefined);
+
+    if (resolvedPropertyValues && resolvedPropertyValues.length > 0) {
+      if (!resolvedDealProperty) {
         throw new Error(
           "dealProperty is required when propertyValues is provided",
         );
       }
       const [searchResult, allPipelines, owners] = await Promise.all([
         searchHubSpotDealsByPropertyValues({
-          propertyValues,
-          propertyName: trimmedDealProperty,
+          propertyValues: resolvedPropertyValues,
+          propertyName: resolvedDealProperty,
           limit,
           after,
           extraProperties: properties,
@@ -436,7 +456,7 @@ export default defineAction({
         total: searchResult.total,
         count: deals.length,
         nextAfter: searchResult.nextAfter,
-        guidance: `Loaded via HubSpot CRM search on ${trimmedDealProperty} instead of scanning the full deal catalog. Page with the returned nextAfter cursor for more results.`,
+        guidance: `Loaded via HubSpot CRM search on ${resolvedDealProperty} instead of scanning the full deal catalog. Page with the returned nextAfter cursor for more results.`,
       };
     }
 

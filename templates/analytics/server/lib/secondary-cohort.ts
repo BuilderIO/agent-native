@@ -18,20 +18,34 @@ import {
 } from "./pylon";
 
 /** Caller-supplied HubSpot + Pylon property names for secondary cohort joins. */
-export const secondaryCohortConfigSchema = z.object({
-  dealProperty: z.string().min(1),
-  dealPropertyValues: z.array(z.string().min(1)).min(1),
-  companyRootOrgIdProperty: z.string().min(1),
-  companyDomainProperty: z.string().min(1),
-  companySegmentProperty: z.string().min(1),
-  companySegmentValue: z.string().min(1).optional(),
-  pylonSentimentField: z.string().min(1),
-  pylonRootOrgIdField: z.string().min(1),
-  pylonDomainField: z.string().min(1),
-  pylonSentimentValues: z.array(z.string().min(1)).min(1),
-  ownerProperty: z.string().min(1),
-  arrProperty: z.string().min(1),
-});
+function normalizeSecondaryCohortInput(input: unknown): unknown {
+  if (!input || typeof input !== "object") return input;
+  const raw = input as Record<string, unknown>;
+  return {
+    ...raw,
+    dealProperty: raw.dealProperty ?? raw.statusProperty,
+    dealPropertyValues: raw.dealPropertyValues ?? raw.activeStatusValues,
+    pylonSentimentValues: raw.pylonSentimentValues ?? raw.pylonRiskSentiments,
+  };
+}
+
+export const secondaryCohortConfigSchema = z.preprocess(
+  normalizeSecondaryCohortInput,
+  z.object({
+    dealProperty: z.string().min(1),
+    dealPropertyValues: z.array(z.string().min(1)).min(1),
+    companyRootOrgIdProperty: z.string().min(1),
+    companyDomainProperty: z.string().min(1),
+    companySegmentProperty: z.string().min(1),
+    companySegmentValue: z.string().min(1).optional(),
+    pylonSentimentField: z.string().min(1),
+    pylonRootOrgIdField: z.string().min(1),
+    pylonDomainField: z.string().min(1),
+    pylonSentimentValues: z.array(z.string().min(1)).min(1),
+    ownerProperty: z.string().min(1),
+    arrProperty: z.string().min(1),
+  }),
+);
 
 export type SecondaryCohortConfig = z.infer<typeof secondaryCohortConfigSchema>;
 
