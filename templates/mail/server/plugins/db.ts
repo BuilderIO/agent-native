@@ -160,8 +160,8 @@ CREATE INDEX IF NOT EXISTS idx_contact_frequency_owner ON contact_frequency(owne
 CREATE INDEX IF NOT EXISTS idx_automation_rules_owner ON automation_rules(owner_email)`,
     },
     {
-      name: "snippets-table",
       version: 15,
+      name: "snippets-table",
       sql: `CREATE TABLE IF NOT EXISTS snippets (
     id TEXT PRIMARY KEY,
     owner_email TEXT NOT NULL,
