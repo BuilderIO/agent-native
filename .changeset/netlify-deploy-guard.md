@@ -2,4 +2,4 @@
 "@agent-native/core": patch
 ---
 
-Force Netlify single-template SSR routing: patch the scanned server function to preferStatic false, emit a fallback redirect, and fail the build when either is missing.
+Force Netlify single-template SSR routing by patching the scanned server function to preferStatic false, and refuse the harmful default-function URL rewrite that is incompatible with Nitro's config.path catch-all.
