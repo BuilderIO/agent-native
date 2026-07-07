@@ -1,8 +1,12 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  averageGradientOpacity,
+  defaultGradientStops,
   joinCssLayers,
+  parseGradientLayer,
   removeFillLayerAtIndex,
+  solidToGradientPatch,
   splitCssLayers,
 } from "./EditPanel";
 
@@ -122,6 +126,48 @@ describe("removeFillLayerAtIndex", () => {
     expect(splitCssLayers(patch.backgroundImage)).toEqual([
       "linear-gradient(45deg, #222222 0%, #dddddd 100%)",
     ]);
+  });
+});
+
+describe("solidToGradientPatch", () => {
+  it("solid to gradient converts instead of stacking", () => {
+    const patch = solidToGradientPatch("#FFFFFF", [], "linear");
+
+    // One real fill after the switch: the gradient replaces the solid
+    // (backgroundColor cleared) instead of stacking on top of it, which
+    // used to leave a phantom second row in the Fill panel.
+    expect(patch.backgroundColor).toBe("transparent");
+    expect(splitCssLayers(patch.backgroundImage)).toHaveLength(1);
+  });
+
+  it("prepends the gradient while preserving existing background layers", () => {
+    const patch = solidToGradientPatch("#FFFFFF", ["url(a.png)"], "linear");
+    const layers = splitCssLayers(patch.backgroundImage);
+
+    expect(layers).toHaveLength(2);
+    expect(layers[0]).toContain("linear-gradient(");
+    expect(layers[1]).toBe("url(a.png)");
+  });
+
+  it("phantom 50% fingerprint documented", () => {
+    // The default gradient fades the source color to alpha-0, so the fill
+    // row's average stop opacity reads (100 + 0) / 2 = 50%. That "Linear
+    // gradient 1  50%" row next to the still-alive solid row was the visible
+    // fingerprint of the stacking bug this patch converts away.
+    expect(averageGradientOpacity(defaultGradientStops("#FFFFFF"))).toBe(50);
+  });
+
+  it("round-trips the original color out of the gradient's first stop", () => {
+    const patch = solidToGradientPatch("#FF0000", [], "linear");
+    const [gradientLayer] = splitCssLayers(patch.backgroundImage);
+    const gradient = parseGradientLayer(gradientLayer || "");
+
+    // Switching back to solid recovers the pre-gradient color from the
+    // first stop (the panel's solid branch prefers it over the now-
+    // "transparent" backgroundColor, which would otherwise fall back to
+    // black).
+    expect(gradient?.stops[0]?.color).toBe("#ff0000");
+    expect(gradient?.stops[0]?.opacity).toBe(100);
   });
 });
 

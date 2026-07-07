@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { textStrokeAddPatch } from "./edit-panel/position-helpers";
 import {
   authoredStyleValue,
   deriveLockedAspectSize,
@@ -259,6 +260,36 @@ describe("resolveTextStrokeColor", () => {
     // unchanged, proving the function itself never reaches for fill state.
     expect(resolveTextStrokeColor("rgba(0, 0, 0, 0)")).not.toBe(
       "rgba(0, 0, 0, 0)",
+    );
+  });
+});
+
+describe("textStrokeAddPatch", () => {
+  it("emits exactly the two kebab-case -webkit-text-stroke longhands", () => {
+    // Regression guard: the "Add layer" handler once committed camelCase
+    // webkitTextStrokeWidth/-Color, which normalizeStyleProperty in
+    // code-layer.ts kebab-izes WITHOUT the required leading dash — failing
+    // the style allow-list and silently persisting nothing. The patch keys
+    // must be the dashed vendor-prefixed longhands, exactly.
+    expect(Object.keys(textStrokeAddPatch("rgb(37, 99, 235)"))).toEqual([
+      "-webkit-text-stroke-width",
+      "-webkit-text-stroke-color",
+    ]);
+  });
+
+  it("seeds a 1px stroke in the resolved color", () => {
+    expect(textStrokeAddPatch("rgb(37, 99, 235)")).toEqual({
+      "-webkit-text-stroke-width": "1px",
+      "-webkit-text-stroke-color": "rgb(37, 99, 235)",
+    });
+  });
+
+  it("falls back to opaque black when no usable stroke color exists yet", () => {
+    expect(textStrokeAddPatch(undefined)["-webkit-text-stroke-color"]).toBe(
+      "#000000",
+    );
+    expect(textStrokeAddPatch("transparent")["-webkit-text-stroke-color"]).toBe(
+      "#000000",
     );
   });
 });

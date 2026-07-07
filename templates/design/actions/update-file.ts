@@ -33,8 +33,14 @@ function rowsAffected(result: unknown): number | undefined {
  * `skippedStaleMirror?: true` is added to the result ONLY in the narrow
  * SQL-mirror-only staleness case: `content` was provided, `syncCollab` was
  * explicitly `false`, a live collaboration document exists for this file,
- * and the caller's `expectedVersionHash` no longer matches that live text.
- * In that case the content column is intentionally left untouched (the live
+ * and the caller's `expectedVersionHash` matches NEITHER the live collab
+ * text, NOR the `content` being written (an own edit that raced ahead via
+ * Yjs), NOR the current SQL mirror content. A caller whose hash matches the
+ * current mirror is the mirror column's own lineage (mirror-lineage rescue):
+ * it proceeds instead of skipping, advancing the mirror AND diff-merging its
+ * content into the live doc.
+ * In the genuinely-stale case the content column is intentionally left
+ * untouched (the live
  * collab document remains the source of truth) while any `filename`/
  * `fileType` updates in the same call still apply, and the action returns
  * success instead of throwing. The field is omitted (not `false`) in every
@@ -163,7 +169,24 @@ export default defineAction({
       // trying to sync into collab in the first place. Every other
       // expectedVersionHash combination (syncCollab true/default, or no live
       // collab state, or a matching hash, or no hash at all) is UNCHANGED.
+      //
+      // Own-edit false-positive fix: a single client's own edit reaches the
+      // live collab doc via TWO independent, unordered paths — the Yjs
+      // update (~80ms client debounce, applied to the server's in-memory doc
+      // as soon as its POST lands) and this guarded update-file call (~400ms
+      // client debounce). The Yjs path usually wins the race, so by the time
+      // this call's hash check runs, `liveContent` often already equals the
+      // very `content` this call is trying to write — that is NOT a
+      // divergent concurrent edit, it's the same edit having arrived early
+      // by a different transport. Comparing hashes first would reject that
+      // as "stale" and permanently skip the SQL mirror write (there is no
+      // background job that later reconciles design_files.content from the
+      // live collab doc — see hasCollabState below), silently losing writes
+      // on every edit after the first in a session. Check content equality
+      // BEFORE the hash comparison so this exact-match case always proceeds
+      // as a normal write instead of hitting either the skip or throw path.
       let skipContentWrite = false;
+      let mirrorLineageCollabSync = false;
       if (expectedVersionHash !== undefined && content !== undefined) {
         const collabExists = await hasCollabState(id);
         let liveContent: string;
@@ -177,10 +200,52 @@ export default defineAction({
             .limit(1);
           liveContent = current?.content ?? "";
         }
-        if (sourceContentHash(liveContent) !== expectedVersionHash) {
+        if (
+          liveContent !== content &&
+          sourceContentHash(liveContent) !== expectedVersionHash
+        ) {
           if (syncCollab === false && collabExists) {
-            skipContentWrite = true;
-            skippedStaleMirror = true;
+            // Mirror-lineage rescue (sequential-edit data-loss fix, verified
+            // live): the client's Yjs transact and its guarded update-file
+            // call ride two independent transports, and the Yjs pipe can lag
+            // or silently die — reproduced with a live collab doc that never
+            // received EITHER of two sequential scrub edits while the HTTP
+            // saves advanced the SQL mirror normally. Comparing the caller
+            // only against that stale live text mis-classified the SECOND
+            // save as a divergent writer and silently dropped it. When the
+            // caller's expectedVersionHash matches the CURRENT SQL mirror,
+            // the caller is the mirror's own uninterrupted lineage (a plain
+            // CAS success against the column this write updates) while the
+            // live doc is the diverging party — a dead/lagging client Yjs
+            // pipe or a concurrent live-only editor. Do NOT skip, and do NOT
+            // silently drop either side: proceed with the mirror write AND
+            // push `content` through the collab layer exactly like
+            // syncCollab:true does (mirrorLineageCollabSync below). The
+            // applyText char-diff merge folds the caller's change into the
+            // live doc as a CRDT diff, so no one's edits are dropped: the
+            // mirror advances with the caller, and the live doc receives the
+            // caller's change as a diff-merge that preserves any other
+            // editor's live edits. Only callers matching NEITHER the live
+            // text NOR the mirror are genuinely stale and still hit the skip
+            // below.
+            const [mirrorRow] = await db
+              .select({ content: schema.designFiles.content })
+              .from(schema.designFiles)
+              .where(eq(schema.designFiles.id, id))
+              .limit(1);
+            if (
+              sourceContentHash(mirrorRow?.content ?? "") ===
+              expectedVersionHash
+            ) {
+              // Caller is exactly at the persisted mirror's tip — the live
+              // collab doc is the lagging party, not the caller. Write the
+              // mirror normally and also sync the caller's content into the
+              // live doc via the collab diff-merge below.
+              mirrorLineageCollabSync = true;
+            } else {
+              skipContentWrite = true;
+              skippedStaleMirror = true;
+            }
           } else {
             throw new Error(
               "File changed since it was read. Re-read the file and retry.",
@@ -263,8 +328,12 @@ export default defineAction({
         }
       }
 
-      // Push content through the collab layer so live editors see the change
-      if (content !== undefined && syncCollab) {
+      // Push content through the collab layer so live editors see the change.
+      // mirrorLineageCollabSync: a syncCollab:false caller whose hash matched
+      // the current SQL mirror (mirror-lineage rescue) also syncs here, so a
+      // dead/lagging live doc receives the caller's change as a CRDT
+      // diff-merge instead of silently diverging from the mirror.
+      if (content !== undefined && (syncCollab || mirrorLineageCollabSync)) {
         const collabExists = await hasCollabState(id);
         if (collabExists) {
           await applyText(id, content, "content", "agent");

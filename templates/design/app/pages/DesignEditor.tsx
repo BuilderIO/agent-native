@@ -38,7 +38,12 @@ import {
   type PromptComposerSubmitOptions,
 } from "@agent-native/core/client";
 import type { TweakDefinition } from "@shared/api";
-import { isBoardFile } from "@shared/board-file";
+import {
+  computeReparentedChildPosition,
+  isBoardFile,
+  normalizePoisonedBoardNestedCoords,
+  stripBoardSurfaceOffsetFromCoord,
+} from "@shared/board-file";
 import {
   getBreakpointOverrideState,
   removeBreakpointMediaDeclaration,
@@ -70,6 +75,7 @@ import {
   type CodeLayerTreeNode,
   type MoveNodeEditIntent,
 } from "@shared/code-layer";
+import { parseCssColorExtended } from "@shared/color-utils";
 import { componentNameFor, isComponentInstance } from "@shared/component-model";
 import type { A11yFinding } from "@shared/design-review";
 import {
@@ -267,6 +273,8 @@ import {
 } from "@/components/design/MotionDock";
 import {
   getInitialFrameGeometry,
+  getPrimaryIframeId,
+  isWheelCameraGestureActive,
   MultiScreenCanvas,
   OVERVIEW_FRAME_WIDTH,
   type CanvasLayerMarqueeSelection,
@@ -397,6 +405,12 @@ const MOTION_DOCK_EXIT_SETTLE_MS = 80;
 const MOTION_DOCK_EXIT_FALLBACK_MS = MOTION_DOCK_TRANSITION_MS * 2 + 600;
 const MOTION_AUTOSAVE_DELAY_MS = 500;
 const BOARD_SURFACE_SIZE = 131_072;
+/** Gates non-essential diagnostic console.warn calls (e.g. the cross-screen
+ * anchor-stamp fallback warning) so production consoles stay quiet while
+ * dev builds keep the signal. Real correctness-guard warnings (frame
+ * geometry rejection, poisoned-coord normalization) stay unconditional —
+ * this flag is only for lower-signal "known degraded path taken" notices. */
+const DESIGN_EDITOR_DEBUG_LOGS = import.meta.env.DEV;
 /** Extensions that the localhost bridge allows to be written back to source. */
 const LOCALHOST_WRITE_EXTENSIONS = new Set([".html", ".htm", ".css"]);
 /**
@@ -1076,6 +1090,138 @@ export function getDefaultOverviewCanvasZoom(overviewZoomScale: number) {
   return getOverviewCanvasZoom(DEFAULT_OVERVIEW_ZOOM, overviewZoomScale);
 }
 
+/**
+ * Board-zoom-corruption fix (observed in the wild as a 10241.49% displayed
+ * zoom): the overview zoom SCALE basis must always be a real overview screen.
+ * When `activeFileId` flips to the board file (creating a text primitive on
+ * the empty board, clicking a board element, …) or to any non-screen file
+ * (e.g. a CSS support file), the old `activeFile?.id ?? activeFileId ??
+ * overviewScreens[0]?.id` resolution made that file the basis: it has no
+ * entry in `overviewScreens` OR `canvasFrames`, so BOTH getOverviewZoomScale
+ * inputs fell back (320/1280 = 0.25) while `explicitOverviewCanvasZoom`
+ * stayed pinned to a value established under the real screen's scale —
+ * garbage displayed zoom. This helper only accepts a candidate that is a
+ * known overview screen (and never the board, even if a future
+ * `overviewScreens` regression let the board leak into the list), otherwise
+ * it falls back to the first real overview screen.
+ */
+export function resolveOverviewZoomBasisScreenId(args: {
+  candidateFileId: string | null | undefined;
+  boardFileId: string | null | undefined;
+  overviewScreenIds: readonly string[];
+}): string | null {
+  const boardId = args.boardFileId ?? null;
+  const candidate = args.candidateFileId ?? null;
+  if (
+    candidate &&
+    candidate !== boardId &&
+    args.overviewScreenIds.includes(candidate)
+  ) {
+    return candidate;
+  }
+  return (
+    args.overviewScreenIds.find((screenId) => screenId !== boardId) ?? null
+  );
+}
+
+/**
+ * Displayed overview zooms below this are unrenderable garbage, not a
+ * deliberate camera position — the wheel/pinch path can't legitimately reach
+ * them (MultiScreenCanvas clamps its canvas zoom well above the product of
+ * this with any real screen scale).
+ */
+export const MIN_RENDERABLE_OVERVIEW_DISPLAY_ZOOM = 0.01;
+
+/**
+ * Board-zoom-corruption fix, defensive layer: when the zoom-scale BASIS
+ * IDENTITY changes (a different screen becomes the basis), a pinned
+ * `explicitOverviewCanvasZoom` was established under the OLD basis' scale.
+ * A normal screen-to-screen basis change only shifts the displayed zoom
+ * label by the two screens' native-scale ratio (camera untouched) — that is
+ * intended Figma-like behavior and must NOT reset the camera. But if the new
+ * basis' scale turns the pinned value into a displayed zoom outside the
+ * editor's absolute zoom range (non-finite, unrenderably small, or above
+ * DEFAULT_CANVAS_MAX_ZOOM), the pin is provably garbage for this basis:
+ * invalidate it so the derivation re-anchors at the default overview zoom
+ * instead of showing a corrupted percentage.
+ */
+export function shouldResetExplicitOverviewZoomOnBasisChange(args: {
+  previousBasisScreenId: string | null;
+  nextBasisScreenId: string | null;
+  explicitOverviewCanvasZoom: number | null;
+  nextOverviewZoomScale: number;
+}): boolean {
+  if (args.explicitOverviewCanvasZoom == null) return false;
+  if (args.previousBasisScreenId === args.nextBasisScreenId) return false;
+  const nextDisplayZoom = getOverviewDisplayZoom(
+    args.explicitOverviewCanvasZoom,
+    args.nextOverviewZoomScale,
+  );
+  return (
+    !Number.isFinite(nextDisplayZoom) ||
+    nextDisplayZoom < MIN_RENDERABLE_OVERVIEW_DISPLAY_ZOOM ||
+    nextDisplayZoom > DEFAULT_CANVAS_MAX_ZOOM
+  );
+}
+
+/**
+ * Final sanity clamp on the DISPLAYED overview zoom (the number the zoom
+ * field shows and zoom-relative flows consume). Non-finite/non-positive
+ * products (a corrupted basis flip) fall back to the default overview zoom;
+ * anything above the editor's absolute max zoom is capped there. The lower
+ * bound is deliberately NOT floored to DEFAULT_CANVAS_MIN_ZOOM: a legit
+ * canvas zoom near the minimum times a sub-1 screen scale can display below
+ * 2% and must not be misreported (it would desync the displayed value from
+ * the real camera and drift zoom-relative round-trips).
+ */
+export function clampOverviewDisplayZoom(displayZoom: number): number {
+  if (!Number.isFinite(displayZoom) || displayZoom <= 0) {
+    return DEFAULT_OVERVIEW_ZOOM;
+  }
+  return Math.min(displayZoom, DEFAULT_CANVAS_MAX_ZOOM);
+}
+
+/**
+ * Flash-prevention routing for adopting an ALREADY-server-persisted content
+ * snapshot into the editor — the "onApplied host-sync" family: shader fill
+ * applies (`apply-shader-fill` → onShaderFillApplied), GLSL shader
+ * apply/remove/knob commits (GlslShaderPanel's read-source-file →
+ * apply-source-edit → onApplied), and component prop edits.
+ *
+ * These handlers previously passed `refreshPreview: true` for the active
+ * file, but in applyLocalContentUpdate that flag means "skip the in-place
+ * replace and force a full srcdoc rebuild" — a real iframe reload of the
+ * active screen (white flash, lost scroll/Alpine state, and an onload refire
+ * that re-runs screen measurement — observed in the wild as the shader-apply
+ * flash plus a zoom-badge drift in the same gesture). The patched content is
+ * a normal document update, exactly what the bridge's live in-place
+ * full-document replace exists for (see applyLocalContentUpdate's
+ * "Holistic flash pipeline" comment), so route it through
+ * `forcePreviewFullDocument` instead; applyLocalContentUpdate already falls
+ * back to the srcdoc rebuild on its own when the live bridge isn't
+ * registered for the surface yet.
+ *
+ * `persist: false` because the server already owns this content — the
+ * updatedAt stamp (when present) records it as the acked base for the next
+ * guarded update-file save rather than re-queueing a redundant save.
+ */
+export function getPersistedContentHostSyncOptions(args: {
+  fileId: string;
+  activeFileId: string | null | undefined;
+  updatedAt?: string;
+}): {
+  forcePreviewFullDocument: boolean;
+  persist: false;
+  updatedAt?: string;
+} {
+  return {
+    forcePreviewFullDocument:
+      args.activeFileId != null && args.fileId === args.activeFileId,
+    persist: false,
+    updatedAt: args.updatedAt,
+  };
+}
+
 export function getDesignEditorShareUrl(
   id: string,
   origin: string,
@@ -1196,13 +1342,29 @@ export function getFreshScreenContent(args: {
   freshActiveContentFileId?: string | null;
   freshActiveContent: string;
   fileContentById: ReadonlyMap<string, string>;
+  /**
+   * Nest-conversion clobber fix: the freshest same-tick local write for this
+   * screen (DesignEditor's `pendingLocalFileContentsRef`), or null. The
+   * `fileContentById` map is memoized off React state, so a write made by
+   * `applyFileContentUpdate` earlier in the SAME task burst (e.g. the bridge's
+   * auto-layout conversion `visual-style-change` that lands right before the
+   * nest-drop's `visual-structure-change`) is not visible in it yet — the
+   * structure handler would rebase off pre-conversion content and its own
+   * write would silently clobber the conversion. Preferring the synchronous
+   * pending write mirrors what the active file already gets through
+   * `getFreshActiveFileContent`'s latest/lastLocal refs.
+   */
+  pendingContent?: string | null;
 }) {
   const freshActiveContentFileId =
     args.freshActiveContentFileId ?? args.activeFileId;
-  return args.screenId === args.activeFileId &&
+  if (
+    args.screenId === args.activeFileId &&
     args.screenId === freshActiveContentFileId
-    ? args.freshActiveContent
-    : (args.fileContentById.get(args.screenId) ?? "");
+  ) {
+    return args.freshActiveContent;
+  }
+  return args.pendingContent ?? args.fileContentById.get(args.screenId) ?? "";
 }
 
 export function shouldReplacePreviewAfterVisualStyleCommit(args: {
@@ -2308,6 +2470,34 @@ export function applyScopedVisualStyleEdit(args: {
     });
   }
   return applyVisualEdit(content, { kind: "style", target, property, value });
+}
+
+/**
+ * Pure decision behind commitVisualStyles' commit-or-fail outcome, extracted
+ * so the fail-loud contract is unit-testable:
+ *
+ * - scoped patch applied → its content wins;
+ * - scoped patch failed while a BREAKPOINT scope is active → hard error
+ *   (the legacy selector fallback is a BASE write and would clobber every
+ *   viewport width with a value the user meant to scope — §6.4);
+ * - scoped patch failed on BASE scope → the legacy selector-based
+ *   inline-style fallback may stand in, but ONLY when it actually resolved
+ *   (queryUniqueSelector demands exactly one match — never a guessy write);
+ * - nothing resolved → hard error. Callers MUST surface `error` loudly
+ *   (toast), never swallow it: a silent no-op here leaves the inspector
+ *   displaying a value that was never persisted.
+ */
+export function resolveVisualStyleCommitContent(args: {
+  scopedContent: string;
+  scopedFailure: string | null;
+  legacyFallbackContent: string | null;
+  breakpointScoped: boolean;
+}): { content: string } | { error: string | null } {
+  if (!args.scopedFailure) return { content: args.scopedContent };
+  if (args.breakpointScoped) return { error: args.scopedFailure };
+  if (args.legacyFallbackContent)
+    return { content: args.legacyFallbackContent };
+  return { error: args.scopedFailure };
 }
 
 /**
@@ -3423,6 +3613,24 @@ function elementAtPortableStylePath(
   return current;
 }
 
+// Cross-screen moves must never bake editor-internal CSS custom properties
+// (selection chrome colors, editor-chrome scale compensation, framework
+// clipboard/surface tokens) into persisted user HTML — they leak into
+// exports and have no meaning outside this editor session. The capture side
+// (bridge collectPortableComputedStyles) sweeps every visible custom
+// property indiscriminately; filter them back out here on the apply side.
+const EDITOR_INTERNAL_CSS_VAR_PREFIXES = [
+  "--design-editor-",
+  "--agent-native-editor-chrome-",
+  "--agent-native-",
+];
+
+export function isEditorInternalCssVar(property: string): boolean {
+  return EDITOR_INTERNAL_CSS_VAR_PREFIXES.some((prefix) =>
+    property.startsWith(prefix),
+  );
+}
+
 function applyPortableStyles(
   element: Element | null,
   styles: Record<string, string>,
@@ -3432,7 +3640,12 @@ function applyPortableStyles(
   if (!host) return;
   Object.entries(styles).forEach(([property, value]) => {
     if (!value) return;
-    if (property.startsWith("--") || property.includes("-")) {
+    if (property.startsWith("--")) {
+      if (isEditorInternalCssVar(property)) return;
+      host.style.setProperty(property, value);
+      return;
+    }
+    if (property.includes("-")) {
       host.style.setProperty(property, value);
       return;
     }
@@ -3440,12 +3653,44 @@ function applyPortableStyles(
   });
 }
 
-function applyPortableStyleSnapshotToHtml(
+// True when two documents' <head> markup (styles/links/design tokens) are
+// byte-identical, e.g. a screen duplicated from the same source. In that
+// case a cross-screen move needs zero portable style baking to preserve
+// appearance — the destination already cascades identically.
+export function sameStylesheetHead(
+  sourceHtml: string,
+  destHtml: string,
+): boolean {
+  if (typeof window === "undefined") return false;
+  try {
+    const parser = new DOMParser();
+    const sourceHead = parser.parseFromString(sourceHtml, "text/html").head
+      ?.innerHTML;
+    const destHead = parser.parseFromString(destHtml, "text/html").head
+      ?.innerHTML;
+    return (
+      typeof sourceHead === "string" &&
+      typeof destHead === "string" &&
+      sourceHead === destHead
+    );
+  } catch {
+    return false;
+  }
+}
+
+export function applyPortableStyleSnapshotToHtml(
   content: string,
   nodeAttrId: string,
   snapshot?: PortableStyleSnapshot,
+  sourceContent?: string,
 ): string {
   if (typeof window === "undefined" || !snapshot?.nodes?.length) {
+    return content;
+  }
+  // Same-stylesheet fast path: source and dest cascade identically (e.g. a
+  // duplicated screen), so no inline styles are needed to preserve
+  // appearance — skip baking entirely and keep the move lossless.
+  if (sourceContent && sameStylesheetHead(sourceContent, content)) {
     return content;
   }
   try {
@@ -3454,15 +3699,435 @@ function applyPortableStyleSnapshotToHtml(
       `[data-agent-native-node-id="${CSS.escape(nodeAttrId)}"]`,
     );
     if (!root) return content;
-    root.setAttribute("data-agent-native-preserve-styles", "true");
+    let appliedAny = false;
     snapshot.nodes.forEach((node) => {
       const target = elementAtPortableStylePath(root, node);
-      if (target) applyPortableStyles(target, node.styles);
+      if (!target) return;
+      const filteredEntries = Object.entries(node.styles).filter(
+        ([property, value]) => value && !isEditorInternalCssVar(property),
+      );
+      if (filteredEntries.length === 0) return;
+      applyPortableStyles(target, Object.fromEntries(filteredEntries));
+      appliedAny = true;
     });
+    if (appliedAny) {
+      root.setAttribute("data-agent-native-preserve-styles", "true");
+    }
     return `<!DOCTYPE html>\n${doc.documentElement.outerHTML}`;
   } catch {
     return content;
   }
+}
+
+// Relative luminance threshold mirroring containerBackgroundIsLight in
+// editor-chrome.bridge.ts (keep both in sync) — used by the pure decision
+// helper below so its threshold can't drift from the in-screen bridge path.
+const AUTO_TEXT_COLOR_LIGHT_LUMINANCE_THRESHOLD = 150;
+
+function relativeLuminance(rgb: { r: number; g: number; b: number }): number {
+  return 0.2126 * rgb.r + 0.7152 * rgb.g + 0.0722 * rgb.b;
+}
+
+// Tolerant "is this the board's auto-applied default white" check, shared
+// by shouldAdaptAutoTextColorForCrossScreenMove and
+// isStaleAutoTextColorMarker (finding 2) — both need the exact same
+// definition of "still the auto-default", just applied to different
+// questions (safe to adapt vs. safe to keep trusting the marker).
+function isAutoDefaultWhiteColor(
+  inlineColor: string | null | undefined,
+): boolean {
+  const normalized = (inlineColor || "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, " ");
+  return (
+    normalized === "#ffffff" ||
+    normalized === "#fff" ||
+    normalized === "rgb(255,255,255)" ||
+    normalized === "rgb(255, 255, 255)" ||
+    normalized === "white"
+  );
+}
+
+/**
+ * Finding 2(a): BOARD_TEXT_AUTO_COLOR_MARKER is stamped once at board-text
+ * creation time and never removed by the bridge, so it goes stale the
+ * moment a user explicitly recolors previously-auto-white text (e.g. picks
+ * a brand color) without the marker being cleared in the same edit. Trusting
+ * a stale marker unconditionally (the previous behavior) forced that
+ * deliberately-chosen color back to `inherit` on the next reparent/
+ * cross-screen move. A marker is only trustworthy evidence of "this color is
+ * still auto-applied" when the node's CURRENT inline color is still exactly
+ * the auto-default white — any other color means the user (or some other
+ * edit) changed it after the marker was stamped, so the marker is stale and
+ * must not be honored (callers should also strip it — see
+ * stripStaleAutoTextColorMarkerFromHtml below).
+ */
+export function isStaleAutoTextColorMarker(params: {
+  inlineColor: string | null | undefined;
+  hasAutoMarker: boolean;
+}): boolean {
+  return params.hasAutoMarker && !isAutoDefaultWhiteColor(params.inlineColor);
+}
+
+/**
+ * Pure decision: should a moved text node's auto-applied board color be
+ * rewritten to `inherit` once it lands in its cross-screen destination?
+ *
+ * Mirrors adaptAutoTextColorForNest's decision in editor-chrome.bridge.ts
+ * (keep both in sync), adapted to the host's HTML-string world instead of a
+ * live DOM re-parent check — the cross-screen drop path
+ * (handleCrossScreenElementDrop) always represents an actual re-parent (the
+ * node moves from one document's body into another), so there is no
+ * same-parent short-circuit to mirror here.
+ *
+ * - `hasAutoMarker` AND the color is still the auto-default white: always
+ *   safe to adapt regardless of the destination background — the color is
+ *   definitely still auto-applied, not user-set (finding 2: a marker whose
+ *   color has since diverged from white is STALE and must not short-circuit
+ *   here — falls through to the same conservative heuristic as no marker).
+ * - No marker (pre-marker content, a node the stamp missed, or a stale
+ *   marker whose color moved off white): fall back to the conservative
+ *   default-white + light-destination heuristic so a deliberately-chosen
+ *   color is never touched.
+ */
+export function shouldAdaptAutoTextColorForCrossScreenMove(params: {
+  inlineColor: string | null | undefined;
+  hasAutoMarker: boolean;
+  destinationBackgroundIsLight: boolean;
+}): boolean {
+  const { inlineColor, hasAutoMarker, destinationBackgroundIsLight } = params;
+  const normalized = (inlineColor || "").trim().toLowerCase();
+  if (
+    !normalized ||
+    normalized === "inherit" ||
+    normalized === "currentcolor"
+  ) {
+    return false;
+  }
+  const isDefaultWhite = isAutoDefaultWhiteColor(inlineColor);
+  if (hasAutoMarker && isDefaultWhite) return true;
+  if (!isDefaultWhite) return false;
+  return destinationBackgroundIsLight;
+}
+
+/**
+ * Pure decision for finding 1: given an ordered chain of background signals
+ * read from an element's ancestor chain (innermost first — same walk order
+ * `collectDestinationBackgroundSignals` below produces), decide whether the
+ * destination background is light.
+ *
+ * Each entry is either a CSS color string (from an inline `background`/
+ * `background-color` declaration, or a live `getComputedStyle().
+ * backgroundColor` read when a live document is available — see call site)
+ * or a `{ darkClassHint: true }` marker for a cheap utility-class signal
+ * (e.g. `bg-black`, `bg-gray-900`, `dark:bg-*`) when no inline/computed
+ * color was found on that same element. The first entry that resolves to a
+ * non-transparent (alpha >= 0.4) color wins; alpha below that threshold is
+ * treated as transparent so the walk keeps climbing instead of trusting a
+ * near-invisible tint. A dark-class hint only counts when no color signal
+ * was present on that element (a real color always wins over a guessed
+ * class). No signal anywhere in the chain conservatively reports "light" so
+ * the default-white heuristic can still fire and prevent invisible text.
+ */
+export function resolveDestinationBackgroundLightness(
+  chain: ReadonlyArray<{ color: string | null } | { darkClassHint: boolean }>,
+): boolean {
+  for (const entry of chain) {
+    if ("color" in entry && entry.color) {
+      const rgba = parseCssColorExtended(entry.color);
+      if (rgba && rgba.a >= 0.4) {
+        return (
+          relativeLuminance(rgba) > AUTO_TEXT_COLOR_LIGHT_LUMINANCE_THRESHOLD
+        );
+      }
+      continue;
+    }
+    if ("darkClassHint" in entry && entry.darkClassHint) {
+      return false;
+    }
+  }
+  return true;
+}
+
+// Cheap, best-effort utility-class signal for "this element's classes look
+// like a dark background" — used only when an element carries no inline or
+// computed background color at all (a real color signal always wins). Not
+// an attempt to parse Tailwind's full config: just the small set of
+// class-name shapes generated designs actually use for dark surfaces
+// (`bg-black`, `bg-gray-900`, `bg-neutral-950`, `dark:bg-slate-900`, etc.).
+const DARK_BACKGROUND_CLASS_RE =
+  /(?:^|:)bg-(?:black|(?:slate|gray|zinc|neutral|stone|red|orange|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose)-(?:800|900|950))\b/;
+
+function elementHasDarkBackgroundClassHint(element: Element): boolean {
+  const className =
+    typeof element.className === "string"
+      ? element.className
+      : (element.getAttribute("class") ?? "");
+  return DARK_BACKGROUND_CLASS_RE.test(className);
+}
+
+/**
+ * Builds the ancestor background-signal chain `resolveDestinationBackgroundLightness`
+ * consumes, walking up from `element`. Prefers a LIVE document's computed
+ * style (real cascade, resolves stylesheet/utility classes correctly —
+ * mirrors the bridge's `containerBackgroundIsLight`) when `liveElement` is
+ * supplied (see `destinationBackgroundIsLightForNode`'s doc for how the
+ * live node is resolved); otherwise falls back to reading INLINE
+ * `background`/`background-color` declarations plus the dark-class-name
+ * heuristic on the detached parsed-doc element, since a DOMParser document
+ * has no `defaultView` in real browsers and can't run `getComputedStyle`.
+ */
+function collectDestinationBackgroundSignals(
+  element: Element,
+  liveElement: Element | null,
+): Array<{ color: string | null } | { darkClassHint: boolean }> {
+  const chain: Array<{ color: string | null } | { darkClassHint: boolean }> =
+    [];
+  if (liveElement) {
+    const liveView = liveElement.ownerDocument?.defaultView;
+    let cursor: Element | null = liveElement;
+    while (
+      liveView &&
+      cursor &&
+      cursor !== liveElement.ownerDocument.documentElement
+    ) {
+      chain.push({ color: liveView.getComputedStyle(cursor).backgroundColor });
+      cursor = cursor.parentElement;
+    }
+    return chain;
+  }
+  let cursor: Element | null = element;
+  while (cursor && cursor !== element.ownerDocument.documentElement) {
+    const inline = (cursor as HTMLElement).style;
+    const inlineColor = inline?.backgroundColor || inline?.background || null;
+    if (inlineColor) {
+      chain.push({ color: inlineColor });
+    } else {
+      chain.push({ darkClassHint: elementHasDarkBackgroundClassHint(cursor) });
+    }
+    cursor = cursor.parentElement;
+  }
+  return chain;
+}
+
+/**
+ * Resolves whether the destination background around `element` (a node in a
+ * DOMParser-parsed detached document) is light. Prefers reading the LIVE
+ * destination screen iframe's computed style for the corresponding node
+ * when `liveDoc` is supplied — MultiScreenCanvas mounts every visible
+ * screen as a same-origin iframe reachable via
+ * `[data-screen-iframe-id="<screenId>"]` (see `getPrimaryIframeId` in
+ * MultiScreenCanvas.tsx), so the real cascade (including Tailwind utility
+ * classes, `<style>` rules, `dark:` variants, etc.) is available exactly
+ * like the in-iframe bridge's `containerBackgroundIsLight` — that live path
+ * is what makes class-based dark destinations (not just inline-styled ones)
+ * resolve correctly. Falls back to the detached doc's inline-style +
+ * dark-class-hint chain when no live document is available (e.g. the
+ * destination screen isn't currently mounted).
+ */
+function destinationBackgroundIsLightForNode(
+  element: Element,
+  liveDoc?: Document | null,
+): boolean {
+  try {
+    const liveElement =
+      liveDoc && element.hasAttribute("data-agent-native-node-id")
+        ? liveDoc.querySelector(
+            `[data-agent-native-node-id="${CSS.escape(
+              element.getAttribute("data-agent-native-node-id") ?? "",
+            )}"]`,
+          )
+        : null;
+    const chain = collectDestinationBackgroundSignals(element, liveElement);
+    return resolveDestinationBackgroundLightness(chain);
+  } catch {
+    return true;
+  }
+}
+
+/**
+ * Cross-screen counterpart to adaptAutoTextColorForNest — runs HOST-SIDE
+ * after moveNodeBetweenDocuments has already re-parented the text node into
+ * `destContent`'s DOM (identified by `destNodeAttrId`). Board-drawn text
+ * carries an explicit inline `color:#ffffff` default (see
+ * defaultCanvasTextColor / appendCanvasPrimitiveToHtml) because
+ * `currentColor` would inherit black on the always-dark board; dropped into
+ * a light destination screen/container, that stale inline white is
+ * invisible white-on-white. The in-screen drag path already handles this
+ * via the bridge's adaptAutoTextColorForNest; this is the missing
+ * cross-screen mirror (finding 8).
+ *
+ * No-op (returns `content` unchanged) when the moved node isn't a text
+ * primitive, carries no color needing adaptation, or the DOM can't be
+ * parsed — always best-effort, never a hard requirement for the move to
+ * succeed.
+ *
+ * `liveDestDoc` (optional) is the destination screen's LIVE iframe document
+ * when it's currently mounted — see `destinationBackgroundIsLightForNode`'s
+ * doc comment for why callers should prefer passing it when available
+ * (correct resolution for class-based/cascaded dark backgrounds, not just
+ * inline-styled ones).
+ */
+export function adaptAutoTextColorForCrossScreenNode(
+  content: string,
+  destNodeAttrId: string,
+  liveDestDoc?: Document | null,
+): string {
+  if (typeof window === "undefined" || !destNodeAttrId) return content;
+  try {
+    const doc = new DOMParser().parseFromString(content, "text/html");
+    const moved = doc.querySelector(
+      `[data-agent-native-node-id="${CSS.escape(destNodeAttrId)}"]`,
+    );
+    if (!moved) return content;
+    const kind = (
+      moved.getAttribute("data-an-primitive") ||
+      moved.getAttribute("data-agent-native-primitive") ||
+      ""
+    ).toLowerCase();
+    if (kind !== "text") return content;
+    const el = moved as HTMLElement;
+    const hasAutoMarker = moved.hasAttribute(BOARD_TEXT_AUTO_COLOR_MARKER);
+    // Finding 2(a): a marker whose color has since diverged from the
+    // auto-default white is stale — strip it here (in addition to falling
+    // through to the conservative heuristic below) so it can't mislead a
+    // LATER move/commit into re-honoring it once the color happens to be
+    // reset back to white for unrelated reasons.
+    let markerStripped = false;
+    if (
+      isStaleAutoTextColorMarker({
+        inlineColor: el.style.color,
+        hasAutoMarker,
+      })
+    ) {
+      moved.removeAttribute(BOARD_TEXT_AUTO_COLOR_MARKER);
+      markerStripped = true;
+    }
+    const shouldAdapt = shouldAdaptAutoTextColorForCrossScreenMove({
+      inlineColor: el.style.color,
+      hasAutoMarker: hasAutoMarker && !markerStripped,
+      destinationBackgroundIsLight: destinationBackgroundIsLightForNode(
+        moved,
+        liveDestDoc,
+      ),
+    });
+    if (!shouldAdapt && !markerStripped) return content;
+    if (shouldAdapt) el.style.color = "inherit";
+    return `<!DOCTYPE html>\n${doc.documentElement.outerHTML}`;
+  } catch {
+    return content;
+  }
+}
+
+/**
+ * Finding 2(b): the other half of the stale-marker fix. Stripping only
+ * happens lazily (finding 2(a), inside adaptAutoTextColorForCrossScreenNode)
+ * when a move/adapt pass actually re-reads the node — a user who sets an
+ * explicit color and never triggers another move/reparent would otherwise
+ * keep carrying a now-stale marker indefinitely. Called from
+ * commitVisualStyles whenever a "color" property is part of the committed
+ * style patch, so the marker is cleared at the moment the user's explicit
+ * choice is actually persisted, not just the next time something happens to
+ * re-check it. No-op (returns `content` unchanged) when the node has no
+ * marker, isn't found, or the DOM can't be parsed.
+ */
+export function clearAutoTextColorMarkerOnExplicitColorCommit(
+  content: string,
+  nodeId: string | null | undefined,
+): string {
+  if (typeof window === "undefined" || !nodeId) return content;
+  try {
+    const doc = new DOMParser().parseFromString(content, "text/html");
+    const node = doc.querySelector(
+      `[data-agent-native-node-id="${CSS.escape(nodeId)}"]`,
+    );
+    if (!node || !node.hasAttribute(BOARD_TEXT_AUTO_COLOR_MARKER)) {
+      return content;
+    }
+    node.removeAttribute(BOARD_TEXT_AUTO_COLOR_MARKER);
+    return `<!DOCTYPE html>\n${doc.documentElement.outerHTML}`;
+  } catch {
+    return content;
+  }
+}
+
+/**
+ * Finding 4: normalizePoisonedBoardNestedCoords (shared/board-file.ts)
+ * heuristically rewrites persisted nested board coords with no built-in
+ * trace of its own (kept side-effect-free so it stays safely callable from
+ * any context — see its doc comment). Every call site that applies its
+ * result and persists it goes through this shared logger instead, so a bad
+ * heuristic firing in the wild is visible: file id, how many nodes were
+ * rebased, and a small before/after sample.
+ */
+function warnIfPoisonedBoardCoordsNormalized(
+  fileId: string,
+  result: ReturnType<typeof normalizePoisonedBoardNestedCoords>,
+): void {
+  if (!result.changed) return;
+  console.warn(
+    "[design] normalized poisoned nested board coordinates on load/reparent",
+    {
+      fileId,
+      fixedNodeCount: result.fixedNodeCount,
+      samples: result.samples,
+    },
+  );
+}
+
+/**
+ * Finding 7: shared predicate behind BOTH of the editor's Radix-overlay
+ * pointer-event shields — `inspectorPopoverOpen` (gates keyboard focus
+ * routing) and `updateIframePointerEvents` (gates the single-screen preview
+ * iframe's `pointer-events`). The two used to have hand-duplicated, subtly
+ * different logic: `inspectorPopoverOpen`'s version correctly falls back to
+ * checking `wrapperEl`'s OWN `data-state` when it has no stateful child at
+ * all, but `updateIframePointerEvents`'s version treated "no stateful
+ * child" as unconditionally open regardless of the wrapper's own
+ * `data-state` — so closing the zoom menu via item-select (which closes
+ * through the reused-wrapper path, flipping `data-state="closed"` on the
+ * wrapper itself with no stateful child left inside) could leave the
+ * preview iframe's pointer-events stuck at `none`. Both call sites now
+ * share this one corrected definition instead of drifting again.
+ *
+ * A wrapper counts as "open" unless:
+ * - it's a first-party tooltip wrapper itself
+ *   (`data-agent-native-tooltip`), or
+ * - its only stateful descendants are all first-party tooltips (the
+ *   Tooltip+DropdownMenu combo case — see the call sites' doc comments), or
+ * - it (or its one stateful descendant, when present) explicitly carries
+ *   `data-state="closed"`.
+ *
+ * With no stateful descendant AND no `data-state` anywhere on the wrapper
+ * itself, there's no signal either way — conservatively treated as open
+ * (matches the previous default-open behavior for that specific case).
+ */
+export function isRadixOverlayOpen(wrapperEl: Element): boolean {
+  if (wrapperEl.hasAttribute("data-agent-native-tooltip")) return false;
+  const isOpenState = (el: Element) =>
+    el.getAttribute("data-state") !== "closed";
+  const stateful = wrapperEl.querySelectorAll("[data-state]");
+  if (stateful.length > 0) {
+    const allTooltips = Array.from(stateful).every((content) =>
+      content.hasAttribute("data-agent-native-tooltip"),
+    );
+    if (allTooltips) return false;
+    if (wrapperEl.hasAttribute("data-state")) {
+      return isOpenState(wrapperEl);
+    }
+    // Multiple stateful descendants (or one non-tooltip descendant among
+    // several): open if ANY non-tooltip stateful descendant is open.
+    return Array.from(stateful).some(
+      (content) =>
+        !content.hasAttribute("data-agent-native-tooltip") &&
+        isOpenState(content),
+    );
+  }
+  if (wrapperEl.hasAttribute("data-state")) {
+    return isOpenState(wrapperEl);
+  }
+  return true;
 }
 
 function isAbsoluteCodeLayerNode(node: CodeLayerNode | null | undefined) {
@@ -3850,19 +4515,32 @@ function primitiveLayerName(primitive: CanvasPrimitiveInsert): string {
   }
 }
 
-// Item 2 (text defaults): canvas-drawn text has no explicit fill/font by
-// default, so it falls back to `currentColor` (inherited body color — black
-// in an unstyled document) and the browser's serif default. That's invisible
-// on the dark infinite-canvas/board background and looks wrong compared to
-// the rest of the editor chrome. Screens keep their own (often light)
-// background and existing font stack, so this default only applies to
-// primitives landing on the BOARD, gated on the app's actual resolved theme
-// (next-themes' `dark` class on <html>, which drives the canvas background
-// via CSS vars) rather than raw OS `prefers-color-scheme` — see
-// isDesignEditorDarkTheme's doc comment.
+// Reads the app's actual resolved theme (next-themes' `dark` class on
+// <html>) rather than raw OS `prefers-color-scheme`. NOTE: this is about the
+// EDITOR CHROME theme only — it must NOT gate board-content defaults. The
+// board surface itself is ALWAYS dark (BOARD_SURFACE_BACKGROUND is a fixed
+// hsl(0 0% 10%) regardless of editor theme), so board-drawn text keys its
+// default color off `isBoardTarget` alone — see defaultCanvasTextColor.
+// Gating it on this flag made T-tool board text render black-on-dark
+// (invisible) whenever the editor UI was in light mode.
 export function isDesignEditorDarkTheme(): boolean {
   if (typeof document === "undefined") return false;
   return document.documentElement.classList.contains("dark");
+}
+
+/**
+ * Default text color for a freshly drawn text primitive.
+ *
+ * - BOARD target: always white. The board surface is permanently dark
+ *   (BOARD_SURFACE_BACKGROUND), independent of the editor chrome theme, so
+ *   the "white Inter on dark board" default must not depend on
+ *   isDesignEditorDarkTheme() — that gate left board text at `currentColor`
+ *   (black in an unstyled document) for light-theme editor sessions.
+ * - SCREEN target: `currentColor`, so text dropped into an existing (often
+ *   light) screen inherits its surrounding styles/theme exactly as before.
+ */
+export function defaultCanvasTextColor(isBoardTarget: boolean): string {
+  return isBoardTarget ? "#ffffff" : "currentColor";
 }
 
 /** Default font stack for board-drawn text — Inter with the app's standard
@@ -3870,6 +4548,20 @@ export function isDesignEditorDarkTheme(): boolean {
  * instead of the browser's serif default for an unstyled <div>. */
 export const CANVAS_TEXT_DEFAULT_FONT_FAMILY =
   '"Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
+
+/**
+ * Marker attribute stamped on board-drawn text whose inline `color` is the
+ * auto-applied board default (defaultCanvasTextColor's "#ffffff" branch),
+ * NOT a user-chosen color. Mirrors BOARD_TEXT_AUTO_COLOR_MARKER in
+ * editor-chrome.bridge.ts (keep both in sync) — that bridge's
+ * adaptAutoTextColorForNest reads this marker to decide whether an
+ * in-screen re-parent should switch the forced white to `inherit` so the
+ * text doesn't render white-on-white in a light container. Cross-screen
+ * drops (handleCrossScreenElementDrop below) key off the same marker via
+ * adaptAutoTextColorForCrossScreenNode. Any explicit user color edit must
+ * remove this attribute so the text is never "helpfully" overridden again.
+ */
+export const BOARD_TEXT_AUTO_COLOR_MARKER = "data-an-auto-text-color";
 
 function appendCanvasPrimitiveToHtml(
   content: string,
@@ -4111,16 +4803,27 @@ function appendCanvasPrimitiveToHtml(
         // not centered — match that instead of centering the text block.
         element.style.alignItems = "flex-start";
       }
-      // Item 2: board (dark infinite-canvas) text needs an explicit default
-      // fill — "currentColor" inherits the unstyled document's black body
-      // text, invisible on the dark canvas background. Screens keep
+      // Board (dark infinite-canvas) text needs an explicit default fill —
+      // "currentColor" inherits the unstyled document's black body text,
+      // invisible on the dark canvas background. The board surface is
+      // always dark regardless of the editor chrome theme, so this keys off
+      // the target surface only (see defaultCanvasTextColor). Screens keep
       // "currentColor" so text dropped into an existing (often light)
       // screen still inherits its surrounding styles/theme as before.
-      element.style.color =
+      const resolvedTextColor =
         primitive.fill ??
-        (options?.isBoardTarget && isDesignEditorDarkTheme()
-          ? "#ffffff"
-          : "currentColor");
+        defaultCanvasTextColor(options?.isBoardTarget === true);
+      element.style.color = resolvedTextColor;
+      // Stamp the auto-color marker whenever the color came from the
+      // default (no explicit primitive.fill) rather than a user-chosen
+      // value, so a later cross-screen or in-screen re-parent (see
+      // adaptAutoTextColorForCrossScreenNode below and
+      // adaptAutoTextColorForNest in editor-chrome.bridge.ts) can safely
+      // detect "this white was auto-applied" and rewrite it to inherit
+      // instead of leaving invisible white-on-white text.
+      if (primitive.fill === undefined) {
+        element.setAttribute(BOARD_TEXT_AUTO_COLOR_MARKER, "");
+      }
       element.style.fontSize = "16px";
       element.style.lineHeight = "1.2";
       element.style.whiteSpace = "pre-wrap";
@@ -6833,6 +7536,107 @@ export function geometrySnapshotsEqual(
   return aKeys.every((key) => key in b && frameGeometryEquals(a[key], b[key]));
 }
 
+/**
+ * Frame-geometry persistence guard (companion to the board-zoom-corruption
+ * fix): while the overview zoom scalar was corrupted, ANY frame interaction
+ * translated pointer deltas through the garbage scale and wrote absurd
+ * canvasFrames/screenMetadata (observed in the wild: a 120x14976 screen
+ * frame, ±65536-band poisoned coords) that survived reload. Every
+ * canvasFrames persist path now refuses per-frame geometry that cannot be
+ * real: non-finite fields, non-positive dimensions, a dimension beyond
+ * MAX_SANE_FRAME_DIMENSION_PX, or a width:height aspect beyond
+ * MAX_SANE_FRAME_ASPECT_RATIO — falling back to that frame's previously
+ * persisted geometry (or dropping the entry when none exists) instead of
+ * shredding the stored layout. x/y positions are deliberately NOT
+ * range-bounded (frames legitimately sit anywhere on the ±65k board
+ * surface); only non-finite positions are refused.
+ *
+ * MAX_SANE_FRAME_DIMENSION_PX is a truly-insane-only backstop, not the
+ * primary corruption guard — the aspect-ratio check (MAX_SANE_FRAME_ASPECT_RATIO)
+ * and the poisoned-coordinate checks are what actually catch the observed
+ * corruption shape (garbage-scale drags produce absurd ASPECT ratios, not
+ * merely large-but-plausible dimensions). A legitimately tall scrolling page
+ * frame (e.g. 1440x30000, aspect ~20.8 — well under the ratio cap) is real
+ * content and must not be silently reverted just for being long.
+ */
+export const MAX_SANE_FRAME_DIMENSION_PX = 100000;
+export const MAX_SANE_FRAME_ASPECT_RATIO = 50;
+
+export function isSaneCanvasFrameGeometryForPersist(
+  geometry: CanvasFrameGeometry,
+): boolean {
+  const numericFields = [
+    geometry.x,
+    geometry.y,
+    geometry.width,
+    geometry.height,
+    geometry.rotation,
+    geometry.z,
+  ];
+  if (
+    numericFields.some(
+      (value) => value !== undefined && !Number.isFinite(value),
+    )
+  ) {
+    return false;
+  }
+  const { width, height } = geometry;
+  if (
+    width !== undefined &&
+    (width <= 0 || width > MAX_SANE_FRAME_DIMENSION_PX)
+  ) {
+    return false;
+  }
+  if (
+    height !== undefined &&
+    (height <= 0 || height > MAX_SANE_FRAME_DIMENSION_PX)
+  ) {
+    return false;
+  }
+  if (width !== undefined && height !== undefined) {
+    const aspect = Math.max(width / height, height / width);
+    if (aspect > MAX_SANE_FRAME_ASPECT_RATIO) return false;
+  }
+  return true;
+}
+
+export function sanitizeCanvasFrameGeometryForPersist(
+  nextById: CanvasFrameGeometryById,
+  previousById: CanvasFrameGeometryById,
+  exemptFrameIds: readonly string[] = [],
+): { geometryById: CanvasFrameGeometryById; rejectedFrameIds: string[] } {
+  const rejectedFrameIds: string[] = [];
+  let sanitized: CanvasFrameGeometryById | null = null;
+  for (const [frameId, geometry] of Object.entries(nextById)) {
+    if (exemptFrameIds.includes(frameId)) continue;
+    if (isSaneCanvasFrameGeometryForPersist(geometry)) continue;
+    rejectedFrameIds.push(frameId);
+    if (sanitized === null) sanitized = { ...nextById };
+    const previous = previousById[frameId];
+    // Detectability: a guard revert here is otherwise silent — the caller
+    // sees a normal-looking geometryById back and has no way to notice the
+    // frame's edit was discarded. Surface the offending frame id and its
+    // rejected/fallback dimensions so a bad heuristic (or a real corruption
+    // case slipping past the aspect/finite checks) is visible in the wild.
+    console.warn(
+      "[design] rejected insane canvas frame geometry on persist — reverted to previous geometry",
+      {
+        frameId,
+        rejected: geometry,
+        revertedTo: previous ?? null,
+      },
+    );
+    if (previous && isSaneCanvasFrameGeometryForPersist(previous)) {
+      sanitized[frameId] = { ...previous };
+    } else {
+      delete sanitized[frameId];
+    }
+  }
+  // No rejects: return the input reference untouched so callers' equality
+  // checks and memoizations see no churn.
+  return { geometryById: sanitized ?? nextById, rejectedFrameIds };
+}
+
 function staleGeometryFrameIds(
   entry: GeometryHistoryEntry,
   live: CanvasFrameGeometryById,
@@ -9178,6 +9982,24 @@ export default function DesignEditor() {
     return typeof boardFile?.content === "string" ? boardFile.content : "";
   }, [boardFileId, files]);
 
+  // Self-heal persisted board content whose NESTED children carry left/top
+  // values poisoned by the board-surface offset (near-65536-multiple values
+  // written by the historic nest-on-drop coordinate bugs — see
+  // normalizePoisonedBoardNestedCoords in shared/board-file.ts). Those
+  // children render tens of thousands of px outside their parent (visually
+  // vanished) and the corruption round-trips reload, so repair the content
+  // on load/adopt and persist the fix through the normal save path. The
+  // helper is idempotent (normalized output is never re-flagged), so this
+  // effect settles after one write; it also catches poison arriving later
+  // from a peer still running pre-fix code.
+  useEffect(() => {
+    if (!boardFileId || !boardFileContent || !canEditDesign) return;
+    const normalized = normalizePoisonedBoardNestedCoords(boardFileContent);
+    if (!normalized.changed) return;
+    warnIfPoisonedBoardCoordsNormalized(boardFileId, normalized);
+    queueFileContentSave(boardFileId, normalized.html);
+  }, [boardFileContent, boardFileId, canEditDesign, queueFileContentSave]);
+
   // Logical canvas-space bounding box of the board iframe. The board is an
   // invisible editing layer behind screen frames, not a finite artboard, so keep
   // it at the canvas-safe maximum instead of clipping it to the screen union.
@@ -9204,9 +10026,20 @@ export default function DesignEditor() {
         // Read the freshest designDataJson from the ref so any concurrent
         // server writes (e.g. apply-tweaks) that arrived during the 500 ms
         // debounce window are not overwritten with stale closure data.
+        //
+        // Geometry-persist guard: refuse absurd per-frame geometry (see
+        // sanitizeCanvasFrameGeometryForPersist) so a corrupted transient
+        // zoom basis can never shred the persisted layout. The board frame
+        // is exempt — its surface is a legitimate 131k square.
+        const { geometryById: safeGeometryById } =
+          sanitizeCanvasFrameGeometryForPersist(
+            geometryById,
+            getCanvasFrameGeometry(designDataJsonRef.current),
+            boardFileId ? [boardFileId] : [],
+          );
         const nextData = {
           ...designDataJsonRef.current,
-          canvasFrames: geometryById,
+          canvasFrames: safeGeometryById,
         };
         updateDesignMutation.mutate(
           {
@@ -9223,7 +10056,7 @@ export default function DesignEditor() {
         );
       }, 500);
     },
-    [id, queryClient, updateDesignMutation],
+    [boardFileId, id, queryClient, updateDesignMutation],
   );
 
   const writeFrameGeometrySnapshot = useCallback(
@@ -9236,7 +10069,16 @@ export default function DesignEditor() {
         window.clearTimeout(frameGeometrySaveTimerRef.current);
         frameGeometrySaveTimerRef.current = null;
       }
-      const snapshot = cloneCanvasFrameGeometry(geometryById);
+      // Geometry-persist guard — same contract as queueFrameGeometrySave:
+      // never let absurd frame geometry (a corrupted zoom basis' product)
+      // reach canvasFrames or the screenMetadata viewport sync below.
+      const { geometryById: safeGeometryById } =
+        sanitizeCanvasFrameGeometryForPersist(
+          geometryById,
+          getCanvasFrameGeometry(designDataJsonRef.current),
+          boardFileId ? [boardFileId] : [],
+        );
+      const snapshot = cloneCanvasFrameGeometry(safeGeometryById);
       const baseData = {
         ...designDataJsonRef.current,
         canvasFrames: snapshot,
@@ -9266,7 +10108,7 @@ export default function DesignEditor() {
         },
       );
     },
-    [id, queryClient, updateDesignMutation],
+    [boardFileId, id, queryClient, updateDesignMutation],
   );
 
   const handleGeometryCommit = useCallback(
@@ -9276,7 +10118,17 @@ export default function DesignEditor() {
       options?: { source?: "pointer" | "keyboard" },
     ) => {
       const beforeSnapshot = cloneCanvasFrameGeometry(before);
-      const afterSnapshot = cloneCanvasFrameGeometry(after);
+      // Geometry-persist guard: refuse absurd committed geometry HERE (not
+      // only inside the save functions) so the undo stack and the mid-gesture
+      // query-cache write below stay consistent with what actually persists —
+      // an insane frame falls back to its own pre-gesture geometry, and a
+      // commit whose every change was refused becomes a no-op.
+      const { geometryById: afterSnapshot } =
+        sanitizeCanvasFrameGeometryForPersist(
+          cloneCanvasFrameGeometry(after),
+          beforeSnapshot,
+          boardFileId ? [boardFileId] : [],
+        );
       if (geometrySnapshotsEqual(beforeSnapshot, afterSnapshot)) {
         return;
       }
@@ -9375,6 +10227,7 @@ export default function DesignEditor() {
       syncUndoRedoState();
     },
     [
+      boardFileId,
       clearRedoStacks,
       id,
       queryClient,
@@ -9784,12 +10637,36 @@ export default function DesignEditor() {
   const activeScreenExternalSnapshotHtml = activeFile?.id
     ? liveScreenSnapshotsById[activeFile.id]?.html
     : undefined;
+  // Board-zoom-corruption fix: the zoom SCALE basis is resolved separately
+  // from `activeOverviewScreenId` (which keeps its historical semantics for
+  // source/bridge wiring above) so the board file — or any non-screen active
+  // file — can never become the basis and flip the scale onto its 320/1280
+  // double-fallback while explicitOverviewCanvasZoom stays pinned. See
+  // resolveOverviewZoomBasisScreenId's doc comment.
+  const overviewScreenIdList = useMemo(
+    () => overviewScreens.map((screen) => screen.id),
+    [overviewScreens],
+  );
+  const overviewZoomBasisScreenId = resolveOverviewZoomBasisScreenId({
+    candidateFileId: activeFile?.id ?? activeFileId ?? null,
+    boardFileId: boardFileId ?? null,
+    overviewScreenIds: overviewScreenIdList,
+  });
+  const overviewZoomBasisScreen = useMemo(
+    () =>
+      overviewZoomBasisScreenId
+        ? overviewScreens.find(
+            (screen) => screen.id === overviewZoomBasisScreenId,
+          )
+        : undefined,
+    [overviewZoomBasisScreenId, overviewScreens],
+  );
   const activeOverviewSourceWidth =
     deviceFrame === "none"
-      ? activeOverviewScreen?.width
+      ? overviewZoomBasisScreen?.width
       : DEVICE_FRAME_VIEWPORTS[deviceFrame].width;
-  const activeOverviewFrameWidth = activeOverviewScreenId
-    ? canvasFrameGeometryById[activeOverviewScreenId]?.width
+  const activeOverviewFrameWidth = overviewZoomBasisScreenId
+    ? canvasFrameGeometryById[overviewZoomBasisScreenId]?.width
     : undefined;
   const overviewZoomScale = getOverviewZoomScale({
     frameWidth: activeOverviewFrameWidth,
@@ -9801,12 +10678,38 @@ export default function DesignEditor() {
     overviewZoomScaleRef.current = overviewZoomScale;
   }, [overviewZoomScale]);
 
+  // Defensive invalidation: if a basis-identity change would turn the pinned
+  // explicit canvas zoom into an out-of-range displayed zoom, drop the pin so
+  // the derivation re-anchors instead of surfacing a garbage percentage. A
+  // normal screen-to-screen basis change (sane label shift, camera untouched)
+  // never trips this — see shouldResetExplicitOverviewZoomOnBasisChange.
+  const overviewZoomBasisIdRef = useRef<string | null>(
+    overviewZoomBasisScreenId,
+  );
+  useEffect(() => {
+    const previousBasisScreenId = overviewZoomBasisIdRef.current;
+    overviewZoomBasisIdRef.current = overviewZoomBasisScreenId;
+    if (
+      shouldResetExplicitOverviewZoomOnBasisChange({
+        previousBasisScreenId,
+        nextBasisScreenId: overviewZoomBasisScreenId,
+        explicitOverviewCanvasZoom,
+        nextOverviewZoomScale: overviewZoomScale,
+      })
+    ) {
+      setExplicitOverviewCanvasZoom(null);
+    }
+  }, [
+    explicitOverviewCanvasZoom,
+    overviewZoomBasisScreenId,
+    overviewZoomScale,
+  ]);
+
   const overviewCanvasZoom =
     explicitOverviewCanvasZoom ??
     getDefaultOverviewCanvasZoom(overviewZoomScale);
-  const overviewZoom = getOverviewDisplayZoom(
-    overviewCanvasZoom,
-    overviewZoomScale,
+  const overviewZoom = clampOverviewDisplayZoom(
+    getOverviewDisplayZoom(overviewCanvasZoom, overviewZoomScale),
   );
   const zoom = viewMode === "overview" ? overviewZoom : screenZoom;
   const setZoomForView = useCallback(
@@ -11121,16 +12024,53 @@ export default function DesignEditor() {
   // canvas iframe, but the iframe has its own event context so it still receives
   // pointer events that pass through the popover layer. This shield prevents
   // unintended drag/style edits triggered by clicks intended for the inspector.
+  //
+  // Stuck-shield fix (two independent causes, both fixed here):
+  //
+  // 1. Detection staleness: Radix's Portal container for a given trigger is
+  //    created ONCE and reused across opens — only its CONTENTS (and its own
+  //    data-state attribute) change on subsequent opens/closes, the wrapper
+  //    node itself is not removed from document.body. Selecting a
+  //    DropdownMenuItem (as opposed to Escape, which does tear the wrapper
+  //    out of the DOM) closes the menu via that reused-wrapper path, so a
+  //    body-only, subtree:false observer never fires again after the FIRST
+  //    popover interaction. Fixed by watching the whole subtree and
+  //    data-state attribute changes, so a close-via-reused-wrapper is
+  //    detected exactly like a close-via-removal.
+  //
+  // 2. False-positive source: `[data-radix-popper-content-wrapper]` is not
+  //    specific to menus/popovers — Radix's Tooltip primitive uses the same
+  //    Popper machinery and stamps the identical wrapper attribute (see
+  //    TooltipContent in packages/toolkit/src/ui/tooltip.tsx, which adds
+  //    `data-agent-native-tooltip="true"` on its own Content node
+  //    specifically so callers like this one can tell tooltips apart from
+  //    real menus/popovers). The zoom control's trigger button is wrapped in
+  //    both a Tooltip AND a DropdownMenu (renderZoomControl): closing the
+  //    dropdown by selecting an item can leave the hover-triggered tooltip's
+  //    own portal open (or briefly re-open on the same tick), which this
+  //    selector cannot distinguish from a real open menu — so the shield
+  //    stayed up for as long as the mouse lingered over the trigger.
+  //    Fixed by excluding wrappers whose only open content is a tooltip.
+  //
+  // The open/closed decision itself is the shared isRadixOverlayOpen
+  // predicate (finding 7) — updateIframePointerEvents below uses the exact
+  // same predicate so the two shields can't drift apart again.
   const [inspectorPopoverOpen, setInspectorPopoverOpen] = useState(false);
   useEffect(() => {
     const ATTR = "data-radix-popper-content-wrapper";
     const update = () => {
+      const wrappers = document.body.querySelectorAll(`[${ATTR}]`);
       setInspectorPopoverOpen(
-        document.body.querySelector(`[${ATTR}]`) !== null,
+        Array.from(wrappers).some((wrapper) => isRadixOverlayOpen(wrapper)),
       );
     };
     const observer = new MutationObserver(update);
-    observer.observe(document.body, { childList: true, subtree: false });
+    observer.observe(document.body, {
+      childList: true,
+      subtree: true,
+      attributes: true,
+      attributeFilter: ["data-state"],
+    });
     update();
     return () => observer.disconnect();
   }, []);
@@ -11590,6 +12530,15 @@ export default function DesignEditor() {
         freshActiveContentFileId: activeFile?.id,
         freshActiveContent: activeContent,
         fileContentById,
+        // Same-tick freshness for NON-ACTIVE screens (see the param's doc on
+        // getFreshScreenContent): applyFileContentUpdate writes this ref
+        // synchronously via markPendingLocalFileContent, while the
+        // files-derived map above only refreshes on the next render. Without
+        // it, the second message of a bridge drop sequence (auto-layout
+        // conversion style → structure move) rebased off stale content and
+        // clobbered the first message's edit.
+        pendingContent:
+          pendingLocalFileContentsRef.current.get(screenId)?.content ?? null,
       }),
     [activeContent, activeFile?.id, fileContentById],
   );
@@ -13207,12 +14156,21 @@ export default function DesignEditor() {
   ]);
 
   const handleComponentPropApplied = useCallback(
+    // Also the GLSL shader picker's onApplied host-sync (glslShaderContext in
+    // EditPanel.tsx reuses this contract for apply/remove/knob commits). Must
+    // stay on the in-place replace route — see
+    // getPersistedContentHostSyncOptions' doc comment (shader-apply white
+    // flash regression).
     (fileId: string, nextContent: string, updatedAt?: string) => {
-      applyFileContentUpdate(fileId, nextContent, {
-        refreshPreview: fileId === activeFile?.id,
-        persist: false,
-        updatedAt,
-      });
+      applyFileContentUpdate(
+        fileId,
+        nextContent,
+        getPersistedContentHostSyncOptions({
+          fileId,
+          activeFileId: activeFile?.id ?? null,
+          updatedAt,
+        }),
+      );
     },
     [activeFile?.id, applyFileContentUpdate],
   );
@@ -13229,10 +14187,21 @@ export default function DesignEditor() {
         typeof result?.fileId === "string" &&
         typeof result.patchedContent === "string"
       ) {
-        applyFileContentUpdate(result.fileId, result.patchedContent, {
-          refreshPreview: result.fileId === activeFile?.id,
-          persist: false,
-        });
+        // apply-a11y-fix persisted the patched content server-side before
+        // returning it, so adopting it here is a persisted-content host sync:
+        // route through the bridge's in-place replace instead of the
+        // refreshPreview srcdoc rebuild (white flash) — see
+        // getPersistedContentHostSyncOptions' doc comment. The fix result
+        // carries no updatedAt stamp, so none is passed (an invented one
+        // would corrupt the acked-hash base for guarded update-file saves).
+        applyFileContentUpdate(
+          result.fileId,
+          result.patchedContent,
+          getPersistedContentHostSyncOptions({
+            fileId: result.fileId,
+            activeFileId: activeFile?.id ?? null,
+          }),
+        );
       }
       void handleRunDesignAudit();
     },
@@ -13453,18 +14422,32 @@ export default function DesignEditor() {
       // new primitive selected, matching Figma behaviour.  We activate the
       // target screen (so the layers panel shows its content) and select the
       // new node, but do NOT switch to single/full view.
+      //
+      // Board guard (overview-zoom corruption fix): the board file is NOT a
+      // screen — it never appears in `overviewScreens` and has no
+      // `canvasFrames` entry, so activating it flipped the overview zoom
+      // basis onto double-fallback inputs (scale snapped to 0.25) while
+      // `explicitOverviewCanvasZoom` stayed pinned to the previous screen's
+      // scale — the displayed zoom showed garbage (observed: 10241.49%).
+      // For a board-created primitive we still select the node and honor the
+      // pending text-edit intent below (both are screen-id scoped and work
+      // for the board), but keep the previous active FILE and never put the
+      // board id into the overview screen-frame selection.
+      const isBoardTarget = Boolean(boardFileId && screenId === boardFileId);
       pendingOverviewScreenSelectionRef.current =
-        options?.selectFrame === false ? null : screenId;
+        isBoardTarget || options?.selectFrame === false ? null : screenId;
       pendingOverviewLayerSelectionRef.current = nodeId;
       clearPendingOverviewLayerSelectionTimer();
       flushSync(() => {
         setCreatedOverviewLayerSelection({ screenId, layerId: nodeId });
-        setActiveFileId(screenId);
+        if (!isBoardTarget) {
+          setActiveFileId(screenId);
+        }
         setSelectedElement(null);
         setHoveredElement(null);
         setSelectedLayerIdsState([nodeId]);
         setOverviewSelectedScreenIds(
-          options?.selectFrame === false ? [] : [screenId],
+          isBoardTarget || options?.selectFrame === false ? [] : [screenId],
         );
         setActiveTool(options?.nextTool ?? "move");
         setMode("edit");
@@ -13484,6 +14467,28 @@ export default function DesignEditor() {
         // before starting a new one, so stale timers can't fight over which
         // node to clean up.
         pendingEmptyTextEditRef.current?.cancel();
+        // Creation-race fast path: the retry loop below fires its FIRST
+        // begin-text-edit attempt at 180ms and its status-query round trips
+        // can leave a multi-second window where keystrokes still hit HOST
+        // shortcuts (Delete deleted the just-created text layer). The
+        // DesignCanvas runtime bridge's beginTextEdit (registered as
+        // window.__designCanvasBeginTextEdit by the active surface's canvas
+        // — the flushSync above just pointed activeFileId at this screenId
+        // for non-board targets) queues begin-text-edit through the
+        // bridge-ready one-shot queue AND arms the host keystroke buffer
+        // SYNCHRONOUSLY, so typing is captured from the very first keydown.
+        // Best-effort only: if the registered bridge still belongs to a
+        // different surface, its iframe no-ops on the unknown nodeId while
+        // the buffer still swallows destructive shortcuts, and the
+        // screen-id-scoped scheduleBeginTextEditForScreen loop below remains
+        // the authoritative per-iframe (data-screen-iframe-id targeted)
+        // fallback.
+        if (typeof window !== "undefined") {
+          const beginTextEditNow = (window as any).__designCanvasBeginTextEdit;
+          if (typeof beginTextEditNow === "function") {
+            beginTextEditNow(textNodeId);
+          }
+        }
         const cancel = scheduleBeginTextEditForScreen(
           screenId,
           textNodeId,
@@ -13506,7 +14511,11 @@ export default function DesignEditor() {
         };
       }
     },
-    [clearPendingOverviewLayerSelectionTimer, removeEmptyTextNodeIfUntouched],
+    [
+      boardFileId,
+      clearPendingOverviewLayerSelectionTimer,
+      removeEmptyTextNodeIfUntouched,
+    ],
   );
 
   // T6: stop the begin-text-edit retry loop as soon as the bridge reports the
@@ -14399,11 +15408,19 @@ export default function DesignEditor() {
       },
       onShaderFillPreviewClear: clearShaderFillPreview,
       onShaderFillApplied: (fileId, content, updatedAt) => {
-        applyFileContentUpdate(fileId, content, {
-          refreshPreview: fileId === activeFile?.id,
-          persist: false,
-          updatedAt,
-        });
+        // In-place replace, never a forced srcdoc rebuild — a rebuild is a
+        // real iframe reload (white flash) of the screen the user is looking
+        // at right as the "applied" toast fires. See
+        // getPersistedContentHostSyncOptions' doc comment.
+        applyFileContentUpdate(
+          fileId,
+          content,
+          getPersistedContentHostSyncOptions({
+            fileId,
+            activeFileId: activeFile?.id ?? null,
+            updatedAt,
+          }),
+        );
       },
       onAssetInserted: handleAssetInserted,
     }),
@@ -14720,6 +15737,15 @@ export default function DesignEditor() {
 
   const handleScreenElementHover = useCallback(
     (screenId: string, info: ElementInfo | null) => {
+      // PERF9-WHEEL: while a MultiScreenCanvas wheel/pinch camera gesture is
+      // in flight, hover updates are dropped entirely. The gesture start
+      // mutes the canvas content layers, which fires a hover-clear (and any
+      // later boundary crossing while the world moves under the cursor fires
+      // more) — each one a hoveredElement setState and therefore a full-tree
+      // render exactly while the pan needs the main thread. Hover state
+      // stays stale for the gesture (same contract as a space-drag pan) and
+      // recomputes from the next real pointer event after settle.
+      if (isWheelCameraGestureActive()) return;
       const projection = getCodeLayerProjectionForScreen(screenId);
       const nextHovered = info
         ? projection
@@ -14958,6 +15984,12 @@ export default function DesignEditor() {
           ? crypto.randomUUID()
           : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
       if (!targetNode && elementInfoIsRuntimeOnly(targetInfo)) {
+        // Fail LOUD (same contract as the resolveVisualStyleCommitContent
+        // error branch below): patch-proof state alone is too quiet for a
+        // user-initiated edit that will never persist.
+        toast.error(t("designEditor.patchProof.selectorMissing"), {
+          duration: 4000,
+        });
         setPatchProof({
           id: proofId,
           fileId: activeFile.id,
@@ -15091,35 +16123,58 @@ export default function DesignEditor() {
       // breakpoint is active it would clobber every viewport width with a
       // value the user meant to scope. Fail loud (patch-proof error) instead
       // of silently widening the edit.
-      const resolvedNextContentBeforeFontLink = stylePatch.failed
-        ? activeBreakpointUpperBoundPx != null
-          ? ""
-          : nextContent
-        : stylePatch.content;
-      if (!resolvedNextContentBeforeFontLink) {
+      const commitResolution = resolveVisualStyleCommitContent({
+        scopedContent: stylePatch.content,
+        scopedFailure: stylePatch.failed,
+        legacyFallbackContent: nextContent,
+        breakpointScoped: activeBreakpointUpperBoundPx != null,
+      });
+      if ("error" in commitResolution) {
+        const failureMessage = codeLayerPatchMessage(
+          commitResolution.error,
+          t("designEditor.patchProof.selectorMissing"),
+        );
+        // Fail LOUD, never silently: an unresolvable commit target (e.g. an
+        // Alpine template-instance element with no per-instance source node)
+        // used to only flip the patch-proof panel to "failed" — no toast, no
+        // revert, while the inspector kept displaying the new value, so users
+        // had no idea their edit never persisted (verified on real content:
+        // Gap scrub on an x-for todo-card subtask row). Same toast pattern as
+        // handleVisualStructureChange's move failure.
+        toast.error(failureMessage, { duration: 4000 });
         setPatchProof((prev) =>
           prev?.id === proofId
-            ? {
-                ...prev,
-                status: "failed",
-                error:
-                  stylePatch.failed ??
-                  t("designEditor.patchProof.selectorMissing"),
-              }
+            ? { ...prev, status: "failed", error: failureMessage }
             : prev,
         );
         return;
       }
+      const resolvedNextContentBeforeFontLink = commitResolution.content;
 
       // T16: if this commit set fontFamily to a known Google Font not
       // already loaded in this screen, inject its <link> into <head>.
       const fontFamilyValue = Object.fromEntries(entries).fontFamily;
-      const resolvedNextContent = fontFamilyValue
+      const resolvedNextContentAfterFontLink = fontFamilyValue
         ? ensureGoogleFontLinkInHtml(
             resolvedNextContentBeforeFontLink,
             fontFamilyValue,
           )
         : resolvedNextContentBeforeFontLink;
+
+      // Finding 2(b): an explicit "color" commit on a node that still carries
+      // BOARD_TEXT_AUTO_COLOR_MARKER means the user just deliberately chose a
+      // color — the marker no longer describes an auto-applied default and
+      // must not survive to mislead a later reparent/cross-screen move (see
+      // isStaleAutoTextColorMarker / clearAutoTextColorMarkerOnExplicitColorCommit).
+      const committedNodeId =
+        targetNode?.dataAttributes["data-agent-native-node-id"];
+      const resolvedNextContent =
+        "color" in Object.fromEntries(entries) && committedNodeId
+          ? clearAutoTextColorMarkerOnExplicitColorCommit(
+              resolvedNextContentAfterFontLink,
+              committedNodeId,
+            )
+          : resolvedNextContentAfterFontLink;
 
       const nextProjection = buildCodeLayerProjection(resolvedNextContent);
       const resolvedNode = selectedElement
@@ -15333,8 +16388,17 @@ export default function DesignEditor() {
         });
         if (nextContent === baseContent) return;
         appliedAny = true;
+        // Multi-node commit — the change is NOT scoped to the currently
+        // selected element's subtree, so request the bridge's in-place
+        // FULL-document replace instead of `refreshPreview: true`'s srcdoc
+        // rebuild (real iframe reload, white flash — the same anti-pattern
+        // getPersistedContentHostSyncOptions' doc comment describes, and the
+        // same forcePreviewFullDocument routing undo/redo uses). Deliberately
+        // NOT the helper itself: this content is a client-authored edit that
+        // still must persist — the helper's `persist: false` would cancel the
+        // queued save and silently drop the commit.
         applyFileContentUpdate(fileId, nextContent, {
-          refreshPreview: fileId === activeFile?.id,
+          forcePreviewFullDocument: fileId === activeFile?.id,
         });
       });
 
@@ -15462,8 +16526,10 @@ export default function DesignEditor() {
         });
         if (nextContent === baseContent) return;
         appliedAny = true;
+        // Same flash-free full-document routing (and same persist caveat) as
+        // commitStylesToSelectedLayers above.
         applyFileContentUpdate(fileId, nextContent, {
-          refreshPreview: fileId === activeFile?.id,
+          forcePreviewFullDocument: fileId === activeFile?.id,
         });
       });
 
@@ -15995,7 +17061,20 @@ export default function DesignEditor() {
               (node) => node.id === patch.result.after?.nodeId,
             )?.dataAttributes["data-agent-native-node-id"]
           : undefined);
-      const absoluteContainerOffset =
+      // Absolute-container drops persist sourceRect − anchorRect (both
+      // measured in-iframe by the bridge AFTER its optimistic DOM move). On
+      // the BOARD surface, top-level elements carry the content-offset
+      // translate (+65536 — see embeddedContentOffsetStyle in
+      // DesignCanvas.tsx) while nested ones do not, and the bridge's
+      // rect-space delta math doesn't model that translate — the measured
+      // offset for a board nest comes out exactly one surface offset
+      // (65536px) away from the true parent-relative value and, persisted
+      // verbatim, parks the nested child off-world. Strip that fingerprint
+      // before persisting (a no-op for screens and for sane offsets), and
+      // when it fired, ALSO refresh the preview: the bridge's optimistic
+      // in-iframe placement was off by the same 65536, so the iframe must be
+      // re-rendered from the corrected content instead of being trusted.
+      const rawAbsoluteContainerOffset =
         details?.dropMode === "absolute-container" &&
         details.sourceRect &&
         details.anchorRect
@@ -16004,6 +17083,18 @@ export default function DesignEditor() {
               y: details.sourceRect.y - details.anchorRect.y,
             }
           : null;
+      const absoluteContainerOffset = rawAbsoluteContainerOffset
+        ? {
+            x: stripBoardSurfaceOffsetFromCoord(rawAbsoluteContainerOffset.x),
+            y: stripBoardSurfaceOffsetFromCoord(rawAbsoluteContainerOffset.y),
+          }
+        : null;
+      const absoluteOffsetWasPoisoned = Boolean(
+        rawAbsoluteContainerOffset &&
+        absoluteContainerOffset &&
+        (rawAbsoluteContainerOffset.x !== absoluteContainerOffset.x ||
+          rawAbsoluteContainerOffset.y !== absoluteContainerOffset.y),
+      );
       const nextContent =
         isAbsoluteCodeLayerNode(targetNode) && movedNodeAttrId
           ? details?.dropMode === "absolute-container"
@@ -16042,7 +17133,12 @@ export default function DesignEditor() {
               ? bridgeSourceIdForCodeLayerNode(targetNode)
               : undefined),
         );
-      applyLocalContentUpdate(nextContent, { skipPreview: true });
+      applyLocalContentUpdate(
+        nextContent,
+        absoluteOffsetWasPoisoned
+          ? { forcePreviewFullDocument: true }
+          : { skipPreview: true },
+      );
       if (movedNode) setSelectedLayerIdsState([movedNode.id]);
       if (elementInfo) {
         setSelectedElement({
@@ -16442,7 +17538,11 @@ export default function DesignEditor() {
               (node) => node.id === patch.result.after?.nodeId,
             )?.dataAttributes["data-agent-native-node-id"]
           : undefined);
-      const absoluteContainerOffset =
+      // Same board-surface offset-poison guard as handleVisualStructureChange
+      // above: strip the 65536 fingerprint from the bridge's rect-space
+      // offset before persisting, and refresh the preview when it fired so
+      // the bridge's equally-off optimistic placement gets corrected.
+      const rawAbsoluteContainerOffset =
         details?.dropMode === "absolute-container" &&
         details.sourceRect &&
         details.anchorRect
@@ -16451,6 +17551,18 @@ export default function DesignEditor() {
               y: details.sourceRect.y - details.anchorRect.y,
             }
           : null;
+      const absoluteContainerOffset = rawAbsoluteContainerOffset
+        ? {
+            x: stripBoardSurfaceOffsetFromCoord(rawAbsoluteContainerOffset.x),
+            y: stripBoardSurfaceOffsetFromCoord(rawAbsoluteContainerOffset.y),
+          }
+        : null;
+      const absoluteOffsetWasPoisoned = Boolean(
+        rawAbsoluteContainerOffset &&
+        absoluteContainerOffset &&
+        (rawAbsoluteContainerOffset.x !== absoluteContainerOffset.x ||
+          rawAbsoluteContainerOffset.y !== absoluteContainerOffset.y),
+      );
       const nextContent =
         isAbsoluteCodeLayerNode(targetNode) && movedNodeAttrId
           ? details?.dropMode === "absolute-container"
@@ -16467,7 +17579,13 @@ export default function DesignEditor() {
               )
           : patch.content;
       const nextProjection = buildCodeLayerProjection(nextContent);
-      applyFileContentUpdate(screenId, nextContent, { skipPreview: true });
+      applyFileContentUpdate(
+        screenId,
+        nextContent,
+        absoluteOffsetWasPoisoned
+          ? { forcePreviewFullDocument: true }
+          : { skipPreview: true },
+      );
       const movedNode =
         (movedNodeAttrId
           ? nextProjection.nodes.find(
@@ -19089,17 +20207,33 @@ export default function DesignEditor() {
           baseContent,
           targetNodeId,
         );
-        const nextContent =
+        // Rebase the moved node's left/top to be PARENT-relative.
+        // computeReparentedChildPosition strips the board-surface offset
+        // (65536-multiples) from either side first, so a source that was
+        // persisted in board-iframe viewport coordinates (the historic
+        // container-drop poison — see BOARD_SURFACE_CONTENT_OFFSET_PX in
+        // shared/board-file.ts) still comes out as a sane parent-relative
+        // position instead of an off-world near-65536 value.
+        const rebasedContent =
           sourcePosition && targetPosition
             ? setAbsolutePositioningForNodeInHtml(
                 movePatch.content,
                 movedNodeAttrId,
-                {
-                  x: sourcePosition.x - targetPosition.x,
-                  y: sourcePosition.y - targetPosition.y,
-                },
+                computeReparentedChildPosition(sourcePosition, targetPosition),
               )
             : movePatch.content;
+        // Board safety net: if any nested coordinate still carries the
+        // surface-offset fingerprint (e.g. the position pair above could not
+        // be resolved and the rebase was skipped), normalize the final
+        // content so a nested board child can never persist off-world.
+        const nextContent = (() => {
+          if (!boardFileId || sourceScreenId !== boardFileId) {
+            return rebasedContent;
+          }
+          const normalized = normalizePoisonedBoardNestedCoords(rebasedContent);
+          warnIfPoisonedBoardCoordsNormalized(sourceScreenId, normalized);
+          return normalized.html;
+        })();
 
         applyFileContentUpdate(sourceScreenId, nextContent, {
           skipPreview: true,
@@ -19157,6 +20291,15 @@ export default function DesignEditor() {
         );
         return;
       }
+      // Finding 8: the requested anchor placement landed inside a
+      // <template> interior and was redirected to a real DOM slot right
+      // after the enclosing template instead — let the user know the drop
+      // wasn't silently discarded, just relocated nearby.
+      if (result.anchorRedirected) {
+        toast(t("designEditor.toasts.layerMoveRedirected"), {
+          duration: 4000,
+        });
+      }
 
       const destNodeAttrId = result.movedNodeId ?? nodeAttrId;
       const sourcePosition = getAbsolutePositioningForNodeInHtml(
@@ -19167,17 +20310,26 @@ export default function DesignEditor() {
         destContent,
         anchorAttrId,
       );
-      const nextDestContent =
+      // Same parent-relative rebase + board-poison stripping as the
+      // same-screen branch above (see computeReparentedChildPosition), plus
+      // the same normalization safety net when the DESTINATION is the board.
+      const rebasedDestContent =
         sourcePosition && targetPosition
           ? setAbsolutePositioningForNodeInHtml(
               result.destHtml,
               destNodeAttrId,
-              {
-                x: sourcePosition.x - targetPosition.x,
-                y: sourcePosition.y - targetPosition.y,
-              },
+              computeReparentedChildPosition(sourcePosition, targetPosition),
             )
           : result.destHtml;
+      const nextDestContent = (() => {
+        if (!boardFileId || targetScreenId !== boardFileId) {
+          return rebasedDestContent;
+        }
+        const normalized =
+          normalizePoisonedBoardNestedCoords(rebasedDestContent);
+        warnIfPoisonedBoardCoordsNormalized(targetScreenId, normalized);
+        return normalized.html;
+      })();
 
       recordContentHistoryEntry({
         changes: [
@@ -19215,6 +20367,7 @@ export default function DesignEditor() {
     },
     [
       applyFileContentUpdate,
+      boardFileId,
       canEditDesign,
       getScreenContent,
       recordContentHistoryEntry,
@@ -19244,6 +20397,8 @@ export default function DesignEditor() {
       sourceScreenId,
       targetScreenId,
       targetAnchorNodeId,
+      targetAnchorPendingNodeId,
+      targetAnchorSelector,
       targetAnchorPlacement,
       targetDropMode,
       targetAnchorRect,
@@ -19256,6 +20411,8 @@ export default function DesignEditor() {
       sourceScreenId: string;
       targetScreenId: string;
       targetAnchorNodeId?: string;
+      targetAnchorPendingNodeId?: string;
+      targetAnchorSelector?: string;
       targetAnchorPlacement?: "before" | "after" | "inside";
       targetDropMode?: "flow-insert" | "absolute-container";
       targetAnchorRect?: {
@@ -19273,8 +20430,75 @@ export default function DesignEditor() {
       if (sourceScreenId === targetScreenId) return;
 
       const sourceContent = getScreenContent(sourceScreenId);
-      const destContent = getScreenContent(targetScreenId);
-      if (!sourceContent || !destContent) return;
+      const rawDestContent = getScreenContent(targetScreenId);
+      if (!sourceContent || !rawDestContent) return;
+
+      // Id-on-demand handshake (two-step, mirroring the element-select
+      // persist-on-select path above): AI-generated/duplicated screens often
+      // carry ZERO data-agent-native-node-id attributes, so the hit-test
+      // bridge can't return an anchor id — it mints a pendingNodeId (stamped
+      // on the LIVE dest DOM as data-an-pending-node-id) plus a
+      // source-equivalent structural anchorSelector. Persist that pending id
+      // as the anchor's real node id in the STORED dest document first, then
+      // resolve the drop against it — otherwise every flow-insert into an
+      // id-less screen silently degrades to absolute placement even though
+      // the hit-test found a valid before/after/inside slot. applyVisualEdit
+      // resolves the selector STRICTLY (unique match or conflict), so a
+      // selector that can't be honestly mapped to one source element (e.g.
+      // Alpine template instances) leaves the absolute fallback untouched
+      // rather than ever stamping the wrong node.
+      let destContent = rawDestContent;
+      let effectiveAnchorNodeId = targetAnchorNodeId;
+      if (
+        !targetAnchorNodeId &&
+        targetAnchorPendingNodeId &&
+        targetAnchorSelector
+      ) {
+        const stamped = applyVisualEdit(
+          rawDestContent,
+          {
+            kind: "attribute",
+            target: { selector: targetAnchorSelector },
+            name: "data-agent-native-node-id",
+            value: targetAnchorPendingNodeId,
+          },
+          {
+            source: {
+              kind: "design-file",
+              designId: id,
+              fileId: targetScreenId,
+            },
+          },
+        );
+        if (
+          stamped.result.status === "applied" &&
+          stamped.content !== rawDestContent
+        ) {
+          destContent = stamped.content;
+          effectiveAnchorNodeId = targetAnchorPendingNodeId;
+        } else {
+          // Silent degradation: the hit-test found a valid before/after/
+          // inside slot, but the pending anchor id couldn't be honestly
+          // persisted (e.g. targetAnchorSelector resolved to an Alpine
+          // template instance or no longer matches uniquely) — this drop
+          // falls through to absolute placement below with no anchor at
+          // all. Surface it instead of failing quietly; fallback behavior
+          // itself is intentionally unchanged. Dev-only: this is a known,
+          // handled degraded path (not a correctness bug), so keep
+          // production consoles quiet — see DESIGN_EDITOR_DEBUG_LOGS.
+          if (DESIGN_EDITOR_DEBUG_LOGS) {
+            console.warn(
+              "[design] cross-screen drop: could not stamp pending anchor node id — falling back to absolute placement",
+              {
+                targetScreenId,
+                targetAnchorSelector,
+                targetAnchorPendingNodeId,
+                status: stamped.result.status,
+              },
+            );
+          }
+        }
+      }
 
       // Resolve the data-agent-native-node-id that moveNodeBetweenDocuments
       // uses as a stable key.  Prefer the bridge-supplied sourceNodeId when it
@@ -19297,11 +20521,11 @@ export default function DesignEditor() {
         sourceNodeId ??
         sourceSelector;
       const destProjection = buildCodeLayerProjection(destContent);
-      const resolvedTargetAnchor = targetAnchorNodeId
+      const resolvedTargetAnchor = effectiveAnchorNodeId
         ? resolveCodeLayerNodeFromBridge(
             destProjection,
             undefined,
-            targetAnchorNodeId,
+            effectiveAnchorNodeId,
           )
         : null;
       const targetAnchorAttrId =
@@ -19328,15 +20552,41 @@ export default function DesignEditor() {
         );
         return;
       }
+      // Finding 8: see the same-screen move's identical handling above —
+      // the anchor placement was redirected out of a <template> interior to
+      // right after the enclosing template's close instead of failing or
+      // teleporting to doc end.
+      if (result.anchorRedirected) {
+        toast(t("designEditor.toasts.layerMoveRedirected"), {
+          duration: 4000,
+        });
+      }
 
       // Hit-test anchors are emitted only for auto-layout insertion targets. If
       // there is no anchor, preserve absolute mode and rebase left/top to the
       // release point so screen↔board moves behave like Figma absolute layers.
       const destNodeAttrId = result.movedNodeId ?? nodeAttrId;
-      const stylePreservedDest = applyPortableStyleSnapshotToHtml(
+      const styleSnapshotDest = applyPortableStyleSnapshotToHtml(
         result.destHtml,
         destNodeAttrId,
         styleSnapshot,
+        sourceContent,
+      );
+      // Finding 8: board/screen text carrying the auto-applied white default
+      // (see BOARD_TEXT_AUTO_COLOR_MARKER / defaultCanvasTextColor) must not
+      // keep that forced white when it lands cross-screen in a light
+      // destination — otherwise it renders invisible white-on-white. The
+      // in-screen drag path already adapts via the bridge's
+      // adaptAutoTextColorForNest; this is the cross-screen mirror, applied
+      // host-side now that the node has actually been re-parented into
+      // destContent.
+      const liveDestIframe = document.querySelector<HTMLIFrameElement>(
+        `[data-screen-iframe-id="${CSS.escape(getPrimaryIframeId(targetScreenId))}"]`,
+      );
+      const stylePreservedDest = adaptAutoTextColorForCrossScreenNode(
+        styleSnapshotDest,
+        destNodeAttrId,
+        liveDestIframe?.contentDocument ?? null,
       );
       const nextDestContent = targetAnchorAttrId
         ? targetDropMode === "absolute-container"
@@ -19419,6 +20669,7 @@ export default function DesignEditor() {
       canEditDesign,
       clearPendingOverviewLayerSelectionTimer,
       getScreenContent,
+      id,
       recordContentHistoryEntry,
       t,
     ],
@@ -21551,14 +22802,26 @@ export default function DesignEditor() {
     const updateIframePointerEvents = () => {
       const iframe = getPreviewIframe();
       if (!iframe) return;
-      const hasOpenOverlay = Boolean(
-        document.querySelector(
-          [
-            "[data-radix-popper-content-wrapper]",
-            "[data-radix-portal] [data-state='open']",
-          ].join(","),
-        ),
+      // Same tooltip-vs-menu ambiguity as the inspectorPopoverOpen shield
+      // above (see its doc comment) — and, as of finding 7, the exact same
+      // isRadixOverlayOpen predicate, so the two shields can't diverge
+      // again. (Previously this path hand-duplicated a slightly different,
+      // buggier version that never checked a closed wrapper's own
+      // data-state, which could leave this iframe's pointer-events stuck at
+      // "none" after closing the zoom menu via item-select.)
+      const wrappers = document.body.querySelectorAll(
+        "[data-radix-popper-content-wrapper]",
       );
+      const hasOpenPopperOverlay = Array.from(wrappers).some((wrapper) =>
+        isRadixOverlayOpen(wrapper),
+      );
+      const hasOpenOverlay =
+        hasOpenPopperOverlay ||
+        Boolean(
+          document.querySelector(
+            "[data-radix-portal] [data-state='open']:not([data-agent-native-tooltip])",
+          ),
+        );
       iframe.style.pointerEvents = hasOpenOverlay ? "none" : "";
     };
 
@@ -24701,13 +25964,15 @@ ${serializedHtml}
               newParentAttrId,
             );
             if (sourcePosition && targetPosition) {
+              // Same parent-relative rebase as the canvas reparent path —
+              // computeReparentedChildPosition also strips the historic
+              // board-surface offset poison (65536-multiples) from either
+              // side so a panel move of a poisoned nested board child heals
+              // its coordinates instead of preserving them.
               nextDestContent = setAbsolutePositioningForNodeInHtml(
                 nextDestContent,
                 movedNodeAttrId,
-                {
-                  x: sourcePosition.x - targetPosition.x,
-                  y: sourcePosition.y - targetPosition.y,
-                },
+                computeReparentedChildPosition(sourcePosition, targetPosition),
               );
             }
           }
@@ -25205,8 +26470,19 @@ ${serializedHtml}
                   nextFilename,
                 );
                 if (nextFileContent === content) return;
+                // data-screen references are read by the nav bridge at CLICK
+                // time (nav.bridge.ts closest("[data-screen]") lookup), never
+                // resolved at srcdoc build time, so the active file does not
+                // need `refreshPreview: true`'s srcdoc rebuild (white flash)
+                // — the in-place full-document replace applies the rewritten
+                // attributes just as durably (same routing rationale as
+                // getPersistedContentHostSyncOptions' doc comment). NOT the
+                // helper itself: these rewrites are client-authored and MUST
+                // persist — the whole point of the sweep is saving the fixed
+                // references, which the helper's `persist: false` would
+                // cancel.
                 applyFileContentUpdate(file.id, nextFileContent, {
-                  refreshPreview: file.id === activeFile?.id,
+                  forcePreviewFullDocument: file.id === activeFile?.id,
                 });
               });
             },

@@ -213,6 +213,7 @@ import {
   parseGradientLayer,
   removeFillLayerAtIndex,
   SOLID_FILL_ID,
+  solidToGradientPatch,
   splitCssLayers,
   withLayerSizeMarker,
 } from "./edit-panel/fill-gradient-helpers";
@@ -356,11 +357,14 @@ export {
   truncateOpeningTag,
 };
 export {
+  averageGradientOpacity,
   buildGradientLayer,
+  defaultGradientStops,
   isLayerHiddenBySize,
   joinCssLayers,
   parseGradientLayer,
   removeFillLayerAtIndex,
+  solidToGradientPatch,
   splitCssLayers,
   withLayerSizeMarker,
   type FillLayerArrays,
