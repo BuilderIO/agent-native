@@ -23,9 +23,20 @@ import {
   isImageGenerationSetupError,
   resolveImageModelForRequest,
   selectReferences,
+  type ReferenceForGeneration,
 } from "../server/lib/generation.js";
-import { compositeLogo } from "../server/lib/image-processing.js";
+import {
+  applyPresetSkeleton,
+  compositeLogo,
+  maskFromManualMaskAlpha,
+  maskFromPlateAlpha,
+} from "../server/lib/image-processing.js";
 import { nowIso, parseJson, stringifyJson } from "../server/lib/json.js";
+import {
+  clampCutoutAspectRatio,
+  normalizePresetSkeletonSpec,
+  skeletonUsesCanonicalLogo,
+} from "../server/lib/preset-skeleton.js";
 import { getObject } from "../server/lib/storage.js";
 import {
   ASPECT_RATIOS,
@@ -35,8 +46,11 @@ import {
   IMAGE_QUALITY_TIERS,
   IMAGE_SIZES,
   STYLE_STRENGTHS,
+  supportedAspectRatiosForModel,
+  type AspectRatio,
   type ImageCategory,
   type ImageQualityTier,
+  type PresetSkeletonSpec,
   type StyleBrief,
 } from "../shared/api.js";
 import {
@@ -84,7 +98,7 @@ export default defineAction({
       .enum(ASPECT_RATIOS)
       .optional()
       .describe(
-        "Image aspect ratio. When a presetId is set, omit this — the preset's aspect ratio is used. Pass a value only when there is no preset, or when the user explicitly asks for a ratio different from the preset's.",
+        "Image aspect ratio. When a presetId is set, omit this — the preset's aspect ratio is used. Pass a value only when there is no preset, or when the user explicitly asks for a ratio different from the preset's. Note: OpenAI image models support only 1:1, 2:3, and 3:2; gpt-image-1 is used for transparent cutout skeleton subjects, while other ratios (16:9, 9:16, 4:5, 21:9, …) require a Gemini model.",
       ),
     imageSize: z
       .enum(IMAGE_SIZES)
@@ -92,7 +106,12 @@ export default defineAction({
       .describe(
         "Output resolution tier. When a presetId is set, omit this — the preset's size is used unless the user explicitly requests a different one.",
       ),
-    model: z.enum(IMAGE_MODELS).optional(),
+    model: z
+      .enum(IMAGE_MODELS)
+      .optional()
+      .describe(
+        "Image model. Omit to use the user's picker default. Gemini models accept any aspectRatio; gpt-image-2 is the normal opaque OpenAI default, while gpt-image-1 is reserved for transparent cutout skeletons. OpenAI image models support ONLY 1:1, 2:3, and 3:2 — do not pair them with other ratios, choose a Gemini model (e.g. gemini-3-pro-image) for those instead.",
+      ),
     tier: z.enum(IMAGE_QUALITY_TIERS).optional(),
     intent: z.enum(GENERATION_INTENTS).default("generate"),
     styleStrength: z.enum(STYLE_STRENGTHS).default("balanced"),
@@ -256,25 +275,32 @@ export default defineAction({
       ...parseJson<StyleBrief>(library.styleBrief, {}),
       ...parseJson<StyleBrief>(collection?.styleBrief, {}),
     };
-    const resolvedAspectRatio = (args.aspectRatio ??
+    const presetSettings = parseJson<{
+      tier?: ImageQualityTier;
+      includeLogo?: boolean;
+      skeletonSpec?: unknown;
+    }>(preset?.settings, {});
+    const skeletonSpec = normalizePresetSkeletonSpec(
+      presetSettings.skeletonSpec,
+    );
+    const isSkeletonCutout = skeletonSpec?.contentMode === "cutout";
+    const outputAspectRatio = (args.aspectRatio ??
       preset?.aspectRatio ??
       collection?.defaultAspectRatio ??
-      "16:9") as (typeof ASPECT_RATIOS)[number];
+      "16:9") as AspectRatio;
     const resolvedImageSize = (args.imageSize ??
       preset?.imageSize ??
       collection?.defaultImageSize ??
       "2K") as (typeof IMAGE_SIZES)[number];
-    const presetSettings = parseJson<{
-      tier?: ImageQualityTier;
-      includeLogo?: boolean;
-    }>(preset?.settings, {});
     const resolvedTier = args.tier ?? presetSettings.tier;
-    const resolvedIncludeLogo =
+    const requestedIncludeLogo =
       args.includeLogo ?? presetSettings.includeLogo ?? false;
+    const resolvedIncludeLogo =
+      requestedIncludeLogo && !skeletonUsesCanonicalLogo(skeletonSpec);
     const category = (args.categories?.[0] ??
       preset?.category ??
       collection?.category) as ImageCategory | undefined;
-    const resolvedModel = resolveImageModelForRequest({
+    const selectedModel = resolveImageModelForRequest({
       explicitModel: args.model,
       imageModelDefault,
       explicitTier: args.tier,
@@ -283,9 +309,65 @@ export default defineAction({
       presetModel: preset?.model as (typeof IMAGE_MODELS)[number] | undefined,
       embeddedText: args.embeddedText,
     }) as (typeof IMAGE_MODELS)[number];
+    if (
+      isSkeletonCutout &&
+      args.model &&
+      args.model !== "gpt-image-1" &&
+      args.model !== "gpt-image-2"
+    ) {
+      throw new Error(
+        "Cutout skeleton presets require gpt-image-1 for transparent output or gpt-image-2 for mask inpainting. Remove the explicit model override or choose one of those models.",
+      );
+    }
+    const resolvedModel = (
+      isSkeletonCutout && selectedModel !== "gpt-image-2"
+        ? "gpt-image-1"
+        : selectedModel
+    ) as (typeof IMAGE_MODELS)[number];
+    if (isSkeletonCutout && selectedModel !== resolvedModel) {
+      logSkeletonGeneration("model_overridden", {
+        presetId: preset?.id,
+        selectedModel,
+        model: resolvedModel,
+      });
+    }
     const resolvedCategories =
       args.categories ??
       (preset?.category ? ([preset.category] as any) : undefined);
+    const skeletonReferenceExclusionIds =
+      skeletonCompositeAssetIds(skeletonSpec);
+    const skeletonAssets = skeletonSpec
+      ? await loadSkeletonAssets({
+          spec: skeletonSpec,
+          libraryId: args.libraryId,
+          canonicalLogoAssetId: library.canonicalLogoAssetId,
+          appendCanonicalLogo:
+            resolvedIncludeLogo &&
+            !(isSkeletonCutout && resolvedModel === "gpt-image-2"),
+        })
+      : null;
+    const useSkeletonInpaint =
+      isSkeletonCutout &&
+      Boolean(skeletonAssets?.backgroundAsset) &&
+      resolvedModel === "gpt-image-2";
+    const resolvedAspectRatio =
+      isSkeletonCutout && !useSkeletonInpaint
+        ? clampCutoutAspectRatio({
+            aspectRatio: outputAspectRatio,
+            supported: supportedAspectRatiosForModel("gpt-image-1"),
+          })
+        : outputAspectRatio;
+    if (
+      isSkeletonCutout &&
+      !useSkeletonInpaint &&
+      outputAspectRatio !== resolvedAspectRatio
+    ) {
+      logSkeletonGeneration("aspect_ratio_clamped", {
+        presetId: preset?.id,
+        outputAspectRatio,
+        subjectAspectRatio: resolvedAspectRatio,
+      });
+    }
     const promptForRun = applyPromptTemplate(
       preset?.promptTemplate,
       args.prompt,
@@ -302,21 +384,37 @@ export default defineAction({
           .filter(Boolean)
           .join("\n")
       : "";
-    const references = await selectReferences({
-      libraryId: args.libraryId,
-      collectionId: resolvedCollectionId,
-      categories: resolvedCategories,
-      referenceAssetIds: args.referenceAssetIds,
-      sourceAssetId: args.sourceAssetId,
-      subjectAssetId: args.subjectAssetId,
-      intent: args.intent,
-      limit:
+    let references: ReferenceForGeneration[];
+    if (useSkeletonInpaint) {
+      references = await inpaintReferencesForSkeleton(skeletonAssets);
+    } else {
+      const backgroundPlateReference =
+        backgroundPlateReferenceForSkeleton(skeletonAssets);
+      const baseReferenceLimit =
         args.intent !== "restyle" &&
         preset?.referencePolicy === "explicit" &&
         !args.referenceAssetIds?.length
           ? 0
-          : DEFAULT_GENERATION_REFERENCE_LIMIT,
-    });
+          : DEFAULT_GENERATION_REFERENCE_LIMIT;
+      const referenceLimit =
+        backgroundPlateReference && baseReferenceLimit > 0
+          ? baseReferenceLimit + 1
+          : baseReferenceLimit;
+      references = await selectReferences({
+        libraryId: args.libraryId,
+        collectionId: resolvedCollectionId,
+        categories: resolvedCategories,
+        referenceAssetIds: args.referenceAssetIds,
+        excludeAssetIds: skeletonReferenceExclusionIds,
+        sourceAssetId: args.sourceAssetId,
+        subjectAssetId: args.subjectAssetId,
+        intent: args.intent,
+        limit: referenceLimit,
+      });
+      if (backgroundPlateReference) {
+        references.unshift(backgroundPlateReference);
+      }
+    }
     const compiledPrompt = compilePrompt({
       libraryTitle: library.title,
       styleBrief,
@@ -328,6 +426,13 @@ export default defineAction({
       textPlacement: args.textPlacement,
       referenceCount: references.length,
       includeLogo: resolvedIncludeLogo,
+      skeletonContentMode: skeletonSpec?.contentMode ?? null,
+      hasBackgroundPlate: Boolean(
+        isSkeletonCutout &&
+        !useSkeletonInpaint &&
+        skeletonAssets?.backgroundAsset,
+      ),
+      skeletonInpaint: useSkeletonInpaint,
       aspectRatio: resolvedAspectRatio,
       imageSize: resolvedImageSize,
       category,
@@ -371,6 +476,10 @@ export default defineAction({
       imageSize: resolvedImageSize,
       groundingMode: args.groundingMode,
       includeLogo: resolvedIncludeLogo,
+      requestedIncludeLogo,
+      skeletonSpec: skeletonSpec ?? null,
+      outputAspectRatio,
+      subjectAspectRatio: resolvedAspectRatio,
       categories: resolvedCategories ?? [],
       collectionId: resolvedCollectionId ?? null,
       presetId: preset?.id ?? null,
@@ -394,6 +503,10 @@ export default defineAction({
       styleStrength: args.styleStrength,
       tier: resolvedTier,
       includeLogo: resolvedIncludeLogo,
+      requestedIncludeLogo,
+      skeletonSpec: skeletonSpec ?? null,
+      outputAspectRatio,
+      subjectAspectRatio: resolvedAspectRatio,
       categories: resolvedCategories ?? [],
       presetId: preset?.id,
       sessionId: session?.id,
@@ -409,7 +522,7 @@ export default defineAction({
       prompt: args.prompt,
       compiledPrompt,
       model: resolvedModel,
-      aspectRatio: resolvedAspectRatio,
+      aspectRatio: outputAspectRatio,
       imageSize: resolvedImageSize,
       groundingMode: args.groundingMode,
       referenceAssetIds: stringifyJson(references.map((ref) => ref.id)),
@@ -455,8 +568,13 @@ export default defineAction({
             compiledPrompt,
             references,
             model: resolvedModel,
+            mode: useSkeletonInpaint ? "edit" : undefined,
             aspectRatio: resolvedAspectRatio,
             imageSize: resolvedImageSize,
+            background:
+              isSkeletonCutout && !useSkeletonInpaint
+                ? "transparent"
+                : undefined,
             groundingMode: args.groundingMode,
             intent: args.intent,
             styleStrength: args.styleStrength,
@@ -470,7 +588,17 @@ export default defineAction({
       await deleteAppState("image-generation-setup").catch(() => {});
       let image = generated.image;
       let mimeType = generated.mimeType;
-      if (resolvedIncludeLogo && library.canonicalLogoAssetId) {
+      if (skeletonAssets && !useSkeletonInpaint) {
+        image = await applyPresetSkeleton({
+          subject: image,
+          spec: skeletonAssets.spec,
+          canvasAspectRatio: outputAspectRatio,
+          backgroundAsset: skeletonAssets.backgroundAsset,
+          canonicalLogo: skeletonAssets.canonicalLogo,
+          foregroundAssets: skeletonAssets.foregroundAssets,
+        });
+        mimeType = "image/png";
+      } else if (resolvedIncludeLogo && library.canonicalLogoAssetId) {
         const [logo] = await db
           .select()
           .from(schema.assets)
@@ -534,7 +662,7 @@ export default defineAction({
             status: "candidate",
             prompt: args.prompt,
             model: generated.model,
-            aspectRatio: resolvedAspectRatio,
+            aspectRatio: outputAspectRatio,
             imageSize: resolvedImageSize,
             generationRunId: runId,
             metadata: {
@@ -547,6 +675,10 @@ export default defineAction({
               styleStrength: args.styleStrength,
               tier: resolvedTier,
               includeLogo: resolvedIncludeLogo,
+              requestedIncludeLogo,
+              skeletonSpec: skeletonSpec ?? null,
+              outputAspectRatio,
+              subjectAspectRatio: resolvedAspectRatio,
               presetId: preset?.id,
               sessionId: session?.id,
               generated: true,
@@ -592,6 +724,10 @@ export default defineAction({
             styleStrength: args.styleStrength,
             tier: resolvedTier,
             includeLogo: resolvedIncludeLogo,
+            requestedIncludeLogo,
+            skeletonSpec: skeletonSpec ?? null,
+            outputAspectRatio,
+            subjectAspectRatio: resolvedAspectRatio,
             categories: resolvedCategories ?? [],
             referenceSelection,
             settingsUsed,
@@ -667,3 +803,184 @@ export default defineAction({
     }
   },
 });
+
+function skeletonCompositeAssetIds(
+  spec: PresetSkeletonSpec | null,
+): string[] | undefined {
+  if (!spec) return undefined;
+  const ids = new Set<string>();
+  if (spec.background.type === "asset") ids.add(spec.background.assetId);
+  if (spec.mask?.type === "asset") ids.add(spec.mask.assetId);
+  for (const layer of spec.foreground ?? []) {
+    if (layer.source !== "canonicalLogo") ids.add(layer.source.assetId);
+  }
+  return ids.size ? [...ids] : undefined;
+}
+
+function backgroundPlateReferenceForSkeleton(
+  skeletonAssets: LoadedSkeletonAssets | null,
+): ReferenceForGeneration | null {
+  if (
+    !skeletonAssets?.backgroundAsset ||
+    !skeletonAssets.backgroundAssetId ||
+    !skeletonAssets.backgroundMimeType
+  ) {
+    return null;
+  }
+  return {
+    id: skeletonAssets.backgroundAssetId,
+    role: "background_reference",
+    category: "skeleton",
+    mimeType: skeletonAssets.backgroundMimeType,
+    data: skeletonAssets.backgroundAsset.toString("base64"),
+    selectionReason: "explicit",
+  };
+}
+
+async function inpaintReferencesForSkeleton(
+  skeletonAssets: LoadedSkeletonAssets | null,
+): Promise<ReferenceForGeneration[]> {
+  if (
+    !skeletonAssets?.backgroundAsset ||
+    !skeletonAssets.backgroundAssetId ||
+    !skeletonAssets.backgroundMimeType
+  ) {
+    throw new Error("Skeleton inpainting requires a background plate image.");
+  }
+  const mask = skeletonAssets.maskAsset
+    ? await maskFromManualMaskAlpha({
+        mask: skeletonAssets.maskAsset,
+        plate: skeletonAssets.backgroundAsset,
+      })
+    : await maskFromPlateAlpha(skeletonAssets.backgroundAsset);
+  return [
+    {
+      id: skeletonAssets.backgroundAssetId,
+      role: "edit_target",
+      category: "skeleton",
+      mimeType: skeletonAssets.backgroundMimeType,
+      data: skeletonAssets.backgroundAsset.toString("base64"),
+      selectionReason: "explicit",
+    },
+    {
+      id:
+        skeletonAssets.maskAssetId ??
+        `${skeletonAssets.backgroundAssetId}:mask`,
+      role: "mask",
+      category: "skeleton",
+      mimeType: "image/png",
+      data: mask.toString("base64"),
+      selectionReason: "explicit",
+    },
+  ];
+}
+
+type LoadedSkeletonAssets = {
+  spec: PresetSkeletonSpec;
+  backgroundAssetId?: string;
+  backgroundMimeType?: string;
+  backgroundAsset?: Buffer;
+  maskAssetId?: string;
+  maskAsset?: Buffer;
+  canonicalLogo?: Buffer;
+  foregroundAssets: Record<string, Buffer>;
+};
+
+async function loadSkeletonAssets(input: {
+  spec: PresetSkeletonSpec;
+  libraryId: string;
+  canonicalLogoAssetId?: string | null;
+  appendCanonicalLogo: boolean;
+}): Promise<LoadedSkeletonAssets> {
+  const db = getDb();
+  const spec = appendCanonicalLogoToSkeleton(
+    input.spec,
+    input.appendCanonicalLogo,
+  );
+  const assetIds = new Set<string>();
+  if (spec.background.type === "asset") assetIds.add(spec.background.assetId);
+  if (spec.mask?.type === "asset") assetIds.add(spec.mask.assetId);
+  for (const layer of spec.foreground ?? []) {
+    if (layer.source !== "canonicalLogo") assetIds.add(layer.source.assetId);
+  }
+  if (input.canonicalLogoAssetId) assetIds.add(input.canonicalLogoAssetId);
+
+  const buffers = new Map<string, Buffer>();
+  const mimeTypes = new Map<string, string>();
+  for (const assetId of assetIds) {
+    const [asset] = await db
+      .select()
+      .from(schema.assets)
+      .where(eq(schema.assets.id, assetId))
+      .limit(1);
+    if (!asset) {
+      if (assetId === input.canonicalLogoAssetId) continue;
+      throw new Error("Skeleton asset not found.");
+    }
+    if (asset.libraryId !== input.libraryId) {
+      throw new Error("Skeleton assets must belong to the selected brand kit.");
+    }
+    if (!asset.mimeType.startsWith("image/")) {
+      throw new Error("Skeleton assets must be images.");
+    }
+    buffers.set(assetId, await getObject(asset.objectKey));
+    mimeTypes.set(assetId, asset.mimeType);
+  }
+
+  const foregroundAssets: Record<string, Buffer> = {};
+  for (const layer of spec.foreground ?? []) {
+    if (layer.source !== "canonicalLogo") {
+      const buffer = buffers.get(layer.source.assetId);
+      if (buffer) foregroundAssets[layer.source.assetId] = buffer;
+    }
+  }
+
+  return {
+    spec,
+    backgroundAssetId:
+      spec.background.type === "asset" ? spec.background.assetId : undefined,
+    backgroundMimeType:
+      spec.background.type === "asset"
+        ? mimeTypes.get(spec.background.assetId)
+        : undefined,
+    backgroundAsset:
+      spec.background.type === "asset"
+        ? buffers.get(spec.background.assetId)
+        : undefined,
+    maskAssetId: spec.mask?.type === "asset" ? spec.mask.assetId : undefined,
+    maskAsset:
+      spec.mask?.type === "asset" ? buffers.get(spec.mask.assetId) : undefined,
+    canonicalLogo: input.canonicalLogoAssetId
+      ? buffers.get(input.canonicalLogoAssetId)
+      : undefined,
+    foregroundAssets,
+  };
+}
+
+function appendCanonicalLogoToSkeleton(
+  spec: PresetSkeletonSpec,
+  appendCanonicalLogo: boolean,
+): PresetSkeletonSpec {
+  if (!appendCanonicalLogo || skeletonUsesCanonicalLogo(spec)) return spec;
+  return {
+    ...spec,
+    foreground: [
+      ...(spec.foreground ?? []),
+      { source: "canonicalLogo", x: 0.805, y: 0.06, w: 0.16 },
+    ],
+  };
+}
+
+function logSkeletonGeneration(
+  event: string,
+  fields: Record<string, unknown>,
+): void {
+  if (process.env.NODE_ENV === "test") return;
+  const detail = Object.entries(fields)
+    .filter(([, value]) => value !== undefined)
+    .map(([key, value]) => `${key}=${value}`)
+    .join(" ");
+  console.info(
+    `[assets] preset-skeleton ${event}${detail ? ` ${detail}` : ""}`,
+  );
+}

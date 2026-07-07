@@ -98,6 +98,9 @@ function concatBytes(parts: Uint8Array[]): Uint8Array {
 
 const RECORDING_TOO_LARGE_REASON =
   "Recording is too large to process after automatic compression. Please update the app and try again, or record a shorter clip.";
+const MEDIA_SERVE_VERIFICATION_TIMEOUT_MS = 8_000;
+const MEDIA_SERVE_VERIFICATION_ATTEMPTS = 3;
+const MEDIA_SERVE_VERIFICATION_BACKOFF_MS = 350;
 
 function stateNumber(
   value: Record<string, unknown> | null | undefined,
@@ -124,6 +127,78 @@ const cliBoolean = z.preprocess((value) => {
   return value;
 }, z.boolean());
 
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function shouldVerifyServedMediaUrl(value: string): boolean {
+  try {
+    const url = new URL(value);
+    return url.protocol === "http:" || url.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
+async function responseHasReadableMediaBytes(
+  response: Response,
+): Promise<boolean> {
+  const reader = response.body?.getReader();
+  if (!reader) {
+    const body = await response.arrayBuffer().catch(() => new ArrayBuffer(0));
+    return body.byteLength > 0;
+  }
+
+  try {
+    const { value } = await reader.read();
+    return (value?.byteLength ?? 0) > 0;
+  } catch {
+    return false;
+  } finally {
+    await reader.cancel().catch(() => undefined);
+  }
+}
+
+async function verifyServedMediaUrl(videoUrl: string): Promise<void> {
+  if (!shouldVerifyServedMediaUrl(videoUrl)) return;
+
+  let lastFailure = "media URL did not serve readable bytes";
+  for (
+    let attempt = 1;
+    attempt <= MEDIA_SERVE_VERIFICATION_ATTEMPTS;
+    attempt++
+  ) {
+    const controller = new AbortController();
+    const timeout = setTimeout(
+      () => controller.abort(),
+      MEDIA_SERVE_VERIFICATION_TIMEOUT_MS,
+    );
+    try {
+      const response = await fetch(videoUrl, {
+        method: "GET",
+        headers: { Range: "bytes=0-1023" },
+        signal: controller.signal,
+      });
+      const statusOk = response.status === 200 || response.status === 206;
+      if (statusOk && (await responseHasReadableMediaBytes(response))) {
+        return;
+      }
+      lastFailure = `media URL returned HTTP ${response.status}`;
+      if (response.status < 500) break;
+    } catch (err) {
+      lastFailure = err instanceof Error ? err.message : String(err);
+    } finally {
+      clearTimeout(timeout);
+    }
+
+    if (attempt < MEDIA_SERVE_VERIFICATION_ATTEMPTS) {
+      await sleep(MEDIA_SERVE_VERIFICATION_BACKOFF_MS * attempt);
+    }
+  }
+
+  throw new Error(`Upload was stored-but-unservable: ${lastFailure}`);
+}
+
 function queueBackgroundBuilderCompression(args: {
   recordingId: string;
   ownerEmail: string;
@@ -140,6 +215,44 @@ function queueBackgroundBuilderCompression(args: {
       error: err instanceof Error ? err.message : String(err),
     });
   });
+}
+
+async function failStoredButUnservableRecording(params: {
+  id: string;
+  ownerEmail: string;
+  failureReason: string;
+}): Promise<void> {
+  const { id, ownerEmail, failureReason } = params;
+  const now = new Date().toISOString();
+  const db = getDb();
+  await db
+    .update(schema.recordings)
+    .set({
+      status: "failed",
+      failureReason,
+      updatedAt: now,
+    })
+    .where(
+      and(
+        eq(schema.recordings.id, id),
+        ownerEmailMatches(schema.recordings.ownerEmail, ownerEmail),
+      ),
+    );
+  const uploadStateRaw = await readAppState(`recording-upload-${id}`).catch(
+    () => null,
+  );
+  const uploadState =
+    uploadStateRaw && typeof uploadStateRaw === "object"
+      ? (uploadStateRaw as Record<string, unknown>)
+      : {};
+  await writeAppState(`recording-upload-${id}`, {
+    ...uploadState,
+    recordingId: id,
+    status: "failed",
+    failureReason,
+    updatedAt: now,
+  });
+  await writeAppState("refresh-signal", { ts: Date.now() });
 }
 
 // Flip recording to 'ready', seed transcript row, fire background transcript,
@@ -486,6 +599,18 @@ export default defineAction({
             { skipCompressionWait: true, recordAsset: false },
           );
           debugLog("[finalize] resumable upload completed", { id, videoUrl });
+          try {
+            await verifyServedMediaUrl(videoUrl);
+          } catch (err) {
+            const failureReason =
+              err instanceof Error ? err.message : String(err);
+            await failStoredButUnservableRecording({
+              id,
+              ownerEmail,
+              failureReason,
+            });
+            throw err;
+          }
           const result = await markRecordingReady({
             ...readyParams,
             videoUrl,
@@ -580,6 +705,7 @@ export default defineAction({
           })
           .where(eq(schema.recordings.id, id));
         await writeAppState(`recording-upload-${id}`, {
+          ...(uploadState ?? {}),
           recordingId: id,
           status: "failed",
           failureReason,
@@ -994,6 +1120,18 @@ export default defineAction({
         videoUrl: upload.url,
         bytes: uploadData.byteLength,
       });
+      try {
+        await verifyServedMediaUrl(upload.url);
+      } catch (err) {
+        chunkKeysToPurge = [];
+        const failureReason = err instanceof Error ? err.message : String(err);
+        await failStoredButUnservableRecording({
+          id,
+          ownerEmail,
+          failureReason,
+        });
+        throw err;
+      }
       const result = await markRecordingReady({
         ...readyParams,
         // Use the audio-probe-corrected value, not the raw client claim in

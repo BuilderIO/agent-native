@@ -75,6 +75,30 @@ function normalizedBuilderBodyProse(content: string | null | undefined) {
     .trim();
 }
 
+export function isEffectivelyEmptyDocumentContent(
+  content: string | null | undefined,
+) {
+  const normalized = (content ?? "").trim();
+  return normalized === "" || normalized === "<empty-block/>";
+}
+
+export function shouldRejectStaleEmptyBodySave(args: {
+  incomingContent: string | null | undefined;
+  currentContent: string | null | undefined;
+  loadedUpdatedAt: string | null | undefined;
+  currentUpdatedAt: string | null | undefined;
+  loadedContentWasEmpty?: boolean | null | undefined;
+}) {
+  if (!args.loadedUpdatedAt || !args.currentUpdatedAt) return false;
+  if (!isEffectivelyEmptyDocumentContent(args.incomingContent)) return false;
+  if (isEffectivelyEmptyDocumentContent(args.currentContent)) return false;
+  if (args.loadedContentWasEmpty === true) return true;
+  return (
+    new Date(args.currentUpdatedAt).getTime() >
+    new Date(args.loadedUpdatedAt).getTime()
+  );
+}
+
 /**
  * Best-effort quote of the first changed span between two document bodies, used
  * as the `{ kind: "text", quote }` descriptor so the recent-edit highlight lands
@@ -133,6 +157,14 @@ export default defineAction({
       .boolean()
       .optional()
       .describe("Favorite status (true/false)"),
+    loadedUpdatedAt: z
+      .string()
+      .optional()
+      .describe("Document updatedAt value the client loaded before editing"),
+    loadedContentWasEmpty: z
+      .boolean()
+      .optional()
+      .describe("Whether the client-loaded content snapshot was empty"),
     // Optional optimistic-concurrency guard for content saves: the
     // `updatedAt` of the document snapshot the caller last loaded/reconciled.
     // When provided alongside `content`, the write is a compare-and-swap on
@@ -228,6 +260,17 @@ export default defineAction({
         ) {
           content = existing.content;
         }
+      }
+      if (
+        shouldRejectStaleEmptyBodySave({
+          incomingContent: content,
+          currentContent: existing.content,
+          loadedUpdatedAt: args.loadedUpdatedAt,
+          currentUpdatedAt: existing.updatedAt,
+          loadedContentWasEmpty: args.loadedContentWasEmpty,
+        })
+      ) {
+        content = existing.content;
       }
     }
 

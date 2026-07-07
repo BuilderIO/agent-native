@@ -2318,6 +2318,24 @@ chrome.tabs.onActivated.addListener((info) => {
   })();
 });
 
+// The overlay content script is injected on demand (activeTab), so reloading the
+// launch tab wipes it — the camera bubble and toolbar would vanish for the rest
+// of the recording even though capture keeps running in the offscreen document.
+// Re-inject and re-mount once the launch tab finishes reloading while a recording
+// is active. Scoped to the launch tab (the only tab activeTab lets us touch); a
+// same-URL reload keeps that grant.
+chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
+  if (changeInfo.status !== "complete") return;
+  void (async () => {
+    await ensureRestored();
+    if (overlayPhase === "idle" || !activeNativeRecording) return;
+    if (tabId !== overlayTabId) return;
+    await mountOverlayOnTab(tabId);
+    broadcastOverlayState();
+    if (overlayPhase === "countdown") await handleOverlaySkip();
+  })();
+});
+
 // While recording, the popup is disabled (setActionPopup("")), so clicking the
 // extension icon lands here: stop & save immediately (or discard if we're still
 // in the pre-roll countdown). When idle, the popup opens and this never fires.

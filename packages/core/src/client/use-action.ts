@@ -68,7 +68,39 @@ export function defaultActionQueryRetry(
   // A timeout already made the user wait the full timeout window once;
   // silently retrying would multiply that wait. Surface it instead.
   if (isActionTimeout(error)) return false;
+  if (isBrowserResourceExhaustion(error)) return false;
+  // Network-level failures never carry an HTTP `status` (actionFetch only
+  // sets it after a response arrives). Chrome reports connection-pool
+  // exhaustion (net::ERR_INSUFFICIENT_RESOURCES) as a generic "Failed to
+  // fetch", indistinguishable from a transient blip — allow one retry, not
+  // three, so an exhausted tab cannot sustain its own fetch storm.
+  if (isNetworkLevelFailure(error)) return failureCount < 1;
   return failureCount < 3;
+}
+
+/** @internal alias kept for existing specs. */
+export const shouldRetryActionQueryForError = defaultActionQueryRetry;
+
+function isBrowserResourceExhaustion(error: unknown): boolean {
+  const message =
+    error instanceof Error
+      ? error.message
+      : typeof error === "string"
+        ? error
+        : "";
+  return /ERR_INSUFFICIENT_RESOURCES|insufficient resources/i.test(message);
+}
+
+function isNetworkLevelFailure(error: unknown): boolean {
+  // Match the exact shape actionFetch produces for fetch-level failures (its
+  // catch wraps the cause as "Action <name> failed: <cause>" and never sets a
+  // status). Other status-less errors (test doubles, transport internals)
+  // keep the standard three-retry policy.
+  return (
+    error instanceof Error &&
+    (error as { status?: unknown }).status === undefined &&
+    /^Action .+ failed: /.test(error.message)
+  );
 }
 
 /**
@@ -436,12 +468,14 @@ export function useActionMutation<
     "mutationFn"
   > & {
     method?: "POST" | "PUT" | "DELETE";
+    skipActionQueryInvalidation?: boolean;
   },
 ) {
   const queryClient = useQueryClient();
   const {
     method: methodOpt,
     onSuccess,
+    skipActionQueryInvalidation = false,
     ...restOptions
   } = options ?? ({} as any);
   const method = methodOpt ?? "POST";
@@ -454,8 +488,11 @@ export function useActionMutation<
     mutationFn: (params) =>
       actionFetch<D>(actionName, method, params as Record<string, any>),
     onSuccess: (...args: [any, any, any]) => {
-      // Invalidate related action queries
-      queryClient.invalidateQueries({ queryKey: ["action"] });
+      // Most mutations change app data broadly. High-volume background
+      // mutations can opt out and perform narrower invalidation in onSuccess.
+      if (!skipActionQueryInvalidation) {
+        queryClient.invalidateQueries({ queryKey: ["action"] });
+      }
       (onSuccess as Function)?.(...args);
     },
   });

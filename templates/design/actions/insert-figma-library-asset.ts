@@ -1,16 +1,15 @@
 import { defineAction } from "@agent-native/core";
 import { readAppStateForCurrentTab } from "@agent-native/core/application-state";
-import {
-  applyText,
-  getText,
-  hasCollabState,
-  seedFromText,
-} from "@agent-native/core/collab";
 import { accessFilter, assertAccess } from "@agent-native/core/sharing";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import {
+  readLiveSourceFile,
+  writeInlineSourceFile,
+  type SourceWorkspaceFile,
+} from "../server/source-workspace.js";
 
 const schemaInput = z.object({
   renderUrl: z
@@ -200,33 +199,39 @@ export default defineAction({
     if (!file) throw new Error("No editable HTML design file found.");
     await assertAccess("design", file.designId, "editor");
 
-    let base = file.content ?? "";
-    try {
-      if (await hasCollabState(file.id)) {
-        const live = await getText(file.id, "content");
-        if (typeof live === "string") base = live;
-      }
-    } catch {
-      // Collab read is best-effort; fall back to stored content.
-    }
+    // Read the LIVE base (collab text when present, else the SQL row) right
+    // before transforming, and carry its versionHash through to the write
+    // below. writeInlineSourceFile re-reads the live text immediately before
+    // its own applyText/DB write and rejects if it no longer matches this
+    // hash — closing the race window where a concurrent editor/agent write
+    // lands between this read and the persist (the same stale-diff-base bug
+    // fixed for update-file: a diff computed from a stale base, char-diffed
+    // into a collab doc that has since moved on, corrupts or drops the
+    // other writer's change). See update-file.ts and apply-source-edit.ts
+    // for the identical pattern. writeInlineSourceFile/readLiveSourceFile
+    // only ever dereference file.id (and content/filename for the read); the
+    // createdAt/updatedAt fields aren't selected above and aren't needed.
+    const workspaceFile: SourceWorkspaceFile = {
+      id: file.id,
+      designId: file.designId,
+      filename: file.filename ?? "",
+      fileType: file.fileType ?? "html",
+      content: file.content,
+      createdAt: null,
+      updatedAt: null,
+    };
+    const live = await readLiveSourceFile(workspaceFile);
+    const base = live.content;
 
     const insertedNodeId = createInsertedNodeId("figma");
     const content = appendFigmaAssetMarkup(base, args, insertedNodeId);
-    const now = new Date().toISOString();
-    await db
-      .update(schema.designFiles)
-      .set({ content, updatedAt: now })
-      .where(eq(schema.designFiles.id, file.id));
-    await db
-      .update(schema.designs)
-      .set({ updatedAt: now })
-      .where(eq(schema.designs.id, file.designId));
 
-    if (await hasCollabState(file.id)) {
-      await applyText(file.id, content, "content", "agent");
-    } else {
-      await seedFromText(file.id, content);
-    }
+    await writeInlineSourceFile({
+      designId: file.designId,
+      file: workspaceFile,
+      content,
+      expectedVersionHash: live.versionHash,
+    });
 
     return {
       designId: file.designId,

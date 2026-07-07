@@ -513,6 +513,7 @@ export function ImageBlock({
   const [lightboxZoomed, setLightboxZoomed] = useState(false);
   const [moreMenuOpen, setMoreMenuOpen] = useState(false);
   const [isGeneratingAlt, setIsGeneratingAlt] = useState(false);
+  const [imageLoadFailed, setImageLoadFailed] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const altInputRef = useRef<HTMLInputElement>(null);
   const emptyBlockRef = useRef<HTMLDivElement>(null);
@@ -527,6 +528,10 @@ export function ImageBlock({
   const activeWidth = dragWidth ?? width;
   const controlsVisible = isEditable && (isHovered || selected);
   const options = extension.options as ContentImageOptions;
+
+  useEffect(() => {
+    setImageLoadFailed(false);
+  }, [src]);
 
   useEffect(() => {
     if (!sourcePanelOpen && !selected) return;
@@ -979,17 +984,37 @@ export function ImageBlock({
         }}
         style={activeWidth ? { width: `${activeWidth}px` } : undefined}
       >
-        <img
-          src={src}
-          alt={alt || ""}
-          className="media-block__content"
-          draggable={false}
-          onDoubleClick={(event) => {
-            event.preventDefault();
-            event.stopPropagation();
-            openLightbox();
-          }}
-        />
+        {imageLoadFailed ? (
+          <div
+            className="media-block__broken"
+            role="img"
+            aria-label={alt || t("editor.media.imageBroken")}
+          >
+            <IconPhoto className="media-block__broken-icon" aria-hidden />
+            <div className="media-block__broken-copy">
+              <span className="media-block__broken-title">
+                {t("editor.media.imageBroken")}
+              </span>
+              {alt.trim() ? (
+                <span className="media-block__broken-alt">{alt}</span>
+              ) : null}
+            </div>
+          </div>
+        ) : (
+          <img
+            src={src}
+            alt={alt || ""}
+            className="media-block__content"
+            draggable={false}
+            onLoad={() => setImageLoadFailed(false)}
+            onError={() => setImageLoadFailed(true)}
+            onDoubleClick={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              openLightbox();
+            }}
+          />
+        )}
 
         <input
           ref={fileInputRef}

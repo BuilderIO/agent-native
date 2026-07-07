@@ -14,10 +14,6 @@ import { defineAction } from "@agent-native/core";
 import {
   agentEnterDocument,
   agentLeaveDocument,
-  applyText,
-  getText,
-  hasCollabState,
-  seedFromText,
 } from "@agent-native/core/collab";
 import { accessFilter, assertAccess } from "@agent-native/core/sharing";
 import { and, eq } from "drizzle-orm";
@@ -25,6 +21,11 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import "../server/db/index.js"; // ensure registerShareableResource runs
+import {
+  readLiveSourceFile,
+  writeInlineSourceFile,
+  type SourceWorkspaceFile,
+} from "../server/source-workspace.js";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -43,21 +44,6 @@ function removeMotionStyleBlock(html: string): string {
   const end = closeIdx + MOTION_STYLE_CLOSE.length;
   const tail = html[end] === "\n" ? end + 1 : end;
   return html.slice(0, openIdx) + html.slice(tail);
-}
-
-async function liveFileContent(
-  fileId: string,
-  storedContent: string,
-): Promise<string> {
-  try {
-    if (await hasCollabState(fileId)) {
-      const live = await getText(fileId, "content");
-      if (typeof live === "string") return live;
-    }
-  } catch {
-    // Best-effort; SQL is the fallback.
-  }
-  return storedContent;
 }
 
 // ─── Action ───────────────────────────────────────────────────────────────────
@@ -83,7 +69,6 @@ export default defineAction({
     await assertAccess("design", designId, "editor");
 
     const db = getDb();
-    const now = new Date().toISOString();
 
     // ── 1. Verify timeline exists and belongs to this design ────────────────
     const [timeline] = await db
@@ -142,7 +127,26 @@ export default defineAction({
     }
 
     // ── 3. Remove the managed CSS block from the HTML ───────────────────────
-    const currentContent = await liveFileContent(file.id, file.content ?? "");
+    // Read the LIVE base (collab text when present, else the SQL row) right
+    // before transforming, and carry its versionHash through to the write
+    // below. writeInlineSourceFile re-reads the live text immediately before
+    // its own applyText/DB write and rejects if it no longer matches this
+    // hash — closing the race window where a concurrent editor/agent write
+    // lands between this read and the persist (the same stale-diff-base bug
+    // fixed for insert-design-native-asset.ts/insert-asset.ts: a diff computed
+    // from a stale base, written unconditionally, can corrupt or drop the
+    // other writer's concurrent change).
+    const workspaceFile: SourceWorkspaceFile = {
+      id: file.id,
+      designId,
+      filename: "",
+      fileType: "html",
+      content: file.content,
+      createdAt: null,
+      updatedAt: null,
+    };
+    const live = await readLiveSourceFile(workspaceFile);
+    const currentContent = live.content;
     const bytesBefore = currentContent.length;
     const cleanedContent = removeMotionStyleBlock(currentContent);
     const bytesAfter = cleanedContent.length;
@@ -156,21 +160,12 @@ export default defineAction({
     if (htmlChanged) {
       agentEnterDocument(file.id);
       try {
-        await db
-          .update(schema.designFiles)
-          .set({ content: cleanedContent, updatedAt: now })
-          .where(eq(schema.designFiles.id, file.id));
-
-        if (await hasCollabState(file.id)) {
-          await applyText(file.id, cleanedContent, "content", "agent");
-        } else {
-          await seedFromText(file.id, cleanedContent);
-        }
-
-        await db
-          .update(schema.designs)
-          .set({ updatedAt: now })
-          .where(eq(schema.designs.id, designId));
+        await writeInlineSourceFile({
+          designId,
+          file: workspaceFile,
+          content: cleanedContent,
+          expectedVersionHash: live.versionHash,
+        });
       } finally {
         agentLeaveDocument(file.id);
       }

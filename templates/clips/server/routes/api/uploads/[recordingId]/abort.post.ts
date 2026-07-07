@@ -6,10 +6,12 @@
  */
 
 import {
+  readAppState,
   writeAppState,
   deleteAppStateByPrefix,
 } from "@agent-native/core/application-state";
 import { runWithRequestContext } from "@agent-native/core/server";
+import { isStoredButUnservableFinalizeError } from "@shared/finalize-recovery.js";
 import { and, eq } from "drizzle-orm";
 import {
   defineEventHandler,
@@ -50,6 +52,7 @@ export default defineEventHandler(async (event: H3Event) => {
         id: schema.recordings.id,
         status: schema.recordings.status,
         videoUrl: schema.recordings.videoUrl,
+        failureReason: schema.recordings.failureReason,
       })
       .from(schema.recordings)
       .where(
@@ -68,17 +71,16 @@ export default defineEventHandler(async (event: H3Event) => {
       return { ok: true, recordingId, alreadyReady: true, chunksCleared: 0 };
     }
 
+    const preserveRecoveryState =
+      isStoredButUnservableFinalizeError(failureReason) ||
+      isStoredButUnservableFinalizeError(existing.failureReason);
+
     // Already a terminal failure (e.g. a duplicate/retried abort call, or
     // finalize's own failChunkAssembly already flipped it) — no-op instead of
     // re-clearing chunk state and overwriting the original failureReason.
-    if (existing.status === "failed") {
+    if (existing.status === "failed" && !preserveRecoveryState) {
       return { ok: true, recordingId, alreadyFailed: true, chunksCleared: 0 };
     }
-
-    const cleared = await deleteAppStateByPrefix(
-      `recording-chunks-${recordingId}-`,
-    );
-    await deleteResumableSession(recordingId).catch(() => {});
 
     const now = new Date().toISOString();
     await db
@@ -90,12 +92,27 @@ export default defineEventHandler(async (event: H3Event) => {
       })
       .where(eq(schema.recordings.id, recordingId));
 
+    const existingUploadStateRaw = await readAppState(
+      `recording-upload-${recordingId}`,
+    ).catch(() => null);
+    const existingUploadState =
+      existingUploadStateRaw && typeof existingUploadStateRaw === "object"
+        ? (existingUploadStateRaw as Record<string, unknown>)
+        : {};
     await writeAppState(`recording-upload-${recordingId}`, {
+      ...existingUploadState,
       recordingId,
       status: "failed",
       failureReason,
       updatedAt: now,
     });
+
+    const cleared = preserveRecoveryState
+      ? 0
+      : await deleteAppStateByPrefix(`recording-chunks-${recordingId}-`);
+    if (!preserveRecoveryState) {
+      await deleteResumableSession(recordingId).catch(() => {});
+    }
     await writeAppState("refresh-signal", { ts: Date.now() });
 
     return { ok: true, recordingId, chunksCleared: cleared };

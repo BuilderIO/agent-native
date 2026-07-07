@@ -1,14 +1,19 @@
 import { useActionQuery, useActionMutation } from "@agent-native/core/client";
 import type {
+  ContentDatabaseItem,
   Document,
   DocumentCreateRequest,
+  DocumentPropertiesResponse,
   DocumentUpdateRequest,
   DocumentUpdateResponse,
   DocumentMoveRequest,
   DocumentTreeNode,
 } from "@shared/api";
+import type { QueryClient } from "@tanstack/react-query";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
+
+import { databaseItemBodyHydrationIsPending } from "@/components/editor/body-hydration";
 
 import type { DocumentUpdateConflictResponse } from "../../actions/update-document";
 import { useRestoreContentDatabase } from "./use-content-database";
@@ -16,6 +21,14 @@ import { useRestoreContentDatabase } from "./use-content-database";
 export type { DocumentUpdateConflictResponse };
 
 const LIST_DOCUMENTS_QUERY_KEY = ["action", "list-documents", undefined];
+
+export function documentQueryKey(documentId: string) {
+  return ["action", "get-document", { id: documentId }] as const;
+}
+
+export function documentPropertiesQueryKey(documentId: string) {
+  return ["action", "list-document-properties", { documentId }] as const;
+}
 
 // Extends the shared request/response shapes with the optional
 // compare-and-swap fields the action supports but shared/api.ts does not
@@ -66,6 +79,40 @@ export function mergeDocumentIntoListDocumentsCache(
   );
 
   return { ...(old as object), documents: nextDocuments };
+}
+
+export function seedDatabaseItemDocumentCaches(
+  queryClient: Pick<QueryClient, "getQueryData" | "setQueryData">,
+  item: ContentDatabaseItem,
+) {
+  // Seed only cold caches. Overwriting an existing entry would bump its
+  // freshness with possibly older table-snapshot data (a background database
+  // refetch can lag a just-saved document edit) and suppress the correcting
+  // refetch for the whole staleTime window. Rows whose Builder body has not
+  // hydrated yet are never seeded: their empty table-snapshot `content` would
+  // render as an authoritative empty document.
+  if (
+    !databaseItemBodyHydrationIsPending(item) &&
+    queryClient.getQueryData(documentQueryKey(item.document.id)) === undefined
+  ) {
+    queryClient.setQueryData<Document>(documentQueryKey(item.document.id), {
+      ...item.document,
+      properties: item.properties,
+    });
+  }
+  if (
+    queryClient.getQueryData(documentPropertiesQueryKey(item.document.id)) ===
+    undefined
+  ) {
+    queryClient.setQueryData<DocumentPropertiesResponse>(
+      documentPropertiesQueryKey(item.document.id),
+      {
+        documentId: item.document.id,
+        databaseId: item.databaseId,
+        properties: item.properties,
+      },
+    );
+  }
 }
 
 export function useDocuments() {

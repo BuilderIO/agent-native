@@ -1538,6 +1538,13 @@ fn take_and_finalize_active_session(
             session.lost_segment_duration.as_secs()
         );
     }
+
+    if let Some(paused_at) = session.paused_at.take() {
+        session.paused_total = session
+            .paused_total
+            .checked_add(paused_at.elapsed())
+            .unwrap_or(session.paused_total);
+    }
     let duration_ms = session
         .started_at
         .elapsed()

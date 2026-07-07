@@ -531,4 +531,41 @@ describe("present-design-variants", () => {
       view: "editor",
     });
   });
+
+  it("stamps missing data-agent-native-node-id attributes on every persisted variant", async () => {
+    await action.run({
+      designId: "design_123",
+      prompt: "Explore two directions",
+      variants: [
+        {
+          id: "provided-html",
+          label: "Provided HTML",
+          content: "<main><button>Buy</button></main>",
+        },
+        {
+          id: "generated-fallback",
+          label: "Generated Fallback",
+          description: "A fallback representative screen.",
+        },
+      ],
+    });
+
+    expect(mocks.insertChain.values).toHaveBeenCalledTimes(2);
+    const providedInsert = mocks.insertChain.values.mock.calls[0]![0] as {
+      content: string;
+    };
+    const fallbackInsert = mocks.insertChain.values.mock.calls[1]![0] as {
+      content: string;
+    };
+
+    expect(providedInsert.content).toContain("data-agent-native-node-id");
+    expect(providedInsert.content).toContain("<button");
+    // The provided-HTML path preserves text content verbatim alongside the
+    // injected ids.
+    expect(providedInsert.content).toContain(">Buy<");
+
+    // The generated fallbackVariantContent() path is also annotated, since it
+    // persists just as any other AI-authored screen would.
+    expect(fallbackInsert.content).toContain("data-agent-native-node-id");
+  });
 });

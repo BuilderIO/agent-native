@@ -259,6 +259,108 @@ describe("/api/video/:recordingId route", () => {
     expect(vi.mocked(fetch).mock.calls[2][0].toString()).toBe(originalUrl);
   });
 
+  it("falls back to original media when the compressed Builder probe returns 500", async () => {
+    const originalUrl =
+      "https://cdn.builder.io/o/assets%2Forg-probe%2Fasset-compressed-500?apiKey=org-probe&token=asset-compressed-500&alt=media";
+    mockResolveAccess.mockResolvedValue({
+      role: "viewer",
+      resource: {
+        visibility: "public",
+        password: null,
+        expiresAt: null,
+        videoUrl: originalUrl,
+      },
+    });
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(new Response("", { status: 500 }))
+      .mockResolvedValueOnce(
+        new Response("original media", {
+          status: 206,
+          headers: { "content-type": "video/webm" },
+        }),
+      );
+
+    const result = await handler(makeEvent() as any);
+
+    expect(result).toBeInstanceOf(Response);
+    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(new URL(vi.mocked(fetch).mock.calls[0][0].toString()).pathname).toBe(
+      "/o/assets%2Forg-probe%2Fasset-compressed-500%2Fcompressed",
+    );
+    expect(vi.mocked(fetch).mock.calls[1][0].toString()).toBe(originalUrl);
+  });
+
+  it("falls back to original media when the compressed Builder probe throws", async () => {
+    const originalUrl =
+      "https://cdn.builder.io/o/assets%2Forg-probe%2Fasset-compressed-throw?apiKey=org-probe&token=asset-compressed-throw&alt=media";
+    mockResolveAccess.mockResolvedValue({
+      role: "viewer",
+      resource: {
+        visibility: "public",
+        password: null,
+        expiresAt: null,
+        videoUrl: originalUrl,
+      },
+    });
+    vi.mocked(fetch)
+      .mockRejectedValueOnce(new TypeError("fetch failed"))
+      .mockResolvedValueOnce(
+        new Response("original media", {
+          status: 206,
+          headers: { "content-type": "video/webm" },
+        }),
+      );
+
+    const result = await handler(makeEvent() as any);
+
+    expect(result).toBeInstanceOf(Response);
+    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(new URL(vi.mocked(fetch).mock.calls[0][0].toString()).pathname).toBe(
+      "/o/assets%2Forg-probe%2Fasset-compressed-throw%2Fcompressed",
+    );
+    expect(vi.mocked(fetch).mock.calls[1][0].toString()).toBe(originalUrl);
+  });
+
+  it("briefly suppresses repeated compressed Builder probes after a 500 miss", async () => {
+    const originalUrl =
+      "https://cdn.builder.io/o/assets%2Forg-probe%2Fasset-compressed-500-cache?apiKey=org-probe&token=asset-compressed-500-cache&alt=media";
+    mockResolveAccess.mockResolvedValue({
+      role: "viewer",
+      resource: {
+        visibility: "public",
+        password: null,
+        expiresAt: null,
+        videoUrl: originalUrl,
+      },
+    });
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(new Response("", { status: 500 }))
+      .mockResolvedValueOnce(
+        new Response("original media", {
+          status: 206,
+          headers: { "content-type": "video/webm" },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response("original media again", {
+          status: 206,
+          headers: { "content-type": "video/webm" },
+        }),
+      );
+
+    const firstResult = await handler(makeEvent() as any);
+    const secondResult = await handler(makeEvent() as any);
+
+    expect(firstResult).toBeInstanceOf(Response);
+    expect(secondResult).toBeInstanceOf(Response);
+    expect(fetch).toHaveBeenCalledTimes(3);
+    expect(new URL(vi.mocked(fetch).mock.calls[0][0].toString()).pathname).toBe(
+      "/o/assets%2Forg-probe%2Fasset-compressed-500-cache%2Fcompressed",
+    );
+    expect(vi.mocked(fetch).mock.calls[1][0].toString()).toBe(originalUrl);
+    expect(vi.mocked(fetch).mock.calls[2][0].toString()).toBe(originalUrl);
+  });
+
   it("accepts a protected media cookie when the query token is expired", async () => {
     mockResolveAccess.mockResolvedValue({
       role: "viewer",

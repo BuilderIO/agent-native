@@ -1,5 +1,12 @@
 import sharp from "sharp";
 
+import type {
+  AspectRatio,
+  PresetSkeletonForegroundLayer,
+  PresetSkeletonSpec,
+} from "../../shared/api.js";
+import { aspectRatioValue } from "./preset-skeleton.js";
+
 export async function imageInfo(buffer: Buffer): Promise<{
   width: number | null;
   height: number | null;
@@ -79,6 +86,251 @@ export async function compositeLogo(input: {
     ])
     .png()
     .toBuffer();
+}
+
+export async function renderBackground(input: {
+  spec: PresetSkeletonSpec;
+  size: { width: number; height: number };
+  backgroundAsset?: Buffer;
+}): Promise<Buffer> {
+  const { width, height } = input.size;
+  if (!input.backgroundAsset) {
+    throw new Error("Preset skeleton background image is missing.");
+  }
+  return sharp(input.backgroundAsset, { failOn: "none" })
+    .rotate()
+    .resize({ width, height, fit: "cover" })
+    .png()
+    .toBuffer();
+}
+
+export async function maskFromPlateAlpha(plate: Buffer): Promise<Buffer> {
+  return maskFromAlphaChannel({
+    image: plate,
+    transparentError:
+      "gpt-image-2 skeleton inpainting requires a background plate with transparent areas.",
+  });
+}
+
+export async function maskFromManualMaskAlpha(input: {
+  mask: Buffer;
+  plate: Buffer;
+}): Promise<Buffer> {
+  const plateMeta = await sharp(input.plate, { failOn: "none" }).metadata();
+  return maskFromAlphaChannel({
+    image: input.mask,
+    expectedSize: {
+      width: plateMeta.width ?? 0,
+      height: plateMeta.height ?? 0,
+    },
+    sizeError:
+      "Skeleton inpainting mask must be the same pixel size as the background plate.",
+    transparentError:
+      "Skeleton inpainting mask requires transparent areas to mark where the subject may be painted.",
+  });
+}
+
+async function maskFromAlphaChannel(input: {
+  image: Buffer;
+  expectedSize?: { width: number; height: number };
+  sizeError?: string;
+  transparentError: string;
+}): Promise<Buffer> {
+  const { data, info } = await sharp(input.image, { failOn: "none" })
+    .ensureAlpha()
+    .raw()
+    .toBuffer({ resolveWithObject: true });
+  if (
+    input.expectedSize &&
+    (info.width !== input.expectedSize.width ||
+      info.height !== input.expectedSize.height)
+  ) {
+    throw new Error(input.sizeError ?? "Mask image dimensions are invalid.");
+  }
+  const mask = Buffer.alloc(info.width * info.height * 4);
+  let hasTransparentPixels = false;
+  for (let source = 0, target = 0; source < data.length; source += 4) {
+    const alpha = data[source + 3];
+    if (alpha < 255) hasTransparentPixels = true;
+    mask[target++] = 255;
+    mask[target++] = 255;
+    mask[target++] = 255;
+    mask[target++] = alpha;
+  }
+  if (!hasTransparentPixels) {
+    throw new Error(input.transparentError);
+  }
+  return sharp(mask, {
+    raw: {
+      width: info.width,
+      height: info.height,
+      channels: 4,
+    },
+  })
+    .png()
+    .toBuffer();
+}
+
+export async function applyPresetSkeleton(input: {
+  subject: Buffer;
+  spec: PresetSkeletonSpec;
+  canvasSize?: { width: number; height: number };
+  canvasAspectRatio?: AspectRatio;
+  backgroundAsset?: Buffer;
+  canonicalLogo?: Buffer;
+  foregroundAssets?: Record<string, Buffer>;
+}): Promise<Buffer> {
+  const subjectBase = sharp(input.subject, { failOn: "none" }).rotate();
+  const subjectMeta = await subjectBase.metadata();
+  const size =
+    input.canvasSize ??
+    canvasSizeFromAspectRatio({
+      aspectRatio: input.canvasAspectRatio,
+      baseWidth: subjectMeta.width ?? 1024,
+      baseHeight: subjectMeta.height ?? 1024,
+    });
+  const background = await renderBackground({
+    spec: input.spec,
+    size,
+    backgroundAsset: input.backgroundAsset,
+  });
+  const region = normalizeContentRegion(input.spec.contentRegion);
+  const subjectBox = {
+    left: Math.round(size.width * region.x),
+    top: Math.round(size.height * region.y),
+    width: Math.max(1, Math.round(size.width * region.w)),
+    height: Math.max(1, Math.round(size.height * region.h)),
+  };
+  const resizedSubject = await subjectBase
+    .resize({
+      width: subjectBox.width,
+      height: subjectBox.height,
+      fit: input.spec.contentMode === "cutout" ? "contain" : "cover",
+      background: { r: 0, g: 0, b: 0, alpha: 0 },
+    })
+    .png()
+    .toBuffer();
+  const composites: sharp.OverlayOptions[] = [];
+  if (input.spec.contentMode === "cutout" && input.spec.dropShadow) {
+    composites.push({
+      input: contactShadowSvg(size, subjectBox),
+      top: 0,
+      left: 0,
+    });
+  }
+  composites.push({
+    input: resizedSubject,
+    top: subjectBox.top,
+    left: subjectBox.left,
+  });
+  composites.push(
+    ...(await foregroundCompositeLayers({
+      layers: input.spec.foreground ?? [],
+      canvasSize: size,
+      canonicalLogo: input.canonicalLogo,
+      foregroundAssets: input.foregroundAssets ?? {},
+    })),
+  );
+  return sharp(background, { failOn: "none" })
+    .composite(composites)
+    .png()
+    .toBuffer();
+}
+
+export function canvasSizeFromAspectRatio(input: {
+  aspectRatio?: AspectRatio;
+  baseWidth: number;
+  baseHeight: number;
+}): { width: number; height: number } {
+  const baseWidth = Math.max(1, input.baseWidth);
+  const baseHeight = Math.max(1, input.baseHeight);
+  if (!input.aspectRatio) return { width: baseWidth, height: baseHeight };
+  const requested = aspectRatioValue(input.aspectRatio);
+  const current = baseWidth / baseHeight;
+  if (Math.abs(requested - current) < 0.01) {
+    return { width: baseWidth, height: baseHeight };
+  }
+  if (requested > current) {
+    return {
+      width: Math.max(1, Math.round(baseHeight * requested)),
+      height: baseHeight,
+    };
+  }
+  return {
+    width: baseWidth,
+    height: Math.max(1, Math.round(baseWidth / requested)),
+  };
+}
+
+function normalizeContentRegion(region: PresetSkeletonSpec["contentRegion"]): {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+} {
+  if (!region) return { x: 0, y: 0, w: 1, h: 1 };
+  const x = clamp(region.x, 0, 1);
+  const y = clamp(region.y, 0, 1);
+  return {
+    x,
+    y,
+    w: clamp(region.w, 0.02, 1 - x),
+    h: clamp(region.h, 0.02, 1 - y),
+  };
+}
+
+async function foregroundCompositeLayers(input: {
+  layers: PresetSkeletonForegroundLayer[];
+  canvasSize: { width: number; height: number };
+  canonicalLogo?: Buffer;
+  foregroundAssets: Record<string, Buffer>;
+}): Promise<sharp.OverlayOptions[]> {
+  const overlays: sharp.OverlayOptions[] = [];
+  for (const layer of input.layers) {
+    const source =
+      layer.source === "canonicalLogo"
+        ? input.canonicalLogo
+        : input.foregroundAssets[layer.source.assetId];
+    if (!source) continue;
+    const targetWidth = Math.max(
+      1,
+      Math.round(input.canvasSize.width * clamp(layer.w, 0.02, 1)),
+    );
+    const buffer = await sharp(source, { failOn: "none" })
+      .rotate()
+      .resize({ width: targetWidth, fit: "inside", withoutEnlargement: true })
+      .png()
+      .toBuffer();
+    overlays.push({
+      input: buffer,
+      left: Math.round(input.canvasSize.width * clamp(layer.x, 0, 1)),
+      top: Math.round(input.canvasSize.height * clamp(layer.y, 0, 1)),
+    });
+  }
+  return overlays;
+}
+
+function contactShadowSvg(
+  canvasSize: { width: number; height: number },
+  subjectBox: { left: number; top: number; width: number; height: number },
+): Buffer {
+  const cx = subjectBox.left + subjectBox.width / 2;
+  const cy = subjectBox.top + subjectBox.height * 0.86;
+  const rx = Math.max(12, subjectBox.width * 0.28);
+  const ry = Math.max(6, subjectBox.height * 0.045);
+  const blur = Math.max(
+    6,
+    Math.min(canvasSize.width, canvasSize.height) * 0.018,
+  );
+  return Buffer.from(`<svg width="${canvasSize.width}" height="${canvasSize.height}" viewBox="0 0 ${canvasSize.width} ${canvasSize.height}" xmlns="http://www.w3.org/2000/svg">
+  <defs><filter id="shadow"><feGaussianBlur stdDeviation="${blur}"/></filter></defs>
+  <ellipse cx="${cx}" cy="${cy}" rx="${rx}" ry="${ry}" fill="#000000" opacity="0.24" filter="url(#shadow)"/>
+</svg>`);
+}
+
+function clamp(value: number, min: number, max: number): number {
+  if (!Number.isFinite(value)) return min;
+  return Math.max(min, Math.min(max, value));
 }
 
 export function hasRasterImageSignature(

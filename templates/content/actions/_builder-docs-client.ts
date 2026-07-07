@@ -40,6 +40,23 @@ import { flushOpenDocumentEditorToSql } from "./_document-flush.js";
 
 type FetchLike = typeof fetch;
 
+function builderDocsReadProgress(args: {
+  limit: number;
+  count: number;
+  readMode: "builder-api" | "none";
+}): BuilderCmsReadResult["progress"] {
+  return {
+    requestedLimit: args.limit,
+    pageSize: args.limit,
+    startOffset: 0,
+    nextOffset: args.count,
+    fetchedEntryCount: args.count,
+    hasMore: false,
+    partial: false,
+    readMode: args.readMode,
+  };
+}
+
 export interface BuilderDocsFilesInput {
   path?: string | null;
   files?: Record<string, string> | null;
@@ -263,6 +280,11 @@ async function readBuilderDocsPublishedEntries(args: {
       fetchedAt,
       message:
         "Builder docs list skipped because BUILDER_PUBLIC_KEY is not configured.",
+      progress: builderDocsReadProgress({
+        limit: args.limit,
+        count: 0,
+        readMode: "none",
+      }),
     };
   }
 
@@ -289,6 +311,11 @@ async function readBuilderDocsPublishedEntries(args: {
         error instanceof Error
           ? `Builder docs list failed: ${error.message}`
           : "Builder docs list failed.",
+      progress: builderDocsReadProgress({
+        limit: args.limit,
+        count: 0,
+        readMode: "builder-api",
+      }),
     };
   }
 
@@ -298,17 +325,28 @@ async function readBuilderDocsPublishedEntries(args: {
       entries: [],
       fetchedAt,
       message: `Builder docs list failed with HTTP ${response.status}.`,
+      progress: builderDocsReadProgress({
+        limit: args.limit,
+        count: 0,
+        readMode: "builder-api",
+      }),
     };
   }
 
   const json = (await response.json()) as unknown;
+  const entries = entryArrayFromResponse(json)
+    .map((entry) => normalizeBuilderCmsApiEntry(entry, args.model))
+    .filter((entry): entry is BuilderCmsSourceEntry => Boolean(entry));
   return {
     state: "live",
-    entries: entryArrayFromResponse(json)
-      .map((entry) => normalizeBuilderCmsApiEntry(entry, args.model))
-      .filter((entry): entry is BuilderCmsSourceEntry => Boolean(entry)),
+    entries,
     fetchedAt,
     message: null,
+    progress: builderDocsReadProgress({
+      limit: args.limit,
+      count: entries.length,
+      readMode: "builder-api",
+    }),
   };
 }
 

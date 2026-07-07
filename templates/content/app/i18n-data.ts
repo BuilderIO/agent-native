@@ -32,7 +32,36 @@ const databaseMessages = {
   builderBodiesQueued: "{{count}} queued",
   builderBodySync: "Body sync",
   builderBodySyncFailed: "{{count}} failed",
+  builderBodySyncFailedNotice:
+    "This article's body could not be synced from Builder",
+  builderBodySyncFailedDescription:
+    "The row stays editable, but the Builder body did not finish syncing. Review the article content before publishing or pushing changes.",
+  builderBodySyncing: "Content is still syncing from Builder",
+  builderBodySyncingDescription:
+    "Editing is paused until the Builder body finishes syncing, so the existing article content is not overwritten.",
   builderBodiesHydrated: "{{hydrated}} of {{total}} bodies hydrated",
+  builderReviewShowingRows:
+    "Showing {{shown}} of {{total}} Builder rows for this review.",
+  builderReviewShowMore: "Show more",
+  builderReviewRemainingBatches:
+    "Review again after this batch to prepare the remaining Builder changes.",
+  builderBodiesSyncingProgress: "Syncing {{hydrated}} of {{total}} bodies.",
+  builderBodiesSyncFinishedWithFailures:
+    "{{hydrated}} of {{total}} bodies synced. {{failed}} failed.",
+  builderRowsFetched: "{{count}} Builder rows fetched",
+  builderRowsFetchedBodiesSyncing:
+    "{{rows}} rows fetched. Syncing {{hydrated}} of {{total}} bodies.",
+  builderRowsFetchedBodiesSyncFinishedWithFailures:
+    "{{rows}} rows fetched. {{hydrated}} of {{total}} bodies synced. {{failed}} failed.",
+  builderRowsFetchedSyncingBodies:
+    "Builder rows are fetched. Article bodies are still syncing.",
+  builderRowsFetchingMore: "fetching more rows",
+  builderRowsFetchFailed: "row fetch needs attention",
+  builderRowsFetchedSoFar: "{{count}} rows fetched so far.",
+  builderRowsFinishingUp: "Builder rows are finishing up.",
+  builderRowsLoadingBackground:
+    "Builder is still loading rows in the background.",
+  builderRowsLoadingHitSnag: "Builder row loading hit a snag.",
   checkingForMatchingFields: "Checking for matching fields...",
   checkingHowTheseRecordsMatch: "Checking how these records match...",
   chooseFields: "Choose fields",
@@ -207,6 +236,7 @@ const databaseMessages = {
   notMappedToBuilder: "Not mapped to Builder.",
   openPage: "Open page",
   openPagesIn: "Open pages in",
+  opening: "Opening...",
   previewThisDatabasePageWithoutLeavingTheDatabase:
     "Preview this database page without leaving the database.",
   properties: "Properties",
@@ -1731,6 +1761,7 @@ const editorPropertiesMessages = {
   add: "Add",
   addOption: "Add option",
   addProperty: "Add property",
+  addPropertyFailed: "Could not add property.",
   addPropertyLink: "Add {{name}} link",
   addPropertyPerson: "Add {{name}} person",
   addPropertyType: "Add {{type}} property",
@@ -1872,6 +1903,7 @@ const editorMediaMessages = {
   generatingAltText: "Generating alt text...",
   image: "Image",
   imageAdded: "Image added",
+  imageBroken: "Image could not be loaded",
   imageCommentWithAlt: "Image: {{alt}}",
   imageCopied: "Image copied.",
   imageDownloadStarted: "Image download started.",
@@ -2246,7 +2278,12 @@ const enUS = {
     noDocumentSelected: "No document selected",
     couldNotReadLocalSourceFile: "Could not read local source file",
     couldNotSaveLocalFile: "Could not save local file",
+    collabConnectingReadOnly:
+      "Connecting live editor. Showing a read-only snapshot.",
     documentTitle: "Document title",
+    builderBodySyncing: "Content is still syncing from Builder",
+    builderBodySyncingDescription:
+      "Editing is paused until the Builder body finishes syncing, so the existing article content is not overwritten.",
     localFileSavedHistoryNotUpdated:
       "Local file saved, but history was not updated",
     reorderField: "Reorder {{name}}",
@@ -4617,6 +4654,10 @@ const databaseExactEnglishMessagesByLocale = {
 const editorMessagesByLocale = {
   "zh-CN": {
     noDocumentSelected: "未选择文档",
+    collabConnectingReadOnly: "正在连接实时编辑器。显示只读快照。",
+    builderBodySyncing: "内容仍在从 Builder 同步",
+    builderBodySyncingDescription:
+      "同步 Builder 正文完成前会暂停编辑，避免覆盖现有文章内容。",
     creatingDatabase: "正在创建内联数据库...",
     databaseCreated: "内联数据库已创建",
     describeWhatToGenerate: "描述要生成什么...",
@@ -4676,6 +4717,7 @@ const editorMessagesByLocale = {
       generatingAltText: "正在生成替代文本...",
       image: "图片",
       imageAdded: "图片已添加",
+      imageBroken: "图片无法加载",
       imageCommentWithAlt: "图片：{{alt}}",
       imageCopied: "图像已复制。",
       imageDownloadStarted: "图像下载开始。",
@@ -4734,6 +4776,7 @@ const editorMessagesByLocale = {
       add: "添加",
       addOption: "添加选项",
       addProperty: "添加属性",
+      addPropertyFailed: "无法添加属性。",
       addPropertyLink: "添加 {{name}} 链接",
       addPropertyPerson: "添加 {{name}} 人",
       addPropertyType: "添加 {{type}} 属性",
@@ -4934,6 +4977,11 @@ const editorMessagesByLocale = {
   },
   "es-ES": {
     noDocumentSelected: "Ningún documento seleccionado",
+    collabConnectingReadOnly:
+      "Conectando el editor en vivo. Mostrando una instantánea de solo lectura.",
+    builderBodySyncing: "El contenido aún se está sincronizando desde Builder",
+    builderBodySyncingDescription:
+      "La edición está en pausa hasta que el cuerpo de Builder termine de sincronizarse, para no sobrescribir el contenido existente del artículo.",
     creatingDatabase: "Creando base de datos integrada...",
     databaseCreated: "Base de datos integrada creada",
     describeWhatToGenerate: "Describe qué generar...",
@@ -4995,6 +5043,7 @@ const editorMessagesByLocale = {
       generatingAltText: "Generando texto alternativo...",
       image: "Imagen",
       imageAdded: "Imagen agregada",
+      imageBroken: "No se pudo cargar la imagen",
       imageCommentWithAlt: "Imagen: {{alt}}",
       imageCopied: "Imagen copiada.",
       imageDownloadStarted: "Se inició la descarga de la imagen.",
@@ -5053,6 +5102,7 @@ const editorMessagesByLocale = {
       add: "Añadir",
       addOption: "Agregar opción",
       addProperty: "Agregar propiedad",
+      addPropertyFailed: "No se pudo agregar la propiedad.",
       addPropertyLink: "Agregar enlace {{name}}",
       addPropertyPerson: "Agregar persona {{name}}",
       addPropertyType: "Agregar propiedad {{type}}",
@@ -5261,6 +5311,12 @@ const editorMessagesByLocale = {
   },
   "fr-FR": {
     noDocumentSelected: "Aucun document sélectionné",
+    collabConnectingReadOnly:
+      "Connexion de l'éditeur en direct. Affichage d'un instantané en lecture seule.",
+    builderBodySyncing:
+      "Le contenu est encore en cours de synchronisation depuis Builder",
+    builderBodySyncingDescription:
+      "La modification est suspendue jusqu'à la fin de la synchronisation du corps Builder, afin de ne pas écraser le contenu existant de l'article.",
     creatingDatabase: "Création d'une base de données intégrée...",
     databaseCreated: "Base de données intégrée créée",
     describeWhatToGenerate: "Décrivez ce qu'il faut générer...",
@@ -5324,6 +5380,7 @@ const editorMessagesByLocale = {
       generatingAltText: "Génération du texte alternatif...",
       image: "Images",
       imageAdded: "Image ajoutée",
+      imageBroken: "L'image n'a pas pu être chargée",
       imageCommentWithAlt: "Image : {{alt}}",
       imageCopied: "Image copiée.",
       imageDownloadStarted: "Le téléchargement de l'image a commencé.",
@@ -5382,6 +5439,7 @@ const editorMessagesByLocale = {
       add: "Ajouter",
       addOption: "Ajouter une option",
       addProperty: "Ajouter une propriété",
+      addPropertyFailed: "Impossible d’ajouter la propriété.",
       addPropertyLink: "Ajouter un lien {{name}}",
       addPropertyPerson: "Ajouter une personne {{name}}",
       addPropertyType: "Ajouter la propriété {{type}}",
@@ -5590,6 +5648,11 @@ const editorMessagesByLocale = {
   },
   "de-DE": {
     noDocumentSelected: "Kein Dokument ausgewählt",
+    collabConnectingReadOnly:
+      "Live-Editor wird verbunden. Schreibgeschützte Momentaufnahme wird angezeigt.",
+    builderBodySyncing: "Inhalte werden noch von Builder synchronisiert",
+    builderBodySyncingDescription:
+      "Die Bearbeitung ist pausiert, bis der Builder-Textkörper fertig synchronisiert ist, damit der bestehende Artikelinhalt nicht überschrieben wird.",
     creatingDatabase: "Inline-Datenbank wird erstellt...",
     databaseCreated: "Inline-Datenbank erstellt",
     describeWhatToGenerate: "Beschreiben Sie, was generiert werden soll ...",
@@ -5653,6 +5716,7 @@ const editorMessagesByLocale = {
       generatingAltText: "Alternativtext wird generiert...",
       image: "Bild",
       imageAdded: "Bild hinzugefügt",
+      imageBroken: "Bild konnte nicht geladen werden",
       imageCommentWithAlt: "Bild: {{alt}}",
       imageCopied: "Bild kopiert.",
       imageDownloadStarted: "Bild-Download gestartet.",
@@ -5712,6 +5776,7 @@ const editorMessagesByLocale = {
       add: "Hinzufügen",
       addOption: "Option hinzufügen",
       addProperty: "Eigenschaft hinzufügen",
+      addPropertyFailed: "Eigenschaft konnte nicht hinzugefügt werden.",
       addPropertyLink: "{{name}}-Link hinzufügen",
       addPropertyPerson: "{{name}}-Person hinzufügen",
       addPropertyType: "{{type}}-Eigenschaft hinzufügen",
@@ -5924,6 +5989,11 @@ const editorMessagesByLocale = {
   },
   "ja-JP": {
     noDocumentSelected: "ドキュメントが選択されていません",
+    collabConnectingReadOnly:
+      "ライブエディターに接続中。読み取り専用のスナップショットを表示しています。",
+    builderBodySyncing: "コンテンツはまだ Builder から同期中です",
+    builderBodySyncingDescription:
+      "既存の記事内容を上書きしないよう、Builder 本文の同期が完了するまで編集は一時停止されます。",
     creatingDatabase: "インラインデータベースを作成しています...",
     databaseCreated: "インラインデータベースが作成されました",
     describeWhatToGenerate: "何を生成するかを説明します...",
@@ -5983,6 +6053,7 @@ const editorMessagesByLocale = {
       generatingAltText: "代替テキストを生成しています...",
       image: "画像",
       imageAdded: "画像追加",
+      imageBroken: "画像を読み込めませんでした",
       imageCommentWithAlt: "画像: {{alt}}",
       imageCopied: "画像をコピーしました。",
       imageDownloadStarted: "画像のダウンロードが始まりました。",
@@ -6042,6 +6113,7 @@ const editorMessagesByLocale = {
       add: "追加",
       addOption: "オプションを追加",
       addProperty: "プロパティの追加",
+      addPropertyFailed: "プロパティを追加できませんでした。",
       addPropertyLink: "{{name}} リンクを追加",
       addPropertyPerson: "{{name}} 人を追加",
       addPropertyType: "{{type}}プロパティを追加",
@@ -6248,6 +6320,11 @@ const editorMessagesByLocale = {
   },
   "ko-KR": {
     noDocumentSelected: "선택한 문서가 없습니다.",
+    collabConnectingReadOnly:
+      "라이브 편집기에 연결하는 중입니다. 읽기 전용 스냅샷을 표시합니다.",
+    builderBodySyncing: "콘텐츠가 아직 Builder에서 동기화되는 중입니다",
+    builderBodySyncingDescription:
+      "기존 문서 내용을 덮어쓰지 않도록 Builder 본문 동기화가 완료될 때까지 편집이 일시 중지됩니다.",
     creatingDatabase: "인라인 데이터베이스 생성 중...",
     databaseCreated: "인라인 데이터베이스가 생성되었습니다.",
     describeWhatToGenerate: "무엇을 생성할지 설명하세요...",
@@ -6307,6 +6384,7 @@ const editorMessagesByLocale = {
       generatingAltText: "대체 텍스트 생성 중...",
       image: "이미지",
       imageAdded: "이미지가 추가됨",
+      imageBroken: "이미지를 불러올 수 없습니다",
       imageCommentWithAlt: "이미지: {{alt}}",
       imageCopied: "이미지가 복사되었습니다.",
       imageDownloadStarted: "이미지 다운로드가 시작되었습니다.",
@@ -6365,6 +6443,7 @@ const editorMessagesByLocale = {
       add: "추가",
       addOption: "옵션 추가",
       addProperty: "속성 추가",
+      addPropertyFailed: "속성을 추가하지 못했습니다.",
       addPropertyLink: "{{name}} 링크 추가",
       addPropertyPerson: "{{name}} 사람 추가",
       addPropertyType: "{{type}} 속성 추가",
@@ -6571,6 +6650,11 @@ const editorMessagesByLocale = {
   },
   "pt-BR": {
     noDocumentSelected: "Nenhum documento selecionado",
+    collabConnectingReadOnly:
+      "Conectando o editor ao vivo. Exibindo um instantâneo somente leitura.",
+    builderBodySyncing: "O conteúdo ainda está sincronizando do Builder",
+    builderBodySyncingDescription:
+      "A edição fica pausada até o corpo do Builder terminar de sincronizar, para não sobrescrever o conteúdo existente do artigo.",
     creatingDatabase: "Criando banco de dados embutido...",
     databaseCreated: "Banco de dados embutido criado",
     describeWhatToGenerate: "Descreva o que gerar...",
@@ -6632,6 +6716,7 @@ const editorMessagesByLocale = {
       generatingAltText: "Gerando texto alternativo...",
       image: "Imagem",
       imageAdded: "Imagem adicionada",
+      imageBroken: "Não foi possível carregar a imagem",
       imageCommentWithAlt: "Imagem: {{alt}}",
       imageCopied: "Imagem copiada.",
       imageDownloadStarted: "O download da imagem foi iniciado.",
@@ -6691,6 +6776,7 @@ const editorMessagesByLocale = {
       add: "Adicionar",
       addOption: "Adicionar opção",
       addProperty: "Adicionar propriedade",
+      addPropertyFailed: "Não foi possível adicionar a propriedade.",
       addPropertyLink: "Adicionar link {{name}}",
       addPropertyPerson: "Adicionar pessoa {{name}}",
       addPropertyType: "Adicionar propriedade {{type}}",
@@ -6900,6 +6986,11 @@ const editorMessagesByLocale = {
   },
   "hi-IN": {
     noDocumentSelected: "कोई दस्तावेज़ चयनित नहीं",
+    collabConnectingReadOnly:
+      "लाइव संपादक कनेक्ट हो रहा है। केवल-पठन स्नैपशॉट दिखाया जा रहा है।",
+    builderBodySyncing: "सामग्री अभी भी Builder से सिंक हो रही है",
+    builderBodySyncingDescription:
+      "Builder का मुख्य भाग सिंक पूरा होने तक संपादन रोका गया है, ताकि मौजूदा लेख सामग्री अधिलेखित न हो।",
     creatingDatabase: "इनलाइन डेटाबेस बनाया जा रहा है...",
     databaseCreated: "इनलाइन डेटाबेस बनाया गया",
     describeWhatToGenerate: "वर्णन करें कि क्या उत्पन्न करना है...",
@@ -6959,6 +7050,7 @@ const editorMessagesByLocale = {
       generatingAltText: "वैकल्पिक टेक्स्ट जनरेट किया जा रहा है...",
       image: "छवि",
       imageAdded: "छवि जोड़ी गई",
+      imageBroken: "छवि लोड नहीं हो सकी",
       imageCommentWithAlt: "छवि: {{alt}}",
       imageCopied: "छवि कॉपी की गई.",
       imageDownloadStarted: "छवि डाउनलोड प्रारंभ हुआ.",
@@ -7017,6 +7109,7 @@ const editorMessagesByLocale = {
       add: "जोड़ें",
       addOption: "विकल्प जोड़ें",
       addProperty: "संपत्ति जोड़ें",
+      addPropertyFailed: "प्रॉपर्टी नहीं जोड़ी जा सकी।",
       addPropertyLink: "{{name}} लिंक जोड़ें",
       addPropertyPerson: "{{name}} व्यक्ति जोड़ें",
       addPropertyType: "{{type}} गुण जोड़ें",
@@ -7220,6 +7313,11 @@ const editorMessagesByLocale = {
   },
   "ar-SA": {
     noDocumentSelected: "لم يتم تحديد أي مستند",
+    collabConnectingReadOnly:
+      "جارٍ الاتصال بالمحرر المباشر. يتم عرض لقطة للقراءة فقط.",
+    builderBodySyncing: "لا يزال المحتوى قيد المزامنة من Builder",
+    builderBodySyncingDescription:
+      "يتم إيقاف التحرير مؤقتًا حتى تكتمل مزامنة نص Builder، حتى لا يتم استبدال محتوى المقالة الحالي.",
     creatingDatabase: "جارٍ إنشاء قاعدة بيانات مضمنة...",
     databaseCreated: "تم إنشاء قاعدة البيانات المضمنة",
     describeWhatToGenerate: "وصف ما سيتم إنشاؤه...",
@@ -7279,6 +7377,7 @@ const editorMessagesByLocale = {
       generatingAltText: "جارٍ إنشاء نص بديل...",
       image: "صورة",
       imageAdded: "تمت إضافة الصورة",
+      imageBroken: "تعذّر تحميل الصورة",
       imageCommentWithAlt: "الصورة: {{alt}}",
       imageCopied: "تم نسخ الصورة.",
       imageDownloadStarted: "بدأ تنزيل الصورة.",
@@ -7337,6 +7436,7 @@ const editorMessagesByLocale = {
       add: "أضف",
       addOption: "إضافة خيار",
       addProperty: "أضف خاصية",
+      addPropertyFailed: "تعذرت إضافة الخاصية.",
       addPropertyLink: "أضف رابط {{name}}",
       addPropertyPerson: "إضافة شخص {{name}}",
       addPropertyType: "إضافة خاصية {{type}}",
@@ -7795,6 +7895,32 @@ export const messagesByLocale = {
       ...databaseExactEnglishMessagesByLocale["zh-CN"],
       builderBodiesReadyLocally: "Builder 文章正文已在本地准备就绪。",
       builderBodySync: "正文同步",
+      builderBodySyncFailedNotice: "此文章正文无法从 Builder 同步",
+      builderBodySyncFailedDescription:
+        "该行仍可编辑，但 Builder 正文未完成同步。发布或推送更改前请检查文章内容。",
+      builderBodySyncing: "内容仍在从 Builder 同步",
+      builderBodySyncingDescription:
+        "同步 Builder 正文完成前会暂停编辑，避免覆盖现有文章内容。",
+      builderReviewShowingRows:
+        "此次审查显示 {{total}} 个 Builder 行中的 {{shown}} 个。",
+      builderReviewShowMore: "显示更多",
+      builderReviewRemainingBatches:
+        "此批次完成后请再次审查，以准备其余 Builder 更改。",
+      builderBodiesSyncingProgress:
+        "正在同步 {{total}} 个正文中的 {{hydrated}} 个。",
+      builderBodiesSyncFinishedWithFailures:
+        "已同步 {{total}} 个正文中的 {{hydrated}} 个。{{failed}} 个失败。",
+      builderRowsFetchedBodiesSyncing:
+        "已获取 {{rows}} 行。正在同步 {{total}} 个正文中的 {{hydrated}} 个。",
+      builderRowsFetchedBodiesSyncFinishedWithFailures:
+        "已获取 {{rows}} 行。已同步 {{total}} 个正文中的 {{hydrated}} 个。{{failed}} 个失败。",
+      builderRowsFetchedSyncingBodies:
+        "Builder 行已全部获取。文章正文仍在同步中。",
+      builderRowsFetchedSoFar: "目前已获取 {{count}} 行。",
+      builderRowsFinishingUp: "Builder 行即将完成加载。",
+      builderRowsLoadingBackground: "Builder 仍在后台加载行。",
+      builderRowsLoadingHitSnag: "Builder 行加载遇到问题。",
+      opening: "正在打开...",
     },
     localFiles: localFilesMessagesByLocale["zh-CN"],
     root: {
@@ -7929,6 +8055,37 @@ export const messagesByLocale = {
       builderBodiesReadyLocally:
         "Los cuerpos de los artículos de Builder están listos localmente.",
       builderBodySync: "Sincronización del cuerpo",
+      builderBodySyncFailedNotice:
+        "El cuerpo de este artículo no se pudo sincronizar desde Builder",
+      builderBodySyncFailedDescription:
+        "La fila sigue siendo editable, pero el cuerpo de Builder no terminó de sincronizarse. Revisa el contenido del artículo antes de publicar o enviar cambios.",
+      builderBodySyncing:
+        "El contenido aún se está sincronizando desde Builder",
+      builderBodySyncingDescription:
+        "La edición está en pausa hasta que el cuerpo de Builder termine de sincronizarse, para no sobrescribir el contenido existente del artículo.",
+      builderReviewShowingRows:
+        "Mostrando {{shown}} de {{total}} filas de Builder para esta revisión.",
+      builderReviewShowMore: "Mostrar más",
+      builderReviewRemainingBatches:
+        "Revisa de nuevo después de este lote para preparar los cambios restantes de Builder.",
+      builderBodiesSyncingProgress:
+        "Sincronizando {{hydrated}} de {{total}} cuerpos.",
+      builderBodiesSyncFinishedWithFailures:
+        "{{hydrated}} de {{total}} cuerpos sincronizados. {{failed}} fallaron.",
+      builderRowsFetchedBodiesSyncing:
+        "{{rows}} filas obtenidas. Sincronizando {{hydrated}} de {{total}} cuerpos.",
+      builderRowsFetchedBodiesSyncFinishedWithFailures:
+        "{{rows}} filas obtenidas. {{hydrated}} de {{total}} cuerpos sincronizados. {{failed}} fallaron.",
+      builderRowsFetchedSyncingBodies:
+        "Las filas de Builder están obtenidas. Los cuerpos de los artículos aún se están sincronizando.",
+      builderRowsFetchedSoFar: "{{count}} filas obtenidas hasta ahora.",
+      builderRowsFinishingUp:
+        "Las filas de Builder están terminando de cargarse.",
+      builderRowsLoadingBackground:
+        "Builder sigue cargando filas en segundo plano.",
+      builderRowsLoadingHitSnag:
+        "La carga de filas de Builder tuvo un problema.",
+      opening: "Abriendo...",
     },
     localFiles: localFilesMessagesByLocale["es-ES"],
     root: {
@@ -8073,6 +8230,36 @@ export const messagesByLocale = {
       builderBodiesReadyLocally:
         "Les corps d’articles Builder sont prêts localement.",
       builderBodySync: "Synchronisation du corps",
+      builderBodySyncFailedNotice:
+        "Le corps de cet article n'a pas pu être synchronisé depuis Builder",
+      builderBodySyncFailedDescription:
+        "La ligne reste modifiable, mais le corps Builder n'a pas terminé sa synchronisation. Vérifiez le contenu de l'article avant de publier ou de pousser des modifications.",
+      builderBodySyncing:
+        "Le contenu est encore en cours de synchronisation depuis Builder",
+      builderBodySyncingDescription:
+        "La modification est suspendue jusqu'à la fin de la synchronisation du corps Builder, afin de ne pas écraser le contenu existant de l'article.",
+      builderReviewShowingRows:
+        "Affichage de {{shown}} lignes Builder sur {{total}} pour cette revue.",
+      builderReviewShowMore: "Afficher plus",
+      builderReviewRemainingBatches:
+        "Relancez la revue après ce lot pour préparer les modifications Builder restantes.",
+      builderBodiesSyncingProgress:
+        "Synchronisation de {{hydrated}} corps sur {{total}}.",
+      builderBodiesSyncFinishedWithFailures:
+        "{{hydrated}} corps synchronisés sur {{total}}. {{failed}} échecs.",
+      builderRowsFetchedBodiesSyncing:
+        "{{rows}} lignes récupérées. Synchronisation de {{hydrated}} corps sur {{total}}.",
+      builderRowsFetchedBodiesSyncFinishedWithFailures:
+        "{{rows}} lignes récupérées. {{hydrated}} corps synchronisés sur {{total}}. {{failed}} échecs.",
+      builderRowsFetchedSyncingBodies:
+        "Les lignes Builder sont récupérées. Les corps d'articles se synchronisent encore.",
+      builderRowsFetchedSoFar: "{{count}} lignes récupérées jusqu’à présent.",
+      builderRowsFinishingUp: "Les lignes Builder terminent leur chargement.",
+      builderRowsLoadingBackground:
+        "Builder charge encore des lignes en arrière-plan.",
+      builderRowsLoadingHitSnag:
+        "Le chargement des lignes Builder a rencontré un problème.",
+      opening: "Ouverture...",
     },
     localFiles: localFilesMessagesByLocale["fr-FR"],
     root: {
@@ -8220,6 +8407,35 @@ export const messagesByLocale = {
       ...databaseExactEnglishMessagesByLocale["de-DE"],
       builderBodiesReadyLocally: "Builder-Artikelinhalte sind lokal bereit.",
       builderBodySync: "Inhaltssynchronisierung",
+      builderBodySyncFailedNotice:
+        "Der Inhalt dieses Artikels konnte nicht aus Builder synchronisiert werden",
+      builderBodySyncFailedDescription:
+        "Die Zeile bleibt bearbeitbar, aber der Builder-Inhalt wurde nicht vollständig synchronisiert. Prüfen Sie den Artikelinhalt vor dem Veröffentlichen oder Pushen.",
+      builderBodySyncing: "Inhalte werden noch von Builder synchronisiert",
+      builderBodySyncingDescription:
+        "Die Bearbeitung ist pausiert, bis der Builder-Textkörper fertig synchronisiert ist, damit der bestehende Artikelinhalt nicht überschrieben wird.",
+      builderReviewShowingRows:
+        "Zeige {{shown}} von {{total}} Builder-Zeilen für diese Überprüfung.",
+      builderReviewShowMore: "Mehr anzeigen",
+      builderReviewRemainingBatches:
+        "Nach diesem Stapel erneut überprüfen, um die restlichen Builder-Änderungen vorzubereiten.",
+      builderBodiesSyncingProgress:
+        "{{hydrated}} von {{total}} Texten werden synchronisiert.",
+      builderBodiesSyncFinishedWithFailures:
+        "{{hydrated}} von {{total}} Texten synchronisiert. {{failed}} fehlgeschlagen.",
+      builderRowsFetchedBodiesSyncing:
+        "{{rows}} Zeilen geladen. {{hydrated}} von {{total}} Texten werden synchronisiert.",
+      builderRowsFetchedBodiesSyncFinishedWithFailures:
+        "{{rows}} Zeilen geladen. {{hydrated}} von {{total}} Texten synchronisiert. {{failed}} fehlgeschlagen.",
+      builderRowsFetchedSyncingBodies:
+        "Builder-Zeilen sind geladen. Artikeltexte werden noch synchronisiert.",
+      builderRowsFetchedSoFar: "{{count}} Zeilen bisher abgerufen.",
+      builderRowsFinishingUp: "Builder-Zeilen werden fertig geladen.",
+      builderRowsLoadingBackground:
+        "Builder lädt weiterhin Zeilen im Hintergrund.",
+      builderRowsLoadingHitSnag:
+        "Beim Laden der Builder-Zeilen ist ein Problem aufgetreten.",
+      opening: "Wird geöffnet...",
     },
     localFiles: localFilesMessagesByLocale["de-DE"],
     root: {
@@ -8368,6 +8584,34 @@ export const messagesByLocale = {
       builderBodiesReadyLocally:
         "Builder の記事本文はローカルで準備できています。",
       builderBodySync: "本文同期",
+      builderBodySyncFailedNotice:
+        "この記事の本文を Builder から同期できませんでした",
+      builderBodySyncFailedDescription:
+        "この行は引き続き編集できますが、Builder 本文の同期は完了していません。公開または変更のプッシュ前に記事内容を確認してください。",
+      builderBodySyncing: "コンテンツはまだ Builder から同期中です",
+      builderBodySyncingDescription:
+        "既存の記事内容を上書きしないよう、Builder 本文の同期が完了するまで編集は一時停止されます。",
+      builderReviewShowingRows:
+        "このレビューでは {{total}} 件中 {{shown}} 件の Builder 行を表示しています。",
+      builderReviewShowMore: "さらに表示",
+      builderReviewRemainingBatches:
+        "残りの Builder 変更を準備するには、このバッチの後で再度レビューしてください。",
+      builderBodiesSyncingProgress:
+        "{{total}} 件中 {{hydrated}} 件の本文を同期しています。",
+      builderBodiesSyncFinishedWithFailures:
+        "{{total}} 件中 {{hydrated}} 件の本文を同期しました。{{failed}} 件が失敗しました。",
+      builderRowsFetchedBodiesSyncing:
+        "{{rows}} 行を取得しました。{{total}} 件中 {{hydrated}} 件の本文を同期しています。",
+      builderRowsFetchedBodiesSyncFinishedWithFailures:
+        "{{rows}} 行を取得しました。{{total}} 件中 {{hydrated}} 件の本文を同期しました。{{failed}} 件が失敗しました。",
+      builderRowsFetchedSyncingBodies:
+        "Builder の行は取得済みです。記事本文はまだ同期中です。",
+      builderRowsFetchedSoFar: "現在 {{count}} 行を取得済みです。",
+      builderRowsFinishingUp: "Builder 行の読み込みを完了しています。",
+      builderRowsLoadingBackground:
+        "Builder はバックグラウンドで行を読み込み続けています。",
+      builderRowsLoadingHitSnag: "Builder 行の読み込みで問題が発生しました。",
+      opening: "開いています...",
     },
     localFiles: localFilesMessagesByLocale["ja-JP"],
     root: {
@@ -8511,6 +8755,34 @@ export const messagesByLocale = {
       ...databaseExactEnglishMessagesByLocale["ko-KR"],
       builderBodiesReadyLocally: "Builder 문서 본문이 로컬에서 준비되었습니다.",
       builderBodySync: "본문 동기화",
+      builderBodySyncFailedNotice:
+        "이 문서 본문을 Builder에서 동기화하지 못했습니다",
+      builderBodySyncFailedDescription:
+        "이 행은 계속 편집할 수 있지만 Builder 본문 동기화가 완료되지 않았습니다. 게시하거나 변경 사항을 푸시하기 전에 문서 내용을 검토하세요.",
+      builderBodySyncing: "콘텐츠가 아직 Builder에서 동기화되는 중입니다",
+      builderBodySyncingDescription:
+        "기존 문서 내용을 덮어쓰지 않도록 Builder 본문 동기화가 완료될 때까지 편집이 일시 중지됩니다.",
+      builderReviewShowingRows:
+        "이 검토에서 Builder 행 {{total}}개 중 {{shown}}개를 표시하고 있습니다.",
+      builderReviewShowMore: "더 보기",
+      builderReviewRemainingBatches:
+        "남은 Builder 변경 사항을 준비하려면 이 배치 후 다시 검토하세요.",
+      builderBodiesSyncingProgress:
+        "본문 {{total}}개 중 {{hydrated}}개를 동기화하는 중입니다.",
+      builderBodiesSyncFinishedWithFailures:
+        "본문 {{total}}개 중 {{hydrated}}개를 동기화했습니다. {{failed}}개 실패했습니다.",
+      builderRowsFetchedBodiesSyncing:
+        "행 {{rows}}개를 가져왔습니다. 본문 {{total}}개 중 {{hydrated}}개를 동기화하는 중입니다.",
+      builderRowsFetchedBodiesSyncFinishedWithFailures:
+        "행 {{rows}}개를 가져왔습니다. 본문 {{total}}개 중 {{hydrated}}개를 동기화했습니다. {{failed}}개 실패했습니다.",
+      builderRowsFetchedSyncingBodies:
+        "Builder 행을 모두 가져왔습니다. 문서 본문은 아직 동기화 중입니다.",
+      builderRowsFetchedSoFar: "지금까지 {{count}}개 행을 가져왔습니다.",
+      builderRowsFinishingUp: "Builder 행 로드를 마무리하는 중입니다.",
+      builderRowsLoadingBackground:
+        "Builder가 백그라운드에서 행을 계속 로드하고 있습니다.",
+      builderRowsLoadingHitSnag: "Builder 행 로드 중 문제가 발생했습니다.",
+      opening: "여는 중...",
     },
     localFiles: localFilesMessagesByLocale["ko-KR"],
     root: {
@@ -8647,6 +8919,36 @@ export const messagesByLocale = {
       builderBodiesReadyLocally:
         "Os corpos dos artigos do Builder estão prontos localmente.",
       builderBodySync: "Sincronização do corpo",
+      builderBodySyncFailedNotice:
+        "O corpo deste artigo não pôde ser sincronizado do Builder",
+      builderBodySyncFailedDescription:
+        "A linha continua editável, mas o corpo do Builder não terminou de sincronizar. Revise o conteúdo do artigo antes de publicar ou enviar alterações.",
+      builderBodySyncing: "O conteúdo ainda está sincronizando do Builder",
+      builderBodySyncingDescription:
+        "A edição fica pausada até o corpo do Builder terminar de sincronizar, para não sobrescrever o conteúdo existente do artigo.",
+      builderReviewShowingRows:
+        "Mostrando {{shown}} de {{total}} linhas do Builder para esta revisão.",
+      builderReviewShowMore: "Mostrar mais",
+      builderReviewRemainingBatches:
+        "Revise novamente após este lote para preparar as alterações restantes do Builder.",
+      builderBodiesSyncingProgress:
+        "Sincronizando {{hydrated}} de {{total}} corpos.",
+      builderBodiesSyncFinishedWithFailures:
+        "{{hydrated}} de {{total}} corpos sincronizados. {{failed}} falharam.",
+      builderRowsFetchedBodiesSyncing:
+        "{{rows}} linhas obtidas. Sincronizando {{hydrated}} de {{total}} corpos.",
+      builderRowsFetchedBodiesSyncFinishedWithFailures:
+        "{{rows}} linhas obtidas. {{hydrated}} de {{total}} corpos sincronizados. {{failed}} falharam.",
+      builderRowsFetchedSyncingBodies:
+        "As linhas do Builder foram obtidas. Os corpos dos artigos ainda estão sincronizando.",
+      builderRowsFetchedSoFar: "{{count}} linhas buscadas até agora.",
+      builderRowsFinishingUp:
+        "As linhas do Builder estão terminando de carregar.",
+      builderRowsLoadingBackground:
+        "O Builder ainda está carregando linhas em segundo plano.",
+      builderRowsLoadingHitSnag:
+        "O carregamento de linhas do Builder encontrou um problema.",
+      opening: "Abrindo...",
     },
     localFiles: localFilesMessagesByLocale["pt-BR"],
     root: {
@@ -8793,6 +9095,33 @@ export const messagesByLocale = {
       ...databaseExactEnglishMessagesByLocale["hi-IN"],
       builderBodiesReadyLocally: "Builder लेखों की बॉडी स्थानीय रूप से तैयार है।",
       builderBodySync: "बॉडी सिंक",
+      builderBodySyncFailedNotice: "इस लेख की बॉडी Builder से सिंक नहीं हो सकी",
+      builderBodySyncFailedDescription:
+        "पंक्ति संपादन योग्य रहती है, लेकिन Builder बॉडी ने सिंक पूरा नहीं किया। प्रकाशित करने या परिवर्तन पुश करने से पहले लेख सामग्री की समीक्षा करें।",
+      builderBodySyncing: "सामग्री अभी भी Builder से सिंक हो रही है",
+      builderBodySyncingDescription:
+        "Builder का मुख्य भाग सिंक पूरा होने तक संपादन रोका गया है, ताकि मौजूदा लेख सामग्री अधिलेखित न हो।",
+      builderReviewShowingRows:
+        "इस समीक्षा के लिए {{total}} में से {{shown}} Builder पंक्तियाँ दिखाई जा रही हैं।",
+      builderReviewShowMore: "और दिखाएँ",
+      builderReviewRemainingBatches:
+        "शेष Builder परिवर्तन तैयार करने के लिए इस बैच के बाद फिर से समीक्षा करें।",
+      builderBodiesSyncingProgress:
+        "{{total}} में से {{hydrated}} मुख्य भाग सिंक हो रहे हैं।",
+      builderBodiesSyncFinishedWithFailures:
+        "{{total}} में से {{hydrated}} मुख्य भाग सिंक हुए। {{failed}} विफल हुए।",
+      builderRowsFetchedBodiesSyncing:
+        "{{rows}} पंक्तियाँ प्राप्त हुईं। {{total}} में से {{hydrated}} मुख्य भाग सिंक हो रहे हैं।",
+      builderRowsFetchedBodiesSyncFinishedWithFailures:
+        "{{rows}} पंक्तियाँ प्राप्त हुईं। {{total}} में से {{hydrated}} मुख्य भाग सिंक हुए। {{failed}} विफल हुए।",
+      builderRowsFetchedSyncingBodies:
+        "Builder पंक्तियाँ प्राप्त हो गई हैं। लेखों के मुख्य भाग अभी भी सिंक हो रहे हैं।",
+      builderRowsFetchedSoFar: "अब तक {{count}} पंक्तियां लाई गईं।",
+      builderRowsFinishingUp: "Builder पंक्तियां लोड होना पूरा कर रही हैं।",
+      builderRowsLoadingBackground:
+        "Builder अभी भी पृष्ठभूमि में पंक्तियां लोड कर रहा है।",
+      builderRowsLoadingHitSnag: "Builder पंक्तियां लोड करने में समस्या आई।",
+      opening: "खोला जा रहा है...",
     },
     localFiles: localFilesMessagesByLocale["hi-IN"],
     root: {
@@ -8927,6 +9256,32 @@ export const messagesByLocale = {
       ...databaseExactEnglishMessagesByLocale["ar-SA"],
       builderBodiesReadyLocally: "أصبحت نصوص مقالات Builder جاهزة محليًا.",
       builderBodySync: "مزامنة النص",
+      builderBodySyncFailedNotice: "تعذرت مزامنة نص هذه المقالة من Builder",
+      builderBodySyncFailedDescription:
+        "يبقى الصف قابلاً للتحرير، لكن نص Builder لم يكمل المزامنة. راجع محتوى المقالة قبل النشر أو دفع التغييرات.",
+      builderBodySyncing: "لا يزال المحتوى قيد المزامنة من Builder",
+      builderBodySyncingDescription:
+        "يتم إيقاف التحرير مؤقتًا حتى تكتمل مزامنة نص Builder، حتى لا يتم استبدال محتوى المقالة الحالي.",
+      builderReviewShowingRows:
+        "يتم عرض {{shown}} من {{total}} صفوف Builder لهذه المراجعة.",
+      builderReviewShowMore: "عرض المزيد",
+      builderReviewRemainingBatches:
+        "راجع مرة أخرى بعد هذه الدفعة لتحضير تغييرات Builder المتبقية.",
+      builderBodiesSyncingProgress:
+        "تتم مزامنة {{hydrated}} من {{total}} من النصوص.",
+      builderBodiesSyncFinishedWithFailures:
+        "تمت مزامنة {{hydrated}} من {{total}} من النصوص. فشل {{failed}}.",
+      builderRowsFetchedBodiesSyncing:
+        "تم جلب {{rows}} صفًا. تتم مزامنة {{hydrated}} من {{total}} من النصوص.",
+      builderRowsFetchedBodiesSyncFinishedWithFailures:
+        "تم جلب {{rows}} صفًا. تمت مزامنة {{hydrated}} من {{total}} من النصوص. فشل {{failed}}.",
+      builderRowsFetchedSyncingBodies:
+        "تم جلب صفوف Builder. لا تزال نصوص المقالات قيد المزامنة.",
+      builderRowsFetchedSoFar: "تم جلب {{count}} صفًا حتى الآن.",
+      builderRowsFinishingUp: "صفوف Builder توشك على إكمال التحميل.",
+      builderRowsLoadingBackground: "لا يزال Builder يحمّل الصفوف في الخلفية.",
+      builderRowsLoadingHitSnag: "واجه تحميل صفوف Builder مشكلة.",
+      opening: "جارٍ الفتح...",
     },
     localFiles: localFilesMessagesByLocale["ar-SA"],
     root: {

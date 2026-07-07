@@ -19,6 +19,7 @@ const TEST_DB_PATH = join(
 let getDb: () => any;
 let schema: typeof import("../server/db/schema.js");
 let bindAction: typeof import("./bind-content-database-source-field.js").default;
+let addSourceFieldPropertyAction: typeof import("./add-content-database-source-field-property.js").default;
 
 const OWNER = "owner@example.com";
 
@@ -31,6 +32,9 @@ beforeAll(async () => {
   await plugin(undefined as any);
   bindAction = (await import("./bind-content-database-source-field.js"))
     .default;
+  addSourceFieldPropertyAction = (
+    await import("./add-content-database-source-field-property.js")
+  ).default;
 }, 60000);
 
 afterAll(() => {
@@ -343,4 +347,74 @@ describe("bind-content-database-source-field (row-union)", () => {
     expect(await tagValue(f.docs.a1, f.tagPropertyId)).toBeUndefined();
     expect(await tagValue(f.docs.b1, f.tagPropertyId)).toBe("Beta");
   });
+});
+
+it("creates a property from a source field resolved by stable key when the field id is stale", async () => {
+  const db = getDb();
+  const now = new Date().toISOString();
+  const suffix = `${++counter}_${Math.random().toString(36).slice(2, 7)}`;
+  const databaseId = `db_stale_add_${suffix}`;
+  const databaseDocId = `doc_${databaseId}`;
+  const sourceId = `src_stale_add_${suffix}`;
+  const fieldId = `field_fresh_${suffix}`;
+
+  await db.insert(schema.documents).values({
+    id: databaseDocId,
+    ownerEmail: OWNER,
+    title: "Stale source field DB",
+    createdAt: now,
+    updatedAt: now,
+  });
+  await db.insert(schema.contentDatabases).values({
+    id: databaseId,
+    ownerEmail: OWNER,
+    documentId: databaseDocId,
+    title: "Stale source field DB",
+    createdAt: now,
+    updatedAt: now,
+  });
+  await db.insert(schema.contentDatabaseSources).values({
+    id: sourceId,
+    ownerEmail: OWNER,
+    databaseId,
+    sourceType: "builder-cms",
+    sourceName: "Blog",
+    sourceTable: "blog",
+    createdAt: now,
+    updatedAt: now,
+  });
+  await db.insert(schema.contentDatabaseSourceFields).values({
+    id: fieldId,
+    ownerEmail: OWNER,
+    sourceId,
+    propertyId: null,
+    localFieldKey: "data.author",
+    sourceFieldKey: "data.author",
+    sourceFieldLabel: "Author",
+    sourceFieldType: "text",
+    mappingType: "property",
+    writeOwner: "source",
+    readOnly: 0,
+    provenance: "Builder model field",
+    freshness: "fresh",
+    createdAt: now,
+    updatedAt: now,
+  });
+
+  const result = await asOwner(() =>
+    addSourceFieldPropertyAction.run({
+      documentId: databaseDocId,
+      sourceFieldId: `stale_${fieldId}`,
+      sourceId,
+      sourceFieldKey: "data.author",
+    }),
+  );
+
+  expect(result.sourceField.id).toBe(fieldId);
+  expect(result.sourceField.propertyId).toBe(result.property.definition.id);
+  const [field] = await db
+    .select()
+    .from(schema.contentDatabaseSourceFields)
+    .where(eq(schema.contentDatabaseSourceFields.id, fieldId));
+  expect(field.propertyId).toBe(result.property.definition.id);
 });
