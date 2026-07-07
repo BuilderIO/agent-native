@@ -35,9 +35,11 @@ export default function LibraryIndexRoute() {
           size="sm"
           asChild
         >
-          <NavLink to="/record">
+          <NavLink to="/record" aria-label={t("navigation.newRecording")}>
             <IconPlayerRecord className="h-4 w-4" />
-            {t("navigation.newRecording")}
+            <span className="hidden sm:inline">
+              {t("navigation.newRecording")}
+            </span>
           </NavLink>
         </Button>
       }
