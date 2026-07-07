@@ -28,6 +28,7 @@ import {
   runNitroBuildPipeline,
   sanitizeServerlessFunctionPackageManifest,
   shouldBundleFfmpegStaticForServerless,
+  writeSingleTemplateNetlifyRedirects,
 } from "./build.js";
 import { IMMUTABLE_ASSET_CACHE_CONTROL } from "./immutable-assets.js";
 
@@ -1499,12 +1500,39 @@ describe("durable-background Netlify function emit (single-template, flag-gated)
 
   it("passes a valid single-template Netlify deploy output", () => {
     const cwd = setupNetlifyOutput();
+    writeSingleTemplateNetlifyRedirects(cwd);
 
     expect(() => assertSingleTemplateNetlifyBuildOutput(cwd)).not.toThrow();
   });
 
+  it("writes a Netlify fallback redirect without removing existing redirects", () => {
+    const cwd = setupNetlifyOutput();
+    const redirectsPath = path.join(cwd, "dist", "_redirects");
+    fs.writeFileSync(
+      redirectsPath,
+      "https://images.agent-native.com/* https://assets.agent-native.com/:splat 301!\n",
+    );
+
+    writeSingleTemplateNetlifyRedirects(cwd);
+
+    const redirects = fs.readFileSync(redirectsPath, "utf-8");
+    expect(redirects).toContain(
+      "https://images.agent-native.com/* https://assets.agent-native.com/:splat 301!",
+    );
+    expect(redirects).toContain("/* /.netlify/functions/server 200");
+  });
+
+  it("fails deploy output that would publish without fallback redirects", () => {
+    const cwd = setupNetlifyOutput();
+
+    expect(() => assertSingleTemplateNetlifyBuildOutput(cwd)).toThrow(
+      /missing Netlify fallback redirects/,
+    );
+  });
+
   it("fails deploy output that would publish without the server catch-all", () => {
     const cwd = setupNetlifyOutput();
+    writeSingleTemplateNetlifyRedirects(cwd);
     fs.writeFileSync(
       serverEntryPath(cwd),
       SERVER_ENTRY.replace('  path: "/*",\n', ""),
@@ -1518,6 +1546,7 @@ describe("durable-background Netlify function emit (single-template, flag-gated)
   it("fails when durable background is enabled but the Netlify background function is missing", () => {
     process.env.AGENT_CHAT_DURABLE_BACKGROUND = "true";
     const cwd = setupNetlifyOutput();
+    writeSingleTemplateNetlifyRedirects(cwd);
 
     expect(() => assertSingleTemplateNetlifyBuildOutput(cwd)).toThrow(
       /durable background is enabled/,
@@ -1529,6 +1558,7 @@ describe("durable-background Netlify function emit (single-template, flag-gated)
     const cwd = setupNetlifyOutput();
 
     emitSingleTemplateNetlifyBackgroundFunction(cwd);
+    writeSingleTemplateNetlifyRedirects(cwd);
 
     expect(() => assertSingleTemplateNetlifyBuildOutput(cwd)).not.toThrow();
   });
