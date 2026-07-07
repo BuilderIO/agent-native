@@ -2635,29 +2635,29 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
 
   useEffect(() => {
     const currentIds = new Set(screens.map((screen) => screen.id));
-    updateFrameGeometry((current) => {
-      const next: FrameGeometryById = {};
-      let changed = Object.keys(current).some((id) => !currentIds.has(id));
-
-      screens.forEach((screen, index) => {
-        const existing = current[screen.id];
-        const persisted = geometryById?.[screen.id];
-        const metadata = getResolvedMetadata(screen);
-        const resolved = {
-          ...getInitialFrameGeometry(index, metadata),
-          ...persisted,
-        } as FrameGeometry;
-        next[screen.id] = persisted ? resolved : (existing ?? resolved);
-        if (
-          !existing ||
-          (persisted && !sameFrameGeometry(existing, resolved))
-        ) {
-          changed = true;
-        }
-      });
-
-      return changed ? next : current;
+    // B5-9: see resolveFrameGeometrySync's doc comment — this used to notify
+    // the parent (onGeometryChange -> queueFrameGeometrySave) with a brand
+    // new screen's disposable getInitialFrameGeometry() fallback before its
+    // real persisted geometry round-tripped back, clobbering an in-flight
+    // caller save (e.g. DesignEditor's handleDuplicateScreen) that shares
+    // the same debounce timer.
+    const { next, changed, shouldNotifyParent } = resolveFrameGeometrySync({
+      screens: screens.map((screen) => ({
+        id: screen.id,
+        metadata: getResolvedMetadata(screen),
+      })),
+      currentGeometryById: frameGeometryRef.current,
+      persistedGeometryById: geometryById,
     });
+
+    if (changed) {
+      if (shouldNotifyParent) {
+        updateFrameGeometry(() => next);
+      } else {
+        updateFrameGeometryRefOnly(() => next);
+        setFrameGeometry(next);
+      }
+    }
     updateSelectedIds((current) => {
       const next = current.filter((id) => currentIds.has(id));
       return next.length === current.length ? current : next;
@@ -2667,6 +2667,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     getResolvedMetadata,
     screens,
     updateFrameGeometry,
+    updateFrameGeometryRefOnly,
     updateSelectedIds,
   ]);
 
@@ -9178,6 +9179,15 @@ const Screen = memo(function Screen({
   const suppressFrameChromeForChild =
     hasHoveredChild && !directlyHovered && !isDirectlyHovered;
   const emphasized = isSelected || frameDirectlyHovered;
+  // B5-2: the screen LABEL (dot + title text) must only pick up the accent
+  // color when the label itself is hovered or the screen is selected — not
+  // whenever `frameDirectlyHovered` is true, which also turns true from
+  // hovering anywhere *inside* the screen's iframe content (isDirectlyHovered
+  // prop, driven by handleScreenElementHover -> hoveredScreenRootId in
+  // DesignEditor). `directlyHovered` is the label's own local hover state
+  // (set via onMouseEnter/onMouseLeave on the data-frame-label div below), so
+  // it alone (not isDirectlyHovered) is the right signal for "label hovered".
+  const labelEmphasized = isSelected || directlyHovered;
   const fullViewVisible = shouldShowFrameFullViewButton({
     emphasized,
     showFullView,
@@ -9297,17 +9307,17 @@ const Screen = memo(function Screen({
             transition: getChromeLabelTransition(chromeSettling),
           }}
         >
-          <span
-            className={cn(
-              "h-1.5 w-1.5 shrink-0 rounded-full",
-              emphasized ? "bg-primary" : "bg-muted-foreground/40",
-            )}
-          />
+          {/* B5-3: the leading dot/bullet before the screen label was pure
+              decorative chrome added in the Figma-parity visual pass
+              (aa345ccde3, #1636) — it renders unconditionally for every
+              screen with no semantic meaning (not a base/breakpoint marker,
+              not a dirty/unsaved indicator), and Figma's own frame labels
+              don't use one. Removed rather than kept, per B5-3 spec. */}
           <span
             data-frame-title
             className={cn(
               "min-w-0 flex-1 truncate !text-[11px] font-medium",
-              emphasized
+              labelEmphasized
                 ? "text-[var(--design-editor-accent-color)]"
                 : activeOrEmphasized
                   ? "text-foreground"
@@ -10634,6 +10644,74 @@ function getOverviewFrameHeight(width: number, metadata?: ScreenViewportSize) {
   const sourceHeight =
     metadata?.height && metadata.height > 0 ? metadata.height : 2560;
   return Math.max(80, Math.round((width * sourceHeight) / sourceWidth));
+}
+
+/**
+ * B5-9: resolves the `screens`/`geometryById` prop-sync effect's per-screen
+ * frame geometry AND decides whether the result is worth notifying the
+ * parent about (`onGeometryChange`).
+ *
+ * A brand-new screen (duplicate or frame-tool create) appears in `screens`
+ * as soon as its file row exists, but its REAL geometry (correct width/
+ * height copied from the source, or drawn dimensions) is written to the
+ * server by the caller (e.g. DesignEditor's handleDuplicateScreen) and only
+ * round-trips back into `geometryById` a beat later. In that gap, treating
+ * "no existing local entry yet" as a real geometry change and notifying the
+ * parent with the disposable `getInitialFrameGeometry()` fallback (hardcoded
+ * SCREEN_WIDTH/height) is wrong: `onGeometryChange` and the caller's own
+ * save share one debounced timer, so this fallback-driven notify can fire
+ * AFTER and silently overwrite the caller's correct pending write —
+ * permanently persisting the wrong (narrower, default-positioned) geometry.
+ *
+ * So: `shouldNotifyParent` is true only when a screen's PERSISTED geometry
+ * actually differs from what's locally known (a real external change worth
+ * syncing back — e.g. a resize/move that arrived through the prop), or when
+ * a screen was removed. A screen adopting its local-only fallback for the
+ * first time (`existing` undefined, `persisted` undefined) sets `changed`
+ * so the render-local state still updates, but must NOT set
+ * `shouldNotifyParent` — the caller should apply that case via a ref-only
+ * update instead of the notifying path.
+ *
+ * Exported for unit testing.
+ */
+export function resolveFrameGeometrySync(args: {
+  screens: ReadonlyArray<{ id: string; metadata?: ScreenViewportSize }>;
+  currentGeometryById: FrameGeometryById;
+  persistedGeometryById:
+    | Record<string, Partial<FrameGeometry> | undefined>
+    | undefined;
+}): {
+  next: FrameGeometryById;
+  changed: boolean;
+  shouldNotifyParent: boolean;
+} {
+  const { screens, currentGeometryById, persistedGeometryById } = args;
+  const currentIds = new Set(screens.map((screen) => screen.id));
+  let shouldNotifyParent = Object.keys(currentGeometryById).some(
+    (id) => !currentIds.has(id),
+  );
+
+  const next: FrameGeometryById = {};
+  let changed = shouldNotifyParent;
+
+  screens.forEach((screen, index) => {
+    const existing = currentGeometryById[screen.id];
+    const persisted = persistedGeometryById?.[screen.id];
+    const resolved = {
+      ...getInitialFrameGeometry(index, screen.metadata),
+      ...persisted,
+    } as FrameGeometry;
+    next[screen.id] = persisted ? resolved : (existing ?? resolved);
+    if (!existing) {
+      changed = true;
+    }
+    if (persisted && !sameFrameGeometry(existing ?? resolved, resolved)) {
+      changed = true;
+      shouldNotifyParent = true;
+    }
+  });
+
+  return { next, changed, shouldNotifyParent };
 }
 
 export function getPreviewDeviceFrameGeometry({
