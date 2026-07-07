@@ -1,4 +1,8 @@
-import type { DistanceGuideBand, EqualGapGuide, FrameBounds } from "@shared/canvas-math";
+import type {
+  DistanceGuideBand,
+  EqualGapGuide,
+  FrameBounds,
+} from "@shared/canvas-math";
 import type { PenPath } from "@shared/pen-path";
 import type { ReactNode } from "react";
 
