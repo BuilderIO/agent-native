@@ -15,6 +15,7 @@ import {
   agentNativePath,
   callAction,
   sendToAgentChat,
+  type AgentChatMessage,
 } from "@agent-native/core/client";
 import { fullVideoAiModelSelection } from "@shared/clips-ai-prefs";
 import { useEffect, useRef } from "react";
@@ -55,6 +56,7 @@ interface AiRequest {
   thresholdMs?: number;
   message?: string;
   includeFullVideoInAi?: boolean;
+  openInChat?: boolean;
 }
 
 const DISPATCHABLE_REQUESTS = new Set([
@@ -201,25 +203,33 @@ function buildRequestContext(rec: RecordingSummary, request: AiRequest) {
   };
 }
 
-function dispatchAiRequest(rec: RecordingSummary, request: AiRequest) {
+export function buildAiRequestChatOptions(
+  rec: RecordingSummary,
+  request: AiRequest,
+): AgentChatMessage {
   const includeFullVideo = request.includeFullVideoInAi === true;
   const gemini = includeFullVideo ? fullVideoAiModelSelection() : null;
-  sendToAgentChat({
+  const openInChat = request.openInChat === true;
+  return {
     message:
       request.message ??
       `Handle queued ${request.kind} work for recording ${rec.id}.`,
     context: JSON.stringify(buildRequestContext(rec, request)),
     submit: true,
-    openSidebar: false,
+    openSidebar: openInChat ? true : false,
     newTab: true,
-    background: true,
+    background: !openInChat,
     ...(gemini
       ? {
           engine: gemini.engine,
           model: gemini.model,
         }
       : {}),
-  });
+  };
+}
+
+function dispatchAiRequest(rec: RecordingSummary, request: AiRequest) {
+  sendToAgentChat(buildAiRequestChatOptions(rec, request));
 }
 
 function parseJsonArray(raw: string | undefined): unknown[] {

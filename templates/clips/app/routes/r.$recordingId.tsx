@@ -1096,6 +1096,7 @@ export default function RecordingPage() {
                   onSelect={() =>
                     regenerateChapters.mutate({
                       recordingId: recording.id,
+                      openInChat: true,
                     } as any)
                   }
                 >
