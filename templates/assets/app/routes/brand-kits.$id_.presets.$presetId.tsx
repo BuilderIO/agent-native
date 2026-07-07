@@ -107,6 +107,12 @@ const NO_COLLECTION = "__none__";
 const NO_SKELETON_BACKGROUND = "__none__";
 const NO_SKELETON_MASK = "__none__";
 
+function usesSkeletonInpaintMode(
+  form: Pick<PresetFormState, "model" | "skeletonContentMode">,
+) {
+  return form.skeletonContentMode === "cutout" && form.model === "gpt-image-2";
+}
+
 export function meta() {
   return [{ title: messagesByLocale["en-US"].routeTitles.generationPreset }];
 }
@@ -147,7 +153,7 @@ function buildSkeletonSpec(
     ...(previous?.foreground ?? []).filter(
       (layer) => layer.source !== "canonicalLogo",
     ),
-    ...(form.skeletonLogo
+    ...(form.skeletonLogo && !usesSkeletonInpaintMode(form)
       ? [logoLayerFromPlacement(form.skeletonLogoPlacement)]
       : []),
   ];
@@ -1207,61 +1213,68 @@ export default function GenerationPresetEditorRoute() {
                     </span>
                   </label>
                 ) : null}
-                <label
-                  htmlFor="preset-skeleton-logo"
-                  className={cn(
-                    "flex items-start gap-3 rounded-md border border-border p-3",
-                    readOnly && "opacity-70",
-                  )}
-                >
-                  <Checkbox
-                    id="preset-skeleton-logo"
-                    checked={form.skeletonLogo}
-                    disabled={readOnly || !library?.canonicalLogoAssetId}
-                    onCheckedChange={(checked) =>
-                      updateForm({ skeletonLogo: checked === true })
-                    }
-                    className="mt-0.5"
-                  />
-                  <span className="grid gap-1">
-                    <span className="text-sm font-medium leading-none">
-                      {t("brandKitDetail.placeLogoInSkeleton")}
-                    </span>
-                    <span className="text-xs text-muted-foreground">
-                      {t("brandKitDetail.placeLogoInSkeletonHint")}
-                    </span>
-                  </span>
-                </label>
-                <div className="grid gap-2">
-                  <FieldLabel>{t("brandKitDetail.logoPlacement")}</FieldLabel>
-                  <Select
-                    value={form.skeletonLogoPlacement}
-                    disabled={readOnly || !form.skeletonLogo}
-                    onValueChange={(value) =>
-                      updateForm({
-                        skeletonLogoPlacement: value as SkeletonLogoPlacement,
-                      })
-                    }
-                  >
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="upper-right">
-                        {t("brandKitDetail.upperRight")}
-                      </SelectItem>
-                      <SelectItem value="upper-left">
-                        {t("brandKitDetail.upperLeft")}
-                      </SelectItem>
-                      <SelectItem value="lower-right">
-                        {t("brandKitDetail.lowerRight")}
-                      </SelectItem>
-                      <SelectItem value="lower-left">
-                        {t("brandKitDetail.lowerLeft")}
-                      </SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
+                {!usesSkeletonInpaintMode(form) ? (
+                  <>
+                    <label
+                      htmlFor="preset-skeleton-logo"
+                      className={cn(
+                        "flex items-start gap-3 rounded-md border border-border p-3",
+                        readOnly && "opacity-70",
+                      )}
+                    >
+                      <Checkbox
+                        id="preset-skeleton-logo"
+                        checked={form.skeletonLogo}
+                        disabled={readOnly || !library?.canonicalLogoAssetId}
+                        onCheckedChange={(checked) =>
+                          updateForm({ skeletonLogo: checked === true })
+                        }
+                        className="mt-0.5"
+                      />
+                      <span className="grid gap-1">
+                        <span className="text-sm font-medium leading-none">
+                          {t("brandKitDetail.placeLogoInSkeleton")}
+                        </span>
+                        <span className="text-xs text-muted-foreground">
+                          {t("brandKitDetail.placeLogoInSkeletonHint")}
+                        </span>
+                      </span>
+                    </label>
+                    <div className="grid gap-2">
+                      <FieldLabel>
+                        {t("brandKitDetail.logoPlacement")}
+                      </FieldLabel>
+                      <Select
+                        value={form.skeletonLogoPlacement}
+                        disabled={readOnly || !form.skeletonLogo}
+                        onValueChange={(value) =>
+                          updateForm({
+                            skeletonLogoPlacement:
+                              value as SkeletonLogoPlacement,
+                          })
+                        }
+                      >
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="upper-right">
+                            {t("brandKitDetail.upperRight")}
+                          </SelectItem>
+                          <SelectItem value="upper-left">
+                            {t("brandKitDetail.upperLeft")}
+                          </SelectItem>
+                          <SelectItem value="lower-right">
+                            {t("brandKitDetail.lowerRight")}
+                          </SelectItem>
+                          <SelectItem value="lower-left">
+                            {t("brandKitDetail.lowerLeft")}
+                          </SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </>
+                ) : null}
               </div>
             ) : null}
           </div>
