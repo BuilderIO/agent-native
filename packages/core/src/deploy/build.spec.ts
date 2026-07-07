@@ -11,6 +11,7 @@ import {
 } from "../shared/social-meta.js";
 import {
   addImmutableAssetRouteRulesForClientBuild,
+  assertSingleTemplateNetlifyBuildOutput,
   CLOUDFLARE_WORKER_ESBUILD_EXTERNALS,
   CLOUDFLARE_WORKER_NODE_BUILTIN_STUB_MODULES,
   CLOUDFLARE_WORKER_STUB_MODULES,
@@ -1326,6 +1327,7 @@ describe("durable-background Netlify function emit (single-template, flag-gated)
   function setupNetlifyOutput(): string {
     const cwd = fs.mkdtempSync(path.join(process.cwd(), ".tmp-bg-emit-"));
     dirs.push(cwd);
+    fs.mkdirSync(path.join(cwd, "dist"), { recursive: true });
     const serverDir = path.join(
       cwd,
       ".netlify",
@@ -1493,5 +1495,41 @@ describe("durable-background Netlify function emit (single-template, flag-gated)
       emitSingleTemplateNetlifyBackgroundFunction(cwd),
     ).not.toThrow();
     expect(fs.existsSync(backgroundDir(cwd))).toBe(false);
+  });
+
+  it("passes a valid single-template Netlify deploy output", () => {
+    const cwd = setupNetlifyOutput();
+
+    expect(() => assertSingleTemplateNetlifyBuildOutput(cwd)).not.toThrow();
+  });
+
+  it("fails deploy output that would publish without the server catch-all", () => {
+    const cwd = setupNetlifyOutput();
+    fs.writeFileSync(
+      serverEntryPath(cwd),
+      SERVER_ENTRY.replace('  path: "/*",\n', ""),
+    );
+
+    expect(() => assertSingleTemplateNetlifyBuildOutput(cwd)).toThrow(
+      /missing the "\/\*" catch-all/,
+    );
+  });
+
+  it("fails when durable background is enabled but the Netlify background function is missing", () => {
+    process.env.AGENT_CHAT_DURABLE_BACKGROUND = "true";
+    const cwd = setupNetlifyOutput();
+
+    expect(() => assertSingleTemplateNetlifyBuildOutput(cwd)).toThrow(
+      /durable background is enabled/,
+    );
+  });
+
+  it("passes durable-background deploy output after the background function is emitted", () => {
+    process.env.AGENT_CHAT_DURABLE_BACKGROUND = "true";
+    const cwd = setupNetlifyOutput();
+
+    emitSingleTemplateNetlifyBackgroundFunction(cwd);
+
+    expect(() => assertSingleTemplateNetlifyBuildOutput(cwd)).not.toThrow();
   });
 });
