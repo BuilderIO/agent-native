@@ -130,6 +130,137 @@ export async function maskFromManualMaskAlpha(input: {
   });
 }
 
+const GPT_IMAGE_2_EDIT_SIZE_MULTIPLE = 16;
+const GPT_IMAGE_2_EDIT_MIN_PIXELS = 655_360;
+const GPT_IMAGE_2_EDIT_MAX_PIXELS = 8_294_400;
+const GPT_IMAGE_2_EDIT_MAX_SIDE = 3840;
+const GPT_IMAGE_2_EDIT_MAX_RATIO = 3;
+
+export async function prepareGptImage2SkeletonInpaintImages(input: {
+  plate: Buffer;
+  mask: Buffer;
+}): Promise<{
+  plate: Buffer;
+  mask: Buffer;
+  size: { width: number; height: number };
+  resized: boolean;
+}> {
+  const metadata = await sharp(input.plate, { failOn: "none" }).metadata();
+  const width = metadata.width ?? 0;
+  const height = metadata.height ?? 0;
+  if (!width || !height) {
+    throw new Error(
+      "Skeleton inpainting background plate dimensions are invalid.",
+    );
+  }
+  const size = gptImage2EditSizeForPlate({ width, height });
+  const resized = size.width !== width || size.height !== height;
+  if (!resized) {
+    return { plate: input.plate, mask: input.mask, size, resized };
+  }
+  return {
+    plate: await sharp(input.plate, { failOn: "none" })
+      .rotate()
+      .resize({ width: size.width, height: size.height, fit: "fill" })
+      .png()
+      .toBuffer(),
+    mask: await sharp(input.mask, { failOn: "none" })
+      .resize({ width: size.width, height: size.height, fit: "fill" })
+      .png()
+      .toBuffer(),
+    size,
+    resized,
+  };
+}
+
+function gptImage2EditSizeForPlate(input: { width: number; height: number }): {
+  width: number;
+  height: number;
+} {
+  if (isValidGptImage2EditSize(input)) return input;
+  const ratio =
+    Math.max(input.width, input.height) / Math.min(input.width, input.height);
+  if (ratio > GPT_IMAGE_2_EDIT_MAX_RATIO) {
+    throw new Error(
+      "gpt-image-2 skeleton inpainting requires a background plate aspect ratio no wider or taller than 3:1.",
+    );
+  }
+
+  const pixels = input.width * input.height;
+  let scale = 1;
+  if (pixels < GPT_IMAGE_2_EDIT_MIN_PIXELS) {
+    scale = Math.sqrt(GPT_IMAGE_2_EDIT_MIN_PIXELS / pixels);
+  } else if (pixels > GPT_IMAGE_2_EDIT_MAX_PIXELS) {
+    scale = Math.sqrt(GPT_IMAGE_2_EDIT_MAX_PIXELS / pixels);
+  }
+  scale = Math.min(
+    scale,
+    GPT_IMAGE_2_EDIT_MAX_SIDE / Math.max(input.width, input.height),
+  );
+
+  for (let attempt = 0; attempt < 200; attempt += 1) {
+    const candidate = {
+      width: roundToMultiple(
+        input.width * scale,
+        GPT_IMAGE_2_EDIT_SIZE_MULTIPLE,
+      ),
+      height: roundToMultiple(
+        input.height * scale,
+        GPT_IMAGE_2_EDIT_SIZE_MULTIPLE,
+      ),
+    };
+    if (isValidGptImage2EditSize(candidate)) return candidate;
+    const candidatePixels = candidate.width * candidate.height;
+    if (
+      candidatePixels < GPT_IMAGE_2_EDIT_MIN_PIXELS ||
+      candidate.width % GPT_IMAGE_2_EDIT_SIZE_MULTIPLE !== 0 ||
+      candidate.height % GPT_IMAGE_2_EDIT_SIZE_MULTIPLE !== 0
+    ) {
+      scale *= 1.01;
+    } else {
+      scale *= 0.99;
+    }
+  }
+
+  throw new Error(
+    "Unable to prepare a valid gpt-image-2 skeleton inpainting size.",
+  );
+}
+
+function isValidGptImage2EditSize(input: {
+  width: number;
+  height: number;
+}): boolean {
+  if (!Number.isInteger(input.width) || !Number.isInteger(input.height)) {
+    return false;
+  }
+  if (input.width <= 0 || input.height <= 0) return false;
+  if (Math.max(input.width, input.height) > GPT_IMAGE_2_EDIT_MAX_SIDE) {
+    return false;
+  }
+  if (
+    input.width % GPT_IMAGE_2_EDIT_SIZE_MULTIPLE !== 0 ||
+    input.height % GPT_IMAGE_2_EDIT_SIZE_MULTIPLE !== 0
+  ) {
+    return false;
+  }
+  if (
+    Math.max(input.width, input.height) / Math.min(input.width, input.height) >
+    GPT_IMAGE_2_EDIT_MAX_RATIO
+  ) {
+    return false;
+  }
+  const pixels = input.width * input.height;
+  return (
+    pixels >= GPT_IMAGE_2_EDIT_MIN_PIXELS &&
+    pixels <= GPT_IMAGE_2_EDIT_MAX_PIXELS
+  );
+}
+
+function roundToMultiple(value: number, multiple: number): number {
+  return Math.max(multiple, Math.round(value / multiple) * multiple);
+}
+
 async function maskFromAlphaChannel(input: {
   image: Buffer;
   expectedSize?: { width: number; height: number };
