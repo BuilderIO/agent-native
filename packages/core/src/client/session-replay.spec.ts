@@ -234,6 +234,7 @@ describe("session replay", () => {
       recordOptions = options;
       return vi.fn();
     });
+    vi.resetModules();
     const { configureTracking, stopSessionReplay } =
       await import("./analytics.js");
 
