@@ -83,7 +83,7 @@ const koKR = {
       badge: "오픈소스 framework",
       titleLine1: "agentic apps 를 위한",
       titleAccent: "framework",
-      body: "Chat-first app 과 app-agent loop 에서 시작하세요. agent 가 성장하면 actions, 화면, jobs, workflows 를 추가할 수 있습니다.",
+      body: "Agent-Native 는 agent 를 핵심으로 견고한 애플리케이션을 빠르게 구축하기 위한 오픈소스 framework 입니다.",
       primaryCta: "app 사용해 보기",
       secondaryCta: "문서 읽기",
     },

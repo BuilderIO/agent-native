@@ -82,7 +82,7 @@ const arSA = {
       badge: "framework مفتوح المصدر",
       titleLine1: "framework من أجل",
       titleAccent: "agentic apps",
-      body: "ابدأ مع Chat-first app و app-agent loop. أضف actions وشاشات و jobs و workflows مع نمو agent لديك.",
+      body: "Agent-Native هو framework مفتوح المصدر لبناء تطبيقات قوية بسرعة مع agents في جوهرها.",
       primaryCta: "جرّب تطبيقًا",
       secondaryCta: "اقرأ الوثائق",
     },

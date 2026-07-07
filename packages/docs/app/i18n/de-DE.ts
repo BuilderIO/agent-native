@@ -83,7 +83,7 @@ const deDE = {
       badge: "Open-Source-Framework",
       titleLine1: "Das Framework für",
       titleAccent: "agentic Apps",
-      body: "Starte mit einer Chat-first app und dem app-agent loop. Füge actions, Screens, jobs und workflows hinzu, während dein agent wächst.",
+      body: "Agent-Native ist ein Open-Source-Framework zum schnellen Aufbau robuster Anwendungen mit Agents im Kern.",
       primaryCta: "App ausprobieren",
       secondaryCta: "Docs lesen",
     },

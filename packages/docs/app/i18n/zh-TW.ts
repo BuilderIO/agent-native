@@ -80,7 +80,7 @@ const messages = {
       badge: "開放原始碼框架",
       titleLine1: "面向",
       titleAccent: "agentic apps 的框架",
-      body: "從 Chat-first app 和 app-agent loop 開始。隨著你的 agent 成長，新增 actions、介面、jobs 和 workflows。",
+      body: "Agent-Native 是一個開源 framework，用於以 agent 為核心快速建構穩健的應用程式。",
       primaryCta: "試用一個 app",
       secondaryCta: "閱讀檔案",
     },

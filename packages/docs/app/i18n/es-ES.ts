@@ -83,7 +83,7 @@ const esES = {
       badge: "Framework open source",
       titleLine1: "El framework para",
       titleAccent: "apps agentic",
-      body: "Empieza con una Chat-first app y el app-agent loop. Añade actions, pantallas, jobs y workflows a medida que crece tu agent.",
+      body: "Agent-Native es un framework de código abierto para construir rápidamente aplicaciones robustas con agents en su núcleo.",
       primaryCta: "Probar una app",
       secondaryCta: "Leer la documentación",
     },

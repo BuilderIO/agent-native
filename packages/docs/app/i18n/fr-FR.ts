@@ -83,7 +83,7 @@ const frFR = {
       badge: "Framework open source",
       titleLine1: "Le framework pour",
       titleAccent: "apps agentic",
-      body: "Commencez avec une Chat-first app et l'app-agent loop. Ajoutez actions, écrans, jobs et workflows à mesure que votre agent grandit.",
+      body: "Agent-Native est un framework open source pour créer rapidement des applications robustes avec des agents au cœur.",
       primaryCta: "Commencer à construire",
       secondaryCta: "Voir la documentation",
     },

@@ -82,7 +82,7 @@ const zhCN = {
       badge: "开源框架",
       titleLine1: "面向",
       titleAccent: "agentic apps 的框架",
-      body: "从 Chat-first app 和 app-agent loop 开始。随着你的 agent 成长，添加 actions、界面、jobs 和 workflows。",
+      body: "Agent-Native 是一个开源 framework，用于以 agent 为核心快速构建健壮的应用程序。",
       primaryCta: "试用一个 app",
       secondaryCta: "阅读文档",
     },

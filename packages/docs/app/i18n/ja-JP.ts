@@ -83,7 +83,7 @@ const jaJP = {
       badge: "オープンソース framework",
       titleLine1: "agentic apps のための",
       titleAccent: "framework",
-      body: "Chat-first app と app-agent loop から始めましょう。agent の成長に合わせて actions、画面、jobs、workflows を追加できます。",
+      body: "Agent-Native は、agent を中心に堅牢なアプリケーションを迅速に構築するためのオープンソース framework です。",
       primaryCta: "app を試す",
       secondaryCta: "ドキュメントを読む",
     },

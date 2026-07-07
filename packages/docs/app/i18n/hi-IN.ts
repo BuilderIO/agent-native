@@ -82,7 +82,7 @@ const hiIN = {
       badge: "ओपन सोर्स framework",
       titleLine1: "agentic apps के लिए",
       titleAccent: "framework",
-      body: "Chat-first app और app-agent loop से शुरू करें। जैसे-जैसे आपका agent बढ़े, actions, स्क्रीन, jobs और workflows जोड़ें।",
+      body: "Agent-Native एक ओपन-सोर्स framework है, जो agents को कोर में रखकर मज़बूत applications तेज़ी से बनाने के लिए है।",
       primaryCta: "एक app आज़माएँ",
       secondaryCta: "दस्तावेज़ पढ़ें",
     },
