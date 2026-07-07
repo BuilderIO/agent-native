@@ -471,6 +471,17 @@ export const editorChromeBridgeScript: string = `"use strict";
       var parentDisplay = parentStyles ? parentStyles.display : void 0;
       var sourceBacked = hasStableOwnSource(el) || !!closestStableSourceElement(el);
       var sourceId = sourceBacked ? getSourceId(el) || getSelector(el) : "";
+      var pendingNodeId = "";
+      if (!getSourceId(el) && el !== document.body && el !== document.documentElement && el.getAttribute && el.setAttribute) {
+        pendingNodeId = el.getAttribute("data-an-pending-node-id") || "";
+        if (!pendingNodeId) {
+          pendingNodeId = freshRuntimeNodeId("pending");
+          try {
+            el.setAttribute("data-an-pending-node-id", pendingNodeId);
+          } catch (_err) {
+          }
+        }
+      }
       var parentLayout = parentStyles ? {
         display: parentStyles.display,
         flexDirection: parentStyles.flexDirection,
@@ -549,6 +560,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         componentName: componentName || void 0,
         id: el.id || void 0,
         sourceId,
+        pendingNodeId: pendingNodeId || void 0,
         selector: getSelector(el),
         classes: Array.from(el.classList),
         computedStyles: {
@@ -942,14 +954,19 @@ export const editorChromeBridgeScript: string = `"use strict";
       componentTagOverlay.setAttribute("data-component-node-id", nodeId);
       componentTagOverlay.setAttribute("data-component-name", compName);
       var rect = knownRect || el.getBoundingClientRect();
-      var tagHeight = 22;
-      var tagTop = rect.top - tagHeight - 4;
-      if (tagTop < 4) tagTop = rect.top + 4;
+      var line = chromeLineScale();
+      var tagHeight = 22 * line;
+      var tagTop = rect.top - tagHeight - 4 * line;
+      if (tagTop < 4 * line) tagTop = rect.top + 4 * line;
       componentTagOverlay.style.display = "block";
+      componentTagOverlay.style.fontSize = 11 * line + "px";
+      componentTagOverlay.style.padding = 2 * line + "px " + 6 * line + "px";
+      componentTagOverlay.style.borderRadius = 4 * line + "px";
+      componentTagOverlay.style.borderWidth = 1 * line + "px";
       componentTagOverlay.style.left = rect.left + "px";
       componentTagOverlay.style.top = tagTop + "px";
-      selectionOverlay.style.outline = "2px solid " + chromeStrongColorForElement(el);
-      selectionOverlay.style.outlineOffset = "2px";
+      selectionOverlay.style.outline = 2 * line + "px solid " + chromeStrongColorForElement(el);
+      selectionOverlay.style.outlineOffset = 2 * line + "px";
     }
     function clearComponentTag() {
       componentTagOverlay.style.display = "none";
@@ -1108,7 +1125,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         var pos = handle.getAttribute("data-corner") || "";
         handle.style.width = 7 * sx + "px";
         handle.style.height = 7 * sy + "px";
-        handle.style.borderWidth = Math.max(1, 1 * line) + "px";
+        handle.style.borderWidth = 1 * line + "px";
         if (pos.indexOf("n") !== -1) handle.style.top = -4 * sy + "px";
         if (pos.indexOf("s") !== -1) handle.style.bottom = -4 * sy + "px";
         if (pos.indexOf("w") !== -1) handle.style.left = -4 * sx + "px";
@@ -1361,7 +1378,8 @@ export const editorChromeBridgeScript: string = `"use strict";
       var tint = kind === "gap" ? "rgba(255, 79, 216, 0.28)" : "rgba(46, 168, 255, 0.24)";
       var stripe = kind === "gap" ? "rgba(255, 79, 216, 0.58)" : "rgba(46, 168, 255, 0.52)";
       var angle = orientation === "vertical" ? "135deg" : "45deg";
-      return "repeating-linear-gradient(" + angle + ", " + stripe + " 0 1px, " + tint + " 1px 4px, transparent 4px 7px)";
+      var scale = chromeLineScale();
+      return "repeating-linear-gradient(" + angle + ", " + stripe + " 0 " + 1 * scale + "px, " + tint + " " + 1 * scale + "px " + 4 * scale + "px, transparent " + 4 * scale + "px " + 7 * scale + "px)";
     }
     function clampSpacingValue(value) {
       var rounded = Math.round(value);
@@ -1398,7 +1416,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       var hit = config.kind === "padding" ? hitRectForPaddingHandle(
         config.line,
         roundedRegion,
-        PADDING_HANDLE_HIT_TOLERANCE_BASE * Math.max(1, chromeLineScale())
+        PADDING_HANDLE_HIT_TOLERANCE_BASE * chromeLineScale()
       ) : roundedRegion;
       return {
         key: config.key,
@@ -1443,7 +1461,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       var paddingLeft = readPx(cs.paddingLeft);
       var sx = chromeScaleX();
       var sy = chromeScaleY();
-      var line = Math.max(1, chromeLineScale());
+      var line = chromeLineScale();
       var hLineWidth = Math.max(6, Math.min(18, rect.width * 0.12)) * sx;
       var vLineHeight = Math.max(6, Math.min(18, rect.height * 0.12)) * sy;
       var innerLeft = borderLeft;
@@ -1558,7 +1576,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       var handles = [];
       var sx = chromeScaleX();
       var sy = chromeScaleY();
-      var line = Math.max(1, chromeLineScale());
+      var line = chromeLineScale();
       var hLineWidth = 8 * sx;
       var vLineHeight = 8 * sy;
       var isFlex = cs.display === "flex" || cs.display === "inline-flex";
@@ -1653,12 +1671,13 @@ export const editorChromeBridgeScript: string = `"use strict";
         spacingBadge.style.display = "none";
         return;
       }
+      var line = chromeLineScale();
       var point = cursorPoint || lastSpacingPointerPoint;
       var x;
       var y;
       if (point) {
-        x = point.x + 12;
-        y = point.y - 12;
+        x = point.x + 12 * line;
+        y = point.y - 12 * line;
       } else {
         var rect = selectedEl.getBoundingClientRect();
         x = rect.left + handle.region.x + handle.region.width / 2;
@@ -1667,6 +1686,9 @@ export const editorChromeBridgeScript: string = `"use strict";
       spacingBadge.textContent = String(clampSpacingValue(value)) + "px";
       spacingBadge.style.display = "block";
       spacingBadge.style.background = spacingColor(handle.kind);
+      spacingBadge.style.fontSize = 10 * line + "px";
+      spacingBadge.style.padding = 2 * line + "px " + 4 * line + "px";
+      spacingBadge.style.borderRadius = 3 * line + "px";
       spacingBadge.style.left = x + "px";
       spacingBadge.style.top = y + "px";
       spacingBadge.style.transform = point ? "translateY(-100%)" : "translate(-50%, -50%)";
@@ -1684,10 +1706,11 @@ export const editorChromeBridgeScript: string = `"use strict";
       lineNode.style.borderRadius = "999px";
       lineNode.style.left = handle.line.x + "px";
       lineNode.style.top = handle.line.y + "px";
-      lineNode.style.width = Math.max(1, handle.line.width) + "px";
-      lineNode.style.height = Math.max(1, handle.line.height) + "px";
+      lineNode.style.width = handle.line.width + "px";
+      lineNode.style.height = handle.line.height + "px";
       lineNode.style.background = spacingColor(handle.kind);
       spacingOverlay.appendChild(lineNode);
+      var hatchTile = 6 * chromeLineScale() + "px";
       if (handle.kind === "padding") {
         var hatchNode = document.createElement("span");
         hatchNode.setAttribute("data-agent-native-spacing-hatch", handle.kind);
@@ -1695,7 +1718,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         hatchNode.style.display = "block";
         hatchNode.style.boxSizing = "border-box";
         hatchNode.style.pointerEvents = "none";
-        hatchNode.style.backgroundSize = "6px 6px";
+        hatchNode.style.backgroundSize = hatchTile + " " + hatchTile;
         hatchNode.style.left = handle.region.x + "px";
         hatchNode.style.top = handle.region.y + "px";
         hatchNode.style.width = handle.region.width + "px";
@@ -1712,7 +1735,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       regionNode.style.display = "block";
       regionNode.style.boxSizing = "border-box";
       regionNode.style.pointerEvents = "auto";
-      regionNode.style.backgroundSize = "6px 6px";
+      regionNode.style.backgroundSize = hatchTile + " " + hatchTile;
       regionNode.style.cursor = handle.orientation === "vertical" ? "ew-resize" : "ns-resize";
       var hitRect = handle.kind === "padding" ? handle.hit : handle.region;
       regionNode.style.left = hitRect.x + "px";
@@ -1894,6 +1917,25 @@ export const editorChromeBridgeScript: string = `"use strict";
       stopNativeInteraction(e);
       activateSpacingHandle(spacingKey);
     }
+    function spacingHandleKeyAtPoint(clientX, clientY) {
+      if (!selectedEl || !document.documentElement.contains(selectedEl)) {
+        return "";
+      }
+      var rect = selectedEl.getBoundingClientRect();
+      var localX = clientX - rect.left;
+      var localY = clientY - rect.top;
+      var keys = Object.keys(spacingHandleStateByKey);
+      for (var i = 0; i < keys.length; i += 1) {
+        var handle = spacingHandleStateByKey[keys[i]];
+        if (!handle) continue;
+        var hit = handle.hit || handle.region;
+        if (!hit) continue;
+        if (localX >= hit.x && localX <= hit.x + hit.width && localY >= hit.y && localY <= hit.y + hit.height) {
+          return handle.key;
+        }
+      }
+      return "";
+    }
     function spacingRegionFromPoint(clientX, clientY) {
       var targets = document.elementsFromPoint ? document.elementsFromPoint(clientX, clientY) : [document.elementFromPoint(clientX, clientY)];
       for (var i = 0; i < targets.length; i += 1) {
@@ -1952,9 +1994,10 @@ export const editorChromeBridgeScript: string = `"use strict";
       var sx = chromeScaleX();
       var sy = chromeScaleY();
       var line = chromeLineScale();
-      highlightOverlay.style.borderWidth = Math.max(1, 1 * line) + "px";
-      parentAutoLayoutOverlay.style.borderWidth = Math.max(1, 1 * line) + "px";
+      highlightOverlay.style.borderWidth = 1 * line + "px";
+      parentAutoLayoutOverlay.style.borderWidth = 1 * line + "px";
       selectionOverlay.style.borderWidth = 1.5 * line + "px";
+      marqueeSelectionOverlay.style.borderWidth = 1 * line + "px";
       passiveSelectionOverlays.forEach(scalePassiveSelectionOverlay);
       if (selectedEl) updateSpacingOverlay(selectedEl);
       selectionOverlay.querySelectorAll("[data-agent-native-edge-handle]").forEach(function(edge) {
@@ -1972,7 +2015,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         var pos = handle.getAttribute("data-agent-native-edit-handle") || "";
         handle.style.width = 7 * sx + "px";
         handle.style.height = 7 * sy + "px";
-        handle.style.borderWidth = Math.max(1, 1 * line) + "px";
+        handle.style.borderWidth = 1 * line + "px";
         if (pos.indexOf("n") !== -1) handle.style.top = -4 * sy + "px";
         if (pos.indexOf("s") !== -1) handle.style.bottom = -4 * sy + "px";
         if (pos.indexOf("w") !== -1) handle.style.left = -4 * sx + "px";
@@ -2142,16 +2185,19 @@ export const editorChromeBridgeScript: string = `"use strict";
       var horizontal = Math.abs(x2 - x1) >= Math.abs(y2 - y1);
       var line = document.createElement("div");
       var labelEl = document.createElement("div");
+      var scale = chromeLineScale();
+      var lineWidth = 1 * chromeLineScale();
+      var labelChrome = "transform-origin:center;border-radius:" + 3 * scale + "px;background:var(--design-editor-measure-color);color:white;padding:" + 1 * scale + "px " + 4 * scale + "px;font-size:" + 11 * scale + "px;";
       if (horizontal) {
         var left = Math.min(x1, x2);
         var width = Math.max(1, Math.abs(x2 - x1));
-        line.style.cssText = "position:fixed;left:" + left + "px;top:" + y1 + "px;width:" + width + "px;border-top:1px dashed var(--design-editor-measure-color);";
-        labelEl.style.cssText = "position:fixed;left:" + (left + width / 2) + "px;top:" + (y1 - 9) + "px;transform:translateX(-50%);border-radius:3px;background:var(--design-editor-measure-color);color:white;padding:1px 4px;";
+        line.style.cssText = "position:fixed;left:" + left + "px;top:" + y1 + "px;width:" + width + "px;border-top:" + lineWidth + "px dashed var(--design-editor-measure-color);";
+        labelEl.style.cssText = "position:fixed;left:" + (left + width / 2) + "px;top:" + (y1 - 9 * scale) + "px;transform:translateX(-50%);" + labelChrome;
       } else {
         var top = Math.min(y1, y2);
         var height = Math.max(1, Math.abs(y2 - y1));
-        line.style.cssText = "position:fixed;left:" + x1 + "px;top:" + top + "px;height:" + height + "px;border-left:1px dashed var(--design-editor-measure-color);";
-        labelEl.style.cssText = "position:fixed;left:" + (x1 + 5) + "px;top:" + (top + height / 2) + "px;transform:translateY(-50%);border-radius:3px;background:var(--design-editor-measure-color);color:white;padding:1px 4px;";
+        line.style.cssText = "position:fixed;left:" + x1 + "px;top:" + top + "px;height:" + height + "px;border-left:" + lineWidth + "px dashed var(--design-editor-measure-color);";
+        labelEl.style.cssText = "position:fixed;left:" + (x1 + 5 * scale) + "px;top:" + (top + height / 2) + "px;transform:translateY(-50%);" + labelChrome;
       }
       labelEl.textContent = label;
       measurementOverlay.appendChild(line);
@@ -2933,7 +2979,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         gradient.stops
       );
       var line1 = chromeLineScale();
-      var lineStrokeWidth = Math.max(1, 1.5 * line1);
+      var lineStrokeWidth = 1.5 * line1;
       gradientOverlaySvg.setAttribute("viewBox", "0 0 " + width + " " + height);
       [gradientOverlayLineOutline, gradientOverlayLine].forEach(
         function(lineEl, index) {
@@ -2948,7 +2994,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         }
       );
       var endpointSize = 10 * line1;
-      var endpointBorderWidth = Math.max(1, 1.5 * line1);
+      var endpointBorderWidth = 1.5 * line1;
       [
         { el: gradientOverlayStartHandle, point: line.start, which: "start" },
         { el: gradientOverlayEndHandle, point: line.end, which: "end" }
@@ -2965,7 +3011,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       });
       hideGradientOverlayStops();
       var stopSize = 12 * line1;
-      var stopBorderWidth = Math.max(1, 2 * line1);
+      var stopBorderWidth = 2 * line1;
       stopPoints.forEach(function(point, index) {
         var stop = gradient.stops[index];
         if (!stop) return;
@@ -3422,10 +3468,15 @@ export const editorChromeBridgeScript: string = `"use strict";
       return true;
     }
     function showTransformBadge(text, clientX, clientY) {
+      var line = chromeLineScale();
       transformBadge.textContent = text;
       transformBadge.style.display = "block";
-      transformBadge.style.left = clientX + 12 + "px";
-      transformBadge.style.top = clientY + 12 + "px";
+      transformBadge.style.fontSize = 11 * line + "px";
+      transformBadge.style.padding = 3 * line + "px " + 5 * line + "px";
+      transformBadge.style.borderRadius = 4 * line + "px";
+      transformBadge.style.borderWidth = 1 * line + "px";
+      transformBadge.style.left = clientX + 12 * line + "px";
+      transformBadge.style.top = clientY + 12 * line + "px";
     }
     function hideTransformBadge() {
       transformBadge.style.display = "none";
@@ -3450,6 +3501,53 @@ export const editorChromeBridgeScript: string = `"use strict";
       if (cs.position === "absolute" || cs.position === "fixed") return false;
       return true;
     }
+    function collectMoveGroupMembers(gestureEl) {
+      if (!gestureEl) return [];
+      var raw = [];
+      if (selectedEl) raw.push(selectedEl);
+      for (var i = 0; i < passiveSelectionEls.length; i += 1) {
+        raw.push(passiveSelectionEls[i]);
+      }
+      var members = [];
+      for (var j = 0; j < raw.length; j += 1) {
+        var candidate = raw[j];
+        if (!candidate || candidate === document.body || candidate === document.documentElement || !document.documentElement.contains(candidate) || isLayerInteractionBlocked(candidate) || members.indexOf(candidate) !== -1) {
+          continue;
+        }
+        members.push(candidate);
+      }
+      members = members.filter(function(member) {
+        return !members.some(function(other) {
+          return other !== member && other.contains(member);
+        });
+      });
+      var gestureMember = null;
+      for (var k = 0; k < members.length; k += 1) {
+        if (members[k] === gestureEl || members[k].contains && members[k].contains(gestureEl)) {
+          gestureMember = members[k];
+          break;
+        }
+      }
+      if (!gestureMember || members.length < 2) return [gestureEl];
+      members.sort(function(a, b) {
+        var position = a.compareDocumentPosition(b);
+        if (position & Node.DOCUMENT_POSITION_FOLLOWING) return -1;
+        if (position & Node.DOCUMENT_POSITION_PRECEDING) return 1;
+        return 0;
+      });
+      return members;
+    }
+    function groupMemberForGestureTarget(target) {
+      if (!target) return null;
+      var raw = selectedEl ? [selectedEl].concat(passiveSelectionEls) : passiveSelectionEls.slice();
+      for (var i = 0; i < raw.length; i += 1) {
+        var member = raw[i];
+        if (member && document.documentElement.contains(member) && (member === target || member.contains && member.contains(target))) {
+          return member;
+        }
+      }
+      return null;
+    }
     function isAutoLayoutElement(el) {
       if (!el) return false;
       var cs = window.getComputedStyle(el);
@@ -3461,6 +3559,141 @@ export const editorChromeBridgeScript: string = `"use strict";
       if (primitive !== "rectangle" && primitive !== "rect") return false;
       var cs = window.getComputedStyle(el);
       return cs.position === "absolute" || cs.position === "fixed";
+    }
+    function inferAutoLayoutConversionForContainer(container, excludeEls) {
+      var siblings = draggableElementChildren(container).filter(function(child) {
+        return excludeEls.indexOf(child) === -1;
+      });
+      if (siblings.length === 0) {
+        return { direction: "column", gap: 10 };
+      }
+      var rects = siblings.map(function(child) {
+        return child.getBoundingClientRect();
+      });
+      var minX = Math.min.apply(
+        null,
+        rects.map(function(r) {
+          return r.left;
+        })
+      );
+      var maxX = Math.max.apply(
+        null,
+        rects.map(function(r) {
+          return r.left + r.width;
+        })
+      );
+      var minY = Math.min.apply(
+        null,
+        rects.map(function(r) {
+          return r.top;
+        })
+      );
+      var maxY = Math.max.apply(
+        null,
+        rects.map(function(r) {
+          return r.top + r.height;
+        })
+      );
+      var direction = maxX - minX >= maxY - minY ? "row" : "column";
+      if (rects.length < 2) {
+        return { direction, gap: 10 };
+      }
+      var sorted = rects.slice().sort(function(a, b) {
+        return direction === "row" ? a.left - b.left : a.top - b.top;
+      });
+      var gaps = [];
+      for (var i = 1; i < sorted.length; i += 1) {
+        var prev = sorted[i - 1];
+        var current = sorted[i];
+        var gapValue = direction === "row" ? current.left - (prev.left + prev.width) : current.top - (prev.top + prev.height);
+        if (isFinite(gapValue) && gapValue > 0) gaps.push(gapValue);
+      }
+      if (gaps.length === 0) {
+        return { direction, gap: 10 };
+      }
+      gaps.sort(function(a, b) {
+        return a - b;
+      });
+      var mid = Math.floor(gaps.length / 2);
+      var median = gaps.length % 2 === 0 ? (gaps[mid - 1] + gaps[mid]) / 2 : gaps[mid];
+      return { direction, gap: Math.round(median) };
+    }
+    function applyAutoLayoutConversionForDrop(container, excludeEls) {
+      var inferred = inferAutoLayoutConversionForContainer(container, excludeEls);
+      var el = container;
+      el.style.display = "flex";
+      el.style.flexDirection = inferred.direction;
+      el.style.gap = inferred.gap + "px";
+      window.parent.postMessage(
+        {
+          type: "visual-style-change",
+          selector: getSelector(container),
+          styles: {
+            display: "flex",
+            "flex-direction": inferred.direction,
+            gap: inferred.gap + "px"
+          },
+          payload: getElementInfo(container)
+        },
+        "*"
+      );
+    }
+    var BOARD_TEXT_AUTO_COLOR_MARKER = "data-an-auto-text-color";
+    function parseCssRgb(value) {
+      var match = /^rgba?\\(([^)]+)\\)$/.exec((value || "").trim());
+      if (!match) return null;
+      var parts = match[1].split(",").map(function(part) {
+        return parseFloat(part.trim());
+      });
+      if (parts.length < 3 || parts.some(isNaN)) return null;
+      return {
+        r: parts[0],
+        g: parts[1],
+        b: parts[2],
+        a: parts.length > 3 ? parts[3] : 1
+      };
+    }
+    function containerBackgroundIsLight(container) {
+      var cursor = container;
+      while (cursor && cursor !== document.documentElement) {
+        var bg = window.getComputedStyle(cursor).backgroundColor;
+        var rgb = parseCssRgb(bg);
+        if (rgb && rgb.a > 0.01) {
+          var luminance = 0.2126 * rgb.r + 0.7152 * rgb.g + 0.0722 * rgb.b;
+          return luminance > 150;
+        }
+        cursor = cursor.parentElement;
+      }
+      return true;
+    }
+    function adaptAutoTextColorForNest(member, container) {
+      if (!container || member.parentElement === container) return;
+      var kind = (member.getAttribute("data-an-primitive") || member.getAttribute("data-agent-native-primitive") || "").toLowerCase();
+      if (kind !== "text") return;
+      var el = member;
+      var inline = el.style.color;
+      if (!inline || inline === "inherit" || inline === "currentcolor") return;
+      var hasAutoMarker = member.hasAttribute(BOARD_TEXT_AUTO_COLOR_MARKER);
+      if (!hasAutoMarker) {
+        var normalized = inline.replace(/\\s+/g, "").toLowerCase();
+        var isDefaultWhite = normalized === "#ffffff" || normalized === "#fff" || normalized === "rgb(255,255,255)" || normalized === "white";
+        if (!isDefaultWhite) return;
+        if (!containerBackgroundIsLight(container)) return;
+      }
+      el.style.color = "inherit";
+      window.parent.postMessage(
+        {
+          type: "visual-style-change",
+          selector: getSelector(member),
+          styles: { color: "inherit" },
+          payload: getElementInfo(member)
+        },
+        "*"
+      );
+    }
+    function dropContainerForTarget(target) {
+      if (!target || !target.anchor) return null;
+      return target.placement === "inside" ? target.anchor : target.anchor.parentElement;
     }
     function isOutsideIframeViewport(clientX, clientY) {
       return clientX < 0 || clientY < 0 || clientX > window.innerWidth || clientY > window.innerHeight;
@@ -3596,10 +3829,59 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       return "y";
     }
-    function reorderTargetForPoint(el, clientX, clientY) {
+    function nearestChildInsertionTarget(container, clientX, clientY, excludeEls) {
+      var excluded = excludeEls || [];
+      function isExcluded(node) {
+        for (var i = 0; i < excluded.length; i += 1) {
+          var member = excluded[i];
+          if (member && (member === node || member.contains && member.contains(node))) {
+            return true;
+          }
+        }
+        return false;
+      }
+      var children = draggableElementChildren(container).filter(function(child) {
+        return !isExcluded(child);
+      });
+      if (!children.length) return null;
+      var axis = parentFlowAxis(container);
+      var best = null;
+      var bestDistance = Infinity;
+      var placement = "after";
+      for (var j = 0; j < children.length; j += 1) {
+        var rect = children[j].getBoundingClientRect();
+        if (rect.width <= 0 || rect.height <= 0) continue;
+        var center = axis === "x" ? rect.left + rect.width / 2 : rect.top + rect.height / 2;
+        var pointer = axis === "x" ? clientX : clientY;
+        var distance = Math.abs(pointer - center);
+        if (distance < bestDistance) {
+          bestDistance = distance;
+          best = children[j];
+          placement = pointer < center ? "before" : "after";
+        }
+      }
+      if (!best) return null;
+      return {
+        anchor: best,
+        placement,
+        axis,
+        dropMode: "flow-insert"
+      };
+    }
+    function reorderTargetForPoint(el, clientX, clientY, excludeEls) {
       if (!el || !el.parentElement) return null;
+      var dragged = [el].concat(excludeEls || []);
+      function isDraggedOrInsideDragged(node) {
+        for (var di = 0; di < dragged.length; di += 1) {
+          var member = dragged[di];
+          if (member && (member === node || member.contains && member.contains(node))) {
+            return true;
+          }
+        }
+        return false;
+      }
       var hit = elementFromEditorPoint(clientX, clientY);
-      if (hit && hit !== document.documentElement && hit !== el && !el.contains(hit) && !isOverlayElement(hit)) {
+      if (hit && hit !== document.documentElement && !isDraggedOrInsideDragged(hit) && !isOverlayElement(hit)) {
         if (isContainerDropTarget(hit)) {
           var containerRect = hit.getBoundingClientRect();
           var edgeAxis = hit.parentElement ? parentFlowAxis(hit.parentElement) : parentFlowAxis(hit);
@@ -3610,6 +3892,13 @@ export const editorChromeBridgeScript: string = `"use strict";
             clientY
           );
           if (!edgePlacement) {
+            var betweenChildren = nearestChildInsertionTarget(
+              hit,
+              clientX,
+              clientY,
+              dragged
+            );
+            if (betweenChildren) return betweenChildren;
             return {
               anchor: hit,
               placement: "inside",
@@ -3641,7 +3930,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       var parent = el.parentElement;
       var axis = parentFlowAxis(parent);
       var siblings = draggableElementChildren(parent).filter(function(child) {
-        return child !== el;
+        return !isDraggedOrInsideDragged(child);
       });
       if (!siblings.length) return null;
       var beforeTarget = null;
@@ -3664,30 +3953,46 @@ export const editorChromeBridgeScript: string = `"use strict";
       };
     }
     function elementFromEditorPointIgnoring(clientX, clientY, ignore) {
-      var previousPointerEvents = null;
-      if (ignore && ignore instanceof HTMLElement) {
-        previousPointerEvents = ignore.style.pointerEvents;
-        ignore.style.pointerEvents = "none";
-      }
+      var ignoreList = [];
+      var previousPointerEvents = [];
+      (Array.isArray(ignore) ? ignore : ignore ? [ignore] : []).forEach(
+        function(item) {
+          if (item && item instanceof HTMLElement) {
+            ignoreList.push(item);
+            previousPointerEvents.push(item.style.pointerEvents);
+            item.style.pointerEvents = "none";
+          }
+        }
+      );
       var hit = elementFromEditorPoint(clientX, clientY);
-      if (ignore && ignore instanceof HTMLElement) {
-        ignore.style.pointerEvents = previousPointerEvents ?? "";
-      }
+      ignoreList.forEach(function(item, index) {
+        item.style.pointerEvents = previousPointerEvents[index] ?? "";
+      });
       return hit;
     }
-    function autoLayoutInsertionTargetForPoint(el, clientX, clientY) {
-      var hit = elementFromEditorPointIgnoring(clientX, clientY, el);
+    function autoLayoutInsertionTargetForPoint(el, clientX, clientY, excludeEls) {
+      var dragged = [el].concat(excludeEls || []);
+      function isDraggedOrInsideDragged(node) {
+        for (var i = 0; i < dragged.length; i += 1) {
+          var member = dragged[i];
+          if (member && (member === node || member.contains && member.contains(node))) {
+            return true;
+          }
+        }
+        return false;
+      }
+      var hit = elementFromEditorPointIgnoring(clientX, clientY, dragged);
       if (!hit || hit === document.documentElement || hit === document.body) {
         return null;
       }
       var cursor = hit;
       while (cursor && cursor !== document.body) {
-        if (cursor === el || el && el.contains && el.contains(cursor) || isOverlayElement(cursor) || isLayerInteractionBlocked(cursor)) {
+        if (isDraggedOrInsideDragged(cursor) || isOverlayElement(cursor) || isLayerInteractionBlocked(cursor)) {
           cursor = cursor.parentElement;
           continue;
         }
         var parent = cursor.parentElement;
-        if (parent && isAutoLayoutElement(parent)) {
+        if (parent && parent !== document.body && isContainerDropTarget(parent)) {
           var parentAxis = parentFlowAxis(parent);
           var childRect = cursor.getBoundingClientRect();
           var childCenter = parentAxis === "x" ? childRect.left + childRect.width / 2 : childRect.top + childRect.height / 2;
@@ -3696,15 +4001,35 @@ export const editorChromeBridgeScript: string = `"use strict";
             anchor: cursor,
             placement: childPointer < childCenter ? "before" : "after",
             axis: parentAxis,
-            dropMode: "flow-insert"
+            dropMode: "flow-insert",
+            needsAutoLayoutConversion: !isAutoLayoutElement(parent),
+            conversionTarget: parent
           };
         }
-        if (isAutoLayoutElement(cursor) && isContainerDropTarget(cursor)) {
+        if (cursor !== document.body && isContainerDropTarget(cursor)) {
+          var betweenContainerChildren = nearestChildInsertionTarget(
+            cursor,
+            clientX,
+            clientY,
+            dragged
+          );
+          if (betweenContainerChildren) {
+            return {
+              anchor: betweenContainerChildren.anchor,
+              placement: betweenContainerChildren.placement,
+              axis: betweenContainerChildren.axis,
+              dropMode: "flow-insert",
+              needsAutoLayoutConversion: !isAutoLayoutElement(cursor),
+              conversionTarget: cursor
+            };
+          }
           return {
             anchor: cursor,
             placement: "inside",
             axis: parentFlowAxis(cursor),
-            dropMode: "flow-insert"
+            dropMode: "flow-insert",
+            needsAutoLayoutConversion: !isAutoLayoutElement(cursor),
+            conversionTarget: cursor
           };
         }
         cursor = parent;
@@ -3716,8 +4041,8 @@ export const editorChromeBridgeScript: string = `"use strict";
         hideInsertionGuide();
         return;
       }
-      var line = Math.max(1, 2 * chromeLineScale());
-      var insideBorder = Math.max(1, 2 * chromeLineScale());
+      var line = 2 * chromeLineScale();
+      var insideBorder = 2 * chromeLineScale();
       var rect = target.anchor.getBoundingClientRect();
       insertionGuide.style.display = "block";
       insertionGuide.style.background = "var(--design-editor-accent-color)";
@@ -3805,6 +4130,29 @@ export const editorChromeBridgeScript: string = `"use strict";
         "*"
       );
     }
+    function applyGroupStructureDrop(members, target, ev) {
+      var container = dropContainerForTarget(target);
+      var previous = null;
+      for (var i = 0; i < members.length; i += 1) {
+        var member = members[i];
+        var memberTarget = i === 0 ? target : target.dropMode === "absolute-container" ? target : {
+          anchor: previous,
+          placement: "after",
+          axis: target.axis,
+          dropMode: "flow-insert"
+        };
+        var prevParent = member.parentElement;
+        var prevNextSibling = member.nextSibling;
+        adaptAutoTextColorForNest(member, container);
+        applyRuntimeReorder(member, memberTarget);
+        postVisualStructureChange(member, memberTarget, {
+          prevParent,
+          prevNextSibling
+        });
+        previous = member;
+      }
+      postElementMarqueeSelect(members, false, ev);
+    }
     var SNAP_THRESHOLD_PX = 6;
     var SNAP_CANDIDATE_CAP = 200;
     function rectBounds(rect) {
@@ -3817,8 +4165,9 @@ export const editorChromeBridgeScript: string = `"use strict";
         centerY: rect.top + rect.height / 2
       };
     }
-    function collectSnapCandidateRects(dragEl) {
+    function collectSnapCandidateRects(dragEl, excludeEls) {
       var rects = [];
+      var excluded = excludeEls || [];
       var parent = dragEl && dragEl.parentElement;
       if (parent) {
         var parentRect = parent.getBoundingClientRect();
@@ -3831,7 +4180,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         var siblings = Array.prototype.slice.call(parent.children);
         for (var i = 0; i < siblings.length && rects.length < SNAP_CANDIDATE_CAP; i += 1) {
           var sibling = siblings[i];
-          if (!sibling || sibling === dragEl || sibling.nodeType !== 1 || isOverlayElement(sibling)) {
+          if (!sibling || sibling === dragEl || excluded.indexOf(sibling) !== -1 || sibling.nodeType !== 1 || isOverlayElement(sibling)) {
             continue;
           }
           if (offsetParent && sibling.offsetParent !== offsetParent) {
@@ -3901,8 +4250,10 @@ export const editorChromeBridgeScript: string = `"use strict";
       };
     }
     function showSnapGuides(guideV, guideH) {
+      var line = 1 * chromeLineScale();
       if (guideV) {
         snapGuideV.style.display = "block";
+        snapGuideV.style.width = line + "px";
         snapGuideV.style.left = Math.round(guideV.position) + "px";
         snapGuideV.style.top = Math.round(guideV.start) + "px";
         snapGuideV.style.height = Math.max(1, guideV.end - guideV.start) + "px";
@@ -3911,6 +4262,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       if (guideH) {
         snapGuideH.style.display = "block";
+        snapGuideH.style.height = line + "px";
         snapGuideH.style.top = Math.round(guideH.position) + "px";
         snapGuideH.style.left = Math.round(guideH.start) + "px";
         snapGuideH.style.width = Math.max(1, guideH.end - guideH.start) + "px";
@@ -3922,25 +4274,36 @@ export const editorChromeBridgeScript: string = `"use strict";
       snapGuideV.style.display = "none";
       snapGuideH.style.display = "none";
     }
-    function startMove(e) {
-      if (!selectedEl) return;
-      if (isLayerInteractionBlocked(selectedEl)) return;
+    function startMove(e, gestureElParam) {
+      var gestureEl = gestureElParam || selectedEl;
+      if (!gestureEl) return;
+      if (isLayerInteractionBlocked(gestureEl)) return;
       e.preventDefault();
       e.stopPropagation();
       if (e.stopImmediatePropagation) e.stopImmediatePropagation();
       var events = dragEventNames(e);
       var originalSelectedEl = selectedEl;
       var duplicatedForDrag = false;
-      if (e.altKey && selectedEl !== document.body && selectedEl !== document.documentElement) {
+      if (e.altKey && selectedEl && selectedEl !== document.body && selectedEl !== document.documentElement) {
         var clone = selectedEl.cloneNode(true);
         resetRuntimeStableIds(clone);
         selectedEl.parentElement.insertBefore(clone, selectedEl.nextSibling);
         selectedEl = clone;
         duplicatedForDrag = true;
+        gestureEl = clone;
         positionOverlay(selectionOverlay, selectedEl);
         postElementSelect(selectedEl, e);
       }
-      if (isFlowReorderCandidate(selectedEl)) {
+      var groupEls = duplicatedForDrag || e.altKey ? [gestureEl] : collectMoveGroupMembers(gestureEl);
+      if (groupEls.indexOf(gestureEl) === -1) groupEls = [gestureEl];
+      var isGroupDrag = groupEls.length > 1;
+      var groupOthers = groupEls.filter(function(member) {
+        return member !== gestureEl;
+      });
+      if (isGroupDrag) {
+        postCrossScreenDrag("cancel");
+      }
+      if (isFlowReorderCandidate(gestureEl)) {
         let onReorderMove2 = function(ev) {
           var vw = window.innerWidth;
           var vh = window.innerHeight;
@@ -3948,26 +4311,28 @@ export const editorChromeBridgeScript: string = `"use strict";
           var cy = ev.clientY;
           var outside = cx < 0 || cy < 0 || cx > vw || cy > vh;
           pointerOutsideIframe = outside;
-          window.parent.postMessage(
-            {
-              type: "agent-native:cross-screen-drag",
-              phase: "move",
-              selector: reorderSelector,
-              sourceId: reorderSourceId,
-              iframeX: cx,
-              iframeY: cy,
-              viewportW: vw,
-              viewportH: vh,
-              pointerOffset: reorderPointerOffset,
-              styleSnapshot: reorderStyleSnapshot
-            },
-            "*"
-          );
-          if (outside) {
+          if (!isGroupDrag) {
+            window.parent.postMessage(
+              {
+                type: "agent-native:cross-screen-drag",
+                phase: "move",
+                selector: reorderSelector,
+                sourceId: reorderSourceId,
+                iframeX: cx,
+                iframeY: cy,
+                viewportW: vw,
+                viewportH: vh,
+                pointerOffset: reorderPointerOffset,
+                styleSnapshot: reorderStyleSnapshot
+              },
+              "*"
+            );
+          }
+          if (outside && !isGroupDrag) {
             hideInsertionGuide();
             showTransformBadge("Move layer", cx, cy);
           } else {
-            currentTarget = reorderTargetForPoint(reorderEl, cx, cy);
+            currentTarget = reorderTargetForPoint(reorderEl, cx, cy, groupOthers);
             showInsertionGuideFor(currentTarget);
             showTransformBadge(currentTarget ? "Move layer" : "Move", cx, cy);
           }
@@ -4007,21 +4372,23 @@ export const editorChromeBridgeScript: string = `"use strict";
           var cx = ev ? ev.clientX : 0;
           var cy = ev ? ev.clientY : 0;
           var outsideOnDrop = cx < 0 || cy < 0 || cx > vw || cy > vh;
-          window.parent.postMessage(
-            {
-              type: "agent-native:cross-screen-drag",
-              phase: "end",
-              selector: reorderSelector,
-              sourceId: reorderSourceId,
-              iframeX: cx,
-              iframeY: cy,
-              viewportW: vw,
-              viewportH: vh,
-              pointerOffset: reorderPointerOffset,
-              styleSnapshot: reorderStyleSnapshot
-            },
-            "*"
-          );
+          if (!isGroupDrag) {
+            window.parent.postMessage(
+              {
+                type: "agent-native:cross-screen-drag",
+                phase: "end",
+                selector: reorderSelector,
+                sourceId: reorderSourceId,
+                iframeX: cx,
+                iframeY: cy,
+                viewportW: vw,
+                viewportH: vh,
+                pointerOffset: reorderPointerOffset,
+                styleSnapshot: reorderStyleSnapshot
+              },
+              "*"
+            );
+          }
           if (outsideOnDrop) return;
           if (!currentTarget) {
             if (duplicatedForDrag && reorderEl && reorderEl !== originalSelectedEl) {
@@ -4040,9 +4407,15 @@ export const editorChromeBridgeScript: string = `"use strict";
               reorderEl,
               currentTarget
             );
+          } else if (isGroupDrag) {
+            applyGroupStructureDrop(groupEls, currentTarget, ev);
           } else {
             var prevParent = reorderEl.parentElement;
             var prevNextSibling = reorderEl.nextSibling;
+            adaptAutoTextColorForNest(
+              reorderEl,
+              dropContainerForTarget(currentTarget)
+            );
             applyRuntimeReorder(reorderEl, currentTarget);
             postVisualStructureChange(reorderEl, currentTarget, {
               prevParent,
@@ -4051,11 +4424,12 @@ export const editorChromeBridgeScript: string = `"use strict";
           }
         };
         var onReorderMove = onReorderMove2, cleanupReorderDrag = cleanupReorderDrag2, onReorderEscape = onReorderEscape2, onReorderKeyDown = onReorderKeyDown2, onReorderUp = onReorderUp2;
-        var reorderEl = selectedEl;
+        var reorderEl = gestureEl;
         var currentTarget = reorderTargetForPoint(
           reorderEl,
           e.clientX,
-          e.clientY
+          e.clientY,
+          groupOthers
         );
         showInsertionGuideFor(currentTarget);
         var pointerOutsideIframe = false;
@@ -4073,25 +4447,43 @@ export const editorChromeBridgeScript: string = `"use strict";
         setActiveDragCancel(onReorderEscape2);
         return;
       }
-      var originalInlinePosition = selectedEl.style.position;
-      var originalInlineLeft = selectedEl.style.left;
-      var originalInlineTop = selectedEl.style.top;
-      var originalInlineOpacity = selectedEl.style.opacity;
-      ensurePositionable(selectedEl);
-      var cs = window.getComputedStyle(selectedEl);
-      var originLeft = readPx(selectedEl.style.left || cs.left);
-      var originTop = readPx(selectedEl.style.top || cs.top);
+      var memberStates = groupEls.map(function(member) {
+        var m = member;
+        var snapshot = {
+          el: m,
+          originalPosition: m.style.position,
+          originalLeft: m.style.left,
+          originalTop: m.style.top,
+          originalOpacity: m.style.opacity,
+          originLeft: 0,
+          originTop: 0
+        };
+        ensurePositionable(m);
+        var mcs = window.getComputedStyle(m);
+        snapshot.originLeft = readPx(m.style.left || mcs.left);
+        snapshot.originTop = readPx(m.style.top || mcs.top);
+        return snapshot;
+      });
+      var gestureState = memberStates[groupEls.indexOf(gestureEl)] || memberStates[0];
+      var originalInlineOpacity = gestureState.originalOpacity;
+      var originLeft = gestureState.originLeft;
+      var originTop = gestureState.originTop;
+      function setMembersOpacity(value) {
+        memberStates.forEach(function(state) {
+          state.el.style.opacity = value === null ? state.originalOpacity : value;
+        });
+      }
       var startX = e.clientX;
       var startY = e.clientY;
-      var dragEl = selectedEl;
+      var dragEl = gestureEl;
       var moved = false;
       var DRAG_THRESHOLD = 3;
       var currentAutoLayoutTarget = null;
-      var snapCandidateRects = collectSnapCandidateRects(dragEl);
+      var snapCandidateRects = collectSnapCandidateRects(dragEl, groupOthers);
       var dragElStartRect = dragEl.getBoundingClientRect();
       var dragElStartWidth = dragElStartRect.width;
       var dragElStartHeight = dragElStartRect.height;
-      if (!duplicatedForDrag) {
+      if (!duplicatedForDrag && !isGroupDrag) {
         postCrossScreenDrag("start", dragEl, e);
       }
       function onMove(ev) {
@@ -4122,23 +4514,32 @@ export const editorChromeBridgeScript: string = `"use strict";
         ) : { dx: 0, dy: 0, guideV: null, guideH: null };
         nextLeft += snapResult.dx;
         nextTop += snapResult.dy;
-        dragEl.style.left = Math.round(nextLeft) + "px";
-        dragEl.style.top = Math.round(nextTop) + "px";
-        if (!duplicatedForDrag) {
+        var appliedDx = nextLeft - originLeft;
+        var appliedDy = nextTop - originTop;
+        memberStates.forEach(function(state) {
+          state.el.style.left = Math.round(state.originLeft + appliedDx) + "px";
+          state.el.style.top = Math.round(state.originTop + appliedDy) + "px";
+        });
+        if (!duplicatedForDrag && !isGroupDrag) {
           postCrossScreenDrag("move", dragEl, ev);
         }
         if (!duplicatedForDrag && isOutsideIframeViewport(ev.clientX, ev.clientY)) {
           currentAutoLayoutTarget = null;
           hideInsertionGuide();
-          dragEl.style.opacity = originalInlineOpacity;
+          setMembersOpacity(null);
         } else {
-          currentAutoLayoutTarget = !duplicatedForDrag ? autoLayoutInsertionTargetForPoint(dragEl, ev.clientX, ev.clientY) : null;
+          currentAutoLayoutTarget = !duplicatedForDrag ? autoLayoutInsertionTargetForPoint(
+            dragEl,
+            ev.clientX,
+            ev.clientY,
+            groupOthers
+          ) : null;
           if (currentAutoLayoutTarget) {
             showInsertionGuideFor(currentAutoLayoutTarget);
-            dragEl.style.opacity = "0.4";
+            setMembersOpacity("0.4");
           } else {
             hideInsertionGuide();
-            dragEl.style.opacity = originalInlineOpacity;
+            setMembersOpacity(null);
           }
         }
         if (currentAutoLayoutTarget || !duplicatedForDrag && isOutsideIframeViewport(ev.clientX, ev.clientY)) {
@@ -4154,10 +4555,12 @@ export const editorChromeBridgeScript: string = `"use strict";
         refreshOverlays();
       }
       function restoreSourceDragPosition() {
-        dragEl.style.position = originalInlinePosition;
-        dragEl.style.left = originalInlineLeft;
-        dragEl.style.top = originalInlineTop;
-        dragEl.style.opacity = originalInlineOpacity;
+        memberStates.forEach(function(state) {
+          state.el.style.position = state.originalPosition;
+          state.el.style.left = state.originalLeft;
+          state.el.style.top = state.originalTop;
+          state.el.style.opacity = state.originalOpacity;
+        });
         selectedEl = originalSelectedEl;
         positionOverlay(selectionOverlay, selectedEl);
       }
@@ -4182,7 +4585,7 @@ export const editorChromeBridgeScript: string = `"use strict";
           postElementSelect(selectedEl);
         } else if (dragEl && document.documentElement.contains(dragEl)) {
           restoreSourceDragPosition();
-          postCrossScreenDrag("cancel");
+          if (!isGroupDrag) postCrossScreenDrag("cancel");
         }
         suppressNextShieldClickBriefly();
         refreshOverlays();
@@ -4200,7 +4603,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         hideSnapGuides();
         if (!dragEl) return;
         var outsideOnDrop = ev ? isOutsideIframeViewport(ev.clientX, ev.clientY) : false;
-        if (ev && !duplicatedForDrag && (outsideOnDrop || designCanvasBoardSurface)) {
+        if (ev && !duplicatedForDrag && !isGroupDrag && (outsideOnDrop || designCanvasBoardSurface)) {
           postCrossScreenDrag("end", dragEl, ev);
         }
         if (ev && !duplicatedForDrag && outsideOnDrop) {
@@ -4211,7 +4614,8 @@ export const editorChromeBridgeScript: string = `"use strict";
           var finalAutoLayoutTarget = autoLayoutInsertionTargetForPoint(
             dragEl,
             ev.clientX,
-            ev.clientY
+            ev.clientY,
+            groupOthers
           );
           if (finalAutoLayoutTarget) {
             currentAutoLayoutTarget = finalAutoLayoutTarget;
@@ -4227,30 +4631,46 @@ export const editorChromeBridgeScript: string = `"use strict";
         if (duplicatedForDrag) {
           postVisualDuplicateChange(originalSelectedEl, dragEl);
         } else if (currentAutoLayoutTarget) {
-          dragEl.style.opacity = originalInlineOpacity;
-          var prevParent = dragEl.parentElement;
-          var prevNextSibling = dragEl.nextSibling;
-          applyRuntimeReorder(dragEl, currentAutoLayoutTarget);
-          postVisualStructureChange(dragEl, currentAutoLayoutTarget, {
-            prevParent,
-            prevNextSibling
-          });
+          setMembersOpacity(null);
+          if (currentAutoLayoutTarget.needsAutoLayoutConversion && currentAutoLayoutTarget.conversionTarget) {
+            applyAutoLayoutConversionForDrop(
+              currentAutoLayoutTarget.conversionTarget,
+              groupEls
+            );
+          }
+          if (isGroupDrag) {
+            applyGroupStructureDrop(groupEls, currentAutoLayoutTarget, ev);
+          } else {
+            var prevParent = dragEl.parentElement;
+            var prevNextSibling = dragEl.nextSibling;
+            adaptAutoTextColorForNest(
+              dragEl,
+              dropContainerForTarget(currentAutoLayoutTarget)
+            );
+            applyRuntimeReorder(dragEl, currentAutoLayoutTarget);
+            postVisualStructureChange(dragEl, currentAutoLayoutTarget, {
+              prevParent,
+              prevNextSibling
+            });
+          }
         } else {
-          dragEl.style.opacity = originalInlineOpacity;
-          window.parent.postMessage(
-            {
-              type: "visual-style-change",
-              selector: getSelector(dragEl),
-              styles: {
-                position: dragEl.style.position,
-                left: dragEl.style.left,
-                top: dragEl.style.top
+          setMembersOpacity(null);
+          memberStates.forEach(function(state) {
+            window.parent.postMessage(
+              {
+                type: "visual-style-change",
+                selector: getSelector(state.el),
+                styles: {
+                  position: state.el.style.position,
+                  left: state.el.style.left,
+                  top: state.el.style.top
+                },
+                payload: getElementInfo(state.el)
               },
-              payload: getElementInfo(dragEl)
-            },
-            "*"
-          );
-          postCrossScreenDrag("cancel");
+              "*"
+            );
+          });
+          if (!isGroupDrag) postCrossScreenDrag("cancel");
         }
       }
       document.addEventListener(events.move, onMove, true);
@@ -4570,6 +4990,12 @@ export const editorChromeBridgeScript: string = `"use strict";
         if (Math.hypot(ev.clientX - startX, ev.clientY - startY) <= 3) return;
         clearPendingShieldDrag();
         didStartDrag = true;
+        var groupGestureMember = !e.altKey ? groupMemberForGestureTarget(dragTarget) : null;
+        if (groupGestureMember && collectMoveGroupMembers(groupGestureMember).length > 1) {
+          suppressNextShieldClickBriefly();
+          startMove(ev, groupGestureMember);
+          return;
+        }
         selectTarget(dragTarget, ev);
         suppressNextShieldClickBriefly();
         startMove(ev);
@@ -5047,7 +5473,15 @@ export const editorChromeBridgeScript: string = `"use strict";
           if (hoveringSelectedSpacingSurface) {
             clearSpacingHoverTimer();
             selectedSpacingHovered = true;
+            lastSpacingPointerPoint = { x: e.clientX, y: e.clientY };
             updateSpacingOverlay(selectedEl);
+            var pointSpacingKey = spacingHandleKeyAtPoint(e.clientX, e.clientY);
+            if (pointSpacingKey) {
+              activateSpacingHandle(pointSpacingKey);
+            } else if (hoveredSpacingHandleKey) {
+              hoveredSpacingHandleKey = "";
+              updateSpacingOverlay(selectedEl);
+            }
           } else {
             scheduleSpacingHoverClear(e);
           }
@@ -5337,8 +5771,10 @@ export const editorChromeBridgeScript: string = `"use strict";
           }
         }
         if (!target) return;
-        selectedSpacingHovered = false;
-        hoveredSpacingHandleKey = "";
+        if (target !== selectedEl) {
+          selectedSpacingHovered = false;
+          hoveredSpacingHandleKey = "";
+        }
         selectedEl = target;
         positionOverlay(selectionOverlay, target);
         if (hoveredEl === selectedEl) highlightOverlay.style.display = "none";

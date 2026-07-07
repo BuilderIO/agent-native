@@ -634,6 +634,33 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
     var sourceBacked =
       hasStableOwnSource(el) || !!closestStableSourceElement(el);
     var sourceId = sourceBacked ? getSourceId(el) || getSelector(el) : "";
+    // Id-on-demand (empty-node-id fix, bridge side): AI-generated screens
+    // frequently ship with NO data-agent-native-node-id anywhere, which
+    // breaks every id-keyed operation host-side ("Could not move that
+    // layer", `Node with data-agent-native-node-id="" not found`). When the
+    // element has no stable own id, mint a durable candidate once and expose
+    // it as `pendingNodeId` in the payload so the HOST can persist it into
+    // the source as the element's real data-agent-native-node-id. The mint
+    // is stored under data-an-pending-node-id — an attribute that
+    // getSourceId/getSelector/closestStableSourceElement deliberately do NOT
+    // read — so until the host persists it, resolution still flows through
+    // the existing structural-selector fallback unchanged.
+    var pendingNodeId = "";
+    if (
+      !getSourceId(el) &&
+      el !== document.body &&
+      el !== document.documentElement &&
+      el.getAttribute &&
+      el.setAttribute
+    ) {
+      pendingNodeId = el.getAttribute("data-an-pending-node-id") || "";
+      if (!pendingNodeId) {
+        pendingNodeId = freshRuntimeNodeId("pending");
+        try {
+          el.setAttribute("data-an-pending-node-id", pendingNodeId);
+        } catch (_err) {}
+      }
+    }
     var parentLayout = parentStyles
       ? {
           display: parentStyles.display,
@@ -742,6 +769,7 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
       componentName: componentName || undefined,
       id: el.id || undefined,
       sourceId: sourceId,
+      pendingNodeId: pendingNodeId || undefined,
       selector: getSelector(el),
       classes: Array.from(el.classList),
       computedStyles: {
@@ -1263,16 +1291,23 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
     // read this element's rect this frame, and an extra getBoundingClientRect
     // here is a second forced layout when overlay styles were just written.
     var rect = knownRect || el.getBoundingClientRect();
-    var tagHeight = 22;
-    var tagTop = rect.top - tagHeight - 4;
-    if (tagTop < 4) tagTop = rect.top + 4;
+    // Constant-screen-size chrome: pill font/padding/offsets and the
+    // component-root outline compensate for the host's iframe scale.
+    var line = chromeLineScale();
+    var tagHeight = 22 * line;
+    var tagTop = rect.top - tagHeight - 4 * line;
+    if (tagTop < 4 * line) tagTop = rect.top + 4 * line;
     componentTagOverlay.style.display = "block";
+    componentTagOverlay.style.fontSize = 11 * line + "px";
+    componentTagOverlay.style.padding = 2 * line + "px " + 6 * line + "px";
+    componentTagOverlay.style.borderRadius = 4 * line + "px";
+    componentTagOverlay.style.borderWidth = 1 * line + "px";
     componentTagOverlay.style.left = rect.left + "px";
     componentTagOverlay.style.top = tagTop + "px";
     // Purple outline on the selection overlay distinguishes component roots.
     selectionOverlay.style.outline =
-      "2px solid " + chromeStrongColorForElement(el);
-    selectionOverlay.style.outlineOffset = "2px";
+      2 * line + "px solid " + chromeStrongColorForElement(el);
+    selectionOverlay.style.outlineOffset = 2 * line + "px";
   }
 
   function clearComponentTag(): void {
@@ -1530,7 +1565,7 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
         var pos = handle.getAttribute("data-corner") || "";
         handle.style.width = 7 * sx + "px";
         handle.style.height = 7 * sy + "px";
-        handle.style.borderWidth = Math.max(1, 1 * line) + "px";
+        handle.style.borderWidth = 1 * line + "px";
         if (pos.indexOf("n") !== -1) handle.style.top = -4 * sy + "px";
         if (pos.indexOf("s") !== -1) handle.style.bottom = -4 * sy + "px";
         if (pos.indexOf("w") !== -1) handle.style.left = -4 * sx + "px";
@@ -1884,14 +1919,28 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
     var stripe =
       kind === "gap" ? "rgba(255, 79, 216, 0.58)" : "rgba(46, 168, 255, 0.52)";
     var angle = orientation === "vertical" ? "135deg" : "45deg";
+    // Constant-screen-size chrome: stripe density compensates for the host's
+    // iframe scale so the hatch pattern reads identically at any canvas zoom
+    // instead of blurring together at low zoom.
+    var scale = chromeLineScale();
     return (
       "repeating-linear-gradient(" +
       angle +
       ", " +
       stripe +
-      " 0 1px, " +
+      " 0 " +
+      1 * scale +
+      "px, " +
       tint +
-      " 1px 4px, transparent 4px 7px)"
+      " " +
+      1 * scale +
+      "px " +
+      4 * scale +
+      "px, transparent " +
+      4 * scale +
+      "px " +
+      7 * scale +
+      "px)"
     );
   }
 
@@ -1963,7 +2012,7 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
         ? hitRectForPaddingHandle(
             config.line,
             roundedRegion,
-            PADDING_HANDLE_HIT_TOLERANCE_BASE * Math.max(1, chromeLineScale()),
+            PADDING_HANDLE_HIT_TOLERANCE_BASE * chromeLineScale(),
           )
         : roundedRegion;
     return {
@@ -2030,7 +2079,7 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
     var paddingLeft = readPx(cs.paddingLeft);
     var sx = chromeScaleX();
     var sy = chromeScaleY();
-    var line = Math.max(1, chromeLineScale());
+    var line = chromeLineScale();
     var hLineWidth = Math.max(6, Math.min(18, rect.width * 0.12)) * sx;
     var vLineHeight = Math.max(6, Math.min(18, rect.height * 0.12)) * sy;
     var innerLeft = borderLeft;
@@ -2150,7 +2199,7 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
     var handles = [];
     var sx = chromeScaleX();
     var sy = chromeScaleY();
-    var line = Math.max(1, chromeLineScale());
+    var line = chromeLineScale();
     var hLineWidth = 8 * sx;
     var vLineHeight = 8 * sy;
     var isFlex = cs.display === "flex" || cs.display === "inline-flex";
@@ -2286,12 +2335,19 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
       spacingBadge.style.display = "none";
       return;
     }
+    // Constant-screen-size chrome: the host CSS-scales this iframe by the
+    // canvas zoom, so every intrinsic size here (font, padding, radius,
+    // cursor offset) multiplies by chromeLineScale() to render at the same
+    // apparent size at any zoom — the badge was previously unscaled, which
+    // made it microscopic at low overview zooms (the "value box never
+    // appears" report) and oversized when zoomed in.
+    var line = chromeLineScale();
     var point = cursorPoint || lastSpacingPointerPoint;
     var x: number;
     var y: number;
     if (point) {
-      x = point.x + 12;
-      y = point.y - 12;
+      x = point.x + 12 * line;
+      y = point.y - 12 * line;
     } else {
       var rect = selectedEl.getBoundingClientRect();
       x = rect.left + handle.region.x + handle.region.width / 2;
@@ -2300,6 +2356,9 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
     spacingBadge.textContent = String(clampSpacingValue(value)) + "px";
     spacingBadge.style.display = "block";
     spacingBadge.style.background = spacingColor(handle.kind);
+    spacingBadge.style.fontSize = 10 * line + "px";
+    spacingBadge.style.padding = 2 * line + "px " + 4 * line + "px";
+    spacingBadge.style.borderRadius = 3 * line + "px";
     spacingBadge.style.left = x + "px";
     spacingBadge.style.top = y + "px";
     spacingBadge.style.transform = point
@@ -2336,8 +2395,10 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
     lineNode.style.borderRadius = "999px";
     lineNode.style.left = handle.line.x + "px";
     lineNode.style.top = handle.line.y + "px";
-    lineNode.style.width = Math.max(1, handle.line.width) + "px";
-    lineNode.style.height = Math.max(1, handle.line.height) + "px";
+    // No 1px floor: at zoom > 100% the pill's thickness is intentionally
+    // sub-1px in iframe space (thickness * host scale = constant screen px).
+    lineNode.style.width = handle.line.width + "px";
+    lineNode.style.height = handle.line.height + "px";
     lineNode.style.background = spacingColor(handle.kind);
     spacingOverlay.appendChild(lineNode);
 
@@ -2347,6 +2408,10 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
     // hover affordance only: it shows the band the user is about to resize,
     // and disappears the instant a drag starts (kind === "padding" only, per
     // the reported regression; gap handles are out of scope for this fix).
+    // Constant-screen-size chrome: tile the hatch pattern at a size that
+    // compensates for the host's iframe scale (matches spacingFill's scaled
+    // stripe stops — a fixed 6px tile would clip the scaled pattern).
+    var hatchTile = 6 * chromeLineScale() + "px";
     if (handle.kind === "padding") {
       var hatchNode = document.createElement("span");
       hatchNode.setAttribute("data-agent-native-spacing-hatch", handle.kind);
@@ -2354,7 +2419,7 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
       hatchNode.style.display = "block";
       hatchNode.style.boxSizing = "border-box";
       hatchNode.style.pointerEvents = "none";
-      hatchNode.style.backgroundSize = "6px 6px";
+      hatchNode.style.backgroundSize = hatchTile + " " + hatchTile;
       hatchNode.style.left = handle.region.x + "px";
       hatchNode.style.top = handle.region.y + "px";
       hatchNode.style.width = handle.region.width + "px";
@@ -2374,7 +2439,7 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
     regionNode.style.display = "block";
     regionNode.style.boxSizing = "border-box";
     regionNode.style.pointerEvents = "auto";
-    regionNode.style.backgroundSize = "6px 6px";
+    regionNode.style.backgroundSize = hatchTile + " " + hatchTile;
     regionNode.style.cursor =
       handle.orientation === "vertical" ? "ew-resize" : "ns-resize";
     var hitRect = handle.kind === "padding" ? handle.hit : handle.region;
@@ -2653,6 +2718,40 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
     activateSpacingHandle(spacingKey);
   }
 
+  // Geometry-based fallback for the padding/gap handle hover: resolves the
+  // handle whose hit rect (line + scaled tolerance zone) contains the given
+  // client point, using the handle state captured at the last overlay
+  // render. The event-target path above (spacingKeyFromTarget) only fires
+  // when the pointermove's target IS the region node — which depends on
+  // overlay z-order and event routing; this direct hit test makes the
+  // hover badge reliable from the shield's pointermove too, so hovering
+  // anywhere on the handle line (with its tolerance zone) always shows the
+  // "Npx" value box.
+  function spacingHandleKeyAtPoint(clientX: number, clientY: number): string {
+    if (!selectedEl || !document.documentElement.contains(selectedEl)) {
+      return "";
+    }
+    var rect = selectedEl.getBoundingClientRect();
+    var localX = clientX - rect.left;
+    var localY = clientY - rect.top;
+    var keys = Object.keys(spacingHandleStateByKey);
+    for (var i = 0; i < keys.length; i += 1) {
+      var handle = spacingHandleStateByKey[keys[i]];
+      if (!handle) continue;
+      var hit = handle.hit || handle.region;
+      if (!hit) continue;
+      if (
+        localX >= hit.x &&
+        localX <= hit.x + hit.width &&
+        localY >= hit.y &&
+        localY <= hit.y + hit.height
+      ) {
+        return handle.key;
+      }
+    }
+    return "";
+  }
+
   function spacingRegionFromPoint(
     clientX: number,
     clientY: number,
@@ -2732,9 +2831,10 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
     // outline — hover is a light "you could select this" hint, selection is
     // the stronger confirmed-state chrome. Matches the overview canvas's
     // hover (1 * chromeScale) vs selection (1.5 * chromeScale) ratio.
-    highlightOverlay.style.borderWidth = Math.max(1, 1 * line) + "px";
-    parentAutoLayoutOverlay.style.borderWidth = Math.max(1, 1 * line) + "px";
+    highlightOverlay.style.borderWidth = 1 * line + "px";
+    parentAutoLayoutOverlay.style.borderWidth = 1 * line + "px";
     selectionOverlay.style.borderWidth = 1.5 * line + "px";
+    marqueeSelectionOverlay.style.borderWidth = 1 * line + "px";
     passiveSelectionOverlays.forEach(scalePassiveSelectionOverlay);
     if (selectedEl) updateSpacingOverlay(selectedEl);
 
@@ -2758,7 +2858,7 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
         var pos = handle.getAttribute("data-agent-native-edit-handle") || "";
         handle.style.width = 7 * sx + "px";
         handle.style.height = 7 * sy + "px";
-        handle.style.borderWidth = Math.max(1, 1 * line) + "px";
+        handle.style.borderWidth = 1 * line + "px";
         if (pos.indexOf("n") !== -1) handle.style.top = -4 * sy + "px";
         if (pos.indexOf("s") !== -1) handle.style.bottom = -4 * sy + "px";
         if (pos.indexOf("w") !== -1) handle.style.left = -4 * sx + "px";
@@ -2984,6 +3084,21 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
     var horizontal = Math.abs(x2 - x1) >= Math.abs(y2 - y1);
     var line = document.createElement("div");
     var labelEl = document.createElement("div");
+    // Constant-screen-size chrome: line thickness, label font/padding, and
+    // label offsets all compensate for the host's iframe scale so the
+    // measurement readout looks identical at any canvas zoom.
+    var scale = chromeLineScale();
+    var lineWidth = 1 * chromeLineScale();
+    var labelChrome =
+      "transform-origin:center;border-radius:" +
+      3 * scale +
+      "px;background:var(--design-editor-measure-color);color:white;padding:" +
+      1 * scale +
+      "px " +
+      4 * scale +
+      "px;font-size:" +
+      11 * scale +
+      "px;";
     if (horizontal) {
       var left = Math.min(x1, x2);
       var width = Math.max(1, Math.abs(x2 - x1));
@@ -2994,13 +3109,16 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
         y1 +
         "px;width:" +
         width +
-        "px;border-top:1px dashed var(--design-editor-measure-color);";
+        "px;border-top:" +
+        lineWidth +
+        "px dashed var(--design-editor-measure-color);";
       labelEl.style.cssText =
         "position:fixed;left:" +
         (left + width / 2) +
         "px;top:" +
-        (y1 - 9) +
-        "px;transform:translateX(-50%);border-radius:3px;background:var(--design-editor-measure-color);color:white;padding:1px 4px;";
+        (y1 - 9 * scale) +
+        "px;transform:translateX(-50%);" +
+        labelChrome;
     } else {
       var top = Math.min(y1, y2);
       var height = Math.max(1, Math.abs(y2 - y1));
@@ -3011,13 +3129,16 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
         top +
         "px;height:" +
         height +
-        "px;border-left:1px dashed var(--design-editor-measure-color);";
+        "px;border-left:" +
+        lineWidth +
+        "px dashed var(--design-editor-measure-color);";
       labelEl.style.cssText =
         "position:fixed;left:" +
-        (x1 + 5) +
+        (x1 + 5 * scale) +
         "px;top:" +
         (top + height / 2) +
-        "px;transform:translateY(-50%);border-radius:3px;background:var(--design-editor-measure-color);color:white;padding:1px 4px;";
+        "px;transform:translateY(-50%);" +
+        labelChrome;
     }
     labelEl.textContent = label;
     measurementOverlay.appendChild(line);
@@ -4085,7 +4206,7 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
     );
 
     var line1 = chromeLineScale();
-    var lineStrokeWidth = Math.max(1, 1.5 * line1);
+    var lineStrokeWidth = 1.5 * line1;
     gradientOverlaySvg.setAttribute("viewBox", "0 0 " + width + " " + height);
     [gradientOverlayLineOutline, gradientOverlayLine].forEach(
       function (lineEl, index) {
@@ -4101,7 +4222,7 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
     );
 
     var endpointSize = 10 * line1;
-    var endpointBorderWidth = Math.max(1, 1.5 * line1);
+    var endpointBorderWidth = 1.5 * line1;
     [
       { el: gradientOverlayStartHandle, point: line.start, which: "start" },
       { el: gradientOverlayEndHandle, point: line.end, which: "end" },
@@ -4122,7 +4243,7 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
     // design (see the doc comment on MultiScreenCanvas's GradientEditOverlay).
     hideGradientOverlayStops();
     var stopSize = 12 * line1;
-    var stopBorderWidth = Math.max(1, 2 * line1);
+    var stopBorderWidth = 2 * line1;
     stopPoints.forEach(function (point, index) {
       var stop = gradient.stops[index];
       if (!stop) return;
@@ -4758,10 +4879,18 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
     clientX: number,
     clientY: number,
   ): void {
+    // Constant-screen-size chrome (see showSpacingBadgeForHandle): scale the
+    // label's intrinsic sizes by chromeLineScale() so the move/resize badge
+    // reads the same at any canvas zoom.
+    var line = chromeLineScale();
     transformBadge.textContent = text;
     transformBadge.style.display = "block";
-    transformBadge.style.left = clientX + 12 + "px";
-    transformBadge.style.top = clientY + 12 + "px";
+    transformBadge.style.fontSize = 11 * line + "px";
+    transformBadge.style.padding = 3 * line + "px " + 5 * line + "px";
+    transformBadge.style.borderRadius = 4 * line + "px";
+    transformBadge.style.borderWidth = 1 * line + "px";
+    transformBadge.style.left = clientX + 12 * line + "px";
+    transformBadge.style.top = clientY + 12 * line + "px";
   }
 
   function hideTransformBadge(): void {
@@ -4801,6 +4930,84 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
     return true;
   }
 
+  // Multi-select group move: when the user drags an element that is a member
+  // of the current multi-selection (primary selectedEl + the passive
+  // shift-click/marquee set), the whole group moves together — Figma
+  // behavior. Returns the full member list in DOCUMENT ORDER (so a group
+  // flow-insert lands the members consecutively in their existing visual
+  // order) when gestureEl belongs to a 2+ selection, or just [gestureEl]
+  // otherwise. Members nested inside another member are dropped: moving the
+  // ancestor already moves them, and double-applying the delta would fling
+  // them.
+  function collectMoveGroupMembers(gestureEl: Element): Element[] {
+    if (!gestureEl) return [];
+    var raw: Element[] = [];
+    if (selectedEl) raw.push(selectedEl);
+    for (var i = 0; i < passiveSelectionEls.length; i += 1) {
+      raw.push(passiveSelectionEls[i]);
+    }
+    var members: Element[] = [];
+    for (var j = 0; j < raw.length; j += 1) {
+      var candidate = raw[j];
+      if (
+        !candidate ||
+        candidate === document.body ||
+        candidate === document.documentElement ||
+        !document.documentElement.contains(candidate) ||
+        isLayerInteractionBlocked(candidate) ||
+        members.indexOf(candidate) !== -1
+      ) {
+        continue;
+      }
+      members.push(candidate);
+    }
+    // Drop members contained by another member.
+    members = members.filter(function (member) {
+      return !members.some(function (other) {
+        return other !== member && other.contains(member);
+      });
+    });
+    var gestureMember: Element | null = null;
+    for (var k = 0; k < members.length; k += 1) {
+      if (
+        members[k] === gestureEl ||
+        (members[k].contains && members[k].contains(gestureEl))
+      ) {
+        gestureMember = members[k];
+        break;
+      }
+    }
+    if (!gestureMember || members.length < 2) return [gestureEl];
+    members.sort(function (a, b) {
+      var position = a.compareDocumentPosition(b);
+      if (position & Node.DOCUMENT_POSITION_FOLLOWING) return -1;
+      if (position & Node.DOCUMENT_POSITION_PRECEDING) return 1;
+      return 0;
+    });
+    return members;
+  }
+
+  // Resolves the group member that owns a drag gesture's target element (the
+  // member itself or an ancestor member), or null when the target is not
+  // part of the current multi-selection.
+  function groupMemberForGestureTarget(target: Element | null): Element | null {
+    if (!target) return null;
+    var raw: Element[] = selectedEl
+      ? [selectedEl].concat(passiveSelectionEls)
+      : passiveSelectionEls.slice();
+    for (var i = 0; i < raw.length; i += 1) {
+      var member = raw[i];
+      if (
+        member &&
+        document.documentElement.contains(member) &&
+        (member === target || (member.contains && member.contains(target)))
+      ) {
+        return member;
+      }
+    }
+    return null;
+  }
+
   function isAutoLayoutElement(el: Element | null): boolean {
     if (!el) return false;
     var cs = window.getComputedStyle(el);
@@ -4822,6 +5029,219 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
     if (primitive !== "rectangle" && primitive !== "rect") return false;
     var cs = window.getComputedStyle(el);
     return cs.position === "absolute" || cs.position === "fixed";
+  }
+
+  // Figma-parity "drop into a frame" conversion: when a plain rect/div drop
+  // target isn't already auto-layout, dropping a child into it turns it into
+  // one. Direction/gap are inferred from the container's existing children
+  // (same spread-axis heuristic as inferAutoLayoutFromChildren in
+  // DesignEditor.tsx: whichever axis the children's bounding boxes spread
+  // further along wins) when it already has other children; an empty
+  // container defaults to flex-direction:column, matching the product
+  // decision for a fresh single-child drop with no layout signal yet.
+  function inferAutoLayoutConversionForContainer(
+    container: Element,
+    excludeEls: Element[],
+  ): { direction: "row" | "column"; gap: number } {
+    var siblings = draggableElementChildren(container).filter(function (child) {
+      return excludeEls.indexOf(child) === -1;
+    });
+    if (siblings.length === 0) {
+      return { direction: "column", gap: 10 };
+    }
+    var rects = siblings.map(function (child) {
+      return child.getBoundingClientRect();
+    });
+    var minX = Math.min.apply(
+      null,
+      rects.map(function (r) {
+        return r.left;
+      }),
+    );
+    var maxX = Math.max.apply(
+      null,
+      rects.map(function (r) {
+        return r.left + r.width;
+      }),
+    );
+    var minY = Math.min.apply(
+      null,
+      rects.map(function (r) {
+        return r.top;
+      }),
+    );
+    var maxY = Math.max.apply(
+      null,
+      rects.map(function (r) {
+        return r.top + r.height;
+      }),
+    );
+    var direction: "row" | "column" =
+      maxX - minX >= maxY - minY ? "row" : "column";
+    if (rects.length < 2) {
+      return { direction: direction, gap: 10 };
+    }
+    var sorted = rects.slice().sort(function (a, b) {
+      return direction === "row" ? a.left - b.left : a.top - b.top;
+    });
+    var gaps: number[] = [];
+    for (var i = 1; i < sorted.length; i += 1) {
+      var prev = sorted[i - 1];
+      var current = sorted[i];
+      var gapValue =
+        direction === "row"
+          ? current.left - (prev.left + prev.width)
+          : current.top - (prev.top + prev.height);
+      if (isFinite(gapValue) && gapValue > 0) gaps.push(gapValue);
+    }
+    if (gaps.length === 0) {
+      return { direction: direction, gap: 10 };
+    }
+    gaps.sort(function (a, b) {
+      return a - b;
+    });
+    var mid = Math.floor(gaps.length / 2);
+    var median =
+      gaps.length % 2 === 0 ? (gaps[mid - 1] + gaps[mid]) / 2 : gaps[mid];
+    return { direction: direction, gap: Math.round(median) };
+  }
+
+  // Applies the flex conversion to `container` and posts it to the host as a
+  // normal visual-style-change for that container's own selector/elementInfo
+  // — the same message shape the style panel already uses, just targeting
+  // the drop-target anchor instead of the current selection, so no host-side
+  // routing changes are needed. Runs BEFORE the moved-element's own
+  // visual-structure-change post so the host's synchronous same-tick content
+  // refs (see DesignEditor.tsx's getFreshActiveContent) compose the two
+  // edits in order: container becomes flex, then the child moves into it.
+  // `excludeEls`: the dragged element(s) — every member of a group drag —
+  // so the direction/gap inference only looks at the container's existing
+  // children, never the incoming ones.
+  function applyAutoLayoutConversionForDrop(
+    container: Element,
+    excludeEls: Element[],
+  ): void {
+    var inferred = inferAutoLayoutConversionForContainer(container, excludeEls);
+    var el = container as HTMLElement;
+    el.style.display = "flex";
+    el.style.flexDirection = inferred.direction;
+    el.style.gap = inferred.gap + "px";
+    (window.parent as Window).postMessage(
+      {
+        type: "visual-style-change",
+        selector: getSelector(container),
+        styles: {
+          display: "flex",
+          "flex-direction": inferred.direction,
+          gap: inferred.gap + "px",
+        },
+        payload: getElementInfo(container),
+      },
+      "*",
+    );
+  }
+
+  // ── Board-text auto-color adaptation on nest ─────────────────────────────
+  //
+  // Board-drawn text on the dark infinite canvas gets an explicit inline
+  // default `color:#ffffff` (+ Inter) from DesignEditor's
+  // appendCanvasPrimitiveToHtml — necessary there because "currentColor"
+  // would inherit the unstyled document's black and vanish on the dark
+  // board. But when that text is later dragged INTO a (typically light)
+  // container, the stale inline white makes it white-on-white invisible.
+  //
+  // On re-parent into a different container, adapt: if the text's inline
+  // color is the auto-applied board default (marker present, or —
+  // pre-marker content — exactly the default white AND the destination is
+  // light), switch it to `color:inherit` so it picks up the container's
+  // effective text color. A color the user explicitly set is NEVER touched:
+  // DesignEditor should stamp `data-an-auto-text-color` when IT auto-picks
+  // the color at creation and remove the marker on any explicit color edit;
+  // when the marker is present the color is definitely auto (always safe to
+  // adapt), and when absent the conservative default-white + light-target
+  // heuristic below only fires in the exact case where the text would be
+  // invisible anyway.
+  var BOARD_TEXT_AUTO_COLOR_MARKER = "data-an-auto-text-color";
+
+  function parseCssRgb(
+    value: string,
+  ): { r: number; g: number; b: number; a: number } | null {
+    var match = /^rgba?\(([^)]+)\)$/.exec((value || "").trim());
+    if (!match) return null;
+    var parts = match[1].split(",").map(function (part) {
+      return parseFloat(part.trim());
+    });
+    if (parts.length < 3 || parts.some(isNaN)) return null;
+    return {
+      r: parts[0],
+      g: parts[1],
+      b: parts[2],
+      a: parts.length > 3 ? parts[3] : 1,
+    };
+  }
+
+  // Walks up from the container until it finds a non-transparent computed
+  // background and reports whether it is light (relative-luminance
+  // threshold). An unstyled chain means the default white page background.
+  function containerBackgroundIsLight(container: Element): boolean {
+    var cursor: Element | null = container;
+    while (cursor && cursor !== document.documentElement) {
+      var bg = window.getComputedStyle(cursor).backgroundColor;
+      var rgb = parseCssRgb(bg);
+      if (rgb && rgb.a > 0.01) {
+        var luminance = 0.2126 * rgb.r + 0.7152 * rgb.g + 0.0722 * rgb.b;
+        return luminance > 150;
+      }
+      cursor = cursor.parentElement;
+    }
+    return true;
+  }
+
+  function adaptAutoTextColorForNest(
+    member: Element,
+    container: Element | null,
+  ): void {
+    if (!container || member.parentElement === container) return;
+    var kind = (
+      member.getAttribute("data-an-primitive") ||
+      member.getAttribute("data-agent-native-primitive") ||
+      ""
+    ).toLowerCase();
+    if (kind !== "text") return;
+    var el = member as HTMLElement;
+    var inline = el.style.color;
+    if (!inline || inline === "inherit" || inline === "currentcolor") return;
+    var hasAutoMarker = member.hasAttribute(BOARD_TEXT_AUTO_COLOR_MARKER);
+    if (!hasAutoMarker) {
+      var normalized = inline.replace(/\s+/g, "").toLowerCase();
+      var isDefaultWhite =
+        normalized === "#ffffff" ||
+        normalized === "#fff" ||
+        normalized === "rgb(255,255,255)" ||
+        normalized === "white";
+      if (!isDefaultWhite) return;
+      if (!containerBackgroundIsLight(container)) return;
+    }
+    el.style.color = "inherit";
+    (window.parent as Window).postMessage(
+      {
+        type: "visual-style-change",
+        selector: getSelector(member),
+        styles: { color: "inherit" },
+        payload: getElementInfo(member),
+      },
+      "*",
+    );
+  }
+
+  // Resolves the actual container element a drop target lands the moved
+  // element(s) in: the anchor itself for "inside" placement, otherwise the
+  // anchor's parent.
+  function dropContainerForTarget(target): Element | null {
+    if (!target || !target.anchor) return null;
+    return target.placement === "inside"
+      ? target.anchor
+      : target.anchor.parentElement;
   }
 
   function isOutsideIframeViewport(clientX: number, clientY: number): boolean {
@@ -4997,14 +5417,95 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
     return "y";
   }
 
-  function reorderTargetForPoint(el, clientX, clientY) {
+  // Resolves a between-children insertion inside `container` from the
+  // pointer position: the nearest visible child (by flow-axis center)
+  // becomes the anchor with before/after placement, which renders as the
+  // Figma-style insertion LINE between children. Returns null when the
+  // container has no eligible children (caller falls back to "inside").
+  //
+  // This is the B5-4 fix: hovering the container's own background — its
+  // padding, or the gaps BETWEEN children, which is where the pointer
+  // naturally sits when dropping "between two cards" — used to resolve to
+  // placement "inside" (appendChild = always lands after the LAST child,
+  // with the container-fill affordance instead of an insertion line). Both
+  // in-screen drag paths now route container-background hits through this
+  // helper so dropping between children works and shows the line.
+  function nearestChildInsertionTarget(
+    container: Element,
+    clientX: number,
+    clientY: number,
+    excludeEls?: Element[],
+  ) {
+    var excluded: Element[] = excludeEls || [];
+    function isExcluded(node) {
+      for (var i = 0; i < excluded.length; i += 1) {
+        var member = excluded[i];
+        if (
+          member &&
+          (member === node || (member.contains && member.contains(node)))
+        ) {
+          return true;
+        }
+      }
+      return false;
+    }
+    var children = draggableElementChildren(container).filter(function (child) {
+      return !isExcluded(child);
+    });
+    if (!children.length) return null;
+    var axis = parentFlowAxis(container);
+    var best: Element | null = null;
+    var bestDistance = Infinity;
+    var placement = "after";
+    for (var j = 0; j < children.length; j += 1) {
+      var rect = children[j].getBoundingClientRect();
+      // Skip zero-size children (e.g. Alpine <template> nodes, hidden
+      // elements) — they are not visible slots.
+      if (rect.width <= 0 || rect.height <= 0) continue;
+      var center =
+        axis === "x" ? rect.left + rect.width / 2 : rect.top + rect.height / 2;
+      var pointer = axis === "x" ? clientX : clientY;
+      var distance = Math.abs(pointer - center);
+      if (distance < bestDistance) {
+        bestDistance = distance;
+        best = children[j];
+        placement = pointer < center ? "before" : "after";
+      }
+    }
+    if (!best) return null;
+    return {
+      anchor: best,
+      placement: placement,
+      axis: axis,
+      dropMode: "flow-insert",
+    };
+  }
+
+  // `excludeEls` (optional): other members of a multi-select group drag.
+  // They can never be the anchor/target of their own group's reorder (that
+  // would insert the group relative to an element that is itself about to
+  // move), so hits on them fall through to the sibling-scan fallback and the
+  // sibling scan skips them.
+  function reorderTargetForPoint(el, clientX, clientY, excludeEls) {
     if (!el || !el.parentElement) return null;
+    var dragged: Element[] = [el].concat(excludeEls || []);
+    function isDraggedOrInsideDragged(node) {
+      for (var di = 0; di < dragged.length; di += 1) {
+        var member = dragged[di];
+        if (
+          member &&
+          (member === node || (member.contains && member.contains(node)))
+        ) {
+          return true;
+        }
+      }
+      return false;
+    }
     var hit = elementFromEditorPoint(clientX, clientY);
     if (
       hit &&
       hit !== document.documentElement &&
-      hit !== el &&
-      !el.contains(hit) &&
+      !isDraggedOrInsideDragged(hit) &&
       !isOverlayElement(hit)
     ) {
       if (isContainerDropTarget(hit)) {
@@ -5019,6 +5520,19 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
           clientY,
         );
         if (!edgePlacement) {
+          // B5-4: the pointer is over the container's inner area — its
+          // padding or the gap BETWEEN children (a direct child under the
+          // pointer would have been the hit instead). Resolve to the
+          // nearest child slot so the drop lands between children with the
+          // insertion LINE, instead of the old placement:"inside" append-
+          // after-last with only the container-fill affordance.
+          var betweenChildren = nearestChildInsertionTarget(
+            hit,
+            clientX,
+            clientY,
+            dragged,
+          );
+          if (betweenChildren) return betweenChildren;
           return {
             anchor: hit,
             placement: "inside",
@@ -5055,7 +5569,7 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
     var parent = el.parentElement;
     var axis = parentFlowAxis(parent);
     var siblings = draggableElementChildren(parent).filter(function (child) {
-      return child !== el;
+      return !isDraggedOrInsideDragged(child);
     });
     if (!siblings.length) return null;
     var beforeTarget = null;
@@ -5079,56 +5593,99 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
     };
   }
 
+  // Accepts a single element or an array (group drags temporarily disable
+  // pointer-events on EVERY dragged member so the hit test sees what's
+  // underneath the whole group, not a sibling member riding along under the
+  // pointer).
   function elementFromEditorPointIgnoring(
     clientX: number,
     clientY: number,
-    ignore: Element | null,
+    ignore: Element | Element[] | null,
   ): Element | null {
-    var previousPointerEvents: string | null = null;
-    if (ignore && ignore instanceof HTMLElement) {
-      previousPointerEvents = ignore.style.pointerEvents;
-      ignore.style.pointerEvents = "none";
-    }
+    var ignoreList: HTMLElement[] = [];
+    var previousPointerEvents: string[] = [];
+    (Array.isArray(ignore) ? ignore : ignore ? [ignore] : []).forEach(
+      function (item) {
+        if (item && item instanceof HTMLElement) {
+          ignoreList.push(item);
+          previousPointerEvents.push(item.style.pointerEvents);
+          item.style.pointerEvents = "none";
+        }
+      },
+    );
     var hit = elementFromEditorPoint(clientX, clientY);
-    if (ignore && ignore instanceof HTMLElement) {
-      ignore.style.pointerEvents = previousPointerEvents ?? "";
-    }
+    ignoreList.forEach(function (item, index) {
+      item.style.pointerEvents = previousPointerEvents[index] ?? "";
+    });
     return hit;
   }
 
-  // Item 8 — conservative re-parent policy for absolute-position drags
-  // (this function feeds onMove's currentAutoLayoutTarget for the
-  // isFlowReorderCandidate === false path, i.e. plain absolute-positioned
-  // elements/shapes, NOT flow children — see reorderTargetForPoint above for
-  // that separate case). Ground truth (Figma): a plain absolute rect/shape
-  // dragged over another plain absolute rect never re-parents into it just
-  // because their boxes overlap — frames only capture children when the
-  // TARGET is a genuine auto-layout (flex/grid) container. Only the two
-  // isAutoLayoutElement-gated branches below may return an "inside"/flow
-  // insertion target; the previous isAbsolutePrimitiveContainer branch and
-  // its absolutePrimitiveContainerTargetForPoint fallback (matched ANY
+  // Item 8 — re-parent policy for absolute-position drags (this function
+  // feeds onMove's currentAutoLayoutTarget for the isFlowReorderCandidate
+  // === false path, i.e. plain absolute-positioned elements/shapes, NOT flow
+  // children — see reorderTargetForPoint above for that separate case).
+  //
+  // PRODUCT DECISION (supersedes the old "genuine auto-layout only" policy
+  // below): dragging one element onto another must nest it as a child with
+  // auto-layout, exactly like dropping an element into a frame in Figma —
+  // this applies to plain rectangles/divs too, not just existing flex/grid
+  // containers. `isContainerDropTarget` (below) is the single nestable-
+  // container test shared with reorderTargetForPoint's flow-reorder path and
+  // the overview canvas's getPrimitiveDropTargetForPoint, so in-screen and
+  // cross-screen drag agree on what counts as a container: any block-level
+  // element that can hold children (plain divs/sections/etc. included),
+  // excluding text/leaf tags, overlay chrome, and the dragged element's own
+  // descendants (cycle guard). When the resolved container is not already an
+  // auto-layout (flex/grid) display, the caller (onUp) converts it to
+  // display:flex on drop — see needsAutoLayoutConversion below and
+  // applyAutoLayoutConversionForDrop.
+  //
+  // (Historical note: an earlier revision of this policy matched ANY
   // absolute-positioned rect primitive as a drop-into target purely from
-  // pointer overlap) is intentionally removed — that was the actual cause of
-  // the smoke-tested "rect-into-rect"/"rect-into-main" re-parenting bug: any
-  // two overlapping absolute elements would silently adopt one another.
-  function autoLayoutInsertionTargetForPoint(el, clientX, clientY) {
-    var hit = elementFromEditorPointIgnoring(clientX, clientY, el);
+  // pointer overlap, with no leaf/text exclusion and no cycle guard, which
+  // caused two merely-overlapping absolute elements to silently adopt one
+  // another. isContainerDropTarget's tag/role checks plus the cursor
+  // ancestor-walk's cycle guard below are what keep this version scoped to
+  // Figma's actual "drop into a frame" behavior instead of that regression.)
+  // `excludeEls` (optional): additional dragged elements to treat exactly
+  // like `el` — used by multi-select group drags so no member of the moving
+  // group is hit-tested, walked through, or offered as a nesting container
+  // for its own group.
+  function autoLayoutInsertionTargetForPoint(el, clientX, clientY, excludeEls) {
+    var dragged: Element[] = [el].concat(excludeEls || []);
+    function isDraggedOrInsideDragged(node) {
+      for (var i = 0; i < dragged.length; i += 1) {
+        var member = dragged[i];
+        if (
+          member &&
+          (member === node || (member.contains && member.contains(node)))
+        ) {
+          return true;
+        }
+      }
+      return false;
+    }
+    var hit = elementFromEditorPointIgnoring(clientX, clientY, dragged);
     if (!hit || hit === document.documentElement || hit === document.body) {
       return null;
     }
     var cursor = hit;
     while (cursor && cursor !== document.body) {
       if (
-        cursor === el ||
-        (el && el.contains && el.contains(cursor)) ||
+        isDraggedOrInsideDragged(cursor) ||
         isOverlayElement(cursor) ||
         isLayerInteractionBlocked(cursor)
       ) {
         cursor = cursor.parentElement;
         continue;
       }
+      // document.body is excluded as a nesting target here (both branches
+      // below): it is the screen root, not a Figma-style frame, so hovering
+      // loose background — including hovering a leaf like an image or text
+      // node whose parent happens to be body — must fall through to a plain
+      // absolute placement instead of silently wrapping body in auto-layout.
       var parent = cursor.parentElement;
-      if (parent && isAutoLayoutElement(parent)) {
+      if (parent && parent !== document.body && isContainerDropTarget(parent)) {
         var parentAxis = parentFlowAxis(parent);
         var childRect = cursor.getBoundingClientRect();
         var childCenter =
@@ -5141,14 +5698,39 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
           placement: childPointer < childCenter ? "before" : "after",
           axis: parentAxis,
           dropMode: "flow-insert",
+          needsAutoLayoutConversion: !isAutoLayoutElement(parent),
+          conversionTarget: parent,
         };
       }
-      if (isAutoLayoutElement(cursor) && isContainerDropTarget(cursor)) {
+      if (cursor !== document.body && isContainerDropTarget(cursor)) {
+        // B5-4 (absolute path): pointer over the container's own background
+        // — its padding or a gap between children. Prefer the nearest child
+        // slot (insertion line at the pointer index) over plain "inside"
+        // (which appends after the last child); fall back to "inside" only
+        // for containers with no visible children.
+        var betweenContainerChildren = nearestChildInsertionTarget(
+          cursor,
+          clientX,
+          clientY,
+          dragged,
+        );
+        if (betweenContainerChildren) {
+          return {
+            anchor: betweenContainerChildren.anchor,
+            placement: betweenContainerChildren.placement,
+            axis: betweenContainerChildren.axis,
+            dropMode: "flow-insert",
+            needsAutoLayoutConversion: !isAutoLayoutElement(cursor),
+            conversionTarget: cursor,
+          };
+        }
         return {
           anchor: cursor,
           placement: "inside",
           axis: parentFlowAxis(cursor),
           dropMode: "flow-insert",
+          needsAutoLayoutConversion: !isAutoLayoutElement(cursor),
+          conversionTarget: cursor,
         };
       }
       cursor = parent;
@@ -5169,8 +5751,8 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
     // other chrome line/border in this file (selection border, spacing lines,
     // handle borders) already scales by chromeLineScale(); the insertion
     // guide must match so it stays a visible bright line at any zoom.
-    var line = Math.max(1, 2 * chromeLineScale());
-    var insideBorder = Math.max(1, 2 * chromeLineScale());
+    var line = 2 * chromeLineScale();
+    var insideBorder = 2 * chromeLineScale();
     var rect = target.anchor.getBoundingClientRect();
     insertionGuide.style.display = "block";
     insertionGuide.style.background = "var(--design-editor-accent-color)";
@@ -5268,6 +5850,51 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
     );
   }
 
+  // Multi-select group drop: land every member of the group CONSECUTIVELY at
+  // the drop target, preserving their existing document order (standard
+  // design-tool group-drop semantics). `members` must already be in document
+  // order (collectMoveGroupMembers guarantees it). The first member takes the
+  // real drop target; each subsequent member chains "after" the previous one
+  // so the group stays contiguous regardless of the target placement mode.
+  // Persistence reuses the existing per-element visual-structure-change
+  // message — one per member, posted in order, which the host composes
+  // sequentially against its synchronous same-tick content refs (the same
+  // established multi-message pattern as the auto-layout conversion +
+  // structure change pairing in onUp). The host handler collapses its
+  // selection to each moved node as it processes each message, so a final
+  // marquee-selection message restores the full multi-selection afterwards
+  // (requirement: selection stays intact after a group drop).
+  function applyGroupStructureDrop(members: Element[], target, ev): void {
+    var container = dropContainerForTarget(target);
+    var previous: Element | null = null;
+    for (var i = 0; i < members.length; i += 1) {
+      var member = members[i];
+      var memberTarget =
+        i === 0
+          ? target
+          : target.dropMode === "absolute-container"
+            ? target
+            : {
+                anchor: previous,
+                placement: "after",
+                axis: target.axis,
+                dropMode: "flow-insert",
+              };
+      var prevParent = member.parentElement;
+      var prevNextSibling = member.nextSibling;
+      // Board-text auto-color: adapt before the DOM move so the re-parent
+      // check sees the ORIGINAL parent (see adaptAutoTextColorForNest).
+      adaptAutoTextColorForNest(member, container);
+      applyRuntimeReorder(member, memberTarget);
+      postVisualStructureChange(member, memberTarget, {
+        prevParent: prevParent,
+        prevNextSibling: prevNextSibling,
+      });
+      previous = member;
+    }
+    postElementMarqueeSelect(members, false, ev);
+  }
+
   // ── Alignment / smart-guide snapping (Figma parity) ───────────────────────
   //
   // Minimal, dependency-free port of the overview canvas's edge/center snap
@@ -5300,8 +5927,12 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
   // share the dragged element's offsetParent, plus the parent's own content
   // box. Capped and computed once (one getBoundingClientRect pass) at drag
   // start rather than per move event, per the perf requirement below.
-  function collectSnapCandidateRects(dragEl) {
+  // `excludeEls` (optional): other members of a multi-select group drag —
+  // they move together with dragEl, so snapping against them would chase a
+  // moving target.
+  function collectSnapCandidateRects(dragEl, excludeEls) {
     var rects = [];
+    var excluded: Element[] = excludeEls || [];
     var parent = dragEl && dragEl.parentElement;
     if (parent) {
       var parentRect = parent.getBoundingClientRect();
@@ -5321,6 +5952,7 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
         if (
           !sibling ||
           sibling === dragEl ||
+          excluded.indexOf(sibling) !== -1 ||
           sibling.nodeType !== 1 ||
           isOverlayElement(sibling)
         ) {
@@ -5405,8 +6037,14 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
   }
 
   function showSnapGuides(guideV, guideH) {
+    // Constant-screen-size chrome: guide THICKNESS compensates for the
+    // host's iframe scale (chromeLineScale) so the line stays a crisp 1px
+    // on screen at any zoom; the guide's span/position stays in content
+    // coordinates.
+    var line = 1 * chromeLineScale();
     if (guideV) {
       snapGuideV.style.display = "block";
+      snapGuideV.style.width = line + "px";
       snapGuideV.style.left = Math.round(guideV.position) + "px";
       snapGuideV.style.top = Math.round(guideV.start) + "px";
       snapGuideV.style.height = Math.max(1, guideV.end - guideV.start) + "px";
@@ -5415,6 +6053,7 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
     }
     if (guideH) {
       snapGuideH.style.display = "block";
+      snapGuideH.style.height = line + "px";
       snapGuideH.style.top = Math.round(guideH.position) + "px";
       snapGuideH.style.left = Math.round(guideH.start) + "px";
       snapGuideH.style.width = Math.max(1, guideH.end - guideH.start) + "px";
@@ -5428,9 +6067,14 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
     snapGuideH.style.display = "none";
   }
 
-  function startMove(e) {
-    if (!selectedEl) return;
-    if (isLayerInteractionBlocked(selectedEl)) return;
+  // `gestureElParam` (optional): the specific multi-selection member the
+  // pointer went down on when this drag preserves a 2+ selection instead of
+  // collapsing to one element (see beginPotentialShieldDrag's group branch).
+  // Defaults to selectedEl — the selection-overlay drag path.
+  function startMove(e, gestureElParam?: Element) {
+    var gestureEl = gestureElParam || selectedEl;
+    if (!gestureEl) return;
+    if (isLayerInteractionBlocked(gestureEl)) return;
     e.preventDefault();
     e.stopPropagation();
     if (e.stopImmediatePropagation) e.stopImmediatePropagation();
@@ -5439,6 +6083,7 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
     var duplicatedForDrag = false;
     if (
       e.altKey &&
+      selectedEl &&
       selectedEl !== document.body &&
       selectedEl !== document.documentElement
     ) {
@@ -5447,17 +6092,38 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
       selectedEl.parentElement.insertBefore(clone, selectedEl.nextSibling);
       selectedEl = clone;
       duplicatedForDrag = true;
+      gestureEl = clone;
       positionOverlay(selectionOverlay, selectedEl);
       postElementSelect(selectedEl, e);
     }
-    if (isFlowReorderCandidate(selectedEl)) {
+    // Multi-select group move: every member of the current 2+ selection moves
+    // with the gesture when the drag started on a member. Alt-drag duplicates
+    // stay single-element (the clone is never part of a selection group).
+    var groupEls: Element[] =
+      duplicatedForDrag || e.altKey
+        ? [gestureEl]
+        : collectMoveGroupMembers(gestureEl);
+    if (groupEls.indexOf(gestureEl) === -1) groupEls = [gestureEl];
+    var isGroupDrag = groupEls.length > 1;
+    var groupOthers = groupEls.filter(function (member) {
+      return member !== gestureEl;
+    });
+    if (isGroupDrag) {
+      // beginPotentialShieldDrag armed the host's cross-screen drag state for
+      // a single element before this group drag was detected; clear it. Group
+      // drags stay in-iframe — the host's cross-screen drop only knows how to
+      // move one element, which would tear the group apart.
+      postCrossScreenDrag("cancel");
+    }
+    if (isFlowReorderCandidate(gestureEl)) {
       // Snapshot the element being reordered so a concurrent select-element or
       // clear-selection postMessage cannot mutate the wrong element mid-drag.
-      var reorderEl = selectedEl;
+      var reorderEl = gestureEl;
       var currentTarget = reorderTargetForPoint(
         reorderEl,
         e.clientX,
         e.clientY,
+        groupOthers,
       );
       showInsertionGuideFor(currentTarget);
       // Cross-screen drag state: true when the pointer is outside this iframe's
@@ -5480,30 +6146,34 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
         var outside = cx < 0 || cy < 0 || cx > vw || cy > vh;
         pointerOutsideIframe = outside;
         // Always notify the host frame so it can track the cursor position,
-        // render the ghost, and highlight the target screen.
-        (window.parent as Window).postMessage(
-          {
-            type: "agent-native:cross-screen-drag",
-            phase: "move",
-            selector: reorderSelector,
-            sourceId: reorderSourceId,
-            iframeX: cx,
-            iframeY: cy,
-            viewportW: vw,
-            viewportH: vh,
-            pointerOffset: reorderPointerOffset,
-            styleSnapshot: reorderStyleSnapshot,
-          },
-          "*",
-        );
-        if (outside) {
+        // render the ghost, and highlight the target screen. Group drags stay
+        // in-iframe (the host's cross-screen drop moves a single element and
+        // would tear the group apart), so they never arm the host.
+        if (!isGroupDrag) {
+          (window.parent as Window).postMessage(
+            {
+              type: "agent-native:cross-screen-drag",
+              phase: "move",
+              selector: reorderSelector,
+              sourceId: reorderSourceId,
+              iframeX: cx,
+              iframeY: cy,
+              viewportW: vw,
+              viewportH: vh,
+              pointerOffset: reorderPointerOffset,
+              styleSnapshot: reorderStyleSnapshot,
+            },
+            "*",
+          );
+        }
+        if (outside && !isGroupDrag) {
           // Cursor left this iframe — hide the in-iframe insertion guide so
           // it does not render while the host shows a cross-screen drop target.
           hideInsertionGuide();
           showTransformBadge("Move layer", cx, cy);
         } else {
           // Cursor is inside this iframe — use existing in-iframe behavior.
-          currentTarget = reorderTargetForPoint(reorderEl, cx, cy);
+          currentTarget = reorderTargetForPoint(reorderEl, cx, cy, groupOthers);
           showInsertionGuideFor(currentTarget);
           showTransformBadge(currentTarget ? "Move layer" : "Move", cx, cy);
         }
@@ -5553,24 +6223,30 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
         var cy = ev ? ev.clientY : 0;
         var outsideOnDrop = cx < 0 || cy < 0 || cx > vw || cy > vh;
         // Post the end message so the host can finalize a cross-screen drop.
-        (window.parent as Window).postMessage(
-          {
-            type: "agent-native:cross-screen-drag",
-            phase: "end",
-            selector: reorderSelector,
-            sourceId: reorderSourceId,
-            iframeX: cx,
-            iframeY: cy,
-            viewportW: vw,
-            viewportH: vh,
-            pointerOffset: reorderPointerOffset,
-            styleSnapshot: reorderStyleSnapshot,
-          },
-          "*",
-        );
+        // Group drags never armed the host (see onReorderMove), so posting
+        // end here would trigger a bogus single-element cross-screen move.
+        if (!isGroupDrag) {
+          (window.parent as Window).postMessage(
+            {
+              type: "agent-native:cross-screen-drag",
+              phase: "end",
+              selector: reorderSelector,
+              sourceId: reorderSourceId,
+              iframeX: cx,
+              iframeY: cy,
+              viewportW: vw,
+              viewportH: vh,
+              pointerOffset: reorderPointerOffset,
+              styleSnapshot: reorderStyleSnapshot,
+            },
+            "*",
+          );
+        }
         // When the pointer is outside this iframe at release, the host owns the
         // move (cross-screen drop).  Do NOT apply the in-iframe reorder so we
-        // avoid a ghost element left in screen A's DOM.
+        // avoid a ghost element left in screen A's DOM. For group drags an
+        // outside release is simply a no-op (nothing moved during a flow
+        // reorder drag, so there is nothing to restore).
         // Use outsideOnDrop only — pointerOutsideIframe is stale when the user
         // briefly exits the iframe and re-enters before releasing.  The host
         // already clears cross-screen state on re-entry so checking the
@@ -5599,11 +6275,17 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
             reorderEl,
             currentTarget,
           );
+        } else if (isGroupDrag) {
+          applyGroupStructureDrop(groupEls, currentTarget, ev);
         } else {
           // Capture the pre-drag DOM anchor so we can revert if the parent
           // reports applied===false on the structure-ack.
           var prevParent = reorderEl.parentElement;
           var prevNextSibling = reorderEl.nextSibling;
+          adaptAutoTextColorForNest(
+            reorderEl,
+            dropContainerForTarget(currentTarget),
+          );
           // Optimistically apply the reorder in the DOM for immediate
           // visual feedback; the visual-structure-ack handler will confirm
           // or revert once the parent processes the change.
@@ -5620,35 +6302,63 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
       setActiveDragCancel(onReorderEscape);
       return;
     }
-    var originalInlinePosition = (selectedEl as HTMLElement).style.position;
-    var originalInlineLeft = (selectedEl as HTMLElement).style.left;
-    var originalInlineTop = (selectedEl as HTMLElement).style.top;
-    var originalInlineOpacity = (selectedEl as HTMLElement).style.opacity;
-    ensurePositionable(selectedEl);
-    var cs = window.getComputedStyle(selectedEl);
-    var originLeft = readPx((selectedEl as HTMLElement).style.left || cs.left);
-    var originTop = readPx(selectedEl.style.top || cs.top);
+    // Per-member drag state: inline-style snapshots (for escape-cancel
+    // restore) plus each member's own drag origin. Single-element drags have
+    // exactly one entry; group drags get one per multi-selection member so
+    // the SAME delta can be applied to every member each tick, preserving
+    // the group's relative offsets (Figma group-move semantics).
+    var memberStates = groupEls.map(function (member) {
+      var m = member as HTMLElement;
+      var snapshot = {
+        el: m,
+        originalPosition: m.style.position,
+        originalLeft: m.style.left,
+        originalTop: m.style.top,
+        originalOpacity: m.style.opacity,
+        originLeft: 0,
+        originTop: 0,
+      };
+      ensurePositionable(m);
+      var mcs = window.getComputedStyle(m);
+      snapshot.originLeft = readPx(m.style.left || mcs.left);
+      snapshot.originTop = readPx(m.style.top || mcs.top);
+      return snapshot;
+    });
+    var gestureState =
+      memberStates[groupEls.indexOf(gestureEl)] || memberStates[0];
+    var originalInlineOpacity = gestureState.originalOpacity;
+    var originLeft = gestureState.originLeft;
+    var originTop = gestureState.originTop;
+    function setMembersOpacity(value: string | null): void {
+      memberStates.forEach(function (state) {
+        state.el.style.opacity = value === null ? state.originalOpacity : value;
+      });
+    }
     var startX = e.clientX;
     var startY = e.clientY;
     // Snapshot the element being moved so that a concurrent select-element or
     // clear-selection postMessage cannot swap selectedEl mid-drag and cause
     // mutations on the wrong element or a null-deref in onUp.
-    var dragEl = selectedEl;
+    var dragEl = gestureEl;
     var moved = false;
     var DRAG_THRESHOLD = 3;
     var currentAutoLayoutTarget: {
       anchor: Element;
       placement: string;
       axis?: string;
+      needsAutoLayoutConversion?: boolean;
+      conversionTarget?: Element;
     } | null = null;
     // Snap candidates (siblings + parent content box) are computed once at
     // drag start — a single getBoundingClientRect pass per candidate — not
-    // recomputed on every move event.
-    var snapCandidateRects = collectSnapCandidateRects(dragEl);
+    // recomputed on every move event. Other group members are excluded: they
+    // move with the drag, so snapping against them would chase a moving
+    // target.
+    var snapCandidateRects = collectSnapCandidateRects(dragEl, groupOthers);
     var dragElStartRect = (dragEl as HTMLElement).getBoundingClientRect();
     var dragElStartWidth = dragElStartRect.width;
     var dragElStartHeight = dragElStartRect.height;
-    if (!duplicatedForDrag) {
+    if (!duplicatedForDrag && !isGroupDrag) {
       postCrossScreenDrag("start", dragEl, e);
     }
     function onMove(ev) {
@@ -5694,9 +6404,17 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
           : { dx: 0, dy: 0, guideV: null, guideH: null };
       nextLeft += snapResult.dx;
       nextTop += snapResult.dy;
-      (dragEl as HTMLElement).style.left = Math.round(nextLeft) + "px";
-      (dragEl as HTMLElement).style.top = Math.round(nextTop) + "px";
-      if (!duplicatedForDrag) {
+      // Apply the SAME delta to every member (one entry for single drags)
+      // so relative offsets within a multi-selection are preserved. For the
+      // gesture member this reduces exactly to the previous
+      // Math.round(nextLeft/nextTop) single-element behavior.
+      var appliedDx = nextLeft - originLeft;
+      var appliedDy = nextTop - originTop;
+      memberStates.forEach(function (state) {
+        state.el.style.left = Math.round(state.originLeft + appliedDx) + "px";
+        state.el.style.top = Math.round(state.originTop + appliedDy) + "px";
+      });
+      if (!duplicatedForDrag && !isGroupDrag) {
         postCrossScreenDrag("move", dragEl, ev);
       }
       if (
@@ -5705,17 +6423,22 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
       ) {
         currentAutoLayoutTarget = null;
         hideInsertionGuide();
-        (dragEl as HTMLElement).style.opacity = originalInlineOpacity;
+        setMembersOpacity(null);
       } else {
         currentAutoLayoutTarget = !duplicatedForDrag
-          ? autoLayoutInsertionTargetForPoint(dragEl, ev.clientX, ev.clientY)
+          ? autoLayoutInsertionTargetForPoint(
+              dragEl,
+              ev.clientX,
+              ev.clientY,
+              groupOthers,
+            )
           : null;
         if (currentAutoLayoutTarget) {
           showInsertionGuideFor(currentAutoLayoutTarget);
-          (dragEl as HTMLElement).style.opacity = "0.4";
+          setMembersOpacity("0.4");
         } else {
           hideInsertionGuide();
-          (dragEl as HTMLElement).style.opacity = originalInlineOpacity;
+          setMembersOpacity(null);
         }
       }
       // Snap guides only make sense for a free absolute placement — never at
@@ -5739,10 +6462,12 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
       refreshOverlays();
     }
     function restoreSourceDragPosition(): void {
-      (dragEl as HTMLElement).style.position = originalInlinePosition;
-      (dragEl as HTMLElement).style.left = originalInlineLeft;
-      (dragEl as HTMLElement).style.top = originalInlineTop;
-      (dragEl as HTMLElement).style.opacity = originalInlineOpacity;
+      memberStates.forEach(function (state) {
+        state.el.style.position = state.originalPosition;
+        state.el.style.left = state.originalLeft;
+        state.el.style.top = state.originalTop;
+        state.el.style.opacity = state.originalOpacity;
+      });
       selectedEl = originalSelectedEl;
       positionOverlay(selectionOverlay, selectedEl);
     }
@@ -5767,7 +6492,7 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
         postElementSelect(selectedEl);
       } else if (dragEl && document.documentElement.contains(dragEl)) {
         restoreSourceDragPosition();
-        postCrossScreenDrag("cancel");
+        if (!isGroupDrag) postCrossScreenDrag("cancel");
       }
       suppressNextShieldClickBriefly();
       refreshOverlays();
@@ -5790,11 +6515,15 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
       if (
         ev &&
         !duplicatedForDrag &&
+        !isGroupDrag &&
         (outsideOnDrop || designCanvasBoardSurface)
       ) {
         postCrossScreenDrag("end", dragEl, ev);
       }
       if (ev && !duplicatedForDrag && outsideOnDrop) {
+        // Outside release: the host owns a single-element cross-screen drop;
+        // group drags never armed the host, so an outside release simply
+        // restores every member (cancel semantics).
         restoreSourceDragPosition();
         return;
       }
@@ -5803,6 +6532,7 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
           dragEl,
           ev.clientX,
           ev.clientY,
+          groupOthers,
         );
         if (finalAutoLayoutTarget) {
           currentAutoLayoutTarget = finalAutoLayoutTarget;
@@ -5819,30 +6549,62 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
       if (duplicatedForDrag) {
         postVisualDuplicateChange(originalSelectedEl, dragEl);
       } else if (currentAutoLayoutTarget) {
-        (dragEl as HTMLElement).style.opacity = originalInlineOpacity;
-        var prevParent = dragEl.parentElement;
-        var prevNextSibling = dragEl.nextSibling;
-        applyRuntimeReorder(dragEl, currentAutoLayoutTarget);
-        postVisualStructureChange(dragEl, currentAutoLayoutTarget, {
-          prevParent: prevParent,
-          prevNextSibling: prevNextSibling,
-        });
+        setMembersOpacity(null);
+        // Figma-parity nest-on-drop: the target container may be a plain
+        // rect/div that isn't auto-layout yet (see
+        // autoLayoutInsertionTargetForPoint's needsAutoLayoutConversion).
+        // Convert it to flex BEFORE reparenting/posting the move so the
+        // host applies the two edits in the right order against its
+        // synchronous same-tick content refs (container becomes flex, then
+        // the child moves into it and loses absolute positioning via the
+        // existing "flow-insert" dropMode handling). For group drags the
+        // conversion fires ONCE for the container; every member then nests
+        // consecutively via applyGroupStructureDrop.
+        if (
+          currentAutoLayoutTarget.needsAutoLayoutConversion &&
+          currentAutoLayoutTarget.conversionTarget
+        ) {
+          applyAutoLayoutConversionForDrop(
+            currentAutoLayoutTarget.conversionTarget,
+            groupEls,
+          );
+        }
+        if (isGroupDrag) {
+          applyGroupStructureDrop(groupEls, currentAutoLayoutTarget, ev);
+        } else {
+          var prevParent = dragEl.parentElement;
+          var prevNextSibling = dragEl.nextSibling;
+          adaptAutoTextColorForNest(
+            dragEl,
+            dropContainerForTarget(currentAutoLayoutTarget),
+          );
+          applyRuntimeReorder(dragEl, currentAutoLayoutTarget);
+          postVisualStructureChange(dragEl, currentAutoLayoutTarget, {
+            prevParent: prevParent,
+            prevNextSibling: prevNextSibling,
+          });
+        }
       } else {
-        (dragEl as HTMLElement).style.opacity = originalInlineOpacity;
-        (window.parent as Window).postMessage(
-          {
-            type: "visual-style-change",
-            selector: getSelector(dragEl),
-            styles: {
-              position: (dragEl as HTMLElement).style.position,
-              left: (dragEl as HTMLElement).style.left,
-              top: (dragEl as HTMLElement).style.top,
+        setMembersOpacity(null);
+        // Free absolute placement: one style-change message per member, in
+        // order — the host composes them against its synchronous same-tick
+        // content refs exactly like multi-property style commits.
+        memberStates.forEach(function (state) {
+          (window.parent as Window).postMessage(
+            {
+              type: "visual-style-change",
+              selector: getSelector(state.el),
+              styles: {
+                position: state.el.style.position,
+                left: state.el.style.left,
+                top: state.el.style.top,
+              },
+              payload: getElementInfo(state.el),
             },
-            payload: getElementInfo(dragEl),
-          },
-          "*",
-        );
-        postCrossScreenDrag("cancel");
+            "*",
+          );
+        });
+        if (!isGroupDrag) postCrossScreenDrag("cancel");
       }
     }
     document.addEventListener(events.move, onMove, true);
@@ -6239,6 +7001,23 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
       if (Math.hypot(ev.clientX - startX, ev.clientY - startY) <= 3) return;
       clearPendingShieldDrag();
       didStartDrag = true;
+      // Multi-select group move: when the drag starts on a member of the
+      // current 2+ selection, PRESERVE the whole selection (no
+      // selectTarget collapse) and move the group together — Figma
+      // behavior. A plain click (no drag) still collapses to the clicked
+      // element via onUp below (existing disambiguation). Alt-drag
+      // duplication stays single-element.
+      var groupGestureMember = !e.altKey
+        ? groupMemberForGestureTarget(dragTarget)
+        : null;
+      if (
+        groupGestureMember &&
+        collectMoveGroupMembers(groupGestureMember).length > 1
+      ) {
+        suppressNextShieldClickBriefly();
+        startMove(ev, groupGestureMember);
+        return;
+      }
       selectTarget(dragTarget, ev);
       suppressNextShieldClickBriefly();
       startMove(ev);
@@ -6846,7 +7625,21 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
         if (hoveringSelectedSpacingSurface) {
           clearSpacingHoverTimer();
           selectedSpacingHovered = true;
+          lastSpacingPointerPoint = { x: e.clientX, y: e.clientY };
           updateSpacingOverlay(selectedEl);
+          // Reliable padding/gap hover: hit-test the handle geometry
+          // directly from the pointer position instead of depending on the
+          // pointermove's event target being the region node (see
+          // spacingHandleKeyAtPoint). Shows/updates the "Npx" value box
+          // while hovering the handle line; clears it when the pointer
+          // leaves the tolerance zone.
+          var pointSpacingKey = spacingHandleKeyAtPoint(e.clientX, e.clientY);
+          if (pointSpacingKey) {
+            activateSpacingHandle(pointSpacingKey);
+          } else if (hoveredSpacingHandleKey) {
+            hoveredSpacingHandleKey = "";
+            updateSpacingOverlay(selectedEl);
+          }
         } else {
           scheduleSpacingHoverClear(e);
         }
@@ -7250,8 +8043,18 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
         } catch (_err) {}
       }
       if (!target) return;
-      selectedSpacingHovered = false;
-      hoveredSpacingHandleKey = "";
+      // Only reset the spacing hover state when the replay actually CHANGES
+      // the selection. The host re-sends select-element on every
+      // application-state poll tick (~1-2s) even when nothing changed; the
+      // old unconditional reset silently killed the padding/gap hover state
+      // — the "Npx" value box and the hatch band vanished within a poll tick
+      // whenever the cursor RESTED on a handle (the user only ever saw the
+      // badge flash, i.e. "the value box never shows"). A same-element
+      // replay must be a no-op for hover state.
+      if (target !== selectedEl) {
+        selectedSpacingHovered = false;
+        hoveredSpacingHandleKey = "";
+      }
       selectedEl = target;
       positionOverlay(selectionOverlay, target);
       if (hoveredEl === selectedEl) highlightOverlay.style.display = "none";
