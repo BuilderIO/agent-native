@@ -83,7 +83,7 @@ const jaJP = {
       badge: "オープンソース framework",
       titleLine1: "agentic apps のための",
       titleAccent: "framework",
-      body: "Chat-first app と app-agent loop から始めましょう。agent の成長に合わせて actions、画面、jobs、workflows を追加できます。",
+      body: "Agent-Native は、agent を中心に堅牢なアプリケーションを迅速に構築するためのオープンソース framework です。",
       primaryCta: "app を試す",
       secondaryCta: "ドキュメントを読む",
     },
@@ -265,13 +265,13 @@ const jaJP = {
       },
     },
     comparison: {
-      title: "両方の良さをひとつに",
-      body: "SaaS ツールは硬直的で、AI は後付けになりがちです。生の AI Agents は強力ですが UI がありません。agent-native apps はその両方を組み合わせます。",
+      titleLine1: "アプリと agent のどちらかを選ぶ必要はありません。",
+      titleAccent: "agent-native apps は両方です。",
       columns: {
         saas: "SaaS ツール",
         agents: "生の AI Agents",
         internal: "内部ツール",
-        native: "Agent-Native",
+        native: "Agent-Native App",
       },
       rows: {
         ui: "UI",
@@ -312,6 +312,7 @@ const jaJP = {
       titleLine1: "必要なものを内蔵、",
       titleLine2: "実戦で検証済み",
       body: "空のプロンプトや場当たり的なコードから始める代わりに、Agent-Native は実用的なソフトウェア構築に必要な実戦済みの部品とベストプラクティスをエージェントに提供します。",
+      browseToolkits: "ツールキットを見る",
     },
     featureCloud: {
       notifications: "通知",
@@ -418,6 +419,24 @@ const jaJP = {
     community:
       "空のアプリから始めたい場合は、フレームワークガイドでゼロから始められます。",
     createYourOwn: "ゼロから始める",
+  },
+  buildFromScratch: {
+    title: "ゼロから構築",
+    description:
+      "フレームワークガイドから始めるか、Builder.io のクラウドコーディングエージェントでオンライン構築できます。",
+    readDocs: "ドキュメントを読む",
+    buildOnline: "オンラインで構築",
+    popoverTitle: "Builder.io でオンライン構築",
+    popoverBody:
+      "Builder.io はクラウドで agent-native アプリを起動してカスタマイズできます。actions、認証、SQL 状態、エージェントチャット込みです。早期アクセスの待機リストに参加してください。",
+    emailLabel: "メール",
+    emailPlaceholder: "you@company.com",
+    joinWaitlist: "待機リストに参加",
+    joining: "参加中…",
+    joined:
+      "待機リストに登録されました。オンライン構築アクセスが開いたらメールでお知らせします。",
+    invalidEmail: "有効なメールアドレスを入力してください。",
+    submitError: "待機リストに参加できませんでした。もう一度お試しください。",
   },
   templateCard: {
     pasteIntoTerminal: "端末に貼り付けます。",

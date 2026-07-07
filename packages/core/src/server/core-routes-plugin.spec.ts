@@ -9,8 +9,11 @@ import {
 } from "./builder-browser.js";
 import {
   buildBuilderWaitlistFormPayload,
+  checkBuilderWaitlistRateLimit,
   resolveBuilderOwnerContextForRequest,
   resolveBuilderWaitlistFormTargetForRequest,
+  resolveWaitlistEmail,
+  resetBuilderWaitlistRateLimitForTests,
   resolveFrameworkSseRoutes,
   resolveLegacyToolsRedirect,
   runDbHealthProbe,
@@ -33,6 +36,7 @@ function createMockEvent(url: string): H3Event {
       req: {
         headers: { host: parsed.host },
         method: "GET",
+        socket: { remoteAddress: "203.0.113.10" },
         url: `${parsed.pathname}${parsed.search}`,
       },
     },
@@ -374,6 +378,114 @@ describe("buildBuilderWaitlistFormPayload", () => {
         useCase: "builder_agent_background_coding",
       },
     });
+  });
+
+  it("preserves the docs build-online waitlist use case", () => {
+    const event = createMockEvent(
+      "https://agent-native.com/_agent-native/builder/branch-waitlist",
+    );
+
+    expect(
+      buildBuilderWaitlistFormPayload(event, "reader@example.com", {
+        pageUrl: "https://agent-native.com/apps",
+        source: "docs_build_from_scratch",
+        useCase: "docs_build_online_waitlist",
+      }),
+    ).toMatchObject({
+      data: {
+        email: "reader@example.com",
+        source: "docs_build_from_scratch",
+        useCase: "docs_build_online_waitlist",
+      },
+      _meta: {
+        source: "docs_build_from_scratch",
+        useCase: "docs_build_online_waitlist",
+      },
+    });
+  });
+});
+
+describe("resolveWaitlistEmail", () => {
+  it("prefers an explicit email over anonymous docs sessions", () => {
+    expect(
+      resolveWaitlistEmail("anon-123@agent-native.com", "reader@example.com"),
+    ).toBe("reader@example.com");
+  });
+
+  it("uses a signed-in session email when no explicit email is provided", () => {
+    expect(resolveWaitlistEmail("steve@builder.io", undefined)).toBe(
+      "steve@builder.io",
+    );
+  });
+
+  it("rejects anonymous sessions without an explicit email", () => {
+    expect(
+      resolveWaitlistEmail("anon-123@agent-native.com", undefined),
+    ).toBeNull();
+  });
+});
+
+describe("checkBuilderWaitlistRateLimit", () => {
+  afterEach(() => {
+    resetBuilderWaitlistRateLimitForTests();
+  });
+
+  it("allows a small burst of public waitlist submissions", () => {
+    const event = createMockEvent(
+      "https://agent-native.com/_agent-native/builder/branch-waitlist",
+    );
+
+    for (let i = 0; i < 5; i += 1) {
+      expect(
+        checkBuilderWaitlistRateLimit(event, `reader-${i}@example.com`, 1_000),
+      ).toEqual({ ok: true });
+    }
+  });
+
+  it("throttles repeated submissions for the same email", () => {
+    const event = createMockEvent(
+      "https://agent-native.com/_agent-native/builder/branch-waitlist",
+    );
+
+    for (let i = 0; i < 5; i += 1) {
+      expect(
+        checkBuilderWaitlistRateLimit(event, "reader@example.com", 1_000),
+      ).toEqual({ ok: true });
+    }
+
+    expect(
+      checkBuilderWaitlistRateLimit(event, "reader@example.com", 1_000),
+    ).toEqual({ ok: false, retryAfterSeconds: 60 });
+  });
+
+  it("throttles repeated submissions from the same peer across emails", () => {
+    const event = createMockEvent(
+      "https://agent-native.com/_agent-native/builder/branch-waitlist",
+    );
+
+    for (let i = 0; i < 5; i += 1) {
+      expect(
+        checkBuilderWaitlistRateLimit(event, `reader-${i}@example.com`, 1_000),
+      ).toEqual({ ok: true });
+    }
+
+    expect(
+      checkBuilderWaitlistRateLimit(event, "another-reader@example.com", 1_000),
+    ).toEqual({ ok: false, retryAfterSeconds: 60 });
+  });
+
+  it("resets the throttle window after the retry period", () => {
+    const event = createMockEvent(
+      "https://agent-native.com/_agent-native/builder/branch-waitlist",
+    );
+
+    for (let i = 0; i < 5; i += 1) {
+      checkBuilderWaitlistRateLimit(event, "reader@example.com", 1_000);
+    }
+
+    expect(
+      checkBuilderWaitlistRateLimit(event, "reader@example.com", 61_001),
+    ).toEqual({ ok: true });
   });
 });
 

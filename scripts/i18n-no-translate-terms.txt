@@ -15,6 +15,7 @@ Ease Out
 A2A
 adapter.sendResponse
 Agent-native
+Agent-Native App
 Agent-Native sidecar
 AgentHarness substrate
 AgentRunHost

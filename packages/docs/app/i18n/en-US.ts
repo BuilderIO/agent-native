@@ -92,7 +92,7 @@ const enUS = {
       badge: "Open source framework",
       titleLine1: "The framework for",
       titleAccent: "agentic apps",
-      body: "Agent-Native is an open-source framework for apps where agents and UI share the same actions, state, and context.",
+      body: "Agent-Native is an open-source framework for rapidly building robust applications with agents at their core.",
       primaryCta: "Try an app",
       secondaryCta: "Read the docs",
     },
@@ -274,13 +274,13 @@ const enUS = {
       },
     },
     comparison: {
-      title: "The best of both worlds",
-      body: "SaaS tools are rigid and bolting AI on as an afterthought. Raw AI agents are powerful but have no UI. Agent-native apps combine both.",
+      titleLine1: "Don't pick between apps or agents.",
+      titleAccent: "Agent-native apps are both",
       columns: {
         saas: "SaaS Tools",
         agents: "Raw AI Agents",
         internal: "Internal Tools",
-        native: "Agent-Native",
+        native: "Agent-Native App",
       },
       rows: {
         ui: "UI",
@@ -321,6 +321,7 @@ const enUS = {
       titleLine1: "Batteries included,",
       titleLine2: "battle tested",
       body: "Instead of starting from a blank prompt and a pile of improvised code, Agent-Native gives agents the battle-tested parts and best practices they need to build real software.",
+      browseToolkits: "Browse toolkits",
     },
     featureCloud: {
       notifications: "Notifications",
@@ -417,6 +418,23 @@ const enUS = {
     community:
       "Want a blank app instead? Start from scratch with the framework guide.",
     createYourOwn: "Start from scratch",
+  },
+  buildFromScratch: {
+    title: "Build from scratch",
+    description: "Use the framework guide or build online with Builder.io.",
+    readDocs: "Read the docs",
+    buildOnline: "Build online",
+    popoverTitle: "Join the waitlist",
+    popoverBody:
+      "Rapidly generate agent-native apps in the cloud. Join the waitlist for early access.",
+    emailLabel: "Email",
+    emailPlaceholder: "you@company.com",
+    joinWaitlist: "Join waitlist",
+    joining: "Joining…",
+    joined:
+      "You're on the waitlist. We'll email you when build-online access opens.",
+    invalidEmail: "Enter a valid email address.",
+    submitError: "Couldn't join the waitlist. Please try again.",
   },
   templateCard: {
     pasteIntoTerminal: "Paste into your terminal.",

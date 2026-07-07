@@ -83,7 +83,7 @@ const esES = {
       badge: "Framework open source",
       titleLine1: "El framework para",
       titleAccent: "apps agentic",
-      body: "Empieza con una Chat-first app y el app-agent loop. Añade actions, pantallas, jobs y workflows a medida que crece tu agent.",
+      body: "Agent-Native es un framework de código abierto para construir rápidamente aplicaciones robustas con agents en su núcleo.",
       primaryCta: "Probar una app",
       secondaryCta: "Leer la documentación",
     },
@@ -265,13 +265,13 @@ const esES = {
       },
     },
     comparison: {
-      title: "Lo mejor de ambos mundos",
-      body: "Las herramientas SaaS son rígidas y añaden AI como parche tardío. Los AI agents crudos son potentes, pero no tienen UI. Las apps agent-native combinan ambas cosas.",
+      titleLine1: "No elijas entre apps o agents.",
+      titleAccent: "Las apps agent-native son ambas.",
       columns: {
         saas: "Herramientas SaaS",
         agents: "AI Agents crudos",
         internal: "Herramientas internas",
-        native: "Agent-Native",
+        native: "App Agent-Native",
       },
       rows: {
         ui: "UI",
@@ -312,6 +312,7 @@ const esES = {
       titleLine1: "Todo incluido,",
       titleLine2: "probado en batalla",
       body: "En lugar de partir de un prompt en blanco y código improvisado, Agent-Native ofrece a los agentes piezas probadas y buenas prácticas para crear software real.",
+      browseToolkits: "Explorar toolkits",
     },
     featureCloud: {
       notifications: "Notificaciones",
@@ -418,6 +419,24 @@ const esES = {
     community:
       "¿Prefieres una app en blanco? Empieza desde cero con la guía del framework.",
     createYourOwn: "Empezar desde cero",
+  },
+  buildFromScratch: {
+    title: "Crear desde cero",
+    description:
+      "Empieza con la guía del framework o crea en línea con el agente de programación en la nube de Builder.io.",
+    readDocs: "Leer documentación",
+    buildOnline: "Crear en línea",
+    popoverTitle: "Crear en línea con Builder.io",
+    popoverBody:
+      "Builder.io puede crear y personalizar una app agent-native en la nube: acciones, autenticación, estado SQL y chat del agente incluidos. Únete a la lista de espera para acceso anticipado.",
+    emailLabel: "Correo electrónico",
+    emailPlaceholder: "tu@empresa.com",
+    joinWaitlist: "Unirse a la lista de espera",
+    joining: "Uniéndose…",
+    joined:
+      "Ya estás en la lista de espera. Te enviaremos un correo cuando se abra el acceso para crear en línea.",
+    invalidEmail: "Introduce un correo electrónico válido.",
+    submitError: "No se pudo unir a la lista de espera. Inténtalo de nuevo.",
   },
   templateCard: {
     pasteIntoTerminal: "Pega en tu terminal.",

@@ -1,8 +1,8 @@
 # Agent-Native
 
-## The framework for agent-native apps
+## The framework for agentic apps
 
-Agent-Native is an open-source framework for apps where agents and UI share the same actions, state, and context.
+Agent-Native is an open-source framework for rapidly building robust applications with agents at their core.
 
 ```ts
 // One action powers every app surface: UI, agent, HTTP, MCP, A2A, and CLI.
@@ -17,11 +17,23 @@ export default defineAction({
 });
 ```
 
-- **Actions**: Define work once. Use it from every app surface: UI, agent, HTTP, MCP, A2A, and CLI.
-- **Agent runtime**: Chat, tools, skills, memory, jobs, observability, and handoffs ship together.
-- **Backend agnostic**: Plug in any Drizzle-supported SQL database and Nitro-compatible host.
+- **[Actions](https://agent-native.com/docs/actions)**: Define work once. Use it from every app surface: UI, agent, HTTP, MCP, A2A, and CLI.
+- **[Agent runtime](https://agent-native.com/docs/agent-surfaces)**: Chat, tools, skills, memory, jobs, observability, and handoffs ship together.
+- **[Backend agnostic](https://agent-native.com/docs/database)**: Plug in any Drizzle-supported SQL database and Nitro-compatible host.
+- **[Toolkits](https://agent-native.com/docs/agent-native-toolkit)**: Reusable building blocks for collaboration, sharing, settings, teams, and observability.
 
-## Apps
+## Don't pick between apps or agents.
+
+Agent-native apps are both
+
+|                   | SaaS Tools         | Raw AI Agents           | Internal Tools             | Agent-Native App        |
+| ----------------- | ------------------ | ----------------------- | -------------------------- | ----------------------- |
+| **UI**            | Polished but rigid | None                    | Mixed quality              | Full UI, fork & go      |
+| **AI**            | Bolted on          | Powerful                | Shallowly connected        | Agent-first, integrated |
+| **Customization** | Can't              | Instructions and skills | Full, but high maintenance | Agent modifies the app  |
+| **Ownership**     | Rented             | Somewhat yours          | You own the code           | You own the code        |
+
+## Try an Agent-Native app
 
 Fork a working app and let the agent evolve it. **You can customize everything.**
 
@@ -96,9 +108,24 @@ Connect analytics data sources, prompt for real charts, and build reusable dashb
 
 </td>
 </tr>
+<tr>
+<td colspan="3" align="center" valign="top">
+
+**Chat**
+
+<a href="https://agent-native.com/templates/chat"><img src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F6b36dc596fca4799815fa34c31e1c406?format=webp&width=800" alt="Chat app" width="66%" /></a>
+
+**A minimal ChatGPT-style app for your own agent**
+
+Chat-first app scaffold with durable threads, actions, auth, live sync, and a clean path to add screens or plug in your own agent backend.
+
+</td>
+</tr>
 </table>
 
-View the full app gallery at **[agent-native.com/templates](https://agent-native.com/templates)**.
+**Build from scratch.** Use the [framework guide](https://agent-native.com/docs/getting-started).
+
+View the full app gallery at **[agent-native.com/apps](https://agent-native.com/apps)**.
 
 ## Quick Start
 

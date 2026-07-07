@@ -2427,6 +2427,105 @@ export const config = {
   );
 }
 
+export function assertSingleTemplateNetlifyBuildOutput(
+  projectCwd: string,
+): void {
+  const failures: string[] = [];
+  const publishDir = path.join(projectCwd, "dist");
+  const internalDir = path.join(projectCwd, ".netlify", "functions-internal");
+  const serverDir = path.join(internalDir, "server");
+  const serverEntryPath = path.join(serverDir, "server.mjs");
+  const serverMainPath = path.join(serverDir, "main.mjs");
+
+  if (!fs.existsSync(publishDir)) {
+    failures.push("missing publish directory: dist");
+  }
+
+  if (!fs.existsSync(serverDir)) {
+    failures.push(
+      "missing scanned Netlify server function: .netlify/functions-internal/server",
+    );
+  }
+
+  if (!fs.existsSync(serverMainPath)) {
+    failures.push(
+      "missing Netlify server bundle: .netlify/functions-internal/server/main.mjs",
+    );
+  }
+
+  if (!fs.existsSync(serverEntryPath)) {
+    failures.push(
+      "missing Netlify server entry: .netlify/functions-internal/server/server.mjs",
+    );
+  } else {
+    const serverEntry = fs.readFileSync(serverEntryPath, "utf-8");
+    if (!/\bpath\s*:\s*["']\/\*["']/.test(serverEntry)) {
+      failures.push(
+        'Netlify server entry is missing the "/*" catch-all function path',
+      );
+    }
+    if (!serverEntry.includes('"/.netlify/*"')) {
+      failures.push(
+        'Netlify server catch-all is missing the "/.netlify/*" exclusion',
+      );
+    }
+    if (!serverEntry.includes("./main.mjs")) {
+      failures.push(
+        "Netlify server entry does not reference the generated main.mjs bundle",
+      );
+    }
+  }
+
+  if (isDurableBackgroundDeployEnabled()) {
+    const backgroundDir = path.join(
+      internalDir,
+      AGENT_BACKGROUND_FUNCTION_NAME,
+    );
+    const backgroundEntryPath = path.join(
+      backgroundDir,
+      `${AGENT_BACKGROUND_FUNCTION_NAME}.mjs`,
+    );
+    if (!fs.existsSync(backgroundEntryPath)) {
+      failures.push(
+        `durable background is enabled but ${path.relative(
+          projectCwd,
+          backgroundEntryPath,
+        )} was not emitted`,
+      );
+    } else {
+      const backgroundEntry = fs.readFileSync(backgroundEntryPath, "utf-8");
+      if (!/\bbackground\s*:\s*true\b/.test(backgroundEntry)) {
+        failures.push(
+          `durable background entry ${path.relative(
+            projectCwd,
+            backgroundEntryPath,
+          )} is missing background: true`,
+        );
+      }
+      if (/^\s*path\s*:/m.test(backgroundEntry)) {
+        failures.push(
+          `durable background entry ${path.relative(
+            projectCwd,
+            backgroundEntryPath,
+          )} must not declare a custom path`,
+        );
+      }
+    }
+  }
+
+  if (failures.length > 0) {
+    throw new Error(
+      "[deploy] Netlify deploy guard failed; refusing to publish an output " +
+        "that would likely serve Netlify 404s:\n" +
+        failures.map((failure) => `- ${failure}`).join("\n"),
+    );
+  }
+
+  console.log(
+    "[deploy] Netlify deploy guard passed: publish dir and catch-all server function are present.",
+  );
+}
+
 function copyInstalledLibsqlNativePackages(serverDir: string | undefined) {
   if (!serverDir || !fs.existsSync(serverDir)) return;
   const nodeModulesRoots = nodeModulesAncestors(cwd);
@@ -2974,6 +3073,10 @@ export default bundle;
         err instanceof Error ? err.message : err,
       );
     }
+  }
+
+  if (preset === "netlify") {
+    assertSingleTemplateNetlifyBuildOutput(cwd);
   }
 
   // Resolve remaining bare npm imports by bundling them into _libs/.

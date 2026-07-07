@@ -83,7 +83,7 @@ const deDE = {
       badge: "Open-Source-Framework",
       titleLine1: "Das Framework für",
       titleAccent: "agentic Apps",
-      body: "Starte mit einer Chat-first app und dem app-agent loop. Füge actions, Screens, jobs und workflows hinzu, während dein agent wächst.",
+      body: "Agent-Native ist ein Open-Source-Framework zum schnellen Aufbau robuster Anwendungen mit Agents im Kern.",
       primaryCta: "App ausprobieren",
       secondaryCta: "Docs lesen",
     },
@@ -266,13 +266,13 @@ const deDE = {
       },
     },
     comparison: {
-      title: "Das Beste aus beiden Welten",
-      body: "SaaS-Tools sind starr und setzen AI nachträglich oben drauf. Raw AI Agents sind mächtig, haben aber keine UI. Agent-native apps kombinieren beides.",
+      titleLine1: "Wählen Sie nicht zwischen Apps und Agents.",
+      titleAccent: "Agent-native apps sind beides.",
       columns: {
         saas: "SaaS-Tools",
         agents: "Rohe AI-Agenten",
         internal: "Interne Tools",
-        native: "Agent-Native",
+        native: "Agent-Native App",
       },
       rows: {
         ui: "UI",
@@ -313,6 +313,7 @@ const deDE = {
       titleLine1: "Alles dabei,",
       titleLine2: "praxiserprobt",
       body: "Statt mit einem leeren Prompt und improvisiertem Code zu starten, gibt Agent-Native Agenten bewährte Bausteine und Best Practices, um echte Software zu bauen.",
+      browseToolkits: "Toolkits ansehen",
     },
     featureCloud: {
       notifications: "Benachrichtigungen",
@@ -420,6 +421,25 @@ const deDE = {
     community:
       "Du möchtest lieber eine leere App? Starte von Grund auf mit dem Framework-Guide.",
     createYourOwn: "Von Grund auf starten",
+  },
+  buildFromScratch: {
+    title: "Von Grund auf bauen",
+    description:
+      "Starte mit dem Framework-Leitfaden oder baue online mit dem Cloud-Coding-Agenten von Builder.io.",
+    readDocs: "Dokumentation lesen",
+    buildOnline: "Online bauen",
+    popoverTitle: "Online mit Builder.io bauen",
+    popoverBody:
+      "Builder.io kann eine agent-native App in der Cloud starten und anpassen — inklusive Actions, Auth, SQL-Status und Agent-Chat. Trag dich für frühen Zugriff in die Warteliste ein.",
+    emailLabel: "E-Mail",
+    emailPlaceholder: "du@firma.com",
+    joinWaitlist: "Warteliste beitreten",
+    joining: "Beitreten…",
+    joined:
+      "Du stehst auf der Warteliste. Wir mailen dir, sobald der Online-Build-Zugang verfügbar ist.",
+    invalidEmail: "Gib eine gültige E-Mail-Adresse ein.",
+    submitError:
+      "Beitritt zur Warteliste fehlgeschlagen. Bitte versuche es erneut.",
   },
   templateCard: {
     pasteIntoTerminal: "In Ihr Terminal einfügen.",

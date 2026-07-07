@@ -83,7 +83,7 @@ const koKR = {
       badge: "오픈소스 framework",
       titleLine1: "agentic apps 를 위한",
       titleAccent: "framework",
-      body: "Chat-first app 과 app-agent loop 에서 시작하세요. agent 가 성장하면 actions, 화면, jobs, workflows 를 추가할 수 있습니다.",
+      body: "Agent-Native 는 agent 를 핵심으로 견고한 애플리케이션을 빠르게 구축하기 위한 오픈소스 framework 입니다.",
       primaryCta: "app 사용해 보기",
       secondaryCta: "문서 읽기",
     },
@@ -265,13 +265,13 @@ const koKR = {
       },
     },
     comparison: {
-      title: "두 세계의 장점",
-      body: "SaaS 도구는 경직되어 있고 AI 는 뒤늦게 덧붙는 경우가 많습니다. Raw AI Agents 는 강력하지만 UI 가 없습니다. agent-native apps 는 둘을 결합합니다.",
+      titleLine1: "앱과 agent 중 하나를 고르지 마세요.",
+      titleAccent: "agent-native apps 는 둘 다입니다.",
       columns: {
         saas: "SaaS 도구",
         agents: "원시 AI 에이전트",
         internal: "내부 도구",
-        native: "Agent-Native",
+        native: "Agent-Native App",
       },
       rows: {
         ui: "UI",
@@ -312,6 +312,7 @@ const koKR = {
       titleLine1: "필수 기능 포함,",
       titleLine2: "실전 검증 완료",
       body: "빈 프롬프트와 즉흥적인 코드에서 시작하는 대신, Agent-Native는 실제 소프트웨어를 만드는 데 필요한 검증된 구성 요소와 모범 사례를 에이전트에 제공합니다.",
+      browseToolkits: "툴킷 둘러보기",
     },
     featureCloud: {
       notifications: "알림",
@@ -418,6 +419,24 @@ const koKR = {
     community:
       "빈 앱에서 시작하고 싶다면 프레임워크 가이드로 처음부터 시작하세요.",
     createYourOwn: "처음부터 시작",
+  },
+  buildFromScratch: {
+    title: "처음부터 만들기",
+    description:
+      "프레임워크 가이드로 시작하거나 Builder.io의 클라우드 코딩 에이전트로 온라인에서 빌드하세요.",
+    readDocs: "문서 읽기",
+    buildOnline: "온라인에서 빌드",
+    popoverTitle: "Builder.io로 온라인에서 빌드",
+    popoverBody:
+      "Builder.io는 클라우드에서 agent-native 앱을 만들고 맞춤화할 수 있습니다 — actions, auth, SQL state, agent chat 포함. 얼리 액세스 대기자 명단에 참여하세요.",
+    emailLabel: "이메일",
+    emailPlaceholder: "you@company.com",
+    joinWaitlist: "대기자 명단 참여",
+    joining: "참여 중…",
+    joined:
+      "대기자 명단에 등록되었습니다. 온라인 빌드 액세스가 열리면 이메일로 알려드릴게요.",
+    invalidEmail: "유효한 이메일 주소를 입력하세요.",
+    submitError: "대기자 명단에 참여하지 못했습니다. 다시 시도하세요.",
   },
   templateCard: {
     pasteIntoTerminal: "터미널에 붙여넣으세요.",
