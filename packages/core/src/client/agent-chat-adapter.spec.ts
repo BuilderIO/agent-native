@@ -5482,6 +5482,85 @@ describe("createAgentChatAdapter", () => {
     expect(last.content.at(-1).text).toContain("Working continued");
   });
 
+  it("falls back to a client continuation when foreground self-chain dispatch fails", async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal("window", { dispatchEvent: vi.fn() });
+    vi.stubGlobal(
+      "CustomEvent",
+      class CustomEvent {
+        type: string;
+        detail: unknown;
+        constructor(type: string, init?: { detail?: unknown }) {
+          this.type = type;
+          this.detail = init?.detail;
+        }
+      },
+    );
+
+    let postCount = 0;
+    const fetchSpy = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/_agent-native/agent-chat" && init?.method === "POST") {
+        postCount += 1;
+        return postCount === 1
+          ? foregroundSelfChainSseResponse(
+              [
+                { type: "text", text: "Working" },
+                {
+                  type: "error",
+                  error:
+                    "The agent's foreground continuation could not hand off.",
+                  errorCode: "background_continuation_dispatch_failed",
+                  recoverable: true,
+                },
+              ],
+              "run-fg-self-failed-1",
+            )
+          : sseResponse(
+              [{ type: "text", text: " fallback continued" }, { type: "done" }],
+              "run-client-fallback",
+            );
+      }
+      if (url.includes("/runs/active")) {
+        return jsonResponse({
+          active: false,
+          threadId: "thread-fg-self-failed",
+          status: "idle",
+          heartbeatAt: null,
+          lastProgressAt: null,
+        });
+      }
+      if (url.includes("/runs/run-fg-self-failed-1/events")) {
+        return jsonResponse({ error: "Run not found" }, 404);
+      }
+      return jsonResponse({ error: "unexpected" }, 500);
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const adapter = createAgentChatAdapter({
+      apiUrl: "/_agent-native/agent-chat",
+      tabId: "chat-fg-self-failed",
+      threadId: "thread-fg-self-failed",
+    });
+    const promise = drain(
+      adapter.run({
+        messages: [
+          {
+            role: "user",
+            content: [{ type: "text", text: "do a self-chained task" }],
+          },
+        ],
+        abortSignal: new AbortController().signal,
+      } as any),
+    );
+
+    await vi.advanceTimersByTimeAsync(5_000);
+    const results = await promise;
+
+    expect(postCount).toBe(2);
+    const last = results.at(-1) as any;
+    expect(last.content.at(-1).text).toContain("Working fallback continued");
+  });
+
   it("retries an internal continuation when 409 reports the same completed run", async () => {
     vi.useFakeTimers();
     vi.stubGlobal("window", { dispatchEvent: vi.fn() });

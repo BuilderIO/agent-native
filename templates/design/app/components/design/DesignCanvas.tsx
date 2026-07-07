@@ -3020,7 +3020,7 @@ export function DesignCanvas({
         </div>
       ) : null}
       {waitingForEditableExternalSnapshot || waitingForLiveEditBridge ? (
-        <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center bg-background/85 px-4 text-center text-sm text-muted-foreground">
+        <div className="pointer-events-auto absolute inset-0 z-10 flex items-center justify-center bg-background/85 px-4 text-center text-sm text-muted-foreground">
           {waitingForLiveEditBridge ? (
             <div className="max-w-[28rem] rounded-md border bg-card px-4 py-3 shadow-sm">
               {

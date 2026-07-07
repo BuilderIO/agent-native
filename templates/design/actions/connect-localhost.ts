@@ -81,10 +81,11 @@ function stableConnectionId(
   devServerUrl: string,
   rootPath: string | undefined,
   ownerEmail: string,
+  orgId: string | null,
 ) {
   const hash = crypto
     .createHash("sha256")
-    .update(`${ownerEmail}\n${devServerUrl}\n${rootPath ?? ""}`)
+    .update(`${ownerEmail}\n${orgId ?? ""}\n${devServerUrl}\n${rootPath ?? ""}`)
     .digest("base64url")
     .slice(0, 16);
   return `localhost_${hash}`;
@@ -140,6 +141,7 @@ export default defineAction({
   run: async (args) => {
     const ownerEmail = getRequestUserEmail();
     if (!ownerEmail) throw new Error("no authenticated user");
+    const orgId = getRequestOrgId() ?? null;
 
     const now = new Date().toISOString();
     const db = getDb();
@@ -167,7 +169,12 @@ export default defineAction({
     };
     const id =
       args.id ??
-      stableConnectionId(devServerUrl, routeManifest.rootPath, ownerEmail);
+      stableConnectionId(
+        devServerUrl,
+        routeManifest.rootPath,
+        ownerEmail,
+        orgId,
+      );
     const capabilities =
       args.capabilities ??
       DESIGN_BRIDGE_OPERATIONS.map((operation) => ({
@@ -209,7 +216,7 @@ export default defineAction({
       status: args.status,
       lastSeenAt: now,
       ownerEmail,
-      orgId: getRequestOrgId() ?? null,
+      orgId,
       updatedAt: now,
     };
 
