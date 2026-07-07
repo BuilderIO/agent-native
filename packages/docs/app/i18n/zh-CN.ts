@@ -306,6 +306,7 @@ const zhCN = {
       titleLine1: "内置全套能力，",
       titleLine2: "久经实战检验",
       body: "不必从空白提示词和临时拼凑的代码开始，Agent-Native 为代理提供构建真实软件所需的可靠部件和最佳实践。",
+      browseToolkits: "浏览工具包",
     },
     featureCloud: {
       notifications: "通知",

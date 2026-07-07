@@ -304,6 +304,7 @@ const messages = {
       titleLine1: "內建全套能力，",
       titleLine2: "久經實战檢驗",
       body: "不必從空白提示詞和臨時拼湊的程式碼開始，Agent-Native 為代理提供建置真實軟體所需的可靠部件和最佳實踐。",
+      browseToolkits: "瀏覽工具包",
     },
     featureCloud: {
       notifications: "通知",

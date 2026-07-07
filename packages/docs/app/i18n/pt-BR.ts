@@ -311,6 +311,7 @@ const ptBR = {
       titleLine1: "Tudo incluído,",
       titleLine2: "testado em produção",
       body: "Em vez de começar de um prompt vazio e código improvisado, o Agent-Native dá aos agentes componentes testados e boas práticas para criar software real.",
+      browseToolkits: "Explorar toolkits",
     },
     featureCloud: {
       notifications: "Notificações",

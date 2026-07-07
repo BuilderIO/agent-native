@@ -9,9 +9,11 @@ import {
 } from "./builder-browser.js";
 import {
   buildBuilderWaitlistFormPayload,
+  checkBuilderWaitlistRateLimit,
   resolveBuilderOwnerContextForRequest,
   resolveBuilderWaitlistFormTargetForRequest,
   resolveWaitlistEmail,
+  resetBuilderWaitlistRateLimitForTests,
   resolveFrameworkSseRoutes,
   resolveLegacyToolsRedirect,
   runDbHealthProbe,
@@ -34,6 +36,7 @@ function createMockEvent(url: string): H3Event {
       req: {
         headers: { host: parsed.host },
         method: "GET",
+        socket: { remoteAddress: "203.0.113.10" },
         url: `${parsed.pathname}${parsed.search}`,
       },
     },
@@ -419,6 +422,70 @@ describe("resolveWaitlistEmail", () => {
     expect(
       resolveWaitlistEmail("anon-123@agent-native.com", undefined),
     ).toBeNull();
+  });
+});
+
+describe("checkBuilderWaitlistRateLimit", () => {
+  afterEach(() => {
+    resetBuilderWaitlistRateLimitForTests();
+  });
+
+  it("allows a small burst of public waitlist submissions", () => {
+    const event = createMockEvent(
+      "https://agent-native.com/_agent-native/builder/branch-waitlist",
+    );
+
+    for (let i = 0; i < 5; i += 1) {
+      expect(
+        checkBuilderWaitlistRateLimit(event, `reader-${i}@example.com`, 1_000),
+      ).toEqual({ ok: true });
+    }
+  });
+
+  it("throttles repeated submissions for the same email", () => {
+    const event = createMockEvent(
+      "https://agent-native.com/_agent-native/builder/branch-waitlist",
+    );
+
+    for (let i = 0; i < 5; i += 1) {
+      expect(
+        checkBuilderWaitlistRateLimit(event, "reader@example.com", 1_000),
+      ).toEqual({ ok: true });
+    }
+
+    expect(
+      checkBuilderWaitlistRateLimit(event, "reader@example.com", 1_000),
+    ).toEqual({ ok: false, retryAfterSeconds: 60 });
+  });
+
+  it("throttles repeated submissions from the same peer across emails", () => {
+    const event = createMockEvent(
+      "https://agent-native.com/_agent-native/builder/branch-waitlist",
+    );
+
+    for (let i = 0; i < 5; i += 1) {
+      expect(
+        checkBuilderWaitlistRateLimit(event, `reader-${i}@example.com`, 1_000),
+      ).toEqual({ ok: true });
+    }
+
+    expect(
+      checkBuilderWaitlistRateLimit(event, "another-reader@example.com", 1_000),
+    ).toEqual({ ok: false, retryAfterSeconds: 60 });
+  });
+
+  it("resets the throttle window after the retry period", () => {
+    const event = createMockEvent(
+      "https://agent-native.com/_agent-native/builder/branch-waitlist",
+    );
+
+    for (let i = 0; i < 5; i += 1) {
+      checkBuilderWaitlistRateLimit(event, "reader@example.com", 1_000);
+    }
+
+    expect(
+      checkBuilderWaitlistRateLimit(event, "reader@example.com", 61_001),
+    ).toEqual({ ok: true });
   });
 });
 

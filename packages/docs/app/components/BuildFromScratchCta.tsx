@@ -25,6 +25,12 @@ function BuildOnlinePopover({
   const [joined, setJoined] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const resetPopoverState = useCallback(() => {
+    setEmail("");
+    setError(null);
+    setJoined(false);
+  }, []);
+
   const handleJoinWaitlist = useCallback(async () => {
     const trimmed = email.trim();
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed)) {
@@ -77,6 +83,8 @@ function BuildOnlinePopover({
       onOpenChange={(nextOpen) => {
         if (nextOpen) {
           trackEvent("click build online", { location });
+        } else {
+          resetPopoverState();
         }
         setOpen(nextOpen);
       }}

@@ -313,6 +313,7 @@ const deDE = {
       titleLine1: "Alles dabei,",
       titleLine2: "praxiserprobt",
       body: "Statt mit einem leeren Prompt und improvisiertem Code zu starten, gibt Agent-Native Agenten bewährte Bausteine und Best Practices, um echte Software zu bauen.",
+      browseToolkits: "Toolkits ansehen",
     },
     featureCloud: {
       notifications: "Benachrichtigungen",

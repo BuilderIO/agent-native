@@ -310,6 +310,7 @@ const arSA = {
       titleLine1: "كل شيء مضمّن،",
       titleLine2: "مجرّب عمليًا",
       body: "بدل البدء من prompt فارغ وكود مرتجل، يوفّر Agent-Native للوكلاء مكونات مجرّبة وأفضل الممارسات لبناء برامج حقيقية.",
+      browseToolkits: "تصفّح مجموعات الأدوات",
     },
     featureCloud: {
       notifications: "الإشعارات",

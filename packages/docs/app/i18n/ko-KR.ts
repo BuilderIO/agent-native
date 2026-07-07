@@ -312,6 +312,7 @@ const koKR = {
       titleLine1: "필수 기능 포함,",
       titleLine2: "실전 검증 완료",
       body: "빈 프롬프트와 즉흥적인 코드에서 시작하는 대신, Agent-Native는 실제 소프트웨어를 만드는 데 필요한 검증된 구성 요소와 모범 사례를 에이전트에 제공합니다.",
+      browseToolkits: "툴킷 둘러보기",
     },
     featureCloud: {
       notifications: "알림",

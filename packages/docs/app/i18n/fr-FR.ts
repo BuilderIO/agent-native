@@ -312,6 +312,7 @@ const frFR = {
       titleLine1: "Tout inclus,",
       titleLine2: "éprouvé en production",
       body: "Au lieu de partir d’un prompt vide et de code improvisé, Agent-Native fournit aux agents des composants éprouvés et les bonnes pratiques pour construire de vrais logiciels.",
+      browseToolkits: "Parcourir les toolkits",
     },
     featureCloud: {
       notifications: "Alertes",

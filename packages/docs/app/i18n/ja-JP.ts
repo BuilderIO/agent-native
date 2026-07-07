@@ -312,6 +312,7 @@ const jaJP = {
       titleLine1: "必要なものを内蔵、",
       titleLine2: "実戦で検証済み",
       body: "空のプロンプトや場当たり的なコードから始める代わりに、Agent-Native は実用的なソフトウェア構築に必要な実戦済みの部品とベストプラクティスをエージェントに提供します。",
+      browseToolkits: "ツールキットを見る",
     },
     featureCloud: {
       notifications: "通知",

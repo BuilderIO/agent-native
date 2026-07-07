@@ -311,6 +311,7 @@ const hiIN = {
       titleLine1: "सब कुछ शामिल,",
       titleLine2: "व्यावहारिक रूप से परखा हुआ",
       body: "खाली prompt और अस्थायी code से शुरू करने के बजाय, Agent-Native agents को वास्तविक software बनाने के लिए परखे हुए हिस्से और best practices देता है।",
+      browseToolkits: "टूलकिट ब्राउज़ करें",
     },
     featureCloud: {
       notifications: "सूचनाएँ",

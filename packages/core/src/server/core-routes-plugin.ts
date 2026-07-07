@@ -8,6 +8,7 @@ import {
   setCookie,
   deleteCookie,
   getRequestURL,
+  getRequestIP,
 } from "h3";
 import type { H3Event } from "h3";
 import { readMultipartFormData } from "h3";
@@ -289,6 +290,12 @@ const BUILDER_WAITLIST_USE_CASES = new Set([
 ]);
 const BUILDER_WAITLIST_FORM_TIMEOUT_MS = 8000;
 const BUILDER_WAITLIST_TEXT_LIMIT = 4000;
+const BUILDER_WAITLIST_RATE_LIMIT_WINDOW_MS = 60_000;
+const BUILDER_WAITLIST_RATE_LIMIT_MAX = 5;
+const builderWaitlistRateLimitHits = new Map<
+  string,
+  { count: number; resetAt: number }
+>();
 
 interface BuilderWaitlistFormTarget {
   formId: string;
@@ -352,6 +359,86 @@ export function resolveWaitlistEmail(
     return sessionEmail;
   }
   return null;
+}
+
+function normalizeWaitlistRateLimitPart(value: string): string {
+  return value.trim().toLowerCase();
+}
+
+function getBuilderWaitlistClientIp(event: H3Event): string | undefined {
+  const trusted =
+    getHeader(event, "x-nf-client-connection-ip") ??
+    getHeader(event, "cf-connecting-ip") ??
+    getHeader(event, "true-client-ip") ??
+    getHeader(event, "x-real-ip");
+  if (trusted && trusted.trim()) return trusted.trim();
+
+  const forwardedFor = getHeader(event, "x-forwarded-for");
+  const forwardedClientIp = forwardedFor?.split(",")[0]?.trim();
+  if (forwardedClientIp) return forwardedClientIp;
+
+  try {
+    return getRequestIP(event) ?? undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function getBuilderWaitlistRateLimitKeys(
+  event: H3Event,
+  email: string,
+): string[] {
+  const clientIp = getBuilderWaitlistClientIp(event);
+  return [
+    `email:${normalizeWaitlistRateLimitPart(email)}`,
+    `ip:${normalizeWaitlistRateLimitPart(clientIp ?? "unknown")}`,
+  ];
+}
+
+export function checkBuilderWaitlistRateLimit(
+  event: H3Event,
+  email: string,
+  now = Date.now(),
+): { ok: true } | { ok: false; retryAfterSeconds: number } {
+  const keys = getBuilderWaitlistRateLimitKeys(event, email);
+  let retryAfterMs = 0;
+
+  for (const key of keys) {
+    const entry = builderWaitlistRateLimitHits.get(key);
+    if (!entry) continue;
+    if (entry.resetAt <= now) {
+      builderWaitlistRateLimitHits.delete(key);
+      continue;
+    }
+    if (entry.count >= BUILDER_WAITLIST_RATE_LIMIT_MAX) {
+      retryAfterMs = Math.max(retryAfterMs, entry.resetAt - now);
+    }
+  }
+
+  if (retryAfterMs > 0) {
+    return {
+      ok: false,
+      retryAfterSeconds: Math.max(1, Math.ceil(retryAfterMs / 1000)),
+    };
+  }
+
+  for (const key of keys) {
+    const entry = builderWaitlistRateLimitHits.get(key);
+    if (!entry || entry.resetAt <= now) {
+      builderWaitlistRateLimitHits.set(key, {
+        count: 1,
+        resetAt: now + BUILDER_WAITLIST_RATE_LIMIT_WINDOW_MS,
+      });
+    } else {
+      entry.count += 1;
+    }
+  }
+
+  return { ok: true };
+}
+
+export function resetBuilderWaitlistRateLimitForTests() {
+  builderWaitlistRateLimitHits.clear();
 }
 
 function normalizeHttpOrigin(value: string): string | null {
@@ -1900,6 +1987,22 @@ export function createCoreRoutesPlugin(
           if (!waitlistEmail) {
             setResponseStatus(event, 400);
             return { error: "Valid email required" };
+          }
+          const waitlistRateLimit = checkBuilderWaitlistRateLimit(
+            event,
+            waitlistEmail,
+          );
+          if (!waitlistRateLimit.ok) {
+            setResponseStatus(event, 429);
+            setResponseHeader(
+              event,
+              "Retry-After",
+              String(waitlistRateLimit.retryAfterSeconds),
+            );
+            return {
+              error:
+                "Too many waitlist requests. Please try again in a minute.",
+            };
           }
           const waitlistPayload = buildBuilderWaitlistFormPayload(
             event,

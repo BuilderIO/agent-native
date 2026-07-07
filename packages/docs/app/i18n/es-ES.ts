@@ -312,6 +312,7 @@ const esES = {
       titleLine1: "Todo incluido,",
       titleLine2: "probado en batalla",
       body: "En lugar de partir de un prompt en blanco y código improvisado, Agent-Native ofrece a los agentes piezas probadas y buenas prácticas para crear software real.",
+      browseToolkits: "Explorar toolkits",
     },
     featureCloud: {
       notifications: "Notificaciones",
