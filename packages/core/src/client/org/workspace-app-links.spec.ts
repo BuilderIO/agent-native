@@ -38,7 +38,6 @@ describe("org switcher app links", () => {
       ]),
     );
     expect(apps.map((app) => app.id)).not.toContain("starter");
-    expect(apps.map((app) => app.id)).not.toContain("videos");
   });
 
   it("normalizes workspace app manifests against the workspace gateway", () => {

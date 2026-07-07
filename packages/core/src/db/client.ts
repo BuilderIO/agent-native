@@ -78,6 +78,10 @@ export function getDatabaseAuthToken(): string | undefined {
   );
 }
 
+function getAppEnvPrefix(): string | undefined {
+  return process.env.APP_NAME?.toUpperCase().replace(/-/g, "_") || undefined;
+}
+
 /**
  * Database URL to use for migrations — identical to DATABASE_URL but with the
  * Neon connection-pooler suffix stripped. Neon's PgBouncer runs in transaction
@@ -89,7 +93,15 @@ export function getDatabaseAuthToken(): string | undefined {
  * Non-Neon URLs and already-direct Neon URLs are returned unchanged.
  */
 export function getMigrationDatabaseUrl(): string {
-  const url = getDatabaseUrl();
+  const appName = getAppEnvPrefix();
+  const appUnpooled = appName
+    ? process.env[`${appName}_DATABASE_URL_UNPOOLED`]
+    : undefined;
+  const url =
+    appUnpooled ||
+    process.env.NETLIFY_DATABASE_URL_UNPOOLED ||
+    process.env.DATABASE_URL_UNPOOLED ||
+    getDatabaseUrl();
   // Neon pooler hostname: ep-<id>-pooler.<region>.<cloud>.neon.tech
   // Direct hostname:      ep-<id>.<region>.<cloud>.neon.tech
   // The region between `-pooler.` and `.neon.tech` can contain multiple
@@ -837,10 +849,19 @@ export function neonPoolMax(): number {
  * (agent/durable-background.ts), replicated here to avoid a `db` → `agent`
  * import cycle. Keep the signals in sync with that function.
  */
-function isBackgroundFunctionPoolContext(): boolean {
+export function isBackgroundFunctionPoolContext(): boolean {
   if (
     (globalThis as Record<string, unknown>)
       .__AGENT_NATIVE_BACKGROUND_RUNTIME__ === true
+  ) {
+    return true;
+  }
+  // Set by the HMAC-authenticated agent-chat `_process-run` route before it
+  // re-enters the normal chat handler. This mirrors the marker-only runtime
+  // proof used by durable-background.ts without importing agent code into db/.
+  if (
+    (globalThis as Record<string, unknown>)
+      .__AGENT_NATIVE_BACKGROUND_RUNTIME_EXPECTED__ === true
   ) {
     return true;
   }

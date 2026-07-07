@@ -1,19 +1,17 @@
 import { defineAction } from "@agent-native/core";
-import {
-  ForbiddenError,
-  currentAccess,
-  resolveAccess,
-} from "@agent-native/core/sharing";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
-import { resolvePlanAccessContext } from "../server/lib/local-identity.js";
 import {
   parsePlanVersionSnapshot,
   summarizePlanVersion,
 } from "../server/lib/plan-versions.js";
-import { buildPlanHtml, summarizePlan } from "../server/plans.js";
+import {
+  assertPlanEditor,
+  buildPlanHtml,
+  summarizePlan,
+} from "../server/plans.js";
 import type { Plan, PlanBundle } from "../shared/types.js";
 
 export default defineAction({
@@ -33,15 +31,7 @@ export default defineAction({
     description: "Read one saved version of a visual plan.",
   },
   run: async ({ planId, versionId }) => {
-    const access = await resolveAccess(
-      "plan",
-      planId,
-      resolvePlanAccessContext(currentAccess()),
-    );
-    if (!access) throw new ForbiddenError(`Plan ${planId} not found`);
-    if ((access.resource as typeof schema.plans.$inferSelect).deletedAt) {
-      throw new ForbiddenError(`Plan ${planId} not found`);
-    }
+    const access = await assertPlanEditor(planId);
 
     const ownerEmail = access.resource.ownerEmail as string;
     const [version] = await getDb()

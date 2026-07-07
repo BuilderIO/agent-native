@@ -76,6 +76,7 @@ const PatchSlideOp = z.object({
 const DeleteSlideOp = z.object({
   op: z.literal("delete-slide"),
   slideId: z.string(),
+  allowEmpty: z.boolean().optional(),
 });
 
 /**
@@ -166,8 +167,9 @@ export function applyOperation(deck: any, op: Operation): void {
     case "delete-slide": {
       const idx = slides.findIndex((s: { id: string }) => s.id === op.slideId);
       if (idx !== -1) slides.splice(idx, 1);
-      // Ensure at least one slide remains (mirrors client-side behaviour)
-      if (slides.length === 0) {
+      // Ensure at least one slide remains for direct user deletes. Undoing an
+      // add-slide from a legitimately empty deck opts into preserving empty.
+      if (slides.length === 0 && !op.allowEmpty) {
         slides.push({
           id: `slide-${Date.now()}-fallback`,
           content: `<div class="fmd-slide" style="padding: 80px 110px; display: flex; flex-direction: column; justify-content: center;"><div style="font-size: 28px; font-weight: 600; color: rgba(255,255,255,0.4);">Double-click to edit</div></div>`,

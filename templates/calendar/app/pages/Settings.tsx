@@ -4,7 +4,7 @@ import {
   ChangelogSettingsCard,
   LanguagePicker,
   SettingsTabsPage,
-  openAgentSettings,
+  useAgentSettingsTabs,
   type AppearancePresetId,
   useT,
 } from "@agent-native/core/client";
@@ -47,11 +47,13 @@ import {
   useDisconnectZoom,
   useZoomStatus,
 } from "@/hooks/use-zoom-auth";
+import { shouldOfferGoogleOAuthSetup } from "@/lib/google-oauth-setup";
 
 import changelog from "../../CHANGELOG.md?raw";
 
 export default function Settings() {
   const t = useT();
+  const agentSettingsTabs = useAgentSettingsTabs();
   const { data: settings } = useSettings();
   const updateSettings = useUpdateSettings();
   const googleStatus = useGoogleAuthStatus();
@@ -70,6 +72,7 @@ export default function Settings() {
   const disconnectZoom = useDisconnectZoom();
   const [wantAuthUrl, setWantAuthUrl] = useState(false);
   const authUrl = useGoogleAuthUrl(wantAuthUrl);
+  const canOfferGoogleOAuthSetup = shouldOfferGoogleOAuthSetup();
 
   const [timezone, setTimezone] = useState("");
   const [bookingTitle, setBookingTitle] = useState("");
@@ -158,6 +161,7 @@ export default function Settings() {
     <SettingsTabsPage
       generalLabel={t("settings.general")}
       teamLabel={t("navigation.team")}
+      extraTabs={agentSettingsTabs}
       general={
         <div className="mx-auto max-w-2xl space-y-6 pb-12">
           <p className="text-sm text-muted-foreground">
@@ -176,22 +180,6 @@ export default function Settings() {
             <CardContent className="max-w-xs space-y-1.5">
               <Label>{t("settings.languageLabel")}</Label>
               <LanguagePicker label={t("settings.languageLabel")} />
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-lg">
-                {t("settings.agentTitle")}
-              </CardTitle>
-              <CardDescription>
-                {t("settings.agentDescription")}
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <Button variant="outline" onClick={() => openAgentSettings()}>
-                {t("settings.openAgentSettings")}
-              </Button>
             </CardContent>
           </Card>
 
@@ -333,7 +321,7 @@ export default function Settings() {
           </Card>
 
           {/* Google Setup Wizard */}
-          {!googleStatus.data?.connected && (
+          {!googleStatus.data?.connected && canOfferGoogleOAuthSetup && (
             <Card>
               <CardHeader>
                 <CardTitle className="text-lg">

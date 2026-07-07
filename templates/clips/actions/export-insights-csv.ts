@@ -9,7 +9,7 @@
  */
 
 import { defineAction } from "@agent-native/core";
-import { eq, inArray, sql } from "drizzle-orm";
+import { desc, eq, inArray, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -27,6 +27,11 @@ function csvEscape(value: unknown): string {
 function formatDate(d: Date): string {
   return d.toISOString().slice(0, 10);
 }
+
+// Hard cap so a very large organization's export can't turn into an
+// unbounded scan. `truncated` in the response tells the caller the CSV
+// covers only the most recently created MAX_RECORDINGS recordings.
+const MAX_RECORDINGS = 5000;
 
 export default defineAction({
   description:
@@ -48,23 +53,35 @@ export default defineAction({
     const recordings = await db
       .select()
       .from(schema.recordings)
-      .where(eq(schema.recordings.organizationId, organizationId));
+      .where(eq(schema.recordings.organizationId, organizationId))
+      .orderBy(desc(schema.recordings.createdAt))
+      .limit(MAX_RECORDINGS);
+    const truncated = recordings.length >= MAX_RECORDINGS;
 
     const recordingIds = recordings.map((r) => r.id);
 
     const viewCountByRec: Record<string, number> = {};
     const totalViewsByRec: Record<string, number> = {};
     if (recordingIds.length) {
-      const viewers = await db
-        .select()
+      const viewCounts = await db
+        .select({
+          recordingId: schema.recordingViewers.recordingId,
+          countedView: schema.recordingViewers.countedView,
+          count: sql<number>`COUNT(1)`,
+        })
         .from(schema.recordingViewers)
-        .where(inArray(schema.recordingViewers.recordingId, recordingIds));
-      for (const v of viewers) {
+        .where(inArray(schema.recordingViewers.recordingId, recordingIds))
+        .groupBy(
+          schema.recordingViewers.recordingId,
+          schema.recordingViewers.countedView,
+        );
+      for (const v of viewCounts) {
+        const count = Number(v.count ?? 0);
         totalViewsByRec[v.recordingId] =
-          (totalViewsByRec[v.recordingId] ?? 0) + 1;
+          (totalViewsByRec[v.recordingId] ?? 0) + count;
         if (v.countedView) {
           viewCountByRec[v.recordingId] =
-            (viewCountByRec[v.recordingId] ?? 0) + 1;
+            (viewCountByRec[v.recordingId] ?? 0) + count;
         }
       }
     }
@@ -143,6 +160,9 @@ export default defineAction({
       csv,
       filename,
       rows: recordings.length,
+      // True when the organization has more than MAX_RECORDINGS recordings —
+      // the CSV covers only the most recently created MAX_RECORDINGS rows.
+      truncated,
     };
   },
 });

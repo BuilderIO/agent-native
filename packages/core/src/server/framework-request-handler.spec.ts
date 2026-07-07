@@ -80,6 +80,26 @@ describe("framework request handler", () => {
     });
   });
 
+  it("does not log or write a 500 response for client-aborted framework routes", async () => {
+    const nitroApp = createNitroApp();
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const debugSpy = vi.spyOn(console, "debug").mockImplementation(() => {});
+    getH3App(nitroApp).use("/_agent-native/poll", () => {
+      const error = new Error("aborted") as Error & { code?: string };
+      error.code = "ECONNRESET";
+      throw error;
+    });
+
+    await expect(dispatch(nitroApp, "/_agent-native/poll")).resolves.toBe(
+      undefined,
+    );
+
+    expect(errorSpy).not.toHaveBeenCalled();
+    expect(debugSpy).toHaveBeenCalledWith(
+      "[agent-native] GET /_agent-native/poll aborted by client: aborted",
+    );
+  });
+
   it("keeps dynamic framework middleware visible to Nitro generated dispatchers", async () => {
     const nitroApp = createNitroApp();
     nitroApp.h3["~getMiddleware"] = () => [];

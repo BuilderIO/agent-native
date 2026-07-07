@@ -26,9 +26,14 @@ function accessContext(ctx?: AccessCtx) {
 }
 
 export async function requireLibrary(id: string, ctx?: AccessCtx) {
+  const access = await requireLibraryAccess(id, ctx);
+  return access.resource;
+}
+
+export async function requireLibraryAccess(id: string, ctx?: AccessCtx) {
   const access = await resolveAccess("asset-library", id, accessContext(ctx));
   if (!access) throw new Error("Asset library not found or not accessible.");
-  return access.resource;
+  return access;
 }
 
 export async function requireGenerationSessionInLibrary(
@@ -103,6 +108,7 @@ export function serializeLibrary(row: any) {
     canonicalLogoAssetId: row.canonicalLogoAssetId,
     coverAssetId: row.coverAssetId,
     visibility: row.visibility,
+    accessRole: typeof row.accessRole === "string" ? row.accessRole : undefined,
     archivedAt: row.archivedAt ?? null,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
@@ -155,6 +161,7 @@ export function serializeGenerationRun(row: any) {
 }
 
 export function serializeGenerationPreset(row: any): GenerationPresetSummary {
+  const settings = parseJson<Record<string, unknown>>(row.settings, {});
   return {
     id: row.id,
     libraryId: row.libraryId,
@@ -169,7 +176,8 @@ export function serializeGenerationPreset(row: any): GenerationPresetSummary {
     model: row.model,
     textPolicy: row.textPolicy ?? "",
     referencePolicy: row.referencePolicy ?? "auto",
-    settings: parseJson<Record<string, unknown>>(row.settings, {}),
+    includeLogo: settings.includeLogo === true,
+    settings,
     sortOrder: Number(row.sortOrder ?? 0),
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
@@ -360,6 +368,7 @@ export function serializeAsset(
       row.mediaType ?? (row.mimeType?.startsWith("video/") ? "video" : "image"),
     role: row.role,
     status: row.status,
+    category: metadata.category ?? null,
     title: row.title,
     description: row.description ?? metadata.description ?? null,
     altText: row.altText,

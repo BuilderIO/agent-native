@@ -2621,6 +2621,17 @@ export function AddProperty({
     }))
     .filter((group) => group.fields.length > 0);
   const addPropertySearchInputRef = useRef<HTMLInputElement>(null);
+  const [pendingPropertyType, setPendingPropertyType] =
+    useState<DocumentPropertyType | null>(null);
+  const [pendingSourceFieldId, setPendingSourceFieldId] = useState<
+    string | null
+  >(null);
+  const [addPropertyError, setAddPropertyError] = useState<string | null>(null);
+  const isAddingProperty =
+    configure.isPending ||
+    addSourceFieldProperty.isPending ||
+    pendingPropertyType !== null ||
+    pendingSourceFieldId !== null;
 
   useEffect(() => {
     if (!open) return;
@@ -2632,27 +2643,49 @@ export function AddProperty({
   }, [open]);
 
   function closeAddPropertyPicker() {
+    if (isAddingProperty) return;
     setTypeQuery("");
+    setAddPropertyError(null);
     setOpen(false);
   }
 
   async function add(type: DocumentPropertyType) {
     const label = t(`editor.propertyTypes.${type}`);
-    await configure.mutateAsync({
-      documentId,
-      name: label,
-      type,
-      options: defaultPropertyOptions(type),
-    });
-    closeAddPropertyPicker();
+    setPendingPropertyType(type);
+    setPendingSourceFieldId(null);
+    setAddPropertyError(null);
+    try {
+      await configure.mutateAsync({
+        documentId,
+        name: label,
+        type,
+        options: defaultPropertyOptions(type),
+      });
+      setTypeQuery("");
+      setOpen(false);
+    } catch (error) {
+      setAddPropertyError(error instanceof Error ? error.message : "");
+    } finally {
+      setPendingPropertyType(null);
+    }
   }
 
   async function addFromSourceField(sourceFieldId: string) {
-    await addSourceFieldProperty.mutateAsync({
-      documentId,
-      sourceFieldId,
-    });
-    closeAddPropertyPicker();
+    setPendingSourceFieldId(sourceFieldId);
+    setPendingPropertyType(null);
+    setAddPropertyError(null);
+    try {
+      await addSourceFieldProperty.mutateAsync({
+        documentId,
+        sourceFieldId,
+      });
+      setTypeQuery("");
+      setOpen(false);
+    } catch (error) {
+      setAddPropertyError(error instanceof Error ? error.message : "");
+    } finally {
+      setPendingSourceFieldId(null);
+    }
   }
 
   return (
@@ -2661,7 +2694,7 @@ export function AddProperty({
       onOpenChange={(nextOpen) => {
         if (nextOpen) {
           setOpen(true);
-        } else {
+        } else if (!isAddingProperty) {
           closeAddPropertyPicker();
         }
       }}
@@ -2729,11 +2762,16 @@ export function AddProperty({
                     aria-label={t("editor.properties.sourceField", {
                       name: field.sourceFieldLabel,
                     })}
-                    disabled={addSourceFieldProperty.isPending}
+                    disabled={isAddingProperty}
+                    aria-busy={pendingSourceFieldId === field.id}
                     className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm hover:bg-accent disabled:opacity-50"
                     onClick={() => void addFromSourceField(field.id)}
                   >
-                    <IconLink className="size-4 shrink-0 text-muted-foreground" />
+                    {pendingSourceFieldId === field.id ? (
+                      <Spinner className="size-4 shrink-0 text-muted-foreground" />
+                    ) : (
+                      <IconLink className="size-4 shrink-0 text-muted-foreground" />
+                    )}
                     <span className="min-w-0 flex-1 truncate">
                       {field.sourceFieldLabel}
                     </span>
@@ -2761,10 +2799,15 @@ export function AddProperty({
                     type: t(`editor.propertyTypes.${type}`),
                   })}
                   className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm hover:bg-accent"
-                  disabled={configure.isPending}
+                  disabled={isAddingProperty}
+                  aria-busy={pendingPropertyType === type}
                   onClick={() => void add(type)}
                 >
-                  <Icon className="size-4 text-muted-foreground" />
+                  {pendingPropertyType === type ? (
+                    <Spinner className="size-4 text-muted-foreground" />
+                  ) : (
+                    <Icon className="size-4 text-muted-foreground" />
+                  )}
                   <span className="flex-1">
                     {t(`editor.propertyTypes.${type}`)}
                   </span>
@@ -2776,6 +2819,15 @@ export function AddProperty({
                 </button>
               );
             })}
+            {addPropertyError !== null ? (
+              <div
+                role="alert"
+                className="px-2 py-1.5 text-xs text-destructive"
+              >
+                {t("editor.properties.addPropertyFailed")}
+                {addPropertyError ? ` ${addPropertyError}` : null}
+              </div>
+            ) : null}
           </div>
         </div>
       </PopoverContent>

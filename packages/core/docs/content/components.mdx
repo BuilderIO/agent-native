@@ -25,6 +25,28 @@ Avoid importing UI components from the bare `@agent-native/core` package. Use
 `@agent-native/core/client` or a focused `@agent-native/core/client/*` subpath
 so bundlers choose the browser-safe entry.
 
+Use `@agent-native/toolkit` for reusable app-building pieces that are not part
+of the foundational runtime contract: shadcn-style UI primitives, shared hooks,
+simple app shell helpers, and other template composition modules. Core keeps
+compatibility re-exports for migrated internals during the transition.
+
+Reusable packages can import Toolkit modules directly:
+
+```tsx
+import { Button } from "@agent-native/toolkit/ui/button";
+import { Toaster } from "@agent-native/toolkit/ui/sonner";
+import { useToast } from "@agent-native/toolkit/hooks/use-toast";
+import { useSetHeaderActions } from "@agent-native/toolkit/app-shell";
+```
+
+Inside template apps, prefer app-local adapters so teams can replace primitives
+once and have every reused Toolkit surface pick up the local implementation:
+
+```tsx
+import { Button } from "@/components/ui/button";
+import { useToast } from "@/hooks/use-toast";
+```
+
 <Diagram id="doc-block-u3yfqy" title="Drop down a layer, not out of the framework" summary={"Each layer keeps the same runtime — actions, thread state, and SQL-backed sync — while giving you more control over the chrome."}>
 
 ```html
@@ -224,7 +246,9 @@ from `@agent-native/core/client/chat` and the root client entry. See
 ## Realtime Collab And Presence {#collab-presence}
 
 Use `@agent-native/core/client/collab` for Liveblocks-style presence and
-collaborative document hooks.
+collaborative document hooks. Use `@agent-native/toolkit/collab-ui` for the
+presentational overlays and avatar chrome; core keeps compatibility re-exports
+for existing apps.
 
 | API                                                 | Use when                                                                                    |
 | --------------------------------------------------- | ------------------------------------------------------------------------------------------- |
@@ -434,7 +458,8 @@ function WorkspaceResources() {
 
 | Area          | APIs                                                   | Import path                               |
 | ------------- | ------------------------------------------------------ | ----------------------------------------- |
-| Sharing       | `<ShareButton>`, `<ShareDialog>`, `<VisibilityBadge>`  | `@agent-native/core/client/sharing`       |
+| Sharing       | `<ShareButton>`, `<ShareDialog>`                       | `@agent-native/core/client/sharing`       |
+| Sharing UI    | `<VisibilityBadge>`                                    | `@agent-native/toolkit/sharing`           |
 | Notifications | `<NotificationsBell>`                                  | `@agent-native/core/client/notifications` |
 | Progress      | `<RunsTray>`, progress hooks and types                 | `@agent-native/core/client/progress`      |
 | Onboarding    | `useOnboarding()`, onboarding panel hooks              | `@agent-native/core/client/onboarding`    |

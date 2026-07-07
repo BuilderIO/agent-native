@@ -1,5 +1,6 @@
 import { AgentSidebar, getBrowserTabId, useT } from "@agent-native/core/client";
 import { InvitationBanner } from "@agent-native/core/client/org";
+import { HeaderActionsProvider } from "@agent-native/toolkit/app-shell";
 import { IconMenu2 } from "@tabler/icons-react";
 import {
   type CSSProperties,
@@ -9,15 +10,15 @@ import {
   useMemo,
   useState,
 } from "react";
-import { useLocation } from "react-router";
+import { useLocation, useNavigation } from "react-router";
 
+import { DocumentEditorSkeleton } from "@/components/editor/DocumentEditorSkeleton";
 import { DocumentSidebar } from "@/components/sidebar/DocumentSidebar";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { useCreatePage } from "@/hooks/use-create-page";
 import { useIsMobile } from "@/hooks/use-mobile";
 
 import { Header } from "./Header";
-import { HeaderActionsProvider } from "./HeaderActions";
 
 const SIDEBAR_WIDTH_KEY = "sidebar-width";
 const DEFAULT_SIDEBAR_WIDTH = 240;
@@ -40,15 +41,27 @@ function loadSidebarWidth(): number {
   return DEFAULT_SIDEBAR_WIDTH;
 }
 
+export function documentPageIdFromPathname(pathname: string) {
+  return pathname.match(/^\/page\/(.+)/)?.[1] ?? null;
+}
+
 interface LayoutProps {
   children: ReactNode;
 }
 
 export function Layout({ children }: LayoutProps) {
   const location = useLocation();
+  const navigation = useNavigation();
+  const pendingPathname = navigation.location?.pathname ?? null;
+  const chromePathname = pendingPathname ?? location.pathname;
   const t = useT();
-  const activeDocumentId =
-    location.pathname.match(/^\/page\/([^/]+)/)?.[1] ?? null;
+  const currentDocumentId = documentPageIdFromPathname(location.pathname);
+  const pendingDocumentId = pendingPathname
+    ? documentPageIdFromPathname(pendingPathname)
+    : null;
+  const activeDocumentId = pendingDocumentId ?? currentDocumentId;
+  const showPendingDocumentSkeleton =
+    !!pendingDocumentId && pendingDocumentId !== currentDocumentId;
   // Bind chat to the currently-open document. Everywhere else (list view,
   // settings) leaves scope null so general chats stay available.
   const documentScope = useMemo(
@@ -73,10 +86,10 @@ export function Layout({ children }: LayoutProps) {
   }, []);
 
   const showHeader = !NO_HEADER_PREFIXES.some((prefix) =>
-    location.pathname.startsWith(prefix),
+    chromePathname.startsWith(prefix),
   );
 
-  const createPage = useCreatePage();
+  const createPage = useCreatePage({ awaitPersist: false });
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
       if (!(e.metaKey || e.ctrlKey) || e.shiftKey || e.altKey) return;
@@ -175,7 +188,11 @@ export function Layout({ children }: LayoutProps) {
             <InvitationBanner
               className={`${showHeader ? "ps-4" : "ps-16"} sm:ps-4 [&>div]:flex-wrap [&>div]:items-start [&>div>span]:min-w-0 [&>div>span]:flex-1`}
             />
-            {children}
+            {showPendingDocumentSkeleton ? (
+              <DocumentEditorSkeleton />
+            ) : (
+              children
+            )}
           </main>
         </AgentSidebar>
       </div>

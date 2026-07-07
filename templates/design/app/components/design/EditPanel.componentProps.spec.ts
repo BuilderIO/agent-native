@@ -5,6 +5,8 @@ import {
   canRebuildAlpineDataLosslessly,
   elementHtmlPreview,
   isBooleanPropValue,
+  mergeRotationValue,
+  normalizeRotationDegrees,
   openingTagOf,
   parseAlpineDataObject,
   replaceAlpineDataKeyValue,
@@ -319,5 +321,56 @@ describe("isBooleanPropValue", () => {
     expect(isBooleanPropValue("outline")).toBe(false);
     expect(isBooleanPropValue("1")).toBe(false);
     expect(isBooleanPropValue("")).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// normalizeRotationDegrees / mergeRotationValue — rotation commit path
+// ---------------------------------------------------------------------------
+
+describe("normalizeRotationDegrees", () => {
+  it("maps angles into (-180, 180]", () => {
+    expect(normalizeRotationDegrees(0)).toBe(0);
+    expect(normalizeRotationDegrees(45)).toBe(45);
+    expect(normalizeRotationDegrees(180)).toBe(180);
+    expect(normalizeRotationDegrees(-180)).toBe(180);
+    expect(normalizeRotationDegrees(190)).toBe(-170);
+    expect(normalizeRotationDegrees(270)).toBe(-90);
+    expect(normalizeRotationDegrees(-270)).toBe(90);
+    expect(normalizeRotationDegrees(360)).toBe(0);
+    expect(normalizeRotationDegrees(540)).toBe(180);
+    expect(normalizeRotationDegrees(-540)).toBe(180);
+    expect(normalizeRotationDegrees(725)).toBe(5);
+  });
+
+  it("never returns -0 and handles non-finite input", () => {
+    expect(Object.is(normalizeRotationDegrees(-360), -0)).toBe(false);
+    expect(normalizeRotationDegrees(Number.NaN)).toBe(0);
+    expect(normalizeRotationDegrees(Number.POSITIVE_INFINITY)).toBe(0);
+  });
+});
+
+describe("mergeRotationValue", () => {
+  it("normalizes the committed angle into (-180, 180]", () => {
+    expect(mergeRotationValue(undefined, 270)).toBe("rotate(-90deg)");
+    expect(mergeRotationValue("none", 360)).toBe("rotate(0deg)");
+    expect(mergeRotationValue(undefined, -180)).toBe("rotate(180deg)");
+  });
+
+  it("replaces an existing rotate() in any unit without compounding", () => {
+    expect(mergeRotationValue("rotate(30deg)", 190)).toBe("rotate(-170deg)");
+    expect(mergeRotationValue("translateX(4px) rotate(0.5turn)", 45)).toBe(
+      "translateX(4px) rotate(45deg)",
+    );
+  });
+
+  it("appends rotate when the transform has none", () => {
+    expect(mergeRotationValue("scale(2)", 90)).toBe("scale(2) rotate(90deg)");
+  });
+
+  it("rounds to one decimal before normalizing", () => {
+    // -179.96 rounds to -180, which must land back inside the range as +180.
+    expect(mergeRotationValue(undefined, -179.96)).toBe("rotate(180deg)");
+    expect(mergeRotationValue(undefined, 12.34)).toBe("rotate(12.3deg)");
   });
 });

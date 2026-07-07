@@ -97,6 +97,17 @@ function resolveWorkspaceBackgroundFunctionUrlPath(): string | null {
   return `/.netlify/functions/${candidate}-agent-background`;
 }
 
+function isNetlifyHostedRuntimeForDispatch(): boolean {
+  if (process.env.NETLIFY_LOCAL === "true") return false;
+  if (process.env.NETLIFY === "false") return false;
+  if (process.env.NETLIFY && process.env.NETLIFY !== "false") return true;
+  // Netlify sets AWS Lambda runtime env on deployed Functions, but the build-time
+  // NETLIFY flag is not always present in the runtime isolate. Treat Lambda as
+  // Netlify here unless Netlify was explicitly disabled above; non-Netlify AWS
+  // falls back inline if the /.netlify/functions dispatch fast-fails.
+  return Boolean(process.env.AWS_LAMBDA_FUNCTION_NAME);
+}
+
 /**
  * Resolve the path the foreground POST should self-dispatch the chat background
  * worker to.
@@ -129,17 +140,19 @@ function resolveWorkspaceBackgroundFunctionUrlPath(): string | null {
  * to shadow because `/.netlify/*` is already excluded from the `server` catch-all.
  */
 export function resolveAgentChatProcessRunDispatchPath(): string {
-  if (
-    process.env.NETLIFY &&
-    process.env.NETLIFY !== "false" &&
-    process.env.NETLIFY_LOCAL !== "true"
-  ) {
+  if (isNetlifyHostedRuntimeForDispatch()) {
     return (
       resolveWorkspaceBackgroundFunctionUrlPath() ??
       AGENT_BACKGROUND_FUNCTION_URL_PATH
     );
   }
   return AGENT_CHAT_PROCESS_RUN_PATH;
+}
+
+export function dispatchPathTargetsNetlifyBackgroundFunction(
+  dispatchPath: string,
+): boolean {
+  return dispatchPath.startsWith("/.netlify/functions/");
 }
 
 /**
@@ -235,6 +248,36 @@ export function isInBackgroundFunctionRuntime(): boolean {
   return false;
 }
 
+export function backgroundRunMarkerExpectsBackgroundRuntime(
+  marker: unknown,
+): boolean {
+  return (
+    typeof marker === "object" &&
+    marker !== null &&
+    (marker as { backgroundFunctionRuntimeExpected?: unknown })
+      .backgroundFunctionRuntimeExpected === true
+  );
+}
+
+export function shouldUseBackgroundFunctionTimeoutForWorker(
+  marker: unknown,
+): boolean {
+  return (
+    isInBackgroundFunctionRuntime() ||
+    backgroundRunMarkerExpectsBackgroundRuntime(marker)
+  );
+}
+
+export function backgroundRuntimeDiagnosticDetail(marker: unknown): string {
+  return [
+    `markerExpected=${backgroundRunMarkerExpectsBackgroundRuntime(marker)}`,
+    `runtimeDetected=${isInBackgroundFunctionRuntime()}`,
+    `globalMarker=${(globalThis as Record<string, unknown>).__AGENT_NATIVE_BACKGROUND_RUNTIME__ === true}`,
+    `lambdaNameEndsBackground=${typeof process.env.AWS_LAMBDA_FUNCTION_NAME === "string" && process.env.AWS_LAMBDA_FUNCTION_NAME.toLowerCase().endsWith("-background")}`,
+    `forceEnv=${typeof process.env.AGENT_CHAT_FORCE_BACKGROUND_RUNTIME === "string" && process.env.AGENT_CHAT_FORCE_BACKGROUND_RUNTIME.trim().length > 0}`,
+  ].join(" ");
+}
+
 function isFlagEnabled(): boolean {
   // Read the literal key (not `process.env[CONST]`) so guard:no-env-credentials
   // can statically verify it against the allowlisted `AGENT_*` prefix. Keep this
@@ -291,6 +334,59 @@ export function isAgentChatDurableBackgroundEnabled(options?: {
     resolveWorkspaceBackgroundFunctionUrlPath() !== null;
   return (
     (envOptIn || workspaceAppOptIn) &&
+    isHostedRuntimeForDurableBackground() &&
+    hasConfiguredA2ASecret()
+  );
+}
+
+/**
+ * Env flag for the FOREGROUND server-driven self-chain. DEFAULT-OFF (opt-in):
+ * unset means disabled; an app opts IN with an explicit truthy value
+ * (`true`/`1`/`yes`/`on`) — same parsing convention as
+ * `AGENT_CHAT_DURABLE_BACKGROUND`, deliberately kept as a separate flag so
+ * this narrower capability can be enabled/disabled independently of the full
+ * durable-background worker path.
+ */
+export const AGENT_CHAT_FOREGROUND_SELF_CHAIN_ENV =
+  "AGENT_CHAT_FOREGROUND_SELF_CHAIN";
+
+function isForegroundSelfChainFlagEnabled(): boolean {
+  // Read the literal key (not `process.env[CONST]`) so guard:no-env-credentials
+  // can statically verify it against the allowlisted `AGENT_*` prefix. Keep this
+  // in sync with AGENT_CHAT_FOREGROUND_SELF_CHAIN_ENV.
+  const raw = process.env.AGENT_CHAT_FOREGROUND_SELF_CHAIN;
+  if (raw == null) return false;
+  const normalized = raw.trim().toLowerCase();
+  return (
+    normalized === "1" ||
+    normalized === "true" ||
+    normalized === "yes" ||
+    normalized === "on"
+  );
+}
+
+/**
+ * Gate for the OPT-IN foreground self-chain: a normal (non-durable-background)
+ * agent-chat turn that hits its soft-timeout chunk boundary continues via a
+ * server-side self-dispatch on the REGULAR function (not a Netlify
+ * `-background` function) instead of depending on the client to re-POST
+ * `auto_continue`. Composes exactly like `isAgentChatDurableBackgroundEnabled`:
+ * true only when the env flag is explicitly truthy AND the runtime is hosted
+ * AND `A2A_SECRET` is configured (the HMAC handoff authenticates the
+ * self-dispatch). False otherwise — and false means the existing
+ * client-driven `auto_continue` re-POST path is used unchanged, byte-for-byte.
+ *
+ * Deliberately independent of `isAgentChatDurableBackgroundEnabled`: an app can
+ * enable this narrower capability without opting into the full 15-min
+ * background-function worker path, and the two gates never need to agree.
+ * When BOTH would be true for a given run, the durable-background dispatch
+ * decision in `production-agent.ts` is evaluated first and takes precedence —
+ * a run already dispatched to the durable background worker chains via the
+ * existing `isBackgroundWorker` path, not this one.
+ */
+export function isAgentChatForegroundSelfChainEnabled(): boolean {
+  return (
+    isForegroundSelfChainFlagEnabled() &&
     isHostedRuntimeForDurableBackground() &&
     hasConfiguredA2ASecret()
   );

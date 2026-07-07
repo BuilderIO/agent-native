@@ -46,6 +46,12 @@ import { mountBrowserSessionRoutes } from "../browser-sessions/routes.js";
 import { mountDbAdminRoutes } from "../db-admin/routes.js";
 import { getDbExec } from "../db/client.js";
 import {
+  getDatabaseRuntimeFingerprint,
+  getRuntimeDebugFingerprint,
+  runDatabaseSchemaHealthCheck,
+  type DatabaseSchemaHealthResult,
+} from "../db/runtime-diagnostics.js";
+import {
   uploadFile,
   getActiveFileUploadProviderForRequest,
   listFileUploadProviders,
@@ -143,6 +149,7 @@ import {
   DEFAULT_UPLOAD_MAX_FILE_BYTES,
   isAllowedUploadMimeType,
 } from "./h3-helpers.js";
+import { createHttpResponseTelemetryMiddleware } from "./http-response-telemetry.js";
 import { isIdentitySsoEnabled } from "./identity-sso-store.js";
 import { handleIdentitySso } from "./identity-sso.js";
 import { createOpenRouteHandler } from "./open-route.js";
@@ -204,10 +211,24 @@ export function getFrameworkEnvKeys(): EnvKeyConfig[] {
 export interface DbHealthProbeResult {
   /** The serverless function is live and served the request. */
   ok: true;
+  /** Database + optional schema readiness for stricter production monitors. */
+  ready: boolean;
   /** A trivial `SELECT 1` reached the database (false = no DB or unreachable). */
   db: boolean;
   /** Round-trip time of the probe in milliseconds. */
   ms: number;
+  /** Redacted database routing details useful for deploy/runtime checks. */
+  database: {
+    configured: boolean;
+    source: string;
+    dialect: string;
+    urlHash?: string;
+    appName?: string;
+    authTokenConfigured: boolean;
+    netlifyDatabaseUrlConfigured: boolean;
+  };
+  /** Optional metadata-only schema compatibility check. */
+  schema?: DatabaseSchemaHealthResult;
 }
 
 /**
@@ -222,16 +243,40 @@ export interface DbHealthProbeResult {
  */
 export async function runDbHealthProbe(
   exec: () => { execute: (sql: string) => Promise<unknown> } = getDbExec,
+  options: { schema?: boolean } = {},
 ): Promise<DbHealthProbeResult> {
   const startedAt = Date.now();
   let db = false;
+  let schema: DatabaseSchemaHealthResult | undefined;
+  const dbExec = exec();
   try {
-    await exec().execute("SELECT 1");
+    await dbExec.execute("SELECT 1");
     db = true;
   } catch {
     // Live even when the DB is unreachable or the app has no database.
   }
-  return { ok: true, db, ms: Date.now() - startedAt };
+  if (db && options.schema) {
+    schema = await runDatabaseSchemaHealthCheck({
+      exec: dbExec as ReturnType<typeof getDbExec>,
+    });
+  }
+  const database = getDatabaseRuntimeFingerprint();
+  return {
+    ok: true,
+    ready: db && (!schema || schema.ok),
+    db,
+    ms: Date.now() - startedAt,
+    database: {
+      configured: database.configured,
+      source: database.source,
+      dialect: database.dialect,
+      urlHash: database.urlHash,
+      appName: database.appName,
+      authTokenConfigured: database.authTokenConfigured,
+      netlifyDatabaseUrlConfigured: database.netlifyDatabaseUrlConfigured,
+    },
+    ...(schema ? { schema } : {}),
+  };
 }
 const DEFAULT_BUILDER_WAITLIST_FORM_ID = "DYTHuM0jlV";
 const DEFAULT_BUILDER_WAITLIST_FORMS_ORIGIN = "https://forms.agent-native.com";
@@ -470,8 +515,6 @@ async function detectUsageEngineName(
       { userEmail, orgId },
       () => detectEngineFromUserSecrets(),
     );
-    if (detectedFromUser?.name === "builder") return detectedFromUser.name;
-
     if (stored && typeof stored.engine === "string") {
       const entry = getAgentEngineEntry(stored.engine);
       if (
@@ -483,13 +526,13 @@ async function detectUsageEngineName(
         return stored.engine;
       }
     }
+    if (detectedFromUser?.name === "builder") return detectedFromUser.name;
     if (detectedFromUser) return detectedFromUser.name;
 
-    const canUseDeployEnv = await runWithRequestContext(
+    return await runWithRequestContext(
       { userEmail, orgId },
-      () => canUseDeployCredentialFallbackForRequest(),
+      () => detectEngineFromEnv()?.name ?? null,
     );
-    return canUseDeployEnv ? (detectEngineFromEnv()?.name ?? null) : null;
   } catch {
     return null;
   }
@@ -863,6 +906,8 @@ export function createCoreRoutesPlugin(
 
       const P = FRAMEWORK_ROUTE_PREFIX;
 
+      getH3App(nitroApp).use(createHttpResponseTelemetryMiddleware());
+
       // Security response headers — emitted on every framework response.
       // Mounted before route handlers so 4xx/5xx error pages also carry the
       // headers. Routes that need to tighten a specific header override via
@@ -1068,19 +1113,148 @@ export function createCoreRoutesPlugin(
         );
       }
 
+      // ─── Durable sandbox execution processor ─────────────────────────
+      // Self-fired by run-code's background queue (see
+      // coding-tools/sandbox/background.ts): the enqueueing request POSTs here
+      // so the code executes in a FRESH invocation with its own budget instead
+      // of riding the ~40s agent-loop wall. Authenticity is verified via the
+      // shared HMAC internal-token scheme (same as the A2A / integration /
+      // agent-teams processors) plus the atomic SQL claim inside
+      // processQueuedSandboxExecution, which prevents double execution.
+      getH3App(nitroApp).use(
+        `${P}/sandbox/_process-execution`,
+        defineEventHandler(async (event) => {
+          if (getMethod(event) !== "POST") {
+            setResponseStatus(event, 405);
+            return { error: "Method not allowed" };
+          }
+          const body = (await readBody(event).catch(() => null)) as {
+            executionId?: unknown;
+            taskId?: unknown;
+          } | null;
+          const executionId =
+            body && typeof body.executionId === "string" && body.executionId
+              ? body.executionId
+              : body && typeof body.taskId === "string"
+                ? body.taskId
+                : "";
+          if (!executionId) {
+            setResponseStatus(event, 400);
+            return { error: "executionId required" };
+          }
+
+          const { hasConfiguredA2ASecret, isA2AProductionRuntime } =
+            await import("../a2a/auth-policy.js");
+          if (hasConfiguredA2ASecret()) {
+            const { verifyInternalToken, extractBearerToken } =
+              await import("../integrations/internal-token.js");
+            const token = extractBearerToken(getHeader(event, "authorization"));
+            if (!verifyInternalToken(executionId, token ?? "")) {
+              setResponseStatus(event, 401);
+              return { error: "Invalid or expired processor token" };
+            }
+          } else if (isA2AProductionRuntime()) {
+            setResponseStatus(event, 503);
+            return {
+              error:
+                "Sandbox execution processor not configured — set A2A_SECRET on this deployment.",
+            };
+          }
+
+          try {
+            const { processQueuedSandboxExecution } =
+              await import("../coding-tools/sandbox/background.js");
+            const result = await processQueuedSandboxExecution(executionId);
+            return { ok: true, ...result };
+          } catch (err) {
+            console.error("[sandbox] _process-execution failed:", err);
+            setResponseStatus(event, 500);
+            return { error: "process-execution failed" };
+          }
+        }),
+      );
+
+      // ─── Durable sandbox execution sweep ──────────────────────────────
+      // Backstop for lost dispatches and dead executors: re-drives queued rows
+      // whose enqueue-time dispatch never landed and reclaims/reaps running
+      // rows whose lease expired. Cheap (one indexed query per 2-min window;
+      // a missing table short-circuits to a no-op) and best-effort — the
+      // poll-time drain in run-code covers deployments where warm-instance
+      // timers rarely fire.
+      (() => {
+        let lastSweep = 0;
+        const SWEEP_INTERVAL_MS = 2 * 60 * 1000;
+
+        setTimeout(() => {
+          setInterval(() => {
+            const now = Date.now();
+            if (now - lastSweep < SWEEP_INTERVAL_MS) return;
+            lastSweep = now;
+
+            (async () => {
+              const { drainDueSandboxExecutions } =
+                await import("../coding-tools/sandbox/background.js");
+              await drainDueSandboxExecutions({ limit: 5 });
+            })().catch(() => {
+              // best-effort — never break the server
+            });
+          }, 30_000); // Check every 30s but only sweep once per 2min
+        }, 25_000); // Start 25s after init (after the agent sweeps)
+      })();
+
       // Health + DB warmup — liveness probe that touches the database so
       // uptime monitors and the keep-warm cron prevent a scale-to-zero
       // serverless DB (e.g. Neon) from cold-starting on the next real
-      // request. Public, side-effect free, and never cached.
+      // request. Public, side-effect free, and never cached. Add ?schema=1
+      // for metadata-only schema checks, and ?strict=1 to turn a not-ready
+      // DB/schema probe into a failing HTTP status for monitors.
       if (!options.disableHealth) {
         getH3App(nitroApp).use(
           `${P}/health`,
           defineEventHandler(async (event) => {
             setResponseHeader(event, "cache-control", "no-store");
-            return runDbHealthProbe();
+            const schema =
+              event.url?.searchParams.get("schema") === "1" ||
+              event.url?.searchParams.get("schema") === "true";
+            const strict =
+              event.url?.searchParams.get("strict") === "1" ||
+              event.url?.searchParams.get("strict") === "true" ||
+              process.env.AGENT_NATIVE_HEALTH_STRICT_SCHEMA === "true";
+            const result = await runDbHealthProbe(getDbExec, { schema });
+            if (strict && !result.ready) setResponseStatus(event, 503);
+            return result;
           }),
         );
       }
+
+      getH3App(nitroApp).use(
+        `${P}/debug/runtime`,
+        defineEventHandler(async (event) => {
+          setResponseHeader(event, "cache-control", "no-store");
+          const session = await getSession(event).catch(() => null);
+          const productionLike =
+            process.env.NODE_ENV === "production" ||
+            process.env.NETLIFY === "true" ||
+            process.env.VERCEL === "1";
+          if (!session?.email && productionLike) {
+            setResponseStatus(event, 401);
+            return { error: "Authentication required" };
+          }
+          const schema = await runDatabaseSchemaHealthCheck().catch((err) => ({
+            ok: false,
+            checked: false,
+            dialect: getDatabaseRuntimeFingerprint().dialect,
+            missingTables: [],
+            missingColumns: [],
+            error: err instanceof Error ? err.message : String(err),
+          }));
+          return {
+            ok: true,
+            runtime: getRuntimeDebugFingerprint(),
+            schema,
+          };
+        }),
+      );
 
       getH3App(nitroApp).use(
         `${P}/speculation-rules.json`,
@@ -2411,8 +2585,9 @@ export function createCoreRoutesPlugin(
                   /* fall through to deployment env when allowed */
                 }
                 return (
-                  canUseDeployCredentialFallbackForRequest() &&
-                  !!readDeployCredentialEnv(OPENAI_BASE_URL_ENV_VAR)
+                  canUseDeployCredentialFallbackForRequest(
+                    OPENAI_BASE_URL_ENV_VAR,
+                  ) && !!readDeployCredentialEnv(OPENAI_BASE_URL_ENV_VAR)
                 );
               },
             );
@@ -2457,22 +2632,12 @@ export function createCoreRoutesPlugin(
             }
             // Per-user app_secrets — a user who connected Builder (or pasted
             // their own provider key) may not have any deploy-level env vars
-            // set, so check their per-user secret store before reporting "no
-            // engine configured" and re-showing the onboarding gate.
+            // set. Stored provider selections are checked first so saving a
+            // BYOK engine can override an existing Builder connection.
             const detectedFromUser = await runWithRequestContext(
               { userEmail, orgId },
               () => detectEngineFromUserSecrets(),
             );
-            if (detectedFromUser?.name === "builder") {
-              return {
-                configured: true,
-                engine: detectedFromUser.name,
-                model: detectedFromUser.defaultModel ?? DEFAULT_MODEL,
-                source: "app_secrets" as const,
-                envVar: detectedFromUser.requiredEnvVars[0],
-                openAiBaseUrlConfigured,
-              };
-            }
             if (stored && typeof stored.engine === "string") {
               const entry = getAgentEngineEntry(stored.engine);
               if (
@@ -2491,6 +2656,16 @@ export function createCoreRoutesPlugin(
                 };
               }
             }
+            if (detectedFromUser?.name === "builder") {
+              return {
+                configured: true,
+                engine: detectedFromUser.name,
+                model: detectedFromUser.defaultModel ?? DEFAULT_MODEL,
+                source: "app_secrets" as const,
+                envVar: detectedFromUser.requiredEnvVars[0],
+                openAiBaseUrlConfigured,
+              };
+            }
             if (detectedFromUser) {
               return {
                 configured: true,
@@ -2501,11 +2676,10 @@ export function createCoreRoutesPlugin(
                 openAiBaseUrlConfigured,
               };
             }
-            const canUseDeployEnv = await runWithRequestContext(
+            const detected = await runWithRequestContext(
               { userEmail, orgId },
-              () => canUseDeployCredentialFallbackForRequest(),
+              () => detectEngineFromEnv(),
             );
-            const detected = canUseDeployEnv ? detectEngineFromEnv() : null;
             if (detected) {
               return {
                 configured: true,
@@ -2965,6 +3139,16 @@ export function createCoreRoutesPlugin(
         getH3App(nitroApp).use(`${P}/slots`, createSlotsHandler());
       } catch {
         // Extensions module not available — skip
+      }
+
+      // ─── Data programs (stored server-side JS scripts + run cache) ─────
+      try {
+        const { ensureDataProgramTables, registerDataProgramsShareable } =
+          await import("../data-programs/store.js");
+        ensureDataProgramTables().catch(() => {});
+        registerDataProgramsShareable();
+      } catch {
+        // Data programs module not available — skip
       }
 
       // ─── Page-level legacy redirect: /tools → /extensions ──────────────

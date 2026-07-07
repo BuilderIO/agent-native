@@ -129,7 +129,7 @@ describe("refresh-generation-run", () => {
             threadId: "thread-1",
             variantScopeId: "thread-1",
           }),
-          createdAt: "2026-05-28T11:57:00.000Z",
+          createdAt: "2026-05-28T11:49:00.000Z",
         },
         assets: [],
       }),

@@ -44,7 +44,7 @@ import {
   getRequestUserEmail,
   getCredentialContext,
 } from "@agent-native/core/server/request-context";
-import { getSetting } from "@agent-native/core/settings";
+import { getSetting, getUserSetting } from "@agent-native/core/settings";
 import { transcribeWithBuilder } from "@agent-native/core/transcription/builder";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
@@ -68,6 +68,7 @@ import {
   AudioOnlyExtractionError,
   assertAudioHasAudibleSignal,
   isNoExtractableAudioError,
+  isTransientExtractionError,
   prepareAudioOnlyTranscriptionMedia,
   type AudioOnlyTranscriptionMedia,
 } from "./lib/audio-only-transcription.js";
@@ -122,6 +123,91 @@ const SPEECH_ONLY_TRANSCRIPTION_INSTRUCTIONS =
   "Auto-detect the spoken language from the audio. Transcribe only words spoken in the audio, in the same language they were spoken. Do not translate. Do not infer language from screen text, filenames, account settings, browser locale, or these instructions. Do not describe screen activity, UI changes, silence, music, or non-speech sounds. Return an empty transcript when there are no spoken words.";
 const CLIPS_USER_PREFS_KEY = "clips-user-prefs";
 const RECENT_PENDING_TRANSCRIPT_MS = 2 * 60 * 1000;
+
+// Bounded automatic retry for transient failures (ffmpeg timeout, transient
+// provider network/5xx errors) — NOT for permanent failures like "no audio
+// track" or a missing/rejected API key. Mirrors the fire-and-forget
+// background pattern already used for post-finalize transcription and
+// seekable remux in finalize-recording.ts, just with a delay before the
+// retry instead of running immediately.
+//
+// Serverless caveat: Clips deploys to Netlify Functions (NITRO_PRESET=netlify),
+// where a `setTimeout` scheduled after the handler returns can be frozen along
+// with the rest of the sandbox before it fires. This best-effort retry still
+// helps on any host that keeps the process warm (local/self-hosted, or a
+// Lambda instance reused for a later request), and it is never worse than
+// today's behavior — a clip that doesn't get an automatic retry just settles
+// into "failed", exactly as it does now, and stays retryable via
+// `request-transcript` (UI retry button or agent). Keeping the backoff short
+// maximizes the chance it fires before the sandbox freezes.
+const MAX_AUTO_TRANSCRIPT_RETRIES = 2;
+const AUTO_TRANSCRIPT_RETRY_BACKOFF_MS = [5_000, 20_000];
+
+function isTransientTranscriptionError(err: unknown): boolean {
+  if (isTransientExtractionError(err)) return true;
+  if (err instanceof Error) {
+    if (err.name === "AbortError") return true;
+    const message = err.message.toLowerCase();
+    if (
+      message.includes("timed out") ||
+      message.includes("timeout") ||
+      message.includes("econnreset") ||
+      message.includes("etimedout") ||
+      message.includes("econnrefused") ||
+      message.includes("enotfound") ||
+      message.includes("fetch failed") ||
+      message.includes("network")
+    ) {
+      return true;
+    }
+    // Provider 5xx responses are transient; 4xx (bad key, bad request) are not.
+    if (/\b5\d\d\b/.test(message) && message.includes("error")) return true;
+  }
+  return false;
+}
+
+/**
+ * Schedule a bounded, backed-off automatic retry of `request-transcript` for
+ * a transient failure. Fire-and-forget in the Nitro process — same mechanism
+ * `finalize-recording.ts` uses to kick off transcription/remux passes in the
+ * background, just delayed instead of immediate.
+ *
+ * `nextRetryCount` must already be persisted to `recording_transcripts` by the
+ * caller BEFORE this is invoked (not inside the timer) so the retry budget
+ * survives a process that never wakes back up to run the timer — a later
+ * manual or automatic pass always sees the true attempt count. The dispatched
+ * run is tagged `retryAttempt` (not `force` alone) so `run()` can tell an
+ * automatic retry apart from a human/agent-initiated retry: automatic retries
+ * consume the bounded budget, manual retries never do.
+ */
+function scheduleAutoTranscriptRetry({
+  recordingId,
+  nextRetryCount,
+}: {
+  recordingId: string;
+  nextRetryCount: number;
+}): void {
+  if (nextRetryCount > MAX_AUTO_TRANSCRIPT_RETRIES) return;
+  const backoffMs =
+    AUTO_TRANSCRIPT_RETRY_BACKOFF_MS[nextRetryCount - 1] ??
+    AUTO_TRANSCRIPT_RETRY_BACKOFF_MS[
+      AUTO_TRANSCRIPT_RETRY_BACKOFF_MS.length - 1
+    ];
+  setTimeout(() => {
+    void Promise.resolve(
+      requestTranscriptAction.run({
+        recordingId,
+        force: true,
+        retryAttempt: nextRetryCount,
+      }),
+    ).catch((err: unknown) => {
+      console.warn(
+        `[clips] auto-retry transcription failed for ${recordingId} (attempt ${nextRetryCount}):`,
+        (err as Error)?.message ?? String(err),
+      );
+    });
+  }, backoffMs);
+}
 
 function queueBrainExport(recordingId: string): void {
   void Promise.resolve(exportToBrain.run({ recordingId })).catch(
@@ -390,12 +476,14 @@ async function failAudioOnlyPreparation({
   ownerEmail,
   err,
   now,
+  currentRetryCount,
 }: {
   db: ReturnType<typeof getDb>;
   recordingId: string;
   ownerEmail: string;
   err: unknown;
   now: string;
+  currentRetryCount: number;
 }): Promise<
   | {
       recordingId: string;
@@ -418,6 +506,9 @@ async function failAudioOnlyPreparation({
   });
   if (preserved) return preserved;
 
+  const transient = isTransientTranscriptionError(err);
+  const nextRetryCount = currentRetryCount + 1;
+
   await upsertTranscriptRow(db, {
     recordingId,
     ownerEmail,
@@ -426,8 +517,13 @@ async function failAudioOnlyPreparation({
     segmentsJson: "[]",
     fullText: "",
     now,
+    ...(transient ? { retryCount: nextRetryCount } : {}),
   });
   await writeAppState("refresh-signal", { ts: Date.now() });
+
+  if (transient) {
+    scheduleAutoTranscriptRetry({ recordingId, nextRetryCount });
+  }
 
   if (isNoExtractableAudioError(err)) {
     return {
@@ -441,6 +537,17 @@ async function failAudioOnlyPreparation({
 }
 
 async function transcriptCleanupEnabled(): Promise<boolean> {
+  const userEmail = getRequestUserEmail();
+  if (userEmail) {
+    const userSettings = await getUserSetting(
+      userEmail,
+      CLIPS_USER_PREFS_KEY,
+    ).catch(() => null);
+    if (userSettings && "transcriptCleanupEnabled" in userSettings) {
+      return userSettings.transcriptCleanupEnabled !== false;
+    }
+  }
+
   const settings = await getSetting(CLIPS_USER_PREFS_KEY).catch(() => null);
   return settings?.transcriptCleanupEnabled !== false;
 }
@@ -760,7 +867,7 @@ async function pickProvider(
   return null;
 }
 
-export default defineAction({
+const requestTranscriptAction = defineAction({
   description:
     "Ensure a recording has a transcript. Preserves native Web Speech/macOS Speech transcripts first, then uses configured backup transcription only when needed.",
   schema: z.object({
@@ -770,6 +877,14 @@ export default defineAction({
       .optional()
       .describe(
         "Bypass the recent pending guard for explicit retries or the finalize-recording background worker.",
+      ),
+    retryAttempt: z
+      .number()
+      .int()
+      .positive()
+      .optional()
+      .describe(
+        "Internal — set only by the bounded automatic retry scheduler after a transient failure (ffmpeg timeout, transient provider error). Do not set this when calling request-transcript manually or from the agent; omitting it means the retry budget never applies to this call.",
       ),
   }),
   run: async (args) => {
@@ -822,10 +937,24 @@ export default defineAction({
         segmentsJson: schema.recordingTranscripts.segmentsJson,
         updatedAt: schema.recordingTranscripts.updatedAt,
         language: schema.recordingTranscripts.language,
+        retryCount: schema.recordingTranscripts.retryCount,
       })
       .from(schema.recordingTranscripts)
       .where(eq(schema.recordingTranscripts.recordingId, args.recordingId))
       .limit(1);
+
+    // Persisted retry budget entering this run. A manual/agent retry
+    // (force=true, no retryAttempt) is NEVER blocked by this count — it always
+    // runs. Only whether a FUTURE failure schedules another automatic retry
+    // depends on it (see scheduleAutoTranscriptRetry's own cap check), so a
+    // manual retry can still top the budget back up for one more bounded
+    // automatic pass if it fails transiently again.
+    const currentRetryCount = existingNativeTranscript?.retryCount ?? 0;
+    if (args.retryAttempt !== undefined) {
+      console.log(
+        `[clips] auto-retry transcription attempt ${args.retryAttempt} for ${args.recordingId}`,
+      );
+    }
 
     if (
       existingNativeTranscript?.status === "ready" &&
@@ -934,6 +1063,7 @@ export default defineAction({
           ownerEmail,
           err,
           now,
+          currentRetryCount,
         });
       }
 
@@ -1031,31 +1161,21 @@ export default defineAction({
             source: "transcription",
             message: reason,
           });
-          const preserved = await preserveReadyTranscriptIfAvailable({
-            db,
-            recordingId: args.recordingId,
-            ownerEmail,
-          });
-          if (preserved) return preserved;
-          await upsertTranscriptRow(db, {
-            recordingId: args.recordingId,
-            ownerEmail,
-            status: "failed",
-            failureReason: reason,
-            now,
-          });
-          await writeAppState("refresh-signal", { ts: Date.now() });
-          throw err;
-        }
-        builderError = reason;
-        console.warn(
-          `[clips] Builder transcription failed for ${args.recordingId}: ${summarizeError(err)}. Preserving native transcript if present and falling back to Groq if configured.`,
-        );
-        if (verboseTranscriptErrors()) {
+          builderError = reason;
           console.warn(
-            "[clips] Builder transcription error details",
-            serializeError(err, { includeStack: true }),
+            `[clips] Builder credits exhausted for ${args.recordingId}; preserving native transcript if present and falling back to Groq if configured.`,
           );
+        } else {
+          builderError = reason;
+          console.warn(
+            `[clips] Builder transcription failed for ${args.recordingId}: ${summarizeError(err)}. Preserving native transcript if present and falling back to Groq if configured.`,
+          );
+          if (verboseTranscriptErrors()) {
+            console.warn(
+              "[clips] Builder transcription error details",
+              serializeError(err, { includeStack: true }),
+            );
+          }
         }
         await writeTranscriptCleanupState(args.recordingId, {
           status: "builder-transcription-failed",
@@ -1167,6 +1287,7 @@ export default defineAction({
         ownerEmail,
         err,
         now,
+        currentRetryCount,
       });
     }
 
@@ -1289,14 +1410,23 @@ export default defineAction({
         ownerEmail,
       });
       if (preserved) return preserved;
+      const transient = isTransientTranscriptionError(err);
+      const nextRetryCount = currentRetryCount + 1;
       await upsertTranscriptRow(db, {
         recordingId: args.recordingId,
         ownerEmail,
         status: "failed",
         failureReason: reason,
         now,
+        ...(transient ? { retryCount: nextRetryCount } : {}),
       });
       await writeAppState("refresh-signal", { ts: Date.now() });
+      if (transient) {
+        scheduleAutoTranscriptRetry({
+          recordingId: args.recordingId,
+          nextRetryCount,
+        });
+      }
       throw err;
     } finally {
       clearTimeout(timeout);
@@ -1315,6 +1445,15 @@ async function upsertTranscriptRow(
     segmentsJson?: string;
     fullText?: string;
     now: string;
+    /**
+     * Automatic-retry attempt count to persist. Pass explicitly when a
+     * transient failure is about to schedule an auto-retry so the budget
+     * survives even if the scheduled retry never runs (e.g. a serverless
+     * sandbox freezing before the timer fires). A `"ready"` status always
+     * resets the count to 0 so a later failure gets a fresh retry budget.
+     * Omit to leave the stored count untouched (the common case).
+     */
+    retryCount?: number;
   },
 ): Promise<void> {
   const [existing] = await db
@@ -1322,6 +1461,8 @@ async function upsertTranscriptRow(
     .from(schema.recordingTranscripts)
     .where(eq(schema.recordingTranscripts.recordingId, row.recordingId))
     .limit(1);
+
+  const retryCount = row.status === "ready" ? 0 : (row.retryCount ?? undefined);
 
   if (existing) {
     await db
@@ -1333,6 +1474,7 @@ async function upsertTranscriptRow(
         ...(row.language ? { language: row.language } : {}),
         ...(row.segmentsJson ? { segmentsJson: row.segmentsJson } : {}),
         ...(row.fullText !== undefined ? { fullText: row.fullText } : {}),
+        ...(retryCount !== undefined ? { retryCount } : {}),
         updatedAt: row.now,
       })
       .where(eq(schema.recordingTranscripts.recordingId, row.recordingId));
@@ -1345,8 +1487,11 @@ async function upsertTranscriptRow(
       fullText: row.fullText ?? "",
       status: row.status,
       failureReason: row.failureReason,
+      retryCount: retryCount ?? 0,
       createdAt: row.now,
       updatedAt: row.now,
     });
   }
 }
+
+export default requestTranscriptAction;

@@ -8,7 +8,7 @@ import {
   useBuilderStatus,
   ChangelogSettingsCard,
   SettingsTabsPage,
-  openAgentSettings,
+  useAgentSettingsTabs,
   useT,
 } from "@agent-native/core/client";
 import { TeamPage } from "@agent-native/core/client/org";
@@ -129,12 +129,14 @@ const AI_PROVIDER_FIELDS = [
     label: "Anthropic",
     placeholder: "sk-ant-...",
     storage: "agent-engine",
+    engine: "anthropic",
   },
   {
     key: "OPENAI_API_KEY",
     label: "OpenAI",
     placeholder: "sk-...",
     storage: "agent-engine",
+    engine: "ai-sdk:openai",
   },
   {
     key: "GEMINI_API_KEY",
@@ -147,12 +149,14 @@ const AI_PROVIDER_FIELDS = [
     label: "Groq",
     placeholder: "gsk_...",
     storage: "secret",
+    engine: "ai-sdk:groq",
   },
   {
     key: "OPENROUTER_API_KEY",
     label: "OpenRouter",
     placeholder: "sk-or-...",
     storage: "agent-engine",
+    engine: "ai-sdk:openrouter",
   },
 ] as const;
 
@@ -184,9 +188,7 @@ interface SlackInstallationsResponse {
 
 async function loadSettings(): Promise<ClipsUserSettings> {
   try {
-    const res = await fetch(
-      agentNativePath("/_agent-native/settings/clips-user-prefs"),
-    );
+    const res = await fetch(agentNativePath("/_agent-native/clips/user-prefs"));
     if (!res.ok) return {};
     const json = await res.json();
     // The store's GET returns the stored object directly, not wrapped.
@@ -200,14 +202,11 @@ async function loadSettings(): Promise<ClipsUserSettings> {
 }
 
 async function saveSettings(value: ClipsUserSettings): Promise<void> {
-  const res = await fetch(
-    agentNativePath("/_agent-native/settings/clips-user-prefs"),
-    {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(value),
-    },
-  );
+  const res = await fetch(agentNativePath("/_agent-native/clips/user-prefs"), {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(value),
+  });
   if (!res.ok) {
     throw new Error(`Save failed (${res.status})`);
   }
@@ -342,6 +341,35 @@ async function saveAgentEngineApiKey(
   }
 }
 
+async function applyAgentEngine(engine: string): Promise<void> {
+  const res = await fetch(
+    agentNativePath("/_agent-native/actions/manage-agent-engine"),
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "set", engine }),
+    },
+  );
+
+  const body = (await res.json().catch(() => null)) as {
+    error?: string;
+    result?: unknown;
+  } | null;
+  if (!res.ok) {
+    throw new Error(body?.error ?? `Engine switch failed (${res.status})`);
+  }
+  const result = body?.result ?? body;
+  const text =
+    typeof result === "string"
+      ? result.trim()
+      : result && typeof result === "object"
+        ? JSON.stringify(result)
+        : "";
+  if (/^(Error|Warning):/i.test(text)) {
+    throw new Error(text);
+  }
+}
+
 async function saveRegisteredSecret(key: string, value: string): Promise<void> {
   const res = await fetch(
     agentNativePath(`/_agent-native/secrets/${encodeURIComponent(key)}`),
@@ -363,6 +391,7 @@ async function saveRegisteredSecret(key: string, value: string): Promise<void> {
 export default function SettingsIndexRoute() {
   const { session } = useSession();
   const t = useT();
+  const agentSettingsTabs = useAgentSettingsTabs();
   const email = session?.email ?? "";
   const storageStatus = useVideoStorageStatus();
   const builderStatus = useBuilderStatus();
@@ -399,19 +428,23 @@ export default function SettingsIndexRoute() {
   const [transcriptCleanupEnabled, setTranscriptCleanupEnabled] =
     useState(true);
   const [s3Values, setS3Values] = useState<Record<string, string>>({});
+  const [s3Errors, setS3Errors] = useState<Record<string, string>>({});
+  const [clearingS3, setClearingS3] = useState(false);
   const [s3Expanded, setS3Expanded] = useState(false);
   const [apiKeysExpanded, setApiKeysExpanded] = useState(false);
   const [apiKeyValues, setApiKeyValues] = useState<Record<string, string>>({});
   const [apiKeyStatus, setApiKeyStatus] = useState<Record<string, boolean>>({});
+  const [secretLast4, setSecretLast4] = useState<Record<string, string>>({});
   const [apiKeyStatusLoading, setApiKeyStatusLoading] = useState(true);
   const [savingApiKey, setSavingApiKey] = useState<string | null>(null);
 
   const refreshApiKeyStatus = useCallback(async () => {
     setApiKeyStatusLoading(true);
     try {
-      const [envRes, secretsRes] = await Promise.all([
+      const [envRes, secretsRes, adhocRes] = await Promise.all([
         fetch(agentNativePath("/_agent-native/env-status")),
         fetch(agentNativePath("/_agent-native/secrets")),
+        fetch(agentNativePath("/_agent-native/secrets/adhoc")),
       ]);
       const envData = envRes.ok
         ? ((await envRes.json()) as Array<{
@@ -425,12 +458,24 @@ export default function SettingsIndexRoute() {
             status?: string;
           }>)
         : [];
+      const adhocData = adhocRes.ok
+        ? ((await adhocRes.json()) as Array<{
+            name: string;
+            last4?: string;
+          }>)
+        : [];
       const next = Object.fromEntries(
         envData.map((entry) => [entry.key, Boolean(entry.configured)]),
       );
       for (const entry of secretsData) {
         next[entry.key] = entry.status === "set";
       }
+      const nextLast4: Record<string, string> = {};
+      for (const entry of adhocData) {
+        next[entry.name] = true;
+        if (entry.last4) nextLast4[entry.name] = entry.last4;
+      }
+      setSecretLast4(nextLast4);
       setApiKeyStatus(next);
     } catch {
       setApiKeyStatus({});
@@ -477,7 +522,36 @@ export default function SettingsIndexRoute() {
     }
   }
 
+  function validateS3Values(
+    values: Record<string, string>,
+  ): Record<string, string> {
+    const errors: Record<string, string> = {};
+    const urlFields = ["S3_ENDPOINT", "S3_PUBLIC_BASE_URL"];
+    for (const key of urlFields) {
+      const val = (values[key] ?? "").trim();
+      if (!val) continue;
+      try {
+        const parsed = new URL(val);
+        if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
+          errors[key] = t("settings.s3UrlInvalid");
+        }
+      } catch {
+        errors[key] = t("settings.s3UrlInvalid");
+      }
+    }
+    const bucket = (values["S3_BUCKET"] ?? "").trim();
+    if (bucket && !/^[a-z0-9][a-z0-9\-.]{1,61}[a-z0-9]$/.test(bucket)) {
+      errors["S3_BUCKET"] = t("settings.s3BucketInvalid");
+    }
+    return errors;
+  }
+
   async function handleSaveS3Storage() {
+    const validationErrors = validateS3Values(s3Values);
+    if (Object.keys(validationErrors).length > 0) {
+      setS3Errors(validationErrors);
+      return;
+    }
     const s3Configured = storageStatus.data?.activeProvider?.id === "s3";
     const missing = s3Configured
       ? []
@@ -499,7 +573,7 @@ export default function SettingsIndexRoute() {
         ...current,
         S3_SECRET_ACCESS_KEY: "",
       }));
-      await storageStatus.refetch();
+      await Promise.all([storageStatus.refetch(), refreshApiKeyStatus()]);
       toast.success(t("settings.storageSaved"));
     } catch (err) {
       toast.error(
@@ -507,6 +581,51 @@ export default function SettingsIndexRoute() {
       );
     } finally {
       setSavingStorage(false);
+    }
+  }
+
+  async function handleClearAllS3() {
+    setClearingS3(true);
+    try {
+      const results = await Promise.all(
+        S3_STORAGE_FIELDS.filter((field) => apiKeyStatus[field.key]).map(
+          async (field) => {
+            const res = await fetch(
+              agentNativePath(
+                `/_agent-native/secrets/adhoc/${encodeURIComponent(field.key)}`,
+              ),
+              { method: "DELETE" },
+            );
+            if (!res.ok) {
+              const body = (await res.json().catch(() => null)) as {
+                error?: string;
+              } | null;
+              throw new Error(
+                body?.error ?? `Failed to clear ${field.key} (${res.status})`,
+              );
+            }
+            const body = (await res.json().catch(() => null)) as {
+              removed?: boolean;
+            } | null;
+            return { key: field.key, removed: body?.removed !== false };
+          },
+        ),
+      );
+      const failed = results.filter((r) => !r.removed).map((r) => r.key);
+      if (failed.length > 0) {
+        throw new Error(
+          `Could not remove: ${failed.join(", ")}. You may not have permission.`,
+        );
+      }
+      setS3Values({});
+      await Promise.all([refreshApiKeyStatus(), storageStatus.refetch()]);
+      toast.success(t("settings.keyCleared"));
+    } catch (err) {
+      toast.error(
+        err instanceof Error ? err.message : t("settings.saveFailed"),
+      );
+    } finally {
+      setClearingS3(false);
     }
   }
 
@@ -525,6 +644,9 @@ export default function SettingsIndexRoute() {
       } else {
         await saveAgentEngineApiKey(key, value);
       }
+      if (field && "engine" in field) {
+        await applyAgentEngine(field.engine);
+      }
       setApiKeyValues((current) => ({ ...current, [key]: "" }));
       setApiKeyStatus((current) => ({ ...current, [key]: true }));
       window.dispatchEvent(new CustomEvent("agent-engine:configured-changed"));
@@ -537,6 +659,20 @@ export default function SettingsIndexRoute() {
     } finally {
       setSavingApiKey(null);
     }
+  }
+
+  function openAiProviderSetup() {
+    setApiKeysExpanded(true);
+    window.requestAnimationFrame(() => {
+      const section = document.getElementById("ai-provider-keys");
+      section?.scrollIntoView({ behavior: "smooth", block: "start" });
+      const firstEmptyField =
+        AI_PROVIDER_FIELDS.find((field) => !apiKeyStatus[field.key]) ??
+        AI_PROVIDER_FIELDS[0];
+      window.setTimeout(() => {
+        document.getElementById(firstEmptyField.key)?.focus();
+      }, 150);
+    });
   }
 
   async function handleConnectSlack() {
@@ -618,6 +754,7 @@ export default function SettingsIndexRoute() {
       </PageHeader>
       <SettingsTabsPage
         whatsNewLabel={t("settings.whatsNew")}
+        extraTabs={agentSettingsTabs}
         general={
           <div className="mx-auto w-full max-w-4xl space-y-6">
             <div className="min-w-0 space-y-6">
@@ -637,22 +774,6 @@ export default function SettingsIndexRoute() {
                 <CardContent className="max-w-xs space-y-1.5">
                   <Label>{t("settings.languageLabel")}</Label>
                   <LanguagePicker label={t("settings.languageLabel")} />
-                </CardContent>
-              </Card>
-
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-base">
-                    {t("settings.agentTitle")}
-                  </CardTitle>
-                  <CardDescription>
-                    {t("settings.agentDescription")}
-                  </CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <Button variant="outline" onClick={() => openAgentSettings()}>
-                    {t("settings.openAgentSettings")}
-                  </Button>
                 </CardContent>
               </Card>
 
@@ -785,34 +906,90 @@ export default function SettingsIndexRoute() {
                       <CollapsibleContent>
                         <div className="space-y-4 border-t border-border px-3 py-4">
                           <div className="grid gap-4 sm:grid-cols-2">
-                            {S3_STORAGE_FIELDS.map((field) => (
-                              <div key={field.key} className="space-y-1.5">
-                                <Label htmlFor={field.key}>
-                                  {t(field.labelKey)}
-                                </Label>
-                                <Input
-                                  id={field.key}
-                                  type={
-                                    "secret" in field && field.secret
-                                      ? "password"
-                                      : "text"
-                                  }
-                                  value={s3Values[field.key] ?? ""}
-                                  onChange={(event) =>
-                                    setS3Values((current) => ({
-                                      ...current,
-                                      [field.key]: event.target.value,
-                                    }))
-                                  }
-                                  placeholder={field.placeholder}
-                                  autoComplete="off"
-                                  disabled={savingStorage}
-                                />
-                              </div>
-                            ))}
+                            {S3_STORAGE_FIELDS.map((field) => {
+                              const configured = Boolean(
+                                apiKeyStatus[field.key],
+                              );
+                              const last4 = secretLast4[field.key];
+                              return (
+                                <div key={field.key} className="space-y-1.5">
+                                  <div className="flex items-center justify-between gap-2">
+                                    <Label htmlFor={field.key}>
+                                      {t(field.labelKey)}
+                                    </Label>
+                                    {configured ? (
+                                      <span className="flex items-center gap-1 text-[10px] font-medium text-primary">
+                                        <IconCheck className="h-3 w-3" />
+                                        {last4
+                                          ? `••••${last4}`
+                                          : t("settings.keySet")}
+                                      </span>
+                                    ) : null}
+                                  </div>
+                                  <Input
+                                    id={field.key}
+                                    type={
+                                      "secret" in field && field.secret
+                                        ? "password"
+                                        : "text"
+                                    }
+                                    value={s3Values[field.key] ?? ""}
+                                    onChange={(event) => {
+                                      setS3Values((current) => ({
+                                        ...current,
+                                        [field.key]: event.target.value,
+                                      }));
+                                      if (s3Errors[field.key]) {
+                                        setS3Errors((current) => {
+                                          const next = { ...current };
+                                          delete next[field.key];
+                                          return next;
+                                        });
+                                      }
+                                    }}
+                                    placeholder={
+                                      configured
+                                        ? t("settings.replaceKey")
+                                        : field.placeholder
+                                    }
+                                    autoComplete="off"
+                                    disabled={savingStorage}
+                                    className={
+                                      s3Errors[field.key]
+                                        ? "border-destructive"
+                                        : undefined
+                                    }
+                                  />
+                                  {s3Errors[field.key] ? (
+                                    <p className="text-[11px] text-destructive">
+                                      {s3Errors[field.key]}
+                                    </p>
+                                  ) : null}
+                                </div>
+                              );
+                            })}
                           </div>
 
-                          <div className="flex justify-end">
+                          <div className="flex items-center justify-end gap-2">
+                            {S3_STORAGE_FIELDS.some(
+                              (field) => apiKeyStatus[field.key],
+                            ) ? (
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="sm"
+                                onClick={handleClearAllS3}
+                                disabled={clearingS3 || savingStorage}
+                                className="text-muted-foreground hover:text-destructive"
+                              >
+                                {clearingS3 ? (
+                                  <IconLoader2 className="h-4 w-4 animate-spin" />
+                                ) : (
+                                  <IconTrash className="h-4 w-4" />
+                                )}
+                                {t("settings.clearAllS3")}
+                              </Button>
+                            ) : null}
                             <Button
                               onClick={handleSaveS3Storage}
                               disabled={
@@ -1047,7 +1224,7 @@ export default function SettingsIndexRoute() {
                             variant="outline"
                             size="sm"
                             className="h-8 border-amber-300/80 bg-white/70 text-amber-950 hover:bg-amber-100 dark:border-amber-400/40 dark:bg-amber-950/30 dark:text-amber-100 dark:hover:bg-amber-900/40"
-                            onClick={() => setApiKeysExpanded(true)}
+                            onClick={openAiProviderSetup}
                           >
                             {t("builderCredits.openAiSetup")}
                           </Button>
@@ -1063,6 +1240,7 @@ export default function SettingsIndexRoute() {
                     <div className="rounded-md border border-border">
                       <CollapsibleTrigger asChild>
                         <button
+                          id="ai-provider-keys"
                           type="button"
                           className="flex w-full items-center justify-between gap-3 px-3 py-3 text-start"
                         >

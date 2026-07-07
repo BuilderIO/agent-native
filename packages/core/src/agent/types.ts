@@ -163,6 +163,14 @@ export interface AgentChatRequest {
   __backgroundRun?: {
     runId: string;
     turnId?: string;
+    continuationReason?:
+      | "run_timeout"
+      | "loop_limit"
+      | "no_progress"
+      | "stream_ended"
+      | "gateway_timeout"
+      | "network_interrupted";
+    actionPreparationTool?: string;
     /**
      * Number of server-driven background→background continuations already
      * chained into this logical turn (0 on the first chunk). The worker
@@ -170,6 +178,19 @@ export interface AgentChatRequest {
      * boundary and refuses to chain past `MAX_BACKGROUND_RUN_CONTINUATIONS`.
      */
     continuationCount?: number;
+    /**
+     * True when the dispatcher expects the self-POST to land in a real
+     * Netlify `-background` function (15-min budget) rather than the ~60s
+     * synchronous function. See `shouldUseBackgroundFunctionTimeoutForWorker`.
+     */
+    backgroundFunctionRuntimeExpected?: boolean;
+    /**
+     * True when the dispatch body carries ONLY this marker and the worker
+     * must rehydrate the full request body from the run row's
+     * `dispatch_payload` column (`readRunDispatchPayload`). Keeps the
+     * self-POST under Netlify's 256KB background-function body cap.
+     */
+    payloadRef?: boolean;
   };
   /**
    * Stable identity for the logical assistant turn this request belongs to.
@@ -212,12 +233,19 @@ export type AgentToolInput = Record<string, unknown>;
 export type AgentChatEvent =
   | { type: "text"; text: string }
   | { type: "thinking"; text: string }
-  | { type: "activity"; label: string; tool?: string }
+  | {
+      type: "activity";
+      label: string;
+      tool?: string;
+      id?: string;
+      progressBytes?: number;
+    }
   | { type: "stream_keepalive" }
-  | { type: "tool_start"; tool: string; input: AgentToolInput }
+  | { type: "tool_start"; tool: string; id?: string; input: AgentToolInput }
   | {
       type: "tool_done";
       tool: string;
+      id?: string;
       input?: AgentToolInput;
       result: string;
       isError?: boolean;

@@ -319,6 +319,20 @@
   line-height: 1.4;
 }
 
+.plan-diagram-frame[data-frame="show"] {
+  border: 1px solid var(--wf-diagram-line);
+  padding: 10px;
+}
+
+.plan-diagram-frame[data-frame="show"][data-rough-ready] {
+  border-color: transparent;
+}
+
+.plan-diagram-frame[data-frame="hide"] {
+  border: 0;
+  background: transparent;
+}
+
 .plan-diagram-frame[data-theme="dark"] {
   --wf-diagram-line: color-mix(in srgb, var(--wf-sketch) 72%, var(--wf-line));
 }
@@ -339,6 +353,10 @@
   width: 100%;
   padding: 8px 0;
   direction: inherit;
+}
+
+.plan-diagram-frame[data-frame="show"] .plan-diagram-frame-content {
+  padding: 0;
 }
 
 .plan-diagram-frame-content
@@ -405,8 +423,37 @@
   color: var(--wf-ink) !important;
 }
 
-.plan-diagram-frame :is(.diagram-node, .diagram-box, .diagram-card) {
+.plan-diagram-frame
+  :is(
+    .diagram-panel,
+    .diagram-card,
+    .diagram-node,
+    .diagram-box,
+    [class*="card"],
+    [class*="panel"],
+    [class*="box"]
+  ) {
   max-width: 100%;
+  overflow-wrap: anywhere !important;
+  word-break: break-word;
+  white-space: normal !important;
+}
+
+.plan-diagram-frame
+  :is(
+    .diagram-panel,
+    .diagram-card,
+    .diagram-node,
+    .diagram-box,
+    [class*="card"],
+    [class*="panel"],
+    [class*="box"]
+  )
+  :is(h1, h2, h3, p, small, strong, span, li) {
+  max-width: 100%;
+  overflow-wrap: anywhere !important;
+  word-break: break-word;
+  white-space: normal !important;
 }
 
 /* Base padding so primitive text never touches the box edge, even when an author
@@ -472,6 +519,7 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  flex-wrap: wrap;
   /* A pill hugs its label. `fit-content` is a definite cross size, so a flex
    * column with the default `align-items: stretch` no longer blows the pill out
    * to full width (the number chips and short status labels stay pill-shaped).
@@ -484,6 +532,19 @@
   padding: 3px 11px;
   color: var(--wf-ink);
   background: var(--wf-paper);
+  overflow-wrap: anywhere !important;
+  text-align: center;
+  white-space: normal !important;
+  word-break: break-word;
+}
+
+.plan-diagram-frame
+  :is(.diagram-pill, [class*="pill"], [class*="badge"], [class*="chip"])
+  > * {
+  min-width: 0;
+  max-width: 100%;
+  overflow-wrap: anywhere !important;
+  white-space: normal !important;
 }
 
 .plan-diagram-frame :is(.diagram-accent, .diagram-pill.accent) {

@@ -168,10 +168,10 @@
     Object.assign(frame.style, {
       display: "block",
       width: "100%",
-      height: "430px",
+      height: "405px",
       border: "0",
       borderRadius: "8px",
-      background: "transparent",
+      background: "#000",
       overflow: "hidden",
     });
 

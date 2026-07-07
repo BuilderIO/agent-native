@@ -1,4 +1,5 @@
 import { agentNativePath, useT } from "@agent-native/core/client";
+import { isSelectableAudioInputDevice } from "@shared/media-device-selection";
 import {
   IconBrowser,
   IconCamera,
@@ -58,6 +59,8 @@ import {
 import {
   NO_CAMERA_DEVICE_ID,
   NO_MIC_DEVICE_ID,
+  normalizeDisplaySurfaceForRuntime,
+  supportsBrowserTabCapture,
   type DisplaySurface,
   type RecordingMode,
 } from "./recorder-engine";
@@ -67,6 +70,7 @@ export interface PreRecordPanelProps {
     mode: RecordingMode;
     displaySurface: DisplaySurface;
     micDeviceId: string | null;
+    micDeviceLabel?: string | null;
     cameraDeviceId: string | null;
   }) => void;
   initialMode?: RecordingMode | null;
@@ -157,14 +161,20 @@ export function PreRecordPanel({
   const t = useT();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const loomInputRef = useRef<HTMLInputElement>(null);
+  const browserTabCaptureSupported = useMemo(
+    () => supportsBrowserTabCapture(),
+    [],
+  );
   // Saved selections from the last visit. A `?mode=`/`?surface=` deep link
   // (initialMode/initialDisplaySurface) still takes precedence over them.
   const savedPrefs = useMemo(() => loadRecorderPreferences(), []);
   const [mode, setMode] = useState<RecordingMode>(
     () => initialMode ?? savedPrefs.mode ?? "screen+camera",
   );
-  const [displaySurface, setDisplaySurface] = useState<DisplaySurface>(
-    () => initialDisplaySurface ?? savedPrefs.displaySurface ?? "window",
+  const [displaySurface, setDisplaySurface] = useState<DisplaySurface>(() =>
+    normalizeDisplaySurfaceForRuntime(
+      initialDisplaySurface ?? savedPrefs.displaySurface ?? "window",
+    ),
   );
   const [sourceOpen, setSourceOpen] = useState(false);
   const [deviceSettingsOpen, setDeviceSettingsOpen] = useState(false);
@@ -175,6 +185,9 @@ export function PreRecordPanel({
   const [cameras, setCameras] = useState<MediaDeviceInfo[]>([]);
   const [micId, setMicId] = useState<string>(
     () => savedPrefs.micId ?? "default",
+  );
+  const [micLabel, setMicLabel] = useState<string>(
+    () => savedPrefs.micLabel ?? "",
   );
   const [cameraId, setCameraId] = useState<string>(
     () => savedPrefs.cameraId ?? "default",
@@ -223,8 +236,8 @@ export function PreRecordPanel({
     [isMobile, modeOptions],
   );
 
-  const surfaceOptions = useMemo<SurfaceOption[]>(
-    () => [
+  const surfaceOptions = useMemo<SurfaceOption[]>(() => {
+    const options: SurfaceOption[] = [
       {
         value: "window",
         label: t("preRecord.surfaceWindow"),
@@ -243,9 +256,11 @@ export function PreRecordPanel({
         icon: IconDeviceScreen,
         sub: t("preRecord.surfaceScreenDescription"),
       },
-    ],
-    [t],
-  );
+    ];
+    return browserTabCaptureSupported
+      ? options
+      : options.filter((option) => option.value !== "browser");
+  }, [browserTabCaptureSupported, t]);
 
   useEffect(() => {
     if (isMobile) {
@@ -258,8 +273,18 @@ export function PreRecordPanel({
   }, [initialMode, isMobile]);
 
   useEffect(() => {
-    if (initialDisplaySurface) setDisplaySurface(initialDisplaySurface);
+    if (initialDisplaySurface) {
+      setDisplaySurface(
+        normalizeDisplaySurfaceForRuntime(initialDisplaySurface),
+      );
+    }
   }, [initialDisplaySurface]);
+
+  useEffect(() => {
+    if (displaySurface !== "browser" || browserTabCaptureSupported) return;
+    setDisplaySurface("window");
+    saveRecorderPreferences({ displaySurface: "window" });
+  }, [browserTabCaptureSupported, displaySurface]);
 
   const enumerateDevices = useCallback(async () => {
     try {
@@ -268,11 +293,7 @@ export function PreRecordPanel({
       }
       const devices = await navigator.mediaDevices.enumerateDevices();
       setEnumError(null);
-      setMics(
-        devices.filter(
-          (d) => d.kind === "audioinput" && isSelectableMediaDevice(d),
-        ),
-      );
+      setMics(devices.filter((d) => isSelectableAudioInputDevice(d)));
       setCameras(
         devices.filter(
           (d) => d.kind === "videoinput" && isSelectableMediaDevice(d),
@@ -311,13 +332,12 @@ export function PreRecordPanel({
     [mics],
   );
 
-  // Reset to "default" only once a populated list genuinely excludes the saved
-  // device — an empty list means "not enumerated yet", and resetting then would
-  // wipe a restored preference before devices load.
   useEffect(() => {
     if (micId === "default" || micId === NO_MIC_DEVICE_ID) return;
-    if (mics.length > 0 && !mics.some((mic) => mic.deviceId === micId)) {
-      setMicId("default");
+    const match = mics.find((mic) => mic.deviceId === micId);
+    if (match?.label) {
+      setMicLabel(match.label);
+      saveRecorderPreferences({ micId, micLabel: match.label });
     }
   }, [micId, mics]);
 
@@ -350,13 +370,22 @@ export function PreRecordPanel({
     saveRecorderPreferences({ mode: value });
   }, []);
   const chooseDisplaySurface = useCallback((value: DisplaySurface) => {
-    setDisplaySurface(value);
-    saveRecorderPreferences({ displaySurface: value });
+    const next = normalizeDisplaySurfaceForRuntime(value);
+    setDisplaySurface(next);
+    saveRecorderPreferences({ displaySurface: next });
   }, []);
-  const chooseMic = useCallback((value: string) => {
-    setMicId(value);
-    saveRecorderPreferences({ micId: value });
-  }, []);
+  const chooseMic = useCallback(
+    (value: string) => {
+      const label =
+        value === "default" || value === NO_MIC_DEVICE_ID
+          ? ""
+          : (mics.find((mic) => mic.deviceId === value)?.label ?? "");
+      setMicId(value);
+      setMicLabel(label);
+      saveRecorderPreferences({ micId: value, micLabel: label });
+    },
+    [mics],
+  );
   const chooseCamera = useCallback((value: string) => {
     setCameraId(value);
     saveRecorderPreferences({ cameraId: value });
@@ -400,9 +429,10 @@ export function PreRecordPanel({
     if (micId === "default") return t("preRecord.defaultMicrophone");
     return (
       mics.find((mic) => mic.deviceId === micId)?.label ||
+      micLabel ||
       t("preRecord.shortMicLabel", { id: micId.slice(0, 4) })
     );
-  }, [micId, mics, t]);
+  }, [micId, micLabel, mics, t]);
 
   const selectedCameraLabel = useMemo(() => {
     if (!needsCamera) return null;
@@ -676,7 +706,12 @@ export function PreRecordPanel({
             </button>
           </CollapsibleTrigger>
           <CollapsibleContent>
-            <div className="grid grid-cols-3 gap-2 px-6 pb-5">
+            <div
+              className={cn(
+                "grid gap-2 px-6 pb-5",
+                surfaceOptions.length === 2 ? "grid-cols-2" : "grid-cols-3",
+              )}
+            >
               {surfaceOptions.map((opt) => {
                 const Icon = opt.icon;
                 const active = opt.value === displaySurface;
@@ -913,8 +948,13 @@ export function PreRecordPanel({
                 // to acquire a webcam stream.
                 mode:
                   mode === "screen+camera" && !needsCamera ? "screen" : mode,
-                displaySurface,
+                displaySurface:
+                  normalizeDisplaySurfaceForRuntime(displaySurface),
                 micDeviceId: micId === "default" ? null : micId,
+                micDeviceLabel:
+                  micId === "default" || micId === NO_MIC_DEVICE_ID
+                    ? null
+                    : selectedMicLabel,
                 cameraDeviceId:
                   needsCamera && cameraId !== "default" ? cameraId : null,
               })

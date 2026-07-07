@@ -62,6 +62,9 @@ const CSRF_ALLOWLIST_PREFIXES = [
   // Agent Teams durable sub-agent processor self-fire — verified by the same
   // HMAC internal-token scheme as the integration/A2A processors.
   "/agent-teams/",
+  // Durable sandbox-execution processor self-fire (run-code background
+  // queue) — verified by the same HMAC internal-token scheme.
+  "/sandbox/_process-execution",
   // A2A JSON-RPC endpoints — verified by signed JWT (when A2A_SECRET set) or
   // explicitly opt-in unauthenticated (handled at the A2A layer).
   "/a2a",

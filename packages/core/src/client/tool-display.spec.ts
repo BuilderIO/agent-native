@@ -15,6 +15,12 @@ describe("tool display labels", () => {
     );
   });
 
+  it("uses user-facing labels for Design screen tools", () => {
+    expect(humanizeToolName("delete-file")).toBe("remove screen");
+    expect(humanizeToolName("get-design-snapshot")).toBe("get screen snapshot");
+    expect(humanizeToolName("edit-design")).toBe("edit screen");
+  });
+
   it("uses humanized names in running labels", () => {
     expect(runningToolLabel("generate-design")).toBe("Running generate design");
   });
@@ -22,9 +28,9 @@ describe("tool display labels", () => {
   it("humanizes tool names inside activity labels without changing the verb", () => {
     expect(
       humanizeToolLabelText(
-        "Preparing create-document action",
-        "create-document",
+        "Preparing get-design-snapshot action",
+        "get-design-snapshot",
       ),
-    ).toBe("Preparing create document action");
+    ).toBe("Preparing get screen snapshot action");
   });
 });

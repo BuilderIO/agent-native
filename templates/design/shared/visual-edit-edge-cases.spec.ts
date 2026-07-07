@@ -6,8 +6,8 @@
  * 2. multi-token-breakpoint — setting multiple utility tokens at a single
  *    responsive breakpoint must handle every token, not silently discard extras.
  * 3. replace-honors-from   — `responsive-class` "replace" must honour the
- *    `from` guard and report a no-op when the current class does not match
- *    `from`.
+ *    `from` guard and report a conflict (no content change) when the current
+ *    class does not match `from`.
  */
 
 import { describe, expect, it } from "vitest";
@@ -229,10 +229,9 @@ describe("replace honoring 'from' (Edge 3)", () => {
     expect(afterClasses).not.toContain("text-sm");
   });
 
-  it("responsive-class 'replace' should be a no-op when 'from' is provided but does not match the current utility at that prefix", () => {
-    // Currently the responsive-class path ignores `from` entirely.
-    // This test asserts the correct guarded behaviour: if from="text-xl" but
-    // the current md: class is "text-sm", the replace must not apply.
+  it("responsive-class 'replace' reports conflict when 'from' does not match the current utility at that prefix", () => {
+    // from="text-xl" but the current md: font-size utility is "text-sm" — the
+    // guard must reject the edit instead of silently overwriting it.
     const src = html("md:text-sm");
     const result = applyVisualEdit(
       src,
@@ -241,49 +240,42 @@ describe("replace honoring 'from' (Edge 3)", () => {
         target: TARGET,
         prefix: "md",
         operation: "replace",
-        // `from` guard: only replace if current md:text-* utility is text-xl
         utility: "text-lg",
-        stem: "font-size",
-        // The from guard — this field needs to be honoured.
-        // We express it here; the fix must plumb it through.
-      } as Parameters<typeof applyVisualEdit>[1] & { from?: string },
+        from: "text-xl",
+      },
       { source: SOURCE },
     );
-    // Without the fix this would apply the edit even though the guard fails.
-    // After the fix it must be a no-op.
-    // NOTE: The from guard is expressed via the class intent path (kind="class"
-    // with operation="replace"), not directly on responsive-class.  The correct
-    // fix is at the scopeClassIntentToBreakpoint conversion layer.
-    // This assertion documents the desired invariant; if the current engine
-    // does not support a from guard on responsive-class edits, we document that
-    // clearly.
-    //
-    // For now we assert the current behaviour (no from guard on responsive-class
-    // intents) and mark this sub-case as informational.
-    // The real guarded path is through kind="class" + operation="replace" +
-    // activeBreakpoint; see the next test.
-    expect(result.result).toBeDefined();
+    expect(result.result.status).toBe("conflict");
+    expect(result.result.changed).toBe(false);
+    expect(result.content).toBe(src);
+  });
+
+  it("responsive-class 'replace' applies when 'from' matches the current utility at that prefix", () => {
+    const src = html("md:text-sm");
+    const result = applyVisualEdit(
+      src,
+      {
+        kind: "responsive-class",
+        target: TARGET,
+        prefix: "md",
+        operation: "replace",
+        utility: "text-lg",
+        from: "text-sm",
+      },
+      { source: SOURCE },
+    );
+    expect(result.result.status).toBe("applied");
+    expect(result.result.changed).toBe(true);
+    const afterClasses = result.result.after?.classes ?? [];
+    expect(afterClasses).toContain("md:text-lg");
+    expect(afterClasses).not.toContain("md:text-sm");
   });
 
   it("class 'replace' scoped to a breakpoint via activeBreakpoint is a no-op when 'from' does not match the current token at that prefix", () => {
     // Simulate what apply-visual-edit action does when activeBreakpoint is set:
-    // it calls scopeClassIntentToBreakpoint which converts the class intent to
-    // a responsive-class intent, dropping the `from` field in the process.
-    // This test documents that the converted path does NOT honour `from`, which
-    // is the bug.  After the fix, a from guard on a breakpoint-scoped replace
-    // must either: (a) be preserved in the converted intent and checked, or
-    // (b) cause the edit to short-circuit before conversion.
-    //
-    // We test the lower-level conversion: applyVisualEdit with kind="responsive-class"
-    // plus a `from` field.  The engine must not mutate content when from doesn't match.
+    // it calls scopeClassIntentToBreakpoint which now threads `from` through
+    // into the converted responsive-class intent, so the guard above kicks in.
     const src = html("md:text-sm");
-    // kind="class" replace with from="text-xl" targeting breakpoint "md"
-    // The current code (scopeClassIntentToBreakpoint) drops `from` when converting
-    // to responsive-class, so it will apply the edit anyway.
-    // We encode the intent at the class level and the fix must propagate `from`.
-    //
-    // Since we are testing code-layer.ts directly (not the action), we construct
-    // a class intent with from and check the result.
     const result = applyVisualEdit(
       src,
       {

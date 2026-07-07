@@ -18,6 +18,8 @@ interface ContentPart {
   argsText?: string;
   args?: Record<string, string>;
   result?: string;
+  isError?: boolean;
+  completedSideEffect?: boolean;
   mcpApp?: AgentMcpAppPayload;
   chatUI?: ActionChatUIConfig;
 }
@@ -124,8 +126,7 @@ export function buildAssistantMessage(
 
   for (const { event } of events) {
     if (event.type === "clear") {
-      content.length = 0;
-      toolCallCounter = 0;
+      clearAssistantDraftContent(content);
       continue;
     }
 
@@ -159,6 +160,10 @@ export function buildAssistantMessage(
           part.result === undefined
         ) {
           part.result = event.result ?? "";
+          if (event.isError !== undefined) part.isError = event.isError;
+          if (event.completedSideEffect !== undefined) {
+            part.completedSideEffect = event.completedSideEffect;
+          }
           if (event.mcpApp) part.mcpApp = event.mcpApp;
           if (event.chatUI) part.chatUI = event.chatUI;
           break;
@@ -244,6 +249,20 @@ export function buildAssistantMessage(
       : { type: "complete" as const, reason: "stop" as const },
     metadata,
   };
+}
+
+function clearAssistantDraftContent(content: ContentPart[]): void {
+  for (let index = content.length - 1; index >= 0; index--) {
+    const part = content[index];
+    if (!part) continue;
+    if (part.type === "text") {
+      content.splice(index, 1);
+      continue;
+    }
+    if (part.type === "tool-call" && part.result === undefined) {
+      content.splice(index, 1);
+    }
+  }
 }
 
 function getStoredMessage(entry: any): any {

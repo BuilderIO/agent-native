@@ -17,6 +17,11 @@ import {
 } from "@agent-native/core/sharing";
 import { and, asc, desc, eq, gte, isNull, lt, lte, or, sql } from "drizzle-orm";
 
+import {
+  isFailedSessionReplayNetworkStatus,
+  SESSION_REPLAY_CONSOLE_EVENT_TAG,
+  SESSION_REPLAY_NETWORK_EVENT_TAG,
+} from "../../shared/session-replay-diagnostics.js";
 import { getDb, schema } from "../db/index.js";
 import { resolveAnalyticsEventDimensions } from "./first-party-analytics.js";
 
@@ -100,6 +105,7 @@ export interface ParsedSessionReplayIngest {
   template: string | null;
   pageCount: number;
   errorCount: number;
+  networkErrorCount: number;
   rageClickCount: number;
   privacyMode: string;
   status: "active" | "completed";
@@ -122,6 +128,7 @@ export interface SessionRecordingSummary {
   totalBytes: number;
   pageCount: number;
   errorCount: number;
+  networkErrorCount: number;
   rageClickCount: number;
   privacyMode: string;
   firstUrl: string | null;
@@ -144,6 +151,72 @@ export interface SessionRecordingSummary {
   canManage?: boolean;
 }
 
+export interface AgentSessionRecordingSummary {
+  id: string;
+  clientRecordingId: string;
+  sessionId: string;
+  userId: string | null;
+  anonymousId: string | null;
+  userKey: string | null;
+  startedAt: string;
+  endedAt: string | null;
+  durationMs: number | null;
+  chunkCount: number;
+  eventCount: number;
+  totalBytes: number;
+  pageCount: number;
+  errorCount: number;
+  networkErrorCount: number;
+  rageClickCount: number;
+  privacyMode: string;
+  firstUrl: string | null;
+  lastUrl: string | null;
+  path: string | null;
+  hostname: string | null;
+  referrer: string | null;
+  app: string | null;
+  template: string | null;
+  status: "active" | "completed";
+  createdAt: string;
+  updatedAt: string;
+  lastIngestedAt: string | null;
+}
+
+export function compactSessionRecordingSummary(
+  recording: SessionRecordingSummary,
+): AgentSessionRecordingSummary {
+  return {
+    id: recording.id,
+    clientRecordingId: recording.clientRecordingId,
+    sessionId: recording.sessionId,
+    userId: recording.userId,
+    anonymousId: recording.anonymousId,
+    userKey: recording.userKey,
+    startedAt: recording.startedAt,
+    endedAt: recording.endedAt,
+    durationMs: recording.durationMs,
+    chunkCount: recording.chunkCount,
+    eventCount: recording.eventCount,
+    totalBytes: recording.totalBytes,
+    pageCount: recording.pageCount,
+    errorCount: recording.errorCount,
+    networkErrorCount: recording.networkErrorCount,
+    rageClickCount: recording.rageClickCount,
+    privacyMode: recording.privacyMode,
+    firstUrl: recording.firstUrl,
+    lastUrl: recording.lastUrl,
+    path: recording.path,
+    hostname: recording.hostname,
+    referrer: recording.referrer,
+    app: recording.app,
+    template: recording.template,
+    status: recording.status,
+    createdAt: recording.createdAt,
+    updatedAt: recording.updatedAt,
+    lastIngestedAt: recording.lastIngestedAt,
+  };
+}
+
 const MAX_REPLAY_CHUNKS_PER_REQUEST = 20;
 const MAX_REPLAY_CHUNKS_PER_RECORDING = 2_000;
 const MAX_INLINE_REPLAY_CHUNK_BYTES = 256 * 1024;
@@ -151,8 +224,10 @@ const MAX_BLOB_REPLAY_CHUNK_BYTES = 5 * 1024 * 1024;
 const MAX_REPLAY_BLOB_REF_LENGTH = 16 * 1024;
 const MAX_REPLAY_METADATA_BYTES = 16 * 1024;
 const MAX_REPLAY_EVENTS_PER_CHUNK = 1_000;
-const MAX_REPLAY_EVENTS_READ = 10_000;
-const MAX_REPLAY_EVENTS_RESPONSE_BYTES = 2 * 1024 * 1024;
+const DEFAULT_REPLAY_EVENTS_READ = 10_000;
+const MAX_REPLAY_EVENTS_READ = 100_000;
+const MAX_REPLAY_EVENTS_RESPONSE_BYTES =
+  MAX_BLOB_REPLAY_CHUNK_BYTES + 512 * 1024;
 const DEFAULT_SESSION_RECORDINGS_LIMIT = 50;
 const MAX_SESSION_RECORDINGS_LIMIT = 100;
 const DEFAULT_REPLAY_RETENTION_DAYS = 30;
@@ -273,6 +348,53 @@ function replayMaxIso(values: Array<string | null | undefined>): string | null {
   const present = values.filter((value): value is string => Boolean(value));
   if (!present.length) return null;
   return present.reduce((max, value) => (value > max ? value : max));
+}
+
+function replayClampIso(
+  value: string | null | undefined,
+  latestIso: string,
+): string | null {
+  if (!value) return null;
+  const parsed = Date.parse(value);
+  const latest = Date.parse(latestIso);
+  if (!Number.isFinite(parsed)) return null;
+  if (!Number.isFinite(latest)) return value;
+  return parsed > latest ? latestIso : value;
+}
+
+function clampReplayChunkTiming(
+  chunk: NormalizedSessionReplayChunk,
+  latestIso: string,
+): NormalizedSessionReplayChunk {
+  const startedAt = replayClampIso(chunk.startedAt, latestIso);
+  let endedAt = replayClampIso(chunk.endedAt, latestIso);
+  if (startedAt && endedAt && endedAt < startedAt) {
+    endedAt = startedAt;
+  }
+  return { ...chunk, startedAt, endedAt };
+}
+
+function clampReplayIngestTiming(
+  input: ParsedSessionReplayIngest,
+  latestIso: string,
+): ParsedSessionReplayIngest {
+  const chunks = input.chunks.map((chunk) =>
+    clampReplayChunkTiming(chunk, latestIso),
+  );
+  const startedAt =
+    replayMinIso([
+      replayClampIso(input.startedAt, latestIso),
+      ...chunks.map((chunk) => chunk.startedAt),
+    ]) ?? latestIso;
+  let endedAt = replayMaxIso([
+    replayClampIso(input.endedAt, latestIso),
+    ...chunks.map((chunk) => chunk.endedAt),
+  ]);
+  if (endedAt && endedAt < startedAt) endedAt = startedAt;
+  const durationMs = endedAt
+    ? Math.max(0, Date.parse(endedAt) - Date.parse(startedAt))
+    : input.durationMs;
+  return { ...input, startedAt, endedAt, durationMs, chunks };
 }
 
 function normalizeReplayUrl(url: string | null): {
@@ -503,6 +625,12 @@ async function storeReplayChunkBlob(
         503,
       );
     }
+    if (chunk.byteLength > MAX_INLINE_REPLAY_CHUNK_BYTES) {
+      throw replayError(
+        "Session replay chunk is too large for inline SQL fallback. Configure private blob storage for full snapshot playback.",
+        503,
+      );
+    }
     warnInlineReplayFallback();
     return chunk;
   }
@@ -543,10 +671,7 @@ function normalizeReplayChunk(rawValue: unknown): NormalizedSessionReplayChunk {
     storageKind === "inline"
       ? Buffer.byteLength(inlineData ?? "", "utf8")
       : (replayInteger(raw.byteLength ?? raw.bytes) ?? 0);
-  const maxBytes =
-    storageKind === "inline"
-      ? MAX_INLINE_REPLAY_CHUNK_BYTES
-      : MAX_BLOB_REPLAY_CHUNK_BYTES;
+  const maxBytes = MAX_BLOB_REPLAY_CHUNK_BYTES;
   if (byteLength <= 0 || byteLength > maxBytes) {
     throw replayError(
       `Replay ${storageKind} chunks must be between 1 and ${maxBytes} bytes`,
@@ -624,6 +749,28 @@ function inlineEventsForSignals(
   return events;
 }
 
+function replayDiagnosticsTag(event: unknown): {
+  tag: string;
+  payload: Record<string, unknown>;
+} | null {
+  const record = replayRecord(event);
+  if (replayInteger(record.type) !== 5) return null;
+  const data = replayRecord(record.data);
+  const tag = replayString(data.tag);
+  if (
+    tag !== SESSION_REPLAY_CONSOLE_EVENT_TAG &&
+    tag !== SESSION_REPLAY_NETWORK_EVENT_TAG
+  ) {
+    return null;
+  }
+  return { tag, payload: replayRecord(data.payload) };
+}
+
+function replayConsoleRepeat(payload: Record<string, unknown>): number {
+  const repeat = replayInteger(payload.repeat);
+  return repeat !== null && repeat > 0 ? repeat : 1;
+}
+
 function deriveReplaySignals({
   body,
   metadata,
@@ -637,19 +784,42 @@ function deriveReplaySignals({
 }): {
   pageCount: number;
   errorCount: number;
+  networkErrorCount: number;
   rageClickCount: number;
   privacyMode: string;
 } {
   const events = inlineEventsForSignals(chunks);
   const pages = new Set<string>();
   if (url) pages.add(url);
-  let detectedErrors = 0;
+  let heuristicErrors = 0;
+  let taggedConsoleErrors = 0;
+  let taggedNetworkErrors = 0;
+  let hasTaggedDiagnostics = false;
 
   for (const event of events) {
     const record = replayRecord(event);
     const data = replayRecord(record.data);
     const href = replayString(data.href ?? data.url);
     if (href) pages.add(href);
+
+    const tagged = replayDiagnosticsTag(event);
+    if (tagged) {
+      // Tagged diagnostics are the real signal; never let the substring
+      // heuristic below double-count these same events.
+      hasTaggedDiagnostics = true;
+      if (tagged.tag === SESSION_REPLAY_CONSOLE_EVENT_TAG) {
+        if (replayString(tagged.payload.level) === "error") {
+          taggedConsoleErrors += replayConsoleRepeat(tagged.payload);
+        }
+      } else {
+        const status = replayInteger(tagged.payload.status);
+        if (status !== null && isFailedSessionReplayNetworkStatus(status)) {
+          taggedNetworkErrors += 1;
+        }
+      }
+      continue;
+    }
+
     const source = `${replayString(record.type) ?? ""} ${
       replayString(data.type) ?? ""
     } ${replayString(data.message) ?? ""}`.toLowerCase();
@@ -658,9 +828,16 @@ function deriveReplaySignals({
       source.includes("exception") ||
       source.includes("unhandledrejection")
     ) {
-      detectedErrors += 1;
+      heuristicErrors += 1;
     }
   }
+
+  // The substring heuristic predates tagged console/network capture. Once any
+  // tagged diagnostics event is present the recorder is diagnostics-aware, so
+  // the tagged counts are authoritative and the heuristic stays off.
+  const detectedErrors = hasTaggedDiagnostics
+    ? taggedConsoleErrors
+    : heuristicErrors;
 
   return {
     pageCount:
@@ -669,6 +846,12 @@ function deriveReplaySignals({
     errorCount:
       numberFrom(body.errorCount, body.error_count, metadata.errorCount) ??
       detectedErrors,
+    networkErrorCount:
+      numberFrom(
+        body.networkErrorCount,
+        body.network_error_count,
+        metadata.networkErrorCount,
+      ) ?? taggedNetworkErrors,
     rageClickCount:
       numberFrom(
         body.rageClickCount,
@@ -803,6 +986,7 @@ export function parseSessionReplayIngestPayload(
     template,
     pageCount: signals.pageCount,
     errorCount: signals.errorCount,
+    networkErrorCount: signals.networkErrorCount,
     rageClickCount: signals.rageClickCount,
     privacyMode: signals.privacyMode,
     status,
@@ -960,6 +1144,7 @@ function rowToSessionRecordingSummary(
     totalBytes: row.totalBytes ?? 0,
     pageCount: row.pageCount ?? 0,
     errorCount: row.errorCount ?? 0,
+    networkErrorCount: row.networkErrorCount ?? 0,
     rageClickCount: row.rageClickCount ?? 0,
     privacyMode: row.privacyMode ?? "unknown",
     firstUrl: row.firstUrl ?? null,
@@ -1101,7 +1286,8 @@ export async function recordSessionReplayChunks(
 }> {
   const key = await resolveReplayPublicKey(input.publicKey, context);
   const db = getDb() as any;
-  const ingestedAt = replayNowIso();
+  const ingestedAt = replayTimestamp(context.now) ?? replayNowIso();
+  const clampedInput = clampReplayIngestTiming(input, ingestedAt);
 
   let [recording] = await db
     .select()
@@ -1109,7 +1295,10 @@ export async function recordSessionReplayChunks(
     .where(
       and(
         eq(schema.sessionRecordings.publicKeyId, key.id),
-        eq(schema.sessionRecordings.clientRecordingId, input.clientRecordingId),
+        eq(
+          schema.sessionRecordings.clientRecordingId,
+          clampedInput.clientRecordingId,
+        ),
       ),
     )
     .limit(1);
@@ -1121,27 +1310,28 @@ export async function recordSessionReplayChunks(
       .values({
         id: newRecordingId,
         publicKeyId: key.id,
-        clientRecordingId: input.clientRecordingId,
-        sessionId: input.sessionId,
-        userId: input.userId,
-        anonymousId: input.anonymousId,
-        userKey: input.userKey,
-        startedAt: input.startedAt,
-        endedAt: input.endedAt,
-        durationMs: input.durationMs,
-        pageCount: input.pageCount,
-        errorCount: input.errorCount,
-        rageClickCount: input.rageClickCount,
-        privacyMode: input.privacyMode,
-        firstUrl: input.url,
-        lastUrl: input.url,
-        path: input.path,
-        hostname: input.hostname,
-        referrer: input.referrer,
-        app: input.app,
-        template: input.template,
-        status: input.status,
-        metadata: JSON.stringify(input.metadata),
+        clientRecordingId: clampedInput.clientRecordingId,
+        sessionId: clampedInput.sessionId,
+        userId: clampedInput.userId,
+        anonymousId: clampedInput.anonymousId,
+        userKey: clampedInput.userKey,
+        startedAt: clampedInput.startedAt,
+        endedAt: clampedInput.endedAt,
+        durationMs: clampedInput.durationMs,
+        pageCount: clampedInput.pageCount,
+        errorCount: clampedInput.errorCount,
+        networkErrorCount: clampedInput.networkErrorCount,
+        rageClickCount: clampedInput.rageClickCount,
+        privacyMode: clampedInput.privacyMode,
+        firstUrl: clampedInput.url,
+        lastUrl: clampedInput.url,
+        path: clampedInput.path,
+        hostname: clampedInput.hostname,
+        referrer: clampedInput.referrer,
+        app: clampedInput.app,
+        template: clampedInput.template,
+        status: clampedInput.status,
+        metadata: JSON.stringify(clampedInput.metadata),
         lastIngestedAt: ingestedAt,
         ownerEmail: key.ownerEmail,
         orgId: key.orgId,
@@ -1162,7 +1352,7 @@ export async function recordSessionReplayChunks(
           eq(schema.sessionRecordings.publicKeyId, key.id),
           eq(
             schema.sessionRecordings.clientRecordingId,
-            input.clientRecordingId,
+            clampedInput.clientRecordingId,
           ),
         ),
       )
@@ -1193,7 +1383,7 @@ export async function recordSessionReplayChunks(
     existingChunks.length === 0;
 
   try {
-    for (const rawChunk of input.chunks) {
+    for (const rawChunk of clampedInput.chunks) {
       const existing = existingBySeq.get(rawChunk.seq);
       if (existing) {
         if (existing.checksum !== rawChunk.checksum) {
@@ -1272,13 +1462,15 @@ export async function recordSessionReplayChunks(
     id: replayId("sri"),
     publicKeyId: key.id,
     recordingId: recording.id,
-    byteLength: replayIngestByteLength(input, context),
+    byteLength: replayIngestByteLength(clampedInput, context),
     createdAt: ingestedAt,
     ownerEmail: key.ownerEmail,
     orgId: key.orgId,
   });
 
-  const allChunks = [...existingChunks, ...rowsToInsert];
+  const allChunks = [...existingChunks, ...rowsToInsert].map((chunk: any) =>
+    clampReplayChunkTiming(chunk, ingestedAt),
+  );
   const chunkCount = allChunks.length;
   const eventCount = allChunks.reduce(
     (sum, chunk: any) => sum + Number(chunk.eventCount ?? 0),
@@ -1291,57 +1483,67 @@ export async function recordSessionReplayChunks(
   const startedAt =
     replayMinIso([
       recording.startedAt,
-      input.startedAt,
+      clampedInput.startedAt,
       ...allChunks.map((chunk: any) => chunk.startedAt),
-    ]) ?? input.startedAt;
+    ]) ?? clampedInput.startedAt;
   const endedAt =
     replayMaxIso([
       recording.endedAt,
-      input.endedAt,
+      clampedInput.endedAt,
       ...allChunks.map((chunk: any) => chunk.endedAt),
     ]) ?? null;
   const durationMs =
-    input.durationMs ??
+    clampedInput.durationMs ??
     (endedAt
       ? Math.max(0, Date.parse(endedAt) - Date.parse(startedAt))
       : (recording.durationMs ?? null));
   const metadata = mergeReplayMetadata(
     parseRecordingMetadata(recording),
-    input.metadata,
+    clampedInput.metadata,
   );
 
   await db
     .update(schema.sessionRecordings)
     .set({
-      sessionId: input.sessionId,
-      userId: input.userId ?? recording.userId ?? null,
-      anonymousId: input.anonymousId ?? recording.anonymousId ?? null,
-      userKey: input.userKey ?? recording.userKey ?? null,
+      sessionId: clampedInput.sessionId,
+      userId: clampedInput.userId ?? recording.userId ?? null,
+      anonymousId: clampedInput.anonymousId ?? recording.anonymousId ?? null,
+      userKey: clampedInput.userKey ?? recording.userKey ?? null,
       startedAt,
       endedAt,
       durationMs,
       chunkCount,
       eventCount,
       totalBytes,
-      pageCount: Math.max(Number(recording.pageCount ?? 0), input.pageCount),
-      errorCount: Math.max(Number(recording.errorCount ?? 0), input.errorCount),
+      pageCount: Math.max(
+        Number(recording.pageCount ?? 0),
+        clampedInput.pageCount,
+      ),
+      errorCount: Math.max(
+        Number(recording.errorCount ?? 0),
+        clampedInput.errorCount,
+      ),
+      networkErrorCount: Math.max(
+        Number(recording.networkErrorCount ?? 0),
+        clampedInput.networkErrorCount,
+      ),
       rageClickCount: Math.max(
         Number(recording.rageClickCount ?? 0),
-        input.rageClickCount,
+        clampedInput.rageClickCount,
       ),
       privacyMode:
-        input.privacyMode !== "unknown"
-          ? input.privacyMode
+        clampedInput.privacyMode !== "unknown"
+          ? clampedInput.privacyMode
           : (recording.privacyMode ?? "unknown"),
-      firstUrl: recording.firstUrl ?? input.url,
-      lastUrl: input.url ?? recording.lastUrl ?? null,
-      path: input.path ?? recording.path ?? null,
-      hostname: input.hostname ?? recording.hostname ?? null,
-      referrer: input.referrer ?? recording.referrer ?? null,
-      app: input.app ?? recording.app ?? null,
-      template: input.template ?? recording.template ?? null,
+      firstUrl: recording.firstUrl ?? clampedInput.url,
+      lastUrl: clampedInput.url ?? recording.lastUrl ?? null,
+      path: clampedInput.path ?? recording.path ?? null,
+      hostname: clampedInput.hostname ?? recording.hostname ?? null,
+      referrer: clampedInput.referrer ?? recording.referrer ?? null,
+      app: clampedInput.app ?? recording.app ?? null,
+      template: clampedInput.template ?? recording.template ?? null,
       status:
-        input.status === "completed" || recording.status === "completed"
+        clampedInput.status === "completed" || recording.status === "completed"
           ? "completed"
           : "active",
       metadata: JSON.stringify(metadata),
@@ -1364,7 +1566,7 @@ export async function recordSessionReplayChunks(
 
   return {
     recordingId: recording.id,
-    sessionId: input.sessionId,
+    sessionId: clampedInput.sessionId,
     acceptedChunks: rowsToInsert.length,
     duplicateChunks,
     chunkCount,
@@ -1461,6 +1663,22 @@ export async function getSessionReplaySummary(
   return rowToSessionRecordingSummary(access.resource, access.role);
 }
 
+export async function getSessionReplayTokenizedSummary(
+  recordingId: string,
+): Promise<SessionRecordingSummary> {
+  const db = getDb() as any;
+  // guard:allow-unscoped -- called only after verifySessionReplayAgentAccess(recordingId, token) verifies a signed, recording-scoped agent_access token.
+  const [row] = await db
+    .select()
+    .from(schema.sessionRecordings)
+    .where(eq(schema.sessionRecordings.id, recordingId))
+    .limit(1);
+  if (!row || !isVisibleSessionRecording(row)) {
+    throw replayError("Session recording not found", 404);
+  }
+  return rowToSessionRecordingSummary(row, "viewer");
+}
+
 function parseInlineReplayEvents(inlineData: string): unknown[] {
   try {
     const parsed = JSON.parse(inlineData);
@@ -1500,8 +1718,47 @@ export async function getSessionReplayManifest(
   }>;
 }> {
   const recording = await getSessionReplaySummary(recordingId, scope);
+  return getSessionReplayManifestForRecording(recording);
+}
+
+export async function getSessionReplayTokenizedManifest(
+  recordingId: string,
+): Promise<{
+  recording: AgentSessionRecordingSummary;
+  chunks: Array<{
+    seq: number;
+    checksum: string;
+    byteLength: number;
+    eventCount: number;
+    startedAt: string | null;
+    endedAt: string | null;
+    bytesPath: string;
+  }>;
+}> {
+  const recording = await getSessionReplayTokenizedSummary(recordingId);
+  const manifest = await getSessionReplayManifestForRecording(recording);
+  return {
+    ...manifest,
+    recording: compactSessionRecordingSummary(manifest.recording),
+  };
+}
+
+async function getSessionReplayManifestForRecording(
+  recording: SessionRecordingSummary,
+): Promise<{
+  recording: SessionRecordingSummary;
+  chunks: Array<{
+    seq: number;
+    checksum: string;
+    byteLength: number;
+    eventCount: number;
+    startedAt: string | null;
+    endedAt: string | null;
+    bytesPath: string;
+  }>;
+}> {
   const db = getDb() as any;
-  // guard:allow-unscoped -- chunk rows are loaded only after resolveAccess("session-recording", recordingId) verifies viewer access; chunks are not directly shareable resources.
+  // guard:allow-unscoped -- chunk rows are loaded only after resolveAccess("session-recording", recordingId) or a scoped agent token verifies access; chunks are not directly shareable resources.
   const rows = await db
     .select()
     .from(schema.sessionReplayChunks)
@@ -1532,11 +1789,43 @@ export async function readSessionReplayChunkBytes(
   recording: SessionRecordingSummary;
   seq: number;
   checksum: string;
-  data: Buffer;
+  /** Decompressed replay-chunk JSON text (a serialized rrweb events array). */
+  json: string;
 }> {
   const recording = await getSessionReplaySummary(recordingId, scope);
+  return readSessionReplayChunkBytesForRecording(recording, seq);
+}
+
+export async function readSessionReplayTokenizedChunkBytes(
+  recordingId: string,
+  seq: number,
+): Promise<{
+  recording: AgentSessionRecordingSummary;
+  seq: number;
+  checksum: string;
+  /** Decompressed replay-chunk JSON text (a serialized rrweb events array). */
+  json: string;
+}> {
+  const recording = await getSessionReplayTokenizedSummary(recordingId);
+  const chunk = await readSessionReplayChunkBytesForRecording(recording, seq);
+  return {
+    ...chunk,
+    recording: compactSessionRecordingSummary(chunk.recording),
+  };
+}
+
+async function readSessionReplayChunkBytesForRecording(
+  recording: SessionRecordingSummary,
+  seq: number,
+): Promise<{
+  recording: SessionRecordingSummary;
+  seq: number;
+  checksum: string;
+  /** Decompressed replay-chunk JSON text (a serialized rrweb events array). */
+  json: string;
+}> {
   const db = getDb() as any;
-  // guard:allow-unscoped -- chunk rows are loaded only after resolveAccess("session-recording", recordingId) verifies viewer access; chunks are not directly shareable resources.
+  // guard:allow-unscoped -- chunk rows are loaded only after resolveAccess("session-recording", recordingId) or a scoped agent token verifies access; chunks are not directly shareable resources.
   const [row] = await db
     .select()
     .from(schema.sessionReplayChunks)
@@ -1549,6 +1838,12 @@ export async function readSessionReplayChunkBytes(
     .limit(1);
   if (!row) throw replayError("Session replay chunk not found", 404);
 
+  // Return decompressed JSON and let normal Accept-Encoding negotiation handle
+  // wire compression. We intentionally do NOT hand back a pre-gzipped body with
+  // a manual `Content-Encoding: gzip` header: serverless hosts (Netlify) mangle
+  // binary function bodies and re-negotiate compression, which corrupted replay
+  // chunk downloads in production and left the player blank. Storing gzip at
+  // rest is unchanged — we just gunzip before serving.
   if (row.storageKind === "blob" && row.storageRef) {
     const ref = decodeReplayBlobRef(row.storageRef);
     if (!ref)
@@ -1558,7 +1853,7 @@ export async function readSessionReplayChunkBytes(
       recording,
       seq: row.seq,
       checksum: row.checksum,
-      data: Buffer.from(blob.data),
+      json: gunzipSync(Buffer.from(blob.data)).toString("utf8"),
     };
   }
   if (!row.inlineData)
@@ -1567,7 +1862,7 @@ export async function readSessionReplayChunkBytes(
     recording,
     seq: row.seq,
     checksum: row.checksum,
-    data: gzipSync(Buffer.from(row.inlineData, "utf8")),
+    json: row.inlineData,
   };
 }
 
@@ -1590,9 +1885,54 @@ export async function getSessionReplayEvents(
   unavailableChunks: number;
 }> {
   const recording = await getSessionReplaySummary(recordingId, scope);
+  return getSessionReplayEventsForRecording(recording, options);
+}
+
+export async function getSessionReplayTokenizedEvents(
+  recordingId: string,
+  options: SessionReplayEventReadOptions = {},
+): Promise<{
+  recording: AgentSessionRecordingSummary;
+  chunks: Array<{
+    seq: number;
+    checksum: string;
+    byteLength: number;
+    eventCount: number;
+    events: unknown[];
+    unavailable?: boolean;
+  }>;
+  eventCount: number;
+  truncated: boolean;
+  unavailableChunks: number;
+}> {
+  const recording = await getSessionReplayTokenizedSummary(recordingId);
+  const result = await getSessionReplayEventsForRecording(recording, options);
+  return {
+    ...result,
+    recording: compactSessionRecordingSummary(result.recording),
+  };
+}
+
+async function getSessionReplayEventsForRecording(
+  recording: SessionRecordingSummary,
+  options: SessionReplayEventReadOptions = {},
+): Promise<{
+  recording: SessionRecordingSummary;
+  chunks: Array<{
+    seq: number;
+    checksum: string;
+    byteLength: number;
+    eventCount: number;
+    events: unknown[];
+    unavailable?: boolean;
+  }>;
+  eventCount: number;
+  truncated: boolean;
+  unavailableChunks: number;
+}> {
   const maxEvents = Math.min(
     MAX_REPLAY_EVENTS_READ,
-    Math.max(1, options.limit ?? MAX_REPLAY_EVENTS_READ),
+    Math.max(1, options.limit ?? DEFAULT_REPLAY_EVENTS_READ),
   );
   const conditions: any[] = [
     eq(schema.sessionReplayChunks.recordingId, recording.id),
@@ -1605,7 +1945,7 @@ export async function getSessionReplayEvents(
   }
 
   const db = getDb() as any;
-  // guard:allow-unscoped -- chunk rows are loaded only after resolveAccess("session-recording", recordingId) verifies viewer access; chunks are not directly shareable resources.
+  // guard:allow-unscoped -- chunk rows are loaded only after resolveAccess("session-recording", recordingId) or a scoped agent token verifies access; chunks are not directly shareable resources.
   const rows = await db
     .select()
     .from(schema.sessionReplayChunks)

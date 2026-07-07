@@ -5,6 +5,7 @@ import {
   isElectron,
   getAppUrl,
   resolveGoogleSignInCredentials,
+  resolveGoogleProviderCredentials,
   resolveOAuthRedirectUri,
   encodeOAuthState,
   decodeOAuthState,
@@ -74,8 +75,8 @@ async function resolveCalendarOAuthCredentials(event: H3Event) {
       clientSecret: await resolveSecret("GOOGLE_CLIENT_SECRET"),
     }),
   );
-  if (!clientId || !clientSecret) return null;
-  return { clientId, clientSecret };
+  if (clientId && clientSecret) return { clientId, clientSecret };
+  return resolveGoogleProviderCredentials();
 }
 
 function isCalendarConnectRequest(
@@ -393,15 +394,18 @@ export const handleGoogleCallback = defineEventHandler(
       // sight of the tokens that were saved under the original owner.
       const isAddAccount =
         addAccount || (owner !== undefined && email !== owner);
-      const { sessionToken } = isAddAccount
-        ? { sessionToken: undefined }
-        : await createOAuthSession(event, email, {
+      const sessionOwner = isAddAccount ? (owner ?? email) : email;
+      const shouldCreateSession =
+        !isAddAccount || (desktop && flowId && sessionOwner);
+      const { sessionToken } = shouldCreateSession
+        ? await createOAuthSession(event, sessionOwner, {
             hasProductionSession,
             desktop,
-          });
+          })
+        : { sessionToken: undefined };
 
       if (flowId && sessionToken) {
-        setDesktopExchange(flowId, sessionToken, email);
+        setDesktopExchange(flowId, sessionToken, sessionOwner);
       }
 
       // 4. Return platform-appropriate response
@@ -523,10 +527,23 @@ export const handleGoogleAddAccountCallback = defineEventHandler(
         ownerEmail,
         session?.orgId ?? stateOrgId,
       );
+      const { sessionToken } =
+        desktop && flowId
+          ? await createOAuthSession(event, ownerEmail, {
+              hasProductionSession: !!session?.email,
+              desktop,
+            })
+          : { sessionToken: undefined };
+
+      if (flowId && sessionToken) {
+        setDesktopExchange(flowId, sessionToken, ownerEmail);
+      }
 
       return oauthCallbackResponse(event, addedEmail, {
+        sessionToken,
         desktop,
         addAccount: true,
+        flowId,
         appName: "Calendar",
       });
     } catch (error: any) {

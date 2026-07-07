@@ -70,6 +70,24 @@ export function buildSignInReturnHref(): string {
   return `${base}?return=${encodeURIComponent(ret)}`;
 }
 
+/**
+ * True when the browser is already sitting on the framework sign-in entry
+ * point. Redirecting to sign-in from here would append the current sign-in
+ * URL as a fresh `?return=`, re-encode it, and navigate again — an infinite
+ * loop of ever-growing `…sign-in?return=%252F…sign-in%253Freturn%253D…` URLs.
+ *
+ * This happens when the authenticated app shell (wrapped in `RequireSession`)
+ * is served at the sign-in path instead of the framework login HTML — e.g.
+ * under a base-path deploy where the SPA shell answers `/<app>/_agent-native/
+ * sign-in`. The sign-in page is the framework's job, not the gate's: never
+ * redirect to ourselves. Compared against `agentNativePath(...)` so it matches
+ * whether or not the app is mounted under a base path.
+ */
+export function isOnSignInPage(): boolean {
+  if (typeof window === "undefined") return false;
+  return window.location.pathname === agentNativePath("/_agent-native/sign-in");
+}
+
 export function RequireSession({
   children,
   fallback,
@@ -83,7 +101,8 @@ export function RequireSession({
   // flight is harmless but noisy.
   const redirectedRef = useRef(false);
 
-  const mustRedirect = !bypass && !isLoading && !session && redirect;
+  const mustRedirect =
+    !bypass && !isLoading && !session && redirect && !isOnSignInPage();
 
   useEffect(() => {
     if (!mustRedirect) return;

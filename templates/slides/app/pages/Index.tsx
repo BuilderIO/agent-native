@@ -5,6 +5,10 @@ import {
   useSession,
   useT,
 } from "@agent-native/core/client";
+import {
+  useSetHeaderActions,
+  useSetPageTitle,
+} from "@agent-native/toolkit/app-shell";
 import { extractGoogleDocUrls } from "@shared/google-docs";
 import { IconPlus, IconStack2, IconUserCircle } from "@tabler/icons-react";
 import { useState, useRef, useCallback, useEffect, useMemo } from "react";
@@ -14,10 +18,6 @@ import { useNavigate, useSearchParams } from "react-router";
 import DeckCard from "@/components/deck/DeckCard";
 import PromptPopover from "@/components/editor/PromptDialog";
 import type { UploadedFile } from "@/components/editor/PromptDialog";
-import {
-  useSetHeaderActions,
-  useSetPageTitle,
-} from "@/components/layout/HeaderActions";
 import {
   AlertDialog,
   AlertDialogAction,

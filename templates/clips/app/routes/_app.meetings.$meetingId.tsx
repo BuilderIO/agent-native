@@ -14,6 +14,7 @@ import {
   IconExternalLink,
   IconLoader2,
   IconNotes,
+  IconPlayerStop,
   IconShare3,
   IconTrash,
   IconUsers,
@@ -347,9 +348,13 @@ export default function MeetingDetailRoute() {
   const updateMeeting = useActionMutation<any, any>("update-meeting");
   const deleteMeeting = useActionMutation<any, any>("delete-meeting");
   const finalize = useActionMutation<any, any>("finalize-meeting");
+  const stopMeetingRecording = useActionMutation<any, any>(
+    "stop-meeting-recording",
+  );
   const { isDesktopApp } = useDesktopPromo();
   const [notesJustArrived, setNotesJustArrived] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
+  const [endMeetingOpen, setEndMeetingOpen] = useState(false);
   const [transcriptCopied, setTranscriptCopied] = useState(false);
   const previousHasNotesRef = useRef(false);
   const autoFinalizedRef = useRef(false);
@@ -427,6 +432,26 @@ export default function MeetingDetailRoute() {
     previousHasNotesRef.current = hasNotes;
   }, [hasNotes]);
 
+  // Live "time remaining" countdown (Granola parity) — ticks every 30s so it
+  // never needs to be exact to the second; hidden once scheduledEnd passes.
+  const [nowForCountdown, setNowForCountdown] = useState(() => Date.now());
+  useEffect(() => {
+    if (!isLive || !meeting?.scheduledEnd) return;
+    const interval = window.setInterval(
+      () => setNowForCountdown(Date.now()),
+      30_000,
+    );
+    return () => window.clearInterval(interval);
+  }, [isLive, meeting?.scheduledEnd]);
+  const minutesRemaining = useMemo(() => {
+    if (!isLive || !meeting?.scheduledEnd) return null;
+    const endMs = Date.parse(meeting.scheduledEnd);
+    if (Number.isNaN(endMs)) return null;
+    const diffMs = endMs - nowForCountdown;
+    if (diffMs <= 0) return null;
+    return Math.max(1, Math.round(diffMs / 60_000));
+  }, [isLive, meeting?.scheduledEnd, nowForCountdown]);
+
   const patchCachedMeeting = (
     patch: Partial<Meeting> & { actionItemsJson?: ActionItem[] },
   ) => {
@@ -480,9 +505,10 @@ export default function MeetingDetailRoute() {
 
   const handleSeek = (ms: number) => {
     if (!meeting?.recordingId) return;
-    if (typeof window !== "undefined") {
-      window.location.assign(`/r/${meeting.recordingId}?t=${ms}`);
-    }
+    // /r/:recordingId's `t` param is seconds (see parseTimeParam in
+    // r.$recordingId.tsx), while transcript segments use ms timestamps.
+    const seconds = Math.max(0, Math.floor(ms / 1000));
+    navigate(`/r/${meeting.recordingId}?t=${seconds}`);
   };
 
   const handleJumpToSegment = (segmentIndex: number) => {
@@ -498,7 +524,10 @@ export default function MeetingDetailRoute() {
       toast.info(t("meetingDetail.regeneratingNotes"));
     }
     autoFinalizedRef.current = true;
-    finalize.mutate({ meetingId: meeting.id });
+    // force:true — manual regenerate must overwrite even if the server
+    // considers the current notes fresh (contract with finalize-meeting's
+    // concurrent `force` param). Auto-finalize stays without force.
+    finalize.mutate({ meetingId: meeting.id, force: true });
   };
 
   const handleDeleteMeeting = () => {
@@ -516,6 +545,32 @@ export default function MeetingDetailRoute() {
             err instanceof Error
               ? err.message
               : t("meetingDetail.couldNotRemoveMeeting"),
+          );
+        },
+      },
+    );
+  };
+
+  const handleEndMeeting = () => {
+    if (!meeting) return;
+    // Optimistic: flip the live badge off immediately rather than waiting
+    // for the next 2s poll — stop-meeting-recording stamps actualEnd and
+    // flips transcriptStatus server-side.
+    patchCachedMeeting({
+      actualEnd: new Date().toISOString(),
+      transcriptStatus:
+        meeting.transcriptStatus === "in_progress"
+          ? "ready"
+          : meeting.transcriptStatus,
+    });
+    stopMeetingRecording.mutate(
+      { meetingId: meeting.id },
+      {
+        onError: (err: unknown) => {
+          toast.error(
+            err instanceof Error
+              ? err.message
+              : t("meetingDetail.couldNotEndMeeting"),
           );
         },
       },
@@ -625,6 +680,11 @@ export default function MeetingDetailRoute() {
               Live
             </Badge>
           )}
+          {minutesRemaining != null && (
+            <span className="text-xs text-muted-foreground shrink-0">
+              {t("meetingDetail.timeRemaining", { count: minutesRemaining })}
+            </span>
+          )}
         </div>
         <div className="ml-auto flex items-center gap-2">
           {!canEdit ? null : finalize.isPending ? (
@@ -665,6 +725,21 @@ export default function MeetingDetailRoute() {
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end" className="w-44">
+                  {isLive && (
+                    <DropdownMenuItem
+                      onSelect={(event) => {
+                        event.preventDefault();
+                        // Defer opening the second AlertDialog until after
+                        // the dropdown's own close animation/unmount so Radix
+                        // doesn't fight over focus/pointer state between the
+                        // two overlays.
+                        setTimeout(() => setEndMeetingOpen(true), 0);
+                      }}
+                    >
+                      <IconPlayerStop className="mr-2 h-4 w-4" />
+                      {t("meetingDetail.endMeeting")}
+                    </DropdownMenuItem>
+                  )}
                   <DropdownMenuItem
                     onSelect={(event) => {
                       event.preventDefault();
@@ -701,6 +776,35 @@ export default function MeetingDetailRoute() {
                     {deleteMeeting.isPending
                       ? t("meetingDetail.removing")
                       : t("meetingDetail.remove")}
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+          )}
+          {canEdit && isLive && (
+            <AlertDialog open={endMeetingOpen} onOpenChange={setEndMeetingOpen}>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>
+                    {t("meetingDetail.endThisMeeting")}
+                  </AlertDialogTitle>
+                  <AlertDialogDescription>
+                    {t("meetingDetail.endMeetingDescription")}
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel disabled={stopMeetingRecording.isPending}>
+                    {t("meetingDetail.cancel")}
+                  </AlertDialogCancel>
+                  <AlertDialogAction
+                    onClick={(event) => {
+                      event.preventDefault();
+                      setEndMeetingOpen(false);
+                      handleEndMeeting();
+                    }}
+                    disabled={stopMeetingRecording.isPending}
+                  >
+                    {t("meetingDetail.endMeeting")}
                   </AlertDialogAction>
                 </AlertDialogFooter>
               </AlertDialogContent>

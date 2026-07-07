@@ -86,9 +86,14 @@ export async function signA2AToken(
   return jwt.sign(new TextEncoder().encode(secret));
 }
 
+export function shouldPreferGlobalA2ASecret(orgSecret?: string): boolean {
+  return !!process.env.A2A_SECRET?.trim() || !orgSecret;
+}
+
 export class A2AClient {
   private baseUrl: string;
   private apiKey?: string;
+  private apiKeyAttempts: Array<string | undefined>;
   private endpointCandidates: string[] = [];
   private endpointResolved = false;
   private requestTimeoutMs?: number;
@@ -96,7 +101,7 @@ export class A2AClient {
   constructor(
     baseUrl: string,
     apiKey?: string,
-    options?: { requestTimeoutMs?: number },
+    options?: { requestTimeoutMs?: number; fallbackApiKeys?: string[] },
   ) {
     const normalized = baseUrl.replace(/\/$/, "");
     const explicitEndpoint = splitExplicitA2AEndpoint(normalized);
@@ -106,6 +111,10 @@ export class A2AClient {
       this.endpointResolved = true;
     }
     this.apiKey = apiKey;
+    this.apiKeyAttempts = uniqueAuthTokens([
+      apiKey,
+      ...(options?.fallbackApiKeys ?? []),
+    ]);
     this.requestTimeoutMs = options?.requestTimeoutMs;
   }
 
@@ -138,12 +147,20 @@ export class A2AClient {
     }
   }
 
-  private headers(): Record<string, string> {
+  private headers(apiKey = this.apiKey): Record<string, string> {
     const h: Record<string, string> = { "Content-Type": "application/json" };
-    if (this.apiKey) {
-      h["Authorization"] = `Bearer ${this.apiKey}`;
+    if (apiKey) {
+      h["Authorization"] = `Bearer ${apiKey}`;
     }
     return h;
+  }
+
+  private markApiKeySucceeded(apiKey: string | undefined) {
+    this.apiKey = apiKey;
+    this.apiKeyAttempts = uniqueAuthTokens([
+      apiKey,
+      ...this.apiKeyAttempts.filter((token) => token !== apiKey),
+    ]);
   }
 
   private async rpc(
@@ -161,22 +178,32 @@ export class A2AClient {
     let lastError: Error | null = null;
 
     for (const url of this.endpointCandidates) {
-      console.log(`[A2A Client] POST ${url} method=${method}`);
-      const startTime = Date.now();
-      const res = await this.postJson(url, body);
-      console.log(
-        `[A2A Client] Response: ${res.status} in ${Date.now() - startTime}ms`,
-      );
+      for (let i = 0; i < this.apiKeyAttempts.length; i++) {
+        console.log(`[A2A Client] POST ${url} method=${method}`);
+        const startTime = Date.now();
+        const res = await this.postJson(url, body, this.apiKeyAttempts[i]);
+        console.log(
+          `[A2A Client] Response: ${res.status} in ${Date.now() - startTime}ms`,
+        );
 
-      if (res.ok) {
-        this.endpointCandidates = [url];
-        return res.json() as Promise<JsonRpcResponse>;
-      }
+        if (res.ok) {
+          this.endpointCandidates = [url];
+          this.markApiKeySucceeded(this.apiKeyAttempts[i]);
+          return res.json() as Promise<JsonRpcResponse>;
+        }
 
-      const text = await res.text();
-      lastError = new Error(`A2A request failed (${res.status}): ${text}`);
-      if (!shouldTryNextEndpoint(res.status)) {
-        throw lastError;
+        const text = await res.text();
+        lastError = new Error(`A2A request failed (${res.status}): ${text}`);
+        if (
+          i < this.apiKeyAttempts.length - 1 &&
+          isA2AAuthRejectionResponse(res.status, text)
+        ) {
+          continue;
+        }
+        if (!shouldTryNextEndpoint(res.status)) {
+          throw lastError;
+        }
+        break;
       }
     }
 
@@ -309,14 +336,25 @@ export class A2AClient {
     let res: Response | null = null;
     let lastError: Error | null = null;
     for (const candidate of this.endpointCandidates) {
-      res = await this.postJson(candidate, body);
-      if (res.ok) {
-        this.endpointCandidates = [candidate];
+      for (let i = 0; i < this.apiKeyAttempts.length; i++) {
+        res = await this.postJson(candidate, body, this.apiKeyAttempts[i]);
+        if (res.ok) {
+          this.endpointCandidates = [candidate];
+          this.markApiKeySucceeded(this.apiKeyAttempts[i]);
+          break;
+        }
+        const text = await res.text();
+        lastError = new Error(`A2A stream failed (${res.status}): ${text}`);
+        if (
+          i < this.apiKeyAttempts.length - 1 &&
+          isA2AAuthRejectionResponse(res.status, text)
+        ) {
+          continue;
+        }
+        if (!shouldTryNextEndpoint(res.status)) throw lastError;
         break;
       }
-      const text = await res.text();
-      lastError = new Error(`A2A stream failed (${res.status}): ${text}`);
-      if (!shouldTryNextEndpoint(res.status)) throw lastError;
+      if (res?.ok) break;
     }
     if (!res?.ok) {
       throw lastError ?? new Error("No A2A endpoint candidates available");
@@ -379,7 +417,11 @@ export class A2AClient {
     this.endpointCandidates = unique(candidates);
   }
 
-  private async postJson(url: string, body: JsonRpcRequest): Promise<Response> {
+  private async postJson(
+    url: string,
+    body: JsonRpcRequest,
+    apiKey = this.apiKey,
+  ): Promise<Response> {
     const controller = this.requestTimeoutMs
       ? new AbortController()
       : undefined;
@@ -392,7 +434,7 @@ export class A2AClient {
         url,
         {
           method: "POST",
-          headers: this.headers(),
+          headers: this.headers(apiKey),
           body: JSON.stringify(body),
           signal: controller?.signal,
         },
@@ -461,6 +503,27 @@ function unique(values: string[]): string[] {
   return Array.from(new Set(values));
 }
 
+function uniqueAuthTokens(
+  values: Array<string | undefined>,
+): Array<string | undefined> {
+  const result: Array<string | undefined> = [];
+  for (const value of values) {
+    if (result.includes(value)) continue;
+    result.push(value);
+  }
+  if (result.length === 0) result.push(undefined);
+  return result;
+}
+
+function isA2AAuthRejectionResponse(status: number, text: string): boolean {
+  return (
+    status === 401 ||
+    /A2A error \(-32001\): (?:Invalid or expired A2A token|Invalid API key|Authentication required)|Invalid or expired A2A token|Invalid API key|Authentication required/i.test(
+      text,
+    )
+  );
+}
+
 /**
  * One-shot convenience function: send a text message and get a text response.
  *
@@ -489,27 +552,6 @@ export async function callAgent(
     pollIntervalMs?: number;
   },
 ): Promise<string> {
-  let apiKey = opts?.apiKey;
-
-  // Auto-sign with JWT when an A2A secret (org or global) is available and we have a user email
-  if (
-    !apiKey &&
-    opts?.userEmail &&
-    (opts?.orgSecret || process.env.A2A_SECRET)
-  ) {
-    try {
-      apiKey = await signA2AToken(
-        opts.userEmail,
-        opts.orgDomain,
-        opts.orgSecret,
-        { preferGlobalSecret: !opts.orgSecret },
-      );
-    } catch {
-      // Fall back to unsigned call
-    }
-  }
-
-  const client = new A2AClient(url, apiKey);
   const metadata: Record<string, unknown> = {};
   if (opts?.userEmail) metadata.userEmail = opts.userEmail;
   if (opts?.orgDomain) metadata.orgDomain = opts.orgDomain;
@@ -525,39 +567,108 @@ export async function callAgent(
     parts: [{ type: "text", text }],
   };
 
-  let task: Task;
-  if (useAsync) {
+  const apiKeyAttempts = await buildA2AApiKeyAttempts(opts);
+  let lastAuthError: unknown;
+
+  for (let i = 0; i < apiKeyAttempts.length; i++) {
     try {
-      task = await client.sendAndWait(message, {
-        contextId: opts?.contextId,
-        metadata,
-        timeoutMs: opts?.timeoutMs,
-        pollIntervalMs: opts?.pollIntervalMs,
+      const fallbackApiKeys = apiKeyAttempts
+        .slice(i + 1)
+        .filter((token): token is string => token !== undefined);
+      const client = new A2AClient(url, apiKeyAttempts[i], {
+        fallbackApiKeys,
       });
+      let task: Task;
+      if (useAsync) {
+        task = await client.sendAndWait(message, {
+          contextId: opts?.contextId,
+          metadata,
+          timeoutMs: opts?.timeoutMs,
+          pollIntervalMs: opts?.pollIntervalMs,
+        });
+      } else {
+        task = await client.send(message, {
+          contextId: opts?.contextId,
+          metadata,
+        });
+      }
+
+      // Extract text from the response
+      const responseMessage = task.status.message;
+      if (responseMessage) {
+        const textParts = responseMessage.parts
+          .filter((p): p is { type: "text"; text: string } => p.type === "text")
+          .map((p) => p.text);
+        return textParts.join("\n");
+      }
+
+      return "";
     } catch (err) {
       if (err instanceof A2ATaskTimeoutError) {
         const recoverableText = extractRecoverableArtifactText(err.lastTask);
         if (recoverableText) return recoverableText;
       }
+      if (i < apiKeyAttempts.length - 1 && isA2AAuthRejection(err)) {
+        lastAuthError = err;
+        continue;
+      }
       throw err;
     }
-  } else {
-    task = await client.send(message, {
-      contextId: opts?.contextId,
-      metadata,
-    });
   }
 
-  // Extract text from the response
-  const responseMessage = task.status.message;
-  if (responseMessage) {
-    const textParts = responseMessage.parts
-      .filter((p): p is { type: "text"; text: string } => p.type === "text")
-      .map((p) => p.text);
-    return textParts.join("\n");
-  }
-
+  if (lastAuthError) throw lastAuthError;
   return "";
+}
+
+async function buildA2AApiKeyAttempts(opts?: {
+  apiKey?: string;
+  userEmail?: string;
+  orgDomain?: string;
+  orgSecret?: string;
+}): Promise<Array<string | undefined>> {
+  const attempts: Array<string | undefined> = [];
+  const add = (token: string | undefined) => {
+    if (token === undefined || attempts.includes(token)) return;
+    attempts.push(token);
+  };
+
+  add(opts?.apiKey);
+
+  if (opts?.userEmail && (opts.orgSecret || process.env.A2A_SECRET)) {
+    if (process.env.A2A_SECRET?.trim()) {
+      try {
+        add(
+          await signA2AToken(opts.userEmail, opts.orgDomain, opts.orgSecret, {
+            preferGlobalSecret: true,
+          }),
+        );
+      } catch {
+        // Keep any explicit token attempt, then fall back below.
+      }
+    }
+
+    if (opts.orgSecret) {
+      try {
+        add(
+          await signA2AToken(opts.userEmail, opts.orgDomain, opts.orgSecret, {
+            preferGlobalSecret: false,
+          }),
+        );
+      } catch {
+        // Fall through to the attempts we already have.
+      }
+    }
+  }
+
+  if (attempts.length === 0) attempts.push(undefined);
+  return attempts;
+}
+
+function isA2AAuthRejection(err: unknown): boolean {
+  const message = err instanceof Error ? err.message : String(err ?? "");
+  return /A2A request failed \(401\)|A2A error \(-32001\): (?:Invalid or expired A2A token|Invalid API key|Authentication required)|Invalid or expired A2A token|Invalid API key|Authentication required/i.test(
+    message,
+  );
 }
 
 function extractRecoverableArtifactText(task: Task): string {

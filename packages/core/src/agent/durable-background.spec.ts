@@ -6,12 +6,17 @@ import {
   AGENT_BACKGROUND_FUNCTION_URL_PATH,
   AGENT_CHAT_PROCESS_RUN_PATH,
   AGENT_CHAT_BACKGROUND_RUN_FIELD,
+  backgroundRuntimeDiagnosticDetail,
+  backgroundRunMarkerExpectsBackgroundRuntime,
+  dispatchPathTargetsNetlifyBackgroundFunction,
   extractProcessRunId,
   isAgentChatDurableBackgroundEnabled,
+  isAgentChatForegroundSelfChainEnabled,
   isHostedRuntimeForDurableBackground,
   isInBackgroundFunctionRuntime,
   prepareProcessRunRequest,
   resolveAgentChatProcessRunDispatchPath,
+  shouldUseBackgroundFunctionTimeoutForWorker,
 } from "./durable-background.js";
 
 /**
@@ -25,6 +30,7 @@ import {
 // Env keys the gate reads, snapshotted/cleared so each case is isolated.
 const ENV_KEYS = [
   "AGENT_CHAT_DURABLE_BACKGROUND",
+  "AGENT_CHAT_FOREGROUND_SELF_CHAIN",
   "AGENT_CHAT_FORCE_BACKGROUND_RUNTIME",
   "A2A_SECRET",
   "NETLIFY",
@@ -154,6 +160,65 @@ describe("isAgentChatDurableBackgroundEnabled (default-off opt-in gate)", () => 
   });
 });
 
+describe("isAgentChatForegroundSelfChainEnabled (default-off opt-in gate)", () => {
+  it("is OFF with nothing configured", () => {
+    expect(isAgentChatForegroundSelfChainEnabled()).toBe(false);
+  });
+
+  it("is OFF BY DEFAULT (flag unset) even when hosted + secret are present", () => {
+    // GUARDRAIL: default-off is deliberate — durable/server-driven chat run
+    // paths were default-on twice in June 2026 and broke real users twice.
+    // The default must never flip without an explicit product decision.
+    makeHosted();
+    process.env.A2A_SECRET = "shhh";
+    delete process.env.AGENT_CHAT_FOREGROUND_SELF_CHAIN;
+    expect(isAgentChatForegroundSelfChainEnabled()).toBe(false);
+  });
+
+  it("is ON only when explicitly opted in via a truthy flag (hosted + secret)", () => {
+    makeHosted();
+    process.env.A2A_SECRET = "shhh";
+    for (const val of ["1", "true", "yes", "on", " TRUE "]) {
+      process.env.AGENT_CHAT_FOREGROUND_SELF_CHAIN = val;
+      expect(isAgentChatForegroundSelfChainEnabled()).toBe(true);
+    }
+  });
+
+  it("is OFF for falsy, unrecognized, or empty flag values (default-off)", () => {
+    makeHosted();
+    process.env.A2A_SECRET = "shhh";
+    for (const val of ["0", "false", "no", "off", "FALSE", "", "maybe"]) {
+      process.env.AGENT_CHAT_FOREGROUND_SELF_CHAIN = val;
+      expect(isAgentChatForegroundSelfChainEnabled()).toBe(false);
+    }
+  });
+
+  it("stays OFF when opted in but NOT hosted (local dev keeps the inline path)", () => {
+    process.env.AGENT_CHAT_FOREGROUND_SELF_CHAIN = "true";
+    process.env.A2A_SECRET = "shhh";
+    expect(isAgentChatForegroundSelfChainEnabled()).toBe(false);
+  });
+
+  it("stays OFF when opted in + hosted but A2A_SECRET is missing (HMAC required)", () => {
+    process.env.AGENT_CHAT_FOREGROUND_SELF_CHAIN = "true";
+    makeHosted();
+    expect(isAgentChatForegroundSelfChainEnabled()).toBe(false);
+  });
+
+  it("is independent of AGENT_CHAT_DURABLE_BACKGROUND (neither implies the other)", () => {
+    makeHosted();
+    process.env.A2A_SECRET = "shhh";
+    process.env.AGENT_CHAT_FOREGROUND_SELF_CHAIN = "true";
+    expect(isAgentChatForegroundSelfChainEnabled()).toBe(true);
+    expect(isAgentChatDurableBackgroundEnabled()).toBe(false);
+
+    Reflect.deleteProperty(process.env, "AGENT_CHAT_FOREGROUND_SELF_CHAIN");
+    process.env.AGENT_CHAT_DURABLE_BACKGROUND = "true";
+    expect(isAgentChatForegroundSelfChainEnabled()).toBe(false);
+    expect(isAgentChatDurableBackgroundEnabled()).toBe(true);
+  });
+});
+
 describe("isInBackgroundFunctionRuntime (real -background function guard)", () => {
   it("is false with nothing set (a plain synchronous function)", () => {
     expect(isInBackgroundFunctionRuntime()).toBe(false);
@@ -192,6 +257,42 @@ describe("isInBackgroundFunctionRuntime (real -background function guard)", () =
   });
 });
 
+describe("background runtime marker fallback", () => {
+  it("derives marker expectation from the concrete dispatch path", () => {
+    expect(
+      dispatchPathTargetsNetlifyBackgroundFunction(
+        "/.netlify/functions/design-agent-background",
+      ),
+    ).toBe(true);
+    expect(
+      dispatchPathTargetsNetlifyBackgroundFunction(
+        "/_agent-native/agent-chat/_process-run",
+      ),
+    ).toBe(false);
+  });
+
+  it("uses the long background timeout when the authenticated dispatch marker proves the Netlify background function URL was targeted", () => {
+    const marker = { backgroundFunctionRuntimeExpected: true };
+
+    expect(isInBackgroundFunctionRuntime()).toBe(false);
+    expect(backgroundRunMarkerExpectsBackgroundRuntime(marker)).toBe(true);
+    expect(shouldUseBackgroundFunctionTimeoutForWorker(marker)).toBe(true);
+    expect(backgroundRuntimeDiagnosticDetail(marker)).toContain(
+      "markerExpected=true",
+    );
+    expect(backgroundRuntimeDiagnosticDetail(marker)).toContain(
+      "runtimeDetected=false",
+    );
+  });
+
+  it("does not use the long background timeout for unmarked synchronous re-entry", () => {
+    expect(shouldUseBackgroundFunctionTimeoutForWorker(null)).toBe(false);
+    expect(backgroundRuntimeDiagnosticDetail(null)).toContain(
+      "markerExpected=false",
+    );
+  });
+});
+
 describe("resolveAgentChatProcessRunDispatchPath (default function url on hosted Netlify)", () => {
   it("exposes the background function name + its default function url constant", () => {
     expect(AGENT_BACKGROUND_FUNCTION_NAME).toBe("server-agent-background");
@@ -216,6 +317,17 @@ describe("resolveAgentChatProcessRunDispatchPath (default function url on hosted
     );
   });
 
+  it("dispatches to the function's DEFAULT url in deployed Netlify Lambda runtime even when NETLIFY is absent", () => {
+    // Production Functions do not always preserve the build-time NETLIFY env
+    // flag, but they do expose AWS_LAMBDA_FUNCTION_NAME. The durable dispatcher
+    // must still target the emitted Netlify background function so the marker
+    // unlocks the 15-minute worker budget.
+    process.env.AWS_LAMBDA_FUNCTION_NAME = "agent-native-design-server";
+    expect(resolveAgentChatProcessRunDispatchPath()).toBe(
+      AGENT_BACKGROUND_FUNCTION_URL_PATH,
+    );
+  });
+
   it("dispatches to the PER-APP default url on hosted Netlify (workspace)", () => {
     // Workspace deploy emits one background fn per app named <app>-agent-background
     // reachable at its default url. The foreground reads the workspace app id from
@@ -224,6 +336,15 @@ describe("resolveAgentChatProcessRunDispatchPath (default function url on hosted
     process.env.AGENT_NATIVE_WORKSPACE_APP_ID = "plan";
     expect(resolveAgentChatProcessRunDispatchPath()).toBe(
       "/.netlify/functions/plan-agent-background",
+    );
+    Reflect.deleteProperty(process.env, "AGENT_NATIVE_WORKSPACE_APP_ID");
+  });
+
+  it("dispatches to the PER-APP default url in workspace Lambda runtime even when NETLIFY is absent", () => {
+    process.env.AWS_LAMBDA_FUNCTION_NAME = "agent-native-workspace-design";
+    process.env.AGENT_NATIVE_WORKSPACE_APP_ID = "design";
+    expect(resolveAgentChatProcessRunDispatchPath()).toBe(
+      "/.netlify/functions/design-agent-background",
     );
     Reflect.deleteProperty(process.env, "AGENT_NATIVE_WORKSPACE_APP_ID");
   });
@@ -249,6 +370,7 @@ describe("resolveAgentChatProcessRunDispatchPath (default function url on hosted
     // `netlify dev` runs in-process; the same in-process catch-all handles it.
     process.env.NETLIFY = "true";
     process.env.NETLIFY_LOCAL = "true";
+    process.env.AWS_LAMBDA_FUNCTION_NAME = "agent-native-design-server";
     expect(resolveAgentChatProcessRunDispatchPath()).toBe(
       AGENT_CHAT_PROCESS_RUN_PATH,
     );
@@ -256,6 +378,7 @@ describe("resolveAgentChatProcessRunDispatchPath (default function url on hosted
 
   it("returns the framework path when NETLIFY is explicitly false", () => {
     process.env.NETLIFY = "false";
+    process.env.AWS_LAMBDA_FUNCTION_NAME = "agent-native-design-server";
     expect(resolveAgentChatProcessRunDispatchPath()).toBe(
       AGENT_CHAT_PROCESS_RUN_PATH,
     );

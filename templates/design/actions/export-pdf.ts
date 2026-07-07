@@ -4,6 +4,8 @@ import { eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { injectHiddenLayerExportStyle } from "../server/lib/design-export.js";
+import { isBoardFile } from "../shared/board-file.js";
 import "../server/db/index.js"; // ensure registerShareableResource runs
 
 export default defineAction({
@@ -27,6 +29,7 @@ export default defineAction({
       .select()
       .from(schema.designFiles)
       .where(eq(schema.designFiles.designId, id));
+    const exportFiles = files.filter((file) => !isBoardFile(file.filename));
 
     return {
       id: row.id,
@@ -34,11 +37,17 @@ export default defineAction({
       description: row.description,
       projectType: row.projectType,
       data: row.data ?? null,
-      files: files.map((f) => ({
+      files: exportFiles.map((f) => ({
         id: f.id,
         filename: f.filename,
         fileType: f.fileType,
-        content: f.content,
+        // Layers toggled hidden in the editor are only suppressed by the live
+        // editor bridge; inject the same display:none rule so the client-side
+        // PDF render (html2canvas over this HTML) doesn't reveal them.
+        content:
+          f.fileType === "html" && f.content
+            ? injectHiddenLayerExportStyle(f.content)
+            : f.content,
       })),
       exportInfo: {
         format: "pdf",

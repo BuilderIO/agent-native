@@ -1,11 +1,10 @@
 import { IconDatabase, IconLoader2 } from "@tabler/icons-react";
 /**
- * Code-mode database admin page — the shell that hosts the table browser, the
- * table editor, and the SQL editor.
+ * Database admin page — the shell that hosts the table browser, the table
+ * editor, and the SQL editor.
  *
- * Gated to Code mode: when the app cannot toggle into Code mode
- * (`canToggle` is false) we render a clean notice instead of the tool. The
- * backend also enforces this with a 403, so this is purely a friendlier UX.
+ * By default this is gated to Code mode for the core dev route. Trusted hosts
+ * can opt out and point it at their own admin-gated API path.
  */
 import { useEffect, useMemo, useState } from "react";
 
@@ -16,7 +15,7 @@ import { SqlEditor } from "./SqlEditor.js";
 import { TableBrowser } from "./TableBrowser.js";
 import { TableEditor } from "./TableEditor.js";
 import { useDbAdminAgentSync, useNavigateConsumer } from "./useAgentSync.js";
-import { useOverview } from "./useDbAdmin.js";
+import { useOverview, type DbAdminRequestConfig } from "./useDbAdmin.js";
 
 const DIALECT_LABEL: Record<string, string> = {
   postgres: "Postgres",
@@ -24,9 +23,30 @@ const DIALECT_LABEL: Record<string, string> = {
   d1: "Cloudflare D1",
 };
 
-export function DbAdminPage() {
+export interface DbAdminPageProps {
+  apiBasePath?: string;
+  cacheScope?: string;
+  title?: string;
+  subtitle?: string;
+  codeModeGate?: boolean;
+  syncNavigation?: boolean;
+}
+
+export function DbAdminPage({
+  apiBasePath,
+  cacheScope,
+  title = "Database",
+  subtitle,
+  codeModeGate = true,
+  syncNavigation = true,
+}: DbAdminPageProps = {}) {
   const { canToggle, isLoading: devLoading } = useCodeMode();
-  const { data: overview, isLoading: overviewLoading } = useOverview();
+  const requestConfig = useMemo<DbAdminRequestConfig | undefined>(() => {
+    if (!apiBasePath && !cacheScope) return undefined;
+    return { basePath: apiBasePath, scopeKey: cacheScope };
+  }, [apiBasePath, cacheScope]);
+  const { data: overview, isLoading: overviewLoading } =
+    useOverview(requestConfig);
 
   const [selectedTable, setSelectedTable] = useState<string | null>(null);
   const [mode, setMode] = useState<"table" | "sql">("table");
@@ -45,12 +65,12 @@ export function DbAdminPage() {
   }, [selectedTable, tables]);
 
   // Keep the agent's <current-screen> in sync, and let it drive navigation.
-  useDbAdminAgentSync({ table: selectedTable, mode });
+  useDbAdminAgentSync({ table: selectedTable, mode, enabled: syncNavigation });
   useNavigateConsumer((table) => {
     setSelectedTable(table);
     setMode("table");
     setFkFilters(undefined);
-  });
+  }, syncNavigation);
 
   const tableNames = useMemo(() => tables.map((t) => t.name), [tables]);
   // SqlEditor degrades gracefully without per-table columns; pass an empty map.
@@ -58,7 +78,7 @@ export function DbAdminPage() {
   const columnsByTable = useMemo<Record<string, string[]>>(() => ({}), []);
 
   // ─── Code mode gate ──────────────────────────────────────────────────────
-  if (!devLoading && !canToggle) {
+  if (codeModeGate && !devLoading && !canToggle) {
     return (
       <div className="flex h-full w-full items-center justify-center bg-background p-6">
         <div className="flex max-w-md flex-col items-center rounded-lg border bg-card p-8 text-center shadow-sm">
@@ -79,20 +99,26 @@ export function DbAdminPage() {
     );
   }
 
-  const showInitialLoading = (devLoading || overviewLoading) && !overview;
+  const showInitialLoading =
+    ((codeModeGate && devLoading) || overviewLoading) && !overview;
 
   return (
     <div className="flex h-full w-full flex-col bg-background text-foreground">
       {/* Header */}
       <header className="flex h-12 shrink-0 items-center gap-3 border-b px-4">
         <IconDatabase className="h-5 w-5 text-muted-foreground" stroke={1.75} />
-        <span className="text-sm font-semibold">Database</span>
+        <span className="text-sm font-semibold">{title}</span>
         <span className="inline-flex items-center rounded-full border bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
           {DIALECT_LABEL[dialect] ?? dialect}
         </span>
         <span className="text-xs text-muted-foreground">
           {tables.length} {tables.length === 1 ? "table" : "tables"}
         </span>
+        {subtitle ? (
+          <span className="min-w-0 truncate text-xs text-muted-foreground">
+            {subtitle}
+          </span>
+        ) : null}
       </header>
 
       {/* Body: fixed sidebar + flexible main */}
@@ -122,12 +148,14 @@ export function DbAdminPage() {
               dialect={dialect}
               tableNames={tableNames}
               columnsByTable={columnsByTable}
+              requestConfig={requestConfig}
             />
           ) : selectedTable ? (
             <TableEditor
               key={selectedTable}
               table={selectedTable}
               dialect={dialect}
+              requestConfig={requestConfig}
               initialFilters={fkFilters}
               onNavigateToRow={(t, filters) => {
                 setSelectedTable(t);

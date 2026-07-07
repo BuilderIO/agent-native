@@ -44,17 +44,45 @@ if (!globalRef[GLOBAL_KEY]) {
 const sseClients: Set<SSEPush> = globalRef[GLOBAL_KEY]!;
 
 /**
+ * Options for a deck-change broadcast. All fields are optional and additive so
+ * existing consumers that only read `{ type, deckId }` keep working.
+ */
+export interface NotifyClientsOptions {
+  /** SSE event type — defaults to "deck-changed". */
+  type?: string;
+  /** The specific slide that changed, when known (agent slide edits). */
+  slideId?: string;
+  /** Who made the change: "agent" for AI writes, "human" otherwise. */
+  actor?: "agent" | "human";
+}
+
+/**
  * Broadcast a deck change to all connected UI clients. Exported so agent
  * actions (add-slide, update-slide, create-deck) can notify the frontend
  * after a direct DB write — otherwise the UI has no way to know the deck
  * was modified until the next 3-second poll, and won't notice content
  * changes to slides inside an existing deck at all.
+ *
+ * The second argument accepts either a legacy `type` string (backwards compat
+ * with callers like `notifyClients(id, "deck-deleted")`) or an options object
+ * carrying `slideId` / `actor` so the client can attribute agent edits to a
+ * specific slide. The wire payload always includes `type` and `deckId`; extra
+ * fields are only present when supplied.
  */
-export function notifyClients(deckId: string, type = "deck-changed") {
-  const message = JSON.stringify({ type, deckId });
+export function notifyClients(
+  deckId: string,
+  typeOrOptions: string | NotifyClientsOptions = "deck-changed",
+) {
+  const options: NotifyClientsOptions =
+    typeof typeOrOptions === "string" ? { type: typeOrOptions } : typeOrOptions;
+  const type = options.type ?? "deck-changed";
+  const payload: Record<string, unknown> = { type, deckId };
+  if (options.slideId) payload.slideId = options.slideId;
+  if (options.actor) payload.actor = options.actor;
+  const message = JSON.stringify(payload);
   if (process.env.DEBUG_SLIDES_SSE) {
     console.log(
-      `[slides-sse] notifyClients deck=${deckId} type=${type} clients=${sseClients.size}`,
+      `[slides-sse] notifyClients deck=${deckId} type=${type} slide=${options.slideId ?? "-"} actor=${options.actor ?? "-"} clients=${sseClients.size}`,
     );
   }
   for (const push of sseClients) {

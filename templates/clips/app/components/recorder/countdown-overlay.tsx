@@ -95,10 +95,11 @@ export function CountdownOverlay({
 
         <div
           key={remaining}
-          className="flex h-44 w-44 items-center justify-center rounded-full text-[112px] font-bold leading-none text-white shadow-2xl duration-200 animate-in zoom-in-75 fade-in"
+          className="flex min-w-32 items-center justify-center text-[clamp(96px,22vmin,240px)] font-extrabold leading-none text-white duration-200 animate-in zoom-in-75 fade-in"
           style={{
-            background:
-              "radial-gradient(circle at 30% 30%, rgba(255,255,255,0.18), transparent 60%), hsl(var(--primary))",
+            fontVariantNumeric: "tabular-nums",
+            textShadow:
+              "1px 0 1px rgba(17,24,39,0.22), -1px 0 1px rgba(17,24,39,0.22), 0 1px 1px rgba(17,24,39,0.22), 0 -1px 1px rgba(17,24,39,0.22), 0 2px 4px rgba(0,0,0,0.48), 0 12px 34px rgba(0,0,0,0.36), 0 0 2px rgba(0,0,0,0.72)",
           }}
         >
           {remaining > 0 ? remaining : "Go"}

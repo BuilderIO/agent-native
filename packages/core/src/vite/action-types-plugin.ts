@@ -280,10 +280,14 @@ type ActionEntry<T> = T extends { default: { run: (...args: infer A) => infer R 
     }
   : { result: any; params: Record<string, any> };
 
-declare module "@agent-native/core/client" {
-  interface ActionRegistry {
+declare global {
+  interface AgentNativeActionRegistry {
 ${typeEntries.join("\n")}
   }
+}
+
+declare module "@agent-native/core/client" {
+  interface ActionRegistry extends AgentNativeActionRegistry {}
 }
 
 export {};

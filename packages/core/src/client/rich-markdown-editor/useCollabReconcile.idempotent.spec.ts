@@ -94,6 +94,11 @@ function makeHarness() {
       contentUpdatedAt,
       editable: true,
       getMarkdown: getEditorMarkdown,
+      // These specs pin the LEGACY whole-document setContent path (the
+      // fallback when no parsed doc is available); the surgical path has its
+      // own coverage in surgical-apply.spec.ts. Disable it so `setContent`
+      // remains the counted apply mechanism.
+      parseValue: false,
       // Mirror the hook's (fixed) defaultSetContent: hand the markdown string to
       // tiptap-markdown's setContent override WITHOUT
       // `parseOptions.preserveWhitespace`, which would otherwise route through
@@ -121,10 +126,11 @@ function makeHarness() {
   return { captured, Harness };
 }
 
-/** Flush the reconcile's queueMicrotask + any chained promises. */
+/** Flush the reconcile's timer task + any chained promises. */
 async function flush() {
   await act(async () => {
     await Promise.resolve();
+    await new Promise((resolve) => setTimeout(resolve, 0));
     await Promise.resolve();
   });
 }

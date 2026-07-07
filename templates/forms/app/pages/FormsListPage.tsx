@@ -5,6 +5,10 @@ import {
   useT,
 } from "@agent-native/core/client";
 import {
+  useSetHeaderActions,
+  useSetPageTitle,
+} from "@agent-native/toolkit/app-shell";
+import {
   IconPlus,
   IconDots,
   IconTrash,
@@ -22,10 +26,6 @@ import { useNavigate } from "react-router";
 import { toast } from "sonner";
 
 import { CloudUpgrade } from "@/components/CloudUpgrade";
-import {
-  useSetHeaderActions,
-  useSetPageTitle,
-} from "@/components/layout/HeaderActions";
 import {
   AlertDialog,
   AlertDialogAction,

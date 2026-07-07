@@ -11,15 +11,15 @@ description: "有关原生代理的常见问题 - 它是什么、它的用途、
 
 ### 什么是代理原生？ {#what-is-agent-native}
 
-Agent-native 是一个用于构建应用程序的框架，其中 AI 代理及其周围的产品表面是平等的合作伙伴。该界面可以从一个无头代理开始，通过一个自定义操作，发展成为丰富的聊天，或者成为一个完整的 UI。不变的是智能体和人类共享相同的 actions、数据库和状态。完整解释请参见 [What Is Agent-Native?](/docs/what-is-agent-native)。
+Agent-native 是一个用于构建应用程序的框架，其中 AI 代理及其周围的产品界面是平等的合作伙伴。通常的路径是从聊天开始，添加 typed actions，在聊天中渲染结构化结果，然后围绕同一份 SQL state 扩展成持久页面。不变的是智能体和人类共享相同的 actions、数据库和状态。完整解释请参见 [What Is Agent-Native?](/docs/what-is-agent-native)。
 
 ### 这是给谁的？ {#who-is-this-for}
 
 Agent-native 适合那些想要真正的应用程序和 AI 代理使用相同数据和 actions 工作的人。常见的路径是：
 
 - **如果您需要邮件、日历、表单、计划或其他无需设置的成品模板，请使用托管应用程序** - 从 [template gallery](/templates) 开始。
-- **从聊天开始**如果您想要一个用户可以立即交谈的基本应用程序，然后使用 actions 和屏幕进行扩展 - 从 [Getting Started](/docs/getting-started) 或 [Chat](/docs/template-chat) 开始。
-- **如果您想要在提交到 UI 之前执行一个操作和一个无头应用程序代理循环，请先启动原语优先** — 从 [Getting Started](/docs/getting-started) 开始。
+- **从聊天开始**如果您想要默认的从零构建路径：用户可以立即与 agent 对话，然后您用 actions、原生结果和屏幕扩展它 - 从 [Getting Started](/docs/getting-started) 或 [Chat](/docs/template-chat) 开始。
+- **从 automation-first 开始**如果您正在构建定时任务、队列、脚本、integration worker 或暂时没有浏览器 UI 的外部 agent 工作流 — 从 [Automation-First Apps](/docs/pure-agent-apps) 开始。
 - **分叉并自定义模板**如果您想要自己的 SaaS 产品，并且已连接身份验证、数据库、UI 和代理 actions — 请参阅 [Templates](/docs/cloneable-saas)。
 - **从头开始构建**如果您想要新的代理驱动产品的框架原语 - 从 [Getting Started](/docs/getting-started) 开始。
 - **如果您希望 Claude、ChatGPT、Codex、Cursor 或 GitHub Copilot / VS Code 使用代理本机应用程序，请连接另一个代理或代码工具** - 请参阅 [External Agents](/docs/external-agents) 和 [Skills Guide](/docs/skills-guide)。
@@ -128,7 +128,7 @@ Anthropic Claude、OpenAI（GPT-5 系列）、Google Gemini 以及使用 OpenAI 
 
 ### 我可以构建模板未涵盖的内容吗？ {#build-from-scratch}
 
-是的。如果你想要一个基本的聊天应用程序，请运行`npx @agent-native/core@latest create my-chat-app --template chat`；您可以获得持久的聊天线程、actions、身份验证、SQL 支持的运行时状态以及添加您自己的屏幕的空间。如果您想要没有 UI 的最小操作优先应用程序，请运行 `npx @agent-native/core@latest create my-agent --headless`。请参阅 [Getting Started](/docs/getting-started)、[Pure-Agent Apps](/docs/pure-agent-apps) 和 [Chat](/docs/template-chat)。
+是的。如果你想要一个基本的 agentic app，请运行 `npx @agent-native/core@latest create my-chat-app --template chat`；您可以获得持久的聊天线程、actions、身份验证、SQL 支持的运行时状态、原生内联结果渲染，以及添加自己屏幕的空间。如果您正在构建 no-browser automation，请运行 `npx @agent-native/core@latest create my-agent --headless`。请参阅 [Getting Started](/docs/getting-started)、[Automation-First Apps](/docs/pure-agent-apps) 和 [Chat](/docs/template-chat)。
 
 ### 我可以在不分叉模板的情况下尝试它吗？ {#try-with-a-skill}
 

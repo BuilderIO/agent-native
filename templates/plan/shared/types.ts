@@ -98,6 +98,8 @@ export interface PlanSummary {
   hostedPlanId?: string | null;
   hostedPlanUrl?: string | null;
   sourceUrl?: string | null;
+  sourceAuthorName?: string | null;
+  sourceAuthorLogin?: string | null;
   createdAt: string;
   updatedAt: string;
   approvedAt?: string | null;
@@ -122,6 +124,8 @@ export interface Plan {
   hostedPlanId?: string | null;
   hostedPlanUrl?: string | null;
   sourceUrl?: string | null;
+  sourceAuthorName?: string | null;
+  sourceAuthorLogin?: string | null;
   html?: string | null;
   markdown?: string | null;
   content?: PlanContent | null;

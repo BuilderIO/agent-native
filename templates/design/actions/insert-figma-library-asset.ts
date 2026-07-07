@@ -1,16 +1,15 @@
 import { defineAction } from "@agent-native/core";
 import { readAppStateForCurrentTab } from "@agent-native/core/application-state";
-import {
-  applyText,
-  getText,
-  hasCollabState,
-  seedFromText,
-} from "@agent-native/core/collab";
 import { accessFilter, assertAccess } from "@agent-native/core/sharing";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import {
+  readLiveSourceFile,
+  writeInlineSourceFile,
+  type SourceWorkspaceFile,
+} from "../server/source-workspace.js";
 
 const schemaInput = z.object({
   renderUrl: z
@@ -66,6 +65,14 @@ function escapeHtml(value: string): string {
     .replace(/"/g, "&quot;");
 }
 
+function createInsertedNodeId(prefix: string): string {
+  const random =
+    typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+      ? crypto.randomUUID().replace(/-/g, "").slice(0, 12)
+      : Math.random().toString(36).slice(2, 14);
+  return `inserted-${prefix}-${random}`;
+}
+
 function insertBeforeClosingTag(
   html: string,
   closingTag: "main" | "body",
@@ -83,6 +90,7 @@ function optionalDataAttribute(name: string, value: string | undefined) {
 function appendFigmaAssetMarkup(
   html: string,
   args: z.infer<typeof schemaInput>,
+  nodeId: string,
 ): string {
   const label = args.name?.trim() || "Figma library asset";
   const description = args.description?.trim();
@@ -90,7 +98,7 @@ function appendFigmaAssetMarkup(
     ? `<a href="${escapeHtml(args.sourceUrl)}" target="_blank" rel="noreferrer" class="text-slate-500 underline decoration-slate-300 underline-offset-2 hover:text-slate-800">Open in Figma</a>`
     : "";
   const snippet = `
-    <section class="mx-auto my-8 max-w-5xl px-4" data-agent-native-asset-source="figma" data-agent-native-figma-asset data-figma-file-key="${escapeHtml(args.fileKey)}"${optionalDataAttribute("data-figma-node-id", args.nodeId)}${optionalDataAttribute("data-figma-component-key", args.componentKey)} data-figma-asset-kind="${escapeHtml(args.kind)}">
+    <section class="mx-auto my-8 max-w-5xl px-4" data-agent-native-asset-source="figma" data-agent-native-figma-asset data-agent-native-node-id="${escapeHtml(nodeId)}" data-agent-native-layer-name="${escapeHtml(label)}" data-figma-file-key="${escapeHtml(args.fileKey)}"${optionalDataAttribute("data-figma-node-id", args.nodeId)}${optionalDataAttribute("data-figma-component-key", args.componentKey)} data-figma-asset-kind="${escapeHtml(args.kind)}">
       <figure class="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
         <img src="${escapeHtml(args.renderUrl)}" alt="${escapeHtml(label)}" class="w-full rounded-t-2xl object-contain" />
         <figcaption class="flex flex-wrap items-center gap-x-3 gap-y-1 px-4 py-3 text-sm text-slate-600">
@@ -191,38 +199,47 @@ export default defineAction({
     if (!file) throw new Error("No editable HTML design file found.");
     await assertAccess("design", file.designId, "editor");
 
-    let base = file.content ?? "";
-    try {
-      if (await hasCollabState(file.id)) {
-        const live = await getText(file.id, "content");
-        if (typeof live === "string") base = live;
-      }
-    } catch {
-      // Collab read is best-effort; fall back to stored content.
-    }
+    // Read the LIVE base (collab text when present, else the SQL row) right
+    // before transforming, and carry its versionHash through to the write
+    // below. writeInlineSourceFile re-reads the live text immediately before
+    // its own applyText/DB write and rejects if it no longer matches this
+    // hash — closing the race window where a concurrent editor/agent write
+    // lands between this read and the persist (the same stale-diff-base bug
+    // fixed for update-file: a diff computed from a stale base, char-diffed
+    // into a collab doc that has since moved on, corrupts or drops the
+    // other writer's change). See update-file.ts and apply-source-edit.ts
+    // for the identical pattern. writeInlineSourceFile/readLiveSourceFile
+    // only ever dereference file.id (and content/filename for the read); the
+    // createdAt/updatedAt fields aren't selected above and aren't needed.
+    const workspaceFile: SourceWorkspaceFile = {
+      id: file.id,
+      designId: file.designId,
+      filename: file.filename ?? "",
+      fileType: file.fileType ?? "html",
+      content: file.content,
+      createdAt: null,
+      updatedAt: null,
+    };
+    const live = await readLiveSourceFile(workspaceFile);
+    const base = live.content;
 
-    const content = appendFigmaAssetMarkup(base, args);
-    const now = new Date().toISOString();
-    await db
-      .update(schema.designFiles)
-      .set({ content, updatedAt: now })
-      .where(eq(schema.designFiles.id, file.id));
-    await db
-      .update(schema.designs)
-      .set({ updatedAt: now })
-      .where(eq(schema.designs.id, file.designId));
+    const insertedNodeId = createInsertedNodeId("figma");
+    const content = appendFigmaAssetMarkup(base, args, insertedNodeId);
 
-    if (await hasCollabState(file.id)) {
-      await applyText(file.id, content, "content", "agent");
-    } else {
-      await seedFromText(file.id, content);
-    }
+    await writeInlineSourceFile({
+      designId: file.designId,
+      file: workspaceFile,
+      content,
+      expectedVersionHash: live.versionHash,
+    });
 
     return {
       designId: file.designId,
       fileId: file.id,
       filename: file.filename,
       inserted: true,
+      insertedNodeId,
+      insertedSelector: `[data-agent-native-node-id="${insertedNodeId}"]`,
       source: "figma",
       fileKey: args.fileKey,
       nodeId: args.nodeId ?? null,

@@ -22,14 +22,46 @@ import {
 } from "@/components/ui/context-menu";
 import { cn } from "@/lib/utils";
 
+// LIVE-VERIFIED (real Figma, UI3) canvas context menus:
+//
+// WITH a selection:
+//   Copy ⌘C · Paste here · Paste to replace ⇧⌘R · Copy/Paste as ▸
+//     (Copy as code · Copy as SVG · Copy as PNG ⇧⌘C · [sep] ·
+//      Copy properties ⌥⌘C · Paste properties ⌥⌘V · [sep] ·
+//      Copy animation · Paste animation)
+//   [sep]
+//   Bring to front ] · Send to back [
+//   [sep]
+//   Group selection ⌘G · Frame selection ⌥⌘G
+//   [sep]
+//   Add auto layout ⇧A · Create component ⌥⌘K
+//   [sep]
+//   Show/Hide ⇧⌘H · Lock/Unlock ⇧⌘L
+//   [sep]
+//   Flip horizontal ⇧H · Flip vertical ⇧V
+//
+// EMPTY canvas (no selection):
+//   Paste here
+//   [sep]
+//   Show/Hide UI ⌘\ · Show/Hide comments ⇧C
+//
+// Real Figma has no Duplicate/Delete/Select-all/Zoom items on either canvas
+// menu (all keyboard-only there) — those are intentionally NOT rendered here
+// even though some callers may still pass the callback/capability props for
+// back-compat. App-specific extras with no Figma equivalent (e.g. "Edit
+// screen") are appended at the very bottom, below one more separator, so the
+// Figma-muscle-memory zone above stays byte-identical to the real menu.
 export type CanvasContextMenuAction =
   | "paste-here"
   | "select-all"
   | "zoom-to-fit"
   | "zoom-to-selection"
+  | "zoom-in"
+  | "zoom-out"
   | "copy"
   | "paste"
   | "paste-over"
+  | "paste-to-replace"
   | "duplicate"
   | "delete"
   | "bring-forward"
@@ -38,12 +70,23 @@ export type CanvasContextMenuAction =
   | "send-to-back"
   | "group"
   | "ungroup"
+  | "frame-selection"
+  | "add-auto-layout"
+  | "create-component"
   | "rename"
   | "toggle-lock"
   | "toggle-hide"
   | "copy-props"
   | "paste-props"
-  | "copy-as-code";
+  | "copy-animation"
+  | "paste-animation"
+  | "copy-as-code"
+  | "copy-as-svg"
+  | "copy-as-png"
+  | "flip-horizontal"
+  | "flip-vertical"
+  | "toggle-ui"
+  | "toggle-comments";
 
 export interface CanvasContextMenuPoint {
   clientX: number;
@@ -73,9 +116,12 @@ export interface CanvasContextMenuLabels {
   selectAll: string;
   zoomToFit: string;
   zoomToSelection: string;
+  zoomIn: string;
+  zoomOut: string;
   copy: string;
   paste: string;
   pasteOver: string;
+  pasteToReplace: string;
   duplicate: string;
   delete: string;
   order: string;
@@ -85,14 +131,28 @@ export interface CanvasContextMenuLabels {
   sendToBack: string;
   group: string;
   ungroup: string;
+  frameSelection: string;
+  addAutoLayout: string;
+  createComponent: string;
   rename: string;
   lock: string;
   unlock: string;
   hide: string;
   show: string;
+  copyAs: string;
   copyProps: string;
   pasteProps: string;
+  copyAnimation: string;
+  pasteAnimation: string;
   copyAsCode: string;
+  copyAsSvg: string;
+  copyAsPng: string;
+  flipHorizontal: string;
+  flipVertical: string;
+  toggleUiShow: string;
+  toggleUiHide: string;
+  toggleCommentsShow: string;
+  toggleCommentsHide: string;
 }
 
 export interface CanvasContextMenuShortcuts {
@@ -100,9 +160,12 @@ export interface CanvasContextMenuShortcuts {
   selectAll: string;
   zoomToFit: string;
   zoomToSelection: string;
+  zoomIn: string;
+  zoomOut: string;
   copy: string;
   paste: string;
   pasteOver: string;
+  pasteToReplace: string;
   duplicate: string;
   delete: string;
   bringForward: string;
@@ -111,10 +174,23 @@ export interface CanvasContextMenuShortcuts {
   sendToBack: string;
   group: string;
   ungroup: string;
+  frameSelection: string;
+  addAutoLayout: string;
+  createComponent: string;
   rename: string;
+  toggleLock: string;
+  toggleHide: string;
   copyProps: string;
   pasteProps: string;
+  copyAnimation: string;
+  pasteAnimation: string;
   copyAsCode: string;
+  copyAsSvg: string;
+  copyAsPng: string;
+  flipHorizontal: string;
+  flipVertical: string;
+  toggleUi: string;
+  toggleComments: string;
 }
 
 export interface CanvasContextMenuProps {
@@ -125,26 +201,57 @@ export interface CanvasContextMenuProps {
   selectedCount?: number;
   hasClipboard?: boolean;
   hasPropsClipboard?: boolean;
+  hasAnimationClipboard?: boolean;
   isLocked?: boolean;
   isHidden?: boolean;
+  isUiHidden?: boolean;
+  isCommentsHidden?: boolean;
   canPasteHere?: boolean;
+  // Kept for back-compat with existing callers; real Figma has no
+  // select-all/zoom items on this menu, so these no longer render anything.
   canSelectAll?: boolean;
   canZoomToFit?: boolean;
   canZoomToSelection?: boolean;
+  canZoomIn?: boolean;
+  canZoomOut?: boolean;
   canCopy?: boolean;
   canPaste?: boolean;
   canPasteOver?: boolean;
+  canPasteToReplace?: boolean;
+  // Kept for back-compat; real Figma has no Duplicate/Delete on this menu
+  // (keyboard-only there), so these no longer render anything.
   canDuplicate?: boolean;
   canDelete?: boolean;
   canReorder?: boolean;
   canGroup?: boolean;
   canUngroup?: boolean;
+  canFrameSelection?: boolean;
+  canAddAutoLayout?: boolean;
+  canCreateComponent?: boolean;
+  // L12: this menu is target-agnostic — it has no built-in notion of "design
+  // title" vs "layer". Rename is enabled by default for a single selection
+  // (see the canRename default below) and fires through the onRename
+  // callback / onAction("rename", ...) regardless of what's selected. Any
+  // "only rename the design title" restriction is a CALL-SITE decision (e.g.
+  // passing canRename={false} and/or hiddenActions={["rename"]} when a layer
+  // is selected instead of the design title) — it does not live here.
+  // NOTE: real Figma's canvas menu doesn't show Rename at all — only the
+  // layer-row menu does. Kept here (opt-in via a wired-up onRename) purely
+  // for existing callers; no default UI relies on it being shown.
   canRename?: boolean;
   canToggleLocked?: boolean;
   canToggleHidden?: boolean;
   canCopyProps?: boolean;
   canPasteProps?: boolean;
+  canCopyAnimation?: boolean;
+  canPasteAnimation?: boolean;
   canCopyAsCode?: boolean;
+  canCopyAsSvg?: boolean;
+  canCopyAsPng?: boolean;
+  canFlipHorizontal?: boolean;
+  canFlipVertical?: boolean;
+  canToggleUi?: boolean;
+  canToggleComments?: boolean;
   hiddenActions?: readonly CanvasContextMenuAction[];
   disabledActions?: readonly CanvasContextMenuAction[];
   labels?: Partial<CanvasContextMenuLabels>;
@@ -159,12 +266,17 @@ export interface CanvasContextMenuProps {
     details: CanvasContextMenuActionDetails,
   ) => void;
   onPasteHere?: CanvasContextMenuActionHandler;
+  // Kept for back-compat; no longer rendered (see canSelectAll/canZoomToFit).
   onSelectAll?: CanvasContextMenuActionHandler;
   onZoomToFit?: CanvasContextMenuActionHandler;
   onZoomToSelection?: CanvasContextMenuActionHandler;
+  onZoomIn?: CanvasContextMenuActionHandler;
+  onZoomOut?: CanvasContextMenuActionHandler;
   onCopy?: CanvasContextMenuActionHandler;
   onPaste?: CanvasContextMenuActionHandler;
   onPasteOver?: CanvasContextMenuActionHandler;
+  onPasteToReplace?: CanvasContextMenuActionHandler;
+  // Kept for back-compat; no longer rendered (see canDuplicate/canDelete).
   onDuplicate?: CanvasContextMenuActionHandler;
   onDelete?: CanvasContextMenuActionHandler;
   onBringForward?: CanvasContextMenuActionHandler;
@@ -173,12 +285,33 @@ export interface CanvasContextMenuProps {
   onSendToBack?: CanvasContextMenuActionHandler;
   onGroup?: CanvasContextMenuActionHandler;
   onUngroup?: CanvasContextMenuActionHandler;
+  onFrameSelection?: CanvasContextMenuActionHandler;
+  onAddAutoLayout?: CanvasContextMenuActionHandler;
+  onCreateComponent?: CanvasContextMenuActionHandler;
+  // L12: fired when the Rename item is selected (details.selectedCount tells
+  // the caller how many things are selected). The caller decides what
+  // "rename" means for the current target — e.g. calling a LayersPanel
+  // ref's beginRename(layerId) when exactly one layer is selected, vs.
+  // starting design-title rename when nothing is selected.
   onRename?: CanvasContextMenuActionHandler;
   onToggleLocked?: CanvasContextMenuActionHandler;
   onToggleHidden?: CanvasContextMenuActionHandler;
   onCopyProps?: CanvasContextMenuActionHandler;
   onPasteProps?: CanvasContextMenuActionHandler;
+  onCopyAnimation?: CanvasContextMenuActionHandler;
+  onPasteAnimation?: CanvasContextMenuActionHandler;
   onCopyAsCode?: CanvasContextMenuActionHandler;
+  onCopyAsSvg?: CanvasContextMenuActionHandler;
+  onCopyAsPng?: CanvasContextMenuActionHandler;
+  onFlipHorizontal?: CanvasContextMenuActionHandler;
+  onFlipVertical?: CanvasContextMenuActionHandler;
+  onToggleUi?: CanvasContextMenuActionHandler;
+  onToggleComments?: CanvasContextMenuActionHandler;
+  // App-specific items with no Figma equivalent (e.g. "Edit screen"). Render
+  // below a trailing separator, after the Figma-muscle-memory zone, only for
+  // the WITH-selection menu — matching the existing call site's need without
+  // polluting the empty-canvas menu.
+  appendedItems?: ReactNode;
 }
 
 const DEFAULT_LABELS: CanvasContextMenuLabels = {
@@ -186,9 +319,12 @@ const DEFAULT_LABELS: CanvasContextMenuLabels = {
   selectAll: "Select all",
   zoomToFit: "Zoom to fit",
   zoomToSelection: "Zoom to selection",
+  zoomIn: "Zoom in",
+  zoomOut: "Zoom out",
   copy: "Copy",
   paste: "Paste",
   pasteOver: "Paste over",
+  pasteToReplace: "Paste to replace",
   duplicate: "Duplicate",
   delete: "Delete",
   order: "Order",
@@ -196,16 +332,30 @@ const DEFAULT_LABELS: CanvasContextMenuLabels = {
   bringToFront: "Bring to front",
   sendBackward: "Send backward",
   sendToBack: "Send to back",
-  group: "Group",
+  group: "Group selection",
   ungroup: "Ungroup",
+  frameSelection: "Frame selection",
+  addAutoLayout: "Add auto layout",
+  createComponent: "Create component",
   rename: "Rename",
   lock: "Lock",
   unlock: "Unlock",
   hide: "Hide",
   show: "Show",
+  copyAs: "Copy/Paste as",
   copyProps: "Copy properties",
   pasteProps: "Paste properties",
+  copyAnimation: "Copy animation",
+  pasteAnimation: "Paste animation",
   copyAsCode: "Copy as code",
+  copyAsSvg: "Copy as SVG",
+  copyAsPng: "Copy as PNG",
+  flipHorizontal: "Flip horizontal",
+  flipVertical: "Flip vertical",
+  toggleUiShow: "Show UI",
+  toggleUiHide: "Hide UI",
+  toggleCommentsShow: "Show comments",
+  toggleCommentsHide: "Hide comments",
 };
 
 const DEFAULT_SHORTCUTS: CanvasContextMenuShortcuts = {
@@ -213,21 +363,37 @@ const DEFAULT_SHORTCUTS: CanvasContextMenuShortcuts = {
   selectAll: "⌘A",
   zoomToFit: "⇧1",
   zoomToSelection: "⇧2",
+  zoomIn: "+",
+  zoomOut: "-",
   copy: "⌘C",
   paste: "⌘V",
   pasteOver: "⇧⌘V",
+  pasteToReplace: "⇧⌘R",
   duplicate: "⌘D",
   delete: "⌫",
   bringForward: "⌘]",
-  bringToFront: "⌥⌘]",
+  bringToFront: "]",
   sendBackward: "⌘[",
-  sendToBack: "⌥⌘[",
+  sendToBack: "[",
   group: "⌘G",
   ungroup: "⇧⌘G",
+  frameSelection: "⌥⌘G",
+  addAutoLayout: "⇧A",
+  createComponent: "⌥⌘K",
   rename: "⌘R",
+  toggleLock: "⇧⌘L",
+  toggleHide: "⇧⌘H",
   copyProps: "⌥⌘C",
   pasteProps: "⌥⌘V",
-  copyAsCode: "⇧⌘C",
+  copyAnimation: "",
+  pasteAnimation: "",
+  copyAsCode: "",
+  copyAsSvg: "",
+  copyAsPng: "⇧⌘C",
+  flipHorizontal: "⇧H",
+  flipVertical: "⇧V",
+  toggleUi: "⌘\\",
+  toggleComments: "⇧C",
 };
 
 type ActionCallbackMap = Partial<
@@ -262,26 +428,36 @@ export const CanvasContextMenu = forwardRef<
     selectedCount = 0,
     hasClipboard = false,
     hasPropsClipboard = false,
+    hasAnimationClipboard = false,
     isLocked = false,
     isHidden = false,
+    isUiHidden = false,
+    isCommentsHidden = false,
     canPasteHere = hasClipboard,
-    canSelectAll = true,
-    canZoomToFit = true,
-    canZoomToSelection = selectedCount > 0,
     canCopy = selectedCount > 0,
     canPaste = hasClipboard,
     canPasteOver = hasClipboard && selectedCount > 0,
-    canDuplicate = selectedCount > 0,
-    canDelete = selectedCount > 0,
+    canPasteToReplace = hasClipboard && selectedCount > 0,
     canReorder = selectedCount > 0,
     canGroup = selectedCount > 1,
     canUngroup = false,
+    canFrameSelection = selectedCount > 0,
+    canAddAutoLayout = selectedCount > 0,
+    canCreateComponent = selectedCount > 0,
     canRename = selectedCount === 1,
     canToggleLocked = selectedCount > 0,
     canToggleHidden = selectedCount > 0,
     canCopyProps = selectedCount > 0,
     canPasteProps = hasPropsClipboard && selectedCount > 0,
+    canCopyAnimation = selectedCount > 0,
+    canPasteAnimation = hasAnimationClipboard && selectedCount > 0,
     canCopyAsCode = selectedCount > 0,
+    canCopyAsSvg = selectedCount > 0,
+    canCopyAsPng = selectedCount > 0,
+    canFlipHorizontal = selectedCount > 0,
+    canFlipVertical = selectedCount > 0,
+    canToggleUi = true,
+    canToggleComments = true,
     hiddenActions = [],
     disabledActions = [],
     labels: labelsProp,
@@ -290,26 +466,34 @@ export const CanvasContextMenu = forwardRef<
     onOpenChange,
     onAction,
     onPasteHere,
-    onSelectAll,
-    onZoomToFit,
-    onZoomToSelection,
     onCopy,
     onPaste,
     onPasteOver,
-    onDuplicate,
-    onDelete,
+    onPasteToReplace,
     onBringForward,
     onBringToFront,
     onSendBackward,
     onSendToBack,
     onGroup,
     onUngroup,
+    onFrameSelection,
+    onAddAutoLayout,
+    onCreateComponent,
     onRename,
     onToggleLocked,
     onToggleHidden,
     onCopyProps,
     onPasteProps,
+    onCopyAnimation,
+    onPasteAnimation,
     onCopyAsCode,
+    onCopyAsSvg,
+    onCopyAsPng,
+    onFlipHorizontal,
+    onFlipVertical,
+    onToggleUi,
+    onToggleComments,
+    appendedItems,
   },
   ref,
 ) {
@@ -362,49 +546,63 @@ export const CanvasContextMenu = forwardRef<
   const callbacks = useMemo<ActionCallbackMap>(
     () => ({
       "paste-here": onPasteHere,
-      "select-all": onSelectAll,
-      "zoom-to-fit": onZoomToFit,
-      "zoom-to-selection": onZoomToSelection,
       copy: onCopy,
       paste: onPaste,
       "paste-over": onPasteOver,
-      duplicate: onDuplicate,
-      delete: onDelete,
+      "paste-to-replace": onPasteToReplace,
       "bring-forward": onBringForward,
       "bring-to-front": onBringToFront,
       "send-backward": onSendBackward,
       "send-to-back": onSendToBack,
       group: onGroup,
       ungroup: onUngroup,
+      "frame-selection": onFrameSelection,
+      "add-auto-layout": onAddAutoLayout,
+      "create-component": onCreateComponent,
       rename: onRename,
       "toggle-lock": onToggleLocked,
       "toggle-hide": onToggleHidden,
       "copy-props": onCopyProps,
       "paste-props": onPasteProps,
+      "copy-animation": onCopyAnimation,
+      "paste-animation": onPasteAnimation,
       "copy-as-code": onCopyAsCode,
+      "copy-as-svg": onCopyAsSvg,
+      "copy-as-png": onCopyAsPng,
+      "flip-horizontal": onFlipHorizontal,
+      "flip-vertical": onFlipVertical,
+      "toggle-ui": onToggleUi,
+      "toggle-comments": onToggleComments,
     }),
     [
+      onAddAutoLayout,
       onBringForward,
       onBringToFront,
       onCopy,
+      onCopyAnimation,
       onCopyAsCode,
+      onCopyAsPng,
+      onCopyAsSvg,
       onCopyProps,
-      onDelete,
-      onDuplicate,
+      onCreateComponent,
+      onFlipHorizontal,
+      onFlipVertical,
+      onFrameSelection,
       onGroup,
       onPaste,
+      onPasteAnimation,
       onPasteHere,
       onPasteOver,
       onPasteProps,
+      onPasteToReplace,
       onRename,
-      onSelectAll,
       onSendBackward,
       onSendToBack,
+      onToggleComments,
       onToggleHidden,
       onToggleLocked,
+      onToggleUi,
       onUngroup,
-      onZoomToFit,
-      onZoomToSelection,
     ],
   );
 
@@ -449,6 +647,8 @@ export const CanvasContextMenu = forwardRef<
       } satisfies CSSProperties)
     : undefined;
 
+  const hasSelection = selectedCount > 0;
+
   return (
     <ContextMenu open={open} onOpenChange={handleOpenChange}>
       <ContextMenuTrigger asChild>
@@ -474,204 +674,263 @@ export const CanvasContextMenu = forwardRef<
         className={cn(MENU_CONTENT_CLASS, contentClassName)}
         style={manualContentStyle}
       >
-        <ContextMenuGroup>
-          <CanvasMenuItem
-            hidden={isHiddenAction("paste-here")}
-            disabled={!canRun("paste-here", canPasteHere)}
-            label={labels.pasteHere}
-            shortcut={shortcuts.pasteHere}
-            onSelect={(event) => runAction("paste-here", event)}
-          />
-          <CanvasMenuItem
-            hidden={isHiddenAction("select-all")}
-            disabled={!canRun("select-all", canSelectAll)}
-            label={labels.selectAll}
-            shortcut={shortcuts.selectAll}
-            onSelect={(event) => runAction("select-all", event)}
-          />
-        </ContextMenuGroup>
+        {hasSelection ? (
+          <>
+            {/* LIVE-VERIFIED Figma "with selection" canvas menu. */}
+            <ContextMenuGroup>
+              <CanvasMenuItem
+                hidden={isHiddenAction("copy")}
+                disabled={!canRun("copy", canCopy)}
+                label={labels.copy}
+                shortcut={shortcuts.copy}
+                onSelect={(event) => runAction("copy", event)}
+              />
+              <CanvasMenuItem
+                hidden={isHiddenAction("paste-here")}
+                disabled={!canRun("paste-here", canPasteHere)}
+                label={labels.pasteHere}
+                shortcut={shortcuts.pasteHere}
+                onSelect={(event) => runAction("paste-here", event)}
+              />
+              <CanvasMenuItem
+                hidden={isHiddenAction("paste-to-replace")}
+                disabled={!canRun("paste-to-replace", canPasteToReplace)}
+                label={labels.pasteToReplace}
+                shortcut={shortcuts.pasteToReplace}
+                onSelect={(event) => runAction("paste-to-replace", event)}
+              />
+              {!isHiddenAction("copy-as-code") ||
+              !isHiddenAction("copy-as-svg") ||
+              !isHiddenAction("copy-as-png") ||
+              !isHiddenAction("copy-props") ||
+              !isHiddenAction("paste-props") ||
+              !isHiddenAction("copy-animation") ||
+              !isHiddenAction("paste-animation") ? (
+                <ContextMenuSub>
+                  <ContextMenuSubTrigger
+                    disabled={
+                      !(
+                        canRun("copy-as-code", canCopyAsCode) ||
+                        canRun("copy-as-svg", canCopyAsSvg) ||
+                        canRun("copy-as-png", canCopyAsPng) ||
+                        canRun("copy-props", canCopyProps) ||
+                        canRun("paste-props", canPasteProps) ||
+                        canRun("copy-animation", canCopyAnimation) ||
+                        canRun("paste-animation", canPasteAnimation)
+                      )
+                    }
+                    className={MENU_SUB_TRIGGER_CLASS}
+                  >
+                    {labels.copyAs}
+                  </ContextMenuSubTrigger>
+                  <ContextMenuSubContent
+                    className={cn(MENU_CONTENT_CLASS, "w-52")}
+                  >
+                    <CanvasMenuItem
+                      hidden={isHiddenAction("copy-as-code")}
+                      disabled={!canRun("copy-as-code", canCopyAsCode)}
+                      label={labels.copyAsCode}
+                      shortcut={shortcuts.copyAsCode}
+                      onSelect={(event) => runAction("copy-as-code", event)}
+                    />
+                    <CanvasMenuItem
+                      hidden={isHiddenAction("copy-as-svg")}
+                      disabled={!canRun("copy-as-svg", canCopyAsSvg)}
+                      label={labels.copyAsSvg}
+                      shortcut={shortcuts.copyAsSvg}
+                      onSelect={(event) => runAction("copy-as-svg", event)}
+                    />
+                    <CanvasMenuItem
+                      hidden={isHiddenAction("copy-as-png")}
+                      disabled={!canRun("copy-as-png", canCopyAsPng)}
+                      label={labels.copyAsPng}
+                      shortcut={shortcuts.copyAsPng}
+                      onSelect={(event) => runAction("copy-as-png", event)}
+                    />
+                    <CanvasMenuSeparator />
+                    <CanvasMenuItem
+                      hidden={isHiddenAction("copy-props")}
+                      disabled={!canRun("copy-props", canCopyProps)}
+                      label={labels.copyProps}
+                      shortcut={shortcuts.copyProps}
+                      onSelect={(event) => runAction("copy-props", event)}
+                    />
+                    <CanvasMenuItem
+                      hidden={isHiddenAction("paste-props")}
+                      disabled={!canRun("paste-props", canPasteProps)}
+                      label={labels.pasteProps}
+                      shortcut={shortcuts.pasteProps}
+                      onSelect={(event) => runAction("paste-props", event)}
+                    />
+                    <CanvasMenuSeparator />
+                    <CanvasMenuItem
+                      hidden={isHiddenAction("copy-animation")}
+                      disabled={!canRun("copy-animation", canCopyAnimation)}
+                      label={labels.copyAnimation}
+                      shortcut={shortcuts.copyAnimation}
+                      onSelect={(event) => runAction("copy-animation", event)}
+                    />
+                    <CanvasMenuItem
+                      hidden={isHiddenAction("paste-animation")}
+                      disabled={!canRun("paste-animation", canPasteAnimation)}
+                      label={labels.pasteAnimation}
+                      shortcut={shortcuts.pasteAnimation}
+                      onSelect={(event) => runAction("paste-animation", event)}
+                    />
+                  </ContextMenuSubContent>
+                </ContextMenuSub>
+              ) : null}
+            </ContextMenuGroup>
 
-        <CanvasMenuSeparator />
+            <CanvasMenuSeparator />
 
-        <ContextMenuGroup>
-          <CanvasMenuItem
-            hidden={isHiddenAction("zoom-to-fit")}
-            disabled={!canRun("zoom-to-fit", canZoomToFit)}
-            label={labels.zoomToFit}
-            shortcut={shortcuts.zoomToFit}
-            onSelect={(event) => runAction("zoom-to-fit", event)}
-          />
-          <CanvasMenuItem
-            hidden={isHiddenAction("zoom-to-selection")}
-            disabled={!canRun("zoom-to-selection", canZoomToSelection)}
-            label={labels.zoomToSelection}
-            shortcut={shortcuts.zoomToSelection}
-            onSelect={(event) => runAction("zoom-to-selection", event)}
-          />
-        </ContextMenuGroup>
+            <ContextMenuGroup>
+              <CanvasMenuItem
+                hidden={isHiddenAction("bring-to-front")}
+                disabled={!canRun("bring-to-front", canReorder)}
+                label={labels.bringToFront}
+                shortcut={shortcuts.bringToFront}
+                onSelect={(event) => runAction("bring-to-front", event)}
+              />
+              <CanvasMenuItem
+                hidden={isHiddenAction("send-to-back")}
+                disabled={!canRun("send-to-back", canReorder)}
+                label={labels.sendToBack}
+                shortcut={shortcuts.sendToBack}
+                onSelect={(event) => runAction("send-to-back", event)}
+              />
+            </ContextMenuGroup>
 
-        <CanvasMenuSeparator />
+            <CanvasMenuSeparator />
 
-        <ContextMenuGroup>
-          <CanvasMenuItem
-            hidden={isHiddenAction("copy")}
-            disabled={!canRun("copy", canCopy)}
-            label={labels.copy}
-            shortcut={shortcuts.copy}
-            onSelect={(event) => runAction("copy", event)}
-          />
-          <CanvasMenuItem
-            hidden={isHiddenAction("paste")}
-            disabled={!canRun("paste", canPaste)}
-            label={labels.paste}
-            shortcut={shortcuts.paste}
-            onSelect={(event) => runAction("paste", event)}
-          />
-          <CanvasMenuItem
-            hidden={isHiddenAction("paste-over")}
-            disabled={!canRun("paste-over", canPasteOver)}
-            label={labels.pasteOver}
-            shortcut={shortcuts.pasteOver}
-            onSelect={(event) => runAction("paste-over", event)}
-          />
-          <CanvasMenuItem
-            hidden={isHiddenAction("duplicate")}
-            disabled={!canRun("duplicate", canDuplicate)}
-            label={labels.duplicate}
-            shortcut={shortcuts.duplicate}
-            onSelect={(event) => runAction("duplicate", event)}
-          />
-        </ContextMenuGroup>
+            <ContextMenuGroup>
+              <CanvasMenuItem
+                hidden={isHiddenAction("group")}
+                disabled={!canRun("group", canGroup)}
+                label={labels.group}
+                shortcut={shortcuts.group}
+                onSelect={(event) => runAction("group", event)}
+              />
+              <CanvasMenuItem
+                hidden={isHiddenAction("frame-selection")}
+                disabled={!canRun("frame-selection", canFrameSelection)}
+                label={labels.frameSelection}
+                shortcut={shortcuts.frameSelection}
+                onSelect={(event) => runAction("frame-selection", event)}
+              />
+            </ContextMenuGroup>
 
-        <CanvasMenuSeparator />
+            <CanvasMenuSeparator />
 
-        <ContextMenuGroup>
-          {!isHiddenAction("bring-forward") ||
-          !isHiddenAction("bring-to-front") ||
-          !isHiddenAction("send-backward") ||
-          !isHiddenAction("send-to-back") ? (
-            <ContextMenuSub>
-              <ContextMenuSubTrigger
-                disabled={
-                  !(
-                    canRun("bring-forward", canReorder) ||
-                    canRun("bring-to-front", canReorder) ||
-                    canRun("send-backward", canReorder) ||
-                    canRun("send-to-back", canReorder)
-                  )
+            <ContextMenuGroup>
+              <CanvasMenuItem
+                hidden={isHiddenAction("add-auto-layout")}
+                disabled={!canRun("add-auto-layout", canAddAutoLayout)}
+                label={labels.addAutoLayout}
+                shortcut={shortcuts.addAutoLayout}
+                onSelect={(event) => runAction("add-auto-layout", event)}
+              />
+              <CanvasMenuItem
+                hidden={isHiddenAction("create-component")}
+                disabled={!canRun("create-component", canCreateComponent)}
+                label={labels.createComponent}
+                shortcut={shortcuts.createComponent}
+                onSelect={(event) => runAction("create-component", event)}
+              />
+            </ContextMenuGroup>
+
+            <CanvasMenuSeparator />
+
+            <ContextMenuGroup>
+              <CanvasMenuItem
+                hidden={isHiddenAction("toggle-hide")}
+                disabled={!canRun("toggle-hide", canToggleHidden)}
+                label={isHidden ? labels.show : labels.hide}
+                shortcut={shortcuts.toggleHide}
+                onSelect={(event) => runAction("toggle-hide", event)}
+              />
+              <CanvasMenuItem
+                hidden={isHiddenAction("toggle-lock")}
+                disabled={!canRun("toggle-lock", canToggleLocked)}
+                label={isLocked ? labels.unlock : labels.lock}
+                shortcut={shortcuts.toggleLock}
+                onSelect={(event) => runAction("toggle-lock", event)}
+              />
+            </ContextMenuGroup>
+
+            <CanvasMenuSeparator />
+
+            <ContextMenuGroup>
+              <CanvasMenuItem
+                hidden={isHiddenAction("flip-horizontal")}
+                disabled={!canRun("flip-horizontal", canFlipHorizontal)}
+                label={labels.flipHorizontal}
+                shortcut={shortcuts.flipHorizontal}
+                onSelect={(event) => runAction("flip-horizontal", event)}
+              />
+              <CanvasMenuItem
+                hidden={isHiddenAction("flip-vertical")}
+                disabled={!canRun("flip-vertical", canFlipVertical)}
+                label={labels.flipVertical}
+                shortcut={shortcuts.flipVertical}
+                onSelect={(event) => runAction("flip-vertical", event)}
+              />
+            </ContextMenuGroup>
+
+            {appendedItems ? (
+              <>
+                <CanvasMenuSeparator />
+                {appendedItems}
+              </>
+            ) : null}
+          </>
+        ) : (
+          <>
+            {/* LIVE-VERIFIED Figma "empty canvas" (no selection) menu — just
+                Paste here, then Show/Hide UI and Show/Hide comments. No
+                zoom/select-all items (real Figma's UI3 empty menu has
+                none). */}
+            <ContextMenuGroup>
+              <CanvasMenuItem
+                hidden={isHiddenAction("paste-here")}
+                disabled={!canRun("paste-here", canPasteHere)}
+                label={labels.pasteHere}
+                shortcut={shortcuts.pasteHere}
+                onSelect={(event) => runAction("paste-here", event)}
+              />
+            </ContextMenuGroup>
+
+            <CanvasMenuSeparator />
+
+            <ContextMenuGroup>
+              <CanvasMenuItem
+                hidden={isHiddenAction("toggle-ui")}
+                disabled={!canRun("toggle-ui", canToggleUi)}
+                label={isUiHidden ? labels.toggleUiShow : labels.toggleUiHide}
+                shortcut={shortcuts.toggleUi}
+                onSelect={(event) => runAction("toggle-ui", event)}
+              />
+              <CanvasMenuItem
+                hidden={isHiddenAction("toggle-comments")}
+                disabled={!canRun("toggle-comments", canToggleComments)}
+                label={
+                  isCommentsHidden
+                    ? labels.toggleCommentsShow
+                    : labels.toggleCommentsHide
                 }
-                className={MENU_SUB_TRIGGER_CLASS}
-              >
-                {labels.order}
-              </ContextMenuSubTrigger>
-              <ContextMenuSubContent className={cn(MENU_CONTENT_CLASS, "w-52")}>
-                <CanvasMenuItem
-                  hidden={isHiddenAction("bring-forward")}
-                  disabled={!canRun("bring-forward", canReorder)}
-                  label={labels.bringForward}
-                  shortcut={shortcuts.bringForward}
-                  onSelect={(event) => runAction("bring-forward", event)}
-                />
-                <CanvasMenuItem
-                  hidden={isHiddenAction("bring-to-front")}
-                  disabled={!canRun("bring-to-front", canReorder)}
-                  label={labels.bringToFront}
-                  shortcut={shortcuts.bringToFront}
-                  onSelect={(event) => runAction("bring-to-front", event)}
-                />
-                <CanvasMenuItem
-                  hidden={isHiddenAction("send-backward")}
-                  disabled={!canRun("send-backward", canReorder)}
-                  label={labels.sendBackward}
-                  shortcut={shortcuts.sendBackward}
-                  onSelect={(event) => runAction("send-backward", event)}
-                />
-                <CanvasMenuItem
-                  hidden={isHiddenAction("send-to-back")}
-                  disabled={!canRun("send-to-back", canReorder)}
-                  label={labels.sendToBack}
-                  shortcut={shortcuts.sendToBack}
-                  onSelect={(event) => runAction("send-to-back", event)}
-                />
-              </ContextMenuSubContent>
-            </ContextMenuSub>
-          ) : null}
-          <CanvasMenuItem
-            hidden={isHiddenAction("group")}
-            disabled={!canRun("group", canGroup)}
-            label={labels.group}
-            shortcut={shortcuts.group}
-            onSelect={(event) => runAction("group", event)}
-          />
-          <CanvasMenuItem
-            hidden={isHiddenAction("ungroup")}
-            disabled={!canRun("ungroup", canUngroup)}
-            label={labels.ungroup}
-            shortcut={shortcuts.ungroup}
-            onSelect={(event) => runAction("ungroup", event)}
-          />
-        </ContextMenuGroup>
+                shortcut={shortcuts.toggleComments}
+                onSelect={(event) => runAction("toggle-comments", event)}
+              />
+            </ContextMenuGroup>
 
-        <CanvasMenuSeparator />
-
-        <ContextMenuGroup>
-          <CanvasMenuItem
-            hidden={isHiddenAction("rename")}
-            disabled={!canRun("rename", canRename)}
-            label={labels.rename}
-            shortcut={shortcuts.rename}
-            onSelect={(event) => runAction("rename", event)}
-          />
-          <CanvasMenuItem
-            hidden={isHiddenAction("toggle-lock")}
-            disabled={!canRun("toggle-lock", canToggleLocked)}
-            label={isLocked ? labels.unlock : labels.lock}
-            onSelect={(event) => runAction("toggle-lock", event)}
-          />
-          <CanvasMenuItem
-            hidden={isHiddenAction("toggle-hide")}
-            disabled={!canRun("toggle-hide", canToggleHidden)}
-            label={isHidden ? labels.show : labels.hide}
-            onSelect={(event) => runAction("toggle-hide", event)}
-          />
-        </ContextMenuGroup>
-
-        <CanvasMenuSeparator />
-
-        <ContextMenuGroup>
-          <CanvasMenuItem
-            hidden={isHiddenAction("copy-props")}
-            disabled={!canRun("copy-props", canCopyProps)}
-            label={labels.copyProps}
-            shortcut={shortcuts.copyProps}
-            onSelect={(event) => runAction("copy-props", event)}
-          />
-          <CanvasMenuItem
-            hidden={isHiddenAction("paste-props")}
-            disabled={!canRun("paste-props", canPasteProps)}
-            label={labels.pasteProps}
-            shortcut={shortcuts.pasteProps}
-            onSelect={(event) => runAction("paste-props", event)}
-          />
-          <CanvasMenuItem
-            hidden={isHiddenAction("copy-as-code")}
-            disabled={!canRun("copy-as-code", canCopyAsCode)}
-            label={labels.copyAsCode}
-            shortcut={shortcuts.copyAsCode}
-            onSelect={(event) => runAction("copy-as-code", event)}
-          />
-        </ContextMenuGroup>
-
-        <CanvasMenuSeparator />
-
-        <CanvasMenuItem
-          hidden={isHiddenAction("delete")}
-          disabled={!canRun("delete", canDelete)}
-          label={labels.delete}
-          shortcut={shortcuts.delete}
-          destructive
-          onSelect={(event) => runAction("delete", event)}
-        />
+            {appendedItems ? (
+              <>
+                <CanvasMenuSeparator />
+                {appendedItems}
+              </>
+            ) : null}
+          </>
+        )}
       </ContextMenuContent>
     </ContextMenu>
   );

@@ -16,6 +16,8 @@ import { getDb, schema } from "../db/index.js";
 
 export type QueuedDraftStatus = "queued" | "in_review" | "sent" | "dismissed";
 
+const SEND_CLAIM_TTL_MS = 15 * 60 * 1000;
+
 export type QueueScope = "review" | "requested" | "all";
 export type QueueStatusFilter = QueuedDraftStatus | "active" | "all";
 
@@ -463,13 +465,152 @@ export async function openQueuedDraftInComposer(
   return { draft: updated, composeId };
 }
 
+export type QueuedDraftClaim =
+  | {
+      claimed: true;
+      ctx: QueueContext;
+      draft: QueuedEmailDraft;
+      claimId: string;
+      priorStatus: QueuedDraftStatus;
+    }
+  | { claimed: false; reason: "sent" | "sending" | "dismissed" };
+
+/**
+ * Atomically claims a queued draft in a private send-claim column while keeping
+ * the public status in one of its durable states ("queued" or "in_review").
+ * That lets only one caller proceed to actually send the underlying email
+ * without writing transient values into the constrained status column. Enforces
+ * the same
+ * owner-or-admin access check as requireQueuedDraft first, then uses a
+ * single conditional UPDATE + RETURNING so two concurrent callers can't both
+ * observe a sendable, unclaimed draft and both dispatch the real send.
+ */
+export async function claimQueuedDraftForSending(
+  id: string,
+): Promise<QueuedDraftClaim> {
+  const { ctx, draft: preClaimDraft } = await requireQueuedDraft(id, {
+    ownerOnly: true,
+  });
+  // Best portable witness of the pre-claim status: UPDATE ... RETURNING
+  // yields POST-update values on both Postgres and SQLite, so it can never
+  // be used to recover the prior status. The WHERE clause below guarantees
+  // this row was "queued" or "in_review" at claim time if the update
+  // affects it, so the pre-read status (when it's one of those two) is
+  // exactly that prior status; otherwise default to "queued".
+  const priorStatus: QueuedDraftStatus =
+    preClaimDraft.status === "queued" || preClaimDraft.status === "in_review"
+      ? preClaimDraft.status
+      : "queued";
+  const claimId = nanoid();
+  const claimedAt = Date.now();
+  const staleClaimBefore = claimedAt - SEND_CLAIM_TTL_MS;
+
+  const claimed = await getDb()
+    .update(schema.queuedEmailDrafts)
+    .set({
+      sendClaimId: claimId,
+      sendClaimedAt: claimedAt,
+      updatedAt: claimedAt,
+    })
+    .where(
+      and(
+        eq(schema.queuedEmailDrafts.id, id),
+        eq(schema.queuedEmailDrafts.orgId, ctx.orgId),
+        or(
+          eq(schema.queuedEmailDrafts.status, "queued"),
+          eq(schema.queuedEmailDrafts.status, "in_review"),
+        ),
+        sql`(${schema.queuedEmailDrafts.sendClaimId} IS NULL OR ${schema.queuedEmailDrafts.sendClaimedAt} < ${staleClaimBefore})`,
+      ),
+    )
+    .returning({ sendClaimId: schema.queuedEmailDrafts.sendClaimId });
+
+  if (claimed.length > 0) {
+    const draft = await getQueuedDraft(id, ctx);
+    if (!draft) throw new Error("Queued draft not found after claim.");
+    return { claimed: true, ctx, draft, claimId, priorStatus };
+  }
+
+  // Lost the race (or nothing to claim) — report the real current status so
+  // callers can distinguish "someone else is sending this right now" from
+  // "this was already sent" instead of silently re-sending or erroring.
+  const [current] = await getDb()
+    .select({
+      status: schema.queuedEmailDrafts.status,
+      sendClaimId: schema.queuedEmailDrafts.sendClaimId,
+    })
+    .from(schema.queuedEmailDrafts)
+    .where(
+      and(
+        eq(schema.queuedEmailDrafts.id, id),
+        eq(schema.queuedEmailDrafts.orgId, ctx.orgId),
+      ),
+    )
+    .limit(1);
+  if (
+    current?.sendClaimId &&
+    (current.status === "queued" || current.status === "in_review")
+  ) {
+    return { claimed: false, reason: "sending" };
+  }
+  if (current?.status === "sent") return { claimed: false, reason: "sent" };
+  return { claimed: false, reason: "dismissed" };
+}
+
+/**
+ * Releases a failed send back to its pre-claim status so the draft is
+ * retryable instead of stuck with an active send claim forever.
+ */
+export async function releaseQueuedDraftClaim(
+  id: string,
+  ctx: QueueContext,
+  claimId: string,
+  priorStatus: QueuedDraftStatus,
+): Promise<void> {
+  await getDb()
+    .update(schema.queuedEmailDrafts)
+    .set({
+      status: priorStatus,
+      sendClaimId: null,
+      sendClaimedAt: null,
+      updatedAt: Date.now(),
+    })
+    .where(
+      and(
+        eq(schema.queuedEmailDrafts.id, id),
+        eq(schema.queuedEmailDrafts.orgId, ctx.orgId),
+        eq(schema.queuedEmailDrafts.sendClaimId, claimId),
+      ),
+    );
+}
+
 export async function markQueuedDraftSent(
   id: string,
+  ctx: QueueContext,
+  claimId: string,
   sentMessageId?: string,
 ): Promise<QueuedEmailDraft> {
-  await requireQueuedDraft(id, { ownerOnly: true });
-  return updateQueuedDraft(id, {
+  const updates: Record<string, unknown> = {
     status: "sent",
-    sentMessageId,
-  });
+    sendClaimId: null,
+    sendClaimedAt: null,
+    sentAt: Date.now(),
+    updatedAt: Date.now(),
+  };
+  if (sentMessageId !== undefined) {
+    updates.sentMessageId = sentMessageId.trim() || null;
+  }
+  await getDb()
+    .update(schema.queuedEmailDrafts)
+    .set(updates)
+    .where(
+      and(
+        eq(schema.queuedEmailDrafts.id, id),
+        eq(schema.queuedEmailDrafts.orgId, ctx.orgId),
+        eq(schema.queuedEmailDrafts.sendClaimId, claimId),
+      ),
+    );
+  const updated = await getQueuedDraft(id, ctx);
+  if (!updated) throw new Error("Queued draft not found after send.");
+  return updated;
 }

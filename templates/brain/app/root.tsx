@@ -25,6 +25,7 @@ import {
 import type { LinksFunction } from "react-router";
 
 import { Layout as AppLayout } from "@/components/layout/Layout";
+import { AppToolkitProvider } from "@/components/ui/toolkit-provider";
 import { useDistillationBridge } from "@/hooks/use-distillation-bridge";
 import { useNavigationState } from "@/hooks/use-navigation-state";
 import { TAB_ID } from "@/lib/tab-id";
@@ -215,14 +216,16 @@ export default function Root() {
   );
 
   return (
-    <AppProviders
-      queryClient={queryClient}
-      tooltipDelayDuration={250}
-      i18n={{ catalog: i18nCatalog }}
-    >
-      <DbSyncSetup />
-      <AppContent />
-    </AppProviders>
+    <AppToolkitProvider>
+      <AppProviders
+        queryClient={queryClient}
+        tooltipDelayDuration={250}
+        i18n={{ catalog: i18nCatalog }}
+      >
+        <DbSyncSetup />
+        <AppContent />
+      </AppProviders>
+    </AppToolkitProvider>
   );
 }
 

@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import {
   discoverDesignRoutes,
+  designConnectManifestsTargetSameApp,
   parseDesignConnectArgs,
   prepareDesignConnectManifest,
   registerConnectionWithServer,
@@ -177,6 +178,55 @@ describe("design connect CLI", () => {
     ).toMatchObject({
       appUrl: "https://design.example.com",
     });
+  });
+
+  it("parses --daemon and rejects one-shot modes", () => {
+    expect(parseDesignConnectArgs(["connect", "--daemon"])).toMatchObject({
+      daemon: true,
+      once: false,
+    });
+    expect(() =>
+      parseDesignConnectArgs(["connect", "--daemon", "--json"]),
+    ).toThrow(/--daemon cannot be combined/);
+  });
+
+  it("validates daemon bridge reuse against the requested app", () => {
+    expect(
+      designConnectManifestsTargetSameApp(
+        {
+          devServerUrl: "http://localhost:5173/",
+          rootPath: "/tmp/project",
+        },
+        {
+          devServerUrl: "localhost:5173",
+          rootPath: "/tmp/project/.",
+        },
+      ),
+    ).toBe(true);
+    expect(
+      designConnectManifestsTargetSameApp(
+        {
+          devServerUrl: "http://localhost:5173",
+          rootPath: "/tmp/project",
+        },
+        {
+          devServerUrl: "http://localhost:5174",
+          rootPath: "/tmp/project",
+        },
+      ),
+    ).toBe(false);
+    expect(
+      designConnectManifestsTargetSameApp(
+        {
+          devServerUrl: "http://localhost:5173",
+          rootPath: "/tmp/project",
+        },
+        {
+          devServerUrl: "http://localhost:5173",
+          rootPath: "/tmp/other-project",
+        },
+      ),
+    ).toBe(false);
   });
 
   it("resolves standard app URL env vars for self-registration", () => {
@@ -593,7 +643,7 @@ describe("design connect bridge endpoints", () => {
     }
   });
 
-  it("rejects write-file for non-HTML/CSS extensions", async () => {
+  it("rejects write-file for extensions outside the allowed text-file list", async () => {
     const root = tmpDir();
     const port = await freePort();
     const manifest = await prepareDesignConnectManifest({
@@ -609,7 +659,7 @@ describe("design connect bridge endpoints", () => {
 
       const result = await postJson(
         `${base}/write-file`,
-        { relPath: "secret.ts", content: "evil" },
+        { relPath: "secret.exe", content: "evil" },
         authHeader,
       );
       expect(result.status).toBe(500);
@@ -643,6 +693,75 @@ describe("design connect bridge endpoints", () => {
       // Must be an error (status 500 with traversal message or 404 if OS resolves
       // to a non-existent file that still escapes the root — we just want not-200).
       expect(result.status).not.toBe(200);
+    } finally {
+      await new Promise<void>((resolve) =>
+        bridge.server.close(() => resolve()),
+      );
+    }
+  });
+
+  it("rejects a symlink leaf inside root that points outside root (read)", async () => {
+    const root = tmpDir();
+    const outsideDir = tmpDir();
+    const secretPath = path.join(outsideDir, "id_dsa_secret");
+    fs.writeFileSync(secretPath, "super-secret-key-material", "utf8");
+    // The symlink itself lives inside root — only its target escapes.
+    fs.symlinkSync(secretPath, path.join(root, "link.css"));
+
+    const port = await freePort();
+    const manifest = await prepareDesignConnectManifest({
+      root,
+      url: "http://localhost:5173",
+      port,
+    });
+    const bridge = await startDesignConnectBridge(manifest);
+    const { bridgeToken } = bridge;
+    try {
+      const base = `http://127.0.0.1:${port}`;
+      const authHeader = { "x-bridge-token": bridgeToken };
+
+      const result = await postJson(
+        `${base}/read-file`,
+        { relPath: "link.css" },
+        authHeader,
+      );
+      expect(result.status).not.toBe(200);
+      expect(result.body["ok"]).toBe(false);
+    } finally {
+      await new Promise<void>((resolve) =>
+        bridge.server.close(() => resolve()),
+      );
+    }
+  });
+
+  it("rejects a symlink leaf inside root that points outside root (write)", async () => {
+    const root = tmpDir();
+    const outsideDir = tmpDir();
+    const targetPath = path.join(outsideDir, "outside.css");
+    fs.writeFileSync(targetPath, "body { color: red; }", "utf8");
+    fs.symlinkSync(targetPath, path.join(root, "link.css"));
+
+    const port = await freePort();
+    const manifest = await prepareDesignConnectManifest({
+      root,
+      url: "http://localhost:5173",
+      port,
+    });
+    const bridge = await startDesignConnectBridge(manifest);
+    const { bridgeToken } = bridge;
+    try {
+      const base = `http://127.0.0.1:${port}`;
+      const authHeader = { "x-bridge-token": bridgeToken };
+
+      const result = await postJson(
+        `${base}/write-file`,
+        { relPath: "link.css", content: "body { color: blue; }" },
+        authHeader,
+      );
+      expect(result.status).not.toBe(200);
+      expect(result.body["ok"]).toBe(false);
+      // The file outside root must remain untouched.
+      expect(fs.readFileSync(targetPath, "utf8")).toBe("body { color: red; }");
     } finally {
       await new Promise<void>((resolve) =>
         bridge.server.close(() => resolve()),

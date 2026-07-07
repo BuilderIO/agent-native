@@ -180,6 +180,88 @@ export const analyticsEvents = table("analytics_events", {
 });
 
 /**
+ * Generic alert rules over first-party analytics events. Rules are owned by a
+ * user/org but can target any app, template, event name, or event property.
+ */
+export const analyticsAlertRules = table("analytics_alert_rules", {
+  id: text("id").primaryKey(),
+  name: text("name").notNull(),
+  description: text("description").notNull().default(""),
+  eventName: text("event_name"),
+  filters: text("filters").notNull().default("[]"),
+  thresholdMode: text("threshold_mode", {
+    enum: ["event_count", "distinct_count"],
+  })
+    .notNull()
+    .default("event_count"),
+  distinctBy: text("distinct_by"),
+  threshold: integer("threshold").notNull().default(1),
+  windowMinutes: integer("window_minutes").notNull().default(10),
+  cooldownMinutes: integer("cooldown_minutes").notNull().default(30),
+  severity: text("severity", { enum: ["warning", "critical"] })
+    .notNull()
+    .default("warning"),
+  channels: text("channels").notNull().default('["inbox"]'),
+  emailRecipients: text("email_recipients").notNull().default("[]"),
+  enabled: integer("enabled", { mode: "boolean" }).notNull().default(true),
+  lastEvaluatedAt: text("last_evaluated_at"),
+  lastTriggeredAt: text("last_triggered_at"),
+  lastStatus: text("last_status", {
+    enum: ["ok", "triggered", "cooldown", "error", "running"],
+  }),
+  lastError: text("last_error"),
+  createdAt: text("created_at").notNull().default(now()),
+  updatedAt: text("updated_at").notNull().default(now()),
+  ownerEmail: text("owner_email").notNull().default("local@localhost"),
+  orgId: text("org_id"),
+});
+
+export const analyticsAlertIncidents = table("analytics_alert_incidents", {
+  id: text("id").primaryKey(),
+  ruleId: text("rule_id").notNull(),
+  triggeredAt: text("triggered_at").notNull(),
+  windowStart: text("window_start").notNull(),
+  windowEnd: text("window_end").notNull(),
+  threshold: integer("threshold").notNull(),
+  observedValue: integer("observed_value").notNull(),
+  eventCount: integer("event_count").notNull(),
+  severity: text("severity", { enum: ["warning", "critical"] }).notNull(),
+  channels: text("channels").notNull().default("[]"),
+  sampleEvents: text("sample_events").notNull().default("[]"),
+  notificationId: text("notification_id"),
+  createdAt: text("created_at").notNull().default(now()),
+  ownerEmail: text("owner_email").notNull().default("local@localhost"),
+  orgId: text("org_id"),
+});
+
+/**
+ * Admin-only registry of external agent-native app databases that Analytics can
+ * inspect. Secret values live in app_secrets; this table stores metadata and
+ * secret keys scoped to the active organization.
+ */
+export const analyticsDbAdminConnections = table(
+  "analytics_db_admin_connections",
+  {
+    id: text("id").primaryKey(),
+    name: text("name").notNull(),
+    appId: text("app_id"),
+    appUrl: text("app_url"),
+    databaseUrlSecretKey: text("database_url_secret_key").notNull(),
+    databaseAuthTokenSecretKey: text("database_auth_token_secret_key"),
+    createdBy: text("created_by").notNull(),
+    createdAt: text("created_at").notNull().default(now()),
+    updatedAt: text("updated_at").notNull().default(now()),
+    orgId: text("org_id").notNull(),
+  },
+  (connection) => ({
+    orgUpdatedIdx: index("analytics_db_admin_connections_org_updated_idx").on(
+      connection.orgId,
+      connection.updatedAt,
+    ),
+  }),
+);
+
+/**
  * Session replay summaries recorded through the first-party analytics replay
  * endpoint. Raw replay chunks live in session_replay_chunks and are only read
  * through scoped replay helpers, not first-party dashboard SQL.
@@ -200,6 +282,9 @@ export const sessionRecordings = table("session_recordings", {
   totalBytes: integer("total_bytes").notNull().default(0),
   pageCount: integer("page_count").notNull().default(0),
   errorCount: integer("error_count").notNull().default(0),
+  // Additive column: failed network requests (status >= 400 or status 0)
+  // observed in captured replay diagnostics events.
+  networkErrorCount: integer("network_error_count").notNull().default(0),
   rageClickCount: integer("rage_click_count").notNull().default(0),
   privacyMode: text("privacy_mode").notNull().default("unknown"),
   firstUrl: text("first_url"),

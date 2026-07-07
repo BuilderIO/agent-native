@@ -637,7 +637,26 @@ export const listEmails = defineEventHandler(async (event: H3Event) => {
     (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime(),
   );
 
-  return { emails };
+  // Paginate the same way the Gmail-connected branch above does, so local/demo
+  // mode doesn't load the entire filtered list in one unbounded response and
+  // infinite scroll (which relies on nextPageToken) actually has a next page.
+  const { pageToken: localPageToken } = getQuery(event) as {
+    pageToken?: string;
+  };
+  const offset = (() => {
+    const n = Number(localPageToken);
+    return Number.isFinite(n) && n > 0 ? Math.floor(n) : 0;
+  })();
+  const page = emails.slice(offset, offset + pageLimit);
+  const nextOffset = offset + pageLimit;
+  const nextPageToken =
+    nextOffset < emails.length ? String(nextOffset) : undefined;
+
+  return {
+    emails: page,
+    ...(nextPageToken && { nextPageToken }),
+    totalEstimate: emails.length,
+  };
 });
 
 // ─── Thread messages ─────────────────────────────────────────────────────────

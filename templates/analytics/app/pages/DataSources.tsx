@@ -1,6 +1,7 @@
 import {
   appApiPath,
   agentNativePath,
+  callAction,
   oauthRedirectUri,
   useActionMutation,
   useActionQuery,
@@ -112,19 +113,7 @@ const firstPartyAnalyticsEndpoint =
 async function saveEnvVars(
   vars: Array<{ key: string; value: string }>,
 ): Promise<void> {
-  const token = await getIdToken();
-  const res = await fetch(appApiPath("/api/credentials"), {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      ...(token && { Authorization: `Bearer ${token}` }),
-    },
-    body: JSON.stringify({ vars }),
-  });
-  if (!res.ok) {
-    const data = await res.json().catch(() => ({}));
-    throw new Error(data.error || "Failed to save");
-  }
+  await callAction("update-data-source-credentials", { vars });
 }
 
 async function testConnection(
@@ -268,19 +257,7 @@ function StepItem({
 }
 
 async function deleteCredentials(keys: string[]): Promise<void> {
-  const token = await getIdToken();
-  const res = await fetch(appApiPath("/api/credentials"), {
-    method: "DELETE",
-    headers: {
-      "Content-Type": "application/json",
-      ...(token && { Authorization: `Bearer ${token}` }),
-    },
-    body: JSON.stringify({ keys }),
-  });
-  if (!res.ok) {
-    const data = await res.json().catch(() => ({}));
-    throw new Error(data.error || "Failed to delete");
-  }
+  await callAction("delete-data-source-credentials", { keys });
 }
 
 async function disconnectDataSource(source: DataSource): Promise<void> {
@@ -1607,6 +1584,15 @@ export default function DataSources() {
   };
 
   const searchLower = search.toLowerCase();
+  const firstPartyAnalyticsSearchText = [
+    t("dataSources.firstPartyAnalytics"),
+    t("dataSources.firstPartyDescription"),
+    "first-party analytics tracking observability llm ai generation $ai_generation posthog agent native analytics AGENT_NATIVE_ANALYTICS_PUBLIC_KEY VITE_AGENT_NATIVE_ANALYTICS_PUBLIC_KEY",
+  ]
+    .join(" ")
+    .toLowerCase();
+  const firstPartyAnalyticsMatchesSearch =
+    search.length > 0 && firstPartyAnalyticsSearchText.includes(searchLower);
   const filteredSources = search
     ? dataSources.filter(
         (s) =>
@@ -1648,8 +1634,9 @@ export default function DataSources() {
 
       {/* Filtered results */}
       {filteredSources !== null ? (
-        filteredSources.length > 0 ? (
+        filteredSources.length > 0 || firstPartyAnalyticsMatchesSearch ? (
           <div className="data-sources-grid">
+            {firstPartyAnalyticsMatchesSearch && <FirstPartyAnalyticsCard />}
             {filteredSources.map((source) => (
               <DataSourceCard
                 key={source.id}

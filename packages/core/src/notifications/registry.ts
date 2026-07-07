@@ -13,6 +13,11 @@ import {
   type Notification,
 } from "./types.js";
 
+export interface NotificationDeliveryResult {
+  notification?: Notification;
+  deliveredChannels: string[];
+}
+
 registerEvent({
   name: "notification.sent",
   description:
@@ -84,6 +89,13 @@ export async function notify(
   input: NotificationInput,
   meta: NotificationMeta,
 ): Promise<Notification | undefined> {
+  return (await notifyWithDelivery(input, meta)).notification;
+}
+
+export async function notifyWithDelivery(
+  input: NotificationInput,
+  meta: NotificationMeta,
+): Promise<NotificationDeliveryResult> {
   if (!meta?.owner) {
     throw new Error("notify: meta.owner is required");
   }
@@ -166,7 +178,7 @@ export async function notify(
     }
   }
 
-  return stored;
+  return { notification: stored, deliveredChannels: delivered };
 }
 
 function selectChannels(allowlist?: string[]): NotificationChannel[] {

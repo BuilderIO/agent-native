@@ -37,6 +37,7 @@ import {
   recapRequiredSecrets,
   readVisualRecapSkillBundle,
   readRecapSourcePayload,
+  resolveGitHubPullRequestAuthor,
   sanitizeAgentFailureSummary,
   sortDiffSourceFirst,
   runShot,
@@ -483,6 +484,9 @@ describe("recap direct publish", () => {
         pr: "5440",
         sourcePrState: "merged",
         sourcePrMergedAt: "2026-06-18T12:30:00Z",
+        sourceAuthorEmail: "Sami@Builder.IO",
+        sourceAuthorName: "Sami",
+        sourceAuthorLogin: "sami",
         fetchFn,
         cwd: dir,
       });
@@ -505,6 +509,9 @@ describe("recap direct publish", () => {
         sourcePrNumber: "5440",
         sourcePrState: "merged",
         sourcePrMergedAt: "2026-06-18T12:30:00Z",
+        sourceAuthorEmail: "sami@builder.io",
+        sourceAuthorName: "Sami",
+        sourceAuthorLogin: "sami",
         currentFocus: "visual recap review",
         status: "review",
       });
@@ -512,6 +519,58 @@ describe("recap direct publish", () => {
     } finally {
       fs.rmSync(dir, { recursive: true, force: true });
     }
+  });
+
+  it("infers source author metadata from GitHub PR commits while skipping noreply emails", async () => {
+    const calls: string[] = [];
+    const fetchFn: typeof fetch = (async (input) => {
+      const url = String(input);
+      calls.push(url);
+      if (url.endsWith("/repos/BuilderIO/ai-services/pulls/5578")) {
+        return jsonResponse({ user: { login: "sami" } });
+      }
+      if (url.endsWith("/users/sami")) {
+        return jsonResponse({ login: "sami", name: "Sami", email: null });
+      }
+      if (
+        url.endsWith(
+          "/repos/BuilderIO/ai-services/pulls/5578/commits?per_page=100",
+        )
+      ) {
+        return jsonResponse([
+          {
+            author: { login: "sami" },
+            commit: {
+              author: {
+                name: "Sami",
+                email: "123+sami@users.noreply.github.com",
+              },
+            },
+          },
+          {
+            author: { login: "sami" },
+            commit: {
+              author: { name: "Sami", email: "Sami@Builder.IO" },
+            },
+          },
+        ]);
+      }
+      return textResponse("not found", 404);
+    }) as typeof fetch;
+
+    const author = await resolveGitHubPullRequestAuthor({
+      token: "gh-token",
+      repo: "BuilderIO/ai-services",
+      pr: "5578",
+      fetchFn,
+    });
+
+    expect(author).toEqual({
+      email: "sami@builder.io",
+      name: "Sami",
+      login: "sami",
+    });
+    expect(calls).toHaveLength(3);
   });
 
   it("reuses the same idempotency key across publish retries", async () => {
@@ -879,7 +938,7 @@ describe("recap prompt builder", () => {
 });
 
 describe("recap comment body", () => {
-  it("embeds an inline screenshot picture without link chrome and a plan-id marker on success", () => {
+  it("embeds an inline screenshot picture link and a plan-id marker on success", () => {
     const token = "a".repeat(64);
     const body = buildCommentBody({
       PLAN_URL: "https://plan.agent-native.com/recaps/plan-abc123",
@@ -887,12 +946,10 @@ describe("recap comment body", () => {
       RECAP_IMAGE_URL: `https://plan.agent-native.com/_agent-native/recap-image/${token}.png`,
       HEAD_SHA: "abcdef1234567",
     } as NodeJS.ProcessEnv);
-    expect(body).not.toContain(`<a href=`);
-    expect(body).toContain("<picture>");
     expect(body).toContain(
-      `<img alt="Visual recap" src="https://plan.agent-native.com/_agent-native/recap-image/${token}.png">`,
+      `<a href="https://plan.agent-native.com/recaps/plan-abc123"><picture>  <img alt="Visual recap" src="https://plan.agent-native.com/_agent-native/recap-image/${token}.png"></picture></a>`,
     );
-    expect(body).toContain("</picture>");
+    expect(body).not.toContain("\n<picture>\n");
     expect(body).not.toContain(`<source media="(prefers-color-scheme: dark)"`);
     expect(body).toContain(
       "Here's a [visual recap](https://plan.agent-native.com/recaps/plan-abc123) of what changed:",
@@ -918,15 +975,10 @@ describe("recap comment body", () => {
       RECAP_DARK_IMAGE_URL: `https://plan.agent-native.com/_agent-native/recap-image/${darkToken}.png`,
       HEAD_SHA: "abcdef1234567",
     } as NodeJS.ProcessEnv);
-    expect(body).not.toContain(`<a href=`);
-    expect(body).toContain("<picture>");
     expect(body).toContain(
-      `<source media="(prefers-color-scheme: dark)" srcset="https://plan.agent-native.com/_agent-native/recap-image/${darkToken}.png">`,
+      `<a href="https://plan.agent-native.com/recaps/plan-abc123"><picture>  <source media="(prefers-color-scheme: dark)" srcset="https://plan.agent-native.com/_agent-native/recap-image/${darkToken}.png">  <img alt="Visual recap" src="https://plan.agent-native.com/_agent-native/recap-image/${lightToken}.png"></picture></a>`,
     );
-    expect(body).toContain(
-      `<img alt="Visual recap" src="https://plan.agent-native.com/_agent-native/recap-image/${lightToken}.png">`,
-    );
-    expect(body).toContain("</picture>");
+    expect(body).not.toContain("\n<picture>\n");
     expect(body).not.toContain("![Visual recap]");
   });
 
@@ -1226,6 +1278,7 @@ describe("recap screenshot capture", () => {
   function createShotPlaywright(screenshotBytes: Buffer[]) {
     const page = {
       goto: vi.fn(async () => undefined),
+      waitForLoadState: vi.fn(async () => undefined),
       waitForSelector: vi.fn(async () => undefined),
       waitForTimeout: vi.fn(async () => undefined),
       evaluate: vi.fn(async (_fn: unknown, arg?: unknown) => {
@@ -1291,6 +1344,42 @@ describe("recap screenshot capture", () => {
       const shimOrder = context.addInitScript.mock.invocationCallOrder[0];
       const navOrder = page.goto.mock.invocationCallOrder[0];
       expect(shimOrder).toBeLessThan(navOrder);
+    } finally {
+      stdout.mockRestore();
+      fs.rmSync(dir, { force: true, recursive: true });
+    }
+  });
+
+  it("does not wait for network-idle before screenshotting recap pages", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "an-recap-shot-"));
+    const out = path.join(dir, "recap.png");
+    const { page, importPlaywright } = createShotPlaywright([
+      Buffer.from("png"),
+    ]);
+    const stdout = vi
+      .spyOn(process.stdout, "write")
+      .mockImplementation(() => true);
+
+    try {
+      await runShot(
+        {
+          url: "https://plan.agent-native.com/recaps/plan-abc123",
+          out,
+        },
+        importPlaywright,
+      );
+
+      expect(page.goto).toHaveBeenCalledWith(
+        expect.stringContaining("recapScreenshot=1"),
+        { waitUntil: "domcontentloaded", timeout: 45_000 },
+      );
+      expect(page.goto).not.toHaveBeenCalledWith(
+        expect.any(String),
+        expect.objectContaining({ waitUntil: "networkidle" }),
+      );
+      expect(page.waitForLoadState).toHaveBeenCalledWith("load", {
+        timeout: 15_000,
+      });
     } finally {
       stdout.mockRestore();
       fs.rmSync(dir, { force: true, recursive: true });
@@ -1787,7 +1876,7 @@ describe("recap gate decision", () => {
     expect(result.run).toBe(true);
   });
 
-  it("keeps the sensitive-path guard for untrusted public same-repo authors", () => {
+  it("does not treat nested AGENTS.md files as recap-control files", () => {
     const result = evaluateRecapGate(
       ok({
         repository: "BuilderIO/agent-native",
@@ -1802,8 +1891,26 @@ describe("recap gate decision", () => {
         changedFiles: ["packages/core/docs/AGENTS.md"],
       }),
     );
+    expect(result.run).toBe(true);
+  });
+
+  it("keeps the root sensitive-path guard for untrusted public same-repo authors", () => {
+    const result = evaluateRecapGate(
+      ok({
+        repository: "BuilderIO/agent-native",
+        repositoryPrivate: false,
+        pr: {
+          number: 7,
+          draft: false,
+          author_association: "NONE",
+          head: { repo: { full_name: "BuilderIO/agent-native" } },
+          user: { login: "octocat", type: "User" },
+        },
+        changedFiles: ["AGENTS.md"],
+      }),
+    );
     expect(result.run).toBe(false);
-    expect(result.reasons.join(" ")).toContain("packages/core/docs/AGENTS.md");
+    expect(result.reasons.join(" ")).toContain("AGENTS.md");
   });
 
   it("truncates the listed recap-control hits to 3 with an ellipsis", () => {
@@ -1866,7 +1973,8 @@ describe("recap sensitive-path guard", () => {
     expect(isRecapSensitivePath("packages/core/src/cli/recap.ts")).toBe(false);
     expect(isRecapSensitivePath(".claude/settings.json")).toBe(true);
     expect(isRecapSensitivePath("CLAUDE.md")).toBe(true);
-    expect(isRecapSensitivePath("apps/foo/AGENTS.md")).toBe(true);
+    expect(isRecapSensitivePath("AGENTS.md")).toBe(true);
+    expect(isRecapSensitivePath("apps/foo/AGENTS.md")).toBe(false);
     expect(isRecapSensitivePath(".mcp.json")).toBe(true);
     // Innocuous files do not trip the guard.
     expect(isRecapSensitivePath("app/page.tsx")).toBe(false);
@@ -2397,14 +2505,28 @@ describe("gate skip signal helpers", () => {
     expect(line).toBe("_Recap skipped for latest push: draft PR._");
   });
 
-  it("appendGateSkipLine appends the skip line to a body that has none", () => {
+  it("appendGateSkipLine replaces stale recap content with a skipped body", () => {
     const body = "<!-- pr-visual-recap -->\n### Visual recap\n\nsome content";
     const updated = appendGateSkipLine(
       body,
       "_Recap skipped for `abc1234`: draft PR._",
     );
     expect(updated).toContain("_Recap skipped for `abc1234`: draft PR._");
-    expect(updated).toContain("### Visual recap");
+    expect(updated).toContain("### Visual recap — skipped");
+    expect(updated).not.toContain("some content");
+  });
+
+  it("appendGateSkipLine preserves the plan id while dropping stale success content", () => {
+    const body =
+      "<!-- pr-visual-recap -->\n### Visual recap\n\nOpen the [full interactive recap](https://example.com/recaps/old)\n\n<!-- plan-id: plan-prev -->";
+    const updated = appendGateSkipLine(
+      body,
+      "_Recap skipped for `abc1234`: sensitive path._",
+    );
+    expect(updated).toContain("<!-- plan-id: plan-prev -->");
+    expect(updated).toContain("### Visual recap — skipped");
+    expect(updated).toContain("_Recap skipped for `abc1234`: sensitive path._");
+    expect(updated).not.toContain("full interactive recap");
   });
 
   it("builds a base skipped comment body for PRs that have never posted a recap", () => {

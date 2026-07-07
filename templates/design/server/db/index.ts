@@ -1,6 +1,10 @@
 import { createGetDb } from "@agent-native/core/db";
 import { registerShareableResource } from "@agent-native/core/sharing";
 
+import {
+  DESIGN_AGENT_CONTEXT_ENDPOINT,
+  DESIGN_AGENT_RESOURCE_KIND,
+} from "../../shared/agent-readable.js";
 import * as schema from "./schema.js";
 
 export const getDb = createGetDb(schema);
@@ -63,6 +67,10 @@ registerShareableResource({
   displayName: "Design",
   titleColumn: "title",
   getResourcePath: (design) => `/design/${design.id}`,
+  agentReadable: {
+    resourceKind: DESIGN_AGENT_RESOURCE_KIND,
+    getContextPath: () => DESIGN_AGENT_CONTEXT_ENDPOINT,
+  },
   getDb,
   publicAccessRole: (design) =>
     isLoopbackLocalhostDesign(design) ? "editor" : "viewer",

@@ -1,9 +1,5 @@
 import { defineAction } from "@agent-native/core";
 import {
-  hasCollabState,
-  getText,
-  applyText,
-  seedFromText,
   agentEnterDocument,
   agentLeaveDocument,
   agentUpdateSelection,
@@ -13,6 +9,11 @@ import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import {
+  readLiveSourceFile,
+  writeInlineSourceFile,
+  type SourceWorkspaceFile,
+} from "../server/source-workspace.js";
 import {
   applyOneEdit,
   type ApplyEditsResult,
@@ -139,20 +140,33 @@ export default defineAction({
     "`replace` adds the wrapper around the original text. For broad copy-only " +
     'changes such as translating all visible text, use `mode: "replace-file"` ' +
     "with `replacementContent`: the complete updated file content copied from " +
-    "the snapshot with only the requested copy changed. Use `generate-design` " +
-    "instead only for brand-new files or large structural rewrites.",
+    "the snapshot with only the requested copy changed. After a variant pick " +
+    "or any other selected-screen follow-up, pass the exact `fileId` from " +
+    '`get-design-snapshot` and use `mode: "replace-file"` when replacing ' +
+    "the representative placeholder with a complete but compact UI in the chosen " +
+    "direction; prioritize the primary workflow and render secondary details " +
+    "as visible controls, states, or affordances when needed. Use `generate-design` " +
+    "instead only for brand-new files.",
   schema: z
     .object({
       designId: z.string().describe("Design project ID"),
+      fileId: z
+        .string()
+        .optional()
+        .describe(
+          "Optional exact design file ID to edit. Use this after a variant pick or selected-screen snapshot; when provided, it wins over filename.",
+        ),
       filename: z
         .string()
-        .default("index.html")
-        .describe("File to edit (e.g. 'index.html')"),
+        .optional()
+        .describe(
+          "File to edit (e.g. 'index.html'). Defaults to index.html only when fileId is omitted.",
+        ),
       mode: z
         .enum(["search-replace", "replace-file"])
         .optional()
         .describe(
-          "Defaults to search-replace. Use replace-file for broad copy-only edits like translating the whole page after reading get-design-snapshot.",
+          "Defaults to search-replace. Use replace-file for selected variant expansion or broad copy-only edits after reading get-design-snapshot.",
         ),
       edits: editBlocksSchema
         .optional()
@@ -164,7 +178,7 @@ export default defineAction({
         .min(1)
         .optional()
         .describe(
-          "Complete updated file content. Use only with mode=replace-file for broad copy-only changes; preserve all HTML structure, CSS, scripts, and tweaks from get-design-snapshot.",
+          "Complete updated file content. Use only with mode=replace-file for selected variant expansion or broad copy-only changes; preserve all HTML structure, CSS, scripts, and tweaks from get-design-snapshot. For selected variants, keep the replacement complete but compact instead of expanding secondary details into an oversized payload.",
         ),
     })
     .superRefine((value, ctx) => {
@@ -201,16 +215,32 @@ export default defineAction({
         });
       }
     }),
-  run: async ({ designId, filename, edits, mode, replacementContent }) => {
+  run: async ({
+    designId,
+    fileId,
+    filename,
+    edits,
+    mode,
+    replacementContent,
+  }) => {
     await assertAccess("design", designId, "editor");
 
     const db = getDb();
-    const now = new Date().toISOString();
+    const requestedFileId = fileId?.trim();
+    const targetFilename = requestedFileId
+      ? undefined
+      : filename?.trim() || "index.html";
+    const targetCondition = requestedFileId
+      ? eq(schema.designFiles.id, requestedFileId)
+      : eq(schema.designFiles.filename, targetFilename!);
 
-    // Resolve the target file (access-scoped) by design + filename.
+    // Resolve the target file (access-scoped) by design + fileId or filename.
     const [file] = await db
       .select({
         id: schema.designFiles.id,
+        designId: schema.designFiles.designId,
+        filename: schema.designFiles.filename,
+        fileType: schema.designFiles.fileType,
         content: schema.designFiles.content,
       })
       .from(schema.designFiles)
@@ -221,30 +251,40 @@ export default defineAction({
       .where(
         and(
           eq(schema.designFiles.designId, designId),
-          eq(schema.designFiles.filename, filename),
+          targetCondition,
           accessFilter(schema.designs, schema.designShares),
         ),
       )
       .limit(1);
 
     if (!file) {
-      throw new Error(`File "${filename}" not found in design ${designId}`);
+      throw new Error(
+        requestedFileId
+          ? `File id "${requestedFileId}" not found in design ${designId}`
+          : `File "${targetFilename}" not found in design ${designId}`,
+      );
     }
 
-    // Prefer live collab content so we edit in-flight changes, not a stale
-    // persisted copy (mirrors get-design-snapshot).
-    let base = file.content ?? "";
-    try {
-      if (await hasCollabState(file.id)) {
-        // When a collab session exists it is authoritative — use its text even
-        // if empty (a legitimately cleared file), rather than silently editing
-        // stale stored HTML.
-        const live = await getText(file.id, "content");
-        if (typeof live === "string") base = live;
-      }
-    } catch {
-      // Collab read is best-effort; fall back to stored content.
-    }
+    // Read the LIVE base (collab text when present, else the SQL row) right
+    // before transforming, and carry its versionHash through to the write
+    // below. writeInlineSourceFile re-reads the live text immediately before
+    // its own applyText/DB write and rejects if it no longer matches this
+    // hash — closing the race window where a concurrent editor/agent write
+    // lands between this read and the persist (the same stale-diff-base bug
+    // fixed for insert-design-native-asset.ts and insert-asset.ts: a diff
+    // computed from a stale base, char-diffed into a collab doc that has
+    // since moved on, corrupts or drops the other writer's change).
+    const workspaceFile: SourceWorkspaceFile = {
+      id: file.id,
+      designId: file.designId,
+      filename: file.filename ?? "",
+      fileType: file.fileType ?? "html",
+      content: file.content,
+      createdAt: null,
+      updatedAt: null,
+    };
+    const live = await readLiveSourceFile(workspaceFile);
+    const base = live.content;
 
     const resolvedMode =
       mode ??
@@ -258,42 +298,29 @@ export default defineAction({
     if (changed) {
       // Mark agent presence + selection so live viewers can see where the
       // agent is working before the update arrives via collab.
+      //
+      // No resolvable DOM selector is available here (search-replace targets
+      // source text, not a stamped node), so we publish `selection: null`
+      // rather than a fabricated `[data-edit-target=...]` selector that could
+      // never resolve against the rendered iframe. Region attribution instead
+      // rides on the `{ kind: "text", quote }` recentEdits descriptor that
+      // `applyText(..., "agent")` auto-publishes from the content diff inside
+      // writeInlineSourceFile below — clients render a lingering highlight
+      // over the changed text.
       agentEnterDocument(file.id);
-      if (resolvedMode === "search-replace" && applied > 0) {
-        const firstSearch = edits?.[0]?.search;
-        agentUpdateSelection(file.id, {
-          selection: firstSearch
-            ? `[data-edit-target="${firstSearch.slice(0, 40)}"]`
-            : null,
-          editingFile: filename,
-          designId,
-        });
-      } else {
-        agentUpdateSelection(file.id, {
-          selection: null,
-          editingFile: filename,
-          designId,
-        });
-      }
+      agentUpdateSelection(file.id, {
+        selection: null,
+        editingFile: file.filename,
+        designId,
+      });
 
       try {
-        await db
-          .update(schema.designFiles)
-          .set({ content: nextContent, updatedAt: now })
-          .where(eq(schema.designFiles.id, file.id));
-
-        // Push the full new content through the collab layer; it diffs internally
-        // so live editors get a minimal update.
-        if (await hasCollabState(file.id)) {
-          await applyText(file.id, nextContent, "content", "agent");
-        } else {
-          await seedFromText(file.id, nextContent);
-        }
-
-        await db
-          .update(schema.designs)
-          .set({ updatedAt: now })
-          .where(eq(schema.designs.id, designId));
+        await writeInlineSourceFile({
+          designId: file.designId,
+          file: workspaceFile,
+          content: nextContent,
+          expectedVersionHash: live.versionHash,
+        });
       } finally {
         agentLeaveDocument(file.id);
       }
@@ -301,7 +328,7 @@ export default defineAction({
 
     return {
       designId,
-      filename,
+      filename: file.filename,
       fileId: file.id,
       mode: resolvedMode,
       editsApplied: applied,

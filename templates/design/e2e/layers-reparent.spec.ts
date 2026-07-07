@@ -32,7 +32,7 @@ test.describe.serial("layers menu structure operations", () => {
     await additiveSelectLayerRow(page, "Beta Button");
 
     await expect.poll(() => selectedRowCount(page)).toBe(2);
-    await expect(page.getByText("2 selected")).toBeVisible();
+    await expect(layerSelectionCountLabel(page)).toBeHidden();
     await expect(layerRow(page, "Alpha Button")).toHaveAttribute(
       "aria-selected",
       "true",
@@ -274,6 +274,10 @@ async function selectedRowCount(page: Page): Promise<number> {
   return layerTree(page)
     .locator('[role="treeitem"][aria-selected="true"]')
     .count();
+}
+
+function layerSelectionCountLabel(page: Page) {
+  return layerTree(page).getByText(/\b\d+\s+selected\b/);
 }
 
 async function visibleLayerNames(page: Page): Promise<string[]> {

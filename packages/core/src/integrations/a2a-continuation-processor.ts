@@ -150,11 +150,11 @@ async function processClaimedContinuation(
     return;
   }
 
-  const client = new A2AClient(
-    continuation.agentUrl,
-    await signContinuationToken(continuation),
-    { requestTimeoutMs: POLL_REQUEST_TIMEOUT_MS },
-  );
+  const auth = await signContinuationToken(continuation);
+  const client = new A2AClient(continuation.agentUrl, auth.apiKey, {
+    requestTimeoutMs: POLL_REQUEST_TIMEOUT_MS,
+    ...(auth.apiKeyFallbacks ? { fallbackApiKeys: auth.apiKeyFallbacks } : {}),
+  });
   const deadline = Date.now() + PROCESSOR_WAIT_MS;
   let task: Task | null = null;
 
@@ -438,28 +438,35 @@ function sanitizeFailureReason(reason: string): string {
 
 async function signContinuationToken(
   continuation: A2AContinuation,
-): Promise<string | undefined> {
+): Promise<{ apiKey?: string; apiKeyFallbacks?: string[] }> {
   if (continuation.a2aAuthToken === "") {
-    return undefined;
+    return {};
   }
 
   const storedToken = continuation.a2aAuthToken;
-  if (storedToken && !isLikelyJwt(storedToken)) return storedToken;
+  if (storedToken && !isLikelyJwt(storedToken)) return { apiKey: storedToken };
 
-  const freshToken = await signFreshContinuationToken(continuation);
-  if (freshToken) return freshToken;
-  if (!storedToken) return undefined;
+  const freshTokens = await signFreshContinuationTokens(continuation);
+  if (freshTokens.length > 0) {
+    return {
+      apiKey: freshTokens[0],
+      ...(freshTokens.length > 1
+        ? { apiKeyFallbacks: freshTokens.slice(1) }
+        : {}),
+    };
+  }
+  if (!storedToken) return {};
 
   // Older continuations may have persisted the initial short-lived JWT. Avoid
   // replaying it forever after expiry; opaque legacy bearer keys can still be
   // reused because we cannot re-mint those.
-  if (isLikelyJwt(storedToken)) return undefined;
-  return storedToken;
+  if (isLikelyJwt(storedToken)) return {};
+  return { apiKey: storedToken };
 }
 
-async function signFreshContinuationToken(
+async function signFreshContinuationTokens(
   continuation: A2AContinuation,
-): Promise<string | undefined> {
+): Promise<string[]> {
   let orgDomain: string | undefined;
   let orgSecret: string | undefined;
   if (continuation.orgId) {
@@ -472,17 +479,35 @@ async function signFreshContinuationToken(
   }
 
   if (!continuation.ownerEmail || !(orgSecret || process.env.A2A_SECRET)) {
-    return undefined;
+    return [];
   }
 
-  try {
-    return await signA2AToken(continuation.ownerEmail, orgDomain, orgSecret, {
-      expiresIn: "30m",
-      preferGlobalSecret: !orgSecret,
-    });
-  } catch {
-    return undefined;
+  const tokens: string[] = [];
+  const add = (token: string | undefined) => {
+    if (token && !tokens.includes(token)) tokens.push(token);
+  };
+
+  if (process.env.A2A_SECRET?.trim()) {
+    try {
+      add(
+        await signA2AToken(continuation.ownerEmail, orgDomain, orgSecret, {
+          expiresIn: "30m",
+          preferGlobalSecret: true,
+        }),
+      );
+    } catch {}
   }
+  if (orgSecret) {
+    try {
+      add(
+        await signA2AToken(continuation.ownerEmail, orgDomain, orgSecret, {
+          expiresIn: "30m",
+          preferGlobalSecret: false,
+        }),
+      );
+    } catch {}
+  }
+  return tokens;
 }
 
 function isLikelyJwt(token: string): boolean {

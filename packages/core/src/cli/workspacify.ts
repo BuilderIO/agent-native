@@ -5,7 +5,7 @@
  * workspace. The transform:
  *
  *   1. Rewrites package.json:
- *      - @agent-native/core and package-backed apps stay as regular npm deps
+ *      - Published framework packages stay as regular npm deps
  *      - Adds @<workspace-scope>/shared as a workspace:* dep so the app
  *        inherits shared plugins/skills/AGENTS.md via the three-layer model.
  *   2. Removes files that only make sense in standalone apps
@@ -40,17 +40,20 @@ export interface WorkspacifyOptions {
   coreDependencyVersion?: string;
   /** Version range to use for the package-backed Dispatch app */
   dispatchDependencyVersion?: string;
+  /** Version range to use for the published @agent-native/toolkit package */
+  toolkitDependencyVersion?: string;
 }
 
 export function workspacifyApp(opts: WorkspacifyOptions): void {
   const { appDir, workspaceCoreName } = opts;
   const coreDependencyVersion = opts.coreDependencyVersion ?? "latest";
   const dispatchDependencyVersion = opts.dispatchDependencyVersion ?? "latest";
+  const toolkitDependencyVersion = opts.toolkitDependencyVersion ?? "latest";
 
   // 1) Rewrite package.json to add the workspace core dep and resolve
-  //    @agent-native/core / @agent-native/dispatch workspace:* refs to
-  //    published package ranges. Other workspace:* deps (e.g.
-  //    @agent-native/scheduling) stay as-is — they resolve within the
+  //    published framework-package workspace:* refs to package ranges.
+  //    Other workspace:* deps (e.g. @agent-native/scheduling) stay as-is —
+  //    they resolve within the
   //    workspace because the required package is scaffolded alongside the app.
   const pkgPath = path.join(appDir, "package.json");
   if (fs.existsSync(pkgPath)) {
@@ -70,6 +73,9 @@ export function workspacifyApp(opts: WorkspacifyOptions): void {
             }
             if (key === "@agent-native/dispatch") {
               deps[key] = dispatchDependencyVersion;
+            }
+            if (key === "@agent-native/toolkit") {
+              deps[key] = toolkitDependencyVersion;
             }
           }
         }

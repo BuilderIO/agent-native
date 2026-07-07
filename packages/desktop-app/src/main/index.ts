@@ -1099,6 +1099,9 @@ function createWindow(): BrowserWindow {
       contextIsolation: true,
       webviewTag: true,
       webSecurity: true,
+      additionalArguments: [
+        `--an-webview-preload=${path.join(__dirname, "../preload/webview.js")}`,
+      ],
     },
   });
   installSentryWebContentsInstrumentation(win.webContents, {
@@ -1643,6 +1646,7 @@ let appIsQuitting = false;
 const permissionConfiguredSessions = new WeakSet<Electron.Session>();
 const ALLOWED_WEBVIEW_PERMISSIONS = new Set([
   "clipboard-read",
+  "clipboard-sanitized-write",
   "display-capture",
   "fullscreen",
   "media",

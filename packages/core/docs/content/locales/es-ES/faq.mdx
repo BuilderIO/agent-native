@@ -11,15 +11,15 @@ Preguntas comunes sobre el agente nativo, organizadas desde "Solo estoy mirando"
 
 ### ¿Qué es el agente nativo? {#what-is-agent-native}
 
-Agent-native es un marco para crear aplicaciones en las que el agente de IA y la superficie del producto que lo rodea son socios iguales. Esa superficie puede comenzar como un agente sin cabeza con una acción personalizada, convertirse en un chat enriquecido o convertirse en un UI completo. La invariante es que los agentes y los humanos comparten el mismo actions, base de datos y estado. Consulte [What Is Agent-Native?](/docs/what-is-agent-native) para obtener la explicación completa.
+Agent-native es un marco para crear aplicaciones en las que el agente de IA y la superficie del producto que lo rodea son socios iguales. El camino habitual empieza con chat, añade actions tipadas, renderiza resultados estructurados en línea y crece hacia páginas duraderas sobre el mismo estado SQL. La invariante es que los agentes y los humanos comparten el mismo actions, base de datos y estado. Consulte [What Is Agent-Native?](/docs/what-is-agent-native) para obtener la explicación completa.
 
 ### ¿Para quién es esto? {#who-is-this-for}
 
 El agente nativo es para personas que desean que una aplicación real y un agente de IA trabajen con los mismos datos y actions. Las rutas comunes son:
 
 - **Utilice una aplicación alojada** si desea Correo, Calendario, Formularios, Plan u otra plantilla terminada sin configuración; comience en [template gallery](/templates).
-- **Comience con Chat** si desea una aplicación básica con la que los usuarios puedan hablar inmediatamente, luego amplíe con actions y pantallas; comience con [Getting Started](/docs/getting-started) o [Chat](/docs/template-chat).
-- **Inicie primitivo primero** si desea una acción y un bucle de agente de aplicación sin cabeza antes de comprometerse con UI; comience con [Getting Started](/docs/getting-started).
+- **Comience con Chat** si desea el camino predeterminado desde cero: los usuarios hablan con el agent inmediatamente, y usted amplía con actions, resultados nativos y pantallas; comience con [Getting Started](/docs/getting-started) o [Chat](/docs/template-chat).
+- **Comience automation-first** si crea tareas programadas, colas, scripts, integration workers o flujos de agents externos sin UI de navegador todavía; comience con [Automation-First Apps](/docs/pure-agent-apps).
 - **Bifurque y personalice una plantilla** si desea su propio producto SaaS con autenticación, base de datos, UI y agente actions ya conectados; consulte [Templates](/docs/cloneable-saas).
 - **Compile desde cero** si desea las primitivas del marco para un nuevo producto impulsado por agentes, comience con [Getting Started](/docs/getting-started).
 - **Conecte otro agente o herramienta de código** si desea que Claude, ChatGPT, Codex, Cursor o GitHub Copilot/VS Code utilice una aplicación nativa del agente; consulte [External Agents](/docs/external-agents) y [Skills Guide](/docs/skills-guide).
@@ -130,7 +130,7 @@ Ese es el punto. Bifurca una plantilla y personalízala preguntándole al agente
 
 ### ¿Puedo crear algo que las plantillas no cubran? {#build-from-scratch}
 
-Sí. Si desea una aplicación de chat básica, ejecute `npx @agent-native/core@latest create my-chat-app --template chat`; obtienes hilos de chat duraderos, actions, autenticación, estado de ejecución respaldado por SQL y espacio para agregar tus propias pantallas. Si desea la aplicación más pequeña de acción primero sin UI, ejecute `npx @agent-native/core@latest create my-agent --headless`. Consulte [Getting Started](/docs/getting-started), [Pure-Agent Apps](/docs/pure-agent-apps) y [Chat](/docs/template-chat).
+Sí. Si desea una app agentic básica, ejecute `npx @agent-native/core@latest create my-chat-app --template chat`; obtiene hilos de chat duraderos, actions, autenticación, estado de ejecución respaldado por SQL, renderizado nativo en línea y espacio para agregar sus propias pantallas. Si crea una automatización sin navegador, ejecute `npx @agent-native/core@latest create my-agent --headless`. Consulte [Getting Started](/docs/getting-started), [Automation-First Apps](/docs/pure-agent-apps) y [Chat](/docs/template-chat).
 
 ### ¿Puedo probarlo sin bifurcar una plantilla? {#try-with-a-skill}
 

@@ -17,8 +17,7 @@ export type WorkspaceConnectionTemplateUse =
   | "dispatch"
   | "forms"
   | "mail"
-  | "slides"
-  | "videos";
+  | "slides";
 
 export type WorkspaceConnectionProviderId =
   | "slack"
@@ -191,7 +190,7 @@ export const WORKSPACE_CONNECTION_PROVIDERS = [
       "Agent-native Clips exports and recordings for transcript import and searchable meeting context.",
     credentialKeys: [],
     capabilities: ["search", "import", "meetings"],
-    recommendedTemplateUses: ["brain", "clips", "videos"],
+    recommendedTemplateUses: ["brain", "clips"],
   }),
   defineWorkspaceConnectionProvider({
     id: "generic",

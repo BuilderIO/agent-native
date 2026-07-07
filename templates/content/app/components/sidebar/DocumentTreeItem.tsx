@@ -50,7 +50,8 @@ interface DocumentTreeItemProps {
   expandedIds: Set<string>;
   onToggleExpanded: (id: string) => void;
   onSelect: (id: string) => void;
-  onCreateChild: (parentId: string) => void;
+  onCreateChildPage: (parentId: string) => void;
+  onCreateChildDatabase: (parentId: string) => void;
   onDelete: (id: string) => void;
   onToggleFavorite: (id: string, isFavorite: boolean) => void;
 }
@@ -94,7 +95,8 @@ export function DocumentTreeItem({
   expandedIds,
   onToggleExpanded,
   onSelect,
-  onCreateChild,
+  onCreateChildPage,
+  onCreateChildDatabase,
   onDelete,
   onToggleFavorite,
 }: DocumentTreeItemProps) {
@@ -114,9 +116,7 @@ export function DocumentTreeItem({
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const indent = depth * 12 + 12;
   const rowWidth =
-    sidebarWidth === undefined
-      ? undefined
-      : Math.max(224, sidebarWidth - 8 + depth * 12);
+    sidebarWidth === undefined ? undefined : Math.max(0, sidebarWidth - 8);
   const {
     attributes,
     listeners,
@@ -143,12 +143,12 @@ export function DocumentTreeItem({
         {...(isLocalFileNode ? {} : listeners)}
         aria-label={node.title || "Untitled"}
         className={cn(
-          "group relative flex min-w-56 items-center gap-1.5 rounded-md py-[5px] pe-2 text-sm cursor-pointer select-none",
+          "group relative flex min-w-0 items-center gap-1.5 rounded-md border-l-2 py-[5px] pe-2 text-sm cursor-pointer select-none",
           canEdit && !isLocalFileNode && "cursor-grab active:cursor-grabbing",
           isDragging && "bg-accent/70 text-accent-foreground shadow-sm",
           isActive
-            ? "bg-accent text-accent-foreground"
-            : "text-muted-foreground hover:bg-accent hover:text-foreground",
+            ? "border-primary bg-accent text-accent-foreground font-medium"
+            : "border-transparent text-muted-foreground hover:bg-accent hover:text-foreground",
         )}
         style={{
           paddingInlineStart: `${indent}px`,
@@ -203,13 +203,18 @@ export function DocumentTreeItem({
           )}
         </span>
 
-        <span className="min-w-0 flex-1 truncate">
+        <span
+          className={cn(
+            "min-w-0 flex-1 truncate",
+            (hasMenuActions || canCreateChild) && "pr-12",
+          )}
+        >
           {node.title || "Untitled"}
         </span>
 
         <div
           className={cn(
-            "pointer-events-none absolute right-1 top-1/2 flex flex-shrink-0 -translate-y-1/2 items-center gap-0.5 rounded-md pl-1 opacity-0 group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100",
+            "pointer-events-none absolute right-1 top-1/2 flex flex-shrink-0 -translate-y-1/2 items-center gap-0.5 rounded-md bg-accent px-0.5 opacity-0 group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100",
             "bg-accent text-foreground",
             isActive && "text-accent-foreground",
           )}
@@ -262,22 +267,45 @@ export function DocumentTreeItem({
           )}
 
           {canCreateChild && (
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <button
-                  type="button"
-                  className="flex h-7 w-7 items-center justify-center rounded text-current hover:bg-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                  aria-label={`Add sub-page to ${node.title || "Untitled"}`}
+            <DropdownMenu>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <DropdownMenuTrigger asChild>
+                    <button
+                      type="button"
+                      className="flex h-7 w-7 items-center justify-center rounded text-current hover:bg-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      aria-label={t("sidebar.addChildTo", {
+                        title: node.title || t("sidebar.untitled"),
+                      })}
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <IconPlus size={14} />
+                    </button>
+                  </DropdownMenuTrigger>
+                </TooltipTrigger>
+                <TooltipContent>{t("sidebar.addChild")}</TooltipContent>
+              </Tooltip>
+              <DropdownMenuContent align="start" className="w-44">
+                <DropdownMenuItem
                   onClick={(e) => {
                     e.stopPropagation();
-                    onCreateChild(node.id);
+                    onCreateChildPage(node.id);
                   }}
                 >
-                  <IconPlus size={14} />
-                </button>
-              </TooltipTrigger>
-              <TooltipContent>{t("sidebar.addSubPage")}</TooltipContent>
-            </Tooltip>
+                  <IconFileText className="me-2 size-4" />
+                  {t("sidebar.page")}
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onCreateChildDatabase(node.id);
+                  }}
+                >
+                  <IconDatabase className="me-2 size-4" />
+                  {t("sidebar.database")}
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           )}
         </div>
       </div>
@@ -297,7 +325,8 @@ export function DocumentTreeItem({
               expandedIds={expandedIds}
               onToggleExpanded={onToggleExpanded}
               onSelect={onSelect}
-              onCreateChild={onCreateChild}
+              onCreateChildPage={onCreateChildPage}
+              onCreateChildDatabase={onCreateChildDatabase}
               onDelete={onDelete}
               onToggleFavorite={onToggleFavorite}
             />

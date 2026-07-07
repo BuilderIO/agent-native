@@ -11,6 +11,7 @@ import {
   IconX,
 } from "@tabler/icons-react";
 import { useQueryClient, type InfiniteData } from "@tanstack/react-query";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router";
 
@@ -42,9 +43,14 @@ import {
   useUnarchiveEmail,
   useTrashEmail,
   useUntrashEmail,
+  useBulkArchiveEmails,
+  useBulkTrashEmails,
+  useBulkToggleStar,
+  useBulkMarkRead,
   useLabels,
   useMoveEmail,
   unsuppressThread,
+  type BulkEmailTarget,
 } from "@/hooks/use-emails";
 import { useKeyboardShortcuts } from "@/hooks/use-keyboard-shortcuts";
 import {
@@ -195,7 +201,7 @@ export function InboxZero() {
       <div className="fixed inset-x-0 bottom-0 h-44 bg-gradient-to-t from-black/70 to-transparent" />
 
       {/* Fallback bg while image loads */}
-      <div className="absolute inset-0 bg-muted dark:bg-[hsl(220,6%,8%)] -z-10" />
+      <div className="absolute inset-0 bg-muted dark:bg-[var(--mail-sidebar-surface)] -z-10" />
 
       {/* Bottom text */}
       <div className="relative mt-auto px-6 pb-6">
@@ -411,6 +417,10 @@ export function EmailList({
   const unarchiveEmail = useUnarchiveEmail();
   const trashEmail = useTrashEmail();
   const untrashEmail = useUntrashEmail();
+  const bulkArchiveEmails = useBulkArchiveEmails();
+  const bulkTrashEmails = useBulkTrashEmails();
+  const bulkToggleStar = useBulkToggleStar();
+  const bulkMarkRead = useBulkMarkRead();
   const { data: labels = [] } = useLabels();
   const moveEmail = useMoveEmail();
   const cancelScheduledJob = useDeleteScheduledJob();
@@ -425,6 +435,7 @@ export function EmailList({
   );
 
   const containerRef = useRef<HTMLDivElement>(null);
+  const scrollParentRef = useRef<HTMLDivElement>(null);
 
   // Group emails into threads
   const threads = useMemo(() => groupIntoThreads(emails), [emails]);
@@ -500,9 +511,8 @@ export function EmailList({
       );
       setFocusedId(threads[next].latestMessage.id);
       focusedIndexRef.current = next;
-      // Scroll focused row into view
-      const rows = containerRef.current?.querySelectorAll("[role='row']");
-      rows?.[next]?.scrollIntoView({ block: "nearest" });
+      // Scrolling the focused row into view is handled by the effect that
+      // watches `focusedIndex` and calls `rowVirtualizer.scrollToIndex`.
     },
     [threads, setFocusedId, setSelectedIds],
   );
@@ -540,9 +550,7 @@ export function EmailList({
 
       setFocusedId(newFocusId);
       focusedIndexRef.current = next;
-      // Scroll into view
-      const rows = containerRef.current?.querySelectorAll("[role='row']");
-      rows?.[next]?.scrollIntoView({ block: "nearest" });
+      // Scrolling into view is handled by the `focusedIndex` effect above.
     },
     [threads, setFocusedId, setSelectedIds],
   );
@@ -663,13 +671,28 @@ export function EmailList({
           : t("mail.toasts.archived"),
         { action: { label: t("mail.actions.undo"), onClick: undo } },
       );
-      for (const t of targets) {
-        archiveEmail.mutate({
-          id: t.latestMessage.id,
-          accountEmail: t.latestMessage.accountEmail,
+      if (targets.length > 1) {
+        // Bulk selection: one action call (server batches into one Gmail
+        // call per account) + one optimistic cache update instead of N.
+        bulkArchiveEmails.mutate({
+          targets: targets.map((t) => ({
+            id: t.latestMessage.id,
+            accountEmail: t.latestMessage.accountEmail,
+            threadId: t.latestMessage.threadId || t.latestMessage.id,
+          })),
           removeLabel: labelParam || undefined,
-          threadId: t.latestMessage.threadId || t.latestMessage.id,
         });
+      } else {
+        // Single-item shortcut (e.g. `e` on the focused row) keeps its
+        // existing per-item path, including label-view removeLabel support.
+        for (const t of targets) {
+          archiveEmail.mutate({
+            id: t.latestMessage.id,
+            accountEmail: t.latestMessage.accountEmail,
+            removeLabel: labelParam || undefined,
+            threadId: t.latestMessage.threadId || t.latestMessage.id,
+          });
+        }
       }
       setSelectedIds(new Set());
     },
@@ -677,6 +700,7 @@ export function EmailList({
       threads,
       emails,
       archiveEmail,
+      bulkArchiveEmails,
       unarchiveEmail,
       onArchived,
       labelParam,
@@ -755,13 +779,27 @@ export function EmailList({
           : t("mail.toasts.trashed"),
         { action: { label: t("mail.actions.undo"), onClick: undo } },
       );
-      for (const id of emailIds) trashEmail.mutate(id);
+      if (targets.length > 1) {
+        // Bulk selection: one action call, bounded-concurrency on the server
+        // (Gmail has no batch trash endpoint) instead of N parallel mutate()
+        // calls each with their own optimistic cache write/rollback.
+        bulkTrashEmails.mutate(
+          targets.map((t) => ({
+            id: t.latestMessage.id,
+            accountEmail: t.latestMessage.accountEmail,
+            threadId: t.latestMessage.threadId || t.latestMessage.id,
+          })),
+        );
+      } else {
+        for (const id of emailIds) trashEmail.mutate(id);
+      }
       setSelectedIds(new Set());
     },
     [
       threads,
       emails,
       trashEmail,
+      bulkTrashEmails,
       untrashEmail,
       setFocusedId,
       setSelectedIds,
@@ -815,10 +853,22 @@ export function EmailList({
   const toggleFocusedRead = useCallback(() => {
     const keys = getActionThreadKeys();
     if (keys.length === 0) return;
-    for (const t of resolveTargets(keys)) {
-      if (t.hasUnread) {
-        markThreadRead.mutate(t.latestMessage.threadId || t.latestMessage.id);
-      } else {
+    const targets = resolveTargets(keys);
+    const toMarkRead = targets.filter((t) => t.hasUnread);
+    const toMarkUnread = targets.filter((t) => !t.hasUnread);
+    for (const t of toMarkRead) {
+      markThreadRead.mutate(t.latestMessage.threadId || t.latestMessage.id);
+    }
+    if (toMarkUnread.length > 1) {
+      bulkMarkRead.mutate({
+        targets: toMarkUnread.map((t) => ({
+          id: t.latestMessage.id,
+          accountEmail: t.latestMessage.accountEmail,
+        })),
+        isRead: false,
+      });
+    } else {
+      for (const t of toMarkUnread) {
         markRead.mutate({
           id: t.latestMessage.id,
           isRead: false,
@@ -830,6 +880,7 @@ export function EmailList({
   }, [
     markRead,
     markThreadRead,
+    bulkMarkRead,
     getActionThreadKeys,
     resolveTargets,
     setSelectedIds,
@@ -843,15 +894,32 @@ export function EmailList({
   }, [markThreadRead, getActionThreadKeys, resolveTargets, setSelectedIds]);
 
   const markFocusedUnread = useCallback(() => {
-    for (const t of resolveTargets(getActionThreadKeys())) {
-      markRead.mutate({
-        id: t.latestMessage.id,
+    const targets = resolveTargets(getActionThreadKeys());
+    if (targets.length > 1) {
+      bulkMarkRead.mutate({
+        targets: targets.map((t) => ({
+          id: t.latestMessage.id,
+          accountEmail: t.latestMessage.accountEmail,
+        })),
         isRead: false,
-        accountEmail: t.latestMessage.accountEmail,
       });
+    } else {
+      for (const t of targets) {
+        markRead.mutate({
+          id: t.latestMessage.id,
+          isRead: false,
+          accountEmail: t.latestMessage.accountEmail,
+        });
+      }
     }
     setSelectedIds(new Set());
-  }, [markRead, getActionThreadKeys, resolveTargets, setSelectedIds]);
+  }, [
+    markRead,
+    bulkMarkRead,
+    getActionThreadKeys,
+    resolveTargets,
+    setSelectedIds,
+  ]);
 
   const moveFocusedToLabel = useCallback(
     (labelId: string, labelName: string) => {
@@ -911,11 +979,41 @@ export function EmailList({
   const starFocused = useCallback(() => {
     const keys = getActionThreadKeys();
     if (keys.length === 0) return;
-    for (const t of resolveTargets(keys)) {
-      setThreadStarred(t, !t.hasStarred);
+    const targets = resolveTargets(keys);
+    if (targets.length > 1) {
+      // Bulk selection: split into "becoming starred" / "becoming unstarred"
+      // groups (each thread toggles relative to its own current state) and
+      // send one action call per group instead of one per message.
+      const toStar = targets.filter((t) => !t.hasStarred);
+      const toUnstar = targets.filter((t) => t.hasStarred);
+      if (toStar.length > 0) {
+        bulkToggleStar.mutate({
+          targets: toStar.map((t) => ({
+            id: t.latestMessage.id,
+            accountEmail: t.latestMessage.accountEmail,
+            threadId: t.latestMessage.threadId || t.latestMessage.id,
+          })),
+          isStarred: true,
+        });
+      }
+      if (toUnstar.length > 0) {
+        // Unstarring a thread means unstarring every starred message in it,
+        // which setThreadStarred already resolves per thread — keep that
+        // per-thread resolution but still fan the actual mutations out
+        // through the same per-item path since counts here are small.
+        for (const t of toUnstar) setThreadStarred(t, false);
+      }
+    } else {
+      for (const t of targets) setThreadStarred(t, !t.hasStarred);
     }
     setSelectedIds(new Set());
-  }, [getActionThreadKeys, resolveTargets, setSelectedIds, setThreadStarred]);
+  }, [
+    getActionThreadKeys,
+    resolveTargets,
+    setSelectedIds,
+    setThreadStarred,
+    bulkToggleStar,
+  ]);
 
   const replyFocused = useCallback(() => {
     const id = focusedIdRef.current;
@@ -997,6 +1095,37 @@ export function EmailList({
     );
   }, [focusedId, threads]);
 
+  // Row height matches the CSS `h-[48px] sm:h-[38px]` breakpoint (Tailwind's
+  // `sm` = 640px) so the virtualizer's estimate lines up with the real row on
+  // first paint; `measureElement` still corrects it if a row wraps or the
+  // breakpoint is mid-transition.
+  const [rowHeightEstimate, setRowHeightEstimate] = useState(() =>
+    typeof window !== "undefined" && window.innerWidth >= 640 ? 38 : 48,
+  );
+  useEffect(() => {
+    const mql = window.matchMedia("(min-width: 640px)");
+    const onChange = () => setRowHeightEstimate(mql.matches ? 38 : 48);
+    onChange();
+    mql.addEventListener("change", onChange);
+    return () => mql.removeEventListener("change", onChange);
+  }, []);
+
+  const rowVirtualizer = useVirtualizer({
+    count: threads.length,
+    getScrollElement: () => scrollParentRef.current,
+    estimateSize: () => rowHeightEstimate,
+    overscan: 10,
+    getItemKey: (index) => threads[index]?.latestMessage.id ?? index,
+  });
+
+  // Keep keyboard-focused rows in view. Mounted rows no longer span the full
+  // list once virtualized, so `scrollIntoView` on a queried DOM node can't be
+  // relied on — ask the virtualizer to scroll to the row's index instead.
+  useEffect(() => {
+    if (focusedIndex < 0) return;
+    rowVirtualizer.scrollToIndex(focusedIndex, { align: "auto" });
+  }, [focusedIndex, rowVirtualizer]);
+
   // Infinite scroll — fetch next page when the sentinel enters the viewport.
   // isFetchingNextPage is read via ref (not a dep) because re-observe fires
   // the callback synchronously with the current intersection state; if the
@@ -1057,113 +1186,144 @@ export function EmailList({
     return () => window.removeEventListener("email:snoozed", handler);
   }, [threads, setFocusedId, setSelectedIds]);
 
-  const handleSelect = (thread: ThreadSummary) => {
-    const email = thread.latestMessage;
-    const targetThreadId = email.threadId || email.id;
-    setFocusedId(email.id);
-    // A plain click is a single-thread action — clear any in-progress
-    // multi-selection so the next keyboard shortcut doesn't act on a stale set.
-    setSelectedIds(new Set());
-    // Draft emails: open in compose window instead of thread view
-    if (email.isDraft && onDraftOpen) {
-      onDraftOpen(email);
-      return;
-    }
-    void ensureThread(targetThreadId, email.accountEmail).catch(() => {});
-    onNavigateThread?.(targetThreadId);
-    navigate(`/${view}/${targetThreadId}${routeSearchSuffix}`);
-    if (thread.hasUnread) {
-      setTimeout(() => markThreadRead.mutate(targetThreadId), 0);
-    }
-  };
+  const handleSelect = useCallback(
+    (thread: ThreadSummary) => {
+      const email = thread.latestMessage;
+      const targetThreadId = email.threadId || email.id;
+      setFocusedId(email.id);
+      // A plain click is a single-thread action — clear any in-progress
+      // multi-selection so the next keyboard shortcut doesn't act on a stale set.
+      setSelectedIds(new Set());
+      // Draft emails: open in compose window instead of thread view
+      if (email.isDraft && onDraftOpen) {
+        onDraftOpen(email);
+        return;
+      }
+      void ensureThread(targetThreadId, email.accountEmail).catch(() => {});
+      onNavigateThread?.(targetThreadId);
+      navigate(`/${view}/${targetThreadId}${routeSearchSuffix}`);
+      if (thread.hasUnread) {
+        setTimeout(() => markThreadRead.mutate(targetThreadId), 0);
+      }
+    },
+    [
+      setFocusedId,
+      setSelectedIds,
+      onDraftOpen,
+      onNavigateThread,
+      navigate,
+      view,
+      routeSearchSuffix,
+      markThreadRead,
+    ],
+  );
 
-  const handleStar = (e: React.MouseEvent, thread: ThreadSummary) => {
-    e.stopPropagation();
-    setThreadStarred(thread, !thread.hasStarred);
-  };
+  const handleStar = useCallback(
+    (e: React.MouseEvent, thread: ThreadSummary) => {
+      e.stopPropagation();
+      setThreadStarred(thread, !thread.hasStarred);
+    },
+    [setThreadStarred],
+  );
 
-  const handleToggleReadThread = (
-    e: React.MouseEvent,
-    thread: ThreadSummary,
-  ) => {
-    e.stopPropagation();
-    const email = thread.latestMessage;
-    if (thread.hasUnread) {
-      markThreadRead.mutate(email.threadId || email.id);
-    } else {
-      markRead.mutate({
-        id: email.id,
-        isRead: false,
-        accountEmail: email.accountEmail,
+  const handleToggleReadThread = useCallback(
+    (e: React.MouseEvent, thread: ThreadSummary) => {
+      e.stopPropagation();
+      const email = thread.latestMessage;
+      if (thread.hasUnread) {
+        markThreadRead.mutate(email.threadId || email.id);
+      } else {
+        markRead.mutate({
+          id: email.id,
+          isRead: false,
+          accountEmail: email.accountEmail,
+        });
+      }
+    },
+    [markThreadRead, markRead],
+  );
+
+  const handleToggleMultiSelect = useCallback(
+    (e: React.SyntheticEvent, thread: ThreadSummary) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const key = thread.latestMessage.threadId || thread.latestMessage.id;
+      setFocusedId(thread.latestMessage.id);
+      setSelectedIds((prev) => {
+        const next = new Set(prev);
+        if (next.has(key)) next.delete(key);
+        else next.add(key);
+        return next;
       });
-    }
-  };
+    },
+    [setFocusedId, setSelectedIds],
+  );
 
-  const handleToggleMultiSelect = (
-    e: React.SyntheticEvent,
-    thread: ThreadSummary,
-  ) => {
-    e.preventDefault();
-    e.stopPropagation();
-    const key = thread.latestMessage.threadId || thread.latestMessage.id;
-    setFocusedId(thread.latestMessage.id);
-    setSelectedIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(key)) next.delete(key);
-      else next.add(key);
-      return next;
-    });
-  };
+  const handleTrashThread = useCallback(
+    (e: React.MouseEvent, thread: ThreadSummary) => {
+      e.stopPropagation();
+      if (view === "trash") return;
+      const key = thread.latestMessage.threadId || thread.latestMessage.id;
+      trashThreadKeys([key]);
+    },
+    [view, trashThreadKeys],
+  );
 
-  const handleTrashThread = (e: React.MouseEvent, thread: ThreadSummary) => {
-    e.stopPropagation();
-    if (view === "trash") return;
-    const key = thread.latestMessage.threadId || thread.latestMessage.id;
-    trashThreadKeys([key]);
-  };
+  const handleArchiveThread = useCallback(
+    (e: React.MouseEvent, thread: ThreadSummary) => {
+      e.stopPropagation();
+      archiveThreadKeys([
+        thread.latestMessage.threadId || thread.latestMessage.id,
+      ]);
+    },
+    [archiveThreadKeys],
+  );
 
-  const handleArchiveThread = (e: React.MouseEvent, thread: ThreadSummary) => {
-    e.stopPropagation();
-    archiveThreadKeys([
-      thread.latestMessage.threadId || thread.latestMessage.id,
-    ]);
-  };
+  const handleHoverThread = useCallback(
+    (thread: ThreadSummary) => {
+      setFocusedId(thread.latestMessage.id);
+    },
+    [setFocusedId],
+  );
 
-  const getScheduledJobId = (email: EmailMessage): string | null =>
-    view === "scheduled" && email.id.startsWith("scheduled-")
-      ? email.id.slice("scheduled-".length)
-      : null;
+  const getScheduledJobId = useCallback(
+    (email: EmailMessage): string | null =>
+      view === "scheduled" && email.id.startsWith("scheduled-")
+        ? email.id.slice("scheduled-".length)
+        : null,
+    [view],
+  );
 
-  const handleSendScheduledNow = (
-    e: React.MouseEvent,
-    thread: ThreadSummary,
-  ) => {
-    e.stopPropagation();
-    const jobId = getScheduledJobId(thread.latestMessage);
-    if (!jobId) return;
-    sendScheduledJobNow.mutate(jobId, {
-      onSuccess: () => toast(t("mail.toasts.scheduledSent")),
-      onError: (error) =>
-        toast.error(
-          error instanceof Error
-            ? error.message
-            : t("mail.toasts.scheduledSendFailed"),
-        ),
-    });
-  };
+  const handleSendScheduledNow = useCallback(
+    (e: React.MouseEvent, thread: ThreadSummary) => {
+      e.stopPropagation();
+      const jobId = getScheduledJobId(thread.latestMessage);
+      if (!jobId) return;
+      sendScheduledJobNow.mutate(jobId, {
+        onSuccess: () => toast(t("mail.toasts.scheduledSent")),
+        onError: (error) =>
+          toast.error(
+            error instanceof Error
+              ? error.message
+              : t("mail.toasts.scheduledSendFailed"),
+          ),
+      });
+    },
+    [getScheduledJobId, sendScheduledJobNow, t],
+  );
 
-  const handleCancelScheduled = (
-    e: React.MouseEvent,
-    thread: ThreadSummary,
-  ) => {
-    e.stopPropagation();
-    const jobId = getScheduledJobId(thread.latestMessage);
-    if (!jobId) return;
-    cancelScheduledJob.mutate(jobId, {
-      onSuccess: () => toast(t("mail.toasts.scheduledCancelled")),
-      onError: () => toast.error(t("mail.toasts.scheduledCancelFailed")),
-    });
-  };
+  const handleCancelScheduled = useCallback(
+    (e: React.MouseEvent, thread: ThreadSummary) => {
+      e.stopPropagation();
+      const jobId = getScheduledJobId(thread.latestMessage);
+      if (!jobId) return;
+      cancelScheduledJob.mutate(jobId, {
+        onSuccess: () => toast(t("mail.toasts.scheduledCancelled")),
+        onError: () => toast.error(t("mail.toasts.scheduledCancelFailed")),
+      });
+    },
+    [getScheduledJobId, cancelScheduledJob, t],
+  );
 
   // ── Swipe gesture handlers ─────────────────────────────────────────────
   // Swipe targets exactly one thread (the swiped one) — unlike the keyboard
@@ -1255,120 +1415,152 @@ export function EmailList({
     [setSelectedIds],
   );
 
-  const bulkHeaderActions =
-    selectedIds.size > 0 ? (
-      <div className="flex h-7 max-w-[calc(100vw-11rem)] shrink-0 items-center gap-1 rounded-md border border-border/50 bg-muted/50 px-1.5 text-muted-foreground shadow-sm">
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <button
-              type="button"
-              onClick={clearSelection}
-              className="flex size-5 items-center justify-center rounded transition-colors hover:bg-accent hover:text-foreground"
-              aria-label={t("mail.selection.clear")}
-            >
-              <IconX className="h-3.5 w-3.5" />
-            </button>
-          </TooltipTrigger>
-          <TooltipContent>{t("mail.selection.clear")}</TooltipContent>
-        </Tooltip>
-        <span className="whitespace-nowrap text-xs font-medium text-foreground/80">
-          {t("mail.selection.selected", { count: selectedIds.size })}
-        </span>
-        <DropdownMenu>
+  const handleSnoozeButtonClick = useCallback(
+    (e: React.MouseEvent, thread: ThreadSummary) => {
+      e.stopPropagation();
+      handleSwipeSnooze(thread);
+    },
+    [handleSwipeSnooze],
+  );
+
+  const bulkHeaderActions = useMemo(
+    () =>
+      selectedIds.size > 0 ? (
+        <div className="flex h-7 max-w-[calc(100vw-11rem)] shrink-0 items-center gap-1 rounded-md border border-border/50 bg-muted/50 px-1.5 text-muted-foreground shadow-sm">
           <Tooltip>
             <TooltipTrigger asChild>
-              <DropdownMenuTrigger asChild>
-                <button
-                  type="button"
-                  className="flex size-5 items-center justify-center rounded transition-colors hover:bg-accent hover:text-foreground"
-                  aria-label={t("mail.selection.actions")}
-                >
-                  <IconDots className="h-3.5 w-3.5" />
-                </button>
-              </DropdownMenuTrigger>
-            </TooltipTrigger>
-            <TooltipContent>{t("mail.selection.actions")}</TooltipContent>
-          </Tooltip>
-          <DropdownMenuContent align="end" className="w-56">
-            <DropdownMenuItem
-              onClick={archiveFocused}
-              className="gap-2 text-xs"
-            >
-              <IconArchive className="h-3.5 w-3.5" />
-              {t("mail.actions.archive")}
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              onClick={markFocusedRead}
-              className="gap-2 text-xs"
-            >
-              <IconMailOpened className="h-3.5 w-3.5" />
-              {t("mail.actions.markRead")}
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              onClick={markFocusedUnread}
-              className="gap-2 text-xs"
-            >
-              <IconMail className="h-3.5 w-3.5" />
-              {t("mail.actions.markUnread")}
-            </DropdownMenuItem>
-            {movableLabels.length > 0 && (
-              <DropdownMenuSub>
-                <DropdownMenuSubTrigger className="gap-2 text-xs">
-                  <IconFolder className="h-3.5 w-3.5" />
-                  {t("mail.actions.moveTo")}
-                </DropdownMenuSubTrigger>
-                <DropdownMenuSubContent className="max-h-72 w-56 overflow-y-auto">
-                  {movableLabels.map((label) => (
-                    <DropdownMenuItem
-                      key={label.id}
-                      onClick={() => moveFocusedToLabel(label.id, label.name)}
-                      className="text-xs"
-                    >
-                      {label.name}
-                    </DropdownMenuItem>
-                  ))}
-                </DropdownMenuSubContent>
-              </DropdownMenuSub>
-            )}
-            {view !== "trash" && (
-              <DropdownMenuItem
-                onClick={trashFocused}
-                className="gap-2 text-xs text-destructive focus:text-destructive"
+              <button
+                type="button"
+                onClick={clearSelection}
+                className="flex size-5 items-center justify-center rounded transition-colors hover:bg-accent hover:text-foreground"
+                aria-label={t("mail.selection.clear")}
               >
-                <IconTrash className="h-3.5 w-3.5" />
-                {t("mail.actions.moveToTrash")}
+                <IconX className="h-3.5 w-3.5" />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent>{t("mail.selection.clear")}</TooltipContent>
+          </Tooltip>
+          <span className="whitespace-nowrap text-xs font-medium text-foreground/80">
+            {t("mail.selection.selected", { count: selectedIds.size })}
+          </span>
+          <DropdownMenu>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <DropdownMenuTrigger asChild>
+                  <button
+                    type="button"
+                    className="flex size-5 items-center justify-center rounded transition-colors hover:bg-accent hover:text-foreground"
+                    aria-label={t("mail.selection.actions")}
+                  >
+                    <IconDots className="h-3.5 w-3.5" />
+                  </button>
+                </DropdownMenuTrigger>
+              </TooltipTrigger>
+              <TooltipContent>{t("mail.selection.actions")}</TooltipContent>
+            </Tooltip>
+            <DropdownMenuContent align="end" className="w-56">
+              <DropdownMenuItem
+                onClick={archiveFocused}
+                className="gap-2 text-xs"
+              >
+                <IconArchive className="h-3.5 w-3.5" />
+                {t("mail.actions.archive")}
               </DropdownMenuItem>
-            )}
-            <DropdownMenuSeparator />
-            <DropdownMenuLabel>{t("mail.selection.select")}</DropdownMenuLabel>
-            <DropdownMenuItem onClick={selectAllThreads} className="text-xs">
-              {t("mail.selection.all")}
-            </DropdownMenuItem>
-            <DropdownMenuItem onClick={clearSelection} className="text-xs">
-              {t("mail.selection.none")}
-            </DropdownMenuItem>
-            <DropdownMenuItem onClick={selectReadThreads} className="text-xs">
-              {t("mail.selection.read")}
-            </DropdownMenuItem>
-            <DropdownMenuItem onClick={selectUnreadThreads} className="text-xs">
-              {t("mail.views.unread")}
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              onClick={selectStarredThreads}
-              className="text-xs"
-            >
-              {t("mail.views.starred")}
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              onClick={selectUnstarredThreads}
-              className="text-xs"
-            >
-              {t("mail.selection.unstarred")}
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
-      </div>
-    ) : null;
+              <DropdownMenuItem
+                onClick={markFocusedRead}
+                className="gap-2 text-xs"
+              >
+                <IconMailOpened className="h-3.5 w-3.5" />
+                {t("mail.actions.markRead")}
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={markFocusedUnread}
+                className="gap-2 text-xs"
+              >
+                <IconMail className="h-3.5 w-3.5" />
+                {t("mail.actions.markUnread")}
+              </DropdownMenuItem>
+              {movableLabels.length > 0 && (
+                <DropdownMenuSub>
+                  <DropdownMenuSubTrigger className="gap-2 text-xs">
+                    <IconFolder className="h-3.5 w-3.5" />
+                    {t("mail.actions.moveTo")}
+                  </DropdownMenuSubTrigger>
+                  <DropdownMenuSubContent className="max-h-72 w-56 overflow-y-auto">
+                    {movableLabels.map((label) => (
+                      <DropdownMenuItem
+                        key={label.id}
+                        onClick={() => moveFocusedToLabel(label.id, label.name)}
+                        className="text-xs"
+                      >
+                        {label.name}
+                      </DropdownMenuItem>
+                    ))}
+                  </DropdownMenuSubContent>
+                </DropdownMenuSub>
+              )}
+              {view !== "trash" && (
+                <DropdownMenuItem
+                  onClick={trashFocused}
+                  className="gap-2 text-xs text-destructive focus:text-destructive"
+                >
+                  <IconTrash className="h-3.5 w-3.5" />
+                  {t("mail.actions.moveToTrash")}
+                </DropdownMenuItem>
+              )}
+              <DropdownMenuSeparator />
+              <DropdownMenuLabel>
+                {t("mail.selection.select")}
+              </DropdownMenuLabel>
+              <DropdownMenuItem onClick={selectAllThreads} className="text-xs">
+                {t("mail.selection.all")}
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={clearSelection} className="text-xs">
+                {t("mail.selection.none")}
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={selectReadThreads} className="text-xs">
+                {t("mail.selection.read")}
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={selectUnreadThreads}
+                className="text-xs"
+              >
+                {t("mail.views.unread")}
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={selectStarredThreads}
+                className="text-xs"
+              >
+                {t("mail.views.starred")}
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={selectUnstarredThreads}
+                className="text-xs"
+              >
+                {t("mail.selection.unstarred")}
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
+      ) : null,
+    [
+      selectedIds.size,
+      t,
+      clearSelection,
+      archiveFocused,
+      markFocusedRead,
+      markFocusedUnread,
+      movableLabels,
+      moveFocusedToLabel,
+      view,
+      trashFocused,
+      selectAllThreads,
+      selectReadThreads,
+      selectUnreadThreads,
+      selectStarredThreads,
+      selectUnstarredThreads,
+    ],
+  );
   useSetHeaderActions(bulkHeaderActions);
 
   // Error state
@@ -1457,67 +1649,83 @@ export function EmailList({
     );
   }
 
+  const canArchiveInView =
+    view !== "archive" &&
+    view !== "trash" &&
+    view !== "sent" &&
+    view !== "drafts" &&
+    view !== "scheduled" &&
+    view !== "snoozed";
+  const canSnoozeInView =
+    view !== "snoozed" &&
+    view !== "scheduled" &&
+    view !== "sent" &&
+    view !== "drafts" &&
+    view !== "trash";
+  const canTrashInView = view !== "trash";
+
+  const virtualItems = rowVirtualizer.getVirtualItems();
+
   return (
     <div className="flex h-full flex-col" ref={containerRef}>
-      <div className="flex-1 overflow-y-auto">
-        {threads.map((thread) => (
-          <EmailListItem
-            key={thread.latestMessage.id}
-            email={thread.latestMessage}
-            thread={thread}
-            isSelected={thread.latestMessage.id === threadId}
-            isFocused={thread.latestMessage.id === focusedId}
-            isMultiSelected={selectedIds.has(
-              thread.latestMessage.threadId || thread.latestMessage.id,
-            )}
-            onSelect={() => handleSelect(thread)}
-            onToggleMultiSelect={(e) => handleToggleMultiSelect(e, thread)}
-            onStar={(e) => handleStar(e, thread)}
-            onToggleRead={(e) => handleToggleReadThread(e, thread)}
-            onArchive={
-              view !== "archive" &&
-              view !== "trash" &&
-              view !== "sent" &&
-              view !== "drafts" &&
-              view !== "scheduled" &&
-              view !== "snoozed"
-                ? (e) => handleArchiveThread(e, thread)
-                : undefined
-            }
-            onSnooze={
-              view !== "snoozed" &&
-              view !== "scheduled" &&
-              view !== "sent" &&
-              view !== "drafts" &&
-              view !== "trash"
-                ? (e) => {
-                    e.stopPropagation();
-                    handleSwipeSnooze(thread);
-                  }
-                : undefined
-            }
-            onTrash={
-              view === "trash" ? undefined : (e) => handleTrashThread(e, thread)
-            }
-            onSendNow={
-              getScheduledJobId(thread.latestMessage)
-                ? (e) => handleSendScheduledNow(e, thread)
-                : undefined
-            }
-            onCancelSchedule={
-              getScheduledJobId(thread.latestMessage)
-                ? (e) => handleCancelScheduled(e, thread)
-                : undefined
-            }
-            onHover={() => {
-              setFocusedId(thread.latestMessage.id);
-            }}
-            onSwipeArchive={() => handleSwipeArchive(thread)}
-            onSwipeSnooze={() => handleSwipeSnooze(thread)}
-            highlight={searchQuery}
-          />
-        ))}
-        {/* Sentinel for infinite scroll + loading indicator */}
+      <div className="flex-1 overflow-y-auto" ref={scrollParentRef}>
+        <div
+          style={{
+            height: rowVirtualizer.getTotalSize(),
+            position: "relative",
+            width: "100%",
+          }}
+        >
+          {virtualItems.map((virtualRow) => {
+            const thread = threads[virtualRow.index];
+            if (!thread) return null;
+            return (
+              <div
+                key={virtualRow.key}
+                ref={rowVirtualizer.measureElement}
+                data-index={virtualRow.index}
+                style={{
+                  position: "absolute",
+                  top: 0,
+                  left: 0,
+                  width: "100%",
+                  transform: `translateY(${virtualRow.start}px)`,
+                }}
+              >
+                <EmailListItem
+                  email={thread.latestMessage}
+                  thread={thread}
+                  isSelected={thread.latestMessage.id === threadId}
+                  isFocused={thread.latestMessage.id === focusedId}
+                  isMultiSelected={selectedIds.has(
+                    thread.latestMessage.threadId || thread.latestMessage.id,
+                  )}
+                  canArchive={canArchiveInView}
+                  canSnooze={canSnoozeInView}
+                  canTrash={canTrashInView}
+                  scheduledJobId={getScheduledJobId(thread.latestMessage)}
+                  onSelect={handleSelect}
+                  onToggleMultiSelect={handleToggleMultiSelect}
+                  onStar={handleStar}
+                  onToggleRead={handleToggleReadThread}
+                  onArchive={handleArchiveThread}
+                  onSnooze={handleSnoozeButtonClick}
+                  onTrash={handleTrashThread}
+                  onSendNow={handleSendScheduledNow}
+                  onCancelSchedule={handleCancelScheduled}
+                  onHover={handleHoverThread}
+                  onSwipeArchive={handleSwipeArchive}
+                  onSwipeSnooze={handleSwipeSnooze}
+                  highlight={searchQuery}
+                />
+              </div>
+            );
+          })}
+        </div>
+        {/* Sentinel for infinite scroll + loading indicator — lives after the
+            virtualizer's sized inner container so it still sits at the true
+            end of scrollable content and the IntersectionObserver above
+            continues to fire as the user nears the bottom. */}
         {hasNextPage && (
           <div
             ref={sentinelRef}

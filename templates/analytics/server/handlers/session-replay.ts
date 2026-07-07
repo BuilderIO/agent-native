@@ -12,13 +12,19 @@ import {
 
 import { runApiHandlerWithContext } from "../lib/credentials";
 import {
+  SESSION_REPLAY_AGENT_ACCESS_PARAM,
+  verifySessionReplayAgentAccess,
+} from "../lib/session-replay-agent-context.js";
+import {
   getSessionReplayManifest,
   getSessionReplayEvents,
   getSessionReplaySummary,
+  getSessionReplayTokenizedManifest,
   listSessionRecordings,
   parseSessionReplayIngestPayload,
   recordSessionReplayChunks,
   readSessionReplayChunkBytes,
+  readSessionReplayTokenizedChunkBytes,
   type SessionReplayListFilters,
 } from "../lib/session-replay.js";
 
@@ -82,11 +88,36 @@ function statusError(message: string, statusCode: number): Error {
   return Object.assign(new Error(message), { statusCode });
 }
 
+function looksLikeDecodedJson(bytes: Buffer): boolean {
+  const first = bytes.toString("utf8").trimStart()[0];
+  return first === "{" || first === "[";
+}
+
+function tryGunzip(bytes: Buffer): Buffer | null {
+  try {
+    return gunzipSync(bytes);
+  } catch {
+    return null;
+  }
+}
+
+function decodeTextWrappedGzip(
+  bytes: Buffer,
+): { decoded: Buffer; requestBytes: number } | null {
+  const text = bytes.toString("utf8");
+  const binaryStringBytes = Buffer.from(text, "latin1");
+  if (binaryStringBytes.equals(bytes)) return null;
+  const decoded = tryGunzip(binaryStringBytes);
+  return decoded
+    ? { decoded, requestBytes: binaryStringBytes.byteLength }
+    : null;
+}
+
 export function decodeSessionReplayRequestBody(
   rawBody: Buffer | Uint8Array | string | undefined,
   contentEncoding?: string | null,
 ): { body: unknown; requestBytes: number } {
-  const requestBytes =
+  let requestBytes =
     typeof rawBody === "string"
       ? Buffer.byteLength(rawBody, "utf8")
       : (rawBody?.byteLength ?? 0);
@@ -99,10 +130,26 @@ export function decodeSessionReplayRequestBody(
   let decoded = bytes;
 
   if (encoding === "gzip" || encoding === "x-gzip") {
-    try {
-      decoded = gunzipSync(bytes);
-    } catch {
-      throw statusError("Invalid gzip-compressed replay body", 400);
+    const gunzipped = tryGunzip(bytes);
+    if (gunzipped) {
+      decoded = gunzipped;
+    } else {
+      // Netlify may hand Nitro an already-decoded body while preserving the
+      // original browser Content-Encoding header.
+      if (looksLikeDecodedJson(bytes)) {
+        decoded = bytes;
+      } else {
+        // Some Netlify paths wrap binary request bodies in a JS string before
+        // Nitro reads them back as UTF-8. Reinterpret that text as one-byte
+        // binary data so real browser CompressionStream uploads survive.
+        const textWrappedGzip = decodeTextWrappedGzip(bytes);
+        if (textWrappedGzip) {
+          decoded = textWrappedGzip.decoded;
+          requestBytes = textWrappedGzip.requestBytes;
+        } else {
+          throw statusError("Invalid gzip-compressed replay body", 400);
+        }
+      }
     }
   } else if (encoding && encoding !== "identity") {
     throw statusError(
@@ -157,6 +204,32 @@ function asBool(value: unknown): boolean | undefined {
 function asStatus(value: unknown): "active" | "completed" | undefined {
   const raw = asString(value);
   return raw === "active" || raw === "completed" ? raw : undefined;
+}
+
+function appendQueryParam(path: string, name: string, value: string): string {
+  const sep = path.includes("?") ? "&" : "?";
+  return `${path}${sep}${encodeURIComponent(name)}=${encodeURIComponent(value)}`;
+}
+
+function applyAgentReplayReadHeaders(event: any): void {
+  setResponseHeader(event, "Cache-Control", "private, max-age=0, no-store");
+  setResponseHeader(event, "Referrer-Policy", "no-referrer");
+  setResponseHeader(event, "X-Content-Type-Options", "nosniff");
+}
+
+function readAgentReplayAccessToken(event: any): string | undefined {
+  return asString(getQuery(event)[SESSION_REPLAY_AGENT_ACCESS_PARAM]);
+}
+
+function verifyAgentReplayAccessToken(
+  event: any,
+  recordingId: string,
+): string | null {
+  const token = readAgentReplayAccessToken(event);
+  if (!token) return null;
+  if (verifySessionReplayAgentAccess(recordingId, token)) return token;
+  setResponseStatus(event, 401);
+  return "";
 }
 
 function listFiltersFromQuery(
@@ -285,6 +358,31 @@ export const handleSessionReplayManifest = defineEventHandler(async (event) => {
     return { error: "Missing recordingId" };
   }
 
+  const agentAccessToken = verifyAgentReplayAccessToken(event, recordingId);
+  if (agentAccessToken === "") {
+    return { error: "Invalid or expired agent access" };
+  }
+  if (agentAccessToken) {
+    try {
+      applyAgentReplayReadHeaders(event);
+      const manifest = await getSessionReplayTokenizedManifest(recordingId);
+      return {
+        ...manifest,
+        chunks: manifest.chunks.map((chunk) => ({
+          ...chunk,
+          bytesPath: appendQueryParam(
+            chunk.bytesPath,
+            SESSION_REPLAY_AGENT_ACCESS_PARAM,
+            agentAccessToken,
+          ),
+        })),
+      };
+    } catch (error: any) {
+      setResponseStatus(event, statusFromError(error));
+      return { error: messageFromError(error) };
+    }
+  }
+
   return runApiHandlerWithContext(event, async (ctx) => {
     try {
       return await getSessionReplayManifest(recordingId, {
@@ -308,18 +406,42 @@ export const handleSessionReplayChunkBytes = defineEventHandler(
       return { error: "Missing recordingId or seq" };
     }
 
+    const agentAccessToken = verifyAgentReplayAccessToken(event, recordingId);
+    if (agentAccessToken === "") {
+      return { error: "Invalid or expired agent access" };
+    }
+    if (agentAccessToken) {
+      try {
+        const result = await readSessionReplayTokenizedChunkBytes(
+          recordingId,
+          seq,
+        );
+        applyAgentReplayReadHeaders(event);
+        setResponseHeader(event, "Content-Type", "application/json");
+        setResponseHeader(event, "X-Session-Replay-Seq", String(result.seq));
+        setResponseHeader(event, "X-Session-Replay-Checksum", result.checksum);
+        return result.json;
+      } catch (error: any) {
+        setResponseStatus(event, statusFromError(error));
+        return { error: messageFromError(error) };
+      }
+    }
+
     return runApiHandlerWithContext(event, async (ctx) => {
       try {
         const result = await readSessionReplayChunkBytes(recordingId, seq, {
           userEmail: ctx.userEmail,
           orgId: ctx.orgId ?? null,
         });
+        // Serve decompressed JSON and let the platform negotiate wire
+        // compression. Manually returning a pre-gzipped body with a
+        // `Content-Encoding: gzip` header corrupted replay downloads on
+        // serverless hosts and left playback blank in production.
         setResponseHeader(event, "Content-Type", "application/json");
-        setResponseHeader(event, "Content-Encoding", "gzip");
         setResponseHeader(event, "Cache-Control", "no-store");
         setResponseHeader(event, "X-Session-Replay-Seq", String(result.seq));
         setResponseHeader(event, "X-Session-Replay-Checksum", result.checksum);
-        return result.data;
+        return result.json;
       } catch (error: any) {
         setResponseStatus(event, statusFromError(error));
         return { error: messageFromError(error) };

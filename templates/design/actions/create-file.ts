@@ -6,6 +6,7 @@ import { nanoid } from "nanoid";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { annotateScreenHtmlForPersist } from "../shared/screen-annotation.js";
 
 export default defineAction({
   description:
@@ -56,18 +57,24 @@ export default defineAction({
     const id = nanoid();
     const now = new Date().toISOString();
 
+    // Stamp missing data-agent-native-node-id attributes before persisting so
+    // the new screen is fully addressable by id-keyed editor operations from
+    // the moment it's created, instead of depending on a client-side backfill
+    // the first time someone opens it.
+    const annotatedContent = annotateScreenHtmlForPersist(content, fileType);
+
     await db.insert(schema.designFiles).values({
       id,
       designId,
       filename,
       fileType: fileType ?? "html",
-      content,
+      content: annotatedContent,
       createdAt: now,
       updatedAt: now,
     });
 
     // Seed collab state for the new file
-    await seedFromText(id, content);
+    await seedFromText(id, annotatedContent);
 
     // Update the design's updatedAt timestamp
     await db

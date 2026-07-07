@@ -244,6 +244,125 @@ describe("runAgentLoopDirectWithSoftTimeout", () => {
     expect(continuationMessages).toHaveLength(1);
   });
 
+  it("includes unfinished action-preparation guidance on foreground resume", async () => {
+    let attempts = 0;
+    const messages: EngineMessage[] = [
+      { role: "user", content: [{ type: "text", text: "go" }] },
+    ];
+    mockGetCurrentTurnEventsForThread.mockResolvedValue([]);
+
+    mockRunAgentLoop.mockImplementation(async (opts) => {
+      attempts++;
+      if (attempts === 1) {
+        opts.send({
+          type: "activity",
+          label: "Preparing edit-design action",
+          tool: "edit-design",
+          id: "tool-1",
+          progressBytes: 0,
+        });
+        throw new EngineError("Builder gateway timed out after 45s", {
+          errorCode: "builder_gateway_timeout",
+        });
+      }
+      return {
+        inputTokens: 100,
+        outputTokens: 50,
+        cacheReadTokens: 80,
+        cacheWriteTokens: 0,
+        model: "test-model",
+      };
+    });
+
+    await runAgentLoopDirectWithSoftTimeout(
+      makeOpts(messages, new AbortController().signal, undefined, "thread-1"),
+      60_000,
+    );
+
+    expect(attempts).toBe(2);
+    const continuationText = messages
+      .map((m) => (m.content[0]?.type === "text" ? m.content[0].text : ""))
+      .find((t) => t.startsWith(AGENT_INTERNAL_CONTINUE_PROMPT));
+    expect(continuationText).toContain("upstream gateway timeout");
+    expect(continuationText).toContain(
+      "preparing the `edit-design` action input",
+    );
+    expect(continuationText).toContain("smaller `edit-design` payload");
+  });
+
+  it("continues internally when runAgentLoop checkpoints for no-progress action preparation", async () => {
+    let attempts = 0;
+    const sentEvents: AgentChatEvent[] = [];
+    const messages: EngineMessage[] = [
+      { role: "user", content: [{ type: "text", text: "go" }] },
+    ];
+    mockGetCurrentTurnEventsForThread.mockResolvedValue([]);
+
+    mockRunAgentLoop.mockImplementation(async (opts) => {
+      attempts++;
+      if (attempts === 1) {
+        opts.send({
+          type: "text",
+          text: "partial lead-in",
+        });
+        opts.send({
+          type: "activity",
+          label: "Preparing edit-design action",
+          tool: "edit-design",
+          id: "tool-1",
+          progressBytes: 0,
+        });
+        opts.send({
+          type: "auto_continue",
+          reason: "no_progress",
+        });
+        return {
+          inputTokens: 7,
+          outputTokens: 0,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+          model: "test-model",
+        };
+      }
+      return {
+        inputTokens: 100,
+        outputTokens: 50,
+        cacheReadTokens: 80,
+        cacheWriteTokens: 0,
+        model: "test-model",
+      };
+    });
+
+    const usage = await runAgentLoopDirectWithSoftTimeout(
+      makeOpts(
+        messages,
+        new AbortController().signal,
+        (event) => sentEvents.push(event),
+        "thread-1",
+      ),
+      60_000,
+    );
+
+    expect(attempts).toBe(2);
+    expect(usage.inputTokens).toBe(107);
+    const autoContinueIndex = sentEvents.findIndex(
+      (event) => event.type === "auto_continue",
+    );
+    const clearIndex = sentEvents.findIndex((event) => event.type === "clear");
+    expect(autoContinueIndex).toBeGreaterThanOrEqual(0);
+    expect(clearIndex).toBeGreaterThan(autoContinueIndex);
+    const continuationText = messages
+      .map((m) => (m.content[0]?.type === "text" ? m.content[0].text : ""))
+      .find((t) => t.startsWith(AGENT_INTERNAL_CONTINUE_PROMPT));
+    expect(continuationText).toContain(
+      "stopped producing progress events while the connection stayed open",
+    );
+    expect(continuationText).toContain(
+      "preparing the `edit-design` action input",
+    );
+    expect(continuationText).toContain("smaller `edit-design` payload");
+  });
+
   it("allows direct callers to use the background-function timeout regime", async () => {
     vi.useFakeTimers();
     try {
@@ -391,7 +510,7 @@ describe("runAgentLoopDirectWithSoftTimeout", () => {
     expect(err.errorCode).toBe(RUN_BUDGET_EXHAUSTED_ERROR_CODE);
     expect(err.error).toBe(RUN_BUDGET_EXHAUSTED_MESSAGE);
     expect(err.error).toContain("stopped");
-    expect(err.error).toContain("nothing was partially saved");
+    expect(err.error).toContain("Check any completed tool cards");
     expect(err.recoverable).toBe(true);
     // The unfinished partial text must be cleared before the terminal so it
     // stands alone instead of trailing a half sentence.
@@ -399,6 +518,66 @@ describe("runAgentLoopDirectWithSoftTimeout", () => {
     const errorIndex = sentEvents.findIndex((e) => e.type === "error");
     expect(clearIndex).toBeGreaterThanOrEqual(0);
     expect(clearIndex).toBeLessThan(errorIndex);
+  });
+
+  it("preserves completed tool cards when the continuation budget is exhausted after a side effect", async () => {
+    const sentEvents: AgentChatEvent[] = [];
+    let attempts = 0;
+    mockGetCurrentTurnEventsForThread.mockResolvedValue([
+      { type: "tool_start", tool: "generate-design", input: { id: "d1" } },
+      {
+        type: "tool_done",
+        tool: "generate-design",
+        input: { id: "d1" },
+        result: '{"designId":"d1"}',
+        completedSideEffect: true,
+      },
+    ]);
+    mockRunAgentLoop.mockImplementation(async (opts) => {
+      attempts++;
+      if (attempts === 1) {
+        opts.send({
+          type: "tool_start",
+          tool: "generate-design",
+          input: { id: "d1" },
+        });
+        opts.send({
+          type: "tool_done",
+          tool: "generate-design",
+          input: { id: "d1" },
+          result: '{"designId":"d1"}',
+          completedSideEffect: true,
+        });
+      }
+      throw new Error("socket hang up");
+    });
+
+    await runAgentLoopDirectWithSoftTimeout(
+      makeOpts(
+        [{ role: "user", content: [{ type: "text", text: "go" }] }],
+        new AbortController().signal,
+        (event) => sentEvents.push(event),
+        "thread-1",
+      ),
+      60_000,
+    );
+
+    expect(attempts).toBe(MAX_RUN_LOOP_CONTINUATIONS);
+    const terminal = sentEvents.find((e) => e.type === "error");
+    expect(terminal).toMatchObject({
+      type: "error",
+      errorCode: RUN_BUDGET_EXHAUSTED_ERROR_CODE,
+    });
+    expect(sentEvents.some((event) => event.type === "clear")).toBe(false);
+    expect(sentEvents).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: "tool_done",
+          tool: "generate-design",
+          completedSideEffect: true,
+        }),
+      ]),
+    );
   });
 
   it("does NOT emit a give-up terminal when the turn finishes cleanly", async () => {
@@ -636,6 +815,61 @@ describe("runAgentLoopDirectWithSoftTimeout", () => {
       .map((m) => (m.content[0]?.type === "text" ? m.content[0].text : ""))
       .find((t) => t.startsWith(AGENT_INTERNAL_CONTINUE_PROMPT));
     expect(continuationNote).toBeDefined();
+  });
+
+  it("keeps completed tool nextRequiredAction guidance visible on resume", async () => {
+    mockGetCurrentTurnEventsForThread.mockResolvedValue([
+      {
+        type: "tool_start",
+        tool: "get-design-snapshot",
+        input: { designId: "design-1", fileId: "file-1" },
+      },
+      {
+        type: "tool_done",
+        tool: "get-design-snapshot",
+        input: { designId: "design-1", fileId: "file-1" },
+        result: JSON.stringify({
+          files: [{ id: "file-1", content: "x".repeat(2000) }],
+          nextRequiredAction:
+            "Call edit-design exactly once with designId design-1 and fileId file-1. Do not call get-design-snapshot again.",
+        }),
+      },
+    ]);
+
+    let attempts = 0;
+    const messages: EngineMessage[] = [
+      { role: "user", content: [{ type: "text", text: "go" }] },
+    ];
+    mockRunAgentLoop.mockImplementation(async () => {
+      attempts++;
+      if (attempts === 1) {
+        throw new EngineError("Builder gateway timed out", {
+          errorCode: "builder_gateway_timeout",
+        });
+      }
+      return {
+        inputTokens: 1,
+        outputTokens: 1,
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0,
+        model: "test-model",
+      };
+    });
+
+    await runAgentLoopDirectWithSoftTimeout(
+      makeOpts(messages, new AbortController().signal, undefined, "thread-1"),
+      60_000,
+    );
+
+    expect(attempts).toBe(2);
+    const journalNote = messages
+      .map((m) => (m.content[0]?.type === "text" ? m.content[0].text : ""))
+      .find((t) =>
+        t.includes("Tool-call journal from the interrupted attempt"),
+      );
+    expect(journalNote).toContain("Next required action from result");
+    expect(journalNote).toContain("Call edit-design exactly once");
+    expect(journalNote).toContain("Do not call get-design-snapshot again");
   });
 
   it("does not inject a journal note on resume when the turn had no tool calls", async () => {

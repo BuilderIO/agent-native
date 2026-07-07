@@ -31,6 +31,8 @@ vi.mock("./a2a-continuations-store.js", () => ({
 
 vi.mock("../a2a/client.js", () => ({
   A2AClient: A2AClientMock,
+  shouldPreferGlobalA2ASecret: (orgSecret?: string) =>
+    !!process.env.A2A_SECRET?.trim() || !orgSecret,
   signA2AToken: signA2ATokenMock,
 }));
 
@@ -458,8 +460,11 @@ describe("A2A continuation processor", () => {
     expect(completeA2AContinuationMock).toHaveBeenCalledWith("cont-1");
   });
 
-  it("prefers the org A2A secret for continuation polling when one is available", async () => {
+  it("prefers the shared A2A secret for continuation polling when available", async () => {
     process.env.A2A_SECRET = "workspace-global-a2a-secret";
+    signA2ATokenMock
+      .mockResolvedValueOnce("shared-signed-a2a-token")
+      .mockResolvedValueOnce("org-signed-a2a-token");
     vi.doMock("../org/context.js", () => ({
       getOrgDomain: vi.fn(async () => "builder.io"),
       getOrgA2ASecret: vi.fn(async () => "builder-org-a2a-secret"),
@@ -475,7 +480,15 @@ describe("A2A continuation processor", () => {
       adapters: new Map([["slack", adapter(sendResponse)]]),
     });
 
-    expect(signA2ATokenMock).toHaveBeenCalledWith(
+    expect(signA2ATokenMock).toHaveBeenNthCalledWith(
+      1,
+      "alice+qa@agent-native.test",
+      "builder.io",
+      "builder-org-a2a-secret",
+      { expiresIn: "30m", preferGlobalSecret: true },
+    );
+    expect(signA2ATokenMock).toHaveBeenNthCalledWith(
+      2,
       "alice+qa@agent-native.test",
       "builder.io",
       "builder-org-a2a-secret",
@@ -483,8 +496,8 @@ describe("A2A continuation processor", () => {
     );
     expect(A2AClientMock).toHaveBeenCalledWith(
       "https://slides.agent-native.test",
-      "signed-a2a-token",
-      { requestTimeoutMs: 8_000 },
+      "shared-signed-a2a-token",
+      { requestTimeoutMs: 8_000, fallbackApiKeys: ["org-signed-a2a-token"] },
     );
     expect(completeA2AContinuationMock).toHaveBeenCalledWith("cont-1");
     vi.doUnmock("../org/context.js");

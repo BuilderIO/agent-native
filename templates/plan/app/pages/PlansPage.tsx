@@ -2,6 +2,7 @@ import {
   SIDEBAR_STATE_CHANGE_EVENT,
   PromptComposer,
   BuilderSetupCard,
+  ErrorReportActions,
   ShareButton,
   appPath,
   agentNativePath,
@@ -15,28 +16,29 @@ import {
   emailToColor,
   emailToName,
   type AgentSidebarStateChangeDetail,
+  type ErrorReportDebugItem,
   type RichMarkdownCollabUser,
 } from "@agent-native/core/client";
 import {
   useAcceptInvitation,
   useJoinByDomain,
   useOrg,
-  type OrgInfo,
-  type OrgInvitationSummary,
-  type DomainMatchOrg,
 } from "@agent-native/core/client/org";
 import {
+  useSetHeaderActions,
+  useSetPageTitle,
+} from "@agent-native/toolkit/app-shell";
+import {
+  SOURCE_AUTHOR_COMMENT_MENTION_EMAIL,
   extractCommentMentions,
   formatPlanCommentAnchorForAgent,
   formatPlanCommentMentionToken,
   normalizePlanCommentResolutionTarget,
   parsePlanCommentAnchor,
   planCommentAnchorDetails,
-  type PlanCommentAnchor,
   type PlanCommentMention,
   type PlanCommentResolutionTarget,
 } from "@shared/comment-context";
-import { mimeTypeFromFilename } from "@shared/plan-assets";
 import type {
   PlanAnnotation,
   PlanBlock,
@@ -109,6 +111,7 @@ import { useTheme } from "next-themes";
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -121,10 +124,6 @@ import {
 import { Link, useLocation, useNavigate, useParams } from "react-router";
 import { toast } from "sonner";
 
-import {
-  useSetHeaderActions,
-  useSetPageTitle,
-} from "@/components/layout/HeaderActions";
 import type {
   CanvasMarkupCreateContext,
   CanvasMarkupMode,
@@ -244,13 +243,80 @@ import {
 import {
   getDesktopPlanFiles,
   type DesktopPlanFilesFolder,
-  type PlanMdxFolder,
 } from "@/lib/desktop-plan-files";
 import { syncLocalControlResources } from "@/lib/local-control-resources";
+import {
+  resolvePlanOrgAccessPrompt,
+  type PlanOrgAccessPrompt,
+} from "@/lib/plan-access-prompt";
+import {
+  PREFERRED_EDITOR_VALUES,
+  PREFERRED_EDITOR_STORAGE_KEY,
+  DESKTOP_PLAN_SYNC_AUTO_KEY_PREFIX,
+  injectAnnotationRuntime,
+  type PreferredEditor,
+  type RuntimeAnnotation,
+  type RuntimeAnnotationComment,
+  type RuntimeAnnotationParticipant,
+} from "@/lib/plan-annotation-runtime";
+import {
+  appendMessageToEditor,
+  canSubmitInlineCommentDraft,
+  commentBodyText,
+  createMentionChip,
+  displayNameForMention,
+  mentionQueryAtCaret,
+  serializeCommentEditor,
+  type CommentDraft,
+} from "@/lib/plan-comment-editor-helpers";
 import { planDocumentTitle } from "@/lib/plan-document-title";
+import {
+  fetchLocalPlanBridgeBundle,
+  localPlanBridgeQueryKey,
+  localPlanBridgeRetryDelay,
+  localPlanRoutePath,
+  localPlanRouteUrl,
+  mergeLocalBridgeComments,
+  shouldRetryLocalPlanBridgeBundle,
+  shouldShowPlanLoadError,
+  updateLocalPlanBridgeComments,
+  type LocalPlanBundle,
+  type PlanBundleWithHtml,
+  type PlanCommentItem,
+} from "@/lib/plan-local-bridge";
+import {
+  buildNativeAnchorFromElement,
+  clamp,
+  findPlanBlockById,
+  nativeMarkerPlacementForAnchor,
+  nativePointForAnchor,
+  prototypeScreenIdForAnchor,
+  resolveNativeAnchorTarget,
+  selectorForElementWithin,
+  textQuoteContextForBlock,
+  type PlanAnnotationAnchor,
+} from "@/lib/plan-native-anchors";
 import { cn } from "@/lib/utils";
 
-import { parsePlanMdxFolder } from "../../server/plan-mdx";
+export {
+  resolvePlanOrgAccessPrompt,
+  buildNativeAnchorFromElement,
+  nativeMarkerPlacementForAnchor,
+  nativePointForAnchor,
+  prototypeScreenIdForAnchor,
+  resolveNativeAnchorTarget,
+  selectorForElementWithin,
+  localPlanBridgeRetryDelay,
+  shouldRetryLocalPlanBridgeBundle,
+  shouldShowPlanLoadError,
+};
+export type { NativeMarkerPlacement } from "@/lib/plan-native-anchors";
+export type { PlanOrgAccessPrompt } from "@/lib/plan-access-prompt";
+export { canSubmitInlineCommentDraft, mentionQueryAtCaret };
+export type { CommentDraft } from "@/lib/plan-comment-editor-helpers";
+
+const useBrowserLayoutEffect =
+  typeof window === "undefined" ? useEffect : useLayoutEffect;
 
 function GoogleLogoIcon({ className }: { className?: string }) {
   return (
@@ -317,44 +383,6 @@ const CURRENT_USER_FALLBACK_NAME = "You";
 const CURRENT_USER_FALLBACK_INITIALS = "You";
 const CURRENT_USER_FALLBACK_COLOR = "#2563eb";
 
-type PreferredEditor =
-  | "vscode"
-  | "cursor"
-  | "finder"
-  | "terminal"
-  | "ghostty"
-  | "xcode";
-
-const PREFERRED_EDITOR_STORAGE_KEY = "agent-native-plans.preferredEditor";
-const DESKTOP_PLAN_SYNC_AUTO_KEY_PREFIX =
-  "agent-native-plans.desktopSync.auto.";
-const PREFERRED_EDITOR_VALUES: PreferredEditor[] = [
-  "vscode",
-  "cursor",
-  "finder",
-  "terminal",
-  "ghostty",
-  "xcode",
-];
-
-const EDITOR_OPTIONS: Array<{ value: PreferredEditor; label: string }> = [
-  { value: "vscode", label: "VS Code" }, // i18n-ignore stable app name
-  { value: "cursor", label: "Cursor" }, // i18n-ignore stable app name
-  { value: "finder", label: "Finder" }, // i18n-ignore stable app name
-  { value: "terminal", label: "Terminal" }, // i18n-ignore stable app name
-  { value: "ghostty", label: "Ghostty" }, // i18n-ignore stable app name
-  { value: "xcode", label: "Xcode" }, // i18n-ignore stable app name
-];
-
-const EDITOR_ICON_HTML: Record<PreferredEditor, string> = {
-  vscode: `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="tabler-icon tabler-icon-brand-vscode" aria-hidden="true"><path d="M16 3v18l4 -2.5v-13l-4 -2.5"></path><path d="M9.165 13.903l-4.165 3.597l-2 -1l4.333 -4.5m1.735 -1.802l6.932 -7.198v5l-4.795 4.141"></path><path d="M16 16.5l-11 -10l-2 1l13 13.5"></path></svg>`, // i18n-ignore inline SVG icon markup
-  cursor: `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="tabler-icon tabler-icon-cube" aria-hidden="true"><path d="M21 16.008v-8.018a1.98 1.98 0 0 0 -1 -1.717l-7 -4.008a2.016 2.016 0 0 0 -2 0l-7 4.008c-.619 .355 -1 1.01 -1 1.718v8.018c0 .709 .381 1.363 1 1.717l7 4.008a2.016 2.016 0 0 0 2 0l7 -4.008c.619 -.355 1 -1.01 1 -1.718"></path><path d="M12 22v-10"></path><path d="M12 12l8.73 -5.04"></path><path d="M3.27 6.96l8.73 5.04"></path></svg>`, // i18n-ignore inline SVG icon markup
-  finder: `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="tabler-icon tabler-icon-brand-finder" aria-hidden="true"><path d="M3 5a1 1 0 0 1 1 -1h16a1 1 0 0 1 1 1v14a1 1 0 0 1 -1 1h-16a1 1 0 0 1 -1 -1l0 -14"></path><path d="M7 8v1"></path><path d="M17 8v1"></path><path d="M12.5 4c-.654 1.486 -1.26 3.443 -1.5 9h2.5c-.19 2.867 .094 5.024 .5 7"></path><path d="M7 15.5c3.667 2 6.333 2 10 0"></path></svg>`, // i18n-ignore inline SVG icon markup
-  terminal: `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="tabler-icon tabler-icon-terminal-2" aria-hidden="true"><path d="M8 9l3 3l-3 3"></path><path d="M13 15l3 0"></path><path d="M3 6a2 2 0 0 1 2 -2h14a2 2 0 0 1 2 2v12a2 2 0 0 1 -2 2h-14a2 2 0 0 1 -2 -2l0 -12"></path></svg>`, // i18n-ignore inline SVG icon markup
-  ghostty: `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="tabler-icon tabler-icon-ghost-3" aria-hidden="true"><path d="M5 11a7 7 0 0 1 14 0v7a1.78 1.78 0 0 1 -3.1 1.4a1.65 1.65 0 0 0 -2.6 0a1.65 1.65 0 0 1 -2.6 0a1.65 1.65 0 0 0 -2.6 0a1.78 1.78 0 0 1 -3.1 -1.4v-7"></path><path d="M10 10h.01"></path><path d="M14 10h.01"></path></svg>`, // i18n-ignore inline SVG icon markup
-  xcode: `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="tabler-icon tabler-icon-hammer" aria-hidden="true"><path d="M11.414 10l-7.383 7.418a2.091 2.091 0 0 0 0 2.967a2.11 2.11 0 0 0 2.976 0l7.407 -7.385"></path><path d="M18.121 15.293l2.586 -2.586a1 1 0 0 0 0 -1.414l-7.586 -7.586a1 1 0 0 0 -1.414 0l-2.586 2.586a1 1 0 0 0 0 1.414l7.586 7.586a1 1 0 0 0 1.414 0"></path></svg>`, // i18n-ignore inline SVG icon markup
-};
-
 function readPreferredEditor(): PreferredEditor {
   if (typeof window === "undefined") return "vscode";
   const stored = window.localStorage.getItem(PREFERRED_EDITOR_STORAGE_KEY);
@@ -372,61 +400,9 @@ function readDesktopPlanAutoSync(planId: string | undefined): boolean {
   return window.localStorage.getItem(desktopPlanAutoSyncKey(planId)) === "1";
 }
 
-type PlanAnnotationAnchor = PlanCommentAnchor & { x: number; y: number };
-
-type CommentDraft = {
-  message: string;
-  mentions: PlanCommentMention[];
-  resolutionTarget: PlanCommentResolutionTarget;
-};
-
 type OrgMemberSuggestion = {
   email: string;
   role?: string;
-};
-
-type RuntimeAnnotation = {
-  id: string;
-  index: number;
-  message: string;
-  kind: string;
-  status: string;
-  createdBy: string;
-  parentCommentId?: string | null;
-  authorEmail?: string | null;
-  authorName?: string | null;
-  authorAvatarUrl?: string | null;
-  authorColor?: string | null;
-  authorInitials?: string | null;
-  sectionId?: string | null;
-  createdAt?: string;
-  anchor: PlanAnnotationAnchor;
-  replies: RuntimeAnnotationComment[];
-  participants: RuntimeAnnotationParticipant[];
-  commentCount: number;
-};
-
-type RuntimeAnnotationComment = {
-  id: string;
-  message: string;
-  status: string;
-  createdBy: string;
-  parentCommentId?: string | null;
-  authorEmail?: string | null;
-  authorName?: string | null;
-  authorAvatarUrl?: string | null;
-  authorColor?: string | null;
-  authorInitials?: string | null;
-  createdAt?: string;
-};
-
-type RuntimeAnnotationParticipant = {
-  id: string;
-  authorEmail?: string | null;
-  authorName?: string | null;
-  authorAvatarUrl?: string | null;
-  authorColor?: string | null;
-  authorInitials?: string | null;
 };
 
 type InlineCommentPosition = {
@@ -452,6 +428,17 @@ type PlanDocumentState = {
   clientWidth: number;
   clientHeight: number;
 };
+
+export function resetPlanReaderScrollPosition(reader: HTMLElement | null) {
+  if (reader) {
+    reader.scrollTo({ left: 0, top: 0, behavior: "auto" });
+    reader.scrollLeft = 0;
+    reader.scrollTop = 0;
+  }
+  if (typeof window !== "undefined") {
+    window.scrollTo(0, 0);
+  }
+}
 
 function shortDate(value: string) {
   return new Intl.DateTimeFormat(undefined, {
@@ -490,386 +477,6 @@ type CurrentCommentAuthor = {
   avatarUrl: string | null;
   color: string;
 };
-
-type LocalPlanBundle = PlanBundle & {
-  localOnly: true;
-  slug: string;
-  folder: string;
-  repoPath?: string | null;
-  suggestedRepoPath?: string;
-  path?: string;
-  url?: string;
-  html?: string;
-  mdx?: PlanMdxFolder;
-};
-type PlanBundleWithHtml = (PlanBundle & { html?: string }) | LocalPlanBundle;
-type PlanCommentItem = PlanBundle["comments"][number];
-
-type LocalPlanBridgePayload = {
-  ok?: boolean;
-  version?: number;
-  source?: string;
-  localOnly?: boolean;
-  slug?: string;
-  dir?: string;
-  title?: string;
-  brief?: string;
-  kind?: PlanKind;
-  updatedAt?: string;
-  files?: string[];
-  mdx?: PlanMdxFolder;
-  error?: string;
-};
-
-function assertLocalBridgeUrl(value: string): string {
-  let url: URL;
-  try {
-    url = new URL(value);
-  } catch {
-    throw new Error("Local plan bridge URL is invalid.");
-  }
-  const allowedHosts = new Set(["127.0.0.1", "localhost", "::1", "[::1]"]);
-  if (url.protocol !== "http:") {
-    throw new Error("Local plan bridge must use HTTP on localhost.");
-  }
-  if (!allowedHosts.has(url.hostname)) {
-    throw new Error("Local plan bridge must point to localhost.");
-  }
-  if (!url.port) {
-    throw new Error("Local plan bridge must use an explicit localhost port.");
-  }
-  if (url.username || url.password || url.hash) {
-    throw new Error("Local plan bridge URL contains unsupported credentials.");
-  }
-  if (url.pathname !== "/local-plan.json") {
-    throw new Error("Local plan bridge must point to /local-plan.json.");
-  }
-  const params = Array.from(url.searchParams.keys());
-  if (
-    params.length !== 1 ||
-    params[0] !== "token" ||
-    !url.searchParams.get("token")?.trim()
-  ) {
-    throw new Error("Local plan bridge URL is missing its access token.");
-  }
-  return url.toString();
-}
-
-const LOCAL_PLAN_BRIDGE_MAX_RETRIES = 5;
-
-export function shouldRetryLocalPlanBridgeBundle(
-  failureCount: number,
-  error: unknown,
-) {
-  const message = error instanceof Error ? error.message : String(error ?? "");
-  if (
-    message.includes("Local plan bridge URL") ||
-    message.includes("Local plan bridge must") ||
-    message.includes("Local plan bridge response was not")
-  ) {
-    return false;
-  }
-  return failureCount < LOCAL_PLAN_BRIDGE_MAX_RETRIES;
-}
-
-export function localPlanBridgeRetryDelay(attemptIndex: number) {
-  return Math.min(500 * 2 ** attemptIndex, 2_500);
-}
-
-/**
- * Decide whether the hosted-plan render should surface the retryable load
- * error card instead of the initial skeleton.
- *
- * A React Query read can be *paused* (browser offline, or the tab blurred
- * during a retry backoff): in that state it never errors and never resolves,
- * so `isError`/`isLoading`/`isFetching` are all false and `data` stays
- * undefined. Without treating that as an error-like state the page sits on the
- * initial skeleton forever until a manual refresh — exactly the "wasn't
- * loading the content until I do another refresh" report. Surfacing the
- * retry card lets the user recover; React Query also auto-resumes the paused
- * fetch when the network/tab returns, which clears the card on its own.
- */
-export function shouldShowPlanLoadError(input: {
-  hasSelectedId: boolean;
-  localPlanMode: boolean;
-  hasBundle: boolean;
-  planQueryInitialPending: boolean;
-  planQueryError: boolean;
-  planQueryPaused: boolean;
-  accessStatusInitialPending: boolean;
-  accessStatusPaused: boolean;
-  accessDenied: boolean;
-}): boolean {
-  if (!input.hasSelectedId || input.localPlanMode || input.hasBundle) {
-    return false;
-  }
-  if (input.planQueryError) return true;
-  if (!input.accessStatusInitialPending && input.accessDenied) return true;
-  // While the first read is actively in flight, keep showing the skeleton.
-  // Background refetches must not hide a settled access/error card.
-  if (input.planQueryInitialPending || input.accessStatusInitialPending) {
-    return false;
-  }
-  // Paused/stalled read that will never settle on its own input.
-  if (input.planQueryPaused || input.accessStatusPaused) return true;
-  return false;
-}
-
-export type PlanOrgAccessPrompt =
-  | {
-      kind: "invitation";
-      organizationId: string;
-      organizationName: string;
-      invitationId: string;
-      invitedBy: string;
-      buttonLabel: string;
-      message: string;
-    }
-  | {
-      kind: "domain";
-      organizationId: string;
-      organizationName: string;
-      domain: string | null;
-      buttonLabel: string;
-      message: string;
-    };
-
-export function resolvePlanOrgAccessPrompt(input: {
-  accessStatus?: PlanAccessStatusResponse | null;
-  org?: Pick<OrgInfo, "email" | "pendingInvitations" | "domainMatches"> | null;
-}): PlanOrgAccessPrompt | null {
-  const orgId = input.accessStatus?.orgId;
-  const orgName = input.accessStatus?.orgName?.trim();
-  if (
-    !orgId ||
-    !orgName ||
-    input.accessStatus?.visibility !== "org" ||
-    input.accessStatus.hasAccess
-  ) {
-    return null;
-  }
-
-  const pendingInvitation = input.org?.pendingInvitations?.find(
-    (inv: OrgInvitationSummary) => inv.orgId === orgId,
-  );
-  if (pendingInvitation) {
-    return {
-      kind: "invitation",
-      organizationId: orgId,
-      organizationName: orgName,
-      invitationId: pendingInvitation.id,
-      invitedBy: pendingInvitation.invitedBy,
-      buttonLabel: "",
-      message: "",
-    };
-  }
-
-  const domainMatch = input.org?.domainMatches?.find(
-    (match: DomainMatchOrg) => match.orgId === orgId,
-  );
-  if (domainMatch) {
-    const domain = input.org?.email?.split("@")[1]?.toLowerCase() || null;
-    return {
-      kind: "domain",
-      organizationId: orgId,
-      organizationName: orgName,
-      domain,
-      buttonLabel: "",
-      message: "",
-    };
-  }
-
-  return null;
-}
-
-function localPlanRoutePath(slug: string, repoPath?: string | null): string {
-  const base = appPath(`/local-plans/${encodeURIComponent(slug)}`);
-  if (!repoPath) return base;
-  const params = new URLSearchParams({ path: repoPath });
-  return `${base}?${params.toString()}`;
-}
-
-function localPlanRouteUrl(slug: string, repoPath?: string | null): string {
-  const path = localPlanRoutePath(slug, repoPath);
-  return typeof window === "undefined"
-    ? path
-    : `${window.location.origin}${path}`;
-}
-
-function localPlanAssetDataUrl(
-  url: string | undefined,
-  assets: Record<string, string> | undefined,
-): string | undefined {
-  if (!url || !assets) return url;
-  const match = url.match(/^(?:\.\/)?assets\/(.+)$/);
-  const filename = match?.[1];
-  if (!filename) return url;
-  const base64 = assets[filename];
-  if (!base64) return url;
-  const mime = mimeTypeFromFilename(filename);
-  if (!mime) return url;
-  return `data:${mime};base64,${base64}`;
-}
-
-function inlineLocalPlanAssets(
-  content: PlanContent,
-  assets: Record<string, string> | undefined,
-): PlanContent {
-  if (!assets || Object.keys(assets).length === 0) return content;
-  const rewriteBlocks = (blocks: PlanBlock[]): PlanBlock[] =>
-    blocks.map((block): PlanBlock => {
-      if (block.type === "image") {
-        return {
-          ...block,
-          data: {
-            ...block.data,
-            url: localPlanAssetDataUrl(block.data.url, assets),
-            assetId: undefined,
-          },
-        };
-      }
-      if (block.type === "tabs") {
-        return {
-          ...block,
-          data: {
-            ...block.data,
-            tabs: block.data.tabs.map((tab) => ({
-              ...tab,
-              blocks: rewriteBlocks(tab.blocks),
-            })),
-          },
-        };
-      }
-      if (block.type === "columns") {
-        return {
-          ...block,
-          data: {
-            ...block.data,
-            columns: block.data.columns.map((column) => ({
-              ...column,
-              blocks: rewriteBlocks(column.blocks),
-            })),
-          },
-        };
-      }
-      return block;
-    });
-  return { ...content, blocks: rewriteBlocks(content.blocks) };
-}
-
-function countLocalPlanBlocks(blocks: PlanBlock[]): Record<string, number> {
-  const counts: Record<string, number> = {};
-  const visitBlocks = (items: PlanBlock[]) => {
-    for (const block of items) {
-      counts[block.type] = (counts[block.type] ?? 0) + 1;
-      if (block.type === "tabs") {
-        for (const tab of block.data.tabs) visitBlocks(tab.blocks);
-      } else if (block.type === "columns") {
-        for (const column of block.data.columns) visitBlocks(column.blocks);
-      }
-    }
-  };
-  visitBlocks(blocks);
-  return counts;
-}
-
-function localPlanBridgeQueryKey(slug: string, bridgeUrl: string) {
-  return ["local-plan-bridge", slug, bridgeUrl] as const;
-}
-
-// Merge folder comments.json onto a read-only bridge bundle (which serves none);
-// the bundle's own comments win so optimistic/just-written ones aren't clobbered.
-function mergeLocalBridgeComments(
-  bundle: LocalPlanBundle | undefined,
-  folderComments: LocalPlanBundle["comments"] | undefined,
-): LocalPlanBundle | undefined {
-  if (!bundle) return bundle;
-  const comments =
-    bundle.comments.length > 0 ? bundle.comments : (folderComments ?? []);
-  if (comments === bundle.comments) return bundle;
-  return {
-    ...bundle,
-    comments,
-    summary: {
-      ...bundle.summary,
-      commentCount: comments.length,
-      openCommentCount: comments.filter((c) => c.status === "open").length,
-    },
-  };
-}
-
-async function fetchLocalPlanBridgeBundle(
-  bridgeUrl: string,
-  fallbackSlug: string,
-): Promise<LocalPlanBundle> {
-  const safeUrl = assertLocalBridgeUrl(bridgeUrl);
-  const response = await fetch(safeUrl, { cache: "no-store" });
-  const payload = (await response
-    .json()
-    .catch(() => null)) as LocalPlanBridgePayload | null;
-  if (!response.ok || !payload?.ok) {
-    throw new Error(
-      payload?.error ||
-        `Local plan bridge returned ${response.status || "an error"}.`,
-    );
-  }
-  if (
-    payload.source !== "agent-native-local-bridge" ||
-    !payload.mdx?.["plan.mdx"]
-  ) {
-    throw new Error("Local plan bridge response was not a Plan MDX folder.");
-  }
-
-  const rawContent = await parsePlanMdxFolder(payload.mdx, {
-    salvageInvalidBlocks: payload.kind === "recap",
-  });
-  const content = inlineLocalPlanAssets(rawContent, payload.mdx["assets/"]);
-  const now = payload.updatedAt || new Date().toISOString();
-  const slug = payload.slug || fallbackSlug || "local-plan";
-  const kind = payload.kind === "recap" ? "recap" : "plan";
-  const title = content.title || payload.title || slug;
-  const brief = content.brief || payload.brief || "";
-  const url = localPlanRouteUrl(slug);
-  const bundle: LocalPlanBundle = {
-    plan: {
-      id: `local-${slug}`,
-      title,
-      brief,
-      kind,
-      status: "review",
-      source: "imported",
-      repoPath: payload.dir ?? null,
-      currentFocus: "local-files preview",
-      html: null,
-      markdown: payload.mdx["plan.mdx"],
-      content,
-      createdAt: now,
-      updatedAt: now,
-      approvedAt: null,
-    },
-    access: {
-      role: "viewer",
-      ownerEmail: null,
-      orgId: null,
-      visibility: "private",
-    },
-    sections: [],
-    comments: [],
-    events: [],
-    summary: {
-      sectionCounts: countLocalPlanBlocks(content.blocks),
-      commentCount: 0,
-      openCommentCount: 0,
-    },
-    localOnly: true,
-    slug,
-    folder: payload.dir ?? slug,
-    path: `/local-plans/${encodeURIComponent(slug)}`,
-    url,
-    mdx: payload.mdx,
-  };
-  return bundle;
-}
 
 type CommentThread = {
   id: string;
@@ -1241,8 +848,108 @@ function useOrgMemberMentionSearch(query: string | null) {
   return { members, isLoading };
 }
 
-function displayNameForMention(email: string) {
-  return emailToName(email).replace(/\s+/g, " ").trim() || email;
+function elementForShortcutTarget(target: EventTarget | null) {
+  if (target instanceof Element) return target;
+  if (target instanceof Node) return target.parentElement;
+  return null;
+}
+
+export function isPlanCommentShortcutEditableTarget(
+  target: EventTarget | null,
+) {
+  const element = elementForShortcutTarget(target);
+  if (!element) return false;
+  return Boolean(
+    element.closest(
+      "input, textarea, select, [contenteditable]:not([contenteditable='false']), [role='textbox']",
+    ),
+  );
+}
+
+export function shouldHandlePlanCommentShortcut(
+  event: Pick<
+    KeyboardEvent,
+    | "altKey"
+    | "ctrlKey"
+    | "defaultPrevented"
+    | "key"
+    | "metaKey"
+    | "shiftKey"
+    | "target"
+  >,
+) {
+  if (event.defaultPrevented) return false;
+  const activeElement =
+    typeof document === "undefined" ? null : document.activeElement;
+  if (
+    isPlanCommentShortcutEditableTarget(activeElement) ||
+    isPlanCommentShortcutEditableTarget(event.target)
+  ) {
+    return false;
+  }
+  const key = event.key.toLowerCase();
+  if (
+    key === "c" &&
+    !event.metaKey &&
+    !event.ctrlKey &&
+    !event.altKey &&
+    !event.shiftKey
+  ) {
+    return true;
+  }
+  return (
+    key === "m" &&
+    event.metaKey &&
+    event.shiftKey &&
+    !event.ctrlKey &&
+    !event.altKey
+  );
+}
+
+export function defaultInlineCommentDraftForPlanContext(input: {
+  planKind?: PlanKind | null;
+  ownerEmail?: string | null;
+  sourceAuthorName?: string | null;
+  sourceAuthorLogin?: string | null;
+  accessRole?: NonNullable<PlanBundle["access"]>["role"] | null;
+  currentEmail?: string | null;
+}): CommentDraft {
+  const currentEmail = normalizeCommentEmail(input.currentEmail);
+  if (input.planKind === "recap") {
+    const targetLabel =
+      input.sourceAuthorName?.trim() || input.sourceAuthorLogin?.trim();
+    if (!targetLabel || input.accessRole === "owner") {
+      return { message: "", mentions: [], resolutionTarget: "agent" };
+    }
+    const mention: PlanCommentMention = {
+      email: SOURCE_AUTHOR_COMMENT_MENTION_EMAIL,
+      label: targetLabel,
+      role: "source-author",
+    };
+    return {
+      message: `${formatPlanCommentMentionToken(mention)} `,
+      mentions: [mention],
+      resolutionTarget: "human",
+    };
+  }
+
+  const targetEmail = normalizeCommentEmail(input.ownerEmail);
+  if (
+    !targetEmail ||
+    input.accessRole === "owner" ||
+    targetEmail === currentEmail
+  ) {
+    return { message: "", mentions: [], resolutionTarget: "agent" };
+  }
+  const mention = {
+    email: targetEmail,
+    label: displayNameForMention(targetEmail),
+  };
+  return {
+    message: `${formatPlanCommentMentionToken(mention)} `,
+    mentions: [mention],
+    resolutionTarget: "human",
+  };
 }
 
 function safeDecodeURIComponent(value: string): string {
@@ -1717,652 +1424,6 @@ function downloadBlob(filename: string, blob: Blob) {
   URL.revokeObjectURL(url);
 }
 
-function clamp(value: number, min: number, max: number) {
-  return Math.max(min, Math.min(max, value));
-}
-
-function percent(value: number, total: number) {
-  return clamp((value / Math.max(total, 1)) * 100, 0, 100);
-}
-
-const PLAN_TEXT_TARGET_SELECTOR = [
-  "p",
-  "li",
-  "h1",
-  "h2",
-  "h3",
-  "h4",
-  "td",
-  "th",
-  "blockquote",
-  "figcaption",
-  "summary",
-  "button",
-  "a",
-  "label",
-  "pre",
-  "code",
-  "[data-plan-text]",
-].join(",");
-
-const PLAN_VISUAL_TARGET_SELECTOR = [
-  "img",
-  "svg",
-  "canvas",
-  "video",
-  "iframe",
-  "table",
-  "pre",
-  "code",
-  "[data-plan-canvas-world]",
-  ".plan-canvas-world",
-  "[data-plan-prototype-viewer]",
-  "[data-prototype-screen]",
-  "[data-canvas-frame]",
-  ".plan-artboard-frame",
-  ".plan-block",
-].join(",");
-
-function normalizedElementText(value: string | null | undefined) {
-  return value?.replace(/\s+/g, " ").trim() ?? "";
-}
-
-function textSnippetFromElement(element: Element | null, max = 220) {
-  if (!element) return "";
-  return normalizedElementText(element.textContent).slice(0, max);
-}
-
-function textQuoteContextForBlock(input: {
-  block: Element | null;
-  quote: string;
-  radius?: number;
-}) {
-  const quote = normalizedElementText(input.quote);
-  const blockText = normalizedElementText(input.block?.textContent);
-  if (!quote || !blockText) return {};
-  const index = blockText.indexOf(quote);
-  if (index < 0) return {};
-  const radius = input.radius ?? 60;
-  const contextBefore = blockText.slice(Math.max(0, index - radius), index);
-  const contextAfter = blockText.slice(
-    index + quote.length,
-    index + quote.length + radius,
-  );
-  const secondIndex = blockText.indexOf(quote, index + quote.length);
-  return {
-    contextBefore: contextBefore || undefined,
-    contextAfter: contextAfter || undefined,
-    ambiguous: secondIndex >= 0 || undefined,
-  };
-}
-
-function textNeedleForAnchor(anchor: PlanAnnotationAnchor) {
-  const source =
-    anchor.textQuote ??
-    (anchor.anchorKind === "text" || anchor.targetKind === "text"
-      ? anchor.snippet
-      : undefined);
-  return normalizedElementText(source).slice(0, 120);
-}
-
-function findTextAnchorTarget(scope: Element, needle: string) {
-  if (!needle) return null;
-  const candidates = [
-    ...(scope.matches(PLAN_TEXT_TARGET_SELECTOR) ? [scope] : []),
-    ...Array.from(
-      scope.querySelectorAll<HTMLElement>(PLAN_TEXT_TARGET_SELECTOR),
-    ),
-  ];
-  return (
-    candidates.find((candidate) =>
-      normalizedElementText(candidate.textContent).includes(needle),
-    ) ?? null
-  );
-}
-
-function findPlanBlockById(blocks: PlanBlock[], id: string): PlanBlock | null {
-  for (const block of blocks) {
-    if (block.id === id) return block;
-    if (block.type !== "tabs") continue;
-    for (const tab of block.data.tabs) {
-      const match = findPlanBlockById(tab.blocks, id);
-      if (match) return match;
-    }
-  }
-  return null;
-}
-
-function cssAttr(value: string) {
-  return value.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
-}
-
-function elementIndexAmongType(element: Element) {
-  const parent = element.parentElement;
-  if (!parent) return 1;
-  const tag = element.tagName;
-  return (
-    Array.from(parent.children)
-      .filter((child) => child.tagName === tag)
-      .indexOf(element) + 1
-  );
-}
-
-function childPathSelectorWithin(scope: Element, element: Element) {
-  if (scope === element) return "";
-  if (!scope.contains(element)) return undefined;
-  const parts: string[] = [];
-  let current: Element | null = element;
-  while (current && current !== scope) {
-    const parent = current.parentElement;
-    if (!parent) return undefined;
-    const tag = current.tagName.toLowerCase();
-    parts.unshift(`${tag}:nth-of-type(${elementIndexAmongType(current)})`);
-    current = parent;
-  }
-  return current === scope ? parts.join(" > ") : undefined;
-}
-
-function dataSelector(name: string, value: string) {
-  return `[${name}="${cssAttr(value)}"]`;
-}
-
-function scopedSelector(scope: string | undefined, selector: string) {
-  return scope ? `${scope} ${selector}` : selector;
-}
-
-function selectorForElementInScope(
-  scopeElement: Element,
-  scopeSelector: string,
-  element: Element,
-) {
-  const path = childPathSelectorWithin(scopeElement, element);
-  if (path === undefined) return undefined;
-  return path ? `${scopeSelector} > ${path}` : scopeSelector;
-}
-
-function stableDataSelectorForElement(
-  element: Element,
-  scope?: string,
-): string | undefined {
-  const wireNode = element.closest<HTMLElement>("[data-wire-node-id]");
-  if (wireNode?.dataset.wireNodeId) {
-    return scopedSelector(
-      scope,
-      dataSelector("data-wire-node-id", wireNode.dataset.wireNodeId),
-    );
-  }
-  const designNode = element.closest<HTMLElement>("[data-design-id]");
-  if (designNode?.dataset.designId) {
-    return scopedSelector(
-      scope,
-      dataSelector("data-design-id", designNode.dataset.designId),
-    );
-  }
-  const planDesignNode = element.closest<HTMLElement>("[data-plan-design-id]");
-  if (planDesignNode?.dataset.planDesignId) {
-    return scopedSelector(
-      scope,
-      dataSelector("data-plan-design-id", planDesignNode.dataset.planDesignId),
-    );
-  }
-  return undefined;
-}
-
-export function selectorForElementWithin(
-  root: HTMLElement,
-  element: Element | null,
-) {
-  if (!element || !root.contains(element)) return undefined;
-  const prototype = element.closest<HTMLElement>("[data-prototype-screen]");
-  const prototypeScope = prototype?.dataset.prototypeScreen
-    ? dataSelector("data-prototype-screen", prototype.dataset.prototypeScreen)
-    : undefined;
-  const prototypeStableSelector = prototypeScope
-    ? stableDataSelectorForElement(element, prototypeScope)
-    : undefined;
-  if (prototypeStableSelector) return prototypeStableSelector;
-  if (prototype && prototypeScope) {
-    return selectorForElementInScope(prototype, prototypeScope, element);
-  }
-  const frame = element.closest<HTMLElement>("[data-canvas-frame]");
-  const frameScope = frame?.dataset.canvasFrame
-    ? dataSelector("data-canvas-frame", frame.dataset.canvasFrame)
-    : undefined;
-  const frameStableSelector = frameScope
-    ? stableDataSelectorForElement(element, frameScope)
-    : undefined;
-  if (frameStableSelector) return frameStableSelector;
-  if (frame && frameScope) {
-    return selectorForElementInScope(frame, frameScope, element);
-  }
-  const canvasWorld = element.closest<HTMLElement>(
-    "[data-plan-canvas-world], .plan-canvas-world",
-  );
-  if (canvasWorld) {
-    return canvasWorld.hasAttribute("data-plan-canvas-world")
-      ? "[data-plan-canvas-world]"
-      : ".plan-canvas-world";
-  }
-  const stableSelector = stableDataSelectorForElement(element);
-  if (stableSelector) return stableSelector;
-  const block = element.closest<HTMLElement>("[data-block-id]");
-  if (block?.dataset.blockId) {
-    return selectorForElementInScope(
-      block,
-      dataSelector("data-block-id", block.dataset.blockId),
-      element,
-    );
-  }
-  if (element.id) return `#${cssAttr(element.id)}`;
-  return undefined;
-}
-
-function prototypeScreenIdFromSelector(selector: string | undefined) {
-  if (!selector) return undefined;
-  const match = selector.match(/\[data-prototype-screen="([^"]+)"\]/);
-  return match?.[1]?.replace(/\\"/g, '"').replace(/\\\\/g, "\\");
-}
-
-export function prototypeScreenIdForAnchor(anchor: PlanAnnotationAnchor) {
-  return (
-    anchor.screenId ??
-    prototypeScreenIdFromSelector(anchor.targetSelector) ??
-    (anchor.targetKind === "prototype" ? anchor.sectionId : undefined)
-  );
-}
-
-function prototypeScopeForAnchor(
-  anchor: PlanAnnotationAnchor,
-  reader: HTMLElement,
-) {
-  const screenId = prototypeScreenIdForAnchor(anchor);
-  if (!screenId) return undefined;
-  return (
-    reader.querySelector<HTMLElement>(
-      `[data-prototype-screen="${cssAttr(screenId)}"]`,
-    ) ?? null
-  );
-}
-
-function queryFirstElement(
-  scopes: Array<Element | null | undefined>,
-  selector: string,
-) {
-  const seen = new Set<Element>();
-  for (const scope of scopes) {
-    if (!scope || seen.has(scope)) continue;
-    seen.add(scope);
-    const target = scope.matches(selector)
-      ? scope
-      : scope.querySelector<HTMLElement>(selector);
-    if (target) return target;
-  }
-  return null;
-}
-
-function resolveStableVisualAnchorTarget(
-  anchor: PlanAnnotationAnchor,
-  reader: HTMLElement,
-  queryRoot: Element,
-) {
-  const frame = anchor.sectionId
-    ? reader.querySelector<HTMLElement>(
-        dataSelector("data-canvas-frame", anchor.sectionId),
-      )
-    : null;
-  if (anchor.targetNodeId) {
-    const nodeSelectors = [
-      dataSelector("data-wire-node-id", anchor.targetNodeId),
-      dataSelector("data-design-id", anchor.targetNodeId),
-      dataSelector("data-plan-design-id", anchor.targetNodeId),
-    ];
-    for (const selector of nodeSelectors) {
-      const target = queryFirstElement([frame, queryRoot, reader], selector);
-      if (target) return target;
-    }
-  }
-  return null;
-}
-
-function sectionTitleForElement(element: Element | null, fallback?: string) {
-  const block = element?.closest<HTMLElement>("[data-block-id]");
-  const prototype = element?.closest<HTMLElement>("[data-prototype-screen]");
-  const frame = element?.closest<HTMLElement>("[data-canvas-frame]");
-  const title =
-    prototype
-      ?.querySelector<HTMLElement>("h1,h2,h3,[data-plan-section-title]")
-      ?.textContent?.replace(/\s+/g, " ")
-      .trim() ||
-    block
-      ?.querySelector<HTMLElement>("h1,h2,h3,[data-plan-section-title]")
-      ?.textContent?.replace(/\s+/g, " ")
-      .trim() ||
-    frame
-      ?.querySelector<HTMLElement>(".plan-artboard-label")
-      ?.textContent?.replace(/\s+/g, " ")
-      .trim() ||
-    element
-      ?.closest<HTMLElement>(".plan-block,.plan-canvas")
-      ?.querySelector<HTMLElement>("h1,h2,h3,[data-plan-section-title]")
-      ?.textContent?.replace(/\s+/g, " ")
-      .trim() ||
-    fallback;
-  return title || undefined;
-}
-
-function targetKindForElement(
-  element: Element | null,
-): PlanCommentAnchor["targetKind"] {
-  if (!element) return undefined;
-  const tag = element.tagName.toLowerCase();
-  if (tag === "img") return "image";
-  if (tag === "table") return "table";
-  if (tag === "pre" || tag === "code") return "code";
-  if (tag === "svg") return "diagram";
-  if (element.closest("[data-plan-prototype-viewer]")) return "prototype";
-  if (element.closest("[data-canvas-frame],.plan-artboard-frame")) {
-    return "wireframe";
-  }
-  if (tag === "canvas" || element.closest(".plan-canvas")) return "canvas";
-  if (element.matches("button,a,input,textarea,select,label")) return "control";
-  if (element.closest("[data-block-id]")) return "block";
-  return "unknown";
-}
-
-export function buildNativeAnchorFromElement(input: {
-  reader: HTMLElement;
-  target: HTMLElement;
-  pointX: number;
-  pointY: number;
-  planTitle?: string;
-}): PlanAnnotationAnchor {
-  const { reader, target, pointX, pointY } = input;
-  const scrollWidth = Math.max(reader.scrollWidth, 1);
-  const scrollHeight = Math.max(reader.scrollHeight, 1);
-  const base: PlanAnnotationAnchor = {
-    x: percent(pointX + reader.scrollLeft, scrollWidth),
-    y: percent(pointY + reader.scrollTop, scrollHeight),
-    anchorKind: "point",
-    visualLabel: input.planTitle,
-    resolutionTarget: "agent",
-  };
-
-  const textElement = target.closest<HTMLElement>(PLAN_TEXT_TARGET_SELECTOR);
-  const visualElement = target.closest<HTMLElement>(
-    PLAN_VISUAL_TARGET_SELECTOR,
-  );
-  const wireNodeEl = target.closest<HTMLElement>("[data-wire-node-id]");
-  const designNodeEl = target.closest<HTMLElement>("[data-design-id]");
-  const planDesignNodeEl = target.closest<HTMLElement>("[data-plan-design-id]");
-  const stableVisualElement = wireNodeEl ?? designNodeEl ?? planDesignNodeEl;
-  const anchorElement =
-    stableVisualElement ??
-    (textElement && textSnippetFromElement(textElement)
-      ? textElement
-      : (visualElement ?? target));
-  const rect = anchorElement.getBoundingClientRect();
-  const readerRect = reader.getBoundingClientRect();
-  const localX = pointX + readerRect.left;
-  const localY = pointY + readerRect.top;
-  const targetX = percent(
-    clamp(localX, rect.left, rect.right) - rect.left,
-    rect.width,
-  );
-  const targetY = percent(
-    clamp(localY, rect.top, rect.bottom) - rect.top,
-    rect.height,
-  );
-  const sectionTitle = sectionTitleForElement(anchorElement, input.planTitle);
-  const prototype = anchorElement.closest<HTMLElement>(
-    "[data-prototype-screen]",
-  );
-  const block = anchorElement.closest<HTMLElement>("[data-block-id]");
-  const frame = anchorElement.closest<HTMLElement>("[data-canvas-frame]");
-  const targetText = textSnippetFromElement(anchorElement);
-  const targetKind = targetKindForElement(anchorElement);
-  const image =
-    anchorElement.tagName.toLowerCase() === "img"
-      ? (anchorElement as HTMLImageElement)
-      : anchorElement.querySelector<HTMLImageElement>("img");
-  const visualContext =
-    prototype?.dataset.prototypeScreen && sectionTitle
-      ? `Inside prototype screen ${prototype.dataset.prototypeScreen} (${sectionTitle})`
-      : prototype?.dataset.prototypeScreen
-        ? `Inside prototype screen ${prototype.dataset.prototypeScreen}`
-        : frame?.dataset.canvasFrame && sectionTitle
-          ? `Inside canvas frame ${frame.dataset.canvasFrame} (${sectionTitle})`
-          : frame?.dataset.canvasFrame
-            ? `Inside canvas frame ${frame.dataset.canvasFrame}`
-            : undefined;
-
-  const targetNodeId =
-    wireNodeEl?.dataset.wireNodeId ||
-    designNodeEl?.dataset.designId ||
-    planDesignNodeEl?.dataset.planDesignId ||
-    undefined;
-
-  // Build a short human-readable node path from the frame root down to the
-  // target node, e.g. `card > list > listItem "Acme Inc"`.
-  let targetNodePath: string | undefined;
-  if (wireNodeEl) {
-    const frameRoot =
-      anchorElement.closest<HTMLElement>("[data-canvas-frame]") ??
-      anchorElement.closest<HTMLElement>(".plan-artboard-frame");
-    if (frameRoot) {
-      const pathEls: HTMLElement[] = [];
-      let current: HTMLElement | null = wireNodeEl;
-      while (current && current !== frameRoot && frameRoot.contains(current)) {
-        if (current.dataset.wireNodeId) pathEls.unshift(current);
-        current = current.parentElement;
-      }
-      if (pathEls.length === 0) pathEls.push(wireNodeEl);
-      const segments = pathEls.map((el) => {
-        const elName = el.dataset.wireNodeEl ?? el.tagName.toLowerCase();
-        const directText = Array.from(el.childNodes)
-          .filter((n) => n.nodeType === Node.TEXT_NODE)
-          .map((n) => n.textContent ?? "")
-          .join("")
-          .replace(/\s+/g, " ")
-          .trim()
-          .slice(0, 40);
-        return directText ? `${elName} "${directText}"` : elName;
-      });
-      if (segments.length > 0) targetNodePath = segments.join(" > ");
-    }
-  }
-
-  return {
-    ...base,
-    sectionId:
-      prototype?.dataset.prototypeScreen ??
-      frame?.dataset.canvasFrame ??
-      block?.dataset.blockId,
-    screenId: prototype?.dataset.prototypeScreen,
-    sectionTitle,
-    targetSelector: selectorForElementWithin(reader, anchorElement),
-    targetX,
-    targetY,
-    tagName: anchorElement.tagName.toLowerCase(),
-    anchorKind:
-      textElement && targetText ? "text" : targetKind ? "visual" : "point",
-    textQuote: textElement && targetText ? targetText.slice(0, 220) : undefined,
-    snippet: targetText || sectionTitle,
-    visualLabel: sectionTitle ?? input.planTitle,
-    visualX: targetX,
-    visualY: targetY,
-    targetKind,
-    targetLabel:
-      image?.alt?.trim() ||
-      anchorElement.getAttribute("aria-label") ||
-      sectionTitle ||
-      targetText.slice(0, 80) ||
-      input.planTitle,
-    targetText: targetText || undefined,
-    targetAlt: image?.alt?.trim() || undefined,
-    targetSrc: image?.currentSrc || image?.src || undefined,
-    visualContext,
-    ...(targetNodeId !== undefined ? { targetNodeId } : {}),
-    ...(targetNodePath !== undefined ? { targetNodePath } : {}),
-  };
-}
-
-export function resolveNativeAnchorTarget(
-  anchor: PlanAnnotationAnchor,
-  reader: HTMLElement,
-) {
-  const prototypeScope = prototypeScopeForAnchor(anchor, reader);
-  if (prototypeScope === null) return null;
-  const queryRoot = prototypeScope ?? reader;
-  const needle = textNeedleForAnchor(anchor);
-  const stableVisualTarget = resolveStableVisualAnchorTarget(
-    anchor,
-    reader,
-    queryRoot,
-  );
-  if (stableVisualTarget) return stableVisualTarget;
-  if (anchor.targetSelector) {
-    try {
-      const target = queryRoot.matches(anchor.targetSelector)
-        ? queryRoot
-        : queryRoot.querySelector<HTMLElement>(anchor.targetSelector);
-      if (target) {
-        if (!needle) return target;
-        const textTarget = findTextAnchorTarget(target, needle);
-        if (textTarget) return textTarget;
-      }
-    } catch {
-      // Fall back to broad visual targets or quote matching below.
-    }
-  }
-  if (
-    anchor.planAnnotationId ||
-    anchor.canvasX !== undefined ||
-    anchor.targetKind === "canvas"
-  ) {
-    const canvasWorld = reader.querySelector<HTMLElement>(
-      "[data-plan-canvas-world], .plan-canvas-world",
-    );
-    if (canvasWorld) return canvasWorld;
-  }
-  if (anchor.targetKind === "wireframe" && anchor.sectionId) {
-    const frame = reader.querySelector<HTMLElement>(
-      dataSelector("data-canvas-frame", anchor.sectionId),
-    );
-    if (frame) return frame;
-  }
-  if (!needle) return null;
-  const scopes: Element[] = [];
-  if (prototypeScope) {
-    scopes.push(prototypeScope);
-  } else if (anchor.sectionId) {
-    const byBlock = reader.querySelector<HTMLElement>(
-      `[data-block-id="${cssAttr(anchor.sectionId)}"]`,
-    );
-    const byFrame = reader.querySelector<HTMLElement>(
-      `[data-canvas-frame="${cssAttr(anchor.sectionId)}"]`,
-    );
-    if (byBlock) scopes.push(byBlock);
-    if (byFrame) scopes.push(byFrame);
-  }
-  if (!prototypeScope) scopes.push(reader);
-  for (const scope of scopes) {
-    const match = findTextAnchorTarget(scope, needle);
-    if (match) return match;
-  }
-  return null;
-}
-
-export function nativePointForAnchor(
-  anchor: PlanAnnotationAnchor,
-  reader: HTMLElement,
-) {
-  const target = resolveNativeAnchorTarget(anchor, reader);
-  if (!target && prototypeScreenIdForAnchor(anchor)) return null;
-  const readerRect = reader.getBoundingClientRect();
-  if (target) {
-    const rect = target.getBoundingClientRect();
-    if (rect.width || rect.height) {
-      return {
-        left:
-          rect.left -
-          readerRect.left +
-          ((anchor.targetX ?? anchor.visualX ?? 50) / 100) * rect.width,
-        top:
-          rect.top -
-          readerRect.top +
-          ((anchor.targetY ?? anchor.visualY ?? 50) / 100) * rect.height,
-      };
-    }
-  }
-  return {
-    left: (anchor.x / 100) * reader.scrollWidth - reader.scrollLeft,
-    top: (anchor.y / 100) * reader.scrollHeight - reader.scrollTop,
-  };
-}
-
-type NativeMarkerClip = {
-  left: number;
-  top: number;
-  width: number;
-  height: number;
-};
-
-export type NativeMarkerPlacement = {
-  marker: {
-    left: number;
-    top: number;
-  };
-  clip: NativeMarkerClip | null;
-};
-
-function rectForElementWithinReader(element: HTMLElement, reader: HTMLElement) {
-  const elementRect = element.getBoundingClientRect();
-  if (!elementRect.width && !elementRect.height) return null;
-  const readerRect = reader.getBoundingClientRect();
-  return {
-    left: elementRect.left - readerRect.left,
-    top: elementRect.top - readerRect.top,
-    width: elementRect.width,
-    height: elementRect.height,
-  } satisfies NativeMarkerClip;
-}
-
-function visualMarkerClipForAnchor(
-  anchor: PlanAnnotationAnchor,
-  reader: HTMLElement,
-): NativeMarkerClip | null {
-  const surfaceMode = visualSurfaceModeForAnchor(anchor);
-  if (!surfaceMode) return null;
-  const target = resolveNativeAnchorTarget(anchor, reader);
-  const visualRoot =
-    surfaceMode === "prototype"
-      ? (target?.closest<HTMLElement>("[data-plan-prototype-viewer]") ??
-        prototypeScopeForAnchor(anchor, reader)?.closest<HTMLElement>(
-          "[data-plan-prototype-viewer]",
-        ) ??
-        reader.querySelector<HTMLElement>("[data-plan-prototype-viewer]"))
-      : (target?.closest<HTMLElement>("[data-plan-canvas-viewport]") ??
-        reader.querySelector<HTMLElement>("[data-plan-canvas-viewport]"));
-  return visualRoot ? rectForElementWithinReader(visualRoot, reader) : null;
-}
-
-export function nativeMarkerPlacementForAnchor(
-  anchor: PlanAnnotationAnchor,
-  reader: HTMLElement,
-): NativeMarkerPlacement | null {
-  const point = nativePointForAnchor(anchor, reader);
-  if (!point) return null;
-  const clip = visualMarkerClipForAnchor(anchor, reader);
-  if (!clip) return { marker: point, clip: null };
-  return {
-    clip,
-    marker: {
-      left: point.left - clip.left,
-      top: point.top - clip.top,
-    },
-  };
-}
-
 function resolveInlineCommentPosition(input: {
   pointX: number;
   pointY: number;
@@ -2400,6 +1461,8 @@ function buildPlanAgentContext(input: {
   url: string;
   screenshotNote?: string;
 }) {
+  const isLocalPlan =
+    "localOnly" in input.bundle && input.bundle.localOnly === true;
   const contentBlockCount = input.bundle.plan.content?.blocks.length ?? 0;
   const contentBlocks = input.bundle.plan.content?.blocks
     .slice(0, 12)
@@ -2459,7 +1522,9 @@ function buildPlanAgentContext(input: {
     Math.max(0, humanReviewThreads.length - 8);
   const omittedCommentNote =
     omittedComments > 0
-      ? `\n${omittedComments} additional open thread(s) omitted from this composer context. Call get-plan-feedback for the full list before editing.`
+      ? isLocalPlan
+        ? `\n${omittedComments} additional open thread(s) omitted from this composer context. Reopen the local plan or inspect comments.json for the full list before editing.`
+        : `\n${omittedComments} additional open thread(s) omitted from this composer context. Call get-plan-feedback for the full list before editing.`
       : "";
   const legacyUnroutedThreads = openThreads.filter(
     (thread) => !thread.anchor?.resolutionTarget,
@@ -2504,20 +1569,35 @@ function buildPlanAgentContext(input: {
     ...(ENABLE_PLAN_STATUS_FEATURE
       ? [`Status: ${input.bundle.plan.status}`]
       : []),
+    ...(isLocalPlan ? [`Local folder: ${input.bundle.plan.repoPath}`] : []),
     `URL: ${input.url}`,
     input.bundle.plan.content
       ? `Structured content blocks: ${contentBlockCount}`
       : `Legacy rendered HTML length: ${input.documentHtml.length} characters`,
     "",
-    "Fast iteration workflow:",
-    "1. Call get-visual-plan with this plan ID to read structured content, exported HTML, sections, comments, and activity.",
-    "2. Prefer update-visual-plan contentPatches for targeted edits. Examples: update-rich-text for copy, patch-prototype-html / update-prototype-screen for live prototype states, update-wireframe-node for one kit-tree node, update-canvas-frame for frame layout, append-canvas-annotation / update-canvas-annotation for canvas markup, append-block/remove-block for document changes, or replace-block for a single block. Use full content only for broad restructuring. Use html only when preserving or importing a legacy standalone HTML artifact.",
-    "3. Preserve the user's existing annotation comments and intent unless the user asks to remove or resolve them.",
-    "4. Keep the output as a refined document with rich text, tables, sketch diagrams, wireframes, implementation maps, code tabs, and bounded custom HTML fragments.",
-    "5. After applying feedback, keep the plan scannable, editable, and serious instead of turning it into a marketing page.",
-    "6. Work the actionable agent comments first. Treat human-review comments as FYI/questions/approval items; do not silently resolve those unless the user explicitly asks.",
-    "7. When visual screenshots are attached, each crop is centered near a comment marker and has a red ring on the exact commented point. Use the comment IDs and anchor details below to connect screenshots to threads. If a visual comment is listed as overflow, rely on its anchorDetails/coordinates and call get-plan-feedback for the full manifest.",
-    "8. For text comments, use the quoted text plus Text before/Text after and Block type details. If a quote is marked ambiguous, ask instead of editing the wrong span.",
+    ...(isLocalPlan
+      ? [
+          "Local-files workflow:",
+          "1. This is a local-only Agent-Native Plan or recap. Do not call hosted Plan tools such as get-visual-plan, get-plan-feedback, or update-visual-plan for this plan.",
+          "2. Use the local MDX files and the feedback threads included below. If your host exposes local Plan tools, read the local folder and comments.json before editing.",
+          "3. Preserve the user's existing annotation comments and intent unless the user asks to remove or resolve them.",
+          "4. Keep the output as a refined document with rich text, tables, sketch diagrams, wireframes, implementation maps, code tabs, and bounded custom HTML fragments.",
+          "5. After applying feedback, rerun the local Plan check/serve/verify path available in your environment and report the updated local URL or folder.",
+          "6. Work the actionable agent comments first. Treat human-review comments as FYI/questions/approval items; do not silently resolve those unless the user explicitly asks.",
+          "7. When visual screenshots are attached, each crop is centered near a comment marker and has a red ring on the exact commented point. Use the comment IDs and anchor details below to connect screenshots to threads.",
+          "8. For text comments, use the quoted text plus Text before/Text after and Block type details. If a quote is marked ambiguous, ask instead of editing the wrong span.",
+        ]
+      : [
+          "Fast iteration workflow:",
+          "1. Call get-visual-plan with this plan ID to read structured content, exported HTML, sections, comments, and activity.",
+          "2. Prefer update-visual-plan contentPatches for targeted edits. Examples: update-rich-text for copy, patch-prototype-html / update-prototype-screen for live prototype states, update-wireframe-node for one kit-tree node, update-canvas-frame for frame layout, append-canvas-annotation / update-canvas-annotation for canvas markup, append-block/remove-block for document changes, or replace-block for a single block. Use full content only for broad restructuring. Use html only when preserving or importing a legacy standalone HTML artifact.",
+          "3. Preserve the user's existing annotation comments and intent unless the user asks to remove or resolve them.",
+          "4. Keep the output as a refined document with rich text, tables, sketch diagrams, wireframes, implementation maps, code tabs, and bounded custom HTML fragments.",
+          "5. After applying feedback, keep the plan scannable, editable, and serious instead of turning it into a marketing page.",
+          "6. Work the actionable agent comments first. Treat human-review comments as FYI/questions/approval items; do not silently resolve those unless the user explicitly asks.",
+          "7. When visual screenshots are attached, each crop is centered near a comment marker and has a red ring on the exact commented point. Use the comment IDs and anchor details below to connect screenshots to threads. If a visual comment is listed as overflow, rely on its anchorDetails/coordinates and call get-plan-feedback for the full manifest.",
+          "8. For text comments, use the quoted text plus Text before/Text after and Block type details. If a quote is marked ambiguous, ask instead of editing the wrong span.",
+        ]),
     contentBlocks ? `\nStructured content blocks:\n${contentBlocks}` : "",
     recentReviewEvents
       ? `\nRecent review/edit events:\n${recentReviewEvents}`
@@ -2540,7 +1620,13 @@ function buildPlanAgentContext(input: {
     .join("\n");
 }
 
-function buildApplyFeedbackMessage(openCommentCount: number) {
+function buildApplyFeedbackMessage(
+  openCommentCount: number,
+  options: { local?: boolean } = {},
+) {
+  if (options.local) {
+    return `Apply the ${openCommentCount} open comment${openCommentCount === 1 ? "" : "s"} on this local visual plan. Use the local files and feedback context in this handoff; do not call hosted Plan tools for this local-only plan. Use any attached focused screenshots to understand visual comments, then update the local MDX plan/recap files as needed.`;
+  }
   return `Apply the ${openCommentCount} open comment${openCommentCount === 1 ? "" : "s"} on this visual plan. Read the plan with get-visual-plan, read feedback with get-plan-feedback, use any attached focused screenshots to understand visual comments, then update structured content blocks, prototype screens, and related implementation details as needed. Use HTML only for legacy imported artifacts.`;
 }
 
@@ -2882,6 +1968,7 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
   const pendingDocumentRestoreRef = useRef<PlanDocumentState | null>(null);
   const pendingDocumentRestoreTimerRef = useRef<number | null>(null);
   const nativeScrollFrameRef = useRef<number | null>(null);
+  const initialReaderScrollResetKeyRef = useRef<string | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
   const [annotationsOpen, setAnnotationsOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
@@ -2901,6 +1988,8 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
   );
   const [agentSidebarOpen, setAgentSidebarOpen] = useState(false);
   const [sendingFeedback, setSendingFeedback] = useState(false);
+  const [localBridgeCommentPending, setLocalBridgeCommentPending] =
+    useState(false);
   const [pendingAnnotation, setPendingAnnotation] =
     useState<PlanAnnotationAnchor | null>(null);
   const [inlineCommentPosition, setInlineCommentPosition] =
@@ -3282,25 +2371,22 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
     bundle && (localPlanMode || session || canEditPlanContent),
   );
   const defaultInlineCommentDraft = useMemo<CommentDraft>(() => {
-    const ownerEmail = normalizeCommentEmail(bundle?.access?.ownerEmail);
-    const currentEmail = normalizeCommentEmail(collabUser?.email);
-    if (
-      !ownerEmail ||
-      effectivePlanAccessRole === "owner" ||
-      ownerEmail === currentEmail
-    ) {
-      return { message: "", mentions: [], resolutionTarget: "agent" };
-    }
-    const mention = {
-      email: ownerEmail,
-      label: displayNameForMention(ownerEmail),
-    };
-    return {
-      message: `${formatPlanCommentMentionToken(mention)} `,
-      mentions: [mention],
-      resolutionTarget: "human",
-    };
-  }, [bundle?.access?.ownerEmail, collabUser?.email, effectivePlanAccessRole]);
+    return defaultInlineCommentDraftForPlanContext({
+      planKind: bundle?.plan.kind,
+      ownerEmail: bundle?.access?.ownerEmail,
+      sourceAuthorName: bundle?.plan.sourceAuthorName,
+      sourceAuthorLogin: bundle?.plan.sourceAuthorLogin,
+      accessRole: effectivePlanAccessRole,
+      currentEmail: collabUser?.email,
+    });
+  }, [
+    bundle?.access?.ownerEmail,
+    bundle?.plan.kind,
+    bundle?.plan.sourceAuthorName,
+    bundle?.plan.sourceAuthorLogin,
+    collabUser?.email,
+    effectivePlanAccessRole,
+  ]);
   const commentThreads = useMemo(
     () => buildCommentThreads(bundle?.comments ?? []),
     [bundle?.comments],
@@ -3575,20 +2661,45 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
   const persistQuestionFormAnswers = useCallback(
     (summary: string, planId: string | undefined) => {
       if (!planId) return;
+      const comment: PlanCommentInput = {
+        kind: "comment",
+        status: "open",
+        message: summary,
+        createdBy: "human",
+        authorEmail: collabUser?.email,
+        authorName: collabUser?.name,
+        resolutionTarget: "agent",
+      };
+      if (localPlanMode && localPlanSlug) {
+        void (async () => {
+          if (localPlanBridgeUrl) setLocalBridgeCommentPending(true);
+          try {
+            const updated = localPlanBridgeUrl
+              ? await updateLocalPlanBridgeComments(
+                  localPlanBridgeUrl,
+                  localPlanSlug,
+                  { comments: [comment] },
+                )
+              : await updateLocalCommentMutation.mutateAsync({
+                  slug: localPlanSlug,
+                  ...(localPlanRepoPath ? { path: localPlanRepoPath } : {}),
+                  comments: [comment],
+                });
+            if (selectedPlanQueryKey) {
+              queryClient.setQueryData(selectedPlanQueryKey, updated);
+            }
+          } catch {
+            toast.error(t("plansPage.reader.saveAnswersFailed"));
+          } finally {
+            if (localPlanBridgeUrl) setLocalBridgeCommentPending(false);
+          }
+        })();
+        return;
+      }
       updatePlanMutateRef.current(
         {
           planId,
-          comments: [
-            {
-              kind: "comment",
-              status: "open",
-              message: summary,
-              createdBy: "human",
-              authorEmail: collabUser?.email,
-              authorName: collabUser?.name,
-              resolutionTarget: "agent",
-            },
-          ],
+          comments: [comment],
         },
         {
           onError: () => {
@@ -3597,7 +2708,18 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
         },
       );
     },
-    [collabUser?.email, collabUser?.name, t],
+    [
+      collabUser?.email,
+      collabUser?.name,
+      localPlanBridgeUrl,
+      localPlanMode,
+      localPlanRepoPath,
+      localPlanSlug,
+      queryClient,
+      selectedPlanQueryKey,
+      t,
+      updateLocalCommentMutation,
+    ],
   );
 
   const exportPlan = useExportPlan(localPlanMode ? undefined : selectedId);
@@ -3757,18 +2879,28 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
   const annotatedDocumentHtml = useMemo(() => {
     if (!bundle) return "";
     const defaults = iframeRuntimeDefaultsRef.current;
-    return injectAnnotationRuntime(
-      documentHtml,
-      visiblePlanComments,
-      false,
-      defaults.planTheme,
-      defaults.preferredEditor,
-      {
+    const annotations = buildCommentThreads(visiblePlanComments)
+      .map((thread, index) =>
+        runtimeAnnotationFromThread(
+          thread,
+          index,
+          commentAvatarUrls,
+          currentCommentAuthor,
+        ),
+      )
+      .filter((annotation): annotation is RuntimeAnnotation =>
+        Boolean(annotation),
+      );
+    return injectAnnotationRuntime({
+      html: documentHtml,
+      annotations,
+      annotateMode: false,
+      theme: defaults.planTheme,
+      preferredEditor: defaults.preferredEditor,
+      labels: {
         closeCodePreview: t("plansPage.reader.runtimeCloseCodePreview"),
       },
-      commentAvatarUrls,
-      currentCommentAuthor,
-    );
+    });
   }, [
     bundle,
     commentAvatarUrls,
@@ -4021,6 +3153,47 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
   }, [clearPendingDocumentRestore, postRuntimeState]);
 
   useEffect(() => clearPendingDocumentRestore, [clearPendingDocumentRestore]);
+
+  useBrowserLayoutEffect(() => {
+    if (!selectedId || !bundle?.plan.content || location.hash) return;
+    const resetKey = `${bundle.plan.kind}:${selectedId}`;
+    if (initialReaderScrollResetKeyRef.current === resetKey) return;
+    initialReaderScrollResetKeyRef.current = resetKey;
+    clearPendingDocumentRestore();
+    documentStateRef.current = null;
+
+    const reset = () => resetPlanReaderScrollPosition(nativeReaderRef.current);
+    const frameIds: number[] = [];
+    const timeoutIds: number[] = [];
+    const scheduleFrame = () => {
+      frameIds.push(window.requestAnimationFrame(reset));
+    };
+    const scheduleTimeout = (delay: number) => {
+      timeoutIds.push(
+        window.setTimeout(() => {
+          reset();
+          scheduleFrame();
+        }, delay),
+      );
+    };
+
+    reset();
+    scheduleFrame();
+    scheduleTimeout(0);
+    scheduleTimeout(120);
+    scheduleTimeout(500);
+
+    return () => {
+      frameIds.forEach((id) => window.cancelAnimationFrame(id));
+      timeoutIds.forEach((id) => window.clearTimeout(id));
+    };
+  }, [
+    bundle?.plan.content,
+    bundle?.plan.kind,
+    clearPendingDocumentRestore,
+    location.hash,
+    selectedId,
+  ]);
 
   useEffect(() => {
     const frame = requestAnimationFrame(() => postRuntimeState());
@@ -4547,13 +3720,13 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
     });
   };
 
-  const startCommenting = () => {
+  const startCommenting = useCallback(() => {
     setCanvasMarkupMode("none");
     setActiveAnnotation(null);
     setAnnotationsOpen(false);
     setCommentVisibility("open");
     setAnnotateMode(true);
-  };
+  }, []);
 
   const selectReviewMode = (mode: CanvasMarkupMode) => {
     preservePlanReaderScroll(() => {
@@ -4609,95 +3782,134 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
     scheduleNativeMarkerUpdate();
   };
 
-  const readNativeSelectionComment = (): NativeSelectionComment | null => {
-    const reader = nativeReaderRef.current;
-    const selection = window.getSelection();
-    if (!reader || !selection || selection.rangeCount === 0) return null;
-    if (selection.isCollapsed) return null;
-    const textQuote = selection.toString().replace(/\s+/g, " ").trim();
-    if (!textQuote) return null;
-    const range = selection.getRangeAt(0);
-    if (!reader.contains(range.commonAncestorContainer)) return null;
+  const readNativeSelectionComment =
+    useCallback((): NativeSelectionComment | null => {
+      const reader = nativeReaderRef.current;
+      const selection = window.getSelection();
+      if (!reader || !selection || selection.rangeCount === 0) return null;
+      if (selection.isCollapsed) return null;
+      const textQuote = selection.toString().replace(/\s+/g, " ").trim();
+      if (!textQuote) return null;
+      const range = selection.getRangeAt(0);
+      if (!reader.contains(range.commonAncestorContainer)) return null;
 
-    const rects = Array.from(range.getClientRects()).filter(
-      (rect) => rect.width > 0 && rect.height > 0,
-    );
-    const selectionRect = rects[0] ?? range.getBoundingClientRect();
-    if (selectionRect.width <= 0 || selectionRect.height <= 0) return null;
+      const rects = Array.from(range.getClientRects()).filter(
+        (rect) => rect.width > 0 && rect.height > 0,
+      );
+      const selectionRect = rects[0] ?? range.getBoundingClientRect();
+      if (selectionRect.width <= 0 || selectionRect.height <= 0) return null;
 
-    const readerRect = reader.getBoundingClientRect();
-    const pointX =
-      selectionRect.left + selectionRect.width / 2 - readerRect.left;
-    const pointY =
-      selectionRect.top + selectionRect.height / 2 - readerRect.top;
-    const startElement =
-      range.startContainer instanceof Element
-        ? range.startContainer
-        : range.startContainer.parentElement;
-    const blockElement = startElement?.closest<HTMLElement>("[data-block-id]");
-    const blockType = blockElement?.dataset.blockId
-      ? findPlanBlockById(
-          bundle?.plan.content?.blocks ?? [],
-          blockElement.dataset.blockId,
-        )?.type
-      : undefined;
-    const quoteContext = textQuoteContextForBlock({
-      block: blockElement,
-      quote: textQuote,
-    });
-    const snippet = textQuote.slice(0, 220);
-    const anchor = {
-      ...buildNativeAnchorFromElement({
-        reader,
-        target: startElement instanceof HTMLElement ? startElement : reader,
-        pointX,
-        pointY,
-        planTitle: bundle?.plan.title,
-      }),
-      snippet,
-      textQuote: snippet,
-      anchorKind: "text",
-      tagName: "selection",
-      blockType,
-      ...quoteContext,
-    } satisfies PlanAnnotationAnchor;
-    const toolbarWidth = 132;
-    const toolbarLeft = clamp(
-      pointX - toolbarWidth / 2,
-      12,
-      Math.max(12, readerRect.width - toolbarWidth - 12),
-    );
-    const toolbarTop = clamp(
-      selectionRect.top - readerRect.top - 48,
-      12,
-      Math.max(12, readerRect.height - 48),
-    );
-    return {
-      anchor,
-      toolbarLeft,
-      toolbarTop,
-      position:
-        getPositionFromAnchor(anchor) ??
-        resolveInlineCommentPosition({
+      const readerRect = reader.getBoundingClientRect();
+      const pointX =
+        selectionRect.left + selectionRect.width / 2 - readerRect.left;
+      const pointY =
+        selectionRect.top + selectionRect.height / 2 - readerRect.top;
+      const startElement =
+        range.startContainer instanceof Element
+          ? range.startContainer
+          : range.startContainer.parentElement;
+      const blockElement =
+        startElement?.closest<HTMLElement>("[data-block-id]");
+      const blockType = blockElement?.dataset.blockId
+        ? findPlanBlockById(
+            bundle?.plan.content?.blocks ?? [],
+            blockElement.dataset.blockId,
+          )?.type
+        : undefined;
+      const quoteContext = textQuoteContextForBlock({
+        block: blockElement,
+        quote: textQuote,
+      });
+      const snippet = textQuote.slice(0, 220);
+      const anchor = {
+        ...buildNativeAnchorFromElement({
+          reader,
+          target: startElement instanceof HTMLElement ? startElement : reader,
           pointX,
           pointY,
-          viewportWidth: readerRect.width,
-          viewportHeight: readerRect.height,
+          planTitle: bundle?.plan.title,
         }),
-    };
-  };
+        snippet,
+        textQuote: snippet,
+        anchorKind: "text",
+        tagName: "selection",
+        blockType,
+        ...quoteContext,
+      } satisfies PlanAnnotationAnchor;
+      const toolbarWidth = 132;
+      const toolbarLeft = clamp(
+        pointX - toolbarWidth / 2,
+        12,
+        Math.max(12, readerRect.width - toolbarWidth - 12),
+      );
+      const toolbarTop = clamp(
+        selectionRect.top - readerRect.top - 48,
+        12,
+        Math.max(12, readerRect.height - 48),
+      );
+      return {
+        anchor,
+        toolbarLeft,
+        toolbarTop,
+        position:
+          getPositionFromAnchor(anchor) ??
+          resolveInlineCommentPosition({
+            pointX,
+            pointY,
+            viewportWidth: readerRect.width,
+            viewportHeight: readerRect.height,
+          }),
+      };
+    }, [
+      bundle?.plan.content?.blocks,
+      bundle?.plan.title,
+      getPositionFromAnchor,
+    ]);
+
+  const openNativeSelectionComment = useCallback(
+    (selectionComment: NativeSelectionComment) => {
+      documentStateRef.current = readNativeDocumentState();
+      setCanvasMarkupMode("none");
+      setActiveAnnotation(null);
+      setAnnotationsOpen(false);
+      setCommentVisibility("open");
+      setAnnotateMode(true);
+      setPendingAnnotation(selectionComment.anchor);
+      setInlineCommentPosition(selectionComment.position);
+      setNativeSelectionComment(null);
+      window.getSelection()?.removeAllRanges();
+    },
+    [readNativeDocumentState],
+  );
 
   const beginNativeSelectionComment = () => {
     if (!nativeSelectionComment) return;
-    documentStateRef.current = readNativeDocumentState();
-    // Implicitly enter annotate mode when a selection comment is started
-    // outside of review mode so the inline comment popover renders correctly.
-    if (!annotateMode) setAnnotateMode(true);
-    setPendingAnnotation(nativeSelectionComment.anchor);
-    setInlineCommentPosition(nativeSelectionComment.position);
-    setNativeSelectionComment(null);
-    window.getSelection()?.removeAllRanges();
+    openNativeSelectionComment(nativeSelectionComment);
   };
+
+  useEffect(() => {
+    if (!bundle) return;
+    const handleCommentShortcut = (event: KeyboardEvent) => {
+      if (!shouldHandlePlanCommentShortcut(event)) return;
+      event.preventDefault();
+      preservePlanReaderScroll(() => {
+        const selectionComment = readNativeSelectionComment();
+        if (selectionComment) {
+          openNativeSelectionComment(selectionComment);
+          return;
+        }
+        startCommenting();
+      });
+    };
+    window.addEventListener("keydown", handleCommentShortcut);
+    return () => window.removeEventListener("keydown", handleCommentShortcut);
+  }, [
+    bundle,
+    openNativeSelectionComment,
+    preservePlanReaderScroll,
+    readNativeSelectionComment,
+    startCommenting,
+  ]);
 
   const handleNativeReaderPointerDown = (
     event: PointerEvent<HTMLDivElement>,
@@ -5080,7 +4292,9 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
         : "",
       ...labels.map((label) => `- ${label}`),
       overflow.length > 0
-        ? `- ${overflow.length} additional visual comment(s) exceeded the screenshot budget. Use get-plan-feedback anchorDetails/coordinates for these overflow comments:`
+        ? localPlanMode
+          ? `- ${overflow.length} additional visual comment(s) exceeded the screenshot budget. Use comments.json anchor details/coordinates for these overflow comments:`
+          : `- ${overflow.length} additional visual comment(s) exceeded the screenshot budget. Use get-plan-feedback anchorDetails/coordinates for these overflow comments:`
         : "",
       ...overflowLabels,
     ]
@@ -5120,7 +4334,9 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
         openSidebar: true,
         context,
         images: capture.images,
-        message: buildApplyFeedbackMessage(openCommentCount),
+        message: buildApplyFeedbackMessage(openCommentCount, {
+          local: localPlanMode,
+        }),
       });
       toast.success(
         capture.images.length > 0
@@ -5146,19 +4362,33 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
       return;
     }
     await navigator.clipboard.writeText(
-      [buildApplyFeedbackMessage(openCommentCount), "", planAgentContext].join(
-        "\n",
-      ),
+      [
+        buildApplyFeedbackMessage(openCommentCount, { local: localPlanMode }),
+        "",
+        planAgentContext,
+      ].join("\n"),
     );
     toast.success(t("plansPage.reader.feedbackCopied"));
   };
 
   // Route comment writes to the DB (hosted) or comments.json (local); both
   // return the same bundle shape.
-  const writeComments = (
+  const writeComments = async (
     comments: PlanCommentInput[],
     note: string,
   ): Promise<PlanBundleWithHtml> => {
+    if (localPlanMode && localPlanBridgeUrl) {
+      setLocalBridgeCommentPending(true);
+      try {
+        return await updateLocalPlanBridgeComments(
+          localPlanBridgeUrl,
+          localPlanSlug ?? "",
+          { comments },
+        );
+      } finally {
+        setLocalBridgeCommentPending(false);
+      }
+    }
     if (localPlanMode) {
       return updateLocalCommentMutation.mutateAsync({
         slug: localPlanSlug ?? "",
@@ -5174,6 +4404,22 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
     }) as Promise<PlanBundleWithHtml>;
   };
   const removeCommentById = async (commentId: string): Promise<void> => {
+    if (localPlanMode && localPlanBridgeUrl) {
+      setLocalBridgeCommentPending(true);
+      try {
+        const updated = await updateLocalPlanBridgeComments(
+          localPlanBridgeUrl,
+          localPlanSlug ?? "",
+          { deletedCommentIds: [commentId] },
+        );
+        if (selectedPlanQueryKey) {
+          queryClient.setQueryData(selectedPlanQueryKey, updated);
+        }
+      } finally {
+        setLocalBridgeCommentPending(false);
+      }
+      return;
+    }
     if (localPlanMode) {
       await updateLocalCommentMutation.mutateAsync({
         slug: localPlanSlug ?? "",
@@ -5189,9 +4435,13 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
     });
   };
   const commentWritePending =
-    updateCommentMutation.isPending || updateLocalCommentMutation.isPending;
+    updateCommentMutation.isPending ||
+    updateLocalCommentMutation.isPending ||
+    localBridgeCommentPending;
   const commentDeletePending =
-    deleteCommentMutation.isPending || updateLocalCommentMutation.isPending;
+    deleteCommentMutation.isPending ||
+    updateLocalCommentMutation.isPending ||
+    localBridgeCommentPending;
 
   const submitInlineComment = async (draft: CommentDraft) => {
     if (!bundle || !pendingAnnotation || !selectedPlanQueryKey) return;
@@ -5616,6 +4866,7 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
           ) : showPlanLoadError ? (
             <PlanLoadError
               error={planQuery.error}
+              planId={selectedId}
               accessStatus={planAccessStatus}
               onRetry={() => void planQuery.refetch()}
               onSignIn={() => openSignIn()}
@@ -5925,18 +5176,20 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
                               )}
                             </DropdownMenuRadioItem>
                           </DropdownMenuRadioGroup>
-                          <DropdownMenuItem
-                            onClick={() => {
-                              preservePlanReaderScroll(() => {
-                                closeInlineComment();
-                                setHistoryOpen(true);
-                              });
-                            }}
-                            className="gap-2"
-                          >
-                            <IconHistory className="size-4" />
-                            {t("plansPage.history.title")}
-                          </DropdownMenuItem>
+                          {canEditPlanContent ? (
+                            <DropdownMenuItem
+                              onClick={() => {
+                                preservePlanReaderScroll(() => {
+                                  closeInlineComment();
+                                  setHistoryOpen(true);
+                                });
+                              }}
+                              className="gap-2"
+                            >
+                              <IconHistory className="size-4" />
+                              {t("plansPage.history.title")}
+                            </DropdownMenuItem>
+                          ) : null}
                         </>
                       )}
                       <DropdownMenuItem
@@ -6367,7 +5620,7 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
                   ) : (
                     pendingCommentPin
                   )}
-                  {!session ? (
+                  {!session && !localPlanMode ? (
                     <GuestCommentCta
                       position={inlineCommentPosition}
                       onSignIn={() => {
@@ -6547,7 +5800,7 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
       {bundle && (
         <PlanHistorySheet
           planId={bundle.plan.id}
-          open={historyOpen}
+          open={historyOpen && canEditPlanContent}
           onOpenChange={setHistoryOpen}
           canRestore={canEditPlanContent}
         />
@@ -7327,6 +6580,35 @@ function ReviewMarkupToolbar({
   );
 }
 
+function PlanErrorFeedbackActions({
+  title,
+  message,
+  status,
+  extraDebug,
+}: {
+  title: string;
+  message: string;
+  status?: number;
+  extraDebug?: ErrorReportDebugItem[];
+}) {
+  const t = useT();
+  return (
+    <ErrorReportActions
+      appName="Plan"
+      title={title}
+      details={message}
+      status={status}
+      issueTitle={`Plan error: ${title}`}
+      feedbackLabel={t("plansPage.loadError.sendFeedback")}
+      feedbackPlaceholder={t("plansPage.loadError.feedbackPlaceholder")}
+      githubLabel={t("plansPage.loadError.openGitHubIssue")}
+      align="start"
+      className="justify-start"
+      extraDebug={extraDebug}
+    />
+  );
+}
+
 function LocalPlanLoadError({
   error,
   slug,
@@ -7341,6 +6623,7 @@ function LocalPlanLoadError({
     error instanceof Error && error.message
       ? error.message.replace(/^Action [\w-]+ failed:\s*/, "")
       : t("plansPage.localPlanLoadError.message", { slug });
+  const title = t("plansPage.localPlanLoadError.title");
 
   return (
     <div className="flex min-h-0 flex-1 items-center justify-center px-6 py-12">
@@ -7350,9 +6633,7 @@ function LocalPlanLoadError({
             <IconAlertTriangle className="size-5" />
           </div>
           <div>
-            <h1 className="text-lg font-semibold tracking-tight">
-              {t("plansPage.localPlanLoadError.title")}
-            </h1>
+            <h1 className="text-lg font-semibold tracking-tight">{title}</h1>
             <p className="mt-1 text-sm text-muted-foreground">{message}</p>
           </div>
         </div>
@@ -7368,6 +6649,15 @@ function LocalPlanLoadError({
             </Link>
           </Button>
         </div>
+        <div className="mt-4 border-t border-border/70 pt-3">
+          <PlanErrorFeedbackActions
+            title={title}
+            message={message}
+            extraDebug={[
+              { label: "Local plan slug", value: slug }, // i18n-ignore debug label
+            ]}
+          />
+        </div>
       </div>
     </div>
   );
@@ -7375,6 +6665,7 @@ function LocalPlanLoadError({
 
 function PlanLoadError({
   error,
+  planId,
   accessStatus,
   onRetry,
   onSignIn,
@@ -7385,6 +6676,7 @@ function PlanLoadError({
   viewerEmail,
 }: {
   error?: unknown;
+  planId?: string | null;
   accessStatus?: PlanAccessStatusResponse | null;
   onRetry: () => void;
   onSignIn: () => void;
@@ -7532,6 +6824,7 @@ function PlanLoadError({
             : t("plansPage.loadError.maybeOtherOrgBody")
           : t("plansPage.loadError.privateBody")
       : message;
+  const reportMessage = `${body}${message && message !== body ? `\n${message}` : ""}`;
 
   return (
     <div className="flex h-full flex-col items-center justify-center bg-background p-8">
@@ -7717,6 +7010,34 @@ function PlanLoadError({
             )}
           </div>
         ) : null}
+        <div className="mt-4 border-t border-border/70 pt-3">
+          <PlanErrorFeedbackActions
+            title={title}
+            message={reportMessage}
+            status={status}
+            extraDebug={[
+              { label: "Plan id", value: planId }, // i18n-ignore debug label
+              accessStatus?.visibility
+                ? {
+                    label: "Plan visibility", // i18n-ignore debug label
+                    value: accessStatus.visibility,
+                  }
+                : {
+                    label: "Plan visibility", // i18n-ignore debug label
+                    value: null,
+                  },
+              accessStatus?.hasAccess !== undefined
+                ? {
+                    label: "Has access", // i18n-ignore debug label
+                    value: accessStatus.hasAccess,
+                  }
+                : {
+                    label: "Has access", // i18n-ignore debug label
+                    value: null,
+                  },
+            ]}
+          />
+        </div>
       </div>
       <Button
         type="button"
@@ -8519,8 +7840,11 @@ function PlanHistorySheet({
   const [restoreCandidateId, setRestoreCandidateId] = useState<string | null>(
     null,
   );
-  const versionsQuery = usePlanVersions(planId, open);
-  const versionQuery = usePlanVersion(open ? planId : null, selectedVersionId);
+  const versionsQuery = usePlanVersions(planId, open && canRestore);
+  const versionQuery = usePlanVersion(
+    open && canRestore ? planId : null,
+    selectedVersionId,
+  );
   const restoreVersion = useRestorePlanVersion();
   const versions = versionsQuery.data?.versions ?? [];
   const selectedVersion = versionQuery.data;
@@ -9238,116 +8562,6 @@ function CreatePlanDialog({
   );
 }
 
-function createMentionChip(mention: PlanCommentMention) {
-  const chip = document.createElement("span");
-  chip.contentEditable = "false";
-  chip.dataset.mentionEmail = mention.email;
-  chip.dataset.mentionLabel = mention.label;
-  chip.className =
-    "inline-flex max-w-[12rem] items-center gap-1 rounded-full border border-primary/20 bg-primary/10 px-1.5 py-0.5 text-xs font-medium text-primary";
-  chip.textContent = `@${mention.label}`;
-  return chip;
-}
-
-function appendMessageToEditor(root: HTMLElement, message: string) {
-  root.replaceChildren();
-  const pattern = /@\[([^\]]+)\]\(mailto:([^)]+)\)/g;
-  let lastIndex = 0;
-  let match: RegExpExecArray | null;
-  while ((match = pattern.exec(message)) !== null) {
-    if (match.index > lastIndex) {
-      root.append(
-        document.createTextNode(message.slice(lastIndex, match.index)),
-      );
-    }
-    const label = match[1]?.trim();
-    const email = decodeURIComponent(match[2] ?? "")
-      .trim()
-      .toLowerCase();
-    if (label && email) {
-      root.append(createMentionChip({ label, email }));
-    }
-    lastIndex = pattern.lastIndex;
-  }
-  if (lastIndex < message.length) {
-    root.append(document.createTextNode(message.slice(lastIndex)));
-  }
-}
-
-function serializeCommentEditor(root: HTMLElement) {
-  const serialize = (node: Node): string => {
-    if (node.nodeType === Node.TEXT_NODE) return node.textContent ?? "";
-    if (!(node instanceof HTMLElement)) return "";
-    const mentionEmail = node.dataset.mentionEmail;
-    if (mentionEmail) {
-      return formatPlanCommentMentionToken({
-        email: mentionEmail,
-        label: node.dataset.mentionLabel || displayNameForMention(mentionEmail),
-      });
-    }
-    if (node.tagName === "BR") return "\n";
-    return Array.from(node.childNodes).map(serialize).join("");
-  };
-  return Array.from(root.childNodes)
-    .map(serialize)
-    .join("")
-    .replace(/\u00a0/g, " ")
-    .replace(/[ \t]+\n/g, "\n")
-    .trim();
-}
-
-function commentBodyText(message: string) {
-  return message
-    .replace(/@\[([^\]]+)\]\(mailto:[^)]+\)/g, "")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-export function mentionQueryAtCaret(root: HTMLElement) {
-  const selection = window.getSelection();
-  if (!selection || selection.rangeCount === 0) return null;
-  const range = selection.getRangeAt(0);
-  if (!range.collapsed || !root.contains(range.startContainer)) return null;
-  const textBeforeCaretRange = range.cloneRange();
-  textBeforeCaretRange.selectNodeContents(root);
-  textBeforeCaretRange.setEnd(range.startContainer, range.startOffset);
-  const text = textBeforeCaretRange.toString();
-  const match = /(?:^|\s)@([a-zA-Z0-9._+-]{0,64})$/.exec(text);
-  if (!match) return null;
-  const start = text.lastIndexOf("@");
-  const end = text.length;
-  const startPosition = textPositionInRoot(root, start);
-  const endPosition = textPositionInRoot(root, end);
-  if (!startPosition || !endPosition) return null;
-  const queryRange = document.createRange();
-  queryRange.setStart(startPosition.node, startPosition.offset);
-  queryRange.setEnd(endPosition.node, endPosition.offset);
-  return {
-    query: match[1] ?? "",
-    range: queryRange,
-  };
-}
-
-function textPositionInRoot(root: HTMLElement, offset: number) {
-  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
-  let seen = 0;
-  let lastText: Text | null = null;
-  let node = walker.nextNode() as Text | null;
-  while (node) {
-    const length = node.textContent?.length ?? 0;
-    if (offset <= seen + length) {
-      return { node, offset: Math.max(0, offset - seen) };
-    }
-    seen += length;
-    lastText = node;
-    node = walker.nextNode() as Text | null;
-  }
-  if (lastText && offset === seen) {
-    return { node: lastText, offset: lastText.textContent?.length ?? 0 };
-  }
-  return null;
-}
-
 function CommentMentionEditor({
   initialMessage,
   resetKey,
@@ -9600,7 +8814,11 @@ function InlineCommentPopover({
       mountedRef.current = false;
     };
   }, []);
-  const canSubmit = commentBodyText(draft.message).length > 0 && !isSubmitting;
+  const canSubmit = canSubmitInlineCommentDraft({
+    draft,
+    isSubmitting,
+    lockToAgent,
+  });
   const submit = async () => {
     if (!canSubmit) return;
     setSubmitError(false);
@@ -9666,15 +8884,19 @@ function InlineCommentPopover({
           autoFocus
           onSubmitShortcut={submit}
           onChange={(value) =>
-            setDraft((current) => ({
-              ...current,
-              ...value,
-              resolutionTarget: resolverTouched
-                ? current.resolutionTarget
-                : value.mentions.length > 0
-                  ? "human"
-                  : "agent",
-            }))
+            setDraft((current) => {
+              const addedMention =
+                value.mentions.length > current.mentions.length;
+              return {
+                ...current,
+                ...value,
+                resolutionTarget: resolverTouched
+                  ? current.resolutionTarget
+                  : addedMention
+                    ? "human"
+                    : current.resolutionTarget,
+              };
+            })
           }
         />
         <Button
@@ -10713,1364 +9935,6 @@ function parseAnchorForComment(comment: PlanCommentItem) {
 
 function formatAnchorForAgent(anchor: PlanAnnotationAnchor | null) {
   return formatPlanCommentAnchorForAgent(anchor);
-}
-
-function injectAnnotationRuntime(
-  html: string,
-  comments: PlanBundle["comments"],
-  annotateMode: boolean,
-  theme: "dark" | "light",
-  preferredEditor: PreferredEditor,
-  labels: {
-    closeCodePreview: string;
-  },
-  avatarUrls: Record<string, string | null> = {},
-  currentUser?: CurrentCommentAuthor | null,
-) {
-  const annotations = buildCommentThreads(comments)
-    .map((thread, index) =>
-      runtimeAnnotationFromThread(thread, index, avatarUrls, currentUser),
-    )
-    .filter((annotation): annotation is RuntimeAnnotation =>
-      Boolean(annotation),
-    );
-  const payload = JSON.stringify({
-    annotateMode,
-    annotations,
-    theme,
-    preferredEditor,
-  }).replace(/[<>&\u2028\u2029]/g, (char) => {
-    return (
-      {
-        "<": "\\u003c",
-        ">": "\\u003e",
-        "&": "\\u0026",
-        "\u2028": "\\u2028",
-        "\u2029": "\\u2029",
-      }[char] ?? char
-    );
-  });
-  const editorOptionsPayload = JSON.stringify(EDITOR_OPTIONS).replace(
-    /[<>&\u2028\u2029]/g,
-    (char) => {
-      return (
-        {
-          "<": "\\u003c",
-          ">": "\\u003e",
-          "&": "\\u0026",
-          "\u2028": "\\u2028",
-          "\u2029": "\\u2029",
-        }[char] ?? char
-      );
-    },
-  );
-  const editorIconPayload = JSON.stringify(EDITOR_ICON_HTML).replace(
-    /[<>&\u2028\u2029]/g,
-    (char) => {
-      return (
-        {
-          "<": "\\u003c",
-          ">": "\\u003e",
-          "&": "\\u0026",
-          "\u2028": "\\u2028",
-          "\u2029": "\\u2029",
-        }[char] ?? char
-      );
-    },
-  );
-  const closeCodePreviewLabel = escapeRuntimeJsString(labels.closeCodePreview);
-  const runtime = `<style>
-    :root[data-agent-native-theme="light"] {
-      color-scheme: light;
-      --bg: #f7f7f4;
-      --paper: #ffffff;
-      --paper-2: #f3f3ef;
-      --paper-3: #e9e9e3;
-      --line: #dadad2;
-      --line-soft: #e8e8e2;
-      --text: #171717;
-      --soft: #4b4b4b;
-      --muted: #70706c;
-      --faint: #999992;
-      --accent: #00B5FF;
-      --accent-soft: rgba(0, 181, 255, .11);
-      --shadow: 0 24px 70px rgba(29, 29, 24, .08);
-    }
-    :root[data-agent-native-theme="light"] body { background: var(--bg) !important; color: var(--text) !important; }
-    :root[data-agent-native-theme="light"] code { background: #eeeeea !important; color: #242424 !important; }
-    :root[data-agent-native-theme] pre code,
-    :root[data-agent-native-theme] pre code * { background: transparent !important; background-image: none !important; box-shadow: none !important; }
-    :root[data-agent-native-theme="light"] .mock-plan,
-    :root[data-agent-native-theme="light"] .mock-sidebar,
-    :root[data-agent-native-theme="light"] .diagram-card,
-    :root[data-agent-native-theme="light"] .mock-browser { background-color: #ffffff !important; }
-    :root[data-agent-native-theme="light"] .floating-tools,
-    :root[data-agent-native-theme="light"] .product-screen,
-    :root[data-agent-native-theme="light"] .comment-screen,
-    :root[data-agent-native-theme="light"] .annotation-card,
-    :root[data-agent-native-theme="light"] .inline-comment,
-    :root[data-agent-native-theme="light"] .panel { background-color: #f5f5f1 !important; }
-    :root[data-agent-native-theme="light"] .doc-title,
-    :root[data-agent-native-theme="light"] .tool.primary,
-    :root[data-agent-native-theme="light"] .pin { background: #171717 !important; color: #ffffff !important; }
-    :root[data-agent-native-theme="light"] .doc-line,
-    :root[data-agent-native-theme="light"] .panel i,
-    :root[data-agent-native-theme="light"] .pill { background: #d8d8d2 !important; }
-    ::selection { background: rgba(0,181,255,.32); }
-    .an-plan-annotating, .an-plan-annotating * { cursor: crosshair !important; }
-    .an-plan-annotation-layer { position: absolute; inset: 0; z-index: 2147483000; pointer-events: none; }
-    .an-plan-marker { position: absolute; transform: translate(-50%, -50%); min-width: 30px; height: 30px; overflow: visible; border: 1px solid rgba(255,255,255,.18); border-radius: 999px; background: rgba(23,23,25,.86); color: #fff; font: 800 10px/1 ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; display: inline-flex; align-items: center; justify-content: center; gap: 3px; box-shadow: 0 10px 28px rgba(0,0,0,.36); pointer-events: auto; padding: 2px 6px 2px 2px; }
-    .an-plan-marker[data-single="true"] { width: 30px; min-width: 30px; padding: 0; border: 2px solid var(--paper, #111113); background: var(--author-color, #00B5FF); overflow: hidden; }
-    .an-plan-marker-stack { display: inline-flex; align-items: center; flex: 0 0 auto; }
-    .an-plan-marker-face { width: 26px; height: 26px; margin-left: -7px; overflow: hidden; border: 2px solid var(--paper, #111113); border-radius: 999px; background: var(--author-color, #00B5FF); color: #fff; display: inline-flex; align-items: center; justify-content: center; }
-    .an-plan-marker-face:first-child { margin-left: 0; }
-    .an-plan-marker[data-single="true"] .an-plan-marker-face { width: 28px; height: 28px; margin-left: 0; border: 0; }
-    .an-plan-marker-avatar { width: 100%; height: 100%; border-radius: inherit; object-fit: cover; display: block; }
-    .an-plan-marker-initials { width: 100%; height: 100%; border-radius: inherit; background: var(--author-color, #00B5FF); color: #fff; display: inline-flex; align-items: center; justify-content: center; letter-spacing: 0; }
-    .an-plan-marker-count { min-width: 13px; padding: 0 2px; color: rgba(255,255,255,.94); font-size: 11px; line-height: 1; }
-    .an-plan-marker[hidden] { display: none !important; }
-    .an-plan-marker[data-status="resolved"] { opacity: .46; }
-    .an-plan-selection-toolbar { position: absolute; z-index: 2147483001; display: none; align-items: center; gap: 4px; border: 1px solid rgba(255,255,255,.16); border-radius: 14px; background: rgba(16,16,18,.96); padding: 5px; box-shadow: 0 14px 42px rgba(0,0,0,.34); backdrop-filter: blur(16px); }
-    :root[data-agent-native-theme="light"] .an-plan-selection-toolbar { border-color: rgba(0,0,0,.12); background: rgba(255,255,255,.97); box-shadow: 0 14px 42px rgba(29,29,24,.13); }
-    .an-plan-selection-toolbar button { height: 34px; display: inline-flex; align-items: center; gap: 8px; border: 0; border-radius: 10px; background: transparent; color: var(--text); padding: 0 11px; font: 650 13px/1 ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; cursor: pointer; }
-    .an-plan-selection-toolbar button:hover { background: rgba(255,255,255,.08); }
-    :root[data-agent-native-theme="light"] .an-plan-selection-toolbar button:hover { background: rgba(0,0,0,.06); }
-    .an-plan-selection-toolbar svg { width: 17px; height: 17px; color: #00B5FF; }
-    .an-plan-code-popover { position: absolute; z-index: 2147483001; width: min(760px, calc(100vw - 24px)); max-height: min(520px, calc(100vh - 24px)); overflow: hidden; border: 1px solid rgba(255,255,255,.16); border-radius: 16px; background: rgba(16,16,18,.98); box-shadow: 0 24px 70px rgba(0,0,0,.42); backdrop-filter: blur(18px); }
-    :root[data-agent-native-theme="light"] .an-plan-code-popover { border-color: rgba(0,0,0,.12); background: rgba(255,255,255,.98); box-shadow: 0 24px 70px rgba(29,29,24,.16); }
-    .an-plan-code-popover-header { display: flex; min-height: 46px; align-items: center; gap: 12px; border-bottom: 1px solid var(--line, rgba(255,255,255,.12)); padding: 7px 9px 7px 14px; color: var(--muted, #a4a4aa); font: 650 12px/1.3 ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
-    .an-plan-code-popover-title { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text, #f4f4f5); font: 650 13px/1.3 "SFMono-Regular", Consolas, "Liberation Mono", monospace; }
-    .an-plan-code-popover-actions { margin-left: auto; display: inline-flex; align-items: center; gap: 8px; }
-    .an-plan-code-popover-close { display: inline-flex; width: 30px; height: 30px; align-items: center; justify-content: center; border: 0; border-radius: 8px; background: transparent; color: inherit; cursor: pointer; font-size: 18px; }
-    .an-plan-code-popover-close:hover { background: rgba(255,255,255,.08); color: var(--text, #f4f4f5); }
-    :root[data-agent-native-theme="light"] .an-plan-code-popover-close:hover { background: rgba(0,0,0,.06); }
-    .an-plan-code-popover .code-preview-title { display: none !important; }
-    .an-plan-code-popover .code-preview { border: 0 !important; background: transparent !important; box-shadow: none !important; }
-    .an-plan-code-popover .code-preview pre { margin: 0 !important; max-height: 474px; overflow: auto; padding: 14px 16px !important; background: #0c0c0e !important; color: #e9e9ea; font: 12px/1.65 "SFMono-Regular", Consolas, "Liberation Mono", monospace !important; tab-size: 2; }
-    .an-plan-code-popover .code-preview pre code { display: block !important; min-width: max-content; border: 0 !important; background: transparent !important; color: inherit !important; font: inherit !important; padding: 0 !important; white-space: pre !important; }
-    .an-plan-code-popover .code-preview pre code * { margin: 0 !important; border: 0 !important; border-radius: 0 !important; outline: 0 !important; background: transparent !important; background-image: none !important; box-shadow: none !important; padding: 0 !important; text-decoration: none !important; font: inherit !important; }
-    .an-plan-code-popover .code-preview pre code code { display: inline !important; }
-    .editor-picker { position: relative; display: inline-flex; min-height: 32px; align-items: stretch; overflow: visible; border: 1px solid var(--line, rgba(255,255,255,.14)); border-radius: 8px; background: transparent; }
-    .editor-picker:focus-within, .editor-picker:hover { border-color: rgba(0,181,255,.44); background: rgba(0,181,255,.06); }
-    .editor-picker button { min-height: 30px; border: 0; border-radius: 0; background: transparent; color: var(--soft, #d4d4d8); padding: 0 10px; font: 650 12px/30px ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; cursor: pointer; }
-    .editor-picker button:hover { color: var(--text, #f4f4f5); background: rgba(255,255,255,.05); }
-    .editor-picker-trigger { display: inline-flex; width: 48px; align-items: center; justify-content: center; gap: 6px; border-right: 1px solid var(--line, rgba(255,255,255,.14)) !important; border-radius: 7px 0 0 7px !important; }
-    .editor-picker-open { border-radius: 0 7px 7px 0 !important; color: var(--text, #f4f4f5) !important; }
-    .editor-picker-select { display: none; }
-    .editor-picker-caret { width: 6px; height: 6px; border-right: 1.5px solid currentColor; border-bottom: 1.5px solid currentColor; transform: translateY(-1px) rotate(45deg); opacity: .72; }
-    .editor-picker-menu { position: absolute; top: calc(100% + 7px); right: 0; z-index: 2147483002; display: none; width: 188px; border: 1px solid var(--line, rgba(255,255,255,.14)); border-radius: 12px; background: var(--paper, #111113); padding: 6px; box-shadow: 0 18px 50px rgba(0,0,0,.32); }
-    .editor-picker[data-open="true"] .editor-picker-menu { display: grid; gap: 2px; }
-    .editor-picker-option { display: flex !important; align-items: center; justify-content: flex-start; gap: 10px; width: 100%; border-radius: 8px !important; text-align: left; }
-    .editor-picker-option:hover, .editor-picker-option.is-active { background: rgba(255,255,255,.06); color: var(--text, #f4f4f5); }
-    .editor-icon { display: inline-flex; width: 18px; height: 18px; flex: 0 0 auto; align-items: center; justify-content: center; }
-    .editor-icon svg { width: 18px; height: 18px; stroke-width: 2; }
-    .editor-icon-vscode { color: #41a6f6; }
-    .editor-icon-cursor { color: var(--text, #f4f4f5); }
-    .editor-icon-finder { color: #4aa9ff; }
-    .editor-icon-terminal { color: #73d99f; }
-    .editor-icon-ghostty { color: #a78bfa; }
-    .editor-icon-xcode { color: #54a7ff; }
-    .editor-picker-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; }
-    :root[data-agent-native-theme="light"] .editor-picker button { color: var(--soft, #4b4b4b); }
-    :root[data-agent-native-theme="light"] .editor-picker button:hover, :root[data-agent-native-theme="light"] .editor-picker-option.is-active { background: rgba(0,0,0,.06); color: var(--text, #171717); }
-    :root[data-agent-native-theme="light"] .editor-picker-menu { background: var(--paper, #ffffff); box-shadow: 0 18px 50px rgba(29,29,24,.13); }
-    .visual-tabs[data-plan-tabs] { display: grid; gap: 14px; }
-    .visual-tabs[data-plan-tabs] .tab-list { display: inline-flex; width: fit-content; max-width: 100%; gap: 8px; border: 0; border-radius: 0; background: transparent; padding: 0; overflow-x: auto; }
-    .visual-tabs[data-plan-tabs] .tab-button { min-height: 30px; border: 0; border-bottom: 2px solid transparent; border-radius: 0; background: transparent; color: var(--muted, #a4a4aa); padding: 0 11px; font: 650 12px/30px ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; white-space: nowrap; cursor: pointer; }
-    .visual-tabs[data-plan-tabs] .tab-button:hover { color: var(--text, #f4f4f5); background: rgba(255,255,255,.05); }
-    .visual-tabs[data-plan-tabs] .tab-button.is-active { border-color: var(--text, #f4f4f5); background: transparent; color: var(--text, #f4f4f5); }
-    .visual-tabs[data-plan-tabs] .tab-button.is-active:hover { background: transparent; color: var(--text, #f4f4f5); }
-    :root[data-agent-native-theme="light"] .visual-tabs[data-plan-tabs] .tab-button:hover { background: rgba(0,0,0,.06); }
-    :root[data-agent-native-theme="light"] .visual-tabs[data-plan-tabs] .tab-button.is-active:hover { background: transparent; color: var(--text, #171717); }
-    .visual-tabs[data-plan-tabs] .tab-panel { display: none; }
-    .visual-tabs[data-plan-tabs] .tab-panel.is-active { display: block; }
-    .implementation-map { margin: 24px 0; border-top: 1px solid var(--line, rgba(255,255,255,.14)); }
-    .implementation-map-header { display: flex; justify-content: space-between; gap: 16px; padding: 14px 0; color: var(--muted, #a4a4aa); font-size: 12px; letter-spacing: .08em; text-transform: uppercase; }
-    .implementation-file-tabs { min-height: 330px; display: grid; grid-template-columns: minmax(220px, .44fr) minmax(0, 1fr); border-top: 1px solid var(--line, rgba(255,255,255,.14)); border-bottom: 1px solid var(--line, rgba(255,255,255,.14)); }
-    .implementation-file-list { display: grid; align-content: start; border-right: 1px solid var(--line, rgba(255,255,255,.14)); }
-    .implementation-file-tab { width: 100%; display: grid; gap: 3px; border: 0; border-bottom: 1px solid var(--line, rgba(255,255,255,.14)); background: transparent; color: var(--muted, #a4a4aa); padding: 13px 14px; text-align: left; cursor: pointer; }
-    .implementation-file-tab:hover { background: rgba(255,255,255,.035); color: var(--soft, #d4d4d8); }
-    .implementation-file-tab.is-active { background: var(--paper-2, rgba(255,255,255,.04)); color: var(--text, #f4f4f5); box-shadow: inset 2px 0 0 var(--accent, #00B5FF); }
-    .file-tab-name, .file-tab-path { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .file-tab-name { font: 700 14px/1.35 "SFMono-Regular", Consolas, "Liberation Mono", monospace; }
-    .file-tab-path { font: 500 12px/1.35 "SFMono-Regular", Consolas, "Liberation Mono", monospace; color: var(--muted, #a4a4aa); }
-    .implementation-file-tab.is-active .file-tab-path { color: var(--soft, #d4d4d8); }
-    .implementation-file-panels { min-width: 0; }
-    .implementation-file-panel { display: none; min-height: 100%; padding: 18px 20px 20px; border: 0 !important; }
-    .implementation-file-panel.is-active { display: block; }
-    .file-detail-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; padding-bottom: 16px; border-bottom: 1px solid var(--line, rgba(255,255,255,.14)); }
-    .file-title-stack { min-width: 0; display: grid; gap: 5px; }
-    .file-name { margin: 0; color: var(--text, #f4f4f5); font: 750 18px/1.25 "SFMono-Regular", Consolas, "Liberation Mono", monospace; }
-    .file-path { margin: 0; overflow-wrap: anywhere; color: var(--muted, #a4a4aa); font: 500 12px/1.45 "SFMono-Regular", Consolas, "Liberation Mono", monospace; }
-    .file-detail-body { padding-top: 16px; }
-    .file-summary { max-width: 760px; margin: 0; color: var(--soft, #d4d4d8); font-size: 15px; }
-    .inline-code-preview { margin-top: 18px; overflow: hidden; border: 1px solid var(--line, rgba(255,255,255,.14)); border-radius: 10px; background: #0c0c0e; }
-    .code-preview pre, .inline-code-preview pre { margin: 0 !important; max-height: 420px; overflow: auto; padding: 14px 16px !important; background: #0c0c0e !important; color: #e9e9ea; font: 12px/1.65 "SFMono-Regular", Consolas, "Liberation Mono", monospace !important; tab-size: 2; }
-    .code-preview pre code, .inline-code-preview pre code { display: block !important; min-width: max-content; border: 0 !important; background: transparent !important; color: inherit !important; font: inherit !important; padding: 0 !important; white-space: pre !important; }
-    .code-preview pre code *, .inline-code-preview pre code * { margin: 0 !important; border: 0 !important; border-radius: 0 !important; outline: 0 !important; background: transparent !important; background-image: none !important; box-shadow: none !important; padding: 0 !important; text-decoration: none !important; font: inherit !important; }
-    .code-preview pre code code, .inline-code-preview pre code code { display: inline !important; }
-    .syntax-keyword { color: #7cc7ff; }
-    .syntax-string { color: #a6e3a1; }
-    .syntax-literal { color: #c4b5fd; }
-    .syntax-comment { color: #7a7a83; }
-    .file-actions { display: flex; align-items: flex-start; gap: 8px; }
-    @media (max-width: 760px) { .implementation-file-tabs { grid-template-columns: 1fr; } .implementation-file-list { border-right: 0; } .implementation-file-panels { border-top: 1px solid var(--line, rgba(255,255,255,.14)); } .implementation-map-header, .file-detail-header, .file-actions { flex-wrap: wrap; } }
-  </style><script>
-    (() => {
-      const state = ${payload};
-      const editorOptions = ${editorOptionsPayload};
-      const editorIconMap = ${editorIconPayload};
-      const root = document.documentElement;
-      root.dataset.agentNativeTheme = state.theme || "dark";
-      if (state.annotateMode) root.classList.add("an-plan-annotating");
-      function removeEmptyPlanSections() {
-        const candidates = Array.from(document.querySelectorAll("section[data-plan-section-id], section.plan-section, section[id]"));
-        for (const section of candidates) {
-          const text = (section.textContent || "").replace(/\\s+/g, " ").trim();
-          const hasMedia = Boolean(section.querySelector("img,svg,canvas,video,iframe,table,pre,code,template,.visual,.flow-diagram,.wireframe-shell,.implementation-map,[data-plan-tabs],[data-agent-native-code-preview]"));
-          if (!text && !hasMedia) section.remove();
-        }
-      }
-      function initializePlanTabs() {
-        const tabsets = Array.from(document.querySelectorAll("[data-plan-tabs]"));
-        for (const tabset of tabsets) {
-          const buttons = Array.from(tabset.querySelectorAll("[data-tab-target]"));
-          const panels = Array.from(tabset.querySelectorAll("[data-tab-panel]"));
-          if (buttons.length === 0 || panels.length === 0) continue;
-          const activate = (target, notify = true) => {
-            for (const button of buttons) {
-              const isActive = button.getAttribute("data-tab-target") === target;
-              button.classList.toggle("is-active", isActive);
-              button.setAttribute("aria-selected", String(isActive));
-            }
-            for (const panel of panels) {
-              panel.classList.toggle("is-active", panel.getAttribute("data-tab-panel") === target);
-            }
-            requestAnimationFrame(syncAnnotationMarkers);
-            if (notify) {
-              window.parent.postMessage({ type: "agent-native-plan-close-comment-popover" }, "*");
-            }
-            postDocState();
-          };
-          for (const button of buttons) {
-            button.setAttribute("role", "tab");
-            button.addEventListener("click", (event) => {
-              event.preventDefault();
-              event.stopPropagation();
-              activate(button.getAttribute("data-tab-target") || "");
-            });
-          }
-          for (const panel of panels) panel.setAttribute("role", "tabpanel");
-          const initial = buttons.find((button) => button.classList.contains("is-active")) || buttons[0];
-          activate(initial.getAttribute("data-tab-target") || "", false);
-        }
-      }
-      function displayFilePath(rawPath) {
-        return String(rawPath || "").replace(/\\s+/g, " ").trim().replace(/:\\d+$/, "");
-      }
-      function basenameForPath(path) {
-        return path.split("/").filter(Boolean).pop() || path || "File";
-      }
-      function removeImplementationSymbolList(file) {
-        file.querySelector(".symbol-list")?.remove();
-      }
-      function removeImplementationPreviewButtons(container) {
-        for (const button of Array.from(container.querySelectorAll("[data-agent-native-code-preview]"))) {
-          button.removeAttribute("data-agent-native-code-preview");
-          button.removeAttribute("data-agent-native-hover-preview");
-          if (button.tagName === "BUTTON" && button.closest(".file-actions")) button.remove();
-        }
-      }
-      function inlinePreviewFromTemplate(template) {
-        const preview = template?.content?.querySelector?.(".code-preview");
-        if (!preview) return null;
-        const clone = preview.cloneNode(true);
-        clone.classList.add("inline-code-preview");
-        clone.querySelector?.(".code-preview-title")?.remove?.();
-        return clone;
-      }
-      function ensureInlineCodePreview(file) {
-        const body = file.querySelector(".file-detail-body");
-        const template = file.querySelector("template");
-        if (body && !body.querySelector(".inline-code-preview")) {
-          const inline = inlinePreviewFromTemplate(template);
-          if (inline) body.appendChild(inline);
-        }
-        template?.remove?.();
-        removeImplementationPreviewButtons(file);
-      }
-      function upgradeImplementationFileMaps() {
-        const maps = Array.from(document.querySelectorAll(".implementation-map"));
-        for (const map of maps) {
-          const oldContainer = map.querySelector(":scope > .implementation-files");
-          if (!oldContainer) {
-            removeImplementationPreviewButtons(map);
-            for (const file of Array.from(map.querySelectorAll(".implementation-file"))) {
-              removeImplementationSymbolList(file);
-              file.querySelector(".file-path span")?.remove();
-              ensureInlineCodePreview(file);
-            }
-            continue;
-          }
-          const files = Array.from(oldContainer.querySelectorAll(":scope > .implementation-file"));
-          if (files.length === 0) continue;
-          map.dataset.planTabs = "true";
-          oldContainer.className = "implementation-file-tabs";
-          const list = document.createElement("div");
-          list.className = "implementation-file-list";
-          list.setAttribute("role", "tablist");
-          list.setAttribute("aria-label", "Files touched");
-          const panels = document.createElement("div");
-          panels.className = "implementation-file-panels";
-          oldContainer.replaceChildren(list, panels);
-          files.forEach((file, index) => {
-            const path = displayFilePath(file.getAttribute("data-file-path") || file.querySelector(".file-path")?.textContent || ("File " + (index + 1)));
-            const existingActions = file.querySelector(":scope > .file-actions") || file.querySelector(".file-actions");
-            const existingTemplates = Array.from(file.querySelectorAll(":scope > template"));
-            const existingInfo = Array.from(file.children).find((child) => child !== existingActions && child.tagName !== "TEMPLATE");
-            const summary = existingInfo?.querySelector?.(".file-summary") || file.querySelector(".file-summary");
-            const legacyButtons = Array.from(existingActions?.querySelectorAll("[data-agent-native-open-editor]") || []);
-            const vscodeHref = legacyButtons.map((button) => button.getAttribute("data-agent-native-open-editor") || "").find((href) => href.startsWith("vscode://file/")) || "";
-            const cursorHref = legacyButtons.map((button) => button.getAttribute("data-agent-native-open-editor") || "").find((href) => href.startsWith("cursor://file/")) || "";
-            const openFile = openFileFromHref(vscodeHref || cursorHref);
-            const target = "runtime-file-" + index + "-" + path.toLowerCase().replace(/[^a-z0-9_-]+/g, "-").replace(/^-|-$/g, "");
-            const tab = document.createElement("button");
-            tab.type = "button";
-            tab.className = "implementation-file-tab" + (index === 0 ? " is-active" : "");
-            tab.dataset.tabTarget = target;
-            tab.dataset.filePath = path;
-            if (openFile) tab.dataset.agentNativeOpenFile = openFile;
-            tab.innerHTML = '<span class="file-tab-name"></span><span class="file-tab-path"></span>';
-            tab.querySelector(".file-tab-name").textContent = basenameForPath(path);
-            tab.querySelector(".file-tab-path").textContent = path;
-            list.appendChild(tab);
-
-            file.className = "implementation-file implementation-file-panel tab-panel" + (index === 0 ? " is-active" : "");
-            file.dataset.tabPanel = target;
-            file.dataset.filePath = path;
-
-            const header = document.createElement("div");
-            header.className = "file-detail-header";
-            const title = document.createElement("div");
-            title.className = "file-title-stack";
-            title.innerHTML = '<p class="file-name"></p><p class="file-path"></p>';
-            title.querySelector(".file-name").textContent = basenameForPath(path);
-            title.querySelector(".file-path").textContent = path;
-            header.appendChild(title);
-            if (existingActions) header.appendChild(existingActions);
-
-            const body = document.createElement("div");
-            body.className = "file-detail-body";
-            if (summary) body.appendChild(summary);
-            const inlinePreview = inlinePreviewFromTemplate(existingTemplates[0]);
-            if (inlinePreview) body.appendChild(inlinePreview);
-
-            removeImplementationPreviewButtons(file);
-            file.replaceChildren(header, body);
-            removeImplementationSymbolList(file);
-            ensureInlineCodePreview(file);
-            panels.appendChild(file);
-          });
-        }
-      }
-      const editorValues = editorOptions.map((option) => option.value);
-      let preferredEditor = normalizeEditor(state.preferredEditor);
-      function normalizeEditor(value) {
-        return editorValues.includes(value) ? value : "vscode";
-      }
-      function editorLabel(editor) {
-        return editorOptions.find((option) => option.value === editor)?.label || "VS Code";
-      }
-      function editorIconHtml(editor) {
-        const normalized = normalizeEditor(editor);
-        return '<span class="editor-icon editor-icon-' + normalized + '">' + (editorIconMap[normalized] || "") + '</span>';
-      }
-      function editorTriggerHtml(editor) {
-        const normalized = normalizeEditor(editor);
-        return editorIconHtml(normalized) + '<span class="editor-picker-sr">Preferred editor: ' + editorLabel(normalized) + '</span><span class="editor-picker-caret" aria-hidden="true"></span>';
-      }
-      function editorSelectOptionsHtml() {
-        return editorOptions.map(({ value, label }) => '<option value="' + value + '">' + label + '</option>').join(""); // i18n-ignore generated editor picker markup with stable app labels
-      }
-      function editorMenuHtml(activeEditor) {
-        const active = normalizeEditor(activeEditor);
-        return editorOptions.map(({ value, label }) => {
-          const selected = value === active;
-          return '<button type="button" class="editor-picker-option' + (selected ? " is-active" : "") + '" data-agent-native-editor-option="' + value + '" role="menuitemradio" aria-checked="' + (selected ? "true" : "false") + '">' + editorIconHtml(value) + '<span>' + label + '</span></button>'; // i18n-ignore generated editor picker markup with stable app labels
-        }).join("");
-      }
-      function closeEditorMenus(exceptPicker) {
-        for (const picker of document.querySelectorAll("[data-agent-native-editor-picker]")) {
-          if (picker !== exceptPicker) {
-            picker.removeAttribute("data-open");
-            picker.querySelector("[data-agent-native-editor-trigger]")?.setAttribute("aria-expanded", "false");
-          }
-        }
-      }
-      function setPreferredEditor(editor, notifyParent) {
-        preferredEditor = normalizeEditor(editor);
-        for (const picker of document.querySelectorAll("[data-agent-native-editor-picker]")) {
-          picker.dataset.editor = preferredEditor;
-          const trigger = picker.querySelector("[data-agent-native-editor-trigger]");
-          if (trigger) {
-            trigger.innerHTML = editorTriggerHtml(preferredEditor);
-            trigger.setAttribute("aria-label", "Choose editor. Current: " + editorLabel(preferredEditor));
-          }
-          const select = picker.querySelector("[data-agent-native-editor-select]");
-          if (select) select.value = preferredEditor;
-          const menu = picker.querySelector("[data-agent-native-editor-menu]");
-          if (menu) menu.innerHTML = editorMenuHtml(preferredEditor);
-        }
-        if (notifyParent) {
-          window.parent.postMessage({ type: "agent-native-plan-editor-preference", editor: preferredEditor }, "*");
-        }
-      }
-      function splitFileLocation(filePath, explicitLine) {
-        const value = filePath || "";
-        const match = value.match(/^(.*?)(?::(\\d+)(?::(\\d+))?)?$/);
-        return {
-          path: match?.[1] || value,
-          line: explicitLine || match?.[2] || "",
-          column: match?.[3] || "1"
-        };
-      }
-      function openFileFromHref(href) {
-        const match = String(href || "").match(/^(?:vscode|cursor):\\/\\/file(.+)$/);
-        return match?.[1] ? decodeURI(match[1]) : "";
-      }
-      function directoryForPath(filePath) {
-        const index = filePath.lastIndexOf("/");
-        return index > 0 ? filePath.slice(0, index) : filePath;
-      }
-      function hrefForEditor(editor, filePath, line) {
-        if (!filePath) return "";
-        const normalized = normalizeEditor(editor);
-        const location = splitFileLocation(filePath, line);
-        const lineSuffix = location.line ? ":" + location.line + ":" + location.column : "";
-        if (normalized === "finder") return "file://" + encodeURI(location.path);
-        if (normalized === "xcode") {
-          return "xcode://open?url=" + encodeURIComponent("file://" + location.path) + (location.line ? "&line=" + encodeURIComponent(location.line) : ""); // i18n-ignore stable editor URL scheme
-        }
-        if (normalized === "terminal") {
-          return "terminal://open?path=" + encodeURIComponent(directoryForPath(location.path)); // i18n-ignore stable editor URL scheme
-        }
-        if (normalized === "ghostty") {
-          return "ghostty://open?path=" + encodeURIComponent(directoryForPath(location.path)); // i18n-ignore stable editor URL scheme
-        }
-        return normalized + "://file" + encodeURI(location.path) + lineSuffix;
-      }
-      function createEditorPicker(openFile, hrefs = {}, line = "") {
-        const picker = document.createElement("div");
-        picker.className = "editor-picker";
-        picker.dataset.agentNativeEditorPicker = "true";
-        picker.dataset.editor = preferredEditor;
-        const trigger = document.createElement("button");
-        trigger.type = "button";
-        trigger.className = "editor-picker-trigger";
-        trigger.dataset.agentNativeEditorTrigger = "true";
-        trigger.setAttribute("aria-haspopup", "menu");
-        trigger.setAttribute("aria-expanded", "false");
-        trigger.setAttribute("aria-label", "Choose editor. Current: " + editorLabel(preferredEditor));
-        trigger.innerHTML = editorTriggerHtml(preferredEditor);
-        const select = document.createElement("select");
-        select.className = "editor-picker-select";
-        select.dataset.agentNativeEditorSelect = "true";
-        select.setAttribute("aria-hidden", "true");
-        select.setAttribute("tabindex", "-1");
-        select.innerHTML = editorSelectOptionsHtml();
-        const menu = document.createElement("div");
-        menu.className = "editor-picker-menu";
-        menu.dataset.agentNativeEditorMenu = "true";
-        menu.setAttribute("role", "menu");
-        menu.innerHTML = editorMenuHtml(preferredEditor);
-        const open = document.createElement("button");
-        open.type = "button";
-        open.className = "editor-picker-open";
-        open.textContent = "Open";
-        open.dataset.agentNativeOpenSelectedEditor = "true";
-        if (openFile) open.dataset.agentNativeOpenFile = openFile;
-        if (line) open.dataset.agentNativeOpenLine = line;
-        if (hrefs.vscode) open.dataset.agentNativeOpenVscode = hrefs.vscode;
-        if (hrefs.cursor) open.dataset.agentNativeOpenCursor = hrefs.cursor;
-        picker.append(trigger, select, menu, open);
-        return picker;
-      }
-      function upgradeEditorPickerElement(picker) {
-        if (picker.querySelector("[data-agent-native-editor-trigger]")) return;
-        const select = picker.querySelector("[data-agent-native-editor-select]");
-        const open = picker.querySelector("[data-agent-native-open-selected-editor], [data-agent-native-open-file]") || document.createElement("button");
-        const editor = normalizeEditor(select?.value || picker.dataset.editor || preferredEditor);
-        const openFile = open.getAttribute?.("data-agent-native-open-file") || "";
-        const openLine = open.getAttribute?.("data-agent-native-open-line") || "";
-        const vscode = open.getAttribute?.("data-agent-native-open-vscode") || "";
-        const cursor = open.getAttribute?.("data-agent-native-open-cursor") || "";
-        const upgraded = createEditorPicker(openFile, { vscode, cursor }, openLine);
-        picker.replaceChildren(...Array.from(upgraded.childNodes));
-        picker.className = "editor-picker";
-        picker.dataset.agentNativeEditorPicker = "true";
-        picker.dataset.editor = editor;
-      }
-      function initializeEditorPickers() {
-        const actionGroups = Array.from(document.querySelectorAll(".file-actions"));
-        for (const actions of actionGroups) {
-          if (actions.querySelector("[data-agent-native-editor-picker]")) {
-            for (const picker of Array.from(actions.querySelectorAll("[data-agent-native-editor-picker]"))) {
-              upgradeEditorPickerElement(picker);
-            }
-            continue;
-          }
-          const legacyButtons = Array.from(actions.querySelectorAll("[data-agent-native-open-editor]"));
-          if (legacyButtons.length === 0) continue;
-          const hrefs = {};
-          for (const button of legacyButtons) {
-            const href = button.getAttribute("data-agent-native-open-editor") || "";
-            if (href.startsWith("cursor://file/")) hrefs.cursor = href;
-            if (href.startsWith("vscode://file/")) hrefs.vscode = href;
-            button.remove();
-          }
-          const openFile = openFileFromHref(hrefs.vscode || hrefs.cursor);
-          if (!openFile && !hrefs.cursor && !hrefs.vscode) continue;
-          actions.appendChild(createEditorPicker(openFile, hrefs));
-        }
-        for (const picker of Array.from(document.querySelectorAll("[data-agent-native-editor-picker]"))) {
-          upgradeEditorPickerElement(picker);
-        }
-        setPreferredEditor(preferredEditor, false);
-      }
-      function escapeCodeHtml(value) {
-        return String(value || "")
-          .replace(/&/g, "&amp;")
-          .replace(/</g, "&lt;")
-          .replace(/>/g, "&gt;")
-          .replace(/"/g, "&quot;")
-          .replace(/'/g, "&#39;");
-      }
-      function highlightPlainCodeBlocks() {
-        const blocks = Array.from(document.querySelectorAll(".code-preview pre, .inline-code-preview pre"));
-        for (const pre of blocks) {
-          const target = pre.querySelector("code") || pre;
-          if (target.querySelector(".syntax-keyword,.syntax-string,.syntax-literal,.syntax-comment")) continue;
-          const text = target.textContent || "";
-          if (!text.trim()) continue;
-          let html = escapeCodeHtml(text);
-          html = html
-            .replace(/(&quot;[^&]*(?:&quot;)|&#39;[^&]*(?:&#39;)|\`[^\`]*\`)/g, '<span class="syntax-string">$1</span>')
-            .replace(/\\b(import|export|from|const|let|var|function|return|type|interface|class|extends|async|await|if|else|for|while|new|throw|try|catch|switch|case|default)\\b/g, '<span class="syntax-keyword">$1</span>')
-            .replace(/\\b(true|false|null|undefined)\\b/g, '<span class="syntax-literal">$1</span>')
-            .replace(/(^|\\n)(\\s*\\/\\/.*)/g, '$1<span class="syntax-comment">$2</span>');
-          target.innerHTML = html;
-        }
-      }
-      function setRuntimeAnnotateMode(value) {
-        state.annotateMode = Boolean(value);
-        root.classList.toggle("an-plan-annotating", state.annotateMode);
-        if (state.annotateMode) {
-          closeEditorMenus();
-          hideCodePopover();
-          hideSelectionToolbar();
-        } else {
-          hideSelectionToolbar();
-        }
-        postDocState();
-      }
-      function setRuntimeTheme(theme) {
-        state.theme = theme === "light" ? "light" : "dark";
-        root.dataset.agentNativeTheme = state.theme;
-      }
-      function restoreDocumentScroll(savedState) {
-        if (!savedState) return;
-        const doc = document.documentElement;
-        const scrollWidth = Math.max(doc.scrollWidth, document.body?.scrollWidth || 0);
-        const scrollHeight = Math.max(doc.scrollHeight, document.body?.scrollHeight || 0);
-        const x =
-          typeof savedState.scrollX === "number"
-            ? savedState.scrollX * (scrollWidth / Math.max(savedState.scrollWidth || scrollWidth, 1))
-            : 0;
-        const y =
-          typeof savedState.scrollY === "number"
-            ? savedState.scrollY * (scrollHeight / Math.max(savedState.scrollHeight || scrollHeight, 1))
-            : 0;
-        requestAnimationFrame(() => {
-          window.scrollTo(x, y);
-          syncAnnotationMarkers();
-          postDocState();
-          requestAnimationFrame(postDocState);
-        });
-      }
-      window.addEventListener("message", (event) => {
-        const data = event.data || {};
-        if (data.type !== "agent-native-plan-runtime-state") return;
-        if (typeof data.parentOrigin === "string" && data.parentOrigin && data.parentOrigin !== "null") {
-          window.__agentNativePlanParentOrigin = data.parentOrigin;
-        }
-        if (typeof data.theme === "string") setRuntimeTheme(data.theme);
-        if (typeof data.preferredEditor === "string") {
-          setPreferredEditor(data.preferredEditor, false);
-        }
-        if (typeof data.annotateMode === "boolean") {
-          setRuntimeAnnotateMode(data.annotateMode);
-        }
-        if (data.restoreScroll) restoreDocumentScroll(data.restoreScroll);
-      });
-      function postDocState() {
-        const doc = document.documentElement;
-        window.parent.postMessage({
-          type: "agent-native-plan-doc-state",
-          state: {
-            scrollX: window.scrollX || doc.scrollLeft || 0,
-            scrollY: window.scrollY || doc.scrollTop || 0,
-            scrollWidth: Math.max(doc.scrollWidth, document.body?.scrollWidth || 0),
-            scrollHeight: Math.max(doc.scrollHeight, document.body?.scrollHeight || 0),
-            clientWidth: doc.clientWidth,
-            clientHeight: doc.clientHeight
-          }
-        }, "*");
-      }
-      let annotationMarkerSyncFrame = 0;
-      function scheduleAnnotationMarkerSync() {
-        if (annotationMarkerSyncFrame) return;
-        annotationMarkerSyncFrame = requestAnimationFrame(() => {
-          annotationMarkerSyncFrame = 0;
-          syncAnnotationMarkers();
-        });
-      }
-      function markerAuthorFromItem(item) {
-        return {
-          authorName: item.authorName,
-          authorEmail: item.authorEmail,
-          authorAvatarUrl: item.authorAvatarUrl,
-          authorColor: item.authorColor,
-          authorInitials: item.authorInitials
-        };
-      }
-      function createMarkerFace(author) {
-        const face = document.createElement("span");
-        face.className = "an-plan-marker-face";
-        face.style.setProperty("--author-color", author.authorColor || "#00B5FF");
-        const fallback = document.createElement("span");
-        fallback.className = "an-plan-marker-initials";
-        fallback.textContent = author.authorInitials || "?";
-        if (author.authorAvatarUrl) {
-          const image = document.createElement("img");
-          image.className = "an-plan-marker-avatar";
-          image.src = author.authorAvatarUrl;
-          image.alt = author.authorName || "Comment author";
-          image.addEventListener("error", () => {
-            image.replaceWith(fallback);
-          });
-          face.appendChild(image);
-        } else {
-          face.appendChild(fallback);
-        }
-        return face;
-      }
-      function setMarkerThreadFaces(marker, item) {
-        const participants = Array.isArray(item.participants) && item.participants.length
-          ? item.participants
-          : [markerAuthorFromItem(item)];
-        const count = Math.max(1, Number(item.commentCount || 1));
-        const single = participants.length <= 1 && count <= 1;
-        marker.dataset.single = String(single);
-        marker.style.setProperty("--author-color", participants[0]?.authorColor || item.authorColor || "#00B5FF");
-        const stack = document.createElement("span");
-        stack.className = "an-plan-marker-stack";
-        for (const author of participants.slice(0, 2)) {
-          stack.appendChild(createMarkerFace(author));
-        }
-        marker.replaceChildren(stack);
-        if (!single) {
-          const countLabel = document.createElement("span");
-          countLabel.className = "an-plan-marker-count";
-          countLabel.textContent = count > 99 ? "99+" : String(count);
-          marker.appendChild(countLabel);
-        }
-      }
-      removeEmptyPlanSections();
-      upgradeImplementationFileMaps();
-      initializePlanTabs();
-      initializeEditorPickers();
-      highlightPlainCodeBlocks();
-      postDocState();
-      window.addEventListener("scroll", postDocState, { passive: true });
-      window.addEventListener("resize", () => {
-        scheduleAnnotationMarkerSync();
-        postDocState();
-      });
-      window.addEventListener("agent-native-plan-board-layout-change", () => {
-        scheduleAnnotationMarkerSync();
-        postDocState();
-      });
-      function pct(value, total) {
-        return Math.max(0, Math.min(100, Number(((value / Math.max(total, 1)) * 100).toFixed(3))));
-      }
-      function closestSection(target) {
-        if (!(target instanceof Element)) return null;
-        return target.closest("[data-plan-section-id], section[id], article[id], [id]");
-      }
-      function normalizeText(value) {
-        return String(value || "").replace(/\\s+/g, " ").trim();
-      }
-      function textSnippet(target) {
-        if (!(target instanceof Element)) return "";
-        const text = normalizeText(target.innerText || target.textContent || "");
-        return text.slice(0, 90);
-      }
-      function closestTextContext(target) {
-        if (!(target instanceof Element)) return "";
-        const selector = [
-          "p",
-          "li",
-          "h1",
-          "h2",
-          "h3",
-          "h4",
-          "td",
-          "th",
-          "blockquote",
-          "figcaption",
-          "summary",
-          "button",
-          "a",
-          "label",
-          "pre",
-          "code",
-          "[data-plan-text]"
-        ].join(",");
-        const direct = target.matches(selector) ? target : target.closest(selector);
-        const candidates = [direct, target, target.parentElement, closestSection(target)].filter(Boolean);
-        for (const candidate of candidates) {
-          const text = normalizeText(candidate.innerText || candidate.textContent || "");
-          if (text.length >= 8) return text.slice(0, 220);
-        }
-        return "";
-      }
-      function closestVisualContext(target) {
-        if (!(target instanceof Element)) return null;
-        return target.closest(".wireframe-shell,.mock-browser,.mock-plan,.mock-sidebar,.diagram-card,.flow-diagram,svg,canvas,img,figure,[data-plan-visual],[data-visual]");
-      }
-      function visualLabel(visual, section) {
-        if (!(visual instanceof Element)) return "";
-        return normalizeText(
-          visual.getAttribute("aria-label") ||
-            visual.getAttribute("data-label") ||
-            visual.querySelector?.("strong,h3,h4")?.textContent ||
-            sectionTitle(section) ||
-            "Visual"
-        );
-      }
-      function clamp(value, min, max) {
-        return Math.max(min, Math.min(max, value));
-      }
-      function cssEscape(value) {
-        if (window.CSS?.escape) return window.CSS.escape(String(value));
-        return String(value).replace(/[^a-zA-Z0-9_-]/g, (char) => "\\\\" + char);
-      }
-      function cssAttr(value) {
-        return String(value || "").replace(/\\\\/g, "\\\\\\\\").replace(/"/g, '\\"');
-      }
-      function uniqueSelector(selector) {
-        try {
-          return document.querySelectorAll(selector).length === 1;
-        } catch {
-          return false;
-        }
-      }
-      function selectorForElement(element) {
-        if (!(element instanceof Element)) return "";
-        if (element.id) {
-          const selector = "#" + cssEscape(element.id);
-          if (uniqueSelector(selector)) return selector;
-        }
-        for (const attr of ["data-plan-section-id", "data-tab-panel", "data-file-path"]) {
-          const value = element.getAttribute(attr);
-          if (!value) continue;
-          const selector = element.tagName.toLowerCase() + "[" + attr + '="' + cssAttr(value) + '"]';
-          if (uniqueSelector(selector)) return selector;
-        }
-        const parts = [];
-        let current = element;
-        while (current && current !== document.body && current !== document.documentElement) {
-          let part = current.tagName.toLowerCase();
-          const parent = current.parentElement;
-          if (!parent) break;
-          const sameTagSiblings = Array.from(parent.children).filter((child) => child.tagName === current.tagName);
-          if (sameTagSiblings.length > 1) {
-            part += ":nth-of-type(" + (sameTagSiblings.indexOf(current) + 1) + ")";
-          }
-          parts.unshift(part);
-          const selector = "body > " + parts.join(" > ");
-          if (uniqueSelector(selector)) return selector;
-          current = parent;
-        }
-        return parts.length ? "body > " + parts.join(" > ") : "";
-      }
-      function anchorTargetForElement(element) {
-        if (!(element instanceof Element)) return null;
-        const visual = closestVisualContext(element);
-        if (visual) return visual;
-        return closestTextElement(element) || element.closest("[data-tab-panel], [data-plan-section-id], section[id], article[id]") || element;
-      }
-      function withTargetAnchor(anchor, target, clientX, clientY) {
-        const targetElement = anchorTargetForElement(target);
-        const rect = targetElement?.getBoundingClientRect?.();
-        if (!targetElement || !rect || (!rect.width && !rect.height)) return anchor;
-        return {
-          ...anchor,
-          targetSelector: selectorForElement(targetElement) || undefined,
-          targetX: pct(clamp(clientX, rect.left, rect.right) - rect.left, rect.width),
-          targetY: pct(clamp(clientY, rect.top, rect.bottom) - rect.top, rect.height)
-        };
-      }
-      function ensureLayer() {
-        let layer = document.querySelector(".an-plan-annotation-layer");
-        if (!layer) {
-          layer = document.createElement("div");
-          layer.className = "an-plan-annotation-layer";
-          document.body.style.position = document.body.style.position || "relative";
-          document.body.appendChild(layer);
-        }
-        return layer;
-      }
-      function sectionForNode(node) {
-        const element = node instanceof Element ? node : node?.parentElement;
-        return closestSection(element);
-      }
-      function sectionTitle(section) {
-        return section?.querySelector?.("h1,h2,h3,[data-plan-section-title]")?.textContent?.replace(/\\s+/g, " ").trim() || "";
-      }
-      function tabContextForElement(element) {
-        if (!(element instanceof Element)) return {};
-        const panel = element.closest("[data-tab-panel]");
-        const tabPanelId = panel?.getAttribute("data-tab-panel") || "";
-        if (!tabPanelId) return {};
-        const tabset = panel.closest("[data-plan-tabs]");
-        const tabButton = Array.from(tabset?.querySelectorAll("[data-tab-target]") || []).find((button) => button.getAttribute("data-tab-target") === tabPanelId);
-        const tabLabel = normalizeText(tabButton?.textContent || panel.getAttribute("aria-label") || "");
-        return {
-          tabPanelId,
-          tabLabel: tabLabel || undefined
-        };
-      }
-      function tabContextForPoint(anchor) {
-        if (!anchor || anchor.tabPanelId) return {};
-        const doc = document.documentElement;
-        const clientX = (anchor.x / 100) * doc.scrollWidth - window.scrollX;
-        const clientY = (anchor.y / 100) * Math.max(doc.scrollHeight, document.body.scrollHeight) - window.scrollY;
-        const element = document.elementFromPoint(clientX, clientY);
-        return tabContextForElement(element);
-      }
-      function isTabContextActive(tabPanelId) {
-        if (!tabPanelId) return true;
-        const panel = Array.from(document.querySelectorAll("[data-tab-panel]")).find((candidate) => candidate.getAttribute("data-tab-panel") === tabPanelId);
-        return Boolean(panel?.classList.contains("is-active"));
-      }
-      function elementTabPanelId(element) {
-        if (!(element instanceof Element)) return "";
-        return element.closest("[data-tab-panel]")?.getAttribute("data-tab-panel") || "";
-      }
-      function isElementTabActive(element) {
-        const tabPanelId = elementTabPanelId(element);
-        return !tabPanelId || isTabContextActive(tabPanelId);
-      }
-      function resolveAnchorTarget(anchor) {
-        if (!anchor) return null;
-        if (anchor.targetSelector) {
-          try {
-            const target = document.querySelector(anchor.targetSelector);
-            if (target) return target;
-          } catch {
-            // Ignore stale selectors and fall back to quote matching.
-          }
-        }
-        const quote = normalizeText(anchor.textQuote || anchor.snippet || "");
-        if (!quote) return null;
-        const needle = quote.slice(0, 120);
-        const scopes = [];
-        if (anchor.sectionId) {
-          const escapedSection = cssEscape(anchor.sectionId);
-          scopes.push(
-            document.querySelector('[data-plan-section-id="' + cssAttr(anchor.sectionId) + '"]'),
-            document.getElementById(anchor.sectionId),
-            document.querySelector("#" + escapedSection)
-          );
-        }
-        scopes.push(document);
-        for (const scope of scopes.filter(Boolean)) {
-          const candidates = Array.from(scope.querySelectorAll?.([
-            "p",
-            "li",
-            "h1",
-            "h2",
-            "h3",
-            "h4",
-            "td",
-            "th",
-            "blockquote",
-            "figcaption",
-            "summary",
-            "button",
-            "a",
-            "label",
-            "pre",
-            "code",
-            "[data-plan-text]"
-          ].join(",")) || []);
-          const match = candidates.find((candidate) => normalizeText(candidate.textContent || "").includes(needle));
-          if (match) return anchorTargetForElement(match);
-        }
-        return null;
-      }
-      function pointForAnchor(anchor) {
-        const doc = document.documentElement;
-        const docHeight = Math.max(doc.scrollHeight, document.body.scrollHeight);
-        const target = resolveAnchorTarget(anchor);
-        if (target) {
-          if (!isElementTabActive(target)) return null;
-          const rect = target.getBoundingClientRect();
-          if (rect && (rect.width || rect.height)) {
-            return {
-              left: rect.left + window.scrollX + ((anchor.targetX ?? anchor.visualX ?? 50) / 100) * rect.width,
-              top: rect.top + window.scrollY + ((anchor.targetY ?? anchor.visualY ?? 50) / 100) * rect.height
-            };
-          }
-        }
-        const tabContext = anchor.tabPanelId ? { tabPanelId: anchor.tabPanelId } : tabContextForPoint(anchor);
-        if (!isTabContextActive(tabContext.tabPanelId)) return null;
-        return {
-          left: (anchor.x / 100) * doc.scrollWidth,
-          top: (anchor.y / 100) * docHeight
-        };
-      }
-      function setMarkerVisibility(marker, visible) {
-        marker.style.display = visible ? "inline-flex" : "none";
-        marker.setAttribute("aria-hidden", String(!visible));
-      }
-      function positionMarker(marker, item) {
-        const point = pointForAnchor(item.anchor);
-        if (!point) {
-          setMarkerVisibility(marker, false);
-          return;
-        }
-        marker.style.left = point.left + "px";
-        marker.style.top = point.top + "px";
-        setMarkerVisibility(marker, true);
-      }
-      function anchorWithCurrentPoint(anchor) {
-        const point = pointForAnchor(anchor);
-        if (!point) return anchor;
-        const doc = document.documentElement;
-        return {
-          ...anchor,
-          x: pct(point.left, doc.scrollWidth),
-          y: pct(point.top, Math.max(doc.scrollHeight, document.body.scrollHeight))
-        };
-      }
-      function rangeFromPoint(clientX, clientY) {
-        if (document.caretPositionFromPoint) {
-          const position = document.caretPositionFromPoint(clientX, clientY);
-          if (!position?.offsetNode) return null;
-          const range = document.createRange();
-          range.setStart(position.offsetNode, position.offset);
-          range.collapse(true);
-          return range;
-        }
-        if (document.caretRangeFromPoint) {
-          return document.caretRangeFromPoint(clientX, clientY);
-        }
-        return null;
-      }
-      function expandRangeToWord(range) {
-        if (!range || range.startContainer.nodeType !== Node.TEXT_NODE) return null;
-        const node = range.startContainer;
-        const text = node.textContent || "";
-        if (!text.trim()) return null;
-        let index = Math.min(range.startOffset, Math.max(0, text.length - 1));
-        if (/\\s/.test(text[index] || "")) {
-          let left = index - 1;
-          let right = index + 1;
-          while (left >= 0 || right < text.length) {
-            if (left >= 0 && !/\\s/.test(text[left])) {
-              index = left;
-              break;
-            }
-            if (right < text.length && !/\\s/.test(text[right])) {
-              index = right;
-              break;
-            }
-            left -= 1;
-            right += 1;
-          }
-        }
-        if (/\\s/.test(text[index] || "")) return null;
-        let start = index;
-        let end = index + 1;
-        while (start > 0 && !/\\s/.test(text[start - 1])) start -= 1;
-        while (end < text.length && !/\\s/.test(text[end])) end += 1;
-        const selectedText = text.slice(start, end).trim();
-        if (selectedText.length < 2) return null;
-        const wordRange = document.createRange();
-        wordRange.setStart(node, start);
-        wordRange.setEnd(node, end);
-        return { range: wordRange, selectedText };
-      }
-      function closestTextElement(target) {
-        if (!(target instanceof Element)) return null;
-        const selector = [
-          "p",
-          "li",
-          "h1",
-          "h2",
-          "h3",
-          "h4",
-          "td",
-          "th",
-          "blockquote",
-          "figcaption",
-          "summary",
-          "button",
-          "a",
-          "label",
-          "pre",
-          "code",
-          "[data-plan-text]"
-        ].join(",");
-        return target.matches(selector) ? target : target.closest(selector);
-      }
-      function anchorFromPoint(clientX, clientY, target) {
-        const word = expandRangeToWord(rangeFromPoint(clientX, clientY));
-        if (word) {
-          const anchor = anchorFromRange(word.range, word.selectedText);
-          if (anchor) return anchor;
-        }
-        const textElement = closestTextElement(target);
-        if (!(textElement instanceof Element)) return null;
-        const rect = textElement.getBoundingClientRect();
-        if (!rect || (!rect.width && !rect.height)) return null;
-        const doc = document.documentElement;
-        const textQuote = closestTextContext(textElement);
-        const section = closestSection(textElement);
-        const anchor = {
-          x: pct(clamp(clientX, rect.left, rect.right) + window.scrollX, doc.scrollWidth),
-          y: pct(clamp(clientY, rect.top, rect.bottom) + window.scrollY, Math.max(doc.scrollHeight, document.body.scrollHeight)),
-          sectionId: section?.getAttribute("data-plan-section-id") || section?.id || undefined,
-          sectionTitle: sectionTitle(section) || undefined,
-          ...tabContextForElement(textElement),
-          snippet: textQuote || textSnippet(textElement),
-          textQuote: textQuote || undefined,
-          anchorKind: textQuote ? "text" : "point",
-          tagName: textElement.tagName.toLowerCase()
-        };
-        return withTargetAnchor(anchor, textElement, clientX, clientY);
-      }
-      function anchorFromRange(range, selectedText) {
-        const rect = range.getBoundingClientRect();
-        if (!rect || (!rect.width && !rect.height)) return null;
-        const doc = document.documentElement;
-        const section = sectionForNode(range.commonAncestorContainer);
-        const rangeElement = range.commonAncestorContainer instanceof Element ? range.commonAncestorContainer : range.commonAncestorContainer.parentElement;
-        const anchor = {
-          x: pct(rect.left + window.scrollX + rect.width / 2, doc.scrollWidth),
-          y: pct(rect.top + window.scrollY + rect.height / 2, Math.max(doc.scrollHeight, document.body.scrollHeight)),
-          sectionId: section?.getAttribute("data-plan-section-id") || section?.id || undefined,
-          sectionTitle: sectionTitle(section) || undefined,
-          ...tabContextForElement(rangeElement),
-          snippet: selectedText.slice(0, 160),
-          textQuote: selectedText.slice(0, 220),
-          anchorKind: "text",
-          tagName: "selection"
-        };
-        return withTargetAnchor(anchor, rangeElement, rect.left + rect.width / 2, rect.top + rect.height / 2);
-      }
-      function ensureSelectionToolbar() {
-        let toolbar = document.querySelector(".an-plan-selection-toolbar");
-        if (!toolbar) {
-          toolbar = document.createElement("div");
-          toolbar.className = "an-plan-selection-toolbar";
-          toolbar.innerHTML = '<button type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 9h8"/><path d="M8 13h6"/><path d="M12 20l-3-3H7a4 4 0 0 1-4-4V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4v4.5"/><path d="M19 16v6"/><path d="M16 19h6"/></svg><span>Comment</span></button>';
-          const button = toolbar.querySelector("button");
-          button?.addEventListener("mousedown", (event) => event.preventDefault());
-          button?.addEventListener("click", (event) => {
-            event.preventDefault();
-            event.stopPropagation();
-            const selection = window.getSelection();
-            if (!selection || selection.rangeCount === 0 || selection.isCollapsed) return;
-            const selectedText = selection.toString().replace(/\\s+/g, " ").trim();
-            if (!selectedText) return;
-            const anchor = anchorFromRange(selection.getRangeAt(0), selectedText);
-            if (!anchor) return;
-            toolbar.style.display = "none";
-            window.parent.postMessage({ type: "agent-native-plan-annotate", anchor }, "*");
-          });
-          document.body.appendChild(toolbar);
-        }
-        return toolbar;
-      }
-      function hideSelectionToolbar() {
-        const toolbar = document.querySelector(".an-plan-selection-toolbar");
-        if (toolbar) toolbar.style.display = "none";
-      }
-      function hideCodePopover() {
-        document.querySelector(".an-plan-code-popover")?.remove();
-      }
-      function showCodePopover(button, templateId) {
-        const template = document.getElementById(templateId);
-        if (!(template instanceof HTMLTemplateElement)) return;
-        hideCodePopover();
-        const popover = document.createElement("div");
-        popover.className = "an-plan-code-popover";
-        popover.innerHTML = '<div class="an-plan-code-popover-header"><span class="an-plan-code-popover-title"></span><div class="an-plan-code-popover-actions"></div><button type="button" class="an-plan-code-popover-close" aria-label="${closeCodePreviewLabel}">×</button></div><div class="an-plan-code-popover-body"></div>';
-        const content = template.content.cloneNode(true);
-        const codePreview = content.querySelector?.(".code-preview");
-        const oldTitle = content.querySelector?.(".code-preview-title");
-        const fileTitle = codePreview?.getAttribute?.("data-file-path") || oldTitle?.querySelector?.("strong")?.textContent?.trim() || button.getAttribute("data-file-path") || button.closest(".implementation-file")?.getAttribute("data-file-path") || "Snippet";
-        const hrefs = {};
-        const fileActions = button.closest(".implementation-file")?.querySelector(".file-actions");
-        for (const openButton of Array.from(fileActions?.querySelectorAll("[data-agent-native-open-editor], [data-agent-native-open-selected-editor], [data-agent-native-open-file]") || [])) {
-          const vscode = openButton.getAttribute("data-agent-native-open-vscode") || "";
-          const cursor = openButton.getAttribute("data-agent-native-open-cursor") || "";
-          const legacy = openButton.getAttribute("data-agent-native-open-editor") || "";
-          if (vscode) hrefs.vscode = vscode;
-          if (cursor) hrefs.cursor = cursor;
-          if (legacy.startsWith("vscode://file/")) hrefs.vscode = legacy;
-          if (legacy.startsWith("cursor://file/")) hrefs.cursor = legacy;
-        }
-        const openFile = button.getAttribute("data-agent-native-open-file") || codePreview?.getAttribute?.("data-agent-native-open-file") || openFileFromHref(hrefs.vscode || hrefs.cursor);
-        const openLine = button.getAttribute("data-agent-native-open-line") || codePreview?.getAttribute?.("data-agent-native-open-line") || "";
-        oldTitle?.remove?.();
-        popover.querySelector(".an-plan-code-popover-title").textContent = fileTitle;
-        if (openFile || hrefs.vscode || hrefs.cursor) {
-          popover.querySelector(".an-plan-code-popover-actions")?.append(createEditorPicker(openFile, hrefs, openLine));
-          setPreferredEditor(preferredEditor, false);
-        }
-        popover.querySelector(".an-plan-code-popover-body")?.append(content);
-        popover.querySelector(".an-plan-code-popover-close")?.addEventListener("click", hideCodePopover);
-        document.body.appendChild(popover);
-        const rect = button.getBoundingClientRect();
-        const width = popover.offsetWidth || 640;
-        const height = popover.offsetHeight || 420;
-        const minLeft = window.scrollX + 12;
-        const maxLeft = window.scrollX + document.documentElement.clientWidth - width - 12;
-        popover.style.left = clamp(rect.left + window.scrollX, minLeft, maxLeft) + "px";
-        popover.style.top = clamp(rect.bottom + window.scrollY + 8, window.scrollY + 12, window.scrollY + document.documentElement.clientHeight - height - 12) + "px";
-      }
-      function updateSelectionToolbar() {
-        if (state.annotateMode) {
-          hideSelectionToolbar();
-          return;
-        }
-        const selection = window.getSelection();
-        if (!selection || selection.rangeCount === 0 || selection.isCollapsed) {
-          hideSelectionToolbar();
-          return;
-        }
-        const selectedText = selection.toString().replace(/\\s+/g, " ").trim();
-        if (!selectedText) {
-          hideSelectionToolbar();
-          return;
-        }
-        const rect = selection.getRangeAt(0).getBoundingClientRect();
-        if (!rect || (!rect.width && !rect.height)) {
-          hideSelectionToolbar();
-          return;
-        }
-        const toolbar = ensureSelectionToolbar();
-        toolbar.style.display = "flex";
-        const width = toolbar.offsetWidth || 124;
-        const left = clamp(rect.left + window.scrollX + rect.width / 2 - width / 2, window.scrollX + 10, window.scrollX + document.documentElement.clientWidth - width - 10);
-        const top = Math.max(window.scrollY + 10, rect.top + window.scrollY - (toolbar.offsetHeight || 44) - 10);
-        toolbar.style.left = left + "px";
-        toolbar.style.top = top + "px";
-      }
-      function syncAnnotationMarkers() {
-        for (const marker of document.querySelectorAll("[data-agent-native-plan-marker]")) {
-          if (marker.__agentNativePlanAnnotation) {
-            positionMarker(marker, marker.__agentNativePlanAnnotation);
-            continue;
-          }
-          const tabPanelId = marker.getAttribute("data-tab-panel-id") || "";
-          setMarkerVisibility(marker, isTabContextActive(tabPanelId));
-        }
-      }
-      const layer = ensureLayer();
-      for (const item of state.annotations) {
-        if (!item.anchor) continue;
-        const button = document.createElement("button");
-        const tabContext = item.anchor.tabPanelId ? { tabPanelId: item.anchor.tabPanelId, tabLabel: item.anchor.tabLabel } : tabContextForPoint(item.anchor);
-        button.type = "button";
-        button.className = "an-plan-marker";
-        button.dataset.status = item.status || "open";
-        button.dataset.agentNativePlanMarker = "true";
-        button.__agentNativePlanAnnotation = item;
-        if (tabContext.tabPanelId) {
-          button.dataset.tabPanelId = tabContext.tabPanelId;
-        }
-        if (tabContext.tabLabel) {
-          button.dataset.tabLabel = tabContext.tabLabel;
-        }
-        positionMarker(button, item);
-        setMarkerThreadFaces(button, item);
-        const participantNames = Array.isArray(item.participants)
-          ? item.participants.map((participant) => participant.authorName).filter(Boolean).slice(0, 3).join(", ")
-          : "";
-        const countLabel = (item.commentCount || 1) + " comment" + ((item.commentCount || 1) === 1 ? "" : "s");
-        button.title = participantNames
-          ? countLabel + " by " + participantNames + ": " + (item.message || "Plan comment")
-          : countLabel + ": " + (item.message || "Plan comment");
-        button.setAttribute("aria-label", button.title);
-        button.addEventListener("click", (event) => {
-          event.preventDefault();
-          event.stopPropagation();
-          window.parent.postMessage({
-            type: "agent-native-plan-open-comment",
-            comment: {
-              ...item,
-              anchor: anchorWithCurrentPoint(item.anchor)
-            }
-          }, "*");
-        });
-        layer.appendChild(button);
-      }
-      document.addEventListener("selectionchange", () => requestAnimationFrame(updateSelectionToolbar));
-      document.addEventListener("mouseup", () => setTimeout(updateSelectionToolbar, 0));
-      document.addEventListener("keyup", updateSelectionToolbar);
-      document.addEventListener("keydown", (event) => {
-        if (event.key === "Escape") {
-          closeEditorMenus();
-          if (state.annotateMode) {
-            event.preventDefault();
-            event.stopPropagation();
-            setRuntimeAnnotateMode(false);
-            window.parent.postMessage({ type: "agent-native-plan-exit-comment-mode" }, "*");
-          }
-        }
-      });
-      document.addEventListener("change", (event) => {
-        const editorSelect = event.target instanceof Element ? event.target.closest("[data-agent-native-editor-select]") : null;
-        if (!editorSelect) return;
-        setPreferredEditor(editorSelect.value, true);
-      });
-      document.addEventListener("click", (event) => {
-        const editorOption = event.target instanceof Element ? event.target.closest("[data-agent-native-editor-option]") : null;
-        if (editorOption) {
-          event.preventDefault();
-          event.stopPropagation();
-          setPreferredEditor(editorOption.getAttribute("data-agent-native-editor-option"), true);
-          closeEditorMenus();
-          return;
-        }
-        const editorTrigger = event.target instanceof Element ? event.target.closest("[data-agent-native-editor-trigger]") : null;
-        if (editorTrigger) {
-          event.preventDefault();
-          event.stopPropagation();
-          const picker = editorTrigger.closest("[data-agent-native-editor-picker]");
-          const willOpen = picker?.getAttribute("data-open") !== "true";
-          closeEditorMenus(picker);
-          if (picker && willOpen) {
-            picker.setAttribute("data-open", "true");
-            editorTrigger.setAttribute("aria-expanded", "true");
-          } else {
-            picker?.removeAttribute("data-open");
-            editorTrigger.setAttribute("aria-expanded", "false");
-          }
-          return;
-        }
-        const previewButton = event.target instanceof Element ? event.target.closest("[data-agent-native-code-preview]") : null;
-        if (previewButton) {
-          event.preventDefault();
-          event.stopPropagation();
-          showCodePopover(previewButton, previewButton.getAttribute("data-agent-native-code-preview") || "");
-          return;
-        }
-        const editorButton = event.target instanceof Element ? event.target.closest("[data-agent-native-open-file], [data-agent-native-open-selected-editor]") : null;
-        if (editorButton) {
-          event.preventDefault();
-          event.stopPropagation();
-          const picker = editorButton.closest("[data-agent-native-editor-picker]");
-          const select = picker?.querySelector?.("[data-agent-native-editor-select]");
-          const editor = normalizeEditor(picker?.getAttribute("data-editor") || select?.value || preferredEditor);
-          const directHref = editorButton.getAttribute("data-agent-native-open-" + editor) || "";
-          const filePath = editorButton.getAttribute("data-agent-native-open-file") || "";
-          const line = editorButton.getAttribute("data-agent-native-open-line") || "";
-          const href = directHref || hrefForEditor(editor, filePath, line);
-          closeEditorMenus();
-          window.parent.postMessage({ type: "agent-native-plan-open-editor", href }, "*");
-          return;
-        }
-        const link = event.target instanceof Element ? event.target.closest("a[href]") : null;
-        if (!state.annotateMode && link) {
-          const href = link.getAttribute("href") || "";
-          if (href === "#" || href.trim() === "") {
-            event.preventDefault();
-            event.stopPropagation();
-            window.parent.postMessage({ type: "agent-native-plan-link-blocked", href }, "*");
-            return;
-          }
-          if (href && !href.startsWith("#")) {
-            event.preventDefault();
-            event.stopPropagation();
-            window.parent.postMessage({ type: "agent-native-plan-link-blocked", href }, "*");
-            return;
-          }
-        }
-        if (!state.annotateMode) {
-          if (event.target instanceof Element && event.target.closest(".an-plan-selection-toolbar")) return;
-          if (event.target instanceof Element && event.target.closest(".an-plan-code-popover")) return;
-          closeEditorMenus();
-          hideCodePopover();
-          window.parent.postMessage({ type: "agent-native-plan-close-comment-popover" }, "*");
-          return;
-        }
-        if (!state.annotateMode) return;
-        if (event.target instanceof Element && event.target.closest("[data-agent-native-plan-marker]")) return;
-        hideSelectionToolbar();
-        event.preventDefault();
-        event.stopPropagation();
-        const doc = document.documentElement;
-        const target = event.target instanceof Element ? event.target : null;
-        const section = closestSection(target);
-        const visual = closestVisualContext(target);
-        const visualRect = visual?.getBoundingClientRect?.();
-        const tabContext = tabContextForElement(visual || target || section);
-        const textAnchor = visual ? null : anchorFromPoint(event.clientX, event.clientY, target);
-        const textQuote = visual ? "" : closestTextContext(target);
-        const visualX = visualRect ? pct(event.clientX - visualRect.left, visualRect.width) : undefined;
-        const visualY = visualRect ? pct(event.clientY - visualRect.top, visualRect.height) : undefined;
-        const fallbackAnchor = {
-          x: pct(event.pageX, doc.scrollWidth),
-          y: pct(event.pageY, Math.max(doc.scrollHeight, document.body.scrollHeight)),
-          sectionId: section?.getAttribute("data-plan-section-id") || section?.id || undefined,
-          sectionTitle: sectionTitle(section) || undefined,
-          ...tabContext,
-          snippet: textQuote || (target ? textSnippet(target) : ""),
-          textQuote: textQuote || undefined,
-          anchorKind: visual ? "visual" : textQuote ? "text" : "point",
-          visualLabel: visual ? visualLabel(visual, section) : undefined,
-          visualX,
-          visualY,
-          tagName: target ? target.tagName.toLowerCase() : undefined
-        };
-        const anchoredFallback = withTargetAnchor(fallbackAnchor, visual || target, event.clientX, event.clientY);
-        window.parent.postMessage({
-          type: "agent-native-plan-annotate",
-          anchor: textAnchor ? { ...textAnchor, ...tabContext } : anchoredFallback
-        }, "*");
-      }, true);
-    })();
-  </script>`;
-  if (html.includes("</body>")) {
-    return html.replace("</body>", `${runtime}</body>`);
-  }
-  return `${html}${runtime}`;
-}
-
-function escapeRuntimeJsString(value: string) {
-  return value
-    .replace(/\\/g, "\\\\")
-    .replace(/'/g, "\\'")
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "\\u003c")
-    .replace(/>/g, "\\u003e")
-    .replace(/"/g, "&quot;");
 }
 
 function buildClientPlanHtml(

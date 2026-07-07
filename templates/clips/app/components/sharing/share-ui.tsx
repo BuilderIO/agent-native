@@ -270,9 +270,11 @@ export function CopyField({
   };
   return (
     <div>
-      <div className="mb-1 text-xs font-medium text-muted-foreground">
-        {label}
-      </div>
+      {label ? (
+        <div className="mb-1 text-xs font-medium text-muted-foreground">
+          {label}
+        </div>
+      ) : null}
       <div className="flex items-stretch gap-2">
         <Input
           readOnly

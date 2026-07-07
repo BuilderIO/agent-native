@@ -13,7 +13,7 @@ import {
 
 import { DEFAULT_LOCALE, type LocaleCode } from "../localization/shared.js";
 import { getFeedbackClientContext } from "./feedback-context.js";
-import { useLocale } from "./i18n.js";
+import { useOptionalLocale } from "./i18n.js";
 import { useSession } from "./use-session.js";
 import { cn } from "./utils.js";
 
@@ -241,6 +241,8 @@ export interface FeedbackButtonProps {
   align?: "start" | "center" | "end";
   /** Placeholder text for the textarea. */
   placeholder?: string;
+  /** Optional text to prefill when the popover opens. */
+  initialValue?: string;
   /** Current chat session/thread id, when the host already knows it. */
   chatSessionId?: string | null;
   /** Chat localStorage namespace, when the host uses per-app chat storage. */
@@ -273,6 +275,7 @@ export function FeedbackButton({
   side,
   align = "end",
   placeholder,
+  initialValue,
   chatSessionId,
   chatStorageKey,
   open: controlledOpen,
@@ -281,7 +284,8 @@ export function FeedbackButton({
 }: FeedbackButtonProps) {
   const target = parseTarget(url);
   const { session } = useSession();
-  const { locale } = useLocale();
+  const localeContext = useOptionalLocale();
+  const locale = localeContext?.locale ?? DEFAULT_LOCALE;
   const copy = FEEDBACK_COPY[locale] ?? FEEDBACK_COPY[DEFAULT_LOCALE];
   const resolvedLabel = label ?? copy.label;
 
@@ -308,7 +312,7 @@ export function FeedbackButton({
   useEffect(() => {
     if (!open) return;
     openedAtRef.current = Date.now();
-    setValue("");
+    setValue(initialValue ?? "");
     setHoneypot("");
     setSubmitting(false);
     setSubmitted(false);
@@ -332,7 +336,7 @@ export function FeedbackButton({
         closeTimerRef.current = null;
       }
     };
-  }, [open, url]);
+  }, [copy.invalidUrl, copy.loadError, initialValue, open, url]);
 
   const submit = useCallback(
     async (e?: FormEvent) => {
@@ -429,7 +433,7 @@ export function FeedbackButton({
           <TooltipPrimitive.Portal>
             <TooltipPrimitive.Content
               sideOffset={6}
-              className="z-[300] overflow-hidden rounded-md border border-border bg-popover px-2 py-1 text-[11px] text-foreground shadow-md animate-in fade-in-0 zoom-in-95"
+              className="z-[100040] overflow-hidden rounded-md border border-border bg-popover px-2 py-1 text-[11px] text-foreground shadow-md animate-in fade-in-0 zoom-in-95"
             >
               {resolvedLabel}
             </TooltipPrimitive.Content>
@@ -482,7 +486,7 @@ export function FeedbackButton({
           align={align}
           sideOffset={8}
           collisionPadding={16}
-          className="z-[300] overflow-hidden rounded-lg border border-border bg-popover shadow-xl outline-none data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2"
+          className="z-[100040] overflow-hidden rounded-lg border border-border bg-popover shadow-xl outline-none data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2"
           style={surfaceStyle}
         >
           {submitted ? (

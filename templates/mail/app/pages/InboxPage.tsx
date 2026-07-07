@@ -129,7 +129,7 @@ function ThreadListSidebar({
   useKeyboardShortcuts([{ key: "a", meta: true, handler: selectAllThreads }]);
 
   return (
-    <div className="flex h-full w-[220px] min-w-0 shrink-0 flex-col overflow-hidden border-e border-border/30 bg-muted/50 dark:bg-[hsl(220,6%,5%)]">
+    <div className="flex h-full w-[220px] min-w-0 shrink-0 flex-col overflow-hidden border-e border-border/30 bg-muted/50 dark:bg-[var(--mail-sidebar-surface)]">
       <div className="flex-1 overflow-y-auto">
         {threads.map((thread) => {
           const email = thread.latestMessage;
@@ -160,7 +160,7 @@ function ThreadListSidebar({
                   ? "bg-primary/20 ring-1 ring-inset ring-primary/40"
                   : isActive
                     ? "bg-primary/10"
-                    : "hover:bg-accent dark:hover:bg-[hsl(220,5%,13%)]",
+                    : "hover:bg-accent dark:hover:bg-[var(--mail-sidebar-hover-surface)]",
               )}
             >
               <div className="flex items-center gap-1.5 min-w-0 w-full">
@@ -686,7 +686,7 @@ export function InboxPage() {
 
       {/* Right contact panel — hidden during initial load or when maximized */}
       {!emailListLoading && !(hasThread && isMaximized) && (
-        <div className="mail-contact-side-panel hidden w-[260px] shrink-0 flex-col border-s border-border/30 bg-muted/50 dark:bg-[hsl(220,6%,5%)]">
+        <div className="mail-contact-side-panel hidden w-[260px] shrink-0 flex-col border-s border-border/30 bg-muted/50 dark:bg-[var(--mail-sidebar-surface)]">
           <ContactPanel
             emailId={contactEmailId}
             contactEmail={sidebarContactEmail}

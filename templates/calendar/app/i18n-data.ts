@@ -398,6 +398,9 @@ const enUS = {
     googleWarningAfterUnsafe: "to finish connecting.",
     accountConnectedElsewhere: "This account is connected to another login",
     googleConnectionFailed: "Google connection failed",
+    managedCredentialsUnavailable: "Google Calendar is unavailable",
+    managedCredentialsUnavailableDescription:
+      "Calendar's Google connection is not configured for this deployment. Please try again later.",
     thatGoogleAccount: "that Google account",
     signOutThenSignIn: "Sign out, then sign in with {{account}}.",
     signOut: "Sign out",
@@ -452,6 +455,8 @@ const enUS = {
     availabilityDescription: "Set your available hours for bookings.",
     availabilitySaved: "Availability saved",
     availabilitySaveFailed: "Failed to save availability",
+    availabilityUnavailable:
+      "This host's calendar availability can't be checked right now. Please try again later.",
     availableTimes: "Available Times",
     allCount: "All ({{count}})",
     back: "Back",
@@ -667,6 +672,7 @@ const enUS = {
     eventRemoved: "Event removed",
     eventUpdated: "Event updated",
     failedDeleteEvent: "Failed to delete event",
+    failedRestoreAttendance: "Failed to restore attendance",
     failedMoveEvent: "Failed to move event",
     failedUpdateEvent: "Failed to update event",
     googleCalendarLinkUnavailable: "Google Calendar link unavailable",
@@ -724,6 +730,7 @@ const enUS = {
     create: "Create",
     createAndSend: "Create and send",
     createEvent: "Create event",
+    createEventWithTitle: 'Create "{{title}}"',
     createFailed: "Failed to create event",
     creating: "Creating…",
     custom: "Custom",
@@ -801,6 +808,7 @@ const enUS = {
     private: "Private",
     press: "Press",
     public: "Public",
+    quickCreate: "Quick create",
     recurringResponseScope: "Recurring response scope",
     repeats: "Repeats",
     reviewInvite: "Review Invite",
@@ -7766,6 +7774,7 @@ const translatedCalendarRawBurnDown = {
       eventRemoved: "事件已移除",
       eventUpdated: "事件已更新",
       failedDeleteEvent: "删除事件失败",
+      failedRestoreAttendance: "恢复出席状态失败",
       failedMoveEvent: "移动事件失败",
       failedUpdateEvent: "更新事件失败",
       googleCalendarLinkUnavailable: "Google Calendar 链接不可用",
@@ -7808,6 +7817,7 @@ const translatedCalendarRawBurnDown = {
       added: "已添加",
       calendarFeedAdded: "已添加“{{name}}”",
       commandPlaceholder: "搜索事件、跳转到日期或询问 AI...",
+      createEventWithTitle: '创建"{{title}}"',
       directorySearchLimited: "目录搜索受限。输入完整邮箱并按 Enter 添加。",
       events: "事件",
       fromUrl: "来自 URL",
@@ -7819,6 +7829,7 @@ const translatedCalendarRawBurnDown = {
         "粘贴来自 Google Calendar、iCloud、Outlook 等的可共享日历链接。",
       people: "人员",
       press: "按",
+      quickCreate: "快速创建",
       searchPeoplePlaceholder: "按姓名搜索或输入邮箱...",
       selectedEvent: "所选事件",
       showLess: "收起",
@@ -7932,6 +7943,7 @@ const translatedCalendarRawBurnDown = {
       eventRemoved: "Evento quitado",
       eventUpdated: "Evento actualizado",
       failedDeleteEvent: "No se pudo eliminar el evento",
+      failedRestoreAttendance: "No se pudo restaurar la asistencia",
       failedMoveEvent: "No se pudo mover el evento",
       failedUpdateEvent: "No se pudo actualizar el evento",
       googleCalendarLinkUnavailable:
@@ -7976,6 +7988,7 @@ const translatedCalendarRawBurnDown = {
       added: "Añadido",
       calendarFeedAdded: "“{{name}}” añadido",
       commandPlaceholder: "Busca eventos, ve a una fecha o pregunta a la IA...",
+      createEventWithTitle: 'Crear "{{title}}"',
       directorySearchLimited:
         "La búsqueda del directorio es limitada. Escribe un correo completo y pulsa Enter para añadirlo.",
       events: "Eventos",
@@ -7988,6 +8001,7 @@ const translatedCalendarRawBurnDown = {
         "Pega un enlace de calendario compartible de Google Calendar, iCloud, Outlook, etc.",
       people: "Personas",
       press: "Pulsa",
+      quickCreate: "Creación rápida",
       searchPeoplePlaceholder: "Busca por nombre o escribe un correo...",
       selectedEvent: "Evento seleccionado",
       showLess: "Mostrar menos",
@@ -8104,6 +8118,7 @@ const translatedCalendarRawBurnDown = {
       eventRemoved: "Événement retiré",
       eventUpdated: "Événement mis à jour",
       failedDeleteEvent: "Échec de la suppression de l'événement",
+      failedRestoreAttendance: "Échec de la restauration de la participation",
       failedMoveEvent: "Échec du déplacement de l'événement",
       failedUpdateEvent: "Échec de la mise à jour de l'événement",
       googleCalendarLinkUnavailable: "Lien Google Calendar indisponible",
@@ -8147,6 +8162,7 @@ const translatedCalendarRawBurnDown = {
       calendarFeedAdded: "« {{name}} » ajouté",
       commandPlaceholder:
         "Rechercher des événements, aller à une date ou demander à l’IA...",
+      createEventWithTitle: "Créer « {{title}} »",
       directorySearchLimited:
         "La recherche dans l’annuaire est limitée. Saisissez une adresse e-mail complète et appuyez sur Entrée pour l’ajouter.",
       events: "Événements",
@@ -8159,6 +8175,7 @@ const translatedCalendarRawBurnDown = {
         "Collez un lien de calendrier partageable depuis Google Calendar, iCloud, Outlook, etc.",
       people: "Personnes",
       press: "Appuyez sur",
+      quickCreate: "Création rapide",
       searchPeoplePlaceholder: "Rechercher par nom ou saisir un e-mail...",
       selectedEvent: "Événement sélectionné",
       showLess: "Afficher moins",
@@ -8278,6 +8295,8 @@ const translatedCalendarRawBurnDown = {
       eventRemoved: "Ereignis entfernt",
       eventUpdated: "Ereignis aktualisiert",
       failedDeleteEvent: "Ereignis konnte nicht gelöscht werden",
+      failedRestoreAttendance:
+        "Teilnahme konnte nicht wiederhergestellt werden",
       failedMoveEvent: "Ereignis konnte nicht verschoben werden",
       failedUpdateEvent: "Ereignis konnte nicht aktualisiert werden",
       googleCalendarLinkUnavailable: "Google Calendar-Link nicht verfügbar",
@@ -8322,6 +8341,7 @@ const translatedCalendarRawBurnDown = {
       calendarFeedAdded: "„{{name}}“ hinzugefügt",
       commandPlaceholder:
         "Ereignisse suchen, zu einem Datum springen oder KI fragen...",
+      createEventWithTitle: "„{{title}}“ erstellen",
       directorySearchLimited:
         "Die Verzeichnissuche ist eingeschränkt. Gib eine vollständige E-Mail ein und drücke Enter, um sie hinzuzufügen.",
       events: "Ereignisse",
@@ -8334,6 +8354,7 @@ const translatedCalendarRawBurnDown = {
         "Füge einen teilbaren Kalenderlink aus Google Calendar, iCloud, Outlook usw. ein.",
       people: "Personen",
       press: "Drücke",
+      quickCreate: "Schnellerstellung",
       searchPeoplePlaceholder: "Nach Name suchen oder E-Mail eingeben...",
       selectedEvent: "Ausgewähltes Ereignis",
       showLess: "Weniger anzeigen",
@@ -8450,6 +8471,7 @@ const translatedCalendarRawBurnDown = {
       eventRemoved: "イベントを削除しました",
       eventUpdated: "イベントを更新しました",
       failedDeleteEvent: "イベントを削除できませんでした",
+      failedRestoreAttendance: "出席の復元に失敗しました",
       failedMoveEvent: "イベントを移動できませんでした",
       failedUpdateEvent: "イベントを更新できませんでした",
       googleCalendarLinkUnavailable: "Google Calendar リンクを利用できません",
@@ -8493,6 +8515,7 @@ const translatedCalendarRawBurnDown = {
       added: "追加済み",
       calendarFeedAdded: "「{{name}}」を追加しました",
       commandPlaceholder: "予定を検索、日付へ移動、または AI に質問...",
+      createEventWithTitle: "「{{title}}」を作成",
       directorySearchLimited:
         "ディレクトリ検索は制限されています。完全なメールアドレスを入力して Enter で追加してください。",
       events: "予定",
@@ -8505,6 +8528,7 @@ const translatedCalendarRawBurnDown = {
         "Google Calendar、iCloud、Outlook などの共有可能なカレンダーリンクを貼り付けます。",
       people: "ユーザー",
       press: "押す",
+      quickCreate: "クイック作成",
       searchPeoplePlaceholder: "名前で検索、またはメールを入力...",
       selectedEvent: "選択中の予定",
       showLess: "表示を減らす",
@@ -8617,6 +8641,7 @@ const translatedCalendarRawBurnDown = {
       eventRemoved: "이벤트가 제거되었습니다",
       eventUpdated: "이벤트가 업데이트되었습니다",
       failedDeleteEvent: "이벤트를 삭제하지 못했습니다",
+      failedRestoreAttendance: "참석 상태를 복원하지 못했습니다",
       failedMoveEvent: "이벤트를 이동하지 못했습니다",
       failedUpdateEvent: "이벤트를 업데이트하지 못했습니다",
       googleCalendarLinkUnavailable:
@@ -8660,6 +8685,7 @@ const translatedCalendarRawBurnDown = {
       added: "추가됨",
       calendarFeedAdded: "“{{name}}” 추가됨",
       commandPlaceholder: "이벤트 검색, 날짜 이동 또는 AI에게 질문...",
+      createEventWithTitle: '"{{title}}" 만들기',
       directorySearchLimited:
         "디렉터리 검색이 제한됩니다. 전체 이메일을 입력하고 Enter를 눌러 추가하세요.",
       events: "이벤트",
@@ -8672,6 +8698,7 @@ const translatedCalendarRawBurnDown = {
         "Google Calendar, iCloud, Outlook 등의 공유 가능한 캘린더 링크를 붙여넣으세요.",
       people: "사람",
       press: "누르기",
+      quickCreate: "빠른 생성",
       searchPeoplePlaceholder: "이름으로 검색하거나 이메일 입력...",
       selectedEvent: "선택한 이벤트",
       showLess: "간단히 보기",
@@ -8788,6 +8815,7 @@ const translatedCalendarRawBurnDown = {
       eventRemoved: "Evento removido",
       eventUpdated: "Evento atualizado",
       failedDeleteEvent: "Falha ao excluir evento",
+      failedRestoreAttendance: "Falha ao restaurar a participação",
       failedMoveEvent: "Falha ao mover evento",
       failedUpdateEvent: "Falha ao atualizar evento",
       googleCalendarLinkUnavailable: "Link do Google Calendar indisponível",
@@ -8831,6 +8859,7 @@ const translatedCalendarRawBurnDown = {
       calendarFeedAdded: "“{{name}}” adicionado",
       commandPlaceholder:
         "Pesquise eventos, vá para uma data ou pergunte à IA...",
+      createEventWithTitle: 'Criar "{{title}}"',
       directorySearchLimited:
         "A busca no diretório é limitada. Digite um e-mail completo e pressione Enter para adicionar.",
       events: "Eventos",
@@ -8843,6 +8872,7 @@ const translatedCalendarRawBurnDown = {
         "Cole um link de calendário compartilhável do Google Calendar, iCloud, Outlook etc.",
       people: "Pessoas",
       press: "Pressione",
+      quickCreate: "Criação rápida",
       searchPeoplePlaceholder: "Pesquise por nome ou digite um e-mail...",
       selectedEvent: "Evento selecionado",
       showLess: "Mostrar menos",
@@ -8957,6 +8987,7 @@ const translatedCalendarRawBurnDown = {
       eventRemoved: "इवेंट हटाया गया",
       eventUpdated: "इवेंट अपडेट किया गया",
       failedDeleteEvent: "इवेंट मिटाने में विफल",
+      failedRestoreAttendance: "उपस्थिति बहाल करने में विफल",
       failedMoveEvent: "इवेंट स्थानांतरित करने में विफल",
       failedUpdateEvent: "इवेंट अपडेट करने में विफल",
       googleCalendarLinkUnavailable: "Google Calendar लिंक उपलब्ध नहीं है",
@@ -8999,6 +9030,7 @@ const translatedCalendarRawBurnDown = {
       added: "जोड़ा गया",
       calendarFeedAdded: "“{{name}}” जोड़ा गया",
       commandPlaceholder: "इवेंट खोजें, तारीख पर जाएँ, या AI से पूछें...",
+      createEventWithTitle: '"{{title}}" बनाएं',
       directorySearchLimited:
         "डायरेक्टरी खोज सीमित है। पूरा ईमेल लिखें और जोड़ने के लिए Enter दबाएँ।",
       events: "इवेंट",
@@ -9011,6 +9043,7 @@ const translatedCalendarRawBurnDown = {
         "Google Calendar, iCloud, Outlook आदि से साझा करने योग्य कैलेंडर लिंक चिपकाएँ।",
       people: "लोग",
       press: "दबाएँ",
+      quickCreate: "त्वरित निर्माण",
       searchPeoplePlaceholder: "नाम से खोजें या ईमेल लिखें...",
       selectedEvent: "चुना हुआ इवेंट",
       showLess: "कम दिखाएँ",
@@ -9125,6 +9158,7 @@ const translatedCalendarRawBurnDown = {
       eventRemoved: "تمت إزالة الحدث",
       eventUpdated: "تم تحديث الحدث",
       failedDeleteEvent: "فشل حذف الحدث",
+      failedRestoreAttendance: "فشل استعادة الحضور",
       failedMoveEvent: "فشل نقل الحدث",
       failedUpdateEvent: "فشل تحديث الحدث",
       googleCalendarLinkUnavailable: "رابط Google Calendar غير متاح",
@@ -9168,6 +9202,7 @@ const translatedCalendarRawBurnDown = {
       calendarFeedAdded: 'تمت إضافة "{{name}}"',
       commandPlaceholder:
         "ابحث عن الأحداث أو انتقل إلى تاريخ أو اسأل الذكاء الاصطناعي...",
+      createEventWithTitle: 'إنشاء "{{title}}"',
       directorySearchLimited:
         "بحث الدليل محدود. اكتب بريدًا إلكترونيًا كاملًا واضغط Enter للإضافة.",
       events: "الأحداث",
@@ -9180,6 +9215,7 @@ const translatedCalendarRawBurnDown = {
         "الصق رابط تقويم قابلًا للمشاركة من Google Calendar أو iCloud أو Outlook وما إلى ذلك.",
       people: "الأشخاص",
       press: "اضغط",
+      quickCreate: "إنشاء سريع",
       searchPeoplePlaceholder: "ابحث بالاسم أو اكتب بريدًا إلكترونيًا...",
       selectedEvent: "الحدث المحدد",
       showLess: "عرض أقل",
@@ -9233,6 +9269,107 @@ const translatedCalendarRawBurnDown = {
   },
 } satisfies Partial<Record<LocaleCode, PartialMessages>>;
 
+const translatedCalendarAvailabilityFix = {
+  "zh-CN": {
+    googleConnect: {
+      managedCredentialsUnavailable: "Google Calendar 暂不可用",
+      managedCredentialsUnavailableDescription:
+        "此部署尚未配置 Calendar 的 Google 连接。请稍后再试。",
+    },
+    bookingLinks: {
+      availabilityUnavailable: "目前无法检查此主办人的日历可用性。请稍后再试。",
+    },
+  },
+  "es-ES": {
+    googleConnect: {
+      managedCredentialsUnavailable: "Google Calendar no está disponible",
+      managedCredentialsUnavailableDescription:
+        "La conexión de Google de Calendar no está configurada para este despliegue. Inténtalo de nuevo más tarde.",
+    },
+    bookingLinks: {
+      availabilityUnavailable:
+        "No se puede comprobar ahora la disponibilidad del calendario de este anfitrión. Inténtalo de nuevo más tarde.",
+    },
+  },
+  "fr-FR": {
+    googleConnect: {
+      managedCredentialsUnavailable: "Google Calendar est indisponible",
+      managedCredentialsUnavailableDescription:
+        "La connexion Google de Calendar n'est pas configurée pour ce déploiement. Réessayez plus tard.",
+    },
+    bookingLinks: {
+      availabilityUnavailable:
+        "La disponibilité du calendrier de cet hôte ne peut pas être vérifiée pour le moment. Réessayez plus tard.",
+    },
+  },
+  "de-DE": {
+    googleConnect: {
+      managedCredentialsUnavailable: "Google Calendar ist nicht verfügbar",
+      managedCredentialsUnavailableDescription:
+        "Die Google-Verbindung von Calendar ist für diese Bereitstellung nicht konfiguriert. Bitte versuche es später erneut.",
+    },
+    bookingLinks: {
+      availabilityUnavailable:
+        "Die Kalenderverfügbarkeit dieses Gastgebers kann derzeit nicht geprüft werden. Bitte versuche es später erneut.",
+    },
+  },
+  "ja-JP": {
+    googleConnect: {
+      managedCredentialsUnavailable: "Google Calendar を利用できません",
+      managedCredentialsUnavailableDescription:
+        "このデプロイでは Calendar の Google 接続が設定されていません。後でもう一度お試しください。",
+    },
+    bookingLinks: {
+      availabilityUnavailable:
+        "この主催者のカレンダーの空き状況を現在確認できません。後でもう一度お試しください。",
+    },
+  },
+  "ko-KR": {
+    googleConnect: {
+      managedCredentialsUnavailable: "Google Calendar를 사용할 수 없습니다",
+      managedCredentialsUnavailableDescription:
+        "이 배포에는 Calendar의 Google 연결이 구성되어 있지 않습니다. 나중에 다시 시도하세요.",
+    },
+    bookingLinks: {
+      availabilityUnavailable:
+        "현재 이 주최자의 캘린더 가능 시간을 확인할 수 없습니다. 나중에 다시 시도하세요.",
+    },
+  },
+  "pt-BR": {
+    googleConnect: {
+      managedCredentialsUnavailable: "Google Calendar indisponível",
+      managedCredentialsUnavailableDescription:
+        "A conexão do Calendar com o Google não está configurada para esta implantação. Tente novamente mais tarde.",
+    },
+    bookingLinks: {
+      availabilityUnavailable:
+        "Não é possível verificar a disponibilidade do calendário deste anfitrião agora. Tente novamente mais tarde.",
+    },
+  },
+  "hi-IN": {
+    googleConnect: {
+      managedCredentialsUnavailable: "Google Calendar उपलब्ध नहीं है",
+      managedCredentialsUnavailableDescription:
+        "इस deployment के लिए Calendar का Google connection configured नहीं है। कृपया बाद में फिर कोशिश करें।",
+    },
+    bookingLinks: {
+      availabilityUnavailable:
+        "इस host की calendar availability अभी check नहीं की जा सकती। कृपया बाद में फिर कोशिश करें।",
+    },
+  },
+  "ar-SA": {
+    googleConnect: {
+      managedCredentialsUnavailable: "Google Calendar غير متاح",
+      managedCredentialsUnavailableDescription:
+        "اتصال Google في Calendar غير مهيأ لهذا النشر. يُرجى المحاولة لاحقًا.",
+    },
+    bookingLinks: {
+      availabilityUnavailable:
+        "لا يمكن التحقق من توفر تقويم هذا المضيف الآن. يُرجى المحاولة لاحقًا.",
+    },
+  },
+} satisfies Partial<Record<LocaleCode, PartialMessages>>;
+
 function applyTranslatedCalendarOverrides(
   translationSet: Partial<Record<LocaleCode, PartialMessages>>,
 ) {
@@ -9282,3 +9419,4 @@ applyTranslatedCalendarOverrides(translatedCalendarDebtTranslations);
 applyTranslatedCalendarOverrides(translatedCalendarRemainingRaw);
 applyTranslatedCalendarOverrides(translatedCalendarRawBurnDown);
 applyTranslatedCalendarOverrides(translatedCalendarExactCleanup);
+applyTranslatedCalendarOverrides(translatedCalendarAvailabilityFix);

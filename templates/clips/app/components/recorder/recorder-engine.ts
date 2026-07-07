@@ -6,7 +6,18 @@
  * but no React state lives here — callers subscribe via `onState`, `onChunk`,
  * and `onError`.
  */
-import { appBasePath, captureClientException } from "@agent-native/core/client";
+import {
+  appBasePath,
+  captureClientException,
+  trackEvent,
+} from "@agent-native/core/client";
+import { waitForReadyRecordingAfterFinalizeError } from "@shared/finalize-recovery";
+import {
+  chooseFallbackAudioInput,
+  enumerateAudioInputDevices,
+  isLikelyPhoneMicLabel,
+  type AudioInputFallback,
+} from "@shared/media-device-selection";
 import {
   chunkUploadUrl,
   pickMimeType,
@@ -39,6 +50,25 @@ export type RecordingMode = "screen" | "camera" | "screen+camera";
 export type DisplaySurface = "monitor" | "window" | "browser";
 export const NO_MIC_DEVICE_ID = "__clips_no_microphone__";
 export const NO_CAMERA_DEVICE_ID = "__clips_no_camera__";
+
+export function supportsBrowserTabCapture(): boolean {
+  if (typeof navigator === "undefined") return false;
+  const userAgent = navigator.userAgent || "";
+  if (/AgentNativeDesktop|Electron|Tauri|WKWebView|WebView/i.test(userAgent)) {
+    return false;
+  }
+  const isChromium =
+    /Chrome|Chromium|CriOS|Edg|OPR/i.test(userAgent) &&
+    !/Firefox|FxiOS/i.test(userAgent);
+  return isChromium;
+}
+
+export function normalizeDisplaySurfaceForRuntime(
+  surface: DisplaySurface,
+): DisplaySurface {
+  if (surface === "browser" && !supportsBrowserTabCapture()) return "window";
+  return surface;
+}
 
 type ExtendedDisplayMediaOptions = DisplayMediaStreamOptions & {
   video: MediaTrackConstraints & { displaySurface?: DisplaySurface };
@@ -77,6 +107,8 @@ export interface RecorderEngineOptions {
   displaySurface?: DisplaySurface;
   /** Selected mic deviceId (optional — default used when omitted). */
   micDeviceId?: string | null;
+  /** Last known user-visible mic label, used to recover rotated device ids. */
+  micDeviceLabel?: string | null;
   /** Selected camera deviceId (optional — default used when omitted). */
   cameraDeviceId?: string | null;
   /** Camera bubble size selected in the pre-record UI. */
@@ -197,6 +229,8 @@ const DEFAULT_CHUNK_MS = 1000;
 const GCS_CHUNK_ALIGN_BYTES = 256 * 1024;
 const STREAM_CHUNK_BYTES = 15 * GCS_CHUNK_ALIGN_BYTES; // 3.75 MiB
 const CHUNK_UPLOAD_MAX_ATTEMPTS = 3;
+const CHUNK_UPLOAD_TIMEOUT_MS = 60_000;
+const FINAL_CHUNK_UPLOAD_TIMEOUT_MS = 180_000;
 const RETRYABLE_CHUNK_UPLOAD_STATUSES = new Set([
   408, 425, 429, 500, 502, 503, 504,
 ]);
@@ -246,6 +280,16 @@ function isDeviceUnavailableError(err: unknown): boolean {
 
 function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err || "Unknown error");
+}
+
+function micLabelDiagnostic(label: string | null | undefined): string {
+  const value = label?.trim();
+  if (!value) return "empty";
+  if (isLikelyPhoneMicLabel(value)) return "phone-like";
+  if (/\b(?:macbook|built[- ]?in|internal microphone)\b/i.test(value)) {
+    return "built-in";
+  }
+  return "redacted";
 }
 
 function makeAbortError(message: string): Error {
@@ -334,6 +378,19 @@ function isRetryableChunkUploadStatus(status: number): boolean {
   return RETRYABLE_CHUNK_UPLOAD_STATUSES.has(status);
 }
 
+function trackClipUploadBlockingFailure(props: Record<string, unknown>): void {
+  try {
+    trackEvent("clips_upload_blocking_failure", {
+      app: "clips",
+      template: "clips",
+      surface: "web_recorder",
+      ...props,
+    });
+  } catch {
+    // Analytics should never change recording behavior.
+  }
+}
+
 function retryDelayMs(attempt: number): number {
   return attempt === 1 ? 500 : 1500;
 }
@@ -382,6 +439,53 @@ function waitForRetry(ms: number, signal?: AbortSignal): Promise<void> {
     timer = window.setTimeout(onResolve, ms);
     signal?.addEventListener("abort", onAbort, { once: true });
   });
+}
+
+function timeoutError(message: string): Error {
+  const err = new Error(message);
+  err.name = "TimeoutError";
+  return err;
+}
+
+function abortError(message: string): Error {
+  const err = new Error(message);
+  err.name = "AbortError";
+  return err;
+}
+
+function fetchSignalWithTimeout(
+  parent: AbortSignal | undefined,
+  timeoutMs: number,
+): { signal: AbortSignal; cleanup: () => void } {
+  const controller = new AbortController();
+  const timeout = window.setTimeout(() => {
+    controller.abort(
+      timeoutError(`Upload request timed out after ${timeoutMs / 1000}s`),
+    );
+  }, timeoutMs);
+  let onAbort: (() => void) | null = null;
+  if (parent) {
+    if (parent.aborted) {
+      controller.abort(parent.reason ?? abortError("Upload aborted"));
+    } else {
+      onAbort = () => {
+        controller.abort(parent.reason ?? abortError("Upload aborted"));
+      };
+      parent.addEventListener("abort", onAbort, { once: true });
+    }
+  }
+  return {
+    signal: controller.signal,
+    cleanup: () => {
+      window.clearTimeout(timeout);
+      if (onAbort) parent?.removeEventListener("abort", onAbort);
+    },
+  };
+}
+
+function fetchAbortError(signal: AbortSignal, err: unknown): Error {
+  if (signal.aborted && signal.reason instanceof Error) return signal.reason;
+  return err instanceof Error ? err : new Error(String(err));
 }
 
 export class RecorderEngine {
@@ -459,12 +563,16 @@ export class RecorderEngine {
   private cameraDisconnectNotified = false;
   private micDisconnectNotified = false;
   /**
-   * Set when a stale/unavailable `micDeviceId` forces a fallback to the system
-   * default mic during `acquire()`. The recording then runs on the default
-   * device, so live transcription (which can only ever use the default mic) is
-   * safe to start even though a specific mic was originally requested.
+   * Set only when a stale/unavailable `micDeviceId` forces a bare system
+   * default mic during `acquire()`. Explicit concrete fallback mics do not set
+   * this because Web Speech cannot pin live transcription to those devices.
    */
   private micFellBackToDefault = false;
+  /**
+   * True when the final recorded mic stream is the browser/OS default input.
+   * Used to decide whether live transcription will listen to the same device.
+   */
+  private micUsesSystemDefault = false;
 
   private state: RecorderState = "idle";
 
@@ -494,12 +602,181 @@ export class RecorderEngine {
   }
 
   /**
-   * True when `acquire()` had to fall back from the requested `micDeviceId` to
-   * the system default mic. Lets the UI start live transcription for this
-   * session even though a specific mic was originally selected.
+   * True only when `acquire()` had to fall back from a concrete requested mic
+   * to the system default mic.
    */
   didMicFallBackToDefault(): boolean {
     return this.micFellBackToDefault;
+  }
+
+  /**
+   * True when the final recorded mic stream is the system default. Live Web
+   * Speech transcription can only use that same default input, not an explicit
+   * concrete fallback device.
+   */
+  didMicUseSystemDefault(): boolean {
+    return this.micUsesSystemDefault;
+  }
+
+  private reportMicFallback(
+    mechanism: string,
+    message: string,
+    extra: Record<string, unknown> = {},
+  ): void {
+    console.warn("[recorder]", message, extra);
+    try {
+      trackEvent("clips_mic_device_fallback", {
+        app: "clips",
+        template: "clips",
+        surface: "web_recorder",
+        mechanism,
+        ...extra,
+      });
+    } catch {
+      // Analytics should never change recording behavior.
+    }
+    captureClientException(new Error(message), {
+      tags: { surface: "web_recorder", mechanism },
+      extra,
+    });
+  }
+
+  private async chooseExplicitMicFallback(
+    avoidDeviceIds: Array<string | null | undefined> = [],
+  ): Promise<AudioInputFallback | null> {
+    try {
+      return chooseFallbackAudioInput(await enumerateAudioInputDevices(), {
+        savedLabel: this.opts.micDeviceLabel,
+        avoidDeviceIds,
+      });
+    } catch (err) {
+      this.reportMicFallback(
+        "mic-fallback-enumeration-failed",
+        "Could not enumerate microphones for fallback.",
+        {
+          error: errorMessage(err),
+          requestedDeviceId: this.opts.micDeviceId ?? null,
+          requestedDeviceLabel: micLabelDiagnostic(this.opts.micDeviceLabel),
+        },
+      );
+      return null;
+    }
+  }
+
+  private async tryExplicitMicFallback(
+    mechanism: string,
+    avoidDeviceIds: Array<string | null | undefined> = [],
+  ): Promise<MediaStream | null> {
+    const fallback = await this.chooseExplicitMicFallback(avoidDeviceIds);
+    if (!fallback) return null;
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: voiceFocusedAudioConstraints(fallback.deviceId),
+        video: false,
+      });
+      this.reportMicFallback(
+        mechanism,
+        "Using an explicit fallback microphone instead of the system default.",
+        {
+          requestedDeviceId: this.opts.micDeviceId ?? null,
+          requestedDeviceLabel: micLabelDiagnostic(this.opts.micDeviceLabel),
+          fallbackDeviceId: fallback.deviceId,
+          fallbackDeviceLabel: micLabelDiagnostic(fallback.label),
+          fallbackReason: fallback.reason,
+        },
+      );
+      this.opts.onWarning?.(
+        fallback.reason === "saved-label"
+          ? "Selected microphone was reconnected under a new device id."
+          : "Selected microphone was unavailable; using another available microphone.",
+      );
+      return stream;
+    } catch (err) {
+      if (!isDeviceUnavailableError(err)) throw err;
+      this.reportMicFallback(
+        "mic-explicit-fallback-failed",
+        "Explicit microphone fallback was unavailable.",
+        {
+          requestedDeviceId: this.opts.micDeviceId ?? null,
+          requestedDeviceLabel: micLabelDiagnostic(this.opts.micDeviceLabel),
+          fallbackDeviceId: fallback.deviceId,
+          fallbackDeviceLabel: micLabelDiagnostic(fallback.label),
+          fallbackReason: fallback.reason,
+          error: errorMessage(err),
+        },
+      );
+      return null;
+    }
+  }
+
+  private async replaceUnsafeMicCaptureIfPossible(
+    stream: MediaStream,
+    requestedDeviceId: string | null | undefined,
+  ): Promise<MediaStream> {
+    const track = stream.getAudioTracks()[0];
+    if (!track) return stream;
+    const settings = track.getSettings?.();
+    const actualDeviceId = settings?.deviceId ?? "";
+    const mismatched =
+      !!requestedDeviceId &&
+      !!actualDeviceId &&
+      actualDeviceId !== requestedDeviceId;
+    const phoneLike = isLikelyPhoneMicLabel(track.label);
+    if (!mismatched && !phoneLike) return stream;
+
+    const replacement = await this.tryExplicitMicFallback(
+      phoneLike ? "mic-phone-capture-correction" : "mic-device-mismatch",
+      [requestedDeviceId, actualDeviceId],
+    );
+    if (!replacement) return stream;
+    for (const oldTrack of stream.getTracks()) oldTrack.stop();
+    this.micFellBackToDefault = false;
+    this.micUsesSystemDefault = false;
+    return replacement;
+  }
+
+  private async getDefaultMicStreamWithFallback(
+    originalError: unknown,
+  ): Promise<MediaStream> {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: voiceFocusedAudioConstraints(),
+        video: false,
+      });
+      this.micFellBackToDefault = !!this.opts.micDeviceId;
+      this.micUsesSystemDefault = true;
+      this.reportMicFallback(
+        "mic-system-default-fallback",
+        "Using the system default microphone after explicit fallback was unavailable.",
+        {
+          requestedDeviceId: this.opts.micDeviceId ?? null,
+          requestedDeviceLabel: micLabelDiagnostic(this.opts.micDeviceLabel),
+          error: errorMessage(originalError),
+        },
+      );
+      this.opts.onWarning?.(
+        "Selected microphone was unavailable; using the system default microphone.",
+      );
+      return this.replaceUnsafeMicCaptureIfPossible(stream, null);
+    } catch (fallbackErr) {
+      if (!isDeviceUnavailableError(fallbackErr)) throw fallbackErr;
+      this.reportMicFallback(
+        "mic-basic-audio-fallback",
+        "Voice-focused microphone constraints failed; retrying basic audio.",
+        {
+          requestedDeviceId: this.opts.micDeviceId ?? null,
+          requestedDeviceLabel: micLabelDiagnostic(this.opts.micDeviceLabel),
+          error: errorMessage(fallbackErr),
+        },
+      );
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: true,
+        video: false,
+      });
+      this.micFellBackToDefault = !!this.opts.micDeviceId;
+      this.micUsesSystemDefault = true;
+      return this.replaceUnsafeMicCaptureIfPossible(stream, null);
+    }
   }
 
   getPreviewStream(): MediaStream | null {
@@ -626,7 +903,9 @@ export class RecorderEngine {
       // directly anchored to the user's click. Camera/mic prompts do not need
       // that transient activation, and launching them in parallel with the
       // screen picker can make Chrome/macOS report a false permission failure.
-      const displaySurface = this.opts.displaySurface ?? "window";
+      const displaySurface = normalizeDisplaySurfaceForRuntime(
+        this.opts.displaySurface ?? "window",
+      );
       const displayOptions: ExtendedDisplayMediaOptions = {
         video: {
           frameRate: {
@@ -688,21 +967,38 @@ export class RecorderEngine {
 
       if (wantsMic) {
         try {
-          this.micStream = await navigator.mediaDevices.getUserMedia({
-            audio: voiceFocusedAudioConstraints(this.opts.micDeviceId),
+          const requestedId = this.opts.micDeviceId?.trim() || "";
+          const stream = await navigator.mediaDevices.getUserMedia({
+            audio: voiceFocusedAudioConstraints(requestedId),
             video: false,
           });
+          this.micUsesSystemDefault = !requestedId;
+          this.micStream = await this.replaceUnsafeMicCaptureIfPossible(
+            stream,
+            requestedId,
+          );
         } catch (err) {
-          // Same stale-device fallback as the camera — retry default mic.
+          // Same stale-device trigger as the camera, but do not jump straight
+          // to OS default: Continuity can make default point at an iPhone mic.
           if (this.opts.micDeviceId && isDeviceUnavailableError(err)) {
+            const explicitFallback = await this.tryExplicitMicFallback(
+              "mic-stale-device-fallback",
+              [this.opts.micDeviceId],
+            );
+            if (explicitFallback) {
+              this.micUsesSystemDefault = false;
+              this.micStream = explicitFallback;
+            } else {
+              try {
+                this.micStream =
+                  await this.getDefaultMicStreamWithFallback(err);
+              } catch (retryErr) {
+                throw this.friendlyError(retryErr, "microphone");
+              }
+            }
+          } else if (!this.opts.micDeviceId && isDeviceUnavailableError(err)) {
             try {
-              this.micStream = await navigator.mediaDevices.getUserMedia({
-                audio: voiceFocusedAudioConstraints(),
-                video: false,
-              });
-              // Recording is now on the system default mic, so live
-              // transcription can run for this session after all.
-              this.micFellBackToDefault = true;
+              this.micStream = await this.getDefaultMicStreamWithFallback(err);
             } catch (retryErr) {
               throw this.friendlyError(retryErr, "microphone");
             }
@@ -1082,6 +1378,23 @@ export class RecorderEngine {
     };
     this.lastFinalizeMeta = finalizeMeta;
 
+    // Stop camera and mic hardware immediately — privacy-sensitive inputs no
+    // longer needed once the final chunk is flushed. The composite and display
+    // streams are intentionally left alive: the caller holds a compositeStream
+    // reference for an unawaited thumbnail capture in screen+camera mode.
+    // Full stream teardown happens in the finally block below.
+    this.cameraLive = false;
+    this.audioMixSources = [];
+    this.audioMixCtx?.close().catch(() => {});
+    this.audioMixCtx = null;
+    for (const s of [this.cameraStream, this.rawCameraStream, this.micStream]) {
+      s?.getTracks().forEach((t) => {
+        try {
+          t.stop();
+        } catch {}
+      });
+    }
+
     // Drain any legacy in-flight chunk uploads before we either compress or
     // upload. New recordings upload after stop(), but keeping this guard makes
     // retry paths resilient while a release rolls out.
@@ -1145,6 +1458,9 @@ export class RecorderEngine {
       // mid-state — the UI spinner is wired to engine state and would
       // hang forever otherwise.
       const e = err instanceof Error ? err : new Error(String(err));
+      if (e.name !== "AbortError") {
+        this.rememberUploadFailure(e);
+      }
       this.transition("error", { message: e.message });
       throw e;
     } finally {
@@ -1183,6 +1499,9 @@ export class RecorderEngine {
       return this.toFinalizeResult(result, meta);
     } catch (err) {
       const e = err instanceof Error ? err : new Error(String(err));
+      if (e.name !== "AbortError") {
+        this.rememberUploadFailure(e);
+      }
       this.transition("error", { message: e.message });
       throw e;
     } finally {
@@ -1595,26 +1914,18 @@ export class RecorderEngine {
         const failure = err instanceof Error ? err : new Error(String(err));
         // User-initiated cancel — cancel() already runs the abortUrl path.
         if (failure.name === "AbortError") return;
-        await this.markUploadFailed(failure);
+        this.rememberUploadFailure(failure);
         this.emitError(failure);
       }
     });
   }
 
-  private async markUploadFailed(err: Error): Promise<void> {
+  private rememberUploadFailure(err: Error): void {
     if (!this.uploadFailure) {
       this.uploadFailure = err;
     }
-    if (!this.opts.abortUrl) return;
-    try {
-      await fetch(this.opts.abortUrl, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ reason: err.message }),
-      });
-    } catch {
-      // ignore — the stop path will surface the original upload error.
-    }
+    // Do not call abortUrl for retryable upload failures. retryUpload() reuses
+    // this recording id; cancel() owns the terminal server-side abort path.
   }
 
   private async uploadBlobInSlices(
@@ -1635,41 +1946,99 @@ export class RecorderEngine {
     // Keep binary uploads comfortably under Netlify's effective function
     // payload limit. This mirrors the local-file upload path in record.tsx.
     const UPLOAD_SLICE_BYTES = 3 * 1024 * 1024;
+    const PARALLELISM = 4;
     const totalSlices = Math.max(1, Math.ceil(blob.size / UPLOAD_SLICE_BYTES));
 
-    let lastResult: Record<string, unknown> | undefined;
-    for (let i = 0; i < totalSlices; i++) {
-      if (signal?.aborted) {
-        throw signal.reason instanceof Error
-          ? signal.reason
-          : new Error("Upload aborted");
-      }
-
+    const slices = Array.from({ length: totalSlices }, (_, i) => {
       const start = i * UPLOAD_SLICE_BYTES;
       const end = Math.min(start + UPLOAD_SLICE_BYTES, blob.size);
-      const slice = blob.slice(start, end, mimeType);
-      const isFinal = i === totalSlices - 1;
-      const index = this.chunkIndex++;
+      return {
+        index: this.chunkIndex++,
+        slice: blob.slice(start, end, mimeType),
+        isFinal: i === totalSlices - 1,
+      };
+    });
+    const finalSlice = slices[slices.length - 1];
+    const parallelSlices = slices.slice(0, -1);
 
-      lastResult = await this.uploadChunk(slice, index, {
-        isFinal,
-        total: totalSlices,
-        mimeType,
-        durationMs: isFinal ? meta.durationMs : undefined,
-        width: isFinal ? meta.dimensions.width : undefined,
-        height: isFinal ? meta.dimensions.height : undefined,
-        hasAudio: isFinal ? meta.hasAudio : undefined,
-        hasCamera: isFinal ? meta.hasCamera : undefined,
-        signal,
-      });
-      this.opts.onChunk?.({
-        index,
-        bytes: slice.size,
-        total: totalSlices,
+    const results = new Array<Record<string, unknown> | undefined>(totalSlices);
+    const queue = parallelSlices.slice();
+    const chunkAbort = new AbortController();
+    if (signal?.aborted) {
+      chunkAbort.abort(signal.reason);
+    } else {
+      signal?.addEventListener("abort", () => chunkAbort.abort(signal.reason), {
+        once: true,
       });
     }
+    let uploadError: Error | null = null;
+    let completedCount = 0;
 
-    return lastResult;
+    const worker = async () => {
+      while (queue.length > 0) {
+        if (chunkAbort.signal.aborted) break;
+        const item = queue.shift();
+        if (!item) break;
+        const { index, slice } = item;
+        try {
+          results[index] = await this.uploadChunk(slice, index, {
+            isFinal: false,
+            total: totalSlices,
+            mimeType,
+            signal: chunkAbort.signal,
+          });
+          this.opts.onChunk?.({
+            index: completedCount++,
+            bytes: slice.size,
+            total: totalSlices,
+          });
+        } catch (err) {
+          if (chunkAbort.signal.aborted) return;
+          if (!uploadError) {
+            uploadError = err instanceof Error ? err : new Error(String(err));
+            chunkAbort.abort(uploadError);
+          }
+          return;
+        }
+      }
+    };
+
+    await Promise.all(
+      Array.from(
+        { length: Math.min(PARALLELISM, parallelSlices.length) },
+        worker,
+      ),
+    );
+
+    if (uploadError) throw uploadError;
+    if (signal?.aborted) {
+      throw signal.reason instanceof Error
+        ? signal.reason
+        : new Error("Upload aborted");
+    }
+
+    results[finalSlice.index] = await this.uploadChunk(
+      finalSlice.slice,
+      finalSlice.index,
+      {
+        isFinal: true,
+        total: totalSlices,
+        mimeType,
+        durationMs: meta.durationMs,
+        width: meta.dimensions.width,
+        height: meta.dimensions.height,
+        hasAudio: meta.hasAudio,
+        hasCamera: meta.hasCamera,
+        signal,
+      },
+    );
+    this.opts.onChunk?.({
+      index: finalSlice.index,
+      bytes: finalSlice.slice.size,
+      total: totalSlices,
+    });
+
+    return results[finalSlice.index];
   }
 
   private async uploadChunk(
@@ -1701,7 +2070,12 @@ export class RecorderEngine {
 
     const body = await blob.arrayBuffer();
     let res: Response | null = null;
+    let triedFinalUploadRecovery = false;
     for (let attempt = 1; attempt <= CHUNK_UPLOAD_MAX_ATTEMPTS; attempt++) {
+      const fetchSignal = fetchSignalWithTimeout(
+        extra.signal,
+        extra.isFinal ? FINAL_CHUNK_UPLOAD_TIMEOUT_MS : CHUNK_UPLOAD_TIMEOUT_MS,
+      );
       try {
         res = await fetch(url, {
           method: "POST",
@@ -1710,20 +2084,29 @@ export class RecorderEngine {
               blob.type || this.mimeType || "application/octet-stream",
           },
           body,
-          signal: extra.signal,
+          signal: fetchSignal.signal,
         });
       } catch (err) {
+        const uploadErr = fetchAbortError(fetchSignal.signal, err);
         // The final chunk is safe to retry on a network error: finalize is
         // idempotent server-side (a recording already 'ready' returns its
         // existing result), so a lost response won't double-finalize.
         if (
           attempt >= CHUNK_UPLOAD_MAX_ATTEMPTS ||
-          (err as { name?: string } | null)?.name === "AbortError"
+          uploadErr.name === "AbortError"
         ) {
-          throw err;
+          if (extra.isFinal && uploadErr.name !== "AbortError") {
+            const recovered = await this.recoverReadyAfterFinalUploadError(
+              extra.signal,
+            );
+            if (recovered) return recovered;
+          }
+          throw uploadErr;
         }
         await waitForRetry(retryDelayMs(attempt), extra.signal);
         continue;
+      } finally {
+        fetchSignal.cleanup();
       }
 
       if (
@@ -1731,6 +2114,15 @@ export class RecorderEngine {
         attempt < CHUNK_UPLOAD_MAX_ATTEMPTS &&
         isRetryableChunkUploadStatus(res.status)
       ) {
+        if (extra.isFinal && res.status === 504) {
+          triedFinalUploadRecovery = true;
+          await res.text().catch(() => "");
+          const recovered = await this.recoverReadyAfterFinalUploadError(
+            extra.signal,
+          );
+          if (recovered) return recovered;
+          break;
+        }
         await res.text().catch(() => "");
         await waitForRetry(retryDelayMs(attempt), extra.signal);
         continue;
@@ -1740,6 +2132,15 @@ export class RecorderEngine {
     }
 
     if (!res) {
+      trackClipUploadBlockingFailure({
+        stage: "chunk_upload",
+        failureKind: "no_response",
+        recordingId: this.opts.recordingId,
+        chunkIndex: index,
+        isFinal: extra.isFinal === true,
+        chunkBytes: blob.size,
+        uploadMode: this.opts.uploadMode,
+      });
       throw new Error(`Chunk ${index} upload failed: no response`);
     }
 
@@ -1748,6 +2149,30 @@ export class RecorderEngine {
       const err = new Error(
         `Chunk ${index} upload failed (${res.status}): ${text || res.statusText}`,
       );
+      if (
+        extra.isFinal &&
+        !triedFinalUploadRecovery &&
+        this.isFinalUploadRecoveryCandidate(res.status, err)
+      ) {
+        const recovered = await this.recoverReadyAfterFinalUploadError(
+          extra.signal,
+        );
+        if (recovered) return recovered;
+      }
+      trackClipUploadBlockingFailure({
+        stage: "chunk_upload",
+        failureKind: "http_error",
+        recordingId: this.opts.recordingId,
+        chunkIndex: index,
+        isFinal: extra.isFinal === true,
+        httpStatus: res.status,
+        statusText: res.statusText,
+        chunkBytes: blob.size,
+        uploadMode: this.opts.uploadMode,
+        finalUploadRecoveryAttempted:
+          extra.isFinal === true &&
+          this.isFinalUploadRecoveryCandidate(res.status, err),
+      });
       // Capture rich context to Sentry BEFORE throwing — when this hits
       // production we want enough breadcrumbs in the event to debug a
       // "Builder.io upload failed (500)" without re-running the upload.
@@ -1799,6 +2224,25 @@ export class RecorderEngine {
     } catch {
       return undefined;
     }
+  }
+
+  private isFinalUploadRecoveryCandidate(
+    status: number,
+    error: Error,
+  ): boolean {
+    if (status === 413) return false;
+    return !/too large|exceeds.*limit|chunk too large/i.test(error.message);
+  }
+
+  private async recoverReadyAfterFinalUploadError(
+    signal?: AbortSignal,
+  ): Promise<Record<string, unknown> | null> {
+    return waitForReadyRecordingAfterFinalizeError({
+      uploadUrl: this.opts.uploadUrl,
+      recordingId: this.opts.recordingId,
+      preferAuthenticated: true,
+      signal,
+    });
   }
 
   private readDimensions(): { width: number; height: number } {

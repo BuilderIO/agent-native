@@ -53,6 +53,8 @@ Default to Apple/Linear-level restraint: make the primary workflow obvious, then
 - **Visual assets**: Websites, games, and object-focused pages need real or generated media when images help users understand the subject.
 - **Responsive fit**: Text must not overflow buttons, cards, tabs, sidebars, or fixed-format tools. Use stable dimensions for boards, grids, toolbars, and counters.
 
+**Beat convergence, not just defaults.** You sample toward the "on-distribution" center, so naming what to avoid is not enough: every "don't" needs a "do", or you converge on the next safe option (ban Inter and you reach for Roboto; ban purple gradients and you reach for Space Grotesk + a teal accent on every screen). Commit to one named direction, pair any reference with the reason it fits ("Linear: the quiet confidence of its spacing" — a bare "Linear" collapses back to the average), and match implementation effort to the vision: maximalist wants elaborate motion and effects, minimal wants restraint and precise spacing. When building on an existing app, inspect its tokens/type/components first and treat any drift back to a default as a missing token to pin, not something to re-prompt.
+
 ## Agent-Native UI Rules
 
 - Agent-native apps use React, Vite, Tailwind CSS, shadcn/ui, and `@tabler/icons-react`.

@@ -63,6 +63,7 @@ function resolveLocalUrl(url: string | null | undefined): string | undefined {
 
 const VOLATILE_VIDEO_QUERY_PARAMS = new Set([
   "t",
+  "cb",
   LOOM_START_MS_QUERY_PARAM,
   "password",
   "X-Amz-Algorithm",
@@ -140,6 +141,14 @@ export interface VideoPlayerHandle {
 export interface VideoPlayerProps {
   recordingId: string;
   videoUrl: string | null | undefined;
+  /**
+   * Container format of `videoUrl`, when known. Used only to pick an accurate
+   * `canPlayType` MIME check (e.g. Safari cannot play `video/webm`) — Clips
+   * stores a single `videoUrl` per recording, so there is no alternate-format
+   * URL to fall back to. Defaults to `"webm"` (the format every browser
+   * MediaRecorder-based recording is stored as).
+   */
+  videoFormat?: "webm" | "mp4" | null;
   embedProvider?: "loom" | null;
   durationMs: number;
   thumbnailUrl?: string | null;
@@ -195,6 +204,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
     const t = useT();
     const {
       videoUrl,
+      videoFormat,
       embedProvider,
       durationMs,
       thumbnailUrl,
@@ -234,6 +244,21 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
     const idleTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
     const playAttemptPendingRef = useRef(false);
     const playAttemptIdRef = useRef(0);
+    // Position to restore after `v.load()` resets `currentTime` to 0 while
+    // recovering from a media error (see `requestPlay`).
+    const resumeAfterReloadMsRef = useRef<number | null>(null);
+    // Whether we've already attempted the automatic, cache-busted MediaError
+    // recovery for the current source (see `onError` below). Reset per source
+    // so a genuinely new video gets its own single automatic attempt.
+    const autoRetriedErrorRef = useRef(false);
+    // True from the moment the automatic MediaError recovery swaps in a
+    // cache-busted src until the reload resolves (loadeddata/canPlay/another
+    // error). While true, the resolved-prop sync effect below must not
+    // overwrite `activeVideoSrc` back to the plain (non-cache-busted) prop
+    // value — `videoSourceIdentity` intentionally ignores the `cb` param, so
+    // without this guard that effect would treat the two URLs as the "same
+    // resource" and immediately revert our retry before `.load()` completes.
+    const recoveringFromErrorRef = useRef(false);
     const [activeVideoSrc, setActiveVideoSrc] = useState(resolvedVideoSrc);
     const [isPlaying, setIsPlaying] = useState(false);
     const [currentMs, setCurrentMs] = useState(startMs ?? 0);
@@ -291,6 +316,26 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
       () => embedProvider === "loom" || isLoomEmbedUrl(activeVideoSrc),
       [activeVideoSrc, embedProvider],
     );
+    // Clips stores exactly one `videoUrl` per recording (no alternate-format
+    // fallback to select between), and every browser MediaRecorder-based
+    // recording is stored as `webm` — which Safari (desktop and iOS) cannot
+    // decode at all. Ask the browser up front via `canPlayType` instead of
+    // discovering that the hard way through a MediaError + our auto-retry
+    // loop, which would just cache-bust-reload a format that will never
+    // decode. Uploaded/stitched/Loom-reuploaded recordings are `mp4`, which
+    // every evergreen browser supports, so this only ever fires for native
+    // webm recordings on Safari.
+    const unsupportedFormat = useMemo(() => {
+      if (isLoomEmbed || !activeVideoSrc) return false;
+      if (typeof document === "undefined") return false;
+      const mime = videoFormat === "mp4" ? "video/mp4" : "video/webm";
+      try {
+        const probe = document.createElement("video");
+        return probe.canPlayType(mime) === "";
+      } catch {
+        return false;
+      }
+    }, [activeVideoSrc, isLoomEmbed, videoFormat]);
     const loomIframeSrc = useMemo(() => {
       if (!isLoomEmbed || !activeVideoSrc || loomStartMs === null) {
         return activeVideoSrc;
@@ -311,6 +356,8 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
         setActiveVideoSrc(resolvedVideoSrc);
         return;
       }
+
+      if (recoveringFromErrorRef.current) return;
 
       const v = videoRef.current;
       const sameResource =
@@ -359,6 +406,12 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
     const resolvePlayAttempt = useCallback((attemptId: number) => {
       if (attemptId !== playAttemptIdRef.current) return;
       playAttemptPendingRef.current = false;
+      const v = videoRef.current;
+      if (v && !v.paused && !v.ended) {
+        setIsPlaying(true);
+        setHasPlaybackStarted(true);
+      }
+      setCanPlay(true);
       setIsPlayPending(false);
       setIsBuffering(false);
       setIsPreparing(false);
@@ -410,6 +463,23 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
 
       bumpControls();
       setPlayError(null);
+
+      // A <video> element left in an error state (network/decode/unsupported
+      // format) will just re-reject on `.play()` forever — it needs `.load()`
+      // to reset `readyState`/`error` and re-fetch the source before playback
+      // can be retried. Remember the last known position so we can restore it
+      // once the reloaded source is ready (best-effort; `loadeddata`/`canPlay`
+      // below call `retryPendingPlay`, which resumes the pending play attempt).
+      if (v.error) {
+        resumeAfterReloadMsRef.current = currentMs > 0 ? currentMs : null;
+        setCanPlay(false);
+        setIsPreparing(true);
+        setIsBuffering(false);
+        v.load();
+      } else if (v.readyState >= 2 || v.currentTime > 0) {
+        setCanPlay(true);
+        setIsPreparing(false);
+      }
       setIsBuffering(v.readyState < 3);
       setIsPlayPending(true);
 
@@ -422,7 +492,13 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
       } catch (err) {
         rejectPlayAttempt(attemptId, err);
       }
-    }, [activeVideoSrc, attachPlayPromise, bumpControls, rejectPlayAttempt]);
+    }, [
+      activeVideoSrc,
+      attachPlayPromise,
+      bumpControls,
+      currentMs,
+      rejectPlayAttempt,
+    ]);
 
     const retryPendingPlay = useCallback(
       (v: HTMLVideoElement) => {
@@ -687,6 +763,8 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
       thumbnailCapturedRef.current = false;
       initialVisibleFrameSeekedRef.current = false;
       loomInitialStartAppliedRef.current = "";
+      autoRetriedErrorRef.current = false;
+      recoveringFromErrorRef.current = false;
       setLoomStartMs(null);
       playAttemptIdRef.current += 1;
       playAttemptPendingRef.current = false;
@@ -810,7 +888,10 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
         return;
       }
       setIsPreparing(true);
-      const t = setTimeout(() => setIsPreparing(false), 10000);
+      const t = setTimeout(() => {
+        setIsPreparing(false);
+        setCanPlay(true);
+      }, 10000);
       return () => clearTimeout(t);
     }, [activeVideoSrc]);
 
@@ -888,6 +969,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
     const centerOverlayMode =
       activeVideoSrc &&
       !isLoomEmbed &&
+      !unsupportedFormat &&
       !showEndCta &&
       (!isPlaying || isPlayPending || isBuffering)
         ? isPreparing || isPlayPending || isBuffering || !canPlay
@@ -930,6 +1012,27 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
             allowFullScreen
             referrerPolicy="no-referrer"
           />
+        ) : unsupportedFormat ? (
+          // Don't even attempt to load a format the browser has told us it
+          // cannot decode (Safari + webm) — that would just surface a
+          // MediaError after a real network fetch and burn our one automatic
+          // retry on a format that will never play. Show the poster with a
+          // clear, non-looping explanation instead.
+          <div className="relative flex h-full w-full items-center justify-center bg-black">
+            {thumbnailUrl ? (
+              <img
+                src={resolveLocalUrl(thumbnailUrl)}
+                alt=""
+                className={cn(
+                  "absolute inset-0 h-full w-full",
+                  cover ? "object-cover" : "object-contain",
+                )}
+              />
+            ) : null}
+            <div className="relative z-10 mx-4 max-w-xs rounded-md bg-black/70 px-4 py-3 text-center text-sm font-medium text-white/85 ring-1 ring-white/10">
+              {t("videoPlayer.unsupportedFormat")}
+            </div>
+          </div>
         ) : activeVideoSrc ? (
           <video
             ref={videoRef}
@@ -958,6 +1061,9 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
             onPlay={() => {
               setIsPlaying(true);
               setHasPlaybackStarted(true);
+              setCanPlay(true);
+              setIsPreparing(false);
+              setIsBuffering(false);
               onPlay?.();
             }}
             onPlaying={() => {
@@ -980,6 +1086,17 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
               onPause?.();
             }}
             onLoadedData={(e) => {
+              recoveringFromErrorRef.current = false;
+              const resumeMs = resumeAfterReloadMsRef.current;
+              if (resumeMs != null) {
+                resumeAfterReloadMsRef.current = null;
+                try {
+                  e.currentTarget.currentTime = resumeMs / 1000;
+                  setCurrentMs(resumeMs);
+                } catch {
+                  // Ignore — worst case playback resumes from 0.
+                }
+              }
               const didSeek = seekInitialVisibleFrame(e.currentTarget);
               setCanPlay(e.currentTarget.readyState >= 2);
               setIsPreparing(false);
@@ -996,6 +1113,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
             }}
             onCanPlayThrough={(e) => {
               setCanPlay(true);
+              setIsPreparing(false);
               setIsBuffering(false);
               retryPendingPlay(e.currentTarget);
             }}
@@ -1010,7 +1128,9 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
               }
             }}
             onSeeked={() => {
+              setCanPlay(true);
               setIsPreparing(false);
+              setIsBuffering(false);
               captureThumbnail();
             }}
             onTimeUpdate={(e) => {
@@ -1030,25 +1150,71 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
               if (visibleMs !== ms) {
                 v.currentTime = visibleMs / 1000;
                 setCurrentMs(visibleMs);
-                if (visibleMs > 0) setHasPlaybackStarted(true);
-                if (visibleMs > 0) setIsPreparing(false);
+                if (visibleMs > 0) {
+                  setCanPlay(true);
+                  setHasPlaybackStarted(true);
+                  setIsPreparing(false);
+                  setIsBuffering(false);
+                }
                 onTimeUpdate?.(visibleMs, resolvedDurationMs);
                 return;
               }
               setCurrentMs(ms);
-              if (ms > 0) setHasPlaybackStarted(true);
-              if (ms > 0) setIsPreparing(false);
+              if (ms > 0) {
+                setCanPlay(true);
+                setHasPlaybackStarted(true);
+                setIsPreparing(false);
+                setIsBuffering(false);
+              }
               onTimeUpdate?.(ms, resolvedDurationMs);
             }}
             onEnded={() => {
               setIsPlaying(false);
               setIsPlayPending(false);
               setIsBuffering(false);
+              setIsPreparing(false);
               onEnded?.();
             }}
             onError={(e) => {
               playAttemptPendingRef.current = false;
               setIsPlayPending(false);
+
+              // Most "format not supported" / decode errors reported here are
+              // transient — e.g. the share page's video element started
+              // fetching a moment before a background seekable-remux pass
+              // (`ensureRecordingSeekable`) swapped `videoUrl` to the repaired
+              // upload, or a flaky CDN edge served a truncated response. Give
+              // playback one automatic, cache-busted reload before showing the
+              // fatal error UI, so most viewers never see an error at all. A
+              // manual "Try again" (via `requestPlay`'s `v.error` branch)
+              // remains available afterward if the retry also fails.
+              if (!autoRetriedErrorRef.current && activeVideoSrc) {
+                autoRetriedErrorRef.current = true;
+                recoveringFromErrorRef.current = true;
+                const v = e.currentTarget;
+                const cacheBustedSrc = setUrlSearchParam(
+                  activeVideoSrc,
+                  "cb",
+                  String(Date.now()),
+                );
+                resumeAfterReloadMsRef.current =
+                  currentMs > 0 ? currentMs : null;
+                setIsBuffering(false);
+                setIsPreparing(true);
+                setCanPlay(false);
+                // Set `src` on the live element and call `.load()` in the same
+                // tick — waiting for the React re-render to land the new `src`
+                // would call `.load()` against the stale (already-errored) URL.
+                // `setActiveVideoSrc` still runs so React's own render/effects
+                // (and a subsequent unrelated re-render) stay consistent with
+                // what the element is actually playing.
+                v.src = cacheBustedSrc;
+                v.load();
+                setActiveVideoSrc(cacheBustedSrc);
+                return;
+              }
+
+              recoveringFromErrorRef.current = false;
               setIsBuffering(false);
               setIsPreparing(false);
               const desc = describeMediaError(e.currentTarget.error);
@@ -1059,6 +1225,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
                 {
                   recordingId,
                   videoSrc: activeVideoSrc,
+                  autoRetried: autoRetriedErrorRef.current,
                 },
               );
               setPlayError(

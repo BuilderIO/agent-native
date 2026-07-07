@@ -85,6 +85,7 @@ describe("DiffBlock", () => {
     filename = "src/example.ts",
     language,
     mode,
+    annotations,
   }: {
     before?: string;
     after: string;
@@ -92,6 +93,12 @@ describe("DiffBlock", () => {
     filename?: string;
     language?: string;
     mode?: "unified" | "split";
+    annotations?: Array<{
+      side?: "before" | "after";
+      lines: string;
+      label?: string;
+      note: string;
+    }>;
   }) {
     act(() => {
       root.render(
@@ -99,7 +106,7 @@ describe("DiffBlock", () => {
           key={blockId}
           blockId={blockId}
           ctx={{}}
-          data={{ before, after, filename, language, mode }}
+          data={{ before, after, filename, language, mode, annotations }}
         />,
       );
     });
@@ -143,6 +150,24 @@ describe("DiffBlock", () => {
     expect(container.textContent).toContain("split-15");
     expect(container.textContent).not.toContain("split-16");
     expect(container.textContent).toContain("Show all 18 lines");
+  });
+
+  it("hides the show-all footer when annotations already reveal every split row", () => {
+    const addedLines = Array.from(
+      { length: 23 },
+      (_, index) => `annotated-${String(index + 1).padStart(2, "0")}`,
+    ).join("\n");
+
+    renderDiff({
+      after: addedLines,
+      mode: "split",
+      annotations: [
+        { lines: "23", label: "Tail", note: "Keep the tail visible." },
+      ],
+    });
+
+    expect(container.textContent).toContain("annotated-23");
+    expect(container.textContent).not.toContain("Show all 23 lines");
   });
 
   it("defaults to split (two columns) when no mode is authored", () => {

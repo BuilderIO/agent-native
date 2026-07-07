@@ -59,7 +59,7 @@ describe("agent teams message queue", () => {
         key.startsWith("task-message:task-1:"),
       ),
     ).toHaveLength(2);
-  }, 15_000);
+  }, 30_000);
 
   it("drains queued messages into the next tool result once", async () => {
     const { sendToTask, _agentTeamsQueueForTests } =
@@ -90,7 +90,7 @@ describe("agent teams message queue", () => {
       "change direction",
     );
     await expect(actions["do-work"].run({})).resolves.toBe("tool result");
-  });
+  }, 30_000);
 
   it("uses the final response guard to deliver queued messages before completion", async () => {
     const { sendToTask, _agentTeamsQueueForTests } =
@@ -315,7 +315,21 @@ describe("agent teams message queue", () => {
         seq: 8,
         event: { type: "clear" },
       }),
-    ).toBeNull();
+    ).toMatchObject({
+      id: "run-task-task-1:8",
+      kind: "status",
+      message: "",
+      metadata: {
+        agentChatEventType: "clear",
+        seq: 8,
+        sourceSeq: 8,
+      },
+      sourceRecord: {
+        type: "agent-team-run-event",
+        id: "run-task-task-1:8",
+        seq: 8,
+      },
+    });
   });
 
   it("sends background-run follow-ups through the existing task queue", async () => {

@@ -1,4 +1,5 @@
 import { defineAction, embedApp } from "@agent-native/core";
+import { agentTouchDocument } from "@agent-native/core/collab";
 import {
   getRequestUserEmail,
   getRequestUserName,
@@ -117,6 +118,31 @@ function contentPatchTargetId(patch: PlanContentPatch) {
   if (patch.op === "append-canvas-annotation") return patch.annotation.id;
   if (patch.op === "append-block") return patch.block.id;
   return null;
+}
+
+/**
+ * Real block ids an agent content edit touched, for the plan-presence recent-edit
+ * highlight (`{ kind: "paths", paths }`). Prefers per-patch targets; for a
+ * whole-content or `replace-blocks` rewrite it falls back to the resulting
+ * top-level block ids. Deduped, capped so the awareness payload stays small.
+ */
+function affectedPlanBlockIds(
+  patches: PlanContentPatch[],
+  nextContent: PlanContent | null,
+): string[] {
+  const ids = new Set<string>();
+  for (const patch of patches) {
+    if (patch.op === "replace-blocks") {
+      for (const block of patch.blocks) ids.add(block.id);
+      continue;
+    }
+    const target = contentPatchTargetId(patch);
+    if (target) ids.add(target);
+  }
+  if (ids.size === 0 && nextContent) {
+    for (const block of nextContent.blocks) ids.add(block.id);
+  }
+  return Array.from(ids).slice(0, 12);
 }
 
 function isNewOpenHumanComment(comment: {
@@ -379,7 +405,7 @@ function contentPatchDetails(input: {
 
 export default defineAction({
   description:
-    "Update an Agent-Native Plan's structured content blocks, prototype screens, sections, comments, or status. Prefer contentPatches for targeted edits. Use full content only for broad restructuring.",
+    "Update an Agent-Native Plan's structured content blocks, prototype screens, sections, comments, or status. Prefer contentPatches for targeted edits. Use full content only for broad restructuring. Works on plans and recaps alike when you have editor access; with viewer access (common on PR recaps published by CI) only comment-only calls succeed — to change a recap you cannot edit, publish a replacement with create-visual-recap instead of retrying this call.",
   schema: z.object({
     planId: z.string().describe("Plan ID"),
     title: z.string().optional().describe("Plan title."),
@@ -459,9 +485,14 @@ export default defineAction({
       height: 900,
     }),
   },
-  run: async (args) => {
+  run: async (args, ctx) => {
     const requesterEmail = getRequestUserEmail();
     const requesterName = getRequestUserName();
+    // Only surface AI presence for genuine agent invocations (in-app tool loop /
+    // A2A → "tool"; external MCP agents → "mcp"). The browser editor autosaves
+    // through this same action as "frontend" and must NOT light the agent flag.
+    const isAgentCaller =
+      ctx?.caller === "tool" || ctx?.caller === "mcp" || ctx?.caller === "a2a";
     const onlyAddsNewComments =
       !args.title &&
       !args.brief &&
@@ -929,6 +960,34 @@ export default defineAction({
         createdAt: now,
       });
     })(db);
+
+    // Make an agent content edit visible on the plan-presence doc: light the AI
+    // avatar in the header PresenceBar and glow the patched block(s) for ~6s.
+    // Best-effort — never fail the save on presence. Gated to authoring changes
+    // and agent callers (a human editor's autosave routes through here too).
+    if (isAgentCaller && hasPlanAuthoringChanges) {
+      try {
+        const blockIds = affectedPlanBlockIds(args.contentPatches, nextContent);
+        const ops = args.contentPatches.map((patch) => patch.op);
+        const label =
+          ops.length > 0
+            ? `Edited ${ops.length} block${ops.length === 1 ? "" : "s"}`
+            : "Updated plan";
+        agentTouchDocument(`plan:${args.planId}`, {
+          edit: {
+            descriptor: { kind: "paths", paths: blockIds },
+            label,
+          },
+          metadata: { blockIds },
+        });
+      } catch (error) {
+        console.error(
+          "[update-visual-plan] agent presence publish failed",
+          error,
+        );
+      }
+    }
+
     const bundle = await loadPlanBundle(args.planId);
     await notifyPlanCommentRecipients({
       bundle,

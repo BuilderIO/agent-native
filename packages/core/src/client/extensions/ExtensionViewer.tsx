@@ -1,7 +1,7 @@
 import {
-  IconArrowLeft,
   IconArrowBackUp,
   IconChevronRight,
+  IconCode,
   IconDotsVertical,
   IconHistory,
   IconLoader2,
@@ -20,6 +20,7 @@ import { getThemeVars } from "../../extensions/theme.js";
 import { sendToAgentChat } from "../agent-chat.js";
 import { AgentToggleButton } from "../AgentPanel.js";
 import { agentNativePath, appPath } from "../api-path.js";
+import { Dialog, DialogContent, DialogTitle } from "../components/ui/dialog.js";
 import {
   Popover,
   PopoverContent,
@@ -322,6 +323,131 @@ function applyCanonicalLink(path: string): () => void {
       link.dataset.agentNativeExtensionCanonical = previousMarker;
     }
   };
+}
+
+function SourceCodeDialog({
+  extension,
+  onSaved,
+}: {
+  extension: Extension;
+  onSaved?: () => void;
+}) {
+  const queryClient = useQueryClient();
+  const [open, setOpen] = useState(false);
+  const [code, setCode] = useState(extension.content ?? "");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  // Sync in when the dialog opens, or when the viewed extension changes
+  // while the dialog stays mounted (e.g. re-parented to a different id).
+  useEffect(() => {
+    if (open) setCode(extension.content ?? "");
+  }, [open, extension.id]);
+
+  const isDirty = code !== (extension.content ?? "");
+
+  // Block Escape / outside-click from closing while there are unsaved edits.
+  const handleOpenChange = (next: boolean) => {
+    if (!next && isDirty) return;
+    setOpen(next);
+    if (!next) setError(null);
+  };
+
+  const handleCancel = () => {
+    setCode(extension.content ?? "");
+    setOpen(false);
+    setError(null);
+  };
+
+  const handleSave = async () => {
+    setSaving(true);
+    setError(null);
+    try {
+      const res = await fetch(
+        agentNativePath(`/_agent-native/extensions/${extension.id}`),
+        {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ content: code }),
+        },
+      );
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body?.error ?? `Save failed (${res.status})`);
+      }
+      setOpen(false);
+      queryClient.setQueryData<Extension>(["extension", extension.id], (old) =>
+        old ? { ...old, content: code } : old,
+      );
+      queryClient.invalidateQueries({
+        queryKey: ["extension", extension.id],
+      });
+      queryClient.invalidateQueries({ queryKey: ["extensions"] });
+      onSaved?.();
+    } catch (err: any) {
+      setError(err?.message ?? "Save failed");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <button
+            type="button"
+            onClick={() => setOpen(true)}
+            className="inline-flex items-center justify-center rounded-md h-8 w-8 text-muted-foreground hover:bg-accent hover:text-accent-foreground cursor-pointer"
+          >
+            <IconCode className="h-4 w-4" />
+          </button>
+        </TooltipTrigger>
+        <TooltipContent>View / edit source</TooltipContent>
+      </Tooltip>
+      <Dialog open={open} onOpenChange={handleOpenChange}>
+        <DialogContent className="flex h-[85vh] w-[90vw] max-w-[900px] flex-col gap-0 overflow-hidden p-0">
+          <div className="flex shrink-0 items-center border-b border-border px-5 py-3 pr-12">
+            <DialogTitle className="truncate text-sm font-medium">
+              {extension.name} — source
+            </DialogTitle>
+          </div>
+          <textarea
+            className="flex-1 resize-none bg-muted/40 px-5 py-4 font-mono text-xs leading-relaxed text-foreground focus:outline-none"
+            value={code}
+            onChange={(e) => setCode(e.target.value)}
+            spellCheck={false}
+          />
+          <div className="flex shrink-0 items-center justify-between border-t border-border px-5 py-3">
+            {error ? (
+              <p className="text-xs text-destructive">{error}</p>
+            ) : (
+              <span className="text-xs text-muted-foreground">
+                Alpine.js / HTML &middot; {code.length.toLocaleString()} chars
+              </span>
+            )}
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={handleCancel}
+                className="inline-flex h-8 cursor-pointer items-center rounded-md border border-input px-3 text-xs hover:bg-accent"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleSave}
+                disabled={saving}
+                className="inline-flex h-8 cursor-pointer items-center rounded-md bg-primary px-4 text-xs font-medium text-primary-foreground hover:opacity-90 disabled:opacity-50"
+              >
+                {saving ? "Saving…" : "Save"}
+              </button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+    </>
+  );
 }
 
 function EditToolPopover({
@@ -1077,19 +1203,6 @@ export function ExtensionViewer({ extensionId }: ExtensionViewerProps) {
       <div className="flex h-full w-full flex-col">
         <div className="flex h-12 shrink-0 items-center justify-between gap-3 border-b px-3">
           <div className="flex min-w-0 items-center gap-3">
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Link
-                  to="/"
-                  className="inline-flex h-8 shrink-0 items-center justify-center gap-1.5 rounded-md px-2 text-xs font-medium text-muted-foreground hover:bg-accent hover:text-accent-foreground"
-                  aria-label="Back to app"
-                >
-                  <IconArrowLeft className="h-4 w-4" />
-                  <span className="hidden sm:inline">Back to app</span>
-                </Link>
-              </TooltipTrigger>
-              <TooltipContent>Back to app</TooltipContent>
-            </Tooltip>
             <nav
               aria-label="Extension breadcrumb"
               className="group/name flex min-w-0 items-center gap-1 text-sm"
@@ -1157,6 +1270,12 @@ export function ExtensionViewer({ extensionId }: ExtensionViewerProps) {
                   onRestored={() => setRefreshKey((k) => k + 1)}
                   onOpenChange={onPopoverOpenChange}
                 />
+                {extension.canEdit && (
+                  <SourceCodeDialog
+                    extension={extension}
+                    onSaved={() => setRefreshKey((k) => k + 1)}
+                  />
+                )}
                 <EditToolPopover
                   extension={extension}
                   onOpenChange={onPopoverOpenChange}

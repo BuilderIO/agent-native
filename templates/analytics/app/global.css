@@ -3,6 +3,7 @@
 
 @import "tailwindcss";
 @import "@agent-native/core/styles/agent-native.css";
+@import "@agent-native/toolkit/styles.css";
 
 @source "./**/*.{ts,tsx}";
 
@@ -142,6 +143,18 @@
   padding-bottom: clamp(4rem, 12vh, 8rem);
 }
 
+.analytics-mobile-nav {
+  height: 2.75rem;
+  min-height: 2.75rem;
+  background-color: hsl(var(--background)) !important;
+}
+
+@media (max-width: 767px) {
+  .analytics-chat-panel [data-agent-page-new-chat] {
+    display: none;
+  }
+}
+
 .analytics-chat-intro {
   display: none;
 }
@@ -172,7 +185,7 @@
 .analytics-chat-intro h1 {
   margin: 0;
   color: hsl(var(--foreground));
-  font-size: clamp(1.75rem, 2.5vw, 2.75rem);
+  font-size: 2.25rem;
   font-weight: 600;
   letter-spacing: 0;
   line-height: 1.12;
@@ -195,7 +208,10 @@
   padding-inline: 1rem;
 }
 
-.analytics-chat-panel [data-agent-empty-state="centered"] .agent-composer-area {
+.analytics-chat-panel [data-agent-empty-state="centered"] .agent-composer-area,
+.analytics-chat-panel
+  [data-agent-empty-state="centered"]
+  .agent-plan-mode-callout {
   width: 100%;
   max-width: min(760px, 90%);
   padding: 0;
@@ -215,7 +231,62 @@
 }
 
 .an-replay-stage-root .replayer-wrapper {
+  position: relative;
   transform-origin: top left;
+}
+
+/* First-party visitor-cursor styles for rrweb playback. These are bundled
+   statically so the cursor stays visible even if the lazily imported
+   `@rrweb/replay/dist/style.css` sheet fails to load, and they replace the
+   default black arrow sprite with an app-styled indicator. The cursor lives
+   inside `.replayer-wrapper`, so it scales with the fit-to-stage transform. */
+.an-replay-stage-root .replayer-mouse {
+  position: absolute;
+  z-index: 2;
+  width: 0.875rem;
+  height: 0.875rem;
+  border-radius: 9999px;
+  background: hsl(217 91% 60%);
+  background-image: none;
+  box-shadow:
+    0 0 0 2px hsl(0 0% 100% / 0.9),
+    0 1px 6px hsl(0 0% 0% / 0.35);
+  transform: translate(-50%, -50%);
+  transition:
+    left 80ms linear,
+    top 80ms linear;
+  pointer-events: none;
+}
+
+.an-replay-stage-root .replayer-mouse::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 9999px;
+  background: hsl(217 91% 60%);
+  opacity: 0;
+}
+
+/* rrweb toggles `.active` on mouse interactions; pulse a click ripple. */
+.an-replay-stage-root .replayer-mouse.active::after {
+  animation: an-replay-mouse-click 0.4s ease-out 1;
+}
+
+@keyframes an-replay-mouse-click {
+  0% {
+    opacity: 0.5;
+    transform: scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(3.5);
+  }
+}
+
+.an-replay-stage-root .replayer-mouse-tail {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
 }
 
 .analytics-session-snippet .plan-code-surface {
@@ -300,11 +371,18 @@
     [data-agent-empty-state="centered"]
     .analytics-chat-intro {
     width: 100%;
+    max-width: min(640px, 95%);
     margin-bottom: 0.875rem;
   }
 
   .analytics-chat-intro h1 {
-    font-size: 1.75rem;
+    font-size: 1.5rem;
+    white-space: nowrap;
+  }
+
+  .analytics-chat-intro p {
+    font-size: 0.875rem;
+    white-space: nowrap;
   }
 
   .analytics-chat-panel

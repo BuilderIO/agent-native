@@ -345,6 +345,10 @@ interface DefineActionWithSchema<
    *  Only set this manually when you need to override the inference — e.g. a
    *  POST action that only reads data but can't use GET for a protocol reason. */
   readOnly?: boolean;
+  /** Set false for read-only tools that should stay available in Act mode but
+   *  must not run during Plan mode because they perform substantive work
+   *  rather than lightweight inspection. Defaults to allowed when read-only. */
+  allowInPlanMode?: boolean;
   /** If true, the agent may execute this action concurrently with other
    *  read-only or parallel-safe tool calls emitted in the same model turn.
    *  Only set this for mutating actions that are internally concurrency-safe
@@ -460,6 +464,9 @@ interface DefineActionWithParams<
   /** If true, the framework will NOT emit a screen-refresh change event after a
    *  successful call. Auto-inferred as `true` when `http.method === "GET"`. */
   readOnly?: boolean;
+  /** Set false for read-only tools that should stay available in Act mode but
+   *  must not run during Plan mode. See the schema overload above. */
+  allowInPlanMode?: boolean;
   /** If true, the agent may execute this action concurrently with other
    *  read-only or parallel-safe tool calls emitted in the same model turn. */
   parallelSafe?: boolean;
@@ -525,6 +532,7 @@ export interface ActionDefinition<TInput, TReturn> {
   readonly maxBodyBytes?: number;
   readonly agentTool?: boolean;
   readonly readOnly?: boolean;
+  readonly allowInPlanMode?: boolean;
   readonly parallelSafe?: boolean;
   readonly toolCallable?: boolean;
   readonly publicAgent?: PublicAgentActionConfig;
@@ -752,6 +760,9 @@ export function defineAction(options: any) {
       : {}),
     ...(typeof agentTool === "boolean" ? { agentTool } : {}),
     ...(typeof readOnly === "boolean" ? { readOnly } : {}),
+    ...(typeof options.allowInPlanMode === "boolean"
+      ? { allowInPlanMode: options.allowInPlanMode }
+      : {}),
     ...(typeof parallelSafe === "boolean" ? { parallelSafe } : {}),
     ...(typeof toolCallable === "boolean" ? { toolCallable } : {}),
     ...(publicAgent ? { publicAgent } : {}),
@@ -821,6 +832,80 @@ function wrapRunWithAudit(
 // Schema → JSON Schema conversion
 // ---------------------------------------------------------------------------
 
+// Keywords whose value is a single subschema.
+const SUBSCHEMA_VALUE_KEYS = [
+  "items",
+  "additionalItems",
+  "contains",
+  "additionalProperties",
+  "not",
+  "if",
+  "then",
+  "else",
+] as const;
+// Keywords whose value is an array of subschemas.
+const SUBSCHEMA_ARRAY_KEYS = [
+  "allOf",
+  "anyOf",
+  "oneOf",
+  "prefixItems",
+] as const;
+// Keywords whose value is a map of name → subschema.
+const SUBSCHEMA_MAP_KEYS = [
+  "properties",
+  "patternProperties",
+  "$defs",
+  "definitions",
+  "dependentSchemas",
+] as const;
+
+/**
+ * Remove JSON Schema keywords that some providers' function-calling schema
+ * validators reject. OpenAI (and Gemini via the Builder gateway) reject
+ * `propertyNames` — which Zod v4 emits for `z.record(z.string(), …)` — with a
+ * `400 invalid_function_parameters` error, causing the model turn to produce no
+ * content (surfacing as an empty assistant response). Anthropic ignores the
+ * keyword, so stripping it is safe across providers and keeps action schemas
+ * portable. `propertyNames` only constrained object *keys*; the value/shape of
+ * the object is unaffected by its removal.
+ *
+ * Only descends through actual subschema positions (properties, items, union
+ * branches, definitions, etc.) — never through value-bearing keywords like
+ * `default`, `const`, `enum`, or `examples`, whose objects may legitimately
+ * contain a `propertyNames` data key that must be preserved.
+ */
+function stripUnsupportedSchemaKeywords<T>(node: T): T {
+  if (!node || typeof node !== "object" || Array.isArray(node)) return node;
+  const obj = node as Record<string, unknown>;
+
+  delete obj.propertyNames;
+
+  for (const key of SUBSCHEMA_VALUE_KEYS) {
+    // `items`/`additionalItems` may also be an array of subschemas.
+    const value = obj[key];
+    if (Array.isArray(value)) {
+      for (const sub of value) stripUnsupportedSchemaKeywords(sub);
+    } else {
+      stripUnsupportedSchemaKeywords(value);
+    }
+  }
+  for (const key of SUBSCHEMA_ARRAY_KEYS) {
+    const value = obj[key];
+    if (Array.isArray(value)) {
+      for (const sub of value) stripUnsupportedSchemaKeywords(sub);
+    }
+  }
+  for (const key of SUBSCHEMA_MAP_KEYS) {
+    const value = obj[key];
+    if (value && typeof value === "object" && !Array.isArray(value)) {
+      for (const sub of Object.values(value)) {
+        stripUnsupportedSchemaKeywords(sub);
+      }
+    }
+  }
+  return node;
+}
+
 /**
  * Convert a Standard Schema to JSON Schema for the Claude API.
  * Tries vendor-specific toJSONSchema first (Zod v4), then falls back
@@ -844,7 +929,7 @@ function schemaToJsonSchema(
       if (result && typeof result === "object") {
         delete result.$schema;
       }
-      return result as ActionTool["parameters"];
+      return stripUnsupportedSchemaKeywords(result) as ActionTool["parameters"];
     } catch {
       // Fall through to manual converter
     }
@@ -852,7 +937,7 @@ function schemaToJsonSchema(
 
   // Fallback: manual conversion from Zod v4 internal defs
   if (s._zod?.def) {
-    return zodDefToJsonSchema(s._zod.def);
+    return stripUnsupportedSchemaKeywords(zodDefToJsonSchema(s._zod.def));
   }
 
   // Last resort: empty object schema

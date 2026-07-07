@@ -64,10 +64,13 @@ import {
   loomEmbedUrlForRecording,
 } from "../../../../shared/loom.js";
 import { getDb, schema } from "../../../db/index.js";
+import { builderCompressedMediaUrl } from "../../../lib/builder-media-compression.js";
+import { getOrganizationRoleForEmail } from "../../../lib/recordings.js";
 import { verifySharePassword } from "../../../lib/share-password.js";
 
 interface RecordingRow {
   expiresAt?: string | null;
+  organizationId?: string | null;
   password?: string | null;
   sourceAppName?: string | null;
   sourceWindowTitle?: string | null;
@@ -86,6 +89,8 @@ const PROXIED_HEADER_NAMES = [
 const PROVIDER_MEDIA_FETCH_TIMEOUT_MS = 30_000;
 const PROTECTED_MEDIA_ACCESS_TTL_SECONDS = 6 * 60 * 60;
 const PROTECTED_MEDIA_COOKIE_PREFIX = "clips_media_";
+const COMPRESSED_BUILDER_MEDIA_MISS_TTL_MS = 5_000;
+const compressedBuilderMediaMisses = new Map<string, number>();
 
 function appPath(path: string): string {
   if (!path.startsWith("/")) return path;
@@ -143,6 +148,42 @@ function isRecursiveVideoRouteUrl(value: string, recordingId: string): boolean {
   } catch {
     return false;
   }
+}
+
+function shouldSkipCompressedBuilderMediaProbe(
+  compressedSourceUrl: string,
+): boolean {
+  const expiresAt = compressedBuilderMediaMisses.get(compressedSourceUrl);
+  if (!expiresAt) return false;
+  if (expiresAt <= Date.now()) {
+    compressedBuilderMediaMisses.delete(compressedSourceUrl);
+    return false;
+  }
+  return true;
+}
+
+function rememberCompressedBuilderMediaMiss(compressedSourceUrl: string): void {
+  if (compressedBuilderMediaMisses.size > 1_000) {
+    for (const [url, expiresAt] of compressedBuilderMediaMisses) {
+      if (expiresAt <= Date.now()) compressedBuilderMediaMisses.delete(url);
+    }
+  }
+  compressedBuilderMediaMisses.set(
+    compressedSourceUrl,
+    Date.now() + COMPRESSED_BUILDER_MEDIA_MISS_TTL_MS,
+  );
+}
+
+function shouldFallbackToOriginalMedia(
+  upstream: Response | { error: string; status: number },
+): boolean {
+  return [403, 404, 416].includes(upstream.status);
+}
+
+function shouldRememberCompressedBuilderMediaMiss(
+  upstream: Response | { error: string; status: number },
+): boolean {
+  return [403, 404].includes(upstream.status);
 }
 
 async function fetchProviderMedia(
@@ -271,8 +312,6 @@ function loomEmbedResponse(embedUrl: string): Response {
       "Cache-Control": "private, max-age=0, no-store",
       "Referrer-Policy": "no-referrer",
       "X-Content-Type-Options": "nosniff",
-      "Content-Security-Policy":
-        "default-src 'none'; frame-src https://www.loom.com; style-src 'unsafe-inline'",
     },
   });
 }
@@ -328,7 +367,26 @@ export default defineEventHandler(async (event: H3Event) => {
           setResponseStatus(event, 404);
           return { error: "Not found" };
         }
-        if (row.visibility !== "public") {
+        // Org-visibility clips are playable by any signed-in member of the
+        // recording's org, mirroring the allowance in
+        // `/api/public-recording.get.ts` so the metadata endpoint and this
+        // media endpoint never disagree about who can play a clip. Never
+        // throw here — this route is anonymous-reachable, so an org-lookup
+        // failure (or no session at all) must fall through to the existing
+        // public-only gate instead of surfacing a 500.
+        let viewerIsOrgMember = false;
+        if (session?.email && row.visibility === "org" && row.organizationId) {
+          try {
+            const orgRole = await getOrganizationRoleForEmail(
+              row.organizationId,
+              session.email,
+            );
+            viewerIsOrgMember = Boolean(orgRole);
+          } catch {
+            viewerIsOrgMember = false;
+          }
+        }
+        if (row.visibility !== "public" && !viewerIsOrgMember) {
           setResponseStatus(event, 403);
           return { error: "Forbidden" };
         }
@@ -434,7 +492,24 @@ export default defineEventHandler(async (event: H3Event) => {
 
         let upstream: Response | { error: string; status: number };
         try {
-          upstream = await fetchProviderMedia(sourceUrl, rangeHeader);
+          const compressedSourceUrl = builderCompressedMediaUrl(sourceUrl);
+          if (
+            compressedSourceUrl &&
+            !shouldSkipCompressedBuilderMediaProbe(compressedSourceUrl)
+          ) {
+            upstream = await fetchProviderMedia(
+              compressedSourceUrl,
+              rangeHeader,
+            );
+            if (shouldRememberCompressedBuilderMediaMiss(upstream)) {
+              rememberCompressedBuilderMediaMiss(compressedSourceUrl);
+            }
+            if (shouldFallbackToOriginalMedia(upstream)) {
+              upstream = await fetchProviderMedia(sourceUrl, rangeHeader);
+            }
+          } else {
+            upstream = await fetchProviderMedia(sourceUrl, rangeHeader);
+          }
         } catch (err) {
           setResponseStatus(event, statusCodeForProviderFetchError(err));
           return { error: messageForProviderFetchError(err) };

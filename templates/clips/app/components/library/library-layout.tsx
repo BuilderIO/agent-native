@@ -153,9 +153,8 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
   const [headerSlot, setHeaderSlot] = useState<HTMLElement | null>(null);
   const showCollapsedSidebar = sidebarCollapsed && !isMobile;
 
-  // Routes whose page renders its own h-12 toolbar (with NotificationsBell +
-  // AgentToggleButton). Layout still mounts Sidebar + AgentSidebar, but skips
-  // its own header so there's no double-header.
+  // Routes whose page renders its own h-12 toolbar. Layout still mounts Sidebar
+  // + AgentSidebar, but skips its own header so there's no double-header.
   const pageOwnsToolbar =
     location.pathname === "/extensions" ||
     location.pathname.startsWith("/extensions/");
@@ -362,7 +361,8 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
             <>
               <div className="px-3 py-3">
                 <Button
-                  className="w-full gap-1.5 bg-primary text-primary-foreground shadow-sm hover:bg-primary/90"
+                  className="w-full gap-1.5"
+                  variant="outline"
                   size="sm"
                   asChild
                 >
@@ -564,7 +564,11 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
                   {t("navigation.desktopBody")}
                 </span>
               </div>
-              <CaptureInstallButton size="sm" className="shrink-0">
+              <CaptureInstallButton
+                variant="outline"
+                size="sm"
+                className="shrink-0"
+              >
                 Download
               </CaptureInstallButton>
               <Tooltip>

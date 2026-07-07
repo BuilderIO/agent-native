@@ -188,6 +188,67 @@ track("checkout.completed", { total: 49.99, items: 3 });
 
 يختلف هذا عن القياس عن بعد للمتصفح الداخلي لإطار العمل (`trackEvent()` / مشاهدات الصفحة التلقائية - راجع [Browser defaults](#browser-defaults) أدناه), والذي يدعم تحليلات المنتج الخاصة بـ Agent Native. استخدم `track()` لأحداث التحليلات الخاصة بتطبيقك والتي يجب أن تصل إلى مقدمي الخدمة الذين تم تكوينهم.
 
+## إعادة تشغيل الجلسة {#session-replay}
+
+يمكن لتطبيقات Agent Native الاشتراك في إعادة تشغيل جلسة المتصفح من الطرف الأول دون إضافة SDK تحليلات ثانٍ. استدعِ `configureTracking()` مرة واحدة في جذر المتصفح ومرر مفتاح Analytics العام بالإضافة إلى نقطة نهاية المُجمِّع:
+
+```ts
+import { configureTracking } from "@agent-native/core/client";
+
+configureTracking({
+  key: "anpk_...",
+  endpoint: "https://analytics.example.com/api/analytics/track",
+  sessionReplay: {
+    enabled: true,
+    sampleRate: 0.1,
+  },
+  getDefaultProps: (_event, props) => ({
+    ...props,
+    app: "my-app",
+    template: "my-template",
+  }),
+});
+```
+
+عندما يكون `sessionReplay.enabled` صادقًا (truthy)، يقوم العميل باستيراد `@rrweb/record` ديناميكيًا بعد بدء التشغيل وينشر أجزاء إعادة التشغيل إلى نقطة نهاية إعادة التشغيل. إذا كانت `endpoint` تنتهي بـ `/api/analytics/track` أو `/track`، يتم اشتقاق نقطة نهاية إعادة التشغيل تلقائيًا كـ `/api/analytics/replay`. تجاوز ذلك صراحةً باستخدام `sessionReplay.endpoint` عندما يكون مُجمِّع إعادة التشغيل موجودًا في مكان آخر.
+
+تستدعي جذور قوالب Agent Native بالفعل `configureTracking()`. يمكن لعمليات نشر القوالب المستضافة تفعيل إعادة التشغيل باستخدام متغيرات بيئة Vite/Netlify، بينما يجب أن يُفضّل مستهلكو المكتبة الصيغة الصريحة `configureTracking({ key, endpoint, sessionReplay })` أعلاه:
+
+```bash
+VITE_AGENT_NATIVE_ANALYTICS_PUBLIC_KEY=anpk_...
+VITE_AGENT_NATIVE_ANALYTICS_ENDPOINT=https://analytics.example.com/api/analytics/track
+VITE_AGENT_NATIVE_SESSION_REPLAY_ENABLED=true
+VITE_AGENT_NATIVE_SESSION_REPLAY_SAMPLE_RATE=0.1
+```
+
+يقوم مساعد المتصفح أيضًا بإجراء قراءة غير محظِّرة وبأفضل جهد ممكن لجلسة مصادقة Agent Native الحالية. إعادة التشغيل مخصصة لتسجيل الدخول فقط بشكل افتراضي: عندما يكون `sessionReplay` مفعّلاً، لا يبدأ التسجيل ما لم تُحلّ الجلسة إلى عنوان بريد إلكتروني لمستخدم. تتضمن إعادة تشغيل الجلسات المسجَّلة `userId`/`userEmail` المدعومين بالبريد الإلكتروني بالإضافة إلى `orgId`.
+
+اضبط `sessionReplay.requireSignedInUser: false` أو `VITE_AGENT_NATIVE_SESSION_REPLAY_REQUIRE_AUTH=false` فقط من أجل نشر إعادة تشغيل مجهولة الهوية مقصود. عندما يتم تعطيل تحكم المصادقة، تظل التسجيلات المجهولة قابلة للاستعلام حسب الزائر المجهول، والجلسة، والتطبيق/القالب، واسم المضيف، والمسار.
+
+يتم أخذ عينات من إعادة تشغيل الجلسة بشكل حتمي لكل جلسة متصفح. يقوم `sampleRate` بقيمة `0.1` بتسجيل حوالي 10% من الجلسات المؤهلة؛ استخدم `1` عندما تكون المجموعة المؤهلة صغيرة عن قصد، مثل اختبار الاستخدام الداخلي لتسجيل الدخول فقط.
+
+إعدادات الخصوصية الافتراضية متحفظة عن قصد لكنها لا تزال مفيدة لإعادة التشغيل:
+
+- يتم إخفاء المدخلات بشكل افتراضي (`maskAllInputs: true`).
+- يظل نص الصفحة مرئيًا ما لم يتم تمييز عنصر بـ `.an-mask` أو `data-an-mask`.
+- يتم حظر المناطق الحساسة بمحددات مثل `[data-sensitive]`، و`.an-block`، و`.an-private`، و`data-an-block`، و`data-an-private`، والحقول الشبيهة ببطاقات الائتمان/كلمات المرور/أرقام الضمان الاجتماعي.
+- يتم تنظيف عناوين URL باستخدام نفس مساعد `scrubUrl()` المستخدم بواسطة تحليلات المتصفح.
+- التقاط إعادة التشغيل مخصص للويب فقط وباختيار المستخدم؛ فهو لا يسجل شاشات سطح المكتب الأصلية.
+
+أثناء التسجيل، تلتقط إعادة تشغيل الجلسة أيضًا مخرجات وحدة تحكم المتصفح (`log`، و`info`، و`warn`، و`error`، و`debug`، بالإضافة إلى `error` / `unhandledrejection` الخاصة بالنافذة) وبيانات وصفية لطلبات الشبكة (`fetch` و XHR) كأحداث rrweb مخصصة موسومة، بحيث يمكن للوكلاء وعارض إعادة التشغيل تصحيح المشكلات التي يبلغ عنها المستخدمون. الالتقاط مفعّل افتراضيًا عند تفعيل إعادة التشغيل؛ اضبطه أو عطّله باستخدام خياري `sessionReplay.console` و`sessionReplay.network`، حيث يقبل كل منهما قيمة منطقية (boolean) أو كائن خيارات (`{ maxEvents?: number }`، مع قبول `network` إضافيًا لـ `captureErrorBodies` و`maxErrorBodyLength`). لا يتم التقاط نصوص/رؤوس الطلبات مطلقًا؛ أما نصوص الاستجابات فلا تُلتقط إلا كمقتطف محدود ومُنقّح لاستجابات 5xx (أخطاء الخادم) فقط (`captureErrorBodies`، الافتراضي true، بحد أقصى `maxErrorBodyLength` حرفًا، الافتراضي 2048) — استجابات غير 5xx وحالات فشل الشبكة لا تحمل أي نص استجابة أبدًا. يتم تنظيف عناوين URL، ويتم اقتطاع الرسائل، ويُستثنى حركة استيعاب/تتبع المسجِّل نفسه، وتضيف ميزانيات كل جلسة (1000 حدث وحدة تحكم / 2000 حدث شبكة) إشعار اقتطاع عند تجاوزها.
+
+يخزّن قالب Analytics بيانات إعادة التشغيل الوصفية في SQL (`session_recordings`) ويخزّن الأجزاء عبر مراجع blob خاصة (`session_replay_chunks`). لا تتلقى المتصفحات والوكلاء أبدًا عناوين URL الخاصة بالموفر. تمر إعادة التشغيل عبر مسارات خادم محددة النطاق، وتُرجع أدوات الوكيل الافتراضية ملخصات أو أحداث إعادة تشغيل محدودة، وليس وصولاً خامًا إلى جدول الأجزاء.
+
+عندما تحتاج إلى تسليم تسجيل خاص إلى وكيل خارجي، استخدم عنصر التحكم **نسخ للوكيل** في صفحة تفاصيل الجلسة. فهو يُنشئ رابط `agent_access` محدد النطاق بالتسجيل ومدته ساعتان، ويقوم بعرض SSR لحمولة اكتشاف صغيرة على `/sessions/:recordingId`، ولا يكشف إلا عن واجهات برمجة تطبيقات JSON الخاصة بسياق/أحداث الوكيل. لا تتغير رؤية التسجيل.
+
+Implementation note: the reusable layer is the core agent-access URL contract,
+not a replay-specific UI abstraction. Use `createScopedAgentAccessGrant`,
+`verifyScopedAgentAccessToken`, `buildAgentAccessUrl`, and
+`buildAgentAccessApiUrl` for scoped SSR and JSON API links; keep replay storage,
+diagnostics shaping, and access policy inside the Analytics template.
+
+للتطوير المحلي فقط، يمكن لـ Analytics الرجوع إلى أجزاء SQL مضمّنة محدودة السعة عندما يكون تخزين blob الخاص غير متاح. يجب أن تُهيّئ عمليات النشر في الإنتاج تخزين blob خاصًا أو مشفّرًا بدلاً من الاعتماد على Postgres لحمولات إعادة التشغيل.
+
 ## متقدم: الموفرون المخصصون والداخليون {#advanced}
 
 تحتاج معظم التطبيقات فقط إلى `track()` / `identify()` وموفر مدمج. بقية السطح - تسجيل موفري الخدمة المخصصين، واجهة `TrackingProvider`، الأجزاء الداخلية المجمعة، والقياس عن بعد للمتصفح الخاص بإطار العمل - موجود أدناه.

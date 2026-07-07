@@ -25,6 +25,24 @@ import { ResourcesPanel } from "@agent-native/core/client/resources";
 `@agent-native/core/client` 或聚焦的 `@agent-native/core/client/*` 子路径
 因此捆绑商选择浏览器安全的条目。
 
+将 `@agent-native/toolkit` 用于不属于基础运行时契约的可复用应用构建部件：shadcn 风格 UI primitives、共享 hooks、简单应用 shell helpers，以及其他模板组合模块。迁移期间 Core 会保留兼容 re-export。
+
+可复用 packages 可以直接导入 Toolkit 模块：
+
+```tsx
+import { Button } from "@agent-native/toolkit/ui/button";
+import { Toaster } from "@agent-native/toolkit/ui/sonner";
+import { useToast } from "@agent-native/toolkit/hooks/use-toast";
+import { useSetHeaderActions } from "@agent-native/toolkit/app-shell";
+```
+
+在模板应用里，优先使用 app-local adapters，这样团队只替换一次 primitive，所有复用的 Toolkit surface 都会使用本地实现：
+
+```tsx
+import { Button } from "@/components/ui/button";
+import { useToast } from "@/hooks/use-toast";
+```
+
 <Diagram id="doc-block-1tquzyh" title={"下拉一层，不脱离框架"} summary={"每个层都保持相同的运行时 - 操作、线程状态和 SQL-backed 同步 - 同时让您更好地控制镶边。"}>
 
 ```html
@@ -426,15 +444,16 @@ function WorkspaceResources() {
 
 ## 其他公共UI {#other-ui}
 
-| 区域         | APIs                                                  | 导入路径                                  |
-| ------------ | ----------------------------------------------------- | ----------------------------------------- |
-| 分享         | `<ShareButton>`, `<ShareDialog>`, `<VisibilityBadge>` | `@agent-native/core/client/sharing`       |
-| 通知         | `<NotificationsBell>`                                 | `@agent-native/core/client/notifications` |
-| 进度         | `<RunsTray>`，进度挂钩和类型                          | `@agent-native/core/client/progress`      |
-| 入职         | `useOnboarding()`，入门面板挂钩                       | `@agent-native/core/client/onboarding`    |
-| 可观察性     | `<ObservabilityDashboard>`, `<ThumbsFeedback>`        | `@agent-native/core/client/observability` |
-| 资源         | `<ResourcesPanel>`、`<ResourceTree>`、资源挂钩        | `@agent-native/core/client/resources`     |
-| 丰富的编辑器 | `<SharedRichEditor>`，斜杠命令，块节点挂钩            | `@agent-native/core/client/editor`        |
+| 区域         | APIs                                           | 导入路径                                  |
+| ------------ | ---------------------------------------------- | ----------------------------------------- |
+| 分享         | `<ShareButton>`, `<ShareDialog>`               | `@agent-native/core/client/sharing`       |
+| Sharing UI   | `<VisibilityBadge>`                            | `@agent-native/toolkit/sharing`           |
+| 通知         | `<NotificationsBell>`                          | `@agent-native/core/client/notifications` |
+| 进度         | `<RunsTray>`，进度挂钩和类型                   | `@agent-native/core/client/progress`      |
+| 入职         | `useOnboarding()`，入门面板挂钩                | `@agent-native/core/client/onboarding`    |
+| 可观察性     | `<ObservabilityDashboard>`, `<ThumbsFeedback>` | `@agent-native/core/client/observability` |
+| 资源         | `<ResourcesPanel>`、`<ResourceTree>`、资源挂钩 | `@agent-native/core/client/resources`     |
+| 丰富的编辑器 | `<SharedRichEditor>`，斜杠命令，块节点挂钩     | `@agent-native/core/client/editor`        |
 
 ## 一次性文本完成 {#one-off-text-completion}
 

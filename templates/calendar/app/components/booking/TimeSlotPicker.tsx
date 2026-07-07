@@ -9,6 +9,7 @@ interface TimeSlotPickerProps {
   selectedSlot: string | null;
   onSelect: (start: string) => void;
   loading?: boolean;
+  errorMessage?: string;
 }
 
 export function TimeSlotPicker({
@@ -16,6 +17,7 @@ export function TimeSlotPicker({
   selectedSlot,
   onSelect,
   loading,
+  errorMessage,
 }: TimeSlotPickerProps) {
   const t = useT();
 
@@ -26,6 +28,14 @@ export function TimeSlotPicker({
           <Skeleton key={i} className="h-10 rounded-md" />
         ))}
       </div>
+    );
+  }
+
+  if (errorMessage) {
+    return (
+      <p className="rounded-lg border border-destructive/30 bg-destructive/[0.06] px-3 py-3 text-sm text-destructive">
+        {errorMessage}
+      </p>
     );
   }
 

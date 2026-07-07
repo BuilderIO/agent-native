@@ -232,3 +232,25 @@ This layer is optional and **no-op by default**:
 - Even with the api package installed, it ships a default no-op tracer. Spans become real only once the **host registers a `TracerProvider`** (via `@opentelemetry/sdk-node` or similar). The framework deliberately does not depend on the heavy SDK/exporter packages and never registers a provider itself — instrumentation is opt-in by the embedding app.
 
 The loop emits `agent.run` (with `agent.run_id`, `agent.thread_id`, `agent.user_id`, `agent.model`), `tool.call` (`tool.name` + status), and `llm.call` spans, each finished with OK/ERROR status. This is purely additive to the in-house `agent_trace_spans` / `agent_trace_summaries` tables. Source: `packages/core/src/observability/tracing.ts` + `traces.ts`. See the Observability doc for the full table.
+
+## Tracking Bridge
+
+Instrumented agent loops also emit one server-side tracking event per completed
+LLM generation:
+
+- Event name: `$ai_generation`
+- Provider path: `track()` from `@agent-native/core/tracking`, so configured
+  PostHog, Agent Native Analytics, Mixpanel, Amplitude, and webhook providers
+  receive it through the same best-effort fan-out as other tracking events.
+- PostHog shape: uses AI Observability properties such as `$ai_trace_id`,
+  `$ai_session_id`, `$ai_model`, `$ai_provider`, `$ai_input_tokens`,
+  `$ai_output_tokens`, `$ai_latency`, `$ai_total_cost_usd`, and `$ai_is_error`.
+- Agent Native Analytics shape: the same event lands in `analytics_events` with
+  mirrored query-friendly properties such as `run_id`, `thread_id`,
+  `cost_cents_x100`, `duration_ms`, `tool_calls`, `successful_tools`,
+  `failed_tools`, and `status`.
+
+Do not build a separate LLM-observability ingestion API unless there is a clear
+reason the tracking provider registry cannot express the use case. Keep prompt,
+tool input, and model output content out of tracking by default; use the existing
+observability config flags for local trace content capture.

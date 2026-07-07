@@ -11,15 +11,15 @@ Questions courantes sur les agents natifs, organisées de "Je cherche juste" à 
 
 ### Qu'est-ce que l'agent natif ? {#what-is-agent-native}
 
-Agent-native est un cadre permettant de créer des applications dans lesquelles l'agent IA et le produit qui l'entoure sont des partenaires égaux. Cette surface peut commencer comme un agent sans tête avec une action personnalisée, se transformer en un chat riche ou devenir un UI complet. L'invariant est que les agents et les humains partagent le même actions, la même base de données et le même état. Voir [What Is Agent-Native?](/docs/what-is-agent-native) pour l'explication complète.
+Agent-native est un cadre permettant de créer des applications dans lesquelles l'agent IA et le produit qui l'entoure sont des partenaires égaux. Le chemin courant commence par le chat, ajoute des actions typées, rend des résultats structurés en ligne, puis grandit vers des pages durables autour du même état SQL. L'invariant est que les agents et les humains partagent le même actions, la même base de données et le même état. Voir [What Is Agent-Native?](/docs/what-is-agent-native) pour l'explication complète.
 
 ### À qui est-ce destiné ? {#who-is-this-for}
 
 Agent-native est destiné aux personnes qui souhaitent qu'une véritable application et un agent IA fonctionnent à partir des mêmes données et actions. Les chemins courants sont :
 
 - **Utilisez une application hébergée** si vous souhaitez recevoir un courrier, un calendrier, des formulaires, un plan ou un autre modèle fini sans configuration – commencez par le [template gallery](/templates).
-- **Commencez avec Chat** si vous souhaitez une application de base avec laquelle les utilisateurs peuvent parler immédiatement, puis étendez-la avec actions et les écrans – commencez par [Getting Started](/docs/getting-started) ou [Chat](/docs/template-chat).
-- **Démarrez d'abord les primitives** si vous souhaitez une action et une boucle d'agent d'application sans tête avant de vous engager dans UI — commencez par [Getting Started](/docs/getting-started).
+- **Commencez avec Chat** si vous souhaitez le chemin par défaut depuis zéro : les utilisateurs parlent immédiatement à l'agent, puis vous étendez avec actions, résultats natifs et écrans – commencez par [Getting Started](/docs/getting-started) ou [Chat](/docs/template-chat).
+- **Commencez automation-first** si vous créez des tâches planifiées, files, scripts, integration workers ou workflows d'agents externes sans UI navigateur pour le moment — commencez par [Automation-First Apps](/docs/pure-agent-apps).
 - ** Créez et personnalisez un modèle ** si vous souhaitez créer votre propre produit SaaS avec authentification, base de données, UI et agent actions déjà câblés – voir [Templates](/docs/cloneable-saas).
 - **Construisez à partir de zéro** si vous souhaitez les primitives de structure pour un nouveau produit piloté par agent : commencez par [Getting Started](/docs/getting-started).
 - **Connectez un autre agent ou un autre outil de code** si vous souhaitez que Claude, ChatGPT, Codex, Cursor ou GitHub Copilot / VS Code utilisent une application native d'agent – voir [External Agents](/docs/external-agents) et [Skills Guide](/docs/skills-guide).
@@ -130,7 +130,7 @@ C'est là tout l'intérêt. Créez un modèle et personnalisez-le en le demandan
 
 ### Puis-je créer quelque chose que les modèles ne couvrent pas ? {#build-from-scratch}
 
-Oui. Si vous souhaitez une application de chat de base, exécutez `npx @agent-native/core@latest create my-chat-app --template chat` ; vous bénéficiez de fils de discussion durables, de actions, d'une authentification, d'un état d'exécution soutenu par SQL et d'un espace pour ajouter vos propres écrans. Si vous souhaitez la plus petite application axée sur l'action sans UI, exécutez `npx @agent-native/core@latest create my-agent --headless`. Voir [Getting Started](/docs/getting-started), [Pure-Agent Apps](/docs/pure-agent-apps) et [Chat](/docs/template-chat).
+Oui. Si vous souhaitez une app agentic de base, exécutez `npx @agent-native/core@latest create my-chat-app --template chat` ; vous bénéficiez de fils de discussion durables, de actions, d'une authentification, d'un état d'exécution soutenu par SQL, d'un rendu natif en ligne et d'un espace pour ajouter vos propres écrans. Si vous créez une automation sans navigateur, exécutez `npx @agent-native/core@latest create my-agent --headless`. Voir [Getting Started](/docs/getting-started), [Automation-First Apps](/docs/pure-agent-apps) et [Chat](/docs/template-chat).
 
 ### Puis-je l'essayer sans créer de modèle ? {#try-with-a-skill}
 

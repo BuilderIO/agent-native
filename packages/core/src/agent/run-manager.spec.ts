@@ -24,8 +24,10 @@ vi.mock("./run-store.js", () => ({
   bumpRunProgress: vi.fn(() => Promise.resolve()),
   reapIfStale: vi.fn(() => Promise.resolve(null)),
   reapUnclaimedBackgroundRun: vi.fn(() => Promise.resolve(false)),
+  reconcileTerminalRunFromEvents: vi.fn(() => Promise.resolve(false)),
   ensureTerminalRunEvent: vi.fn(() => Promise.resolve()),
   setRunError: vi.fn(() => Promise.resolve()),
+  setRunTerminalReason: vi.fn(() => Promise.resolve()),
   STALE_RUN_ERROR_EVENT: {
     type: "error",
     error:
@@ -42,17 +44,22 @@ import { isInBackgroundFunctionRuntime } from "./durable-background.js";
 import {
   abortRun,
   BACKGROUND_SOFT_TIMEOUT_CEILING_MS,
+  DEFAULT_BACKGROUND_NO_PROGRESS_TIMEOUT_MS,
   DEFAULT_BACKGROUND_RUN_SOFT_TIMEOUT_MS,
   DEFAULT_COMPLETED_RUN_RETENTION_MS,
   DEFAULT_ERRORED_RUN_RETENTION_MS,
   DEFAULT_HOSTED_RUN_SOFT_TIMEOUT_MS,
   HOSTED_SOFT_TIMEOUT_CEILING_MS,
+  RUN_NO_PROGRESS_HARD_TIMEOUT_MS,
   getActiveRunForThreadAsync,
   resolveCompletedRunRetentionMs,
   resolveErroredRunRetentionMs,
   resolveRunSoftTimeoutMs,
+  resolveSqlSubscriptionPollMs,
   startRun,
   subscribeToRun,
+  SQL_SUBSCRIPTION_ACTIVE_POLL_MS,
+  SQL_SUBSCRIPTION_IDLE_POLL_MS,
   TERMINAL_RUN_RECONNECT_WINDOW_MS,
 } from "./run-manager.js";
 import {
@@ -68,9 +75,12 @@ import {
   updateRunStatusIfRunning,
   ensureTerminalRunEvent,
   cleanupOldRuns,
+  bumpRunProgress,
   setRunError,
+  setRunTerminalReason,
   reapIfStale,
   reapUnclaimedBackgroundRun,
+  reconcileTerminalRunFromEvents,
 } from "./run-store.js";
 
 const originalTimeoutEnv = process.env.AGENT_RUN_SOFT_TIMEOUT_MS;
@@ -148,11 +158,15 @@ describe("run manager soft timeout", () => {
     vi.mocked(updateRunStatusIfRunning).mockReset();
     vi.mocked(updateRunStatusIfRunning).mockResolvedValue(true);
     vi.mocked(cleanupOldRuns).mockClear();
+    vi.mocked(bumpRunProgress).mockClear();
     vi.mocked(setRunError).mockClear();
+    vi.mocked(setRunTerminalReason).mockClear();
     vi.mocked(reapUnclaimedBackgroundRun).mockReset();
     vi.mocked(reapUnclaimedBackgroundRun).mockResolvedValue(false);
     vi.mocked(reapIfStale).mockReset();
     vi.mocked(reapIfStale).mockResolvedValue(null as any);
+    vi.mocked(reconcileTerminalRunFromEvents).mockReset();
+    vi.mocked(reconcileTerminalRunFromEvents).mockResolvedValue(false);
   });
 
   afterEach(() => {
@@ -160,9 +174,22 @@ describe("run manager soft timeout", () => {
     vi.useRealTimers();
   });
 
+  it("uses the active SQL subscription cadence only inside the active polling window", () => {
+    expect(resolveSqlSubscriptionPollMs(1_000, 1_001)).toBe(
+      SQL_SUBSCRIPTION_ACTIVE_POLL_MS,
+    );
+    expect(resolveSqlSubscriptionPollMs(1_000, 1_000)).toBe(
+      SQL_SUBSCRIPTION_IDLE_POLL_MS,
+    );
+    expect(resolveSqlSubscriptionPollMs(1_000, 999)).toBe(
+      SQL_SUBSCRIPTION_IDLE_POLL_MS,
+    );
+  });
+
   it("emits an internal continuation signal and aborts the run chunk", async () => {
     const events: AgentChatEvent[] = [];
     let aborted = false;
+    let abortReason: unknown;
 
     const run = startRun(
       "run-soft-timeout",
@@ -171,6 +198,7 @@ describe("run manager soft timeout", () => {
         await new Promise<void>((resolve) => {
           signal.addEventListener("abort", () => {
             aborted = true;
+            abortReason = signal.reason;
             resolve();
           });
         });
@@ -183,6 +211,7 @@ describe("run manager soft timeout", () => {
     await vi.advanceTimersByTimeAsync(11);
 
     expect(aborted).toBe(true);
+    expect(abortReason).toBe("run_timeout");
     expect(events).toContainEqual(
       expect.objectContaining({
         type: "auto_continue",
@@ -190,6 +219,12 @@ describe("run manager soft timeout", () => {
       }),
     );
     expect(run.status).toBe("completed");
+    await vi.waitFor(() =>
+      expect(setRunTerminalReason).toHaveBeenCalledWith(
+        "run-soft-timeout",
+        "run_timeout",
+      ),
+    );
   });
 
   it("persists the terminal auto_continue with a unique seq when the run emits events after the soft timeout", async () => {
@@ -673,6 +708,352 @@ describe("run manager soft timeout", () => {
     expect(run.abortReason).toBe("no_progress");
   });
 
+  it("does not bump durable progress for keepalives or anonymous zero-byte action preparation", async () => {
+    vi.setSystemTime(10_000);
+
+    const run = startRun(
+      "run-empty-prep-progress",
+      "thread-empty-prep-progress",
+      async (send, signal) => {
+        send({ type: "stream_keepalive" });
+        send({
+          type: "activity",
+          label: "Preparing edit-design action",
+          tool: "edit-design",
+        });
+        send({
+          type: "activity",
+          label: "Preparing edit-design action",
+          tool: "edit-design",
+          progressBytes: 0,
+        });
+        await new Promise<void>((resolve) => {
+          signal.addEventListener("abort", () => resolve(), { once: true });
+        });
+      },
+      undefined,
+      { softTimeoutMs: 0 },
+    );
+
+    expect(bumpRunProgress).not.toHaveBeenCalled();
+
+    expect(abortRun("run-empty-prep-progress")).toBe(true);
+    await vi.waitFor(() => expect(run.status).toBe("aborted"));
+  });
+
+  it("bumps durable progress for the first identified zero-byte action preparation", async () => {
+    vi.setSystemTime(10_000);
+
+    const run = startRun(
+      "run-identified-empty-prep-progress",
+      "thread-identified-empty-prep-progress",
+      async (send, signal) => {
+        send({
+          type: "activity",
+          label: "Preparing edit-design action",
+          tool: "edit-design",
+          id: "call-a",
+          progressBytes: 0,
+        });
+        vi.setSystemTime(12_000);
+        send({
+          type: "activity",
+          label: "Preparing edit-design action",
+          tool: "edit-design",
+          id: "call-a",
+          progressBytes: 0,
+        });
+        vi.setSystemTime(14_000);
+        send({
+          type: "activity",
+          label: "Preparing edit-design action",
+          tool: "edit-design",
+          id: "call-b",
+          progressBytes: 0,
+        });
+        await new Promise<void>((resolve) => {
+          signal.addEventListener("abort", () => resolve(), { once: true });
+        });
+      },
+      undefined,
+      { softTimeoutMs: 0 },
+    );
+
+    expect(bumpRunProgress).toHaveBeenCalledTimes(1);
+    expect(bumpRunProgress).toHaveBeenCalledWith(
+      "run-identified-empty-prep-progress",
+    );
+
+    expect(abortRun("run-identified-empty-prep-progress")).toBe(true);
+    await vi.waitFor(() => expect(run.status).toBe("aborted"));
+  });
+
+  it("does not bump durable progress for clear events or lower-byte restarts", async () => {
+    vi.setSystemTime(10_000);
+
+    const run = startRun(
+      "run-clear-not-progress",
+      "thread-clear-not-progress",
+      async (send, signal) => {
+        send({
+          type: "activity",
+          label: "Preparing edit-design action",
+          tool: "edit-design",
+          id: "call-a",
+          progressBytes: 64,
+        });
+        vi.setSystemTime(12_000);
+        send({ type: "clear" });
+        vi.setSystemTime(14_000);
+        send({
+          type: "activity",
+          label: "Preparing edit-design action",
+          tool: "edit-design",
+          id: "call-b",
+          progressBytes: 0,
+        });
+        vi.setSystemTime(16_000);
+        send({
+          type: "activity",
+          label: "Preparing edit-design action",
+          tool: "edit-design",
+          id: "call-b",
+          progressBytes: 32,
+        });
+        vi.setSystemTime(18_000);
+        send({
+          type: "activity",
+          label: "Preparing edit-design action",
+          tool: "edit-design",
+          id: "call-c",
+          progressBytes: 64,
+        });
+        vi.setSystemTime(20_000);
+        send({
+          type: "activity",
+          label: "Preparing edit-design action",
+          tool: "edit-design",
+          id: "call-c",
+          progressBytes: 96,
+        });
+        await new Promise<void>((resolve) => {
+          signal.addEventListener("abort", () => resolve(), { once: true });
+        });
+      },
+      undefined,
+      { softTimeoutMs: 0 },
+    );
+
+    expect(bumpRunProgress).toHaveBeenCalledTimes(2);
+    expect(bumpRunProgress).toHaveBeenNthCalledWith(
+      1,
+      "run-clear-not-progress",
+    );
+    expect(bumpRunProgress).toHaveBeenNthCalledWith(
+      2,
+      "run-clear-not-progress",
+    );
+
+    expect(abortRun("run-clear-not-progress")).toBe(true);
+    await vi.waitFor(() => expect(run.status).toBe("aborted"));
+  });
+
+  it("applies clear restart high-water to no-id preparation progress", async () => {
+    vi.setSystemTime(10_000);
+
+    const run = startRun(
+      "run-clear-no-id-progress",
+      "thread-clear-no-id-progress",
+      async (send, signal) => {
+        send({
+          type: "activity",
+          label: "Preparing edit-design action",
+          tool: "edit-design",
+          progressBytes: 64,
+        });
+        vi.setSystemTime(12_000);
+        send({ type: "clear" });
+        vi.setSystemTime(14_000);
+        send({
+          type: "activity",
+          label: "Preparing edit-design action",
+          tool: "edit-design",
+          progressBytes: 32,
+        });
+        vi.setSystemTime(16_000);
+        send({
+          type: "activity",
+          label: "Preparing edit-design action",
+          tool: "edit-design",
+          progressBytes: 96,
+        });
+        await new Promise<void>((resolve) => {
+          signal.addEventListener("abort", () => resolve(), { once: true });
+        });
+      },
+      undefined,
+      { softTimeoutMs: 0 },
+    );
+
+    expect(bumpRunProgress).toHaveBeenCalledTimes(2);
+    expect(bumpRunProgress).toHaveBeenNthCalledWith(
+      1,
+      "run-clear-no-id-progress",
+    );
+    expect(bumpRunProgress).toHaveBeenNthCalledWith(
+      2,
+      "run-clear-no-id-progress",
+    );
+
+    expect(abortRun("run-clear-no-id-progress")).toBe(true);
+    await vi.waitFor(() => expect(run.status).toBe("aborted"));
+  });
+
+  it("bumps durable progress only when action-preparation bytes increase", async () => {
+    vi.setSystemTime(10_000);
+
+    const run = startRun(
+      "run-streaming-prep-progress",
+      "thread-streaming-prep-progress",
+      async (send, signal) => {
+        send({
+          type: "activity",
+          label: "Preparing edit-design action",
+          tool: "edit-design",
+          id: "call-a",
+          progressBytes: 0,
+        });
+        send({
+          type: "activity",
+          label: "Preparing edit-design action",
+          tool: "edit-design",
+          id: "call-a",
+          progressBytes: 64,
+        });
+        vi.setSystemTime(12_000);
+        send({
+          type: "activity",
+          label: "Preparing edit-design action",
+          tool: "edit-design",
+          id: "call-a",
+          progressBytes: 64,
+        });
+        vi.setSystemTime(14_000);
+        send({
+          type: "activity",
+          label: "Preparing edit-design action",
+          tool: "edit-design",
+          id: "call-a",
+          progressBytes: 96,
+        });
+        await new Promise<void>((resolve) => {
+          signal.addEventListener("abort", () => resolve(), { once: true });
+        });
+      },
+      undefined,
+      { softTimeoutMs: 0 },
+    );
+
+    expect(bumpRunProgress).toHaveBeenCalledTimes(2);
+    expect(bumpRunProgress).toHaveBeenNthCalledWith(
+      1,
+      "run-streaming-prep-progress",
+    );
+    expect(bumpRunProgress).toHaveBeenNthCalledWith(
+      2,
+      "run-streaming-prep-progress",
+    );
+
+    expect(abortRun("run-streaming-prep-progress")).toBe(true);
+    await vi.waitFor(() => expect(run.status).toBe("aborted"));
+  });
+
+  it("keys durable action-preparation progress by activity id", async () => {
+    vi.setSystemTime(10_000);
+
+    const run = startRun(
+      "run-parallel-prep-progress",
+      "thread-parallel-prep-progress",
+      async (send, signal) => {
+        send({
+          type: "activity",
+          label: "Preparing edit-design action",
+          tool: "edit-design",
+          id: "call-a",
+          progressBytes: 128,
+        });
+        vi.setSystemTime(12_000);
+        send({
+          type: "activity",
+          label: "Preparing edit-design action",
+          tool: "edit-design",
+          id: "call-b",
+          progressBytes: 64,
+        });
+        await new Promise<void>((resolve) => {
+          signal.addEventListener("abort", () => resolve(), { once: true });
+        });
+      },
+      undefined,
+      { softTimeoutMs: 0 },
+    );
+
+    expect(bumpRunProgress).toHaveBeenCalledTimes(2);
+    expect(bumpRunProgress).toHaveBeenNthCalledWith(
+      1,
+      "run-parallel-prep-progress",
+    );
+    expect(bumpRunProgress).toHaveBeenNthCalledWith(
+      2,
+      "run-parallel-prep-progress",
+    );
+
+    expect(abortRun("run-parallel-prep-progress")).toBe(true);
+    await vi.waitFor(() => expect(run.status).toBe("aborted"));
+  });
+
+  it("treats no-id positive preparation bytes as durable progress", async () => {
+    vi.setSystemTime(10_000);
+
+    const run = startRun(
+      "run-no-id-prep-progress",
+      "thread-no-id-prep-progress",
+      async (send, signal) => {
+        send({
+          type: "activity",
+          label: "Preparing edit-design action",
+          tool: "edit-design",
+          progressBytes: 128,
+        });
+        vi.setSystemTime(12_000);
+        send({
+          type: "activity",
+          label: "Preparing edit-design action",
+          tool: "edit-design",
+          progressBytes: 64,
+        });
+        await new Promise<void>((resolve) => {
+          signal.addEventListener("abort", () => resolve(), { once: true });
+        });
+      },
+      undefined,
+      { softTimeoutMs: 0 },
+    );
+
+    expect(bumpRunProgress).toHaveBeenCalledTimes(2);
+    expect(bumpRunProgress).toHaveBeenNthCalledWith(
+      1,
+      "run-no-id-prep-progress",
+    );
+    expect(bumpRunProgress).toHaveBeenNthCalledWith(
+      2,
+      "run-no-id-prep-progress",
+    );
+
+    expect(abortRun("run-no-id-prep-progress")).toBe(true);
+    await vi.waitFor(() => expect(run.status).toBe("aborted"));
+  });
+
   it("waits for the SQL run row insert before writing terminal status", async () => {
     let resolveInsert!: () => void;
     const insertPromise = new Promise<void>((resolve) => {
@@ -707,6 +1088,116 @@ describe("run manager soft timeout", () => {
         "completed",
       ),
     );
+  });
+
+  it("reconciles from the terminal event when the final status write misses", async () => {
+    vi.mocked(updateRunStatusIfRunning).mockRejectedValueOnce(
+      new Error("transient status write failure"),
+    );
+    vi.mocked(reconcileTerminalRunFromEvents).mockResolvedValueOnce(true);
+
+    const run = startRun(
+      "run-terminal-reconcile-fallback",
+      "thread-terminal-reconcile-fallback",
+      async (send) => {
+        send({ type: "text", text: "fast answer" });
+      },
+      undefined,
+      { softTimeoutMs: 0 },
+    );
+
+    await vi.waitFor(() => expect(run.status).toBe("completed"));
+    await vi.waitFor(() =>
+      expect(updateRunStatusIfRunning).toHaveBeenCalledWith(
+        "run-terminal-reconcile-fallback",
+        "completed",
+      ),
+    );
+    expect(reconcileTerminalRunFromEvents).toHaveBeenCalledWith(
+      "run-terminal-reconcile-fallback",
+    );
+  });
+
+  it("captures initial run-row persistence failures with the run id", async () => {
+    const provider = vi.fn(() => "evt_run_insert");
+    const unregister = registerErrorCaptureProvider(
+      "run-manager-insert-persistence-test",
+      provider,
+    );
+    const err = new Error("insert failed");
+    vi.mocked(insertRun).mockRejectedValueOnce(err);
+
+    try {
+      startRun(
+        "run-insert-missing",
+        "thread-insert-missing",
+        async () => {},
+        undefined,
+        { softTimeoutMs: 0 },
+      );
+
+      await vi.waitFor(() =>
+        expect(provider).toHaveBeenCalledWith(
+          err,
+          expect.objectContaining({
+            route: "/_agent-native/agent-chat",
+            tags: expect.objectContaining({
+              source: "agent-run-manager",
+              phase: "insert-run",
+            }),
+            extra: expect.objectContaining({
+              runId: "run-insert-missing",
+              threadId: "thread-insert-missing",
+            }),
+          }),
+        ),
+      );
+    } finally {
+      unregister();
+    }
+  });
+
+  it("captures run-event persistence failures with the sequence and event type", async () => {
+    const provider = vi.fn(() => "evt_run_event");
+    const unregister = registerErrorCaptureProvider(
+      "run-manager-event-persistence-test",
+      provider,
+    );
+    const err = new Error("event insert failed");
+    vi.mocked(insertRunEvent).mockRejectedValueOnce(err);
+
+    try {
+      startRun(
+        "run-event-missing",
+        "thread-event-missing",
+        async (send) => {
+          send({ type: "text", text: "hello" });
+        },
+        undefined,
+        { softTimeoutMs: 0 },
+      );
+
+      await vi.waitFor(() =>
+        expect(provider).toHaveBeenCalledWith(
+          err,
+          expect.objectContaining({
+            route: "/_agent-native/agent-chat",
+            tags: expect.objectContaining({
+              source: "agent-run-manager",
+              phase: "insert-event",
+            }),
+            extra: expect.objectContaining({
+              runId: "run-event-missing",
+              threadId: "thread-event-missing",
+              seq: 0,
+              eventType: "text",
+            }),
+          }),
+        ),
+      );
+    } finally {
+      unregister();
+    }
   });
 
   it("captures background run errors through the generic capture registry", async () => {
@@ -1236,6 +1727,75 @@ describe("run manager soft timeout", () => {
     });
   });
 
+  it("enriches in-memory active runs with SQL dispatch metadata", async () => {
+    const run = startRun(
+      "run-mem-background",
+      "thread-mem-background",
+      async (_send, signal) => {
+        await new Promise<void>((resolve) => {
+          signal.addEventListener("abort", () => resolve(), { once: true });
+        });
+      },
+    );
+    vi.mocked(getRunByThread).mockResolvedValueOnce({
+      id: "run-mem-background",
+      threadId: "thread-mem-background",
+      status: "running",
+      startedAt: Date.now() - 5_000,
+      heartbeatAt: Date.now() - 1_000,
+      completedAt: null,
+      lastProgressAt: Date.now() - 1_000,
+      dispatchMode: "background-processing",
+      terminalReason: null,
+      diagStage: '{"stage":"worker_started","at":1}',
+    });
+
+    const result = await getActiveRunForThreadAsync("thread-mem-background");
+
+    expect(result).toMatchObject({
+      runId: "run-mem-background",
+      status: "running",
+      dispatchMode: "background-processing",
+      terminalReason: null,
+      diagStage: '{"stage":"worker_started","at":1}',
+    });
+    abortRun(run.runId, "test");
+  });
+
+  it("prefers terminal SQL truth over a stale in-memory running buffer", async () => {
+    const run = startRun(
+      "run-mem-terminal",
+      "thread-mem-terminal",
+      async (_send, signal) => {
+        await new Promise<void>((resolve) => {
+          signal.addEventListener("abort", () => resolve(), { once: true });
+        });
+      },
+    );
+    vi.mocked(getRunByThread).mockResolvedValueOnce({
+      id: "run-mem-terminal",
+      threadId: "thread-mem-terminal",
+      status: "completed",
+      startedAt: Date.now() - 120_000,
+      heartbeatAt: Date.now() - 5_000,
+      completedAt: Date.now() - 2_000,
+      lastProgressAt: Date.now() - 3_000,
+      dispatchMode: "background-processing",
+      terminalReason: "done",
+      diagStage: '{"stage":"completed","at":1}',
+    });
+
+    const result = await getActiveRunForThreadAsync("thread-mem-terminal");
+
+    expect(result).toMatchObject({
+      runId: "run-mem-terminal",
+      status: "completed",
+      dispatchMode: "background-processing",
+      terminalReason: "done",
+    });
+    abortRun(run.runId, "test");
+  });
+
   // ─── FALLBACK HARDENING: unclaimed background run recovery ──────────────────
   it("recovers an unclaimed-stale background run (202 acked, worker never started)", async () => {
     // dispatch_mode still 'background' (never flipped to 'background-processing')
@@ -1456,5 +2016,324 @@ describe("run manager soft timeout", () => {
 
     // Order must be preserved: seq=0 before seq=1
     expect(persistOrder.indexOf(0)).toBeLessThan(persistOrder.indexOf(1));
+  });
+
+  // ─── No-progress backstop (RUN_NO_PROGRESS_HARD_TIMEOUT_MS) ────────────────
+  // Timer-driven, independent of the in-loop watchdogs: catches a stall in a
+  // segment that never emits a real-progress event (only keepalives), while
+  // leaving a run with a tool genuinely in flight alone.
+  describe("no-progress backstop", () => {
+    it("exports foreground and background backstop constants", () => {
+      expect(RUN_NO_PROGRESS_HARD_TIMEOUT_MS).toBe(150_000);
+      expect(DEFAULT_BACKGROUND_NO_PROGRESS_TIMEOUT_MS).toBe(12 * 60_000);
+      expect(DEFAULT_BACKGROUND_NO_PROGRESS_TIMEOUT_MS).toBeLessThan(
+        BACKGROUND_SOFT_TIMEOUT_CEILING_MS,
+      );
+    });
+
+    it("checkpoints via auto_continue(no_progress) and aborts when only keepalives stream past the window", async () => {
+      const events: AgentChatEvent[] = [];
+      let aborted = false;
+      let abortReason: unknown;
+
+      const run = startRun(
+        "run-no-progress-keepalive-only",
+        "thread-no-progress-keepalive-only",
+        async (send, signal) => {
+          // Emit a keepalive every 1.5s (piggybacked on the heartbeat cadence)
+          // forever — none of these count as real progress.
+          const keepaliveTimer = setInterval(() => {
+            send({ type: "stream_keepalive" });
+          }, 1500);
+          await new Promise<void>((resolve) => {
+            signal.addEventListener("abort", () => {
+              clearInterval(keepaliveTimer);
+              aborted = true;
+              abortReason = signal.reason;
+              resolve();
+            });
+          });
+        },
+        undefined,
+        // useHostedSoftTimeoutDefault would normally arm the backstop; use an
+        // explicit small override instead for a fast, deterministic test.
+        { softTimeoutMs: 0, noProgressTimeoutMs: 5_000 },
+      );
+      run.subscribers.add((event) => events.push(event.event));
+
+      // The backstop check piggybacks on the 1.5s heartbeat interval, so with
+      // a 5s window it fires at the first heartbeat tick past the window (t=6s).
+      await vi.advanceTimersByTimeAsync(6_001);
+
+      expect(aborted).toBe(true);
+      expect(abortReason).toBe("no_progress");
+      expect(events).toContainEqual(
+        expect.objectContaining({
+          type: "auto_continue",
+          reason: "no_progress",
+        }),
+      );
+      expect(run.status).toBe("completed");
+    });
+
+    it("does NOT backstop a run with a tool_start in flight (no tool_done yet)", async () => {
+      let aborted = false;
+
+      const run = startRun(
+        "run-no-progress-tool-in-flight",
+        "thread-no-progress-tool-in-flight",
+        async (send, signal) => {
+          send({
+            type: "tool_start",
+            tool: "long-running-tool",
+            id: "call-1",
+            input: {},
+          });
+          // No tool_done — simulate a tool that legitimately runs long without
+          // emitting anything, well past the no-progress window.
+          await new Promise<void>((resolve) => {
+            signal.addEventListener("abort", () => {
+              aborted = true;
+              resolve();
+            });
+          });
+        },
+        undefined,
+        { softTimeoutMs: 0, noProgressTimeoutMs: 5_000 },
+      );
+
+      await vi.advanceTimersByTimeAsync(20_000);
+
+      expect(aborted).toBe(false);
+      expect(run.status).toBe("running");
+
+      // Clean up: finish the tool and let the run wind down.
+      expect(abortRun("run-no-progress-tool-in-flight")).toBe(true);
+      await vi.waitFor(() => expect(aborted).toBe(true));
+    });
+
+    it("does NOT backstop a run with an agent_call in flight (status start, no done/error yet)", async () => {
+      let aborted = false;
+
+      const run = startRun(
+        "run-no-progress-agent-call-in-flight",
+        "thread-no-progress-agent-call-in-flight",
+        async (send, signal) => {
+          send({ type: "agent_call", agent: "sub-agent", status: "start" });
+          await new Promise<void>((resolve) => {
+            signal.addEventListener("abort", () => {
+              aborted = true;
+              resolve();
+            });
+          });
+        },
+        undefined,
+        { softTimeoutMs: 0, noProgressTimeoutMs: 5_000 },
+      );
+
+      await vi.advanceTimersByTimeAsync(20_000);
+
+      expect(aborted).toBe(false);
+      expect(run.status).toBe("running");
+
+      expect(abortRun("run-no-progress-agent-call-in-flight")).toBe(true);
+      await vi.waitFor(() => expect(aborted).toBe(true));
+    });
+
+    it("a real progress event resets the no-progress window", async () => {
+      let aborted = false;
+
+      const run = startRun(
+        "run-no-progress-reset-by-progress",
+        "thread-no-progress-reset-by-progress",
+        async (send, signal) => {
+          // Real progress (text) at t=3s, well before the 5s window elapses —
+          // this must push the deadline out to t=8s rather than firing at t=5s.
+          setTimeout(
+            () => send({ type: "text", text: "still working" }),
+            3_000,
+          );
+          await new Promise<void>((resolve) => {
+            signal.addEventListener("abort", () => {
+              aborted = true;
+              resolve();
+            });
+          });
+        },
+        undefined,
+        { softTimeoutMs: 0, noProgressTimeoutMs: 5_000 },
+      );
+      run.subscribers.add(() => {});
+
+      // Past the original 5s deadline, but within 5s of the t=3s progress event.
+      await vi.advanceTimersByTimeAsync(6_000);
+      expect(aborted).toBe(false);
+      expect(run.status).toBe("running");
+
+      // Now past 5s from the reset point (t=3s + 5s = t=8s).
+      await vi.advanceTimersByTimeAsync(3_000);
+      expect(aborted).toBe(true);
+      expect(run.status).toBe("completed");
+    });
+
+    it("resolves a tool_start/tool_done pair back to zero in-flight, so the backstop can fire again afterward", async () => {
+      let aborted = false;
+      let abortReason: unknown;
+
+      const run = startRun(
+        "run-no-progress-after-tool-completes",
+        "thread-no-progress-after-tool-completes",
+        async (send, signal) => {
+          send({
+            type: "tool_start",
+            tool: "quick-tool",
+            id: "call-1",
+            input: {},
+          });
+          setTimeout(() => {
+            send({
+              type: "tool_done",
+              tool: "quick-tool",
+              id: "call-1",
+              result: "ok",
+            });
+          }, 1_000);
+          await new Promise<void>((resolve) => {
+            signal.addEventListener("abort", () => {
+              aborted = true;
+              abortReason = signal.reason;
+              resolve();
+            });
+          });
+        },
+        undefined,
+        { softTimeoutMs: 0, noProgressTimeoutMs: 5_000 },
+      );
+      run.subscribers.add(() => {});
+
+      // tool_done itself counts as real progress (shouldBumpProgressForEvent
+      // returns true for it), so the window restarts from t=1s. It should not
+      // fire at the original t=5s deadline...
+      await vi.advanceTimersByTimeAsync(5_001);
+      expect(aborted).toBe(false);
+
+      // ...but does fire once 5s have elapsed since the tool_done at t=1s.
+      await vi.advanceTimersByTimeAsync(1_000);
+      expect(aborted).toBe(true);
+      expect(abortReason).toBe("no_progress");
+    });
+
+    it("is disabled by default (noProgressTimeoutMs=0) when no soft-timeout regime is active (non-hosted)", async () => {
+      let aborted = false;
+
+      const run = startRun(
+        "run-no-progress-disabled-default",
+        "thread-no-progress-disabled-default",
+        async (send, signal) => {
+          const keepaliveTimer = setInterval(() => {
+            send({ type: "stream_keepalive" });
+          }, 1500);
+          await new Promise<void>((resolve) => {
+            signal.addEventListener("abort", () => {
+              clearInterval(keepaliveTimer);
+              aborted = true;
+              resolve();
+            });
+          });
+        },
+        undefined,
+        // softTimeoutMs: 0 (local/non-hosted default) and no explicit
+        // noProgressTimeoutMs override — the backstop must resolve to disabled.
+        { softTimeoutMs: 0 },
+      );
+
+      // Advance well past RUN_NO_PROGRESS_HARD_TIMEOUT_MS (150s) — still no abort.
+      await vi.advanceTimersByTimeAsync(
+        RUN_NO_PROGRESS_HARD_TIMEOUT_MS + 10_000,
+      );
+
+      expect(aborted).toBe(false);
+      expect(run.status).toBe("running");
+
+      expect(abortRun("run-no-progress-disabled-default")).toBe(true);
+      await vi.waitFor(() => expect(aborted).toBe(true));
+    });
+
+    it("is armed with the default 150s window when a foreground soft-timeout regime is active and no override is given", async () => {
+      let aborted = false;
+      let abortReason: unknown;
+
+      const run = startRun(
+        "run-no-progress-hosted-default-armed",
+        "thread-no-progress-hosted-default-armed",
+        async (send, signal) => {
+          const keepaliveTimer = setInterval(() => {
+            send({ type: "stream_keepalive" });
+          }, 1500);
+          await new Promise<void>((resolve) => {
+            signal.addEventListener("abort", () => {
+              clearInterval(keepaliveTimer);
+              aborted = true;
+              abortReason = signal.reason;
+              resolve();
+            });
+          });
+        },
+        undefined,
+        // A soft timeout far beyond the no-progress window is active, but this
+        // is still foreground mode (no backgroundFunction flag), so the 150s
+        // hosted backstop remains the default.
+        { softTimeoutMs: BACKGROUND_SOFT_TIMEOUT_CEILING_MS },
+      );
+      run.subscribers.add(() => {});
+
+      await vi.advanceTimersByTimeAsync(RUN_NO_PROGRESS_HARD_TIMEOUT_MS + 1);
+
+      expect(aborted).toBe(true);
+      expect(abortReason).toBe("no_progress");
+      expect(run.status).toBe("completed");
+    });
+
+    it("uses the wider durable-background no-progress window by default", async () => {
+      let aborted = false;
+      let abortReason: unknown;
+
+      const run = startRun(
+        "run-no-progress-background-default-armed",
+        "thread-no-progress-background-default-armed",
+        async (send, signal) => {
+          const keepaliveTimer = setInterval(() => {
+            send({ type: "stream_keepalive" });
+          }, 1500);
+          await new Promise<void>((resolve) => {
+            signal.addEventListener("abort", () => {
+              clearInterval(keepaliveTimer);
+              aborted = true;
+              abortReason = signal.reason;
+              resolve();
+            });
+          });
+        },
+        undefined,
+        {
+          softTimeoutMs: BACKGROUND_SOFT_TIMEOUT_CEILING_MS,
+          backgroundFunction: true,
+        },
+      );
+      run.subscribers.add(() => {});
+
+      await vi.advanceTimersByTimeAsync(RUN_NO_PROGRESS_HARD_TIMEOUT_MS + 1);
+      expect(aborted).toBe(false);
+
+      await vi.advanceTimersByTimeAsync(
+        DEFAULT_BACKGROUND_NO_PROGRESS_TIMEOUT_MS -
+          RUN_NO_PROGRESS_HARD_TIMEOUT_MS +
+          1_500,
+      );
+
+      expect(aborted).toBe(true);
+      expect(abortReason).toBe("no_progress");
+      expect(run.status).toBe("completed");
+    });
   });
 });

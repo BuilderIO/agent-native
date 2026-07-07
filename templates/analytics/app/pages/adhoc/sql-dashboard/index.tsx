@@ -27,17 +27,20 @@ import {
 } from "@dnd-kit/core";
 import {
   IconArchive,
+  IconBuilding,
   IconClock,
   IconDotsVertical,
   IconEye,
   IconEyeOff,
   IconGripVertical,
   IconInfoCircle,
+  IconLock,
   IconMail,
   IconPencil,
   IconPlus,
   IconTrash,
   IconUser,
+  IconWorld,
   IconX,
 } from "@tabler/icons-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -1316,7 +1319,7 @@ export default function SqlDashboardPage() {
 
   useSetPageTitle(
     reportScreenshot ? null : dashboard ? (
-      <div className="flex items-center gap-2 min-w-0">
+      <div className="flex min-w-0 items-center gap-2">
         {editingName && canEdit ? (
           <Input
             value={nameInput}
@@ -1328,14 +1331,14 @@ export default function SqlDashboardPage() {
           />
         ) : canEdit ? (
           <button
-            className="group text-lg font-semibold hover:text-primary flex items-center gap-1 truncate"
+            className="group flex min-w-0 items-center gap-1 truncate text-lg font-semibold hover:text-primary"
             onClick={() => {
               setNameInput(dashboard.name);
               setEditingName(true);
             }}
           >
             <span className="truncate">{dashboard.name}</span>
-            <IconPencil className="h-3.5 w-3.5 text-muted-foreground shrink-0 opacity-0 group-hover:opacity-100" />
+            <IconPencil className="h-3.5 w-3.5 shrink-0 text-muted-foreground opacity-0 group-hover:opacity-100" />
           </button>
         ) : (
           <span className="truncate text-lg font-semibold">
@@ -1422,24 +1425,14 @@ export default function SqlDashboardPage() {
                   </span>
                 )}
                 {dashboardVisibility ? (
-                  <span
-                    className={`flex items-center gap-1.5 font-medium ${
-                      dashboardVisibility === "public"
-                        ? "text-green-600"
-                        : dashboardVisibility === "org"
-                          ? "text-blue-600"
-                          : "text-yellow-600"
-                    }`}
-                  >
-                    <span
-                      className={`h-1.5 w-1.5 rounded-full ${
-                        dashboardVisibility === "public"
-                          ? "bg-green-500"
-                          : dashboardVisibility === "org"
-                            ? "bg-blue-500"
-                            : "bg-yellow-500"
-                      }`}
-                    />
+                  <span className="flex items-center gap-1.5">
+                    {dashboardVisibility === "public" ? (
+                      <IconWorld className="h-3 w-3" />
+                    ) : dashboardVisibility === "org" ? (
+                      <IconBuilding className="h-3 w-3" />
+                    ) : (
+                      <IconLock className="h-3 w-3" />
+                    )}
                     {dashboardVisibility === "public"
                       ? t("sqlDashboard.public")
                       : dashboardVisibility === "org"

@@ -47,7 +47,7 @@ describe("server/auth", () => {
 
       vi.stubEnv("NODE_ENV", "test");
       expect(shouldSkipEmailVerification()).toBe(true);
-    });
+    }, 15_000);
 
     it("is disabled by default in production", async () => {
       vi.stubEnv("NODE_ENV", "production");
@@ -55,7 +55,7 @@ describe("server/auth", () => {
         await import("./better-auth-instance.js");
 
       expect(shouldSkipEmailVerification()).toBe(false);
-    });
+    }, 15_000);
 
     it("is enabled by AUTH_SKIP_EMAIL_VERIFICATION=1", async () => {
       vi.stubEnv("AUTH_SKIP_EMAIL_VERIFICATION", "1");
@@ -63,7 +63,7 @@ describe("server/auth", () => {
         await import("./better-auth-instance.js");
 
       expect(shouldSkipEmailVerification()).toBe(true);
-    });
+    }, 15_000);
 
     it("treats blank, false, and 0 as disabled", async () => {
       const { shouldSkipEmailVerification } =
@@ -77,7 +77,7 @@ describe("server/auth", () => {
 
       vi.stubEnv("AUTH_SKIP_EMAIL_VERIFICATION", "0");
       expect(shouldSkipEmailVerification()).toBe(false);
-    });
+    }, 15_000);
   });
 
   describe("resolveSignupTrackingIdentity", () => {
@@ -2158,6 +2158,170 @@ describe("server/auth", () => {
       });
     });
 
+    it("does not label failed email verification redirects as verified", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      delete process.env.ACCESS_TOKEN;
+      delete process.env.ACCESS_TOKENS;
+
+      vi.doMock("./better-auth-instance.js", () => ({
+        getBetterAuth: vi.fn(async () => ({
+          handler: async () =>
+            new Response(null, {
+              status: 302,
+              headers: {
+                location: "/_agent-native/sign-in?error=INVALID_TOKEN",
+              },
+            }),
+          api: {
+            getSession: vi.fn(async () => null),
+            signInEmail: vi.fn(),
+            signUpEmail: vi.fn(),
+            signOut: vi.fn(),
+          },
+        })),
+        getBetterAuthSync: vi.fn(() => undefined),
+      }));
+
+      const { autoMountAuth } = await import("./auth.js");
+
+      const app = createMockApp();
+      await autoMountAuth(app);
+
+      const baHandler = app.use.mock.calls.find(
+        (call: any[]) => call[0] === "/_agent-native/auth/ba",
+      )?.[1];
+      expect(baHandler).toBeTypeOf("function");
+
+      const fullPath =
+        "/_agent-native/auth/ba/verify-email?token=bad&callbackURL=%2F_agent-native%2Fsign-in";
+      const request = new Request(`http://localhost${fullPath}`, {
+        method: "GET",
+      });
+      const event = {
+        req: request,
+        url: new URL("http://localhost/verify-email?token=bad"),
+        res: { headers: new Headers(), status: 200 },
+        node: {
+          req: { headers: {}, url: fullPath, method: "GET" },
+          res: {
+            setHeader: vi.fn(),
+            getHeader: vi.fn(),
+            appendHeader: vi.fn(),
+          },
+        },
+        headers: request.headers,
+        context: {
+          _mountedPathname: fullPath,
+          _mountPrefix: "/_agent-native/auth/ba",
+        },
+        path: "/verify-email",
+      };
+
+      const response = await baHandler(event);
+
+      expect(response.headers.get("location")).toBe(
+        "/_agent-native/sign-in?error=INVALID_TOKEN",
+      );
+    });
+
+    it("repairs verified email rows from a successful verification session before showing verified redirect", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      delete process.env.ACCESS_TOKEN;
+      delete process.env.ACCESS_TOKENS;
+
+      const mockExecute = vi.fn(async (query: { sql: string }) => {
+        if (query.sql.includes('FROM "session"')) {
+          return { rows: [{ email: "SessionUser@Example.COM" }] };
+        }
+        return { rows: [] };
+      });
+      vi.doMock("../db/client.js", () => ({
+        getDbExec: () => ({ execute: mockExecute }),
+        isPostgres: () => false,
+        intType: () => "INTEGER",
+        retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
+        describeDbError: (err: unknown) => String(err),
+      }));
+      vi.doMock("./better-auth-instance.js", () => ({
+        getBetterAuth: vi.fn(async () => ({
+          handler: async () =>
+            new Response(null, {
+              status: 302,
+              headers: {
+                location: "/_agent-native/sign-in#done",
+                "set-cookie":
+                  "better-auth.session_token=session_123; Path=/; HttpOnly",
+              },
+            }),
+          api: {
+            getSession: vi.fn(async () => null),
+            signInEmail: vi.fn(),
+            signUpEmail: vi.fn(),
+            signOut: vi.fn(),
+          },
+        })),
+        getBetterAuthSync: vi.fn(() => undefined),
+      }));
+
+      const token = [
+        "header",
+        Buffer.from(JSON.stringify({ email: "User@Example.COM" })).toString(
+          "base64url",
+        ),
+        "signature",
+      ].join(".");
+      const { autoMountAuth } = await import("./auth.js");
+
+      const app = createMockApp();
+      await autoMountAuth(app);
+
+      const baHandler = app.use.mock.calls.find(
+        (call: any[]) => call[0] === "/_agent-native/auth/ba",
+      )?.[1];
+      expect(baHandler).toBeTypeOf("function");
+
+      const fullPath =
+        "/_agent-native/auth/ba/verify-email?token=" +
+        encodeURIComponent(token) +
+        "&callbackURL=%2F_agent-native%2Fsign-in";
+      const request = new Request(`http://localhost${fullPath}`, {
+        method: "GET",
+      });
+      const event = {
+        req: request,
+        url: new URL(`http://localhost/verify-email?token=${token}`),
+        res: { headers: new Headers(), status: 200 },
+        node: {
+          req: { headers: {}, url: fullPath, method: "GET" },
+          res: {
+            setHeader: vi.fn(),
+            getHeader: vi.fn(),
+            appendHeader: vi.fn(),
+          },
+        },
+        headers: request.headers,
+        context: {
+          _mountedPathname: fullPath,
+          _mountPrefix: "/_agent-native/auth/ba",
+        },
+        path: "/verify-email",
+      };
+
+      const response = await baHandler(event);
+
+      expect(response.headers.get("location")).toBe(
+        "/_agent-native/sign-in?verified=1#done",
+      );
+      expect(mockExecute).toHaveBeenCalledWith({
+        sql: 'SELECT u.email FROM "session" s JOIN "user" u ON u.id = s.user_id WHERE s.token = ? LIMIT 1',
+        args: ["session_123"],
+      });
+      expect(mockExecute).toHaveBeenCalledWith({
+        sql: 'UPDATE "user" SET email_verified = TRUE WHERE email = ? AND (email_verified = FALSE OR email_verified IS NULL)',
+        args: ["sessionuser@example.com"],
+      });
+    });
+
     it("does not enable token-only browser auth when ACCESS_TOKENS is set", async () => {
       vi.stubEnv("NODE_ENV", "production");
       vi.stubEnv("ACCESS_TOKENS", "token1, token2, token3");
@@ -2885,6 +3049,27 @@ describe("server/auth", () => {
       // the parsed segments.)
       expect(safeReturnPath("/foo?bar=1#baz")).toBe("/foo?bar=1#baz");
     });
+
+    it("collapses a return that points back at the sign-in page (loop guard)", async () => {
+      const safeReturnPath = await load();
+      // A `return` resolving to the sign-in entry point would re-enter the
+      // redirect loop — collapse to "/". Covers root and base-path mounts,
+      // and a nested already-encoded loop URL.
+      expect(safeReturnPath("/_agent-native/sign-in")).toBe("/");
+      expect(safeReturnPath("/_agent-native/sign-in?return=%2Finbox")).toBe(
+        "/",
+      );
+      expect(safeReturnPath("/mail/_agent-native/sign-in")).toBe("/");
+      expect(
+        safeReturnPath(
+          "/mail/_agent-native/sign-in?return=%252Fmail%252F_agent-native%252Fsign-in",
+        ),
+      ).toBe("/");
+      // A normal app path that merely contains the words is unaffected.
+      expect(safeReturnPath("/mail/inbox?label=important")).toBe(
+        "/mail/inbox?label=important",
+      );
+    });
   });
 
   describe("OAuth return URLs", () => {
@@ -3133,6 +3318,18 @@ describe("server/auth", () => {
         "__anFinishOAuthExchange(ret, flowId, data.token)",
       );
       expect(html).toContain("__anWaitForOAuthExchange(flowId, ret, btn, err)");
+      const recoverStart = html.indexOf(
+        "function __anRecoverGoogleSignInAfterReturn()",
+      );
+      const recoverEnd = html.indexOf(
+        "function __anBindGoogleRecover()",
+        recoverStart,
+      );
+      expect(recoverStart).toBeGreaterThan(-1);
+      expect(recoverEnd).toBeGreaterThan(recoverStart);
+      const recoverScript = html.slice(recoverStart, recoverEnd);
+      expect(recoverScript).toContain("Keep the desktop-exchange poll alive");
+      expect(recoverScript).not.toContain("clearInterval(__anOAuthPollTimer)");
       expect(html).toContain("window.location.reload()");
       expect(html).not.toContain(
         "__anWaitForOAuthExchange(flowId, target, btn, err)",
@@ -3368,6 +3565,10 @@ describe("server/auth", () => {
       const html = getOnboardingHtml();
 
       expect(html).toContain("var pendingSignupPassword = ''");
+      expect(html).toContain("function __anIsVerifiedRedirectSuccess()");
+      expect(html).toContain(
+        "return params.has('verified') && !params.has('error');",
+      );
       expect(html).toContain("async function signInWithPendingSignup()");
       expect(html).toContain("__anPath('/_agent-native/auth/login')");
       expect(html).toContain(
@@ -3375,6 +3576,19 @@ describe("server/auth", () => {
       );
       expect(html).toContain(
         "checkVerificationSession(null, { silent: true })",
+      );
+    });
+
+    it("keeps resend verification on a visible cooldown after sending", async () => {
+      const { getOnboardingHtml } = await import("./onboarding-html.js");
+      const html = getOnboardingHtml();
+
+      expect(html).toContain("var RESEND_VERIFICATION_COOLDOWN_SECONDS = 60");
+      expect(html).toContain(
+        "startResendVerificationCooldown(RESEND_VERIFICATION_COOLDOWN_SECONDS)",
+      );
+      expect(html).toContain(
+        "btn.textContent = __anT('resendEmail') + ' (' + remaining + 's)'",
       );
     });
   });

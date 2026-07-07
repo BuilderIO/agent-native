@@ -78,7 +78,6 @@ export function useDistillationBridge(): void {
     } as any,
     {
       refetchInterval: POLL_INTERVAL_MS,
-      refetchIntervalInBackground: true,
       retry: false,
     },
   );
@@ -154,12 +153,18 @@ export function useDistillationBridge(): void {
     }
 
     void tick();
-    const handle = setInterval(tick, POLL_INTERVAL_MS);
     return () => {
       cancelled = true;
-      clearInterval(handle);
     };
-  }, [capturesKey, dispatchableCaptures]);
+    // `capturesQuery.dataUpdatedAt` bumps on every completed refetch even when
+    // React Query's structural sharing keeps `capturesQuery.data` (and thus
+    // `dispatchableCaptures`/`capturesKey`) referentially/content-equal to the
+    // previous fetch. Keying on it (in addition to `capturesKey`) guarantees
+    // this effect re-runs on the query's `refetchInterval` cadence — not just
+    // when the queued-capture set actually changes — so already-fetched but
+    // not-yet-claimed/dispatched items keep getting re-evaluated on every
+    // poll instead of only on the tick they first appear.
+  }, [capturesKey, dispatchableCaptures, capturesQuery.dataUpdatedAt]);
 }
 
 function buildMessage(capture: BrainCaptureReviewItem) {

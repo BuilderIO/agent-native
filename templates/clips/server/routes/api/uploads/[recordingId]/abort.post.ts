@@ -68,10 +68,12 @@ export default defineEventHandler(async (event: H3Event) => {
       return { ok: true, recordingId, alreadyReady: true, chunksCleared: 0 };
     }
 
-    const cleared = await deleteAppStateByPrefix(
-      `recording-chunks-${recordingId}-`,
-    );
-    await deleteResumableSession(recordingId).catch(() => {});
+    // Already a terminal failure (e.g. a duplicate/retried abort call, or
+    // finalize's own failChunkAssembly already flipped it) — no-op instead of
+    // re-clearing chunk state and overwriting the original failureReason.
+    if (existing.status === "failed") {
+      return { ok: true, recordingId, alreadyFailed: true, chunksCleared: 0 };
+    }
 
     const now = new Date().toISOString();
     await db
@@ -89,6 +91,11 @@ export default defineEventHandler(async (event: H3Event) => {
       failureReason,
       updatedAt: now,
     });
+
+    const cleared = await deleteAppStateByPrefix(
+      `recording-chunks-${recordingId}-`,
+    );
+    await deleteResumableSession(recordingId).catch(() => {});
     await writeAppState("refresh-signal", { ts: Date.now() });
 
     return { ok: true, recordingId, chunksCleared: cleared };

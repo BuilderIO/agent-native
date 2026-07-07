@@ -677,19 +677,30 @@ export function useChatThreads(
   const detachThread = useCallback(
     async (threadId: string): Promise<void> => {
       try {
-        await fetch(`${apiUrl}/threads/${encodeURIComponent(threadId)}`, {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ scope: null }),
-        });
+        const res = await fetch(
+          `${apiUrl}/threads/${encodeURIComponent(threadId)}`,
+          {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ scope: null }),
+          },
+        );
+        if (!res.ok) {
+          // Server rejected the detach (403/404/500) — resync from the
+          // server instead of applying a scope change that didn't happen.
+          await fetchThreads();
+          return;
+        }
         setThreads((prev) =>
           prev.map((t) => (t.id === threadId ? { ...t, scope: null } : t)),
         );
         optimisticThreadScopesRef.current.set(threadId, null);
         emitThreadsUpdated();
-      } catch {}
+      } catch {
+        await fetchThreads().catch(() => {});
+      }
     },
-    [apiUrl],
+    [apiUrl, fetchThreads],
   );
 
   const pinThread = useCallback(

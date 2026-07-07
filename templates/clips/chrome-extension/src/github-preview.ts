@@ -121,36 +121,39 @@ function renderPreview(
   root.textContent = "";
 
   const card = document.createElement("section");
-  card.className = "clips-preview-card";
+  card.className =
+    state.kind === "playable"
+      ? "clips-preview-card clips-preview-card--player"
+      : "clips-preview-card";
 
-  const header = document.createElement("header");
-  header.className = "clips-preview-header";
+  if (state.kind !== "playable") {
+    const header = document.createElement("header");
+    header.className = "clips-preview-header";
 
-  const titleWrap = document.createElement("div");
-  titleWrap.className = "clips-preview-title-wrap";
+    const titleWrap = document.createElement("div");
+    titleWrap.className = "clips-preview-title-wrap";
 
-  const title = document.createElement("div");
-  title.className = "clips-preview-title";
-  title.textContent =
-    state.kind === "playable" || state.kind === "unavailable"
-      ? state.title
-      : "Clips preview";
+    const title = document.createElement("div");
+    title.className = "clips-preview-title";
+    title.textContent =
+      state.kind === "unavailable" ? state.title : "Clips preview";
 
-  const subtitle = document.createElement("div");
-  subtitle.className = "clips-preview-subtitle";
-  subtitle.textContent = preview.host;
+    const subtitle = document.createElement("div");
+    subtitle.className = "clips-preview-subtitle";
+    subtitle.textContent = preview.host;
 
-  titleWrap.append(title, subtitle);
+    titleWrap.append(title, subtitle);
 
-  const open = document.createElement("a");
-  open.className = "clips-preview-open";
-  open.href = preview.sourceUrl.toString();
-  open.target = "_blank";
-  open.rel = "noreferrer noopener";
-  open.textContent = "Open clip";
+    const open = document.createElement("a");
+    open.className = "clips-preview-open";
+    open.href = preview.sourceUrl.toString();
+    open.target = "_blank";
+    open.rel = "noreferrer noopener";
+    open.textContent = "Open clip";
 
-  header.append(titleWrap, open);
-  card.append(header);
+    header.append(titleWrap, open);
+    card.append(header);
+  }
 
   if (state.kind === "playable") {
     const player = document.createElement("div");
@@ -161,6 +164,7 @@ function renderPreview(
     frame.src = preview.embedUrl.toString();
     frame.allow = "autoplay; fullscreen; picture-in-picture";
     frame.allowFullscreen = true;
+    frame.scrolling = "no";
     frame.referrerPolicy = "no-referrer";
 
     player.append(frame);
@@ -273,6 +277,7 @@ function installStyles(): void {
     body {
       margin: 0;
       min-width: 0;
+      width: 100%;
       background: transparent;
     }
 
@@ -290,6 +295,12 @@ function installStyles(): void {
       border-radius: 8px;
       background: var(--clips-bg);
       box-shadow: var(--clips-shadow);
+    }
+
+    .clips-preview-card--player {
+      border: 0;
+      background: #000000;
+      box-shadow: none;
     }
 
     .clips-preview-header {
@@ -348,7 +359,6 @@ function installStyles(): void {
       position: relative;
       width: 100%;
       aspect-ratio: 16 / 9;
-      min-height: 240px;
       background: #000000;
     }
 

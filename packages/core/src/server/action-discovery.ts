@@ -186,6 +186,9 @@ function preserveActionFlags(entry: Record<string, any>): Partial<ActionEntry> {
     out.requiresAuth = entry.requiresAuth;
   }
   if (typeof entry.readOnly === "boolean") out.readOnly = entry.readOnly;
+  if (typeof entry.allowInPlanMode === "boolean") {
+    out.allowInPlanMode = entry.allowInPlanMode;
+  }
   if (typeof entry.parallelSafe === "boolean") {
     out.parallelSafe = entry.parallelSafe;
   }
@@ -558,6 +561,10 @@ export async function mergeCoreSharingActions(
     [
       "set-resource-visibility",
       () => import("../sharing/actions/set-resource-visibility.js"),
+    ],
+    [
+      "create-agent-resource-link",
+      () => import("../sharing/actions/create-agent-resource-link.js"),
     ],
     ["upload-image", () => import("../file-upload/actions/upload-image.js")],
     [

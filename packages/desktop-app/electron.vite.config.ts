@@ -3,6 +3,7 @@ import { resolve } from "path";
 import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react-swc";
 import { defineConfig, externalizeDepsPlugin } from "electron-vite";
+import type { Plugin } from "vite";
 
 const workspaceRendererPackages = [
   "@agent-native/code-agents-ui",
@@ -12,6 +13,100 @@ const workspaceRendererPackages = [
   "@agent-native/core/client",
   "@agent-native/shared-app-config",
 ];
+
+const PRELOAD_CHUNK_REQUIRE_RE =
+  /const\s+([A-Za-z_$][\w$]*)\s*=\s*require\(["']\.\/chunks\/([^"']+)["']\);?\n?/g;
+
+type PreloadOutputChunk = {
+  type: "chunk";
+  fileName: string;
+  code: string;
+  isEntry: boolean;
+};
+
+type PreloadOutputAsset = {
+  type: "asset";
+};
+
+type PreloadOutputBundle = Record<
+  string,
+  PreloadOutputAsset | PreloadOutputChunk
+>;
+
+function asOutputChunk(
+  bundle: PreloadOutputBundle,
+  fileName: string,
+): PreloadOutputChunk | null {
+  const output = bundle[fileName];
+  return output?.type === "chunk" ? output : null;
+}
+
+function indentInlineModule(code: string): string {
+  return code
+    .split("\n")
+    .map((line) => (line ? `  ${line}` : ""))
+    .join("\n");
+}
+
+function inlineChunkRequires(
+  code: string,
+  bundle: PreloadOutputBundle,
+  stack: string[] = [],
+): string {
+  return code.replace(
+    PRELOAD_CHUNK_REQUIRE_RE,
+    (match, variableName: string, chunkName: string) => {
+      const fileName = `chunks/${chunkName}`;
+      const chunk = asOutputChunk(bundle, fileName);
+      if (!chunk) return match;
+      if (stack.includes(fileName)) {
+        throw new Error(`Circular preload chunk dependency: ${fileName}`);
+      }
+
+      const inlinedCode = inlineChunkRequires(chunk.code, bundle, [
+        ...stack,
+        fileName,
+      ]);
+      return `const ${variableName} = (() => {
+  const exports = {};
+  const module = { exports };
+${indentInlineModule(inlinedCode)}
+  return module.exports;
+})();
+`;
+    },
+  );
+}
+
+function inlinePreloadChunksPlugin(): Plugin {
+  return {
+    name: "agent-native:inline-preload-chunks",
+    generateBundle(_options, bundle) {
+      // Sandboxed Electron preloads need to be self-contained inside app.asar.
+      const preloadBundle = bundle as PreloadOutputBundle;
+      const sharedChunks = Object.entries(preloadBundle).flatMap(
+        ([fileName, output]) =>
+          output.type === "chunk" && !output.isEntry ? [fileName] : [],
+      );
+      if (sharedChunks.length === 0) return;
+
+      for (const output of Object.values(preloadBundle)) {
+        if (output.type !== "chunk" || !output.isEntry) continue;
+        output.code = inlineChunkRequires(output.code, preloadBundle);
+        if (PRELOAD_CHUNK_REQUIRE_RE.test(output.code)) {
+          throw new Error(
+            `Preload entry ${output.fileName} still requires a generated chunk`,
+          );
+        }
+        PRELOAD_CHUNK_REQUIRE_RE.lastIndex = 0;
+      }
+
+      for (const fileName of sharedChunks) {
+        delete bundle[fileName];
+      }
+    },
+  };
+}
 
 function firstNonEmpty(...values: Array<string | undefined>): string {
   for (const value of values) {
@@ -112,6 +207,7 @@ export default defineConfig({
           "@agent-native/shared-app-config",
         ],
       }),
+      inlinePreloadChunksPlugin(),
     ],
     resolve: {
       alias: {
@@ -120,6 +216,7 @@ export default defineConfig({
     },
     build: {
       rollupOptions: {
+        external: ["electron"],
         input: {
           index: resolve("src/preload/index.ts"),
           webview: resolve("src/preload/webview.ts"),
@@ -127,7 +224,6 @@ export default defineConfig({
         output: {
           format: "cjs",
           entryFileNames: "[name].js",
-          chunkFileNames: "chunks/[name]-[hash].js",
         },
       },
     },
