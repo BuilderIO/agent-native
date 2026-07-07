@@ -1,5 +1,12 @@
 # @agent-native/core
 
+## 0.90.7
+
+### Patch Changes
+
+- 3c7adac: Allow public Builder waitlist signups to submit an explicit email address for docs build-online CTAs.
+- 3c7adac: Fail Netlify builds when the generated output is missing the catch-all server function needed to serve the app.
+
 ## 0.90.6
 
 ### Patch Changes
