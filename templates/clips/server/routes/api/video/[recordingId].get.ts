@@ -177,13 +177,13 @@ function rememberCompressedBuilderMediaMiss(compressedSourceUrl: string): void {
 function shouldFallbackToOriginalMedia(
   upstream: Response | { error: string; status: number },
 ): boolean {
-  return [403, 404, 416].includes(upstream.status);
+  return upstream.status >= 500 || [403, 404, 416].includes(upstream.status);
 }
 
 function shouldRememberCompressedBuilderMediaMiss(
   upstream: Response | { error: string; status: number },
 ): boolean {
-  return [403, 404].includes(upstream.status);
+  return upstream.status >= 500 || [403, 404].includes(upstream.status);
 }
 
 async function fetchProviderMedia(
@@ -497,10 +497,17 @@ export default defineEventHandler(async (event: H3Event) => {
             compressedSourceUrl &&
             !shouldSkipCompressedBuilderMediaProbe(compressedSourceUrl)
           ) {
-            upstream = await fetchProviderMedia(
-              compressedSourceUrl,
-              rangeHeader,
-            );
+            try {
+              upstream = await fetchProviderMedia(
+                compressedSourceUrl,
+                rangeHeader,
+              );
+            } catch (err) {
+              upstream = {
+                status: statusCodeForProviderFetchError(err),
+                error: messageForProviderFetchError(err),
+              };
+            }
             if (shouldRememberCompressedBuilderMediaMiss(upstream)) {
               rememberCompressedBuilderMediaMiss(compressedSourceUrl);
             }

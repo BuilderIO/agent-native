@@ -48,6 +48,18 @@ function sleep(ms: number, signal?: AbortSignal): Promise<void> {
   });
 }
 
+export function isStoredButUnservableFinalizeError(value: unknown): boolean {
+  const message =
+    typeof value === "string"
+      ? value
+      : value instanceof Error
+        ? value.message
+        : value && typeof value === "object" && "message" in value
+          ? String((value as { message?: unknown }).message ?? "")
+          : "";
+  return /\bstored-but-unservable\b/i.test(message);
+}
+
 function absoluteUploadUrl(uploadUrl: string): URL {
   if (/^[a-z][a-z0-9+.-]*:/i.test(uploadUrl)) return new URL(uploadUrl);
   const origin =
