@@ -12082,6 +12082,7 @@ export default function DesignEditor() {
   );
   const activeCanvasSourceType =
     normalizeDesignSourceType(activeOverviewScreen?.sourceType) ??
+    (activeOverviewScreen?.bridgeUrl ? "localhost" : undefined) ??
     designSourceType;
   // P4: arms DesignCanvas's single-screen click-to-place overlay only while
   // focused on a single screen with an active creation tool selected —

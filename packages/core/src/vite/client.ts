@@ -1988,37 +1988,11 @@ function getConfiguredAppBasePath(): { appBasePath: string; base: string } {
   return { appBasePath, base };
 }
 
-// Fusion runs the app in a cloud container with its own dev server, and its
-// in-container coding agent edits `actions/`/`server/` files constantly.
-// Nitro 3's Vite plugin full-reloads the browser on every edit to a
-// server-only module (its `hotUpdate` hook sends
-// `server.ws.send({ type: "full-reload" })` whenever no client-shared module
-// changed), so a Fusion editing session looks like the app "keeps
-// auto-refreshing." Ordinary local dev never sets these env vars — this
-// mirrors the same Fusion detection `isHostedWorkspaceRuntime()` uses in
-// server/credential-provider.ts, so the reload fix only applies inside an
-// actual Fusion container and never touches local `pnpm dev` behavior, where
-// a reload on every server/action edit is wanted (stale server code is worse
-// than a reload).
-function isFusionContainerDevRuntime(): boolean {
-  return Boolean(
-    process.env.FUSION_ENVIRONMENT ||
-    process.env.FUSION_ENV_ORIGIN ||
-    process.env.VITE_FUSION_ENV_ORIGIN,
-  );
-}
-
-function buildNitroDevPluginOptions(
+function createNitroDevPlugin(
   options: Pick<ClientConfigOptions, "nitro">,
   appBasePath: string,
-): Record<string, any> {
-  const userExperimental =
-    (options.nitro as { experimental?: Record<string, any> })?.experimental ??
-    {};
-  const userExperimentalVite =
-    (userExperimental as { vite?: Record<string, any> }).vite ?? {};
-
-  return {
+) {
+  return nitroVitePlugin({
     serverDir: "./server",
     ...(options.nitro ?? {}),
     // Never auto-load test files as server handlers/plugins/middleware.
@@ -2037,24 +2011,7 @@ function buildNitroDevPluginOptions(
       ...((options.nitro as { routeRules?: Record<string, any> })?.routeRules ??
         {}),
     },
-    ...(isFusionContainerDevRuntime()
-      ? {
-          experimental: {
-            ...userExperimental,
-            vite: { serverReload: false, ...userExperimentalVite },
-          },
-        }
-      : {}),
-  };
-}
-
-function createNitroDevPlugin(
-  options: Pick<ClientConfigOptions, "nitro">,
-  appBasePath: string,
-) {
-  return nitroVitePlugin(
-    buildNitroDevPluginOptions(options, appBasePath) as any,
-  );
+  } as any);
 }
 
 function arrayFrom<T>(value: T | T[] | undefined): T[] {
@@ -2525,6 +2482,4 @@ export {
   getDefaultOptimizeDeps as _getDefaultOptimizeDeps,
   findCorePackageRoot as _findCorePackageRoot,
   getReactRouterAliases as _getReactRouterAliases,
-  isFusionContainerDevRuntime as _isFusionContainerDevRuntime,
-  buildNitroDevPluginOptions as _buildNitroDevPluginOptions,
 };
