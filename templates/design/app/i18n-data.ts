@@ -1,6 +1,7 @@
 import type { LocaleCode } from "@agent-native/core/client";
 
 import zhTW from "./i18n/zh-TW";
+import { breakpointBarOverrides } from "./i18n-breakpoints";
 
 const enUS = {
   root: {

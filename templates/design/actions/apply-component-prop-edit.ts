@@ -38,7 +38,6 @@ import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import "../server/db/index.js"; // ensure registerShareableResource runs
 import {
-  readLiveSourceFile,
   writeInlineSourceFile,
   type SourceWorkspaceFile,
 } from "../server/source-workspace.js";
@@ -59,6 +58,7 @@ import {
 } from "../shared/component-model.js";
 import { hasCapability } from "../shared/design-source-capabilities.js";
 import { normalizeDesignSourceType } from "../shared/source-mode.js";
+import { sourceContentHash } from "../shared/source-workspace.js";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -126,21 +126,23 @@ async function persistEdit(file: {
   designId: string;
   filename: string;
   content: string;
+  expectedVersionHash: string;
 }): Promise<string> {
   await assertAccess("design", file.designId, "editor");
 
   agentEnterDocument(file.id);
   try {
-    // Read the LIVE base (collab text when present, else the SQL row) right
-    // before persisting, and carry its versionHash through to the write.
+    // Pass through the versionHash of the ACTUAL base the transform used
+    // (captured by the caller in run() at the same read as `html`, BEFORE
+    // applyRootAttributeEdit/applyVisualEdit computed `patchedContent` from
+    // it) — not a fresh re-read of the (already-transformed) content here.
+    // Re-reading the live/SQL state at persist time and hashing THAT would
+    // always match itself trivially, proving nothing about whether a sibling
+    // write landed between the transform's base read and this persist call.
     // writeInlineSourceFile re-reads the live text immediately before its own
-    // applyText/DB write and rejects if it no longer matches this hash —
-    // closing the race window where a concurrent editor/agent write lands
-    // between the edit being computed above (from `html`, possibly read
-    // earlier in run()) and this persist. The edit itself is NOT
-    // recomputed against this fresh base; only the write is guarded. See
-    // insert-design-native-asset.ts / insert-asset.ts for the identical
-    // pattern.
+    // applyText/DB write and rejects it if it no longer matches this hash —
+    // closing the race window (the same stale-diff-base bug fixed for
+    // insert-design-native-asset.ts / insert-asset.ts / apply-visual-edit.ts).
     const workspaceFile: SourceWorkspaceFile = {
       id: file.id,
       designId: file.designId,
@@ -150,13 +152,12 @@ async function persistEdit(file: {
       createdAt: null,
       updatedAt: null,
     };
-    const live = await readLiveSourceFile(workspaceFile);
 
     const result = await writeInlineSourceFile({
       designId: file.designId,
       file: workspaceFile,
       content: file.content,
-      expectedVersionHash: live.versionHash,
+      expectedVersionHash: file.expectedVersionHash,
     });
 
     return result.updatedAt;
@@ -329,6 +330,11 @@ export default defineAction({
       typeof source?.currentContent === "string"
         ? source.currentContent
         : (file.content ?? "");
+    // Capture the hash of this EXACT base — the same string the transform
+    // below reads from — so persistEdit can pass it through as
+    // expectedVersionHash. A re-read at persist time would hash whatever is
+    // live "then" instead of proving this base is still current.
+    const baseVersionHash = sourceContentHash(html);
 
     // ── Resolve node ─────────────────────────────────────────────────────────
     const codeLayerSource: CodeLayerSource = {
@@ -403,6 +409,7 @@ export default defineAction({
         designId: file.designId,
         filename: file.filename,
         content: patchedContent,
+        expectedVersionHash: baseVersionHash,
       });
 
       agentUpdateSelection(file.id, {
