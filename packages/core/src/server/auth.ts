@@ -807,6 +807,54 @@ function authLoginResponse(
   return email ? { ok: true, token, email } : { ok: true, token };
 }
 
+function decodeEmailVerificationTokenEmail(request: Request): string | null {
+  try {
+    const token = new URL(request.url).searchParams.get("token");
+    const payloadSegment = token?.split(".")[1];
+    if (!payloadSegment) return null;
+    const payload = JSON.parse(
+      Buffer.from(payloadSegment, "base64url").toString("utf8"),
+    ) as { email?: unknown; updateTo?: unknown };
+    return normalizeAuthEmail(payload.updateTo ?? payload.email);
+  } catch {
+    return null;
+  }
+}
+
+function verifyEmailRedirectHasError(
+  location: string,
+  requestUrl: string,
+): boolean {
+  try {
+    return new URL(location, requestUrl).searchParams.has("error");
+  } catch {
+    return /[?&]error=/.test(location);
+  }
+}
+
+function appendVerifiedParamToLocation(location: string): string {
+  const hashIndex = location.indexOf("#");
+  const beforeHash = hashIndex >= 0 ? location.slice(0, hashIndex) : location;
+  const hash = hashIndex >= 0 ? location.slice(hashIndex) : "";
+  const sep = beforeHash.includes("?") ? "&" : "?";
+  return `${beforeHash}${sep}verified=1${hash}`;
+}
+
+async function ensureEmailVerifiedForRedirect(request: Request): Promise<void> {
+  const email = decodeEmailVerificationTokenEmail(request);
+  if (!email) return;
+  try {
+    const db = getDbExec();
+    await db.execute({
+      sql: 'UPDATE "user" SET email_verified = TRUE WHERE email = ? AND (email_verified = FALSE OR email_verified IS NULL)',
+      args: [email],
+    });
+  } catch {
+    // Better Auth already handled the verification route. This repair is
+    // best-effort so response cookies/redirects are never lost to DB noise.
+  }
+}
+
 /**
  * Bad-credential / already-registered errors are normal user behavior, not
  * bugs we want to investigate. Filtering them out keeps Sentry signal
@@ -3022,9 +3070,13 @@ async function mountBetterAuthRoutes(
         (response as Response).status < 400
       ) {
         const loc = response.headers.get("location");
-        if (loc && !/[?&]verified=/.test(loc)) {
-          const sep = loc.includes("?") ? "&" : "?";
-          response.headers.set("location", loc + sep + "verified=1");
+        if (
+          loc &&
+          !/[?&]verified=/.test(loc) &&
+          !verifyEmailRedirectHasError(loc, authRequest.url)
+        ) {
+          await ensureEmailVerifiedForRedirect(authRequest);
+          response.headers.set("location", appendVerifiedParamToLocation(loc));
         }
       }
 
