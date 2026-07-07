@@ -1,3 +1,4 @@
+import { useT } from "@agent-native/core/client";
 import type { CalendarEvent } from "@shared/api";
 import { IconAlertTriangleFilled } from "@tabler/icons-react";
 import {
@@ -38,6 +39,11 @@ import {
 } from "@/lib/popover-click-guard";
 import { EventStatusIcon } from "@/lib/rsvp-status";
 import { cn } from "@/lib/utils";
+import {
+  getWorkingLocationChipLabel,
+  getWorkingLocationTitle,
+  isWorkingLocationEvent,
+} from "@/lib/working-location";
 
 import { EventDetailPopover } from "./EventDetailPopover";
 import { shouldRenderWeekDragSegment } from "./week-drag-segment";
@@ -322,6 +328,7 @@ const WeekEventCard = memo(function WeekEventCard({
   onDraftCreate,
   onDraftDiscard,
 }: WeekEventCardProps) {
+  const t = useT();
   const li = layout.get(event.id) ?? {
     left: 0,
     width: 0,
@@ -608,6 +615,7 @@ export const WeekView = memo(function WeekView({
   onDraftDiscard,
   isLoading = false,
 }: WeekViewProps) {
+  const t = useT();
   const { setFocusedEvent } = useCalendarSetters();
   const isMobile = useIsMobile();
   const GUTTER_WIDTH = isMobile ? MOBILE_GUTTER_WIDTH : DESKTOP_GUTTER_WIDTH;
@@ -1028,6 +1036,9 @@ export const WeekView = memo(function WeekView({
                 const colCount = days.length;
                 const leftPct = (startCol / colCount) * 100;
                 const widthPct = ((endCol - startCol + 1) / colCount) * 100;
+                const title = getWorkingLocationChipLabel(event);
+                const ariaTitle = getWorkingLocationTitle(event);
+                const isWorkingLocation = isWorkingLocationEvent(event);
 
                 return (
                   <EventDetailPopover
@@ -1049,10 +1060,10 @@ export const WeekView = memo(function WeekView({
                       )}
                       aria-label={
                         event.ownerName || event.overlayEmail
-                          ? `${event.title}, ${
+                          ? `${ariaTitle}, ${
                               event.ownerName || event.overlayEmail
                             }'s calendar`
-                          : event.title
+                          : ariaTitle
                       }
                       style={{
                         top: `${rowIdx * allDayRowHeight + 4}px`,
@@ -1073,7 +1084,12 @@ export const WeekView = memo(function WeekView({
                         />
                       )}
                       <EventStatusIcon event={event} className="shrink-0" />
-                      <span className="truncate">{event.title}</span>
+                      <span className="truncate">{title}</span>
+                      {isWorkingLocation && (
+                        <span className="hidden shrink-0 text-[10px] font-normal text-foreground/65 sm:inline">
+                          {t("eventForm.workingLocation")}
+                        </span>
+                      )}
                       {event.ownerColor && (
                         <span
                           aria-hidden="true"

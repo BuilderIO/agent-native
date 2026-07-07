@@ -1,3 +1,4 @@
+import { useT } from "@agent-native/core/client";
 import type { CalendarEvent } from "@shared/api";
 import { IconAlertTriangleFilled } from "@tabler/icons-react";
 
@@ -8,6 +9,11 @@ import {
 } from "@/lib/event-colors";
 import { EventStatusIcon } from "@/lib/rsvp-status";
 import { cn } from "@/lib/utils";
+import {
+  getWorkingLocationChipLabel,
+  getWorkingLocationTitle,
+  isWorkingLocationEvent,
+} from "@/lib/working-location";
 
 interface EventCardProps {
   event: CalendarEvent;
@@ -30,8 +36,12 @@ export function EventCard({
   dimmed = false,
   colorPreferences,
 }: EventCardProps) {
+  const t = useT();
   const accentColor = getEventDisplayColor(event, colorPreferences);
   const ownerLabel = event.ownerName || event.overlayEmail;
+  const title = getWorkingLocationChipLabel(event);
+  const ariaTitle = getWorkingLocationTitle(event);
+  const isWorkingLocation = isWorkingLocationEvent(event);
 
   const handleDragStart = (e: React.DragEvent) => {
     e.dataTransfer.setData("text/plain", event.id);
@@ -55,7 +65,7 @@ export function EventCard({
           event.ownerColor && "pr-3.5",
         )}
         aria-label={
-          ownerLabel ? `${event.title}, ${ownerLabel}'s calendar` : event.title
+          ownerLabel ? `${ariaTitle}, ${ownerLabel}'s calendar` : ariaTitle
         }
         style={{
           backgroundColor: `${accentColor}25`,
@@ -73,7 +83,12 @@ export function EventCard({
           />
         )}
         <EventStatusIcon event={event} />
-        <span className="truncate font-medium">{event.title}</span>
+        <span className="truncate font-medium">{title}</span>
+        {isWorkingLocation && (
+          <span className="hidden shrink-0 text-[10px] font-normal text-foreground/65 sm:inline">
+            {t("eventForm.workingLocation")}
+          </span>
+        )}
         {event.ownerColor && (
           <span
             aria-hidden="true"
@@ -98,7 +113,7 @@ export function EventCard({
         event.ownerColor && "pr-4",
       )}
       aria-label={
-        ownerLabel ? `${event.title}, ${ownerLabel}'s calendar` : event.title
+        ownerLabel ? `${ariaTitle}, ${ownerLabel}'s calendar` : ariaTitle
       }
       style={{
         backgroundColor: `${accentColor}25`,
@@ -113,8 +128,13 @@ export function EventCard({
           />
         )}
         <EventStatusIcon event={event} />
-        <span className="truncate font-medium">{event.title}</span>
+        <span className="truncate font-medium">{title}</span>
       </div>
+      {isWorkingLocation && (
+        <span className="truncate text-foreground/70">
+          {t("eventForm.workingLocation")}
+        </span>
+      )}
       {!event.allDay && (
         <span className="text-foreground/70">
           {new Date(event.start).toLocaleTimeString([], {

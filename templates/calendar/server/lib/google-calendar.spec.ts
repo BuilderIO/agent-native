@@ -392,6 +392,7 @@ describe("calendar event listing", () => {
       "access-token",
       "primary",
       expect.objectContaining({
+        eventTypes: expect.arrayContaining(["workingLocation"]),
         maxResults: 2500,
         pageToken: undefined,
       }),
@@ -405,6 +406,45 @@ describe("calendar event listing", () => {
         pageToken: "page-2",
       }),
     );
+  });
+
+  it("maps Google working-location metadata from listed events", async () => {
+    calendarListEventsMock.mockResolvedValueOnce({
+      items: [
+        {
+          id: "working-location-1",
+          summary: "Home",
+          start: { date: "2026-07-06" },
+          end: { date: "2026-07-07" },
+          eventType: "workingLocation",
+          transparency: "transparent",
+          visibility: "public",
+          workingLocationProperties: {
+            type: "homeOffice",
+            homeOffice: {},
+          },
+        },
+      ],
+    });
+
+    const result = await listEvents(
+      "2026-07-06T00:00:00Z",
+      "2026-07-07T00:00:00Z",
+      "owner@example.com",
+    );
+
+    expect(result.events[0]).toMatchObject({
+      id: "google-working-location-1",
+      title: "Home",
+      allDay: true,
+      eventType: "workingLocation",
+      transparency: "transparent",
+      visibility: "public",
+      workingLocationProperties: {
+        type: "homeOffice",
+        homeOffice: {},
+      },
+    });
   });
 
   it("preserves attendee details for overlay calendars", async () => {

@@ -37,6 +37,8 @@ type UpdateEventInput = Partial<CalendarEvent> & {
   sendUpdates?: "all" | "none";
   notificationMessage?: string;
   scope?: UpdateEventScope;
+  workingLocationType?: "homeOffice" | "officeLocation" | "customLocation";
+  workingLocationLabel?: string;
 };
 
 type EventListSnapshot = Array<[QueryKey, CalendarEvent[] | undefined]>;

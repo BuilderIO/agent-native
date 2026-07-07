@@ -97,6 +97,13 @@ import {
   setEventDetailPopoverOpen,
 } from "@/lib/popover-click-guard";
 import { shortcutModifierLabel } from "@/lib/utils";
+import {
+  getWorkingLocationDetail,
+  getWorkingLocationLabel,
+  getWorkingLocationTitle,
+  getWorkingLocationType,
+  isWorkingLocationEvent,
+} from "@/lib/working-location";
 
 const ZOOM_AFTER_CONNECT_EVENT_ID_KEY = "calendar.zoomAfterConnectEventId";
 const ZOOM_AFTER_CONNECT_MAX_AGE_MS = 10 * 60 * 1000;
@@ -293,6 +300,8 @@ type EventUpdatePatch = Partial<CalendarEvent> & {
   addZoom?: boolean;
   addAttendees?: CalendarEvent["attendees"];
   scope?: UpdateEventScope;
+  workingLocationType?: "homeOffice" | "officeLocation" | "customLocation";
+  workingLocationLabel?: string;
 };
 
 function mergeAttendeesForPrompt(
@@ -445,6 +454,15 @@ export function EventDetailPopover({
     setSidebarEvent,
     setFocusedEvent,
   } = useCalendarContext();
+  const isWorkingLocation = isWorkingLocationEvent(event);
+  const workingLocationType = getWorkingLocationType(event);
+  const workingLocationLabel = getWorkingLocationLabel(event);
+  const workingLocationDetail = getWorkingLocationDetail(event);
+  const editableLocationValue = isWorkingLocation
+    ? workingLocationLabel
+    : event.location || "";
+  const canEditWorkingLocationLabel =
+    isWorkingLocation && workingLocationType !== "homeOffice";
 
   // Inline editing state
   const [editingField, setEditingField] = useState<string | null>(null);
@@ -452,7 +470,7 @@ export function EventDetailPopover({
   const [editDescription, setEditDescription] = useState(
     event.description || "",
   );
-  const [editLocation, setEditLocation] = useState(event.location || "");
+  const [editLocation, setEditLocation] = useState(editableLocationValue);
   const [editDate, setEditDate] = useState(() => toDateInputValue(event.start));
   const [editEndDate, setEditEndDate] = useState(() =>
     event.allDay
@@ -520,7 +538,7 @@ export function EventDetailPopover({
   useEffect(() => {
     if (editingField !== "description")
       setEditDescription(event.description || "");
-    if (editingField !== "location") setEditLocation(event.location || "");
+    if (editingField !== "location") setEditLocation(editableLocationValue);
     if (editingField !== "time") {
       setEditDate(toDateInputValue(event.start));
       setEditEndDate(
@@ -550,6 +568,7 @@ export function EventDetailPopover({
     event.id,
     event.description,
     event.location,
+    event.workingLocationProperties,
     event.start,
     event.end,
     event.allDay,
@@ -557,6 +576,7 @@ export function EventDetailPopover({
     event.reminders,
     event.remindersUseDefault,
     event.attachments,
+    editableLocationValue,
   ]);
 
   useEffect(() => {
@@ -605,7 +625,6 @@ export function EventDetailPopover({
       ? event.visibility
       : "default";
   const reminderValue = getReminderValue(event);
-
   // Save a field update
   const saveField = useCallback(
     (updates: EventUpdatePatch) => {
@@ -890,13 +909,23 @@ export function EventDetailPopover({
     const locationContainsMeetingLink =
       !!meetingLink && event.location?.includes(meetingLink.url);
     if (locationContainsMeetingLink && !trimmed) {
-      setEditLocation(event.location || "");
+      setEditLocation(editableLocationValue);
       setEditingField(null);
       return false;
     }
     let saved = false;
-    if (trimmed !== (event.location || "").trim()) {
-      const updates: Partial<CalendarEvent> = { location: trimmed };
+    const currentValue = isWorkingLocation
+      ? workingLocationLabel
+      : (event.location || "").trim();
+    if (trimmed !== currentValue.trim()) {
+      const updates: EventUpdatePatch = isWorkingLocation
+        ? {
+            workingLocationType,
+            workingLocationLabel: trimmed,
+            location:
+              workingLocationType === "homeOffice" ? event.location : trimmed,
+          }
+        : { location: trimmed };
       if (
         locationContainsMeetingLink &&
         meetingLink &&
@@ -914,7 +943,18 @@ export function EventDetailPopover({
     }
     setEditingField(null);
     return saved;
-  }, [editLocation, event.description, event.location, meetingLink, saveField]);
+  }, [
+    editLocation,
+    editableLocationValue,
+    event.description,
+    event.location,
+    isWorkingLocation,
+    meetingLink,
+    saveField,
+    t,
+    workingLocationLabel,
+    workingLocationType,
+  ]);
 
   const handleSaveTime = useCallback(() => {
     const allDayEnd = new Date(`${editEndDate}T00:00:00`);
@@ -1370,7 +1410,7 @@ export function EventDetailPopover({
                     setIsEditingTitle(true);
                   }}
                 >
-                  {event.title}
+                  {getWorkingLocationTitle(event)}
                 </h2>
               )}
             </div>
@@ -1989,7 +2029,7 @@ export function EventDetailPopover({
                     }
                     if (e.key === "Escape") {
                       e.preventDefault();
-                      setEditLocation(event.location || "");
+                      setEditLocation(editableLocationValue);
                       setEditingField(null);
                     }
                     e.stopPropagation();
@@ -1998,6 +2038,25 @@ export function EventDetailPopover({
                   placeholder={t("eventForm.addLocation")}
                   className="flex-1 bg-transparent border-none outline-none text-sm text-foreground placeholder:text-muted-foreground/40 focus:ring-0"
                 />
+              </div>
+            ) : isWorkingLocation ? (
+              <div
+                className={`flex items-start gap-3 px-4 py-1.5 ${!isOverlay && canEditWorkingLocationLabel ? "cursor-pointer hover:bg-muted/50 rounded-md" : ""}`}
+                onClick={() => {
+                  if (isOverlay || !canEditWorkingLocationLabel) return;
+                  setEditLocation(editableLocationValue);
+                  setEditingField("location");
+                }}
+              >
+                <IconMapPin className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+                <div className="min-w-0">
+                  <div className="truncate text-sm text-foreground">
+                    {workingLocationLabel}
+                  </div>
+                  <div className="truncate text-xs text-muted-foreground">
+                    {workingLocationDetail || t("eventForm.workingLocation")}
+                  </div>
+                </div>
               </div>
             ) : event.location && !locationIsMeetingLink ? (
               <div
@@ -2051,7 +2110,7 @@ export function EventDetailPopover({
                   <div
                     className="flex items-center gap-3 px-4 py-1.5 cursor-pointer hover:bg-muted/50 rounded-md"
                     onClick={() => {
-                      setEditLocation("");
+                      setEditLocation(editableLocationValue);
                       setEditingField("location");
                     }}
                   >
@@ -2067,7 +2126,7 @@ export function EventDetailPopover({
                 className="flex items-center gap-3 px-4 py-1.5 cursor-pointer hover:bg-muted/50 rounded-md"
                 onClick={() => {
                   setEditLocation(
-                    locationIsMeetingLink ? "" : event.location || "",
+                    locationIsMeetingLink ? "" : editableLocationValue,
                   );
                   setEditingField("location");
                 }}

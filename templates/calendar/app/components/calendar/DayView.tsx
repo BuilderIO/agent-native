@@ -35,6 +35,11 @@ import {
 } from "@/lib/popover-click-guard";
 import { EventStatusIcon } from "@/lib/rsvp-status";
 import { cn } from "@/lib/utils";
+import {
+  getWorkingLocationChipLabel,
+  getWorkingLocationTitle,
+  isWorkingLocationEvent,
+} from "@/lib/working-location";
 
 import { EventDetailPopover } from "./EventDetailPopover";
 
@@ -248,6 +253,7 @@ const DayEventCard = memo(function DayEventCard({
   onDraftCreate,
   onDraftDiscard,
 }: DayEventCardProps) {
+  const t = useT();
   const li = layout.get(event.id) ?? {
     left: 0,
     width: 100,
@@ -315,10 +321,10 @@ const DayEventCard = memo(function DayEventCard({
       )}
       aria-label={
         event.ownerName || event.overlayEmail
-          ? `${event.title}, ${
+          ? `${getWorkingLocationTitle(event)}, ${
               event.ownerName || event.overlayEmail
             }'s calendar`
-          : event.title
+          : getWorkingLocationTitle(event)
       }
       style={{
         ...posStyle,
@@ -373,8 +379,13 @@ const DayEventCard = memo(function DayEventCard({
               !isPast && !isDeclined && "font-semibold",
             )}
           >
-            {event.title}
+            {getWorkingLocationChipLabel(event)}
           </span>
+          {isWorkingLocationEvent(event) && (
+            <span className="shrink-0 text-[10px] font-normal text-foreground/55">
+              {t("eventForm.workingLocation")}
+            </span>
+          )}
         </div>
       ) : (
         <>
@@ -395,8 +406,15 @@ const DayEventCard = memo(function DayEventCard({
               />
             )}
             <EventStatusIcon event={event} className="shrink-0" />
-            <span className="truncate">{event.title}</span>
+            <span className="truncate">
+              {getWorkingLocationChipLabel(event)}
+            </span>
           </div>
+          {isWorkingLocationEvent(event) && isStart && (
+            <div className="mt-0.5 truncate text-[10px] leading-tight text-foreground/60">
+              {t("eventForm.workingLocation")}
+            </div>
+          )}
           {isStart && (
             <div
               className={cn(
@@ -747,10 +765,10 @@ export const DayView = memo(function DayView({
                     )}
                     aria-label={
                       event.ownerName || event.overlayEmail
-                        ? `${event.title}, ${
+                        ? `${getWorkingLocationTitle(event)}, ${
                             event.ownerName || event.overlayEmail
                           }'s calendar`
-                        : event.title
+                        : getWorkingLocationTitle(event)
                     }
                     style={
                       color
@@ -771,7 +789,14 @@ export const DayView = memo(function DayView({
                       />
                     )}
                     <EventStatusIcon event={event} className="shrink-0" />
-                    <span className="truncate">{event.title}</span>
+                    <span className="truncate">
+                      {getWorkingLocationChipLabel(event)}
+                    </span>
+                    {isWorkingLocationEvent(event) && (
+                      <span className="hidden shrink-0 text-xs font-normal text-foreground/65 sm:inline">
+                        {t("eventForm.workingLocation")}
+                      </span>
+                    )}
                     {event.ownerColor && (
                       <span
                         aria-hidden="true"

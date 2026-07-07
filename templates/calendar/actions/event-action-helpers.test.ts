@@ -9,6 +9,7 @@ vi.mock("../server/lib/google-calendar.js", () => ({}));
 import {
   buildStatusEventFields,
   ensureOrganizerInAttendees,
+  validateStatusEventTiming,
 } from "./event-action-helpers";
 
 describe("ensureOrganizerInAttendees", () => {
@@ -57,7 +58,6 @@ describe("ensureOrganizerInAttendees", () => {
     ]);
   });
 });
-
 describe("buildStatusEventFields", () => {
   it("creates native out-of-office fields", () => {
     expect(buildStatusEventFields({ eventType: "outOfOffice" })).toEqual({
@@ -96,5 +96,72 @@ describe("buildStatusEventFields", () => {
         homeOffice: {},
       },
     });
+  });
+
+  it("creates labeled office working-location fields", () => {
+    expect(
+      buildStatusEventFields({
+        eventType: "workingLocation",
+        workingLocationType: "officeLocation",
+        workingLocationLabel: "Pier 57",
+      }),
+    ).toMatchObject({
+      transparency: "transparent",
+      visibility: "public",
+      workingLocationProperties: {
+        type: "officeLocation",
+        officeLocation: { label: "Pier 57" },
+      },
+    });
+  });
+});
+
+describe("validateStatusEventTiming", () => {
+  it("rejects all-day out-of-office and focus-time events", () => {
+    const args = {
+      allDay: true,
+      start: "2026-07-06",
+      end: "2026-07-07",
+    };
+
+    expect(() =>
+      validateStatusEventTiming({ ...args, eventType: "outOfOffice" }),
+    ).toThrow("Out of office and focus time events must be timed.");
+    expect(() =>
+      validateStatusEventTiming({ ...args, eventType: "focusTime" }),
+    ).toThrow("Out of office and focus time events must be timed.");
+  });
+
+  it("allows single-day all-day working locations", () => {
+    expect(() =>
+      validateStatusEventTiming({
+        eventType: "workingLocation",
+        allDay: true,
+        start: "2026-07-06",
+        end: "2026-07-07",
+      }),
+    ).not.toThrow();
+  });
+
+  it("allows single-day all-day working locations from ISO datetimes", () => {
+    expect(() =>
+      validateStatusEventTiming({
+        eventType: "workingLocation",
+        allDay: true,
+        start: "2026-07-06T04:00:00.000Z",
+        end: "2026-07-07T04:00:00.000Z",
+      }),
+    ).not.toThrow();
+  });
+
+  it("rejects multi-day all-day working locations", () => {
+    expect(() =>
+      validateStatusEventTiming({
+        eventType: "workingLocation",
+        allDay: true,
+        start: "2026-07-06",
+        end: "2026-07-11",
+      }),
+    ).toThrow("All-day working location events must be a single day.");
   });
 });

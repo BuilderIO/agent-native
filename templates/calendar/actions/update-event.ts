@@ -13,6 +13,7 @@ import {
   attachmentsInput,
   attendeesInput,
   buildReminderOverrides,
+  buildStatusEventFields,
   cliBoolean,
   googleColorIdInput,
   normalizeAttendees,
@@ -23,7 +24,9 @@ import {
   remindersInput,
   requireActionUserEmail,
   resolveOwnedAccountEmail,
+  validateStatusEventTiming,
   visibilityInput,
+  workingLocationTypeInput,
 } from "./event-action-helpers.js";
 
 function mergeAttendees(
@@ -80,6 +83,15 @@ export default defineAction({
     title: z.string().optional().describe("New event title"),
     description: z.string().optional().describe("New event description"),
     location: z.string().optional().describe("New event location"),
+    workingLocationType: workingLocationTypeInput.describe(
+      "For existing working-location events: homeOffice, officeLocation, or customLocation. Google Calendar event types cannot be changed after creation.",
+    ),
+    workingLocationLabel: z
+      .string()
+      .optional()
+      .describe(
+        "For existing working-location events: label shown in Google Calendar.",
+      ),
     start: z.string().optional().describe("New start time/date as ISO string"),
     end: z.string().optional().describe("New end time/date as ISO string"),
     startTimeZone: z
@@ -92,10 +104,10 @@ export default defineAction({
       .describe("IANA timezone for the event end, e.g. America/New_York"),
     allDay: cliBoolean.optional().describe("Whether the event is all-day"),
     transparency: availabilityInput.describe(
-      "Google Calendar availability: opaque blocks time (Busy), transparent does not block time (Free).",
+      "Google Calendar availability: opaque blocks time (Busy), transparent does not block time (Free). Existing working-location events are always sent to Google as transparent.",
     ),
     visibility: visibilityInput.describe(
-      "Google Calendar visibility: default, public, private, or confidential.",
+      "Google Calendar visibility: default, public, private, or confidential. Existing working-location events are always sent to Google as public.",
     ),
     status: z
       .enum(["confirmed", "tentative", "cancelled"])
@@ -193,6 +205,13 @@ export default defineAction({
       reminderMethod: args.reminderMethod,
       useDefaultReminders: args.remindersUseDefault,
     });
+    const hasWorkingLocationPatch =
+      args.workingLocationType !== undefined ||
+      args.workingLocationLabel !== undefined;
+    const hasTimePatch =
+      args.start !== undefined ||
+      args.end !== undefined ||
+      args.allDay !== undefined;
 
     const attendeesToAdd = normalizeAttendees(args.addAttendees);
     let attendees = normalizeAttendees(args.attendees);
@@ -216,7 +235,8 @@ export default defineAction({
       attendeesToAdd !== undefined ||
       Object.keys(reminderFields).length > 0 ||
       args.addGoogleMeet === true ||
-      args.addZoom === true;
+      args.addZoom === true ||
+      hasWorkingLocationPatch;
 
     if (!hasPatch) {
       throw new Error("No event updates provided.");
@@ -252,6 +272,65 @@ export default defineAction({
       );
       return existingEvent;
     };
+
+    if (hasTimePatch) {
+      const existingEvent = await loadExistingEvent();
+      const existingStatusEventType =
+        existingEvent.eventType === "outOfOffice" ||
+        existingEvent.eventType === "focusTime" ||
+        existingEvent.eventType === "workingLocation"
+          ? existingEvent.eventType
+          : "default";
+      validateStatusEventTiming({
+        eventType: existingStatusEventType,
+        allDay: args.allDay ?? existingEvent.allDay,
+        start: args.start ?? existingEvent.start,
+        end: args.end ?? existingEvent.end,
+      });
+    }
+
+    if (hasWorkingLocationPatch) {
+      const existingEvent = await loadExistingEvent();
+      if (existingEvent.eventType !== "workingLocation") {
+        throw new Error(
+          "Working location details can only be updated on existing working-location events. Google Calendar event types cannot be changed after creation.",
+        );
+      }
+      const nextWorkingLocationType =
+        args.workingLocationType ??
+        existingEvent.workingLocationProperties?.type ??
+        "customLocation";
+      const nextWorkingLocationLabel =
+        args.workingLocationLabel ??
+        args.location ??
+        existingEvent.location ??
+        existingEvent.title;
+      const workingLocationFields = buildStatusEventFields({
+        eventType: "workingLocation",
+        title: args.title ?? existingEvent.title,
+        location: args.location ?? existingEvent.location,
+        workingLocationType: nextWorkingLocationType,
+        workingLocationLabel: nextWorkingLocationLabel,
+      });
+      const nextWorkingLocationProperties =
+        nextWorkingLocationType === "officeLocation"
+          ? {
+              type: "officeLocation" as const,
+              officeLocation: {
+                ...(existingEvent.workingLocationProperties?.type ===
+                "officeLocation"
+                  ? existingEvent.workingLocationProperties.officeLocation
+                  : {}),
+                label: nextWorkingLocationLabel,
+              },
+            }
+          : workingLocationFields.workingLocationProperties;
+      Object.assign(updates, {
+        transparency: "transparent",
+        visibility: "public",
+        workingLocationProperties: nextWorkingLocationProperties,
+      });
+    }
 
     if (attendeesToAdd !== undefined) {
       const existingEvent = await loadExistingEvent();
