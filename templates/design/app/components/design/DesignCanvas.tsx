@@ -913,6 +913,32 @@ function contentHash(value: string): string {
   return `${value.length}:${hash >>> 0}`;
 }
 
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === "object" && !Array.isArray(value));
+}
+
+function isFiniteRect(value: unknown): value is ElementInfo["boundingRect"] {
+  if (!isPlainRecord(value)) return false;
+  return (
+    Number.isFinite(value.x) &&
+    Number.isFinite(value.y) &&
+    Number.isFinite(value.width) &&
+    Number.isFinite(value.height)
+  );
+}
+
+export function isElementInfoPayload(value: unknown): value is ElementInfo {
+  if (!isPlainRecord(value)) return false;
+  return (
+    typeof value.tagName === "string" &&
+    Array.isArray(value.classes) &&
+    isPlainRecord(value.computedStyles) &&
+    isFiniteRect(value.boundingRect) &&
+    typeof value.isFlexChild === "boolean" &&
+    typeof value.isFlexContainer === "boolean"
+  );
+}
+
 /**
  * Exponential backoff delay (ms) for the localhost bridge snapshot auto-retry
  * loop, keyed by the zero-based retry attempt number (0 = first retry after
@@ -1709,9 +1735,14 @@ export function DesignCanvas({
             ? (e.data.originalStyles as Record<string, string>)
             : undefined;
         if (selector && Object.keys(styles).length > 0) {
-          onVisualStyleChange?.(selector, styles, e.data.payload, {
-            originalStyles,
-          });
+          onVisualStyleChange?.(
+            selector,
+            styles,
+            isElementInfoPayload(e.data.payload) ? e.data.payload : undefined,
+            {
+              originalStyles,
+            },
+          );
         }
         return;
       }

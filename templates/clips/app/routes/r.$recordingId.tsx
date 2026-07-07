@@ -83,6 +83,8 @@ import { cn } from "@/lib/utils";
 
 const UPLOAD_STUCK_TIMEOUT_MS = 5 * 60 * 1000;
 const PROCESSING_STUCK_TIMEOUT_MS = 2 * 60 * 1000;
+const READY_MEDIA_SETTLE_POLL_MS = 20 * 1000;
+const READY_MEDIA_SETTLE_POLL_INTERVAL_MS = 1000;
 
 export function meta() {
   return [{ title: enMessages.recordingRoute.pageTitle }];
@@ -245,6 +247,7 @@ export default function RecordingPage() {
     [recordingId],
   );
   const lastPlayerStateWriteRef = useRef(0);
+  const readyMediaPollRef = useRef<{ key: string; until: number } | null>(null);
 
   useEffect(() => {
     if (
@@ -281,7 +284,30 @@ export default function RecordingPage() {
         // Poll while the recording is still being assembled / transcoded so
         // the page auto-upgrades from "Processing" to the real player the
         // moment the server flips status to 'ready' and writes videoUrl.
-        if (rec.status !== "ready" || !rec.videoUrl) return 1000;
+        if (rec.status !== "ready" || !rec.videoUrl) {
+          readyMediaPollRef.current = null;
+          return 1000;
+        }
+        // Fresh streaming uploads can become `ready` before the background
+        // seekable/faststart repair swaps in the final player URL. Keep polling
+        // briefly so the first post-recording page catches that URL update
+        // without requiring a manual refresh.
+        const mediaKey = [
+          rec.id,
+          rec.videoUrl,
+          rec.durationMs ?? "",
+          rec.videoSizeBytes ?? "",
+        ].join(":");
+        const now = Date.now();
+        if (readyMediaPollRef.current?.key !== mediaKey) {
+          readyMediaPollRef.current = {
+            key: mediaKey,
+            until: now + READY_MEDIA_SETTLE_POLL_MS,
+          };
+        }
+        if (now < readyMediaPollRef.current.until) {
+          return READY_MEDIA_SETTLE_POLL_INTERVAL_MS;
+        }
         // Also keep polling while a transcript is pending so "Transcribing…"
         // auto-flips to the ready transcript (or to the failure card).
         if (data?.transcript?.status === "pending") return 3000;
