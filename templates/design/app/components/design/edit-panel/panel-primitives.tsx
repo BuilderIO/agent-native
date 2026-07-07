@@ -37,6 +37,7 @@ import {
   joinCssLayers,
   parseGradientLayer,
   SOLID_FILL_ID,
+  solidToGradientPatch,
   splitCssLayers,
 } from "./fill-gradient-helpers";
 import { colorHasVisibleAlpha, cssColorOrFallback } from "./position-helpers";
@@ -478,9 +479,23 @@ export function ColorInput({
   const handlePaintTypeChange = (type: DesignPaintType) => {
     const selectedLayer = fillLayerIndex(selectedFillId);
     if (type === "solid") {
+      // Prefer the removed gradient's first stop color. Switching solid ->
+      // gradient converts the fill (backgroundColor becomes "transparent",
+      // see solidToGradientPatch below), so on the way back draft/value
+      // would be "transparent" and cssColorOrFallback would land on black;
+      // the first stop still holds the color the gradient was built from.
+      const removedGradient =
+        selectedLayer !== null
+          ? parseGradientLayer(backgroundLayers[selectedLayer] || "")
+          : null;
       if (selectedLayer !== null) removeBackgroundLayer(selectedLayer);
       setSelectedFillId(SOLID_FILL_ID);
-      setNext(cssColorOrFallback(draft || value, "#000000"));
+      setNext(
+        cssColorOrFallback(
+          removedGradient?.stops[0]?.color || draft || value,
+          "#000000",
+        ),
+      );
       return;
     }
     if (type === "none") {
@@ -515,12 +530,18 @@ export function ColorInput({
       return;
     }
 
-    onBackgroundImageChange(
-      joinCssLayers([
-        defaultGradientLayer(nextType, draft || value || "#000000"),
-        ...backgroundLayers,
-      ]),
+    const patch = solidToGradientPatch(
+      draft || value || "#000000",
+      backgroundLayers,
+      nextType,
     );
+    onBackgroundImageChange(patch.backgroundImage);
+    // Clear the solid base fill in the same switch — this is a convert
+    // (the mirror of the gradient -> solid branch above), not a stack.
+    // Leaving backgroundColor set kept a second real fill alive under the
+    // alpha-0 tail of the default gradient, so the panel listed a phantom
+    // extra row for what the user meant as one paint-type change.
+    setNext(patch.backgroundColor);
     setSelectedFillId(fillLayerId(0));
     setSelectedStopId("stop-0");
   };

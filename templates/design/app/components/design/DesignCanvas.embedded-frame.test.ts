@@ -52,6 +52,27 @@ describe("DesignCanvas embedded frame backgrounds", () => {
     expect(content).toContain("translate:-100px -200px");
     expect(content).toContain('data-agent-native-node-id="rect"');
   });
+
+  it("scopes the content offset to direct body children so nested board nodes are never double-shifted", () => {
+    const content = getEmbeddedFrameDocumentContent({
+      content:
+        '<!DOCTYPE html><html><head></head><body><div data-agent-native-node-id="parent"><div data-agent-native-node-id="child"></div></div></body></html>',
+      contentOffsetX: 65536,
+      contentOffsetY: 65536,
+    });
+
+    // translate compounds per matched element — a blanket
+    // [data-agent-native-node-id] rule would shift the nested child by the
+    // surface offset a second time (+65536px), rendering it off-world even
+    // with correct parent-relative left/top. The rule must match top-level
+    // board children only.
+    expect(content).toContain(
+      "body > [data-agent-native-node-id]{translate:65536px 65536px;}",
+    );
+    expect(content).not.toMatch(
+      /<style[^>]*data-agent-native-content-offset[^>]*>\[data-agent-native-node-id\]/,
+    );
+  });
 });
 
 describe("DesignCanvas bridge payload validation", () => {

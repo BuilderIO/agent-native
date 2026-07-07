@@ -10,8 +10,12 @@ import {
   BOARD_FILENAME,
   backfillBoardPrimitiveMarkers,
   boardObjectEntryToHtmlFragment,
+  computeReparentedChildPosition,
   emptyBoardHtml,
   isBoardFile,
+  isBoardSurfacePoisonedCoord,
+  normalizePoisonedBoardNestedCoords,
+  stripBoardSurfaceOffsetFromCoord,
 } from "./board-file.js";
 import type { BoardObjectEntry } from "./board-objects.js";
 
@@ -709,4 +713,278 @@ describe("boardObjectEntryToHtmlFragment — default layer names", () => {
       expect(match![1].length).toBeGreaterThan(0);
     });
   }
+});
+
+// ---------------------------------------------------------------------------
+// stripBoardSurfaceOffsetFromCoord / isBoardSurfacePoisonedCoord
+// ---------------------------------------------------------------------------
+
+describe("stripBoardSurfaceOffsetFromCoord", () => {
+  it("strips a single surface offset from poisoned coordinates (real values from the nest findings)", () => {
+    expect(stripBoardSurfaceOffsetFromCoord(66904)).toBe(1368);
+    expect(stripBoardSurfaceOffsetFromCoord(67174)).toBe(1638);
+    expect(stripBoardSurfaceOffsetFromCoord(65887)).toBe(351);
+    expect(stripBoardSurfaceOffsetFromCoord(67311)).toBe(1775);
+  });
+
+  it("strips stacked offsets (k > 1) and negative-side poisoning", () => {
+    expect(stripBoardSurfaceOffsetFromCoord(131172)).toBe(100); // 2*65536 + 100
+    expect(stripBoardSurfaceOffsetFromCoord(-65420)).toBe(116); // -65536 + 116
+    expect(stripBoardSurfaceOffsetFromCoord(65436)).toBe(-100); // 65536 - 100
+  });
+
+  it("passes sane coordinates through untouched", () => {
+    expect(stripBoardSurfaceOffsetFromCoord(0)).toBe(0);
+    expect(stripBoardSurfaceOffsetFromCoord(250)).toBe(250);
+    expect(stripBoardSurfaceOffsetFromCoord(-3000)).toBe(-3000);
+    expect(stripBoardSurfaceOffsetFromCoord(16384)).toBe(16384);
+  });
+
+  it("leaves values that are large but NOT near a 65536 multiple alone", () => {
+    expect(isBoardSurfacePoisonedCoord(40000)).toBe(false);
+    expect(stripBoardSurfaceOffsetFromCoord(40000)).toBe(40000);
+    expect(isBoardSurfacePoisonedCoord(32768)).toBe(false);
+    expect(stripBoardSurfaceOffsetFromCoord(32768)).toBe(32768);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// computeReparentedChildPosition
+// ---------------------------------------------------------------------------
+
+describe("computeReparentedChildPosition", () => {
+  it("rebases a viewport-poisoned source against a clean board-space target", () => {
+    expect(
+      computeReparentedChildPosition(
+        { x: 66904, y: 67174 },
+        { x: 951, y: 1246 },
+      ),
+    ).toEqual({ x: 417, y: 392 });
+  });
+
+  it("is a plain subtraction for clean in-screen coordinates", () => {
+    expect(
+      computeReparentedChildPosition({ x: 398, y: 144 }, { x: 250, y: 100 }),
+    ).toEqual({ x: 148, y: 44 });
+  });
+
+  it("handles both sides poisoned", () => {
+    expect(
+      computeReparentedChildPosition(
+        { x: 66904, y: 67174 },
+        { x: 65887, y: 67311 },
+      ),
+    ).toEqual({ x: 1017, y: -137 });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// normalizePoisonedBoardNestedCoords
+// ---------------------------------------------------------------------------
+
+describe("normalizePoisonedBoardNestedCoords", () => {
+  const wrap = (body: string) =>
+    `<!DOCTYPE html>\n<html><head><style>body{margin:0}</style></head><body>${body}</body></html>`;
+
+  it("rebases a nested child persisted in board-iframe viewport coords to parent-relative (findings example)", () => {
+    const html = wrap(
+      '<div data-agent-native-node-id="rect-a" data-an-primitive="rectangle" style="position:absolute;left:200px;top:1500px;width:1119px;height:839px;background:rgb(218 218 218)">' +
+        '<div data-agent-native-node-id="rect-b" data-an-primitive="rectangle" style="position:absolute;left:65887px;top:67311px;width:420px;height:336px;background:rgb(218 218 218)"></div>' +
+        "</div>",
+    );
+    const result = normalizePoisonedBoardNestedCoords(html);
+    expect(result.changed).toBe(true);
+    expect(result.html).toContain("left:151px;top:275px;width:420px");
+    // Parent (top-level) coordinates are untouched.
+    expect(result.html).toContain("left:200px;top:1500px;width:1119px");
+  });
+
+  it("normalizes a deep chain outer-to-inner, clamping residual garbage into the parent box", () => {
+    const html = wrap(
+      '<div data-agent-native-node-id="a" style="position:absolute;left:200px;top:1500px;width:1119px;height:839px">' +
+        '<div data-agent-native-node-id="b" style="position:absolute;left:65887px;top:67311px;width:420px;height:336px">' +
+        '<div data-agent-native-node-id="c" style="position:absolute;left:66904px;top:67174px;width:60px;height:50px"></div>' +
+        "</div></div>",
+    );
+    const result = normalizePoisonedBoardNestedCoords(html);
+    expect(result.changed).toBe(true);
+    // b: (65887 - 65536) - 200 = 151; (67311 - 65536) - 1500 = 275
+    expect(result.html).toContain(
+      'id="b" style="position:absolute;left:151px;top:275px',
+    );
+    // c left: (66904 - 65536) - (200 + 151) = 1017 → outside b (w 420) → clamped to 420 - 60 = 360.
+    // c top: (67174 - 65536) - (1500 + 275) = -137 → within sanity band → kept.
+    expect(result.html).toContain(
+      'id="c" style="position:absolute;left:360px;top:-137px',
+    );
+  });
+
+  it("clamps a rebased value that is far outside the parent to the parent box start", () => {
+    const html = wrap(
+      '<div data-agent-native-node-id="p" style="position:absolute;left:5000px;top:5000px;width:400px;height:300px">' +
+        '<div data-agent-native-node-id="c" style="position:absolute;left:65636px;top:65736px;width:80px;height:60px"></div>' +
+        "</div>",
+    );
+    const result = normalizePoisonedBoardNestedCoords(html);
+    expect(result.changed).toBe(true);
+    // strip → 100/200; minus origin 5000 → -4900/-4800 → insane vs 400/300 → clamp to 0.
+    expect(result.html).toContain(
+      'id="c" style="position:absolute;left:0px;top:0px',
+    );
+  });
+
+  it("strips stacked (k=2) offsets", () => {
+    const html = wrap(
+      '<div data-agent-native-node-id="p" style="position:absolute;left:100px;top:100px;width:500px;height:500px">' +
+        '<div data-agent-native-node-id="c" style="position:absolute;left:131172px;top:131272px;width:50px;height:50px"></div>' +
+        "</div>",
+    );
+    const result = normalizePoisonedBoardNestedCoords(html);
+    expect(result.changed).toBe(true);
+    // 131172 - 2*65536 = 100; minus origin 100 = 0. 131272 → 200 - 100 = 100.
+    expect(result.html).toContain(
+      'id="c" style="position:absolute;left:0px;top:100px',
+    );
+  });
+
+  it("passes clean content through byte-identical", () => {
+    const html = wrap(
+      '<div data-agent-native-node-id="a" style="position:absolute;left:-3000px;top:250px;width:400px;height:300px">' +
+        '<div data-agent-native-node-id="b" style="position:absolute;left:30px;top:40px;width:100px;height:80px"></div>' +
+        "</div>",
+    );
+    const result = normalizePoisonedBoardNestedCoords(html);
+    expect(result.changed).toBe(false);
+    expect(result.html).toBe(html);
+  });
+
+  it("never rewrites TOP-LEVEL board children, even with offset-magnitude coordinates", () => {
+    const html = wrap(
+      '<div data-agent-native-node-id="a" style="position:absolute;left:66904px;top:67174px;width:400px;height:300px"></div>',
+    );
+    const result = normalizePoisonedBoardNestedCoords(html);
+    expect(result.changed).toBe(false);
+    expect(result.html).toBe(html);
+  });
+
+  it("ignores node-id elements nested only inside NON-node-id wrappers", () => {
+    const html = wrap(
+      '<div class="wrapper"><div data-agent-native-node-id="a" style="position:absolute;left:66904px;top:100px;width:40px;height:40px"></div></div>',
+    );
+    const result = normalizePoisonedBoardNestedCoords(html);
+    expect(result.changed).toBe(false);
+    expect(result.html).toBe(html);
+  });
+
+  it("is idempotent", () => {
+    const html = wrap(
+      '<div data-agent-native-node-id="a" style="position:absolute;left:200px;top:1500px;width:1119px;height:839px">' +
+        '<div data-agent-native-node-id="b" style="position:absolute;left:65887px;top:67311px;width:420px;height:336px"></div>' +
+        "</div>",
+    );
+    const first = normalizePoisonedBoardNestedCoords(html);
+    expect(first.changed).toBe(true);
+    const second = normalizePoisonedBoardNestedCoords(first.html);
+    expect(second.changed).toBe(false);
+    expect(second.html).toBe(first.html);
+  });
+
+  it("handles single-quoted style attributes and preserves surrounding attributes", () => {
+    const html = wrap(
+      '<div data-agent-native-node-id="a" style="position:absolute;left:0px;top:0px;width:800px;height:600px">' +
+        "<div data-agent-native-node-id='b' data-agent-native-layer-name='Nested' style='position:absolute;left:65636px;top:65736px;width:50px;height:50px'></div>" +
+        "</div>",
+    );
+    const result = normalizePoisonedBoardNestedCoords(html);
+    expect(result.changed).toBe(true);
+    expect(result.html).toContain(
+      "style='position:absolute;left:100px;top:200px;width:50px;height:50px'",
+    );
+    expect(result.html).toContain("data-agent-native-layer-name='Nested'");
+  });
+
+  it("only rewrites the poisoned axis and leaves the other alone", () => {
+    const html = wrap(
+      '<div data-agent-native-node-id="a" style="position:absolute;left:0px;top:0px;width:800px;height:600px">' +
+        '<div data-agent-native-node-id="b" style="position:absolute;left:65736px;top:42px;width:50px;height:50px"></div>' +
+        "</div>",
+    );
+    const result = normalizePoisonedBoardNestedCoords(html);
+    expect(result.changed).toBe(true);
+    expect(result.html).toContain("left:200px;top:42px");
+  });
+
+  it("returns unchanged for empty / body-less / no-node-id content", () => {
+    expect(normalizePoisonedBoardNestedCoords("").changed).toBe(false);
+    expect(normalizePoisonedBoardNestedCoords("<div>plain</div>").changed).toBe(
+      false,
+    );
+    expect(normalizePoisonedBoardNestedCoords(emptyBoardHtml()).changed).toBe(
+      false,
+    );
+  });
+
+  // Finding 4: detectability — the function itself stays side-effect-free,
+  // but reports enough (fixedNodeCount + a before/after sample) for a caller
+  // to log what happened when the heuristic actually fires.
+  describe("detectability metadata (fixedNodeCount / samples)", () => {
+    it("reports zero fixedNodeCount and no samples when nothing changed", () => {
+      const html = wrap(
+        '<div data-agent-native-node-id="a" style="position:absolute;left:30px;top:40px;width:100px;height:80px"></div>',
+      );
+      const result = normalizePoisonedBoardNestedCoords(html);
+      expect(result.changed).toBe(false);
+      expect(result.fixedNodeCount).toBe(0);
+      expect(result.samples).toEqual([]);
+    });
+
+    it("reports fixedNodeCount and a before/after sample for each rebased node", () => {
+      const html = wrap(
+        '<div data-agent-native-node-id="a" style="position:absolute;left:200px;top:1500px;width:1119px;height:839px">' +
+          '<div data-agent-native-node-id="b" style="position:absolute;left:65887px;top:67311px;width:420px;height:336px"></div>' +
+          "</div>",
+      );
+      const result = normalizePoisonedBoardNestedCoords(html);
+      expect(result.changed).toBe(true);
+      expect(result.fixedNodeCount).toBe(1);
+      expect(result.samples).toHaveLength(1);
+      expect(result.samples[0]).toMatchObject({
+        nodeId: "b",
+        before: { left: 65887, top: 67311 },
+        after: { left: 151, top: 275 },
+      });
+    });
+
+    it("counts each rebased node once even when both axes are poisoned", () => {
+      const html = wrap(
+        '<div data-agent-native-node-id="a" style="position:absolute;left:200px;top:1500px;width:1119px;height:839px">' +
+          '<div data-agent-native-node-id="b" style="position:absolute;left:65887px;top:67311px;width:420px;height:336px">' +
+          '<div data-agent-native-node-id="c" style="position:absolute;left:66904px;top:67174px;width:60px;height:50px"></div>' +
+          "</div></div>",
+      );
+      const result = normalizePoisonedBoardNestedCoords(html);
+      expect(result.changed).toBe(true);
+      expect(result.fixedNodeCount).toBe(2);
+      expect(result.samples.map((s) => s.nodeId).sort()).toEqual(["b", "c"]);
+    });
+  });
+});
+
+describe("normalizePoisonedBoardNestedCoords — negative-k (translate-compensated) shape", () => {
+  it("treats rel-minus-65536 values as already parent-relative (strip only, no ancestor subtraction)", () => {
+    // Real values from the live nest repro: bridge rect-space rebase wrote
+    // parentRelative - 65536 for a child nested into a top-level board rect
+    // at (266, 997).
+    const html =
+      "<!DOCTYPE html>\n<html><head></head><body>" +
+      '<div data-agent-native-node-id="a" style="position:absolute;left:266px;top:997px;width:662px;height:441px">' +
+      '<div data-agent-native-node-id="b" style="position:absolute;left:-65308px;top:-65396px;width:221px;height:154px"></div>' +
+      "</div></body></html>";
+    const result = normalizePoisonedBoardNestedCoords(html);
+    expect(result.changed).toBe(true);
+    // -65308 + 65536 = 228; -65396 + 65536 = 140 — already parent-relative.
+    expect(result.html).toContain(
+      'id="b" style="position:absolute;left:228px;top:140px',
+    );
+  });
 });

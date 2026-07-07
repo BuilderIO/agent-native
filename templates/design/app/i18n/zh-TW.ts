@@ -648,6 +648,7 @@ const messages = {
       propsPasted: "屬性已貼上",
       primitiveInsertFailed: "無法將該圖層新增到畫面",
       layerMoveFailed: "無法移動該圖層",
+      layerMoveRedirected: "已移至原位置附近——精確的放置目標無法編輯",
       duplicateElementFailed: "無法複製該元素",
       eyedropperUnsupported: "此瀏覽器不支援取色器",
       saveCopyError: "無法儲存這個設計的副本",

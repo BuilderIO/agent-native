@@ -785,6 +785,11 @@ const STYLE_PROPERTY_ALIASES: Record<string, VisualStyleProperty> = {
   radius: "border-radius",
   rotation: "rotate",
   shadow: "box-shadow",
+  // Vendor-prefixed longhands need explicit aliases: the generic camel→kebab
+  // pass in normalizeStyleProperty yields "webkit-text-stroke-*" WITHOUT the
+  // required leading dash, which would miss the allow-list entirely.
+  webkitTextStrokeColor: "-webkit-text-stroke-color",
+  webkitTextStrokeWidth: "-webkit-text-stroke-width",
 };
 
 // Matches url(...) in double-quoted, single-quoted, or unquoted form so each
@@ -1299,19 +1304,107 @@ function findHtmlTagEnd(html: string, start: number): number {
   return html.length;
 }
 
+// Depth-aware closing-tag scan: used for NON_VISUAL_TAGS (script/style/
+// template/etc) whose interiors are skipped wholesale rather than descended
+// into by the main parser loop. A naive "first </tag> after `from`" search
+// (the previous implementation) breaks the moment the same tag nests inside
+// itself — e.g. `<template x-if><ul><template x-for>…</template></ul>
+// </template>` (a completely ordinary Alpine x-if-wrapping-x-for pattern) —
+// because it matches the INNER `</template>` and resumes the main loop right
+// after it, leaving the outer element's true `</ul></template>` closes to be
+// mis-parsed as stray/unmatched tags against whatever unrelated element is
+// on the stack. That corrupted contentEnd tracking for enclosing elements
+// (observed: body-append/insertion offsets computed from the wrong node,
+// splicing moved content into template interiors). Track same-tag open/close
+// depth so only the tag that actually balances the ORIGINAL opening tag is
+// returned, matching real nested-template documents correctly.
 function findClosingTag(
   html: string,
   tag: string,
   from: number,
 ): { closeStart: number; closeEnd: number } | null {
-  const closeRe = new RegExp(`<\\/\\s*${tag}\\s*>`, "gi");
-  closeRe.lastIndex = from;
-  const match = closeRe.exec(html);
-  if (!match) return null;
-  return {
-    closeStart: match.index,
-    closeEnd: match.index + match[0].length,
-  };
+  const tagRe = new RegExp(`<(\\/?)\\s*${tag}\\b[^>]*>`, "gi");
+  tagRe.lastIndex = from;
+  let depth = 0;
+  let match: RegExpExecArray | null;
+  while ((match = tagRe.exec(html))) {
+    const isClose = match[1] === "/";
+    const selfClosing = !isClose && /\/\s*>$/.test(match[0]);
+    if (isClose) {
+      if (depth === 0) {
+        return {
+          closeStart: match.index,
+          closeEnd: match.index + match[0].length,
+        };
+      }
+      depth -= 1;
+    } else if (!selfClosing) {
+      depth += 1;
+    }
+    // Guard against zero-length matches causing an infinite loop (not
+    // expected given the tag-name-anchored pattern, but cheap to keep safe).
+    if (tagRe.lastIndex === match.index) {
+      tagRe.lastIndex += 1;
+    }
+  }
+  return null;
+}
+
+// Defense-in-depth safety net for moveNodeBetweenDocuments: `<template>`
+// interiors (x-if/x-for/x-show templates and friends) are opaque to
+// parseHtmlElements (NON_VISUAL_TAGS) and, per the DOM spec, live in a
+// detached DocumentFragment (`template.content`) — a node inserted into a
+// template's raw markup range renders nowhere, can't be selected/queried by
+// the runtime DOM, and is invisible to every downstream querySelector-based
+// pass (getElementInfo, setAbsolutePositioningForNodeInHtml, etc). A correct
+// findClosingTag (see above) prevents the offset MISCALCULATION that used to
+// cause this, but this function is kept as an independent second guard —
+// even if some other insertion-point calculation ever computes an offset
+// that lands inside a real `<template>` block, this catches it and callers
+// redirect to a real DOM slot instead of silently splicing into markup that
+// will never render or be selectable again.
+//
+// Finding 8: when it fires, callers used to always redirect to the end of
+// <body> (or end of document) — a silent teleport that can land an anchored
+// insert far from where the user was working. `findEnclosingTemplateClose`
+// below returns the ENCLOSING outer template's closeEnd position (the
+// offset immediately after its `</template>`) when `offset` is inside a
+// template interior, so callers can redirect there instead: still a
+// guaranteed-safe real-DOM slot (immediately after a closing tag, a sibling
+// of the template rather than jumping to doc end), just much closer to the
+// anchor the caller actually asked for.
+function isOffsetInsideTemplateInterior(html: string, offset: number): boolean {
+  return findEnclosingTemplateClose(html, offset) !== null;
+}
+
+// Exported ONLY for the finding-8 redirect-target unit test below: with
+// findClosingTag's offset-miscalculation bug fixed (see the doc comment
+// above), every insertAt this module's own callers compute through
+// parseHtmlElements-derived positions (anchor.start/end/contentEnd,
+// bodyEl.contentEnd) already lands OUTSIDE template interiors in practice —
+// NON_VISUAL_TAGS like <template> are skipped wholesale, so a template can
+// never itself become part of another element's registered content range.
+// That makes this guard a true defense-in-depth backstop with no reachable
+// integration-level repro through moveNodeBetweenDocuments today; testing
+// the redirect target directly against a synthetic offset is the honest way
+// to pin its behavior instead of contriving a fragile call into the guard.
+export function findEnclosingTemplateClose(
+  html: string,
+  offset: number,
+): { closeEnd: number } | null {
+  const templateOpenRe = /<template\b[^>]*>/gi;
+  let match: RegExpExecArray | null;
+  while ((match = templateOpenRe.exec(html))) {
+    const openEnd = match.index + match[0].length;
+    if (openEnd > offset) break;
+    const close = findClosingTag(html, "template", openEnd);
+    const contentEnd = close ? close.closeStart : html.length;
+    if (offset > openEnd && offset <= contentEnd) {
+      return { closeEnd: close ? close.closeEnd : html.length };
+    }
+    templateOpenRe.lastIndex = close ? close.closeEnd : html.length;
+  }
+  return null;
 }
 
 function parseHtmlElements(html: string): ParsedElement[] {
@@ -4031,6 +4124,17 @@ export interface MoveNodeBetweenDocumentsResult {
    * Only present when status is "applied".
    */
   movedNodeId?: string;
+  /**
+   * Finding 8: true when the requested anchor placement fell inside a
+   * `<template>` interior and the insert was redirected to a real DOM slot
+   * instead (immediately after the enclosing template's `</template>` when
+   * that could be located, otherwise the pre-existing doc-end/body-end
+   * fallback). Hosts can use this to toast a "landed near, not exactly
+   * where you dropped it" notice instead of the previous fully silent
+   * teleport. Only meaningful when status is "applied" and an anchor was
+   * requested.
+   */
+  anchorRedirected?: boolean;
 }
 
 /**
@@ -4117,6 +4221,7 @@ export function moveNodeBetweenDocuments(
 
   // --- Insert fragment into destHtml ---
   let nextDestHtml: string;
+  let anchorRedirected = false;
 
   if (anchorNodeId) {
     const anchor = destElements.find(
@@ -4130,7 +4235,7 @@ export function moveNodeBetweenDocuments(
         message: `Anchor node with data-agent-native-node-id="${anchorNodeId}" not found in destHtml.`,
       };
     }
-    const insertAt =
+    let insertAt =
       placement === "before"
         ? anchor.start
         : placement === "after"
@@ -4138,15 +4243,44 @@ export function moveNodeBetweenDocuments(
           : anchor.selfClosing
             ? anchor.end
             : anchor.contentEnd;
+    // Never splice into a <template> interior — it renders nowhere and is
+    // unselectable afterward (see isOffsetInsideTemplateInterior doc above).
+    // Finding 8: redirect to immediately AFTER the ENCLOSING outer
+    // </template> when it can be located — still a guaranteed-safe real-DOM
+    // slot, just a sibling of the template instead of a jump all the way to
+    // the end of <body>/the document. Falls back to the old doc-end/body-end
+    // behavior only if the enclosing template's close somehow can't be
+    // resolved (defense-in-depth for a guard that should always agree with
+    // itself here).
+    const enclosingTemplate = findEnclosingTemplateClose(destHtml, insertAt);
+    if (enclosingTemplate) {
+      insertAt = enclosingTemplate.closeEnd;
+      anchorRedirected = true;
+    } else if (isOffsetInsideTemplateInterior(destHtml, insertAt)) {
+      const bodyEl = destElements.find((el) => el.tag === "body");
+      insertAt = bodyEl
+        ? bodyEl.selfClosing
+          ? bodyEl.end
+          : bodyEl.contentEnd
+        : destHtml.length;
+      anchorRedirected = true;
+    }
     nextDestHtml = `${destHtml.slice(0, insertAt)}${fragment}${destHtml.slice(insertAt)}`;
   } else {
     // Default: find <body> and append inside it, or append at end of doc.
     const bodyEl = destElements.find((el) => el.tag === "body");
-    const insertAt = bodyEl
+    let insertAt = bodyEl
       ? bodyEl.selfClosing
         ? bodyEl.end
         : bodyEl.contentEnd
       : destHtml.length;
+    // Same template-interior guard as the anchored branch above — a
+    // miscomputed bodyEl.contentEnd (or a body that itself is only reachable
+    // through a template, e.g. a fragment being treated as a full document)
+    // must never land inside template markup.
+    if (isOffsetInsideTemplateInterior(destHtml, insertAt)) {
+      insertAt = destHtml.length;
+    }
     nextDestHtml = `${destHtml.slice(0, insertAt)}${fragment}${destHtml.slice(insertAt)}`;
   }
 
@@ -4158,5 +4292,6 @@ export function moveNodeBetweenDocuments(
     destHtml: nextDestHtml,
     status: "applied",
     movedNodeId,
+    ...(anchorRedirected ? { anchorRedirected: true } : {}),
   };
 }

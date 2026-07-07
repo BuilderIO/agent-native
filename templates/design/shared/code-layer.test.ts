@@ -5,6 +5,7 @@ import {
   buildCodeLayerProjection,
   buildCodeLayerTree,
   ensureCodeLayerNodeIdsInHtml,
+  findEnclosingTemplateClose,
   moveNodeBetweenDocuments,
   removeCodeLayerNodeFromHtml,
   stripEditorOnlyAttributes,
@@ -460,6 +461,50 @@ describe("applyVisualEdit", () => {
     expect(html).toContain("rotate: 15deg");
     expect(html).toContain("scale: -1 1");
     expect(html).toContain("left: 32px");
+  });
+
+  it("aliases camelCase webkit text-stroke longhands to their -webkit- kebab forms", () => {
+    // Regression: the edit panel's "Add layer" (text stroke) once emitted
+    // camelCase webkitTextStrokeWidth/-Color. normalizeStyleProperty's generic
+    // camel→kebab pass turns those into "webkit-text-stroke-*" (missing the
+    // leading dash), which is NOT in the allow-list → status "unsupported" and
+    // nothing persisted. STYLE_PROPERTY_ALIASES must map them explicitly.
+    const html = `<h1 data-layer-name="Title">Hello</h1>`;
+
+    const widthPatch = applyVisualEdit(html, {
+      kind: "style",
+      target: { selector: '[data-layer-name="Title"]' },
+      property: "webkitTextStrokeWidth",
+      value: "1px",
+    });
+    expect(widthPatch.result.status).toBe("applied");
+    expect(widthPatch.result.capability).toEqual(
+      expect.objectContaining({
+        kind: "style",
+        properties: ["-webkit-text-stroke-width"],
+      }),
+    );
+    expect(widthPatch.content).toContain("-webkit-text-stroke-width: 1px");
+
+    const colorPatch = applyVisualEdit(widthPatch.content, {
+      kind: "style",
+      target: { selector: '[data-layer-name="Title"]' },
+      property: "webkitTextStrokeColor",
+      value: "#0f172a",
+    });
+    expect(colorPatch.result.status).toBe("applied");
+    expect(colorPatch.content).toContain("-webkit-text-stroke-color: #0f172a");
+  });
+
+  it("applies the kebab -webkit-text-stroke-width longhand directly (allow-list pin)", () => {
+    const patch = applyVisualEdit(`<h1 data-layer-name="Title">Hello</h1>`, {
+      kind: "style",
+      target: { selector: '[data-layer-name="Title"]' },
+      property: "-webkit-text-stroke-width",
+      value: "1px",
+    });
+    expect(patch.result.status).toBe("applied");
+    expect(patch.content).toContain("-webkit-text-stroke-width: 1px");
   });
 
   it("applies class edits without duplicating class tokens", () => {
@@ -1395,6 +1440,158 @@ describe("moveNodeBetweenDocuments", () => {
     // Moved content is present
     expect(result.destHtml).toContain("Deep");
   });
+
+  // Regression for the cross-screen "drop lands inside <template> markup"
+  // corruption bug: findClosingTag used to do a naive "first </tag> after
+  // `from`" search for NON_VISUAL_TAGS (template/script/style/etc), which
+  // broke the instant the same tag nested inside itself (a completely
+  // ordinary Alpine x-if-wrapping-x-for pattern). That matched the INNER
+  // </template> and desynced the whole parse, corrupting contentEnd tracking
+  // for real elements and letting body-append land inside template interiors
+  // (invisible, Alpine-cloned, unselectable afterward).
+  it("no-anchor body-append never lands inside a nested <template> — template depth 2 (x-if wrapping x-for)", () => {
+    const sourceHtml = `<body><div data-agent-native-node-id="move-me">Move</div></body>`;
+    const destHtml =
+      `<body>` +
+      `<template x-if="true"><ul><template x-for="t in tasks"><li>Task</li></template></ul></template>` +
+      `<div data-agent-native-node-id="real">Real content</div>` +
+      `</body>`;
+
+    const result = moveNodeBetweenDocuments(sourceHtml, destHtml, {
+      nodeId: "move-me",
+    });
+
+    expect(result.status).toBe("applied");
+    // Must land after the outer </template>, not inside the nested <ul>.
+    const templateCloseIdx = result.destHtml.lastIndexOf("</template>");
+    const movedIdx = result.destHtml.indexOf(
+      `data-agent-native-node-id="move-me"`,
+    );
+    expect(movedIdx).toBeGreaterThan(templateCloseIdx);
+    // The moved node must be a sibling of <body>'s real content, not nested
+    // inside the <ul> that lives inside the templates.
+    const ulOpenIdx = result.destHtml.indexOf("<ul>");
+    const ulCloseIdx = result.destHtml.indexOf("</ul>");
+    expect(movedIdx < ulOpenIdx || movedIdx > ulCloseIdx).toBe(true);
+    // Real (non-template) sibling content must be untouched and still present.
+    expect(result.destHtml).toContain("Real content");
+  });
+
+  it("no-anchor body-append is unaffected by a single-level <template> (no nesting)", () => {
+    const sourceHtml = `<body><div data-agent-native-node-id="move-me">Move</div></body>`;
+    const destHtml = `<body><template x-if="true"><li>Task</li></template><div data-agent-native-node-id="real">Real</div></body>`;
+
+    const result = moveNodeBetweenDocuments(sourceHtml, destHtml, {
+      nodeId: "move-me",
+    });
+
+    expect(result.status).toBe("applied");
+    expect(result.destHtml).toContain("Real");
+    const templateCloseIdx = result.destHtml.indexOf("</template>");
+    const movedIdx = result.destHtml.indexOf(
+      `data-agent-native-node-id="move-me"`,
+    );
+    expect(movedIdx).toBeGreaterThan(templateCloseIdx);
+  });
+
+  it("anchored insert (placement inside) never lands inside a nested <template> even when the anchor itself precedes templates", () => {
+    const sourceHtml = `<body><div data-agent-native-node-id="move-me">Move</div></body>`;
+    const destHtml =
+      `<body>` +
+      `<div data-agent-native-node-id="container">` +
+      `<template x-if="true"><ul><template x-for="t in tasks"><li>Task</li></template></ul></template>` +
+      `</div>` +
+      `</body>`;
+
+    const result = moveNodeBetweenDocuments(sourceHtml, destHtml, {
+      nodeId: "move-me",
+      anchorNodeId: "container",
+      placement: "inside",
+    });
+
+    expect(result.status).toBe("applied");
+    // Must not be spliced inside the nested <ul> (inside the templates).
+    const ulOpenIdx = result.destHtml.indexOf("<ul>");
+    const ulCloseIdx = result.destHtml.indexOf("</ul>");
+    const movedIdx = result.destHtml.indexOf(
+      `data-agent-native-node-id="move-me"`,
+    );
+    expect(movedIdx < ulOpenIdx || movedIdx > ulCloseIdx).toBe(true);
+  });
+
+  // Finding 8: the template-interior guard (isOffsetInsideTemplateInterior /
+  // findEnclosingTemplateClose) used to always redirect a caught offset to
+  // the end of <body>/the document (a silent teleport, potentially far from
+  // where the user actually dropped). It now redirects to immediately AFTER
+  // the ENCLOSING outer </template> instead — still guaranteed-safe (a real
+  // DOM slot right after a closing tag), just much closer to the anchor.
+  //
+  // This is tested directly against findEnclosingTemplateClose (exported
+  // for exactly this purpose — see its doc comment) rather than through
+  // moveNodeBetweenDocuments: with findClosingTag's offset-miscalculation
+  // bug already fixed, every real insertAt this module computes lands
+  // outside template interiors in practice, so the guard has no reachable
+  // integration-level repro today — it is a true defense-in-depth backstop.
+  // The sibling "never lands inside a nested <template>" tests above still
+  // cover the end-to-end anchored/no-anchor paths.
+  describe("findEnclosingTemplateClose (finding 8 redirect target)", () => {
+    it("returns null when the offset is outside any template", () => {
+      const html = `<body><template x-if="a"><div>X</div></template><div>Real</div></body>`;
+      const realIdx = html.indexOf("<div>Real</div>");
+      expect(findEnclosingTemplateClose(html, realIdx)).toBeNull();
+    });
+
+    it("returns the OUTER template's closeEnd for an offset inside a nested template interior", () => {
+      const html =
+        `<body>` +
+        `<template x-if="true"><ul><template x-for="t in tasks"><li>Task</li></template></ul></template>` +
+        `<div>Trailing</div>` +
+        `</body>`;
+      const innerOffset = html.indexOf("<li>Task</li>");
+      const outerTemplateCloseEnd =
+        html.lastIndexOf("</template>") + "</template>".length;
+      const result = findEnclosingTemplateClose(html, innerOffset);
+      expect(result).not.toBeNull();
+      expect(result?.closeEnd).toBe(outerTemplateCloseEnd);
+      // The redirect target is right after the outer template's close, NOT
+      // doc end — well before "Trailing" and far short of html.length.
+      expect(result?.closeEnd).toBeLessThan(html.indexOf("Trailing"));
+      expect(result?.closeEnd).toBeLessThan(html.length);
+    });
+
+    it("returns the enclosing template's closeEnd for a single-level (non-nested) template", () => {
+      const html = `<body><template x-if="true"><li>Task</li></template><div>Real</div></body>`;
+      // Offset strictly inside the <li> element's own tag (not exactly at
+      // the template's openEnd boundary, which the guard treats as "at",
+      // not "inside").
+      const innerOffset = html.indexOf("Task");
+      const templateCloseEnd =
+        html.indexOf("</template>") + "</template>".length;
+      const result = findEnclosingTemplateClose(html, innerOffset);
+      expect(result?.closeEnd).toBe(templateCloseEnd);
+    });
+  });
+
+  it("re-parses correctly after a triple-nested same-tag NON_VISUAL_TAGS scenario (template^3)", () => {
+    const sourceHtml = `<body><div data-agent-native-node-id="move-me">Move</div></body>`;
+    const destHtml =
+      `<body>` +
+      `<template x-if="a"><template x-if="b"><template x-if="c"><span>Deep</span></template></template></template>` +
+      `<div data-agent-native-node-id="real">Real</div>` +
+      `</body>`;
+
+    const result = moveNodeBetweenDocuments(sourceHtml, destHtml, {
+      nodeId: "move-me",
+    });
+
+    expect(result.status).toBe("applied");
+    expect(result.destHtml).toContain("Real");
+    const lastTemplateCloseIdx = result.destHtml.lastIndexOf("</template>");
+    const movedIdx = result.destHtml.indexOf(
+      `data-agent-native-node-id="move-me"`,
+    );
+    expect(movedIdx).toBeGreaterThan(lastTemplateCloseIdx);
+  });
 });
 
 describe("autoLayout (regression)", () => {
@@ -1618,7 +1815,12 @@ describe("breakpoint-scoped edits (§6.4 Framer cascade)", () => {
     expect(patch.result.status).toBe("applied");
     expect(patch.content).toContain("<style data-agent-native-breakpoints>");
     expect(patch.content).toContain("@media (max-width: 809px)");
-    expect(patch.content).toContain('[data-agent-native-node-id="hero"]');
+    // Doubled attribute selector — specificity (0,2,0) so the managed
+    // override beats runtime-injected Tailwind CDN utilities (0,1,0). A
+    // regression back to the single-attribute form must fail this test.
+    expect(patch.content).toContain(
+      '[data-agent-native-node-id="hero"][data-agent-native-node-id="hero"] {',
+    );
     expect(patch.content).toContain("left: 137px;");
     // The element's inline style is NOT touched — base keeps cascading.
     expect(patch.content).not.toContain('style="left');
@@ -1641,8 +1843,10 @@ describe("breakpoint-scoped edits (§6.4 Framer cascade)", () => {
     expect(patch.result.status).toBe("applied");
     const stamped = /data-agent-native-node-id="([^"]+)"/.exec(patch.content);
     expect(stamped).toBeTruthy();
+    // Doubled selector, same as above — single-attribute form is a
+    // specificity regression against the Tailwind CDN runtime sheet.
     expect(patch.content).toContain(
-      `[data-agent-native-node-id="${stamped![1]}"]`,
+      `[data-agent-native-node-id="${stamped![1]}"][data-agent-native-node-id="${stamped![1]}"] {`,
     );
     expect(patch.content).toContain("top: 24px;");
   });

@@ -988,9 +988,38 @@ export function getEmbeddedIframeBackgroundColor(args: {
     : (args.embeddedFrameBackground ?? "transparent");
 }
 
+/**
+ * CSS rule that shifts embedded-frame (board) content so board-coordinate
+ * (0,0) lands at the center of the board iframe's oversized surface.
+ *
+ * The selector is deliberately scoped to DIRECT `<body>` children only.
+ * `translate` composes per element, so a blanket
+ * `[data-agent-native-node-id]{translate:…}` rule shifted every NESTED
+ * node-id-bearing descendant by the surface offset AGAIN (+65536px per
+ * nesting level) — any board child nested inside another board primitive
+ * rendered tens of thousands of px outside its parent (i.e. visually
+ * vanished) even when its persisted parent-relative left/top were perfectly
+ * correct, and every rect-based coordinate computation on nested board
+ * content was poisoned by the extra offset.
+ *
+ * Scoping (rather than wrapping content in a single offset container) is the
+ * robust fix here because board elements are DOCUMENTED direct `<body>`
+ * children (see shared/board-file.ts module doc + emptyBoardHtml): every
+ * creation path appends at body level (appendCanvasPrimitiveToHtml,
+ * boardObjectEntryToHtmlFragment, moveNodeBetweenDocuments' body-append),
+ * and several consumers key on that structure with `body > …` selectors
+ * (BOARD_SURFACE_RENDER_STYLE) and depth-1 walks
+ * (backfillBoardPrimitiveMarkers, getBoardContentLayerSignature). A wrapper
+ * element would silently break all of those structural contracts.
+ *
+ * With this rule, the offset applies exactly once — to top-level board
+ * elements — and nested children position purely via parent-relative
+ * left/top inside their (absolutely positioned) parent, like any normal
+ * CSS containing-block hierarchy.
+ */
 function embeddedContentOffsetStyle(x: number, y: number): string {
   if (x === 0 && y === 0) return "";
-  return `<style data-agent-native-content-offset>[data-agent-native-node-id]{translate:${Math.round(x)}px ${Math.round(y)}px;}</style>`;
+  return `<style data-agent-native-content-offset>body > [data-agent-native-node-id]{translate:${Math.round(x)}px ${Math.round(y)}px;}</style>`;
 }
 
 function injectEmbeddedFrameStyle(content: string, style: string): string {
@@ -1045,6 +1074,60 @@ export interface IframeContextMenuPayload {
   viewportClientY?: number;
   info?: ElementInfo | null;
 }
+
+/**
+ * Creation-race keystroke routing: after the host calls `beginTextEdit(nodeId)`
+ * for a JUST-created text element, there is a window (persist round-trip +
+ * bridge activation) where the browser focus still sits on the HOST document.
+ * Keystrokes typed in that window used to fall into host keyboard shortcuts —
+ * letters switched tools, digits zoomed, and Delete/Backspace DELETED the
+ * selected layer/screen — while the characters themselves were silently lost.
+ *
+ * While a text edit is pending, every host keydown is routed through this
+ * pure helper:
+ * - printable characters are BUFFERED (replayed into the editable once the
+ *   bridge reports the session active) and swallowed,
+ * - Backspace edits the buffer, Delete/Enter/Tab/arrows are swallowed so they
+ *   can never reach host layer-deletion/navigation,
+ * - Escape clears the pending buffer (user aborted) and is swallowed,
+ * - IME composition and Cmd/Ctrl chords (undo!) pass through untouched.
+ *
+ * Exported for unit tests (DesignCanvas.pending-text-edit.test.ts).
+ */
+export type PendingTextEditKeyAction =
+  | { action: "buffer"; char: string }
+  | { action: "drop-last" }
+  | { action: "swallow" }
+  | { action: "clear-and-swallow" }
+  | { action: "pass" };
+
+export function routePendingTextEditKey(e: {
+  key: string;
+  metaKey?: boolean;
+  ctrlKey?: boolean;
+  altKey?: boolean;
+  isComposing?: boolean;
+}): PendingTextEditKeyAction {
+  if (e.isComposing) return { action: "pass" };
+  if (e.metaKey || e.ctrlKey) return { action: "pass" };
+  if (e.key === "Escape") return { action: "clear-and-swallow" };
+  if (e.key === "Backspace") return { action: "drop-last" };
+  if (
+    e.key === "Delete" ||
+    e.key === "Enter" ||
+    e.key === "Tab" ||
+    e.key.startsWith("Arrow")
+  ) {
+    return { action: "swallow" };
+  }
+  if (e.key.length === 1) return { action: "buffer", char: e.key };
+  return { action: "pass" };
+}
+
+/** How long a pending text edit may wait for bridge activation before the
+ * keystroke routing above stands down (matches the bridge's own ~2s
+ * begin-text-edit retry window, plus round-trip slack). */
+export const PENDING_TEXT_EDIT_TIMEOUT_MS = 3000;
 
 export function DesignCanvas({
   content,
@@ -1900,7 +1983,44 @@ export function DesignCanvas({
         }
         return;
       }
+      if (e.data.type === "text-edit-pending") {
+        // The bridge is waiting for a just-created node before it can enter
+        // text-edit mode (begin-text-edit arrived first). Arm the host-side
+        // keystroke buffer for the window — repeated pending:true re-posts
+        // for the same node (DesignEditor's T6 retry loop) only extend the
+        // wait, never reset an in-progress buffer.
+        const pendingNodeId =
+          typeof e.data.nodeId === "string" ? e.data.nodeId : "";
+        const currentPending = pendingTextEditRef.current;
+        if (e.data.pending && pendingNodeId) {
+          if (currentPending && currentPending.nodeId === pendingNodeId) {
+            currentPending.startedAt = Date.now();
+          } else {
+            pendingTextEditRef.current = {
+              nodeId: pendingNodeId,
+              buffer: "",
+              startedAt: Date.now(),
+            };
+          }
+        } else if (currentPending?.nodeId === pendingNodeId) {
+          pendingTextEditRef.current = null;
+        }
+        return;
+      }
       if (e.data.type === "text-editing-state") {
+        // Creation-race replay: the bridge just armed the session for the
+        // node we were waiting on — flush any keystrokes the host buffered
+        // during the round-trip window into the now-live editable.
+        if (e.data.active && pendingTextEditRef.current) {
+          const pendingBuffer = pendingTextEditRef.current.buffer;
+          pendingTextEditRef.current = null;
+          if (pendingBuffer) {
+            postOneShotBridgeMessage({
+              type: "text-edit-insert-text",
+              text: pendingBuffer,
+            });
+          }
+        }
         onTextEditingStateChange?.({
           active: Boolean(e.data.active),
           selector:
@@ -2091,6 +2211,7 @@ export function DesignCanvas({
     bridgeUrl,
     fusionUrl,
     flushPendingOneShotMessages,
+    postOneShotBridgeMessage,
   ]);
 
   const replayIframeEditorState = useCallback(() => {
@@ -2390,6 +2511,18 @@ export function DesignCanvas({
     (nodeId: string) => {
       const iframe = iframeRef.current;
       if (!iframe?.contentWindow || !nodeId) return;
+      // Arm the creation-race keystroke buffer (see routePendingTextEditKey):
+      // until the bridge reports text-editing-state active for this command,
+      // host keystrokes are buffered/swallowed instead of hitting host
+      // shortcuts, then replayed into the editable. Re-arming for the same
+      // node preserves an in-progress buffer.
+      if (pendingTextEditRef.current?.nodeId !== nodeId) {
+        pendingTextEditRef.current = {
+          nodeId,
+          buffer: "",
+          startedAt: Date.now(),
+        };
+      }
       postOneShotBridgeMessage({
         type: "begin-text-edit",
         nodeId,
@@ -2398,6 +2531,53 @@ export function DesignCanvas({
     },
     [postOneShotBridgeMessage],
   );
+
+  // Creation-race keystroke routing (host side). Active only while a
+  // beginTextEdit() command is pending; see routePendingTextEditKey's doc
+  // comment for the exact policy. Capture-phase on window so it runs before
+  // the editor's own shortcut handlers.
+  const pendingTextEditRef = useRef<{
+    nodeId: string;
+    buffer: string;
+    startedAt: number;
+  } | null>(null);
+  useEffect(() => {
+    function onPendingTextEditKeyDown(e: KeyboardEvent) {
+      const pending = pendingTextEditRef.current;
+      if (!pending) return;
+      if (Date.now() - pending.startedAt > PENDING_TEXT_EDIT_TIMEOUT_MS) {
+        pendingTextEditRef.current = null;
+        return;
+      }
+      const routed = routePendingTextEditKey(e);
+      if (routed.action === "pass") return;
+      e.preventDefault();
+      e.stopPropagation();
+      e.stopImmediatePropagation();
+      if (routed.action === "buffer") {
+        pending.buffer += routed.char;
+      } else if (routed.action === "drop-last") {
+        pending.buffer = pending.buffer.slice(0, -1);
+      } else if (routed.action === "clear-and-swallow") {
+        pendingTextEditRef.current = null;
+      }
+    }
+    function onPendingTextEditPointerDown() {
+      // The user clicked somewhere else in the host — stand down so buffered
+      // keys are never replayed into an edit they've abandoned.
+      pendingTextEditRef.current = null;
+    }
+    window.addEventListener("keydown", onPendingTextEditKeyDown, true);
+    window.addEventListener("pointerdown", onPendingTextEditPointerDown, true);
+    return () => {
+      window.removeEventListener("keydown", onPendingTextEditKeyDown, true);
+      window.removeEventListener(
+        "pointerdown",
+        onPendingTextEditPointerDown,
+        true,
+      );
+    };
+  }, []);
 
   const sendStyleChange = useCallback(
     (

@@ -643,6 +643,15 @@ regeneration is slow, expensive, and regresses unrelated parts.
   `data-screen`, or `#` anchors (see Multi-screen prototypes & navigation).
 - Never hardcode colors — always reference CSS custom properties (no raw
   `text-white` / `bg-black` / hex literals in markup).
+- Never define or rely on a CSS custom property starting with `--agent-native-`
+  in generated design content. That prefix (plus `--design-editor-`) is
+  reserved for editor-internal state (selection chrome, editor-chrome scale
+  compensation, clipboard/surface tokens) — the editor strips any property
+  under those prefixes before persisting a cross-screen style capture
+  (`isEditorInternalCssVar` in `app/pages/DesignEditor.tsx`), so a design that
+  defines its own theming under that namespace would silently lose those
+  values on a cross-screen move. Use `--color-*`, `--font-*`, or another
+  design-owned prefix for tokens/tweaks instead.
 - Never use the v3 `bg-gradient-to-*` classes — use v4 `bg-linear-to-*`.
 - Never use `<script>` blocks with raw DOM manipulation — use Alpine.js directives
 - Never inline `onclick="..."` handlers — use `@click`

@@ -5,6 +5,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
+  isInteractionCriticalSyncEvent,
   subscribeSyncEvents,
   useDbSync,
   useScreenRefreshKey,
@@ -88,6 +89,14 @@ async function renderWithEvent(event: Record<string, unknown>) {
     await Promise.resolve();
     await Promise.resolve();
   });
+  // useDbSync coalesces invalidation into a single flush per
+  // INVALIDATE_COALESCE_MS (250ms) — wait past that window (outside `act`,
+  // since a raw application `setTimeout` nested inside `act(async () => …)`
+  // is not reliably awaited by React's act() batching) so the batch has
+  // landed before assertions run.
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 260));
+  });
 
   return { container, fetchMock, queryClient, root };
 }
@@ -170,6 +179,12 @@ describe("useDbSync", () => {
       await Promise.resolve();
       await Promise.resolve();
     });
+    // useDbSync coalesces invalidation into a single flush per
+    // INVALIDATE_COALESCE_MS (250ms); wait past that window outside `act`
+    // (see the comment in renderWithEvent above).
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 260));
+    });
 
     const broadCall = queryClient.calls.find((call) => call?.predicate);
     expect(broadCall?.predicate?.(queryClient.queries[0])).toBe(false);
@@ -214,6 +229,12 @@ describe("useDbSync", () => {
       );
       await Promise.resolve();
       await Promise.resolve();
+    });
+    // useDbSync coalesces invalidation into a single flush per
+    // INVALIDATE_COALESCE_MS (250ms); wait past that window outside `act`
+    // (see the comment in renderWithEvent above).
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 260));
     });
 
     expect(resultlessActionInvalidations(queryClient.calls)).toHaveLength(0);
@@ -271,6 +292,12 @@ describe("useDbSync", () => {
       await Promise.resolve();
       await Promise.resolve();
     });
+    // useDbSync coalesces invalidation into a single flush per
+    // INVALIDATE_COALESCE_MS (250ms); wait past that window outside `act`
+    // (see the comment in renderWithEvent above).
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 260));
+    });
 
     expect(queryClient.calls).toContainEqual(undefined);
     expect(queryClient.calls).toContainEqual({ queryKey: ["action"] });
@@ -290,6 +317,139 @@ describe("useDbSync", () => {
     expect(result.fetchMock).toHaveBeenCalled();
     expect(result.queryClient.calls).not.toContainEqual(undefined);
     expect(result.queryClient.calls).toContainEqual({ queryKey: ["action"] });
+  });
+
+  it("flushes app-state navigate/show-questions/__set_url__ events immediately, bypassing the coalesce window", async () => {
+    const queryClient = new QueryClientProbe();
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            version: 1,
+            events: [
+              {
+                version: 1,
+                source: "app-state",
+                type: "change",
+                key: "navigate",
+              },
+            ],
+          }),
+        ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    roots.push(root);
+    containers.push(container);
+
+    await act(async () => {
+      root.render(<SyncProbe queryClient={queryClient} />);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    // Interaction-critical events (navigate/show-questions/__set_url__
+    // app-state writes) must bypass INVALIDATE_COALESCE_MS entirely — no
+    // 260ms wait needed, the invalidation lands in the same flush of
+    // microtasks that delivered the event.
+    expect(queryClient.calls).toContainEqual({ queryKey: ["app-state"] });
+    expect(queryClient.calls).toContainEqual({
+      queryKey: ["navigate-command"],
+    });
+  });
+
+  it("flushes __set_url__ and show-questions app-state events immediately too", async () => {
+    const queryClient = new QueryClientProbe();
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            version: 1,
+            events: [
+              {
+                version: 1,
+                source: "app-state",
+                type: "change",
+                key: "__set_url__",
+              },
+              {
+                version: 1,
+                source: "app-state",
+                type: "change",
+                key: "show-questions",
+              },
+            ],
+          }),
+        ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    roots.push(root);
+    containers.push(container);
+
+    await act(async () => {
+      root.render(<SyncProbe queryClient={queryClient} />);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(queryClient.calls).toContainEqual({ queryKey: ["__set_url__"] });
+    expect(queryClient.calls).toContainEqual({
+      queryKey: ["show-questions"],
+    });
+  });
+
+  it("still coalesces pure action-change bursts into a single delayed flush", async () => {
+    const queryClient = new QueryClientProbe();
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            version: 1,
+            events: [
+              {
+                version: 1,
+                source: "action",
+                type: "change",
+                key: "create-project",
+              },
+            ],
+          }),
+        ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    roots.push(root);
+    containers.push(container);
+
+    await act(async () => {
+      root.render(<SyncProbe queryClient={queryClient} />);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    // No wait yet: a pure action-change batch (no interaction-critical
+    // events) must still be sitting in the coalesce window, unflushed.
+    expect(queryClient.calls).toHaveLength(0);
+
+    // useDbSync coalesces invalidation into a single flush per
+    // INVALIDATE_COALESCE_MS (250ms); wait past that window outside `act`
+    // (see the comment in renderWithEvent above).
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 260));
+    });
+
+    expect(queryClient.calls).toContainEqual(undefined);
+    expect(queryClient.calls).toContainEqual({ queryKey: ["action"] });
   });
 
   it("backs off polling after repeated failures and resets on success", async () => {
@@ -570,6 +730,12 @@ describe("useDbSync", () => {
       await Promise.resolve();
       await Promise.resolve();
     });
+    // useDbSync coalesces invalidation into a single flush per
+    // INVALIDATE_COALESCE_MS (250ms); wait past that window outside `act`
+    // (see the comment in renderWithEvent above).
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 260));
+    });
 
     // useDbSync received the action event.
     expect(queryClient.calls).toContainEqual({ queryKey: ["action"] });
@@ -625,5 +791,58 @@ describe("useDbSync", () => {
 
     // New transport polls again from scratch.
     expect(fetchCallCount).toBeGreaterThanOrEqual(1);
+  });
+});
+
+describe("isInteractionCriticalSyncEvent", () => {
+  it("is true for navigate/show-questions/__set_url__ app-state events", () => {
+    expect(
+      isInteractionCriticalSyncEvent({
+        source: "app-state",
+        key: "navigate",
+      }),
+    ).toBe(true);
+    expect(
+      isInteractionCriticalSyncEvent({
+        source: "app-state",
+        key: "show-questions",
+      }),
+    ).toBe(true);
+    expect(
+      isInteractionCriticalSyncEvent({
+        source: "app-state",
+        key: "__set_url__",
+      }),
+    ).toBe(true);
+  });
+
+  it("is true for namespaced keys and the wildcard app-state key", () => {
+    expect(
+      isInteractionCriticalSyncEvent({
+        source: "app-state",
+        key: "navigate:tab-1",
+      }),
+    ).toBe(true);
+    expect(
+      isInteractionCriticalSyncEvent({ source: "app-state", key: "*" }),
+    ).toBe(true);
+  });
+
+  it("is false for other app-state keys and non-app-state sources", () => {
+    expect(
+      isInteractionCriticalSyncEvent({
+        source: "app-state",
+        key: "some-other-key",
+      }),
+    ).toBe(false);
+    expect(
+      isInteractionCriticalSyncEvent({ source: "action", key: "navigate" }),
+    ).toBe(false);
+    expect(
+      isInteractionCriticalSyncEvent({ source: "settings", key: "*" }),
+    ).toBe(false);
+    expect(
+      isInteractionCriticalSyncEvent({ source: "collab", key: "navigate" }),
+    ).toBe(false);
   });
 });

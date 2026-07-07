@@ -254,6 +254,12 @@ export function parseBreakpointMediaCss(css: string): BreakpointMediaModel {
     if (body === null) continue;
     mediaRe.lastIndex = bodyStart + body.length + 1;
 
+    // Matches the LAST [data-agent-native-node-id="…"] attribute directly
+    // before the `{`, so it accepts BOTH the legacy single-attribute selector
+    // and the current doubled-attribute selector (see
+    // serializeBreakpointMediaModel below) without double-counting: on a
+    // doubled selector the scan skips the first attribute occurrence (no `{`
+    // after it) and captures the nodeId exactly once from the second.
     const ruleRe =
       /\[data-agent-native-node-id="((?:\\.|[^"\\])*)"\]\s*\{([^}]*)\}/g;
     let ruleMatch: RegExpExecArray | null;
@@ -310,10 +316,22 @@ export function serializeBreakpointMediaModel(
       const lines = properties.map(
         (property) => `    ${property}: ${declarations[property]};`,
       );
+      // Doubled attribute selector → specificity (0,2,0), beating any single
+      // Tailwind utility class (0,1,0) REGARDLESS of stylesheet order. This
+      // matters because designs load Tailwind via the Play CDN script, which
+      // injects its generated utility sheet at RUNTIME — always after this
+      // static managed block — so an equal-specificity (0,1,0) single
+      // attribute selector always lost by source order and the breakpoint
+      // override silently never rendered (verified on real designs: the
+      // @media rule was live and matching, but .px-5 won). Doubling the
+      // attribute survives DOM reorder, Tailwind re-injection, and any
+      // future stylesheet ordering change; parseBreakpointMediaCss above
+      // accepts both formats, and because every write re-serializes the
+      // whole block, legacy single-attribute rules are upgraded to this
+      // format on the next edit automatically.
+      const attrSelector = `[data-agent-native-node-id="${escAttr(nodeId)}"]`;
       rules.push(
-        `  [data-agent-native-node-id="${escAttr(nodeId)}"] {\n` +
-          `${lines.join("\n")}\n` +
-          `  }`,
+        `  ${attrSelector}${attrSelector} {\n${lines.join("\n")}\n  }`,
       );
     }
     if (rules.length === 0) continue;

@@ -75,6 +75,141 @@ describe("CSS body parse / serialize round-trip", () => {
   });
 });
 
+describe("doubled attribute selector (specificity vs runtime Tailwind)", () => {
+  const attr = (id: string) => `[data-agent-native-node-id="${id}"]`;
+
+  /**
+   * Rule-opener lines of a serialized block (node-id selector lines ending
+   * in `{`). Counting attribute occurrences per line avoids false-positives
+   * from substring checks — the single form is a substring of the doubled
+   * form.
+   */
+  const nodeSelectorLines = (css: string) =>
+    css
+      .split("\n")
+      .filter(
+        (line) =>
+          line.includes("data-agent-native-node-id") &&
+          line.trimEnd().endsWith("{"),
+      );
+
+  it("serializer emits the doubled attribute selector", () => {
+    const css = serializeBreakpointMediaModel({
+      "809": { hero: { left: "12px" } },
+    });
+    expect(css).toContain(`${attr("hero")}${attr("hero")} {`);
+    // Exactly two attribute occurrences on the one rule opener. A single
+    // occurrence would regress specificity to (0,1,0) and lose to the
+    // runtime-injected Tailwind CDN utility sheet by source order.
+    const lines = nodeSelectorLines(css);
+    expect(lines).toHaveLength(1);
+    expect(
+      lines[0].match(/\[data-agent-native-node-id="hero"\]/g),
+    ).toHaveLength(2);
+  });
+
+  it("old single-format and new doubled-format parse to identical models", () => {
+    const cssWith = (selector: (id: string) => string) =>
+      `@media (max-width: 1279px) {\n` +
+      `  ${selector("hero")} {\n` +
+      `    left: 137px;\n` +
+      `  }\n` +
+      `}\n\n` +
+      `@media (max-width: 809px) {\n` +
+      `  ${selector("hero")} {\n` +
+      `    left: 12px;\n` +
+      `    top: 24px;\n` +
+      `  }\n` +
+      `  ${selector("side")} {\n` +
+      `    opacity: 0.5;\n` +
+      `  }\n` +
+      `}`;
+    const singleModel = parseBreakpointMediaCss(cssWith(attr));
+    const doubledModel = parseBreakpointMediaCss(
+      cssWith((id) => `${attr(id)}${attr(id)}`),
+    );
+    expect(doubledModel).toEqual(singleModel);
+    expect(doubledModel).toEqual({
+      "1279": { hero: { left: "137px" } },
+      "809": { hero: { left: "12px", top: "24px" }, side: { opacity: "0.5" } },
+    });
+    // Each property counted exactly once — the doubled selector must not
+    // produce duplicate or extra rule matches.
+    expect(Object.keys(doubledModel["809"].hero)).toHaveLength(2);
+    expect(Object.keys(doubledModel["809"].side)).toHaveLength(1);
+  });
+
+  it("upgrade-on-write: one edit re-serializes legacy rules as doubled", () => {
+    const legacyCss =
+      `@media (max-width: 809px) {\n` +
+      `  ${attr("hero")} {\n` +
+      `    left: 12px;\n` +
+      `  }\n` +
+      `  ${attr("side")} {\n` +
+      `    opacity: 0.5;\n` +
+      `  }\n` +
+      `}`;
+    const legacyDoc = injectManagedBreakpointCss(
+      doc("", '<div data-agent-native-node-id="hero">x</div>'),
+      legacyCss,
+    );
+
+    const updated = setBreakpointMediaDeclaration(legacyDoc, {
+      nodeId: "hero",
+      maxWidthPx: 809,
+      property: "top",
+      value: "24px",
+    });
+
+    const css = extractManagedBreakpointCss(updated);
+    expect(css).not.toBeNull();
+    // Every rule — including the untouched legacy "side" rule — now uses
+    // the doubled selector.
+    const lines = nodeSelectorLines(css!);
+    expect(lines).toHaveLength(2);
+    for (const line of lines) {
+      expect(line.match(/\[data-agent-native-node-id="/g)).toHaveLength(2);
+    }
+    expect(css).toContain(`${attr("side")}${attr("side")} {`);
+    // All previous declarations survived alongside the new one.
+    expect(parseBreakpointMediaCss(css!)).toEqual({
+      "809": {
+        hero: { left: "12px", top: "24px" },
+        side: { opacity: "0.5" },
+      },
+    });
+  });
+
+  it("removeBreakpointMediaDeclaration works on a legacy single-attribute block", () => {
+    const legacyCss =
+      `@media (max-width: 809px) {\n` +
+      `  ${attr("hero")} {\n` +
+      `    left: 12px;\n` +
+      `    top: 24px;\n` +
+      `  }\n` +
+      `}`;
+    const legacyDoc = injectManagedBreakpointCss(
+      doc("", '<div data-agent-native-node-id="hero">x</div>'),
+      legacyCss,
+    );
+
+    const updated = removeBreakpointMediaDeclaration(legacyDoc, {
+      nodeId: "hero",
+      maxWidthPx: 809,
+      property: "left",
+    });
+
+    expect(getBreakpointMediaDeclarations(updated, "hero")).toEqual([
+      { maxWidthPx: 809, nodeId: "hero", property: "top", value: "24px" },
+    ]);
+    // The parse-mutate-serialize round trip also upgrades the surviving
+    // rule to the doubled form.
+    expect(extractManagedBreakpointCss(updated)).toContain(
+      `${attr("hero")}${attr("hero")} {`,
+    );
+  });
+});
+
 describe("set / remove declarations on a document", () => {
   it("sets, overwrites, and removes one declaration", () => {
     const base = doc("", '<div data-agent-native-node-id="hero">x</div>');
