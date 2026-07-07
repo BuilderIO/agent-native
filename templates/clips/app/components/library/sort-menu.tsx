@@ -25,7 +25,7 @@ export function SortMenu({ value, onChange }: SortMenuProps) {
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button variant="outline" size="sm" className="gap-1.5 h-8">
+        <Button variant="outline" size="sm" className="gap-1.5 h-9">
           <IconArrowsSort className="h-3.5 w-3.5" />
           <span className="text-xs">{LABELS[value]}</span>
         </Button>
