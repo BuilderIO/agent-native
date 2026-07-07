@@ -231,6 +231,182 @@ describe("generateWithManagedImageProvider", () => {
     );
   });
 
+  it("preserves gpt-image-1 for transparent OpenAI fallback requests", async () => {
+    resolveBuilderCredentialsMock.mockResolvedValue({
+      privateKey: null,
+      publicKey: null,
+      userId: null,
+      orgName: null,
+      orgKind: null,
+    });
+    resolveSecretMock.mockImplementation(async (key: string) =>
+      key === "OPENAI_API_KEY" ? "sk-openai-test" : null,
+    );
+    const fetchMock = vi.fn(
+      async (_url: string | URL | Request, _init?: RequestInit) => {
+        return new Response(
+          JSON.stringify({
+            data: [{ b64_json: Buffer.from([5, 4, 3]).toString("base64") }],
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      },
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      generateWithManagedImageProvider({
+        ...baseInput,
+        model: "gpt-image-1",
+        aspectRatio: "3:2",
+        background: "transparent",
+        references: [
+          {
+            id: "plate-1",
+            role: "background_reference",
+            mimeType: "image/png",
+            data: Buffer.from("plate").toString("base64"),
+          },
+        ],
+      }),
+    ).resolves.toEqual(
+      expect.objectContaining({
+        image: Buffer.from([5, 4, 3]),
+        model: "gpt-image-1",
+        provider: "openai",
+      }),
+    );
+    const body = JSON.parse(
+      String((fetchMock.mock.calls[0][1] as RequestInit).body),
+    ) as Record<string, unknown>;
+    expect(body).toMatchObject({
+      model: "gpt-image-1",
+      background: "transparent",
+      output_format: "png",
+      size: "1536x1024",
+    });
+  });
+
+  it("forwards transparent background requests through Builder", async () => {
+    const fetchMock = vi.fn(
+      async (url: string | URL | Request, _init?: RequestInit) => {
+        if (String(url).endsWith("/generations")) {
+          return builderGenerationSuccess();
+        }
+        return builderImageBytes();
+      },
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      generateWithManagedImageProvider({
+        ...baseInput,
+        references: [
+          {
+            id: "plate-1",
+            role: "background_reference",
+            mimeType: "image/png",
+            data: Buffer.from("plate").toString("base64"),
+          },
+        ],
+        model: "gpt-image-1",
+        aspectRatio: "3:2",
+        background: "transparent",
+      }),
+    ).resolves.toEqual(
+      expect.objectContaining({
+        image: Buffer.from([1, 2, 3]),
+        provider: "builder",
+        providerGenerationId: "generation-1",
+      }),
+    );
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    const calls = fetchMock.mock.calls as Array<
+      [string | URL | Request, RequestInit]
+    >;
+    expect(String(calls[0][0])).toBe(
+      "https://builder.test/agent-native/images/v1/generations",
+    );
+    const body = JSON.parse(String(calls[0][1].body)) as Record<
+      string,
+      unknown
+    >;
+    expect(body).toMatchObject({
+      model: "gpt-image-1",
+      background: "transparent",
+      outputFormat: "png",
+      aspectRatio: "3:2",
+    });
+    expect(body.references).toEqual([
+      expect.objectContaining({
+        id: "plate-1",
+        role: "composition",
+      }),
+    ]);
+  });
+
+  it("forwards edit mode and mask references through Builder", async () => {
+    const fetchMock = vi.fn(
+      async (url: string | URL | Request, _init?: RequestInit) => {
+        if (String(url).endsWith("/generations")) {
+          return builderGenerationSuccess();
+        }
+        return builderImageBytes();
+      },
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      generateWithManagedImageProvider({
+        ...baseInput,
+        references: [
+          {
+            id: "plate-1",
+            role: "edit_target",
+            mimeType: "image/png",
+            data: Buffer.from("plate").toString("base64"),
+          },
+          {
+            id: "plate-1:mask",
+            role: "mask",
+            mimeType: "image/png",
+            data: Buffer.from("mask").toString("base64"),
+          },
+        ],
+        model: "gpt-image-2",
+        mode: "edit",
+        aspectRatio: "16:9",
+        background: undefined,
+      }),
+    ).resolves.toEqual(
+      expect.objectContaining({
+        image: Buffer.from([1, 2, 3]),
+        provider: "builder",
+        providerGenerationId: "generation-1",
+      }),
+    );
+    const body = JSON.parse(
+      String((fetchMock.mock.calls[0][1] as RequestInit).body),
+    ) as Record<string, unknown>;
+    expect(body).toMatchObject({
+      model: "gpt-image-2",
+      mode: "edit",
+      outputFormat: "png",
+      aspectRatio: "16:9",
+    });
+    expect(body).not.toHaveProperty("background");
+    expect(body.references).toEqual([
+      expect.objectContaining({
+        id: "plate-1",
+        role: "source",
+      }),
+      expect.objectContaining({
+        id: "plate-1:mask",
+        role: "mask",
+      }),
+    ]);
+  });
+
   it("guards restyle and edit runs when only OpenAI fallback is available", async () => {
     resolveBuilderCredentialsMock.mockResolvedValue({
       privateKey: null,
@@ -261,6 +437,47 @@ describe("generateWithManagedImageProvider", () => {
         name: "FeatureNotConfiguredError",
         requiredCredential: "GEMINI_API_KEY",
         message: expect.stringContaining("Restyle and edit runs need"),
+      }),
+    );
+  });
+
+  it("guards mask edit mode from plain manual fallback generation", async () => {
+    resolveBuilderCredentialsMock.mockResolvedValue({
+      privateKey: null,
+      publicKey: null,
+      userId: null,
+      orgName: null,
+      orgKind: null,
+    });
+    resolveSecretMock.mockImplementation(async (key: string) =>
+      key === "OPENAI_API_KEY" ? "sk-openai-test" : null,
+    );
+
+    await expect(
+      generateWithManagedImageProvider({
+        ...baseInput,
+        model: "gpt-image-2",
+        mode: "edit",
+        references: [
+          {
+            id: "plate-1",
+            role: "edit_target",
+            mimeType: "image/png",
+            data: Buffer.from([1]).toString("base64"),
+          },
+          {
+            id: "plate-1:mask",
+            role: "mask",
+            mimeType: "image/png",
+            data: Buffer.from([2]).toString("base64"),
+          },
+        ],
+      }),
+    ).rejects.toEqual(
+      expect.objectContaining({
+        name: "FeatureNotConfiguredError",
+        requiredCredential: "BUILDER_PRIVATE_KEY",
+        message: expect.stringContaining("Mask inpainting runs need"),
       }),
     );
   });
@@ -583,6 +800,57 @@ describe("compilePrompt", () => {
     });
 
     expect(prompt).toContain(SUPPRESS_EMBEDDED_TEXT);
+  });
+
+  it("adds cutout isolation guidance for skeleton cutout prompts", () => {
+    const prompt = compilePrompt({
+      libraryTitle: "Northstar",
+      styleBrief: {
+        description: "Clean product imagery.",
+      },
+      prompt: "A standing product render",
+      referenceCount: 0,
+      includeLogo: false,
+      skeletonContentMode: "cutout",
+      hasBackgroundPlate: true,
+      aspectRatio: "3:2",
+      imageSize: "2K",
+    });
+
+    expect(prompt).toContain("Cutout mode:");
+    expect(prompt).toContain("empty transparent background");
+    expect(prompt).toContain("no baked-in shadow");
+    expect(prompt).toContain("A background plate is attached");
+    expect(prompt).toContain("FIXED brand layout");
+    expect(prompt).toContain("Render ONLY the subject");
+    expect(prompt).toContain("Do NOT draw, repeat, restyle, or overlap");
+  });
+
+  it("adds inpaint guidance for gpt-image-2 skeleton prompts", () => {
+    const prompt = compilePrompt({
+      libraryTitle: "Northstar",
+      styleBrief: {
+        description: "Clean product imagery.",
+      },
+      prompt: "A standing product render",
+      referenceCount: 2,
+      includeLogo: false,
+      skeletonContentMode: "cutout",
+      skeletonInpaint: true,
+      aspectRatio: "16:9",
+      imageSize: "2K",
+    });
+
+    expect(prompt).toContain("Skeleton inpaint mode:");
+    expect(prompt).toContain(
+      "transparent/open region is the only editable area",
+    );
+    expect(prompt).toContain("requested foreground content");
+    expect(prompt).toContain("exact text, CTA, linework, or graphic elements");
+    expect(prompt).toContain("Match the surrounding plate's lighting");
+    expect(prompt).toContain("opaque/preserved regions");
+    expect(prompt).not.toContain("Paint ONLY the requested subject");
+    expect(prompt).not.toContain("empty transparent background");
   });
 
   it("renders structured brand typography in generation prompts", () => {

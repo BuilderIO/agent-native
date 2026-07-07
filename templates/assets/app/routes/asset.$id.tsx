@@ -362,9 +362,10 @@ function assetCategoryLabel(
   ) {
     return t("assetDetail.contentOnly");
   }
-  const category = asset?.metadata?.category;
+  const category = asset?.metadata?.category ?? asset?.category;
   if (typeof category !== "string") return null;
   if (category === "style-only") return t("assetDetail.styleReference");
+  if (category === "skeleton") return t("assetDetail.skeletonPlate");
   return category.replace(/-/g, " ");
 }
 

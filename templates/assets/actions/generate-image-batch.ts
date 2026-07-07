@@ -62,7 +62,7 @@ export default defineAction({
             .enum(ASPECT_RATIOS)
             .optional()
             .describe(
-              "Slot aspect ratio. When a presetId is set, omit this — the preset's aspect ratio is used unless the user explicitly asks for a different ratio for this slot.",
+              "Slot aspect ratio. When a presetId is set, omit this — the preset's aspect ratio is used unless the user explicitly asks for a different ratio for this slot. Note: gpt-image-2 supports only 1:1, 2:3, and 3:2; use a Gemini model for other ratios.",
             ),
           imageSize: z.enum(IMAGE_SIZES).optional(),
           categories: z.array(z.enum(IMAGE_CATEGORIES)).optional(),
@@ -82,7 +82,12 @@ export default defineAction({
       .describe(
         "Internal UI state scope for live candidate slots. Usually omitted; embedded picker UIs pass a browser-tab scope.",
       ),
-    model: z.enum(IMAGE_MODELS).optional(),
+    model: z
+      .enum(IMAGE_MODELS)
+      .optional()
+      .describe(
+        "Image model applied to every slot. Omit to use the user's picker default. Gemini models accept any aspectRatio; gpt-image-2 supports ONLY 1:1, 2:3, and 3:2, so don't select it when any slot needs a different ratio — use a Gemini model instead.",
+      ),
     tier: z.enum(IMAGE_QUALITY_TIERS).optional(),
     intent: z.enum(GENERATION_INTENTS).default("generate"),
     styleStrength: z.enum(STYLE_STRENGTHS).default("balanced"),
