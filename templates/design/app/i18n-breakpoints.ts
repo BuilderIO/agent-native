@@ -1,5 +1,3 @@
-import type { PartialMessages } from "@agent-native/core/client";
-
 /**
  * Localized strings for BreakpointDeviceControl and breakpoint interactions.
  * Used in: app/components/design/BreakpointBar.tsx (the unified breakpoint
@@ -204,4 +202,4 @@ export const breakpointBarOverrides = {
       },
     },
   },
-} satisfies Record<string, PartialMessages>;
+};

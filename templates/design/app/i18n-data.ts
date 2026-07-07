@@ -1,7 +1,7 @@
 import type { LocaleCode } from "@agent-native/core/client";
 
-import zhTW from "./i18n/zh-TW";
 import { breakpointBarOverrides } from "./i18n-breakpoints";
+import zhTW from "./i18n/zh-TW";
 
 const enUS = {
   root: {
@@ -11975,6 +11975,7 @@ export const messagesByLocale = {
       designVisualEditOverrides["zh-TW"],
       designPendingVisualStyleOverrides["zh-TW"],
       designFillStylesComingSoonOverrides["zh-TW"],
+      breakpointBarOverrides["zh-TW"],
     ),
   ),
   "zh-CN": mergeMessages(
@@ -11997,6 +11998,7 @@ export const messagesByLocale = {
       designShaderAndRotationOverrides["zh-CN"],
       designInteractionStatesOverrides["zh-CN"],
       designMotionAndBreakpointOverrides["zh-CN"],
+      breakpointBarOverrides["zh-CN"],
       {
         root: {
           commandActions: "操作",
@@ -12058,6 +12060,7 @@ export const messagesByLocale = {
       designShaderAndRotationOverrides["es-ES"],
       designInteractionStatesOverrides["es-ES"],
       designMotionAndBreakpointOverrides["es-ES"],
+      breakpointBarOverrides["es-ES"],
       {
         root: {
           commandActions: "Acciones",
@@ -12119,6 +12122,7 @@ export const messagesByLocale = {
       designShaderAndRotationOverrides["fr-FR"],
       designInteractionStatesOverrides["fr-FR"],
       designMotionAndBreakpointOverrides["fr-FR"],
+      breakpointBarOverrides["fr-FR"],
       {
         root: {
           commandActions: "Actions",
@@ -12180,6 +12184,7 @@ export const messagesByLocale = {
       designShaderAndRotationOverrides["de-DE"],
       designInteractionStatesOverrides["de-DE"],
       designMotionAndBreakpointOverrides["de-DE"],
+      breakpointBarOverrides["de-DE"],
       {
         root: {
           commandActions: "Aktionen",
@@ -12241,6 +12246,7 @@ export const messagesByLocale = {
       designShaderAndRotationOverrides["ja-JP"],
       designInteractionStatesOverrides["ja-JP"],
       designMotionAndBreakpointOverrides["ja-JP"],
+      breakpointBarOverrides["ja-JP"],
       {
         root: {
           commandActions: "操作",
@@ -12303,6 +12309,7 @@ export const messagesByLocale = {
       designShaderAndRotationOverrides["ko-KR"],
       designInteractionStatesOverrides["ko-KR"],
       designMotionAndBreakpointOverrides["ko-KR"],
+      breakpointBarOverrides["ko-KR"],
       {
         root: {
           commandActions: "작업",
@@ -12363,6 +12370,7 @@ export const messagesByLocale = {
       designShaderAndRotationOverrides["pt-BR"],
       designInteractionStatesOverrides["pt-BR"],
       designMotionAndBreakpointOverrides["pt-BR"],
+      breakpointBarOverrides["pt-BR"],
       {
         root: {
           commandActions: "Ações",
@@ -12424,6 +12432,7 @@ export const messagesByLocale = {
       designShaderAndRotationOverrides["hi-IN"],
       designInteractionStatesOverrides["hi-IN"],
       designMotionAndBreakpointOverrides["hi-IN"],
+      breakpointBarOverrides["hi-IN"],
       {
         root: {
           commandActions: "क्रियाएं",
@@ -12485,6 +12494,7 @@ export const messagesByLocale = {
       designShaderAndRotationOverrides["ar-SA"],
       designInteractionStatesOverrides["ar-SA"],
       designMotionAndBreakpointOverrides["ar-SA"],
+      breakpointBarOverrides["ar-SA"],
       {
         root: {
           commandActions: "الإجراءات",
