@@ -265,14 +265,13 @@ const koKR = {
       },
     },
     comparison: {
-      title:
-        "앱과 agent 중 하나를 고르지 마세요. agent-native apps 는 둘 다입니다.",
-      body: "agent 가 핵심이며, app 의 완전한 UX 를 제공합니다.",
+      titleLine1: "앱과 agent 중 하나를 고르지 마세요.",
+      titleAccent: "agent-native apps 는 둘 다입니다.",
       columns: {
         saas: "SaaS 도구",
         agents: "원시 AI 에이전트",
         internal: "내부 도구",
-        native: "Agent-Native",
+        native: "Agent-Native App",
       },
       rows: {
         ui: "UI",
@@ -421,7 +420,6 @@ const koKR = {
     createYourOwn: "처음부터 시작",
   },
   buildFromScratch: {
-    eyebrow: "빈 캔버스",
     title: "처음부터 만들기",
     description:
       "프레임워크 가이드로 시작하거나 Builder.io의 클라우드 코딩 에이전트로 온라인에서 빌드하세요.",

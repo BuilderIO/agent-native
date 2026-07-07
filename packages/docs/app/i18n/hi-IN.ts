@@ -264,13 +264,13 @@ const hiIN = {
       },
     },
     comparison: {
-      title: "apps या agents में से चुनने की ज़रूरत नहीं। agent-native apps दोनों हैं।",
-      body: "एजेंट कोर में, app के पूरे UX के साथ।",
+      titleLine1: "apps या agents में से चुनने की ज़रूरत नहीं।",
+      titleAccent: "agent-native apps दोनों हैं।",
       columns: {
         saas: "सास उपकरण",
         agents: "कच्चे AI एजेंट",
         internal: "आंतरिक उपकरण",
-        native: "Agent-Native",
+        native: "Agent-Native App",
       },
       rows: {
         ui: "UI",
@@ -418,7 +418,6 @@ const hiIN = {
     createYourOwn: "Scratch से शुरू करें",
   },
   buildFromScratch: {
-    eyebrow: "खाली शुरुआत",
     title: "शुरू से बनाएँ",
     description:
       "फ़्रेमवर्क गाइड से शुरू करें या Builder.io के क्लाउड कोडिंग एजेंट के साथ ऑनलाइन बनाएँ.",

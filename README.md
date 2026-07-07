@@ -21,11 +21,11 @@ export default defineAction({
 - **Agent runtime**: Chat, tools, skills, memory, jobs, observability, and handoffs ship together.
 - **Backend agnostic**: Plug in any Drizzle-supported SQL database and Nitro-compatible host.
 
-## Don't pick between apps or agents. Agent-native apps are both
+## Don't pick between apps or agents.
 
-Agents at the core, with the full UX of an app.
+**Agent-native apps are both**
 
-|                   | SaaS Tools         | Raw AI Agents           | Internal Tools             | Agent-Native            |
+|                   | SaaS Tools         | Raw AI Agents           | Internal Tools             | Agent-Native App        |
 | ----------------- | ------------------ | ----------------------- | -------------------------- | ----------------------- |
 | **UI**            | Polished but rigid | None                    | Mixed quality              | Full UI, fork & go      |
 | **AI**            | Bolted on          | Powerful                | Shallowly connected        | Agent-first, integrated |

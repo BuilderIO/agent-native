@@ -266,14 +266,13 @@ const deDE = {
       },
     },
     comparison: {
-      title:
-        "Wählen Sie nicht zwischen Apps und Agents. Agent-native apps sind beides.",
-      body: "Agents im Kern, mit der vollen UX einer App.",
+      titleLine1: "Wählen Sie nicht zwischen Apps und Agents.",
+      titleAccent: "Agent-native apps sind beides.",
       columns: {
         saas: "SaaS-Tools",
         agents: "Rohe AI-Agenten",
         internal: "Interne Tools",
-        native: "Agent-Native",
+        native: "Agent-Native App",
       },
       rows: {
         ui: "UI",
@@ -423,7 +422,6 @@ const deDE = {
     createYourOwn: "Von Grund auf starten",
   },
   buildFromScratch: {
-    eyebrow: "Leere Grundlage",
     title: "Von Grund auf bauen",
     description:
       "Starte mit dem Framework-Leitfaden oder baue online mit dem Cloud-Coding-Agenten von Builder.io.",

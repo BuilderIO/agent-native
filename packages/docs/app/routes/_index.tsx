@@ -2,7 +2,7 @@ import { useLocale, useT } from "@agent-native/core/client";
 import { useState } from "react";
 import { Link } from "react-router";
 
-import { BuildFromScratchCard } from "../components/BuildFromScratchCard";
+import { BuildFromScratchCta } from "../components/BuildFromScratchCta";
 import CodeBlock from "../components/CodeBlock";
 import { sitePathForLocale } from "../components/docs-locale";
 import Seascape from "../components/Seascape";
@@ -475,10 +475,12 @@ function ComparisonSection() {
       <div className="mx-auto max-w-[1200px]">
         <div className="mb-12 text-center">
           <h2 className="mb-3 text-3xl font-bold tracking-tight md:text-4xl">
-            {t("home.comparison.title")}
+            {t("home.comparison.titleLine1")}
           </h2>
           <p className="mx-auto max-w-2xl text-base leading-relaxed text-[var(--fg-secondary)]">
-            {t("home.comparison.body")}
+            <span className="font-semibold text-[var(--docs-accent)]">
+              {t("home.comparison.titleAccent")}
+            </span>
           </p>
         </div>
 
@@ -616,9 +618,7 @@ function AppsSection({
             <TemplateCard template={template} />
           </div>
         ))}
-        <div className="template-rail-card template-rail-cta w-[320px] shrink-0 sm:w-[360px]">
-          <BuildFromScratchCard layout="rail" location="homepage_rail" />
-        </div>
+        <BuildFromScratchCta location="homepage_rail" />
       </div>
 
       <div className="mt-10 text-center">
@@ -759,9 +759,9 @@ export default defineAction({
           </div>
         </section>
 
-        <AppsSection localizedPath={localizedPath} />
-
         <ComparisonSection />
+
+        <AppsSection localizedPath={localizedPath} />
 
         <ActionSurfaceSection
           frameworkCode={frameworkCode}

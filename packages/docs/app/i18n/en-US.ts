@@ -274,13 +274,13 @@ const enUS = {
       },
     },
     comparison: {
-      title: "Don't pick between apps or agents. Agent-native apps are both",
-      body: "Agents at the core, with the full UX of an app",
+      titleLine1: "Don't pick between apps or agents.",
+      titleAccent: "Agent-native apps are both",
       columns: {
         saas: "SaaS Tools",
         agents: "Raw AI Agents",
         internal: "Internal Tools",
-        native: "Agent-Native",
+        native: "Agent-Native App",
       },
       rows: {
         ui: "UI",
@@ -419,15 +419,13 @@ const enUS = {
     createYourOwn: "Start from scratch",
   },
   buildFromScratch: {
-    eyebrow: "Blank slate",
     title: "Build from scratch",
-    description:
-      "Start with the framework guide or build online with Builder.io's cloud coding agent.",
+    description: "Use the framework guide or build online with Builder.io.",
     readDocs: "Read the docs",
     buildOnline: "Build online",
-    popoverTitle: "Build online with Builder.io",
+    popoverTitle: "Join the waitlist",
     popoverBody:
-      "Builder.io can spin up and customize an agent-native app in the cloud — actions, auth, SQL state, and agent chat included. Join the waitlist for early access.",
+      "Rapidly generate agent-native apps in the cloud. Join the waitlist for early access.",
     emailLabel: "Email",
     emailPlaceholder: "you@company.com",
     joinWaitlist: "Join waitlist",

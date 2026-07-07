@@ -259,13 +259,13 @@ const zhCN = {
       },
     },
     comparison: {
-      title: "不必在 app 和 agent 之间二选一。Agent-native apps 二者兼备。",
-      body: "以 agent 为核心，同时具备完整 app 体验。",
+      titleLine1: "不必在 app 和 agent 之间二选一。",
+      titleAccent: "Agent-native apps 二者兼备。",
       columns: {
         saas: "SaaS 工具",
         agents: "原始 AI Agents",
         internal: "内部工具",
-        native: "Agent-Native",
+        native: "Agent-Native App",
       },
       rows: {
         ui: "UI",
@@ -413,7 +413,6 @@ const zhCN = {
     createYourOwn: "从零开始",
   },
   buildFromScratch: {
-    eyebrow: "空白起点",
     title: "从零开始构建",
     description: "从框架指南开始，或使用 Builder.io 的云端编码代理在线构建。",
     readDocs: "阅读文档",

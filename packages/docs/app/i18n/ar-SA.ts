@@ -263,13 +263,13 @@ const arSA = {
       },
     },
     comparison: {
-      title: "لا تختَر بين apps و agents. agent-native apps هما الاثنان معًا.",
-      body: "agents في الجوهر، مع UX كاملة لتطبيق.",
+      titleLine1: "لا تختَر بين apps و agents.",
+      titleAccent: "agent-native apps هما الاثنان معًا.",
       columns: {
         saas: "أدوات ادارة العلاقات مع",
         agents: "وكلاء AI الخام",
         internal: "الأدوات الداخلية",
-        native: "Agent-Native",
+        native: "Agent-Native App",
       },
       rows: {
         ui: "UI",
@@ -417,7 +417,6 @@ const arSA = {
     createYourOwn: "ابدأ من الصفر",
   },
   buildFromScratch: {
-    eyebrow: "صفحة فارغة",
     title: "ابنِ من الصفر",
     description:
       "ابدأ بدليل إطار العمل أو ابنِ عبر الإنترنت باستخدام وكيل البرمجة السحابي من Builder.io.",

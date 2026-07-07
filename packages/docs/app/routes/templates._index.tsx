@@ -1,6 +1,6 @@
 import { useT } from "@agent-native/core/client";
 
-import { BuildFromScratchCard } from "../components/BuildFromScratchCard";
+import { BuildFromScratchCta } from "../components/BuildFromScratchCta";
 import { featuredTemplates, TemplateCard } from "../components/TemplateCard";
 
 export default function TemplatesPage() {
@@ -25,9 +25,10 @@ export default function TemplatesPage() {
         {featuredTemplates.map((template) => (
           <TemplateCard key={template.name} template={template} />
         ))}
-        <div className="sm:col-span-2 lg:col-span-3">
-          <BuildFromScratchCard layout="banner" location="templates_index" />
-        </div>
+      </div>
+
+      <div className="mt-10 flex justify-center">
+        <BuildFromScratchCta location="templates_index" />
       </div>
     </main>
   );

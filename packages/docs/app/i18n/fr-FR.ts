@@ -265,14 +265,13 @@ const frFR = {
       },
     },
     comparison: {
-      title:
-        "Ne choisissez pas entre apps et agents. Les apps agent-native sont les deux.",
-      body: "Des agents au cœur, avec l'UX complète d'une app.",
+      titleLine1: "Ne choisissez pas entre apps et agents.",
+      titleAccent: "Les apps agent-native sont les deux.",
       columns: {
         saas: "Outils SaaS",
         agents: "AI Agents bruts",
         internal: "Outils internes",
-        native: "Agent-Native",
+        native: "App Agent-Native",
       },
       rows: {
         ui: "UI",
@@ -422,7 +421,6 @@ const frFR = {
     createYourOwn: "Commencer de zéro",
   },
   buildFromScratch: {
-    eyebrow: "Page blanche",
     title: "Créer de zéro",
     description:
       "Commencez avec le guide du framework ou créez en ligne avec l'agent de code cloud de Builder.io.",

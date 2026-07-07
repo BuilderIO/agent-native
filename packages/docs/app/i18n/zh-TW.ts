@@ -257,13 +257,13 @@ const messages = {
       },
     },
     comparison: {
-      title: "不必在 app 和 agent 之間二選一。Agent-native apps 二者兼備。",
-      body: "以 agent 為核心，同時具備完整 app 體驗。",
+      titleLine1: "不必在 app 和 agent 之間二選一。",
+      titleAccent: "Agent-native apps 二者兼備。",
       columns: {
         saas: "SaaS 工具",
         agents: "原始 AI Agents",
         internal: "內部工具",
-        native: "Agent-Native",
+        native: "Agent-Native App",
       },
       rows: {
         ui: "UI",
@@ -411,7 +411,6 @@ const messages = {
     createYourOwn: "從零開始",
   },
   buildFromScratch: {
-    eyebrow: "空白起點",
     title: "從零開始建置",
     description: "從框架指南開始，或使用 Builder.io 的雲端編碼代理在線上建置。",
     readDocs: "閱讀文件",

@@ -265,13 +265,13 @@ const esES = {
       },
     },
     comparison: {
-      title: "No elijas entre apps o agents. Las apps agent-native son ambas.",
-      body: "Agents en el núcleo, con la UX completa de una app.",
+      titleLine1: "No elijas entre apps o agents.",
+      titleAccent: "Las apps agent-native son ambas.",
       columns: {
         saas: "Herramientas SaaS",
         agents: "AI Agents crudos",
         internal: "Herramientas internas",
-        native: "Agent-Native",
+        native: "App Agent-Native",
       },
       rows: {
         ui: "UI",
@@ -420,7 +420,6 @@ const esES = {
     createYourOwn: "Empezar desde cero",
   },
   buildFromScratch: {
-    eyebrow: "Lienzo en blanco",
     title: "Crear desde cero",
     description:
       "Empieza con la guía del framework o crea en línea con el agente de programación en la nube de Builder.io.",

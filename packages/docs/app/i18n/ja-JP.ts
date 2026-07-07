@@ -265,14 +265,13 @@ const jaJP = {
       },
     },
     comparison: {
-      title:
-        "アプリと agent のどちらかを選ぶ必要はありません。agent-native apps は両方です。",
-      body: "agent を中心に、アプリのフル UX を備えています。",
+      titleLine1: "アプリと agent のどちらかを選ぶ必要はありません。",
+      titleAccent: "agent-native apps は両方です。",
       columns: {
         saas: "SaaS ツール",
         agents: "生の AI Agents",
         internal: "内部ツール",
-        native: "Agent-Native",
+        native: "Agent-Native App",
       },
       rows: {
         ui: "UI",
@@ -421,7 +420,6 @@ const jaJP = {
     createYourOwn: "ゼロから始める",
   },
   buildFromScratch: {
-    eyebrow: "白紙から開始",
     title: "ゼロから構築",
     description:
       "フレームワークガイドから始めるか、Builder.io のクラウドコーディングエージェントでオンライン構築できます。",
