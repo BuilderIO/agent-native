@@ -242,6 +242,43 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
     return !!(el && !isDocumentRootElement(el) && getSourceId(el));
   }
 
+  // Detects an Alpine `<template x-for>` runtime clone: Alpine keeps the
+  // `<template>` element itself in the live DOM (as a hidden, zero-size
+  // marker) and inserts every rendered instance as a DIRECT SIBLING of that
+  // template, all still children of the same parent — so `ul > template,
+  // li, li, li` is the live shape for `<ul><template x-for>...</template>
+  // rendering 3 items</ul>`. The static SOURCE HTML the host resolves moves
+  // against only ever contains the single template child, never the N
+  // runtime clones, so structural moves (reorder/reparent) targeting a
+  // clone — or targeting another clone as the anchor — can never resolve on
+  // the host and always come back `applied:false`. Detected once per drag
+  // via an ancestor walk (not just the immediate parent) so nested x-for
+  // clones (e.g. a subtask `<li>` inside a per-task `<ul>` that is itself
+  // x-for'd) are also caught, stopping at the first stable-id ancestor
+  // (anything inside a stamped subtree has a real anchor and is fine).
+  function isTemplateCloneElement(el: Element | null): boolean {
+    var node: Element | null = el;
+    while (node && !isDocumentRootElement(node)) {
+      if (hasStableOwnSource(node)) return false;
+      var parent = node.parentElement;
+      if (!parent) return false;
+      var siblings = parent.children;
+      for (var i = 0; i < siblings.length; i += 1) {
+        var sib = siblings[i];
+        if (
+          sib !== node &&
+          sib.tagName &&
+          sib.tagName.toLowerCase() === "template" &&
+          sib.hasAttribute("x-for")
+        ) {
+          return true;
+        }
+      }
+      node = parent;
+    }
+    return false;
+  }
+
   function selectionTargetForHit(hit: Element | null): Element | null {
     if (!hit || isDocumentRootElement(hit)) return hit;
     if (selectedEl && hit !== selectedEl && selectedEl.contains(hit))
@@ -4895,6 +4932,26 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
 
   function hideTransformBadge(): void {
     transformBadge.style.display = "none";
+    transformBadge.style.removeProperty("background");
+    transformBadge.style.removeProperty("color");
+    transformBadge.style.removeProperty("border-color");
+  }
+
+  // Rejection feedback for a drag that can never resolve on the host (see
+  // isTemplateCloneElement): reuses transformBadge with a red-tinted style
+  // instead of adding another chrome element, and a "not-allowed" cursor on
+  // shieldOverlay for the duration of the gesture — clear, immediate signal
+  // instead of an optimistic reorder that silently reverts ~1 frame later.
+  function showRejectedDragBadge(
+    text: string,
+    clientX: number,
+    clientY: number,
+  ): void {
+    showTransformBadge(text, clientX, clientY);
+    transformBadge.style.background =
+      "color-mix(in srgb, #dc2626 92%, transparent)";
+    transformBadge.style.color = "#fff";
+    transformBadge.style.borderColor = "#dc2626";
   }
 
   function hideInsertionGuide(): void {
@@ -5361,6 +5418,38 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
     "li",
   ];
 
+  // keep in sync with hit-test.bridge.ts BRIDGE_INTERACTIVE_LEAF_TAGS
+  var BRIDGE_INTERACTIVE_LEAF_TAGS = ["button", "summary"];
+
+  // Drop-on-leaf fix: a `<button>` (or similar interactive leaf control) is
+  // frequently styled `display:flex` purely to align its own icon + label —
+  // that is NOT the same thing as a Figma "frame" a user expects to drop
+  // items into. Neither the tag denylist (BRIDGE_LEAF_TAGS/TEXT_TAGS) nor the
+  // flex/grid computed-display check alone can tell these apart (button is
+  // in neither tag list, and it genuinely has display:flex), so this walks
+  // the element's own children: if every child is itself a leaf/text tag
+  // with no further container/flex descendant of its own, the element is
+  // "leaf content" (an icon+label control) and must not accept nested
+  // drops — only a container that itself hosts a real sub-layout (a nested
+  // container/flex child) qualifies.
+  function hasOnlyLeafContent(el: Element): boolean {
+    var children = el.children;
+    if (!children.length) return true;
+    for (var i = 0; i < children.length; i += 1) {
+      var child = children[i] as Element;
+      var childTag = (child.tagName || "").toLowerCase();
+      if (
+        BRIDGE_LEAF_TAGS.indexOf(childTag) === -1 &&
+        BRIDGE_TEXT_TAGS.indexOf(childTag) === -1 &&
+        BRIDGE_INTERACTIVE_LEAF_TAGS.indexOf(childTag) === -1
+      ) {
+        return false;
+      }
+      if (child.children.length && !hasOnlyLeafContent(child)) return false;
+    }
+    return true;
+  }
+
   function isContainerDropTarget(el: Element | null): boolean {
     if (!el || el === document.documentElement) return false;
     if (isOverlayElement(el) || isLayerInteractionBlocked(el)) return false;
@@ -5372,6 +5461,14 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
       BRIDGE_TEXT_TAGS.indexOf(tag) !== -1
     )
       return false;
+    // Reject interactive leaf controls (button, summary) whose children are
+    // all leaf/text content — see hasOnlyLeafContent above.
+    if (
+      BRIDGE_INTERACTIVE_LEAF_TAGS.indexOf(tag) !== -1 &&
+      hasOnlyLeafContent(el)
+    ) {
+      return false;
+    }
     var cs = window.getComputedStyle(el);
     if (
       cs.display === "flex" ||
@@ -5702,6 +5799,25 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
           conversionTarget: parent,
         };
       }
+      // Absolute-primitive-container target (a canvas rectangle marked
+      // data-an-primitive="rectangle"/"rect"): this is a dedicated
+      // free-placement container, not a Figma-style auto-layout frame — the
+      // matching reorderTargetForPoint (flow-reorder) branch already
+      // recognizes it via this same helper and assigns dropMode
+      // "absolute-container" so onUp skips the auto-layout conversion and
+      // keeps the moved element's position:absolute. This branch was
+      // missing here (the absolute-drag path), so dragging an
+      // ABSOLUTE-positioned element onto an absolute rectangle container fell
+      // through to the generic isContainerDropTarget branch below and got
+      // incorrectly converted to flex + flow-inserted instead.
+      if (cursor !== document.body && isAbsolutePrimitiveContainer(cursor)) {
+        return {
+          anchor: cursor,
+          placement: "inside",
+          axis: "y",
+          dropMode: "absolute-container",
+        };
+      }
       if (cursor !== document.body && isContainerDropTarget(cursor)) {
         // B5-4 (absolute path): pointer over the container's own background
         // — its padding or a gap between children. Prefer the nearest child
@@ -5788,9 +5904,41 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
     }
   }
 
+  // Absolute-into-flow teleport fix: a flow-insert reparent (the ONLY
+  // dropMode applyRuntimeReorder ever nests an absolute-positioned member
+  // through — "absolute-container" placements keep position:absolute by
+  // design) must strip the leftover position/left/top/right/bottom the
+  // absolute-drag onMove loop wrote onto the element throughout the drag.
+  // Without this the element reparents into the flow container correctly
+  // but stays absolutely positioned at its last drag offset — rendering
+  // hundreds of px away from the slot the insertion guide indicated, since
+  // position:absolute measures from the nearest positioned ancestor, not
+  // flow layout. DesignEditor.tsx does the equivalent strip on the
+  // PERSISTED source string once the host round-trips (see
+  // removeAbsolutePositioningFromNodeInHtml); this mirrors it on the LIVE
+  // runtime DOM so the optimistic in-iframe result is correct immediately,
+  // not just after the host ack.
+  var ABS_POSITION_INLINE_PROPS = [
+    "position",
+    "left",
+    "top",
+    "right",
+    "bottom",
+  ];
+  function stripAbsolutePositioningForFlowInsert(el: Element, target): void {
+    if (!target || target.dropMode !== "flow-insert") return;
+    var htmlEl = el as HTMLElement;
+    var cs = window.getComputedStyle(htmlEl);
+    if (cs.position !== "absolute" && cs.position !== "fixed") return;
+    for (var i = 0; i < ABS_POSITION_INLINE_PROPS.length; i += 1) {
+      htmlEl.style.removeProperty(ABS_POSITION_INLINE_PROPS[i]);
+    }
+  }
+
   function applyRuntimeReorder(el, target) {
     if (!el || !target || !target.anchor || !target.anchor.parentElement)
       return;
+    stripAbsolutePositioningForFlowInsert(el, target);
     if (target.placement === "inside") {
       target.anchor.appendChild(el);
       return;
@@ -6114,6 +6262,72 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
       // drags stay in-iframe — the host's cross-screen drop only knows how to
       // move one element, which would tear the group apart.
       postCrossScreenDrag("cancel");
+    }
+    // Template-clone reorder rejection (CRITICAL fix): a runtime clone of an
+    // Alpine `<template x-for>` item has no counterpart in the static source
+    // HTML the host resolves structural moves against (only the single
+    // template child exists there), so a reorder/reparent targeting one can
+    // never succeed — the old behavior optimistically reordered the live DOM
+    // then silently reverted it ~1 frame later with zero feedback. Reject up
+    // front instead: no DOM mutation, no doomed host round-trip, clear
+    // "can't reorder" cursor + badge feedback for the whole gesture. Scoped
+    // to single-element, non-duplicate drags of a flow-reorder candidate —
+    // group drags and alt-duplicates build a real, source-backed clone/copy
+    // first (resetRuntimeStableIds), so they are unaffected.
+    if (
+      !isGroupDrag &&
+      !duplicatedForDrag &&
+      isFlowReorderCandidate(gestureEl) &&
+      isTemplateCloneElement(gestureEl)
+    ) {
+      postCrossScreenDrag("cancel");
+      var rejectedEl = gestureEl;
+      function onRejectedMove(ev) {
+        showRejectedDragBadge(
+          "Can't reorder repeated items",
+          ev.clientX,
+          ev.clientY,
+        );
+      }
+      function cleanupRejectedDrag() {
+        document.removeEventListener(events.move, onRejectedMove, true);
+        document.removeEventListener(events.up, onRejectedUp, true);
+        document.removeEventListener("keydown", onRejectedKeyDown, true);
+        clearActiveDragCancel(onRejectedEscape);
+        shieldOverlay.style.cursor = "default";
+      }
+      function onRejectedEscape() {
+        cleanupRejectedDrag();
+        hideTransformBadge();
+        suppressNextShieldClickBriefly();
+        return true;
+      }
+      function onRejectedKeyDown(ev) {
+        if (ev.key === "Escape") {
+          stopNativeInteraction(ev);
+          onRejectedEscape();
+        }
+      }
+      function onRejectedUp() {
+        cleanupRejectedDrag();
+        hideTransformBadge();
+        selectTargetAfterRejectedDrag();
+      }
+      function selectTargetAfterRejectedDrag(): void {
+        selectedEl = rejectedEl;
+        positionOverlay(selectionOverlay, selectedEl);
+      }
+      shieldOverlay.style.cursor = "not-allowed";
+      showRejectedDragBadge(
+        "Can't reorder repeated items",
+        e.clientX,
+        e.clientY,
+      );
+      document.addEventListener(events.move, onRejectedMove, true);
+      document.addEventListener(events.up, onRejectedUp, true);
+      document.addEventListener("keydown", onRejectedKeyDown, true);
+      setActiveDragCancel(onRejectedEscape);
+      return;
     }
     if (isFlowReorderCandidate(gestureEl)) {
       // Snapshot the element being reordered so a concurrent select-element or

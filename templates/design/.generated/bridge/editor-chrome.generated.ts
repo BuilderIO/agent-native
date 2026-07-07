@@ -143,6 +143,23 @@ export const editorChromeBridgeScript: string = `"use strict";
     function hasStableOwnSource(el) {
       return !!(el && !isDocumentRootElement(el) && getSourceId(el));
     }
+    function isTemplateCloneElement(el) {
+      var node = el;
+      while (node && !isDocumentRootElement(node)) {
+        if (hasStableOwnSource(node)) return false;
+        var parent = node.parentElement;
+        if (!parent) return false;
+        var siblings = parent.children;
+        for (var i = 0; i < siblings.length; i += 1) {
+          var sib = siblings[i];
+          if (sib !== node && sib.tagName && sib.tagName.toLowerCase() === "template" && sib.hasAttribute("x-for")) {
+            return true;
+          }
+        }
+        node = parent;
+      }
+      return false;
+    }
     function selectionTargetForHit(hit) {
       if (!hit || isDocumentRootElement(hit)) return hit;
       if (selectedEl && hit !== selectedEl && selectedEl.contains(hit))
@@ -3480,6 +3497,15 @@ export const editorChromeBridgeScript: string = `"use strict";
     }
     function hideTransformBadge() {
       transformBadge.style.display = "none";
+      transformBadge.style.removeProperty("background");
+      transformBadge.style.removeProperty("color");
+      transformBadge.style.removeProperty("border-color");
+    }
+    function showRejectedDragBadge(text, clientX, clientY) {
+      showTransformBadge(text, clientX, clientY);
+      transformBadge.style.background = "color-mix(in srgb, #dc2626 92%, transparent)";
+      transformBadge.style.color = "#fff";
+      transformBadge.style.borderColor = "#dc2626";
     }
     function hideInsertionGuide() {
       insertionGuide.style.display = "none";
@@ -3794,6 +3820,20 @@ export const editorChromeBridgeScript: string = `"use strict";
       "label",
       "li"
     ];
+    var BRIDGE_INTERACTIVE_LEAF_TAGS = ["button", "summary"];
+    function hasOnlyLeafContent(el) {
+      var children = el.children;
+      if (!children.length) return true;
+      for (var i = 0; i < children.length; i += 1) {
+        var child = children[i];
+        var childTag = (child.tagName || "").toLowerCase();
+        if (BRIDGE_LEAF_TAGS.indexOf(childTag) === -1 && BRIDGE_TEXT_TAGS.indexOf(childTag) === -1 && BRIDGE_INTERACTIVE_LEAF_TAGS.indexOf(childTag) === -1) {
+          return false;
+        }
+        if (child.children.length && !hasOnlyLeafContent(child)) return false;
+      }
+      return true;
+    }
     function isContainerDropTarget(el) {
       if (!el || el === document.documentElement) return false;
       if (isOverlayElement(el) || isLayerInteractionBlocked(el)) return false;
@@ -3801,6 +3841,9 @@ export const editorChromeBridgeScript: string = `"use strict";
       var tag = (el.tagName || "").toLowerCase();
       if (BRIDGE_LEAF_TAGS.indexOf(tag) !== -1 || BRIDGE_TEXT_TAGS.indexOf(tag) !== -1)
         return false;
+      if (BRIDGE_INTERACTIVE_LEAF_TAGS.indexOf(tag) !== -1 && hasOnlyLeafContent(el)) {
+        return false;
+      }
       var cs = window.getComputedStyle(el);
       if (cs.display === "flex" || cs.display === "inline-flex" || cs.display === "grid" || cs.display === "inline-grid") {
         return true;
@@ -4006,6 +4049,14 @@ export const editorChromeBridgeScript: string = `"use strict";
             conversionTarget: parent
           };
         }
+        if (cursor !== document.body && isAbsolutePrimitiveContainer(cursor)) {
+          return {
+            anchor: cursor,
+            placement: "inside",
+            axis: "y",
+            dropMode: "absolute-container"
+          };
+        }
         if (cursor !== document.body && isContainerDropTarget(cursor)) {
           var betweenContainerChildren = nearestChildInsertionTarget(
             cursor,
@@ -4074,9 +4125,26 @@ export const editorChromeBridgeScript: string = `"use strict";
         insertionGuide.style.height = line + "px";
       }
     }
+    var ABS_POSITION_INLINE_PROPS = [
+      "position",
+      "left",
+      "top",
+      "right",
+      "bottom"
+    ];
+    function stripAbsolutePositioningForFlowInsert(el, target) {
+      if (!target || target.dropMode !== "flow-insert") return;
+      var htmlEl = el;
+      var cs = window.getComputedStyle(htmlEl);
+      if (cs.position !== "absolute" && cs.position !== "fixed") return;
+      for (var i = 0; i < ABS_POSITION_INLINE_PROPS.length; i += 1) {
+        htmlEl.style.removeProperty(ABS_POSITION_INLINE_PROPS[i]);
+      }
+    }
     function applyRuntimeReorder(el, target) {
       if (!el || !target || !target.anchor || !target.anchor.parentElement)
         return;
+      stripAbsolutePositioningForFlowInsert(el, target);
       if (target.placement === "inside") {
         target.anchor.appendChild(el);
         return;
@@ -4302,6 +4370,52 @@ export const editorChromeBridgeScript: string = `"use strict";
       });
       if (isGroupDrag) {
         postCrossScreenDrag("cancel");
+      }
+      if (!isGroupDrag && !duplicatedForDrag && isFlowReorderCandidate(gestureEl) && isTemplateCloneElement(gestureEl)) {
+        let onRejectedMove2 = function(ev) {
+          showRejectedDragBadge(
+            "Can't reorder repeated items",
+            ev.clientX,
+            ev.clientY
+          );
+        }, cleanupRejectedDrag2 = function() {
+          document.removeEventListener(events.move, onRejectedMove2, true);
+          document.removeEventListener(events.up, onRejectedUp2, true);
+          document.removeEventListener("keydown", onRejectedKeyDown2, true);
+          clearActiveDragCancel(onRejectedEscape2);
+          shieldOverlay.style.cursor = "default";
+        }, onRejectedEscape2 = function() {
+          cleanupRejectedDrag2();
+          hideTransformBadge();
+          suppressNextShieldClickBriefly();
+          return true;
+        }, onRejectedKeyDown2 = function(ev) {
+          if (ev.key === "Escape") {
+            stopNativeInteraction(ev);
+            onRejectedEscape2();
+          }
+        }, onRejectedUp2 = function() {
+          cleanupRejectedDrag2();
+          hideTransformBadge();
+          selectTargetAfterRejectedDrag2();
+        }, selectTargetAfterRejectedDrag2 = function() {
+          selectedEl = rejectedEl;
+          positionOverlay(selectionOverlay, selectedEl);
+        };
+        var onRejectedMove = onRejectedMove2, cleanupRejectedDrag = cleanupRejectedDrag2, onRejectedEscape = onRejectedEscape2, onRejectedKeyDown = onRejectedKeyDown2, onRejectedUp = onRejectedUp2, selectTargetAfterRejectedDrag = selectTargetAfterRejectedDrag2;
+        postCrossScreenDrag("cancel");
+        var rejectedEl = gestureEl;
+        shieldOverlay.style.cursor = "not-allowed";
+        showRejectedDragBadge(
+          "Can't reorder repeated items",
+          e.clientX,
+          e.clientY
+        );
+        document.addEventListener(events.move, onRejectedMove2, true);
+        document.addEventListener(events.up, onRejectedUp2, true);
+        document.addEventListener("keydown", onRejectedKeyDown2, true);
+        setActiveDragCancel(onRejectedEscape2);
+        return;
       }
       if (isFlowReorderCandidate(gestureEl)) {
         let onReorderMove2 = function(ev) {

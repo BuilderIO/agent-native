@@ -11,14 +11,29 @@
  *
  * Reply (iframe → window.parent):
  *   { type: 'agent-native:hit-test-result', correlationId: string,
- *     anchorNodeId: string, placement: 'before'|'after'|'inside',
- *     axis: 'x'|'y',
+ *     anchorNodeId: string, pendingNodeId: string | undefined,
+ *     placement: 'before'|'after'|'inside', axis: 'x'|'y',
  *     anchorRect: { left: number, top: number, width: number, height: number } }
  *
- * Reads DOM only — no mutations, no event interception. The container-drop and
- * placement logic is intentionally kept in sync with the corresponding helpers
- * inside editor-chrome.bridge.ts (search for "// keep in sync with
- * hit-test.bridge.ts" comments there).
+ * Reads DOM only, no event interception — with one narrow, intentional
+ * exception mirroring editor-chrome.bridge.ts's getElementInfo: when the
+ * resolved anchor has no stable id anywhere in its own ancestry (common on
+ * AI-generated screens, which frequently ship with zero
+ * data-agent-native-node-id attributes), getNodeId mints and stamps a
+ * `data-an-pending-node-id` marker on it and returns that id as
+ * `pendingNodeId` alongside an empty `anchorNodeId` — the same
+ * mint-then-let-the-host-persist contract getElementInfo already uses for
+ * in-screen selection (see the "Id-on-demand" comment there). Without this,
+ * every cross-screen/canvas-to-screen flow-insert into an id-less screen
+ * silently degrades to absolute placement, because the host has no anchor id
+ * to resolve against even when the hit-test correctly found a valid
+ * before/after/inside slot. The stamp itself is inert (an extra data-*
+ * attribute, not read by getNodeId's own stable-id list) until a host caller
+ * persists it into the document's real data-agent-native-node-id — same
+ * two-step handshake as the in-screen path. The container-drop and placement
+ * logic is intentionally kept in sync with the corresponding helpers inside
+ * editor-chrome.bridge.ts (search for "// keep in sync with hit-test.bridge.ts"
+ * comments there).
  *
  * Rules:
  *   • No import/require of any module (DOM globals only).
@@ -98,6 +113,8 @@
     "label",
     "li",
   ];
+  // keep in sync with editor-chrome.bridge.ts BRIDGE_INTERACTIVE_LEAF_TAGS
+  var BRIDGE_INTERACTIVE_LEAF_TAGS = ["button", "summary"];
 
   function isOverlayElement(el: Element | null): boolean {
     return Boolean(
@@ -117,6 +134,25 @@
     return false;
   }
 
+  // keep in sync with editor-chrome.bridge.ts hasOnlyLeafContent
+  function hasOnlyLeafContent(el: Element): boolean {
+    var children = el.children;
+    if (!children.length) return true;
+    for (var i = 0; i < children.length; i += 1) {
+      var child = children[i] as Element;
+      var childTag = (child.tagName || "").toLowerCase();
+      if (
+        BRIDGE_LEAF_TAGS.indexOf(childTag) === -1 &&
+        BRIDGE_TEXT_TAGS.indexOf(childTag) === -1 &&
+        BRIDGE_INTERACTIVE_LEAF_TAGS.indexOf(childTag) === -1
+      ) {
+        return false;
+      }
+      if (child.children.length && !hasOnlyLeafContent(child)) return false;
+    }
+    return true;
+  }
+
   // keep in sync with editor-chrome.bridge.ts isContainerDropTarget
   function isContainerDropTarget(el: Element | null): boolean {
     if (!el || el === document.documentElement) return false;
@@ -128,6 +164,12 @@
       BRIDGE_TEXT_TAGS.indexOf(tag) !== -1
     )
       return false;
+    if (
+      BRIDGE_INTERACTIVE_LEAF_TAGS.indexOf(tag) !== -1 &&
+      hasOnlyLeafContent(el)
+    ) {
+      return false;
+    }
     var cs = window.getComputedStyle(el);
     if (
       cs.display === "flex" ||
@@ -276,6 +318,42 @@
     );
   }
 
+  // keep in sync with editor-chrome.bridge.ts freshRuntimeNodeId
+  function freshRuntimeNodeId(prefix: string): string {
+    var random = "";
+    try {
+      if (window.crypto && window.crypto.getRandomValues) {
+        var bytes = new Uint32Array(2);
+        window.crypto.getRandomValues(bytes);
+        random = Array.prototype.map
+          .call(bytes, function (part: number) {
+            return part.toString(36);
+          })
+          .join("");
+      }
+    } catch (_err) {}
+    if (!random)
+      random = Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+    return "an-" + String(prefix || "pending") + "-" + random;
+  }
+
+  // Id-on-demand fallback (see the file header comment): when the resolved
+  // anchor has no stable id, mint one and stamp it as
+  // data-an-pending-node-id — same marker/contract as editor-chrome.bridge.ts's
+  // getElementInfo — and return it so the caller can expose it as
+  // `pendingNodeId` for a host caller to persist. Deliberately NOT read by
+  // getNodeId itself (a pending id is not a stable id until persisted).
+  function getOrMintPendingNodeId(el: Element | null): string {
+    if (!el || !el.getAttribute || !el.setAttribute) return "";
+    var existing = el.getAttribute("data-an-pending-node-id");
+    if (existing) return existing;
+    var minted = freshRuntimeNodeId("pending");
+    try {
+      el.setAttribute("data-an-pending-node-id", minted);
+    } catch (_err) {}
+    return minted;
+  }
+
   /**
    * Resolve the deepest container element under (x, y) and a placement hint,
    * mirroring reorderTargetForPoint from editor-chrome.bridge.ts but
@@ -408,6 +486,14 @@
     var result = resolveHitTarget(x, y);
     if (e.data.preview) showInsertionGuideFor(result);
     var anchorNodeId: string = result ? getNodeId(result.anchor) : "";
+    // Id-on-demand fallback (see file header): only mint when there is a
+    // real resolved anchor with no stable id — never for a null/no-target
+    // result. getOrMintPendingNodeId is idempotent per-element (reuses the
+    // existing data-an-pending-node-id if already stamped), so repeated
+    // hover-phase hit-tests over the same anchor do not re-mint or spam
+    // attribute writes; a HOST caller decides whether/when to persist it.
+    var pendingNodeId: string =
+      result && !anchorNodeId ? getOrMintPendingNodeId(result.anchor) : "";
     var placement: string = result ? result.placement : "inside";
     var axis: string = result ? result.axis : "y";
     var dropMode: string = result ? result.dropMode : "flow-insert";
@@ -418,6 +504,7 @@
           type: "agent-native:hit-test-result",
           correlationId: correlationId,
           anchorNodeId: anchorNodeId,
+          pendingNodeId: pendingNodeId || undefined,
           placement: placement,
           axis: axis,
           dropMode: dropMode,

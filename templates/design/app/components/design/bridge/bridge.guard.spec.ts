@@ -33,6 +33,7 @@ import { chromium } from "@playwright/test";
 import { describe, expect, it } from "vitest";
 
 import { editorChromeBridgeScript } from "../../../../.generated/bridge/editor-chrome.generated";
+import { hitTestBridgeScript } from "../../../../.generated/bridge/hit-test.generated";
 
 const __dirname = fileURLToPath(new URL(".", import.meta.url));
 const designRoot = resolve(__dirname, "../../../..");
@@ -3715,6 +3716,666 @@ it(
       expect(first.selector).toContain("target-box");
       expect(result.realNodeIdAttr).toBeNull();
       expect(result.pendingAttr).toBe(first.pendingNodeId);
+      expect(pageErrors).toEqual([]);
+    } finally {
+      await browser.close();
+    }
+  },
+);
+
+// ── Template-clone reorder rejection + drop-on-leaf fix (DnD hardening) ────
+//
+// Two related fixes for the flow-reorder drag path:
+//
+// 1. An Alpine `<template x-for>` runtime clone has no counterpart in the
+//    static source HTML (only the single template child exists there), so a
+//    structural move targeting one can never resolve on the host — it used
+//    to optimistically reorder the live DOM then silently revert it with
+//    zero feedback. Reject up front instead (isTemplateCloneElement).
+// 2. isContainerDropTarget's flex/grid computed-display check alone can't
+//    tell a genuine layout container apart from an interactive leaf control
+//    (e.g. `<button style="display:flex">` used purely to align its own
+//    icon + label) — both LITERALLY have display:flex. hasOnlyLeafContent
+//    closes that gap by inspecting the element's own children.
+
+it(
+  "editor chrome bridge rejects reordering an Alpine x-for template clone with visible feedback and no DOM mutation",
+  { timeout: 30_000 },
+  async () => {
+    const browser = await chromium.launch({ headless: true });
+    const pageErrors: string[] = [];
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 900, height: 700 },
+      });
+      page.on("pageerror", (err) => pageErrors.push(err.message));
+
+      // Alpine's runtime shape for `<template x-for>`: the <template> stays
+      // in the live DOM as a hidden marker, and every rendered instance is
+      // inserted as a DIRECT SIBLING of it, all still children of the same
+      // parent — `ul > template, li, li` — exactly mirroring what Alpine
+      // itself produces (no Alpine runtime needed to test the bridge's own
+      // detection, which only inspects DOM shape).
+      await page.setContent(`<!doctype html>
+<html>
+  <head>
+    <style>
+      html, body { margin: 0; width: 100%; height: 100%; }
+      body { background: white; }
+      ul { position: absolute; left: 40px; top: 40px; width: 240px; display: flex; flex-direction: column; gap: 8px; list-style: none; padding: 0; margin: 0; }
+      li { display: flex; align-items: center; padding: 12px; border: 1px solid #ccc; background: #f5f5f5; height: 48px; box-sizing: border-box; }
+    </style>
+  </head>
+  <body>
+    <ul>
+      <template x-for="t in items"></template>
+      <li>Alpha</li>
+      <li>Beta</li>
+    </ul>
+  </body>
+</html>`);
+      await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
+      await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+      await collectBridgeMessages(page);
+
+      const items = await page.locator("li").all();
+      const itemABox = (await items[0].boundingBox())!;
+      const itemBBox = (await items[1].boundingBox())!;
+      const startX = itemABox.x + itemABox.width / 2;
+      const startY = itemABox.y + itemABox.height / 2;
+
+      await page.mouse.click(startX, startY);
+      await page.waitForFunction(() => {
+        const overlay = document.querySelector<HTMLElement>(
+          '[data-agent-native-edit-overlay="selection"]',
+        );
+        return overlay && window.getComputedStyle(overlay).display === "block";
+      });
+
+      await page.mouse.move(startX, startY);
+      await page.mouse.down();
+      await page.mouse.move(startX - 5, startY - 5, { steps: 3 });
+      const targetY = itemBBox.y + itemBBox.height - 5;
+      await page.mouse.move(startX, targetY, { steps: 10 });
+      await page.waitForTimeout(80);
+
+      // Rejection feedback must be visible for the whole gesture: no-drop
+      // cursor + text badge — never the normal insertion guide.
+      const midDragState = await page.evaluate(() => {
+        const guide = document.querySelector<HTMLElement>(
+          "[data-agent-native-insertion-guide]",
+        );
+        const badge = document.querySelector<HTMLElement>(
+          "[data-agent-native-transform-badge]",
+        );
+        const shield = document.querySelector<HTMLElement>(
+          '[data-agent-native-edit-overlay="shield"]',
+        );
+        return {
+          guideVisible: guide
+            ? window.getComputedStyle(guide).display === "block"
+            : false,
+          badgeText:
+            badge && window.getComputedStyle(badge).display !== "none"
+              ? badge.textContent
+              : null,
+          shieldCursor: shield ? window.getComputedStyle(shield).cursor : null,
+        };
+      });
+      expect(midDragState.guideVisible).toBe(false);
+      expect(midDragState.badgeText).toMatch(/can.t reorder/i);
+      expect(midDragState.shieldCursor).toBe("not-allowed");
+
+      await page.mouse.up();
+      await page.waitForTimeout(80);
+
+      // No DOM mutation at all — order unchanged.
+      const order = await page.evaluate(() =>
+        Array.from(document.querySelectorAll("li")).map((el) =>
+          el.textContent?.trim(),
+        ),
+      );
+      expect(order).toEqual(["Alpha", "Beta"]);
+
+      // Badge and cursor fully reset after release.
+      const afterState = await page.evaluate(() => {
+        const badge = document.querySelector<HTMLElement>(
+          "[data-agent-native-transform-badge]",
+        );
+        const shield = document.querySelector<HTMLElement>(
+          '[data-agent-native-edit-overlay="shield"]',
+        );
+        return {
+          badgeDisplay: badge ? window.getComputedStyle(badge).display : null,
+          shieldCursor: shield ? window.getComputedStyle(shield).cursor : null,
+        };
+      });
+      expect(afterState.badgeDisplay).toBe("none");
+      expect(afterState.shieldCursor).toBe("default");
+
+      // Never posts a doomed structural move.
+      const messages = await readBridgeMessages(page);
+      expect(messages.some((m) => m.type === "visual-structure-change")).toBe(
+        false,
+      );
+      expect(pageErrors).toEqual([]);
+    } finally {
+      await browser.close();
+    }
+  },
+);
+
+it(
+  "editor chrome bridge still reorders a normal (non-template) flow child normally, unaffected by the template-clone rejection",
+  { timeout: 30_000 },
+  async () => {
+    const browser = await chromium.launch({ headless: true });
+    const pageErrors: string[] = [];
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 900, height: 700 },
+      });
+      page.on("pageerror", (err) => pageErrors.push(err.message));
+
+      await page.setContent(`<!doctype html>
+<html>
+  <head>
+    <style>
+      html, body { margin: 0; width: 100%; height: 100%; }
+      body { background: white; }
+      ul { position: absolute; left: 40px; top: 40px; width: 240px; display: flex; flex-direction: column; gap: 8px; list-style: none; padding: 0; margin: 0; }
+      li { display: flex; align-items: center; padding: 12px; border: 1px solid #ccc; background: #f5f5f5; height: 48px; box-sizing: border-box; }
+    </style>
+  </head>
+  <body>
+    <ul>
+      <li data-agent-native-node-id="itemA">Alpha</li>
+      <li data-agent-native-node-id="itemB">Beta</li>
+    </ul>
+  </body>
+</html>`);
+      await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
+      await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+      await collectBridgeMessages(page);
+
+      const itemABox = (await page
+        .locator('[data-agent-native-node-id="itemA"]')
+        .boundingBox())!;
+      const itemBBox = (await page
+        .locator('[data-agent-native-node-id="itemB"]')
+        .boundingBox())!;
+      const startX = itemABox.x + itemABox.width / 2;
+      const startY = itemABox.y + itemABox.height / 2;
+
+      await page.mouse.click(startX, startY);
+      await page.waitForFunction(() => {
+        const overlay = document.querySelector<HTMLElement>(
+          '[data-agent-native-edit-overlay="selection"]',
+        );
+        return overlay && window.getComputedStyle(overlay).display === "block";
+      });
+
+      await page.mouse.move(startX, startY);
+      await page.mouse.down();
+      await page.mouse.move(startX - 5, startY - 5, { steps: 3 });
+      const targetY = itemBBox.y + itemBBox.height - 5;
+      await page.mouse.move(startX, targetY, { steps: 10 });
+      await page.waitForTimeout(80);
+
+      const guideVisible = await page.evaluate(() => {
+        const guide = document.querySelector<HTMLElement>(
+          "[data-agent-native-insertion-guide]",
+        );
+        return guide
+          ? window.getComputedStyle(guide).display === "block"
+          : false;
+      });
+      expect(guideVisible).toBe(true);
+
+      await page.mouse.up();
+      await page.waitForTimeout(80);
+
+      const messages = await readBridgeMessages(page);
+      expect(
+        messages.some(
+          (m) =>
+            m.type === "visual-structure-change" &&
+            (m as { dropMode?: string }).dropMode === "flow-insert",
+        ),
+      ).toBe(true);
+      expect(pageErrors).toEqual([]);
+    } finally {
+      await browser.close();
+    }
+  },
+);
+
+it(
+  "editor chrome bridge does not nest a dragged element onto a leaf-content flex button (drop-on-leaf), and still nests onto a real flex container",
+  { timeout: 30_000 },
+  async () => {
+    const browser = await chromium.launch({ headless: true });
+    const pageErrors: string[] = [];
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 900, height: 700 },
+      });
+      page.on("pageerror", (err) => pageErrors.push(err.message));
+
+      // itemA/itemB are `<button display:flex>` chips whose only children are
+      // leaf/text content (icon-free label span) — the drop-on-leaf repro
+      // case. #realContainer is also display:flex but hosts a genuine <div>
+      // sub-layout child, so it must still accept nested drops.
+      await page.setContent(`<!doctype html>
+<html>
+  <head>
+    <style>
+      html, body { margin: 0; width: 100%; height: 100%; }
+      body { background: white; }
+      nav { position: absolute; left: 40px; top: 40px; width: 240px; display: flex; flex-direction: column; gap: 8px; }
+      button.chip { display: flex; align-items: center; gap: 8px; padding: 12px; border: 1px solid #ccc; background: #f5f5f5; height: 48px; box-sizing: border-box; width: 100%; text-align: left; }
+      #realContainer { position: absolute; left: 320px; top: 40px; width: 200px; height: 150px; display: flex; flex-direction: column; background: #eee; border: 1px solid #ccc; }
+      #realContainer .inner { height: 40px; background: #ccd; }
+      #dragme { position: absolute; left: 40px; top: 260px; width: 80px; height: 40px; background: #6366f1; color: white; }
+    </style>
+  </head>
+  <body>
+    <nav data-agent-native-node-id="list">
+      <button class="chip" data-agent-native-node-id="itemA"><span>Alpha</span></button>
+      <button class="chip" data-agent-native-node-id="itemB"><span>Beta</span></button>
+    </nav>
+    <div id="realContainer" data-agent-native-node-id="realContainer">
+      <div class="inner" data-agent-native-node-id="inner">inner</div>
+    </div>
+    <div id="dragme" data-agent-native-node-id="dragme">Drag me</div>
+  </body>
+</html>`);
+      await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
+      await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+      await collectBridgeMessages(page);
+
+      // Part 1: dragging itemA onto itemB's middle must reorder as a
+      // sibling, never nest inside itemB.
+      const itemABox = (await page
+        .locator('[data-agent-native-node-id="itemA"]')
+        .boundingBox())!;
+      const itemBBox = (await page
+        .locator('[data-agent-native-node-id="itemB"]')
+        .boundingBox())!;
+      const aX = itemABox.x + itemABox.width / 2;
+      const aY = itemABox.y + itemABox.height / 2;
+      const bX = itemBBox.x + itemBBox.width / 2;
+      const bY = itemBBox.y + itemBBox.height / 2;
+
+      await page.mouse.click(aX, aY);
+      await page.waitForTimeout(60);
+      await page.mouse.move(aX, aY);
+      await page.mouse.down();
+      await page.mouse.move(aX - 5, aY - 5, { steps: 3 });
+      await page.mouse.move(bX, bY, { steps: 10 });
+      await page.waitForTimeout(80);
+      await page.mouse.up();
+      await page.waitForTimeout(80);
+
+      const chipResult = await page.evaluate(() => {
+        const list = document.querySelector(
+          '[data-agent-native-node-id="list"]',
+        )!;
+        return {
+          childIds: Array.from(list.children).map((c) =>
+            c.getAttribute("data-agent-native-node-id"),
+          ),
+          itemBText: document
+            .querySelector('[data-agent-native-node-id="itemB"]')!
+            .textContent?.trim(),
+        };
+      });
+      // itemA reordered as list's sibling — never nested inside itemB.
+      expect(chipResult.childIds).toContain("itemA");
+      expect(chipResult.childIds).toContain("itemB");
+      expect(chipResult.itemBText).toBe("Beta");
+
+      // Part 2: dragging #dragme onto the real flex container's middle must
+      // still nest it as a child (container-with-real-children case is
+      // unaffected by the leaf-content exclusion).
+      const dragBox = (await page.locator("#dragme").boundingBox())!;
+      const containerBox = (await page
+        .locator("#realContainer")
+        .boundingBox())!;
+      const dStartX = dragBox.x + dragBox.width / 2;
+      const dStartY = dragBox.y + dragBox.height / 2;
+      const dTargetX = containerBox.x + containerBox.width / 2;
+      const dTargetY = containerBox.y + containerBox.height - 10;
+
+      await page.mouse.click(dStartX, dStartY);
+      await page.waitForTimeout(60);
+      await page.mouse.move(dStartX, dStartY);
+      await page.mouse.down();
+      await page.mouse.move(dStartX - 5, dStartY - 5, { steps: 3 });
+      await page.mouse.move(dTargetX, dTargetY, { steps: 10 });
+      await page.waitForTimeout(80);
+      await page.mouse.up();
+      await page.waitForTimeout(80);
+
+      const nestResult = await page.evaluate(
+        () => document.getElementById("dragme")?.parentElement?.id,
+      );
+      expect(nestResult).toBe("realContainer");
+
+      expect(pageErrors).toEqual([]);
+    } finally {
+      await browser.close();
+    }
+  },
+);
+
+it(
+  "editor chrome bridge strips leftover position/left/top when an absolute-positioned element flow-inserts into an auto-layout container (absolute-into-flow teleport fix)",
+  { timeout: 30_000 },
+  async () => {
+    const browser = await chromium.launch({ headless: true });
+    const pageErrors: string[] = [];
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 900, height: 700 },
+      });
+      page.on("pageerror", (err) => pageErrors.push(err.message));
+
+      await page.setContent(`<!doctype html>
+<html>
+  <head>
+    <style>
+      html, body { margin: 0; width: 100%; height: 100%; }
+      body { background: white; }
+      #col { position: absolute; left: 300px; top: 300px; width: 200px; display: flex; flex-direction: column; gap: 8px; }
+      .item { height: 40px; background: #ccd; }
+    </style>
+  </head>
+  <body>
+    <div id="col" data-agent-native-node-id="col">
+      <div class="item" data-agent-native-node-id="item1">Item 1</div>
+      <div class="item" data-agent-native-node-id="item2">Item 2</div>
+    </div>
+    <div id="dragme" style="position:absolute;left:40px;top:40px;width:80px;height:40px;background:#6366f1;color:white" data-agent-native-node-id="dragme">Drag me</div>
+  </body>
+</html>`);
+      await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
+      await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+
+      await page.mouse.click(80, 60);
+      await page.waitForFunction(() => {
+        const overlay = document.querySelector<HTMLElement>(
+          '[data-agent-native-edit-overlay="selection"]',
+        );
+        return overlay && window.getComputedStyle(overlay).display === "block";
+      });
+
+      // Wander far away first (like a real messy drag path) before landing
+      // inside the column — this is what produces the large leftover
+      // left/top offsets the original bug reported ("left:472px;
+      // top:-350px").
+      await page.mouse.move(80, 60);
+      await page.mouse.down();
+      await page.mouse.move(85, 65, { steps: 3 });
+      await page.mouse.move(600, 20, { steps: 8 });
+      await page.mouse.move(400, 320, { steps: 10 });
+      await page.waitForTimeout(80);
+      await page.mouse.up();
+      await page.waitForTimeout(80);
+
+      const result = await page.evaluate(() => {
+        const el = document.getElementById("dragme")!;
+        const cs = getComputedStyle(el);
+        const rect = el.getBoundingClientRect();
+        const colRect = document.getElementById("col")!.getBoundingClientRect();
+        return {
+          parentId: el.parentElement?.id,
+          inlineStyle: el.getAttribute("style"),
+          computedPosition: cs.position,
+          withinColumnBounds:
+            rect.x >= colRect.x - 5 &&
+            rect.x <= colRect.x + colRect.width + 5 &&
+            rect.y >= colRect.y - 5 &&
+            rect.y <= colRect.y + colRect.height + 5,
+        };
+      });
+
+      expect(result.parentId).toBe("col");
+      expect(result.computedPosition).toBe("static");
+      expect(result.inlineStyle ?? "").not.toMatch(
+        /position|left|top|right|bottom/,
+      );
+      expect(result.withinColumnBounds).toBe(true);
+      expect(pageErrors).toEqual([]);
+    } finally {
+      await browser.close();
+    }
+  },
+);
+
+it(
+  "editor chrome bridge keeps position:absolute for an absolute-container drop (does not over-strip a genuinely absolute target)",
+  { timeout: 30_000 },
+  async () => {
+    const browser = await chromium.launch({ headless: true });
+    const pageErrors: string[] = [];
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 900, height: 700 },
+      });
+      page.on("pageerror", (err) => pageErrors.push(err.message));
+
+      // #rect is an absolute-positioned primitive rectangle container (the
+      // dedicated absolute-container drop target, distinct from flow-insert)
+      // — dropping into it must keep the moved element absolutely
+      // positioned, only flow-insert targets get the strip.
+      await page.setContent(`<!doctype html>
+<html>
+  <head>
+    <style>
+      html, body { margin: 0; width: 100%; height: 100%; }
+      body { background: white; }
+    </style>
+  </head>
+  <body>
+    <div id="rect" style="position:absolute;left:300px;top:100px;width:200px;height:150px;background:#eee" data-agent-native-node-id="rect" data-an-primitive="rectangle"></div>
+    <div id="dragme" style="position:absolute;left:40px;top:40px;width:80px;height:40px;background:#6366f1;color:white" data-agent-native-node-id="dragme">Drag me</div>
+  </body>
+</html>`);
+      await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
+      await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+
+      await page.mouse.click(80, 60);
+      await page.waitForTimeout(60);
+      await page.mouse.move(80, 60);
+      await page.mouse.down();
+      await page.mouse.move(85, 65, { steps: 3 });
+      await page.mouse.move(400, 175, { steps: 10 }); // center of #rect
+      await page.waitForTimeout(80);
+      await page.mouse.up();
+      await page.waitForTimeout(80);
+
+      const result = await page.evaluate(() => {
+        const el = document.getElementById("dragme")!;
+        const cs = getComputedStyle(el);
+        return {
+          parentId: el.parentElement?.id,
+          computedPosition: cs.position,
+        };
+      });
+      expect(result.parentId).toBe("rect");
+      // absolute-container drop mode: position is intentionally preserved.
+      expect(result.computedPosition).toBe("absolute");
+      expect(pageErrors).toEqual([]);
+    } finally {
+      await browser.close();
+    }
+  },
+);
+
+// ── hit-test bridge — pendingNodeId minting (cross-screen/canvas anchor) ───
+//
+// Companion to the editor-chrome bridge's B5-5 fix above, for the SEPARATE
+// hit-test bridge injected into non-edit overview iframes for cross-screen
+// and canvas-to-screen drop-anchor resolution. Screens with no node ids
+// anywhere (the common case for default AI-generated content) used to
+// resolve every candidate anchor to anchorNodeId:"", which forced the host
+// to silently fall back to absolute placement even when a valid flow-insert
+// slot was found. getNodeId now mints and stamps the same
+// data-an-pending-node-id marker editor-chrome.bridge.ts's getElementInfo
+// uses, exposed as `pendingNodeId` on the hit-test-result reply.
+
+function hydratedHitTestBridgeScript(): string {
+  return hitTestBridgeScript;
+}
+
+it(
+  "hit-test bridge mints a stable pendingNodeId for an anchor with no stable id, without spamming re-mints across repeated hovers",
+  { timeout: 30_000 },
+  async () => {
+    const browser = await chromium.launch({ headless: true });
+    const pageErrors: string[] = [];
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 900, height: 700 },
+      });
+      page.on("pageerror", (err) => pageErrors.push(err.message));
+
+      // No data-agent-native-node-id anywhere — default AI-generated shape.
+      await page.setContent(`<!doctype html>
+<html>
+  <head>
+    <style>
+      html, body { margin: 0; width: 100%; height: 100%; }
+      main { display: flex; flex-direction: column; gap: 8px; padding: 20px; }
+      .row { padding: 12px; background: #eee; height: 20px; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <div class="row">Row A</div>
+      <div class="row">Row B</div>
+    </main>
+  </body>
+</html>`);
+      await page.addScriptTag({ content: hydratedHitTestBridgeScript() });
+
+      const runHitTest = (x: number, y: number, correlationId: string) =>
+        page.evaluate(
+          ({ x, y, correlationId }) =>
+            new Promise((resolve) => {
+              const onMsg = (e: MessageEvent) => {
+                if (
+                  e.data?.type === "agent-native:hit-test-result" &&
+                  e.data.correlationId === correlationId
+                ) {
+                  window.removeEventListener("message", onMsg);
+                  resolve(e.data);
+                }
+              };
+              window.addEventListener("message", onMsg);
+              window.postMessage(
+                {
+                  type: "agent-native:hit-test",
+                  correlationId,
+                  x,
+                  y,
+                  preview: false,
+                },
+                "*",
+              );
+            }),
+          { x, y, correlationId },
+        );
+
+      const reply1 = (await runHitTest(200, 45, "c1")) as {
+        anchorNodeId: string;
+        pendingNodeId?: string;
+      };
+      expect(reply1.anchorNodeId).toBe("");
+      expect(reply1.pendingNodeId).toMatch(/^an-pending-/);
+
+      const stamped = await page.evaluate(
+        (pid) => !!document.querySelector(`[data-an-pending-node-id="${pid}"]`),
+        reply1.pendingNodeId,
+      );
+      expect(stamped).toBe(true);
+
+      // Repeated hit-test at the same point (simulating hover-phase polling
+      // during a drag) must reuse the same id, not mint a new one each time.
+      const reply2 = (await runHitTest(200, 45, "c2")) as {
+        pendingNodeId?: string;
+      };
+      expect(reply2.pendingNodeId).toBe(reply1.pendingNodeId);
+
+      const stampedCount = await page.evaluate(
+        () => document.querySelectorAll("[data-an-pending-node-id]").length,
+      );
+      expect(stampedCount).toBe(1);
+      expect(pageErrors).toEqual([]);
+    } finally {
+      await browser.close();
+    }
+  },
+);
+
+it(
+  "hit-test bridge does not mint a pendingNodeId when the anchor already has a stable node id",
+  { timeout: 30_000 },
+  async () => {
+    const browser = await chromium.launch({ headless: true });
+    const pageErrors: string[] = [];
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 900, height: 700 },
+      });
+      page.on("pageerror", (err) => pageErrors.push(err.message));
+
+      await page.setContent(`<!doctype html>
+<html>
+  <head>
+    <style>
+      html, body { margin: 0; width: 100%; height: 100%; }
+      main { display: flex; flex-direction: column; gap: 8px; padding: 20px; width: 300px; height: 200px; }
+    </style>
+  </head>
+  <body>
+    <main data-agent-native-node-id="main-anchor"></main>
+  </body>
+</html>`);
+      await page.addScriptTag({ content: hydratedHitTestBridgeScript() });
+
+      // Empty container — any point inside its bounds resolves the anchor
+      // to <main> itself (no children to route to instead).
+      const reply = (await page.evaluate(
+        () =>
+          new Promise((resolve) => {
+            const onMsg = (e: MessageEvent) => {
+              if (e.data?.type === "agent-native:hit-test-result") {
+                window.removeEventListener("message", onMsg);
+                resolve(e.data);
+              }
+            };
+            window.addEventListener("message", onMsg);
+            window.postMessage(
+              {
+                type: "agent-native:hit-test",
+                correlationId: "c1",
+                x: 100,
+                y: 60,
+                preview: false,
+              },
+              "*",
+            );
+          }),
+      )) as { anchorNodeId: string; pendingNodeId?: string };
+
+      expect(reply.anchorNodeId).toBe("main-anchor");
+      expect(reply.pendingNodeId).toBeUndefined();
+      const stampedCount = await page.evaluate(
+        () => document.querySelectorAll("[data-an-pending-node-id]").length,
+      );
+      expect(stampedCount).toBe(0);
       expect(pageErrors).toEqual([]);
     } finally {
       await browser.close();

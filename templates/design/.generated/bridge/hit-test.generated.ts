@@ -73,6 +73,7 @@ export const hitTestBridgeScript: string = `"use strict";
       "label",
       "li"
     ];
+    var BRIDGE_INTERACTIVE_LEAF_TAGS = ["button", "summary"];
     function isOverlayElement(el) {
       return Boolean(
         el && el.closest && el.closest("[data-agent-native-edit-overlay]")
@@ -86,6 +87,19 @@ export const hitTestBridgeScript: string = `"use strict";
         return true;
       return false;
     }
+    function hasOnlyLeafContent(el) {
+      var children = el.children;
+      if (!children.length) return true;
+      for (var i = 0; i < children.length; i += 1) {
+        var child = children[i];
+        var childTag = (child.tagName || "").toLowerCase();
+        if (BRIDGE_LEAF_TAGS.indexOf(childTag) === -1 && BRIDGE_TEXT_TAGS.indexOf(childTag) === -1 && BRIDGE_INTERACTIVE_LEAF_TAGS.indexOf(childTag) === -1) {
+          return false;
+        }
+        if (child.children.length && !hasOnlyLeafContent(child)) return false;
+      }
+      return true;
+    }
     function isContainerDropTarget(el) {
       if (!el || el === document.documentElement) return false;
       if (isOverlayElement(el) || isLayerInteractionBlocked(el)) return false;
@@ -93,6 +107,9 @@ export const hitTestBridgeScript: string = `"use strict";
       var tag = (el.tagName || "").toLowerCase();
       if (BRIDGE_LEAF_TAGS.indexOf(tag) !== -1 || BRIDGE_TEXT_TAGS.indexOf(tag) !== -1)
         return false;
+      if (BRIDGE_INTERACTIVE_LEAF_TAGS.indexOf(tag) !== -1 && hasOnlyLeafContent(el)) {
+        return false;
+      }
       var cs = window.getComputedStyle(el);
       if (cs.display === "flex" || cs.display === "inline-flex" || cs.display === "grid" || cs.display === "inline-grid")
         return true;
@@ -178,6 +195,33 @@ export const hitTestBridgeScript: string = `"use strict";
     function getNodeId(el) {
       if (!el) return "";
       return el.getAttribute("data-agent-native-node-id") || el.getAttribute("data-code-layer-id") || el.getAttribute("data-layer-id") || el.getAttribute("data-builder-id") || el.id || "";
+    }
+    function freshRuntimeNodeId(prefix) {
+      var random = "";
+      try {
+        if (window.crypto && window.crypto.getRandomValues) {
+          var bytes = new Uint32Array(2);
+          window.crypto.getRandomValues(bytes);
+          random = Array.prototype.map.call(bytes, function(part) {
+            return part.toString(36);
+          }).join("");
+        }
+      } catch (_err) {
+      }
+      if (!random)
+        random = Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+      return "an-" + String(prefix || "pending") + "-" + random;
+    }
+    function getOrMintPendingNodeId(el) {
+      if (!el || !el.getAttribute || !el.setAttribute) return "";
+      var existing = el.getAttribute("data-an-pending-node-id");
+      if (existing) return existing;
+      var minted = freshRuntimeNodeId("pending");
+      try {
+        el.setAttribute("data-an-pending-node-id", minted);
+      } catch (_err) {
+      }
+      return minted;
     }
     function resolveHitTarget(clientX, clientY) {
       var hit = elementFromEditorPoint(clientX, clientY);
@@ -286,6 +330,7 @@ export const hitTestBridgeScript: string = `"use strict";
       var result = resolveHitTarget(x, y);
       if (e.data.preview) showInsertionGuideFor(result);
       var anchorNodeId = result ? getNodeId(result.anchor) : "";
+      var pendingNodeId = result && !anchorNodeId ? getOrMintPendingNodeId(result.anchor) : "";
       var placement = result ? result.placement : "inside";
       var axis = result ? result.axis : "y";
       var dropMode = result ? result.dropMode : "flow-insert";
@@ -296,6 +341,7 @@ export const hitTestBridgeScript: string = `"use strict";
             type: "agent-native:hit-test-result",
             correlationId,
             anchorNodeId,
+            pendingNodeId: pendingNodeId || void 0,
             placement,
             axis,
             dropMode,
