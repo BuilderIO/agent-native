@@ -9,7 +9,7 @@
 //!
 //! Capture is reused from the existing modules:
 //!   - mic    → `native_speech::macos::start_raw_mic_capture` (AVAudioEngine +
-//!              VoiceProcessingIO AEC, other-audio ducking off)
+//!              optional VoiceProcessingIO AEC, other-audio ducking off)
 //!   - system → `system_audio::macos::start_raw_system_capture` (ScreenCaptureKit)
 //!
 use tauri::AppHandle;
@@ -21,6 +21,7 @@ pub async fn whisper_transcription_start(
     mic_device_id: Option<String>,
     mic_device_label: Option<String>,
     capture_system: bool,
+    voice_processing: bool,
     owner: Option<String>,
 ) -> Result<(), String> {
     if !crate::config::feature_config(&app).whisper_model_enabled {
@@ -34,6 +35,7 @@ pub async fn whisper_transcription_start(
             mic_device_id,
             mic_device_label,
             capture_system,
+            voice_processing,
             macos::SessionOwner::from_param(owner),
         )
         .await
@@ -46,6 +48,7 @@ pub async fn whisper_transcription_start(
             mic_device_id,
             mic_device_label,
             capture_system,
+            voice_processing,
             owner,
         );
         Err("Whisper transcription is only supported on macOS.".into())
@@ -541,6 +544,7 @@ mod macos {
         mic_device_id: Option<String>,
         mic_device_label: Option<String>,
         capture_system: bool,
+        voice_processing: bool,
         owner: SessionOwner,
     ) -> Result<(), String> {
         // Priority rule (D10): a meeting-owned session must never be
@@ -602,6 +606,7 @@ mod macos {
             app.clone(),
             mic_device_id,
             mic_device_label,
+            voice_processing,
             Arc::new(move |s: &[f32]| mic_for_cb.push(s)),
         )
         .map_err(|e| {

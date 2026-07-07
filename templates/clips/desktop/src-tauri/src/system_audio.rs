@@ -113,6 +113,7 @@ pub async fn audio_transcription_start(
     mic_device_id: Option<String>,
     mic_device_label: Option<String>,
     capture_system: Option<bool>,
+    voice_processing: Option<bool>,
     owner: Option<String>,
 ) -> Result<(), String> {
     let _ = meeting_id;
@@ -122,6 +123,7 @@ pub async fn audio_transcription_start(
         mic_device_id,
         mic_device_label,
         capture_system.unwrap_or(true),
+        voice_processing.unwrap_or(true),
         owner,
     )
     .await

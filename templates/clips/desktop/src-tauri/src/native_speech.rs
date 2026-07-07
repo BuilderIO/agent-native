@@ -1012,12 +1012,14 @@ pub(crate) mod macos {
         }
     }
 
-    /// Start mic capture (VPIO AEC on, other-audio ducking off) and forward a
-    /// mono mix of every available channel to `on_samples`.
+    /// Start mic capture and forward a mono mix of every available channel to
+    /// `on_samples`. Recording transcription can disable VPIO so the tap does
+    /// not precondition the shared mic before ScreenCaptureKit opens it.
     pub(crate) fn start_raw_mic_capture(
         app: AppHandle,
         mic_device_id: Option<String>,
         mic_device_label: Option<String>,
+        voice_processing: bool,
         on_samples: Arc<dyn Fn(&[f32]) + Send + Sync>,
     ) -> Result<RawMicCapture, String> {
         let engine: Retained<AVAudioEngine> = unsafe { AVAudioEngine::new() };
@@ -1028,15 +1030,17 @@ pub(crate) mod macos {
         )?;
         let input_node: Retained<objc2_avf_audio::AVAudioInputNode> = unsafe { engine.inputNode() };
 
-        unsafe {
-            if let Err(err) = input_node.setVoiceProcessingEnabled_error(true) {
+        if voice_processing {
+            if let Err(err) = unsafe { input_node.setVoiceProcessingEnabled_error(true) } {
                 eprintln!(
                     "[whisper-mic] voice processing enable failed: {} — continuing without AEC",
                     ns_error_message(&err)
                 );
             }
+        } else {
+            eprintln!("[whisper-mic] voice processing disabled for shared mic capture");
         }
-        // Finalize VPIO format negotiation.
+        // Finalize input format negotiation.
         objc2::exception::catch(std::panic::AssertUnwindSafe(|| unsafe { engine.prepare() }))
             .map_err(|e| format!("AVAudioEngine prepare threw: {e:?}"))?;
 
@@ -1097,20 +1101,22 @@ pub(crate) mod macos {
             unsafe { format.channelCount() }
         );
 
-        // Disable other-audio ducking so the separately-captured system audio
-        // isn't dropped to near-silent while the mic VPIO runs.
-        unsafe {
-            let responds: bool = objc2::msg_send![
-                &*input_node,
-                respondsToSelector: objc2::sel!(setVoiceProcessingOtherAudioDuckingConfiguration:)
-            ];
-            if responds {
-                input_node.setVoiceProcessingOtherAudioDuckingConfiguration(
-                    AVAudioVoiceProcessingOtherAudioDuckingConfiguration {
-                        enableAdvancedDucking: objc2::runtime::Bool::NO,
-                        duckingLevel: AVAudioVoiceProcessingOtherAudioDuckingLevel::Min,
-                    },
-                );
+        if voice_processing {
+            // Disable other-audio ducking so the separately-captured system audio
+            // isn't dropped to near-silent while the mic VPIO runs.
+            unsafe {
+                let responds: bool = objc2::msg_send![
+                    &*input_node,
+                    respondsToSelector: objc2::sel!(setVoiceProcessingOtherAudioDuckingConfiguration:)
+                ];
+                if responds {
+                    input_node.setVoiceProcessingOtherAudioDuckingConfiguration(
+                        AVAudioVoiceProcessingOtherAudioDuckingConfiguration {
+                            enableAdvancedDucking: objc2::runtime::Bool::NO,
+                            duckingLevel: AVAudioVoiceProcessingOtherAudioDuckingLevel::Min,
+                        },
+                    );
+                }
             }
         }
 

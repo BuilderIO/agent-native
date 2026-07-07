@@ -1745,6 +1745,7 @@ async function startNativeFullscreenRecording(
         label: micDeviceLabel,
       },
       wantsSystemAudio,
+      { voiceProcessing: false },
     );
     if (
       wantsRecordedAudio &&

@@ -45,7 +45,8 @@ const TRANSCODE_RATE_LIMIT_OVERHEAD_KBPS: f64 = 64.0;
 const TRANSCODE_FRAME_RATE_LIMIT: u32 = 30;
 const NORMALIZED_AUDIO_BITRATE_KBPS: u32 = 160;
 const AUDIO_LOUDNESS_FILTER: &str = "loudnorm=I=-16:TP=-1.5:LRA=11";
-const AUDIO_SIGNAL_MIN_MAX_VOLUME_DB: f64 = -55.0;
+const AUDIO_SIGNAL_MIN_MEAN_VOLUME_DB: f64 = -60.0;
+const AUDIO_SIGNAL_MIN_MAX_VOLUME_DB: f64 = -30.0;
 // When the mic is captured alongside system audio, ScreenCaptureKit lays the
 // two sources out as the left/right channels of a single stereo track, which
 // plays back stuck on one speaker. Force the input to stereo (mono sources
@@ -3720,9 +3721,15 @@ struct AudioSignalProbe {
 
 impl AudioSignalProbe {
     fn has_audible_signal(self) -> bool {
-        self.max_volume_db
+        let peak_ok = self
+            .max_volume_db
             .map(|value| value.is_finite() && value >= AUDIO_SIGNAL_MIN_MAX_VOLUME_DB)
-            .unwrap_or(false)
+            .unwrap_or(false);
+        let mean_ok = self
+            .mean_volume_db
+            .map(|value| value.is_finite() && value >= AUDIO_SIGNAL_MIN_MEAN_VOLUME_DB)
+            .unwrap_or(true);
+        peak_ok && mean_ok
     }
 
     fn summary(self) -> String {
@@ -3735,9 +3742,10 @@ impl AudioSignalProbe {
             }
         }
         format!(
-            "mean_volume={} max_volume={} floor={:.1} dB",
+            "mean_volume={} max_volume={} mean_floor={:.1} dB peak_floor={:.1} dB",
             fmt(self.mean_volume_db),
             fmt(self.max_volume_db),
+            AUDIO_SIGNAL_MIN_MEAN_VOLUME_DB,
             AUDIO_SIGNAL_MIN_MAX_VOLUME_DB
         )
     }
@@ -3893,6 +3901,13 @@ fn prepare_recording_file(
 
     let mut smallest_attempt_bytes: Option<u64> = None;
     let ffmpeg_path = resolve_ffmpeg_path();
+    if has_audio {
+        if let Some(ffmpeg_path) = ffmpeg_path.as_deref() {
+            let raw_summary =
+                describe_audio_signal_probe(audio_signal_probe_with_ffmpeg(ffmpeg_path, path));
+            eprintln!("[clips-tray] raw recording audio signal before prepare: {raw_summary}");
+        }
+    }
 
     if !COMPRESSION_ENABLED || source_bytes < TRANSCODE_THRESHOLD_BYTES {
         if has_audio {
@@ -5064,11 +5079,16 @@ mod audio_track_probe_tests {
             mean_volume_db: Some(-74.0),
             max_volume_db: Some(-57.6),
         };
+        let quiet_noise_peak = AudioSignalProbe {
+            mean_volume_db: Some(-71.1),
+            max_volume_db: Some(-47.4),
+        };
         let audible = AudioSignalProbe {
             mean_volume_db: Some(-21.5),
             max_volume_db: Some(-1.4),
         };
         assert!(!silent.has_audible_signal());
+        assert!(!quiet_noise_peak.has_audible_signal());
         assert!(audible.has_audible_signal());
     }
 }
