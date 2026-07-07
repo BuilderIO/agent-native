@@ -2,4 +2,4 @@
 "@agent-native/core": patch
 ---
 
-Emit and require a Netlify fallback redirect so single-template deploys route dynamic app requests to the server function instead of publishing platform 404s.
+Fix Netlify single-template deploy previews by keeping Nitro's `preferStatic` true (so `/assets/*` is served from `dist`) and stripping the harmful default-function URL rewrite that is incompatible with `config.path: "/*"`.

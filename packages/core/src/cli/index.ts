@@ -8,6 +8,8 @@ import { fileURLToPath } from "url";
 
 import * as Sentry from "@sentry/node";
 
+import { resolveDeployPostBuildInvocation } from "./deploy-build.js";
+
 // Resolve version once at module scope — used by both --version and --help
 let _version = "unknown";
 try {
@@ -577,15 +579,18 @@ switch (command) {
       // `agent-native start` and for serverless presets.
       if (isReactRouterFramework()) {
         const __dirname = path.dirname(fileURLToPath(import.meta.url));
-        const deployBuild = path.resolve(__dirname, "../deploy/build.js");
-        if (fs.existsSync(deployBuild)) {
-          await runBuildStep("node", [deployBuild], {
+        const deployBuild = resolveDeployPostBuildInvocation({
+          cliDir: __dirname,
+          findTsxBin,
+        });
+        if (deployBuild) {
+          await runBuildStep(deployBuild.command, deployBuild.args, {
             label: "deploy-build",
             env: process.env,
           });
         } else {
           console.warn(
-            `[build] Deploy build script not found at ${deployBuild}. Skipping post-build step.`,
+            "[build] Deploy build script not found and no deploy preset is configured. Skipping post-build step.",
           );
         }
       }
