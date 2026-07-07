@@ -1,5 +1,20 @@
 # @agent-native/skills
 
+## 0.2.256
+
+### Patch Changes
+
+- Updated dependencies [e1ad535]
+- Updated dependencies [e1ad535]
+- Updated dependencies [e1ad535]
+- Updated dependencies [e1ad535]
+- Updated dependencies [e1ad535]
+- Updated dependencies [e1ad535]
+- Updated dependencies [e1ad535]
+- Updated dependencies [e1ad535]
+- Updated dependencies [e1ad535]
+  - @agent-native/core@0.90.0
+
 ## 0.2.255
 
 ### Patch Changes
