@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.90.1
+
+### Patch Changes
+
+- 2054fed: Fix Cloudflare Pages deploys that import the Node console builtin.
+
 ## 0.90.0
 
 ### Minor Changes
