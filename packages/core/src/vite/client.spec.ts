@@ -7,12 +7,10 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { signEmbedSessionToken } from "../server/embed-session.js";
 import {
-  _buildNitroDevPluginOptions,
   _findCorePackageRoot,
   _getClientDedupe,
   _getDefaultOptimizeDeps,
   _getReactRouterAliases,
-  _isFusionContainerDevRuntime,
   agentNative,
   defineConfig,
   isFrameworkDevPath,
