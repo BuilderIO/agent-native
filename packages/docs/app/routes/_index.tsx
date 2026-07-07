@@ -399,7 +399,11 @@ function FeatureWordCloud({ className = "" }: { className?: string }) {
   );
 }
 
-function BatteriesIncludedCloud() {
+function BatteriesIncludedCloud({
+  localizedPath,
+}: {
+  localizedPath: (path: string) => string;
+}) {
   const t = useT();
   return (
     <section className="batteries-cloud-section relative overflow-hidden border-t border-[var(--docs-border)] bg-white px-6 py-24 text-neutral-950 dark:bg-black dark:text-white sm:py-28 lg:flex lg:min-h-[680px] lg:items-center lg:py-36">
@@ -415,6 +419,32 @@ function BatteriesIncludedCloud() {
           <p className="mx-auto mb-5 max-w-[350px] text-base leading-relaxed text-neutral-600 dark:text-white/58 lg:mx-0">
             {t("home.batteries.body")}
           </p>
+          <Link
+            data-an-prefetch="render"
+            to={localizedPath("/docs/agent-native-toolkit")}
+            className="inline-flex items-center gap-2 rounded-full border border-neutral-300 px-6 py-3 text-sm font-medium text-neutral-950 no-underline transition hover:border-neutral-500 dark:border-white/20 dark:text-white dark:hover:border-white/40"
+            onClick={() =>
+              trackEvent("click cta", {
+                label: "browse_toolkits",
+                location: "batteries_section",
+              })
+            }
+          >
+            {t("home.batteries.browseToolkits")}
+            <svg
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <line x1="5" y1="12" x2="19" y2="12" />
+              <polyline points="12 5 19 12 12 19" />
+            </svg>
+          </Link>
         </div>
 
         <FeatureWordCloud className="relative -mx-6 mt-12 h-[480px] sm:h-[560px] lg:hidden" />
@@ -768,7 +798,7 @@ export default defineAction({
           localizedPath={localizedPath}
         />
 
-        <BatteriesIncludedCloud />
+        <BatteriesIncludedCloud localizedPath={localizedPath} />
 
         <div className="mx-auto max-w-[1200px] px-6">
           {/* Bottom CTA */}

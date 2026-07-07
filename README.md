@@ -17,13 +17,14 @@ export default defineAction({
 });
 ```
 
-- **Actions**: Define work once. Use it from every app surface: UI, agent, HTTP, MCP, A2A, and CLI.
-- **Agent runtime**: Chat, tools, skills, memory, jobs, observability, and handoffs ship together.
-- **Backend agnostic**: Plug in any Drizzle-supported SQL database and Nitro-compatible host.
+- **[Actions](https://agent-native.com/docs/actions)**: Define work once. Use it from every app surface: UI, agent, HTTP, MCP, A2A, and CLI.
+- **[Agent runtime](https://agent-native.com/docs/agent-surfaces)**: Chat, tools, skills, memory, jobs, observability, and handoffs ship together.
+- **[Backend agnostic](https://agent-native.com/docs/database)**: Plug in any Drizzle-supported SQL database and Nitro-compatible host.
+- **[Toolkits](https://agent-native.com/docs/agent-native-toolkit)**: Reusable building blocks for collaboration, sharing, settings, teams, and observability.
 
 ## Don't pick between apps or agents.
 
-**Agent-native apps are both**
+Agent-native apps are both
 
 |                   | SaaS Tools         | Raw AI Agents           | Internal Tools             | Agent-Native App        |
 | ----------------- | ------------------ | ----------------------- | -------------------------- | ----------------------- |

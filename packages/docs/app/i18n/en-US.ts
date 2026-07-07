@@ -321,6 +321,7 @@ const enUS = {
       titleLine1: "Batteries included,",
       titleLine2: "battle tested",
       body: "Instead of starting from a blank prompt and a pile of improvised code, Agent-Native gives agents the battle-tested parts and best practices they need to build real software.",
+      browseToolkits: "Browse toolkits",
     },
     featureCloud: {
       notifications: "Notifications",
