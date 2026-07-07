@@ -645,6 +645,105 @@ describe("update-file expectedVersionHash guard (server-discipline layer)", () =
   });
 });
 
+describe("update-file TOCTOU fix: hash check + write serialized under withSourceFileWriteLock", () => {
+  // PR review finding (bot, legitimate): expectedVersionHash was validated
+  // BEFORE the per-file critical section update-file/writeInlineSourceFile
+  // share. Two concurrent update-file callers could each read the same live
+  // text, each pass the hash check, and then both proceed to write serially
+  // — the second one silently winning over a base it never actually
+  // re-validated against. The fix routes update-file's hash-check -> write ->
+  // collab-sync section through the SAME withSourceFileWriteLock(fileId, ...)
+  // primitive writeInlineSourceFile uses, so the second caller's hash check
+  // now runs AFTER the first caller's write has fully landed.
+
+  it("two concurrent update-file calls carrying the SAME valid base hash: exactly one succeeds, the other fails loud with the version error", async () => {
+    const live = await readLiveSourceFile(currentFileRef());
+    const contentA = buildDoc(" data-writer-a");
+    const contentB = buildDoc(" data-writer-b");
+
+    const results = await Promise.allSettled([
+      updateFileAction.run({
+        id: FILE_ID,
+        content: contentA,
+        syncCollab: true,
+        expectedVersionHash: live.versionHash,
+      } as never),
+      updateFileAction.run({
+        id: FILE_ID,
+        content: contentB,
+        syncCollab: true,
+        expectedVersionHash: live.versionHash,
+      } as never),
+    ]);
+
+    const fulfilled = results.filter((r) => r.status === "fulfilled");
+    const rejected = results.filter((r) => r.status === "rejected");
+
+    // Without the lock, both callers could observe the same live text, both
+    // pass the hash check, and both write — this asserts the TOCTOU is
+    // closed: only one of the two same-base writers may succeed.
+    expect(fulfilled.length).toBe(1);
+    expect(rejected.length).toBe(1);
+    expect(
+      ((rejected[0] as PromiseRejectedResult).reason as Error).message,
+    ).toMatch(/changed since it was read/);
+
+    // The persisted content must be EXACTLY the winner's content — never a
+    // merge/corruption of both, and never silently overwritten by the loser.
+    const finalContent = designFilesStore.rows.get(FILE_ID)!.content;
+    assertWellFormed(finalContent);
+    const winnerWasA = finalContent === contentA;
+    const winnerWasB = finalContent === contentB;
+    expect(winnerWasA || winnerWasB).toBe(true);
+    expect(winnerWasA && winnerWasB).toBe(false);
+
+    const finalLive = await readLiveSourceFile(currentFileRef());
+    expect(finalLive.content).toBe(finalContent);
+  });
+
+  it("a concurrent guarded + legacy (no-hash) pair doesn't corrupt: both are serialized under the same per-file lock", async () => {
+    const live = await readLiveSourceFile(currentFileRef());
+    const guardedContent = buildDoc(" data-guarded-writer");
+    const legacyContent = buildDoc(" data-legacy-writer");
+
+    const results = await Promise.allSettled([
+      updateFileAction.run({
+        id: FILE_ID,
+        content: guardedContent,
+        syncCollab: true,
+        expectedVersionHash: live.versionHash,
+      } as never),
+      // Legacy caller: no expectedVersionHash, still today's last-write-wins
+      // for the VALUE written, but the write itself must be serialized under
+      // the same lock rather than interleaving with the guarded writer's own
+      // read-check-write.
+      updateFileAction.run({
+        id: FILE_ID,
+        content: legacyContent,
+        syncCollab: true,
+      } as never),
+    ]);
+
+    // The legacy caller never fails (it carries no guard), and the guarded
+    // caller may either succeed (if it happened to run first) or fail loud
+    // (if the legacy write landed first and invalidated its hash) — either
+    // outcome is acceptable, corruption is not.
+    const fulfilled = results.filter((r) => r.status === "fulfilled");
+    expect(fulfilled.length).toBeGreaterThanOrEqual(1);
+
+    const finalContent = designFilesStore.rows.get(FILE_ID)!.content;
+    assertWellFormed(finalContent);
+    // The persisted document must be exactly one writer's full content, never
+    // an interleaved/partial merge of both.
+    expect(
+      finalContent === guardedContent || finalContent === legacyContent,
+    ).toBe(true);
+
+    const finalLive = await readLiveSourceFile(currentFileRef());
+    expect(finalLive.content).toBe(finalContent);
+  });
+});
+
 describe("sourceContentHash", () => {
   it("changes whenever content changes (sanity for the expectedVersionHash guard)", () => {
     const a = sourceContentHash(buildDoc());

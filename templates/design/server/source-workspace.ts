@@ -49,7 +49,14 @@ export interface SourceWorkspaceFile {
 // the expectedVersionHash guard — never silently clobbered.
 const _writeLocks = new Map<string, Promise<void>>();
 
-async function withSourceFileWriteLock<T>(
+// Exported so other write paths touching the same per-file critical section
+// (content read -> optimistic-concurrency hash check -> collab/SQL write) can
+// serialize under the SAME lock instead of each guarding independently. Two
+// callers can each pass their own hash check against a live read that's still
+// valid at check time, then both proceed to write — the check alone doesn't
+// prevent the interleave, only serializing the whole read-check-write section
+// per file id does. See actions/update-file.ts's content-write path.
+export async function withSourceFileWriteLock<T>(
   fileId: string,
   fn: () => Promise<T>,
 ): Promise<T> {

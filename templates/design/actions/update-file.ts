@@ -11,6 +11,7 @@ import { and, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { withSourceFileWriteLock } from "../server/source-workspace.js";
 import { sourceContentHash } from "../shared/source-workspace.js";
 
 function rowsAffected(result: unknown): number | undefined {
@@ -111,111 +112,126 @@ export default defineAction({
     // interleave corrupted or lost screen content. When the caller supplies
     // the hash of the content it based this write on, verify the file still
     // matches before writing and fail loud otherwise, mirroring
-    // writeInlineSourceFile's expectedVersionHash contract (the check-then-
-    // write window here matches that existing pattern). Callers that don't
-    // pass a hash keep today's last-write-wins behavior.
-    if (expectedVersionHash !== undefined && content !== undefined) {
-      let liveContent: string;
-      if (await hasCollabState(id)) {
-        liveContent = await getText(id, "content");
-      } else {
-        const [current] = await db
-          .select({ content: schema.designFiles.content })
-          .from(schema.designFiles)
-          .where(eq(schema.designFiles.id, id))
-          .limit(1);
-        liveContent = current?.content ?? "";
-      }
-      if (sourceContentHash(liveContent) !== expectedVersionHash) {
-        throw new Error(
-          "File changed since it was read. Re-read the file and retry.",
-        );
-      }
-    }
-
-    const updates: Record<string, unknown> = { updatedAt: now };
-    if (content !== undefined) updates.content = content;
-    if (filename !== undefined) updates.filename = filename;
-    if (fileType !== undefined) updates.fileType = fileType;
-
-    if (filename !== undefined && isPostgres()) {
-      await db.transaction(async (tx) => {
-        // Postgres evaluates concurrent NOT EXISTS updates under MVCC, so a
-        // guarded UPDATE alone can still race. Serialize design-file renames in
-        // this rare path without using SQLite's fragile async savepoint wrapper.
-        await (
-          tx as unknown as { execute: (query: unknown) => Promise<unknown> }
-        ).execute(sql`LOCK TABLE design_files IN SHARE ROW EXCLUSIVE MODE`);
-        const [collision] = await tx
-          .select({ id: schema.designFiles.id })
-          .from(schema.designFiles)
-          .where(
-            and(
-              eq(schema.designFiles.designId, file.designId),
-              eq(schema.designFiles.filename, filename),
-            ),
-          )
-          .limit(1);
-        if (collision && collision.id !== id) {
+    // writeInlineSourceFile's expectedVersionHash contract.
+    //
+    // TOCTOU fix: the hash check alone is NOT enough — two concurrent
+    // update-file calls can each read the same live text, each pass the hash
+    // check, and then both proceed to write, with the second one silently
+    // winning over a base it never actually re-validated against. Route the
+    // whole hash-check -> write -> collab-sync critical section through the
+    // SAME per-file in-process lock writeInlineSourceFile uses
+    // (withSourceFileWriteLock, server/source-workspace.ts), keyed by file
+    // id, so a second guarded caller's hash check runs AFTER the first
+    // caller's write has fully landed and observes the true current state
+    // (and is rejected by the hash guard instead of interleaving). Callers
+    // that don't pass a hash keep today's last-write-wins behavior for the
+    // VALUE they write, but the write itself is still serialized under the
+    // same lock so it can't interleave with a concurrent guarded writer's own
+    // read-check-write.
+    await withSourceFileWriteLock(id, async () => {
+      if (expectedVersionHash !== undefined && content !== undefined) {
+        let liveContent: string;
+        if (await hasCollabState(id)) {
+          liveContent = await getText(id, "content");
+        } else {
+          const [current] = await db
+            .select({ content: schema.designFiles.content })
+            .from(schema.designFiles)
+            .where(eq(schema.designFiles.id, id))
+            .limit(1);
+          liveContent = current?.content ?? "";
+        }
+        if (sourceContentHash(liveContent) !== expectedVersionHash) {
           throw new Error(
-            `File "${filename}" already exists in design ${file.designId}`,
+            "File changed since it was read. Re-read the file and retry.",
           );
         }
-        await tx
-          .update(schema.designFiles)
-          .set(updates)
-          .where(eq(schema.designFiles.id, id));
-      });
-    } else {
-      // Reject colliding SQLite renames as part of the write. SQLite's local
-      // async transaction wrapper can fail under concurrent editor/collab writes,
-      // so keep this to one guarded UPDATE instead of a SELECT-then-UPDATE window.
-      const updateWhere =
-        filename === undefined
-          ? eq(schema.designFiles.id, id)
-          : and(
-              eq(schema.designFiles.id, id),
-              sql`NOT EXISTS (
+      }
+
+      const updates: Record<string, unknown> = { updatedAt: now };
+      if (content !== undefined) updates.content = content;
+      if (filename !== undefined) updates.filename = filename;
+      if (fileType !== undefined) updates.fileType = fileType;
+
+      if (filename !== undefined && isPostgres()) {
+        await db.transaction(async (tx) => {
+          // Postgres evaluates concurrent NOT EXISTS updates under MVCC, so a
+          // guarded UPDATE alone can still race. Serialize design-file renames in
+          // this rare path without using SQLite's fragile async savepoint wrapper.
+          await (
+            tx as unknown as { execute: (query: unknown) => Promise<unknown> }
+          ).execute(sql`LOCK TABLE design_files IN SHARE ROW EXCLUSIVE MODE`);
+          const [collision] = await tx
+            .select({ id: schema.designFiles.id })
+            .from(schema.designFiles)
+            .where(
+              and(
+                eq(schema.designFiles.designId, file.designId),
+                eq(schema.designFiles.filename, filename),
+              ),
+            )
+            .limit(1);
+          if (collision && collision.id !== id) {
+            throw new Error(
+              `File "${filename}" already exists in design ${file.designId}`,
+            );
+          }
+          await tx
+            .update(schema.designFiles)
+            .set(updates)
+            .where(eq(schema.designFiles.id, id));
+        });
+      } else {
+        // Reject colliding SQLite renames as part of the write. SQLite's local
+        // async transaction wrapper can fail under concurrent editor/collab writes,
+        // so keep this to one guarded UPDATE instead of a SELECT-then-UPDATE window.
+        const updateWhere =
+          filename === undefined
+            ? eq(schema.designFiles.id, id)
+            : and(
+                eq(schema.designFiles.id, id),
+                sql`NOT EXISTS (
                 SELECT 1 FROM design_files AS sibling
                 WHERE sibling.design_id = ${file.designId}
                   AND sibling.filename = ${filename}
                   AND sibling.id <> ${id}
               )`,
+              );
+
+        const updateResult = await db
+          .update(schema.designFiles)
+          .set(updates)
+          .where(updateWhere);
+
+        if (filename !== undefined && rowsAffected(updateResult) === 0) {
+          const [collision] = await db
+            .select({ id: schema.designFiles.id })
+            .from(schema.designFiles)
+            .where(
+              and(
+                eq(schema.designFiles.designId, file.designId),
+                eq(schema.designFiles.filename, filename),
+              ),
+            )
+            .limit(1);
+          if (collision && collision.id !== id) {
+            throw new Error(
+              `File "${filename}" already exists in design ${file.designId}`,
             );
-
-      const updateResult = await db
-        .update(schema.designFiles)
-        .set(updates)
-        .where(updateWhere);
-
-      if (filename !== undefined && rowsAffected(updateResult) === 0) {
-        const [collision] = await db
-          .select({ id: schema.designFiles.id })
-          .from(schema.designFiles)
-          .where(
-            and(
-              eq(schema.designFiles.designId, file.designId),
-              eq(schema.designFiles.filename, filename),
-            ),
-          )
-          .limit(1);
-        if (collision && collision.id !== id) {
-          throw new Error(
-            `File "${filename}" already exists in design ${file.designId}`,
-          );
+          }
         }
       }
-    }
 
-    // Push content through the collab layer so live editors see the change
-    if (content !== undefined && syncCollab) {
-      const collabExists = await hasCollabState(id);
-      if (collabExists) {
-        await applyText(id, content, "content", "agent");
-      } else {
-        await seedFromText(id, content);
+      // Push content through the collab layer so live editors see the change
+      if (content !== undefined && syncCollab) {
+        const collabExists = await hasCollabState(id);
+        if (collabExists) {
+          await applyText(id, content, "content", "agent");
+        } else {
+          await seedFromText(id, content);
+        }
       }
-    }
+    });
 
     // Update the parent design's updatedAt timestamp
     await db
