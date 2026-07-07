@@ -126,10 +126,11 @@ function makeHarness() {
   return { captured, Harness };
 }
 
-/** Flush the reconcile's queueMicrotask + any chained promises. */
+/** Flush the reconcile's timer task + any chained promises. */
 async function flush() {
   await act(async () => {
     await Promise.resolve();
+    await new Promise((resolve) => setTimeout(resolve, 0));
     await Promise.resolve();
   });
 }

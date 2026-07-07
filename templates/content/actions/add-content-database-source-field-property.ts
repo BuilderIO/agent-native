@@ -80,6 +80,14 @@ export default defineAction({
     databaseId: z.string().optional().describe("Database ID"),
     documentId: z.string().optional().describe("Database document/page ID"),
     sourceFieldId: z.string().describe("Source field mapping ID"),
+    sourceId: z
+      .string()
+      .optional()
+      .describe("Source ID for stale field ID fallback"),
+    sourceFieldKey: z
+      .string()
+      .optional()
+      .describe("Stable source field key for stale field ID fallback"),
   }),
   run: async (
     args: AddContentDatabaseSourceFieldPropertyRequest,
@@ -89,10 +97,24 @@ export default defineAction({
     await assertAccess("document", database.documentId, "editor");
 
     const db = getDb();
-    const [field] = await db
+    let [field] = await db
       .select()
       .from(schema.contentDatabaseSourceFields)
       .where(eq(schema.contentDatabaseSourceFields.id, args.sourceFieldId));
+    if (!field && args.sourceId && args.sourceFieldKey) {
+      [field] = await db
+        .select()
+        .from(schema.contentDatabaseSourceFields)
+        .where(
+          and(
+            eq(schema.contentDatabaseSourceFields.sourceId, args.sourceId),
+            eq(
+              schema.contentDatabaseSourceFields.sourceFieldKey,
+              args.sourceFieldKey,
+            ),
+          ),
+        );
+    }
     if (!field) throw new Error("Source field not found.");
 
     const [source] = await db

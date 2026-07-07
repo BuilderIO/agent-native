@@ -93,7 +93,11 @@ const messages = {
     noDocumentSelected: "未選取檔案",
     couldNotReadLocalSourceFile: "無法讀取本機來源檔案",
     couldNotSaveLocalFile: "無法儲存本機檔案",
+    collabConnectingReadOnly: "正在連接即時編輯器。顯示唯讀快照。",
     documentTitle: "檔案標題",
+    builderBodySyncing: "內容仍在從 Builder 同步",
+    builderBodySyncingDescription:
+      "同步 Builder 正文完成前會暫停編輯，避免覆寫既有文章內容。",
     localFileSavedHistoryNotUpdated: "本機檔案已儲存，但歷史紀錄未更新",
     reorderField: "重新排序 {{name}}",
     title: "標題",
@@ -224,6 +228,7 @@ const messages = {
       generatingAltText: "正在生成替代文字...",
       image: "圖片",
       imageAdded: "圖片已新增",
+      imageBroken: "圖片無法載入",
       imageCommentWithAlt: "圖片：{{alt}}",
       imageCopied: "圖片已複製。",
       imageDownloadStarted: "圖片下載開始。",
@@ -285,6 +290,7 @@ const messages = {
       add: "新增",
       addOption: "新增選項",
       addProperty: "新增屬性",
+      addPropertyFailed: "無法新增屬性。",
       addPropertyLink: "新增 {{name}} 連結",
       addPropertyPerson: "新增 {{name}} 人",
       addPropertyType: "新增 {{type}} 屬性",
@@ -607,7 +613,35 @@ const messages = {
     builderBodiesQueued: "{{count}} 個排隊中",
     builderBodySync: "正文同步",
     builderBodySyncFailed: "{{count}} 個失敗",
+    builderBodySyncFailedNotice: "此文章正文無法從 Builder 同步",
+    builderBodySyncFailedDescription:
+      "此列仍可編輯，但 Builder 正文未完成同步。發佈或推送變更前請檢查文章內容。",
+    builderBodySyncing: "內容仍在從 Builder 同步",
+    builderBodySyncingDescription:
+      "同步 Builder 正文完成前會暫停編輯，避免覆寫既有文章內容。",
     builderBodiesHydrated: "已同步 {{hydrated}} / {{total}} 個正文",
+    builderReviewShowingRows:
+      "此次審查顯示 {{total}} 個 Builder 列中的 {{shown}} 個。",
+    builderReviewShowMore: "顯示更多",
+    builderReviewRemainingBatches:
+      "此批次完成後請再次審查，以準備其餘 Builder 變更。",
+    builderBodiesSyncingProgress:
+      "正在同步 {{total}} 個正文中的 {{hydrated}} 個。",
+    builderBodiesSyncFinishedWithFailures:
+      "已同步 {{total}} 個正文中的 {{hydrated}} 個。{{failed}} 個失敗。",
+    builderRowsFetchedBodiesSyncing:
+      "已擷取 {{rows}} 列。正在同步 {{total}} 個正文中的 {{hydrated}} 個。",
+    builderRowsFetchedBodiesSyncFinishedWithFailures:
+      "已擷取 {{rows}} 列。已同步 {{total}} 個正文中的 {{hydrated}} 個。{{failed}} 個失敗。",
+    builderRowsFetchedSyncingBodies:
+      "Builder 列已全部擷取。文章正文仍在同步中。",
+    builderRowsFetched: "已擷取 {{count}} 個 Builder 列",
+    builderRowsFetchingMore: "正在擷取更多列",
+    builderRowsFetchFailed: "列擷取需要處理",
+    builderRowsFetchedSoFar: "目前已擷取 {{count}} 列。",
+    builderRowsFinishingUp: "Builder 列即將完成載入。",
+    builderRowsLoadingBackground: "Builder 仍在背景載入列。",
+    builderRowsLoadingHitSnag: "Builder 列載入遇到問題。",
     closeDatabaseSettings: "關閉資料庫設定",
     closeSearch: "關閉搜尋",
     databaseRowsAndLocalPropertiesWereKeptIntact: "資料庫行和本機屬性已保留。",
@@ -771,6 +805,7 @@ const messages = {
     notMappedToBuilder: "未對應到 Builder。",
     openPage: "開啟頁面",
     openPagesIn: "開啟頁面位置",
+    opening: "正在開啟…",
     previewThisDatabasePageWithoutLeavingTheDatabase:
       "在不離開資料庫的情況下預覽此資料庫頁面。",
     properties: "Properties",

@@ -24,7 +24,11 @@ export async function getNotionDocumentOwner(documentId: string) {
 }
 
 export function resolveDocumentId(args: { documentId?: string; id?: string }) {
-  const documentId = args.documentId || args.id;
-  if (!documentId) throw new Error("documentId is required");
+  const documentId = args.documentId?.trim() || args.id?.trim();
+  if (!documentId) {
+    throw Object.assign(new Error("documentId is required"), {
+      statusCode: 400,
+    });
+  }
   return documentId;
 }

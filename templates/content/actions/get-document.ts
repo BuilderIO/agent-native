@@ -49,9 +49,18 @@ export default defineAction({
     }
 
     const access = await resolveAccess("document", args.id);
-    if (!access) throw new Error(`Document "${args.id}" not found`);
+    // Not-found is a deterministic client-state condition (deleted or
+    // inaccessible document still referenced by an open tab) — 404, not a
+    // 500 that floods the console as Internal Server Error.
+    if (!access) {
+      throw Object.assign(new Error(`Document "${args.id}" not found`), {
+        statusCode: 404,
+      });
+    }
     if (await isSoftDeletedDatabaseDocument(args.id)) {
-      throw new Error(`Document "${args.id}" not found`);
+      throw Object.assign(new Error(`Document "${args.id}" not found`), {
+        statusCode: 404,
+      });
     }
     const doc = access.resource;
     const database = await getDatabaseByDocumentId(doc.id);

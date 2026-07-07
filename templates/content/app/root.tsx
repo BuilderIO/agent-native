@@ -38,6 +38,7 @@ import {
   useLoaderData,
   useLocation,
   useNavigate,
+  useNavigation,
   useRouteLoaderData,
   useRouteError,
 } from "react-router";
@@ -207,6 +208,26 @@ function AppSetup() {
   useDbSync();
   useNavigationState();
   return null;
+}
+
+function RouteTransitionIndicator() {
+  const navigation = useNavigation();
+  const pending = navigation.state !== "idle";
+
+  return (
+    <div
+      className="pointer-events-none fixed inset-x-0 top-0 z-[100] h-0.5 overflow-hidden"
+      aria-hidden={!pending}
+      role="progressbar"
+      data-pending={pending ? "true" : undefined}
+    >
+      <div
+        className={`h-full bg-primary shadow-[0_0_12px_hsl(var(--primary)/0.45)] transition-all duration-200 ${
+          pending ? "w-2/3 opacity-100" : "w-0 opacity-0"
+        }`}
+      />
+    </div>
+  );
 }
 
 function ThemeToggleItem() {
@@ -585,6 +606,7 @@ export default function Root() {
       >
         <AppSetup />
         <Toaster />
+        <RouteTransitionIndicator />
         <ContentCommandMenu open={cmdkOpen} onOpenChange={setCmdkOpen} />
         <Outlet />
       </AppProviders>

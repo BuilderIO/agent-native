@@ -18,7 +18,6 @@ export function DocumentDatabase({ document, canEdit }: DocumentDatabaseProps) {
       databaseId={databaseId}
       databaseDocumentId={document.id}
       canEdit={canEdit}
-      documentOverride={document}
     />
   );
 }

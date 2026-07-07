@@ -1,13 +1,17 @@
 import { describe, expect, it } from "vitest";
 
 import type { ContentDatabaseSource } from "../shared/api";
+import type { BuilderCmsReadResult } from "./_builder-cms-read-client";
 import { serializeBuilderCmsSourceReadMetadataRecord } from "./_database-source-utils";
 import { normalizeContentDatabasePageOptions } from "./_database-utils";
 import addSourceFieldProperty, {
   propertyTypeForSourceField,
   sourceFieldPropertyValuesFromRows,
 } from "./add-content-database-source-field-property";
-import attachSource from "./attach-content-database-source";
+import attachSource, {
+  builderCmsAttachReadMetadata,
+  readInitialBuilderCmsAttachEntries,
+} from "./attach-content-database-source";
 import changeSourceRole from "./change-content-database-source-role";
 import disconnectSource from "./disconnect-content-database-source";
 import executeBatch from "./execute-builder-source-batch";
@@ -16,6 +20,7 @@ import getSource from "./get-content-database-source";
 import listBuilderModels from "./list-builder-cms-models";
 import prepareExecution from "./prepare-builder-source-execution";
 import prepareReview, {
+  BUILDER_SOURCE_REVIEW_PREPARE_LIMIT,
   buildBuilderSourceReviewPayload,
 } from "./prepare-builder-source-review";
 import refreshSource from "./refresh-content-database-source";
@@ -82,6 +87,83 @@ describe("content database source actions", () => {
       relationshipMode: "items",
       limit: 50,
       offset: 25,
+    });
+  });
+
+  it("bounds initial Builder source attachment to a single continuation page", async () => {
+    const calls: Array<{ model: string; maxPages?: number }> = [];
+    const result = await readInitialBuilderCmsAttachEntries(
+      "blog-article",
+      async (args) => {
+        calls.push({ model: args.model, maxPages: args.maxPages });
+        return {
+          state: "live",
+          entries: [],
+          fetchedAt: "2026-01-01T00:00:00.000Z",
+          message: null,
+          progress: {
+            requestedLimit: 500,
+            pageSize: 100,
+            startOffset: 0,
+            nextOffset: 0,
+            fetchedEntryCount: 0,
+            hasMore: false,
+            partial: false,
+            readMode: "builder-api",
+          },
+        };
+      },
+    );
+
+    expect(result.state).toBe("live");
+    expect(calls).toEqual([{ model: "blog-article", maxPages: 1 }]);
+  });
+
+  it("marks partial Builder source attachment reads as continuing work", () => {
+    expect(
+      builderCmsAttachReadMetadata({
+        state: "live",
+        entries: [{ id: "entry-1" }],
+        fetchedAt: "2026-01-01T00:00:00.000Z",
+        message: null,
+        progress: {
+          requestedLimit: 500,
+          pageSize: 100,
+          startOffset: 0,
+          nextOffset: 1,
+          fetchedEntryCount: 1,
+          hasMore: true,
+          partial: true,
+          readMode: "builder-api",
+        },
+      } as BuilderCmsReadResult),
+    ).toMatchObject({
+      sourceFetchState: "fetching",
+      syncState: "refreshing",
+      activeReadSourceRowIds: ["entry-1"],
+    });
+
+    expect(
+      builderCmsAttachReadMetadata({
+        state: "error",
+        entries: [],
+        fetchedAt: "2026-01-01T00:00:00.000Z",
+        message: "Builder read failed.",
+        progress: {
+          requestedLimit: 500,
+          pageSize: 100,
+          startOffset: 0,
+          nextOffset: 0,
+          fetchedEntryCount: 0,
+          hasMore: false,
+          partial: false,
+          readMode: "builder-api",
+        },
+      }),
+    ).toMatchObject({
+      sourceFetchState: "error",
+      syncState: "error",
+      activeReadSourceRowIds: undefined,
     });
   });
 
@@ -457,5 +539,8 @@ describe("content database source actions", () => {
     expect(review.rows[0]?.title).toBe("New title");
     expect(review.rows[0]?.fieldChanges[0]?.sourceFieldKey).toBe("data.title");
     expect(review.result.message).toContain("Push will check the update only");
+    expect(BUILDER_SOURCE_REVIEW_PREPARE_LIMIT).toBe(100);
+    expect(review.totalRowCount).toBe(1);
+    expect(review.preparedRowLimit).toBe(1);
   });
 });

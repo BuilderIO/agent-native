@@ -165,6 +165,60 @@ async function databaseRow(databaseId: string) {
 }
 
 describe("inline database lifecycle reconcile", () => {
+  it("does not let a stale empty preview save replace a newer hydrated body", async () => {
+    const documentId = await createDocument({
+      title: "Builder row",
+      content: "",
+    });
+    const loadedUpdatedAt = "2026-07-02T12:00:00.000Z";
+    const hydratedUpdatedAt = "2026-07-02T12:00:02.000Z";
+    const db = getDb();
+    await db
+      .update(schema.documents)
+      .set({
+        content: "Hydrated Builder body",
+        updatedAt: hydratedUpdatedAt,
+      })
+      .where(eq(schema.documents.id, documentId));
+
+    const result = await runWithRequestContext({ userEmail: OWNER }, () =>
+      updateDocumentAction.run({
+        id: documentId,
+        content: "<empty-block/>",
+        loadedUpdatedAt,
+      }),
+    );
+
+    expect(result.content).toBe("Hydrated Builder body");
+    expect((await documentRow(documentId))?.content).toBe(
+      "Hydrated Builder body",
+    );
+  });
+
+  it("allows an empty-body clear when the preview baseline is current", async () => {
+    const updatedAt = "2026-07-02T12:00:02.000Z";
+    const documentId = await createDocument({
+      title: "Builder row",
+      content: "Hydrated Builder body",
+    });
+    const db = getDb();
+    await db
+      .update(schema.documents)
+      .set({ updatedAt })
+      .where(eq(schema.documents.id, documentId));
+
+    const result = await runWithRequestContext({ userEmail: OWNER }, () =>
+      updateDocumentAction.run({
+        id: documentId,
+        content: "<empty-block/>",
+        loadedUpdatedAt: updatedAt,
+      }),
+    );
+
+    expect(result.content).toBe("<empty-block/>");
+    expect((await documentRow(documentId))?.content).toBe("<empty-block/>");
+  });
+
   it("soft-deletes an owned inline database when its owner block is removed", async () => {
     const hostDocumentId = await createDocument({ title: "Host" });
     const ownerBlockId = nextId("inline_database");
@@ -314,11 +368,12 @@ describe("inline database lifecycle reconcile", () => {
 
 describe("content database soft-delete actions and reads", () => {
   it("delete-content-database and restore-content-database round-trip deleted_at", async () => {
-    const { databaseId } = await createDatabase({});
+    const { databaseId, databaseDocumentId } = await createDatabase({});
 
     const deleted = await runWithRequestContext({ userEmail: OWNER }, () =>
       deleteContentDatabaseAction.run({ databaseId }),
     );
+    expect(deleted.documentId).toBe(databaseDocumentId);
     expect(deleted.deletedAt).toEqual(expect.any(String));
     expect((await databaseRow(databaseId))?.deletedAt).toEqual(
       deleted.deletedAt,
@@ -327,6 +382,7 @@ describe("content database soft-delete actions and reads", () => {
     const restored = await runWithRequestContext({ userEmail: OWNER }, () =>
       restoreContentDatabaseAction.run({ databaseId }),
     );
+    expect(restored.documentId).toBe(databaseDocumentId);
     expect(restored.deletedAt).toBeNull();
     expect((await databaseRow(databaseId))?.deletedAt).toBeNull();
   });

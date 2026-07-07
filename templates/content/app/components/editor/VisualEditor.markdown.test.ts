@@ -56,6 +56,10 @@ function createFullEditor(content = "") {
   });
 }
 
+function waitForDeferredCallback() {
+  return new Promise((resolve) => setTimeout(resolve, 0));
+}
+
 function triggerTextInput(editor: Editor, text: string) {
   const { from, to } = editor.state.selection;
   let handled = false;
@@ -852,7 +856,7 @@ describe("VisualEditor markdown round-tripping", () => {
       editor.commands.setTextSelection(1);
 
       expect(triggerKeyDown(editor, "Backspace")).toBe(true);
-      await Promise.resolve();
+      await waitForDeferredCallback();
       expect(joinedText).toBe("");
       expect(editor.getJSON()).toMatchObject({
         type: "doc",
@@ -884,7 +888,7 @@ describe("VisualEditor markdown round-tripping", () => {
       editor.commands.setTextSelection(1);
 
       expect(triggerKeyDown(editor, "Delete")).toBe(true);
-      await Promise.resolve();
+      await waitForDeferredCallback();
       expect(joinedText).toBe("");
       expect(editor.getJSON()).toMatchObject({
         type: "doc",
@@ -922,7 +926,7 @@ describe("VisualEditor markdown round-tripping", () => {
       editor.commands.setTextSelection(1);
 
       expect(triggerKeyDown(editor, "Backspace")).toBe(true);
-      await Promise.resolve();
+      await waitForDeferredCallback();
       expect(joinedText).toBe("Move me up");
       expect(editor.getJSON()).toMatchObject({
         type: "doc",

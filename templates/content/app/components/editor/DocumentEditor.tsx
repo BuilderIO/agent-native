@@ -11,7 +11,7 @@ import {
   type CollabUser,
 } from "@agent-native/core/client";
 import type { Document, DocumentSyncStatus } from "@shared/api";
-import { IconArrowLeft, IconDatabase } from "@tabler/icons-react";
+import { IconArrowLeft, IconDatabase, IconLoader2 } from "@tabler/icons-react";
 import { IconLock } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import {
@@ -54,6 +54,11 @@ import {
 } from "@/lib/local-content-source-files";
 import { cn } from "@/lib/utils";
 
+import {
+  documentBodyHydrationIsPending,
+  isEffectivelyEmptyDocumentContent,
+} from "./body-hydration";
+import { BuilderBodySyncingNotice } from "./BuilderBodySyncingNotice";
 import type { CommentTextAnchor } from "./comment-anchors";
 import { CommentsSidebar } from "./CommentsSidebar";
 import { DocumentBlockFields } from "./DocumentBlockFields";
@@ -309,7 +314,6 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
   );
   const canEdit = document.canEdit ?? true;
   const canEditRef = useRef(canEdit);
-  canEditRef.current = canEdit;
   // The block render context (asset/upload resolvers, inline markdown reader,
   // panel popover) is stable for the editor's lifetime. Created once here and
   // provided alongside the content block registry so every registry block in the
@@ -468,6 +472,10 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
     requestSource: TAB_ID,
     user: currentUser,
   });
+  const bodyHydrationPending = documentBodyHydrationIsPending(document);
+  const editorCanEdit =
+    canEdit && !bodyHydrationPending && (isLocalFileDocument || !collabLoading);
+  canEditRef.current = editorCanEdit;
 
   // Initialize from fetched document, reset on document switch
   useEffect(() => {
@@ -601,7 +609,14 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
     const serverContent = document.content;
     const lastSaved = lastSavedContentRef.current;
     if (serverContent === lastSaved.content) return;
-    const adopt = localContent === lastSaved.content || contentExternalIsNewer;
+    const staleEmptyLocalOverFreshServer =
+      isEffectivelyEmptyDocumentContent(lastSaved.content) &&
+      isEffectivelyEmptyDocumentContent(localContent) &&
+      !isEffectivelyEmptyDocumentContent(serverContent);
+    const adopt =
+      localContent === lastSaved.content ||
+      contentExternalIsNewer ||
+      staleEmptyLocalOverFreshServer;
     if (adopt) {
       if (saveTimeoutRef.current) {
         clearTimeout(saveTimeoutRef.current);
@@ -701,6 +716,13 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
             : undefined;
         return await updateDocument.mutateAsync({
           id: documentId,
+          loadedUpdatedAt: documentUpdatedAtRef.current ?? undefined,
+          loadedContentWasEmpty:
+            updates.content !== undefined
+              ? isEffectivelyEmptyDocumentContent(
+                  lastSavedContentRef.current.content,
+                )
+              : undefined,
           ...updates,
           ...(baseUpdatedAt !== undefined ? { baseUpdatedAt } : {}),
         });
@@ -997,7 +1019,7 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
   // key we force an immediate (non-debounced) save of the current editor
   // state, then delete the key so `pull-document` knows the flush landed.
   useEffect(() => {
-    if (!canEdit || isLocalFileDocument) return;
+    if (!editorCanEdit || isLocalFileDocument) return;
     let active = true;
     const flushKey = `flush-request-${documentId}`;
     const flushPath = agentNativePath(
@@ -1060,29 +1082,29 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
       active = false;
       clearTimeout(timer);
     };
-  }, [canEdit, documentId, isLocalFileDocument, persistDocumentUpdates]);
+  }, [documentId, editorCanEdit, isLocalFileDocument, persistDocumentUpdates]);
 
   const handleTitleChange = useCallback(
     (newTitle: string) => {
-      if (!canEdit) return;
+      if (!editorCanEdit) return;
       setLocalTitle(newTitle);
       debouncedSave(newTitle, localContentRef.current);
     },
-    [canEdit, debouncedSave],
+    [debouncedSave, editorCanEdit],
   );
 
   const handleContentChange = useCallback(
     (newContent: string) => {
-      if (!canEdit) return;
+      if (!editorCanEdit) return;
       setLocalContent(newContent);
       debouncedSave(localTitleRef.current, newContent);
     },
-    [canEdit, debouncedSave],
+    [debouncedSave, editorCanEdit],
   );
 
   const handleContentSaveNow = useCallback(
     async (newContent: string) => {
-      if (!canEdit) return false;
+      if (!editorCanEdit) return false;
       if (saveTimeoutRef.current) {
         clearTimeout(saveTimeoutRef.current);
         saveTimeoutRef.current = null;
@@ -1096,7 +1118,7 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
       );
       return result.contentPersisted;
     },
-    [canEdit, saveDocumentImmediately],
+    [editorCanEdit, saveDocumentImmediately],
   );
 
   // Comments state — pending comment from text selection
@@ -1114,11 +1136,12 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
   );
   const hasComments =
     !isLocalFileDocument &&
-    canEdit &&
+    editorCanEdit &&
     ((threads?.length ?? 0) > 0 || !!pendingComment);
   const hasCommentRailSpace = useMinViewportWidth(1024);
   const showDesktopComments = hasComments && hasCommentRailSpace;
-  const showCommentsSheet = hasComments && canEdit && !showDesktopComments;
+  const showCommentsSheet =
+    hasComments && editorCanEdit && !showDesktopComments;
 
   const handleComment = useCallback(
     (
@@ -1175,7 +1198,7 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
 
   const handleTitlePaste = useCallback(
     (event: ClipboardEvent<HTMLTextAreaElement>) => {
-      if (!canEdit) return;
+      if (!editorCanEdit) return;
 
       const pastedText = event.clipboardData.getData("text/plain");
       if (!pastedText) return;
@@ -1196,12 +1219,12 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
         titleInputRef.current?.setSelectionRange(nextCaret, nextCaret);
       });
     },
-    [canEdit, handleTitleChange, localTitle],
+    [editorCanEdit, handleTitleChange, localTitle],
   );
 
   // Auto-focus title on new empty documents once collab finishes loading
   useEffect(() => {
-    if (canEdit && !collabLoading && shouldFocusTitleRef.current) {
+    if (editorCanEdit && shouldFocusTitleRef.current) {
       shouldFocusTitleRef.current = false;
       requestAnimationFrame(() => titleInputRef.current?.focus());
     }
@@ -1211,10 +1234,6 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
     () => documentEditorBreadcrumbItems(document, documents),
     [document, documents],
   );
-
-  if (!isLocalFileDocument && collabLoading) {
-    return <DocumentEditorSkeleton />;
-  }
 
   const sidebar = (
     <CommentsSidebar
@@ -1315,7 +1334,7 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
                   />
                   {document.icon || !isDatabasePage ? (
                     <div className="mb-1">
-                      {canEdit ? (
+                      {editorCanEdit ? (
                         <EmojiPicker
                           icon={document.icon}
                           defaultIcon={defaultIcon}
@@ -1376,6 +1395,7 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
                       titleFocusedRef.current = false;
                     }}
                     onKeyDown={(e) => {
+                      if (!editorCanEdit) return;
                       if (e.key === "Enter") {
                         e.preventDefault();
                         const pm = window.document.querySelector(
@@ -1386,7 +1406,7 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
                     }}
                     aria-label={t("editor.documentTitle")}
                     placeholder={t("editor.title")}
-                    readOnly={!canEdit}
+                    readOnly={!editorCanEdit}
                     style={{ fieldSizing: "content" } as any}
                     className={cn(
                       "block w-full resize-none overflow-hidden break-words border-none bg-transparent p-0 font-bold leading-tight text-foreground outline-none placeholder:text-muted-foreground/40",
@@ -1396,7 +1416,7 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
                   {document.databaseMembership && !isLocalFileDocument ? (
                     <DocumentProperties
                       documentId={documentId}
-                      canEdit={canEdit}
+                      canEdit={editorCanEdit}
                     />
                   ) : null}
                 </div>
@@ -1418,6 +1438,17 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
                   }}
                 >
                   {(() => {
+                    if (bodyHydrationPending) {
+                      return (
+                        <BuilderBodySyncingNotice
+                          title={t("editor.builderBodySyncing")}
+                          description={t(
+                            "editor.builderBodySyncingDescription",
+                          )}
+                        />
+                      );
+                    }
+
                     // The primary "Content" Blocks field IS the document body,
                     // with the full collaborative editor. It renders chromeless
                     // when it's the only Blocks field, or inside a
@@ -1425,7 +1456,7 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
                     // fields.
                     const primaryEditor = (
                       <VisualEditor
-                        key={documentId}
+                        key={`${documentId}:${editorCanEdit && !isLocalFileDocument ? "live" : "snapshot"}`}
                         documentId={documentId}
                         content={
                           isLocalFileDocument ? localContent : document.content
@@ -1445,13 +1476,13 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
                         collabSynced={collabEnabled ? collabSynced : true}
                         awareness={collabEnabled ? awareness : null}
                         user={currentUser}
-                        editable={canEdit}
+                        editable={editorCanEdit}
                         localFileMode={isLocalFileDocument}
                         localFilePath={
                           isLocalFileDocument ? document.source?.path : null
                         }
                         onComment={
-                          canEdit && !isLocalFileDocument
+                          editorCanEdit && !isLocalFileDocument
                             ? handleComment
                             : undefined
                         }
@@ -1459,7 +1490,7 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
                         activeThreadId={activeThreadId}
                         pendingHighlight={pendingComment?.range ?? null}
                         onActivateThread={
-                          canEdit && !isLocalFileDocument
+                          editorCanEdit && !isLocalFileDocument
                             ? setSelectedThreadId
                             : undefined
                         }
@@ -1476,7 +1507,7 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
                       return (
                         <DocumentBlockFields
                           documentId={documentId}
-                          canEdit={canEdit}
+                          canEdit={editorCanEdit}
                           primaryEditor={primaryEditor}
                         />
                       );
@@ -1484,6 +1515,17 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
 
                     return primaryEditor;
                   })()}
+                  {!bodyHydrationPending &&
+                  !isLocalFileDocument &&
+                  collabLoading ? (
+                    <div
+                      className="mt-4 inline-flex items-center gap-2 rounded-md border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground"
+                      role="status"
+                    >
+                      <IconLoader2 className="size-3.5 animate-spin" />
+                      {t("editor.collabConnectingReadOnly")}
+                    </div>
+                  ) : null}
                 </div>
               </div>
 
