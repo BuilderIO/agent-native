@@ -1395,6 +1395,105 @@ describe("moveNodeBetweenDocuments", () => {
     // Moved content is present
     expect(result.destHtml).toContain("Deep");
   });
+
+  // Regression for the cross-screen "drop lands inside <template> markup"
+  // corruption bug: findClosingTag used to do a naive "first </tag> after
+  // `from`" search for NON_VISUAL_TAGS (template/script/style/etc), which
+  // broke the instant the same tag nested inside itself (a completely
+  // ordinary Alpine x-if-wrapping-x-for pattern). That matched the INNER
+  // </template> and desynced the whole parse, corrupting contentEnd tracking
+  // for real elements and letting body-append land inside template interiors
+  // (invisible, Alpine-cloned, unselectable afterward).
+  it("no-anchor body-append never lands inside a nested <template> — template depth 2 (x-if wrapping x-for)", () => {
+    const sourceHtml = `<body><div data-agent-native-node-id="move-me">Move</div></body>`;
+    const destHtml =
+      `<body>` +
+      `<template x-if="true"><ul><template x-for="t in tasks"><li>Task</li></template></ul></template>` +
+      `<div data-agent-native-node-id="real">Real content</div>` +
+      `</body>`;
+
+    const result = moveNodeBetweenDocuments(sourceHtml, destHtml, {
+      nodeId: "move-me",
+    });
+
+    expect(result.status).toBe("applied");
+    // Must land after the outer </template>, not inside the nested <ul>.
+    const templateCloseIdx = result.destHtml.lastIndexOf("</template>");
+    const movedIdx = result.destHtml.indexOf(
+      `data-agent-native-node-id="move-me"`,
+    );
+    expect(movedIdx).toBeGreaterThan(templateCloseIdx);
+    // The moved node must be a sibling of <body>'s real content, not nested
+    // inside the <ul> that lives inside the templates.
+    const ulOpenIdx = result.destHtml.indexOf("<ul>");
+    const ulCloseIdx = result.destHtml.indexOf("</ul>");
+    expect(movedIdx < ulOpenIdx || movedIdx > ulCloseIdx).toBe(true);
+    // Real (non-template) sibling content must be untouched and still present.
+    expect(result.destHtml).toContain("Real content");
+  });
+
+  it("no-anchor body-append is unaffected by a single-level <template> (no nesting)", () => {
+    const sourceHtml = `<body><div data-agent-native-node-id="move-me">Move</div></body>`;
+    const destHtml = `<body><template x-if="true"><li>Task</li></template><div data-agent-native-node-id="real">Real</div></body>`;
+
+    const result = moveNodeBetweenDocuments(sourceHtml, destHtml, {
+      nodeId: "move-me",
+    });
+
+    expect(result.status).toBe("applied");
+    expect(result.destHtml).toContain("Real");
+    const templateCloseIdx = result.destHtml.indexOf("</template>");
+    const movedIdx = result.destHtml.indexOf(
+      `data-agent-native-node-id="move-me"`,
+    );
+    expect(movedIdx).toBeGreaterThan(templateCloseIdx);
+  });
+
+  it("anchored insert (placement inside) never lands inside a nested <template> even when the anchor itself precedes templates", () => {
+    const sourceHtml = `<body><div data-agent-native-node-id="move-me">Move</div></body>`;
+    const destHtml =
+      `<body>` +
+      `<div data-agent-native-node-id="container">` +
+      `<template x-if="true"><ul><template x-for="t in tasks"><li>Task</li></template></ul></template>` +
+      `</div>` +
+      `</body>`;
+
+    const result = moveNodeBetweenDocuments(sourceHtml, destHtml, {
+      nodeId: "move-me",
+      anchorNodeId: "container",
+      placement: "inside",
+    });
+
+    expect(result.status).toBe("applied");
+    // Must not be spliced inside the nested <ul> (inside the templates).
+    const ulOpenIdx = result.destHtml.indexOf("<ul>");
+    const ulCloseIdx = result.destHtml.indexOf("</ul>");
+    const movedIdx = result.destHtml.indexOf(
+      `data-agent-native-node-id="move-me"`,
+    );
+    expect(movedIdx < ulOpenIdx || movedIdx > ulCloseIdx).toBe(true);
+  });
+
+  it("re-parses correctly after a triple-nested same-tag NON_VISUAL_TAGS scenario (template^3)", () => {
+    const sourceHtml = `<body><div data-agent-native-node-id="move-me">Move</div></body>`;
+    const destHtml =
+      `<body>` +
+      `<template x-if="a"><template x-if="b"><template x-if="c"><span>Deep</span></template></template></template>` +
+      `<div data-agent-native-node-id="real">Real</div>` +
+      `</body>`;
+
+    const result = moveNodeBetweenDocuments(sourceHtml, destHtml, {
+      nodeId: "move-me",
+    });
+
+    expect(result.status).toBe("applied");
+    expect(result.destHtml).toContain("Real");
+    const lastTemplateCloseIdx = result.destHtml.lastIndexOf("</template>");
+    const movedIdx = result.destHtml.indexOf(
+      `data-agent-native-node-id="move-me"`,
+    );
+    expect(movedIdx).toBeGreaterThan(lastTemplateCloseIdx);
+  });
 });
 
 describe("autoLayout (regression)", () => {

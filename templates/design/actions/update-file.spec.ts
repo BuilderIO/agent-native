@@ -388,4 +388,68 @@ describe("update-file: expectedVersionHash / syncCollab regression baseline", ()
     // filename must NOT have been renamed either.
     expect(designFilesStore.rows.get(FILE_ID)!.filename).toBe("index.html");
   });
+
+  // Regression for the within-screen drag-reorder "edits after the first one
+  // in a session are silently lost on reload" bug: a single client's own
+  // edit reaches the live collab doc via the fast Yjs/websocket path (~80ms
+  // debounce) and via THIS guarded update-file call (~400ms debounce) as two
+  // independent, unordered transports. In the common case the Yjs path wins
+  // the race, so by the time this guarded call's hash check runs, the live
+  // collab text already equals the very `content` this call is about to
+  // write — that is the client's OWN edit having landed early via a
+  // different transport, not a different editor's divergent edit. The old
+  // hash-only guard couldn't tell the two apart and treated it as staleness,
+  // permanently skipping the SQL mirror write (there's no background job
+  // that later reconciles design_files.content from the live collab doc —
+  // see hasCollabState/getText usage above), silently losing every edit
+  // after the first one applied in a session.
+  it("7. syncCollab:false + mismatched hash BUT live collab text already equals the content being written (own edit raced ahead via Yjs): writes normally, not skipped", async () => {
+    const next = buildDoc(" own-edit-already-landed-via-yjs-");
+    // Simulate the Yjs/websocket path having already applied this exact
+    // edit to the live collab doc before this guarded call's hash check runs.
+    await applyText(FILE_ID, next, "content", "agent");
+    // expectedVersionHash is the hash of content BEFORE this edit (the base
+    // this write was queued from) — deliberately stale relative to the live
+    // text now, exactly like the real queueFileContentSave call shape.
+    const staleHash = sourceContentHash(buildDoc());
+
+    const result = await updateFileAction.run({
+      id: FILE_ID,
+      content: next,
+      syncCollab: false,
+      expectedVersionHash: staleHash,
+    } as never);
+
+    // Must NOT be skipped: this is the same edit, not a divergent one.
+    expect(result).toEqual({ id: FILE_ID, updated: true });
+    expect(designFilesStore.rows.get(FILE_ID)!.content).toBe(next);
+  });
+
+  it("8. syncCollab:false + mismatched hash + live text DIFFERS from content being written (genuine concurrent editor): still skipped, own-edit fast-path does not weaken the real guard", async () => {
+    // A genuinely different editor's edit lands in the collab doc.
+    await applyText(
+      FILE_ID,
+      buildDoc(" a-different-editors-edit-"),
+      "content",
+      "agent",
+    );
+    const staleHash = sourceContentHash(buildDoc());
+    const sqlContentBefore = designFilesStore.rows.get(FILE_ID)!.content;
+
+    const result = await updateFileAction.run({
+      id: FILE_ID,
+      // This caller's own content is NOT what's live now — a genuine
+      // divergent-base case, must still hit the skip path exactly as before.
+      content: buildDoc(" callers-own-different-content-"),
+      syncCollab: false,
+      expectedVersionHash: staleHash,
+    } as never);
+
+    expect(result).toEqual({
+      id: FILE_ID,
+      updated: true,
+      skippedStaleMirror: true,
+    });
+    expect(designFilesStore.rows.get(FILE_ID)!.content).toBe(sqlContentBefore);
+  });
 });

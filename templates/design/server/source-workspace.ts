@@ -94,6 +94,16 @@ export interface SourceWorkspaceContext {
   sourceType: DesignSourceType;
   canEdit: boolean;
   files: SourceWorkspaceFile[];
+  /**
+   * The design's reserved board overlay file id (designs.data.boardFileId),
+   * when one has been created. The board file is deliberately excluded from
+   * `files` above (see isBoardFile filter below) since it isn't a source
+   * file the code workbench edits — callers that need to recognize "this id
+   * is the board, not a missing file" (e.g. read-source-file's graceful
+   * no-op) should check against this instead of treating an unresolved id
+   * as an error.
+   */
+  boardFileId: string | null;
 }
 
 function parseDesignDataSourceType(value: unknown): DesignSourceType {
@@ -108,6 +118,20 @@ function parseDesignDataSourceType(value: unknown): DesignSourceType {
     // Invalid design data falls back to inline, matching existing actions.
   }
   return "inline";
+}
+
+function parseDesignDataBoardFileId(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  try {
+    const parsed: unknown = JSON.parse(value);
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      const raw = (parsed as Record<string, unknown>).boardFileId;
+      return typeof raw === "string" && raw.length > 0 ? raw : null;
+    }
+  } catch {
+    // Invalid design data — no board file id available.
+  }
+  return null;
 }
 
 function roleCanEdit(role: unknown): boolean {
@@ -147,13 +171,13 @@ export async function resolveSourceWorkspace(
         .from(schema.designFiles)
         .where(eq(schema.designFiles.designId, designId));
 
+  const resourceData = (access.resource as { data?: unknown }).data;
   return {
     designId,
-    sourceType: parseDesignDataSourceType(
-      (access.resource as { data?: unknown }).data,
-    ),
+    sourceType: parseDesignDataSourceType(resourceData),
     canEdit: roleCanEdit(access.role),
     files: files.filter((file) => !isBoardFile(file.filename)),
+    boardFileId: parseDesignDataBoardFileId(resourceData),
   };
 }
 

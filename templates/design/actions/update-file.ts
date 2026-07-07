@@ -163,6 +163,22 @@ export default defineAction({
       // trying to sync into collab in the first place. Every other
       // expectedVersionHash combination (syncCollab true/default, or no live
       // collab state, or a matching hash, or no hash at all) is UNCHANGED.
+      //
+      // Own-edit false-positive fix: a single client's own edit reaches the
+      // live collab doc via TWO independent, unordered paths — the Yjs
+      // update (~80ms client debounce, applied to the server's in-memory doc
+      // as soon as its POST lands) and this guarded update-file call (~400ms
+      // client debounce). The Yjs path usually wins the race, so by the time
+      // this call's hash check runs, `liveContent` often already equals the
+      // very `content` this call is trying to write — that is NOT a
+      // divergent concurrent edit, it's the same edit having arrived early
+      // by a different transport. Comparing hashes first would reject that
+      // as "stale" and permanently skip the SQL mirror write (there is no
+      // background job that later reconciles design_files.content from the
+      // live collab doc — see hasCollabState below), silently losing writes
+      // on every edit after the first in a session. Check content equality
+      // BEFORE the hash comparison so this exact-match case always proceeds
+      // as a normal write instead of hitting either the skip or throw path.
       let skipContentWrite = false;
       if (expectedVersionHash !== undefined && content !== undefined) {
         const collabExists = await hasCollabState(id);
@@ -177,7 +193,10 @@ export default defineAction({
             .limit(1);
           liveContent = current?.content ?? "";
         }
-        if (sourceContentHash(liveContent) !== expectedVersionHash) {
+        if (
+          liveContent !== content &&
+          sourceContentHash(liveContent) !== expectedVersionHash
+        ) {
           if (syncCollab === false && collabExists) {
             skipContentWrite = true;
             skippedStaleMirror = true;

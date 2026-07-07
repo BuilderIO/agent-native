@@ -3240,6 +3240,24 @@ function elementAtPortableStylePath(
   return current;
 }
 
+// Cross-screen moves must never bake editor-internal CSS custom properties
+// (selection chrome colors, editor-chrome scale compensation, framework
+// clipboard/surface tokens) into persisted user HTML — they leak into
+// exports and have no meaning outside this editor session. The capture side
+// (bridge collectPortableComputedStyles) sweeps every visible custom
+// property indiscriminately; filter them back out here on the apply side.
+const EDITOR_INTERNAL_CSS_VAR_PREFIXES = [
+  "--design-editor-",
+  "--agent-native-editor-chrome-",
+  "--agent-native-",
+];
+
+export function isEditorInternalCssVar(property: string): boolean {
+  return EDITOR_INTERNAL_CSS_VAR_PREFIXES.some((prefix) =>
+    property.startsWith(prefix),
+  );
+}
+
 function applyPortableStyles(
   element: Element | null,
   styles: Record<string, string>,
@@ -3249,7 +3267,12 @@ function applyPortableStyles(
   if (!host) return;
   Object.entries(styles).forEach(([property, value]) => {
     if (!value) return;
-    if (property.startsWith("--") || property.includes("-")) {
+    if (property.startsWith("--")) {
+      if (isEditorInternalCssVar(property)) return;
+      host.style.setProperty(property, value);
+      return;
+    }
+    if (property.includes("-")) {
       host.style.setProperty(property, value);
       return;
     }
@@ -3257,12 +3280,44 @@ function applyPortableStyles(
   });
 }
 
-function applyPortableStyleSnapshotToHtml(
+// True when two documents' <head> markup (styles/links/design tokens) are
+// byte-identical, e.g. a screen duplicated from the same source. In that
+// case a cross-screen move needs zero portable style baking to preserve
+// appearance — the destination already cascades identically.
+export function sameStylesheetHead(
+  sourceHtml: string,
+  destHtml: string,
+): boolean {
+  if (typeof window === "undefined") return false;
+  try {
+    const parser = new DOMParser();
+    const sourceHead = parser.parseFromString(sourceHtml, "text/html").head
+      ?.innerHTML;
+    const destHead = parser.parseFromString(destHtml, "text/html").head
+      ?.innerHTML;
+    return (
+      typeof sourceHead === "string" &&
+      typeof destHead === "string" &&
+      sourceHead === destHead
+    );
+  } catch {
+    return false;
+  }
+}
+
+export function applyPortableStyleSnapshotToHtml(
   content: string,
   nodeAttrId: string,
   snapshot?: PortableStyleSnapshot,
+  sourceContent?: string,
 ): string {
   if (typeof window === "undefined" || !snapshot?.nodes?.length) {
+    return content;
+  }
+  // Same-stylesheet fast path: source and dest cascade identically (e.g. a
+  // duplicated screen), so no inline styles are needed to preserve
+  // appearance — skip baking entirely and keep the move lossless.
+  if (sourceContent && sameStylesheetHead(sourceContent, content)) {
     return content;
   }
   try {
@@ -3271,11 +3326,20 @@ function applyPortableStyleSnapshotToHtml(
       `[data-agent-native-node-id="${CSS.escape(nodeAttrId)}"]`,
     );
     if (!root) return content;
-    root.setAttribute("data-agent-native-preserve-styles", "true");
+    let appliedAny = false;
     snapshot.nodes.forEach((node) => {
       const target = elementAtPortableStylePath(root, node);
-      if (target) applyPortableStyles(target, node.styles);
+      if (!target) return;
+      const filteredEntries = Object.entries(node.styles).filter(
+        ([property, value]) => value && !isEditorInternalCssVar(property),
+      );
+      if (filteredEntries.length === 0) return;
+      applyPortableStyles(target, Object.fromEntries(filteredEntries));
+      appliedAny = true;
     });
+    if (appliedAny) {
+      root.setAttribute("data-agent-native-preserve-styles", "true");
+    }
     return `<!DOCTYPE html>\n${doc.documentElement.outerHTML}`;
   } catch {
     return content;
@@ -10757,16 +10821,68 @@ export default function DesignEditor() {
   // canvas iframe, but the iframe has its own event context so it still receives
   // pointer events that pass through the popover layer. This shield prevents
   // unintended drag/style edits triggered by clicks intended for the inspector.
+  //
+  // Stuck-shield fix (two independent causes, both fixed here):
+  //
+  // 1. Detection staleness: Radix's Portal container for a given trigger is
+  //    created ONCE and reused across opens — only its CONTENTS (and its own
+  //    data-state attribute) change on subsequent opens/closes, the wrapper
+  //    node itself is not removed from document.body. Selecting a
+  //    DropdownMenuItem (as opposed to Escape, which does tear the wrapper
+  //    out of the DOM) closes the menu via that reused-wrapper path, so a
+  //    body-only, subtree:false observer never fires again after the FIRST
+  //    popover interaction. Fixed by watching the whole subtree and
+  //    data-state attribute changes, so a close-via-reused-wrapper is
+  //    detected exactly like a close-via-removal.
+  //
+  // 2. False-positive source: `[data-radix-popper-content-wrapper]` is not
+  //    specific to menus/popovers — Radix's Tooltip primitive uses the same
+  //    Popper machinery and stamps the identical wrapper attribute (see
+  //    TooltipContent in packages/toolkit/src/ui/tooltip.tsx, which adds
+  //    `data-agent-native-tooltip="true"` on its own Content node
+  //    specifically so callers like this one can tell tooltips apart from
+  //    real menus/popovers). The zoom control's trigger button is wrapped in
+  //    both a Tooltip AND a DropdownMenu (renderZoomControl): closing the
+  //    dropdown by selecting an item can leave the hover-triggered tooltip's
+  //    own portal open (or briefly re-open on the same tick), which this
+  //    selector cannot distinguish from a real open menu — so the shield
+  //    stayed up for as long as the mouse lingered over the trigger.
+  //    Fixed by excluding wrappers whose only open content is a tooltip.
   const [inspectorPopoverOpen, setInspectorPopoverOpen] = useState(false);
   useEffect(() => {
     const ATTR = "data-radix-popper-content-wrapper";
+    const isOpenWrapper = (el: Element) =>
+      el.getAttribute("data-state") !== "closed";
+    const isTooltipOnly = (wrapper: Element) => {
+      const contents = wrapper.querySelectorAll("[data-state]");
+      if (contents.length === 0) return false;
+      return Array.from(contents).every((content) =>
+        content.hasAttribute("data-agent-native-tooltip"),
+      );
+    };
     const update = () => {
+      const wrappers = document.body.querySelectorAll(`[${ATTR}]`);
       setInspectorPopoverOpen(
-        document.body.querySelector(`[${ATTR}]`) !== null,
+        Array.from(wrappers).some((wrapper) => {
+          if (wrapper.hasAttribute("data-agent-native-tooltip")) return false;
+          if (isTooltipOnly(wrapper)) return false;
+          // The wrapper itself, or its immediate popper content child,
+          // carries data-state="open"|"closed" depending on Radix version.
+          if (wrapper.hasAttribute("data-state")) {
+            return isOpenWrapper(wrapper);
+          }
+          const stateful = wrapper.querySelector("[data-state]");
+          return stateful ? isOpenWrapper(stateful) : true;
+        }),
       );
     };
     const observer = new MutationObserver(update);
-    observer.observe(document.body, { childList: true, subtree: false });
+    observer.observe(document.body, {
+      childList: true,
+      subtree: true,
+      attributes: true,
+      attributeFilter: ["data-state"],
+    });
     update();
     return () => observer.disconnect();
   }, []);
@@ -18741,6 +18857,7 @@ export default function DesignEditor() {
         result.destHtml,
         destNodeAttrId,
         styleSnapshot,
+        sourceContent,
       );
       const nextDestContent = targetAnchorAttrId
         ? targetDropMode === "absolute-container"
@@ -20798,14 +20915,37 @@ export default function DesignEditor() {
     const updateIframePointerEvents = () => {
       const iframe = getPreviewIframe();
       if (!iframe) return;
-      const hasOpenOverlay = Boolean(
-        document.querySelector(
-          [
-            "[data-radix-popper-content-wrapper]",
-            "[data-radix-portal] [data-state='open']",
-          ].join(","),
-        ),
+      // Same tooltip-vs-menu ambiguity as the inspectorPopoverOpen shield
+      // above (see its doc comment): a bare `[data-radix-popper-content-
+      // wrapper]` presence check also matches Tooltip's Popper-based portal,
+      // so merely hovering a tooltip-wrapped trigger (e.g. the zoom
+      // control's Tooltip+DropdownMenu combo) disabled the preview iframe's
+      // pointer events even with no real menu/popover open. Exclude wrappers
+      // whose only open content is a first-party tooltip
+      // (data-agent-native-tooltip, packages/toolkit/src/ui/tooltip.tsx).
+      const wrappers = document.body.querySelectorAll(
+        "[data-radix-popper-content-wrapper]",
       );
+      const hasOpenPopperOverlay = Array.from(wrappers).some((wrapper) => {
+        if (wrapper.hasAttribute("data-agent-native-tooltip")) return false;
+        const stateful = wrapper.querySelectorAll("[data-state]");
+        if (
+          stateful.length > 0 &&
+          Array.from(stateful).every((content) =>
+            content.hasAttribute("data-agent-native-tooltip"),
+          )
+        ) {
+          return false;
+        }
+        return true;
+      });
+      const hasOpenOverlay =
+        hasOpenPopperOverlay ||
+        Boolean(
+          document.querySelector(
+            "[data-radix-portal] [data-state='open']:not([data-agent-native-tooltip])",
+          ),
+        );
       iframe.style.pointerEvents = hasOpenOverlay ? "none" : "";
     };
 

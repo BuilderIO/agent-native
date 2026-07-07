@@ -1515,6 +1515,27 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       crossScreenLastHitResultRef.current.clear();
     };
 
+    // Single source of truth for a target screen's "viewport" dimensions used
+    // to scale board<->iframe coordinates. MUST prefer the iframe's live
+    // clientWidth/clientHeight over resolveScreenMetadata's DEFAULTED
+    // 1280x2560 fallback (used for screens — e.g. duplicated screens — with
+    // no screenMetadata entry in designs.data). runHitTest and
+    // getTargetLocalPoint already did this correctly; requestCrossScreenDropGuide
+    // previously called getResolvedMetadata directly with no iframe fallback,
+    // so the drawn guide used different (often wrong-by-4x) geometry than the
+    // hit-test that produced it — guides rendered squashed/mispositioned for
+    // any screen missing metadata. Centralizing here keeps all three call
+    // sites in sync going forward.
+    const getTargetViewportMetadata = (
+      targetScreen: (typeof screensRef.current)[number],
+      targetIframe: HTMLIFrameElement | null | undefined,
+    ): { width: number; height: number } => ({
+      width:
+        targetIframe?.clientWidth || getResolvedMetadata(targetScreen).width,
+      height:
+        targetIframe?.clientHeight || getResolvedMetadata(targetScreen).height,
+    });
+
     const runHitTest = (
       candidate: CrossScreenDragTarget,
       boardPoint: Point,
@@ -1531,10 +1552,8 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       );
       const targetContentWindow = targetIframe?.contentWindow;
       if (!targetContentWindow) return Promise.resolve({});
-      const targetViewportWidth =
-        targetIframe.clientWidth || getResolvedMetadata(targetScreen).width;
-      const targetViewportHeight =
-        targetIframe.clientHeight || getResolvedMetadata(targetScreen).height;
+      const { width: targetViewportWidth, height: targetViewportHeight } =
+        getTargetViewportMetadata(targetScreen, targetIframe);
       const scaleX = targetViewportWidth / Math.max(1, targetGeometry.width);
       const scaleY = targetViewportHeight / Math.max(1, targetGeometry.height);
       const localX = (boardPoint.x - targetGeometry.x) * scaleX;
@@ -1620,10 +1639,8 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       const targetIframe = surfaceRef.current?.querySelector<HTMLIFrameElement>(
         `[data-screen-iframe-id="${targetIframeId}"]`,
       );
-      const targetViewportWidth =
-        targetIframe?.clientWidth || getResolvedMetadata(targetScreen).width;
-      const targetViewportHeight =
-        targetIframe?.clientHeight || getResolvedMetadata(targetScreen).height;
+      const { width: targetViewportWidth, height: targetViewportHeight } =
+        getTargetViewportMetadata(targetScreen, targetIframe);
       const scaleX =
         targetViewportWidth / Math.max(1, candidate.geometry.width);
       const scaleY =
@@ -1645,11 +1662,22 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         const targetScreen = screensRef.current.find(
           (s) => s.id === candidate.id,
         );
+        const targetIframeId = targetScreen
+          ? CSS.escape(getActiveScreenIframeId(targetScreen))
+          : null;
+        const targetIframe = targetIframeId
+          ? surfaceRef.current?.querySelector<HTMLIFrameElement>(
+              `[data-screen-iframe-id="${targetIframeId}"]`,
+            )
+          : null;
         const guide = targetScreen
           ? getCrossScreenDropGuideForHitTest({
               hit,
               targetGeometry: candidate.geometry,
-              targetMetadata: getResolvedMetadata(targetScreen),
+              targetMetadata: getTargetViewportMetadata(
+                targetScreen,
+                targetIframe,
+              ),
             })
           : null;
         setCrossScreenDropGuide(guide);
@@ -1959,12 +1987,28 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         }
 
         // Remember the latest drag payload for use on "end".
+        //
+        // Pointer-offset pin fix: the bridge recomputes `pointerOffset` on
+        // EVERY "move" post from the dragged element's CURRENT
+        // getBoundingClientRect — which keeps changing while a flow-reorder
+        // drag live-reorders the source element under the still-in-bounds
+        // pointer. Letting a later move's offset win (the previous `??`
+        // fallback here never actually engaged, since the bridge always
+        // supplies a value) made the eventual screen->canvas drop land at
+        // `boardPoint - (whatever slot the element occupied at the LAST
+        // in-source tick)` instead of the true press-time grab offset,
+        // drifting the landing position by up to the element's own size.
+        // Figma keeps the grab point pixel-pinned under the cursor for the
+        // whole gesture — so once "start" has captured a pointer offset,
+        // never let a "move" message's (re-derived, drifting) offset
+        // override it; only fall back to a move-supplied offset on the rare
+        // path where "start" itself didn't have one yet.
         crossScreenDragMsgRef.current = {
           selector: selector ?? "",
           sourceId,
           sourcePointerOffset:
-            sourcePointerOffset ??
-            crossScreenDragMsgRef.current?.sourcePointerOffset,
+            crossScreenDragMsgRef.current?.sourcePointerOffset ??
+            sourcePointerOffset,
           sourceElementSize:
             sourceElementSize ??
             crossScreenDragMsgRef.current?.sourceElementSize,
