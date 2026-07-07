@@ -636,11 +636,7 @@ fn fn_event_tap_is_enabled(tap: &core_graphics::event::CGEventTap<'static>) -> b
 }
 
 #[cfg(target_os = "macos")]
-fn schedule_fn_event_tap_restart(
-    app: tauri::AppHandle,
-    reason: &'static str,
-    delay: Duration,
-) {
+fn schedule_fn_event_tap_restart(app: tauri::AppHandle, reason: &'static str, delay: Duration) {
     eprintln!("[clips-tray][fn-tap] restarting Fn event tap: {reason}");
     FN_TAP_INSTALL_STARTED.store(false, Ordering::SeqCst);
     if !FN_TAP_ENABLED.load(Ordering::SeqCst) {
