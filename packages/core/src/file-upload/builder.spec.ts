@@ -137,6 +137,19 @@ describe("builderFileUploadProvider", () => {
     expect(new URL(url.toString()).searchParams.get("stableUrl")).toBe("true");
   });
 
+  it("passes record=false through the legacy upload path for internal artifacts", async () => {
+    fetchMock.mockResolvedValue(jsonResponse({ url: "https://cdn/x" }));
+
+    await builderFileUploadProvider.upload({
+      data: new Uint8Array([1]),
+      mimeType: "image/png",
+      recordAsset: false,
+    });
+
+    const [url] = fetchMock.mock.calls[0];
+    expect(new URL(url.toString()).searchParams.get("record")).toBe("false");
+  });
+
   it("routes video uploads through the signed URL path even when small", async () => {
     fetchMock
       .mockResolvedValueOnce(
@@ -252,6 +265,40 @@ describe("builderFileUploadProvider", () => {
 
     const completeUrl = new URL(fetchMock.mock.calls[2][0].toString());
     expect(completeUrl.searchParams.get("stableUrl")).toBe("true");
+  });
+
+  it("passes record=false through signed URL completion for internal artifacts", async () => {
+    fetchMock
+      .mockResolvedValueOnce(
+        jsonResponse({
+          uploadUrl: "https://storage.example.com/upload",
+          assetId: "asset-1",
+          requiredHeaders: {
+            "Content-Type": "video/webm",
+            "x-goog-content-length-range": "0,3",
+          },
+        }),
+      )
+      .mockResolvedValueOnce(jsonResponse({}, { status: 200 }))
+      .mockResolvedValueOnce(
+        jsonResponse({ url: "https://cdn.builder.io/video", id: "asset-1" }),
+      );
+
+    await builderFileUploadProvider.upload({
+      data: new Uint8Array([1, 2, 3]),
+      filename: "clip.webm",
+      mimeType: "video/webm",
+      recordAsset: false,
+    });
+
+    const [completeUrl, completeInit] = fetchMock.mock.calls[2];
+    expect(new URL(completeUrl.toString()).searchParams.get("record")).toBe(
+      "false",
+    );
+    expect(JSON.parse(String(completeInit.body))).toMatchObject({
+      assetId: "asset-1",
+      record: false,
+    });
   });
 
   it("defaults Content-Type to application/octet-stream when no mime given", async () => {
@@ -373,5 +420,28 @@ describe("builderFileUploadProvider", () => {
 
     const completeUrl = new URL(fetchMock.mock.calls[0][0].toString());
     expect(completeUrl.searchParams.get("stableUrl")).toBe("true");
+  });
+
+  it("passes record=false through resumable completion options", async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse({ url: "https://cdn.builder.io/video", id: "asset-1" }),
+    );
+
+    await builderFileUploadProvider.resumable!.completeSession(
+      {
+        sessionId: "https://storage.example.com/session",
+        meta: { assetId: "asset-1" },
+      },
+      "clip.webm",
+      { recordAsset: false },
+    );
+
+    const [completeUrl, completeInit] = fetchMock.mock.calls[0];
+    expect(new URL(completeUrl.toString()).searchParams.get("record")).toBe(
+      "false",
+    );
+    expect(JSON.parse(String(completeInit.body))).toMatchObject({
+      record: false,
+    });
   });
 });

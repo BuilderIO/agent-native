@@ -355,4 +355,29 @@ describe("action discovery", () => {
     });
     expect(registry["set-localization-preference"]).toBeDefined();
   });
+
+  it("merges toolkit history and review actions", async () => {
+    const registry: Record<string, any> = {};
+    await mergeCoreSharingActions(registry);
+
+    for (const name of [
+      "create-resource-version",
+      "list-resource-versions",
+      "get-resource-version",
+      "restore-resource-version",
+      "list-resource-history",
+      "list-review-comments",
+      "create-review-comment",
+      "reply-review-comment",
+      "resolve-review-thread",
+      "delete-review-comment",
+      "consume-review-feedback",
+      "get-review-feedback",
+      "set-review-status",
+    ]) {
+      expect(registry[name], `${name} should be merged`).toBeDefined();
+    }
+    expect(registry["list-resource-history"].readOnly).toBe(true);
+    expect(registry["list-review-comments"].readOnly).toBe(true);
+  });
 });

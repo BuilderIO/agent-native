@@ -464,6 +464,21 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
       bumpControls();
       setPlayError(null);
 
+      if (
+        initialVisibleFrameSeekedRef.current &&
+        !hasPlaybackStarted &&
+        (!startMs || startMs <= 0) &&
+        v.currentTime > 0.05
+      ) {
+        try {
+          v.currentTime = 0;
+          setCurrentMs(0);
+        } catch {
+          // If the browser refuses the rewind, continue with the normal play
+          // attempt; playback is still better than blocking on a cosmetic seek.
+        }
+      }
+
       // A <video> element left in an error state (network/decode/unsupported
       // format) will just re-reject on `.play()` forever — it needs `.load()`
       // to reset `readyState`/`error` and re-fetch the source before playback
@@ -497,7 +512,9 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
       attachPlayPromise,
       bumpControls,
       currentMs,
+      hasPlaybackStarted,
       rejectPlayAttempt,
+      startMs,
     ]);
 
     const retryPendingPlay = useCallback(
@@ -858,7 +875,6 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
         initialVisibleFrameSeekedRef.current = true;
         try {
           v.currentTime = visibleMs / 1000;
-          setCurrentMs(visibleMs);
           return true;
         } catch {
           return false;
@@ -1142,6 +1158,17 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
               const ct =
                 Number.isFinite(raw) && raw >= 0 && raw < 1e7 ? raw : 0;
               const ms = Math.floor(ct * 1000);
+              if (
+                initialVisibleFrameSeekedRef.current &&
+                !hasPlaybackStarted &&
+                !playAttemptPendingRef.current &&
+                v.paused &&
+                (!startMs || startMs <= 0)
+              ) {
+                setCurrentMs(0);
+                onTimeUpdate?.(0, resolvedDurationMs);
+                return;
+              }
               const visibleMs = clampSeek(
                 skipExcludedRange(ms, excludedRanges, resolvedDurationMs),
                 v,
@@ -1169,10 +1196,20 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
               onTimeUpdate?.(ms, resolvedDurationMs);
             }}
             onEnded={() => {
+              const endedMs =
+                resolvedDurationMs > 0
+                  ? resolvedDurationMs
+                  : videoRef.current &&
+                      Number.isFinite(videoRef.current.duration) &&
+                      videoRef.current.duration > 0
+                    ? Math.round(videoRef.current.duration * 1000)
+                    : currentMs;
+              setCurrentMs(endedMs);
               setIsPlaying(false);
               setIsPlayPending(false);
               setIsBuffering(false);
               setIsPreparing(false);
+              onTimeUpdate?.(endedMs, resolvedDurationMs);
               onEnded?.();
             }}
             onError={(e) => {

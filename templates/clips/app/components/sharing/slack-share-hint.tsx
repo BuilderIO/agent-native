@@ -35,16 +35,11 @@ export function SlackShareHint({ canManage }: { canManage: boolean }) {
 
   if (connected) {
     return (
-      <div className="flex items-center gap-2.5 rounded-md border border-border bg-muted/40 px-3 py-2">
+      <div className="flex items-center gap-2 rounded-md bg-muted/35 px-2.5 py-1.5 text-xs text-muted-foreground">
         <IconBrandSlack className="h-4 w-4 shrink-0 text-muted-foreground" />
-        <div className="min-w-0">
-          <div className="text-xs font-medium">
-            {t("slackShareHint.playsInline")}
-          </div>
-          <p className="text-[11px] text-muted-foreground">
-            {t("slackShareHint.connectedDescription")}
-          </p>
-        </div>
+        <span className="min-w-0 truncate">
+          {t("slackShareHint.playsInline")}
+        </span>
       </div>
     );
   }
@@ -59,18 +54,13 @@ export function SlackShareHint({ canManage }: { canManage: boolean }) {
   return (
     <a
       href={appPath("/settings#slack")}
-      className="flex items-center gap-2.5 rounded-md border border-border px-3 py-2 transition-colors hover:bg-muted/50"
+      className="flex items-center gap-2 rounded-md bg-muted/35 px-2.5 py-1.5 text-xs text-muted-foreground transition-colors hover:bg-muted/55"
     >
       <IconBrandSlack className="h-4 w-4 shrink-0 text-muted-foreground" />
-      <div className="min-w-0 flex-1">
-        <div className="text-xs font-medium">
-          {t("slackShareHint.makeInline")}
-        </div>
-        <p className="text-[11px] text-muted-foreground">
-          {t("slackShareHint.connectDescription")}
-        </p>
-      </div>
-      <span className="shrink-0 text-xs font-medium text-primary">
+      <span className="min-w-0 flex-1 truncate">
+        {t("slackShareHint.makeInline")}
+      </span>
+      <span className="shrink-0 font-medium text-primary">
         {t("slackShareHint.connect")}
       </span>
     </a>

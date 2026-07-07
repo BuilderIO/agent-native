@@ -243,27 +243,39 @@
 .an-replay-stage-root .replayer-mouse {
   position: absolute;
   z-index: 2;
-  width: 0.875rem;
-  height: 0.875rem;
-  border-radius: 9999px;
-  background: hsl(217 91% 60%);
+  width: 1.125rem;
+  height: 1.5rem;
+  border-radius: 0;
+  background: transparent;
   background-image: none;
-  box-shadow:
-    0 0 0 2px hsl(0 0% 100% / 0.9),
-    0 1px 6px hsl(0 0% 0% / 0.35);
-  transform: translate(-50%, -50%);
+  box-shadow: none;
+  transform: none;
   transition:
     left 80ms linear,
     top 80ms linear;
   pointer-events: none;
 }
 
-.an-replay-stage-root .replayer-mouse::after {
+.an-replay-stage-root .replayer-mouse::before {
   content: "";
   position: absolute;
   inset: 0;
+  background: hsl(0 0% 100%);
+  clip-path: polygon(0 0, 0 77%, 30% 57%, 48% 100%, 68% 92%, 50% 51%, 92% 51%);
+  filter: drop-shadow(0 0 1px hsl(0 0% 0% / 0.95))
+    drop-shadow(0 1px 3px hsl(0 0% 0% / 0.35));
+}
+
+.an-replay-stage-root .replayer-mouse::after {
+  content: "";
+  position: absolute;
+  left: -0.5rem;
+  top: -0.5rem;
+  width: 1rem;
+  height: 1rem;
   border-radius: 9999px;
-  background: hsl(217 91% 60%);
+  border: 2px solid hsl(217 91% 60%);
+  background: transparent;
   opacity: 0;
 }
 

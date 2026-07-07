@@ -8,7 +8,7 @@ import {
   IconChevronDown,
   IconCheck,
   IconPlus,
-  IconBuilding,
+  IconUsersGroup,
 } from "@tabler/icons-react";
 import { useState } from "react";
 import { toast } from "sonner";
@@ -86,7 +86,7 @@ export function OrganizationSwitcher({ className }: OrganizationSwitcherProps) {
           </DropdownMenuLabel>
           {orgs.length === 0 && (
             <DropdownMenuItem disabled>
-              <IconBuilding className="h-3.5 w-3.5 me-2" />
+              <IconUsersGroup className="h-3.5 w-3.5 me-2" />
               <span className="text-xs">
                 {t("organizationSwitcher.noOrganizations")}
               </span>

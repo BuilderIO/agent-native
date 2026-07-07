@@ -29,6 +29,7 @@ import {
 } from "../resources/metadata.js";
 import {
   canUseDeployCredentialFallbackForRequest,
+  getProviderCredentialAuthFailure,
   readDeployCredentialEnv,
 } from "../server/credential-provider.js";
 import { readBody } from "../server/h3-helpers.js";
@@ -436,7 +437,15 @@ export async function getOwnerApiKey(
         scope: ref.scope,
         scopeId: ref.scopeId,
       });
-      if (fromSecrets?.value) return fromSecrets.value;
+      if (
+        fromSecrets?.value &&
+        !(await getProviderCredentialAuthFailure({
+          key: secretKey,
+          value: fromSecrets.value,
+        }))
+      ) {
+        return fromSecrets.value;
+      }
     }
   } catch {
     // app_secrets table not ready — fall through to legacy lookup.
@@ -446,12 +455,26 @@ export async function getOwnerApiKey(
     const stored = await getSetting(`user-api-key:${provider}:${ownerEmail}`);
     const key =
       stored && typeof stored.key === "string" ? stored.key.trim() : "";
-    if (key) return key;
+    if (
+      key &&
+      !(await getProviderCredentialAuthFailure({ key: secretKey, value: key }))
+    ) {
+      return key;
+    }
     if (provider === "anthropic") {
       const legacy = await getSetting(`user-anthropic-api-key:${ownerEmail}`);
       const legacyKey =
         legacy && typeof legacy.key === "string" ? legacy.key.trim() : "";
-      return legacyKey || undefined;
+      if (
+        legacyKey &&
+        !(await getProviderCredentialAuthFailure({
+          key: secretKey,
+          value: legacyKey,
+        }))
+      ) {
+        return legacyKey;
+      }
+      return undefined;
     }
     return undefined;
   } catch {
@@ -490,9 +513,17 @@ export async function getOwnerActiveApiKey(
     const userKey = await getOwnerApiKey(provider, ownerEmail);
     if (userKey) return userKey;
     const envVar = PROVIDER_TO_ENV[provider];
-    return envVar && canUseDeployCredentialFallbackForRequest(envVar)
-      ? readDeployCredentialEnv(envVar)
-      : undefined;
+    if (!envVar || !canUseDeployCredentialFallbackForRequest(envVar)) {
+      return undefined;
+    }
+    const envKey = readDeployCredentialEnv(envVar);
+    if (
+      envKey &&
+      !(await getProviderCredentialAuthFailure({ key: envVar, value: envKey }))
+    ) {
+      return envKey;
+    }
+    return undefined;
   } catch {
     return undefined;
   }

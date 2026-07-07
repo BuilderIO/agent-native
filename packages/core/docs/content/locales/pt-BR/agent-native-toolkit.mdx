@@ -1,103 +1,112 @@
 ---
-title: "Toolkit"
-description: "Reusable app-building primitives that sit between @agent-native/core and template apps."
+title: "Toolkits"
+description: "Battle-tested reusable building blocks for high-quality agentic applications: collaboration, sharing, settings, teams, setup, navigation, resources, agent UX, history, comments, and observability."
 ---
 
-# Toolkit
+<!-- i18n-docs-ignore -->
 
-`@agent-native/core` owns the foundational runtime: actions, app state, auth,
-SQL, server plugins, agent chat, sharing access checks, and collaboration
-transport. `@agent-native/toolkit` owns reusable app-building pieces that sit on
-top of that runtime: UI primitives, app-local adapters, shell helpers, sharing
-badges, and collaboration UI.
+# Toolkits
 
-Apps should compose those pieces through local adapters. That keeps app UI easy
-to customize without copying Toolkit implementation code.
+Toolkits are reusable, battle-tested building blocks for high-quality agentic
+applications. They turn the hard product work that repeats across apps into
+standard surfaces: realtime collaboration between humans and agents, sharing
+with humans and agents, settings, teams, setup, resources, history, review, and
+observability.
 
-<WireframeBlock id="doc-block-toolkit-layering">
+Each kit packages the UI patterns, action contracts, app-state expectations,
+access boundaries, and agent-visible behavior that users expect to work
+consistently. Apps still own their domain model and visual identity; toolkits
+make the common product systems feel complete from the first version instead of
+being rebuilt in slightly different ways every time.
+
+<WireframeBlock id="doc-block-toolkits-index">
   <Screen
     surface="desktop"
     html={
-      "<div style='min-height:520px;box-sizing:border-box;padding:48px 36px;display:flex;align-items:center;justify-content:center'><div style='width:min(900px,100%);display:grid;grid-template-columns:1fr;gap:18px'><div class='wf-card' style='padding:22px 24px'><div style='display:flex;align-items:center;justify-content:space-between;gap:16px'><div><strong>App</strong><p class='wf-muted' style='margin:6px 0 0'>Domain routes, actions, local UI adapters, product-specific views</p></div><span class='wf-pill'>@/components/ui/button</span></div></div><div class='wf-card' style='padding:22px 24px;border-color:hsl(var(--primary))'><div style='display:flex;align-items:center;justify-content:space-between;gap:16px'><div><strong>Toolkit</strong><p class='wf-muted' style='margin:6px 0 0'>Reusable primitives, collab UI, sharing UI, app shell hooks</p></div><span class='wf-pill'>ToolkitProvider</span></div><div style='display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin-top:16px'><span class='wf-pill'>UI</span><span class='wf-pill'>Collab UI</span><span class='wf-pill'>Sharing UI</span><span class='wf-pill'>Shell</span></div></div><div class='wf-card' style='padding:22px 24px'><div style='display:flex;align-items:center;justify-content:space-between;gap:16px'><div><strong>Core</strong><p class='wf-muted' style='margin:6px 0 0'>Actions, SQL, auth, sharing runtime, Yjs transport, app state</p></div><span class='wf-pill'>@agent-native/core</span></div></div></div></div>"
+      "<div style='min-height:560px;box-sizing:border-box;padding:28px;display:grid;grid-template-columns:230px 1fr;gap:18px'><aside class='wf-card' style='display:flex;flex-direction:column;gap:10px'><strong>Toolkits</strong><div class='wf-pill'>Collaboration</div><div class='wf-pill'>Sharing</div><div class='wf-pill'>Settings</div><div class='wf-pill'>Org and Team</div><div class='wf-pill'>Agent UX</div><div class='wf-pill'>Observability</div></aside><main style='display:flex;flex-direction:column;gap:14px'><div class='wf-card' style='padding:18px'><h2 style='margin:0'>Agentic app building blocks</h2><p class='wf-muted' style='margin:8px 0 0'>Reusable systems for humans and agents working in the same product surface.</p></div><div style='display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px'><div class='wf-card'>Realtime editing<br/><span class='wf-muted'>presence and cursors</span></div><div class='wf-card'>Share controls<br/><span class='wf-muted'>humans and agents</span></div><div class='wf-card'>Settings tabs<br/><span class='wf-muted'>keys and providers</span></div><div class='wf-card'>Team workspace<br/><span class='wf-muted'>roles and invites</span></div><div class='wf-card'>Review layer<br/><span class='wf-muted'>comments and history</span></div><div class='wf-card'>Runs tray<br/><span class='wf-muted'>progress and recovery</span></div></div></main></div>"
     }
   />
 </WireframeBlock>
 
-## What Ships Today {#what-ships-today}
+<Diagram id="doc-block-toolkits-boundary" title="How kits fit" summary={"The framework runtime supplies durable guarantees. Toolkits turn those guarantees into reusable product systems. Apps add domain-specific data, routes, and visual identity."}>
 
-- **UI primitives**: shadcn-style components under
+```html
+<div class="diagram-row">
+  <div class="diagram-card">
+    <span class="diagram-pill accent">Runtime</span><br />
+    actions, SQL, auth, app state, access checks, realtime transport
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-card">
+    <span class="diagram-pill accent">Toolkits</span><br />
+    collaboration, sharing, setup, review, history, observability
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-card">
+    <span class="diagram-pill accent">Apps</span><br />
+    domain schema, routes, actions, branding, specialized workflows
+  </div>
+</div>
+```
+
+```css
+.diagram-row {
+  display: flex;
+  gap: 12px;
+  align-items: stretch;
+  flex-wrap: wrap;
+}
+.diagram-row .diagram-card {
+  flex: 1 1 210px;
+  padding: 14px;
+}
+.diagram-row .diagram-arrow {
+  align-self: center;
+  font-size: 22px;
+}
+```
+
+</Diagram>
+
+## The Kits {#the-kits}
+
+| Kit                                                      | Use it for                                                                                                  |
+| -------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| [Sharing](/docs/toolkit-sharing)                         | Ownable resources, share dialogs, visibility badges, share actions, public/private/org access.              |
+| [Collaboration](/docs/toolkit-collaboration)             | Realtime editing, presence, live cursors, recent-edit highlights, collaborative undo.                       |
+| [Settings](/docs/toolkit-settings)                       | Standard settings pages and tabs so app settings and agent/provider settings live in one predictable place. |
+| [Org & Team](/docs/toolkit-org-team)                     | Team pages, org switching, invites, org domains, roles, and app switching.                                  |
+| [Setup & Connections](/docs/toolkit-setup-connections)   | Onboarding, secrets, workspace connections, OAuth/provider readiness, and Builder connect.                  |
+| [Command & Navigation](/docs/toolkit-command-navigation) | Command menu, deep links, standard app routes, sidebar and shell patterns.                                  |
+| [Resources](/docs/toolkit-resources)                     | Resource trees, editors, file picker/search, attachments, and local file mode.                              |
+| [Agent UX](/docs/toolkit-agent-ux)                       | Composer, model picker, context chips, approvals, run recovery, and the runs tray.                          |
+| [History](/docs/toolkit-history)                         | Version history, audit logs, undo/redo, restore, and "what changed" surfaces.                               |
+| [Comments & Review](/docs/toolkit-comments-review)       | Inline comments, annotations, mentions, resolved threads, review status.                                    |
+| [Observability](/docs/toolkit-observability)             | Usage, spend, feedback, replay, errors, and run diagnostics.                                                |
+
+## Implementation Boundary {#implementation-boundary}
+
+Kits are product surfaces first. Some pieces are runtime-backed
+(`@agent-native/core`), some are presentation primitives
+(`@agent-native/toolkit`), and apps usually wrap both through local adapters.
+Use the package path that owns the needed behavior, but design the user-facing
+settings, collaboration, sharing, team, review, and setup experiences as one
+coherent kit instead of exposing package boundaries in the app.
+
+## Foundation Pieces {#foundation-pieces}
+
+- [UI Primitives](/docs/toolkit-ui) cover shared shadcn-style primitives under
   `@agent-native/toolkit/ui/*`.
-- **App adapters**: template-local wrappers such as
-  `@/components/ui/button` that re-export Toolkit primitives until an app wants
-  to customize them.
-- **ToolkitProvider**: an override layer that lets reusable Toolkit UI use an
-  app's local primitives, starting with `Button`.
-- **Collaboration UI**: presence avatars, live cursors, remote selection rings,
-  recent edit highlights, and agent presence chips under
-  `@agent-native/toolkit/collab-ui`.
-- **Sharing UI**: the reusable `VisibilityBadge` under
-  `@agent-native/toolkit/sharing`.
-- **Shell and hooks**: app-shell header actions plus shared hooks such as
-  `useIsMobile` and `useToast`.
+- [App Adapters](/docs/toolkit-app-adapters) show how apps wrap Toolkit pieces
+  through local `@/components/*` adapters.
+- [Shell & Hooks](/docs/toolkit-shell-hooks) cover header actions, mobile hooks,
+  toasts, and small app-shell helpers.
+- [Component API](/docs/components) remains the lower-level reference for the
+  public React exports.
 
-## Compatibility {#compatibility}
+## Design Rule {#design-rule}
 
-Existing imports from `@agent-native/core/client` keep working. Core now exposes
-thin re-export shims for Toolkit-owned visual pieces while keeping runtime
-behavior in core.
-
-Those core shims are temporary migration support, not the long-term dependency
-direction. The next major can remove them; after that, reusable app-building
-packages should import Toolkit directly, and behaviorful Toolkit kits may compose
-core runtime APIs as peer/runtime dependencies instead of pushing more UI back
-into core.
-
-Extract future behaviorful kits one at a time before broadening the split.
-Sharing is the first candidate to validate that model because it exercises
-access checks, action-backed data, and share-link UI together.
-
-That means this keeps working:
-
-```tsx
-import { PresenceBar, VisibilityBadge } from "@agent-native/core/client";
-```
-
-New reusable app code should prefer Toolkit or app-local adapters:
-
-```tsx
-import { PresenceBar } from "@agent-native/toolkit/collab-ui";
-import { Button } from "@/components/ui/button";
-```
-
-## Boundary {#boundary}
-
-Move code into Toolkit when it is reusable app-building UI or a pure UI contract.
-Keep code in core when it owns access control, SQL, actions, request context,
-Yjs transport, auth, or other runtime guarantees.
-
-Good Toolkit candidates:
-
-- Components that render the same interaction across apps.
-- Display-only helpers and structural prop types.
-- Base components that receive data and callbacks from an app or core wrapper.
-- App-shell hooks and adapters that do not own domain data.
-
-Keep app-local:
-
-- Domain-specific workflows.
-- Resource-specific mutations and routes.
-- Custom visual systems an app intentionally owns.
-
-Keep core-owned:
-
-- Sharing actions and access checks.
-- Collaboration storage, awareness transport, and Yjs document sync.
-- Auth, sessions, app state, SQL, and server plugins.
-
-## Pages {#pages}
-
-- [UI Primitives](/docs/toolkit-ui)
-- [App Adapters](/docs/toolkit-app-adapters)
-- [Collaboration UI](/docs/toolkit-collaboration-ui)
-- [Sharing UI](/docs/toolkit-sharing-ui)
-- [Shell & Hooks](/docs/toolkit-shell-hooks)
+Use a toolkit when the behavior repeats across apps and users expect it to feel
+standard: sharing, settings, teams, comments, history, and agent progress should
+not be slightly different in every template. Keep domain-specific data,
+workflows, labels, and visual styling in the app.

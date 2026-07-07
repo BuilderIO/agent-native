@@ -639,19 +639,22 @@ export { AgentNativeIcon } from "./components/icons/AgentNativeIcon.js";
 export {
   SettingsPanel,
   SettingsTabsPage,
+  SecretsSection,
+  openBuilderConnectPopup,
   useAgentSettingsTabs,
+  useBuilderConnectFlow,
+  useBuilderStatus,
+  withBuilderConnectTrackingParams,
+  type BuilderConnectFlow,
+  type BuilderConnectFlowOptions,
+  type BuilderConnectStartOptions,
+  type BuilderStatus,
+  type OpenBuilderConnectPopupOptions,
+  type SecretsSectionProps,
   type SettingsPanelProps,
   type SettingsTabItem,
   type SettingsTabsPageProps,
 } from "./settings/index.js";
-export { useBuilderStatus } from "./settings/useBuilderStatus.js";
-export {
-  openBuilderConnectPopup,
-  useBuilderConnectFlow,
-  type BuilderConnectFlow,
-  type BuilderConnectFlowOptions,
-  type OpenBuilderConnectPopupOptions,
-} from "./settings/useBuilderStatus.js";
 // Deprecated — use AgentSidebar + AgentToggleButton instead
 export {
   ProductionAgentPanel,
@@ -783,6 +786,43 @@ export {
   type ResourceTreeProps,
   type ResourceEditorProps,
 } from "./resources/index.js";
+export {
+  HistoryTimeline,
+  VersionHistoryPanel,
+  useCreateResourceVersion,
+  useResourceHistory,
+  useResourceVersions,
+  useRestoreResourceVersion,
+  type CreateResourceVersionInput,
+  type ListResourceHistoryResult,
+  type ListResourceVersionsResult,
+  type ResourceHistoryParams,
+  type ResourceVersionsParams,
+  type RestoreResourceVersionInput,
+  type RestoreResourceVersionResult,
+  type VersionHistoryPanelProps,
+} from "./history/index.js";
+export {
+  ReviewStatusBadge,
+  ReviewThreadPanel,
+  buildReviewThreads,
+  useCreateReviewComment,
+  useDeleteReviewComment,
+  useReplyReviewComment,
+  useResolveReviewThread,
+  useReviewComments,
+  useSetReviewStatus,
+  type CreateReviewCommentInput,
+  type DeleteReviewCommentInput,
+  type ListReviewCommentsParams,
+  type ListReviewCommentsResult,
+  type ReplyReviewCommentInput,
+  type ResolveReviewThreadInput,
+  type ReviewStatusBadgeProps,
+  type ReviewThread,
+  type ReviewThreadPanelProps,
+  type SetReviewStatusInput,
+} from "./review/index.js";
 export type {
   AppToFrameMessage,
   FrameToAppMessage,
@@ -792,10 +832,10 @@ export type {
 } from "./frame-protocol.js";
 export {
   CommandMenu,
-  useCommandMenuShortcut,
   openAgentSidebar,
   openAgentSettings,
   submitToAgent,
+  useCommandMenuShortcut,
   type CommandMenuProps,
   type CommandMenuDoc,
   type CommandDocsGroupProps,
@@ -803,6 +843,33 @@ export {
   type CommandItemProps,
   type CommandShortcutProps,
 } from "./CommandMenu.js";
+export {
+  buildOpenRouteLink,
+  buildOpenRoutePath,
+  buildResourceRoute,
+  buildSettingsRoute,
+  buildStandardAppRoute,
+  buildTeamRoute,
+  createStandardOpenPathResolver,
+  STANDARD_APP_ROUTES,
+  STANDARD_SETTINGS_TABS,
+  type BuildResourceRouteOptions,
+  type BuildStandardAppRouteOptions,
+  type NavigationLink,
+  type NavigationTarget,
+  type StandardAppRouteId,
+  type StandardOpenPathResolverOptions,
+  type StandardOpenPathRoute,
+  type StandardSettingsTabId,
+} from "../navigation/index.js";
+export {
+  BuilderConnectCard,
+  ProviderReadinessBadge,
+  SetupConnectionsPage,
+  type BuilderConnectCardProps,
+  type ProviderReadinessBadgeProps,
+  type SetupConnectionsPageProps,
+} from "./setup-connections/index.js";
 export {
   ChangelogDialog,
   ChangelogSettingsCard,

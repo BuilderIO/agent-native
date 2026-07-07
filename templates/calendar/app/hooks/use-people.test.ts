@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { filterPeopleResults } from "./use-people";
+import { filterPeopleResults, mergePeopleResults } from "./use-people";
 
 describe("filterPeopleResults", () => {
   it("filters cached contacts locally and ranks prefix matches first", () => {
@@ -46,5 +46,30 @@ describe("filterPeopleResults", () => {
     );
 
     expect(results).toEqual([]);
+  });
+
+  it("includes query-backed directory results with cached contacts", () => {
+    const results = filterPeopleResults(
+      mergePeopleResults(
+        [
+          {
+            name: "Alice Contact",
+            email: "alice@example.com",
+            source: "contact",
+          },
+        ],
+        [
+          {
+            name: "Saee Abhyankar",
+            email: "saee@builder.io",
+            source: "directory",
+          },
+        ],
+      ),
+      "saee",
+      new Set(),
+    );
+
+    expect(results.map((person) => person.email)).toEqual(["saee@builder.io"]);
   });
 });

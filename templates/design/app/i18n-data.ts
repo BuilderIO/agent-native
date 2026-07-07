@@ -1,5 +1,6 @@
 import type { LocaleCode } from "@agent-native/core/client";
 
+import { motionDockOverrides } from "./i18n-motion";
 import zhTW from "./i18n/zh-TW";
 
 const enUS = {
@@ -527,6 +528,33 @@ const enUS = {
       targeting: "Targeting:",
       describeElementChange: "Describe the change for this element…",
       describeChange: "Describe what you want to change…",
+    },
+    motion: {
+      dockLabel: "Motion dock",
+      collapseDock: "Collapse motion dock",
+      play: "Play",
+      pause: "Pause",
+      resetPlayhead: "Reset playhead",
+      reset: "Reset",
+      duration: "Duration",
+      durationMs: "Duration (ms)",
+      durationUnit: "ms",
+      autoKeyframe: "Auto-keyframe",
+      toggleAutoKeyframe: "Toggle auto-keyframe",
+      savingMotion: "Saving motion",
+      addTrack: "Add track",
+      selectElementFirst: "Select an element on the canvas first",
+      animateElement: 'Animate "{label}"',
+      animateHint: "Select an element. Pick a property to add the first track.",
+      selectElementHint:
+        "Select an element on the canvas, then add a track to animate it.",
+      addKeyframeAtPlayhead: "Add keyframe at playhead",
+      keyframeAt: "Keyframe at {t}%",
+      deleteKeyframe: "Delete keyframe",
+      easing: "Easing",
+      changeEasing: "Change easing (currently {preset})",
+      trackAlreadyExists:
+        'A "{property}" track already exists for {label}. Edit its keyframes in the timeline instead.',
     },
   },
   layersPanel: {
@@ -10575,6 +10603,7 @@ export const messagesByLocale = {
       designVisualEditOverrides["zh-TW"],
       designLocalSourceEditOverrides["zh-TW"],
       designPendingVisualStyleOverrides["zh-TW"],
+      motionDockOverrides["zh-TW"],
     ),
   ),
   "zh-CN": mergeMessages(
@@ -10592,6 +10621,7 @@ export const messagesByLocale = {
       designVisualEditOverrides["zh-CN"],
       designLocalSourceEditOverrides["zh-CN"],
       designPendingVisualStyleOverrides["zh-CN"],
+      motionDockOverrides["zh-CN"],
       {
         root: {
           commandActions: "操作",
@@ -10648,6 +10678,7 @@ export const messagesByLocale = {
       designVisualEditOverrides["es-ES"],
       designLocalSourceEditOverrides["es-ES"],
       designPendingVisualStyleOverrides["es-ES"],
+      motionDockOverrides["es-ES"],
       {
         root: {
           commandActions: "Acciones",
@@ -10704,6 +10735,7 @@ export const messagesByLocale = {
       designVisualEditOverrides["fr-FR"],
       designLocalSourceEditOverrides["fr-FR"],
       designPendingVisualStyleOverrides["fr-FR"],
+      motionDockOverrides["fr-FR"],
       {
         root: {
           commandActions: "Actions",
@@ -10760,6 +10792,7 @@ export const messagesByLocale = {
       designVisualEditOverrides["de-DE"],
       designLocalSourceEditOverrides["de-DE"],
       designPendingVisualStyleOverrides["de-DE"],
+      motionDockOverrides["de-DE"],
       {
         root: {
           commandActions: "Aktionen",
@@ -10816,6 +10849,7 @@ export const messagesByLocale = {
       designVisualEditOverrides["ja-JP"],
       designLocalSourceEditOverrides["ja-JP"],
       designPendingVisualStyleOverrides["ja-JP"],
+      motionDockOverrides["ja-JP"],
       {
         root: {
           commandActions: "操作",
@@ -10873,6 +10907,7 @@ export const messagesByLocale = {
       designVisualEditOverrides["ko-KR"],
       designLocalSourceEditOverrides["ko-KR"],
       designPendingVisualStyleOverrides["ko-KR"],
+      motionDockOverrides["ko-KR"],
       {
         root: {
           commandActions: "작업",
@@ -10928,6 +10963,7 @@ export const messagesByLocale = {
       designVisualEditOverrides["pt-BR"],
       designLocalSourceEditOverrides["pt-BR"],
       designPendingVisualStyleOverrides["pt-BR"],
+      motionDockOverrides["pt-BR"],
       {
         root: {
           commandActions: "Ações",
@@ -10984,6 +11020,7 @@ export const messagesByLocale = {
       designVisualEditOverrides["hi-IN"],
       designLocalSourceEditOverrides["hi-IN"],
       designPendingVisualStyleOverrides["hi-IN"],
+      motionDockOverrides["hi-IN"],
       {
         root: {
           commandActions: "क्रियाएं",
@@ -11040,6 +11077,7 @@ export const messagesByLocale = {
       designVisualEditOverrides["ar-SA"],
       designLocalSourceEditOverrides["ar-SA"],
       designPendingVisualStyleOverrides["ar-SA"],
+      motionDockOverrides["ar-SA"],
       {
         root: {
           commandActions: "الإجراءات",

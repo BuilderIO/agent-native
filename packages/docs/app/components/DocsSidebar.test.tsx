@@ -115,8 +115,8 @@ describe("DocsSidebar", () => {
     expect(html).toContain('href="/docs/plan-plugin"');
   });
 
-  it("renders the Toolkit group as a chevron-only toggle with focused child docs", () => {
-    const html = renderSidebar("/docs/toolkit-collaboration-ui");
+  it("renders Toolkits as a top-level section with focused docs", () => {
+    const html = renderSidebar("/docs/toolkit-collaboration");
     const toolkitLinks = getDocsNavItems().filter(
       (item) =>
         item.to === "/docs/agent-native-toolkit" ||
@@ -124,13 +124,12 @@ describe("DocsSidebar", () => {
     );
 
     expect(html).toContain("Toolkit");
-    expect(html).toContain("sidebar-group-trigger");
     expect(toolkitLinks.length).toBeGreaterThan(0);
     for (const item of toolkitLinks) {
       expect(html).toContain(`href="${item.to}"`);
     }
 
-    const activeLink = getLinkMarkup(html, "/docs/toolkit-collaboration-ui");
+    const activeLink = getLinkMarkup(html, "/docs/toolkit-collaboration");
     expect(activeLink).toContain("is-active");
   });
 

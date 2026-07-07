@@ -1,0 +1,81 @@
+---
+title: "Sharing Kit"
+description: "Ownable resources, share dialogs, visibility badges, and standard share actions for agent-native apps."
+---
+
+# Sharing Kit
+
+The Sharing Kit makes user-authored resources private by default, then gives
+users and agents the same controlled ways to share them: specific people, the
+active organization, public links when allowed, and agent-readable resource
+links.
+
+<WireframeBlock id="doc-block-toolkit-sharing">
+  <Screen
+    surface="desktop"
+    html={
+      "<div style='min-height:540px;box-sizing:border-box;padding:28px;display:grid;grid-template-columns:1fr 320px;gap:18px'><main class='wf-card' style='display:flex;flex-direction:column;gap:14px'><div style='display:flex;align-items:center;gap:10px'><h2 style='margin:0'>Q3 Forecast</h2><span class='wf-pill'>Org visible</span><div style='flex:1'></div><button>Share</button></div><div class='wf-box' style='height:92px'>Dashboard preview</div><div class='wf-box' style='height:260px'>Resource content</div></main><aside class='wf-card' style='display:flex;flex-direction:column;gap:12px'><strong>Share resource</strong><div class='wf-box'>Visibility: Organization</div><div class='wf-box'>Invite teammate@example.com</div><div class='wf-box'>Role: Editor</div><button class='primary'>Send invite</button><div class='wf-box'>Public link disabled by policy</div></aside></div>"
+    }
+  />
+</WireframeBlock>
+
+## Pieces {#pieces}
+
+| Piece                             | Purpose                                                                                |
+| --------------------------------- | -------------------------------------------------------------------------------------- |
+| `ownableColumns()`                | Adds owner, organization, visibility, and timestamps to the resource table.            |
+| `createSharesTable()`             | Creates the per-resource grants table.                                                 |
+| `registerShareableResource()`     | Registers the resource type so framework share actions know how to read and mutate it. |
+| `<ShareButton>` / `<ShareDialog>` | Renders the standard share control and calls the share actions.                        |
+| `<VisibilityBadge>`               | Shows private, shared, org, or public state in lists and headers.                      |
+| `share-resource`                  | Grants a user or organization role.                                                    |
+| `unshare-resource`                | Removes a grant.                                                                       |
+| `list-resource-shares`            | Reads current visibility, grants, and policy.                                          |
+| `set-resource-visibility`         | Changes private, org, or public visibility when policy allows it.                      |
+
+## Implementation Contract {#implementation-contract}
+
+Make every shareable table ownable, register it at server startup, and guard
+reads and writes with the same access helpers the UI and agent actions use.
+
+```ts
+import { ownableColumns, createSharesTable } from "@agent-native/core/sharing";
+import { registerShareableResource } from "@agent-native/core/sharing";
+
+export const dashboards = table("dashboards", {
+  id: text("id").primaryKey(),
+  title: text("title").notNull(),
+  ...ownableColumns(),
+});
+
+export const dashboardShares = createSharesTable(
+  "dashboard_shares",
+  dashboards,
+);
+
+registerShareableResource({
+  type: "dashboard",
+  displayName: "Dashboard",
+  table: dashboards,
+  sharesTable: dashboardShares,
+});
+```
+
+Render the standard controls where users decide access:
+
+```tsx
+import { ShareButton, VisibilityBadge } from "@agent-native/core/client";
+
+<VisibilityBadge visibility={dashboard.visibility} />
+<ShareButton resourceType="dashboard" resourceId={dashboard.id} />
+```
+
+## UX Standard {#ux-standard}
+
+- Every resource header should show a visibility badge and a share button.
+- Lists should make private vs shared state scannable.
+- Public access must be an explicit policy choice, not an accidental URL leak.
+- Agents use the same share actions as the UI and cannot bypass resource policy.
+
+Related docs: [Sharing & Privacy](/docs/sharing), [Security](/docs/security),
+[Audit Log](/docs/audit-log).

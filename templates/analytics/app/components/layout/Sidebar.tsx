@@ -17,10 +17,10 @@ import {
   IconActivity,
   IconPin,
   IconPlus,
-  IconBuilding,
   IconLock,
   IconLink,
   IconMessageCircle,
+  IconUsersGroup,
   IconEye,
   IconEyeOff,
   IconPlayerPlay,
@@ -704,7 +704,7 @@ function SortableRow({
                   }}
                 >
                   {visibility === "private" ? (
-                    <IconBuilding className="me-2 h-3.5 w-3.5" />
+                    <IconUsersGroup className="me-2 h-3.5 w-3.5" />
                   ) : (
                     <IconLock className="me-2 h-3.5 w-3.5" />
                   )}

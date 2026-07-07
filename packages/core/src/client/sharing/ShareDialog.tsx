@@ -3,7 +3,6 @@ import {
   IconX,
   IconTrash,
   IconLock,
-  IconBuilding,
   IconWorld,
   IconCheck,
   IconCopy,
@@ -11,6 +10,7 @@ import {
   IconMail,
   IconCode,
   IconChevronDown,
+  IconUsersGroup,
 } from "@tabler/icons-react";
 import { useEffect, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
@@ -117,7 +117,7 @@ const BUTTON_GHOST_ICON = cn(
 
 const VIS_ICONS: Record<Visibility, typeof IconLock> = {
   private: IconLock,
-  org: IconBuilding,
+  org: IconUsersGroup,
   public: IconWorld,
 };
 
@@ -824,7 +824,7 @@ function Avatar({ label, org }: { label: string; org?: boolean }) {
       className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-muted text-[11px] font-semibold text-muted-foreground"
     >
       {org ? (
-        <IconBuilding size={14} strokeWidth={1.75} />
+        <IconUsersGroup size={14} strokeWidth={1.75} />
       ) : (
         (label.split("@")[0]?.[0] ?? label[0] ?? "?").toUpperCase()
       )}

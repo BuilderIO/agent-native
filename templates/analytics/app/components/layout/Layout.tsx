@@ -146,6 +146,7 @@ export function Layout({ children }: LayoutProps) {
     location.pathname === "/extensions" ||
     location.pathname.startsWith("/extensions/");
   const isSessionsRoute = isAnalyticsSessionsRoute(location.pathname);
+  const isSessionDetailRoute = /^\/sessions\/[^/]+/.test(location.pathname);
   const isAskRoute = location.pathname === "/ask";
   const chatHomeHandoffActive = useAgentChatHomeHandoff({
     storageKey: ANALYTICS_CHAT_STORAGE_KEY,
@@ -221,7 +222,7 @@ export function Layout({ children }: LayoutProps) {
   const contentFrame = (
     <div className="flex h-full flex-1 flex-col overflow-hidden">
       <MobileNav showNewChat={isAskRoute} />
-      {!isExtensionsRoute && !isAskRoute && <Header />}
+      {!isExtensionsRoute && !isAskRoute && !isSessionDetailRoute && <Header />}
       <InvitationBanner />
       <main
         className={

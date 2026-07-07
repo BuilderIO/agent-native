@@ -251,14 +251,14 @@ describe("ShareButton", () => {
     });
 
     const trigger = container.querySelector(
-      'button[aria-label="Share"]',
+      'button[aria-label="Share (Private)"]',
     ) as HTMLButtonElement | null;
 
     expect(trigger).toBeTruthy();
     expect(trigger?.textContent).not.toContain("Share");
   });
 
-  it("renders the label trigger as text only for organization visibility", async () => {
+  it("renders the label trigger with the current visibility state", async () => {
     sharesData.current = {
       ownerEmail: "owner@example.com",
       orgId: "org-1",
@@ -279,12 +279,13 @@ describe("ShareButton", () => {
       );
     });
 
-    const trigger = Array.from(container.querySelectorAll("button")).find(
-      (button) => button.textContent === "Share",
-    );
+    const trigger = container.querySelector(
+      'button[aria-label="Share (Organization)"]',
+    ) as HTMLButtonElement | null;
 
     expect(trigger).toBeTruthy();
-    expect(trigger?.querySelector("svg")).toBeFalsy();
+    expect(trigger?.textContent).toBe("Share");
+    expect(trigger?.querySelector("svg")).toBeTruthy();
     expect(trigger?.querySelector(".animate-pulse")).toBeFalsy();
   });
 

@@ -1,0 +1,43 @@
+---
+title: "Agent UX Kit"
+description: "Composer, model picker, context chips, approvals, run recovery, progress, and the runs tray."
+---
+
+# Agent UX Kit
+
+The Agent UX Kit packages the surfaces that make an app's agent feel trustworthy
+and inspectable: composer, model picker, context chips, approvals, progress,
+run recovery, and the runs tray.
+
+<WireframeBlock id="doc-block-toolkit-agent-ux">
+  <Screen
+    surface="desktop"
+    html={
+      "<div style='min-height:560px;box-sizing:border-box;padding:26px;display:grid;grid-template-columns:1fr 320px;gap:16px'><main class='wf-card' style='display:flex;flex-direction:column;gap:12px'><h2 style='margin:0'>Ask the agent</h2><div class='wf-box' style='height:250px'>Conversation and native tool widgets</div><div class='wf-card' style='display:flex;flex-direction:column;gap:10px'><span class='wf-muted'>Ask about the current dashboard...</span><div style='display:flex;gap:8px'><span class='wf-pill'>Context: Q3 Forecast</span><span class='wf-pill'>GPT-5</span><span class='wf-pill'>Approval required</span><button class='primary'>Send</button></div></div></main><aside class='wf-card' style='display:flex;flex-direction:column;gap:10px'><strong>Runs tray</strong><div class='wf-box'>Generating report - running</div><div class='wf-box'>Needs approval</div><div class='wf-box'>Recovered run</div></aside></div>"
+    }
+  />
+</WireframeBlock>
+
+## Pieces {#pieces}
+
+| Piece                             | Purpose                                                                            |
+| --------------------------------- | ---------------------------------------------------------------------------------- |
+| `<AgentSidebar>` / `<AgentPanel>` | Complete agent surfaces for sidebars, pages, and dialogs.                          |
+| `<PromptComposer>`                | Standard rich composer with attachments, references, pasted text, and voice hooks. |
+| Model picker                      | Standard model/provider choice in agent settings or composer chrome.               |
+| Context chips                     | Visible route, resource, file, and selection context sent to the agent.            |
+| Human approvals                   | Confirmation gates for sensitive or irreversible operations.                       |
+| `<RunsTray>`                      | User-visible background run progress and recovery.                                 |
+| Run recovery                      | Hydrates dropped/stale foreground and background runs back into the UI.            |
+
+## UX Standard {#ux-standard}
+
+- Show what context the agent will use before the user sends.
+- Model and key setup should link to the Settings Kit.
+- Long-running work belongs in the runs tray, not as a frozen composer spinner.
+- Approval prompts should name the action, data, and risk before proceeding.
+- Recovered runs should be visible and explain what happened.
+
+Related docs: [Using Your Agent](/docs/using-your-agent),
+[Human Approval](/docs/human-approval), [Progress](/docs/progress),
+[Native Chat UI](/docs/native-chat-ui).
