@@ -11,10 +11,10 @@
  * failed and the Typography section vanished for exactly these nodes.
  */
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import type { ElementInfo } from "../types";
-import { isTextElement } from "./element-classification";
+import { commitElementMinMax, isTextElement } from "./element-classification";
 
 function makeElement(overrides: Partial<ElementInfo> = {}): ElementInfo {
   return {
@@ -123,5 +123,40 @@ describe("isTextElement — B5-12 nested board text regression", () => {
       isFlexContainer: true,
     });
     expect(isTextElement(element)).toBe(true);
+  });
+});
+
+// ─── commitElementMinMax — scrub gesture meta threading (B5-14 follow-up) ────
+//
+// Min/max constraint fields are ScrubInputs; dropping their gesture meta on
+// the way to onStyleChange forces every preview tick down the slow persist
+// path (same class of bug as the padding/gap chain). The helper must forward
+// the meta verbatim so preview ticks hit the host's live fast path and only
+// the release commit persists.
+describe("commitElementMinMax — meta forwarding", () => {
+  it("forwards preview-phase meta on a set", () => {
+    const onStyleChange = vi.fn();
+    commitElementMinMax("horizontal", "min", 120, onStyleChange, {
+      phase: "preview",
+    });
+    expect(onStyleChange).toHaveBeenCalledWith("minWidth", "120px", {
+      phase: "preview",
+    });
+  });
+
+  it("forwards commit-phase meta on a set", () => {
+    const onStyleChange = vi.fn();
+    commitElementMinMax("vertical", "max", 300, onStyleChange, {
+      phase: "commit",
+    });
+    expect(onStyleChange).toHaveBeenCalledWith("maxHeight", "300px", {
+      phase: "commit",
+    });
+  });
+
+  it("clearing (null) still works without meta — discrete remove action", () => {
+    const onStyleChange = vi.fn();
+    commitElementMinMax("horizontal", "max", null, onStyleChange);
+    expect(onStyleChange).toHaveBeenCalledWith("maxWidth", "none", undefined);
   });
 });

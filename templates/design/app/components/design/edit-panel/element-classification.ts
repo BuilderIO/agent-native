@@ -9,6 +9,7 @@ import { normalizedElementTagName } from "./code-inspect-helpers";
 import { commitStylePatch } from "./field-primitives";
 import type {
   StyleChangeHandler,
+  StyleChangeMeta,
   StylesChangeHandler,
 } from "./style-change-types";
 
@@ -301,12 +302,16 @@ export function parseConstraintLength(
   return Number.isFinite(parsed) ? parsed : null;
 }
 
-/** Commit a single min/max constraint (px) or clear it when value is null. */
+/** Commit a single min/max constraint (px) or clear it when value is null.
+ * `meta` forwards the originating ScrubInput's gesture metadata (phase
+ * preview/commit) so constraint scrubs ride the host's live fast path per
+ * tick and only persist on release — same threading as padding/gap. */
 export function commitElementMinMax(
   axis: AutoLayoutSizingAxis,
   kind: "min" | "max",
   value: number | null,
   onStyleChange: StyleChangeHandler,
+  meta?: StyleChangeMeta,
 ) {
   const isHorizontal = axis === "horizontal";
   const property =
@@ -319,10 +324,10 @@ export function commitElementMinMax(
         : "maxHeight";
   if (value == null) {
     // Clearing: min → 0 (CSS initial), max → none (CSS initial).
-    onStyleChange(property, kind === "min" ? "0px" : "none");
+    onStyleChange(property, kind === "min" ? "0px" : "none", meta);
     return;
   }
-  onStyleChange(property, `${Math.max(0, Math.round(value))}px`);
+  onStyleChange(property, `${Math.max(0, Math.round(value))}px`, meta);
 }
 
 export function inferElementSizing(

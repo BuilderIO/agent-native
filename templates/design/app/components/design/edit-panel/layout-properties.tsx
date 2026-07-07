@@ -203,12 +203,27 @@ function FlexContainerControls({
           );
           onStyleChange("alignItems", verticalToAlign(alignment.vertical));
         }}
-        onGapChange={(gap) => onStyleChange("gap", `${gap}px`)}
-        onPaddingChange={(nextPadding) => {
-          onStyleChange("paddingTop", `${nextPadding.top}px`);
-          onStyleChange("paddingRight", `${nextPadding.right}px`);
-          onStyleChange("paddingBottom", `${nextPadding.bottom}px`);
-          onStyleChange("paddingLeft", `${nextPadding.left}px`);
+        onGapChange={(gap, meta) => onStyleChange("gap", `${gap}px`, meta)}
+        onPaddingChange={(nextPadding, meta) => {
+          // Forward ScrubInput's gesture meta so preview ticks ride the host's
+          // live fast path and only the release commit persists (B5-14:
+          // dropping it here made padding scrubs invisible until reselect).
+          // Batch all four sides into one styles change when the host
+          // supports it so each tick/commit is a single message instead of
+          // four.
+          const patch = {
+            paddingTop: `${nextPadding.top}px`,
+            paddingRight: `${nextPadding.right}px`,
+            paddingBottom: `${nextPadding.bottom}px`,
+            paddingLeft: `${nextPadding.left}px`,
+          };
+          if (onStylesChange) {
+            onStylesChange(patch, meta);
+            return;
+          }
+          Object.entries(patch).forEach(([property, value]) =>
+            onStyleChange(property, value, meta),
+          );
         }}
         onPaddingLinkedChange={(linked) => {
           setPaddingLinked(linked);
@@ -256,8 +271,8 @@ function FlexContainerControls({
             meta,
           )
         }
-        onChildMinMaxChange={(axis, kind, val) =>
-          commitElementMinMax(axis, kind, val, onStyleChange)
+        onChildMinMaxChange={(axis, kind, val, meta) =>
+          commitElementMinMax(axis, kind, val, onStyleChange, meta)
         }
         showChildLayoutControls={hasLayoutChildren}
       />
@@ -488,8 +503,8 @@ export function LayoutContextProperties({
                 )
               }
               onSizeChange={commitWidth}
-              onMinMaxChange={(axis, kind, val) =>
-                commitElementMinMax(axis, kind, val, onStyleChange)
+              onMinMaxChange={(axis, kind, val, meta) =>
+                commitElementMinMax(axis, kind, val, onStyleChange, meta)
               }
             />
             <FieldTrailer
@@ -520,8 +535,8 @@ export function LayoutContextProperties({
                 )
               }
               onSizeChange={commitHeight}
-              onMinMaxChange={(axis, kind, val) =>
-                commitElementMinMax(axis, kind, val, onStyleChange)
+              onMinMaxChange={(axis, kind, val, meta) =>
+                commitElementMinMax(axis, kind, val, onStyleChange, meta)
               }
             />
             <FieldTrailer
