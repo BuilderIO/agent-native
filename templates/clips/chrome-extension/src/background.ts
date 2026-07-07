@@ -2332,6 +2332,7 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
     if (tabId !== overlayTabId) return;
     await mountOverlayOnTab(tabId);
     broadcastOverlayState();
+    if (overlayPhase === "countdown") await handleOverlaySkip();
   })();
 });
 
