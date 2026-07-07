@@ -1,11 +1,15 @@
+import crypto from "node:crypto";
+
 import { beforeEach, describe, expect, it, vi } from "vitest";
+
+const requestContextMock = vi.hoisted(() => ({
+  orgId: "org_1" as string | null,
+}));
 
 vi.mock("@agent-native/core/server/request-context", () => ({
   getRequestUserEmail: () => "user@example.com",
-  getRequestOrgId: () => "org_1",
+  getRequestOrgId: () => requestContextMock.orgId,
 }));
-
-vi.mock("nanoid", () => ({ nanoid: () => "fixed_connection_id" }));
 
 type ExistingConnection = {
   ownerEmail: string;
@@ -62,12 +66,52 @@ vi.mock("../server/db/index.js", () => ({
 import action from "./connect-localhost.js";
 
 beforeEach(() => {
+  requestContextMock.orgId = "org_1";
   existingConnection = null;
   insertedValues = null;
   upsertConfig = null;
 });
 
 describe("connect-localhost", () => {
+  it("derives the stable per-user connection id when id is omitted", async () => {
+    await action.run({
+      devServerUrl: "http://localhost:5173/",
+      bridgeUrl: "http://127.0.0.1:7666",
+      rootPath: "/tmp/app",
+      bridgeToken: "bridge_token",
+    });
+
+    const hash = crypto
+      .createHash("sha256")
+      .update("user@example.com\norg_1\nhttp://localhost:5173\n/tmp/app")
+      .digest("base64url")
+      .slice(0, 16);
+    const expectedId = `localhost_${hash}`;
+    expect(insertedValues?.id).toBe(expectedId);
+    expect(upsertConfig?.set.id).toBe(expectedId);
+  });
+
+  it("scopes derived connection ids by org", async () => {
+    await action.run({
+      devServerUrl: "http://localhost:5173/",
+      bridgeUrl: "http://127.0.0.1:7666",
+      rootPath: "/tmp/app",
+    });
+    const firstOrgId = insertedValues?.id;
+
+    requestContextMock.orgId = "org_2";
+    insertedValues = null;
+    upsertConfig = null;
+
+    await action.run({
+      devServerUrl: "http://localhost:5173/",
+      bridgeUrl: "http://127.0.0.1:7666",
+      rootPath: "/tmp/app",
+    });
+
+    expect(insertedValues?.id).not.toBe(firstOrgId);
+  });
+
   it("preserves an existing bridge token when a refresh omits bridgeToken", async () => {
     existingConnection = {
       ownerEmail: "user@example.com",

@@ -468,6 +468,16 @@ describe("design connect bridge endpoints", () => {
       expect(html.body).toContain('src="/src/main.ts"');
       expect(html.body).toContain("agent-native:editor-chrome-ready");
 
+      const interactHtml = await getText(
+        `${base}/live-edit?path=/dashboard&bridge=0`,
+      );
+      expect(interactHtml.status).toBe(200);
+      expect(interactHtml.body).toContain(`<base href="${base}/">`);
+      expect(interactHtml.body).toContain('src="/src/main.ts"');
+      expect(interactHtml.body).not.toContain(
+        "agent-native:editor-chrome-ready",
+      );
+
       const module = await getText(`${base}/src/main.ts`);
       expect(module.status).toBe(200);
       expect(module.headers["content-type"]).toContain(
@@ -921,6 +931,14 @@ describe("design connect bridge endpoints", () => {
         expect(captured?.["bridgeToken"]).toBe(bridge.bridgeToken);
         expect(captured?.["devServerUrl"]).toBe(manifest.devServerUrl);
         expect(captured?.["bridgeUrl"]).toBe(manifest.bridgeUrl);
+        const registeredOperations = (
+          captured?.["capabilities"] as Array<{ operation?: string }>
+        ).map((capability) => capability.operation);
+        expect(
+          manifest.capabilities.map((capability) => capability.operation),
+        ).toContain("listFiles");
+        expect(registeredOperations).not.toContain("listFiles");
+        expect(registeredOperations).toContain("readFile");
       } finally {
         await new Promise<void>((resolve) =>
           captureServer.close(() => resolve()),

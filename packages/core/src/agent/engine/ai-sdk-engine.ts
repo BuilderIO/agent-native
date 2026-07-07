@@ -384,8 +384,14 @@ class AISDKEngine implements AgentEngine {
         type: "stop",
         reason: "error",
         error: err?.message ?? String(err),
-        ...(statusCode === 401 ? { errorCode: "http_401" } : {}),
-        ...(statusCode !== undefined ? { statusCode } : {}),
+        // Tag every known status with `http_<status>` (not just 401) so a
+        // rate limit surfaces as `http_429`. The structured statusCode
+        // already drives turn-level retries, but the run-level continuation
+        // logic keys off the errorCode, so this lets a rate-limited turn
+        // auto-resume too — matching the Builder gateway path.
+        ...(statusCode !== undefined
+          ? { errorCode: `http_${statusCode}`, statusCode }
+          : {}),
         ...(providerRetryable !== undefined ? { providerRetryable } : {}),
       };
       throw err;

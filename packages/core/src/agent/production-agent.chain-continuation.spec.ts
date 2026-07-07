@@ -15,7 +15,7 @@ import type { AgentChatEvent } from "./types.js";
 
 /**
  * Unit tests for the server-driven continuation handoff shared by the
- * durable-background worker chain and the OPT-IN foreground self-chain
+ * durable-background worker chain and the foreground self-chain
  * (`AGENT_CHAT_FOREGROUND_SELF_CHAIN`). Every dependency is injected, so
  * each Phase-0 discipline is pinned in isolation:
  *   - the successor run row is PRE-INSERTED before the dispatch fires,

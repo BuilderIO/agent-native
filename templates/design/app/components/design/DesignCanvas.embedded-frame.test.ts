@@ -5,6 +5,7 @@ import {
   getEmbeddedFrameBackgroundStyle,
   getEmbeddedIframeBackgroundColor,
   isElementInfoPayload,
+  liveEditEndpointUrl,
 } from "./DesignCanvas";
 
 describe("DesignCanvas embedded frame backgrounds", () => {
@@ -82,5 +83,19 @@ describe("DesignCanvas bridge payload validation", () => {
         isFlexContainer: true,
       }),
     ).toBe(false);
+  });
+});
+
+describe("DesignCanvas live-edit URLs", () => {
+  it("can request the bridge proxy without editor chrome for Interact mode", () => {
+    const url = liveEditEndpointUrl(
+      "http://127.0.0.1:7331",
+      "http://localhost:5173/forms",
+      { includeEditorBridge: false },
+    );
+
+    expect(url).toBe(
+      "http://127.0.0.1:7331/live-edit?url=http%3A%2F%2Flocalhost%3A5173%2Fforms&bridge=0",
+    );
   });
 });

@@ -160,34 +160,31 @@ describe("isAgentChatDurableBackgroundEnabled (default-off opt-in gate)", () => 
   });
 });
 
-describe("isAgentChatForegroundSelfChainEnabled (default-off opt-in gate)", () => {
+describe("isAgentChatForegroundSelfChainEnabled (default-on opt-out gate)", () => {
   it("is OFF with nothing configured", () => {
     expect(isAgentChatForegroundSelfChainEnabled()).toBe(false);
   });
 
-  it("is OFF BY DEFAULT (flag unset) even when hosted + secret are present", () => {
-    // GUARDRAIL: default-off is deliberate — durable/server-driven chat run
-    // paths were default-on twice in June 2026 and broke real users twice.
-    // The default must never flip without an explicit product decision.
+  it("is ON BY DEFAULT when hosted + secret are present", () => {
     makeHosted();
     process.env.A2A_SECRET = "shhh";
     delete process.env.AGENT_CHAT_FOREGROUND_SELF_CHAIN;
-    expect(isAgentChatForegroundSelfChainEnabled()).toBe(false);
+    expect(isAgentChatForegroundSelfChainEnabled()).toBe(true);
   });
 
-  it("is ON only when explicitly opted in via a truthy flag (hosted + secret)", () => {
+  it("stays ON for truthy, empty, or unrecognized flag values (hosted + secret)", () => {
     makeHosted();
     process.env.A2A_SECRET = "shhh";
-    for (const val of ["1", "true", "yes", "on", " TRUE "]) {
+    for (const val of ["1", "true", "yes", "on", " TRUE ", "", "maybe"]) {
       process.env.AGENT_CHAT_FOREGROUND_SELF_CHAIN = val;
       expect(isAgentChatForegroundSelfChainEnabled()).toBe(true);
     }
   });
 
-  it("is OFF for falsy, unrecognized, or empty flag values (default-off)", () => {
+  it("is OFF for explicit falsy flag values", () => {
     makeHosted();
     process.env.A2A_SECRET = "shhh";
-    for (const val of ["0", "false", "no", "off", "FALSE", "", "maybe"]) {
+    for (const val of ["0", "false", "no", "off", "FALSE", " Off "]) {
       process.env.AGENT_CHAT_FOREGROUND_SELF_CHAIN = val;
       expect(isAgentChatForegroundSelfChainEnabled()).toBe(false);
     }
@@ -205,15 +202,14 @@ describe("isAgentChatForegroundSelfChainEnabled (default-off opt-in gate)", () =
     expect(isAgentChatForegroundSelfChainEnabled()).toBe(false);
   });
 
-  it("is independent of AGENT_CHAT_DURABLE_BACKGROUND (neither implies the other)", () => {
+  it("can be explicitly disabled independently of AGENT_CHAT_DURABLE_BACKGROUND", () => {
     makeHosted();
     process.env.A2A_SECRET = "shhh";
-    process.env.AGENT_CHAT_FOREGROUND_SELF_CHAIN = "true";
     expect(isAgentChatForegroundSelfChainEnabled()).toBe(true);
     expect(isAgentChatDurableBackgroundEnabled()).toBe(false);
 
-    Reflect.deleteProperty(process.env, "AGENT_CHAT_FOREGROUND_SELF_CHAIN");
     process.env.AGENT_CHAT_DURABLE_BACKGROUND = "true";
+    process.env.AGENT_CHAT_FOREGROUND_SELF_CHAIN = "false";
     expect(isAgentChatForegroundSelfChainEnabled()).toBe(false);
     expect(isAgentChatDurableBackgroundEnabled()).toBe(true);
   });
